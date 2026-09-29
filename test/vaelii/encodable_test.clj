@@ -18,7 +18,9 @@
   Both write entry points that persist — `assert` (hence `assert-rule`, `assert-many`) and
   `assert-inert` — carry the guard, and `check` predicts it under the same `:type`."
   (:require [clojure.test :refer [deftest is testing]]
+            [taoensso.nippy :as nippy]
             [vaelii.core :as v]
+            [vaelii.impl.checks :as checks]
             [vaelii.test-util :as tu]))
 
 (defn- refusal
@@ -96,6 +98,23 @@
         (is (.contains ^String (ex-message e) "cannot be stored"))
         (is (.contains ^String (ex-message e) "clojure.lang.Atom")
             "the message names the value's type")))))
+
+(deftest an-error-mid-probe-is-not-a-verdict-on-the-class
+  ;; The storability probe is memoized by class for the whole process, so what it caches
+  ;; must be a fact about the class.  An `OutOfMemoryError` thrown inside the freeze is
+  ;; not one: cached as "unstorable", it refused every later `Date` in every KB with
+  ;; `:not-encodable` until restart.
+  (tu/with-terms [holds Tom CxStory]
+    (tu/with-cleared-kb [kb tu/fresh]
+      (let [^java.util.Map cache @#'checks/storable-class-cache]
+        (.remove cache java.util.Date)
+        (testing "the Error reaches the caller as itself"
+          (is (thrown? OutOfMemoryError
+                       (with-redefs [nippy/freeze (fn [& _] (throw (OutOfMemoryError. "witness")))]
+                         (v/assert kb (list holds Tom (java.util.Date. 0)) CxStory)))))
+        (testing "and the next Date asserts, because nothing was cached for the class"
+          (is (nil? (.get cache java.util.Date)))
+          (is (some? (v/assert kb (list holds Tom (java.util.Date. 1)) CxStory))))))))
 
 (deftest encodable-scalar-args-are-accepted
   ;; Everything nippy round-trips AND `canon` can order is admissible in argument

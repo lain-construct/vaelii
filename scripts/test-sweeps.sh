@@ -4,8 +4,9 @@
 #
 # The other axis the suite can be run on.  `test-backends.sh` varies where the
 # sentexes live; this varies which implementation answers, holding storage at the
-# default.  Five switches `test_util.clj` reads each re-run the whole suite through
-# a component the engine otherwise picks for itself:
+# default.  Six switches each re-run the whole suite through a component the engine
+# otherwise picks for itself, and a seventh re-runs it under the other reading of the
+# argument declarations:
 #
 #   tms-reference  VAELII_TEST_TMS=reference    the persistent-map JTMS instead of the
 #                                               default dense one
@@ -15,12 +16,19 @@
 #   tactician      …plus VAELII_QUERY_STRATEGY  one of the node engine's orderings
 #   hier-off       VAELII_HIER=0                the reference nested fan-out instead of
 #                                               the set-algebra context retrieval
+#   plan-off       VAELII_PLAN=0                the generators in written order instead
+#                                               of the cost ranking
+#   assertive-off  VAELII_ASSERTIVE_ARG_TYPES=0 the declarations as constraints only
+#                                               instead of entailments (docs/argtypes.md)
 #
 # Each is a COST decision rather than a semantic one — a tactician orders goals, it
 # does not choose answers — so the suite must be **failing-set-identical** across all
-# six and against a plain `lein test`.  A sweep that answers differently is a bug in
+# seven and against a plain `lein test`.  A sweep that answers differently is a bug in
 # the alternative, not a feature of it: running these by hand is what found a clash
 # reported against a different sentex depending on which retrieval path answered.
+# `assertive-off` is a semantic switch, and it holds the same claim by a different
+# route: a test whose answer depends on the reading pins it with `tu/with-entailing` or
+# `tu/without-entailing`, and every other test answers alike under both.
 #
 # The ASSERTION COUNT is identical here too, as it is in `test-backends.sh`.  Where an
 # assertion pins an artifact of one implementation — `prove` returns one solution per
@@ -36,7 +44,7 @@
 # reason.
 #
 # WHY THIS IS A SCRIPT AND NOT A CI JOB.  It is both, and the local one is the
-# gate.  `deep.yml` runs these six and the nine backends on a runner, which is
+# gate.  `deep.yml` runs these seven and the nine backends on a runner, which is
 # 240 job-minutes against a 2,000-minute monthly allowance — eight runs a month,
 # for a matrix a release wants once.  The same coverage here costs wall time and
 # no money, so the CI job is the confirmation and this is what you run before a
@@ -45,8 +53,8 @@
 #
 # Runs here are SEQUENTIAL for the reason `test-backends.sh` gives — one run at a time
 # is one readable wall time, on a box somebody is still using — and not because
-# anything forbids sharing: these six write no durable store at all.
-# **`scripts/test-matrix.sh` is the concurrent one**, these six and the nine backends
+# anything forbids sharing: these seven write no durable store at all.
+# **`scripts/test-matrix.sh` is the concurrent one**, these seven and the nine backends
 # at once in ~13 minutes rather than ~55, and it is what to run when a change owes the
 # matrix.  This script is for one sweep, or for a timing that means something.
 #
@@ -57,8 +65,8 @@
 # each other.
 #
 # Usage:
-#   ./scripts/test-sweeps.sh                     # all six, :default
-#   ./scripts/test-sweeps.sh :all                # all six, slow tests included
+#   ./scripts/test-sweeps.sh                     # all seven, :default
+#   ./scripts/test-sweeps.sh :all                # all seven, slow tests included
 #   ./scripts/test-sweeps.sh query-engine        # only this one
 #   ./scripts/test-sweeps.sh :all rete tms-reference
 #   ./scripts/test-sweeps.sh --fail-fast
@@ -78,6 +86,7 @@
 #
 # Exit: 0 when every sweep passed, 1 when one failed, 130 when interrupted.
 
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -122,6 +131,11 @@ while [[ $# -gt 0 ]]; do
        WANTED+=("$1"); shift ;;
   esac
 done
+
+# A worktree runs `lein gate` and nothing heavier (scripts/lib/slots.sh says why).
+# shellcheck source=scripts/lib/slots.sh
+. scripts/lib/slots.sh
+require_primary "lein test-sweeps"
 
 if [[ ${#WANTED[@]} -gt 0 ]]; then
   SWEEPS=("${WANTED[@]}")
@@ -200,7 +214,7 @@ for sweep in "${SWEEPS[@]}"; do
   # shellcheck disable=SC2207
   envv=( $(config_env "$sweep") )
 
-  # the revision THIS run is about to be taken at, read per run: six runs are
+  # the revision THIS run is about to be taken at, read per run: seven runs are
   # long enough for a commit to land between two of them, and the symptom of that
   # is a count that moved — which is also the symptom of a run that skipped
   # something.  `test-backends.sh` carries the long form.
@@ -316,3 +330,4 @@ for s in "${FAILED[@]}"; do
   fi
 done
 exit 1
+}

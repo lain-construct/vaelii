@@ -123,6 +123,41 @@
       (is (= '(parent_chain (fatherOf (fatherOf Tom)))
              (rw/normalize-sentence [] '(parent_chain (fatherOf (fatherOf Tom)))))))))
 
+(deftest normalize-sentence-leaves-an-equality-relation-as-written
+  ;; An equality relation's arguments are mentions (`rw/equality-relations`), at the top
+  ;; or nested, so the rewrite restates neither the relation nor what it relates.
+  ;; `rule-applies?` reads the same positions, so a rule that normalizes nothing in the
+  ;; sentence justifies no twin of it.
+  (let [rule  {:lhs '(fatherOf (fatherOf ?x)) :rhs '(grandfather_of ?x)}
+        rules [rule]]
+    (doseq [s '[(not (equals (fatherOf (fatherOf Tom)) (grandfather_of Tom)))
+                (equals (fatherOf (fatherOf Tom)) Bob)
+                (not (sameAs Tom Bob))]]
+      (testing (pr-str s)
+        (is (= s (rw/normalize-sentence rules s)))
+        (is (not (rw/rule-applies? rule s)))))
+    (testing "a literal beside an equality literal still normalizes"
+      (is (= '(implies (and (equals (fatherOf (fatherOf ?a)) ?b) (chain (grandfather_of ?a)))
+                       (linked ?b))
+             (rw/normalize-sentence
+              rules
+              '(implies (and (equals (fatherOf (fatherOf ?a)) ?b) (chain (fatherOf (fatherOf ?a))))
+                        (linked ?b)))))
+      (is (rw/rule-applies? rule '(and (equals Tom Bob) (chain (fatherOf (fatherOf Tom)))))))))
+
+(deftest a-blocked-step-is-not-taken-and-every-other-is
+  ;; A rule's `:blocked?` predicate refuses one redex/reduct pair; `normalize` and
+  ;; `rule-applies?` skip that step and take the rule everywhere else.
+  (let [rule (assoc {:lhs '(fatherOf (fatherOf ?x)) :rhs '(grandfather_of ?x)}
+                    :blocked? #(= ['(fatherOf (fatherOf Tom)) '(grandfather_of Tom)] [%1 %2]))]
+    (is (= '(fatherOf (fatherOf Tom)) (rw/normalize [rule] '(fatherOf (fatherOf Tom)))))
+    (is (= '(grandfather_of Ann) (rw/normalize [rule] '(fatherOf (fatherOf Ann)))))
+    (is (= '(pairChain (fatherOf (fatherOf Tom)) (grandfather_of Ann))
+           (rw/normalize-sentence [rule] '(pairChain (fatherOf (fatherOf Tom))
+                                                     (fatherOf (fatherOf Ann))))))
+    (is (not (rw/rule-applies? rule '(chain (fatherOf (fatherOf Tom))))))
+    (is (rw/rule-applies? rule '(chain (fatherOf (fatherOf Ann)))))))
+
 (deftest schematic-equation-detection
   (is (rw/schematic-equation? '(equals (fatherOf (fatherOf ?x)) (grandfather_of ?x))))
   (testing "not schematic: ground compound (reifies to symbols), symbol merge, sameAs"

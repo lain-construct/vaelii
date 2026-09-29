@@ -304,7 +304,7 @@
 (tu/deftest-kb no-bridge-between-the-marks-is-walkable-backward
   ;; Three CxCore rules bridge these marks, and each concludes something another of them
   ;; needs.  `set/forwardRule` adds forward chaining *without* taking the backward use
-  ;; away (`rules/backward?` accepts `:forward`), so written that way all three answer
+  ;; away (its engines are `#{:forward :backward}`), so written that way all three answer
   ;; goals — and `provers/candidate-rules` carries no ancestor-goal guard to stop the
   ;; descent.  `(genl commutative relation)` puts `(commutative ?p)` under every open
   ;; `(relation ?x)` query, so the cost reached every caller of the inference engine:
@@ -315,12 +315,12 @@
   ;; **forward-only** — it does derive, and only its backward direction is the cycle.
   ;; Either one written as `set/forwardRule` returns the stall, which is what this pins.
   (doseq [[rule want]
-          [['(implies (and (commutative ?p)) (commutativeInArgAndRest ?p 1))      :inert]
-           ['(implies (and (commutativeInArgAndRest ?p 1)) (commutative ?p))      :inert]
-           ['(implies (and (commutative ?p) (arity ?p 2)) (symmetric ?p)) :forward-only]]]
+          [['(implies (and (commutative ?p)) (commutativeInArgAndRest ?p 1))      #{}]
+           ['(implies (and (commutativeInArgAndRest ?p 1)) (commutative ?p))      #{}]
+           ['(implies (and (commutative ?p) (arity ?p 2)) (symmetric ?p)) #{:forward}]]]
     (let [h (v/handle-of kb rule 'CxCore)]
       (is (some? h) (str "the bridge is still written down: " (pr-str rule)))
-      (is (= want (:direction (v/sentex kb h)))
+      (is (= want (:engines (v/sentex kb h)))
           (str "a backward-walkable bridge here is the cycle: " (pr-str rule))))))
 
 (tu/deftest-kb retracting-the-sugar-withdraws-its-licence

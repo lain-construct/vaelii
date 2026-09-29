@@ -241,6 +241,27 @@
     (testing "and it is idempotent — a second reopen finds nothing"
       (is (zero? (d/reopen! kb did))))))
 
+(tu/deftest-kb the-first-mark-loads-the-declarations-the-marks-are-checked-against
+  (cross-agent-clash! kb)
+  (let [did (:dispute-id (first (d/disputes-in kb 'CxDeploy)))]
+    (is (empty? (v/sentexes-matching kb '(arity disputeNotified ?n) d/state-context))
+        "no declaration before a mark is written")
+    (d/mark-notified kb did 1750000000000)
+    (testing "the first mark loads the CxDisputes seed: CxCore in view, both marks declared"
+      (is (v/sees? kb d/state-context 'CxCore))
+      (is (= '[(arity disputeNotified 2)]
+             (mapv :sentence (v/sentexes-matching kb '(arity disputeNotified ?n) d/state-context))))
+      (is (= '[(arity disputeStale 3)]
+             (mapv :sentence (v/sentexes-matching kb '(arity disputeStale ?n) d/state-context)))))
+    (testing "a mark at the wrong arity is refused there"
+      (let [e (try (v/assert kb (list 'disputeStale (d/dispute-term did) 1) d/state-context)
+                   nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :arity (:type (ex-data e))))))
+    (testing "a second mark finds the seed stored and still writes"
+      (d/mark-stale kb did 1750000009999 'TimedOut)
+      (is (d/stale? kb did)))))
+
 ;; ---- a clash with more than two members gets a name of its own -----------
 
 (clojure.test/deftest a-three-member-dispute-is-named-by-all-three-handles

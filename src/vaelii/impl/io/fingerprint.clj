@@ -17,11 +17,13 @@
 
   **What is hashed is what the index is a function of**: the handle, the sentence
   (`sentex/sentence-of`, which is a rule's `implies` form), `:context`, the sign
-  (`sentex/polarity`), and a rule's `:antecedent` / `:consequent`.  `sentex/path`,
+  (`sentex/polarity`), a rule's `:antecedent` / `:consequent`, and a choice or
+  constraint rule's `:effect`, which the trie key spells in its two trailing slots
+  (a `:derive` rule's is left out, so its hash is its implies form's).  `sentex/path`,
   `kv/root-keys`, `kv/sentex-terms` and the rule index read exactly those, and the handle
   because a posting *is* a set of handles — the same content at a different handle makes
   every posting naming it wrong.  Deliberately **not** hashed: `:strength`, `:varmap`,
-  `:direction`, `:defeasible`.  None of them changes a single index entry, so a dump
+  `:engines`, `:defeasible`.  None of them changes a single index entry, so a dump
   differing in one of them still has a valid index, and hashing them would make the cache
   go unused for a reason that is not a reason.  (`:strength` also arrives after the
   storing pass — a premise mark is applied once every record is down — so hashing it
@@ -63,7 +65,8 @@
       (mix (hash (:context sx)))
       (mix (hash (sx/polarity sx)))
       (mix (hash (:antecedent sx)))
-      (mix (hash (:consequent sx)))))
+      (mix (hash (:consequent sx)))
+      (cond-> (and (:effect sx) (not= :derive (:effect sx))) (mix (hash (:effect sx))))))
 
 (defn slot-hash
   "A 64-bit hash of one idx slot — the handle and where its frame lies.  A record

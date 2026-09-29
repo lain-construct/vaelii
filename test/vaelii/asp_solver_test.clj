@@ -3,18 +3,24 @@
 (ns vaelii.asp-solver-test
   "The backend facade's routing policy, pinned pure — what AUTO does at the size
   cutoff, and what it does when only one backend can run at all — plus the typed
-  refusal a missing clasp binary earns, and what the in-process backend does when a
-  native call fails.  No solve here needs libclingo or a real clasp: the policy fn
-  takes its facts as arguments, the refusal test points the binary var at a name
-  nothing resolves, and the clingo test stands in for the whole C API by redefining
-  the one fn every native call goes through."
-  (:require [clojure.test :refer [deftest is testing]]
+  refusal a missing or a wedged clasp binary earns, and what the in-process backend
+  does when a native call fails.  No solve here needs libclingo or a real clasp: the
+  policy fn takes its facts as arguments, the refusal tests point the binary var at a
+  name nothing resolves or at a `/bin/sh` stub, and the clingo test stands in for the
+  whole C API by redefining the one fn every native call goes through."
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
             [vaelii.impl.asp.clasp :as clasp]
             [vaelii.impl.asp.clingo :as clingo]
             [vaelii.impl.asp.edge :as edge]
             [vaelii.impl.asp.solver :as solver]
             [vaelii.impl.solve :as solve])
-  (:import [com.sun.jna.ptr PointerByReference]))
+  (:import [com.sun.jna.ptr PointerByReference]
+           [java.lang ProcessHandle]
+           [java.nio.file Files]
+           [java.nio.file.attribute FileAttribute]
+           [java.util.concurrent TimeUnit TimeoutException]))
 
 (def ^:private choose #'solver/choose-backend)
 
@@ -34,14 +40,64 @@
     (is (= :clingo (choose :clingo true 9000 3000 true)))
     (is (= :clasp  (choose :clingo false 100 3000 true)))))
 
+(deftest a-jvm-error-loading-clingo-is-not-remembered-as-no-clingo
+  ;; the verdict is process-wide, so the test puts back what it found
+  (let [verdict @#'solver/clingo-verdict
+        before  @verdict
+        loaded  {:solve (fn [& _]) :classify-both (fn [& _]) :available? (constantly true)}]
+    (try
+      (reset! verdict :vaelii.impl.asp.solver/unknown)
+      (with-redefs [solver/load-clingo (fn [] (throw (OutOfMemoryError. "heap")))]
+        (is (nil? (#'solver/clingo-backend))))
+      (with-redefs [solver/load-clingo (constantly loaded)]
+        (is (= loaded (#'solver/clingo-backend)) "the next call loads it"))
+      (testing "a verdict reached by any other throw is remembered"
+        (reset! verdict :vaelii.impl.asp.solver/unknown)
+        (with-redefs [solver/load-clingo (fn [] (throw (UnsatisfiedLinkError. "libclingo")))]
+          (is (nil? (#'solver/clingo-backend))))
+        (with-redefs [solver/load-clingo (constantly loaded)]
+          (is (nil? (#'solver/clingo-backend)))))
+      (finally (reset! verdict before)))))
+
 (deftest a-missing-clasp-binary-is-a-typed-refusal
-  ;; `shell/sh` execs directly — no shell, so no exit-127 convention — and the
-  ;; IOException it throws comes back as the `:type` callers discriminate on
+  ;; the binary is exec'd directly — no shell, so no exit-127 convention — and the
+  ;; IOException that throws comes back as the `:type` callers discriminate on
   (binding [clasp/*clasp-binary* "vaelii-no-such-binary"]
     (is (false? (clasp/available?)))
     (let [e (is (thrown? clojure.lang.ExceptionInfo
                          (clasp/solve "asp 1 0 0\n0\n" :label)))]
       (is (= :solver-unavailable (:type (ex-data e)))))))
+
+(defn- exits-within?
+  "Has process `pid` exited, or does it exit within `ms`?  A killed grandchild is
+  reaped by init rather than by the JVM, so its exit is waited for, not sampled."
+  [pid ms]
+  (if-let [^ProcessHandle h (.orElse (ProcessHandle/of pid) nil)]
+    (try (.get (.onExit h) ms TimeUnit/MILLISECONDS) true
+         (catch TimeoutException _ false))
+    true))
+
+(deftest a-clasp-past-its-deadline-is-killed-with-its-children-and-reads-as-unavailable
+  ;; The stub ignores `--time-limit` and sleeps in a child process, as a wedged clasp
+  ;; would.  The solve runs in a future bounded at 10 s, so a missing watchdog reads as
+  ;; `::hung` instead of stalling the suite for the stub's 30 s.
+  (let [dir  (.toFile (Files/createTempDirectory "vaelii-clasp-stub" (make-array FileAttribute 0)))
+        pids (io/file dir "pids")
+        stub (io/file dir "clasp")]
+    (try
+      (spit stub (str "#!/bin/sh\necho $$ > '" pids "'\nsleep 30 &\necho $! >> '" pids "'\nwait\n"))
+      (.setExecutable stub true)
+      (with-redefs [clasp/deadline-ms (constantly 500)]
+        (binding [clasp/*clasp-binary* (str stub)]
+          (let [r (deref (future (try (clasp/solve "asp 1 0 0\n0\n" :label)
+                                      (catch clojure.lang.ExceptionInfo e (ex-data e))))
+                         10000 ::hung)]
+            (is (= :solver-unavailable (:type r)))
+            (is (= [] (remove #(exits-within? % 5000)
+                              (map parse-long (str/split-lines (slurp pids)))))
+                "the stub and its child are gone"))))
+      (finally
+        (run! #(.delete ^java.io.File %) (reverse (file-seq dir)))))))
 
 (deftest a-failing-handle-close-does-not-replace-the-failure-that-caused-it
   ;; `drain-handle` closes the solve handle in a `finally`, because freeing a control

@@ -13,6 +13,7 @@
   generality a specific claim is entitled to override."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.budget :as budget]
             [vaelii.impl.inherit :as inherit]
             [vaelii.impl.resolution :as res]
             [vaelii.test-util :as tu]))
@@ -20,17 +21,21 @@
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (defn- kinds!
-  "dog ⊃ {golden_retriever chihuahua}, cat ⊃ {maine_coon siamese}."
-  [kb {:keys [dog cat gr chi mc sia]}]
-  (v/with-deferred-settle kb
-    (doseq [[sub sup] [[gr dog] [chi dog] [mc cat] [sia cat]]]
-      (v/assert kb (list 'genl sub sup) 'CxUniverse))))
+  "dog ⊃ {golden_retriever chihuahua}, cat ⊃ {maine_coon siamese}, the edges asserted
+  with `opts`."
+  ([kb terms] (kinds! kb terms {}))
+  ([kb {:keys [dog cat gr chi mc sia]} opts]
+   (v/with-deferred-settle kb
+     (doseq [[sub sup] [[gr dog] [chi dog] [mc cat] [sia cat]]]
+       (v/assert kb (list 'genl sub sup) 'CxUniverse opts)))))
 
-(defn- preserving! [kb pred]
-  (v/with-deferred-settle kb
-    (v/assert kb (list 'asymmetric pred) 'CxUniverse)
-    (v/assert kb (list 'transitiveInArg pred 1 'genl) 'CxUniverse)
-    (v/assert kb (list 'transitiveInArg pred 2 'genl) 'CxUniverse)))
+(defn- preserving!
+  ([kb pred] (preserving! kb pred {}))
+  ([kb pred opts]
+   (v/with-deferred-settle kb
+     (v/assert kb (list 'asymmetric pred) 'CxUniverse opts)
+     (v/assert kb (list 'transitiveInArg pred 1 'genl) 'CxUniverse opts)
+     (v/assert kb (list 'transitiveInArg pred 2 'genl) 'CxUniverse opts))))
 
 ;; ---- the inheritance itself ----------------------------------------------
 
@@ -452,6 +457,37 @@
           (when kind
             (is (v/has-prop? kb kind bondedTo reader) "and so is the property")))))))
 
+(tu/deftest-kb a-permuting-mark-is-read-from-a-context-with-no-edge
+  ;; CxI is named by no `genlCx` edge, so it sees no statement of a mark stated in CxA,
+  ;; nor the copy in CxUniverse.  The store sorts CxI's fact under the mark all the same,
+  ;; so `has-prop?` reads the property from CxI as the store does, while the mark asked as
+  ;; a sentence is answered where a statement is visible, as any sentence is.  A mark
+  ;; stated in CxI is lifted, so CxUniverse and both siblings read it.  Each in either order.
+  (doseq [[kind mark] [[:symmetric #(list 'symmetric %)]
+                       [:commutative #(list 'commutative %)]
+                       [nil #(list 'commutativeInArgs % 1 2)]
+                       [nil #(list 'commutativeInArgAndRest % 1)]]
+          mark-in-ci? [false true]
+          mark-first? [true false]]
+    (tu/with-terms [bondedTo Ann Bob CxA CxB CxI]
+      (let [[mark-cx fact-cx readers] (if mark-in-ci?
+                                        [CxI 'CxUniverse ['CxUniverse CxA CxB]]
+                                        [CxA CxI [CxI]])]
+        (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+        (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+        (v/assert kb (list 'arity bondedTo 2) 'CxUniverse)
+        (when mark-first? (v/assert kb (mark bondedTo) mark-cx))
+        (v/assert kb (list bondedTo Ann Bob) fact-cx)
+        (when-not mark-first? (v/assert kb (mark bondedTo) mark-cx))
+        (doseq [reader readers]
+          (testing (str (first (mark bondedTo)) " stated in " mark-cx ", read from " reader
+                        (if mark-first? ", mark first" ", mark last"))
+            (is (v/ask? kb (list bondedTo Bob Ann) reader) "the store answers the mirror")
+            (is (= (not= CxI reader) (v/ask? kb (mark bondedTo) reader))
+                "the statement answers where it is visible")
+            (when kind
+              (is (v/has-prop? kb kind bondedTo reader) "and the property holds"))))))))
+
 (tu/deftest-kb all-three-transitivities-compose-in-one-goal
   ;; Subsumption, preservation and visibility meet in one read: the claim is stored
   ;; under a *sub-predicate* of the goal's, about the *supertypes* of the goal's
@@ -710,10 +746,13 @@
 ;; ---- strict: the same shape, refused instead of overridden ---------------
 
 (tu/deftest-kb a-contrary-claim-against-known-true-content-is-refused
+  ;; known-true content here is the claim and the reading: the edges and the declarations
+  ;; are `:monotonic` too
   (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t largerThan]
     (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
-                :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
-    (preserving! kb largerThan)
+                :chi chihuahua_t :mc maine_coon_t :sia siamese_t}
+            {:strength :monotonic})
+    (preserving! kb largerThan {:strength :monotonic})
     (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse {:strength :monotonic})
     (testing "the inherited claim is as binding as the one that was written"
       (let [e (try (v/assert kb (list largerThan maine_coon_t chihuahua_t) 'CxUniverse)
@@ -729,6 +768,18 @@
     (testing "nothing was stored by either refusal"
       (is (not (v/ask? kb (list largerThan maine_coon_t chihuahua_t) 'CxUniverse)))
       (is (v/ask? kb (list largerThan chihuahua_t maine_coon_t) 'CxUniverse)))))
+
+(tu/deftest-kb a-contrary-claim-against-a-default-reading-is-admitted-as-a-dilemma
+  ;; the claim known-true and the edges and declarations `:default`: the reading is capped
+  ;; at `:default`, so the converse is admitted and paired with the reading
+  (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t largerThan]
+    (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
+                :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
+    (preserving! kb largerThan)
+    (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse {:strength :monotonic})
+    (is (integer? (v/assert kb (list largerThan maine_coon_t chihuahua_t) 'CxUniverse)))
+    (is (= [:inherited] (map :kind (v/contradictions kb))))
+    (is (empty? (v/conflicts kb)))))
 
 (tu/deftest-kb asymmetry-alone-catches-a-converse-with-no-inheritance
   ;; The check does not need a preserved position: an asymmetric predicate's converse
@@ -831,8 +882,8 @@
         (is (= 3 (count (res/matches-visible kb (list 'transitive partOf) 'CxUniverse)))
             (str what ": the licence query is answered by a fan, or this proves nothing"))
         (let [named (into #{} (map #(:sentence (v/sentex kb %)))
-                          (:handles (inherit/support-for kb (list needs_maintenance Engine)
-                                                         'CxUniverse)))]
+                          (:handles (first (inherit/supports-for kb (list needs_maintenance Engine)
+                                                                 'CxUniverse))))]
           (is (contains? named least) (str what ": the content-least of the fan is named"))
           (is (= 1 (count (filter named fan)))
               (str what ": and one of them, since one complete reason is the whole of it")))))))
@@ -929,3 +980,146 @@
     (is (< (/ (double (- r16 r8)) (double (- r8 r4))) 3.0)
         (str "the second difference must double and not quadruple — got "
              r4 " / " r8 " / " r16 " reads at 4 / 8 / 16 claims"))))
+
+(defn- visible-rows
+  "How many rows the `res/matches-visible` calls `run` makes return."
+  [run]
+  (let [n (atom 0), orig @#'res/matches-visible]
+    (with-redefs-fn {#'res/matches-visible
+                     (fn [& args] (let [r (apply orig args)] (swap! n + (count r)) r))}
+      (fn [] (run) @n))))
+
+(tu/deftest-kb the-extent-estimate-counts-the-sub-predicates-the-probe-fans-over
+  ;; `largerThan` stores nothing and its sub-predicate stores n facts about terms outside
+  ;; the goal's four-tuple product.  The open probe of `largerThan` walks those n facts
+  ;; through the sub-predicate fan, so the product's four ground probes are the cheaper
+  ;; path at every n.
+  (let [rows (fn [n]
+               (tu/with-terms [dog_t animal_t cat_t feline_t largerThan muchLargerThan]
+                 (v/with-deferred-settle kb
+                   (v/assert kb (list 'genl dog_t animal_t) 'CxUniverse)
+                   (v/assert kb (list 'genl cat_t feline_t) 'CxUniverse)
+                   (v/assert kb (list 'genl muchLargerThan largerThan) 'CxUniverse)
+                   (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
+                   (v/assert kb (list 'transitiveInArg largerThan 2 'genl) 'CxUniverse)
+                   (dotimes [_ n]
+                     (v/assert kb (list muchLargerThan (tu/tmp-ind "A") (tu/tmp-ind "B"))
+                               'CxUniverse)))
+                 (visible-rows
+                  #(is (empty? (inherit/claims kb (list largerThan dog_t cat_t) 'CxUniverse))))))]
+    (is (= (rows 8) (rows 64)))))
+
+(defn- walked-rows
+  "`[answer rows]`: what `run` answers (the thrown `ex-data` when it throws one), and how
+  many distinct rows it pulls off the open `(pred ?w0 …)` probe.  The first row each probe
+  pulls sleeps `sleep-ms`.  Distinct by handle, since `matches-visible` answers through a
+  nested call of itself and each row passes both wrappers."
+  [pred sleep-ms run]
+  (let [seen (atom #{}), orig @#'res/matches-visible
+        counted (fn counted [s first?]
+                  (lazy-seq
+                   (when-let [c (seq s)]
+                     (when first? (Thread/sleep (long sleep-ms)))
+                     (swap! seen conj (first (first c)))
+                     (cons (first c) (counted (rest c) false)))))]
+    (with-redefs-fn {#'res/matches-visible
+                     (fn [kb sentence & more]
+                       (let [r (apply orig kb sentence more)]
+                         (if (and (seq? sentence) (= pred (first sentence))
+                                  (some #{'?w0} sentence))
+                           (counted r true)
+                           r)))}
+      (fn [] [(try (run) (catch clojure.lang.ExceptionInfo e (ex-data e))) (count @seen)]))))
+
+(tu/deftest-kb an-ask-deadline-stops-the-claim-walk-at-the-row-it-passes-on
+  ;; The extent arm is forced, and its first row sleeps past a 10 ms deadline, so every
+  ;; later row is read with the deadline passed.  A sleep sets a floor on the clock and no
+  ;; ceiling, so the row counts hold on a loaded box.
+  (doseq [n [16 128]]
+    (tu/with-terms [dog_t cat_t gr_t mc_t largerThan]
+      (v/with-deferred-settle kb
+        (v/assert kb (list 'genl gr_t dog_t) 'CxUniverse)
+        (v/assert kb (list 'genl mc_t cat_t) 'CxUniverse)
+        (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
+        (v/assert kb (list 'transitiveInArg largerThan 2 'genl) 'CxUniverse)
+        (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)
+        (dotimes [_ n]
+          (v/assert kb (list largerThan (tu/tmp-ind "A") (tu/tmp-ind "B")) 'CxUniverse)))
+      (binding [inherit/*retrieval* :extent]
+        (let [goal (list largerThan gr_t mc_t)
+              walk (fn [run] (walked-rows largerThan 20 run))]
+          (testing (str "at an extent of " n)
+            (is (= [true (inc n)] (walk #(v/ask? kb goal 'CxUniverse)))
+                "with no deadline the walk reads the whole extent and finds the claim")
+            (let [[refusal rows] (walk #(v/ask? kb goal 'CxUniverse {:max-ms 10}))]
+              (is (= :budget-exhausted (:type refusal)))
+              (is (<= rows 1)))
+            (let [[partial rows] (walk #(v/ask-within kb goal 'CxUniverse {:max-ms 10}))]
+              (is (= [:timeout []] [(:status partial) (:results partial)]))
+              (is (<= rows 1)))
+            (is (= [{}] (first (walk #(loop [p (v/ask-within kb goal 'CxUniverse {:max-ms 10})
+                                             acc [], steps 1]
+                                        (cond (nil? (:resume p)) (into acc (:results p))
+                                              (< steps 10) (recur (v/resume p {:max-ms 10})
+                                                                  (into acc (:results p))
+                                                                  (inc steps))
+                                              :else        :runaway)))))
+                "a resume runs the stopped walk to its end, so a resume loop under the same
+                 budget terminates with the unbounded answer")))))))
+
+(tu/deftest-kb a-prove-deadline-stops-the-claim-walk-at-the-row-it-passes-on
+  ;; The ask witness's fixture, answered as a `prove` leaf on both engines: the extent arm
+  ;; is forced and its first row sleeps past a 10 ms deadline.
+  (doseq [n [16 128], engine [:dfs :inference]]
+    (tu/with-terms [dog_t cat_t gr_t mc_t largerThan]
+      (v/with-deferred-settle kb
+        (v/assert kb (list 'genl gr_t dog_t) 'CxUniverse)
+        (v/assert kb (list 'genl mc_t cat_t) 'CxUniverse)
+        (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
+        (v/assert kb (list 'transitiveInArg largerThan 2 'genl) 'CxUniverse)
+        (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)
+        (dotimes [_ n]
+          (v/assert kb (list largerThan (tu/tmp-ind "A") (tu/tmp-ind "B")) 'CxUniverse)))
+      (binding [inherit/*retrieval* :extent
+                v/*query-engine*    engine]
+        (let [goal   (list largerThan gr_t mc_t)
+              walk   (fn [run] (walked-rows largerThan 20 run))
+              budget {:max-ms 10 :max-depth 2}]
+          (testing (str "at an extent of " n " on the " engine " engine")
+            (is (= [[{}] (inc n)] (walk #(v/prove kb goal 'CxUniverse {:max-depth 2})))
+                "with no deadline the walk reads the whole extent and finds the claim")
+            (is (= [true (inc n)] (walk #(v/provable? kb goal 'CxUniverse {:max-depth 2}))))
+            (doseq [[label run] [["prove" #(v/prove kb goal 'CxUniverse budget)]
+                                 ["provable?" #(v/provable? kb goal 'CxUniverse budget)]]]
+              (let [[refusal rows] (walk run)]
+                (is (= :budget-exhausted (:type refusal)) label)
+                (is (<= rows 1) label)))
+            (let [[partial rows] (walk #(v/prove-within kb goal 'CxUniverse budget))]
+              (is (= [:timeout []] [(:status partial) (:results partial)]))
+              (is (<= rows 1)))
+            (is (= [{}] (first (walk #(loop [p (v/prove-within kb goal 'CxUniverse budget)
+                                             acc [], steps 1]
+                                        (cond (nil? (:resume p)) (into acc (:results p))
+                                              (< steps 10) (recur (v/resume p budget)
+                                                                  (into acc (:results p))
+                                                                  (inc steps))
+                                              :else        :runaway)))))
+                "a resume runs the stopped walk to its end, so a resume loop under the same
+                 budget terminates with the unbounded answer")))))))
+
+(tu/deftest-kb a-claims-reader-other-than-the-ask-prover-walks-past-the-deadline
+  ;; `claims` is also read by the asymmetry check at assert, settle and forward chaining,
+  ;; and those walk the whole extent under a deadline already passed.
+  (tu/with-terms [dog_t cat_t largerThan]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) 'CxUniverse)
+      (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)
+      (dotimes [_ 16]
+        (v/assert kb (list largerThan (tu/tmp-ind "A") (tu/tmp-ind "B")) 'CxUniverse)))
+    (binding [inherit/*retrieval* :extent]
+      (is (= [1 17]
+             (walked-rows largerThan 0
+                          #(binding [budget/*deadline* (System/nanoTime)]
+                             (count (inherit/claims kb (list largerThan dog_t cat_t)
+                                                    'CxUniverse)))))))))

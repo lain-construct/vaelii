@@ -150,8 +150,8 @@
           ;; re-estimates every remaining literal on every pick — 4 + 3 + 2 + 1 = 10 — so
           ;; this bound is the guard.
           (is (<= n7 4) (str "est-goal called " n7 " times for four antecedents")))
-        (testing "and a chainer whose leaf is the stored facts consults it not at all"
-          (is (zero? np)))))))
+        (testing "and `prove`, whose leaf is the registry too, costs them the same way"
+          (is (<= 1 np 4) (str "est-goal called " np " times for four antecedents")))))))
 
 ;; ---- different: the unique-name assumption ------------------------------
 

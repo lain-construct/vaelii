@@ -69,7 +69,7 @@ in. → [inference.md](inference.md)
 
 **There is no cut**, and nothing else prunes a branch by fiat. The nearest things are a
 budget (`:max-results`, `:max-ms`) and a tactician mode that reduces the answer set and
-says so. If you were using cut for determinism, the honest translation is usually
+says so. If you were using cut for determinism, the translation is usually
 `exceptWhen` — a stated exception that undercuts the rule rather than a scar in the
 search.
 

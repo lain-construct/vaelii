@@ -4,12 +4,9 @@
   "`with-deferred-settle` / `assert-many` / `bulk-assert-facts!`: assert a batch with
   belief settled once at the end instead of per assert.
 
-  The contract is *same belief, fewer settles*.  Belief is order-independent and
-  recomputed from current state, so deferring the reconciliation cannot change the
-  answer — only when it is paid.  The sharp case is `exceptWhen`, whose sweep runs
-  **in** settle: under deferral a conclusion the exception will block stays believed
-  until the closing settle, then goes.  That is observable mid-batch, which is what
-  proves the settle was genuinely deferred rather than merely redundant."
+  Same belief, fewer settles.  The `exceptWhen` sweep runs in settle, so a conclusion
+  the exception blocks stays believed until the closing settle: the mid-batch reading
+  shows the settle was deferred."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.protocols :as p]
@@ -63,20 +60,11 @@
       (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))))
 
 ;; ---- the cached relations are unsettled inside the batch too ------------
-;; The exception sweep above is one reading of it; the `genl` closure is the other,
-;; and a cache makes it look like a different claim when it is the same one.
 
 (tu/deftest-kb a-taxonomy-read-inside-the-batch-is-the-unsettled-one
-  ;; `tax/add-edge` runs on the **assert** path, where the JTMS has not labelled the sentex
-  ;; being stored — there is no `believed?` to consult, since belief for this batch is
-  ;; exactly what the closing settle computes — so the edge is active as it is recorded, and
-  ;; `refresh-beliefs` narrows the active set to the believed one when the settle runs.
-  ;;
-  ;; So a mid-batch `genl?` / `isa?` answers off a **superset**: it sees an edge it should
-  ;; not, never misses one it should (docs/taxonomy.md).  Pinned rather than fixed,
-  ;; because the fix has nothing to read: an exact-at-write activation would ask whether a
-  ;; sentex is believed at the one moment nothing has decided yet, and refuse to activate
-  ;; the edge it was handed.
+  ;; `tax/add-edge` activates an edge on the assert path, before any settle labels it, so
+  ;; a mid-batch `genl?` / `isa?` reads a superset of the believed edges
+  ;; (docs/taxonomy.md)
   (tu/with-terms [dog_t mammal_t Muffet CxD]
     (v/assert kb (list dog_t Muffet) CxD {:strength :monotonic})
     (v/with-deferred-settle kb
@@ -110,10 +98,8 @@
                      (v/handle-of kb (list parentOf Bob Ann) CxFam)])))))))
 
 ;; ---- bulk-assert-facts!: the fast path lands what the slow one lands ------
-;; The entry point's whole promise is that turning the checks, the dedup and the provenance
-;; off changes *nothing that is stored* — so the two halves below are the same corpus
-;; through the two entry points, into two unrelated contexts, compared on all four things the
-;; docstring names: stored sentexes, index, beliefs, `count-with-functor`.
+;; one corpus through both entry points into two unrelated contexts, compared on the four
+;; things the docstring names: stored sentexes, index, beliefs, `count-with-functor`
 
 (tu/deftest-kb bulk-assert-facts-lands-what-per-fact-assert-lands
   (tu/with-terms [edgeOf CxBulk CxSlow]

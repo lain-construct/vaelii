@@ -96,7 +96,7 @@ to reach the literals:
 | `(and X …)` | each conjunct |
 | `(or X …)` | nothing, and it never arrives: a disjunctive antecedent is polycanonicalized into one rule per alternative before naming runs, so what this walk sees is the expansion ([canonicalization.md](canonicalization.md)) |
 | `(implies A C)` | each antecedent (`:antecedent`), then `C` (`:consequent`) |
-| `set/forwardRule` · `backwardRule` · `forwardOnlyRule` · `inertRule` · `defaultRule` · `assumptionRule` · `hardConstraint` · `softConstraint` | the rule inside, wrappers nesting in any order |
+| `set/forwardRule` · `backwardRule` · `forwardOnlyRule` · `inertRule` · `defaultRule` · `solveRule` · `assumptionRule` · `hardConstraint` · `softConstraint` | the rule inside, wrappers nesting in any order |
 | `(exceptWhen Q R)` | `Q`'s conjuncts (`:exception`), then `R` |
 | `(ist Ctx S)` | `S` (and `Ctx` is checked as a context name) |
 | `(unknown S)` · `(thereExists ?v S)` · `(exists ?v C)` | the query / consequent wrapped |
@@ -110,7 +110,15 @@ compound in argument position is a *term*, and its head names a function or is p
 data — an arithmetic expression `(evaluate ?s (+ 1 2))`, a structural NAT `(QuantityFn 5
 Meter)`, a quoted connective `(comment not "…")`. And a **variable in functor
 position** is a pattern that names no predicate, so the dotted rest form
-`(?pred . ?args)` and a bare `(?p ?x)` pass.
+`(?pred . ?args)` and a bare `(?p ?x)` pass. A firing binds that variable, and no check
+has read the functor it forms, so a rule consequent with a variable functor is checked
+again as each conclusion is placed: under `:strict` a conclusion the naming invariants
+refuse is dropped and reported as a `:naming` violation (`core/violations`), and under
+`:warn` and `:off` it is stored. A **bare variable** in a literal position is a term
+where a formula belongs, and `assert` refuses it `:not-well-formed` in every rule role,
+the consequent included: `(implies (holds ?x ?s) ?s)` is written `(implies (holds ?x
+(?pred . ?args)) (?pred . ?args))`, which binds the functor and the arguments in the
+antecedent.
 
 Descending the wrappers is what makes the check reach a rule. A rule's outermost functor
 is `implies`, which is engine vocabulary, so a check that stopped there would examine
@@ -251,6 +259,44 @@ justifications and meta-sentexes naming a skipped frame fail to resolve and drop
 as they already do for any dangling reference — and the summary says what went with it;
 what the count buys is that the operator reads the number off a load that finished.
 
+`assert` refuses more than the constructor does, and seven of those refusals would store
+a record that answers wrongly. An open literal (`:not-ground`) matches every goal of
+its shape. A rule `checks/check-rule-shape` refuses concludes an open literal
+(`:not-range-restricted`), runs a `do/` imperative inside the fixpoint
+(`:not-assertible`), stores an `or` no expansion removed as one literal
+(`:not-well-formed`), or, with a variable antecedent functor (`:not-indexable`), fires
+over whatever is stored when a concrete antecedent arrives. A malformed connective frame
+(`:not-well-formed`, `sx/connective-problem`, the check `assert` runs) stores a rule whose
+`(ist Ctx S)` or bare-variable antecedent matches nothing, a rule whose consequent is a
+bare variable, or a `(not A B)` whose record
+and index disagree about what it says. A sentex in a query context, or in a context that
+is not a symbol (`:shape`), is in no context a read reaches. An import skips each of these
+and counts it in `:refused` under that `:type`, the policy the
+structural checks take. The rule checks that read the KB (the variable argument
+constraints, stratification, a generator's own three) do not run on an import: a
+declaration or rule a frame depends on can arrive later in the stream, so the verdict would
+depend on frame order. A name stays on the naming policy, stored and counted, because
+the record means what it says and a live KB under `:naming :warn` stores it too. An
+`exceptWhen` meta-sentex keeps the rule's variables in its query and is exempt from the
+ground check. An `(ist Ctx S)` frame is stored as S in Ctx, which is what `assert` stores,
+so it is neither skipped nor counted.
+
+The `{:belief? false}` path stores one record per frame. It keeps no `[sentence context]
+-> handle` map, since that map would hold every canonical sentence of the corpus in the
+heap, so two frames with one canonical form land there as two records. The belief path
+(`true` and `:stored`) keeps that map: it lands the second frame on the first one's
+handle, keeps the stronger of the two strengths, and counts the frame in `:collapsed`. A
+dump `export!` wrote holds no two frames with one canonical form, because the store it
+read keeps one record per canonical form. Such a pair reaches an import only from a
+hand-edited dump, a dump another dialect or another build wrote, or an `(ist Ctx S)` frame
+beside S in Ctx.
+
+A rule frame whose `or` antecedent or `and` consequent `assert` expands
+(`rules/expand-rule`) is the exception to one record per frame, on every path: the import
+stores it as the rules `assert` stores, one record per form, and counts it in `:expanded`
+as `{:frames n :records n}`. A later `assert` of the same rule therefore dedups against
+the imported records.
+
 Two edges of the count. Only an `ex-info` carrying a `:type` is counted; an unlabelled
 one is **rethrown**, since tolerating an exception nobody chose to raise is how a bug
 becomes a statistic. And `check-frame-count!` reads the records-only path's **`:frames`**
@@ -269,9 +315,8 @@ A *unary* snake_case functor is a well-formed type name, so
 passes — as would `capable_of_swimming` or
 `thermoregulates_via_blubber_and_feathers`. Nothing about a symbol distinguishes a
 type the ontology wants from a one-off coined for a single sentence; judging that needs
-the KB's existing vocabulary, which is a different question asked in
-[llm.md](llm.md#vocabulary-fragmentation-and-the-two-guards-against-it). Reading
-this check as a guard against vocabulary fragmentation is wrong in the expensive
+the KB's existing vocabulary, which is a different question and not one this check asks.
+Reading this check as a guard against vocabulary fragmentation is wrong in the expensive
 direction.
 
 ### Advice: the sentence that breaks no invariant and still means nothing

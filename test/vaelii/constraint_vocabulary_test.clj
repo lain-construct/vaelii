@@ -64,8 +64,7 @@
 
 (tu/deftest-kb one-entry-per-declaration-and-not-one-per-fact
   ;; The ledger keeps the newest 1000 entries, so a per-fact entry would let one
-  ;; predicate's extent evict every other violation in it — the failure the disjointness
-  ;; exposure beside this already had and fixed for its truncation notices.  Nothing is
+  ;; predicate's extent evict every other violation in it.  Nothing is
   ;; lost by counting: the facts are all still stored, so anybody who wants the list can
   ;; re-derive it.
   (tu/with-terms [wideOf X]
@@ -112,8 +111,7 @@
     (is (empty? (v/violations kb)))))
 
 (tu/deftest-kb the-reach-is-an-event-and-an-unrelated-settle-does-not-re-file-it
-  ;; Same contract as the disjointness exposure beside it: the entry says a declaration
-  ;; *newly* convicted stored content.  A settle whose region holds neither the
+  ;; The entry says a declaration *newly* convicted stored content.  A settle whose region holds neither the
   ;; declaration nor the facts has nothing new to say.
   (tu/with-terms [stableOf A B C X]
     (v/assert kb (list stableOf A B C) 'CxUniverse)
@@ -124,8 +122,8 @@
 
 (tu/deftest-kb a-rebuild-files-no-arity-reach-entry
   ;; The entry says a declaration *newly* convicted stored content, and on a rebuild
-  ;; everything arrives at once, so there is no newly — the same reason the disjointness
-  ;; exposure sits out `*rebuilding?*`.  Without the gate, every `recover` would re-file
+  ;; everything arrives at once, so there is no newly — the same reason the cut notices sit
+  ;; out `*rebuilding?*`.  Without the gate, every `recover` would re-file
   ;; the whole corpus's worth of findings.
   ;;
   ;; This is the opposite of `constraint-nogoods`' answer, and the difference is the kind:
@@ -161,7 +159,7 @@
   ;; so unlike disjointness and functionality the constraint policy does not move it.
   (doseq [policy [:refuse :arbitrate]]
     (testing (str policy)
-      (tu/with-neutral-kb [kb #(v/open-kb (assoc tu/scratch-space :constraints policy))]
+      (tu/with-neutral-kb [kb #(v/open-kb (assoc (tu/scratch-space) :constraints policy))]
         (tu/with-terms [firstOf A B C]
           (v/assert kb (list 'arity firstOf 2) 'CxUniverse)
           (is (thrown? clojure.lang.ExceptionInfo
@@ -182,7 +180,7 @@
   ;; the nogood moves.
   (is (not (contains? checks/arbitrable-kinds :arity))
       "arity is not arbitrable; the comment above arbitrable-kinds has the measurement")
-  (tu/with-neutral-kb [kb #(v/open-kb (assoc tu/scratch-space :constraints :arbitrate))]
+  (tu/with-neutral-kb [kb #(v/open-kb (assoc (tu/scratch-space) :constraints :arbitrate))]
     (tu/with-terms [relOf A B C]
       (v/assert kb (list relOf A B C) 'CxUniverse {:strength :monotonic})
       (v/assert kb (list 'arity relOf 2) 'CxUniverse)
@@ -310,7 +308,7 @@
           (str bad)))))
 
 (tu/deftest-kb the-conditional-declaration-entails-the-target-type
-  ;; Under `*assertive-arg-types?*` the constraint is indistinguishable from an entailment as well, exactly
+  ;; Under `*assertive-arg-types?*` the constraint is read as an entailment as well, exactly
   ;; as strong as `arg`'s and drawn under the same condition it convicts on — so a
   ;; dormant declaration entails nothing.
   (binding [checks/*assertive-arg-types?* true]

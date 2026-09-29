@@ -20,10 +20,10 @@
 
       :running → :cancelling → :done | :cancelled | :failed
 
-  `:cancelling` is the honest middle: `cancel!` sets the flag and returns, and the work
-  keeps running until it reaches its next progress report — which, for a phase that
-  reports none (opening a large store scans its whole record log before it says
-  anything), can be a while.
+  `:cancelling` is the state between the request and the stop: `cancel!` sets the flag and
+  returns, and the work keeps running until it reaches its next progress report — which,
+  for a phase that reports none (opening a large store scans its whole record log before
+  it says anything), can be a while.
 
   **The single writer stays single.**  `:writes` names the KB a job writes, or `true` for
   one it has not opened yet, and **one writing job runs at a time**: a second is refused
@@ -31,7 +31,9 @@
   serializable (docs/storage.md, the single-writer contract), and a registry that let two
   through would be a way around the contract rather than a place to watch it from.
   `writes-kb?` is the other half of the same question, asked by identity, so a job filling
-  one KB never blocks a write to another.
+  one KB is never a reason to refuse a write to another.  The browser's write monitor is
+  a separate thing: it is process-wide, and a chaining job holds it for its whole run, so
+  a write to any KB waits for the chain (docs/web.md).
 
   **Cancellation is cooperative, and for a KB-writing job that is not negotiable.**  A
   thread interrupt landing mid-cascade on a durable store surfaces as
@@ -77,15 +79,16 @@
   ::cancelled)
 
 (defn cancelled?
-  "Was `t` thrown by a **cancellation** rather than by a failure — the `progress!` throw
-  `cancel!` arms, or the interrupt it sends a job that writes nothing?
+  "Was `t` thrown by a **cancellation** rather than by a failure: the `progress!` throw
+  `cancel!` arms?  An interrupt is a cancellation only for a job that writes nothing and
+  whose cancel flag is set, which `submit` reads beside this; a job that writes is never
+  interrupted by `cancel!`, so for it this answer is the whole one.
 
   Public because a caller filing a status of its own beside the registry's — the catalog,
   onto the entry a load leaves behind — has to classify a throw exactly as `submit` does,
   and the alternative is this literal written in two places."
   [t]
-  (or (= cancelled (:type (ex-data t)))
-      (instance? InterruptedException t)))
+  (= cancelled (:type (ex-data t))))
 
 (defn- now [] (System/currentTimeMillis))
 
@@ -159,15 +162,20 @@
   []
   (first (filter :writes? (running))))
 
+(defn kb-writer
+  "The unsettled job whose `:writes` is **this** KB, by identity, as a view — or nil.
+  What a refusal about `kb` names: the catalog's unload refuses `:still-writing` with it."
+  [kb]
+  (when kb
+    (view (some (fn [j] (when (and (not (settled? j)) (identical? kb (:writes j))) j))
+                (vals (:jobs @state))))))
+
 (defn writes-kb?
   "Is a job writing **this** KB, by identity?  Reading beside a writer is sound and
   writing beside one is not, and the question is about the KB rather than about the
   process: a job filling one KB is no reason to refuse a write to another."
   [kb]
-  (let [{:keys [jobs]} @state]
-    (boolean (and kb
-                  (some (fn [j] (and (not (settled? j)) (identical? kb (:writes j))))
-                        (vals jobs))))))
+  (some? (kb-writer kb)))
 
 (defn- progress-fn
   "The `:on-progress` callback a job's work is handed: record where it has got to, and
@@ -177,12 +185,14 @@
   half-written."
   [id cancel]
   (fn [p]
+    ;; filed before the cancel is honoured: the reading is what had landed by this report,
+    ;; and the card's "reached" is the only account of it a cancelled job leaves
+    (update-job! id #(update % :progress merge (assoc p :at (now))))
     ;; the message is what the card shows beside the status, so it says what stopping here
     ;; means rather than repeating the status word
     (when @cancel
       (throw (ex-info "stopped at a progress report, as asked — what had landed stays"
-                      {:type cancelled})))
-    (update-job! id #(update % :progress merge (assoc p :at (now))))))
+                      {:type cancelled})))))
 
 (defn submit
   "Run `work` as a job and return its id.  `work` takes one argument, the `progress!` fn
@@ -194,7 +204,7 @@
   | key | |
   |---|---|
   | `:label` | what the job is called on screen |
-  | `:kind` | `:load` / `:export` / `:chain` — what a panel filters on |
+  | `:kind` | `:load` / `:export` / `:chain` / `:sync` — what a panel filters on |
   | `:writes` | the KB this job writes, or `true` for one it will open |
   | `:interruptible?` | may its thread be interrupted on cancel?  Only for a job that writes nothing |
   | `:progress` | the first progress reading, before the work has said anything |
@@ -263,9 +273,11 @@
                                   :msg (str "job " id " (" label ") finished")
                                   :data (when (map? summary) summary)}))
                    (catch Throwable t
-                     ;; an interrupt is what `cancel!` does to a job that writes nothing,
-                     ;; so it is indistinguishable from a cancellation and not as a failure
-                     (let [c? (cancelled? t)]
+                     ;; a cancellation only when `cancel!` set the flag: an interrupt is
+                     ;; what `cancel!` sends a job that writes nothing, and an interrupt
+                     ;; from anywhere else is a failure of the work
+                     (let [c? (or (cancelled? t)
+                                  (and @cancel (instance? InterruptedException t)))]
                        (update-job! id #(merge % {:status (if c? :cancelled :failed)
                                                   :finished (now)
                                                   :error (or (.getMessage t) (str (class t)))}))
@@ -274,13 +286,25 @@
                                       :msg (str "job " id " (" label ") failed: "
                                                 (.getMessage t))}))))
                    (finally
-                     ;; a `future` runs on a pooled thread, so an interrupt this job was
+                     ;; The arm that files a status can itself throw (an
+                     ;; `OutOfMemoryError` while it builds the status map).  A job left
+                     ;; `:running` then holds the writer claim for the life of the
+                     ;; process, so a job still unsettled here is filed `:failed`.
+                     ;;
+                     ;; A `future` runs on a pooled thread, so an interrupt this job was
                      ;; sent and never blocked long enough to observe would otherwise be
-                     ;; delivered to whatever ran next on it.  Reading the flag clears it —
-                     ;; and saying `released` in the same breath, under the monitor
-                     ;; `cancel!` re-reads it under, is what stops one being sent *after*
-                     ;; this point, where no clearing of ours could reach it.
+                     ;; delivered to whatever ran next on it.  Reading the flag clears it,
+                     ;; and saying `released` under the monitor `cancel!` re-reads it
+                     ;; under stops one being sent after this point, where no clearing of
+                     ;; ours could reach it.
                      (locking monitor
+                       (when (some-> (get-in @state [:jobs id]) settled? not)
+                         (update-job! id #(cond-> % (not (settled? %))
+                                                  (merge {:status :failed :finished (now)
+                                                          :error "the job ended without filing a status"})))
+                         (trove/log! {:level :error :id ::unfiled
+                                      :msg (str "job " id " (" label ") ended without filing a"
+                                                " status; filed :failed")}))
                        (reset! released true)
                        (Thread/interrupted)))))]
     (update-job! id #(assoc % :future f))
@@ -356,10 +380,13 @@
 (defn wait
   "Block up to `ms` for job `id` to settle, then answer its view — settled or not, so the
   caller decides what to do about a job that is still going.  This is what the fast path
-  is: submit, wait `fast-path-ms`, and answer with the result if it is already there."
+  is: submit, wait `fast-path-ms`, and answer with the result if it is already there.
+  A job whose status arm threw ends its future with that throw; the status `submit`'s
+  `finally` filed is the answer then, so the throw is not rethrown here."
   [id ms]
   (when-let [f (:future (get-in @state [:jobs id]))]
-    (deref f ms ::timeout))
+    (try (deref f ms ::timeout)
+         (catch java.util.concurrent.ExecutionException _ nil)))
   (job id))
 
 (def ^:private reset-wait-ms

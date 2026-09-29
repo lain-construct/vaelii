@@ -777,7 +777,7 @@
       (is (= 1 (:pair-count (clashes kb)))))))
 
 (tu/deftest-kb a-generalized-mark-at-another-position-is-no-arity-2-clash
-  ;; The counterpart, and what keeps the widening honest: `(functionalInArg parentOf 3)`
+  ;; The counterpart, which bounds the widening: `(functionalInArg parentOf 3)`
   ;; constrains a slot a binary conclusion does not have, so pairing two binary
   ;; conclusions on it would report a constraint neither is subject to.
   (tu/with-terms [parentOf fatherOf motherOf begat bore]

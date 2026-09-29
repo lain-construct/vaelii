@@ -9,16 +9,17 @@
 # writes the index image a rebuilt index leaves due. It prints what it found and did,
 # and stops at the first directory that fails.
 #
-# KB-DIR defaults to checkouts/kb beside this checkout. A current KB opens in about
-# a minute and is left as it was. A stale one pays one full recover: about 11 minutes on
-# the 12.26M-sentex vaelii-columnar store. A KB another process holds open is refused by
-# its single-writer lock. The heap is VAELII_HEAP, default 40g (scripts/lib/start.sh).
+# KB-DIR defaults to checkouts/kb beside this checkout. A current KB installs its image
+# and is left as it was. A stale one pays one full recover, which grows with the store.
+# A KB another process holds open is refused by its single-writer lock. The heap is
+# VAELII_HEAP, default 40g (scripts/lib/start.sh).
 #
 # --verify goes to every `upgrade` run (docs/operations.md): it recovers anyway and
 # reports whether belief changed.
 #
 # The records are read, never rewritten: a change to the record format is a migration
 # this script does not perform.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -43,3 +44,5 @@ for arg in "${DIRS[@]}"; do
   echo "upgrading $KB" >&2
   lein cli upgrade --dir "$KB" ${FLAGS[@]+"${FLAGS[@]}"}
 done
+exit
+}

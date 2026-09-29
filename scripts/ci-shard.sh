@@ -28,6 +28,7 @@
 #
 # The output is one namespace per line on stdout, ready for `lein test`; the
 # summary line goes to stderr so a caller can read the list from a pipe.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -116,3 +117,5 @@ printf '%s\n' "${namespaces[@]}" \
                       shard, of, count[shard] + 0, NR, load[shard] + 0, all)
         print msg > "/dev/stderr"
       }'
+exit
+}

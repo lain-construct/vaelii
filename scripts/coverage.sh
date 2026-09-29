@@ -45,6 +45,7 @@
 #   target/coverage/index.html    HTML report (gitignored under /target/)
 #   testbench/coverage/run.log    raw cloverage output (gitignored under /testbench/)
 
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -170,3 +171,4 @@ else
 fi
 
 exit "$exit_code"
+}

@@ -181,7 +181,7 @@
         (is (= :ntpp (get s [RegA RegC])))
         (is (every? keyword? (vals s)))
         (is (= s (v/qualitative-scenario kb :rcc8 CxPublicSpace))
-            "repeatable, so it never depends on arrival order")))
+            "a second read answers the same scenario")))
     (testing "the bounded enumeration honours its bound"
       (is (<= (count (v/qualitative-scenarios kb :rcc8 CxPublicSpace 2)) 2)))))
 
@@ -213,21 +213,24 @@
       (is (some #{:rcc8} (:known e))))))
 
 ;; ---- turning a shipped reasoner on, from core alone ---------------------
-;; Ten reasoners ship unregistered, and the provers are `vaelii.impl.*` values — so
+;; Twelve reasoners ship unregistered, and the provers are `vaelii.impl.*` values — so
 ;; without a roster on `core` the only way to opt in is to reach past the boundary this
 ;; namespace exists to hold.  `add-reasoner` names them instead.  These tests require
 ;; nothing under impl, which is the whole point of them.
 
 (tu/deftest-kb the-shipped-reasoners-are-nameable-and-registrable-from-core
   (testing "the roster covers the six algebras, the three quantitative reasoners, the
-            calendar clock and the brave/cautious dilemma reader"
-    (is (= [:allen :brave-cautious :calendar :cardinal :distance :duration :metric-time
-            :point :rcc8 :relative :sign]
+            calendar clock, the instant-inclusion reader and the brave/cautious dilemma
+            reader"
+    (is (= [:allen :brave-cautious :calendar :cardinal :distance :duration :includes-instant
+            :metric-time :point :rcc8 :relative :sign]
            (v/reasoners)))
     (is (= (set (map :calculus (v/calculi)))
-           (into #{} (remove #{:duration :metric-time :sign :calendar :brave-cautious}) (v/reasoners)))
-        "every calculus is registrable, and the roster adds the quantitative three and
-         the calendar, which are not relation algebras"))
+           (into #{} (remove #{:duration :metric-time :sign :calendar :includes-instant
+                               :brave-cautious})
+                 (v/reasoners)))
+        "every calculus is registrable, and the roster adds the quantitative three, the
+         calendar and the inclusion reader, which are not relation algebras"))
   (testing "each name resolves to a prover value"
     (doseq [nm (v/reasoners)]
       (is (some? (v/reasoner nm)) (str nm))))
@@ -295,7 +298,7 @@
             '{vaelii.core    #{open-kb assert retract! sentexes-matching query isa?}
               vaelii.client  #{client call assert query retract! isa? watch poll unwatch watchers}
               vaelii.starter #{load-into}
-              vaelii.web     #{handler start -main}
+              vaelii.web     #{handler start -main register-extension unregister-extension}
               vaelii.serve   #{app start port -main ops feed-ops op-names}
               vaelii.cli     #{dispatch open-kb-from -main}}]
       (require ns-sym)
@@ -309,12 +312,12 @@
     ;; layered on the six below exactly as an outside consumer would be (docs/koinii.md).
     ;; It is excluded here for the same reason it is excluded from the SPI and refusal
     ;; rosters — pinning it as a public promise would make koinii's own development churn
-    ;; the engine's contract. The other direction is what keeps it honest:
+    ;; the engine's contract. The other direction is checked:
     ;; `koinii-reaches-into-no-impl` below.
     ;; `browser/` is the second application, excluded for the same reason; its own check
     ;; is `browser-reaches-into-no-impl` below.
-    ;; `host/` is private too: the tooling above core (the servers, the CLI, the loaders,
-    ;; the LLM stack) that requires core and reaches into the engine, fronted by four of the
+    ;; `host/` is private too: the tooling above core (the servers, the CLI, the loaders)
+    ;; that requires core and reaches into the engine, fronted by four of the
     ;; five thin entry points (docs/namespaces.md). It is not a public promise, so it is out.
     (is (= #{"vaelii.core" "vaelii.client" "vaelii.starter"
              "vaelii.web" "vaelii.serve" "vaelii.cli"}
@@ -383,8 +386,8 @@
 
 (deftest koinii-reaches-into-no-impl
   ;; The claim koinii's exclusion above rests on, checked rather than asserted. koinii is
-  ;; one of the two applications shipped in this tree, and it earns its place outside `impl/` by
-  ;; consuming the same six namespaces an outside consumer gets: a `vaelii.impl.*` symbol
+  ;; one of the two applications shipped in this tree, and it sits outside `impl/` because it
+  ;; consumes the same six namespaces an outside consumer gets: a `vaelii.impl.*` symbol
   ;; appearing here means either koinii went around the API, or the API is missing
   ;; something koinii needs and the answer is to publish it — never to reach past it.
   (let [files (->> (file-seq (java.io.File. "src/vaelii/koinii"))
@@ -406,7 +409,7 @@
   ;; The browser is an application over `vaelii.core`, as koinii is: every KB read it makes
   ;; goes through the public API, so a `vaelii.impl.*` symbol here is a read the API does
   ;; not publish yet. Publish it in `vaelii.core` and call that. The browser may require
-  ;; `vaelii.host.*` peers (the guard, the LLM stack, the loaders); this checks the engine
+  ;; `vaelii.host.*` peers (the guard, the line format, the loaders); this checks the engine
   ;; half only.
   (let [files (->> (file-seq (java.io.File. "src/vaelii/browser"))
                    (filter #(.isFile ^java.io.File %))
@@ -424,8 +427,7 @@
 (def ^:private held-namespaces
   "The namespaces the development browser's reloader never re-evaluates, named here so that
   holding one more is an edit to this set rather than a side effect of its ns form."
-  '#{vaelii.host.llm.protocol
-     vaelii.impl.jtms-protocol
+  '#{vaelii.impl.jtms-protocol
      vaelii.impl.protocols
      vaelii.impl.roster
      vaelii.impl.settle-phases

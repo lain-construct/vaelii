@@ -106,36 +106,45 @@
       ;; an explicit handle (an import, a revival) must carry the counter with it, or the
       ;; next mint would reissue it and overwrite a record with no error
       (swap! counter max id)
-      (when (contains? @sx-tombstoned id) (unnote! sx-tombstoned meta-kv sx-tombstone-key id))
-      (p/put-sentex overlay (assoc sentex :id id))))
+      ;; the record before the tombstone's release, so a read between the two finds the
+      ;; overlay's record or the tombstone, never the base's record (`delete-sentex!`)
+      (let [r (p/put-sentex overlay (assoc sentex :id id))]
+        (when (contains? @sx-tombstoned id) (unnote! sx-tombstoned meta-kv sx-tombstone-key id))
+        r)))
 
   (get-sentex [_ id]
     (or (p/get-sentex overlay id)
         (when-not (or @hidden? (contains? @sx-tombstoned (handle id)))
           (p/get-sentex base id))))
 
+  ;; **The tombstone is written before the overlay's copy is deleted**, and every other
+  ;; write here keeps the same order: a read on another thread between two of the writes
+  ;; answers the record the fork held before the call or the one it holds after it.  In
+  ;; the other order a read between them misses the overlay, finds no tombstone, and
+  ;; answers the base's record, which the fork had overridden.
   (delete-sentex! [_ id]
     (let [id (handle id)]
-      (when (p/get-sentex overlay id) (p/delete-sentex! overlay id))
-      ;; Provenance dies with its record on both concrete stores, and the overlay may
-      ;; hold a stamp for a handle whose *record* it never overrode — `put-provenance`
-      ;; writes to the overlay whatever side the record is on.  So the drop is stated
-      ;; here rather than left to be a consequence of deleting the record.
-      (p/delete-provenance! overlay id)
       (when-not @hidden?
         (when (p/get-sentex base id)
           (note! sx-tombstoned meta-kv sx-tombstone-key id)
           ;; the premise mark needs no separate release: `premise-ids` subtracts the
           ;; tombstoned handles, so a deleted base premise is already gone from it
           (when (p/get-provenance base id)
-            (note! pv-tombstoned meta-kv pv-tombstone-key id)))))
+            (note! pv-tombstoned meta-kv pv-tombstone-key id))))
+      (when (p/get-sentex overlay id) (p/delete-sentex! overlay id))
+      ;; Provenance dies with its record on both concrete stores, and the overlay may
+      ;; hold a stamp for a handle whose *record* it never overrode — `put-provenance`
+      ;; writes to the overlay whatever side the record is on.  So the drop is stated
+      ;; here rather than left to be a consequence of deleting the record.
+      (p/delete-provenance! overlay id))
     nil)
 
   (put-justification [this justification]
     (let [id (long (or (:id justification) (p/next-id this)))]
       (swap! counter max id)
-      (when (contains? @jd-tombstoned id) (unnote! jd-tombstoned meta-kv jd-tombstone-key id))
-      (p/put-justification overlay (assoc justification :id id))))
+      (let [r (p/put-justification overlay (assoc justification :id id))]
+        (when (contains? @jd-tombstoned id) (unnote! jd-tombstoned meta-kv jd-tombstone-key id))
+        r)))
 
   (get-justification [_ id]
     (or (p/get-justification overlay id)
@@ -144,17 +153,18 @@
 
   (delete-justification! [_ id]
     (let [id (handle id)]
-      (when (p/get-justification overlay id) (p/delete-justification! overlay id))
-      (p/delete-provenance! overlay id)         ; as in `delete-sentex!`
-      (when-not @hidden?
+      (when-not @hidden?                        ; tombstones first, as in `delete-sentex!`
         (when (p/get-justification base id) (note! jd-tombstoned meta-kv jd-tombstone-key id))
-        (when (p/get-provenance base id) (note! pv-tombstoned meta-kv pv-tombstone-key id))))
+        (when (p/get-provenance base id) (note! pv-tombstoned meta-kv pv-tombstone-key id)))
+      (when (p/get-justification overlay id) (p/delete-justification! overlay id))
+      (p/delete-provenance! overlay id))
     nil)
 
   (put-provenance [_ id prov]
-    (when (contains? @pv-tombstoned (handle id))
-      (unnote! pv-tombstoned meta-kv pv-tombstone-key id))
-    (p/put-provenance overlay id prov))
+    (let [r (p/put-provenance overlay id prov)]
+      (when (contains? @pv-tombstoned (handle id))
+        (unnote! pv-tombstoned meta-kv pv-tombstone-key id))
+      r))
 
   (get-provenance [_ id]
     (or (p/get-provenance overlay id)
@@ -163,9 +173,9 @@
 
   (delete-provenance! [_ id]
     (let [id (handle id)]
-      (p/delete-provenance! overlay id)
       (when (and (not @hidden?) (p/get-provenance base id))
-        (note! pv-tombstoned meta-kv pv-tombstone-key id)))
+        (note! pv-tombstoned meta-kv pv-tombstone-key id))
+      (p/delete-provenance! overlay id))
     nil)
 
   ;; an override lives in both halves, so the union dedups it to the one handle it is
@@ -238,19 +248,22 @@
   ;; because the flag is sticky: no base handle is reachable again, so reissuing one
   ;; collides with nothing, and a remount takes the `max` over both watermarks so
   ;; anything minted after it stays above the base's range regardless.
+  ;;
+  ;; The flag is set before the overlay is emptied, for `delete-sentex!`'s reason: a read
+  ;; between the two answers the overlay's record or nothing, never the base's.
   (clear-records! [_]
+    (reset! hidden? true)
     (p/clear-records! overlay)
     (p/kv-clear! meta-kv)
     (p/kv-put meta-kv cleared-key true)
     (reset! counter 0)
-    (reset! hidden? true)
     (reset! sx-tombstoned #{})
     (reset! jd-tombstoned #{})
     (reset! pv-tombstoned #{})
     (reset! released #{})
     nil)
 
-  ;; **The samplers are what this is for; the tallies are the honest merged count.**
+  ;; **The samplers are what this is for; the tallies are the exact merged count.**
   ;; `Tallying` exists so a store whose enumeration is a *query* is not made to run one to
   ;; answer *how many* and *is there anything* — and a fork over such a base inherits that
   ;; question whole: `open-kb`'s recovery branch and `kb/write-hazards` both ask, and

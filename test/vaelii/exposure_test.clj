@@ -4,8 +4,7 @@
   "Two memberships each admissible where stated, whose types some context can jointly
   see as disjoint, are a real contradiction.  A **vantage** — the maximal common
   descendant of the two memberships' contexts — decides the pair under either constraint
-  policy, and the exposure pass reports what no vantage convicted, as a `:disjoint` entry
-  in the violations ledger.  Neither route refuses a writer on grounds it cannot see.
+  policy, and refuses no writer on grounds it cannot see.
 
   Three routes bring one clash into joint sight — the membership arriving last, the
   separating declaration arriving last, the `genlCx` edge arriving last — and the passes
@@ -14,10 +13,13 @@
   exists) below both.  The membership-last route's acceptance test is
   `disjoint_test/a-general-context-may-be-given-what-a-specific-one-forbids`.
 
-  **What the exposure pass is left to report** is the pair the vantage could not convict:
-  the separation is derivable only *below* the maximal common descendant, so the vantage
-  reads no separation and a context under it reads the whole clash (`deep-separation!`).
-  The budgeted sweeps' own tests use that lattice for the same reason."
+  **A separation derivable only below the members' maximal common descendant is decided
+  too**: the context under it that reads the whole clash is a vantage
+  (`settle/clash-vantages`), so `deep-separation!`'s lattice is decided where the
+  separation comes into view.  The settle files no `:disjoint` ledger entry: a pair the
+  arbitration's budgeted sweep has not reached is counted by `:arbitration-truncated`,
+  and `exposed-clashes` answers the standing question of every jointly-visible pair,
+  decided or not."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
@@ -46,10 +48,9 @@
   "`siblings!`'s two memberships, a joint viewer `w` below both, and the separation
   written in `decl` — a context `w` cannot see.
 
-  `w` is the maximal common descendant of the two memberships' contexts, so it is the
-  vantage `settle/clash-askers` asks the pair's question from; `w` derives no separation,
-  so the settle decides nothing.  A context below both `w` and `decl` sees the whole
-  clash, and that is what the exposure pass names."
+  `w` is the maximal common descendant of the two memberships' contexts and derives no
+  separation, so it convicts nothing.  A context below both `w` and `decl` sees the whole
+  clash, and is the vantage that decides it."
   [kb {:keys [a b w decl t1 t2] :as spec}]
   (v/assert kb (list 'genlCx decl 'CxUniverse) 'CxUniverse)
   (v/assert kb (list 'disjoint t1 t2) decl)
@@ -59,8 +60,8 @@
 
 (defn- deep-viewer!
   "A context below `w` and `decl`: the one that reads the separation and both
-  memberships, and so the one an exposure entry names.  The `decl` edge arrives last, so
-  the settle that files the entry is that edge's."
+  memberships, and so the vantage that decides the pair.  The `decl` edge arrives last,
+  so the settle that decides it is that edge's."
   [kb v w decl]
   (v/assert kb (list 'genlCx v w) 'CxUniverse)
   (v/assert kb (list 'genlCx v decl) 'CxUniverse))
@@ -95,47 +96,36 @@
     (is (empty? (v/violations kb))
         "decided is not exposed: the ledger does not also claim the pair")))
 
-(tu/deftest-kb a-rebuild-exposes-nothing-because-nothing-newly-moved
-  ;; The pass reports what a *change* newly made jointly visible.  A `recover` changes
-  ;; nothing — it restores — and its region is every stored sentex, so leaving the pass
-  ;; on turns a bounded incremental check into a full-KB audit nobody asked for: 27% of
-  ;; an OpenCyc import.  The clash is still there and still findable; what the skip
-  ;; costs nobody is re-filing it on every restart.
+(tu/deftest-kb a-rebuild-decides-a-deep-separation-as-the-live-settle-did
+  ;; The pass reports what a *change* newly made jointly visible, so a `recover` — which
+  ;; changes nothing — files nothing; the pair it holds is decided by the rebuild's settle
+  ;; exactly as the live settle decided it.
   ;;
   ;;   CxUniverse
   ;;     ├─ CxA CxB          one membership each
   ;;     └─ CxDecl           (disjoint left_t right_t)
-  ;;   CxW sees CxA and CxB  — the vantage, which reads no separation
-  ;;     └─ CxV sees CxW and CxDecl   — where the clash is visible whole
+  ;;   CxW sees CxA and CxB  — reads no separation
+  ;;     └─ CxV sees CxW and CxDecl   — where the clash is visible whole: the vantage
   (tu/with-terms [CxA CxB CxW CxDecl CxV left_t right_t Pip]
     (deep-separation! kb {:a CxA :b CxB :w CxW :decl CxDecl
                           :t1 left_t :t2 right_t :x Pip})
     (deep-viewer! kb CxV CxW CxDecl)
-    (is (= [:disjoint] (mapv :violation (v/violations kb)))
-        "the change that exposed it reported it")
-    (is (empty? (v/contradictions kb)) "and no vantage convicted it")
-    (v/clear-violations! kb)
-    (v/recover kb)
-    (is (empty? (v/violations kb)) "and the rebuild does not report it again")
-    (testing "while the KB still holds both sides, and an ordinary settle still reports"
-      (is (seq (v/sentexes-matching kb (list left_t Pip) CxA)))
-      (is (seq (v/sentexes-matching kb (list right_t Pip) CxB)))
-      ;; a real change to the same lattice exposes again, so the gate is about
-      ;; rebuilding and not about the clash having been seen once
-      (tu/with-terms [CxV2]
-        (deep-viewer! kb CxV2 CxW CxDecl)
-        (let [vs (v/violations kb)]
-          (is (every? #(= :disjoint (:violation %)) vs))
-          ;; the new viewer is named among those the clash is visible from — the pass
-          ;; is off for a rebuild, not off.  (V's sighting is re-filed alongside it:
-          ;; an exposure is an event, and the ancestor set moved again.)
-          (is (some #(contains? (get-in % [:detail :visible-from]) CxV2) vs)))))))
+    (let [read (fn [] {:w  [(v/ask? kb (list left_t Pip) CxW) (v/ask? kb (list right_t Pip) CxW)]
+                       :at-v (mapv :kind (v/contradictions kb CxV))
+                       :at-w (mapv :kind (v/contradictions kb CxW))
+                       :vs (mapv :violation (v/violations kb))})
+          live (read)]
+      (is (= {:w [true true] :at-v [:disjoint] :at-w [] :vs []} live)
+          "two defaults: a dilemma at CxV, nothing at CxW, which reads no separation, and
+           nothing reported")
+      (v/recover kb)
+      (is (= live (read)) "and the rebuild reaches the same reading, filing nothing"))))
 
 (tu/deftest-kb the-standing-question-is-answerable-on-demand
-  ;; `settle` reports what a change newly exposed; this reports what the KB holds now.
-  ;; It is the same clash and the same entry shape, asked of the whole KB by a caller
-  ;; who chose to — and it is what an imported KB has instead of a settle that ran
-  ;; while the content was arriving.
+  ;; `settle` decides what a change newly put in joint sight; this reports what the KB
+  ;; holds now, decided or not.  It is the whole-KB question, asked by a caller who chose
+  ;; to — and it is what an imported KB has instead of a settle that ran while the content
+  ;; was arriving.
   (tu/with-terms [CxA CxB CxW CxDecl CxV left_t right_t Pip]
     (v/assert kb (list 'genlCx CxDecl 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'disjoint left_t right_t) CxDecl)
@@ -146,18 +136,17 @@
       (is (empty? (v/violations kb)))
       (is (empty? (v/exposed-clashes kb))))
     (deep-viewer! kb CxV CxW CxDecl)
-    (let [filed (v/violations kb)
-          asked (v/exposed-clashes kb)]
+    (let [asked (v/exposed-clashes kb)]
       (is (= [:disjoint] (mapv :violation asked)))
-      (is (= (map :detail filed) (map :detail asked))
-          "the same clash, the same entry — one filed as it arose, one asked for")
+      (is (= #{CxV} (set (get-in (first asked) [:detail :visible-from])))
+          "visible from the context the settle decided it at")
+      (is (empty? (v/violations kb)) "decided, so the settle filed nothing")
       (testing "and asking does not file, store, or move belief"
-        (v/clear-violations! kb)
         (let [before (tu/content-count kb)]
           (is (seq (v/exposed-clashes kb)))
           (is (empty? (v/violations kb)))
           (is (= before (tu/content-count kb))))))
-    (testing "it survives the rebuild that the settle pass deliberately sits out"
+    (testing "it survives the rebuild"
       (v/recover kb)
       (is (empty? (v/violations kb)) "the rebuild filed nothing")
       (is (= [:disjoint] (mapv :violation (v/exposed-clashes kb)))
@@ -212,11 +201,10 @@
              (into #{} (map :sentence) (:sides (first cs))))))
     (is (empty? (v/violations kb)) "decided at CxD, not reported")))
 
-(tu/deftest-kb exposure-is-an-event-append-only-and-refiled-on-revival
-  ;; the ledger contract: retracting the ingredient that exposed a clash does not
-  ;; withdraw the entry, and the ingredient returning files a new one.  The separation
-  ;; sits below the vantage (`deep-separation!`), so the pair is the exposure pass's to
-  ;; report rather than a vantage's to decide.
+(tu/deftest-kb a-deep-separation-is-decided-again-when-its-member-returns
+  ;; The separation sits below the members' maximal common descendant
+  ;; (`deep-separation!`), so the pair is CxV's to decide.  Retracting a member ends the
+  ;; clash, and writing it again brings the decision back, with nothing filed either way.
   (tu/with-terms [CxA CxB CxW CxDecl CxV t1 t2 Pip]
     (v/assert kb (list 'genlCx CxDecl 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'disjoint t1 t2) CxDecl)
@@ -227,65 +215,37 @@
     (v/assert kb (list 'genlCx CxW CxA) 'CxUniverse)
     (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse)
     (deep-viewer! kb CxV CxW CxDecl)
-    (v/assert kb (list t1 Pip) CxA)
-    (let [h (v/assert kb (list t2 Pip) CxB)]
-      (is (= 1 (count (v/violations kb))))
+    (v/assert kb (list t1 Pip) CxA {:strength :monotonic})
+    (let [decided? (fn [] (and (v/ask? kb (list t1 Pip) CxV)
+                               (not (v/ask? kb (list t2 Pip) CxV))
+                               (v/ask? kb (list t2 Pip) CxW)))
+          h (v/assert kb (list t2 Pip) CxB)]
+      (is (decided?) "CxV defeats the default member; CxW, which reads no separation, keeps it")
       (v/retract! kb h)
-      (is (= 1 (count (v/violations kb))) "the entry outlives its ingredient")
+      (is (empty? (v/contradictions kb)) "the clash goes with its member")
       (v/assert kb (list t2 Pip) CxB)
-      (is (= 2 (count (v/violations kb))) "each exposure is its own event")
-      (testing "and the runs differ, so \"current\" stays decidable"
-        (is (apply distinct? (map :run (v/violations kb))))))))
+      (is (decided?) "and comes back with it")
+      (is (empty? (v/violations kb)) "decided each time, reported never"))))
 
-(tu/deftest-kb an-unrelated-settle-does-not-refile-a-standing-clash
-  ;; locality: the pass reads the settle's moved region, so a clash whose
-  ;; ingredients did not move is not re-examined, let alone re-filed.
+(tu/deftest-kb an-unrelated-settle-leaves-a-deep-separation-decided
+  ;; locality: a write touching neither member nor the separation leaves the decision
+  ;; where it was.
   (tu/with-terms [CxA CxB CxW CxDecl CxV t1 t2 other Pip Quo]
     (deep-separation! kb {:a CxA :b CxB :w CxW :decl CxDecl :t1 t1 :t2 t2 :x Pip})
     (deep-viewer! kb CxV CxW CxDecl)
-    (is (= 1 (count (v/violations kb))))
-    (v/assert kb (list other Quo) CxB)
-    (v/assert kb (list other Pip) CxB)
-    (is (= 1 (count (v/violations kb)))
-        "an unrelated membership — even of the clash's own term — files nothing new:
-         the pair it forms with the standing types is not disjoint")))
-
-(tu/deftest-kb a-budgeted-sweep-truncates-out-loud
-  ;; the extent-sweeping routes (declaration / metatype / edge arriving last) are
-  ;; bounded per settle by *exposure-instance-budget*; a sweep cut short files
-  ;; :exposure-truncated naming its trigger rather than silently reading as full
-  ;; coverage.  The membership route is exact and unbudgeted.
-  (binding [tax/*exposure-instance-budget* 1]
-    (tu/with-terms [CxA CxC t1 t2 Pip Quo Rex]
-      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
-      (v/assert kb (list t1 Pip) CxC)
-      (v/assert kb (list t2 Pip) CxA)
-      (v/assert kb (list t1 Quo) CxC)
-      (v/assert kb (list t2 Quo) CxA)
-      (v/assert kb (list t1 Rex) CxC)
-      ;; the declaration arrives last: five memberships below its types, budget one
-      (v/assert kb (list 'disjoint t1 t2) CxC)
-      (let [vs (v/violations kb)
-            cut (filter #(= :exposure-truncated (:violation %)) vs)]
-        (is (seq cut) "the cut is reported, not silent")
-        (is (= 1 (count cut))
-            "one entry for the pass — the budget is the pass's, so a per-trigger entry
-             would say the same thing once per trigger that arithmetic ran out on")
-        (is (= [(list 'disjoint t1 t2)] (get-in (first cut) [:detail :sample]))
-            "and names what it did not sweep")
-        (is (= 1 (get-in (first cut) [:detail :triggers]))
-            "and how many went unswept")
-        (is (<= (count (filter #(= :disjoint (:violation %)) vs)) 1)
-            "at most the budgeted share of instances was examined")))))
+    (let [before (v/contradictions kb)]
+      (is (= 1 (count before)))
+      (v/assert kb (list other Quo) CxB)
+      (v/assert kb (list other Pip) CxB)
+      (is (= before (v/contradictions kb))
+          "an unrelated membership — even of the clash's own term — moves nothing: the
+           pair it forms with the standing types is not disjoint")
+      (is (empty? (v/violations kb))))))
 
 (tu/deftest-kb many-cut-sweeps-file-one-entry-between-them
-  ;; The corpus-load shape: a settle whose region holds many extent-sweeping triggers.
-  ;; The first spends the budget and every one after it is cut short by arithmetic —
-  ;; so the ledger gets one entry with a count, not one per trigger.  Left unfixed this
-  ;; was 41,500 entries on an OpenCyc load, against a ledger that keeps 1,000.
+  ;; The corpus-load shape: one settle whose region holds several extent-sweeping
+  ;; triggers, all but the first cut by arithmetic (docs/defenses.md, "A bounded sweep
+  ;; reports its cut once, read one past the budget").
   (binding [tax/*exposure-instance-budget* 1]
     (tu/with-terms [CxC t1 t2 Pip Quo]
       (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
@@ -302,7 +262,7 @@
           (v/assert kb (list 'genl t4 t2) 'CxUniverse)
           (v/assert kb (list t3 Pip) CxC)
           (v/assert kb (list t4 Quo) CxC)))
-      (let [cut (filter #(= :exposure-truncated (:violation %)) (v/violations kb))]
+      (let [cut (filter #(= :arbitration-truncated (:violation %)) (v/violations kb))]
         (is (>= (count cut) 1) "the bound is still reported")
         (is (= 1 (count cut)) "once per settle, however many triggers it cut short")
         (is (<= (count (get-in (first cut) [:detail :sample])) 3)
@@ -320,8 +280,8 @@
   ;; Forty terms sit below t1 alone and one below both, against a budget of four —
   ;; so a sweep of everything below either side spends the budget ten times over on
   ;; the fillers and never reaches the clash, while the cheaper side is one term.  The two
-  ;; memberships sit in sibling contexts, so only the context below both sees the pair and
-  ;; the exposure sweep is the path that finds it.
+  ;; memberships sit in sibling contexts, so only the context below both sees the pair
+  ;; and decides it.
   (binding [tax/*exposure-instance-budget* 4]
     (tu/with-terms [CxA CxB CxD t1 t2 Pip]
       (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
@@ -340,43 +300,8 @@
         (is (= #{(list t1 Pip) (list t2 Pip)}
                (into #{} (mapcat #(map :sentence (:sides %))) (v/contradictions kb)))
             "the one term holding both is found, though t1's extent is ten times the budget")
-        (is (empty? (filter #{:exposure-truncated :arbitration-truncated}
-                            (map :violation vs)))
+        (is (empty? (filter #{:arbitration-truncated} (map :violation vs)))
             "and nothing was cut short — the cheaper side is one term, not forty")))))
-
-(tu/deftest-kb a-sweep-that-convicts-nobody-still-stops-at-the-bound
-  ;; The budget bounds the **enumeration**, never the survivors.  Nothing here holds
-  ;; both types, so the candidate rule rejects every term it is shown; budgeting what
-  ;; survives instead would walk both extents to the end looking for a keeper and then
-  ;; report full coverage, which is the one thing a bounded pass may not do.
-  ;;
-  ;; **The zero-findings cut**, which is this sweep's entry in `truncation-kind-tests`:
-  ;; the pass files nothing else, so an entry hung on a finding would have nowhere to
-  ;; ride and the eighteen instances past the bound would read as eighteen that were
-  ;; cleared.
-  (binding [tax/*exposure-instance-budget* 2]
-    (tu/with-terms [CxA CxC t1 t2]
-      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxA CxC) 'CxUniverse)
-      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Left")) CxC))
-      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Right")) CxA))
-      (v/clear-violations! kb)
-      (v/assert kb (list 'disjoint t1 t2) CxC)
-      (let [vs  (v/violations kb)
-            cut (filter #(= :exposure-truncated (:violation %)) vs)]
-        (is (empty? (filter #(= :disjoint (:violation %)) vs))
-            "nobody holds both, so there is no clash to expose")
-        (is (= 1 (count cut))
-            "and the pass says it stopped early rather than claiming it looked at all 20")
-        (is (= 1 (get-in (first cut) [:detail :triggers]))
-            "counting triggers, which is what a trigger-bounded sweep leaves unswept")
-        (is (= [(list 'disjoint t1 t2)] (get-in (first cut) [:detail :sample]))
-            "and naming the one it did not finish")
-        (is (= 2 (get-in (first cut) [:detail :budget])))
-        (is (re-find #"unreported" (get-in (first cut) [:detail :message]))
-            "the reader is told what it costs: clashes nobody will hear about")))))
 
 (tu/deftest-kb a-metatype-declaration-arriving-last-decides-the-clash
   ;; `(disjoint_metatype M)` is a *unary* sentence whose argument is a symbol — the
@@ -416,7 +341,7 @@
   ;; the intersection collects the two that convict.  On OpenCyc the same comparison
   ;; over every declaration is 638 against 638, with both differences empty.
   ;; The memberships sit in sibling contexts, so only the context below both sees a pair
-  ;; and the settle's exposure sweep, not its deciding sweep, is the path under test.
+  ;; and decides it.
   (tu/with-terms [CxA CxB CxD a1_t a2_t b1_t b2_t Pip Quo]
     (doseq [t [a1_t a2_t b1_t b2_t]]
       (v/assert kb (list 'genl t 'thing) 'CxUniverse))
@@ -464,15 +389,12 @@
       (let [vs (v/violations kb)]
         (is (empty? (filter #(= :disjoint (:violation %)) vs))
             "a compound can head no stored membership, so it is nobody's clash")
-        (is (empty? (filter #(= :exposure-truncated (:violation %)) vs))
+        (is (empty? (filter #(= :arbitration-truncated (:violation %)) vs))
             "and the 20 instances below the symbol side are not swept for its sake")))))
 
-(tu/deftest-kb the-nogood-path-narrows-the-same-way-the-exposure-pass-does
-  ;; `declaration-implicates` and `declaration-reach` answer one question about one KB.
-  ;; If they disagreed, a pair one reached and the other did not would be reported as
-  ;; merely *visible* by the ledger or as *decided* by `contradictions` depending on
-  ;; which route ran — so the arbitrating path gets the same narrowing, and the same
-  ;; budget spent on enumeration rather than on terms that convict nobody.
+(tu/deftest-kb the-nogood-path-narrows-through-declaration-reach
+  ;; `declaration-parts` narrows through `declaration-reach`, so the budget is spent on
+  ;; enumeration rather than on terms that convict nobody.
   (binding [checks/*arbitrate-constraints?* true
             tax/*exposure-instance-budget* 4]
     (tu/with-kb [kb]
@@ -511,8 +433,7 @@
         (is (= #{(list dog_t Rex) (list cat_t Rex)}
                (into #{} (mapcat #(map :sentence (:sides %))) (v/contradictions kb)))
             "only the term that also holds a second member is a candidate")
-        (is (empty? (filter #{:exposure-truncated :arbitration-truncated}
-                            (map :violation vs)))
+        (is (empty? (filter #{:arbitration-truncated} (map :violation vs)))
             "and the cheaper side is walked — cat_t's one instance, not dog_t's 21")))))
 
 (tu/deftest-kb a-budgeted-sweep-decides-the-same-pair-in-either-arrival-order
@@ -569,12 +490,12 @@
         (is (contains? (:decided fwd) :head))
         (is (contains? (:decided rev) :head)
             "written second, and still the one the budget was spent on"))
-      (testing "and the trigger it could not reach is reported rather than passed over"
-        (is (seq (:cut fwd)))
-        (is (seq (:cut rev))))
+      (testing "and the one trigger it could not reach is reported rather than passed over"
+        (is (= [1] (:cut fwd)))
+        (is (= [1] (:cut rev))))
       ;; And the **tail** agrees too, which is the half a weaker reading misses.  The
       ;; budget is one reach, so exactly one of the two separations can be swept and the
-      ;; other is cut — and *which* must be decided by `content-order` over the region
+      ;; other is cut — and *which* must be decided by `content-order` over the triggers
       ;; rather than by which was written first.  A reading that only checked the head
       ;; pair would pass while the tail moved with arrival order, which is the shape this
       ;; whole file is about (docs/nmtms.md).
@@ -584,9 +505,9 @@
           "and the same triggers reported unswept"))))
 
 (tu/deftest-kb an-enumeration-that-exactly-fills-the-budget-is-not-a-cut
-  ;; The whole reason the probe takes one past the budget.  A reach of exactly N terms was
-  ;; swept in full, and filing it would inflate the number a reader acts on — which is the
-  ;; failure `exposure-candidates` measured at 183,397 against a true 41,500.
+  ;; `take-budgeted` reads one past the budget, so a reach of exactly the budget is swept
+  ;; in full and files nothing (docs/defenses.md, "A bounded sweep reports its cut once,
+  ;; read one past the budget").
   (binding [checks/*arbitrate-constraints?* true]
     (tu/with-terms [t1 t2 Pip]
       ;; built per run and nowhere else: `tu/fresh` clears the scratch space these share,
@@ -609,18 +530,17 @@
         (testing "exactly the extent: swept in full, so nothing is filed"
           (let [{:keys [cut decided]} (cut-at 5)]
             (is (nil? cut) "a reach of exactly the budget is not a cut")
-            (is (seq decided) "and the pair inside it is decided")))
+            (is (= [[:disjoint #{(list t1 Pip) (list t2 Pip)}]]
+                   (map (juxt :kind #(set (map :sentence (:sides %)))) decided))
+                "and the pair inside it is decided")))
         (testing "one short: the same reach is a cut, which is what makes the line a line"
           (is (seq (:cut (cut-at 4)))))))))
 
 ;;; ── the deciding pass says when it was cut short too ──────────────────
 ;;
-;; `expose-clashes!` files `:exposure-truncated` when the budget stops it, so bounded
-;; work never reads as full coverage.  The arbitration sweep spends the same budget
-;; before anything is *decided* rather than before anything is reported, which is the
-;; half a reader most needs, so it files its own — and its own kind, because a reader
-;; acts differently on "went unreported" than on "went undecided", and because
-;; `functional` / `asymmetric` reach back here and nowhere else.
+;; The arbitration sweep spends `*exposure-instance-budget*` before anything is
+;; *decided*, and files `:arbitration-truncated` when the budget stops it, so bounded
+;; work never reads as full coverage.
 
 (tu/deftest-kb an-arbitration-sweep-cut-short-says-so
   (binding [checks/*arbitrate-constraints?* true
@@ -725,9 +645,7 @@
         (testing "the exception that made the settle iterate did its own job"
           (is (empty? (v/sentexes-matching kb (list flies Opus) 'CxUniverse))))))))
 
-(tu/deftest-kb a-functional-declaration-swept-short-is-reported-by-nothing-else
-  ;; `functional` implicates stored content on the deciding path and on no other, so a
-  ;; reader watching only `:exposure-truncated` would never learn its sweep was cut.
+(tu/deftest-kb a-functional-declaration-swept-short-files-the-arbitration-cut
   (binding [checks/*arbitrate-constraints?* true
             tax/*exposure-instance-budget* 2]
     (tu/with-terms [ownerOf]
@@ -737,10 +655,7 @@
       (v/clear-violations! kb)
       (v/assert kb (list 'functional ownerOf) 'CxUniverse)
       (let [vs (v/violations kb)]
-        (is (seq (filter #(= :arbitration-truncated (:violation %)) vs))
-            "the deciding pass reports it")
-        (is (empty? (filter #(= :exposure-truncated (:violation %)) vs))
-            "and the exposure pass has no arm that would")))))
+        (is (seq (filter #(= :arbitration-truncated (:violation %)) vs)))))))
 
 (tu/deftest-kb a-sweep-that-finished-reports-nothing
   (binding [checks/*arbitrate-constraints?* true
@@ -754,11 +669,88 @@
       (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
       (is (empty? (filter #(= :arbitration-truncated (:violation %)) (v/violations kb)))
           "a bound nothing reached is not a truncation")
-      (is (seq (v/contradictions kb)) "and the pair it did reach is decided"))))
+      (is (= [[:disjoint #{(list t1 Pip) (list t2 Pip)}]]
+             (map (juxt :kind #(set (map :sentence (:sides %)))) (v/contradictions kb)))
+          "and the pair it did reach is decided"))))
+
+(deftest a-cut-arbitration-sweep-resumes-until-every-arrival-order-believes-the-same
+  ;; Six slots with a known-true and a default filler each, and a budget of three facts
+  ;; per settle.  Declared first, each filler's arrival decides its own slot; declared
+  ;; last, the sweep reads three facts per settle, so four settles read the twelve facts.
+  ;; The unrelated asserts are the later settles.  In the second row the first later
+  ;; settles retract the known-true filler of two slots the sweep has not reached, read
+  ;; off the default filler still believed there, so the retracted facts lie in the
+  ;; unread tail, and the early arm retracts the same slots.
+  (binding [checks/*arbitrate-constraints?* true
+            tax/*exposure-instance-budget* 3]
+    (let [run (fn [order retract]
+                (tu/with-kb [k]
+                  (tu/with-terms [ageP A0 A1 A2 A3 A4 A5]
+                    (let [xs     [A0 A1 A2 A3 A4 A5]
+                          handle #(v/handle-of k (list ageP (xs %1) %2) 'CxUniverse)
+                          cut?   #(boolean (some (comp #{:arbitration-truncated} :violation)
+                                                 (v/violations k)))
+                          later  #(v/assert k (list 'thing (tu/tmp-ind "Unrelated")) 'CxUniverse)]
+                      (when (= :declaration-first order)
+                        (v/assert k (list 'functional ageP) 'CxUniverse))
+                      (doseq [x xs]
+                        (v/assert k (list ageP x 1) 'CxUniverse {:strength :monotonic})
+                        (v/assert k (list ageP x 2) 'CxUniverse))
+                      (when (= :declaration-last order)
+                        (v/assert k (list 'functional ageP) 'CxUniverse))
+                      (v/clear-violations! k)
+                      (let [slots   (if (= :unreached retract)
+                                      (into [] (comp (filter #(v/believed? k (handle % 2) 'CxUniverse))
+                                                     (take 2))
+                                            (range 6))
+                                      retract)
+                            _       (doseq [i slots] (v/retract! k (handle i 1)))
+                            _       (when (empty? slots) (later))
+                            cut-mid (cut?)]
+                        (dotimes [_ 3] (later))
+                        (v/clear-violations! k)
+                        (later)
+                        {:retracted slots
+                         :cut-mid   cut-mid
+                         :cut-last  (cut?)
+                         :believed  (into (sorted-set)
+                                          (map (fn [{[_ x n] :sentence}] [(.indexOf ^java.util.List xs x) n]))
+                                          (v/sentexes-matching k (list ageP '?x '?n)
+                                                               'CxUniverse))})))))]
+      (doseq [retract [[] :unreached]]
+        (testing (str "retracting " retract " while the sweep is unfinished")
+          (let [late  (run :declaration-last retract)
+                early (run :declaration-first (:retracted late))]
+            (when (= :unreached retract)
+              (is (= 2 (count (:retracted late))) "the premise: two slots are unreached"))
+            (is (:cut-mid late) "the notice is filed while the sweep is unfinished")
+            (is (not (:cut-last late)) "and stops once the sweep reaches its end")
+            (is (= (:believed early) (:believed late)))))))))
+
+(deftest a-cut-cover-refutation-sweep-resumes-until-every-refuted-term-is-decided
+  ;; A cover separates nothing, so its sweep is the refuted terms alone, one per settle
+  ;; at this budget.  Four terms each hold the whole and deny both parts.
+  (binding [checks/*arbitrate-constraints?* true
+            tax/*exposure-instance-budget* 1]
+    (let [run (fn [order]
+                (tu/with-kb [k]
+                  (tu/with-terms [animal dog cat R0 R1 R2 R3]
+                    (let [decl #(v/assert k (list 'covering animal dog cat) 'CxUniverse)]
+                      (when (= :declaration-first order) (decl))
+                      (doseq [r [R0 R1 R2 R3]]
+                        (v/assert k (list animal r) 'CxUniverse)
+                        (v/assert k (list 'not (list dog r)) 'CxUniverse)
+                        (v/assert k (list 'not (list cat r)) 'CxUniverse))
+                      (when (= :declaration-last order) (decl))
+                      (dotimes [_ 4] (v/assert k (list 'thing (tu/tmp-ind "Unrelated")) 'CxUniverse))
+                      (count (filter #(and (= :cover (:kind %))
+                                           (some #{animal} (flatten (:sentence %))))
+                                     (v/contradictions k)))))))]
+      (is (= 4 (run :declaration-first) (run :declaration-last))))))
 
 (tu/deftest-kb a-rebuild-still-sweeps-but-files-no-cut
   ;; Two claims at two budgets, because one budget cannot show both.  The *report* is off
-  ;; on a rebuild, like the exposure pass beside it: that settle's region is the whole KB,
+  ;; on a rebuild: that settle's region is the whole KB,
   ;; so every declaration in it is cut the moment the budget is spent, and a notice per
   ;; recover would say nothing about the KB and everything about its size.
   ;;
@@ -783,7 +775,7 @@
                       settle/*rebuilding?* true]
               (v/assert k (list 'disjoint t1 t2) 'CxUniverse))
             (is (empty? (filter #(= :arbitration-truncated (:violation %)) (v/violations k)))
-                "off, as it is for the exposure pass"))))
+                "the notice is off on a rebuild"))))
       (testing "and a budget that can finish still decides the pair, rebuilding or not —
                 the sweep itself is not gated on the flag"
         (tu/with-terms [t1 t2 Pip]
@@ -792,7 +784,9 @@
             (binding [tax/*exposure-instance-budget* 4096
                       settle/*rebuilding?* true]
               (v/assert k (list 'disjoint t1 t2) 'CxUniverse))
-            (is (= [:disjoint] (mapv :kind (v/contradictions k))))))))))
+            ;; this arm's own pair: the first arm's cut sweep resumes in these settles
+            (is (= [:disjoint] (mapv :kind (filter #(some #{t1} (flatten (:sentence %)))
+                                                   (v/contradictions k)))))))))))
 
 (deftest a-settle-over-the-whole-store-sweeps-nothing-and-files-no-cut
   ;; A load into an empty KB leaves the settle a region holding every stored sentex, so
@@ -817,6 +811,22 @@
                 (v/assert k (list 'disjoint t1 t2) 'CxUniverse)))
             (is (empty? (filter #(= :arbitration-truncated (:violation %)) (v/violations k)))
                 "the region holds every sentex the sweep would have returned")
+            (is (= [:disjoint] (mapv :kind (v/contradictions k)))
+                "and the pair is decided off the region")))
+        (testing "a stored denial leaves the believed region one short of the store, and
+                  neither pass sweeps: the handles name every stored sentex"
+          ;; The starter's closing settle is this shape — every sentex it stores moves,
+          ;; one of them `(not (capabilityType penguin flying))`, which the believed
+          ;; region leaves out.  A skip that counted that region instead of the handles
+          ;; would run both sweeps over the whole store and file both cuts.
+          (tu/with-cleared-kb [k tu/fresh]
+            (binding [tax/*exposure-instance-budget* 2]
+              (v/with-deferred-settle k
+                (build k)
+                (v/assert k (list 'not (list t1 (tu/tmp-ind "Nobody"))) 'CxUniverse)
+                (v/assert k (list 'disjoint t1 t2) 'CxUniverse)))
+            (is (empty? (filter #{:arbitration-truncated} (map :violation (v/violations k))))
+                "no cut is filed off a region holding the store")
             (is (= [:disjoint] (mapv :kind (v/contradictions k)))
                 "and the pair is decided off the region")))
         (testing "a declaration whose settle moves less than the store is swept, and a
@@ -941,14 +951,6 @@
       (testing "and stands in its own context, which sees no pair"
         (is (v/ask? kb two CxB))))))
 
-;; `a-wide-slot-cannot-file-its-way-through-the-ledger` and
-;; `the-pairs-under-the-cap-are-filed-whole` stood here and are gone with the pass they
-;; pinned.  One slot filled from N contexts a single vantage sees is N−1 pairs, and the
-;; cross-context report capped them at eight so one settle could not evict a ledger of a
-;; thousand.  Those pairs are nogoods now, which are state rather than ledger entries: a
-;; reader takes them off `contradictions`, which is recomputed from belief each settle
-;; and has no eviction to be starved by.
-
 (deftest either-policy-weighs-the-pair-and-neither-files-it
   ;; The test that catches a policy gate applied in the wrong place.  The vantages are
   ;; asked under both policies, so the pair is decided rather than reported either way —
@@ -956,7 +958,7 @@
   ;; claim one clash.
   (doseq [policy [:refuse :arbitrate]]
     (testing (str policy)
-      (tu/with-neutral-kb [k #(v/open-kb (assoc tu/scratch-space :constraints policy))]
+      (tu/with-neutral-kb [k #(v/open-kb (assoc (tu/scratch-space) :constraints policy))]
         (tu/with-terms [CxA CxB CxW birthYear Tom]
           (split-pair! k {:a CxA :b CxB :w CxW :decl 'functional
                           :pred birthYear
@@ -994,11 +996,6 @@
       (is (= (run CxA CxB) (run CxB CxA))
           "and the identical reading whichever context was written first"))))
 
-;; `a-rebuild-reports-nothing-because-nothing-newly-moved` stood here and is gone.  It
-;; pinned the rebuild gate on the cross-context *report*; the deciding pass beside it is
-;; deliberately not gated that way, since a nogood is state and a rebuild that skipped it
-;; would come up believing the loser (`settle/constraint-nogoods`).
-
 (tu/deftest-kb a-predicate-carrying-both-properties-reads-both-postings
   ;; The vantage search reads the argument-1 posting a partner could be in and no other:
   ;; a functional partner shares argument 1, an asymmetric one holds it in argument 2.
@@ -1023,7 +1020,7 @@
   ;; The arrival order the region alone cannot see: visibility itself moves, so a pair
   ;; whose halves are already stored and already believed becomes jointly visible without
   ;; either half being relabelled. Neither is in the moved region, so the `genlCx`
-  ;; edge has to reach out to them — the same trigger `exposure-candidates` answers for
+  ;; edge has to reach out to them — the same trigger `declaration-parts` answers for
   ;; disjointness, over the binary-fact parallel of `members-in-ancestors`.
   (tu/with-terms [CxA CxB CxW birthYear Tom]
     (let [one (list birthYear Tom 1970)
@@ -1114,7 +1111,9 @@
           "the edge reveals the mark and the chain-plus-step triple is weighed")
       (is (= 3 (count (:sides (first cs))))))
     (testing "an equal-strength triple is a dilemma: all three stand, nothing filed as exposed"
-      (is (seq (v/sentexes-matching kb (list directParentOf Aa Cc) CxU)))
+      (is (every? #(seq (v/sentexes-matching kb % CxU))
+                  [(list directParentOf Aa Bb) (list directParentOf Bb Cc)
+                   (list directParentOf Aa Cc)]))
       (is (empty? (filter (comp #{:anti-transitive} :violation) (v/violations kb)))))))
 
 (tu/deftest-kb a-genlCx-edge-revealing-an-asymmetric-mark-decides-a-co-located-pair
@@ -1161,13 +1160,12 @@
         (is (empty? (filter (comp #{:functional} :violation) (v/violations kb))))))))
 
 (deftest under-arbitrate-a-revealed-mark-defeats-the-co-located-loser-in-every-order
-  ;; The belief witness, and the one the exposure half alone does not give: under
-  ;; `:arbitrate` the deciding path weighs the pair, so the revealed mark must defeat the
+  ;; The belief witness: under `:arbitrate` the deciding path weighs the pair, so the revealed mark must defeat the
   ;; :default loser against a :monotonic rival — and the answer may not turn on which of
   ;; {mark, facts, edge} arrived last.  `:arbitrate`, since that is where belief moves.
   ;; `functional` and `asymmetric` both decide the clash by defeat and run here together;
   ;; `functionalInArg` decides by merging the fillers, a different outcome, so it is pinned
-  ;; by its own exposure witness above rather than folded into this defeat test.
+  ;; by its own witness above rather than folded into this defeat test.
   (tu/with-terms [CxU CxD birthYear Tom beats Ann Bob]
     (doseq [[mark mono loser]
             [[(list 'functional birthYear) (list birthYear Tom 1970) (list birthYear Tom 1980)]
@@ -1182,7 +1180,7 @@
             ;; would store what can never be believed).  Either is order-independent belief;
             ;; the catch tolerates the entry refusal so the final believed set is compared.
             belief (fn [order]
-                     (tu/with-neutral-kb [k #(v/open-kb (assoc tu/scratch-space :constraints :arbitrate))]
+                     (tu/with-neutral-kb [k #(v/open-kb (assoc (tu/scratch-space) :constraints :arbitrate))]
                        (doseq [step order]
                          (try (step k) (catch clojure.lang.ExceptionInfo _ nil)))
                        [(boolean (seq (v/sentexes-matching k mono CxU)))
@@ -1348,8 +1346,8 @@
       (is (empty? (v/contradictions kb))
           "no pair is decided — the subjects are distinct")
       (is (seq cut) "and the cut is still never silent")
-      (is (pos? (get-in (first cut) [:detail :triggers]))
-          "it names how many declarations went unswept"))))
+      (is (= 1 (get-in (first cut) [:detail :triggers]))
+          "it names how many declarations went unswept: the one genl edge"))))
 
 (defn- orderings
   "Every arrival order of `xs`.  The case below runs over all of them rather than over a
@@ -1415,19 +1413,19 @@
   whole-file keyword scan rather than the call sites, because which function files a
   kind — and through which helper — is what a refactor moves, and a roster keyed on the
   call shape would go quiet on the change most likely to drop a notice."
-  '{:exposure-truncated
-    vaelii.exposure-test/a-sweep-that-convicts-nobody-still-stops-at-the-bound
-    :arbitration-truncated
+  '{:arbitration-truncated
     vaelii.exposure-test/an-arbitration-sweep-that-decides-nothing-still-says-it-was-cut
     :arity-truncated
     vaelii.constraint-descension-test/the-budget-running-out-on-an-innocent-predicate-is-still-said-out-loud
     :arity-report-truncated
     vaelii.constraint-descension-test/a-wide-subtree-cannot-file-its-way-through-the-ledger
+    :unarbitrable-reach-truncated
+    vaelii.relation-properties-test/a-budget-spent-on-innocent-facts-still-says-the-reach-was-cut
     :partner-sweep-truncated
     vaelii.exposure-test/an-unnarrowed-partner-sweep-that-finds-nobody-still-says-it-was-cut})
 
 (deftest every-truncation-kind-has-a-test-of-what-fires-it
-  ;; `code-only` and not a bare `slurp`: every one of the five kinds is *named in prose*
+  ;; `code-only` and not a bare `slurp`: every one of the six kinds is *named in prose*
   ;; in `settle.clj` — each has between one and three docstring mentions beside its one
   ;; filing site — so a raw scan reads the documentation as a filing and the
   ;; `kinds`-minus-tests direction below stays green with every real filing deleted.
@@ -1480,7 +1478,7 @@
 ;; debit: it runs at the assert entry point as well as inside a settle, so there is no
 ;; `left` volatile to thread through it.  Its unnarrowed arm — a `functionalInArg` mark
 ;; whose declared position is the whole tuple, leaving no single argument root to narrow
-;; by — is a real extent sweep, and it shipped capped but silent.  A cut there costs a
+;; by — is a real extent sweep.  A cut there costs a
 ;; *vantage*, so the pairs it loses appear in `:arbitration-truncated`'s trigger count
 ;; not at all rather than as content swept short, which is why it is its own kind.
 
@@ -1529,17 +1527,3 @@
         (v/assert kb (list p 99) (last ctxs))
         (is (empty? (filter #(= :partner-sweep-truncated (:violation %)) (v/violations kb)))
             "four instances against a budget of sixty-four is not a cut")))))
-
-;;; ── the mark rosters, which drifted once ──────────────────────────────
-
-;; `every-functional-family-mark-is-in-both-of-settles-rosters` stood here and is gone.
-;; It asserted over `settle`'s two rosters what #54 broke: the generalized functional mark
-;; enrolled for the clash reach and not for the trigger, or the reverse.  Both rosters are
-;; read off `predicates` now, and `predicates/check-families` refuses at namespace load the
-;; two ways that declaration can be half-written — a family whose spellings disagree about
-;; what they sweep, and a term that sweeps and declares no shape for a trigger to recognize
-;; it at.  Driven against a deliberately broken table in `predicates_test`; the lane facets
-;; the same family has to agree about are `check-facets`, and the one move neither validator
-;; can refuse — a spelling dropped from the family outright — is pinned as a literal by
-;; `predicates_test/the-declaration-reconstructs-the-taxonomy-rosters`.  The behavioural
-;; half is `functional_in_arg_test`'s three declaration-last rows and stays where it is.

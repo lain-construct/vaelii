@@ -17,13 +17,14 @@ with forward/backward inference and JTMS truth maintenance.
 
 ## Requirements
 
-- JDK 21+, Leiningen 2.10+ — no external services
+- JDK 21+, Leiningen 2.10+ — no external services. CI and the Docker image run Temurin 25;
+  a weekly CI job runs the suite on 21
 - macOS and Linux; Windows is not supported ([why](docs/storage.md#the-image-disk-snapshot))
 
 ## Quick start
 
-As a dependency — Leiningen `[com.vaelii/vaelii "0.21.0"]`, or deps.edn
-`com.vaelii/vaelii {:mvn/version "0.21.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
+As a dependency — Leiningen `[com.vaelii/vaelii "0.22.0"]`, or deps.edn
+`com.vaelii/vaelii {:mvn/version "0.22.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
 To work on it instead:
 
 ```sh
@@ -74,9 +75,8 @@ holds in. A possibly-open formula is a *pattern*, and reaches the engine as a go
 inside a rule, never as a stored fact.
 
 A sentex canonicalizes into one of two records, split so a fact does not carry the
-rule-only slots: a `LiteralSentex` holds `[sentence context id truth strength]`, and a
-`RuleSentex` adds `[antecedent consequent varmap direction defeasible assumption
-constraint]`. **A rule is a sentex too**, indexed additionally by its antecedent and
+rule-only slots: a `LiteralSentex` holds `[sentence context id strength]`, and a
+`RuleSentex` adds `[antecedent consequent varmap engines defeasible effect]`. **A rule is a sentex too**, indexed additionally by its antecedent and
 consequent predicates, so it gets a handle, truth maintenance and retraction for free.
 
 A **handle** is the integer id a stored sentex or justification is referenced by,
@@ -89,7 +89,7 @@ Transitivity is not done with rules. The `genl` closure over types and the `genl
 closure over contexts are cached and recomputed when an edge changes, as is the equality
 partition behind `rewriteOf` / `sameAs` / `equals`.
 
-Four properties hold everywhere:
+Four properties hold across the engine:
 
 - **Order independence** — the same knowledge in any order yields the same beliefs. Belief
   is computed from current state rather than accumulated, and every tie-break keys on
@@ -102,6 +102,9 @@ Four properties hold everywhere:
   closures and the cached relations all follow belief. The index holds only what is
   stored, so both readings of a posting are named — `reads/as-stored-…` beside
   `reads/believed-…` — and a raw index read outside the implementers fails lint.
+
+A subsystem that holds one of the four short states where and why on its own page, and
+[defenses.md](docs/defenses.md#where-the-four-properties-stop) lists every such place.
 
 Assert known-true content with `{:strength :monotonic}`. The default is `:default`, which
 is most of a common-sense KB, and a default is defeasible at the edges.

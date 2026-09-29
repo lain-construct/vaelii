@@ -7,7 +7,7 @@
   leave a loaded KB's records unequal to every record built after it.  Building,
   canonicalizing and reading a sentex is `vaelii.impl.sentex`.")
 
-;; Two records, split so a literal sentex does not carry the seven rule-only slots
+;; Two records, split so a literal sentex does not carry the six rule-only slots
 ;; (facts are the 100M+ case).  Both share the scalar core:
 ;;   context     the context symbol it holds in
 ;;   id          the integer handle, nil until the record store assigns one
@@ -33,29 +33,29 @@
 ;;   antecedent  [pattern ...]          (the antecedents — the sentence's `and` body)
 ;;   consequent  pattern                (the consequent)
 ;;   varmap      {?var0 ?x, …} | nil    (canonical variable -> the author's name)
-;;   direction   :forward | :backward | :both | :forward-only | :inert   (from its
-;;               set/*Rule wrapper; :backward for a bare implies — the tractable default,
-;;               since forward chaining materializes a conclusion per match.  :forward and
-;;               :both mean forward + backward (`rules/backward?`), so a set/forwardRule
-;;               rule answers backward goals too; :forward-only (set/forwardOnlyRule)
-;;               forward-chains but never backward — a tests-only mode the ontology never
-;;               uses; a generator stays forward even bare)
+;;   engines     a subset of #{:forward :backward :solve} — which engines run the rule.
+;;               From its set/*Rule wrapper: #{:backward} for a bare implies (the
+;;               tractable default, since forward chaining materializes a conclusion per
+;;               match), #{:forward :backward} for set/forwardRule (so a forward rule
+;;               answers backward goals too), #{:forward} for set/forwardOnlyRule (a
+;;               tests-only mode the ontology uses once), #{} for set/inertRule, and
+;;               #{:forward :backward} for a bare generator.  A choice or constraint rule
+;;               holds #{:solve}: a solve is the only thing that reads it.  Not part of
+;;               the rule's identity; a re-assert joins two spellings by union
+;;               (`assert-entry/reconcile-rule-slots!`).  The instances are the shared
+;;               ones `sentex/engine-sets` holds
 ;;   defeasible  true | nil             (a set/defaultRule rule: its conclusions are
 ;;               defeasible and fire from the one agenda like any other rule's;
 ;;               `settle` decides which of them survive a clash, from recomputed
 ;;               belief — docs/defenses.md)
-;;   assumption  true | nil             (a set/assumptionRule: the rule's head is a
-;;               *choice* for a solve, not a derived truth.  It never forward-chains
-;;               into belief; a solve grounds it (docs/solving.md).  It is part of the
-;;               rule's identity — in the trie key — so a choice rule and its bare twin
-;;               are different sentexes)
-;;   constraint  :hard | :soft | nil    (a set/hardConstraint / set/softConstraint rule:
-;;               the head is a *contradiction marker*, and the rule's body is a
-;;               conjunctive nogood mixing background facts and choice-head patterns.
-;;               Like an assumptionRule it never forward-chains; a solve grounds its body
-;;               into nogoods (soft) or integrity constraints (hard).  Part of the rule's
-;;               identity — in the trie key — so a constraint rule and its bare twin are
-;;               different sentexes.  See docs/solving.md)
+;;   effect      :derive | :choose | :forbid | :penalize — what the head is.  :derive, a
+;;               truth the rule concludes (`h :- b`); :choose, a set/assumptionRule's
+;;               *choice* a solve decides (`{h} :- b`); :forbid, a set/hardConstraint's
+;;               contradiction marker (an integrity constraint, `:- b`); :penalize, a
+;;               set/softConstraint's (a weak constraint, minimized).  Part of the rule's
+;;               identity — in the trie key — so a choice or constraint rule and its bare
+;;               twin are different sentexes.  Only a :derive rule chains; the other
+;;               three hold #{:solve} in `engines`.  See docs/solving.md
 ;;
 ;; An `exceptWhen` exception is **not** a Rule field: it is a separate belief-following
 ;; meta-sentex `(exceptWhen <query> (sentexHandle <rule-id>))` naming the rule it
@@ -67,8 +67,8 @@
 ;; A rule holds **no sentence**.  `antecedent` and `consequent` are the form its readers
 ;; use — the chainers, the indexers, the checks — and `sentence-of` builds the
 ;; `(implies …)` form from them for the few that want it whole (the trie key, display).
-(defrecord RuleSentex [context id antecedent consequent strength varmap direction
-                       defeasible assumption constraint])
+(defrecord RuleSentex [context id antecedent consequent strength varmap engines
+                       defeasible effect])
 
 ;; ---- the term readers the columnar trie calls ----------------------------
 

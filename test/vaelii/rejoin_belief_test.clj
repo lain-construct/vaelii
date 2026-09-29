@@ -5,7 +5,7 @@
   the trigger path `generator_test`'s `a-disbelieved-rule-does-not-fire` pins.
 
   A qualitative fact or a moved preserved predicate re-joins its rules in full rather
-  than at a trigger position (`chain/rejoin-qualitative`, `chain/rejoin-preserving`),
+  than at a trigger position (`chain/rejoin-qualitative`, `chain/rejoin-in-full`),
   because the arriving sentence need not unify with the antecedent it enabled.  Those
   rules come off the antecedent index, which posts on **storage**, so a rule whose
   support has been defeated is still a candidate there while the settle runs.  Fired

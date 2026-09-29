@@ -139,7 +139,9 @@
     (let [j (settled id)]
       (is (= :cancelled (:status j)))
       (is (nil? (:summary j)) "it never reached its return value")
-      (is (pos? @ticks) "it ran, and stopped at a progress report rather than mid-write"))))
+      (is (pos? @ticks) "it ran, and stopped at a progress report rather than mid-write")
+      (is (= @ticks (:done (:progress j)))
+          "and the reading it shows is the report that stopped it, which had landed"))))
 
 (deftest a-job-that-writes-nothing-can-be-interrupted-as-well
   (let [id (jobs/submit {:label "Sleep" :kind :test :interruptible? true}
@@ -147,8 +149,30 @@
     (is (true? (jobs/cancel! id)))
     (let [j (jobs/wait id 5000)]
       (is (= :cancelled (:status j))
-          "an interrupt is indistinguishable from a cancellation, not as a failure")
+          "an interrupt is reported as a cancellation, not as a failure")
       (is (nil? (:summary j))))))
+
+(deftest an-interrupt-no-cancel-sent-is-a-failure
+  (let [id (jobs/submit {:label "Interrupted from elsewhere" :kind :test :interruptible? true}
+                        (fn [_] (throw (InterruptedException. "not from cancel!"))))
+        j  (jobs/wait id 30000)]
+    (is (= :failed (:status j)))
+    (is (= "not from cancel!" (:error j)))))
+
+(deftest a-job-whose-status-arm-throws-is-filed-failed-and-frees-the-writer
+  ;; the status arm throws while it reads the message, standing for a second
+  ;; `OutOfMemoryError` while it builds the status map
+  (let [thrown (atom 0)
+        bad    (proxy [Exception] []
+                 (getMessage []
+                   (if (= 1 (swap! thrown inc))
+                     (throw (OutOfMemoryError. "a second one, in the status arm"))
+                     "the work failed")))
+        id     (jobs/submit {:label "Writer" :kind :test :writes true} (fn [_] (throw bad)))]
+    (is (= :failed (:status (settled id))))
+    (is (nil? (jobs/writer)))
+    (let [next-id (jobs/submit {:label "Next writer" :kind :test :writes true} (constantly {}))]
+      (is (= :done (:status (settled next-id)))))))
 
 (defn- deref-hook
   "An atom façade over `real` that answers **one** deref — the first taken by the thread

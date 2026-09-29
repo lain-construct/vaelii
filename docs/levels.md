@@ -57,7 +57,8 @@ the fan-out rather than something the fan-out found.
 
 Levels 6 and 7 differ by exactly one mechanism: level 6 is the registry, none of whose
 members expands a rule, and level 7 wraps it in the recursive chainer with the registry
-as that chainer's *leaf*. So level 7 adds rule expansion and nothing else.
+as that chainer's *leaf*. So level 7 adds rule expansion and nothing else. It is the
+search `prove` runs, driven lazily and deduplicated by answer.
 
 Both of them **prepare the goal the way `ask` does** — a ground reifiable NAT reified
 to the constant it denotes ([nat.md](nat.md)), a term an equality merge retired
@@ -167,7 +168,7 @@ carry an ordering no stored fact does (`:calendar`, [time.md](time.md)) — and 
 four bears, nobody runs alone and the union runs instead, whatever was claimed. So above
 level 4 a result never *disappears* going up the stack; it can only lose its handle.
 
-That is the engine being honest about its own dispatch rather than the stack
+The result reports the engine's own dispatch rather than the stack
 papering over it. If you want the stored sentex behind an answer, ask at the level
 that reads the store.
 

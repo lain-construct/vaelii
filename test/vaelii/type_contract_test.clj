@@ -5,8 +5,7 @@
   plain `:type` keyword, and callers discriminate on that one vocabulary — so a new
   or renamed `:type` is a contract change, and this test makes it a *visible* one:
   the scan below collects every literal on the refusal surface from the sources at
-  runtime (the same read-the-source pattern as `llm_test`'s roster), and the
-  checked-in roster goes stale until someone updates it deliberately, changelog in
+  runtime, and the checked-in roster goes stale until someone updates it deliberately, changelog in
   hand.
 
   Two more questions are asked of the same scan, because a keyword is not the whole of
@@ -29,7 +28,7 @@
 
   - a literal `:type :<kw>` inside an `(ex-info …)` **or `(ExceptionInfo. …)`** form, at
     any depth — the constructor is called directly where a refusal is counted often
-    enough that building the stack trace shows up (`naming/invariant-error`), and a scan
+    enough that building the stack trace shows up (`naming/refusal`), and a scan
     reading only `ex-info` would have taken `:naming` off the surface the moment the
     other spelling of it went away;
   - a literal `:type :<kw>` inside a map literal that also carries `:message` or
@@ -38,9 +37,8 @@
   - the two defaulted spellings, which carry no literal `:type :<kw>` pair:
     `(:type (ex-data e) :<kw>)` and `(update :type #(or % :<kw>))`.
 
-  Deliberately excluded, because a `:type` key is not only an error key: the LLM
-  stream event maps (`:text`, `:tool-use`, `:done`, …), the ASP statement kinds in
-  `aspif.clj`, the catalog's option-descriptor maps (`:flag`, `:slider`, …), and
+  Deliberately excluded, because a `:type` key is not only an error key: the ASP
+  statement kinds in `aspif.clj`, the catalog's option-descriptor maps (`:flag`, `:slider`, …), and
   `dissoc` key lists — none is a refusal a caller discriminates on, and none sits
   in an `ex-info` or beside a `:message`/`:ok false`.
 
@@ -385,34 +383,32 @@
     :bad-level :bad-pattern :bad-registrant :bad-reply
     :bad-snapshot :bad-table-entry :base-is-overlay :body-too-large :budget-exhausted
     :choice-head-not-positive
-    :compaction-failed :context-escape :cover :cross-origin :daemon-error :damaged-dictionary
-    :disallowed-class
+    :compaction-failed :cover :cross-origin :daemon-error :damaged-dictionary
+    :damaged-frame :disallowed-class
     :disjoint :disjunction-too-wide :disk-locked :duplicate-handle :duplicate-tokens :error
     :exception-not-closed :export-busy :frozen-base :functional :handle-ceiling
     :incomplete-racer :inter-arg-type :internal-error :irreflexive :job-busy
     :labeling-inconsistent :labeling-run-blocked
-    :llm-api-error :llm-bad-credential :llm-bad-response :llm-encode
-    :llm-no-credential :llm-not-applicable :llm-timeout
     :malformed-entry :malformed-manifest :malformed-record :manifest-too-large
     :missing-adapter :missing-resource :naf-justification
     :naf-not-closed
     :naming :nippy-version-moved :nippy-version-unreadable
     :no-base :no-depth-bound :no-destination
     :no-dump :no-foreign-reader :not-a-directory :not-assertible
-    :not-checkable :not-defeasible :not-edn :not-empty :not-encodable :not-indexable
+    :not-checkable :not-edn :not-empty :not-encodable :not-indexable
     :not-a-report :not-found :not-ground :not-in-process :not-range-restricted :not-stratified
-    :not-watchable :not-well-formed :over-ceiling :pattern-too-costly
+    :not-watchable :not-well-formed :not-writable :over-ceiling :pattern-too-costly
     :quantifier-not-local :quoted-arg-type
-    :report-only
     :reset :shape :short-transfer :solver-failed :solver-unavailable
     :stacked-batch
     :stacked-fork :stale-index-layout :stale-index-records :still-exporting :still-loading :still-stopping
-    :too-many-subscriptions :too-many-waiters
+    :still-writing
+    :store-unusable :too-many-subscriptions :too-many-waiters
     :torn-snapshot :truncated-dump :unauthorized :unbound-deferred :unforkable-index :unknown-backend
     :unknown-command :unknown-entry :unknown-frame :unknown-framing :unknown-handle
     :unknown-op :unknown-option :unknown-source :unknown-subscription :unknown-tactician
     :unminted-nat
-    :unparseable :unreadable :unreadable-store :unrecovered-kb :unrecovered-premise
+    :unreadable :unreadable-store :unrecovered-kb :unrecovered-premise
     :unreleased :unsupported-compression :unsupported-context
     :unsupported-format :unsupported-platform :unsupported-variant :unsupported-version})
 
@@ -428,7 +424,12 @@
 
   `ty` is `serve`'s `(:type (ex-data e))` put back on the wire — a **pass-through** of
   whatever the caught refusal already carried, so it mints no vocabulary of its own and
-  every keyword it can hold is in `roster` by way of the throw it came from."
+  every keyword it can hold is in `roster` by way of the throw it came from.  The same
+  name is used by the two throws that pass through a refusal decided elsewhere: `serve`'s
+  `admit!`, which throws the `:type` an `admit` fn answered, and `vaelii.browser.web`'s
+  `writing-job`, which throws `late-refusal-type`'s.  The browser's `admit` fn and
+  `writing-job` both read `late-refusal-type`, whose two answers are the keyword literals
+  `:not-found` and `:still-exporting`, both raised as literals in `op-post` as well."
   #{"cancelled" "ty"})
 
 (def ^:private carried
@@ -456,7 +457,7 @@
   looks.
 
   An empty set is a refusal whose throws share no key at all. It is not a failure to fix
-  here — several are two shapes of one condition and honestly have nothing in common —
+  here — several are two shapes of one condition and have nothing in common —
   but it is a hole in what a `catch` can act on, so each one is named in
   `carries-nothing` with the reason."
   {:arg-constraint-kind     #{:message :predicate}
@@ -491,8 +492,6 @@
    ;; homogeneity arm (inter-args-homogeneity-problem) — the same payload at both
    :inter-arg-type          #{:message :sentence :arg :expected :position
                               :trigger :trigger-type :trigger-position}
-   :labeling-run-blocked    #{:believed :into :orphaned}
-   :llm-api-error           #{}
    :missing-adapter         #{:coordinate :records}
    :missing-resource        #{}
    :naf-not-closed          #{:antecedents :unbound}
@@ -514,6 +513,8 @@
    :pattern-too-costly      #{:scope}
    :shape                   #{}
    :solver-failed           #{}
+   ;; clasp's missing binary and its process killed at the deadline
+   :solver-unavailable      #{:binary}
    :still-exporting         #{}
    :still-loading           #{}
    :torn-snapshot           #{}
@@ -521,14 +522,16 @@
    :unauthorized            #{}
    :unknown-backend         #{:axis :kind :mismatch}
    :unknown-command         #{:cmd :commands}
+   :unknown-entry           #{:key}
    :unknown-frame           #{}
    :unknown-handle          #{}
    :unknown-option          #{:mismatch}
    :unknown-source          #{}
    :unknown-subscription    #{:token}
    :unknown-tactician       #{:known :tactician}
-   :unparseable             #{:entry :in :index :message}
-   :unreadable              #{:message}
+   ;; the browser editor's problem map and the text KB reader's refusal, each placing the
+   ;; form that does not read by the line it opens on
+   :unreadable              #{:line}
    :unreadable-store        #{}
    :unrecovered-kb          #{:hazards :message :operation :repair}
    :unreleased              #{}
@@ -596,11 +599,6 @@
     sends back — `:ok false` and prose. The reply shape and the throw shape share the
     keyword and nothing else, which is true of every refusal `serve` mirrors."
 
-   :llm-api-error
-   "a refusal from the status line carries `:status` and `:body`; one from an error inside
-    a 200 body or a stream chunk carries what the provider called it, and the two
-    providers do not call it the same thing."
-
    :missing-resource
    "a classpath resource is named by `:resource` and a file by `:path` — what is missing is
     the thing the caller can go and look for, and those are looked for in different places."
@@ -667,7 +665,8 @@
 
    :unknown-handle
    "the same two entry points as `:bad-handle`, refusing a handle that is well formed and not
-    stored rather than one that is not a handle at all."
+    stored rather than one that is not a handle at all, plus `assert` of an `except`, which
+    names the `:handle` as `edit!` does."
 
    :unknown-source
    "one names the `:kind` of source the catalog has no reader for; the other is refusing a
@@ -692,12 +691,12 @@
   no words to the engine's flat caller-visible vocabulary. One predates the rule.
 
   `:arbiter-is-party` shipped bare, and is named that way in
-  [docs/koinii.md](../../docs/koinii.md), in troubleshooting's `:type` index and in the
-  changelog entry that introduced it. Renaming it is a contract change for anyone
-  catching it, not a tidy-up, so it stays until one is being made anyway."
+  [docs/koinii.md](../../docs/koinii.md) and in troubleshooting's `:type` index. Renaming
+  it is a contract change for anyone catching it, not a tidy-up, so it stays until one is
+  being made anyway."
   {:arbiter-is-party
-   "shipped un-namespaced and documented that way in docs/koinii.md, troubleshooting.md
-    and the changelog; renaming it is a breaking change for a caller that catches it."})
+   "shipped un-namespaced and documented that way in docs/koinii.md and troubleshooting.md;
+    renaming it is a breaking change for a caller that catches it."})
 
 (defn all-source-files
   "Every `.clj` under `src/`, koinii included.  `refusal_roster_test` scans this wider

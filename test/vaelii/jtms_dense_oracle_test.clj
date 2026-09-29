@@ -87,9 +87,9 @@
     ;; every antecedent gets a node first, and so does the consequence — the engine's
     ;; own discipline (a justification's antecedents are handles of stored datums, each
     ;; already a premise or an ensured node).  Neither implementation is specified when
-    ;; that is violated: the reference grows a node with no `:depth` and the next
-    ;; `ensure-node` on it throws, so a generator that skipped this would be comparing
-    ;; two readings of undefined behaviour.
+    ;; that is violated: the reference grows a node with no `:depth` and no
+    ;; `:premise?`, so a generator that skipped this would be comparing two readings of
+    ;; undefined behaviour.
     ;; the informant is a rule handle conjoined as an antecedent when given — the
     ;; engine's own firing shape (`chain/derive-conclusion` conjoins `:rule-handle`) —
     ;; else the symbolic placeholder
@@ -102,12 +102,14 @@
     :defeat       (do (jtms/defeat t (first args)) nil)
     :clear-defeat (do (jtms/clear-defeats! t) nil)
     :set-blocked  (do (jtms/set-blocked t (first args)) nil)
-    :block        (do (jtms/block t (first args)) nil)
-    :unblock      (do (jtms/unblock t (first args)) nil)
+    ;; a delta on the blocked set, stated as the whole set `set-blocked` takes
+    :block        (do (jtms/set-blocked t (into (jtms/blocked t) (first args))) nil)
+    :unblock      (do (jtms/set-blocked t (reduce disj (jtms/blocked t) (first args))) nil)
     :supersede    (do (jtms/supersede t (first args)) nil)
     :suspend      (do (jtms/suspend-premise t (first args)) nil)
     :retract      (jtms/retract! t (first args))
     :sweep        (jtms/sweep! t (first args))
+    :drop         (jtms/drop-justification! t (first args))
     :reset-touch  (do (jtms/reset-touched! t) nil)
     :relabel      (do (jtms/relabel t) nil)))
 
@@ -160,13 +162,14 @@
                              [:block [(some-jid)]]
                              [:unblock [(some-jid)]])
                    12      [:retract (d)]
-                   13      (case (.nextInt rng 5)
+                   13      (case (.nextInt rng 6)
                              0 [:sweep [(d)]]
                              1 [:supersede (into {} (for [_ (range (.nextInt rng 2))]
                                                       [(d) {:rep (d)}]))]
                              2 [:reset-touch]
                              3 [:suspend (d)]
-                             4 [:restrength (d) (str*)]))
+                             4 [:restrength (d) (str*)]
+                             5 [:drop (some-jid)]))
               fresh? (and (= :justify (first op)) (= next-jid (second op)))]
           [(conj ops op)
            (if fresh? (conj issued op) issued)
@@ -231,6 +234,7 @@
     :suspend      [(first args)]
     :retract      [(first args)]
     :sweep        (first args)
+    :drop         (some-> (get-in snap [:justs (first args) :consequence]) vector)
     :relabel      (keys (:nodes snap))
     (:supersede :reset-touch) nil))
 
@@ -745,3 +749,70 @@
                (fn [t] [(jtms/depth t 1)
                         (do (jtms/ensure-node t 1 9) (jtms/depth t 1))
                         (do (jtms/ensure-node t 1 0) (jtms/depth t 1))])))))
+
+;; ---- derivation depth: the least solution, whatever the order -------------
+
+(defn- derive!
+  "Justify `c` by `antes` under `jid` as a firing does: the node placed first at one more
+  than its deepest antecedent."
+  [t jid antes c]
+  (jtms/ensure-node t c (inc (long (reduce max 0 (map #(jtms/depth t %) antes)))))
+  (jtms/add-justification t (jtms/->just jid 'r antes c {} :monotonic)))
+
+(defn- depths [t ds] (mapv #(jtms/depth t %) ds))
+
+(defn- chain-of-four
+  "Premise 1, and 2, 3, 4 each derived from the one before: depths 0 1 2 3."
+  [t]
+  (jtms/add-premise t 1 :default)
+  (derive! t 10 [1] 2)
+  (derive! t 11 [2] 3)
+  (derive! t 12 [3] 4))
+
+(deftest a-node-that-loses-support-reads-the-depth-of-its-best-remaining-justification
+  ;; Each row removes what held a node shallow — its premise mark, a shortcut
+  ;; justification, or the antecedent of one — while the node stays on a deeper
+  ;; justification.  The depth rises to that justification's, and every node derived
+  ;; from it rises with it.
+  (doseq [[label build remove! want]
+          [["the premise mark goes, the node stays on its justification"
+            (fn [t] (chain-of-four t) (jtms/add-premise t 2 :default))
+            #(jtms/retract! % 2)
+            [0 1 2 3]]
+           ["a suspended premise mark leaves the same depth"
+            (fn [t] (chain-of-four t) (jtms/add-premise t 2 :default))
+            #(jtms/suspend-premise % 2)
+            [0 1 2 3]]
+           ["a shortcut justification is dropped"
+            (fn [t] (chain-of-four t) (derive! t 13 [1] 4))
+            #(jtms/drop-justification! % 13)
+            [0 1 2 3]]
+           ["the shortcut's antecedent is retracted and swept with it"
+            (fn [t] (chain-of-four t) (jtms/add-premise t 5 :default) (derive! t 13 [5] 3))
+            #(jtms/retract! % 5)
+            [0 1 2 3]]]]
+    (testing label
+      (is (= want (both build (fn [t] (remove! t) (depths t [1 2 3 4]))))))))
+
+(deftest depth-is-a-function-of-the-network-not-of-the-order-it-was-built-in
+  ;; Every build ends in the same network: premise 1 and the chain 1 → 2 → 3 → 4.  The
+  ;; shallower states the builds pass through — a premise mark on a derived node, a
+  ;; shortcut, a premise that arrives before the chain reaching it — leave no trace.
+  (let [builds {:in-order          chain-of-four
+                :premise-then-goes (fn [t] (chain-of-four t)
+                                     (jtms/add-premise t 2 :default) (jtms/retract! t 2))
+                :premise-first     (fn [t] (jtms/add-premise t 3 :default) (derive! t 12 [3] 4)
+                                     (jtms/add-premise t 1 :default) (derive! t 10 [1] 2)
+                                     (derive! t 11 [2] 3) (jtms/retract! t 3))
+                :shortcut-dropped  (fn [t] (chain-of-four t) (derive! t 13 [1] 4)
+                                     (jtms/drop-justification! t 13))}]
+    (is (= {:in-order [0 1 2 3] :premise-then-goes [0 1 2 3]
+            :premise-first [0 1 2 3] :shortcut-dropped [0 1 2 3]}
+           (into {} (for [[k build] builds]
+                      [k (both build #(depths % [1 2 3 4]))])))))
+  (testing "a premise mark landing on a derived node lowers what is derived from it"
+    (is (= [[0 1 0 1] [0 1 0 1]]
+           [(both (fn [t] (chain-of-four t) (jtms/add-premise t 3 :default))
+                  #(depths % [1 2 3 4]))
+            (both (fn [t] (jtms/add-premise t 3 :default) (chain-of-four t))
+                  #(depths % [1 2 3 4]))]))))

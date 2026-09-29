@@ -27,7 +27,8 @@ directory, and no KB value names the base's, since the registry shares it with e
 fork over it and counts no openers. To keep the base's release in hand, open it as
 its own KB and fork *that* — closing the base KB is then what frees the directory
 for another process.  A fork's own half also never writes into its base's directory:
-both halves naming one store is refused outright (`:type :base-is-overlay`).
+both halves naming one store is refused outright (`:type :base-is-overlay`), and when
+both arrive as opts the refusal comes before either store opens.
 
 ```clojure
 (def base (v/open-kb {:backend :disk-log :dir "/kb/frozen" :recover? :auto}))
@@ -50,6 +51,11 @@ remounted, in a later process, over the base it was taken against:
             :overlay {:backend :disk-log :dir "/kb/g"}
             :recover? :auto})
 ```
+
+`:backend :overlay` sets both axes. `:records :overlay` or `:index :overlay` alone is
+refused (`:type :unknown-backend`, `:mismatch :illegal-pair`, `:axis` naming the half to
+change): the records and the index decorate one base together, and one half alone reads
+the base through one store and not the other.
 
 A base opened this way is held to the index key-layout sentinel `open-kb` holds its own
 half to ([indexing.md](indexing.md), §7) — and refused (`:type :stale-index-layout`)
@@ -175,7 +181,19 @@ deliberately, because that is what the caller asked for.
   live in a small `KvBackend` beside the overlay, mirrored in atoms for the read path.
   Every mutation writes through and a mount rebuilds the atoms from it, so remounting a
   durable fork over the same base serves the merged view it was left in. An in-RAM fork
-  gets an in-RAM one and pays nothing for the machinery.
+  gets an in-RAM one and pays nothing for the machinery. That one is keyed on the fork's
+  `:space` and lives as long as the process, so a fork cleared and then reopened on the
+  same `:space` still hides its base, as a cleared durable fork does after a remount.
+  `fork` with no `:space` takes a space nothing else names.
+- **A read beside the fork's writer.** Every write is ordered so that a record read on
+  another thread answers the record the fork held before the write or the one it holds
+  after it, and never the base's record behind an override. A deletion writes the
+  tombstone before it deletes the overlay's copy, a write or a revival stores the
+  overlay's record before it releases the tombstone, and `clear-records!` sets the cleared
+  flag before it empties the overlay. Nothing makes the several writes of one call a
+  single step: a handle set read during a deletion can already lack the handle while
+  `get-sentex` still answers it, which is the per-read gap
+  [storage.md](storage.md#the-single-writer-contract) states for every backend.
 
 - **The optional capabilities cross the protocol.** A base may carry `Tallying` and
   `Prefetching` ([storage.md](storage.md)), and both are answered *through* the fork
@@ -227,7 +245,9 @@ which the counter both seeds a fork and stays where it was.
 2. **A fork of nothing is the thing it forked.** The overlay `KvBackend` passes
    `kv_backend_test`'s adapter contract over an empty base, and
    `VAELII_TEST_BACKEND=overlay` runs the *whole suite* that way
-   (`scripts/test-backends.sh`).
+   (`scripts/test-backends.sh`). Each `tu/fresh` there opens its fork on a new space and
+   drops the one before, since a cleared fork hides its base, so every read in the run
+   merges the fork with its base.
 3. **Tombstones are sticky and durable.** A deleted inherited record or key stays deleted
    across a remount, rebuilt from the bookkeeping.
 4. **Counts stay exact** under the frozen-base + copy-on-write-counter scheme, after adds,

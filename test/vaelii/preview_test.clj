@@ -1,23 +1,17 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.preview-test
-  "`preview`: what a batch would do to the KB, without leaving it done.
-
-  The property everything else rests on is that a preview writes nothing it cannot
-  take back **at the same handles**, so almost every test here pairs an assertion
-  about the answer with a before/after comparison of `content` — the live sentex and
-  justification sets.  That is the same thing the neutral fixture checks at teardown,
-  but a preview is supposed to be neutral *immediately*, not after a retraction sweep,
-  and a test that only leaned on the fixture would pass on a preview that stored
-  everything and let the teardown clean up.
-
-  House rules as everywhere: gensym'd temporaries via `tu/with-terms`, engine
-  vocabulary (`genl`, `disjoint`, `exceptWhen`, `set/defaultRule`, contexts) literal."
+  "`preview`: what a batch would do to the KB, without leaving it done.  A test that
+  stores or derives compares `content` before and after (docs/preview.md, \"Tests\")."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.integrate :as integrate]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as vr]
+            [vaelii.impl.settle :as settle]
             [vaelii.impl.types.reasoning :as reasoning]
+            [vaelii.impl.violations :as viol]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -69,6 +63,41 @@
         (is (true? (:premise? (first (:believed-added r)))))
         (is (nil? (:justification (first (:believed-added r))))))
       (is (= before (content kb))))))
+
+(tu/deftest-kb the-antecedents-name-the-edges-the-placement-saw-across
+  (tu/with-terms [puppy dog mortal Muffet CxLow CxMid]
+    (let [mid  (v/assert kb (list 'genlCx CxMid 'CxUniverse) 'CxUniverse)
+          low  (list 'genlCx CxLow CxMid)
+          genl (list 'genl puppy dog)
+          rule (vr/rule-sentence [(list dog '?x)] (list mortal '?x))
+          rh   (do (v/assert kb low 'CxUniverse)
+                   (v/assert kb genl 'CxUniverse)
+                   (v/assert kb rule CxLow {:direction :forward}))
+          r    (v/preview kb {:add [[(list puppy Muffet) CxMid]]})]
+      (testing "every edge the firing rests on, in the stored content order"
+        (is (= [{:informant rh :strength :monotonic :rule (v/readable-sentence (v/sentex kb rh))
+                 :antecedents [genl low (list 'genlCx CxMid 'CxUniverse) (list puppy Muffet)]}]
+               (keep :justification (:believed-added r)))))
+      (let [ph     (v/assert kb (list puppy Muffet) CxMid)
+            ch     (v/handle-of kb (list mortal Muffet) CxLow)
+            before (content kb)
+            gone   (first (filter #(= ch (:handle %)) (:believed-removed (v/preview kb {:remove [mid]}))))]
+        (testing "removing one edge withdraws the conclusion and names the edge missing"
+          (is (= :unsupported (:reason gone)))
+          (is (= [[mid]] (mapv :missing (:support (:detail gone))))))
+        (is (= before (content kb)))
+        (v/retract! kb ph)))))
+
+(tu/deftest-kb two-derivations-name-the-content-least-in-either-batch-order
+  (tu/with-terms [aa bb cc Rex CxStory]
+    (let [ra (v/assert kb (vr/rule-sentence [(list aa '?x)] (list cc '?x)) CxStory {:direction :forward})
+          _  (v/assert kb (vr/rule-sentence [(list bb '?x)] (list cc '?x)) CxStory {:direction :forward})
+          j  (fn [order]
+               (->> (v/preview kb {:add (mapv #(vector (list % Rex) CxStory) order)})
+                    :believed-added (filter #(= (list cc Rex) (:sentence %))) first
+                    :justification))]
+      (doseq [order [[aa bb] [bb aa]]]
+        (is (= ra (:informant (j order))) (pr-str order))))))
 
 (tu/deftest-kb content-the-batch-would-create-is-reported-without-a-handle
   (tu/with-terms [dog Rex CxStory]
@@ -123,10 +152,35 @@
         (is (= [(list canine Rex)] (sentences (:believed-removed r)))))
       (is (= before (content kb))))))
 
+(tu/deftest-kb removing-an-inert-sentex-moves-no-belief
+  (tu/with-terms [note Rex CxStory]
+    (let [h      (v/assert-inert kb (list note Rex) CxStory)
+          before (content kb)
+          r      (v/preview kb {:remove [h]})]
+      (is (= [[] []] [(:believed-added r) (:believed-removed r)]))
+      (is (= before (content kb)))
+      (v/edit! kb {:remove [h]}))))
+
+(tu/deftest-kb a-suspended-edge-leaves-the-closures-for-the-window
+  (tu/with-terms [puppy dog CxLow]
+    (let [edge   (v/assert kb (list 'genl puppy dog) 'CxUniverse)
+          cxe    (v/assert kb (list 'genlCx CxLow 'CxUniverse) 'CxUniverse)
+          before (content kb)
+          orig   @#'settle/constraint-nogoods
+          seen   (atom [])
+          read   #(vector (v/in? kb edge) (v/genl? kb puppy dog)
+                          (v/in? kb cxe) (v/sees? kb CxLow 'CxUniverse))]
+      ;; read at each pass's discovery, where the passes' re-chains read the closures too
+      (with-redefs [settle/constraint-nogoods (fn [k region] (swap! seen conj (read))
+                                                (orig k region))]
+        (v/preview kb {:remove [edge cxe]}))
+      (testing "inside the window the closures answer without the OUT edges"
+        (is (= [false false false false] (first @seen))))
+      (testing "and through them again once the rollback puts them back"
+        (is (= [true true true true] (last @seen) (read))))
+      (is (= before (content kb))))))
+
 ;; ---- 4. exceptions, in both directions -----------------------------------
-;; The case a naive implementation gets wrong twice over: blocking a conclusion
-;; *deletes* it, and reviving one *re-derives* it at a fresh handle.  A preview has
-;; to answer both without either happening for real.
 
 (tu/deftest-kb previewing-the-fact-that-triggers-an-exception-reports-the-block
   (tu/with-terms [bird penguin flies Opus CxStory]
@@ -167,10 +221,8 @@
 ;; ---- 5. the derivation path's own refusals -------------------------------
 
 (tu/deftest-kb a-conclusion-the-derivation-path-would-drop-is-reported-as-a-violation
-  ;; an `arg` conviction has no opposing sentex to weigh against, so the derivation
-  ;; path drops it — and a preview says so before the write happens
-  ;; Pinned to the constraint reading: the drop previewed is an arg conviction, which the
-  ;; entailment reading replaces with a mint (docs/argtypes.md).
+  ;; pinned to the constraint reading: the entailment reading mints instead of
+  ;; dropping an arg conviction (docs/argtypes.md)
   (tu/without-entailing
    (tu/with-terms [person rock parentOf looksLike Boulder Muffet CxStory]
      (v/assert kb (list 'genl person 'thing) CxStory)
@@ -189,10 +241,40 @@
          (is (empty? (v/violations kb))))
        (is (= before (content kb)))))))
 
+;; A calculus files its inconsistency from inside a read, on the reader's thread.  A
+;; reader thread files one after the preview has taken its baseline; the rollback removes
+;; what the batch filed and keeps the reader's entry.
+(tu/deftest-kb a-preview-rollback-keeps-what-a-reader-filed-beside-it
+  (tu/without-entailing
+   (tu/with-terms [person rock parentOf looksLike Boulder Muffet CxStory]
+     (v/assert kb (list 'genl person 'thing) CxStory)
+     (v/assert kb (list 'genl rock 'thing) CxStory)
+     (v/assert kb (list 'arg parentOf 1 person) CxStory)
+     (v/assert kb (list rock Boulder) CxStory)
+     (v/assert kb (vr/rule-sentence [(list looksLike '?x)] (list parentOf '?x Muffet)) CxStory {:direction :forward})
+     (let [entry  {:violation :qualitative-inconsistency :calculus :rcc8
+                   :context CxStory :sentence nil}
+           filed? (atom false)
+           orig   settle/contradictions-of
+           r      (with-redefs [settle/contradictions-of
+                                (fn [& args]
+                                  ;; a plain Thread, which conveys no binding, as a
+                                  ;; reader's own thread does not
+                                  ;; the first call is after the preview's baseline
+                                  (when (compare-and-set! filed? false true)
+                                    (doto (Thread. #(viol/report-unstamped kb entry)) .start .join))
+                                  (apply orig args))]
+                    (v/preview kb {:add [[(list looksLike Boulder) CxStory]]}))]
+       (is @filed? "the reader filed while the preview ran")
+       (testing "the preview reports the batch's drop and not the reader's entry"
+         (is (= [:arg-type] (mapv :violation (:violations r)))))
+       (testing "the rollback removes the batch's entry and keeps the reader's"
+         (is (= [entry] (v/violations kb))))
+       (v/clear-violations! kb)))))
+
 (tu/deftest-kb a-conclusion-the-derivation-path-would-arbitrate-is-previewed-as-a-contradiction
-  ;; the counterpart: a disjointness clash names an opposing sentex, so the firing is
-  ;; placed and `settle` arbitrates it — and what a reviewer needs to see before the
-  ;; commit is the *dilemma* it would open, not a drop that will not happen
+  ;; a disjointness clash names an opposing sentex, so the firing is placed and
+  ;; arbitrated rather than dropped
   (tu/with-terms [fish mammal swims Willy CxStory]
     (v/assert kb (list 'disjoint fish mammal) CxStory)
     (v/assert kb (vr/rule-sentence [(list swims '?x)] (list fish '?x)) CxStory {:direction :forward})
@@ -229,23 +311,24 @@
     (is (= before (content kb)))))
 
 ;; ---- 7. re-asserting what is already there -------------------------------
-;; The leak a rollback-by-handle misses: `assert` on a stored sentex finds it and
-;; marks it a premise, so a preview that only retracted what it *created* would
-;; leave a derived datum standing as an asserted one.
 
 (tu/deftest-kb previewing-a-sentence-the-kb-already-derives-adds-nothing-and-marks-nothing
-  (tu/with-terms [dog friendly Rex CxStory]
-    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory {:direction :forward})
-    (v/assert kb (list dog Rex) CxStory)
-    (let [ch     (v/handle-of kb (list friendly Rex) CxStory)
-          before (content kb)
-          r      (v/preview kb {:add [[(list friendly Rex) CxStory]]})]
-      (testing "it is already believed, so the diff is empty"
-        (is (empty? (:believed-added r)))
-        (is (empty? (:believed-removed r))))
-      (testing "and it is a derived datum again, not a premise"
-        (is (false? (v/premise? kb ch))))
-      (is (= before (content kb))))))
+  ;; removed too, the handle the add marked is suspended as a premise, and only the audit
+  ;; says it was not one
+  (doseq [remove? [false true]]
+    (tu/with-terms [dog friendly Rex CxStory]
+      (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory {:direction :forward})
+      (v/assert kb (list dog Rex) CxStory)
+      (let [ch     (v/handle-of kb (list friendly Rex) CxStory)
+            before (content kb)
+            r      (v/preview kb (cond-> {:add [[(list friendly Rex) CxStory]]}
+                                   remove? (assoc :remove [ch])))]
+        (testing (str "it is already believed, so the diff is empty, remove? " remove?)
+          (is (empty? (:believed-added r)))
+          (is (empty? (:believed-removed r))))
+        (testing "and it is a derived datum again, not a premise"
+          (is (false? (v/premise? kb ch))))
+        (is (= before (content kb)))))))
 
 (tu/deftest-kb previewing-a-premise-the-kb-already-holds-restores-its-strength
   (tu/with-terms [dog Rex CxStory]
@@ -258,23 +341,33 @@
       (is (= before (content kb))))))
 
 (tu/deftest-kb previewing-a-premise-at-a-stronger-class-restores-the-weaker-one
-  ;; The **other** direction, and the only one that says anything.  Weakening is undone by
-  ;; `strength/max` whatever the rollback writes — the recorded class is the stronger of
-  ;; the two — so a preview that lowers a class is put back by arithmetic rather than by
-  ;; the undo.  A preview that *raises* one has changed the KB as surely as one that stored
-  ;; a sentex, and only a **raw** write of the audited mark takes it back: resolving the
-  ;; restore by content keeps the class the batch itself just put there, and the preview
-  ;; leaves behind a monotonic claim nobody asserted.
-  (tu/with-terms [dog Rex CxStory]
-    (let [h      (v/assert kb (list dog Rex) CxStory {:strength :default})
-          before (content kb)]
-      (is (= :default (v/defeat-class kb h))
-          "the baseline the preview has to put the KB back to")
-      (v/preview kb {:add [[(list dog Rex) CxStory {:strength :monotonic}]]})
-      (testing "the class the preview raised is not one it may leave behind"
-        (is (true? (v/premise? kb h)))
-        (is (= :default (v/defeat-class kb h))))
-      (is (= before (content kb))))))
+  ;; the direction the rollback's raw `put-premise-mark` is for: `strength/max` alone
+  ;; undoes a weakening, and would keep a class the batch raised.  With the handle also
+  ;; removed, the suspension records the raised class, so only the audit can restore it.
+  (doseq [remove? [false true]]
+    (tu/with-terms [dog Rex CxStory]
+      (let [h      (v/assert kb (list dog Rex) CxStory {:strength :default})
+            before (content kb)]
+        (is (= :default (v/defeat-class kb h))
+            "the baseline the preview has to put the KB back to")
+        (v/preview kb (cond-> {:add [[(list dog Rex) CxStory {:strength :monotonic}]]}
+                        remove? (assoc :remove [h])))
+        (testing (str "the class the preview raised is not one it may leave behind, remove? " remove?)
+          (is (true? (v/premise? kb h)))
+          (is (= :default (v/defeat-class kb h)))
+          (is (= :default (p/premise-strength (:records kb) h)) "the record recover reads"))
+        (is (= before (content kb)))))))
+
+(tu/deftest-kb previewing-a-mirror-spelling-leaves-the-row-s-spellings-as-found
+  ;; the batch folds `(sib B A)` into the stored `(sib A B)` row and records the spelling;
+  ;; a rollback that kept it would split the row when the `symmetric` mark leaves
+  (tu/with-terms [sib Aa Bb CxStory]
+    (let [m (v/assert kb (list 'symmetric sib) CxStory)
+          h (v/assert kb (list sib Aa Bb) CxStory)]
+      (v/preview kb {:add [[(list sib Bb Aa) CxStory]]})
+      (is (nil? (integrate/spellings kb h)))
+      (v/retract! kb m)
+      (is (= [(list sib Aa Bb)] (map :sentence (v/sentexes-matching kb (list sib '?p '?q) CxStory)))))))
 
 ;; ---- 8. bounds ---------------------------------------------------------
 
@@ -292,24 +385,34 @@
     (is (false? (:bounded? (v/preview kb {:add [[(list dog Rex) CxStory]]}))))))
 
 (tu/deftest-kb the-cap-takes-the-content-first-entries-not-the-first-stored
-  ;; The cap is what makes the diff's order required: it decides *which* entries the
-  ;; caller sees, and the browser's proposal panel caps at 50.  Ranked by handle — which
-  ;; is assertion order — the same batch against the same knowledge would show a
-  ;; different sample depending on how the KB was loaded.
-  ;;
-  ;; The batch lists its facts in the **reverse** of their content order, so the two
-  ;; rankings disagree: by handle the first line reported is the first one written, by
-  ;; content it is the one whose sentence sorts first.
-  (tu/with-terms [likes Subject CxStory]
-    (let [objs (mapv #(tu/tmp-ind %) ["Alpha" "Beta" "Gamma"])
-          fact (fn [o] [(list likes Subject o) CxStory])
-          r    (v/preview kb {:add (mapv fact (reverse objs))} {:max-results 1})]
-      (is (= 1 (count (:believed-added r))))
-      (is (true? (:bounded? r)))
-      (is (= (list likes Subject (first objs))
-             (:sentence (first (:believed-added r))))
-          (str "the content-first line is the one shown — written last, so a handle "
-               "ranking would have shown the other end of the batch")))))
+  ;; The batch lists its facts in the reverse of their content order, so a handle ranking
+  ;; would show the last line.  Under `*print-length*` 2 the three sentences print alike,
+  ;; so only a key built with the print bounds off keeps the content order.
+  (doseq [[label report] [["preview" v/preview]
+                          ["edit-with-consequences!" v/edit-with-consequences!]]
+          print-length   [nil 2]]
+    (tu/with-terms [likes Subject CxStory]
+      (let [objs (mapv #(tu/tmp-ind %) ["Alpha" "Beta" "Gamma"])
+            fact (fn [o] [(list likes Subject o) CxStory])
+            r    (binding [*print-length* print-length]
+                   (report kb {:add (mapv fact (reverse objs))} {:max-results 1}))
+            row  (str label " under *print-length* " print-length)]
+        (is (= 1 (count (:believed-added r))) row)
+        (is (true? (:bounded? r)) row)
+        (is (= (list likes Subject (first objs)) (:sentence (first (:believed-added r))))
+            row)
+        (doseq [h (:added r)] (v/retract! kb h))))))
+
+(tu/deftest-kb a-chaining-bound-that-cuts-the-answer-says-so
+  (doseq [opts [{:max-derivations 1} {:max-depth 1}]]
+    (tu/with-terms [a b c d Rex CxStory]
+      (doseq [[x y] [[a b] [b c] [c d]]]
+        (v/assert kb (vr/rule-sentence [(list x '?x)] (list y '?x)) CxStory {:direction :forward}))
+      (let [before (content kb)
+            r      (v/preview kb {:add [[(list a Rex) CxStory]]} opts)]
+        (is (= [(list a Rex) (list b Rex)] (sentences (:believed-added r))) (pr-str opts))
+        (is (true? (:bounded? r)) (pr-str opts))
+        (is (= before (content kb)))))))
 
 ;; ---- 9. an empty batch --------------------------------------------------
 
@@ -340,15 +443,11 @@
       (is (= before (content kb))))))
 
 ;; ---- 11. the oracle: does the preview predict the edit? ------------------
-;; Every other test here pins one behaviour.  This one asks the only question that
-;; matters: run the preview, then really run the batch, and compare the two belief
-;; diffs.  Sentences and not handles, because content the batch creates — and content
-;; a blocked-then-released conclusion is re-derived as — lands on a fresh handle
-;; either way, which is exactly why a preview cannot promise handles for it.
+;; Compared by sentence: created and re-derived content lands on a fresh handle.
 
 (defn- believed-sentences
-  "Every believed datum as `{handle sentence}` — computed the expensive way, which is
-  fine on a test KB and is what makes it an oracle rather than a re-implementation."
+  "Every believed datum as `{handle sentence}`, read off the whole network rather than
+  a region, so the oracle shares no code with `preview`."
   [kb]
   (into {} (map (fn [h] [h (v/readable-sentence (v/sentex kb h))]))
         (jtms/in-datums (reasoning/tms kb))))
@@ -404,9 +503,6 @@
       (is (= (preview-diff (v/preview kb batch)) (edit-diff kb batch))))))
 
 ;; ---- 12. the clash that withdraws nothing --------------------------------
-;; A default against a default is a **represented dilemma**, not a defeat: both sides
-;; stay believed and the pair is reported.  So the two diff halves are silent about it,
-;; and a caller reading only those would be told the line simply arrived.
 
 (tu/deftest-kb a-batch-that-opens-a-dilemma-reports-it-rather-than-a-withdrawal
   (tu/with-terms [flies Tweety CxStory]
@@ -443,18 +539,16 @@
           (is (some? e) "the superseded spelling was not reported")
           (is (= h (:handle e)))
           (is (= :superseded (:reason e)))))
-      (testing "and the restatement under the representative arrives"
-        (is (contains? (set (sentences (:believed-added r))) (list barks Rex))))
+      (testing "and the restatement under the representative arrives, naming no rule"
+        (let [e (first (filter #(= (list barks Rex) (:sentence %)) (:believed-added r)))]
+          (is (= 'rewriteOf (:informant (:justification e))))
+          (is (not (contains? (:justification e) :rule)))))
       (testing "the merge is undone: the original spelling is believed again"
         (is (true? (v/in? kb h)))
         (is (false? (v/same-class? kb Rex Rexy))))
       (is (= before (content kb))))))
 
 ;; ---- 14. a throw during application ------------------------------------
-;; `check` is a fair account of `assert`'s refusals, not a proof of one: a batch
-;; whose second line is only inadmissible *because the first landed* passes the
-;; pre-flight and throws on the way in.  The preview reports it rather than
-;; propagating it, and still rolls back.
 
 (tu/deftest-kb a-line-that-throws-only-once-an-earlier-line-lands-is-reported-not-thrown
   (tu/with-terms [fish mammal Willy CxStory]
@@ -471,10 +565,7 @@
 ;; ---- the opts roster ------------------------------------------------------
 
 (tu/deftest-kb a-consequence-entry-point-option-nothing-reads-is-refused
-  ;; Every key `preview` and `edit-with-consequences` read is a bound, so the
-  ;; silent-default failure is a cap silently off: `{:max-result 5}` reads as no key at
-  ;; all, the diff comes back uncapped, and `:bounded?` says false as though the whole
-  ;; answer had been asked for.
+  ;; every key is a bound, so a misspelt one read as absent is a cap silently off
   (tu/with-terms [dog Muffet CxCap]
     (let [batch {:add [[(list dog Muffet) CxCap]]}]
       (testing "preview refuses the singular typo, naming its roster"
@@ -489,10 +580,7 @@
           (is (= :unknown-option (:type (ex-data e))))
           (is (= [:max-depth] (:unknown (ex-data e))))))
       (testing "a cap that is not a positive integer is refused at both entry points"
-        ;; The roster's failure one level in: `:max-results` is read, so the roster
-        ;; passes — and both entry points guard the cap with `pos-int?`, so a string or a zero
-        ;; reads as **no cap at all** and the diff comes back whole with `:bounded?`
-        ;; false, which is exactly the silent default the roster refuses a typo for.
+        ;; read as no cap, a string or a zero would answer whole with `:bounded?` false
         (doseq [[label bad] [["a string" "1"] ["zero" 0] ["a negative" -1]]
                 entry-point        [#(v/preview kb batch {:max-results bad})
                                     #(v/edit-with-consequences! kb batch {:max-results bad})]]
@@ -501,8 +589,7 @@
             (is (= bad (:limit (ex-data e))) label)
             (is (re-find #"positive integer" (ex-message e)) label))))
       (testing "a non-map opts is refused at both entry points"
-        ;; The keyword is the point — the refusal is what this asserts — so the
-        ;; type mismatch clj-kondo sees is the test's subject, not a defect.
+        ;; the type mismatch clj-kondo sees is the refusal under test
         #_{:clj-kondo/ignore [:type-mismatch]}
         (doseq [entry-point [#(v/preview kb batch :max-results)
                              #(v/edit-with-consequences! kb batch :max-results)]]

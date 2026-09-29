@@ -72,7 +72,7 @@
   "An empty KB under `:constraints :arbitrate` — the policy the three arbitrable kinds
   reach back under, where `:refuse` leaves an identical pair to the entry point."
   []
-  (doto (v/open-kb (assoc tu/scratch-space :constraints :arbitrate)) (tu/clear-kb!)))
+  (tu/fresh {:constraints :arbitrate}))
 
 ;; ---- arity: the pair with a binding to describe -------------------------
 ;;
@@ -147,12 +147,8 @@
 ;; the separation itself, a metatype declaring its members pairwise separate, a term
 ;; joining such a metatype, a `genl` edge closing a separation over content already
 ;; stored, and a `genlCx` edge putting two contexts' memberships in one reader's sight.
-;; A trigger added to one side and not the other is what this row cannot survive.  The
-;; deciding half places the two memberships in sibling contexts that only a context below
-;; both sees together, which is the vantage that weighs them — under either policy, since
-;; neither writer could see the far half.  What the `:disjoint` *exposure* entry says
-;; about a pair no vantage convicted is `exposure_test`'s roster, the two halves there
-;; being one clash and not two readers of it.
+;; The deciding half places the two memberships in sibling contexts that only CxBelow
+;; sees together.  The on-demand `exposed-clashes` answer is `exposure_test`'s.
 
 (deftest every-disjointness-trigger-refuses-and-weighs-the-same-clash
   (tu/with-terms [dog_t cat_t pup_t meta_t alpha_t beta_t Rex CxLeft CxRight CxBelow]
@@ -211,10 +207,8 @@
               (is (= (set [(first held) (first arriving)]) (set (:types d))))
               (is (= held (:against d)))
               (is (str/includes? (:message d) (str Rex))))
-            ;; A refusal has a newcomer and a message about it.  A nogood has two believed
-            ;; sentexes and no newcomer — deciding it by which arrived last is the
-            ;; arrival-order dependence the JTMS exists to refuse — so it carries the pair
-            ;; and a kind, and the sides are what a caller ranks.
+            ;; a refusal has a newcomer and a message; a nogood has two believed sentexes
+            ;; and no newcomer, so it carries the pair and a kind
             (testing "where the two legitimately differ, and why"
               (is (= :disjoint (:kind c)))
               (is (string? (:message d)))
@@ -223,19 +217,9 @@
 
 ;; ---- functional and asymmetric: a pair, not a message -------------------
 ;;
-;; The other two arbitrable kinds, and the rows where the retroactive half is a **decision**
-;; rather than a report: under `:arbitrate` a declaration reaching back over stored facts
-;; hands `settle` a nogood, re-derived by calling the very check the entry point calls.  So the
-;; vocabulary cannot drift — there is one check — and what the roster pins instead is that
-;; the pair the nogood names is the two sentences the entry point named, since a nogood carries no
-;; message at all and a reader matching one against the other has only the sentences.
-;;
-;; Both rows put the mark on a **super-predicate**, which is this family's version of an
-;; inherited arity: the checks read the mark up the hierarchy, so `(functional parentOf)`
-;; convicts two `fatherOf` mothers of one child and the declared predicate is neither
-;; fact's functor.  A descended mark has the same three ingredients an inherited length
-;; does — the two facts, the declaration and the `genl` edge — so any of the three can be
-;; last, and the roster asks all of them.
+;; The retroactive half is a nogood re-derived through the entry point's own check, so
+;; the roster pins that it names the two sentences the entry point named.  Both rows put
+;; the mark on a super-predicate, and either the mark or the `genl` edge arrives last.
 
 (deftest a-descended-mark-weighs-the-pair-the-entry-point-refuses-in-every-arrival-order
   (doseq [{:keys [kind mark edge held arriving strength via]}
@@ -246,10 +230,7 @@
               :via      parentOf :strength :default
               :held     (list fatherOf Kid 1980)
               :arriving (list fatherOf Kid 1990)}
-             ;; known-true, because `:asymmetric` reads the opposing claim's defeat class
-             ;; at **both** halves: a defeasible converse is weighed rather than refused, so
-             ;; an entry point row written at `:default` would be comparing a refusal against a
-             ;; pair that the entry point deliberately declines to make one
+             ;; known-true, since the entry point admits a defeasible converse
              {:kind     :asymmetric
               :mark     (list 'asymmetric parentOf)
               :edge     (list 'genl fatherOf parentOf)
@@ -278,22 +259,14 @@
               (is (= kind (:kind c)) "the pair is weighed, and as the same kind")
               (is (= #{held arriving} (set (map :sentence (:sides c))))
                   "and it is the pair the entry point named")
-              ;; A refusal has a newcomer and a message about it.  A nogood has two
-              ;; believed sentexes and no newcomer — deciding it by which arrived last is
-              ;; the arrival-order dependence the JTMS exists to refuse — so it carries the
-              ;; pair and a kind, and the sides are what a caller ranks.
               (testing "where the two legitimately differ, and why"
                 (is (string? (:message d)))
                 (is (nil? (:message c)))
                 (is (= 2 (count (:sides c))))))))))))
 
 (deftest a-cross-context-clash-is-weighed-in-the-entry-points-vocabulary
-  ;; The **other** arrival shape for these two kinds, and the one the default `:refuse`
-  ;; policy used to leave undecided: two facts each admissible where written, put in one
-  ;; reader's sight by two `genlCx` edges from a context below both.  Neither fact's own
-  ;; context sees the other, so neither writer is refused; CxBelow sees the pair whole
-  ;; and weighs it, re-deriving through `checks/arbitrable-violations` — the entry
-  ;; point's own check, which is what keeps the two from drifting about what a clash is.
+  ;; two facts each admissible where written, put in CxBelow's sight by two `genlCx`
+  ;; edges, under the default `:refuse` policy
   (doseq [{:keys [kind mark held arriving strength via]}
           (tu/with-terms [parentOf Kid A B]
             [{:kind :functional :mark (list 'functional parentOf) :via parentOf
@@ -326,8 +299,6 @@
           (testing "both name the two facts"
             (is (= held (:against d)))
             (is (= #{held arriving} (set (map :sentence (:sides c))))))
-          ;; A refusal has a newcomer and a message about it; a nogood has two believed
-          ;; sentexes and neither is the newcomer, so it carries the pair and a kind.
           (testing "where the two legitimately differ, and why"
             (is (string? (:message d)))
             (is (nil? (:message c)))))))))

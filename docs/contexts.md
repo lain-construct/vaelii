@@ -70,8 +70,10 @@ Data hangs below CxWell.
 
 - **CxCore** — the upper spindle's *head*: the code-supported vocabulary (every
   special predicate the engine interprets), asserted by `vaelii.host.core-context`. The
-  root — every context sees it. It also holds the five collections at the top of the
-  ontology — `intangible`, `spatial`, `physical_object`, `living_thing`,
+  root — every context in the spindle sees it, and a context no `genlCx` edge names
+  sees nothing but itself ([A context outside the
+  spindle](#a-context-outside-the-spindle)). It also holds the five collections at the
+  top of the ontology — `intangible`, `spatial`, `physical_object`, `living_thing`,
   `capability` — which the engine reads by no name and which are here for the reason
   below: the members of a spindle see each other not at all, so a term two of them
   extend has to be defined in the head.
@@ -321,7 +323,11 @@ Forward chaining matches antecedent facts across *any* context, then places the
 derived sentex in the **maximal** contexts that see the rule and all the matched
 facts: `taxonomy/maximal-common-descendant-contexts` = the most-general elements of the
 intersection of the facts' + rule's `context-down` closures. This can be several
-(incomparable maxima) or none (no common view ⇒ no justification). A universal rule
+(incomparable maxima) or none (no common view ⇒ no justification). When no member sees
+every other, the maxima are found by walking down the `genlCx` edges from the member with
+the smallest down closure, through the contexts that are not common descendants, to the
+first that are; the intersection is closed downward, so every maximum is among them, and
+the walk never reads the common descendants below them. A universal rule
 firing on specific facts lands its conclusion in the specific context. A rule names no
 target of its own: an `(ist Ctx S)` consequent is refused
 ([below](#ist-find-or-create-in-a-context)).
@@ -372,6 +378,14 @@ names the sentex it hides rather than restating it. Like every other fact it is
 belief-following — retracting or defeating the except restores the hidden sentex — and
 it rides the ordinary `genlCx` up-closure, visible from exactly the contexts where
 it hides its target.
+
+`assert` and `check` refuse an except when no sentex is stored under `H`
+(`:unknown-handle`, `checks/check-except-target`). Handles are allocated in assertion
+order, so an except asserted before its target would hide whichever sentex next received
+that number. Every admitted except names a handle below its own, and the except graph is
+acyclic. A target retracted after its except leaves the except naming nothing, and a
+handle is never reissued. A store written by import or recovery may still hold a cycle;
+the cascade reads an except it meets a second time on one walk as not in force.
 
 The removal is **total**, not just for reads:
 
@@ -478,7 +492,7 @@ properties fail with it:
 
 The reading a rule wants is that `S` be **visible** in some context, which is what the
 two mechanisms below this section say — `(decontextualized_predicate P)` takes every
-`(P ...)` into CxUniverse, which every context sees, and a `genlCx` edge puts `Ctx` in
+`(P ...)` into CxUniverse, which every context below the joint sees, and a `genlCx` edge puts `Ctx` in
 another context's ancestor set. Under either the literal is written plainly, and the
 `genlCx` topology rather than a per-rule annotation decides what is readable from where.
 An `ist` into a context that already sees the rule and the facts adds nothing, because
@@ -513,11 +527,13 @@ it, stays with that theory.
 `(decontextualized_predicate P)` takes every `(P ...)` out of the context it was stated
 in. Each one — asserted, or concluded by a rule — is additionally **deduced into
 CxUniverse**, supported by the placement sentex *and* the
-`(decontextualized_predicate P)` sentex. Since every context sees CxUniverse,
+`(decontextualized_predicate P)` sentex. Since every context below the joint sees CxUniverse,
 the fact becomes visible everywhere, even from a *sibling* context that cannot see
 where it was stated. Retracting or defeating either the original or the declaration
 withdraws the copy through the JTMS, and declaring it retroactively lifts the `(P ...)`
-facts already present.
+facts already present. A declaration that revives lifts the facts stored while it was
+OUT, which its arrival could not reach (`special/revived-declaration-sweeps`, run by the
+settle for every revived datum).
 
 The mechanism is documented in the KB by the `comment` on `decontextualized_predicate` in
 `CxCore.txt`. It is implemented in code rather than as a rule, because a rule stating it
@@ -619,7 +635,7 @@ Two boundaries, both deliberate:
 ### What the shipped ontology declares it of
 
 Every shipped declaration is a claim about a **predicate** rather than about a world.
-`functional`, `inverse`, `reflexive`, `irreflexive`, `symmetric`, `commutative`,
+`functional`, `functionalInArg`, `inverse`, `reflexive`, `irreflexive`, `symmetric`, `commutative`,
 `commutativeInArgs`, `commutativeInArgAndRest`, `anti_symmetric`, `asymmetric`,
 `transitive`, `anti_transitive`, `equivalence_relation`, `injection`, `surjection` and
 `bijection` carry the mark — so a `(symmetric P)` stated in one theory is the KB's
@@ -662,9 +678,10 @@ mirror of a fact from a sibling through the store and denied it through `has-pro
 symmetric prover and the supporter a mirrored firing names. `special/deduce-lifts`
 therefore deduces a permuting mark into CxUniverse whether or not the KB declares the lift,
 resting the copy on the statement alone. On a KB carrying CxCore, which declares it, the
-copy is the same copy.
+copy is the same copy. A context that sees neither a statement nor the copy reads the
+four as the store does ([A context outside the spindle](#a-context-outside-the-spindle)).
 
-**A KB without CxCore holds the other eleven where they are stated.** Nothing lifts
+**A KB without CxCore holds the other twelve where they are stated.** Nothing lifts
 them, so every reader reads `(transitive R)` stated in `CxA` from `CxA` and below, alike.
 `inherit_test`'s `the-transitivity-licence-is-read-from-the-asking-context` pins that half,
 and `a-permuting-mark-is-read-from-every-context-on-this-kb-too` beside it pins the four
@@ -689,12 +706,60 @@ arrival orders:
 | `inverse` | every context | `CxA`, `CxD` | the `:inverse` table — the inverse prover |
 | `functional` | every context | `CxA`, `CxD` | `:props :functional` — the merge, placed where the mark is visible |
 | `injection` `surjection` `bijection` | every context | nowhere | CxCore rules deriving `functional` and `functionalInArg`; inert without them |
-| `functionalInArg` | `CxA`, `CxD` | `CxA`, `CxD` | the `:functional-in-arg` table; CxCore declares no lift of it |
+| `functionalInArg` | every context | `CxA`, `CxD` | the `:functional-in-arg` table — the merge, placed where the mark is visible |
 
 Each table entry records its supporting sentexes with their contexts
 ([taxonomy.md](taxonomy.md#reads-are-scoped-by-the-asking-context)): the statement in `CxA`
 and, where the mark is lifted, the copy in CxUniverse, which is what every reader outside
 `CxA`'s descendants answers from.
+
+### A context outside the spindle
+
+A context no `genlCx` edge names sees nothing but itself: not CxUniverse, and not CxCore.
+The lattice has no implicit root. A reader of such a context reads what was stated there,
+which is what an agent context's independence rests on
+([belief.md](belief.md#independence-and-inheriting-base)), and an edge is how a KB puts the
+context under the spindle. The contexts above the joint, CxCore and the upper spindle's
+members, do not see CxUniverse either, so they read a lifted copy no more than an
+unwired context does.
+
+For the twelve marks lifted by declaration, "every context" in the table above therefore
+means every context that sees CxUniverse. A context that does not:
+
+- reads a mark only from a statement it sees, its own included. `(functional R)` stated in
+  it merges its facts there, and one stated in a sibling does not.
+- has its own statements lifted like any other context's, so every context that sees
+  CxUniverse reads a mark stated in it.
+- runs no definitional check whose declaration it cannot see. It sees none of CxCore's
+  argument declarations, so it admits what a context under CxCore refuses, and a lift out
+  of it runs the check on the copy (`unchecked-target?`, above).
+- gets no CxCore rule firing over its facts, since no context sees both the rule and the
+  fact. Each such firing files a `:no-placement` entry.
+
+The four permuting marks are the exception, because of the stored key. A sentex has one
+key for every context, so a fact stated in such a context is sorted by a mark stated
+anywhere, and its reader answers the fact's mirror. Every other reader of the property
+reads it where the store does:
+
+- `has-prop?` answers `:symmetric` and `:commutative` from any context as it answers them
+  with no context (`tax/has-prop?`), and the symmetric prover reads the property through it.
+- A forward firing that read a fact through its mirror names the mark statement, so
+  retracting the mark withdraws the firing, and is placed by the rule and the facts it
+  matched alone (`chain/placement-antecedents`). Were the statement's context to
+  constrain the placement as well, a context that sees no statement would lose the firing
+  to a `:no-placement` when the mark arrives first, and keep the firing it made before the
+  mark when the mark arrives last. The statement named is the CxUniverse copy where it is
+  believed, since it stands while any statement does.
+
+The mark asked as a sentence, `(ask? kb '(symmetric R) Ctx)`, is answered where a
+statement is visible, as any sentence is.
+
+`relation_properties_test`'s
+`a-merge-mark-reaches-a-context-with-no-edge-only-from-its-own-statement` pins the twelve,
+`inherit_test`'s `a-permuting-mark-is-read-from-a-context-with-no-edge` pins the property
+reads, and `order_independence_test`'s
+`a-firing-a-mark-no-statement-of-reaches-is-placed-in-every-order` pins the firing, in an
+unwired context and in one above the joint.
 
 ## forced_decontextualized_predicate: a canonical home in CxUniverse
 
@@ -739,18 +804,23 @@ admissible where each half was stated, jointly visible from some descendant — 
 
 `settle` runs each candidate's definitional question from its own context *and* from the
 maximal common descendant of that context and each context holding a sentex it could
-pair with. That chooses the asker rather than widening what an asker sees — a vantage
-already sees both halves — and it is what stops the same three sentences from landing on
+pair with — and, where a separation or a mark is visible only below that maximum, from
+the context where it comes into view. That chooses the asker rather than widening what
+an asker sees — a vantage already sees both halves and what separates them — and it is
+what stops the same three sentences from landing on
 a defeat or on two coexisting claims according to which half was written last
 ([nmtms.md](nmtms.md)). Both constraint policies ask the vantages: the policy decides
 whether a *writer* is refused, and a writer who could not see the far half is refused by
 neither. The defeat a vantage lands is scoped to that vantage and below, so a context
 reading one half alone keeps what it holds.
 
-A pair the vantage itself reads no grounds for is what is left to *report*. The vantage
-is the maximal common descendant, so a separation derivable only from a context below it
-convicts nobody, and `settle`'s exposure pass files the clash in `(violations kb)`
-naming the contexts that do see it whole.
+A separation derivable only from a context below the maximal common descendant is
+decided at the most general context that reads it: CxW sees `(t1 Pip)` in CxA and `(t2
+Pip)` in CxB, CxV sees CxW and the `(disjoint t1 t2)` in CxDecl, so CxV and the contexts
+below it believe one membership while CxW keeps both
+([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)). A pair the arbitration's
+budgeted sweep has not reached yet is counted by `:arbitration-truncated`, and
+`exposed-clashes` names it with the contexts that see it whole.
 
 **The pass asks its question of the scoped read, not of an enumeration.** For a
 candidate pair of held memberships it must answer "does any context see both of these
@@ -886,14 +956,30 @@ just as well when the feature is broken outright.
   keyed on `genlCx` is not the same thing as re-joining the rules the edge just gave
   a wider view.
 
-  It seeds **both** ancestor sets, because an edge pairs rules and facts in two directions. A
-  rule below can now see facts above; and a rule stated *above* is inherited into the
-  context newly wired under it, so the edge equally hands the general rule the
-  context's own facts and places the conclusion there. Seeding is by fact, so the
-  seeds are the believed sentexes of `super`'s ancestor set together with those of `sub`'s
-  descendant set.
+  **The seed set is what the lower contexts see, not the edge's two ends.** The edge grows
+  the view of every context `X` below `sub` by `super`'s ancestor set, `up`. A pairing it
+  makes new takes one ingredient from that growth and the other from anywhere in `X`'s
+  view, and that view holds more than the edge's endpoints: `sub`'s other ancestors, and
+  in a diamond the ancestors of `X`'s other parents. So the second set, `seen`, is the
+  union of the ancestor sets of every context in `sub`'s descendant set, less `up` — the
+  contexts some lower context sees that `super` does not. A pair both inside `up` met at
+  `super` before the edge, and a pair both inside `seen` met at the context that sees
+  both. The `up` half narrows once more, to `fresh`: the contexts of `up` that `sub` did
+  not already see through its other parents (`taxonomy/context-up-besides`), since every
+  lower context saw the rest before the edge. The old ancestor set is read the way
+  placement reads it: the walk does not cross an edge with a stored negation, and while a
+  scoped defeat stands `fresh` is all of `up`, since the taxonomy's closure applies
+  neither. So a new pairing has an ingredient in `fresh`, or the lower context saw all of
+  it, and one in `seen`, or `super` saw all of it, and its rule sits in one of three
+  places: in `seen`, with a fact in `fresh`; in `fresh`, with a fact in `seen` — a rule
+  stated *above* inherited into the context newly wired under it, placing its conclusion
+  there; or in the rest of `up`, which every lower context saw before, with a fact on each
+  side — a two-antecedent rule above both parents of a diamond, whose two facts only the
+  context below both sees together. Seeding is by fact, so the seeds are the believed
+  sentexes of the sets a pairing needs a fact from. The equality twins read the same
+  union for the same trigger (`special/context-edge-reader-ancestors`).
 
-  **It is enumerated from the rules, and each half is gated on the other holding one.**
+  **It is enumerated from the rules, and each half is gated on where a rule is stated.**
   Both are about cost, and the cost is asymptotic rather than constant. Walking the ancestor set
   and keeping the facts a rule could match is a record fetch per sentex *in the ancestor set*, so
   wiring N contexts under a `CxUniverse` holding K facts is O(N·K) against
@@ -901,12 +987,19 @@ just as well when the feature is broken outright.
   whole chain above. Two ref-counted rosters maintained at the rule index/unindex choke
   points — `:rule-antecedents`, the predicates some rule takes as an antecedent, and
   `:rule-contexts`, the contexts rules are stated in, both beside `:opposed` and both
-  replayed by `recover` — turn it around: walk those predicates' extents, keep what falls
-  in the ancestor set, and skip a half entirely when the other side holds no rule to benefit.
-  Wiring an *empty* context under a full one is the commonest edge there is and now
-  seeds nothing, where the ungated version re-seeded the whole ontology above it and
-  re-joined rules that had already fired on every fact of it. Measured on the starter
-  load: 1.80x ungated, 1.04x with both.
+  replayed by `recover` — turn it around: walk those predicates' extents and keep what
+  falls in the sets to seed, or walk those sets' own contents when they hold fewer
+  postings (`special/seeds-in`). `fresh` is seeded when a rule is stated in `seen`, and
+  `seen` when one is stated in `fresh`; when neither holds but a rule is stated in the
+  rest of `up`, a pairing it makes has a fact on each side and seeding either finds the
+  other, so the side holding fewer sentexes is seeded. Wiring an *empty* context under a
+  full one is the commonest edge there is and seeds nothing, since `seen` is the new
+  context alone and holds nothing, where the ungated version re-seeded the whole ontology
+  above it and re-joined rules that had already fired on every fact of it. Measured on the starter
+  load against the same load with no visibility seeding: 4.7x ungated, 1.03–1.04x with
+  both gates over `fresh` and `seen`. A gate over `up` in place of `fresh` measured 2.5x,
+  because a context already under `CxCore` re-seeds its second parent's facts for the
+  rules stated in `CxCore`.
 
   **Each roster predicate's extent is read fanned by `genl`**, the way the matcher fans
   it (`special/roster-antecedent-functors`): down the spec closure for a positive
@@ -918,11 +1011,24 @@ just as well when the feature is broken outright.
   hierarchy closes to itself, so the fan costs a KB with no type hierarchy under its rule
   antecedents nothing.
 
+  **The extents read include the functors that move what an antecedent answers without
+  being on it** (`special/licensing-functors`), one per re-join family of
+  `chain/fire-rules-for`: the predicates a `SupportingProver` reads, a registered
+  calculus's constraint predicates, a `(transitive P)` declaration and the inverse
+  partners a walk takes hops from, and the declarations and relation a preservation reads
+  ([inherit.md](inherit.md)). A unit table decides whether `(quantityGreaterThan ?q
+  (QuantityFn 1 Kilogram))` holds of a mass in grams, and no rule names
+  `conversionFactor`, so an edge that shows a lower context the table pairs it with a rule
+  and a fact that met before the edge; two `nonTangentialProperPart` facts composed below
+  the edge entail a `partOfRegion` no one stated. A seeded datum of such a functor queues
+  the re-join its arrival would have. The permuting marks are not among them: the engine
+  lifts each into `CxUniverse`, where every reader sees it before any edge does.
+
   **Withdrawal needs no twin of it**: dropping an edge *narrows* what a rule sees, and a
   firing names the edges its placement was seen over, so the dependency-directed sweep
   already collects a conclusion whose antecedent stopped being visible. Revival is the
   half that does, and it is the same function read the other way —
-  `special/resubsumption-seeds` puts a removed `genlCx` edge's two ancestor sets back on the
+  `special/resubsumption-seeds` puts a removed `genlCx` edge's `up` and `seen` back on the
   agenda beside a removed `genl` edge's spec subtree, because a sighting can outlive the
   edge that witnessed it when the contexts are wired together a second way.
 
@@ -935,14 +1041,14 @@ just as well when the feature is broken outright.
   `visibility-seeds` is called in the **ungated** arity it keeps for this caller: the
   rule-holding gate two paragraphs up is skipped on purpose, not inherited. That gate is
   sound for an *arriving* edge because an arriving edge is the only new reachability there
-  is — nothing can newly match except through it, so an ancestor set holding no rule newly matches
-  nothing. A departing edge says nothing of the kind. The firing being revived saw the
-  rule down whichever branch it liked and the facts down another, and neither branch need
-  be the one that went, so an edge whose own two ancestor sets hold no rule is precisely the case
-  that would lose a firing a surviving route still licenses. Whether the reachability
-  really survived is `place-conseq`'s question, answered from the taxonomy as it stands
-  after the removal, and a gate here guessing it from the departing edge alone would miss
-  a route running anywhere but between that edge's own endpoints.
+  is — nothing can newly match except through it, so a new pairing has an ingredient in
+  `fresh` and one in `seen`, and its rule is stated in `seen`, `fresh` or the rest of
+  `up`.
+  The ungated arity seeds all of `up` beside `seen`. A
+  departing edge says nothing of the kind. Whether a surviving route still licenses the
+  firing being revived is `place-conseq`'s question, answered from the taxonomy as it
+  stands after the removal, and a gate here would guess that answer from the departing
+  edge's two sets alone.
 
   So most of the re-join finds nothing to place, and that pass files no `:no-placement`
   (`chain/*report-no-placement?*`): a firing the caller's own retraction just killed is

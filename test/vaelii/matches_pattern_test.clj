@@ -73,3 +73,47 @@
   (testing "a compilable pattern raises no problem"
     (is (empty? (v/check kb (list 'matchesPattern "x" ipv4-pattern) 'CxCore))
         "a valid pattern is admitted")))
+
+;; ---- 5. a rule antecedent on matchesPattern or integer is computed ----
+
+(tu/deftest-kb a-rule-antecedent-on-matchesPattern-or-integer-fires
+  ;; Written with the computed literal first: canonical order moves it after the
+  ;; generator that binds its input, so the join reaches it with that input ground.
+  (tu/with-terms [hasLabel hasCount flagged_thing counted_thing named_thing ItemOne ItemTwo]
+    (v/assert kb (list 'set/forwardRule
+                       (list 'implies (list 'and (list 'matchesPattern '?s "a+b")
+                                            (list hasLabel '?x '?s))
+                             (list flagged_thing '?x)))
+              'CxUniverse)
+    (v/assert kb (list 'set/forwardRule
+                       (list 'implies (list 'and (list 'integer '?n) (list hasCount '?x '?n))
+                             (list counted_thing '?x)))
+              'CxUniverse)
+    (v/assert kb (list 'implies (list 'and (list 'matchesPattern '?s "b+c?")
+                                      (list hasLabel '?x '?s))
+                       (list named_thing '?x))
+              'CxUniverse)
+    (v/assert kb (list hasLabel ItemOne "aab") 'CxUniverse)
+    (v/assert kb (list hasLabel ItemTwo "bbc") 'CxUniverse)
+    (v/assert kb (list hasCount ItemOne 3) 'CxUniverse)
+    (v/assert kb (list hasCount ItemTwo 3.5) 'CxUniverse)
+    (testing "a forward rule concludes only of the string that matches"
+      (is (v/ask? kb (list flagged_thing ItemOne) 'CxUniverse))
+      (is (not (v/ask? kb (list flagged_thing ItemTwo) 'CxUniverse))))
+    (testing "a forward rule concludes only of the integer"
+      (is (v/ask? kb (list counted_thing ItemOne) 'CxUniverse))
+      (is (not (v/ask? kb (list counted_thing ItemTwo) 'CxUniverse))))
+    (testing "a backward rule answers the same way, under prove and the node engine"
+      (is (= [{'?x ItemTwo}] (v/prove kb (list named_thing '?x) 'CxUniverse)))
+      (is (= [{'?x ItemTwo}] (v/query kb (list named_thing '?x) 'CxUniverse {:max-depth 1}))))
+    (testing "either written order stores one rule"
+      (is (= (v/assert kb (list 'set/forwardRule
+                                (list 'implies (list 'and (list hasLabel '?x '?s)
+                                                     (list 'matchesPattern '?s "a+b"))
+                                      (list flagged_thing '?x)))
+                       'CxUniverse)
+             (v/handle-of kb (list 'set/forwardRule
+                                   (list 'implies (list 'and (list 'matchesPattern '?s "a+b")
+                                                        (list hasLabel '?x '?s))
+                                         (list flagged_thing '?x)))
+                          'CxUniverse))))))

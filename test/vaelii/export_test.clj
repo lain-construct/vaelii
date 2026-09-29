@@ -240,7 +240,7 @@
                 (is (some? (:consequent rule)))
                 (is (map? (:varmap rule))
                     "the author's variable names, or every rule renders as ?var0")
-                (is (= :forward (:direction rule))
+                (is (= #{:forward :backward} (:engines rule))
                     "the set/forwardRule direction, canonicalized into the record")))
 
             (testing "an exceptWhen rides as its own meta-sentex, naming the rule by handle"
@@ -317,7 +317,7 @@
 
 (deftest provenance-can-be-declined-and-what-is-left-is-a-whole-kb
   ;; Provenance is an open per-handle map with no size bound of its own, so it can
-  ;; dominate the records it annotates — 57% of the converted engine KB's dump.  Declining
+  ;; dominate the records it annotates — 57% of one large imported KB's dump.  Declining
   ;; it must therefore be possible, and must added no work but the annotation: the same
   ;; records, the same justifications, and a dump that still imports.
   (tu/with-neutral-kb [kb tu/fresh]
@@ -413,7 +413,7 @@
 (defn- synthetic-store
   "A `RecordStore` that *mints* a sentex per handle instead of holding one, counting
   the fetches.  Only what `export!` reads is implemented — a missing method throws,
-  which is the honest way to find out the writer reads more than it says it does."
+  which is how the test finds out the writer reads more than it says it does."
   [n fetches]
   ;; deliberately partial: an unimplemented method throws `AbstractMethodError`, which
   ;; is the assertion — the writer must read nothing but these four.
@@ -552,3 +552,22 @@
       (finally
         (.delete f)
         (.delete (.toFile dir))))))
+
+(deftest a-rule-frame-keyed-by-the-three-wrapper-fields-imports-with-its-wrappers
+  ;; A dump frame spells a rule's wrappers either as the record's `:engines` / `:effect`
+  ;; or as `:direction` / `:assumption` / `:constraint`; both come back as the sentence
+  ;; the author wrote, so the constructor stores the rule they stored.
+  (let [our   #'imp/our-sentence
+        base  {:sentence '(implies (p ?var0) (q ?var0)) :antecedent '[(p ?var0)]
+               :consequent '(q ?var0) :varmap '{?var0 ?x}}
+        inner '(implies (p ?x) (q ?x))]
+    (doseq [[fields want] [[{:direction :forward :defeasible true}
+                            (list 'set/forwardRule (list 'set/defaultRule inner))]
+                           [{:direction :backward} inner]
+                           [{:direction :inert} (list 'set/inertRule inner)]
+                           [{:direction :forward :assumption true} (list 'set/assumptionRule inner)]
+                           [{:direction :backward :constraint :soft} (list 'set/softConstraint inner)]
+                           [{:engines #{:forward} :effect :derive} (list 'set/forwardOnlyRule inner)]
+                           [{:engines #{:solve} :effect :forbid} (list 'set/hardConstraint inner)]]]
+      (testing (pr-str fields)
+        (is (= want (our (merge base fields))))))))

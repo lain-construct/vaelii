@@ -19,6 +19,7 @@
 #
 # For live plugin source instead of a published jar, scripts/link-checkouts.sh puts
 # the readers on every command's classpath (docs/foreign.md has the trade in full).
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 
 VERSION="${FOREIGN_VERSION:-RELEASE}"
@@ -31,3 +32,5 @@ fi
 
 exec lein update-in :dependencies conj \
   "[com.vaelii/vaelii-foreign \"$VERSION\" :exclusions [com.vaelii/vaelii]]" -- "$@"
+exit
+}

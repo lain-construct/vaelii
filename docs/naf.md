@@ -50,20 +50,25 @@ ones a quantifier binds: a nested `thereExists`'s, a `forall`'s, and an aggregat
 | `(unknown (thereExists ?x (parentOf ?x ?y)))` | `{?y}` |
 | `(unknown (thereExists ?x (parentOf ?x Tom)))` | `{}` — closed |
 
+A binder is a variable or a list of variables. A rule whose `thereExists`, `forall` or
+head `exists` binds a constant is refused `:not-well-formed` (`sentex/check-naf-closed`): a
+constant binds nothing, so `(unknown (thereExists Kid (owns ?x Kid)))` would test for an
+individual named `Kid`.
+
 An open `(unknown (flies ?x))` is not a test but a search over the whole domain's
 *complement* — every `x` that does not fly — so the prover **refuses** it rather than
-answering explosively, exactly the honest refusal `different` makes. In a rule, the
+answering explosively, exactly the refusal `different` makes. In a rule, the
 free variables must be bound before the `unknown` runs (closure, below) — by a
 *generator* antecedent, or by one of the deferred literals that **writes** rather than
 only reads: an aggregate's `?n`, an `evaluate`'s output. A `thereExists`'s own variable
 never has to be — that is what it is for.
 
 `check-naf-closed` holds every consuming literal to that rule, not only `unknown`: a
-`(lessThan ?m 35)` whose `?m` nothing in the rule writes is refused at assert time
-too. A bare *goal* nothing binds still answers empty, and the difference is the point
-— a goal is asked and gone, while a rule is stored and re-run, so an unbindable input
-would silently find nothing backward and throw mid-fixpoint forward, after the rule
-was already stored.
+`(lessThan ?m 35)` whose `?m` nothing in the rule writes, or a `(matchesPattern ?s ?p)`
+whose pattern `?p` nothing binds, is refused at assert time too. A bare *goal* nothing
+binds still answers empty, and the difference is the point — a goal is asked and gone,
+while a rule is stored and re-run, so an unbindable input would silently find nothing
+backward and throw mid-fixpoint forward, after the rule was already stored.
 
 ## Evaluated over the registry
 
@@ -106,7 +111,7 @@ The two block conditions are OR'd wherever a firing's block status is decided.
 ### `S` may be a conjunction
 
 ```clojure
-(implies (and (bird ?x) (unknown (and (flies ?x) (adult ?x)))) (walks ?x))
+(set/forwardRule (implies (and (bird ?x) (unknown (and (flies ?x) (adult ?x)))) (walks ?x)))
 ;; birds walk, unless they are known to be adults that fly
 ```
 
@@ -249,6 +254,10 @@ exactly as an aggregate is (`rules/arrival-releasable?`, `settle/rejoin-on-arriv
 and the same exemption at the two taxonomy edge triggers).
 
 ### Evaluated in the placement context, not the join
+
+Decision 4 of [reference.md](reference.md#decisions) restates this rule: the question is
+asked at the placement context and again at every reader below it, and a reader at which
+the exception holds reads the conclusion as withdrawn.
 
 An `unknown` antecedent is **not** a join filter. Forward chaining *skips* it in the
 join (it binds nothing and names no fact) and checks it at **derive time, per
@@ -480,7 +489,7 @@ through `wiring/solve-goal` — one of the three calls [`vaelii.impl.wiring`](na
 collects, because `unknown` runs the registry back over its own argument and so is mutually
 recursive with the chainer asking for it. Resolved once into a `delay` rather than carried
 on a thread binding, because `query` is lazy and a deferred literal reached mid-stream
-must still find the solver; an optional `*deferred-solver*` var overrides it. So `prove` /
+must still find the solver. So `prove` /
 `query` / `ask` / forward chaining all agree about a rule with an `unknown` (or `different`
 / `evaluate`) antecedent, and they agree by construction rather than by four separate
 implementations.
@@ -551,7 +560,7 @@ implementations.
   (`closed-extent-blocks?`, the withheld join literal, the `:closed-extent` slot on the
   rule view).
 - **Every chainer**: `res/solve-deferred` (the registry reached through
-  `wiring/solve-goal`, overridable via `*deferred-solver*`) lets `res/prove` and the
+  `wiring/solve-goal`) lets `res/prove` and the
   node engine evaluate a deferred antecedent, so every chainer agrees about `unknown`,
   `different` and `evaluate` alike.
 

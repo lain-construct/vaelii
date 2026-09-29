@@ -202,7 +202,7 @@
   (tu/with-terms [A B D]
     (let [h1 (v/assert kb (list 'nonTangentialProperPart A B) C)
           h2 (v/assert kb (list 'not (list 'regionConnectedTo B D)) C)]
-      (is (= #{:dc} (space/possible-relations kb C A D)))
+      (is (= #{:dc} (qkb/possible space/rcc8 kb C A D)))
       (is (= #{h1 h2} (qkb/support space/rcc8 kb C A D))))))
 
 (tu/deftest-kb an-inconsistent-network-reports-the-culprit-pair-and-its-support
@@ -245,7 +245,7 @@
   (tu/with-terms [A B D]
     (v/assert kb (list 'nonTangentialProperPart A B) C)
     (v/assert kb (list 'tangentialProperPart B D) C)
-    (let [net (space/region-network kb C)
+    (let [net (qkb/network kb space/rcc8 C)
           ns  (qkb/nodes net)
           plain (qcn/path-consistent net ns (:algebra space/rcc8))
           with  (qcn/path-consistent-with-support net (qkb/network-support kb space/rcc8 C)

@@ -56,8 +56,8 @@
 
   A binding is what a *variable* the caller wrote gets bound to, and `CxInference` is a
   constant — the caller named no variable, so there is nothing to bind and inventing one
-  would be this namespace answering a question nobody asked.  Assoc'ing `?ctx` instead
-  is indistinguishable from a binding and is not one: no `?ctx` appears in the call.  A keyword cannot
+  would be this namespace answering a question nobody asked.  A `?ctx` assoc'd in instead
+  looks like a binding and is not one: no `?ctx` appears in the call.  A keyword cannot
   collide with a binding either, since those are keyed by the `?`-symbols the goal
   spells.
 
@@ -97,7 +97,7 @@
   a broad literal over a very large store spends real time here before answering anything,
   on every read that does not name a context. Dropping it and letting the lattice define
   the vantages is O(1) and *wrong*: the suite asserts into unwired contexts in a dozen
-  namespaces and expects an unscoped read to find those facts, which is the honest signal
+  namespaces and expects an unscoped read to find those facts, which shows
   that an island is a place people put knowledge. The cheap version of this wants a census
   of fact-holding contexts maintained where sentexes are written; the index keeps a
   per-context root already and exposes no way to enumerate it."
@@ -182,7 +182,7 @@
   Grouped by the whole answer, which under `:proof?` means **per derivation** rather than
   per binding: two proofs of one binding keep a witness each.  That is the reading `:proof?`
   asks for — a proof is a claim about one derivation, and the context that witnessed *it* is
-  the honest answer — but it is a different grouping from the bare-bindings case above, and
+  the answer — but it is a different grouping from the bare-bindings case above, and
   worth knowing before comparing the two."
   [kb witness by-binding]
   (let [t      (reasoning/taxonomy kb)
@@ -304,7 +304,7 @@
   where everything it rests on *has* a context.  A stored match does: it names a sentex,
   and the `genl` edges it subsumed through name supporters.  A computed answer does not — a
   closure walk two hops long, an evaluable, an inferred argument type — and there is no
-  honest context to place it by.  Guessing one would place an answer where the edges it
+  context to place it by.  Guessing one would place an answer where the edges it
   rests on are not visible, which is the failure this whole namespace exists to avoid.
 
   Asked of the **registry** rather than of the literal's shape, because the shape does not

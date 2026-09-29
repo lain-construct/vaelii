@@ -131,12 +131,159 @@
     ;; add.  Reads the departing sentex rather than the index, so order does not matter
     ;; to this one either
     (kb/note-preserving! kb (sx/sentence-of sentex) false)
+    ;; ...and the mint roster, the remove half of `special/entail-arg-type`'s add, and
+    ;; the departure the settle re-derives withheld mints from
+    (special/drop-mint! kb sentex)
+    (special/note-departure! kb sentex)
     ;; An except's departure changes the effective belief of the declaration it hid.
     ;; Run after the roster drop so the common reconcile reads the new visibility state;
     ;; report the visibility move explicitly because the exception record is already gone.
     (when except-target
       (special/reconcile-belief-change kb #{except-target} true))
     (special/recheck-on-sentence kb (sx/sentence-of sentex))))
+
+;; ## The spellings a permuting mark folded
+;;
+;; A permuting mark sorts a literal's arguments on the way in, so the row a fact is
+;; stored at need not be spelled the way it was written: `(bRel Zed Amy)` under
+;; `(symmetric bRel)` is stored as `(bRel Amy Zed)`, and its mirror asserted beside it
+;; dedups to the same row.  While the mark holds that is exactly right — the two
+;; spellings are one proposition.  When the mark goes, a KB that never held it has one
+;; row per spelling written, each answering as written, and the store has to be able to
+;; become that KB.  Nothing in the row's sentence, premise mark or justifications says
+;; which spellings were written, so the row records them: the provenance entry
+;; `spellings-key` holds `{:premise {written strength} :derived {jid written}}` — one
+;; entry per premise assertion at its own class, and one per rule firing whose
+;; conclusion the sort moved.  `chain/reconcile-spellings!` reads it when a mark leaves
+;; and puts each piece back at the row its spelling now canonicalizes to.
+;;
+;; **Only a piece spelled otherwise than its row is recorded**, so a predicate nothing
+;; permutes writes no record and a permuting one pays a provenance write for the facts
+;; the sort actually moved.  The premise map is the exception to that: once it exists it
+;; lists every premise assertion, the stored spelling's included, because a premise mark
+;; is one class on one row and cannot say which of two spellings brought it.  A
+;; `:derived` entry naming a justification that has since gone is ignored; a `:premise`
+;; map on a row that is no longer a premise is stale and the next assertion replaces it.
+;;
+;; Provenance because it is the per-handle record every store already keeps durably, so
+;; a restart reads the spellings back with no new store method.  `core/provenance`
+;; leaves the entry out: it is the store's bookkeeping, not a field a caller wrote.
+
+(def spellings-key
+  "The provenance key a row's written spellings are recorded under."
+  :vaelii/spellings)
+
+(defn spellings
+  "Row `h`'s written-spelling record — `{:premise {written strength} :derived {jid
+  written}}` — or nil when every piece of it is spelled as the row is."
+  [kb h]
+  (get (p/get-provenance (:records kb) h) spellings-key))
+
+(defn put-spellings!
+  "Record `rec` as row `h`'s written spellings, dropping empty parts; an empty record
+  removes the entry (and the provenance map with it, when nothing else is in it)."
+  [kb h rec]
+  (let [recs (:records kb)
+        prov (p/get-provenance recs h)
+        rec  (not-empty (into {} (remove (comp empty? val)) rec))]
+    (cond
+      rec                           (when-not (= rec (get prov spellings-key))
+                                      (p/put-provenance recs h (assoc prov spellings-key rec)))
+      (contains? prov spellings-key) (let [prov' (dissoc prov spellings-key)]
+                                       (if (seq prov')
+                                         (p/put-provenance recs h prov')
+                                         (p/delete-provenance! recs h))))))
+
+(defn permuted-functor
+  "The predicate whose permuting marks decide how `sentence` is spelled when stored — its
+  functor, under a `not` — or nil."
+  [sentence]
+  (when (sequential? sentence)
+    (let [s (if (= 'not (first sentence)) (second sentence) sentence)]
+      (when (sequential? s)
+        (let [f (first s)] (when (symbol? f) f))))))
+
+(defn permuting?
+  "Does a stored mark permute `pred`'s arguments — `symmetric`, or a commuting group?"
+  [kb pred]
+  (let [tax (reasoning/taxonomy kb)]
+    (boolean (and pred (or (tax/has-prop? tax :symmetric pred)
+                           (seq (tax/commuting-groups tax pred)))))))
+
+(defn premise-spellings
+  "`{written strength}` for row `h`'s premise assertions: the record's, or `stored` at
+  `h`'s premise class when the record lists none, or `{}` when `h` is no premise."
+  [kb h stored]
+  (let [tms (reasoning/tms kb)]
+    (if (jtms/premise? tms h)
+      (or (not-empty (:premise (spellings kb h))) {stored (jtms/premise-strength tms h)})
+      {})))
+
+(defn note-premise-spelling!
+  "Record that `written` was asserted at `strength` onto row `h`, stored as `stored`.
+  `prior` is `h`'s premise class before this assertion, nil when it was none — the
+  record's premise map is then stale and starts again.  Writes nothing while every
+  premise assertion is spelled as the row is."
+  [kb h stored written strength prior]
+  (let [rec  (spellings kb h)
+        live (when prior (not-empty (:premise rec)))]
+    (cond
+      (or live (not= written stored))
+      (let [pm (or live (if prior {stored prior} {}))]
+        (put-spellings! kb h (assoc rec :premise (update pm written #(strength/max % strength)))))
+      (and (nil? prior) (seq (:premise rec)))
+      (put-spellings! kb h (dissoc rec :premise)))))
+
+(defn note-derived-spelling!
+  "Record that justification `jid`, a rule firing, concluded `written` onto row `h`."
+  [kb h jid written]
+  (put-spellings! kb h (assoc-in (spellings kb h) [:derived jid] written)))
+
+(defn normalized-spellings
+  "`rec` for a row stored as `stored`, without what the row's own spelling already says:
+  a premise map whose one assertion is `stored`, and every firing written as `stored`."
+  [stored {:keys [premise derived]}]
+  {:premise (when-not (every? #(= stored %) (keys premise)) premise)
+   :derived (into {} (remove (comp #{stored} val)) derived)})
+
+(defn mark-witness
+  "A believed statement of a permuting mark on `pred`, chosen by content — the handle a
+  fold carries a folded row's metas on when no declaration arrived to be it
+  (`commute-predicate`).  Nil when none is believed."
+  [kb pred]
+  (let [tax  (reasoning/taxonomy kb)
+        tms  (reasoning/tms kb)
+        recs (:records kb)]
+    (->> (concat (tax/prop-supporters tax :symmetric pred)
+                 (mapcat #(tax/commuting-supporters tax pred %) (tax/commuting-groups tax pred)))
+         (filter #(jtms/in? tms %))
+         (keep #(when-let [sx (p/get-sentex recs %)] [(nm/print-key [(:sentence sx) (:context sx)]) %]))
+         sort
+         first
+         second)))
+
+(defn- rule-justification?
+  "Is `jid` a rule firing — a justification whose informant is a rule handle?  Only a
+  firing's written spelling is recorded; every other justification restates a row it
+  rests on, and follows that row wherever its spelling puts it."
+  [kb jid]
+  (integer? (:informant (jtms/justification (reasoning/tms kb) jid))))
+
+(defn- written-out
+  "Row `h`'s record with every piece that is spelled `stored` only implicitly written
+  out — its premise assertions and its rule firings — for a caller about to move the
+  row off that spelling."
+  [kb h stored]
+  (let [tms (reasoning/tms kb)
+        rec (spellings kb h)]
+    (assoc rec
+           :premise (premise-spellings kb h stored)
+           :derived (reduce (fn [m jid]
+                              (if (or (contains? m jid) (not (rule-justification? kb jid)))
+                                m
+                                (assoc m jid stored)))
+                            (:derived rec {})
+                            (jtms/supports tms h)))))
 
 ;; ## A `symmetric` mark arriving after the facts
 ;;
@@ -151,7 +298,7 @@
 ;;
 ;; It lives here rather than beside the other retroactive arms in `special` because it
 ;; removes and re-stores records, and the store-mutation boundary is this namespace's whole
-;; subject.  Both callers sit above it: `core/assert-one` for a written declaration and
+;; subject.  Both callers sit above it: `assert-entry/assert-one` for a written declaration and
 ;; `chain/place-fact-conclusion` for a derived one, exactly as the two call
 ;; `special/equate-existing`.
 
@@ -162,6 +309,8 @@
   this row learns that its spelling moved, because for a re-canonicalization nothing that
   rests on it is about the spelling."
   [kb sx sentence]
+  ;; the pieces spelled as the row was stop being spelled as the row is
+  (put-spellings! kb (:id sx) (written-out kb (:id sx) (:sentence sx)))
   (special/disintegrate-sentex! kb sx)
   (let [sx' (kb/respell-sentex! kb sx sentence)]
     (special/integrate-sentex kb sx' (:id sx'))
@@ -170,7 +319,7 @@
 
 (defn- fold-premise!
   "Give `survivor` the premise mark `doomed` carries, at the **stronger** of the two
-  classes — `core/mark-premise`'s rule, and for its reason: the pair is one proposition
+  classes — `assert-entry/mark-premise`'s rule, and for its reason: the pair is one proposition
   asserted twice, and which of the two assertions the KB keeps must not decide how
   strongly it holds it.  A `doomed` that is not a premise leaves the survivor alone."
   [kb doomed survivor]
@@ -209,7 +358,10 @@
             just (jtms/->just nid (:informant j) antes (:consequence j)
                               (:bindings j) (:strength j))]
         (p/put-justification recs just)
-        (jtms/add-justification tms just)))))
+        (jtms/add-justification tms just)
+        ;; the copy concludes what the original did, spelled as the original was
+        (when-let [w (get-in (spellings kb (:consequence j)) [:derived jid])]
+          (note-derived-spelling! kb (:consequence j) nid w))))))
 
 (defn- fold-supports!
   "Re-hang every justification that **concludes** `doomed` on `survivor`, so a row a rule
@@ -228,20 +380,25 @@
   ever.  Skipping it loses no belief, because the row it concluded is the one leaving.
   Idempotent through `has-justification?`, and read from the **record** for
   `fold-dependents!`' reason — the network drops a firing's `:bindings`, which an
-  `exceptWhen` query and a NAF antecedent re-evaluate from."
+  `exceptWhen` query and a NAF antecedent re-evaluate from.  Returns `{jid copy}`, so the
+  caller can carry each firing's written spelling onto its copy."
   [kb doomed survivor]
   (let [tms  (reasoning/tms kb)
         recs (:records kb)]
-    (doseq [jid  (vec (jtms/supports tms doomed))
-            :let [j (or (p/get-justification recs jid) (jtms/justification tms jid))]
-            :when (and j (not (some #{survivor} (:antecedents j)))
-                       (not (jtms/has-justification? tms (:informant j) (:antecedents j)
-                                                     survivor)))]
-      (let [nid  (p/next-id recs)
-            just (jtms/->just nid (:informant j) (vec (:antecedents j)) survivor
-                              (:bindings j) (:strength j))]
-        (p/put-justification recs just)
-        (jtms/add-justification tms just)))))
+    (reduce (fn [copied jid]
+              (let [j (or (p/get-justification recs jid) (jtms/justification tms jid))]
+                (if (and j (not (some #{survivor} (:antecedents j)))
+                         (not (jtms/has-justification? tms (:informant j) (:antecedents j)
+                                                       survivor)))
+                  (let [nid  (p/next-id recs)
+                        just (jtms/->just nid (:informant j) (vec (:antecedents j)) survivor
+                                          (:bindings j) (:strength j))]
+                    (p/put-justification recs just)
+                    (jtms/add-justification tms just)
+                    (assoc copied jid nid))
+                  copied)))
+            {}
+            (vec (jtms/supports tms doomed)))))
 
 (defn- fold-row!
   "Fold the mirrored row `doomed` into `survivor` and take it out of the store: the
@@ -260,7 +417,18 @@
   supports nothing: the sweep collects an ungroundable non-premise datum, and a row still
   carrying its own supports would be relabelled back in."
   [kb doomed survivor witness]
-  (fold-supports! kb doomed survivor)
+  ;; read before anything moves: the doomed row's pieces, spelled as it wrote them, go to
+  ;; the survivor with everything else it hands over
+  (let [dsx     (p/get-sentex (:records kb) doomed)
+        dpieces (written-out kb doomed (:sentence dsx))
+        spieces (written-out kb survivor (:sentence (p/get-sentex (:records kb) survivor)))
+        copied  (fold-supports! kb doomed survivor)]
+    (put-spellings! kb survivor
+                    (assoc spieces
+                           :premise (merge-with strength/max (:premise spieces) (:premise dpieces))
+                           :derived (into (:derived spieces)
+                                          (keep (fn [[jid w]] (when-let [n (copied jid)] [n w])))
+                                          (:derived dpieces)))))
   (fold-dependents! kb doomed survivor)
   (fold-premise! kb doomed survivor)
   (special/migrate-handle-metas kb doomed survivor [witness]
@@ -358,6 +526,23 @@
            commutative)            (when (seq (tax/commuting-groups tax p)) p)
           nil)))))
 
+(defn commute-predicate
+  "Bring `pred`'s stored rows into the spelling its marks now give them, folding mirrored
+  pairs — `commute-existing`'s walk, for a caller that knows the predicate rather than
+  the declaration: a mark revived by a relabel, which no declaration arrives to announce
+  (`chain/reconcile-spellings!`).  `witness` is the mark handle a folded row's metas are
+  carried on.  `{:new [handles]}`, or nil when `pred` has no stored rows."
+  [kb pred witness]
+  (let [idx (:index kb)]
+    (when (pos? (reads/stored-count-with-functor idx pred))
+      ;; snapshotted before the first write: the fold posts to the roots this walk
+      ;; reads, and no index backend promises whether a posting read is a snapshot
+      {:new (into []
+                  (keep (fn [h]
+                          (when-let [sx (p/get-sentex (:records kb) h)]
+                            (symmetrize-row! kb sx witness))))
+                  (vec (reads/as-stored-with-functor idx pred)))})))
+
 (defn commute-existing
   "When a declaration that *re-spells* arrives — `symmetric`, or either commutativity
   relation — bring the named predicate's **already stored** facts into the argument order
@@ -379,10 +564,10 @@
   ways, and every reader — matching, retraction, the TMS, the handle entry points — has to
   consult it for ever after.  Migrating instead leaves the records themselves canonical,
   so `recover` reads a store that needs no reconciling and no reader learns a new rule.
-  The price is that it is a write and therefore not undone by retracting the mark: the
-  declaration going away leaves `P`'s facts spelled the way the declaration had them
-  spelled, which is a spelling and not a belief, and `sort-symmetric-args` never claimed
-  the two orders were different propositions to begin with.
+  The price is that it is a write, and retracting the mark does not undo it by itself:
+  what makes the mark leaving answerable is the record each moved row keeps of the
+  spellings it was written in (`spellings-key`), which `chain/reconcile-spellings!` reads
+  to split the rows back apart.
 
   **The extent is `P`'s own stored rows, not its spec subtree.**  `res/kb-sentex` reads
   the mark off the literal's exact functor — a `genl` edge below a symmetric predicate
@@ -401,14 +586,5 @@
   is a declaration reaching the facts, so it is linear in the facts it reaches, and a
   predicate marked before it has any is free."
   [kb sentence witness]
-  (let [p (recanonicalizing-subject kb sentence)]
-    (when p
-      (let [idx (:index kb)]
-        (when (pos? (reads/stored-count-with-functor idx p))
-          ;; snapshotted before the first write: the fold posts to the roots this walk
-          ;; reads, and no index backend promises whether a posting read is a snapshot
-          {:new (into []
-                      (keep (fn [h]
-                              (when-let [sx (p/get-sentex (:records kb) h)]
-                                (symmetrize-row! kb sx witness))))
-                      (vec (reads/as-stored-with-functor idx p)))})))))
+  (when-let [p (recanonicalizing-subject kb sentence)]
+    (commute-predicate kb p witness)))

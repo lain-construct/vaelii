@@ -63,6 +63,11 @@ corpus. Deliberately **not** a protocol: two formats on the way out have nothing
 common worth abstracting, and a protocol is one more thing to agree on across a repo
 boundary.
 
+`import-dump` calls a dump dialect's `:replay-belief!` with `kb` and a map holding
+`:read-fn`, a function of a stream file and a compression that returns the file's frames
+as a lazy seq. The importer closes every stream `:read-fn` opened when `:replay-belief!`
+returns or throws, so the reader closes none itself, and reads no seq after it returns.
+
 ## How a plugin declares itself
 
 One resource, `vaelii/foreign.edn`, mapping kind to the var holding its reader map:
@@ -140,13 +145,14 @@ measures — is [kbs.md](kbs.md).
 
 Two callers, and neither holds more than a resolve:
 
-* `vaelii.impl.io.import` — a frame carrying `:sentence` is ours and is decoded inline;
-  anything else goes to `:engine-dump`, resolved **once per import** rather than per
-  frame. A build with no such plugin refuses the dump with `:type :no-foreign-reader`
+* `vaelii.impl.io.import` — a frame carrying `:sentence`, or a rule's `:antecedent`
+  beside its `:varmap`, is ours and is decoded inline; anything else goes to
+  `:engine-dump`, resolved **once per import** rather than per frame. An `:antecedent`
+  alone is not ours: the engine dialect carries one on every frame, nil on a fact. A build with no such plugin refuses the dump with `:type :no-foreign-reader`
   instead of misreading it.
 * `vaelii.browser.catalog` — `:corpus` loads through `:cyc-corpus`. A found KB is still
-  *offered* whether or not a reader is present: the honest answer to "I cannot read this"
-  is a load that fails saying so, not a KB that silently stops being listed.
+  *offered* whether or not a reader is present: a KB this build cannot read produces a
+  load that fails saying so, not a KB that silently stops being listed.
 
 ## What this repo promises
 

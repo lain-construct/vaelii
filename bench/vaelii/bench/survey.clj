@@ -11,7 +11,7 @@
   is re-indexed into a fresh in-memory KB, and `postings/survey-index` runs the identical
   composition + four-encoding density measurement.
 
-  **Caveat, stated honestly:** a sample of N out of the corpus's ~15M facts has *less
+  **Caveat:** a sample of N out of the corpus's ~15M facts has *less
   term reuse* than the whole, so its big postings (a hot predicate/context) are smaller
   than at full scale — the survey therefore *under*-represents the large-posting tail and,
   if anything, understates Roaring's tier.  What it faithfully reproduces is the fact
@@ -81,7 +81,7 @@
         (update :rules inc)
         (update :rule-preds into (keep functor (:antecedent rec)))
         (update :rule-preds (fn [s] (if-let [c (functor (:consequent rec))] (conj s c) s)))
-        (update :dirs (fn [d] (update d (:direction rec) (fnil inc 0))))
+        (update :dirs (fn [d] (update d (:engines rec) (fnil inc 0))))
         ;; backward-chain shape: |antecedents| is the per-goal join/branching cost;
         ;; consequent-predicate frequency is the candidate-set size a goal on that
         ;; predicate reads (`rules-by-consequent`).

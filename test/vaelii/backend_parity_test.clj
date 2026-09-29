@@ -133,6 +133,10 @@
            :after-retract-isa   (v/isa? kb 'Rex 'animal 'CxParity))))
 
 (defn- run-session [opts]
+  ;; the overlay arm's base is emptied before the fork mounts it: clearing the fork hides
+  ;; the base rather than emptying it, and the arm's claim is a fork over an empty base
+  (when-let [base (:base opts)]
+    (tu/clear-kb! (v/open-kb (assoc base :recover? false))))
   (let [kb (v/open-kb (assoc opts :recover? false))]
     (tu/clear-kb! kb)
     ;; The script's expectations are hand-written, and this namespace's question is

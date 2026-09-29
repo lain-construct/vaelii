@@ -154,7 +154,15 @@
   (testing "and a pairing both halves of which are legal apart"
     (is (= {:mismatch :illegal-pair :axis :index :kind :disk-log}
            (select-keys (refusal #(v/open-kb {:records :memory :index :disk-log}))
-                        [:mismatch :axis :kind])))))
+                        [:mismatch :axis :kind]))))
+  (testing "a fork on one axis alone, which names the other half and :overlay for it"
+    (are [opts axis kind]
+         (= {:mismatch :illegal-pair :axis axis :kind kind :instead :overlay}
+            (select-keys (refusal #(v/open-kb opts)) [:mismatch :axis :kind :instead]))
+      {:records :overlay :index :memory
+       :base {:backend :memory} :overlay {:backend :memory}}  :index   :memory
+      {:records :overlay :index :disk-log}                    :index   :disk-log
+      {:records :memory :index :overlay}                      :records :memory)))
 
 (deftest a-legal-backend-whose-adapter-is-absent-is-not-an-unknown-one
   ;; `:sqlite` and `:pg` records live in Apache-2.0 siblings the SSPL engine does not
@@ -246,6 +254,58 @@
     (is (= #{:backend :records :index :space :dir :pg :tms :recover?
              :naming :constraints :base :base-stores :overlay}
            kb/opt-keys))))
+
+(deftest a-store-value-outside-its-domain-is-refused
+  ;; The key roster above settles which keys are read; this is the value of the three that
+  ;; pick the store.  Unchecked, a string space would share the directory of the number
+  ;; it prints as, a nil space would key a RAM store apart from space 0, a blank directory
+  ;; would put the store in the JVM's working directory, and a :dir or :base-stores of the
+  ;; wrong type would reach a protocol call and throw a bare IllegalArgumentException.
+  ;; Each is refused before anything opens.
+  (letfn [(refused [opts]
+            (try (v/close! (v/open-kb opts)) nil
+                 (catch clojure.lang.ExceptionInfo e
+                   (select-keys (ex-data e) [:type :mismatch :option :value]))))]
+    (testing "every value outside a domain is :unknown-option :bad-value, naming the key"
+      (doseq [[k opts] [[:space {:space "3"}]
+                        [:space {:space nil}]
+                        [:space {:space -1}]
+                        [:space {:space 1.5}]
+                        [:space {:space 3N}]
+                        [:space {:space {:a 1}}]
+                        [:dir {:backend :disk-log :dir ""}]
+                        [:dir {:backend :disk-log :dir "  "}]
+                        [:dir {:backend :disk-log :dir (io/file "")}]
+                        [:dir {:backend :disk-log :dir 42}]
+                        [:dir {:backend :disk-log :dir nil}]
+                        [:base-stores {:backend :overlay :base-stores :bogus}]
+                        [:base-stores {:backend :overlay :base-stores {:records 1 :index 2}}]]]
+        (is (= {:type :unknown-option :mismatch :bad-value :option k :value (get opts k)}
+               (refused opts))
+            (pr-str opts))))
+    (testing "a fork's own halves are held to it too"
+      (let [base (v/open-kb {:space 88 :recover? false})]
+        (try
+          (is (= :space (:option (refused {:backend :overlay
+                                           :base-stores {:records (:records base)
+                                                         :index   (:index base)}
+                                           :overlay {:backend :memory :space "7"}}))))
+          (is (= :space (:option (try (v/fork base {:space nil}) nil
+                                      (catch clojure.lang.ExceptionInfo e (ex-data e))))))
+          (is (= :dir (:option (refused {:backend :overlay
+                                         :base    {:backend :disk-log :dir ""}
+                                         :overlay {:backend :memory :space 188}}))))
+          (finally (v/clear! base)))))
+    (testing "a keyword, a symbol or a vector names a private space, and a File a directory"
+      (doseq [space [(keyword (str (gensym "h43-space"))) (gensym "h43-space") [::h43 (gensym)]]]
+        (let [kb (v/open-kb {:space space :recover? false})]
+          (try (is (some? (v/assert kb '(dog Muffet) 'CxMixed)) (pr-str space))
+               (finally (v/clear! kb)))))
+      (with-tmp
+        (fn [dir]
+          (let [kb (v/open-kb {:backend :disk-log :dir (io/file dir) :recover? false})]
+            (try (is (some? (v/assert kb '(dog Muffet) 'CxMixed)))
+                 (finally (v/close! kb)))))))))
 
 (deftest a-mount-or-durability-key-without-its-axis-is-refused
   ;; All four keys are in the roster, so `check-opts!` passes them — but each is read
@@ -655,7 +715,12 @@
     (testing "a name for an axis nothing declares, which refuses at the first open"
       (is (= :unknown-axis
              (:mismatch (refusal {:backend-modes (assoc (:backend-modes tables)
-                                                        :tape-memory {:records :tape :index :memory})})))))
+                                                        :tape-memory {:records :tape :index :memory})}))))
+      (is (= [:unknown-axis :tape]
+             ((juxt :mismatch :index)
+              (refusal {:backend-modes (assoc (:backend-modes tables)
+                                              :memory-tape {:records :memory :index :tape})})))
+          "and on the index axis"))
     (testing "a name for a pair the gates reject, where the refusal never mentions the name"
       (is (= :illegal-pair
              (:mismatch (refusal {:backend-modes (assoc (:backend-modes tables)

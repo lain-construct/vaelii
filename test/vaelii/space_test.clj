@@ -36,8 +36,8 @@
     (testing "NTPP∘NTPP = NTPP, so A is strictly inside D though nobody said so"
       (is (v/ask? kb (list 'nonTangentialProperPart A D) C)))
     (testing "and the table pins it to exactly that — no other base relation survives"
-      (is (= #{:ntpp} (space/possible-relations kb C A D)))
-      (is (= :ntpp (space/definite-relation kb C A D))))
+      (is (= #{:ntpp} (qkb/possible space/rcc8 kb C A D)))
+      (is (= :ntpp (qkb/definite space/rcc8 kb C A D))))
     (testing "so a base relation the network excludes is not answered"
       (is (not (v/ask? kb (list 'spatiallyDisconnected A D) C)))
       (is (not (v/ask? kb (list 'externallyConnected A D) C)))
@@ -62,8 +62,8 @@
     ;; relation at all, so nothing about A and D is entailed
     (v/assert kb (list 'spatiallyDisconnected A B) C)
     (v/assert kb (list 'spatiallyDisconnected B D) C)
-    (is (= space/all-relations (space/possible-relations kb C A D)))
-    (is (= :unknown (space/definite-relation kb C A D)))
+    (is (= space/all-relations (qkb/possible space/rcc8 kb C A D)))
+    (is (= :unknown (qkb/definite space/rcc8 kb C A D)))
     (testing "an open pair entails no spatial predicate, not even a wide derived one"
       (is (not (v/ask? kb (list 'spatiallyDisconnected A D) C)))
       (is (not (v/ask? kb (list 'regionConnectedTo A D) C)))
@@ -91,7 +91,7 @@
   (tu/with-terms [A B]
     ;; asserting the disjunction narrows the pair to its denotation and no further
     (v/assert kb (list 'properPartOfRegion A B) C)
-    (is (= #{:tpp :ntpp} (space/possible-relations kb C A B)))
+    (is (= #{:tpp :ntpp} (qkb/possible space/rcc8 kb C A B)))
     (testing "so the wider predicates it implies are entailed"
       (is (v/ask? kb (list 'partOfRegion A B) C))
       (is (v/ask? kb (list 'regionOverlaps A B) C)))
@@ -103,7 +103,7 @@
   (tu/with-terms [A B]
     (v/assert kb (list 'partOfRegion A B) C)              ; #{:tpp :ntpp :eq}
     (v/assert kb (list 'properPartOfRegion A B) C)        ; #{:tpp :ntpp}
-    (is (= #{:tpp :ntpp} (space/possible-relations kb C A B))
+    (is (= #{:tpp :ntpp} (qkb/possible space/rcc8 kb C A B))
         "the constraint is the intersection, whichever order they were read in")
     (is (not (v/ask? kb (list 'spatiallyEqual A B) C)))))
 
@@ -114,8 +114,8 @@
     (v/assert kb (list 'spatiallyDisconnected A B) C)
     (v/assert kb (list 'spatiallyEqual A B) C)
     (testing "DC and EQ are disjoint base relations, so their pair empties"
-      (is (= #{} (space/possible-relations kb C A B)))
-      (is (= :inconsistent (space/definite-relation kb C A B))))
+      (is (= #{} (qkb/possible space/rcc8 kb C A B)))
+      (is (= :inconsistent (qkb/definite space/rcc8 kb C A B))))
     (testing "and an inconsistent theory is not mined for conclusions — anywhere"
       (is (not (v/ask? kb (list 'spatiallyDisconnected A B) C)))
       (is (not (v/ask? kb (list 'spatiallyEqual A B) C)))
@@ -135,7 +135,7 @@
     ;; the algebra's identity — no triple visits it and no composition can narrow it — so
     ;; the claim is unsatisfiable in a way only the up-front check reports.
     (v/assert kb (list 'spatiallyDisconnected A A) C)
-    (is (= :inconsistent (space/definite-relation kb C A B)))
+    (is (= :inconsistent (qkb/definite space/rcc8 kb C A B)))
     (is (not (v/ask? kb (list 'spatiallyDisconnected A A) C))
         "a region is not disconnected from itself, so nothing follows from saying it is")
     (testing "retracting it makes the network coherent again"
@@ -146,7 +146,7 @@
   (tu/with-terms [A]
     ;; the denotations containing EQ are the ones a region may stand in to itself
     (v/assert kb (list 'regionOverlaps A A) C)
-    (is (= #{:eq} (space/possible-relations kb C A A)))
+    (is (= #{:eq} (qkb/possible space/rcc8 kb C A A)))
     (is (v/ask? kb (list 'partOfRegion A A) C))
     (is (v/ask? kb (list 'spatiallyEqual A A) C))
     (is (not (v/ask? kb (list 'properPartOfRegion A A) C)))))
@@ -158,7 +158,7 @@
     (v/assert kb (list 'nonTangentialProperPart A B) C)
     (v/assert kb (list 'nonTangentialProperPart B D) C)
     (v/assert kb (list 'spatiallyDisconnected A D) C)
-    (is (= :inconsistent (space/definite-relation kb C A D)))
+    (is (= :inconsistent (qkb/definite space/rcc8 kb C A D)))
     (is (not (v/ask? kb (list 'nonTangentialProperPart A B) C))
         "the whole network is unsatisfiable, so no pair of it is answered")))
 

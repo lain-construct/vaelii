@@ -36,6 +36,7 @@
   every append is synchronous — off by default (the durability daemon fsyncs on a
   tick instead)."
   (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [taoensso.nippy :as nippy]
             [taoensso.trove :as trove]
             [vaelii.impl.config :as config]
@@ -66,19 +67,57 @@
 
 (def ^:private supported-format-versions #{1})
 
-(defn- sentinel
-  "The EDN a directory's own sentinel file holds, or `::unreadable` — a torn or
-  truncated one included.
+(def manifest-bytes
+  "The most an EDN **manifest** may hold — a dump's `meta.edn` and `index.edn`, a store's
+  `format.edn`, an index directory's `layout.edn` and `records.edn`, a belief image's
+  `manifest.edn`, a corpus's `report.edn`, a machine's `catalog.edn`.
 
-  A sentinel is the **first** thing read about a directory, before any of its content
-  is, so it is the first place a half-written directory shows.  `edn/read-string` on a
-  file cut mid-form raises a bare `RuntimeException` (\"EOF while reading\"), which is
-  neither the typed refusal a caller can act on nor a fact about the file it names — so
-  what each caller decides about a damaged sentinel is decided by that caller, on a
-  value, rather than by whatever the reader happened to throw."
-  [^File file]
-  (try (edn/read-string (slurp file))
-       (catch Exception _ ::unreadable)))
+  Every one of them is a handful of keys, and each is the *first* thing read about a
+  directory nobody has promised anything about — `vaelii.browser.catalog` probes every
+  entry of the KB search path this way — so an unbounded read is a whole file pulled into
+  a string on the strength of its name.  A megabyte is orders of magnitude above the
+  largest of them (a hand-written `catalog.edn` naming thousands of KBs) and still a
+  bound."
+  (* 1024 1024))
+
+(defn read-edn-manifest
+  "The EDN manifest in `f`, read under `manifest-bytes` — or a refusal
+  (`:manifest-too-large`) naming the file and the bound.
+
+  **The bound is on the read, not on the file's stated length.**  `File.length` answers
+  0 for a FIFO and for most of `/proc`, and a symlink to one of those is a `slurp` that
+  never ends; reading a bounded number of bytes and refusing the one past the bound
+  needs the file to say nothing true about itself.  Bytes rather than characters, so the
+  figure the refusal states is the figure that was read.
+
+  Content the EDN reader cannot parse is refused by name too (`:malformed-manifest`), so
+  a manifest cut mid-form is a `:type` a caller can discriminate on rather than a bare
+  \"EOF while reading\".  Which of the two refusals means \"not a KB\" and which means
+  \"a broken one\" is the caller's to decide."
+  [f]
+  (let [^File f (io/file f)
+        limit (long manifest-bytes)
+        out   (java.io.ByteArrayOutputStream.)
+        buf   (byte-array 8192)]
+    (with-open [^java.io.InputStream in (io/input-stream f)]
+      (loop []
+        (let [n (.read in buf)]
+          (when (pos? n)
+            (.write out buf 0 n)
+            (when (<= (.size out) limit) (recur))))))
+    (when (> (.size out) limit)
+      (throw (ex-info (str "manifest " (.getPath f) " is longer than " limit
+                           " bytes — a meta.edn / format.edn / layout.edn / catalog.edn"
+                           " is a handful of keys, and a file this size under one of"
+                           " those names is not one")
+                      {:type :manifest-too-large :file (.getPath f) :max limit})))
+    (try (edn/read-string (String. (.toByteArray out)
+                                   java.nio.charset.StandardCharsets/UTF_8))
+         (catch Exception e
+           (throw (ex-info (str "manifest " (.getPath f) " is not readable EDN: "
+                                (ex-message e) " — the file was cut mid-form, or was"
+                                " never one")
+                           {:type :malformed-manifest :file (.getPath f)} e))))))
 
 (defn assert-format!
   "Gate the store directory `root` on its `format.edn` sentinel: a known version is
@@ -89,11 +128,15 @@
   mid-write is one whose *records* were being written at the same moment, and stamping
   over it would adopt whatever is beside it as today's layout — the one reading that is
   certainly wrong.  `:unreadable-store` names the file rather than the version, since
-  there is no version to name."
+  there is no version to name.  A sentinel past `manifest-bytes` is refused as
+  `:manifest-too-large`, as the catalog refuses it."
   [root]
   (let [file (File. (str root) "format.edn")]
     (if (.exists file)
-      (let [m (sentinel file)]
+      (let [m (try (read-edn-manifest file)
+                   (catch clojure.lang.ExceptionInfo e
+                     (if (= :manifest-too-large (:type (ex-data e))) (throw e) ::unreadable))
+                   (catch Exception _ ::unreadable))]
         (when (= ::unreadable m)
           (throw (ex-info (str "the durable-store sentinel " (.getPath file)
                                " is not readable EDN — the directory was written by"
@@ -124,16 +167,18 @@
   caller's to make — `stamp-index-layout!` for a KB that owns the directory, nothing
   at all for a read-only mount.
 
-  **A damaged stamp is `:stale`**, not a refusal.  The question this answers is \"can I
-  prove these entries were keyed the way this build keys them\", and a stamp cut
-  mid-write proves nothing — so the answer is the one an unprovable stamp already gets,
-  and the index is rebuilt from the records, which are the ground truth either way.
-  That is the opposite of `assert-format!`'s reading of the same damage, because an
-  index is a cache and records are not."
+  **A damaged stamp is `:stale`**, not a refusal, and so is one past `manifest-bytes`.
+  The question this answers is \"can I prove these entries were keyed the way this build
+  keys them\", and a stamp cut mid-write proves nothing — so the answer is the one an
+  unprovable stamp already gets, and the index is rebuilt from the records, which are
+  the ground truth either way.  That is the opposite of `assert-format!`'s reading of
+  the same damage, because an index is a cache and records are not."
   [root current populated?]
   (let [file (File. ^String (str root) ^String index-layout-file)]
     (if (.exists file)
-      (if (= current (:index-layout (sentinel file))) :current :stale)
+      (if (= current (:index-layout (try (read-edn-manifest file) (catch Exception _ nil))))
+        :current
+        :stale)
       (if populated? :stale :unstamped))))
 
 ;; A rebuild's *first* write, not its last: `index-layout-decision` reads an absent
@@ -161,11 +206,12 @@
 
 (defn records-identity
   "The record store `root`'s index was last built against, or nil when the directory has
-  never been stamped."
+  never been stamped.  Read through `read-edn-manifest`, so a stamp past the bound or cut
+  mid-form is refused by name."
   [root]
   (let [file (File. ^String (str root) ^String records-identity-file)]
     (when (.exists file)
-      (:records (edn/read-string (slurp file))))))
+      (:records (read-edn-manifest file)))))
 
 (defn stamp-records-identity!
   "Record which store `root`'s index describes.
@@ -225,6 +271,78 @@
   "fsync `raf`'s channel; `meta-data?` includes file metadata (mtime, length)."
   [^RandomAccessFile raf meta-data?]
   (.force (.getChannel raf) (boolean meta-data?)))
+
+;; ---- a store that stops ---------------------------------------------------
+;; A disk store's channels are shared by every call, so a channel that closes under one
+;; call — a thread interrupt closes a `FileChannel` it is blocked in, and a closed channel
+;; also closes the `RandomAccessFile` that owns it — is closed for every later call.  An
+;; I/O failure on a write leaves the file in a state the next open repairs rather than the
+;; running session.  Either way the store answers every later call with one typed refusal
+;; rather than whichever `IOException` the next channel it touches happens to throw.  The
+;; latch is an atom per store holding `{:reason :path :cause}`; the first fault wins, and
+;; a reopen is the only way out.
+
+(defn- fault-message [{:keys [reason path]}]
+  (str "disk store " path
+       (case reason
+         :closed         " is closed"
+         :interrupted    " lost a channel to a thread interrupt"
+         :channel-closed " lost a channel that closed under it"
+         :write-failed   " failed a write"
+         :fsync-failed   " failed an fsync")
+       " — it refuses every call until the directory is opened again"))
+
+(defn fault-refusal
+  "The `:store-unusable` refusal for the latched fault `f`, carrying `:reason` and
+  `:path`, with the throwable that latched it as the cause."
+  [{:keys [reason path cause] :as f}]
+  (ex-info (fault-message f) {:type :store-unusable :reason reason :path path} cause))
+
+(defn check-fault!
+  "Throw the latched refusal when `fault` holds one."
+  [fault]
+  (when-let [f @fault] (throw (fault-refusal f))))
+
+(defn fault-reason
+  "The latch reason for `t`, thrown by an access to a live channel, or nil when `t` does
+  not stop the store.  A closed channel stops it on any access; any other `IOException`
+  only on a write (`write?` true) or an fsync (`write?` `:fsync`), since a read that
+  fails leaves nothing on disk changed."
+  [^Throwable t write?]
+  (cond
+    (instance? java.nio.channels.ClosedByInterruptException t) :interrupted
+    (instance? java.nio.channels.ClosedChannelException t)     :channel-closed
+    (and write? (instance? java.io.IOException t))             (if (= :fsync write?)
+                                                                 :fsync-failed
+                                                                 :write-failed)))
+
+(defn latch-fault!
+  "Latch `fault` with `reason` unless it already holds a fault, and return the refusal
+  for whichever fault it holds.  The first latch logs at `:error`, once: every later call
+  is told through the refusal."
+  [fault path reason ^Throwable t]
+  (let [f        {:reason reason :path path :cause t}
+        [old now] (swap-vals! fault #(or % f))]
+    (when (nil? old)
+      (trove/log! {:level :error :id ::store-faulted :msg (fault-message now) :error t}))
+    (fault-refusal now)))
+
+(defn latch-closed!
+  "Latch `fault` as `:closed` unless it already holds a fault — what a clean close leaves,
+  so a call on the store after it is refused by name rather than by a closed channel."
+  [fault path]
+  (swap! fault #(or % {:reason :closed :path path})))
+
+(defmacro with-io-guard
+  "Run `body` against a store's live channels, latching `fault` and throwing its refusal
+  when what `body` throws stops the store (`fault-reason`).  Anything else travels
+  unchanged."
+  [fault path write? & body]
+  `(try ~@body
+        (catch java.io.IOException t#
+          (if-let [r# (fault-reason t# ~write?)]
+            (throw (latch-fault! ~fault ~path r# t#))
+            (throw t#)))))
 
 (defn- disk-compressor []
   (case (config/disk-compress)
@@ -609,6 +727,7 @@
              (.readFully in bs))
            (with-open [in (DataInputStream. (ByteArrayInputStream. bs))]
              (safe/thaw-from-in! in)))
+         (catch VirtualMachineError e (throw e))
          (catch Throwable t
            (trove/log! {:level :warn
                         :msg (str "disk.files: unreadable nippy blob " path
@@ -676,20 +795,17 @@
       (finally
         (.delete (File. tmp))))))
 
-(defn- try-read-frame
-  "Read a length-prefixed frame at `pos`; `[frame-end value]` on success, nil if the
-  frame is truncated or corrupt."
+(defn- frame-length-at
+  "The payload length of the frame whose prefix starts at `pos`, or nil where
+  `log-tail-offset`'s length chain ends: fewer than four bytes remain, the prefix is
+  non-positive, or the payload it promises runs past `len`.  Leaves the file pointer just
+  past the prefix."
   [^RandomAccessFile log-raf ^long pos ^long len]
   (when (<= (+ pos 4) len)
     (.seek log-raf pos)
-    (let [n         (.readInt log-raf)
-          frame-end (+ pos 4 n)]
-      (when (and (not (neg? n)) (<= frame-end len))
-        (let [bs (byte-array n)]
-          (try
-            (.readFully log-raf bs)
-            [frame-end (thaw-bytes bs)]
-            (catch Throwable _ nil)))))))
+    (let [n (long (.readInt log-raf))]
+      (when (and (pos? n) (<= (+ pos 4 n) len))
+        n))))
 
 (defn log-tail-offset
   "The truncation point after a torn trailing write, computed from the frame **lengths**
@@ -707,11 +823,12 @@
   references, and the idx is the authority on what is live.  Truncating the tail is
   therefore tidiness rather than repair, and `validate-idx-tail!` — which still runs —
   is what actually reconciles a slot against a log that lost its end.  A frame whose
-  payload is damaged but whose length is intact stays, to fail (if anything references
-  it at all) at that one record, which is the same one-record blast radius the token
-  dictionary's own damage check settles for.  The alternative is worse in exactly the
-  case that bit us: thawing to decide truncation means a build that cannot decode
-  *deletes the log it cannot read*.
+  payload is damaged but whose length is intact stays.  In a record log it fails (if
+  anything references it at all) at that one record.  In a log the open reads whole — the
+  token dictionary, the index's `kv.log`, the operation log — `scan-log` refuses it by
+  name (`:damaged-frame`) unless it is the chain's last frame.  The alternative is worse
+  in exactly the case that bit us: thawing to decide truncation means a build that cannot
+  decode *deletes the log it cannot read*.
 
   A **non-positive** length terminates the walk rather than being stepped over.  A frame
   payload is a nippy value and is never empty, so a zero can only be space that was never
@@ -746,20 +863,59 @@
             (recur (long frame-end) base limit)))))))
 
 (defn scan-log
-  "Scan an append-only log, calling `(f index value)` for each valid frame.  Returns
-  the byte offset of the first unreadable tail byte — the truncation point after a
-  torn trailing write.
+  "Scan an append-only log, calling `(f index value)` for each frame in order.  Returns
+  the byte offset of the first byte past the last frame read — the truncation point
+  after a torn trailing write.
 
-  A caller that wants only that offset wants `log-tail-offset`, which reads the length
-  prefixes and skips the decoding entirely."
-  ^long [^RandomAccessFile log-raf f]
-  (let [len (.length log-raf)]
-    (loop [pos 0 idx 0]
-      (if (>= pos len)
-        pos
-        (if-let [[frame-end v] (try-read-frame log-raf pos len)]
-          (do (f idx v) (recur (long frame-end) (inc idx)))
-          pos)))))
+  The walk follows the same length chain `log-tail-offset` walks, and stops where that
+  chain ends.  A frame inside the chain whose payload does not thaw is one of two things,
+  told apart by what follows it:
+
+  - **The chain's last frame** is read as a torn tail: its length prefix landed and its
+    payload did not.  The walk stops at its offset, logs it, and the caller truncates it
+    exactly as it truncates a torn prefix.
+  - **Any earlier frame** is damage inside the log, and the walk throws `:damaged-frame`
+    naming `path`, the offset and the frame's index, with the thaw's exception as the
+    cause.  Stopping there instead would drop every frame after it as though the log had
+    ended, and a caller that rebuilds state from the log would lose all of them.
+
+  A `VirtualMachineError` (an `OutOfMemoryError` above all) is rethrown as itself: it
+  says the JVM could not finish the thaw, not that the frame is bad.
+
+  A caller that wants only the truncation offset wants `log-tail-offset`, which reads the
+  length prefixes and skips the decoding entirely."
+  (^long [log-raf f] (scan-log log-raf nil f))
+  (^long [^RandomAccessFile log-raf path f]
+   (let [len (.length log-raf)]
+     (loop [pos 0 idx 0]
+       (if-let [n (frame-length-at log-raf pos len)]
+         (let [frame-end (+ pos 4 (long n))
+               bs        (byte-array n)
+               _         (.readFully log-raf bs)
+               ;; a one-element vector, so a frame that thaws to nil is still a value
+               got       (try
+                           [(thaw-bytes bs)]
+                           (catch VirtualMachineError e (throw e))
+                           (catch Throwable t
+                             (when (frame-length-at log-raf frame-end len)
+                               (throw (ex-info (str "frame " idx " of " (or path "the log")
+                                                    " at byte offset " pos " does not decode,"
+                                                    " and the log holds further frames after"
+                                                    " it — damage inside the log, not a torn"
+                                                    " tail (" (.getMessage t) ")")
+                                               {:type :damaged-frame :path path :offset pos
+                                                :frame idx :length n}
+                                               t)))
+                             (trove/log! {:level :warn :id ::torn-last-frame
+                                          :msg (str "disk.files: the last frame of "
+                                                    (or path "a log") ", at byte offset " pos
+                                                    ", does not decode (" (.getMessage t)
+                                                    ") — read as a torn tail")})
+                             nil))]
+           (if got
+             (do (f idx (first got)) (recur frame-end (inc idx)))
+             pos))
+         pos)))))
 
 (defn truncate-log!
   "Truncate the log to `new-len` — used after `scan-log` detects a torn tail frame."

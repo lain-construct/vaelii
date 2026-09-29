@@ -79,6 +79,29 @@
                         CxSelf)]
       (is (= :not-stratified (:type data))))))
 
+(tu/deftest-kb two-cycles-through-one-rule-name-the-same-cycle-in-either-arrival-order
+  ;; The refused rule excepts on q, and two stored rules conclude q from what it
+  ;; concludes, so two cycles pass through it.  The refusal names one of them; the
+  ;; labels carry handles, so each is read back as the rule's sentence.
+  (tu/with-terms [base p q side CxCyc]
+    (let [short    (vr/rule-sentence [(list p '?x)] (list q '?x))
+          long     (vr/rule-sentence [(list p '?x) (list side '?x)] (list q '?x))
+          named    (fn [first-rule second-rule]
+                     (doseq [r [first-rule second-rule]]
+                       (v/assert kb r CxCyc {:direction :forward}))
+                     (let [by-label (into {} (for [r [short long]]
+                                               [(str "rule#" (v/handle-of kb r CxCyc)) r]))
+                           data     (refusal kb (except-rule (list q '?x) [(list base '?x)]
+                                                             (list p '?x))
+                                             CxCyc)]
+                       (doseq [r [short long]] (v/retract! kb (v/handle-of kb r CxCyc)))
+                       (mapv #(get by-label % %) (:cycle data))))
+          ;; each pass allocates fresh handles, and the two cycles' order in a hash set
+          ;; of handles varies with them, so six passes alternate the arrival order
+          named-by (for [i (range 6)] (if (even? i) (named short long) (named long short)))]
+      (is (every? seq named-by) "the rule closing the cycles is refused on every pass")
+      (is (= 1 (count (set named-by)))))))
+
 ;; ---- the genl closure is part of the graph -------------------------------
 ;; DECISION: predicate dependence is not literal.  An exception on `flightless` is
 ;; satisfied by a stored `(penguin Opus)` when `(genl penguin flightless)`, so the

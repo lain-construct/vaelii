@@ -182,6 +182,15 @@
     left-recursion is not a state a rule can reach here, and this pin is the cost
     model being kept from re-introducing one, not a rescue.
 
+  A third class is the caller's to name (`:end-vars`): a literal that answers in full
+  only once one of its ends is bound.  The forward join's `genl` / `genlCx` antecedent
+  is the case — with both ends open it reads the stored edges alone, the closure over
+  every pair being quadratic — so a join that ran it before the literal binding its end
+  would miss every pair no edge states.  Such a literal waits for the first generator
+  that binds one of its ends, and runs right after it; one that no other generator can
+  bind keeps its place among the generators.  Like the other two, the switch below
+  leaves this in force.
+
   ## Determinism
 
   Every number in the decision is derived from the conjunction and the KB's counts,
@@ -219,21 +228,13 @@
   saturating sentinel would overflow into a negative cost."
   1000000000)
 
-(defn- vars-of [form]
-  (into #{} (filter sx/variable?) (tree-seq sequential? seq form)))
-
 (defn- closed?
   "Is this term settled by the time the literal runs — either literally ground, or a
-  variable already in `bound`?  Distinct from `known?`: a bound variable *will* have
-  a value, but the planner does not know which one, so it can constrain a count
-  without being usable as a trie prefix token."
+  variable already in `bound`?  Distinct from `sx/ground-term?`, the test for a trie
+  prefix token: a bound variable *will* have a value, but the planner does not know
+  which one, so it can constrain a count without being usable as a prefix token."
   [term bound]
-  (every? #(contains? bound %) (filter sx/variable? (tree-seq sequential? seq term))))
-
-(defn- known?
-  "Is this term's *value* known right now, so it can be used as a trie prefix token?"
-  [term]
-  (not-any? sx/variable? (tree-seq sequential? seq term)))
+  (every? #(contains? bound %) (sx/form-vars term)))
 
 (defn- negative? [goal]
   (and (sequential? goal) (seq goal) (= 'not (first goal))))
@@ -326,7 +327,7 @@
     (if (empty? toks)
       (count-at* ix prefix)
       (let [t (first toks)]
-        (if (known? t)
+        (if (sx/ground-term? t)
           (recur (rest toks) (conj prefix t))
           (count-at* ix prefix))))))
 
@@ -343,7 +344,7 @@
   the roots about `.` and getting the 0 that would floor the whole estimate."
   [ix goal count-with-arg*]
   (let [args   (take-while #(not= sx/dot-marker %) (rest goal))
-        counts (keep-indexed (fn [i a] (when (known? a) (count-with-arg* ix (inc i) a)))
+        counts (keep-indexed (fn [i a] (when (sx/ground-term? a) (count-with-arg* ix (inc i) a)))
                              args)]
     (when (seq counts) (apply min counts))))
 
@@ -584,7 +585,7 @@
     (if (empty? toks)
       {:rows (double (count-at* ix prefix)) :distinct {}}
       (let [t (first toks)]
-        (if (known? t)
+        (if (sx/ground-term? t)
           (recur (rest toks) (conj prefix t))
           ;; the trie narrows left to right, so the first token that is not a value is
           ;; where the walk ends — and it is a variable, since a marker carries none
@@ -628,7 +629,7 @@
         ;; which any prefix joins with unchanged.  That is also why the block feeding
         ;; one is placed by the anchor rule and not by the transposition law: the law
         ;; would be ranking it on a selectivity the model has just declined to state.
-        vs   (if (sx/deferred-literal? goal) #{} (vars-of goal))
+        vs   (if (sx/deferred-literal? goal) #{} (sx/form-variables goal))
         base (cond
                (not (sequential? goal)) {:rows 1.0 :distinct {}}
 
@@ -748,7 +749,7 @@
   Returns `[{:pairs [[i literal] …] :anchored? bool} …]` in written order, each
   block's pairs in written order too."
   [gens anchor-vars]
-  (let [by-idx (into {} (map (fn [[i l]] [i (vars-of l)])) gens)
+  (let [by-idx (into {} (map (fn [[i l]] [i (sx/form-variables l)])) gens)
         by-var (reduce (fn [m [i vs]]
                          (reduce #(update %1 %2 (fnil conj #{}) i) m vs))
                        {} by-idx)
@@ -794,7 +795,7 @@
             [rows _ pick joined b] (first (sort-by (fn [[r i]] [r i]) scored))]
         (recur (filterv #(not= (first %) (first pick)) remaining)
                joined
-               (into bound (vars-of (second pick)))
+               (into bound (sx/form-variables (second pick)))
                (conj acc pick)
                (+ s rows)
                (and prune? (<= b 1)))))))
@@ -893,6 +894,33 @@
   [defs bound]
   (filterv (fn [[_ l]] (every? bound (sx/deferred-input-vars l))) defs))
 
+(defn- split-waits
+  "Split the literals that wait for a bound end (`:end-vars`) out of the generators
+  `gens`, as `[gens waits]`: a literal waits when none of its end variables is in
+  `bound` and another generator can bind one of them.  `[gens []]` for a caller that
+  names none."
+  [gens bound end-vars]
+  (if-not end-vars
+    [gens []]
+    (let [waits? (fn [[i l]]
+                   (when-let [ends (not-empty (end-vars l))]
+                     (and (not-any? bound ends)
+                          (some (fn [[j g]] (and (not= i j) (some (sx/form-variables g) ends))) gens))))]
+      [(filterv (complement waits?) gens) (filterv waits? gens)])))
+
+(defn- thread-waits
+  "The generators `pairs`, in execution order, with each waiting literal placed right
+  after the first literal that binds one of its ends.  Those nothing bound follow in
+  their written order."
+  [pairs waits bound end-vars]
+  (loop [remaining pairs, bound bound, pending waits, acc []]
+    (if-let [pick (first (filter (fn [[_ l]] (some bound (end-vars l))) pending))]
+      (recur remaining (into bound (sx/form-variables (second pick)))
+             (filterv #(not= pick %) pending) (conj acc pick))
+      (if-let [[_ l :as pick] (first remaining)]
+        (recur (rest remaining) (into bound (sx/form-variables l)) pending (conj acc pick))
+        (into acc pending)))))
+
 (defn- lits [pairs] (mapv second pairs))
 
 (defn- memo-opts
@@ -915,11 +943,12 @@
   literal was placed by a rule that did not run.  `:opts` is the memoized estimator
   set the ranking read through, when it ran one, so `explain` costs its report off the
   same cache rather than the index again."
-  [kb goals context {:keys [bound consequent-pred est-override] :or {bound #{}}}]
+  [kb goals context {:keys [bound consequent-pred est-override end-vars] :or {bound #{}}}]
   (let [goals (vec goals)]
     (if (< (count goals) 2)
       {:pairs (vec (map-indexed vector goals)) :info {}}
       (let [{:keys [gens recs defs]} (partition-literals goals consequent-pred)
+            [gens waits] (split-waits gens (set bound) end-vars)
             drop-i (fn [pending taken]
                      (let [taken (set (map first taken))]
                        (filterv (fn [[i _]] (not (taken i))) pending)))]
@@ -932,7 +961,8 @@
           ;; Nothing to choose between — or nothing allowed to — so the generators
           ;; keep the order they were written in, and the deferred literals are still
           ;; pulled forward past the recursive one.
-          (let [bound' (into bound (mapcat (comp vars-of second) gens))
+          (let [gens   (thread-waits gens waits (set bound) end-vars)
+                bound' (into bound (mapcat (comp sx/form-variables second) gens))
                 early  (ready defs bound')]
             {:pairs (vec (concat gens early recs (drop-i defs early))) :info {}})
           (let [opts       (memo-opts context)
@@ -949,15 +979,15 @@
                 summary-of (fn [[i l]]
                              (or (get @summaries i)
                                  (let [s (if-let [e (when est-override (est-override l bound))]
-                                           {:rows (double e) :vars (vars-of l) :distinct {}}
+                                           {:rows (double e) :vars (sx/form-variables l) :distinct {}}
                                            (summary kb l opts))]
                                    (vswap! summaries assoc i s)
                                    s)))
                 {:keys [pairs info]} (block-order gens bound cost summary-of
                                                   (into (set bound)
-                                                        (mapcat (comp vars-of second))
-                                                        (concat recs defs)))]
-            (loop [remaining pairs
+                                                        (mapcat (comp sx/form-variables second))
+                                                        (concat recs defs waits)))]
+            (loop [remaining (thread-waits pairs waits (set bound) end-vars)
                    bound     bound
                    pending   defs
                    acc       []]
@@ -966,7 +996,7 @@
                   {:pairs (vec (concat acc early recs (drop-i pending early))) :info info
                    :opts  opts})
                 (let [[_ l :as pick] (first remaining)
-                      bound'         (into bound (vars-of l))
+                      bound'         (into bound (sx/form-variables l))
                       early          (ready pending bound')]
                   (recur (rest remaining)
                          bound'
@@ -1058,7 +1088,7 @@
          bound-of (fn [g bnd] (long (or (when override (override g bnd))
                                         (est-matches kb g bnd est-opts))))
          sum-of   (fn [g] (if-let [e (when override (override g bound0))]
-                            {:rows (double e) :vars (vars-of g) :distinct {}}
+                            {:rows (double e) :vars (sx/form-variables g) :distinct {}}
                             (summary kb g est-opts)))]
      (first
       (reduce (fn [[acc bound prefix] [i g]]
@@ -1078,7 +1108,7 @@
                               :deferred?    (boolean (deferred? g))
                               :recursive?   (boolean (recursive-in? g (:consequent-pred opts)))
                               :isolated?    (boolean (:isolated? flag))})
-                   (into bound (vars-of g))
+                   (into bound (sx/form-variables g))
                    joined]))
               [[] bound0 (bound-prefix bound0)]
               pairs)))))

@@ -367,12 +367,14 @@
                            CxEq {:strength :monotonic})]
         (testing "excepting equals hides the sentex and splits the class"
           (is (empty? (v/sentexes-matching kb (list 'equals a b) CxEq)))
+          (is (false? (v/ask? kb (list 'equals a b) CxEq)))
           (is (not (v/same-class? kb a b CxEq)))
           (is (v/same-class? kb a b)
               "the global equality partition stays intact"))
         (testing "retract the except — equality returns"
           (v/retract! kb eh)
-          (is (some? (v/sentex kb eq-h)))
+          (is (= [eq-h] (map :id (v/sentexes-matching kb (list 'equals a b) CxEq))))
+          (is (true? (v/ask? kb (list 'equals a b) CxEq)))
           (is (v/same-class? kb a b CxEq)))))))
 
 ;; ---- 7. special-predicate sweep -----------------------------------------

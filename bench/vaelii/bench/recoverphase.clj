@@ -44,7 +44,7 @@
     decomp   [sizes…]   nine-step split at each size (default 100000 500000 1000000)
     fetchfix [size]     the removed fetch, priced on disk (default 300000)
                         idx picks the derived index kind (memory|columnar|dense|disk, default
-                        memory).  memory is a RAM trie — too large for an 11M corpus; columnar
+                        memory).  memory is a RAM trie — too large for a big store; columnar
                         is the compact native index of a disk-columnar store.  Run with
                         -Dvaelii.disk.sync-ms=0 so the syncer never starves it
     equality [ks…]      supersession vs class size k (default 2 4 8 16 32 64)
@@ -54,9 +54,10 @@
     lein with-profile +bench update-in :jvm-opts conj '\"-Xmx24g\"' -- run -m vaelii.bench.recoverphase …"
   (:require [clojure.java.io :as io]
             [vaelii.core :as v]
+            [vaelii.host.io.generate :as gen]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.chain :as chain]
             [vaelii.impl.disk.backend :as disk]
-            [vaelii.host.io.generate :as gen]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]
@@ -89,17 +90,18 @@
 
 (defn- gc! [] (dotimes [_ 3] (System/gc) (Thread/sleep 80)))
 
-(def ^:private default-memo-budget
-  "The scoped-closure memo budget a recover phase runs under when `vaelii.memo.budget`
-  names none — core's steady-state constant for `tax/*scoped-memo-budget*`."
-  8192)
+(defn- closure-limit-run
+  "Run `f` under the closure-cache bound the `vaelii.closure.limit` property names, in
+  closure terms, when it names one, and restore the profile's bound after.  Resolved per
+  call, like the corpus, so a run can size the cache without a box's number baked into
+  the source."
+  [f]
+  (if-let [n (some-> (System/getProperty "vaelii.closure.limit") parse-long)]
+    (do (caches/set-limit :taxonomy-closures n)
+        (try (f) (finally (caches/set-limit :taxonomy-closures nil))))
+    (f)))
 
-(defn- memo-budget
-  "The scoped-memo budget for a recover run: `vaelii.memo.budget` if it is set, the
-  default otherwise.  Resolved per call, like the corpus, so a run can size the cache
-  without a box's number baked into the source."
-  ^long []
-  (or (some-> (System/getProperty "vaelii.memo.budget") parse-long) default-memo-budget))
+(defmacro ^:private with-closure-limit [& body] `(closure-limit-run (fn [] ~@body)))
 
 ;; ---- the corpus ---------------------------------------------------------
 ;; A generated KB *with a forward rule*, so the store holds justifications and the
@@ -259,8 +261,8 @@
 ;; ---- mode: decomp -------------------------------------------------------
 
 (defn- recover-parity!
-  "The replay believes what `core/recover` believes — the assertion that keeps
-  `timed-recover!` honest against `core/recover`.  Two cold reopens of the same store,
+  "The replay believes what `core/recover` believes — the assertion that checks
+  `timed-recover!` against `core/recover`.  Two cold reopens of the same store,
   one settled by each path; `in?` compared for every handle."
   [^String dir]
   (let [a (reopen-cold dir) _ (reindex/reindex a) _ (timed-recover! a)
@@ -316,8 +318,8 @@
 
 ;; ---- shared helpers (timestamps, heap occupancy, belief census) --------
 ;; The nine-step split against a real, already-imported `:disk` store on disk — no
-;; generation, no truncation.  This is the true decade point the generated corpus could
-;; only approach: an 11.36M-sentex corpus opened cold and settled once.  The daemon that
+;; generation, no truncation.  This is the real store the generated corpus could only
+;; approach: a store of millions of sentexes opened cold and settled once.  The daemon that
 ;; starved earlier settles is off here (`-Dvaelii.disk.sync-ms=0`); the read is otherwise
 ;; the engine's own `reindex` + `recover` path, timed.
 
@@ -438,7 +440,7 @@
     (println (format "  [%s] reindex…" (now-str)))
     (reindex/reindex kb)
     (println (format "  [%s] recover…" (now-str)))
-    (binding [tax/*scoped-memo-budget* (memo-budget)]
+    (with-closure-limit
       (timed-recover! kb))
     (println (format "  [%s] recovered; scanning belief…" (now-str)))
     (let [ids       (p/sentex-ids rec)
@@ -547,7 +549,7 @@
 (defn- beliefimage-run [^String dir]
   (println (format "%n=== reasoning image: %s ===" dir))
   (.delete (io/file dir "reasoning" "manifest.edn"))
-  (binding [tax/*scoped-memo-budget* (memo-budget)]
+  (with-closure-limit
     (println (format "  [%s] PASS 1 — open, recover from the records, write the image" (now-str)))
     (let [[kb1 t1]   (timed (v/open-kb {:backend :disk-snapshot :dir dir}))
           [in1 out1] (belief-census kb1)

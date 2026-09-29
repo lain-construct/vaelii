@@ -34,10 +34,10 @@
 ;; (which is exactly what set-trust! does) rather than accumulate.
 ;;
 ;; THE SYCOPHANCY CONSTRAINT the stored value must support: an endorsement count is a
-;; trust signal ONLY across DISTINCT principals.  Homogeneous LLM agents endorse each
-;; other, so a raw endorses-count is gameable; same-model endorsements are worth one
-;; signal between them.  No reputation math ships: nothing in the engine computes
-;; trustLevel from endorsements, and nothing reads it to resolve a dispute — here trust
+;; trust signal ONLY across DISTINCT principals.  Homogeneous agents endorse each
+;; other, so a raw endorses-count is gameable; endorsements among homogeneous agents
+;; are worth one signal between them.  No reputation math ships: nothing in the engine
+;; computes trustLevel from endorsements, and nothing reads it to resolve a dispute — here trust
 ;; is only STORED and overwritten.
 
 (comment trustLevel

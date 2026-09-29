@@ -13,13 +13,12 @@
 
   Rules must be range-restricted: every consequent variable appears in some
   antecedent, so a fired consequent is ground.  The one exemption is a **head
-  existential** — a consequent variable explicitly marked `(exists ?y C)`, which
-  forward firing skolemizes to a deterministic constant (docs/skolem.md); range
-  restriction permits only the marked variable and still rejects any *accidentally*
-  unbound one.  The same closure is required of an `exceptWhen` exception, which is a
+  existential** `(exists ?y C)`, whose marked variable forward firing skolemizes
+  (docs/skolem.md).  The same closure is required of an `exceptWhen` exception, which is a
   query rather than a conclusion but must be ground for the same reason (checked at the
   assert layer via `sentex/check-exception-closed`)."
-  (:require [clojure.string :as str]
+  (:require [clojure.set :as set]
+            [clojure.string :as str]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reads :as reads]
@@ -159,39 +158,46 @@
   (consequent-key (consequent sentence)))
 
 ;; ---- virtual rule-direction predicates ----------------------------------
-;; Wrapping a rule sets its inference direction on assert.  Default (a bare implies) is
-;; :backward — forward chaining materializes a conclusion per match, intractable on a
-;; large KB, so forward is opt-in (set/forwardRule).  Four directions:
-;;   :forward / :both  forward AND backward (set/forwardRule adds forward without taking
-;;                     the backward use away) — the forward mode the ontology uses.
-;;   :backward         backward only (the default).
-;;   :forward-only     forward-chains but is NOT usable in backward proof (set/forwardOnlyRule).
-;;                     The direction for a rule whose conclusion answers a goal its own
-;;                     antecedent poses — CxCore's commutative/symmetric bridge is the one
-;;                     the ontology ships, and `candidate-rules` says what a backward walk
-;;                     of such a rule costs.
-;;   :inert            neither engine (documentation).
+;; Wrapping a rule sets the engines that run it (`:engines` on the record,
+;; `sx/direction-engines`).  Default (a bare implies) is backward — forward chaining
+;; materializes a conclusion per match, intractable on a large KB, so forward is opt-in
+;; (set/forwardRule).  Four directions:
+;;   #{:forward :backward}  set/forwardRule — forward AND backward (the wrapper adds forward
+;;                          without taking the backward use away); the forward mode the
+;;                          ontology uses.
+;;   #{:backward}           backward only (the default).
+;;   #{:forward}            forward-chains but is NOT usable in backward proof
+;;                          (set/forwardOnlyRule).  The direction for a rule whose
+;;                          conclusion answers a goal its own antecedent poses — CxCore's
+;;                          commutative/symmetric bridge is the one the ontology ships, and
+;;                          `candidate-rules` says what a backward walk of such a rule costs.
+;;   #{}                    neither engine (set/inertRule, documentation).
+;; A choice or constraint rule holds #{:solve}: a solve reads it and neither chainer does.
 ;; The *index* is complete either way — a rule is filed under both its antecedent and its
-;; consequent predicates whatever its direction (`special/index-rule-sentex`) — and the
-;; direction on the record is what the two chainers read.
-
-(defn forward?  [direction] (contains? #{:forward :both :forward-only} direction))
-(defn backward? [direction] (contains? #{:backward :both :forward} direction))
+;; consequent predicates whatever its engines (`special/index-rule-sentex`) — and the
+;; engines on the record are what the two chainers read.
 
 (defn forward-sentex?
-  "Does this stored rule sentex forward-chain?  Read off the record, which carries
-  the direction its `set/*Rule` wrapper set.  An `assumptionRule` (a choice head) and a
-  `hard`/`softConstraint` (a contradiction marker) never chain — their heads are decided
-  or forbidden by a solve, not derived — so they are inference-inert in both directions
-  regardless of the direction they were written with."
-  [sentex] (and (not (:assumption sentex)) (not (:constraint sentex))
-                (forward? (:direction sentex))))
+  "Does this stored rule sentex forward-chain?  Read off the record's `:engines`, which
+  its `set/*Rule` wrapper set.  An `assumptionRule` (a choice head) and a
+  `hard`/`softConstraint` (a contradiction marker) hold `#{:solve}` — their heads are
+  decided or forbidden by a solve, not derived — so neither chainer runs them."
+  [sentex] (contains? (:engines sentex) :forward))
 
 (defn backward-sentex?
-  "Does this stored rule sentex backward-chain?  An `assumptionRule` / constraint rule
-  does not (see `forward-sentex?`)."
-  [sentex] (and (not (:assumption sentex)) (not (:constraint sentex))
-                (backward? (:direction sentex))))
+  "Does this stored rule sentex backward-chain?  Read off the record's `:engines`, as
+  `forward-sentex?` is."
+  [sentex] (contains? (:engines sentex) :backward))
+
+(defn solve-sentex?
+  "Does a `do/label` solve read this stored rule sentex — a choice, constraint or
+  cardinality rule, or a `set/solveRule`?  Read off `:engines`, as `forward-sentex?` is."
+  [sentex] (contains? (:engines sentex) :solve))
+
+(defn chains?
+  "Does either chainer run this stored rule sentex?  False for an inert rule and for a
+  choice or constraint rule."
+  [sentex] (or (forward-sentex? sentex) (backward-sentex? sentex)))
 
 ;; ---- exceptWhen: the rule states its own exception ------------------------
 ;; `(exceptWhen <query> <rule>)` blocks: for a binding its query holds of, the rule
@@ -204,20 +210,20 @@
 
 (defn assumption?
   "Is this stored rule sentex a `set/assumptionRule` — a choice rule whose head a solve
-  decides rather than the chainer deriving?  Read straight off the record's
-  `:assumption` field, like `:defeasible` (docs/solving.md)."
-  [sentex] (boolean (:assumption sentex)))
+  decides rather than the chainer deriving?  Its `:effect` is `:choose`
+  (docs/solving.md)."
+  [sentex] (= :choose (:effect sentex)))
 
 (defn constraint-of
   "The constraint class of this stored rule sentex — `:hard` / `:soft` from its
-  `set/hardConstraint` / `set/softConstraint` wrapper, or nil for an ordinary rule.
-  Read straight off the record's `:constraint` field (docs/solving.md)."
-  [sentex] (:constraint sentex))
+  `set/hardConstraint` / `set/softConstraint` wrapper (`:effect` `:forbid` /
+  `:penalize`), or nil for any other rule (docs/solving.md)."
+  [sentex] (sx/effect-constraint (:effect sentex)))
 
 (defn constraint?
   "Is this stored rule sentex a `set/hardConstraint` / `set/softConstraint` — a
   contradiction rule whose conjunctive body a solve grounds into a nogood?"
-  [sentex] (boolean (:constraint sentex)))
+  [sentex] (some? (constraint-of sentex)))
 
 ;; ---- negation as failure: `unknown` antecedents --------------------------
 ;; An `(unknown S)` antecedent is closed-world negation inline in the rule body, the
@@ -353,16 +359,12 @@
   (mapcat naf-queries-of (naf-antecedents sentex)))
 
 ;; ---- aggregation: a rule antecedent that counts --------------------------
-;; An aggregate antecedent is the other non-monotonic literal a rule body can carry:
-;; `(agg/count ?n ?v S)` binds `?n` to a function of what is *believed*, so a
-;; fact arriving on `S`'s predicate can withdraw a firing that rested on the old
-;; count.  That is `unknown`'s maintenance problem exactly, so it takes `unknown`'s
-;; machinery — the same re-check index, the same settle-time re-evaluation, the same
-;; negative edge in the stratification graph.  See docs/aggregate.md.
+;; An aggregate antecedent takes `unknown`'s re-check index and negative edges.
+;; See docs/aggregate.md, "Maintenance".
 
 (defn aggregate-antecedents-of
-  "The aggregate antecedent literals of a raw rule *sentence* — for the checks that
-  run before a rule is stored as a sentex (stratification)."
+  "The aggregate antecedent literals of a raw rule *sentence*, for the checks that run
+  before it is stored."
   [rule-sentence]
   (filter sx/aggregate? (antecedents rule-sentence)))
 
@@ -377,26 +379,16 @@
   (boolean (seq (aggregate-antecedents sentex))))
 
 (defn aggregate-queries
-  "The body queries of a rule's aggregate antecedents, so the settle-time firing
-  filter can shape them against a trigger exactly as it shapes an exception's
-  conjuncts.  The **whole** body, conjunctive or not: a conjunction has no readable
-  shape and a one-literal body mentions the reduction variable by construction, so
-  neither is ground and every one falls through to 'keep' — an aggregate's firings are
-  never narrowed away, which is the safe direction.  A reader that needs the conjuncts
-  themselves peels them with `watched-literals`, as `special` does to find the negated
-  ones."
+  "The body queries of a rule's aggregate antecedents, whole, for the settle-time firing
+  filter.  None is ground, so the filter keeps every firing of an aggregate rule.  A
+  reader that needs the conjuncts peels them with `watched-literals`."
   [sentex]
   (map sx/aggregate-body (aggregate-antecedents sentex)))
 
 (defn aggregate-predicates-of
-  "The predicates a raw rule *sentence*'s aggregate bodies mention — the negative-edge
-  keys the stratification graph reads, and the re-check keys the index posts under.
-
-  Read through `watched-literals`, for the reason the `unknown` side is: a **joined**
-  census body is watched conjunct by conjunct, since a fact arriving on any one of their
-  predicates changes which witnesses the join finds and so what the count is.  Keying on
-  the body's own functor would post a conjunctive body under `and`, a predicate nothing
-  ever arrives on — a count that is evaluated correctly and re-evaluated never."
+  "The predicates a raw rule *sentence*'s aggregate bodies mention, one per conjunct
+  (`watched-literals`): the stratification graph's negative-edge keys and the re-check
+  index's keys."
   [rule-sentence]
   (watched-predicates (aggregate-antecedents-of rule-sentence)))
 
@@ -476,14 +468,10 @@
 
 (defn arrival-releasable?
   "Can an arriving fact *release* one of this rule's re-check conditions rather than
-  only impose one?  True for an **aggregate** (a census that rose licenses a firing no
-  block ever suppressed) and for a **nested** NAF (a fact can remove the witness the
-  inner query found).  Both are the same asymmetry: the blocked set is the wrong
-  instrument, because there was never a blocked justification to move.
-
-  Read by the settle loop, which owes such a rule a re-join, and by the two taxonomy
-  edge triggers, which wave it through their firing-side narrowing for the same reason:
-  a firing that never existed leaves no placement and no bindings to test."
+  only impose one?  True for an **aggregate** and for a **nested** NAF.  Read by the
+  settle loop, which owes such a rule a re-join, and by the `genlCx` and equality edge
+  triggers, which skip their firing-side narrowing for it (docs/exceptions.md,
+  \"Re-chaining what was released, not what was touched\")."
   [sentex]
   (or (has-aggregate? sentex) (has-nested-naf? sentex)))
 
@@ -517,39 +505,14 @@
   (or (has-naf? sentex) (has-aggregate? sentex) (has-different? sentex)))
 
 ;; ---- what the join cannot do, and the placement can ----------------------
-;; An aggregate is evaluated per **placement context**, not in the join, because a
-;; census depends on where it is taken and the join does not yet know where the
-;; conclusion lands.  So its `?n` is unbound for the whole join — and that reaches
-;; further than the aggregate itself: a `(lessThan 2 ?n)` written after it is a
-;; *computed* literal, so it has no fact to match and nothing to wait for, and the
-;; chainer refuses to run it against an unbound input rather than report a comparison
-;; that never ran as one that failed.
-;;
-;; The answer is that such a literal is not a join literal at all.  It moves to the
-;; placement phase with the aggregate that feeds it, where `?n` exists — which is also
-;; the context the backward chainers evaluate it in, so the three agree.
+;; See docs/aggregate.md, "Comparing the count".
 
 (defn post-join-literals
-  "The antecedent literals evaluated **after** the join: every aggregate, plus every
-  deferred literal reading a variable an aggregate produces — or that one of *those*
-  produces in turn, so an `(evaluate ?d (+ ?n 1))` carries a later `(lessThan ?d 9)`
-  along with it.
-
-  **In written order**, which is the order they run in, because a computed literal
-  reads what is written before it.  That is not a rule aggregates introduce: an
-  `evaluate` chain has always had to be written downhill, since canonical order holds a
-  deferred literal in the author's position and every chainer runs it there.  Making an
-  aggregate an exception — reordering the phase so a comparison could be written above
-  its own count — is what a *forward* chainer could do and a backward one could not, so
-  it would buy convenience at the price of the two disagreeing about one rule.
-  `sentex/check-naf-closed` refuses the uphill writing instead.
-
-  `unknown` is deliberately not here: it binds nothing, so it never needs the ordering,
-  and it is already evaluated per placement as `:naf`.
-
-  Asked on **every** join, so the gate is a short-circuiting `some` that allocates
-  nothing: no aggregate, no post-join phase, and the overwhelming majority of rules
-  have none."
+  "The antecedent literals evaluated **after** the join, in written order: every
+  aggregate, plus every deferred literal reading a variable an aggregate writes or one
+  of these writes in turn, so an `(evaluate ?d (+ ?n 1))` carries a later `(lessThan ?d
+  9)` along.  `unknown` is not here: it binds nothing and is evaluated per placement as
+  `:naf`.  Asked on every join, so a rule without an aggregate costs one `some`."
   [antes]
   (if-not (some sx/aggregate? antes)
     []
@@ -628,7 +591,7 @@
 (def ^:private cardinality-rewrap
   "The inverse of `cardinality-wrappers`: `[marker constraint-class]` → surface wrapper,
   so `rewrap` restores the authored form on export."
-  (into {} (map (fn [[w mc]] [mc w])) cardinality-wrappers))
+  (set/map-invert cardinality-wrappers))
 
 ;; ---- minimize objectives and soft-constraint priorities ------------------
 ;; `asp/minimize` and a priority-tagged `set/softConstraint` are the answer-set
@@ -707,7 +670,7 @@
                              (pr-str v) " in " (pr-str sentence))
                         {:type :not-well-formed :sentence sentence :counted v})))
       (when-not (and (sequential? pattern)
-                     (some #{v} (filter sx/variable? (tree-seq sequential? seq pattern))))
+                     (some #{v} (sx/form-vars pattern)))
         (throw (ex-info (str "a cardinality bound's counted variable " (pr-str v)
                              " must appear in the pattern " (pr-str pattern))
                         {:type :not-well-formed :sentence sentence :counted v :pattern pattern})))
@@ -771,7 +734,7 @@
                              " in " (pr-str sentence))
                         {:type :not-well-formed :sentence sentence :weight w})))
       (when-not (and (sequential? body)
-                     (some #{w} (filter sx/variable? (tree-seq sequential? seq body))))
+                     (some #{w} (sx/form-vars body)))
         (throw (ex-info (str "a minimize's weight variable " (pr-str w) " must appear in "
                              "the body " (pr-str body))
                         {:type :not-well-formed :sentence sentence :weight w :body body})))
@@ -873,43 +836,59 @@
 (defn rewrap
   "Put the direction / default / assumption / constraint wrappers a rule was written
   with back around `sentence` — the inverse of `sx/peel-rule-wrapper`, since the
-  wrappers ride the record, not the stored sentence.  Four callers: a polycanonicalized
-  conjunct keeps the mode of the rule it came from, `split-exceptWhen` restores the
-  qualified rule's other wrappers after stripping the exception, an equality merge's
-  migrated rule twin keeps the mode of the rule it restates (`special/migrate-sentex`),
-  and an imported rule record is rebuilt around the modes its frame carries
-  (`io.import`).  An
+  wrappers ride the record, not the stored sentence.  The arguments are the wrappers as
+  `peel-rule-wrapper` reads them: a polycanonicalized conjunct keeps the mode of the rule
+  it came from, and `split-exceptWhen` restores the qualified rule's other wrappers after
+  stripping the exception.  `rewrap-sentex` reads them off a stored record instead.  An
   exceptWhen is not among them — it is split off before this runs and stored as a
   meta-sentex against each conjunct's handle (`split-exceptWhen`).
 
   A **cardinality** constraint rule restores its authored surface instead of the
   internal `set/hardConstraint (implies …)` form: its consequent is a `cardAtMost` /
   `cardAtLeast` marker, so `(asp/atMost k ?v pattern)` comes back rather than the rule it
-  was normalized to (`normalize-cardinality`)."
-  [sentence direction defeasible assumption constraint]
-  (let [conseq (when (sx/implies? sentence) (consequent sentence))
-        cf     (when (sequential? conseq) (first conseq))]
-    (cond
-      ;; a minimize restores its authored `(asp/minimize p ?w body)` — the whole
-      ;; antecedent form is the body, conjunctive or not
-      (and constraint (= minimize-marker cf))
-      (let [[_ p w] conseq]
-        (list minimize-wrapper p w (second sentence)))
-      ;; a priority-tagged soft restores `(set/softConstraint p (implies body C))`
-      (and constraint (= soft-priority-marker cf))
-      (let [[_ p m] conseq]
-        (list 'set/softConstraint p (list 'implies (second sentence) m)))
-      ;; a cardinality bound restores its authored surface (`normalize-cardinality`)
-      (and constraint (contains? cardinality-markers cf))
-      (let [[marker k v] conseq]
-        (list (cardinality-rewrap [marker constraint]) k v (first (antecedents sentence))))
-      :else
-      (cond-> sentence
-        defeasible      (->> (list sx/default-rule-wrapper))
-        assumption      (->> (list sx/assumption-rule-wrapper))
-        constraint      (->> (list (get {:hard 'set/hardConstraint :soft 'set/softConstraint}
-                                        constraint)))
-        direction       (wrap-direction direction)))))
+  was normalized to (`normalize-cardinality`).
+
+  `solve?` puts `set/solveRule` outermost, around the direction wrapper."
+  ([sentence direction defeasible assumption constraint]
+   (rewrap sentence direction defeasible assumption constraint false))
+  ([sentence direction defeasible assumption constraint solve?]
+   (let [conseq (when (sx/implies? sentence) (consequent sentence))
+         cf     (when (sequential? conseq) (first conseq))]
+     (cond
+       ;; a minimize restores its authored `(asp/minimize p ?w body)` — the whole
+       ;; antecedent form is the body, conjunctive or not
+       (and constraint (= minimize-marker cf))
+       (let [[_ p w] conseq]
+         (list minimize-wrapper p w (second sentence)))
+       ;; a priority-tagged soft restores `(set/softConstraint p (implies body C))`
+       (and constraint (= soft-priority-marker cf))
+       (let [[_ p m] conseq]
+         (list 'set/softConstraint p (list 'implies (second sentence) m)))
+       ;; a cardinality bound restores its authored surface (`normalize-cardinality`)
+       (and constraint (contains? cardinality-markers cf))
+       (let [[marker k v] conseq]
+         (list (cardinality-rewrap [marker constraint]) k v (first (antecedents sentence))))
+       :else
+       (cond-> sentence
+         defeasible      (->> (list sx/default-rule-wrapper))
+         assumption      (->> (list sx/assumption-rule-wrapper))
+         constraint      (->> (list (get {:hard 'set/hardConstraint :soft 'set/softConstraint}
+                                         constraint)))
+         direction       (wrap-direction direction)
+         solve?          (->> (list sx/solve-rule-wrapper)))))))
+
+(defn rewrap-sentex
+  "`rewrap` with the wrappers read off the stored rule sentex `sx` — the form its author
+  wrote, around `sentence` (its canonical or its originalized sentence).  A `:derive`
+  rule gets its direction wrapper (none for backward, the default), `set/defaultRule`
+  when defeasible and `set/solveRule` when a solve runs it; a choice or constraint rule gets its head wrapper
+  alone, since the wrapper stack refuses anything beside it."
+  [sentence sx]
+  (let [effect (:effect sx)]
+    (if (= :derive effect)
+      (rewrap sentence (sx/engines-direction (:engines sx)) (:defeasible sx) nil nil
+              (contains? (:engines sx) :solve))
+      (rewrap sentence nil nil (= :choose effect) (sx/effect-constraint effect)))))
 
 (defn expand-consequent
   "Polycanonicalize a rule that concludes a conjunction into one rule per conjunct,
@@ -921,11 +900,12 @@
   the exception is re-attached once per conjunct by the caller, against each conjunct's
   own handle."
   [sentence]
-  (let [[dir def? _exc assum con inner] (sx/peel-rule-wrapper sentence)]
+  (let [[dir def? _exc assum con inner] (sx/peel-rule-wrapper sentence)
+        solve? (sx/solve-wrapped? sentence)]
     (if (and (rule-sentence? inner)
              (conjunctive? (consequent inner)) (seq (rest (consequent inner))))
       (let [as (antecedents inner)]
-        (mapv #(rewrap (rule-sentence as %) dir def? assum con) (rest (consequent inner))))
+        (mapv #(rewrap (rule-sentence as %) dir def? assum con solve?) (rest (consequent inner))))
       [sentence])))
 
 ;; ---- polycanonicalization: distribute a disjunctive antecedent ----------
@@ -1016,14 +996,15 @@
   from the unexpanded form, and materializing 2^n rules to find out how many there were
   is the cost the cap exists to not pay."
   [sentence]
-  (let [[dir def? _exc assum con inner] (sx/peel-rule-wrapper sentence)]
+  (let [[dir def? _exc assum con inner] (sx/peel-rule-wrapper sentence)
+        solve? (sx/solve-wrapped? sentence)]
     (if (and (rule-sentence? inner) (some distributes-or? (antecedents inner)))
       (let [antes (antecedents inner)
             n     (antecedent-alternative-count antes)]
         (if (or (zero? n) (> n max-alternatives))
           [sentence]
           (mapv #(rewrap (rule-sentence (:antecedents %) (consequent inner))
-                         dir def? assum con)
+                         dir def? assum con solve?)
                 (antecedent-alternatives antes))))
       [sentence])))
 
@@ -1053,14 +1034,10 @@
   [sentence]
   (let [[dir def? exc assum con inner] (sx/peel-rule-wrapper sentence)]
     (if (seq exc)
-      [(vec exc) (if (sx/sentex-handle? inner) inner (rewrap inner dir def? assum con))]
+      [(vec exc) (if (sx/sentex-handle? inner)
+                   inner
+                   (rewrap inner dir def? assum con (sx/solve-wrapped? sentence)))]
       [nil sentence])))
-
-(defn- deep-vars
-  "Every variable anywhere in a form (descends into nested subterms, so a variable
-  inside a compound argument or a stamped rule is covered)."
-  [form]
-  (filter sx/variable? (tree-seq sequential? seq form)))
 
 ;; ---- generators: a rule whose consequent is a rule -----------------------
 ;; `(implies <antes> (implies <inner-antes> <inner-conseq>))` — a **generator**, whose
@@ -1110,8 +1087,8 @@
   One level's question.  Under nesting each level asks it of the level below, and
   `nesting` carries the answers down as `:bound`."
   [antecedents generated]
-  (let [ante-vars (into #{} (mapcat deep-vars antecedents))]
-    (into #{} (filter ante-vars) (deep-vars generated))))
+  (let [ante-vars (into #{} (mapcat sx/form-vars antecedents))]
+    (into #{} (filter ante-vars) (sx/form-vars generated))))
 
 (defn nesting
   "A rule sentence peeled into its **levels**, outermost first — one map per `implies`:
@@ -1144,7 +1121,7 @@
           g     (generated-rule c)
           level {:antecedents as :consequent c :generated g :bound bound}]
       (if g
-        (recur g (into bound (mapcat deep-vars) as) (conj acc level))
+        (recur g (into bound (mapcat sx/form-vars) as) (conj acc level))
         (conj acc level)))))
 
 (defn innermost-rule
@@ -1163,8 +1140,8 @@
   (let [exists?   (sx/head-exists? consequent)
         evars     (if exists? (sx/head-exists-vars consequent) #{})
         cbody     (if exists? (sx/head-exists-body consequent) consequent)
-        cvars     (deep-vars cbody)
-        ante-vars (into (set bound) (mapcat deep-vars) antecedents)]
+        cvars     (sx/form-vars cbody)
+        ante-vars (into (set bound) (mapcat sx/form-vars) antecedents)]
     (cond-> []
       (and (sequential? cbody) (= 'and (first cbody))
            (empty? (rest cbody)))
@@ -1190,9 +1167,7 @@
   can record it instead.
 
   A head existential `(exists ?y C)` exempts **only** its marked variable(s): the
-  check runs over the inner `C`, and every consequent variable that is neither
-  antecedent-bound nor existentially marked is still a problem — so an accidental
-  typo is caught while a deliberate `∃` is allowed (docs/skolem.md).
+  check runs over the inner `C` (docs/skolem.md).
 
   A **generator** is checked at its innermost level, and the two claims are about
   *different* rules.  Every generator level's own range restriction is vacuous — its
@@ -1246,7 +1221,7 @@
                      :consequent  consequent}))))
 
 ;; ---- what a disjunction may not do --------------------------------------
-;; `or` earns its place by *disappearing* (`expand-antecedent`), so the refusals below
+;; `or` is accepted only where it *disappears* (`expand-antecedent`), so the refusals below
 ;; are the positions from which it cannot: a place where nothing would expand it, or a
 ;; width at which expanding it is the wrong storage.  Every one is a pure read of the
 ;; sentence, which is why they are reported at the shape entry point — before the KB is read
@@ -1577,7 +1552,7 @@
   `reindex/index-rule-entry` — so a rebuilt index files the key a live one does."
   [rule-sentex]
   (let [c (consequent-key (:consequent rule-sentex))]
-    (if (and (sx/variable? c) (not= :inert (:direction rule-sentex)))
+    (if (and (sx/variable? c) (chains? rule-sentex))
       p/var-consequent-key
       c)))
 

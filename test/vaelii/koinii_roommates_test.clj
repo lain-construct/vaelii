@@ -11,7 +11,7 @@
 
   Resolution is by COUNTED VOTE (`adjudication/resolve-by-majority`), not an arbiter's
   decree: a 1-1 split upholds nobody and stays open, and a third ballot breaks it 2-1 — the
-  count decides, and the tie is honest.  Three shapes of the same story, composing the
+  count decides, and a tie decides nothing.  Three shapes of the same story, composing the
   `dispute` reads, the `channel` (join / subscribe / reply / vote), and `adjudication`:
 
   - **emergent** (in-process) — nobody states a stance; each roommate's facts plus the
@@ -20,8 +20,8 @@
   - **long, over the WIRE** — a real multi-turn three-way conversation: roommates on their
     own daemon connections (separate processes), a live subscriber polling the feed
     off-thread, and one roommate who goes offline mid-argument and catches up from the
-    durable KB on reconnect.  The vote is tallied where the KB lives (server-side), the
-    roommates remote.
+    durable KB on reconnect.  The vote is tallied where the KB lives (server-side), and
+    the count is refused: a ballot cast over the wire carries no attestation.
 
   A miniature of the reference-agents proof minus trust-resolve:
   here a vote of the roommates decides, not the engine weighing their trust."
@@ -43,9 +43,17 @@
   (tu/load-dumped! (tu/fresh) :koinii/speech-acts
                    #(doto % (core-context/load-into) (sa/load-speech-acts))))
 
-;; Majority resolution requires the :proof-tier identity policy (R7#1); these tests run
-;; under it — the channel never authenticates, so it touches nothing but that gate.
+;; Majority resolution requires the :proof-tier identity policy and counts only attested
+;; ballots, so these tests run under it and the in-process ones vote through `vote!`.
 (defn- with-proof-tier [f] (binding [id/*policy* :proof-tier] (f)))
+
+(defn- vote!
+  "Cast `agent`'s attested `stance` ballot on `claim-h`, under a `:proof-tier` principal
+  whose credential is its id."
+  [kb agent stance claim-h]
+  (adj/cast-ballot kb (id/authenticate {:claimed-id agent :credential agent}
+                                       {:policy :proof-tier :verify-fn (fn [a c] (= a c))})
+                   stance claim-h))
 
 (use-fixtures :each (tu/neutral-fresh household-kb) with-proof-tier)
 
@@ -76,7 +84,7 @@
 (tu/deftest-kb an-argument-that-emerges-from-facts-and-house-rules
   (let [ava  (ch/join (ch/local kb) 'CxApartment 'AgentAva)   ; wants companionship
         ben  (ch/join (ch/local kb) 'CxApartment 'AgentBen)   ; allergic
-        ciel (ch/join (ch/local kb) 'CxApartment 'AgentCiel)] ; the tiebreaker
+        _ciel (ch/join (ch/local kb) 'CxApartment 'AgentCiel)] ; the tiebreaker
     (doseq [r house-rules] (v/assert kb r 'CxApartment))
     ;; each roommate states only FACTS about themselves — never a stance on the dog
     (ch/assert ava (list 'memberOf 'AgentAva 'Apartment))
@@ -101,13 +109,13 @@
     ;; the roommates vote on the emergent question; the majority resolves the DERIVED clash
     (let [claim-h (v/handle-of kb proposal 'CxApartment)
           id (dispute-id kb)]
-      (ch/vote ava :for claim-h)
-      (ch/vote ben :against claim-h)
+      (vote! kb 'AgentAva :for claim-h)
+      (vote! kb 'AgentBen :against claim-h)
       (testing "1-1 leaves the derived dispute open, both derivations still standing"
         (is (= :tie (:outcome (adj/resolve-by-majority kb id claim-h 'CxApartment))))
         (is (d/disputed? kb proposal 'CxApartment)))
       (testing "Ciel breaks it 2-1, and the derived contradiction resolves"
-        (ch/vote ciel :for claim-h)
+        (vote! kb 'AgentCiel :for claim-h)
         (let [r (adj/resolve-by-majority kb id claim-h 'CxApartment)]
           (is (= :for (:outcome r)))
           (is (not (d/disputed? kb proposal 'CxApartment)))
@@ -126,13 +134,13 @@
 (tu/deftest-kb a-tiebreaker-vote-settles-a-split-house
   (let [ava  (ch/join (ch/local kb) 'CxApartment 'AgentAva)   ; wants a dog
         ben  (ch/join (ch/local kb) 'CxApartment 'AgentBen)   ; allergic, does not
-        ciel (ch/join (ch/local kb) 'CxApartment 'AgentCiel)  ; the third roommate
+        _ciel (ch/join (ch/local kb) 'CxApartment 'AgentCiel)  ; the third roommate
         ph   (ch/assert ava proposal)]                       ; Ava: "let's get a dog"
     (ch/justify ava 'GoodForExercise ph)
     (ch/dispute ben ph)                                       ; Ben: "no — I'm allergic"
     (ch/justify ben 'Allergy ph)
-    (ch/vote ava :for ph)
-    (ch/vote ben :against ph)
+    (vote! kb 'AgentAva :for ph)
+    (vote! kb 'AgentBen :against ph)
     (let [id (dispute-id kb)]
 
       (testing "1-1: a split house is left OPEN — the vote decides nobody"
@@ -144,7 +152,7 @@
           (is (v/in? kb ph) "and both sides still stand")))
 
       (testing "the tiebreaker: Ciel votes for, and 2-1 carries it"
-        (ch/vote ciel :for ph)
+        (vote! kb 'AgentCiel :for ph)
         (let [r (adj/resolve-by-majority kb id ph 'CxApartment)]
           (is (= {:for 2 :against 1} (select-keys r [:for :against])))
           (is (= :for (:outcome r)))
@@ -160,8 +168,9 @@
 ;;
 ;; A genuine multi-turn, three-way conversation — facts, derivations, questions,
 ;; answers, an endorsement, justifications on each side, a compromise floated and
-;; rebutted, votes, one roommate going offline and catching up, a resolution and a
-;; reversal.  Every turn is a real koinii move landing in the one shared KB.
+;; rebutted, votes, one roommate going offline and catching up, and a count the resolver
+;; refuses because no wire ballot is attested.  Every turn is a real koinii move landing
+;; in the one shared KB.
 
 (defn- justify-grounds
   "The grounds of every justification naming `target-h`, as a set — 'the reasons on
@@ -169,6 +178,19 @@
   [kb target-h]
   (->> (v/sentexes-matching kb (list 'justifies '?a '?g (sx/sentex-handle target-h)) '?ctx)
        (map #(nth (:sentence %) 2)) set))
+
+(defn- ballot-handles
+  "The handles of every ballot cast on `claim-h`, in any context."
+  [kb claim-h]
+  (into #{} (map :id)
+        (mapcat #(v/sentexes-matching kb (list % '?a (sx/sentex-handle claim-h)) '?ctx)
+                '[votesFor votesAgainst])))
+
+(defn- unattested
+  "The ballots `resolve-by-majority` names unattested when it refuses, or nil when it rules."
+  [kb id claim-h channel]
+  (try (adj/resolve-by-majority kb id claim-h channel) nil
+       (catch clojure.lang.ExceptionInfo e (:unattested (ex-data e)))))
 
 (tu/deftest-kb ^:slow three-roommates-a-long-argument-over-the-wire
   (let [^Server server (serve/start kb {:port 0 :token nil})
@@ -229,8 +251,10 @@
                   ;; ── 11-12. they vote their derived stances → 1-1 ──
                   (ch/vote ava :for adopt-h)
                   (ch/vote ben :against adopt-h)
-                  (testing "1-1 leaves the dispute open"
-                    (is (= :tie (:outcome (adj/resolve-by-majority kb id adopt-h 'CxApartment))))
+                  (testing "a count of wire ballots is refused, naming each: the daemon
+                            attests nothing, so no wire ballot proves who cast it"
+                    (is (= 2 (count (ballot-handles kb adopt-h))))
+                    (is (= (ballot-handles kb adopt-h) (unattested kb id adopt-h 'CxApartment)))
                     (is (d/disputed? kb proposal 'CxApartment)))
 
                   ;; ── 13. Ben asks one more thing, then goes offline ──
@@ -254,22 +278,14 @@
                           (is (vc/ask? ben2-conn proposal 'CxApartment))
                           (is (vc/ask? ben2-conn (list 'not proposal) 'CxApartment))))
 
-                      ;; ── 17. the house resolves 2-1 ──
-                      (testing "2-1 resolves it — adopt upheld (monotonic), explained"
-                        (let [r (adj/resolve-by-majority kb id adopt-h 'CxApartment)]
-                          (is (= {:for 2 :against 1} (select-keys r [:for :against])))
-                          (is (= :for (:outcome r)))
-                          (is (not (d/disputed? kb proposal 'CxApartment)))
-                          (is (= :true (:verdict (v/argue kb proposal 'CxApartment))))
-                          (is (= 'AgentMajority (:arbiter (adj/who-ruled kb (:ruling r)))))
-
-                          ;; ── 18. new info: the allergy proves severe → retract → reopened ──
-                          (testing "then Ben's allergy proves severe — retract the ruling, it reopens"
-                            (is (vc/ask? ben2-conn (list 'allergicTo 'AgentBen 'DogDander) 'CxBen)
-                                "his allergy fact still stands, outvoted not deleted")
-                            (v/retract! kb (:ruling r))
-                            (is (d/disputed? kb proposal 'CxApartment))
-                            (is (= :contradiction (:verdict (v/argue kb proposal 'CxApartment)))))))
+                      ;; ── 17. the 2-1 count stays a count ──
+                      (testing "2-1 over the wire rules nothing: every ballot is named unattested"
+                        (is (= {:for 2 :against 1} (adj/tally kb adopt-h)) "the tally is readable")
+                        (is (= 3 (count (ballot-handles kb adopt-h))))
+                        (is (= (ballot-handles kb adopt-h) (unattested kb id adopt-h 'CxApartment)))
+                        (is (d/disputed? kb proposal 'CxApartment))
+                        (is (vc/ask? ben2-conn (list 'allergicTo 'AgentBen 'DogDander) 'CxBen)
+                            "his allergy fact still stands"))
 
                       ;; ── the whole conversation is recoverable as knowledge (sibling of resolve) ──
                       (testing "afterwards a plain query recovers the reasons and the vote"

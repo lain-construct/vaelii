@@ -80,7 +80,8 @@
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning])
-  (:import [java.io File PushbackReader]))
+  (:import [clojure.lang LineNumberingPushbackReader]
+           [java.io File]))
 
 ;; ---- the strength wrapper ------------------------------------------------
 
@@ -103,14 +104,53 @@
 
 ;; ---- reading ------------------------------------------------------------
 
+(defn- skip-to-form!
+  "Advance `r` past whitespace, commas and `;` comments, so its line number is the line
+  the next form opens on."
+  [^LineNumberingPushbackReader r]
+  (loop []
+    (let [c (.read r)]
+      (cond
+        (neg? c)                                        nil
+        (or (Character/isWhitespace c) (= c (int \,)))  (recur)
+        (= c (int \;))                                  (do (.readLine r) (recur))
+        :else                                           (.unread r c)))))
+
+(defn- unreadable
+  "The refusal for a form of `source` that does not read, opening on `line`.  The EDN
+  reader's own message is not carried, since it can quote the file (a token, a tag), and
+  `kb-diff` sends a refusal's message over the wire; the failure is named by kind."
+  [source line ^Throwable t]
+  (let [m    (str (ex-message t))
+        kind (cond
+               (instance? StackOverflowError t)
+               "it nests deeper than the reader's stack"
+               (str/starts-with? m "EOF while reading")
+               "the file ends before the form closes"
+               (str/starts-with? m "No reader function for tag")
+               "it holds a #tag the EDN reader has no function for"
+               (str/starts-with? m "No dispatch macro for")
+               "it holds a # dispatch the EDN reader does not read, #= among them"
+               :else
+               "it holds a token or delimiter the EDN reader does not read")]
+    (ex-info (str "text KB file " source ", line " line ": the form that opens there does not"
+                  " read as EDN — " kind)
+             {:type :unreadable :file (str source) :line line})))
+
 (defn read-forms
   "Every form in the text KB file `source` (anything `io/reader` takes), in file order.
-  `clojure.edn`, so comments and blank lines added no work and no code can run."
+  `clojure.edn`, so comments and blank lines added no work and no code can run.  A form
+  that does not read is refused as `:unreadable`, carrying `:file` and the `:line` it
+  opens on and never the file's text."
   [source]
-  (with-open [r (PushbackReader. (io/reader source))]
+  (with-open [r (LineNumberingPushbackReader. (io/reader source))]
     (let [eof (Object.)]
       (loop [acc []]
-        (let [form (edn/read {:eof eof} r)]
+        (skip-to-form! r)
+        (let [line (.getLineNumber r)
+              form (try (edn/read {:eof eof} r)
+                        (catch Exception e (throw (unreadable source line e)))
+                        (catch StackOverflowError e (throw (unreadable source line e))))]
           (if (identical? form eof) acc (recur (conj acc form))))))))
 
 (defn context-of
@@ -224,11 +264,11 @@
 (defn- authored
   "A stored sentex as its author wrote it: the canonical variables put back through the
   record's own varmap, and the direction / default / assumption / constraint wrappers
-  rewrapped around it (`rules/rewrap` — they ride the record, not the sentence).  A fact
+  rewrapped around it (`rules/rewrap-sentex` — they ride the record, not the sentence).  A fact
   carries neither and comes back unchanged."
   [sx]
-  (let [s (if-let [vm (:varmap sx)] (sx/originalize (sx/sentence-of sx) vm) (sx/sentence-of sx))]
-    (rules/rewrap s (:direction sx) (:defeasible sx) (:assumption sx) (:constraint sx))))
+  (let [s (sx/authored-sentence sx)]
+    (if (some? (:antecedent sx)) (rules/rewrap-sentex s sx) s)))
 
 (defn- exception-form
   "The `(exceptWhen <query> <rule>)` wrapper an exceptWhen meta-sentex was written as,
@@ -283,9 +323,11 @@
   (let [recs (:records kb)]
     (into [] (keep #(p/get-sentex recs %)) (p/premise-ids recs))))
 
-(defn- context-forms
-  "`[{context [form …]} skipped]` for `kb` — the text of every premise, grouped by the
-  context it holds in, and the premises there is no text for.
+(defn premise-entries
+  "`[entries skipped]` for `premises`, records of `kb`: each premise as the form a KB file
+  writes it, `{:context c :form f :handles [h …]}`, and the premises there is no text for.
+  `:handles` are the records the form stands for — one, or an exceptWhen meta and the rule
+  it qualifies — so a caller that finds a form it does not want knows what to retract.
 
   Three kinds of premise, and the second is the one that needs assembling:
 
@@ -303,9 +345,8 @@
     (`names-a-handle?` for the two ways a sentence spells one).  There
     is no spelling for it: the handle is a fact about this store, and a wrapper around a
     derived rule would assert as a premise something the KB never held as one."
-  [kb]
+  [kb premises]
   (let [recs     (:records kb)
-        premises (premise-records kb)
         meta?    #(sx/exceptWhen-meta? (:sentence %))
         by-rule  (into {} (comp (filter meta?)
                                 (keep #(p/get-sentex recs (sx/exceptWhen-rule-handle (:sentence %))))
@@ -314,12 +355,13 @@
                        premises)]
     (reduce
      (fn [[written skipped] sx]
-       (let [keep! (fn [form] [(update written (:context sx) (fnil conj []) form) skipped])
+       (let [keep! (fn [form hs] [(conj written {:context (:context sx) :form form :handles hs})
+                                  skipped])
              drop! (fn [] [written (conj skipped sx)])]
          (cond
            (meta? sx)
            (if-let [rule (by-rule (sx/exceptWhen-rule-handle (:sentence sx)))]
-             (keep! (exception-form sx rule))
+             (keep! (exception-form sx rule) [(:id sx) (:id rule)])
              (drop!))
 
            (names-a-handle? (:sentence sx)) (drop!)
@@ -328,9 +370,17 @@
            ;; weaker class than the rule stands at
            (and (by-rule (:id sx)) (not= :monotonic (:strength sx))) [written skipped]
 
-           :else (keep! (with-strength (authored sx) (:strength sx))))))
-     [{} []]
+           :else (keep! (with-strength (authored sx) (:strength sx)) [(:id sx)]))))
+     [[] []]
      premises)))
+
+(defn- context-forms
+  "`[{context [form …]} skipped]` for `kb` — the text of every premise, grouped by the
+  context it holds in, and the premises there is no text for (`premise-entries`)."
+  [kb]
+  (let [[entries skipped] (premise-entries kb (premise-records kb))]
+    [(reduce (fn [m {:keys [context form]}] (update m context (fnil conj []) form)) {} entries)
+     skipped]))
 
 (def ^:private opt-keys
   "Every key the text writer reads."

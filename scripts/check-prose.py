@@ -15,8 +15,9 @@ Four codes:
       a boundary or a call site; `cone` is an ancestor set or an upward closure.
 
   P2  Evaluative language carrying no measurement: load-bearing, earns its keep,
-      worth writing down, the tempting alternative, the only honest option. Where the
-      claim is quantitative, cite the test or bench that measures it (CONTRIBUTING §8).
+      earns its place, worth writing down, the tempting alternative, honest and
+      honestly, payoff. Where the claim is quantitative, cite the test or bench that
+      measures it (CONTRIBUTING §8).
 
   P3  Pseudo-cleft -- `What holds the wrap is a version pin` -- which withholds the
       subject until after the verb.
@@ -101,7 +102,7 @@ P2 = re.compile(
     r"|worth (writing down|stating|saying)"
     r"|costs? (you )?nothing|what it buys"
     r"|the tempting (alternative|thing)|it is tempting"
-    r"|only honest|honest option"
+    r"|\bhonest(ly)?\b|earns? (its|the|their) (place|entry)|\bpayoffs?\b"
     r"|(loud|quiet|cheap|free) enough"
     r"|and they are not the same"
     r"|, deliberately\."

@@ -188,8 +188,8 @@
     (testing "ne∘ne = ne, so A is northeast of D though nobody said so"
       (is (v/ask? kb (list 'northeastOf A D) C)))
     (testing "and the computed table pins it to exactly that"
-      (is (= #{:ne} (dir/possible-directions kb C A D)))
-      (is (= :ne (dir/definite-direction kb C A D))))
+      (is (= #{:ne} (qkb/possible dir/cardinal kb C A D)))
+      (is (= :ne (qkb/definite dir/cardinal kb C A D))))
     (testing "so a direction the network excludes is not answered"
       (is (not (v/ask? kb (list 'southwestOf A D) C)))
       (is (not (v/ask? kb (list 'northOf A D) C)))
@@ -226,8 +226,8 @@
     (v/assert kb (list 'northOf A B) C)
     (v/assert kb (list 'southOf B D) C)
     (testing "north then south says only that A and D share a meridian"
-      (is (= #{:n :eq :s} (dir/possible-directions kb C A D)))
-      (is (= :unknown (dir/definite-direction kb C A D))))
+      (is (= #{:n :eq :s} (qkb/possible dir/cardinal kb C A D)))
+      (is (= :unknown (qkb/definite dir/cardinal kb C A D))))
     (testing "so no direction predicate is entailed — not even a derived one"
       (is (not (v/ask? kb (list 'northOf A D) C)))
       (is (not (v/ask? kb (list 'northwardOf A D) C)))
@@ -236,7 +236,7 @@
 (tu/deftest-kb a-derived-assertion-constrains-without-pinning
   (tu/with-terms [A B]
     (v/assert kb (list 'northwardOf A B) C)
-    (is (= #{:n :ne :nw} (dir/possible-directions kb C A B)))
+    (is (= #{:n :ne :nw} (qkb/possible dir/cardinal kb C A B)))
     (testing "the predicate asserted is entailed, and its converse"
       (is (v/ask? kb (list 'northwardOf A B) C))
       (is (v/ask? kb (list 'southwardOf B A) C)))
@@ -251,7 +251,7 @@
     ;; direction to the diagonal between them
     (v/assert kb (list 'northwardOf A B) C)               ; #{:n :ne :nw}
     (v/assert kb (list 'eastwardOf A B) C)                ; #{:e :ne :se}
-    (is (= #{:ne} (dir/possible-directions kb C A B))
+    (is (= #{:ne} (qkb/possible dir/cardinal kb C A B))
         "the constraint is the intersection, whichever order they were read in")
     (is (v/ask? kb (list 'northeastOf A B) C))
     (is (not (v/ask? kb (list 'northOf A B) C)))))
@@ -261,7 +261,7 @@
     (v/assert kb (list 'sameLocationAs A B) C)
     (v/assert kb (list 'northOf B D) C)
     (testing "eq is the identity, so A stands where B does"
-      (is (= #{:n} (dir/possible-directions kb C A D)))
+      (is (= #{:n} (qkb/possible dir/cardinal kb C A D)))
       (is (v/ask? kb (list 'northOf A D) C)))))
 
 ;; ---- inconsistency -------------------------------------------------------
@@ -271,8 +271,8 @@
     (v/assert kb (list 'northOf A B) C)
     (v/assert kb (list 'southOf A B) C)
     (testing "north and south are disjoint base directions, so their pair empties"
-      (is (= #{} (dir/possible-directions kb C A B)))
-      (is (= :inconsistent (dir/definite-direction kb C A B))))
+      (is (= #{} (qkb/possible dir/cardinal kb C A B)))
+      (is (= :inconsistent (qkb/definite dir/cardinal kb C A B))))
     (testing "and an inconsistent theory is not mined for conclusions — anywhere"
       (is (not (v/ask? kb (list 'northOf A B) C)))
       (is (not (v/ask? kb (list 'southOf A B) C)))
@@ -291,7 +291,7 @@
     (v/assert kb (list 'northOf A B) C)
     (v/assert kb (list 'northOf B D) C)
     (v/assert kb (list 'southOf A D) C)
-    (is (= :inconsistent (dir/definite-direction kb C A D)))
+    (is (= :inconsistent (qkb/definite dir/cardinal kb C A D)))
     (is (not (v/ask? kb (list 'northOf A B) C))
         "the whole network is unsatisfiable, so no pair of it is answered")))
 

@@ -102,7 +102,7 @@
   reading the whole `termOfUnit` population and keeping the few under `f`.  That
   distinction is the difference between a bounded read and a scan of every reified NAT in
   the KB, and this runs on the assert maintenance path (`reconcile-genlCx`), once per
-  fact stored into a `cx/` context.  `nat/minted-applications` reads the same map the
+  context minted.  `nat/minted-applications` reads the same map the
   same way, for the same reason."
   [kb f]
   (->> (kb/find-sentexes kb f)
@@ -171,10 +171,9 @@
   budget question.  *After* the justification, because the three sweeps read the
   belief-filtered `genlCx` closure and a line earlier the edge is a node nothing supports
   — they would enumerate the pre-edge ancestor set and find nothing.  And only when the edge was
-  not believed before this call, because the producer is idempotent and re-runs over
-  every context of a declared function on every assert into one of them: without the
-  transition gate a calendar of `k` sibling months would re-sweep its O(k²) edges on each
-  arrival, where each edge in fact owes exactly one sweep in its life.  A second route to
+  not believed before this call, because the producer is idempotent and a declaration or
+  a revival re-runs it over every pair of a function's contexts: each edge owes exactly
+  one sweep in its life.  A second route to
   an edge already believed widens no ancestor set, so it owes none at all."
   [kb sub super antes]
   (let [edge (list 'genlCx sub super)
@@ -195,38 +194,42 @@
           (special/reconcile-context-edge kb edge))))))
 
 (defn- order-group
-  "Materialize every genlCx edge within one sibling group under declaration `[pos R declH]`:
-  for each ordered pair of siblings whose `pos` arguments stand in `R`, the sub `genlCx` the
-  super.  `nats` is `[k expr termOfUnit-handle]` for the group's members.
+  "Materialize the genlCx edges within one sibling group under declaration `[pos R declH]`:
+  for each ordered pair of siblings that `pair?` admits and whose `pos` arguments stand in
+  `R`, the sub `genlCx` the super.  `nats` is `[k expr termOfUnit-handle]` for the group's
+  members; `pair?` takes `[ksub asub ksup asup]`, the two contexts and their `pos`
+  arguments, and is tested before the `R` oracle.
 
   Returns the group's merged `{:new :superseded :violations}`, or nil — see
   `materialize-edge`, whose result this is carrying out."
-  [kb pos r declH nats]
+  [kb pos r declH nats pair?]
   (combine
    (for [[ksub esub th-sub] nats
          [ksup esup th-sup] nats
          :when (not= ksub ksup)
          :let  [asub (nth esub pos nil)
-                asup (nth esup pos nil)
-                ev   (r-evidence kb r asub asup)]
+                asup (nth esup pos nil)]
+         :when (pair? ksub asub ksup asup)
+         :let  [ev (r-evidence kb r asub asup)]
          :when ev]
      (materialize-edge kb ksub ksup
                        (cond-> [th-sub th-sup declH]
                          (not= ::pure ev) (conj ev))))))
 
 (defn- reconcile-function
-  "Materialize the structural genlCx edges for every declaration of function `f`, over all
-  of `f`'s context NATs grouped into siblings.  Returns their merged
-  `{:new :superseded :violations}`, or nil."
-  [kb f]
-  (combine
-   (for [[_ pos r declH] (subrelation-declarations kb #(= f %))
-         :let [groups (group-by #(sibling-key (second %) pos) (context-nats-of kb f))]
-         [k nats] groups
-         ;; a nil key is an expression the declared `pos` does not index — no sibling
-         ;; group, so nothing to order (`sibling-key`)
-         :when (some? k)]
-     (order-group kb pos r declH nats))))
+  "Materialize the structural genlCx edges for every declaration of function `f`, over
+  the ordered sibling pairs of `f`'s context NATs that `pair?` admits (`order-group`), or
+  over every pair.  Returns their merged `{:new :superseded :violations}`, or nil."
+  ([kb f] (reconcile-function kb f (constantly true)))
+  ([kb f pair?]
+   (combine
+    (for [[_ pos r declH] (subrelation-declarations kb #(= f %))
+          :let [groups (group-by #(sibling-key (second %) pos) (context-nats-of kb f))]
+          [k nats] groups
+          ;; a nil key is an expression the declared `pos` does not index — no sibling
+          ;; group, so nothing to order (`sibling-key`)
+          :when (some? k)]
+      (order-group kb pos r declH nats pair?)))))
 
 (defn- functions-ordered-by
   "The context functions some believed declaration orders by sub-relation `r`.  What the
@@ -240,45 +243,39 @@
                 f))))
 
 (defn reconcile-genlCx
-  "The structural-genlCx maintenance a just-asserted `sentence` in `context` calls for,
-  scoped to what could have changed:
+  "The structural-genlCx maintenance a just-asserted `sentence` calls for, scoped to the
+  sibling pairs it can have changed:
 
-  - a `(contextArgSubrelation F …)` declaration reconciles all of `F`'s contexts;
-  - a fact stored into a `cx/` context reconciles that context's function — its arrival, or
-    the mint of a new context beside it, is what creates a sibling pair to order;
-  - an `(R a b)` fact on a **declared sub-relation** reconciles the functions declared to
-    order by `R`.  That is the third way an edge can become entailed with both contexts
-    already stored: a comparator dimension needs nothing but the contexts, but a dimension
-    resolved by stored facts has the evidence arrive on its own schedule, and without this
-    arm the edge would wait for the next assert that happened to touch one of the two
-    contexts.
+  - a `(contextArgSubrelation F …)` declaration reconciles every pair of `F`'s contexts;
+  - a `(termOfUnit K E)` map with `K` a `cx/` constant — the mint of a context —
+    reconciles the pairs `K` is in, since a new context is what creates a sibling pair;
+  - an `(R a b)` fact on a **declared sub-relation** reconciles the pairs whose ordered
+    arguments are `a` below `b`, in the functions declared to order by `R`.  A comparator
+    dimension needs nothing but the contexts, but a dimension resolved by stored facts
+    has the evidence arrive on its own schedule.
 
-  A no-op — one functor count — on a KB that declares no `contextArgSubrelation`.  Every
-  arrival order reaches the same fixpoint: a declaration arriving after the contexts sweeps
-  them (`reconcile-function`), a context arriving after a declaration is swept when it is
-  stored into, and the evidence arriving after both sweeps the functions it is evidence
-  for.  Idempotent, so re-running orders the same edges without duplicating.
+  Any other fact, including one stored into a `cx/` context that already exists, creates
+  no pair and reconciles nothing.  A no-op — one functor count — on a KB that declares no
+  `contextArgSubrelation`.
 
   **Returns what the edges it computed merged** — `{:new :superseded :violations}`, or
-  nil when they merged nothing, which is every KB that states no equality and every
-  re-run over edges it already had.  A computed edge widens which merges a context can
-  see exactly as a stated one does, and the caller owes it the same follow-through
+  nil when they merged nothing.  A computed edge widens which merges a context can see
+  exactly as a stated one does, and the caller owes it the same follow-through
   (`core/assert`)."
-  [kb sentence context]
-  (when (any-context-subrelations? kb)
-    (cond
-      (and (sequential? sentence) (seq sentence)
-           (= 'contextArgSubrelation (first sentence)))
-      (reconcile-function kb (second sentence))
+  [kb sentence]
+  (when (and (any-context-subrelations? kb) (sequential? sentence) (seq sentence))
+    (let [[head x y] sentence]
+      (cond
+        (= 'contextArgSubrelation head)
+        (reconcile-function kb x)
 
-      (nat/reified-context-symbol? context)
-      (when-let [e (nat/nat-expression kb context)]
-        (when (sequential? e) (reconcile-function kb (first e))))
+        (and (= 'termOfUnit head) (nat/reified-context-symbol? x) (sequential? y) (seq y))
+        (reconcile-function kb (first y) (fn [ksub _ ksup _] (or (= x ksub) (= x ksup))))
 
-      :else
-      (combine
-       (for [f (functions-ordered-by kb (nm/functor sentence))]
-         (reconcile-function kb f))))))
+        :else
+        (combine
+         (for [f (functions-ordered-by kb head)]
+           (reconcile-function kb f (fn [_ asub _ asup] (and (= x asub) (= y asup))))))))))
 
 (defn reconcile-revivals
   "Rebuild the structural genlCx edges for **every** declared `contextArgSubrelation`

@@ -35,6 +35,26 @@
       (is (v/provable? kb (list breathes muffet) 'CxUniverse))
       (is (not (v/provable? kb (list breathes boulder) 'CxUniverse))))))
 
+(tu/deftest-kb prove-answers-a-literal-as-ask-does
+  ;; A literal the search does not rewrite is answered by the prover registry, so a rule
+  ;; expansion never finds less than `ask` for the same literal: here the cached `genl`
+  ;; closure, whose far and reflexive pairs no edge states.
+  (tu/with-terms [pug dog mammal below]
+    (v/assert kb (list 'genl pug dog) 'CxUniverse)
+    (v/assert kb (list 'genl dog mammal) 'CxUniverse)
+    (v/assert-rule kb [(list 'genl '?a '?b)] (list below '?a '?b) 'CxUniverse
+                   {:direction :backward})
+    (is (v/ask? kb (list 'genl pug mammal) 'CxUniverse))
+    (testing "the literal itself"
+      (is (v/provable? kb (list 'genl pug mammal) 'CxUniverse))
+      (is (= #{pug dog mammal} (set (map '?y (v/prove kb (list 'genl pug '?y) 'CxUniverse))))))
+    (testing "as a rule's antecedent"
+      (is (= #{pug dog mammal} (set (map '?y (v/prove kb (list below pug '?y) 'CxUniverse))))))
+    (testing "under a bound, and anytime"
+      (is (v/provable? kb (list below pug mammal) 'CxUniverse {:max-depth 2}))
+      (is (seq (:results (v/prove-within kb (list below pug mammal) 'CxUniverse
+                                         {:max-depth 2})))))))
+
 (tu/deftest-kb prove-is-context-aware
   (let [parentOf (tu/tmp-pred) tom (tu/tmp-ind) bob (tu/tmp-ind) ann (tu/tmp-ind)]
     (v/assert kb (list 'genlCx 'CxBio 'CxUniverse) 'CxUniverse)

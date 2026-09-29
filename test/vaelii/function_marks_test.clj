@@ -157,7 +157,7 @@
       (is (v/ask? kb (list 'predSpecifiedAll pSur capital_city) U)))))
 
 (tu/deftest-kb a-mark-on-a-predicate-with-no-arg-pair-derives-no-audit
-  ;; The honest degradation: totality and ontoness name a domain and a range, and a
+  ;; The degradation: totality and ontoness name a domain and a range, and a
   ;; predicate whose arguments are undeclared states neither, so the requirements are not
   ;; derived rather than derived against `thing`.
   (tu/with-terms [pRel]

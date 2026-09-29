@@ -1,17 +1,10 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.aggregate-test
-  "Aggregation as a **query operator** — the third member of the `unknown` /
-  `thereExists` family.
-
-  `(agg/count ?n ?v Body)` and its four siblings reduce a query's solutions to one
-  number: `?v` is projected out, `?n` is the only binding produced, the body runs at
-  level 6, and nothing is stored.  In a rule antecedent the aggregate runs once per
-  binding the generators supply, which is where GROUP BY comes from — and a firing that
-  rested on a count is maintained by the same re-check machinery `unknown` uses.  See
+  "`agg/count` and its four siblings, as goals and as rule antecedents.  See
   docs/aggregate.md."
   (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.test :refer [are deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
@@ -51,25 +44,17 @@
   [kb pred owner vs]
   (mapv (fn [v] (let [s (list pred owner v)] (v/assert kb s 'CxWell) s)) vs))
 
-(tu/deftest-kb the-five-operators-reduce-the-body-s-solutions
+(tu/deftest-kb the-five-operators-reduce-the-distinct-values-and-bind-only-n
+  ;; docs/aggregate.md's opening example: the two 1s are one value, and the one answer
+  ;; binds `?n` alone
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [3 1 4 1 5])
-    (let [g (fn [op] (list op '?n '?v (list scoreOf Team '?v)))]
-      (testing "distinct: the two 1s are one value"
-        (is (= 4 (one kb (g 'agg/count) '?n))))
-      (is (= 13 (one kb (g 'agg/sum) '?n)))
-      (is (= 1 (one kb (g 'agg/min) '?n)))
-      (is (= 5 (one kb (g 'agg/max) '?n)))
-      (is (= 13/4 (rationalize (one kb (g 'agg/avg) '?n)))
-          "the mean of the *distinct* values, not of the solutions"))))
-
-(tu/deftest-kb the-reduction-variable-is-projected-out
-  (tu/with-terms [scoreOf Team]
-    (extent! kb scoreOf Team [7 8])
-    (let [sols (v/ask kb (list 'agg/count '?n '?v (list scoreOf Team '?v)) 'CxWell)]
-      (is (= 1 (count sols)))
-      (is (= '#{?n} (set (keys (first sols))))
-          "?v binds nothing outside the aggregate — it is counted, not witnessed"))))
+    (are [op n] (= [{'?n n}] (v/ask kb (list op '?n '?v (list scoreOf Team '?v)) 'CxWell))
+      'agg/count 4
+      'agg/sum   13
+      'agg/min   1
+      'agg/max   5
+      'agg/avg   3.25)))
 
 (tu/deftest-kb a-merged-pair-counts-once
   (tu/with-terms [knows Ada Alan Turing]
@@ -81,11 +66,16 @@
       (is (= 1 (one kb g '?n))
           "one thing, one value — distinctness is by the equality closure's representative"))))
 
+(tu/deftest-kb a-compound-value-is-distinct-by-the-representatives-inside-it
+  (tu/with-terms [knows Ada Alan Turing NameFn]
+    (v/assert kb (list knows Ada (list NameFn Alan)) 'CxWell)
+    (v/assert kb (list knows Ada (list NameFn Turing)) 'CxWell)
+    (let [g (list 'agg/count '?n '?v (list knows Ada '?v))]
+      (is (= 2 (one kb g '?n)))
+      (v/assert kb (list 'sameAs Alan Turing) 'CxWell)
+      (is (= 1 (one kb g '?n)) "the two applications name one thing once the arguments merge"))))
+
 (tu/deftest-kb the-census-counts-only-the-merges-its-own-context-can-see
-  ;; The same scoping `different` puts on the same partition: the unique names a
-  ;; context holds are the ones *it* has not been told to merge.  Read globally, a
-  ;; `sameAs` stated down here would collapse two values in the general context that was
-  ;; never told — whose own solutions still name both.
   (tu/with-terms [knows Ada Alan Turing CxLow]
     (v/assert kb (list 'genlCx CxLow 'CxWell) 'CxUniverse
               {:strength :monotonic})
@@ -98,12 +88,15 @@
       (is (= 2 (get (tu/sole-answer (v/ask kb g 'CxWell)) '?n))
           "and the one above it still counts two"))))
 
-(tu/deftest-kb the-check-arm-compares-instead-of-binding
+(tu/deftest-kb the-check-arm-compares-numbers-with-==
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [2 4])
-    (is (v/ask? kb (list 'agg/count 2 '?v (list scoreOf Team '?v)) 'CxWell))
-    (is (not (v/ask? kb (list 'agg/count 3 '?v (list scoreOf Team '?v)) 'CxWell))
-        "a bound ?n that does not match the computed value answers nothing")))
+    (are [op n holds?] (= holds? (v/ask? kb (list op n '?v (list scoreOf Team '?v)) 'CxWell))
+      'agg/count 2   true
+      'agg/count 3   false
+      'agg/count 2.0 true
+      'agg/avg   3   true                     ; the mean is the double 3.0
+      'agg/avg   4   false)))
 
 ;; ---- the empty body: where the five differ -------------------------------
 
@@ -119,7 +112,7 @@
 
 ;; ---- numbers, measures, and what is neither ------------------------------
 
-(tu/deftest-kb a-non-numeric-value-is-an-error-not-a-silent-skip
+(tu/deftest-kb a-non-numeric-value-is-an-error-filed-once
   (tu/with-terms [likesThing Ann Cake Pie]
     (v/assert kb (list likesThing Ann Cake) 'CxWell)
     (v/assert kb (list likesThing Ann Pie) 'CxWell)
@@ -131,7 +124,10 @@
         (is (empty? (v/ask kb (g op) 'CxWell)) (str op " cannot reduce symbols")))
       (let [vs (filter #(= :aggregate (:violation %)) (v/violations kb))]
         (is (= 4 (count vs)) "each refusal is recorded, not swallowed")
-        (is (every? #(str/includes? (:message %) "numbers or measures") vs))))))
+        (is (every? #(str/includes? (:message %) "numbers or measures") vs)))
+      (dotimes [_ 12] (v/ask kb (g 'agg/sum) 'CxWell))
+      (is (= 4 (count (filter #(= :aggregate (:violation %)) (v/violations kb))))
+          "twelve more reductions of one bad extent file nothing new"))))
 
 (tu/deftest-kb a-measure-sum-is-normalized-and-rendered-in-the-base-unit
   (tu/with-terms [lengthOf Wall Metre Centimetre Length]
@@ -154,7 +150,10 @@
     (v/clear-violations! kb)
     (is (= (list 'QuantityIntervalFn 11 13 Metre)
            (one kb (list 'agg/sum '?n '?v (list spanOf Trip '?v)) '?n))
-        "an over-approximation in is an over-approximation out, said out loud")
+        "an interval in is an interval out")
+    (is (= (list 'QuantityIntervalFn 5.5 6.5 Metre)
+           (one kb (list 'agg/avg '?n '?v (list spanOf Trip '?v)) '?n))
+        "and avg is linear in the bounds too")
     (testing "min and max need a total order, which interval bounds do not give"
       (doseq [op '[agg/min agg/max]]
         (is (empty? (v/ask kb (list op '?n '?v (list spanOf Trip '?v)) 'CxWell))))
@@ -192,23 +191,16 @@
                                 (list spanOf Trip '?v))
                        'CxWell))))))
 
-(tu/deftest-kb the-reduction-slot-must-hold-a-variable
+(tu/deftest-kb a-goal-no-prover-claims-answers-empty
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [1 2])
+    (is (= [{'?n 2}] (v/ask kb (list 'agg/count '?n '?v (list scoreOf Team '?v)) 'CxWell)))
     (is (empty? (v/ask kb (list 'agg/count '?n 7 (list scoreOf Team 7)) 'CxWell))
-        "a constant reduces over nothing — there is no variable to collect")
-    (testing "and in a rule it is refused, not stored as a rule that can never fire"
-      (tu/with-terms [tallied]
-        (let [e (try (v/assert kb (list 'implies
-                                        (list 'and (list scoreOf Team '?s)
-                                              (list 'agg/count '?n 7 (list scoreOf Team 7)))
-                                        (list tallied Team '?n))
-                               'CxWell {:direction :forward})
-                     nil
-                     (catch clojure.lang.ExceptionInfo e e))]
-          (is (some? e) "a silently unfirable rule is the one outcome worse than an error")
-          (is (= :not-well-formed (:type (ex-data e))))
-          (is (str/includes? (ex-message e) "not a variable")))))))
+        "a constant in the reduction slot")
+    (is (empty? (v/ask kb (list 'agg/count '?n '?v (list 'and (list scoreOf Team '?v)
+                                                         (list 'lessThan '?y 2)))
+                       'CxWell))
+        "a census variable only a computed conjunct reads, answered empty and not refused")))
 
 (tu/deftest-kb a-mixed-dimension-extent-is-refused-rather-than-added
   (tu/with-terms [measureOf Thing Metre Sec Length Duration]
@@ -261,7 +253,7 @@
   (into {} (map (fn [sx] (let [[_ x n] (:sentence sx)] [x n])))
         (v/sentexes-matching kb (list ancestorCount '?x '?n) 'CxWell)))
 
-(tu/deftest-kb the-wagg-shape-per-node-transitive-ancestor-count
+(tu/deftest-kb a-transitive-ancestor-count-is-grouped-per-node
   (tu/with-terms [node ancestorOf ancestorCount A B C D E]
     ;; A -> B -> D,  A -> C -> D,  D -> E   (a diamond with a tail)
     (let [edges [[A B] [B D] [A C] [C D] [D E]]]
@@ -300,39 +292,71 @@
           (is (v/in? kb h) "the fact revives...")
           (is (= {P 1 Q 2 R 0} (counted kb ancestorCount)) "...and so does the count"))))))
 
-(tu/deftest-kb an-aggregate-with-an-unbound-grouping-variable-is-refused
-  (tu/with-terms [node ancestorOf ancestorCount]
-    (let [e (try (v/assert kb (list 'implies
-                                    (list 'and (list 'agg/count '?n '?a
-                                                     (list ancestorOf '?a '?x)))
-                                    (list ancestorCount '?x '?n))
-                           'CxWell {:direction :forward})
-                 nil
-                 (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e))
-      (is (= :naf-not-closed (:type (ex-data e)))
-          "the same diagnostic an unclosed unknown gives")
-      (is (str/includes? (ex-message e) "not closed")))))
-
-(tu/deftest-kb the-reduction-variable-may-not-escape-into-the-consequent
-  (tu/with-terms [node ancestorOf sawAncestor]
-    (let [e (try (v/assert kb (list 'implies
-                                    (list 'and (list node '?x)
-                                          (list 'agg/count '?n '?a
-                                                (list ancestorOf '?a '?x)))
-                                    (list sawAncestor '?x '?a))
-                           'CxWell {:direction :forward})
-                 nil
-                 (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e))
-      (is (= :quantifier-not-local (:type (ex-data e)))
-          "?a is projected out, so a consequent naming it would store a non-ground fact"))))
+(tu/deftest-kb a-rule-no-aggregate-can-answer-is-refused-and-stores-nothing
+  (doseq [[label build type unbound msg]
+          [["a group variable no generator binds"
+            (fn [{:keys [ancestorOf out]}]
+              (list 'implies (list 'and (list 'agg/count '?n '?a (list ancestorOf '?a '?x)))
+                    (list out '?x '?n)))
+            :naf-not-closed nil "not closed"]
+           ["the reduction variable named in the consequent"
+            (fn [{:keys [node ancestorOf out]}]
+              (list 'implies (list 'and (list node '?x)
+                                   (list 'agg/count '?n '?a (list ancestorOf '?a '?x)))
+                    (list out '?x '?a)))
+            :quantifier-not-local nil nil]
+           ["a constant in the reduction slot"
+            (fn [{:keys [childOf out Team]}]
+              (list 'implies (list 'and (list childOf Team '?s)
+                                   (list 'agg/count '?n 7 (list childOf Team 7)))
+                    (list out Team '?n)))
+            :not-well-formed nil "not a variable"]
+           ["a disjunctive census body"
+            (fn [{:keys [node childOf flagged out]}]
+              (list 'implies (list 'and (list node '?x)
+                                   (list 'agg/count '?n '?c (list 'or (list childOf '?x '?c)
+                                                                  (list flagged '?c))))
+                    (list out '?x '?n)))
+            :not-well-formed nil "counted twice"]
+           ["a comparison written above the count it reads"
+            (fn [{:keys [node childOf flagged]}]
+              (list 'implies (list 'and (list node '?x)
+                                   (list 'lessThan 2 '?n)
+                                   (list 'agg/count '?n '?c (list childOf '?x '?c)))
+                    (list flagged '?x)))
+            :naf-not-closed '[?n] nil]
+           ["a computed literal reading what nothing writes"
+            (fn [{:keys [node flagged]}]
+              (list 'implies (list 'and (list node '?x) (list 'lessThan 2 '?n))
+                    (list flagged '?x)))
+            :naf-not-closed '[?n] nil]
+           ["a count over what the rule concludes"
+            (fn [{:keys [node flagged]}]
+              (list 'implies (list 'and (list node '?x)
+                                   (list 'agg/count '?n '?a (list flagged '?a)))
+                    (list flagged '?x)))
+            :not-stratified nil nil]
+           ["a cycle through a census body's second conjunct"
+            (fn [{:keys [node childOf flagged]}]
+              (list 'implies (list 'and (list node '?x)
+                                   (list 'agg/count '?n '?a (list 'and (list childOf '?x '?a)
+                                                                  (list flagged '?a))))
+                    (list flagged '?x)))
+            :not-stratified nil nil]]]
+    (testing label
+      (tu/with-terms [node ancestorOf childOf flagged out Team]
+        (let [before (v/sentex-count kb)
+              e (try (v/assert kb (build {:node node :ancestorOf ancestorOf :childOf childOf
+                                          :flagged flagged :out out :Team Team})
+                               'CxWell {:direction :forward})
+                     nil
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (= type (:type (ex-data e))))
+          (when unbound (is (= unbound (:unbound (ex-data e)))))
+          (when msg (is (str/includes? (ex-message e) msg)))
+          (is (= before (v/sentex-count kb)) "a refused rule stores nothing"))))))
 
 ;; ---- the census body is joined -------------------------------------------
-;; A conjunctive body is one query whose conjuncts share the reduction variable — the
-;; same join `unknown` and `exceptWhen` read.  "How many of Bob's children are asleep"
-;; is one witness satisfying both conjuncts, never the children counted beside the
-;; sleepers.
 
 (defn- sleepy-house!
   "Bob, three children, two of them asleep, and a sleeping stranger who is nobody's
@@ -393,9 +417,7 @@
             (is (v/ask? kb (list restful Bob) 'CxWell))))))))
 
 (tu/deftest-kb the-joined-census-reads-the-same-in-either-arrival-order
-  ;; the rule before the facts, and the facts before the rule: a joined census is
-  ;; maintained by re-joining on arrival, so an order-sensitive re-check shows up here.
-  ;; Each arm gets its own cast, so the second reads a baseline the first did not move.
+  ;; each arm gets its own cast, so the second reads a baseline the first did not move
   (doseq [[label rule-first?] [["rule first" true] ["facts first" false]]]
     (testing label
       (tu/with-terms [person childOf asleep restful Bob Kid1 Kid2 Kid3 Stranger]
@@ -408,9 +430,7 @@
           (is (v/ask? kb (list restful Bob) 'CxWell)))))))
 
 (tu/deftest-kb a-sum-joins-its-census-over-a-variable-local-to-the-body
-  ;; the natural shape of a summed join: `?p` is the join between the two conjuncts and
-  ;; is named nowhere else, so the census binds it itself.  Distinct values, as ever —
-  ;; the parcels are given different weights so the sum is of all three.
+  ;; `?p` is local to the census; the weights differ, since the sum is of distinct values
   (tu/with-terms [carries weightOf Bob Parcel1 Parcel2 Parcel3 Crate]
     (doseq [p [Parcel1 Parcel2 Parcel3]] (v/assert kb (list carries Bob p) 'CxWell))
     (doseq [[p w] [[Parcel1 2] [Parcel2 3] [Parcel3 5] [Crate 7]]]
@@ -420,29 +440,7 @@
       (is (= 10 (one kb g '?n))
           "the parcels Bob carries — the crate he does not is not in the join"))))
 
-(tu/deftest-kb every-conjunct-of-a-census-is-a-negative-edge-for-stratification
-  ;; the single-literal body's rule, read through the join: a conclusion reached from a
-  ;; count over it has no settled answer whichever conjunct mentions it.
-  (tu/with-terms [node kidOf bigGroup]
-    (let [e (try (v/assert kb (list 'implies
-                                    (list 'and (list node '?x)
-                                          (list 'agg/count '?n '?a
-                                                (list 'and (list kidOf '?x '?a)
-                                                      (list bigGroup '?a))))
-                                    (list bigGroup '?x))
-                           'CxWell {:direction :forward})
-                 nil
-                 (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e))
-      (is (= :not-stratified (:type (ex-data e)))
-          "the cycle runs through the census's *second* conjunct"))))
-
 ;; ---- where the census is taken -------------------------------------------
-;; The aggregate is evaluated per placement context, and it contributes no handles to
-;; the join — so it is counted *where the conclusion lands* and has no say in where
-;; that is.  Placement is decided entirely by the rule's other antecedents.  Both
-;; halves of that are surprising the first time, and both are what makes one rule give
-;; each context its own count.
 
 (defn- counts-by-context
   [kb childCount]
@@ -481,10 +479,8 @@
             "one rule, three contexts, three answers")))))
 
 (tu/deftest-kb the-counted-facts-are-not-in-the-justification
-  ;; which is the whole reason `justification-excepted?` needs an arm of its own: the
-  ;; antecedents name what the join matched, and a census matches nothing.  Retraction
-  ;; still reaches the conclusion, through the re-check index rather than through
-  ;; dependency-directed sweep.
+  ;; retraction reaches the conclusion through the re-check index, since no counted
+  ;; fact is an antecedent of the firing
   (tu/with-terms [person childOf childCount Ann CxRoot CxLeft CxRight]
     (two-contexts! kb {:person person :childOf childOf :childCount childCount
                        :Root CxRoot :Left CxLeft :Right CxRight})
@@ -503,12 +499,7 @@
         (v/retract! kb h2)
         (is (= {CxLeft 1} (counts-by-context kb childCount)))))))
 
-;; ---- what a count is *for*: comparing it ---------------------------------
-;; An aggregate is evaluated per placement context, so its `?n` is unbound for the
-;; whole join — and a comparison on `?n` is a computed literal, not a matched one, so
-;; there is no fact for it to wait on.  Both move to the placement phase together
-;; (`rules/post-join-literals`).  Without that the most obvious question anyone would
-;; ask of a count cannot be written at all.
+;; ---- comparing a count ---------------------------------------------------
 
 (defn- family!
   "Two people, one with three children and one with one."
@@ -544,31 +535,8 @@
               "and falls back below it — the firing rested on a count that moved")
           (v/retract! kb h1))))))
 
-(tu/deftest-kb the-comparison-is-written-below-its-own-aggregate-or-refused
-  ;; A computed literal reads what is written before it — the rule an `evaluate` chain
-  ;; has always followed, since canonical order holds a deferred literal where the
-  ;; author put it.  An aggregate could have been made an exception by reordering the
-  ;; placement phase, and deliberately was not: the *forward* chainer can reorder that
-  ;; phase and the backward one cannot, so the exception would buy one writing order at
-  ;; the price of the two chainers disagreeing about one rule.
-  (tu/with-terms [person childOf large_family Ann Bob]
-    (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
-    (let [e (try (v/assert kb (list 'implies
-                                    (list 'and (list person '?x)
-                                          (list 'lessThan 2 '?n)
-                                          (list 'agg/count '?n '?c (list childOf '?x '?c)))
-                                    (list large_family '?x))
-                           'CxWell {:direction :forward})
-                 nil
-                 (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e) "the comparison is above the only thing that writes ?n")
-      (is (= :naf-not-closed (:type (ex-data e))))
-      (is (= '[?n] (:unbound (ex-data e)))))))
-
 (tu/deftest-kb a-backward-only-rule-answers-a-compared-count-the-same-way
-  ;; the parity above reads the *stored* conclusion, which forward chaining put there —
-  ;; so it cannot see a backward chainer that disagrees.  A `set/backwardRule` never
-  ;; fires forward, so its conclusion exists only while a backchainer is looking for it.
+  ;; a `set/backwardRule` never fires forward, so only a backward chainer answers it
   (tu/with-terms [person childOf large_family Ann Bob]
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
     (v/assert kb (list 'set/backwardRule
@@ -583,8 +551,6 @@
     (is (not (v/query? kb (list large_family Bob) 'CxWell {:max-depth 2})))))
 
 (tu/deftest-kb forward-and-backward-agree-about-a-compared-count
-  ;; the parity `provers/exception-holds?` exists to guarantee, asked of the structure that
-  ;; breaks it first: a forward throw where backward answers
   (tu/with-terms [person childOf large_family Ann Bob]
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
     (v/assert kb (list 'implies
@@ -631,47 +597,7 @@
       (v/retract! kb h))
     (is (= #{Ann Bob} (holders kb allowed)) "and gives it back")))
 
-(tu/deftest-kb a-computed-literal-nothing-can-bind-is-refused-before-it-is-stored
-  ;; the join throws on a deferred literal with an unbound input — deliberately, since
-  ;; an empty join would report a comparison that never ran as one that failed.  But a
-  ;; throw *mid-fixpoint* is what the derivation path must not do: the rule is already
-  ;; stored by then, so every later assert re-fires it and throws again.  Refusing at
-  ;; assert time is the same diagnosis delivered where it can still be acted on.
-  (tu/with-terms [person big Ann]
-    (v/assert kb (list person Ann) 'CxWell)
-    (let [before (v/sentex-count kb)
-          e (try (v/assert kb (list 'implies
-                                    (list 'and (list person '?x) (list 'lessThan 2 '?n))
-                                    (list big '?x))
-                           'CxWell {:direction :forward})
-                 nil
-                 (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e) "?n is written by nothing in the rule")
-      (is (= :naf-not-closed (:type (ex-data e))))
-      (is (= '[?n] (:unbound (ex-data e))))
-      (testing "and the KB is untouched, so the next write still works"
-        ;; the refusal is at canonicalization, so there is no sentex to look the rule
-        ;; up by — `handle-of` would have to build the very form that is refused
-        (is (= before (v/sentex-count kb)) "a refused rule stores nothing")
-        (is (some? (v/assert kb (list person 'Zed) 'CxWell)))))))
-
-;; ---- stratification ------------------------------------------------------
-
-(tu/deftest-kb an-aggregate-over-what-the-rule-concludes-is-refused
-  (tu/with-terms [node bigGroup]
-    (let [e (try (v/assert kb (list 'implies
-                                    (list 'and (list node '?x)
-                                          (list 'agg/count '?n '?a
-                                                (list bigGroup '?a)))
-                                    (list bigGroup '?x))
-                           'CxWell {:direction :forward})
-                 nil
-                 (catch clojure.lang.ExceptionInfo e e))]
-      (is (some? e))
-      (is (= :not-stratified (:type (ex-data e)))
-          "counting a relation the rule itself concludes has no settled answer"))))
-
-;; ---- the cost tier is honest ---------------------------------------------
+;; ---- the cost tier names the work ----------------------------------------
 
 (tu/deftest-kb a-lookup-budget-drops-the-aggregate-and-compute-admits-it
   (tu/with-terms [scoreOf Team]
@@ -681,18 +607,6 @@
           "a reduction must exhaust the body, which :lookup does not buy")
       (is (= 1 (count (:results (v/ask-within kb g 'CxWell {:max-cost :compute}))))
           ":compute is the tier it declares, and it runs there"))))
-
-(tu/deftest-kb a-lookup-budget-keeps-unknown-rather-than-inverting-it
-  ;; `unknown` shares the `:compute` tier with the aggregate, but unlike it, dropping its
-  ;; prover does not merely under-report — it INVERTS the closed-world answer: an empty
-  ;; result for `(unknown S)` reads as "S is derivable".  So it is kept past the cap, and
-  ;; a `:lookup` budget answers the same as no budget, `:complete` and correct.
-  (tu/with-terms [flies Tweety]
-    (let [g (list 'unknown (list flies Tweety))]     ; nothing derives (flies Tweety)
-      (is (v/ask? kb g 'CxWell) "S is not derivable, so (unknown S) holds")
-      (let [r (v/ask-within kb g 'CxWell {:max-cost :lookup})]
-        (is (seq (:results r)) "the lookup budget keeps UnknownProver, not an inverted empty")
-        (is (= :complete (:status r)))))))
 
 ;; ---- nothing is stored ---------------------------------------------------
 
@@ -712,9 +626,8 @@
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [4 5 6])
     (let [g (list 'agg/count '?n '?v (list scoreOf Team '?v))]
-      (is (= [3] (map '?n (v/prove kb g 'CxWell))) "prove: the recur DFS")
-      (is (= [3] (map '?n (v/prove kb g 'CxWell))) "prove: the recursive one")
-      (is (= [3] (map '?n (v/ask kb g 'CxWell))) "ask: the prover engine"))))
+      (is (= [3] (map '?n (v/prove kb g 'CxWell))) "prove")
+      (is (= [3] (map '?n (v/ask kb g 'CxWell))) "ask"))))
 
 (tu/deftest-kb a-backward-rule-may-join-on-a-count
   (tu/with-terms [scoreOf Team roster tallied]
@@ -729,21 +642,8 @@
     (is (= [2] (map '?n (v/query kb (list tallied Team '?n) 'CxWell {:max-depth 2})))
         "a rule expansion discharges the aggregate through the registry like any other literal")))
 
-;; ---- the doc's opening example, run rather than written ------------------
-
-(tu/deftest-kb the-docs-opening-example
-  ;; run, not written: the extent and all three answers exactly as docs/aggregate.md
-  ;; prints them, so the page cannot drift from what the engine says
-  (tu/with-terms [scoreOf Team]
-    (extent! kb scoreOf Team [3 1 4 1 5])
-    (let [g (fn [op] (list op '?n '?v (list scoreOf Team '?v)))]
-      (is (= '({?n 4})    (v/ask kb (g 'agg/count) 'CxWell)))
-      (is (= '({?n 13})   (v/ask kb (g 'agg/sum) 'CxWell)))
-      (is (= '({?n 3.25}) (v/ask kb (g 'agg/avg) 'CxWell))))))
-
 (tu/deftest-kb one-edit-and-n-asserts-reach-the-same-counts
-  ;; the benchmark's headline claim (`lein bench-aggchain`, ~10x) is only worth
-  ;; anything if the batch derives the same thing — one settle, not fewer answers
+  ;; `lein bench-aggchain` times the batch against one assert at a time
   (tu/with-terms [node ancestorOf ancestorCount A B C D]
     (let [edges [[A B] [B C] [C D]]]
       (ancestor-world! kb {:node node :ancestorOf ancestorOf
@@ -758,9 +658,6 @@
 ;; ---- the index is derived, so a rebuild must restore the maintenance ----
 
 (tu/deftest-kb reindex-rebuilds-the-re-check-posting-an-aggregate-rule-needs
-  ;; `reindex` rebuilds every index entry from the records, including the re-check
-  ;; posting that brings an aggregate rule back when a counted fact moves.  If that
-  ;; posting were dropped the counts would look right and then silently stop tracking
   (tu/with-terms [node ancestorOf ancestorCount P Q R]
     (ancestor-world! kb {:node node :ancestorOf ancestorOf
                          :ancestorCount ancestorCount :edges [[P Q]]})
@@ -773,11 +670,9 @@
       (v/retract! kb h)
       (is (= {P 0 Q 1 R 0} (counted kb ancestorCount))))))
 
-;; ---- nesting: what falls out for free -----------------------------------
+;; ---- an aggregate under unknown ------------------------------------------
 
 (tu/deftest-kb an-aggregate-under-unknown-works-because-both-are-level-6
-  ;; not designed for, but not excluded either: `unknown` runs its argument through
-  ;; the same level-6 list the aggregate is registered in
   (tu/with-terms [scoreOf Team]
     (extent! kb scoreOf Team [1 2])
     (is (v/ask? kb (list 'unknown (list 'agg/count 9 '?v (list scoreOf Team '?v)))
@@ -788,9 +683,7 @@
         "the count *is* 2, so the check holds, so the unknown does not")))
 
 (tu/deftest-kb an-unknown-over-aggregate-rechecks-on-the-body-s-predicate
-  ;; the rule's re-check keys are the body's functor, not `agg/count` — a functor no
-  ;; fact ever carries, so a rule keyed on it would never be re-checked and the
-  ;; conclusion drawn at the old census would stay believed whatever arrived
+  ;; the re-check key is the body's functor, since no fact carries `agg/count`
   (tu/with-terms [childOf soloChildIn Ana Bo Cy]
     (v/assert kb (list 'implies
                        (list 'and (list childOf '?c '?x)
@@ -805,11 +698,25 @@
         "two children: the arriving fact re-checks the rule and the conclusion is
         withdrawn, rather than kept on the census it was drawn at")))
 
+(tu/deftest-kb an-unknown-over-aggregate-is-released-by-an-arrival-on-the-census-alone
+  ;; the generator is `person`, so only the re-check can re-derive the conclusion when a
+  ;; third child makes the count not 2 again (`rules/arrival-releasable?`)
+  (tu/with-terms [person childOf twoless Ana Bo Cy Di]
+    (v/assert kb (list 'implies
+                       (list 'and (list person '?x)
+                             (list 'unknown (list 'agg/count 2 '?v (list childOf '?v '?x))))
+                       (list twoless '?x))
+              'CxWell {:direction :forward})
+    (v/assert kb (list person Ana) 'CxWell)
+    (v/assert kb (list childOf Bo Ana) 'CxWell)
+    (v/assert kb (list childOf Cy Ana) 'CxWell)
+    (is (not (v/ask? kb (list twoless Ana) 'CxWell)) "two children: blocked")
+    (v/assert kb (list childOf Di Ana) 'CxWell)
+    (is (v/ask? kb (list twoless Ana) 'CxWell) "three children: released")))
+
 ;; ---- what level 6 does and does not reach --------------------------------
 
 (tu/deftest-kb a-forward-derived-fact-is-counted
-  ;; level 6 is not "stored facts only": a forward conclusion is stored and believed by
-  ;; the time the query runs, so it is in the census like anything else
   (tu/with-terms [raw cooked burnt]
     (v/assert kb (list 'implies (list 'and (list raw '?x)) (list cooked '?x)) 'CxWell {:direction :forward})
     (doseq [n [1 2 3]] (v/assert kb (list raw (list 'DishFn n)) 'CxWell))
@@ -819,8 +726,6 @@
         "and a predicate nothing derives counts nothing, rather than failing")))
 
 (tu/deftest-kb a-backward-only-conclusion-is-not-counted
-  ;; the boundary, stated as a limitation rather than discovered as a surprise: a
-  ;; `set/backwardRule` derives nothing until asked, and the body cannot ask
   (tu/with-terms [raw cooked]
     (v/assert kb (list 'set/backwardRule
                        (list 'implies (list 'and (list raw '?x)) (list cooked '?x)))
@@ -835,9 +740,6 @@
 ;; ---- the aggregate cannot outrun its binders, however it is written ------
 
 (tu/deftest-kb writing-the-aggregate-first-does-not-run-it-first
-  ;; canonical antecedent order holds deferred literals back, so the rule behaves
-  ;; identically to the one with the generator written first — otherwise the aggregate
-  ;; would run open and count the whole relation for every node
   (tu/with-terms [node ancestorOf ancestorCount A B C]
     (v/assert kb (list 'transitive ancestorOf) 'CxWell {:strength :monotonic})
     (doseq [n [A B C]] (v/assert kb (list node n) 'CxWell))
@@ -862,11 +764,7 @@
       (cons (nth coll i) p))))
 
 (tu/deftest-kb the-counts-do-not-depend-on-the-order-the-facts-arrived
-  ;; the engine's central invariant, and an aggregate is the shape most likely to
-  ;; break it: a count is a function of belief and it is maintained by re-joining on
-  ;; arrival, so an order-sensitive re-join would show up here and nowhere else.
-  ;; Each ordering gets its own gensym'd cast, and the answer is keyed by the node's
-  ;; *role* rather than by the term, so two runs are comparable at all
+  ;; each ordering gets its own cast, so the answer is keyed by the node's role
   (let [answers
         (for [perm (permutations [[:a :b] [:b :c] [:c :d] [:a :d]])]
           (tu/with-terms [node ancestorOf ancestorCount A B C D]
@@ -892,29 +790,40 @@
             'CxWell {:direction :forward}))
 
 (tu/deftest-kb a-merge-that-collapses-two-counted-values-withdraws-the-firing
-  ;; The census-mover that is **not** a fact arriving or leaving.  A merge retires a
-  ;; spelling rather than removing it — the sentex is still stored and still holds its
-  ;; handle — so no arm reports a fact moving on the counted predicate, and yet it is
-  ;; gone from the belief-filtered read the census is.  Belief must not depend on whether
-  ;; the count fell by retraction or by merge.
-  (tu/with-terms [person childOf large_family Ann Bob]
-    (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
-    (counting-rule! kb {:person person :childOf childOf :large_family large_family})
-    (is (= #{Ann} (holders kb large_family)) "three children clears the bar")
-    (let [h (v/assert kb '(sameAs C2 C3) 'CxWell)]
-      (is (= 2 (one kb (list 'agg/count '?n '?c (list childOf Ann '?c)) '?n))
-          "two of the three children are one thing now")
-      (is (= #{} (holders kb large_family))
-          "so the firing that rested on three is withdrawn")
-      (v/retract! kb h)
-      (is (= 3 (one kb (list 'agg/count '?n '?c (list childOf Ann '?c)) '?n)))
-      (is (= #{Ann} (holders kb large_family))
-          "and splitting the class again re-derives it — the count rose, which licenses
-           a firing no block ever suppressed"))))
+  ;; a merge moves no fact on the counted predicate, and still moves the census
+  (doseq [eq '[sameAs rewriteOf equals]]
+    (testing eq
+      (tu/with-terms [person childOf large_family Ann Bob]
+        (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
+        (counting-rule! kb {:person person :childOf childOf :large_family large_family})
+        (is (= #{Ann} (holders kb large_family)) "three children clears the bar")
+        (let [h (v/assert kb (list eq 'C2 'C3) 'CxWell)]
+          (is (= 2 (one kb (list 'agg/count '?n '?c (list childOf Ann '?c)) '?n))
+              "two of the three children are one thing now")
+          (is (= #{} (holders kb large_family))
+              "so the firing that rested on three is withdrawn")
+          (v/retract! kb h)
+          (is (= 3 (one kb (list 'agg/count '?n '?c (list childOf Ann '?c)) '?n)))
+          (is (= #{Ann} (holders kb large_family))
+              "and splitting the class again re-derives it"))))))
+
+(tu/deftest-kb a-family-grouped-on-a-merged-term-stays-large-under-the-representative
+  ;; both directions of which spelling wins.  The merge restates the grouping fact, so
+  ;; the rule re-fires under the representative whether or not the old firing's stored
+  ;; bindings are rewritten (`chain/settled-bindings`); this pins the belief only.
+  (doseq [prefix ["Aaa" "Zzz"]]
+    (tu/with-terms [person childOf large_family Ann Bob]
+      (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
+      (counting-rule! kb {:person person :childOf childOf :large_family large_family})
+      (let [other (symbol (str prefix (name Ann)))
+            h     (v/assert kb (list 'sameAs Ann other) 'CxWell)
+            rep   (if (= "Aaa" prefix) other Ann)]
+        (is (= #{rep} (holders kb large_family))
+            (str "merged with " other ", the family is still large"))
+        (v/retract! kb h)))))
 
 (tu/deftest-kb the-merge-arriving-first-reaches-the-same-belief
-  ;; the oracle for the test above.  Merged first, no trigger is involved at all: the
-  ;; census is 2 the first time it is ever taken and the rule simply does not fire.
+  ;; the oracle for the merge test above, with no trigger involved
   (tu/with-terms [person childOf large_family Ann Bob]
     (v/assert kb '(sameAs C2 C3) 'CxWell)
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
@@ -923,9 +832,6 @@
         "merged first, three children are two values and the rule never fires")))
 
 (tu/deftest-kb an-equality-the-engine-derives-moves-a-census-the-same-way
-  ;; `functional` infers an equality rather than throwing, so a merge can arrive with no
-  ;; `sameAs` anywhere in the KB.  It reaches the closure through the same arm an
-  ;; asserted one does, and so must reach the same re-check.
   (tu/with-terms [person childOf large_family birthOrder Ann Bob]
     (v/assert kb (list 'functional birthOrder) 'CxWell)
     (family! kb {:person person :childOf childOf :Ann Ann :Bob Bob})
@@ -939,12 +845,7 @@
         "and the firing that rested on three goes with it")))
 
 (tu/deftest-kb a-float-sum-does-not-depend-on-the-order-the-facts-arrived
-  ;; counting is exact whatever the order, so the permutation test above cannot see
-  ;; this: floating-point addition is not associative, and the values reach the
-  ;; reduction in *solution* order, which is a function of how the facts were stored
-  ;; rather than of what they say.  These six sum to three different doubles depending
-  ;; on where the two large terms fall, so a reduction in arrival order reports a
-  ;; different total for the same KB.
+  ;; these six sum to three different doubles in these three orders
   (let [vals   [0.1 0.2 0.3 1e16 -1e16 7.7]
         totals (for [order [vals (reverse vals) [1e16 0.1 -1e16 7.7 0.3 0.2]]]
                  (tu/with-terms [reading Sensor]
@@ -956,33 +857,10 @@
     (is (not= (reduce + vals) (reduce + (reverse vals)))
         "and the values really are order-sensitive, so the test is testing something")))
 
-(tu/deftest-kb one-error-is-filed-once-however-often-it-is-recomputed
-  ;; a count is recomputed and never cached, so a bad extent is reduced again on every
-  ;; query and every settle pass.  The ledger keeps its newest 1000 entries, so filing
-  ;; each one would evict the derivation-path drops it exists to report.
-  (tu/with-terms [likesThing Ann Cake Pie]
-    (v/assert kb (list likesThing Ann Cake) 'CxWell)
-    (v/assert kb (list likesThing Ann Pie) 'CxWell)
-    (v/clear-violations! kb)
-    (dotimes [_ 12] (v/ask kb (list 'agg/sum '?n '?v (list likesThing Ann '?v)) 'CxWell))
-    (is (= 1 (count (filter #(= :aggregate (:violation %)) (v/violations kb))))
-        "twelve reductions of one bad extent are one defect")))
-
 ;; ---- a post-join literal that answers two ways answers nothing -----------
-;;
-;; Every output the placement phase computes reaches the conclusion — through the
-;; literals still to run, through the `exceptWhen` and `unknown` checks that read these
-;; bindings, and through the consequent itself.  So taking the registry's first solution
-;; would place a *different fact* depending on which solution came first, and which comes
-;; first is a function of how the facts were stored.  The disagreement is declined and
-;; filed, exactly as `provers/table-agreed` declines a unit that declares two conversion
-;; factors.
-;;
-;; Each built-in computation answers once or not at all, so the shape needs a registry
-;; that disagrees with itself — which `core/add-prover` is the public way to build, and
-;; which an application registering a computed relation can reach without meaning to.  The
-;; prover below answers off *stored* facts, so its solution order really is the index's:
-;; the two runs differ in nothing but which candidate was asserted first.
+;; The built-in computations answer once or not at all, so a registered prover supplies
+;; the disagreement.  It answers off stored facts, so its solution order is the index's
+;; and the two runs differ only in which candidate was asserted first.
 
 (def ^:private post-join-ctx 'CxPostJoinAmbiguous)
 (def ^:private post-join-above 'CxPostJoinAbove)
@@ -1037,16 +915,15 @@
     {:tallies (into #{} (map :sentence) (v/sentexes-matching kb '(pjTally ?x ?d) '?ctx))
      :entries (into [] (filter #(= :post-join-ambiguous (:violation %))) (v/violations kb))}))
 
-(deftest a-post-join-literal-with-one-solution-concludes-as-it-always-did
+(deftest a-post-join-literal-with-one-solution-concludes-its-value
   (let [{:keys [tallies entries]} (post-join-run! [[post-join-ctx 'PjOnly]])]
     (is (= #{'(pjTally PjAnn PjOnly)} tallies)
         "one solution is not a disagreement — the firing places the fact it computed")
     (is (empty? entries) "and nothing is filed")))
 
 (deftest post-join-solutions-that-agree-conclude-once
-  ;; Two solutions, one value: `pj_candidate` is stated of the same term in two contexts of
-  ;; one ancestor set, so the prover answers twice with the same binding.  Agreement is what is
-  ;; asked for, not a solution count.
+  ;; `pj_candidate` is stated of one term in two contexts, so the prover answers twice
+  ;; with the same binding
   (let [{:keys [tallies entries]} (post-join-run! [[post-join-ctx 'PjSame]
                                                    [post-join-above 'PjSame]])]
     (is (= #{'(pjTally PjAnn PjSame)} tallies)

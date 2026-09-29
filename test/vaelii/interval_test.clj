@@ -156,7 +156,7 @@
     (testing "before∘before = before, so A precedes D though nobody said so"
       (is (v/ask? kb (list 'before A D) C))
       (is (= #{:before} (iv/possible-allen-relations kb C A D)))
-      (is (= :before (iv/definite-allen-relation kb C A D))))
+      (is (= :before (qkb/definite iv/allen kb C A D))))
     (testing "so a relation the network excludes is not answered"
       (is (not (v/ask? kb (list 'after A D) C)))
       (is (not (v/ask? kb (list 'meets A D) C)))
@@ -204,7 +204,7 @@
     (v/assert kb (list 'meets A B) C)
     (v/assert kb (list 'metBy B D) C)
     (is (= #{:finishes :finished-by :equal} (iv/possible-allen-relations kb C A D)))
-    (is (= :unknown (iv/definite-allen-relation kb C A D)))
+    (is (= :unknown (qkb/definite iv/allen kb C A D)))
     (testing "no base relation is entailed"
       (is (not (v/ask? kb (list 'finishes A D) C)))
       (is (not (v/ask? kb (list 'finishedBy A D) C)))
@@ -257,19 +257,19 @@
   (tu/with-terms [A B D]
     (testing "a pair no fact reaches is unconstrained — all thirteen"
       (is (= iv/all-relations (iv/possible-allen-relations kb C A D)))
-      (is (= :unknown (iv/definite-allen-relation kb C A D))))
+      (is (= :unknown (qkb/definite iv/allen kb C A D))))
     (v/assert kb (list 'overlaps A B) C)
     (v/assert kb (list 'during B D) C)
     (testing "overlaps∘during pins only that A ends somewhere strictly inside D"
       (is (= #{:overlaps :starts :during} (iv/possible-allen-relations kb C A D)))
-      (is (= :unknown (iv/definite-allen-relation kb C A D)))
+      (is (= :unknown (qkb/definite iv/allen kb C A D)))
       (testing "so no base relation is entailed, though every survivor shares time"
         (is (not (v/ask? kb (list 'overlaps A D) C)))
         (is (not (v/ask? kb (list 'during A D) C)))
         (is (v/ask? kb (list 'sharesTimeWith A D) C)))
       (testing "while the pair a fact pins down stays pinned"
         (is (= #{:overlaps} (iv/possible-allen-relations kb C A B)))
-        (is (= :overlaps (iv/definite-allen-relation kb C A B)))))))
+        (is (= :overlaps (qkb/definite iv/allen kb C A B)))))))
 
 ;; ---- inconsistency -------------------------------------------------------
 
@@ -279,7 +279,7 @@
     (v/assert kb (list 'after A B) C)
     (testing "before and after are disjoint base relations, so their pair empties"
       (is (= #{} (iv/possible-allen-relations kb C A B)))
-      (is (= :inconsistent (iv/definite-allen-relation kb C A B))))
+      (is (= :inconsistent (qkb/definite iv/allen kb C A B))))
     (testing "and an inconsistent theory is not mined for conclusions — anywhere"
       (is (not (v/ask? kb (list 'before A B) C)))
       (is (not (v/ask? kb (list 'after A B) C)))
@@ -298,9 +298,29 @@
     (v/assert kb (list 'before A B) C)
     (v/assert kb (list 'before B D) C)
     (v/assert kb (list 'after A D) C)
-    (is (= :inconsistent (iv/definite-allen-relation kb C A D)))
+    (is (= :inconsistent (qkb/definite iv/allen kb C A D)))
     (is (not (v/ask? kb (list 'before A B) C))
         "the whole network is unsatisfiable, so no pair of it is answered")))
+
+(tu/deftest-kb an-unsatisfiable-point-network-withdraws-the-allen-firings-it-licensed
+  (tu/with-terms [A B X Y finishedFirst]
+    (v/assert kb (list 'arg finishedFirst 1 'thing) 'CxCore {:strength :monotonic})
+    (v/assert kb (list 'instantBefore (list 'EndFn A) (list 'StartFn B)) C)
+    (v/assert-rule kb [(list 'before '?x B)] (list finishedFirst '?x) C {:direction :forward})
+    (testing "the rule fires on a relation only the point network entails"
+      (is (seq (v/sentexes-matching kb (list finishedFirst A) '?ctx))))
+    ;; the cycle names neither A nor B
+    (let [h (v/assert kb (list 'instantBefore X Y) C)]
+      (v/assert kb (list 'instantBefore Y X) C)
+      (testing "an instant cycle makes the interval network that reads the points unsatisfiable"
+        (is (false? (:consistent? (v/qualitative-network kb :allen C))))
+        (is (not (v/ask? kb (list 'before A B) C))))
+      (testing "so the firing is withdrawn, though the fact it listed is still believed"
+        (is (empty? (v/sentexes-matching kb (list finishedFirst A) '?ctx))))
+      (testing "and retracting the cycle revives it"
+        (v/retract! kb h)
+        (is (v/ask? kb (list 'before A B) C))
+        (is (seq (v/sentexes-matching kb (list finishedFirst A) '?ctx)))))))
 
 ;; ---- open enumeration ----------------------------------------------------
 

@@ -1,4 +1,12 @@
-(defproject com.vaelii/vaelii "0.21.0"
+;; The major version of the JDK evaluating this file, which is the one leiningen
+;; launches the project JVM on. The top-level `:jvm-opts` and the `:zgc` profile
+;; name flags that only some versions accept, and an unrecognized `--` or `-XX:`
+;; flag stops the JVM from booting.
+(def jdk-major
+  (Integer/parseInt
+   (second (re-find #"^(?:1\.)?(\d+)" (System/getProperty "java.specification.version")))))
+
+(defproject com.vaelii/vaelii "0.22.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -28,7 +36,7 @@
   :dependencies [[org.clojure/clojure "1.12.6"]
                  [com.taoensso/nippy "3.9.0"]
                  [com.taoensso/trove "1.2.0"]
-                 [metosin/reitit-ring "0.10.1"]
+                 [metosin/reitit-ring "0.11.0"]
                  [ring/ring-core "1.15.5"]
                  [ring/ring-jetty-adapter "1.15.5"]
                  ;; escapes body position as well as attributes, so KB content and
@@ -59,29 +67,29 @@
   ;; line above then reports as a reflection warning on every `lein run`. This keeps
   ;; the hint. Needs lein 2.10+; an older one ignores the key.
   :preserve-eval-meta true
-  ;; Three marks, each deferring a test for its own reason: `^:slow` a test costing
-  ;; about a second or more, `^:llm` one that can reach a model provider, `^:multi-jvm`
-  ;; one that forks a second JVM. What each selects, and the separate consent gate
-  ;; beside the llm one: CONTRIBUTING.md §5.
-  ;; **Two of the three are opt-in only**, so neither `:default` nor `:all` selects
+  ;; Four marks, each deferring a test for its own reason: `^:slow` a test costing
+  ;; about a second or more, `^:multi-jvm` one that forks a second JVM, `^:fuzz` the
+  ;; exhaustive truncation sweep, `^:full-kb` a probe of a full-size KB on disk. What
+  ;; each selects: CONTRIBUTING.md §5.
+  ;; **Three of the four are opt-in only**, so neither `:default` nor `:all` selects
   ;; them and every other selector has to exclude them by name. `:all` is therefore
-  ;; not `(complement :llm)`: a complement of one mark silently adopts the next one
-  ;; added, which is how a forked JVM would end up in the fast gate.
+  ;; not `(complement :multi-jvm)`: a complement of one mark silently adopts the next
+  ;; one added, which is how a forked JVM would end up in the fast gate.
   ;; `[m & _]`, not `#(… %)`: `lein test :slow some.ns` hands the selector the trailing
   ;; `some.ns` as an argument — leiningen splits namespaces (symbols) from selectors and
   ;; passes the var metadata first, then any tokens after the selector — so a one-arg
   ;; selector throws ArityException there. Swallow the rest; filter on the metadata alone.
   ;; **A bare keyword is not a shorthand for that**, and it fails the same way and
-  ;; silently: `(:llm m "some.ns")` is a lookup with a DEFAULT, so the trailing
+  ;; silently: `(:fuzz m "some.ns")` is a lookup with a DEFAULT, so the trailing
   ;; namespace becomes the answer for every test whose metadata lacks the key, and
-  ;; `lein test :llm some.ns` runs the whole suite instead of one marked namespace.
+  ;; `lein test :fuzz some.ns` runs the whole suite instead of one marked namespace.
   ;; Every selector here is a fn for that reason.
-  :test-selectors {:default   (fn [m & _] (not (or (:slow m) (:llm m) (:multi-jvm m) (:fuzz m))))
-                   :slow      (fn [m & _] (and (:slow m) (not (or (:llm m) (:multi-jvm m) (:fuzz m)))))
-                   :llm       (fn [m & _] (boolean (:llm m)))
+  :test-selectors {:default   (fn [m & _] (not (or (:slow m) (:multi-jvm m) (:fuzz m) (:full-kb m))))
+                   :slow      (fn [m & _] (and (:slow m) (not (or (:multi-jvm m) (:fuzz m) (:full-kb m)))))
                    :multi-jvm (fn [m & _] (boolean (:multi-jvm m)))
                    :fuzz      (fn [m & _] (boolean (:fuzz m)))
-                   :all       (fn [m & _] (not (or (:llm m) (:multi-jvm m) (:fuzz m))))}
+                   :full-kb   (fn [m & _] (boolean (:full-kb m)))
+                   :all       (fn [m & _] (not (or (:multi-jvm m) (:fuzz m) (:full-kb m))))}
   ;; Leiningen's `:base` profile supplies the project JVM's `:jvm-opts` when the
   ;; project sets none, and `:base` appends `-XX:+TieredCompilation
   ;; -XX:TieredStopAtLevel=1` whenever the LEIN_JVM_OPTS environment variable
@@ -103,7 +111,20 @@
   ;; No heap size and no collector flag: sizing and `-XX:+UseZGC` stay in the
   ;; profiles that ask for them (`:bench`, `:zgc`), and a profile's `:jvm-opts`
   ;; concatenates onto this vector rather than replacing it.
-  :jvm-opts ["-XX:-OmitStackTraceInFastThrow"]
+  ;;
+  ;; `--enable-native-access=ALL-UNNAMED` lets JNA load the clingo binding without
+  ;; the restricted-method warning JDK 24+ prints (and a later JDK will turn into a
+  ;; refusal); JDK 21 accepts the flag too. `--sun-misc-unsafe-memory-access=allow`
+  ;; silences the same kind of warning for aircompressor's `sun.misc.Unsafe` calls
+  ;; (nippy's LZ4); the flag exists from 23, and 21 refuses to boot with it.
+  ;;
+  ;; `-XX:+UseCompactObjectHeaders` from 25, where it is a product flag (24 has it only
+  ;; behind the experimental unlock): an 8-byte object header in place of 12. A
+  ;; generated 120k-sentex load holds 7.4% less live heap on `:memory` and 9.3% less on
+  ;; `:memory-dense`, 2026-09-28, at no measurable load-time cost.
+  :jvm-opts ~(cond-> ["-XX:-OmitStackTraceInFastThrow" "--enable-native-access=ALL-UNNAMED"]
+               (<= 23 jdk-major) (conj "--sun-misc-unsafe-memory-access=allow")
+               (<= 25 jdk-major) (conj "-XX:+UseCompactObjectHeaders"))
   :profiles {;; `:aot :all` plus a no-op SLF4J binding: silences Jetty's "no providers"
              ;; line inside the standalone jar. Not top-level `:dependencies` — that would
              ;; make it a transitive dependency of every application that depends on
@@ -123,7 +144,7 @@
              ;; with a redistribution (the Docker image ships this jar). Distinct texts
              ;; are concatenated and a text already present is not repeated.
              :uberjar {:aot :all
-                       :dependencies [[org.slf4j/slf4j-nop "2.0.19"]]
+                       :dependencies [[org.slf4j/slf4j-nop "2.0.20"]]
                        :uberjar-merge-with
                        {#"^(META-INF/)?(LICENSE|NOTICE)(\.txt|\.md)?$"
                         [slurp
@@ -150,7 +171,7 @@
              ;; (leiningen.core.project's default-profile-metadata), so `lein pom`/`lein
              ;; deploy` declare it but a consumer's tooling never resolves it
              ;; transitively — docs/operations.md, "Neither server logs a request".
-             :dev {:dependencies [[org.slf4j/slf4j-nop "2.0.19"]
+             :dev {:dependencies [[org.slf4j/slf4j-nop "2.0.20"]
                                   ;; dev-only hot reload: `vaelii.browser.reload` reads the
                                   ;; watched sources' ns forms and dependency graph with
                                   ;; tools.namespace and reloads the changed namespaces before
@@ -158,8 +179,8 @@
                                   ;; scripts/start-vaelii-dev.sh, which sets VAELII_DEV).
                                   ;; Never in the jar — like the profiler, a dev/repl-profile
                                   ;; dependency.
-                                  [org.clojure/tools.namespace "1.5.0"]]
-                   :plugins [[dev.weavejester/lein-cljfmt "0.16.5"]
+                                  [org.clojure/tools.namespace "1.5.1"]]
+                   :plugins [[dev.weavejester/lein-cljfmt "0.16.6"]
                              [lein-shell "0.5.0"]
                              [lein-cloverage "1.2.4"]]}
              ;; property-based tests, in :test rather than :dev because a local
@@ -181,7 +202,9 @@
                     ;; than a second mechanism spelled the same way: a suite quieted by
                     ;; a private copy of the install would keep passing the day the
                     ;; public one stopped working. A level outside the five is refused
-                    ;; here, so a typo fails the run rather than silencing it.
+                    ;; here, so a typo fails the run rather than silencing it. A blank
+                    ;; value is unset, as for every switch, so `VAR= lein test` runs at
+                    ;; `:error`.
                     ;;
                     ;; Runtime `resolve` rather than the symbol itself because
                     ;; injections compile as one `do`: a var in the same form as the
@@ -197,7 +220,7 @@
                     :injections
                     [(require 'vaelii.impl.logging 'vaelii.impl.config)
                      ((resolve 'vaelii.impl.logging/set-level)
-                      (keyword (or (System/getenv "VAELII_TEST_LOG_LEVEL") "error")))
+                      (keyword (or (some-> (System/getenv "VAELII_TEST_LOG_LEVEL") .trim not-empty) "error")))
                      (let [prop-bool (resolve 'vaelii.impl.config/prop-bool)]
                        (when (prop-bool "VAELII_TEST_NS_COUNTS" false)
                          (require 'vaelii.ns-counts)
@@ -223,7 +246,7 @@
              ;; the row that failed was somewhere in them. Same floor at `:error`, same
              ;; escape hatch: `VAELII_BENCH_LOG_LEVEL=info lein perf` when a reading needs
              ;; explaining, and a level outside the five fails the run rather than
-             ;; silencing it.
+             ;; silencing it. A blank value is unset and reads as `:error`.
              :bench {:source-paths ["bench"]
                      :dependencies [[org.openjdk.jol/jol-core "0.17"]
                                     [org.roaringbitmap/RoaringBitmap "1.6.23"]
@@ -236,7 +259,7 @@
                      :injections
                      [(require 'vaelii.impl.logging)
                       ((resolve 'vaelii.impl.logging/set-level)
-                       (keyword (or (System/getenv "VAELII_BENCH_LOG_LEVEL") "error")))]}
+                       (keyword (or (some-> (System/getenv "VAELII_BENCH_LOG_LEVEL") .trim not-empty) "error")))]}
              ;; `lein browser`: the browser running inside a repl with a reload channel
              ;; into it. Both halves bind loopback — a write route with no auth beside
              ;; an nREPL is a remote shell (CONTRIBUTING.md §6).
@@ -270,12 +293,9 @@
              ;;
              ;; One `~` around the whole vector: leiningen resolves `unquote` and not
              ;; `unquote-splicing`, so `~@` does not work here.
-             :zgc {:jvm-opts ~(let [v     (System/getProperty "java.specification.version")
-                                    major (Integer/parseInt
-                                           (second (re-find #"^(?:1\.)?(\d+)" v)))]
-                                (if (<= 21 major 22)
-                                  ["-XX:+UseZGC" "-XX:+ZGenerational"]
-                                  ["-XX:+UseZGC"]))}
+             :zgc {:jvm-opts ~(if (<= 21 jdk-major 22)
+                                ["-XX:+UseZGC" "-XX:+ZGenerational"]
+                                ["-XX:+UseZGC"])}
              ;; outdated-dependency report, isolated from every other classpath
              :antq {:dependencies [[com.github.liquidz/antq "2.11.1276"]]}}
   ;; indent rules come from an optional cljfmt-indents.edn at the repo root, so a
@@ -299,6 +319,11 @@
                                (do (require 'clojure.edn)
                                    ((resolve 'clojure.edn/read-string) (slurp f)))
                                {}))}
+  ;; The lein launcher exports CLASSPATH (its own jar) through `add_path`, so every
+  ;; `lein shell` child inherits it and each nested `lein` in scripts/*.sh prints
+  ;; "You have $CLASSPATH set, probably by accident". A nil value drops the variable
+  ;; from the child's environment (leiningen.core.eval/overridden-env).
+  :shell {:env {"CLASSPATH" nil}}
   ;; `lein lint` is the unified report; the lint-* aliases run one check each, and
   ;; `lein fix` reformats in place.
   :aliases {"lint"            ["shell" "bash" "scripts/lint.sh"]
@@ -359,6 +384,10 @@
             ;; a matrix row would repeat identical work.  Once, not once per row.  Set
             ;; `VAELII_TEST_TMPDIR` to a tmpfs: a couple of minutes rather than ten.
             "test-fuzz"       ["shell" "bash" "scripts/test-selector.sh" ":fuzz"]
+            ;; the `^:full-kb` probes, opt-in because they need a full-size KB on disk and
+            ;; a 44g heap beside nothing else large: KB-DIR (default checkouts/kb) upgraded
+            ;; to this engine, then a clone of it probed (scripts/test-full-kb.sh)
+            "test-full-kb"    ["shell" "bash" "scripts/test-full-kb.sh"]
             ;; feeds the README deps badge, via scripts/update-badges.sh --deps
             "antq"            ["with-profile" "+antq" "run" "-m" "antq.core" "--skip=pom"]
             ;; the whole suite once per backend — seven record×index pairs plus the
@@ -369,9 +398,10 @@
             ;; (scripts/lib/suite-marks.sh).  test-sweeps and test-shuffle carry it too.
             "test-backends"   ["shell" "bash" "scripts/test-backends.sh"
                                ~(if (System/console) "--tty" "--no-tty")]
-            ;; and once per alternative implementation — the dense TMS, the sweep
-            ;; chainer, the node engine, one of its tacticians, the reference
-            ;; context retrieval (scripts/test-sweeps.sh).  The other axis, and
+            ;; and once per sweep — the reference TMS, the sweep chainer, the node
+            ;; engine, one of its tacticians, the reference context retrieval, the
+            ;; planner off, the constraint-only argument reading
+            ;; (scripts/test-sweeps.sh).  The other axis, and
             ;; together with the line above it is what `deep.yml` runs
             "test-sweeps"     ["shell" "bash" "scripts/test-sweeps.sh"
                                ~(if (System/console) "--tty" "--no-tty")]

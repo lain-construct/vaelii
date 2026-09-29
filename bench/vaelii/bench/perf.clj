@@ -93,6 +93,8 @@
   Exit status is 0 when every check passes, 1 when any fails, which is what makes it
   usable from a hook or a workflow."
   (:require [vaelii.core :as v]
+            [vaelii.impl.asp.solve-context :as sc]
+            [vaelii.impl.asp.solver :as solver]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.columnar :as columnar]
             [vaelii.impl.dense-kv :as dense]
@@ -175,6 +177,12 @@
 ;; size and returns per-operation nanosecond readings.  `:claim` is what the check is
 ;; for; it prints beside the verdict, so a failure says which promise broke rather than
 ;; only which number moved.
+;;
+;; A check with no `:max-ratio` is a **baseline**: measured once at both sizes, printed
+;; with its growth, and never judged.  It is the before-reading for a cost whose curve
+;; still grows by design, and the change that flattens the curve gives it a bound read
+;; off both ends, as the header says.  A baseline cannot fail the run, and its report
+;; says so in place of PASS.
 
 (defn- clash-arbitration
   "n individuals each holding two separated types, so the KB carries n standing dilemmas,
@@ -227,6 +235,84 @@
        (nanos (v/assert kb (list 'plarger 'PA (symbol (str "PL" i)))
                         'CxPerf {}))))))
 
+(defn- per-reading-vantages
+  "A cross-context membership pair whose separation is declared where the members'
+  maximal common descendant cannot see it, under n contexts below that maximum.
+
+  ```
+  CxPA  (plt_a x)     CxPB  (plt_b x)     CxPDecl  (disjoint plt_a plt_b)
+  CxPW sees CxPA and CxPB, and n contexts CxPL0 … see CxPW
+   └─ CxPV sees CxPW and CxPDecl
+  ```
+
+  `CxPW` reads no separation, so `settle/group-vantages` looks below it for the readers
+  that read more, and finds `CxPV`.  **The claim is that finding it costs the contexts
+  below a ground `CxPW` lacks**, which is `CxPV` alone, and not the n contexts below
+  `CxPW`.  Each timed assert is the second membership of a fresh term, so every one
+  reaches that branch, and the lattice is the only thing n moves.
+
+  The maxima themselves are the other half of it: `CxPA` and `CxPB` see neither the other,
+  so `tax/maximal-common-descendant-contexts` answers from its general path, which walks
+  down from a member rather than filtering every common descendant."
+  [n]
+  (let [kb (fresh-kb)]
+    (doseq [[k up] '[[CxPA CxUniverse] [CxPB CxUniverse] [CxPDecl CxUniverse]
+                     [CxPW CxPA] [CxPW CxPB] [CxPV CxPW] [CxPV CxPDecl]]]
+      (v/assert kb (list 'genlCx k up) 'CxUniverse {:strength :monotonic}))
+    (v/assert kb '(disjoint plt_a plt_b) 'CxPDecl {:strength :monotonic})
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'genlCx (symbol (str "CxPL" i)) 'CxPW) 'CxUniverse
+                  {:strength :monotonic})))
+    (doall
+     (for [i (range 60)
+           :let [x (symbol (str "PLX" i))]]
+       (do (v/assert kb (list 'plt_a x) 'CxPA {})
+           (nanos (v/assert kb (list 'plt_b x) 'CxPB {})))))))
+
+(defn- chain-join
+  "The closing step of an `anti_transitive` chain split across three contexts, beside n
+  open chains split the same way.
+
+  ```
+  CxPA  (pnear a b)     CxPB  (pnear b c)     CxPC  (pnear a c)
+  CxPAB, CxPBC and CxPAC each see two of them
+   └─ CxPW sees all three
+  ```
+
+  `settle/chain-contexts` joins the argument postings of the closing step's two terms on
+  the term the other two steps share, and names the pair of contexts they sit in, so
+  `CxPW` is asked.  The open chains name terms of their own and share none with a timed
+  chain, so the join reads postings n does not grow.  60 chains are closed and timed at
+  either size, so the standing decisions are the same 60 at both.
+
+  **The chain's cost past this is its standing decision.**  Measured when this check was
+  added, n closed chains at 250 and 2000: the closing step 2.95 and 25.5 ms, an assert of
+  an unrelated predicate beside the same n standing chains 3.42 and 27.7 ms, and this
+  check's open chains 1.02 and 0.80 ms.  The growth is the standing set the settle
+  republishes, which `clash-arbitration` prices, and a standing chain costs about twice a
+  standing membership dilemma there (27.7 against 13.7 ms at 2000)."
+  [n]
+  (let [kb (fresh-kb)
+        m  {:strength :monotonic}]
+    (doseq [[k up] '[[CxPA CxUniverse] [CxPB CxUniverse] [CxPC CxUniverse]
+                     [CxPAB CxPA] [CxPAB CxPB] [CxPBC CxPB] [CxPBC CxPC]
+                     [CxPAC CxPA] [CxPAC CxPC]
+                     [CxPW CxPAB] [CxPW CxPBC] [CxPW CxPAC]]]
+      (v/assert kb (list 'genlCx k up) 'CxUniverse m))
+    (v/assert kb '(binary_predicate pnear) 'CxUniverse m)
+    (v/assert kb '(anti_transitive pnear) 'CxUniverse m)
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'pnear (symbol (str "POA" i)) (symbol (str "POB" i))) 'CxPA m)
+        (v/assert kb (list 'pnear (symbol (str "POB" i)) (symbol (str "POC" i))) 'CxPB m)))
+    (doall
+     (for [i (range 60)
+           :let [a (symbol (str "PNA" i)) b (symbol (str "PNB" i)) c (symbol (str "PNC" i))]]
+       (do (v/assert kb (list 'pnear a b) 'CxPA m)
+           (v/assert kb (list 'pnear b c) 'CxPB m)
+           (nanos (v/assert kb (list 'pnear a c) 'CxPC {})))))))
+
 (defn- membership-read-under-busy-term
   "A type membership checked about a term that is already argument 1 of n facts of an
   unrelated binary predicate, on a KB that declares one separation.
@@ -260,6 +346,54 @@
     (v/assert kb '(pbt_known PBTBusy) 'CxPerf {:strength :monotonic})
     (doall (for [_ (range 60)]
              (nanos (count (v/check kb '(pbt_person PBTBusy) 'CxPerf)))))))
+
+(defn- mint-withdrawal-under-busy-term
+  "A membership asserted about a term that n facts of an unrelated predicate already
+  name, on a KB that prunes subsumed mints and holds one mint about another term.
+
+  **The trigger `settle` runs on every membership it moves** with pruning on:
+  `special/subsumed-mint-blocks` asks which mints the membership makes redundant.  The
+  mints are read off the mint roster by term, so a term holding none costs a map lookup
+  whatever else names it.  The mint about `PMWOther` keeps the roster non-empty, which is
+  the gate in front of the lookup."
+  [n]
+  (binding [checks/*assertive-arg-types?*  true
+            checks/*prune-subsumed-mints?* true]
+    (let [kb (fresh-kb)]
+      (v/assert kb '(genl pmw_animal thing) 'CxPerf {:strength :monotonic})
+      (v/assert kb '(arg pmwOwns 1 pmw_animal) 'CxPerf {:strength :monotonic})
+      (v/assert kb '(pmwOwns PMWOther PMWThing) 'CxPerf {:strength :monotonic})
+      (v/with-deferred-settle kb
+        (doseq [i (range n)]
+          (v/assert kb (list 'pmwLikes 'PMWBusy (symbol (str "PMW" i)))
+                    'CxPerf {:strength :monotonic})))
+      (doall (for [i (range 60)]
+               (nanos (v/assert kb (list (symbol (str "pmw_t" i)) 'PMWBusy) 'CxPerf {})))))))
+
+(defn- settle-beside-withheld-mints
+  "A fact of an unrelated predicate asserted into a KB that withholds n mints, each
+  `(pwh_animal x)` drawn from `(pwhOwns x …)` while `(pwh_dog x)` says it more
+  specifically.
+
+  **The settle every write runs**, with pruning on: nothing records a withheld mint, so a
+  settle that moves no membership, `genl` edge or `genlCx` edge reads nothing about the
+  ones standing (`special/withheld-releases`)."
+  [n]
+  (binding [checks/*assertive-arg-types?*  true
+            checks/*prune-subsumed-mints?* true]
+    (let [kb (fresh-kb)
+          m  {:strength :monotonic}]
+      (v/assert kb '(genl pwh_animal thing) 'CxPerf m)
+      (v/assert kb '(genl pwh_dog pwh_animal) 'CxPerf m)
+      (v/assert kb '(arg pwhOwns 1 pwh_animal) 'CxPerf m)
+      (v/with-deferred-settle kb
+        (doseq [i (range n)
+                :let [x (symbol (str "PWH" i))]]
+          (v/assert kb (list 'pwh_dog x) 'CxPerf m)
+          (v/assert kb (list 'pwhOwns x 'PWHThing) 'CxPerf m)))
+      (doall (for [i (range 60)]
+               (nanos (v/assert kb (list 'pwhLikes (symbol (str "PWHQ" i)) 'PWHThing)
+                                'CxPerf {})))))))
 
 (defn- constraint-exposure-context-edge
   "A `genlCx` edge asserted into a KB holding n facts of a declared `functional`
@@ -729,6 +863,42 @@
        (do (v/assert kb (list pr x) 'CxPerf {})
            (nanos (v/assert kb (list 'not (list pr x)) 'CxPerf {})))))))
 
+(defn- inherited-clash-arbitration
+  "n standing inherited clashes, and an assert of an unrelated fact settling beside them.
+  Each clash is a stored `:default` `(bigP lo2_i lo_i)` against the monotonic
+  `(bigP hi_i hi2_i)`, which reaches its converse through `(genl lo_i hi_i)` and
+  `(genl lo2_i hi2_i)` under `(asymmetric bigP)` and both positions preserved along `genl`.
+
+  One context (`split?` false): everything in `CxPerf`, the declarations and edges
+  `:default`, so every clash is a standing dilemma.  Split: the stored claims in `CxPB`,
+  the rest in `CxPA`, everything monotonic, so each stored claim loses at `CxPW` alone
+  and every settle clears and decides that scoped defeat again.  The clashes are built
+  under one deferred settle, since they are the KB this measures against.  The timed fact
+  reaches none of them: a `bigP` fact in one context, and a fact of `unrelP`, which no
+  declaration preserves, in the split (`checks` says why)."
+  [split? n]
+  (let [kb      (fresh-kb)
+        M       {:strength :monotonic}
+        G       (if split? M {})
+        [ca cb] (if split? '[CxPA CxPB] '[CxPerf CxPerf])
+        t       (fn [s i] (symbol (str s i)))]
+    (doseq [[k up] (if split?
+                     '[[CxPA CxUniverse] [CxPB CxUniverse] [CxPW CxPA] [CxPW CxPB]]
+                     '[[CxPerf CxUniverse]])]
+      (v/assert kb (list 'genlCx k up) 'CxUniverse M))
+    (doseq [d '[(binary_predicate bigP) (type_relation_predicate bigP) (asymmetric bigP)
+                (transitiveInArg bigP 1 genl) (transitiveInArg bigP 2 genl)]]
+      (v/assert kb d 'CxUniverse G))
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'genl (t "plo_" i) (t "phi_" i)) ca G)
+        (v/assert kb (list 'genl (t "plotwo_" i) (t "phitwo_" i)) ca G)
+        (v/assert kb (list 'bigP (t "plotwo_" i) (t "plo_" i)) cb {})
+        (v/assert kb (list 'bigP (t "phi_" i) (t "phitwo_" i)) ca M)))
+    (doall
+     (for [i (range 60)]
+       (nanos (v/assert kb (list (if split? 'unrelP 'bigP) (t "pu_" i) (t "pv_" i)) cb {}))))))
+
 (defn- negation-load
   "n negative facts whose bodies are stored in ONE polarity only — the negation-heavy load
   that carries no contradiction at all.
@@ -974,6 +1144,55 @@
      (for [_ (range 200)]
        (nanos (dotimes [_ 20] (plan/order kb q 'CxUniverse {})))))))
 
+(defn- solve-rule-grounding
+  "Grounding a recursive `set/solveRule` over a chain of `n` hops from a chosen root —
+  reachability, the case a solve rule's recursion is for.  Even hops are choice edges and
+  odd ones background links, so the chain continues only through both of the grounding's
+  joins: a program literal matched against the atoms the round before derived, and the
+  background bindings read by the variable that atom binds.
+
+  A chain of `n` atoms is `n` semi-naive rounds of one new atom each.  A round that
+  rebuilt its atom indexes, or walked every background binding rather than those its new
+  atom reaches, would cost O(n), and the grounding O(n²) — 16x per atom between these
+  sizes, where the indexes a round carries over read flat.  Each reading is one whole
+  grounding, per thousand atoms, so it sits well above the noise floor."
+  [n]
+  (let [kb    (fresh-kb)
+        build (var-get #'sc/build)
+        nd    #(symbol (str "PsrN" %))]
+    (v/assert-many kb
+                   (cons (list 'perf_sr_root_cand (nd 0))
+                         (for [i (range n)]
+                           (list (if (even? i) 'perfSrCand 'perfSrLink) (nd i) (nd (inc i)))))
+                   'CxPerf {:chain? false})
+    (doseq [r '[(set/assumptionRule (implies (perf_sr_root_cand ?x) (perf_sr_root ?x)))
+                (set/assumptionRule (implies (perfSrCand ?x ?y) (perfSrEdge ?x ?y)))
+                (set/inertRule (set/solveRule (implies (perf_sr_root ?x) (perf_sr_reach ?x))))
+                (set/inertRule (set/solveRule (implies (and (perf_sr_reach ?x) (perfSrEdge ?x ?y))
+                                                       (perf_sr_reach ?y))))
+                (set/inertRule (set/solveRule (implies (and (perf_sr_reach ?x) (perfSrLink ?x ?y))
+                                                       (perf_sr_reach ?y))))]]
+      (v/assert kb r 'CxPerf))
+    (doall
+     (for [_ (range 8)]
+       (/ (* 1000.0 (nanos (build kb 'CxPerf))) n)))))
+
+(defn- label-beside-unrelated-facts
+  "Two choice rules and one candidate in `CxPerf` beside `n` facts no rule reads, and sixty
+  groundings of the program (`solve-context/build`).  A run finds its rules off the
+  `:solve-rules` roster, so a grounding reads two rules and one candidate at any `n`; a
+  walk of the base's extent for the rules reads every fact there, once per rule kind."
+  [n]
+  (let [kb    (fresh-kb)
+        build (var-get #'sc/build)]
+    (v/assert-many kb
+                   (cons '(perf_lb_cand PlbItem)
+                         (for [i (range n)] (list 'perf_lb_noise (symbol (str "PlbX" i)))))
+                   'CxPerf {:chain? false})
+    (v/assert kb '(set/assumptionRule (implies (perf_lb_cand ?c) (perfLbColor ?c red))) 'CxPerf)
+    (v/assert kb '(set/assumptionRule (implies (perf_lb_cand ?c) (perfLbColor ?c blue))) 'CxPerf)
+    (doall (for [_ (range 60)] (nanos (build kb 'CxPerf))))))
+
 (defn- arity-reach-trigger
   "n **conforming** facts of a predicate whose arity was declared before any of them.
 
@@ -1141,37 +1360,70 @@
   reaches the taxonomy only through a belief race (or a recovered store).  Each cycle
   below forms the belief-race way (docs/taxonomy.md): `PcB → PcA` stands, a monotonic
   negation defeats it, `PcA → PcB` asserts while no active cycle stands, and retracting the
-  defeater revives `PcB → PcA`, so the two contexts see each other.  No other check in this
-  file builds a context cycle at all, which is exactly how a whole-relation repair per
-  deleted cycle edge stayed invisible.
+  defeater revives `PcB → PcA`, so the two contexts see each other.
 
   One cycle per victim, because a handle can only be retracted once and a broken cycle
-  cannot be broken again.  The unrelated contexts are the population held fixed: none of
-  them is in any cycle, none is named by any retraction, and the count is the same at the
-  last reading as at the first."
+  cannot be broken again.  `populate!` asserts the n unrelated contexts: by default each
+  under one top context, in no cycle; `context-ring!` puts them all in one cycle, so the
+  component map holds n entries the victims are not among.  No retraction names them, and
+  the count is the same at the last reading as at the first."
+  ([n] (retract-context-cycle-scaling
+        (fn [kb n]
+          (v/with-deferred-settle kb
+            (doseq [i (range n)]
+              (v/assert kb (list 'genlCx (pctx "PcBg" i) 'CxPcTop) 'CxUniverse {}))))
+        n))
+  ([populate! n]
+   (let [kb (fresh-kb)]
+     (populate! kb n)
+     (v/with-deferred-settle kb
+       (doseq [i (range retract-victims)]
+         (v/assert kb (list 'genlCx (pctx "PcA" i) 'CxPcTop) 'CxUniverse {})
+         (v/assert kb (list 'genlCx (pctx "PcB" i) (pctx "PcA" i)) 'CxUniverse {})))
+     ;; the closing edges last and outside the batch: each settles, so the component map is
+     ;; built and the relation is ranked before a single reading is taken.  `wff` refuses a
+     ;; cycle-closing edge, so PcA → PcB closes each cycle through a belief race — defeat the
+     ;; standing PcB → PcA, assert PcA → PcB while no active cycle stands, revive PcB → PcA —
+     ;; and the asserted PcA → PcB closing edge is the timed victim.
+     (let [victims (mapv (fn [i]
+                           (let [back-edge (list 'genlCx (pctx "PcB" i) (pctx "PcA" i))
+                                 d         (v/assert kb (list 'not back-edge) 'CxUniverse
+                                                     {:strength :monotonic})
+                                 h         (v/assert kb (list 'genlCx (pctx "PcA" i) (pctx "PcB" i))
+                                                     'CxUniverse {})]
+                             (v/retract! kb d)
+                             h))
+                         (range retract-victims))]
+       (doall (for [h victims] (nanos (v/retract! kb h))))))))
+
+(defn- context-ring!
+  "Put n contexts `CxPr0 … CxPr(n-1)` into one `genlCx` cycle, `CxPr(i) → CxPr(i+1)` and
+  `CxPr(n-1) → CxPr0`, closed by the belief race `retract-context-cycle-scaling`
+  describes: the chain stands, a monotonic negation defeats its first edge, the closing
+  edge asserts while no cycle stands, and retracting the negation revives the first edge.
+  The relation then holds one component of n members."
+  [kb n]
+  (let [edge #(list 'genlCx (pctx "Pr" %1) (pctx "Pr" %2))]
+    (v/with-deferred-settle kb
+      (doseq [i (range (dec n))]
+        (v/assert kb (edge i (inc i)) 'CxUniverse {})))
+    (let [d (v/assert kb (list 'not (edge 0 1)) 'CxUniverse {:strength :monotonic})]
+      (v/assert kb (edge (dec n) 0) 'CxUniverse {})
+      (v/retract! kb d))))
+
+(defn- assert-context-edge-beside-cycle
+  "One `assert` of a `genlCx` edge between two fresh contexts, on a KB whose context graph
+  holds a cycle of n contexts the edge does not touch.
+
+  Both endpoints are fresh, so both sit at depth 0 and the insert lifts the source above
+  the target.  A lift moves the source's whole component, and the source is in none, so
+  the repair's cost is one node and the n-member component beside it is not read."
   [n]
   (let [kb (fresh-kb)]
-    (v/with-deferred-settle kb
-      (doseq [i (range n)]
-        (v/assert kb (list 'genlCx (pctx "PcBg" i) 'CxPcTop) 'CxUniverse {}))
-      (doseq [i (range retract-victims)]
-        (v/assert kb (list 'genlCx (pctx "PcA" i) 'CxPcTop) 'CxUniverse {})
-        (v/assert kb (list 'genlCx (pctx "PcB" i) (pctx "PcA" i)) 'CxUniverse {})))
-    ;; the closing edges last and outside the batch: each settles, so the component map is
-    ;; built and the relation is ranked before a single reading is taken.  `wff` refuses a
-    ;; cycle-closing edge, so PcA → PcB closes each cycle through a belief race — defeat the
-    ;; standing PcB → PcA, assert PcA → PcB while no active cycle stands, revive PcB → PcA —
-    ;; and the asserted PcA → PcB closing edge is the timed victim.
-    (let [victims (mapv (fn [i]
-                          (let [back-edge (list 'genlCx (pctx "PcB" i) (pctx "PcA" i))
-                                d         (v/assert kb (list 'not back-edge) 'CxUniverse
-                                                    {:strength :monotonic})
-                                h         (v/assert kb (list 'genlCx (pctx "PcA" i) (pctx "PcB" i))
-                                                    'CxUniverse {})]
-                            (v/retract! kb d)
-                            h))
-                        (range retract-victims))]
-      (doall (for [h victims] (nanos (v/retract! kb h)))))))
+    (context-ring! kb n)
+    (doall (for [i (range retract-victims)]
+             (nanos (v/assert kb (list 'genlCx (pctx "PeA" i) (pctx "PeB" i))
+                              'CxUniverse {}))))))
 
 (defn- retract-merge-scaling
   "One `retract!` of a fact naming no merged term, on a KB carrying n standing `sameAs`
@@ -1202,6 +1454,96 @@
                                     'CxPerf {}))
                         (range retract-victims))]
       (doall (for [h victims] (nanos (v/retract! kb h)))))))
+
+(defn- except-merge-scaling
+  "One `except` of an equality asserted and retracted, on a KB carrying n standing
+  `sameAs` merges that each displace one fact.
+
+  An `except` moves which equalities a datum's own context sees without any relabel
+  saying so, and the settle's supersession reconcile has to re-examine the data it can
+  change (docs/equational.md, \"An except of an equation\").  Re-examining every standing
+  displaced spelling instead makes each except of a merge linear in the merges the KB
+  holds.  Each victim is its own merge over its own displaced fact, disjoint from the n
+  standing ones, so the reconcile the except owes is one entry at both sizes."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'pMergeBorn (symbol (str "PMHi" i)) 'PMPlace) 'CxPerf {})
+        (v/assert kb (list 'sameAs (symbol (str "PMAa" i)) (symbol (str "PMHi" i)))
+                  'CxPerf {})))
+    (let [victims (mapv (fn [i]
+                          (v/assert kb (list 'pMergeBorn (symbol (str "PXHi" i)) 'PMPlace)
+                                    'CxPerf {})
+                          (v/assert kb (list 'sameAs (symbol (str "PXAa" i)) (symbol (str "PXHi" i)))
+                                    'CxPerf {}))
+                        (range retract-victims))]
+      (doall (for [h victims]
+               (nanos (v/retract! kb (v/assert kb (list 'except (list 'sentexHandle h)) 'CxPerf
+                                               {:strength :monotonic}))))))))
+
+(defn- assert-over-standing-excepts
+  "One assert of a fact naming nothing, on a KB carrying n believed `(except
+  (sentexHandle H))` facts, each hiding a decoy the fact does not name.
+
+  The timed operation is an ordinary assert and its own settle, and that is the arm
+  `visibility-reading` does not take: that check times a read, and this one times the
+  write, whose settle keeps every reader's withdrawal the assert does not reach
+  (docs/nmtms.md, \"The withdrawal cache\").  The population is built under one deferred
+  settle, which settles before the first reading."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/with-deferred-settle kb
+      (doseq [i (range n)
+              :let [h (v/assert kb (list 'pv_decoy (symbol (str "PVD" i))) 'CxPerf
+                                {:strength :monotonic})]]
+        (v/assert kb (list 'except (sx/sentex-handle h)) 'CxPerf {:strength :monotonic})))
+    (doall (for [i (range 60)]
+             (nanos (v/assert kb (list 'pStandVictim (symbol (str "PSV" i)) 'PSVal)
+                              'CxPerf {}))))))
+
+(defn- unmerge-over-standing-merges
+  "One `retract!` of a `sameAs` merge that displaces one fact of its own, on a KB
+  carrying n standing merges that each displace one fact.
+
+  The un-merge moves the equality closure, so its settle gives the displaced spelling
+  back.  The n standing merges are disjoint from every victim: what the retraction owes
+  is its own class and its own fact at both sizes, and the reading tracks what the
+  supersession reconcile walks beyond that."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'pMergeBorn (symbol (str "PMHi" i)) 'PMPlace) 'CxPerf {})
+        (v/assert kb (list 'sameAs (symbol (str "PMAa" i)) (symbol (str "PMHi" i)))
+                  'CxPerf {})))
+    (let [victims (mapv (fn [i]
+                          (v/assert kb (list 'pMergeBorn (symbol (str "PXHi" i)) 'PMPlace)
+                                    'CxPerf {})
+                          (v/assert kb (list 'sameAs (symbol (str "PXAa" i)) (symbol (str "PXHi" i)))
+                                    'CxPerf {}))
+                        (range retract-victims))]
+      (doall (for [h victims] (nanos (v/retract! kb h)))))))
+
+(defn- deferred-merge-batch
+  "One merging assert inside a `with-deferred-settle` batch, read at the tail of a batch of
+  n merges that each displace one fact.
+
+  The batch's touched window spans every write in it, and the write path's supersession
+  reconcile examines migration's output and the classes it moved, leaving the window to
+  the batch's one settle (`special/refresh-supersessions`).  A reconcile that read the
+  window per merge would re-examine every entry the batch had displaced so far, and the
+  k-th merge would cost O(k)."
+  [n]
+  (let [kb (fresh-kb)
+        ts (volatile! [])]
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'pMergeBorn (symbol (str "PDHi" i)) 'PMPlace) 'CxPerf {})
+        (vswap! ts conj (nanos (v/assert kb (list 'sameAs (symbol (str "PDAa" i))
+                                                  (symbol (str "PDHi" i)))
+                                         'CxPerf {})))))
+    @ts))
 
 (def ^:private edge-writes
   "Taxonomy edges written per run, for the same reason `retract-victims` is what it is: an
@@ -1239,6 +1581,34 @@
              (nanos (v/assert kb (list 'genl (symbol (str "pnegv" i "_t")) 'pnegtop_t)
                               'CxPerf {:strength :monotonic}))))))
 
+(defn- edge-stratification-walk
+  "One `genl` edge between two fresh types, on a KB whose rule graph has n edges into one
+  rule: an excepted rule and a variable-consequent rule both read a type with n specs.
+
+  A `genl` edge's stratification check walks the rule graph from every excepted rule
+  (`checks/edge-negation-cycle`).  The variable-consequent rule concludes every predicate,
+  so each of the n specs the excepted rule's antecedent fans over reaches it, and so does
+  each spec its own antecedent fans over.  A walk that builds a stored rule's node per edge
+  reaching it, and pushes a state once per edge, builds n² nodes per `genl` edge; the walk
+  `checks/stratification-concluders` and `wff/negation-cycle` run builds the two rules'
+  nodes once per check and pushes each state once, so what grows with n is the edges it
+  iterates.  That is the cost the argument-type entailment's derived `genl` edges pay on
+  a corpus whose rules read a wide type (docs/exceptions.md, \"The search\")."
+  [n]
+  (let [kb (fresh-kb)]
+    (doseq [i (range n)]
+      (v/assert kb (list 'genl (symbol (str "pswspoke" i "_t")) 'pswhub_t)
+                'CxPerf {:strength :monotonic}))
+    (v/assert kb '(exceptWhen (pswexc ?x)
+                              (set/defaultRule (implies (and (pswhub_t ?x)) (pswseen ?x))))
+              'CxPerf {})
+    (v/assert kb '(implies (and (pswRel ?p ?x) (pswhub_t ?x)) (?p ?x))
+              'CxPerf {:direction :forward})
+    (doall (for [i (range edge-writes)]
+             (nanos (v/assert kb (list 'genl (symbol (str "pswv" i "_t"))
+                                       (symbol (str "pswu" i "_t")))
+                              'CxPerf {:strength :monotonic}))))))
+
 (defn- taxonomy-edge-arbitration
   "One `genl` edge — a fresh subtype under a fresh supertype, with nothing above it,
   nothing below it and no separation anywhere near it — written on a KB carrying n
@@ -1255,6 +1625,10 @@
   clash set either way — so the bound is the same claim in the same shape: the per-pair
   term must stay bookkeeping rather than a re-derivation of the checks.
 
+  The KB also carries a `sibling_disjoint` mark with nothing under it.  A sibling
+  separation reads the `genl` edges between two supertypes, and a memo that re-derived
+  every standing pair while such a mark stands would read the retired-memo shape here.
+
   The dilemmas are built under one deferred settle: the standing set is the KB this
   measures against and not the thing being measured, and building it an assert at a time
   is the Ω(standing)-per-settle cost paid n times over."
@@ -1262,6 +1636,7 @@
   (binding [checks/*arbitrate-constraints?* true]
     (let [kb (fresh-kb)]
       (v/assert kb '(disjoint pea_t peb_t) 'CxPerf {:strength :monotonic})
+      (v/assert kb '(sibling_disjoint pesib_t) 'CxPerf {:strength :monotonic})
       (v/with-deferred-settle kb
         (doseq [i (range n)
                 :let [x (symbol (str "PEX" i))]]
@@ -1480,7 +1855,8 @@
   walks the same subtree at `special/subsumption-seeds`, unconditionally and whatever the
   marks say, so an edge written once measures both passes and can separate neither; a
   revival puts the edge back in the moved region without going through that path, and the
-  reading is the constraint pass alone.  The mark is declared either way, so the report's
+  reading is the settle's two budgeted walks: the constraint pass and the merge sweep a
+  revived edge under a mark runs (`special/revived-edge-sweep`).  The mark is declared either way, so the report's
   vocabulary gate is open in both shapes and the only difference is the one being measured."
   [marked? budget]
   (fn [n]
@@ -1538,7 +1914,7 @@
 
   The claim is that the read costs **what it returns**, not what the KB hides. Every
   scoped retrieval filters by visibility removal (`res/without-excepted`), and the answer
-  that filter needs is *which handles are hidden from here* — a question whose honest
+  that filter needs is *which handles are hidden from here* — a question whose intended
   shape is a lookup per match and whose lazy shape is a walk over every `except` in the
   KB, per call. The excepts here hide **decoys** the read never returns, so n moves the
   filter's input while leaving its output alone, and a reading that grows with n is the
@@ -1580,7 +1956,7 @@
   The claim is that the edge costs the readers it **widened**.  When the edge lands,
   `special/equate-under-context-edge` re-derives the functional equalities over the facts
   the widened ancestor set newly exposes, and each derivation sweeps a set of reader
-  contexts: the honest set is `context-down(sub)`, which here is `sub` alone, and the lazy
+  contexts: the required set is `context-down(sub)`, which here is `sub` alone, and the lazy
   one is every reader below each candidate's own storage context, which every bystander
   is.  So n moves the reader fan and leaves the widened set and the candidate set alone,
   and an edge that grows with n is the sweep re-asking readers a question already answered
@@ -1902,6 +2278,102 @@
        (nanos (dotimes [_ 200]
                 (v/possible-relations kb :rcc8 'CxPerfQcn (first chain) (peek chain))))))))
 
+(defn- qcn-chain-load
+  "Each assert of a containment chain of n regions loaded one fact at a time, with the
+  spatial prover registered and one forward rule over a calculus predicate — the
+  `lein bench-qcnchain` prover + rule column, read per fact.
+
+  Every pair of a chain composes, so each arriving fact tightens pairs network-wide.
+  docs/qcn.md, \"Cost at load, measured\", says where that cost goes: the plain pass
+  warm-starts and the join is semi-naive, and the support-carrying pass runs whole once
+  per arriving fact."
+  [n]
+  (let [kb   (fresh-kb)
+        node #(symbol (str "PqcReg" %))]
+    (v/add-prover kb (space/spatial-prover))
+    (v/assert-rule kb ['(properPartOfRegion ?x ?y)] '(pqc_contained ?x) 'CxPerf
+                   {:direction :forward})
+    (doall (for [i (range 1 n)]
+             (nanos (v/assert kb (list 'nonTangentialProperPart (node i) (node (dec i)))
+                              'CxPerf {}))))))
+
+(defn- qcn-arrival-over-standing-firings
+  "One assert of a spatial fact in a context of its own, on a KB whose forward rule over
+  the calculus stands on the n(n-1)/2 firings a containment chain of n regions entails
+  in a sibling context.
+
+  The arrival moves the calculus, so every rule joining on it is queued for the settle's
+  re-check; what the re-check owes a standing firing is whether a network it rests on
+  turned unsatisfiable (`chain/entailment-withdrawable?`), and none did.  The sibling
+  keeps the chain's network unmoved, so no pass over it runs again; the join still reads
+  it, which is the growth the bound leaves room for."
+  [n]
+  (let [kb   (fresh-kb)
+        node #(symbol (str "PqsReg" %))]
+    (v/add-prover kb (space/spatial-prover))
+    (doseq [c '[CxPerfQsChain CxPerfQsSide]]
+      (v/assert kb (list 'genlCx c 'CxPerf) 'CxUniverse {:strength :monotonic}))
+    (v/assert-rule kb ['(properPartOfRegion ?x ?y)] '(pqsIn ?x ?y) 'CxPerf
+                   {:direction :forward})
+    (doseq [i (range 1 n)]
+      (v/assert kb (list 'nonTangentialProperPart (node i) (node (dec i))) 'CxPerfQsChain {}))
+    (doall (for [i (range 60)]
+             (nanos (v/assert kb (list 'nonTangentialProperPart (symbol (str "PqsA" i))
+                                       (symbol (str "PqsB" i)))
+                              'CxPerfQsSide {}))))))
+
+(defn- qcn-arrival-over-composed-exceptions
+  "One assert of a spatial fact in a context of its own, on a KB whose forward rule stands
+  on n firings and carries an exception on a relation the spatial calculus answers by
+  composition.
+
+  The arrival moves the calculus, so the rule is queued and every firing's exception is
+  asked again (`special/composed-exception-rules`): the re-check takes the whole rule on
+  every arrival, not the firings whose pair moved.  What grows is those n level-6 asks."
+  [n]
+  (let [kb   (fresh-kb)
+        bird #(symbol (str "PqeBird" %))]
+    (v/add-prover kb (space/spatial-prover))
+    (v/assert kb '(genlCx CxPerfQeSide CxPerf) 'CxUniverse {:strength :monotonic})
+    (v/assert kb '(exceptWhen (spatiallyDisconnected ?x PqeRoom)
+                              (set/forwardRule (implies (and (pqe_bird ?x)) (pqe_flies ?x))))
+              'CxPerf {})
+    (v/assert kb '(spatiallyDisconnected PqeCage PqeRoom) 'CxPerf {})
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'pqe_bird (bird i)) 'CxPerf {})))
+    (doall (for [i (range 60)]
+             (nanos (v/assert kb (list 'nonTangentialProperPart (symbol (str "PqeA" i))
+                                       (symbol (str "PqeB" i)))
+                              'CxPerfQeSide {}))))))
+
+(defn- qcn-arrival-beside-an-unmoved-network
+  "One assert of a spatial fact in a context of its own, on a KB holding a containment
+  chain of n regions in a sibling context and a forward rule over a relation the chain
+  entails nowhere, so no firing stands on it.
+
+  The arrival moves the change clock, so the chain's network is read again for the
+  re-join's delta; the read equals the resident value, which stays
+  (`qcn-kb/read-network`), and the delta compares no pair.  What grows is the read,
+  linear in the chain's facts.  A delta compared pair by pair reads the n(n-1) pairs
+  the chain closes to.  The chain is loaded under one settle, because loading it a
+  fact at a time costs a pass per fact."
+  [n]
+  (let [kb   (fresh-kb)
+        node #(symbol (str "PquReg" %))]
+    (v/add-prover kb (space/spatial-prover))
+    (doseq [c '[CxPerfQuChain CxPerfQuSide]]
+      (v/assert kb (list 'genlCx c 'CxPerf) 'CxUniverse {:strength :monotonic}))
+    (v/assert-rule kb ['(externallyConnected ?x ?y)] '(pquTouch ?x ?y) 'CxPerf
+                   {:direction :forward})
+    (v/with-deferred-settle kb
+      (doseq [i (range 1 n)]
+        (v/assert kb (list 'nonTangentialProperPart (node i) (node (dec i))) 'CxPerfQuChain {})))
+    (doall (for [i (range 60)]
+             (nanos (v/assert kb (list 'nonTangentialProperPart (symbol (str "PquA" i))
+                                       (symbol (str "PquB" i)))
+                              'CxPerfQuSide {}))))))
+
 (def ^:private metric-arrivals
   "How many constraints arrive one at a time in `metric-closure-warm-start` — the same
   count at both sizes, since the reading is per arrival."
@@ -1939,6 +2411,112 @@
               t     (nanos (vreset! box (stp/close-state-from net' state nodes)))]
           (stp/constraint (:net @box) head q)
           (recur net' @box (inc i) (conj acc t)))))))
+
+;; ---- a context NAT, a sign chain, a brave ask, a marked clique ------------
+
+(defn- context-nat-existing-context
+  "Facts written into n sibling day contexts of one context function that
+  `contextArgSubrelation` orders, each context already minted: the sixty timed asserts
+  go round the existing days.  A mint orders the new context against its siblings
+  (`context-nat/reconcile-genlCx`); a fact into a context already minted creates no
+  sibling pair, so what it costs does not depend on how many siblings there are.
+
+  The contexts are built under one deferred settle: they are the KB this measures
+  against, not the thing measured."
+  [n]
+  (let [kb  (fresh-kb)
+        M   {:strength :monotonic}
+        day #(list 'CxPcnDayFn 'CxMonad
+                   (list 'DatetimeFn (str (.plusDays (java.time.LocalDate/of 2000 1 1) (long %)))))]
+    (v/assert kb '(context_denoting_function CxPcnDayFn) 'CxUniverse M)
+    (v/assert kb '(unreifiable_function DatetimeFn) 'CxUniverse M)
+    (v/assert kb '(contextArgSubrelation CxPcnDayFn 2 subintervalOf) 'CxUniverse M)
+    (v/assert kb '(pcnNote PcnYear PcnVal) '(CxPcnDayFn CxMonad (DatetimeFn "2000")) M)
+    (v/with-deferred-settle kb
+      (doseq [i (range n)] (v/assert kb '(pcnNote PcnDay PcnVal) (day i) M)))
+    (doall (for [i (range 60)]
+             (nanos (v/assert kb (list 'pcnNote (symbol (str "Pcn" i)) 'PcnVal)
+                              (day (mod i n)) M))))))
+
+(defn- sign-chain-rebuild
+  "A `qualitativeSum` chain grown one link at a time, and after each of the last sixty
+  links the ask of the new tail's sign.  The write moves the change clock, so each ask
+  rebuilds the sign reading (`sign/build-reading`), which reads every sign fact: linear in
+  the chain by design.  What the check catches is a fixpoint that re-applies every
+  constraint per pass while the chain moves one link per pass, or a narrowing that copies
+  the growing support set along the chain: both are quadratic."
+  [n]
+  (let [kb (fresh-kb)
+        M  {:strength :monotonic}
+        q  #(symbol (str "PsQ" %))]
+    (v/add-reasoner kb :sign)
+    (v/assert kb '(signOf PsQ0 SignPositive) 'CxPerf M)
+    (into []
+          (keep (fn [i]
+                  (v/assert kb (list 'signOf (symbol (str "PsP" i)) 'SignPositive) 'CxPerf M)
+                  (v/assert kb (list 'qualitativeSum (q (dec i)) (symbol (str "PsP" i)) (q i))
+                            'CxPerf M)
+                  (when (> i (- n 60))
+                    (nanos (count (v/ask kb (list 'signOf (q i) '?s) 'CxPerf))))))
+          (range 1 (inc n)))))
+
+(def ^:private asks-per-brave-reading
+  "Asks batched into one timed reading, the same batch at both sizes so it cancels out of
+  the ratio: a single ask answered from the held classification sits under the noise
+  floor."
+  10)
+
+(defn- brave-ask-between-writes
+  "`(bravely S)` and `(cautiously S)` asked of one Nixon diamond's side on a KB holding n
+  independent diamonds, with no write between the asks.  Belief does not move between
+  two asks, so the classification the first one computes answers the rest
+  (`label/classify-datum`); a classification per ask is linear in the dilemmas.
+
+  The solve-free path, forced by hiding the backend, so the reading does not depend on a
+  solver being installed: with one, a classification over every dilemma at once is
+  exponential in the independent dilemmas and would not finish at the large size.  Built
+  under one deferred settle."
+  [n]
+  (with-redefs [solver/available? (constantly false)]
+    (let [kb   (fresh-kb)
+          rule (fn [ante conseq]
+                 (list 'set/defaultRule
+                       (list 'set/forwardRule (rules/rule-sentence [ante] conseq))))]
+      (v/add-reasoner kb :brave-cautious)
+      (v/assert kb (rule '(pb_quaker ?x) '(pb_pacifist ?x)) 'CxPerf)
+      (v/assert kb (rule '(pb_republican ?x) '(not (pb_pacifist ?x))) 'CxPerf)
+      (v/with-deferred-settle kb
+        (doseq [i (range n) :let [x (symbol (str "PbX" i))]]
+          (v/assert kb (list 'pb_quaker x) 'CxPerf)
+          (v/assert kb (list 'pb_republican x) 'CxPerf)))
+      (doall (for [_ (range 60)]
+               (nanos (dotimes [_ asks-per-brave-reading]
+                        (v/ask? kb '(bravely (pb_pacifist PbX0)) 'CxPerf)
+                        (v/ask? kb '(cautiously (pb_pacifist PbX0)) 'CxPerf))))))))
+
+(defn- sibling-disjoint-new-spec
+  "A `sibling_disjoint` clique of n specializations, then sixty more added one at a time,
+  member first: each new type already holds an instance (which also holds a type outside
+  the clique), and the timed write is the `(genl s root)` edge that puts it in the clique.
+  Whether a type sits under the marked parent is read off the type's own supertype
+  closure; the parent's spec closure holds the whole clique and is rebuilt after every
+  `genl` edge.  The clique is built under one deferred settle."
+  [n]
+  (let [kb  (fresh-kb)
+        M   {:strength :monotonic}
+        add (fn [i]
+              (let [t (symbol (str "psd_s" i "_t")) x (symbol (str "PsdX" i))]
+                (v/assert kb (list 'psd_benign x) 'CxPerf M)
+                (v/assert kb (list t x) 'CxPerf M)
+                (list 'genl t 'psd_root)))]
+    (v/assert kb '(genl psd_benign thing) 'CxPerf M)
+    (v/assert kb '(genl psd_root thing) 'CxPerf M)
+    (v/assert kb '(sibling_disjoint psd_root) 'CxPerf M)
+    (v/with-deferred-settle kb
+      (doseq [i (range n)] (v/assert kb (add i) 'CxPerf M)))
+    (doall (for [i (range n (+ n 60))
+                 :let [edge (add i)]]
+             (nanos (v/assert kb edge 'CxPerf M))))))
 
 ;; ---- the one check that writes to a disk ---------------------------------
 ;;
@@ -2037,6 +2615,52 @@
     :sizes     [250 2000]
     :max-ratio 2.0
     :run       membership-read-under-busy-term}
+
+   ;; **Both ends measured, on a loaded machine.**  Above: 0.27x, 0.49x and 0.80x.  Below,
+   ;; the trigger reading every record that names the term and filtering them on the
+   ;; network, which it did before the mint roster existed, reads 3.06x, 3.95x and 6.91x:
+   ;; the step is 32x rather than the file's usual 8x because at 8x the two shapes
+   ;; overlapped under that load (1.74x–2.08x against 2.14x–3.83x).
+   {:name      :mint-withdrawal-under-busy-term
+    :claim     "with subsumed mints pruned, a membership is flat in the facts that name its term"
+    :sizes     [250 8000]
+    :max-ratio 2.0
+    :run       mint-withdrawal-under-busy-term}
+
+   ;; **Both ends measured, in one warm JVM under a load average of 21.**  Above: 0.68x,
+   ;; 0.32x and 0.20x (0.35 ms against 0.24).  Below, the settle re-reading every withheld
+   ;; mint kept in the refusal record on each pass, rather than reading a release off the
+   ;; departing record's term, reads 10.83x and 17.47x (0.88 ms against 15.31).
+   ;; The small size is 32 because at 250 the re-read already dominates the baseline and
+   ;; the defective shape read 3.44x against a healthy 2.56x.
+   {:name      :settle-beside-withheld-mints
+    :claim     "with subsumed mints pruned, a settle that moves no membership is flat in the mints the KB withholds"
+    :sizes     [32 4096]
+    :max-ratio 2.0
+    :run       settle-beside-withheld-mints}
+
+   ;; **Both ends measured, on full runs.**  Above: 1.39x, 0.90x and 1.03x.  Below, two
+   ;; shapes, each implemented and run: the readers taken as every common descendant,
+   ;; which is what `settle/group-vantages` read before `tax/ground-contexts` existed,
+   ;; reads **6.28x** (1.39 against 8.72 ms/op); the readers narrowed but the maxima
+   ;; found by filtering the whole intersection, which `maximal-common-descendant-contexts`
+   ;; did before it walked, reads **2.86x** (1.23 against 3.51).  The bound is the file's
+   ;; standing 2.0 for a flat claim, under both.
+   {:name      :per-reading-vantages
+    :claim     "a vantage below a maximum that reads less of the grounds costs the contexts below a ground it lacks, not the lattice below the members"
+    :sizes     [250 2000]
+    :max-ratio 2.0
+    :run       per-reading-vantages}
+
+   ;; **Both ends measured, on full runs.**  Above: 1.11x and 0.90x, and 0.84x and 0.67x
+   ;; on two trees whose join is this one.  Below: the join reading every believed step
+   ;; of the functor and filtering on the term, where it reads the term's postings, reads
+   ;; **3.65x** (1.72 against 6.26 ms/op).  The bound is the standing 2.0.
+   {:name      :chain-join
+    :claim     "an anti_transitive chain split across three contexts is joined on its own terms, flat in the open chains beside it"
+    :sizes     [250 2000]
+    :max-ratio 2.0
+    :run       chain-join}
 
    {:name      :constraint-exposure-context-edge
     :claim     "past the instance cap, 8x the facts behind a genlCx edge costs the same"
@@ -2166,7 +2790,7 @@
     :run       compound-probe}
 
    ;; The negation twin of `clash-arbitration`, and the same reasoning picks its numbers:
-   ;; Ω(standing) is the honest floor (a settle republishes the whole set), the baseline is
+   ;; Ω(standing) is the floor (a settle republishes the whole set), the baseline is
    ;; small enough that almost nothing is standing at it, and the bound separates
    ;; bookkeeping-per-pair from re-derivation-per-pair.  Re-deriving every standing pair
    ;; per settle round measured 38.9x here — the structure that shipped, and the one `:opposed`
@@ -2203,6 +2827,58 @@
     :sizes     [100 800]
     :max-ratio 11.0
     :run       negation-arbitration}
+
+   ;; The inherited twins of `clash-arbitration`, and Ω(standing) for its reason: a settle
+   ;; republishes, weighs and reports every standing clash.  **Both ends measured.**
+   ;; Above, one context: 1.90x alone and 5.45x in a full run, 2.6 against 14.2 ms/op, of
+   ;; which `preserving-nogoods` is a quarter and the weighing and the reports the rest.
+   ;; Below, the pass that asked every standing clash each settle and the whole extent for
+   ;; every claim written: **12.27x** (53.7 against 659 ms/op), the better of two
+   ;; attempts.  The baseline carries that pass's extent sweep over the 60 timed facts
+   ;; themselves, which is what holds the defective ratio near 12.  The bound is about
+   ;; twice the healthy reading, and under the defective one.
+   {:name      :inherited-clash-arbitration
+    :claim     "32x the standing inherited dilemmas costs under 10x per assert — carried, not asked again"
+    :sizes     [16 512]
+    :max-ratio 10.0
+    :run       (partial inherited-clash-arbitration false)}
+
+   ;; The split twin.  Each settle clears the scoped defeats (`clear-scoped-defeats!`) and
+   ;; decides every standing one again at `CxPW`, as `clear-defeats!` does the network's,
+   ;; because belief is computed from current state (docs/nmtms.md, "Where the scaling
+   ;; arguments hold").  So this cost grows with n by design, at about 0.02 ms per clash
+   ;; per assert.  The memo carries every clash's question: `inherit/clashing-claim` runs
+   ;; twice per assert at both sizes.  Per assert, n=1 against n=512, in ms at load 16:
+   ;;
+   ;;   discovery   0.13 / 3.8   `preserving-entries` checks each entry's member classes,
+   ;;                            and diffs each asker's withdrawn set, which the clear and
+   ;;                            the re-decision each move by n handles
+   ;;   resolution  0.03 / 3.1   `live-vantages` and `decide-nogood` per clash at `CxPW`,
+   ;;                            `scope-defeats!`, `note-vantage-disagreements!`
+   ;;   glue        0.10 / 1.4   `scoped-snapshot`: `grounded-in-region` over every
+   ;;   finish      0.09 / 0.7   scoped defeat, and `res/supporter-filter-roster` rebuilt
+   ;;   outside     0.25 / 1.2   over them after each `clear-withdrawn!`
+   ;;
+   ;; **Why the timed fact is `unrelP` and the baseline one clash.**  Healthy and defective
+   ;; are both `a + b·n` per assert, and the ratio separates them only by `a/b`.  Timing a
+   ;; `bigP` fact puts both near 30: the defective pass asks the whole stored `bigP`
+   ;; extent, the timed facts included, for each fact written, and that sweep lands in its
+   ;; `a`.  At [16 512] that shape read 11.2x to 11.6x healthy in full runs against 20.0x
+   ;; defective, a separation under the 2x slack a bound needs.  A fact of `unrelP` reaches
+   ;; no preserved predicate, so the defective `a` is the assert alone and its `b` the
+   ;; question of every clash, and one clash keeps the healthy `b·n` out of the denominator.
+   ;;
+   ;; Healthy: 9.6x, 11.8x and 13.6x alone at load 23 to 34, 20.4x and 30.9x alone at load
+   ;; 16, 21.9x to 43.1x in a JVM that had run the shape before (n=1 at 0.23 to 0.42 ms
+   ;; against 0.45 to 1.15 cold), and 46.1x in a full run at load 9 (0.185 against 8.51
+   ;; ms).  Defective, with `settle/*incremental-preserving*` bound false: 149x, 249x and
+   ;; 441x, 373 to 395 ms/op at n=512, the 149x a first run whose n=1 read 2.5 ms.  90 is
+   ;; about twice the worst healthy reading and under the defective ones.
+   {:name      :inherited-clash-arbitration-split
+    :claim     "512x the standing inherited clashes split across contexts costs under 90x per unrelated assert — carried through the scoped defeat each settle decides again"
+    :sizes     [1 512]
+    :max-ratio 90.0
+    :run       (partial inherited-clash-arbitration true)}
 
    {:name      :negation-load
     :claim     "a negative fact with no positive twin costs the same at 2000 as at 250"
@@ -2270,6 +2946,20 @@
     :max-ratio 2.0
     :run       plan-scaling}
 
+   {:name      :solve-rule-grounding
+    :claim     "grounding a recursive solve rule costs the same per derived atom at any chain length"
+    :sizes     [500 8000]
+    :max-ratio 2.0
+    :run       solve-rule-grounding}
+
+   ;; Healthy 0.79x.  Walking the base's extent for the rules reads 24.80x (0.70 ms
+   ;; against 17.25 a grounding).
+   {:name      :label-beside-unrelated-facts
+    :claim     "32x the facts beside a do/label program costs under 2x per grounding"
+    :sizes     [1000 32000]
+    :max-ratio 2.0
+    :run       label-beside-unrelated-facts}
+
    ;; The bound is 4x rather than 2x because the vocabulary itself grows here — 8x the
    ;; sentexes is 2.8x the terms, and the report is entitled to that much.  What it
    ;; separates is 2.8x from the 8x a record scan reads, and 4x sits between them with
@@ -2311,7 +3001,7 @@
    ;; declarations left out costs 4.964 ms against 41.856 at n=256.  Below it, a
    ;; release asked of every super's own ancestry instead of every super — the square of the
    ;; depth per declaration — reads **74.75x** on a full run.  45x sits between them, and it is
-   ;; placed differently from every other bound here: the honest floor is nearly the span, so
+   ;; placed differently from every other bound here: the floor is nearly the span, so
    ;; the healthy reading starts high and twice it is 52x, which is close enough to the
    ;; defect to be a bound that admits it on a bad run.  45x is the midpoint of the measured
    ;; pair instead — 1.7x above the worst healthy reading and 1.7x under the defective one.
@@ -2331,39 +3021,93 @@
     :max-ratio 2.0
     :run       retract-context-cycle-scaling}
 
+   ;; The same retraction with the n contexts in one cycle, and an insert beside that
+   ;; cycle: the two edits that repair a component, against a component map of n entries
+   ;; they are not about.  Each repair reads its own component's members off
+   ;; `:scc-members`; with the members found by inverting the whole `:scc` map instead,
+   ;; `--only` read 8.90x (retract) and 6.88x (assert) at 8192 on 2026-09-28, against
+   ;; 0.41x and 0.92x.  The large size is 8192 because the inversion costs about 0.25 µs
+   ;; an entry (2.20 against 0.26 ms/op for the assert at 8192), and at 2048 the
+   ;; inverting assert read 1.74x on one run, under the bound.
+   {:name      :retract-context-cycle-beside-cycle
+    :claim     "retracting an edge of a context cycle is flat in the context cycles it is not about"
+    :sizes     [64 8192]
+    :max-ratio 2.0
+    :run       (partial retract-context-cycle-scaling context-ring!)}
+
+   {:name      :assert-context-edge-beside-cycle
+    :claim     "asserting a context edge is flat in the context cycles it is not about"
+    :sizes     [64 8192]
+    :max-ratio 2.0
+    :run       assert-context-edge-beside-cycle}
+
    ;; The baseline is 32 for `retract-nat-scaling`'s reason, which is `clash-arbitration`'s:
    ;; a retraction has a fixed cost of its own — the storage teardown, the settle, the feed
    ;; event — and the small size has to be one where that still dominates, or a baseline
    ;; already carrying a hundred merges' worth of the per-merge term divides it back out.
    ;;
-   ;; **This is the third bound in the file that is not *flat*, and for the same kind of
-   ;; reason as the other two.**  A settle with any supersession in play reconciles the
-   ;; taxonomy caches against a moved set that includes every superseded handle, old and
-   ;; new, because a supersession flip leaves no relabel to record it
-   ;; (`settle/settle-finish`).  So Ω(merged) per settle is here by construction and is not
-   ;; what this check is about; what it is about is whether the **reconcile of the
-   ;; superseded set itself** re-examines every displaced spelling, which costs a record
-   ;; fetch, a rewrite through the closure and a store probe apiece.
-   ;; **The bound is read off a FULL run.**  This check's large reading barely moves
-   ;; between `--only` and the gate (0.733 against 0.747 ms), while its *baseline* halves
-   ;; (0.129 against 0.067), because by the twentieth check the JVM is warm and this
-   ;; check's baseline is dominated by the n-independent constant.  The ratio inflates
-   ;; from a faster denominator and nothing else: 5.66x alone against 11.22x in place,
-   ;; same tree, same commit.  It bites here rather than on a flat check because
-   ;; Ω(merged) leaves a real per-merge term in the numerator for the warm baseline to
-   ;; divide into.  A bound read off `--only` fails every full run, so this one is not:
-   ;; it is measured in a full run both ways rather than tuned until green — **11.22x**
-   ;; narrowed against **32.12x** with the reconcile re-examining every standing entry,
-   ;; and the absolute large readings say the same without a ratio at all — 0.747 ms/op
-   ;; against 13.742.  18x sits between them.  Healthy full runs read 10.49-14.42x, so
-   ;; the headroom on a loaded box is nearer 1.25x than the spread above suggests; this
-   ;; check and the two taxonomy-edge ones are the file's tightest, and `--tolerance`
-   ;; is the answer to a red run on a busy machine rather than a wider bound here.
+   ;; The settle reconciles the taxonomy caches over the region and the data whose
+   ;; supersession entry changed since the last settle (`settle/settle-finish`), so a
+   ;; retraction naming no merged term carries no per-merge term: `--only` read 0.774 ->
+   ;; 0.199 ms/op (0.26x) on 2026-09-28, against 5.66x with every superseded handle
+   ;; handed to that reconcile.  **The bound is read off FULL runs**, where a warm JVM
+   ;; halves the small size's reading and the ratio inflates from the denominator alone
+   ;; (5.66x alone against 11.22x in place, same tree): 11.22x with the superseded set
+   ;; re-read each settle, against 32.12x with its reconcile re-examining every entry.
+   ;; 18x sits between those two readings: it bounds re-examination, and the flat
+   ;; reading sits far under it.
    {:name      :retract-merge-scaling
     :claim     "retracting a fact naming no merged term costs under 18x per 32x the standing merges — bookkeeping, not a re-examination each"
     :sizes     [32 1024]
     :max-ratio 18.0
     :run       retract-merge-scaling}
+
+   ;; Read off full runs both ways, not tuned until green: **17.73x** and **17.86x**
+   ;; (0.718 -> 12.734 and 0.676 -> 12.082 ms/op) with the reconcile narrowed to the data
+   ;; the except reaches, against **43.80x** (2.415 -> 105.776 ms/op) with it re-examining
+   ;; every standing displaced spelling.  Those full-run readings carried the standing
+   ;; superseded map on every settle, which `settle-finish` no longer reads: `--only` read
+   ;; 1.609 -> 1.070 ms/op (0.66x) on 2026-09-28, against 2.48x with the map carried and
+   ;; 27.93x with the full pass.  At [32 1024] the two full-run readings sit too
+   ;; close to separate, which is why the large size is 4096.  28x sits between them.
+   {:name      :except-merge-scaling
+    :claim     "an except of a merge, asserted and retracted, costs under 28x per 128x the standing merges — the data it reaches, not every displaced spelling"
+    :sizes     [32 4096]
+    :max-ratio 28.0
+    :run       except-merge-scaling}
+
+   ;; Read off both ends under `--only`, 2026-09-28: 0.328 -> 10.018 ms/op (30.52x, load
+   ;; average 13) and 0.355 -> 14.672 (41.33x, load average 47) with every settle emptying
+   ;; the `:withdrawn` cache, so the next read recomputed each reader's withdrawal and the
+   ;; roster; 0.259 -> 0.192 (0.74x) and 0.258 -> 0.201 (0.78x, load average 12) with the
+   ;; settle keeping the entries no move reaches (`res/reconcile-withdrawn!`).  3x sits
+   ;; between them, with room for a full run's warmer small size.
+   {:name      :assert-over-standing-excepts
+    :claim     "an assert naming nothing costs under 3x per 128x the believed excepts the KB stores — no reader's withdrawal is recomputed"
+    :sizes     [32 4096]
+    :max-ratio 3.0
+    :run       assert-over-standing-excepts}
+
+   ;; Read off both ends under `--only`, 2026-09-28: 1.402 -> 12.857 ms/op (9.17x) with
+   ;; an un-merge re-examining every displaced spelling, against 0.542 -> 0.359 (0.66x)
+   ;; with the reconcile narrowed to the sentexes naming a term of the class that moved
+   ;; (`special/region-suffices?`).  3x sits between them, with room for a full run's
+   ;; warmer small size.
+   {:name      :unmerge-over-standing-merges
+    :claim     "an un-merge of one class costs under 3x per 32x the standing merges it does not touch — its own class, not every displaced spelling"
+    :sizes     [32 1024]
+    :max-ratio 3.0
+    :run       unmerge-over-standing-merges}
+
+   ;; Read off both ends under `--only`, 2026-09-28: 1.515 -> 11.591 ms/op (7.65x) with
+   ;; each merge's reconcile reading the batch's whole window, against 0.328 -> 0.212
+   ;; (0.65x) with the write path leaving the window to the batch's settle.  3x sits
+   ;; between them.
+   {:name      :deferred-merge-batch
+    :claim     "a merging assert in a deferred batch costs under 3x per 8x the merges the batch holds — its own migration, not every entry the batch displaced"
+    :sizes     [128 1024]
+    :max-ratio 3.0
+    :run       deferred-merge-batch}
 
    ;; Flat at the file's standing 2x, and the claim is exact: an edge that reaches no
    ;; exception must cost the same whether the KB's excepted rule has fired 32 times or
@@ -2375,8 +3119,22 @@
     :max-ratio 2.0
     :run       genl-edge-negation-recheck}
 
+   ;; The healthy walk is linear in n — it iterates the n edges once per state — so its
+   ;; ratio over 16x the edges is at most 16x, whatever the fixed cost of an assert is; it
+   ;; reads 3.5x and 4.3x in two full runs (2.3x alone), where the assert's fixed cost
+   ;; still dominates.  A node built per edge reached and a state pushed per edge is n²:
+   ;; 170.2x in a full run and 90.1x alone.  The bound sits near twice the linear ceiling
+   ;; rather than twice the healthy reading, so a cheaper assert elsewhere, which moves
+   ;; the healthy ratio toward 16x, does not fail it, and at a third of the lowest
+   ;; defective reading.
+   {:name      :edge-stratification-walk
+    :claim     "a genl edge's stratification walk costs under 30x at 16x the edges into one rule"
+    :sizes     [16 256]
+    :max-ratio 30.0
+    :run       edge-stratification-walk}
+
    ;; The two taxonomy-edge checks, and their bounds are `clash-arbitration`'s reasoning
-   ;; applied to the workload that file could not see: Ω(standing) is the honest floor —
+   ;; applied to the workload that file could not see: Ω(standing) is the floor —
    ;; a settle republishes the whole standing set whatever moved it — and what the bound
    ;; separates is *bookkeeping per standing pair* from *a re-derivation per standing
    ;; pair*.
@@ -2394,16 +3152,27 @@
    ;; is at the baseline — which is JIT warmth, and by the twentieth check of a run the
    ;; JVM is much warmer than it is on `--only`.  The large reading barely moves (it is
    ;; real per-pair work, which no amount of warmth removes) and the small one drops by a
-   ;; third, so the ratio climbs: the `genl` check reads 9.8-13.2x alone and 17.3-22.7x in
-   ;; place, the `genlCx` one 9.1-9.8x alone and 15.8-21.4x in place.  Bounds read off
-   ;; an `--only` run would fail every full one, which is the mirror image of the warming
-   ;; bias `measure` describes and lands on the same rule: judge a check where it runs.
+   ;; third, so the ratio climbs: the `genl` check reads 5.6x to 28x alone as the small
+   ;; reading bounces, and a median of 26.6x in place.  Bounds read off an `--only` run
+   ;; would fail every full one, which is the mirror image of the warming bias `measure`
+   ;; describes and lands on the same rule: judge a check where it runs.
    ;;
-   ;; Measured at 100x the standing set, both engines, full runs: a `genl` edge reads at
-   ;; worst 22.7x with the carry weighed per pair and 106.6x with it retired on the
-   ;; relation's generation; a `genlCx` edge reads 21.4x against 65.6x.  So each
-   ;; bound sits half again above the worst healthy reading and at a third to a half of
-   ;; the defective one.
+   ;; Measured at 100x the standing set.  Most of the per-pair term is the settle
+   ;; republishing each standing pair with the vantages its defeat is scoped to
+   ;; (docs/nmtms.md).  Each round reads a vantage's withdrawal once and each nogood's
+   ;; live vantages once, and skips both when no `except` and no scoped defeat exists, so
+   ;; a `genl` edge at n=800 costs 3.3-4.1 ms a write, and a `genlCx` edge 2.2-2.8 ms.
+   ;; Healthy, the `genl` check reads 17.1-22.7x alone and 17.0x and 23.9x in two full
+   ;; runs; the `genlCx` check reads 14.9-28.9x alone and 21.4x and 28.5x in full runs,
+   ;; under load averages of 10 to 31.  With the carry retired on the relation's
+   ;; generation (`clash-vocabulary` keyed on the `genl` generation) the `genl` check reads
+   ;; 54.2x, 69.2x and 96.1x, 50 to 76 ms a write; with the negation memo off
+   ;; (`*incremental-negations*` false) the `genlCx` one reads 46.7x to 50.0x, 15 to 21 ms.
+   ;; The defect's small reading already carries eight pairs' re-derivation, which is why
+   ;; its ratio is a fifth of its ten-fold absolute cost.  35x sits half again above the
+   ;; worst healthy `genl` reading and under every defective one; 32x does the same for the
+   ;; `genlCx` check, with less room (28.9x at worst).  A ratio near 1x needs a settle that
+   ;; keeps each standing pair's decision, which this file does not measure yet.
    {:name      :taxonomy-edge-arbitration
     :claim     "a genl edge separating nothing costs under 35x per write at 100x the standing clashes"
     :sizes     [8 800]
@@ -2537,7 +3306,7 @@
     :run       (constraint-genl-edge true 100)}
 
    ;; **The bound is 175x, and here is what it was read off.**  Two healthy full-run
-   ;; readings, 85.4x and 80.9x, against a floor near 66x — so the honest reading sits
+   ;; readings, 85.4x and 80.9x, against a floor near 66x — so a healthy reading sits
    ;; about 1.25x above the floor and the spread between runs is a few percent.  Below it,
    ;; the form the claim rules out: `contradictions` filtering the standing set by cross
    ;; product before ranking it reads **937.8x**, which is the square arriving exactly
@@ -2553,7 +3322,7 @@
    ;; grows with n by construction (`quality-report-scaling` is the other): a reading
    ;; returns every standing pair, so it costs the answer's own size and 32x the
    ;; dilemmas is at least 32x the reading.  Ordering them adds the
-   ;; log term, which puts the honest floor between these two sizes near 66x rather than
+   ;; log term, which puts the floor between these two sizes near 66x rather than
    ;; 32x — so the bound is a claim about what sits **above** the floor.  A read that
    ;; re-derives the pairing, filters the standing set by cross product, or rebuilds each
    ;; report from the store per call is super-linear, and separates from the floor by the
@@ -2594,7 +3363,7 @@
    ;; The small size is 8 rather than 25 for the header's reason: at 25 excepts a walk is
    ;; already carrying enough per-except cost to divide some of itself out of the ratio.
    {:name      :visibility-reading
-    :claim     "a scoped read costs what it returns, not what the KB hides"
+    :claim     "a scoped read costs what it returns, not what the KB's excepts hide"
     :sizes     [8 1024]
     :max-ratio 2.0
     :run       visibility-reading}
@@ -2667,6 +3436,48 @@
     :sizes     [250 2000]
     :max-ratio 2.0
     :run       qcn-network-residency}
+
+   ;; A baseline, no bound: the load is super-quadratic by design today (docs/qcn.md,
+   ;; "Cost at load, measured").  Measured 2026-09-28 under a load average near 14: 2.471
+   ;; -> 23.116 ms a fact under `--only` (9.35x), and 2.739 / 3.453 / 20.155 ms over 20 /
+   ;; 40 / 80 regions in a warm JVM.  The change that flattens the per-fact curve gives
+   ;; this check a bound read off both ends.
+   {:name      :qcn-chain-load
+    :claim     "an arriving fact of a containment chain, with a forward rule over the calculus, per 4x the regions"
+    :sizes     [20 80]
+    :run       qcn-chain-load}
+
+   ;; What grows here is the join's own read of the chain's network, linear in its facts,
+   ;; and not the firings.  Measured 2026-09-28 under a load average near 14: 1.868 /
+   ;; 1.878 / 1.786 -> 3.898 / 4.641 / 4.157 ms (2.09x, 2.47x, 2.33x) with the delta
+   ;; comparing the chain's closed pairs, 1.53x and 1.40x with the equal read kept
+   ;; resident, where a settle re-deciding every standing firing reads 4.027 -> 22.379 ms
+   ;; (5.56x), about 2.3 µs a firing.  3.5x sits between the firings and the rest.
+   {:name      :qcn-arrival-over-standing-firings
+    :claim     "an arriving spatial fact over a satisfiable network, per 68x the standing firings of a rule on the calculus"
+    :sizes     [16 128]
+    :max-ratio 3.5
+    :run       qcn-arrival-over-standing-firings}
+
+   ;; A baseline, no bound: the re-check an exception answered by composition owes takes
+   ;; every firing of its rule on every arrival that moves the calculus (docs/exceptions.md,
+   ;; "Five channels"), so the arrival is linear in the firings and a load of such facts
+   ;; beside such a rule quadratic.  Measured 2026-09-28 under a load average near 25:
+   ;; 1.515 -> 3.205 and 1.257 -> 2.756 ms (2.12x, 2.19x), where an arrival that queued
+   ;; the rule for nothing read 0.453 -> 0.741 ms.  About 13 µs a firing.
+   {:name      :qcn-arrival-over-composed-exceptions
+    :claim     "an arriving spatial fact, per 8x the standing firings of a rule excepted on a relation the calculus composes"
+    :sizes     [16 128]
+    :run       qcn-arrival-over-composed-exceptions}
+
+   ;; The pair-by-pair delta against the read.  Measured 2026-09-28 under a load average
+   ;; near 20: 1.550 -> 2.797 ms (1.80x) with the equal read kept resident, 1.677 ->
+   ;; 7.176 ms (4.28x) with the delta comparing the n(n-1) closed pairs.
+   {:name      :qcn-arrival-beside-an-unmoved-network
+    :claim     "an arriving spatial fact in a sibling context, per 6x the regions of a standing network it does not move"
+    :sizes     [32 192]
+    :max-ratio 2.5
+    :run       qcn-arrival-beside-an-unmoved-network}
 
    ;; Not a flat claim, and the bound says which claim it is instead.  `undercut?` is a
    ;; cross-product over the claims however the reaches are answered, so the comparing is
@@ -2744,7 +3555,46 @@
     :claim     "8x the instants costs under 35x per arriving constraint — the closure is relaxed into, not run again"
     :sizes     [50 400]
     :max-ratio 35.0
-    :run       metric-closure-warm-start}])
+    :run       metric-closure-warm-start}
+
+   ;; The four below are calibrated from both ends in one warm JVM per revision, under a
+   ;; load average of 10 to 17 from other suites; a full run is the reading to hold them to.
+   ;;
+   ;; Healthy 0.86x warm and 2.28x as the first check of a fresh JVM (0.63 ms against
+   ;; 1.44).  With every assert re-ordering every sibling pair it reads 154.51x (4.16 ms
+   ;; against 642.07).  3x is the reader fan's bound for the same reason.
+   {:name      :context-nat-existing-context
+    :claim     "16x the sibling contexts costs under 3x per fact written into an existing context NAT"
+    :sizes     [16 256]
+    :max-ratio 3.0
+    :run       context-nat-existing-context}
+
+   ;; Not flat: a rebuild reads every sign fact, so the reading grows with the chain.
+   ;; Healthy 23.94x, 37.75x, 40.74x and 49.98x for 32x the links.  A round-robin fixpoint
+   ;; with a copied support set reads 331.39x (0.25 ms against 83.12).  100x is twice the
+   ;; worst healthy reading and a third of the defective one.
+   {:name      :sign-chain-rebuild
+    :claim     "32x the links of a sign chain costs under 100x per ask after a write — the rebuild is linear in the sign facts, not quadratic"
+    :sizes     [25 800]
+    :max-ratio 100.0
+    :run       sign-chain-rebuild}
+
+   ;; Healthy 0.82x warm and 1.74x cold.  Classifying every dilemma per ask reads 11.98x
+   ;; (31.29 ms against 374.93 a batch).
+   {:name      :brave-ask-between-writes
+    :claim     "10x the standing dilemmas costs under 3x per brave/cautious ask with no write between"
+    :sizes     [100 1000]
+    :max-ratio 3.0
+    :run       brave-ask-between-writes}
+
+   ;; Healthy 0.84x and 0.98x.  Reading the parent's spec closure per edge reads 3.11x
+   ;; (0.60 ms against 1.86); the separation is narrower than the others' because the
+   ;; closure walk is cheap per member, and the claim is the ordinary flat bound.
+   {:name      :sibling-disjoint-new-spec
+    :claim     "16x the members of a sibling_disjoint clique costs under 2x per genl edge into it"
+    :sizes     [256 4096]
+    :max-ratio 2.0
+    :run       sibling-disjoint-new-spec}])
 
 ;; ---- the runner ---------------------------------------------------------
 
@@ -2759,41 +3609,46 @@
   "Measure one check at both sizes and judge the growth.  A check over its bound is
   measured again from scratch and the *better* ratio stands: a GC pause or a scheduler
   hiccup landing in one window is not a regression, and an algorithmic one survives being
-  looked at twice."
+  looked at twice.  A baseline (no `:max-ratio`) is measured once and not judged."
   [{:keys [sizes max-ratio run]} tolerance quick?]
   (let [[small large] sizes
-        ;; quick widens the bound instead of shrinking the pair: one attempt over the
-        ;; real sizes is a coarse verdict, where measuring one size twice is six runs
-        ;; and no possible failure — a gate that cannot fail is decoration
-        bound   (* (double max-ratio) (double tolerance) (if quick? quick-slack 1.0))
         ;; the *large* size is what both warm to: it is the one whose reading the bound
         ;; is a claim about, so it is the one that must not be measured warmer than its
         ;; baseline was
         attempt (fn [] (let [a (measure run small large)
                              b (measure run large large)]
-                         {:small a :large b :ratio (/ b (max a 1.0))}))
-        first-try (attempt)
-        best      (if (or quick? (<= (:ratio first-try) bound))
-                    first-try
-                    (min-key :ratio first-try (attempt)))]
-    (assoc best
-           :bound  bound
-           :sizes  [small large]
-           :status (cond (< (:small best) noise-floor-ns) :noise
-                         (<= (:ratio best) bound)         :pass
-                         :else                            :fail))))
+                         {:small a :large b :ratio (/ b (max a 1.0))}))]
+    (if (nil? max-ratio)
+      (assoc (attempt) :sizes [small large] :status :baseline)
+      (let [;; quick widens the bound instead of shrinking the pair: one attempt over the
+            ;; real sizes is a coarse verdict, where measuring one size twice is six runs
+            ;; and no possible failure — a gate that cannot fail is decoration
+            bound     (* (double max-ratio) (double tolerance) (if quick? quick-slack 1.0))
+            first-try (attempt)
+            best      (if (or quick? (<= (:ratio first-try) bound))
+                        first-try
+                        (min-key :ratio first-try (attempt)))]
+        (assoc best
+               :bound  bound
+               :sizes  [small large]
+               :status (cond (< (:small best) noise-floor-ns) :noise
+                             (<= (:ratio best) bound)         :pass
+                             :else                            :fail))))))
 
 (defn- report [{:keys [name claim]} {:keys [small large ratio bound sizes status]}]
   (let [[s l] sizes]
     (println (format "  %-20s %s" (clojure.core/name name)
                      (case status
-                       :pass  "PASS"
-                       :fail  "FAIL"
-                       :noise "noise — below the gating floor, not judged")))
+                       :pass     "PASS"
+                       :fail     "FAIL"
+                       :noise    "noise — below the gating floor, not judged"
+                       :baseline "baseline — measured, not judged")))
     (println (format "    %s" claim))
     (println (format "    n=%-6d %8.3f ms/op        n=%-6d %8.3f ms/op"
                      s (/ small 1e6) l (/ large 1e6)))
-    (when-not (= :noise status)
+    (case status
+      :noise    nil
+      :baseline (println (format "    growth %.2fx  (no bound)" ratio))
       (println (format "    growth %.2fx  (bound %.2fx)" ratio bound)))
     (println)))
 
@@ -2854,14 +3709,22 @@
                                (mapv (comp :name first) failed)))
               (shutdown-agents)
               (System/exit 1))
-          (let [noisy (filterv (fn [[_ r]] (= :noise (:status r))) results)]
+          (let [named (fn [st] (into [] (comp (filter (fn [[_ r]] (= st (:status r))))
+                                              (map (comp :name first)))
+                                        results))
+                noisy (named :noise)
+                bases (named :baseline)]
             ;; the floor's whole point: a check too fast to gate says so instead of
             ;; turning into a green light nobody notices has stopped meaning anything
-            (println (format "%d check(s) ok%s"
-                             (- (count results) (count noisy))
+            (println (format "%d check(s) ok%s%s"
+                             (- (count results) (count noisy) (count bases))
                              (if (seq noisy)
                                (format ", %d below the gating floor — not judged: %s"
-                                       (count noisy) (mapv (comp :name first) noisy))
+                                       (count noisy) noisy)
+                               "")
+                             (if (seq bases)
+                               (format ", %d baseline(s) — not judged: %s"
+                                       (count bases) bases)
                                "")))
             (shutdown-agents)
             (System/exit 0)))))))

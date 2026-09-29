@@ -16,9 +16,10 @@
   This is the read-path delivery of the forced/arbitrary signal.  The only prior route to
   it, `do/labeling`, **commits** — it re-asserts the kept side at `:monotonic` and defeats
   the loser everywhere (docs/labeling.md).  This prover commits nothing: it reads
-  `label/classify-dilemmas` — `dilemma-program`/`classify-program` with a backend, the
-  solve-free `label/classify-local` without one — all pure reads over settled belief, so a
-  query answers and leaves belief, `contradictions` and `last-program` exactly as they were.
+  `label/classify-datum` — `classify-program` over the asked datum's component with a
+  backend, the solve-free `label/classify-local` without one — all pure reads over settled
+  belief, so a query answers and leaves belief, `contradictions` and `last-program` exactly
+  as they were.
 
   ## Opting in
 
@@ -53,14 +54,11 @@
    [vaelii.impl.sentex :as sx]
    [vaelii.impl.types.prover :as prover-types]))
 
-(defn- ground? [form]
-  (not (some sx/variable? (tree-seq sequential? seq form))))
-
 (defn- modal-goal? [goal]
   (and (sequential? goal)
        (contains? #{'bravely 'cautiously} (first goal))
        (= 2 (count goal))
-       (ground? (second goal))))
+       (sx/ground-term? (second goal))))
 
 (defn- believed?
   "Is the stored sentex for `s` believed as `context` reads it (`res/believed-at?`)?  The
@@ -71,20 +69,16 @@
              (res/believed-at? kb h context))))
 
 (defn- holds?
-  "Does `(<modal> s)` hold in `context`?  `label/classify-dilemmas` classifies the current
-  dilemmas — through the ASP backend when one is reachable, else the solve-free JTMS
-  bracket (`label/classify-local`) — into in-every / in-some / in-none, and is nil when
-  there is no dilemma, where the answer is ordinary belief."
+  "Does `(<modal> s)` hold in `context`?  `label/classify-datum` places the stored `s`
+  among the current dilemmas' optimal labelings — in every, in some, in none — and is nil
+  for a datum no dilemma classifies, where the answer is ordinary belief."
   [kb modal s context]
-  (if-let [cls (label/classify-dilemmas kb)]
-    (let [h (kb/find-sentex-handle kb s context)]
-      (cond
-        (nil? h)                          false                 ; not stored — nothing to read
-        (contains? (:true cls) h)         true                  ; every resolution: brave & cautious
-        (contains? (:supportable cls) h)  (= modal 'bravely)    ; some only: brave, not cautious
-        (contains? (:false cls) h)        false                 ; no resolution
-        :else                             (believed? kb s context)))  ; not contested: belief
-    (believed? kb s context)))                        ; no dilemma at all: ordinary belief
+  (when-let [h (kb/find-sentex-handle kb s context)]
+    (case (label/classify-datum kb h)
+      :true        true                          ; every resolution: brave & cautious
+      :supportable (= modal 'bravely)            ; some only: brave, not cautious
+      :false       false                         ; no resolution
+      (believed? kb s context))))                ; not contested: belief
 
 (defrecord BraveCautiousProver []
   prover-types/Prover

@@ -37,7 +37,7 @@
   was written under, so a term the engine demonstrably reads cannot be classified inert
   by writing different prose beside it.
 
-  **What keeps it honest** is `audit`, and two tests over it: a term CxCore comments
+  **`audit` checks the classification**, with two tests over it: a term CxCore comments
   with no roster entry fails, and a roster entry naming a term CxCore no longer
   comments fails.  So the next plausible-looking functor cannot land unimplemented in
   silence, and a retired one cannot leave a stale claim behind.  `:contradicted` is the
@@ -80,8 +80,8 @@
 
   **The population is still CxCore's**, and stays a question about the ontology rather
   than about the declaration: an entry carries prose iff CxCore comments the term, so the
-  seven grammar terms it does not comment (`equals`, `sameAs`, `functionalInArg` and the
-  four query operators) are simply not in here.  A term CxCore starts commenting and
+  six grammar terms it does not comment (`equals`, `sameAs` and the four query
+  operators) are simply not in here.  A term CxCore starts commenting and
   nobody answers for lands in `audit`'s `:unclassified`, which is the whole mechanism and
   is untouched by the move."
   (into {}

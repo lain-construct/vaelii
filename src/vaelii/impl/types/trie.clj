@@ -541,7 +541,7 @@
   ;;
   ;; A **mapped** trie thaws by copying its leaf run into heap first: a write needs
   ;; `IntPostings` it can splice, and there is no half-mapped mode to fall into.  That copy
-  ;; is the honest price of the first write after a mapped open, and it is why the snapshot
+  ;; is the cost of the first write after a mapped open, and it is why the snapshot
   ;; is a read-phase structure rather than a live one.
   (-thaw! [_this]
     (when frozen?

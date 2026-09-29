@@ -692,10 +692,6 @@ ARCHAEOLOGY = re.compile(
 # "<lowercase word> used to <verb>", excluding the auxiliary ("be used to") and
 # the appositive (", used to …") — both of which are the *employed to* sense.
 AMBIGUOUS = re.compile(r"(?<!be )(?<!,)\b[a-z0-9`)\]*]+ used to [a-z]")
-# A prompt under docs/design/**-prompts/ briefs work not yet done, so "before
-# the change" there means "before you make it" — a verification step, not a
-# memoir.
-PROMPT_DIR = re.compile(r"docs/design/[a-z-]*prompts/")
 # Two files STATE this rule, so they quote its phrasings in order to ban them —
 # the same reason this checker excludes itself. Exempting the file is the only
 # defensible option available: the allowlist matches a TOKEN, so excusing
@@ -709,12 +705,11 @@ for path in itertools.chain(repo_text_files(), extra_md_files()):
     if rel.startswith("docs/design/complete/") or rel.startswith("resources/") \
        or rel in E7_STATES_THE_RULE:
         continue          # dated reviews quote as-of; resources/ is third-party
-    prompt = bool(PROMPT_DIR.search(rel))
     # W7 is prose-only: in a docstring "used to" is usually the *employed to*
     # sense ("the content used to diff against what is stored"), which would
     # make it permanent noise.  E7 still reads every file, and the write-time
     # hook covers the ambiguous half of a comment as it is typed.
-    soft_ok = rel.endswith(".md") and not prompt
+    soft_ok = rel.endswith(".md")
     for i, line in enumerate(open(path, errors="replace"), 1):
         m = ARCHAEOLOGY.search(line)
         kind = "E7"
@@ -788,7 +783,7 @@ for path in repo_text_files():
 #
 #   - a *computed* symbol — `(requiring-resolve sym)` read off a keyword->var
 #     registry (core's reasoners / calculi / solvers, imperative's `do/` handlers,
-#     foreign's plugins, the LLM providers).  Deferral is the feature: the table is
+#     foreign's plugins).  Deferral is the feature: the table is
 #     the public way to ask for a subsystem, and naming one must not load eight.
 #   - an optional dependency whose entire point is not being loaded — the dense TMS
 #     (RoaringBitmap, fastutil), the clingo bridge (JNA, libclingo), the
@@ -805,7 +800,7 @@ for path in repo_text_files():
 #
 # What this does NOT see, stated so nobody over-trusts it: only the literal form
 # is matched, so binding the symbol first — `(let [s 'a.b/c] (requiring-resolve s))`
-# — is a cut this rule is indistinguishable from a registry and passes.  Closing that would mean
+# — is a cut this rule takes for a registry, and it passes.  Closing that would mean
 # banning the computed form outright, which is the form the four legitimate
 # registries above are built from.  So the rule catches the cut somebody writes
 # without thinking, not the one somebody hides; the inventory is a convention the
@@ -869,7 +864,7 @@ if os.path.exists(E19_WIRING):
 #     re-derive the call graph to find out.
 #   - it is dead.  A name whose every use is below its own definition needs no
 #     forward reference at all; `defn` interns the var before compiling the body,
-#     so even self-recursion does not need one.  A dead declare is indistinguishable from a claim
+#     so even self-recursion does not need one.  A dead declare makes a claim
 #     about the file that is not true.
 #
 # Reordering is the preferred fix and this rule does not know when one is
@@ -1154,7 +1149,7 @@ if os.path.exists(changelog):
 # entry point here is the ordinary shape and not a second violation.
 #
 # What this does NOT see, stated so nobody over-trusts it: a read reached through a
-# bound var (`(let [f p/lookup] (f idx path))`) is indistinguishable from a value and passes, and so
+# bound var (`(let [f p/lookup] (f idx path))`) looks like a value to this rule and passes, and so
 # does one behind a `resolve`. Closing that would mean banning the value form, which
 # is the form the planner's injected cost model is built from. The rule catches the
 # read somebody writes without thinking, not the one somebody hides.
@@ -1257,7 +1252,9 @@ E17_ROSTER = {
     ("src/vaelii/impl/chain.clj", "transitive-rejoin-rules"),
     ("src/vaelii/impl/chain.clj", "transitive-source-preds"),
     ("src/vaelii/impl/chain.clj", "walks-its-own-conclusion?"),
+    ("src/vaelii/impl/chain.clj", "solve-closure"),
     ("src/vaelii/impl/inherit.clj", "moved-in"),
+    ("src/vaelii/impl/inherit.clj", "licensing-functors"),
     ("src/vaelii/impl/inherit.clj", "crossings"),
     ("src/vaelii/impl/vantage.clj", "subsumption-support"),
     # Re-check triggers. A trigger must over-approximate in the direction the answer
@@ -1268,12 +1265,20 @@ E17_ROSTER = {
     ("src/vaelii/impl/special.clj", "arg-declared-types"),
     ("src/vaelii/impl/special.clj", "recheck-arg-inferred"),
     ("src/vaelii/impl/special.clj", "recheck-on-predicate"),
+    ("src/vaelii/impl/special.clj", "composed-exception-rules"),
     ("src/vaelii/impl/special.clj", "rules-watching"),
     ("src/vaelii/impl/special.clj", "recheck-genl-edge"),
     ("src/vaelii/impl/special.clj", "recheck-negated-exceptions"),
     ("src/vaelii/impl/special.clj", "subtree-sentexes"),
+    ("src/vaelii/impl/special.clj", "stored-facts-in-ancestors"),
+    ("src/vaelii/impl/special.clj", "edge-route-candidates"),
+    ("src/vaelii/impl/special.clj", "released-terms"),
     ("src/vaelii/impl/special.clj", "super-reaches-declaration?"),
     ("src/vaelii/impl/special.clj", "negative-subsumption-seeds"),
+    ("src/vaelii/impl/inherit.clj", "moved-goal-test"),
+    ("src/vaelii/impl/qcn_kb.clj", "governing-contexts"),
+    ("src/vaelii/impl/qcn_kb.clj", "calculi-triggered-by"),
+    ("src/vaelii/impl/chain.clj", "answered-by-calculus?"),
     ("src/vaelii/impl/special.clj", "subsumption-seeds"),
     ("src/vaelii/impl/special.clj", "roster-antecedent-functors"),
     # Settle's candidate discovery. An over-approximated candidate merely checks and
@@ -1287,7 +1292,9 @@ E17_ROSTER = {
     ("src/vaelii/impl/settle.clj", "declaration-reach"),
     ("src/vaelii/impl/settle.clj", "predicate-subtree"),
     ("src/vaelii/impl/settle.clj", "partner-contexts"),
+    ("src/vaelii/impl/settle.clj", "chain-contexts"),
     ("src/vaelii/impl/settle.clj", "any-arity-declared?"),
+    ("src/vaelii/impl/settle.clj", "preserving-moves"),
     # The one that reads BOTH and compares them: `genl-view` is a cheap marker for
     # "every asker inside this sandwich reads the same set".
     ("src/vaelii/impl/settle.clj", "genl-view"),
@@ -1357,7 +1364,7 @@ E18_COUNT = re.compile(r"The map covers (\d+) of the (\d+) namespaces under `src
 
 
 def e18_expand(token):
-    """`host/llm/{a,b}.clj` -> the names it stands for; anything else, itself."""
+    """`host/io/{a,b}.clj` -> the names it stands for; anything else, itself."""
     m = re.match(r"^(.*?)\{([^}]*)\}(.*)$", token)
     if not m:
         return [token]
@@ -1367,7 +1374,7 @@ def e18_expand(token):
 
 def e18_lists(text):
     """(glossed, by_name): the two rosters docs/namespaces.md holds, as paths under
-    src/vaelii/. Brace groups are joined first — the llm and koinii ones wrap."""
+    src/vaelii/. Brace groups are joined first — the koinii ones wrap."""
     glossed, by_name, header, fenced = set(), set(), None, False
     joined = re.sub(r"\{[^}]*\}", lambda m: re.sub(r"\s+", "", m.group(0)), text)
     for line in joined.split("\n"):

@@ -30,8 +30,9 @@
   - **Proof-tier** — REQUIRED the moment trust-resolve is enabled, because
     trust-weighting a spoofable identity is worse than no trust.  `authenticate`
     verifies a credential (the `verify-fn` extension point — sign-at-ingest, an authenticating
-    proxy, or A2A AgentCards / DIDs) and REFUSES an unverified request; the
-    write-boundary is enforced at that same extension point.
+    proxy, or A2A AgentCards / DIDs) and REFUSES an unverified request; `ingest` under
+    the principal it mints attests each write with the deployment key (`*attest-key*`).
+    Both checks run in the process that holds the key, never on the wire.
 
   Every write goes through the provenance-stamping `assert` path — NEVER
   `bulk-assert-facts!`, which binds `*bulk-load?*` and writes no provenance at all."
@@ -39,7 +40,10 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [vaelii.core :as v])
-  (:import [java.io PushbackReader]))
+  (:import [java.io PushbackReader]
+           [java.security MessageDigest SecureRandom]
+           [javax.crypto Mac]
+           [javax.crypto.spec SecretKeySpec]))
 
 ;; ---- loading a koinii seed context ---------------------------------------
 ;; koinii ships its own seed KB files under resources/kb/koinii/ and loads them
@@ -184,72 +188,147 @@
   request is refused rather than silently trusted."
   nil)
 
+;; ---- the deployment key: principal grants and write attestations ---------
+
+(def ^:dynamic *attest-key*
+  "The deployment's HMAC-SHA256 key — a byte array or a string of at least 32 bytes — or
+  nil for a key drawn at random once per process.  `authenticate` seals each principal it
+  verifies with it (`:grant`), and `ingest` under a sealed `:proof-tier` principal attests
+  each write with it (`:attestation` in provenance).  The key itself lives in this var or
+  in the per-process draw, and no koinii fn writes it to provenance, a log, a refusal or
+  the wire.  A deployment sets it at start with `alter-var-root`, or with `binding`.  A
+  grant or attestation made under one key does not verify under another, so ballots
+  attested before a restart on the per-process key read unattested after it."
+  nil)
+
+(def ^:private process-key
+  (delay (let [b (byte-array 32)] (.nextBytes (SecureRandom.) b) b)))
+
+(defn- key-bytes
+  "The bytes of `*attest-key*`, the per-process key when it is nil, or a refusal
+  (`:koinii/bad-attest-key`) naming the class it holds — never the key."
+  ^bytes []
+  (let [k *attest-key*
+        b (cond (nil? k) @process-key
+                (bytes? k) k
+                (string? k) (.getBytes ^String k "UTF-8"))]
+    (if (and b (>= (alength ^bytes b) 32))
+      b
+      (throw (ex-info (str "koinii: *attest-key* must be a byte array or a string of at"
+                           " least 32 bytes, or nil for a per-process key")
+                      {:type :koinii/bad-attest-key :key-class (some-> k class .getName)})))))
+
+(defn- mac
+  "The lowercase-hex HMAC-SHA256 of `parts` under the deployment key.  `parts` is printed
+  with every print var at its default, so no ambient binding changes the bytes."
+  [parts]
+  (let [m (doto (Mac/getInstance "HmacSHA256")
+            (.init (SecretKeySpec. (key-bytes) "HmacSHA256")))
+        s (binding [*print-length* nil *print-level* nil *print-meta* false
+                    *print-namespace-maps* false *print-readably* true]
+            (pr-str parts))]
+    (apply str (map #(format "%02x" %) (.doFinal m (.getBytes ^String s "UTF-8"))))))
+
+(defn- mac=
+  "Constant-time equality of two MAC strings; false when either is not a string."
+  [a b]
+  (and (string? a) (string? b)
+       (MessageDigest/isEqual (.getBytes ^String a "UTF-8") (.getBytes ^String b "UTF-8"))))
+
+(defn- grant [principal]
+  (mac [:koinii/grant (:id principal) (:policy principal) (boolean (:admin? principal))]))
+
+(defn- minted?
+  "True when `authenticate` sealed `principal` under the current key: its `:grant` covers
+  its id, policy and `:admin?`, so a hand-built map, or a minted one with any of those
+  changed, is not minted."
+  [principal]
+  (and (map? principal) (mac= (:grant principal) (grant principal))))
+
+(defn- admin? [principal]
+  (and (:admin? principal) (minted? principal)))
+
+(defn- verified-admin?
+  "Whether `verify` passes `id` as an admin: its three-argument arm, called with
+  `{:admin? true}`.  A verify-fn with no such arm mints no admin."
+  [verify id credential]
+  (try (boolean (verify id credential {:admin? true}))
+       (catch clojure.lang.ArityException _ false)))
+
 (defn authenticate
-  "Turn a `request` into an authenticated principal, or refuse — the identity extension point,
-  behaviour CONDITIONAL ON POLICY.
+  "Turn a `request` into a principal, or refuse — the identity extension point.
 
-  `request` is `{:claimed-id <agent-id> :credential <opaque> :source <str>}`.
+  `request` is `{:claimed-id <id> :credential <opaque> :source <str> :admin? <bool>}`;
   `opts` may override `{:policy … :verify-fn …}` (defaulting to `*policy*` /
-  `*verify-fn*`).  Returns a principal
-  `{:id :context :source :policy :authenticated?}` whose `:context` is
-  `(context-for :id)` — derived, never client-supplied.
+  `*verify-fn*`).  Returns `{:id :context :source :policy :authenticated?}`, `:context`
+  being `(context-for :id)`, plus a `:grant` sealing it under `*attest-key*` when the
+  identity was verified.
 
-  - `:cooperative` — trust the claimed id; `:authenticated? false` records that the
-    identity is UNVERIFIED (the documented cooperative gap).
-  - `:proof-tier` — require a `verify-fn` and a passing credential; otherwise throw
-    `:koinii/identity-unverified`.  THIS is where a client is stopped from stamping
-    another agent's identity on its own write."
+  - `:cooperative` — trusts the claimed id: `:authenticated? false` and no grant.
+  - `:proof-tier` — requires `(verify-fn id credential)` to pass, else throws
+    `:koinii/identity-unverified`.
+  - `:admin? true`, under either policy — mints the registry's one writer, `:context`
+    `CxRegistry` and `:policy :admin`.  Requires `(verify-fn id credential {:admin? true})`
+    to pass, else throws `:koinii/identity-unverified`; a nil verify-fn, or one with no
+    three-argument arm, mints no admin."
   ([request] (authenticate request nil))
   ([request opts]
    (let [policy (get opts :policy *policy*)
          verify (get opts :verify-fn *verify-fn*)
          id     (:claimed-id request)
-         base   {:id id :context (context-for id) :source (:source request)}]
-     (case policy
-       :cooperative (assoc base :policy :cooperative :authenticated? false)
-       :proof-tier  (if (and verify (verify id (:credential request)))
-                      (assoc base :policy :proof-tier :authenticated? true)
-                      (throw (ex-info (str "koinii: identity unverified under proof-tier"
-                                           " — "
-                                           (if verify
-                                             (str (pr-str id) " did not pass the"
-                                                  " verify-fn with the credential it"
-                                                  " sent")
-                                             (str "no verify-fn is bound, so no"
-                                                  " credential passes: bind one as"
-                                                  " :verify-fn or *verify-fn*, or"
-                                                  " authenticate under :cooperative")))
-                                      {:type :koinii/identity-unverified
-                                       :claimed-id id :policy :proof-tier
-                                       :verifier? (boolean verify)})))
+         cred   (:credential request)
+         base   {:id id :context (context-for id) :source (:source request)}
+         refuse (fn [what extra]
+                  (throw (ex-info (str "koinii: identity unverified " what " — "
+                                       (if verify
+                                         (str (pr-str id) " did not pass the verify-fn with"
+                                              " the credential it sent")
+                                         (str "no verify-fn is bound, so no credential"
+                                              " passes: bind one as :verify-fn or"
+                                              " *verify-fn*")))
+                                  (merge {:type :koinii/identity-unverified :claimed-id id
+                                          :verifier? (boolean verify)}
+                                         extra))))]
+     (cond
+       (:admin? request)
+       (if (and verify (verified-admin? verify id cred))
+         (let [p (assoc base :context registry-context :admin? true :policy :admin
+                        :authenticated? true)]
+           (assoc p :grant (grant p)))
+         (refuse "for the admin grant" {:admin? true}))
+
+       (= policy :cooperative) (assoc base :policy :cooperative :authenticated? false)
+
+       (= policy :proof-tier)
+       (if (and verify (verify id cred))
+         (let [p (assoc base :policy :proof-tier :authenticated? true)]
+           (assoc p :grant (grant p)))
+         (refuse "under proof-tier" {:policy :proof-tier}))
+
+       :else
        (throw (ex-info (str "koinii: unknown identity policy " (pr-str policy)
                             " — want :cooperative or :proof-tier")
                        {:type :koinii/unknown-policy :policy policy}))))))
-
-(defn admin-principal
-  "The out-of-band admin principal — the only writer of `CxRegistry`.  Not a governed
-  agent: its `:admin?` capability is what the registry write-boundary checks, and it
-  is minted here rather than by `authenticate` precisely because it is out of band."
-  ([] (admin-principal 'AdminRoot))
-  ([admin-id] {:id admin-id :context registry-context :admin? true
-               :policy :admin :authenticated? true}))
 
 ;; ---- the write boundary --------------------------------------------------
 
 (defn- write-boundary-problem
   "The write-auth violation `principal` would commit writing `target-ctx`, or nil.
   Two rules, one boundary:
-  - `CxRegistry` is admin-only — a governed agent writing it is refused
-    (`:koinii/registry-forbidden`): the governed may not write the authority.
+  - `CxRegistry` is admin-only — a principal that is not an admin `authenticate` minted is
+    refused (`:koinii/registry-forbidden`, with `:minted? false` for a map that claims
+    `:admin?` without a valid grant): the governed may not write the authority.
   - every other context: an agent writes ONLY its own `(context-for :id)` — a write
     aimed elsewhere is refused (`:koinii/foreign-context`)."
   [principal target-ctx]
   (cond
     (= target-ctx registry-context)
-    (when-not (:admin? principal)
-      {:type :koinii/registry-forbidden :principal (:id principal) :context target-ctx})
+    (when-not (admin? principal)
+      (cond-> {:type :koinii/registry-forbidden :principal (:id principal)
+               :context target-ctx}
+        (:admin? principal) (assoc :minted? false)))
 
-    (:admin? principal)
+    (admin? principal)
     {:type :koinii/admin-off-registry :principal (:id principal) :context target-ctx}
 
     (not= target-ctx (context-for (:id principal)))
@@ -262,9 +341,12 @@
   call site can route a write into a context it does not own."
   [principal target-ctx]
   (when-let [prob (write-boundary-problem principal target-ctx)]
-    (let [own (if (:admin? principal) registry-context (context-for (:id principal)))]
+    (let [own (if (admin? principal) registry-context (context-for (:id principal)))]
       (throw (ex-info (str "koinii: write refused — " (name (:type prob)) ": "
-                           (pr-str (:id principal)) " writes " own ", not " target-ctx)
+                           (pr-str (:id principal)) " writes " own ", not " target-ctx
+                           (when (false? (:minted? prob))
+                             (str ".  Its :admin? carries no grant `authenticate` sealed,"
+                                  " so it is not an admin")))
                       prob)))))
 
 (defn check-registry-write!
@@ -293,24 +375,62 @@
          :policy (:policy principal)
          :authenticated? (:authenticated? principal)}))
 
+;; ---- attestation: what an ingest under a verified principal proves -------
+
+(defn- attestation-mac [creator sx]
+  (mac [:koinii/attestation creator (:id sx) (v/sentence-of sx) (:context sx)]))
+
+(defn- attest!
+  "Write `{:attestation {:creator :mac}}` into the provenance of each sentex at `h`, the
+  MAC covering creator, handle, stored sentence and context, so an attestation copied onto
+  another sentex, or onto the same sentence after a retract and re-assert, fails."
+  [kb creator h]
+  (doseq [h (if (sequential? h) h [h])
+          :let [sx (v/sentex kb h)]
+          :when sx]
+    (v/add-provenance kb h {:attestation {:creator creator
+                                          :mac (attestation-mac creator sx)}})))
+
+(defn attested-by
+  "The principal id whose `ingest` attested the sentex at `handle` under the current
+  `*attest-key*`, or nil when it carries no attestation that verifies.  Only this process
+  holds the key, so a writer on the wire, or a caller of `v/add-provenance`, cannot make
+  one that does."
+  [kb handle]
+  (let [sx (v/sentex kb handle)
+        a  (:attestation (v/provenance kb handle))]
+    (when (and sx (map? a) (mac= (:mac a) (attestation-mac (:creator a) sx)))
+      (:creator a))))
+
 (defn- write
   "The one provenance-stamping write chokepoint.  Enforces the write boundary, binds
-  `*creator*` to the AUTHENTICATED principal id (a client cannot supply a different
-  creator through here), rides its provenance hints in the open map, and goes through
-  `v/assert` — never `bulk-assert-facts!`.  Returns the sentex handle."
+  `*creator*` to the principal id, rides its provenance hints in the open map, and goes
+  through `v/assert` — never `bulk-assert-facts!`.  Under a `:proof-tier` principal
+  `authenticate` minted it attests the write (`attest!`); a principal claiming
+  `:authenticated? true` that `authenticate` did not mint is refused
+  (`:koinii/identity-unverified`).  Returns the sentex handle."
   [kb principal target-ctx sentence]
   (check-write-boundary! principal target-ctx)
-  (binding [v/*creator* (:id principal)]
-    (v/assert kb sentence target-ctx {:provenance (principal-provenance principal)})))
+  (when (and (:authenticated? principal) (not (minted? principal)))
+    (throw (ex-info (str "koinii: identity unverified — " (pr-str (:id principal))
+                         " claims :authenticated? true with no grant `authenticate`"
+                         " sealed")
+                    {:type :koinii/identity-unverified :claimed-id (:id principal)
+                     :minted? false})))
+  (let [h (binding [v/*creator* (:id principal)]
+            (v/assert kb sentence target-ctx {:provenance (principal-provenance principal)}))]
+    (when (and (= :proof-tier (:policy principal)) (minted? principal))
+      (attest! kb (:id principal) h))
+    h))
 
 ;; ---- THE ingest helper: bind identity onto writes ------------------------
 
 (defn ingest
-  "The sanctioned everyday write path.  Given an authenticated `principal` (from
-  `authenticate`) and a `sentence`, assert it into the agent's OWN context with
-  `*creator*` bound to the authenticated id — so no call site can forget either the
-  attribution or the routing.  Automatic routing means this form CANNOT name another
-  agent's context.  Returns the handle."
+  "The sanctioned everyday write path.  Given a `principal` from `authenticate` and a
+  `sentence`, assert it into the agent's OWN context with `*creator*` bound to the
+  principal id, so no call site can forget either the attribution or the routing.  Under
+  `:proof-tier` the write is attested (`attested-by` reads it back), which is what makes
+  a ballot count (`adjudication/resolve-by-majority`).  Returns the handle."
   [kb principal sentence]
   (write kb principal (context-for (:id principal)) sentence))
 
@@ -327,9 +447,10 @@
 
 (defn register-agent
   "Register `agent-id` in `CxRegistry` — its membership mark, display name, and
-  bootstrap trust value — as the admin `principal`.  Refused
-  (`:koinii/registry-forbidden`) if `principal` is not admin, so a governed agent
-  cannot self-register or self-promote.  Returns the agent id."
+  bootstrap trust value — as the admin `principal`, minted by `authenticate` with
+  `:admin? true`.  Refused (`:koinii/registry-forbidden`) for any other principal,
+  a hand-built `{:admin? true}` included, so a governed agent cannot self-register or
+  self-promote.  Returns the agent id."
   [kb principal agent-id display-name trust]
   (ingest-into kb principal registry-context (list 'agent agent-id))
   (ingest-into kb principal registry-context (list 'displayNameOf agent-id display-name))
@@ -368,8 +489,8 @@
 (defn set-trust!
   "OVERWRITE `agent-id`'s trust with `new-value`, as the admin `principal` (D3: trust
   is a mutable number).  `trustLevel` is functional, so the update retracts the old
-  value and asserts the new rather than accumulating two.  Refused for a non-admin
-  principal.  Returns the new handle.
+  value and asserts the new rather than accumulating two.  Refused for any principal
+  but an admin `authenticate` minted.  Returns the new handle.
 
   The row it retracts is read through `sole-registry-match`, whose docstring holds the
   reason: the overwrite must not rest on an unordered set having exactly one member."

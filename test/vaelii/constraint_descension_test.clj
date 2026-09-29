@@ -665,6 +665,39 @@
                 (is (not (v/same-class? kb lo hi))
                     "the shared hop is gone, so neither fact is a parentOf tuple")))))))))
 
+(tu/deftest-kb a-descended-merge-over-two-routes-survives-either-route-going
+  ;; `fatherOf` reaches the marked `parentOf` over two routes, through `dadOf` and
+  ;; through `sireOf`.  The merge names one of them (`checks/edge-support`), so
+  ;; retracting an edge on it deletes the justification and defeating one takes it OUT;
+  ;; the other route still licenses the merge, and the removal or the defeat re-derives
+  ;; it (`special/rederive-descended`).
+  (let [results
+        (for [mark ['functional 'anti_symmetric]
+              how  [:retract :defeat]
+              cut  [:dadOf :sireOf]]
+          (tu/with-neutral-kb [kb tu/isolated-fresh]
+            (tu/with-terms [parentOf fatherOf dadOf sireOf Tom]
+              (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])
+                    ed (v/assert kb (list 'genl fatherOf dadOf) 'CxUniverse)
+                    es (v/assert kb (list 'genl fatherOf sireOf) 'CxUniverse)]
+                (v/assert kb (list 'genl dadOf parentOf) 'CxUniverse)
+                (v/assert kb (list 'genl sireOf parentOf) 'CxUniverse)
+                (v/assert kb (list mark parentOf) 'CxUniverse)
+                (if (= 'functional mark)
+                  (do (v/assert kb (list fatherOf Tom lo) 'CxUniverse)
+                      (v/assert kb (list fatherOf Tom hi) 'CxUniverse))
+                  (do (v/assert kb (list fatherOf lo hi) 'CxUniverse)
+                      (v/assert kb (list fatherOf hi lo) 'CxUniverse)))
+                (let [before (v/same-class? kb lo hi)]
+                  (if (= :retract how)
+                    (v/retract! kb (if (= :dadOf cut) ed es))
+                    (v/assert kb (list 'not (list 'genl fatherOf (if (= :dadOf cut) dadOf sireOf)))
+                              'CxUniverse {:strength :monotonic}))
+                  [mark how cut [before (v/same-class? kb lo hi)]])))))]
+    (is (= #{[true true]} (set (map last results)))
+        (str "a route's edge going un-merged the pair: "
+             (pr-str (remove #(= [true true] (last %)) results))))))
+
 (tu/deftest-kb a-mark-that-never-covered-the-pair-does-not-hold-the-merge
   ;; `functional-clashes` reports which mark convicted, and the merge rests on that one.
   ;; Justifying it with every marked predicate above the arriving functor instead let a
@@ -1051,7 +1084,7 @@
                   "a sweep that finished files no cut notice"))))))))
 
 (tu/deftest-kb the-cut-is-one-entry-for-the-pass-naming-a-sample
-  ;; `expose-clashes!`' reading, for its reason: past the cut the predicates are dropped
+  ;; `cut-notice`'s reading, for its reason: past the cut the predicates are dropped
   ;; by arithmetic rather than by anything about themselves, so a per-predicate entry
   ;; would say one fact about the settle once per predicate.
   (binding [tax/*exposure-instance-budget* 1]
@@ -1137,72 +1170,16 @@
 
 ;; ---- and the retroactive halves of the other two marks ------------------
 ;;
-;; `functional` and `asymmetric` convict at the entry point through every mark **above** a
-;; fact's own functor, which is what the two sections higher up pin: whichever spelling
-;; arrives second is refused.  Each also has a **retroactive** half — the deciding sweep
-;; `settle/declaration-implicates` runs under either constraint policy — and that half
-;; has to descend too, or the mark descends at the entry point and nowhere else and the
-;; same knowledge lands on a dilemma or on two coexisting claims according to which
-;; sentence was written first.
-;; Reading the extent of the predicate the declaration named is what does not descend: a
-;; general spelling usually holds no facts of its own, so that reading is silent in
-;; exactly the two orders the descension creates — the declaration landing on the super,
-;; and the `genl` edge landing last.
-;;
-;; The cross-context half is `exposure-test`'s, the entry point seeing a same-context
-;; pair whole and refusing it.  This is the same sweep asked of a co-located pair.
+;; The deciding sweep (`settle/declaration-parts`) reaches the facts beneath a mark
+;; on a super-predicate, whichever of the facts, the declaration and the `genl` edge
+;; arrives last.  The cross-context half is `exposure_test`'s.
 
 (defn- kinds
   "The kinds of the represented contradictions, in report order."
   [kb]
   (mapv :kind (v/contradictions kb)))
 
-(tu/deftest-kb a-declaration-landing-on-the-super-reaches-the-sub-predicates-facts-too
-  ;; The exact analogue of the `arity` case above, for the mark: `measureOf` holds no
-  ;; facts and `birthYearOf` holds the clashing pair, so a sweep reading the named
-  ;; predicate's own posting list looks at nothing at all.
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-terms [birthYearOf measureOf Tom]
-      (v/assert kb (list birthYearOf Tom 1980) 'CxUniverse)
-      (v/assert kb (list birthYearOf Tom 1990) 'CxUniverse)
-      (v/assert kb (list 'genl birthYearOf measureOf) 'CxUniverse)
-      (is (empty? (kinds kb)) "nothing above birthYearOf says one value only, yet")
-      (v/assert kb (list 'functional measureOf) 'CxUniverse)
-      (is (= [:functional] (kinds kb))
-          "the declaration reaches the facts of the subtree beneath it")
-      (testing "and what is reported is the two stored fillers, ordered by content"
-        (is (= (list 'contradicts
-                     (list birthYearOf Tom 1980) (list birthYearOf Tom 1990))
-               (:sentence (first (v/contradictions kb)))))))))
-
-(tu/deftest-kb an-edge-carrying-a-standing-mark-down-reaches-them-as-well
-  ;; The third ingredient, the one `arity` has too: the mark and the facts were both in
-  ;; place and unrelated, and the edge is what put the second under the first.
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-terms [birthYearOf measureOf Tom]
-      (v/assert kb (list 'functional measureOf) 'CxUniverse)
-      (v/assert kb (list birthYearOf Tom 1980) 'CxUniverse)
-      (v/assert kb (list birthYearOf Tom 1990) 'CxUniverse)
-      (is (empty? (kinds kb)) "the mark is above nothing these facts are under")
-      (v/assert kb (list 'genl birthYearOf measureOf) 'CxUniverse)
-      (is (= [:functional] (kinds kb)) "the edge is what makes them one slot's fillers"))))
-
-(tu/deftest-kb a-descended-asymmetric-mark-reaches-back-the-same-way
-  ;; The converse probe already fanned down the hierarchy and the mark now descends it,
-  ;; so the retroactive half has both halves of the same question rather than one.
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-terms [muchLargerThan largerThan Rex Pip]
-      (v/assert kb (list muchLargerThan Rex Pip) 'CxUniverse)
-      (v/assert kb (list muchLargerThan Pip Rex) 'CxUniverse)
-      (v/assert kb (list 'genl muchLargerThan largerThan) 'CxUniverse)
-      (is (empty? (kinds kb)) "a relation nobody has declared one-way, held both ways")
-      (v/assert kb (list 'asymmetric largerThan) 'CxUniverse)
-      (is (= [:asymmetric] (kinds kb))))))
-
 (tu/deftest-kb an-edge-under-no-marked-predicate-arbitrates-nothing
-  ;; `genl` is the commonest edge in any KB, so the arm must added no work where there is
-  ;; no mark above the edge to carry down — and must not start convicting a pair that
-  ;; nothing declares anything about.
   (binding [checks/*arbitrate-constraints?* true]
     (tu/with-terms [birthYearOf measureOf otherOf Tom]
       (v/assert kb (list 'functional otherOf) 'CxUniverse)   ; marked, and unrelated
@@ -1211,62 +1188,32 @@
       (v/assert kb (list 'genl birthYearOf measureOf) 'CxUniverse)
       (is (empty? (kinds kb)) "nothing marked is above either end of the edge"))))
 
-(tu/deftest-kb a-descended-mark-answers-the-same-as-an-undescended-one-and-as-the-entry-point
-  ;; The three arrangements that always worked, beside the one that did not — so the
-  ;; asymmetry being gone is readable in one place rather than inferable from a passing
-  ;; test elsewhere.  One KB shape four times, differing only in where the mark sits and
-  ;; which sentence arrives last.
+(tu/deftest-kb every-arrival-order-of-a-descended-clash-is-arbitrated
+  ;; each order in a fresh KB, since a reported clash stays reported until its
+  ;; ingredients move
   (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-terms [birthYearOf measureOf Tom]
-      (let [run  (fn [steps]
-                   (tu/with-neutral-kb [k tu/isolated-fresh]
-                     (doseq [s steps] (s k))
-                     (kinds k)))
-            f1   #(v/assert % (list birthYearOf Tom 1980) 'CxUniverse)
-            f2   #(v/assert % (list birthYearOf Tom 1990) 'CxUniverse)
-            flat #(v/assert % (list 'functional birthYearOf) 'CxUniverse)
-            decl #(v/assert % (list 'functional measureOf) 'CxUniverse)
-            edge #(v/assert % (list 'genl birthYearOf measureOf) 'CxUniverse)]
-        (is (= [:functional] (run [f1 f2 flat]))
-            "flat: the mark on the facts' own predicate")
-        (is (= [:functional] (run [decl edge f1 f2]))
-            "the entry point, which read the mark up the hierarchy all along")
-        (is (= [:functional] (run [f1 f2 edge decl]))
-            "the sweep, with the declaration last")
-        (is (= [:functional] (run [decl f1 f2 edge]))
-            "and the sweep, with the edge last")))))
-
-(tu/deftest-kb every-arrival-order-of-a-descended-functional-clash-is-arbitrated
-  ;; The order-independence claim as the property rather than as four cases.  Unlike the
-  ;; `arity` property beside it there is no refused-or-reported split to make: under
-  ;; `:arbitrate` nothing is refused, so all six orders of the pair of facts, the
-  ;; declaration and the edge must land on the same represented dilemma.
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-terms [birthYearOf measureOf Tom]
-      (doseq [order (orderings [:facts :declaration :edge])]
-        (tu/with-neutral-kb [k tu/isolated-fresh]
-          (let [step {:facts       #(do (v/assert k (list birthYearOf Tom 1980) 'CxUniverse)
-                                        (v/assert k (list birthYearOf Tom 1990) 'CxUniverse))
-                      :declaration #(v/assert k (list 'functional measureOf) 'CxUniverse)
-                      :edge        #(v/assert k (list 'genl birthYearOf measureOf)
-                                              'CxUniverse)}]
-            (doseq [s order] ((step s)))
-            (is (= [:functional] (kinds k))
-                (str "arbitrated under " (pr-str order)))))))))
-
-(tu/deftest-kb every-arrival-order-of-a-descended-asymmetric-clash-is-arbitrated
-  ;; The same property for the other mark, and it is a second test rather than a second
-  ;; arm: a clash reported once is reported until its ingredients move, so a second
-  ;; scenario in one KB would read the first one's answer.
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-terms [muchLargerThan largerThan Rex Pip]
-      (doseq [order (orderings [:facts :declaration :edge])]
-        (tu/with-neutral-kb [k tu/isolated-fresh]
-          (let [step {:facts       #(do (v/assert k (list muchLargerThan Rex Pip) 'CxUniverse)
-                                        (v/assert k (list muchLargerThan Pip Rex) 'CxUniverse))
-                      :declaration #(v/assert k (list 'asymmetric largerThan) 'CxUniverse)
-                      :edge        #(v/assert k (list 'genl muchLargerThan largerThan)
-                                              'CxUniverse)}]
-            (doseq [s order] ((step s)))
-            (is (= [:asymmetric] (kinds k))
-                (str "arbitrated under " (pr-str order)))))))))
+    (doseq [{:keys [kind mark facts]}
+            [{:kind :functional :mark 'functional
+              :facts (fn [p a _] [(list p a 1980) (list p a 1990)])}
+             {:kind :asymmetric :mark 'asymmetric
+              :facts (fn [p a b] [(list p a b) (list p b a)])}]]
+      (tu/with-terms [subP superP A B]
+        (let [readings
+              (into []
+                    (for [order (orderings [:facts :declaration :edge])]
+                      (tu/with-neutral-kb [k tu/isolated-fresh]
+                        (let [step {:facts       #(doseq [s (facts subP A B)]
+                                                    (v/assert k s 'CxUniverse))
+                                    :declaration #(v/assert k (list mark superP) 'CxUniverse)
+                                    :edge        #(v/assert k (list 'genl subP superP)
+                                                            'CxUniverse)}]
+                          (doseq [s (butlast order)] ((step s)))
+                          (let [before (kinds k)]
+                            ((step (last order)))
+                            [order before (kinds k)
+                             (:sentence (first (v/contradictions k)))])))))]
+          (doseq [[order before after] readings]
+            (is (= [[] [kind]] [before after])
+                (str (name kind) ", nothing before the last of " (pr-str order))))
+          (is (= 1 (count (into #{} (map peek) readings)))
+              (str (name kind) ": one report sentence in every order")))))))

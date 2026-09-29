@@ -74,7 +74,8 @@
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.prover :as prover-types]
-            [vaelii.impl.types.reasoning :as reasoning]))
+            [vaelii.impl.types.reasoning :as reasoning]
+            [vaelii.impl.violations :as violations]))
 
 (def ^:private pc-cache-limit 256)
 
@@ -84,6 +85,15 @@
 ;; *this* one does not forget the calculi already built against it.
 (defonce ^:private built-calculi (atom {}))
 
+(defn- pvar? [x] (sx/variable? x))
+
+(defn- node-term?
+  "A term usable as a network node: a symbol that is not a variable.  Regions, places and
+  intervals are all ordinary individuals, so this is the whole test for every calculus
+  whose narrowing names no `:node?` of its own."
+  [x]
+  (and (symbol? x) (not (pvar? x))))
+
 (defn calculus
   "Bundle an algebra and its vocabulary into the value every function here takes.
   `denotation` maps each stored predicate to the set of base relations it denotes, so its
@@ -91,15 +101,24 @@
 
   `narrowing` is the optional second reader — nil for a calculus that has none:
 
-    {:fn        (fn [kb context] → {:net … :support …} | nil)
-     :sources   every predicate whose arrival or departure moves what it answers
-     :contexts  the subset that puts a NODE in the network, so names a reader context}
+    {:fn         (fn [kb context] → {:net … :support …} | nil)
+     :over-nodes (fn [nodes] → {:net … :support …} | nil)
+     :node?      which terms are nodes, when not every node is a symbol
+     :sources    every predicate whose arrival or departure moves what it answers
+     :contexts   the subset that puts a NODE in the network, so names a reader context}
+
+  `:fn` reads the KB; `:over-nodes` reads nothing but the node set, so it constrains pairs
+  by what the node terms themselves say — the point network orders the points of one
+  thing, and calendar moments by their fields (`vaelii.impl.timepoint`).  Because it needs
+  no KB, it is also run over the nodes a **goal** names and no fact does
+  (`with-goal-nodes`), so a question about a calendar moment nobody stated is still
+  ordered against the ones they did.  Either key may be absent.
 
   The two predicate sets differ, and deliberately.  A `conversionFactor` moves what a
   metric bound comes to and so must re-check the rules concerned, but a context holding
   one and nothing else has an *empty* interval network, and enumerating it as a reader
   would cost a network build per goal to entail nothing.  Both are folded once here rather
-  than per call: `calculus-triggered-by` runs per asserted sentence, and computing a union
+  than per call: `calculi-triggered-by` runs per asserted sentence, and computing a union
   there would allocate a set per assert.
 
   The value carries the two caches its passes fill, so it is also registered in
@@ -117,6 +136,7 @@
             :denotation denotation
             :predicates answered
             :narrowing  narrowing
+            :node?      (or (:node? narrowing) node-term?)
             :trigger-predicates (into answered (:sources narrowing))
             :context-predicates (into answered (:contexts narrowing))
             :pc-cache   (atom {})
@@ -133,24 +153,31 @@
 
 ;; ---- reading the KB into a network --------------------------------------
 
-(defn- pvar? [x] (sx/variable? x))
-
-(defn- node-term?
-  "A term usable as a network node: a symbol that is not a variable.  Regions, places and
-  intervals are all ordinary individuals, so this is the whole test."
-  [x]
-  (and (symbol? x) (not (pvar? x))))
-
 (defn- asserted-pairs
   "Every `[handle a b]` for which `(pred a b)` is believed and visible from `context` —
   one belief- and context-filtered prover-level read, so a defeated or invisible fact
   never reaches the network.  The handle rides along because a constraint's *support* is
-  the sentexes that produced it (`network-support`)."
-  [kb pred context]
-  (for [m (res/matches-visible kb (list pred '?a '?b) context)
-        :let [bnd (second m), a (get bnd '?a), b (get bnd '?b)]
-        :when (and (node-term? a) (node-term? b))]
-    [(first m) a b]))
+  the sentexes that produced it (`network-support`).
+
+  A fact on a sub-predicate of `pred`, which the read reaches through the matcher's spec
+  fan, also yields the pair once per `genl` edge on one path from its predicate to
+  `pred` that `context` sees (`tax/reach-support`, the strongest by defeat class, as
+  `chain/subsumption-support` picks for a matched fact).  The constraint is the same, so
+  only the support grows: a firing on the pair rests on the edge and is withdrawn when it
+  goes."
+  [kb node? pred context]
+  (let [tx    (reasoning/taxonomy kb)
+        view  (when-not (pvar? context) context)
+        class #(jtms/defeat-class (reasoning/tms kb) %)]
+    (for [m (res/matches-visible kb (list pred '?a '?b) context)
+          :let [bnd (second m), a (get bnd '?a), b (get bnd '?b)]
+          :when (and (node? a) (node? b))
+          :let [s (or (nth m 2 nil) (p/get-sentex (:records kb) (first m)))
+                f (nm/functor (sx/sentence-of s))]
+          h (cons (first m)
+                  (when (not= f pred)
+                    (map first (tax/reach-support tx :genl f pred view class))))]
+      [h a b])))
 
 (defn- refuted-pairs
   "Every `[handle a b]` for which `(not (pred a b))` is believed and visible from
@@ -175,7 +202,7 @@
   filter to read — but they are dropped: a reader below a merge that keeps the
   negative fact about a retired spelling while the positive read drops it would carry
   one constraint under two names it knows denote one thing."
-  [kb pred context]
+  [kb node? pred context]
   (let [ix       (:index kb)
         up       (when-not (pvar? context) (tax/context-up (reasoning/taxonomy kb) context))
         merged?  (tax/merged-term-pred (reasoning/taxonomy kb))
@@ -193,8 +220,13 @@
                                 (or (nil? up) (contains? up (:context s)))
                                 (not (retired? s)))
                        (let [[_ a c] b]
-                         (when (and (node-term? a) (node-term? c)) [h a c])))))))
+                         (when (and (node? a) (node? c)) [h a c])))))))
          (res/without-excepted kb context))))
+
+(defn nodes
+  "Every term named by a constraint in `net`."
+  [net]
+  (into #{} (mapcat identity) (keys net)))
 
 (defn- narrow
   "Intersect the `[a b]` constraint of `net` with `rels` and the `[b a]` constraint with
@@ -225,27 +257,31 @@
   (if-let [net (:net narrowed)]
     (let [support (:support narrowed)]
       (reduce-kv (fn [st pair rels]
-                   (-> st
-                       (update-in [:net pair] (fnil set/intersection universe) rels)
-                       (update-in [:support pair] (fnil into #{}) (get support pair #{}))))
+                   (let [hs (get support pair #{})]
+                     (-> st
+                         (update-in [:net pair] (fnil set/intersection universe) rels)
+                         (update-in [:support pair] (fnil into #{}) hs)
+                         (update :handles (fnil into #{}) hs))))
                  state net))
     state))
 
 (defn- build-network
-  "The read itself: `{:net <network> :support <{[a b] → #{handle}}>}`.  Support is
-  collected on the way past rather than on demand — the reader is already holding the
-  handle it matched, and finding it again later would mean a second read.
+  "The read itself: `{:net <network> :support <{[a b] → #{handle}} :handles #{handle}}`,
+  `:handles` being the union of the support.  Support is collected on the way past rather
+  than on demand — the reader is already holding the handle it matched, and finding it
+  again later would mean a second read.
 
   The calculus's own predicates first, then the **narrowing** if it has one, which is the
   order intersection makes irrelevant: it is commutative and associative, so a network is
   a function of what both readers saw and never of which ran first."
-  [kb {:keys [algebra denotation predicates narrowing]} context]
+  [kb {:keys [algebra denotation predicates narrowing node?]} context]
   (let [universe (:universe algebra)
         converse (:converse algebra)
         absorb   (fn [state rels [h a b]]
                    (-> state
                        (update :net narrow universe converse rels a b)
-                       (update :support support-pair h a b)))
+                       (update :support support-pair h a b)
+                       (update :handles conj h)))
         stated
         (reduce
          (fn [state pred]
@@ -257,13 +293,29 @@
                  ;; base relations), so `narrow` writes the mirror the same way for both.
                  ruled-out (set/difference universe denot)]
              (as-> state $
-               (reduce #(absorb %1 denot %2) $ (asserted-pairs kb pred context))
-               (reduce #(absorb %1 ruled-out %2) $ (refuted-pairs kb pred context)))))
-         {:net {} :support {}}
-         predicates)]
-    (if-let [f (:fn narrowing)]
-      (absorb-narrowing stated (f kb context) universe)
-      stated)))
+               (reduce #(absorb %1 denot %2) $ (asserted-pairs kb node? pred context))
+               (reduce #(absorb %1 ruled-out %2) $ (refuted-pairs kb node? pred context)))))
+         {:net {} :support {} :handles #{}}
+         predicates)
+        read-kb (if-let [f (:fn narrowing)]
+                  (absorb-narrowing stated (f kb context) universe)
+                  stated)]
+    (if-let [f (:over-nodes narrowing)]
+      (absorb-narrowing read-kb (f (nodes (:net read-kb))) universe)
+      read-kb)))
+
+(defn- with-goal-nodes
+  "`net` with the calculus's `:over-nodes` narrowing run again over its nodes and the
+  goal's `extra` ones, when a goal names a node the network lacks — else `net` itself, so
+  the resident fast path in `tighten` still hits.  The new pairs carry no support: what
+  constrains them is the node terms, not a stored fact."
+  [{:keys [narrowing algebra]} net extra]
+  (let [f   (:over-nodes narrowing)
+        ns  (when f (nodes net))
+        new (when f (remove ns extra))]
+    (if (seq new)
+      (:net (absorb-narrowing {:net net :support {}} (f (into ns new)) (:universe algebra)))
+      net)))
 
 (defn- read-network
   "The **resident** read: `{:net … :support …}` for `calc` visible from `context`, built
@@ -276,12 +328,24 @@
   clock is a proof that rebuilding would produce the identical map — and the clock is
   deliberately coarse, so it says so far less often than it could.
 
+  A rebuild that reads the same network and support as the value it replaces answers
+  that value, so a write that did not move this network leaves the same object resident.
+  Every pass keyed on it then answers by `identical?` (`resident-pass`), and `join-delta`
+  reads no pair.  A change to either map is a new value, so the reuse is decided by
+  content and the clock stays the only invalidation.
+
   Residency is not conditional on a prover being registered.  `qualitative-network` and
   `possible-relations` are reads, and a network is a property of the stored facts whether
   or not anybody opted in to reasoning with it."
   [kb calc context]
   (observe/cached (reasoning/qcn kb) [(:name calc) context]
-                  (fn [_stale] (build-network kb calc context))))
+                  (fn [stale]
+                    (let [read (build-network kb calc context)]
+                      (if (and stale
+                               (= (:net read) (:net stale))
+                               (= (:support read) (:support stale)))
+                        stale
+                        read)))))
 
 (defn network
   "Read every believed relation of `calc` visible from `context` into a constraint
@@ -312,11 +376,6 @@
   starts from, and what an entailed relation's support is ultimately unioned out of."
   [kb calc context]
   (:support (read-network kb calc context)))
-
-(defn nodes
-  "Every term named by a constraint in `net`."
-  [net]
-  (into #{} (mapcat identity) (keys net)))
 
 ;; ---- which readers there are ---------------------------------------------
 ;; There is one network per **reader**, not one per context that holds a fact.  A
@@ -384,7 +443,7 @@
   would fire for whichever asked first and leave the rest answering nothing with an empty
   ledger.  A query loop still reports once, and a change of belief reports again."
   [kb calc context net]
-  (when-let [v (reasoning/violations kb)]
+  (when (reasoning/violations kb)
     (let [bad   (qcn/unsatisfiable-pairs net (:algebra calc))
           entry {:violation :qualitative-inconsistency
                  :calculus  (:name calc)
@@ -399,9 +458,7 @@
                                      :nodes (nm/by-print-key (nodes net))}
                               (seq bad) (assoc :pairs (nm/by-print-key bad)))}]
       (trove/log! {:level :warn :id ::qualitative-inconsistency :data entry})
-      (swap! v (fn [entries]
-                 (let [e' (conj entries entry) n (count e')]
-                   (if (> n 1000) (vec (subvec e' (- n 1000))) e')))))))
+      (violations/report-unstamped kb entry))))
 
 (defn- resident-pass
   "Hold the result of `build` on the KB beside the network it is a function of, under `k`
@@ -421,21 +478,22 @@
   that was resident before, or nil — which is what lets a pass warm-start off its own
   previous answer."
   [kb k net build]
-  (let [entry (observe/cached (reasoning/qcn kb) k (fn [stale] {:net net :result (build stale)}))]
+  (let [entry (observe/cached (reasoning/qcn kb) k
+                              (fn [stale]
+                                (if (identical? net (:net stale))
+                                  stale
+                                  {:net net :result (build stale)})))]
     (if (identical? net (:net entry)) (:result entry) (build nil))))
 
-(defn tighten
+(defn- pass
   "Path consistency over `net`, memoized on the network value and held resident on the KB
-  in front of that.  An unsatisfiable network is reported through `report-inconsistency!`
-  on the way past — the pass has just proved it, and the alternative is a query that
-  silently answers nothing.  A cache hit of either kind does not re-record, so a query
-  loop reports once and a change of belief reports again.
+  in front of that — `tighten` without the report.
 
   When the last resident answer was computed for a network this one **narrows** — which is
   what an arriving fact does, and it is the ordinary case during a load — the pass is
   **warm-started** off it and revisits only the triples reading a pair that moved
   (`qcn/path-consistent-from`).  Same value, less of the cubic loop.  Widening — a
-  retraction, a defeat — has no such shortcut and pays the whole pass; that is the honest
+  retraction, a defeat — has no such shortcut and pays the whole pass; that is a
   trade rather than a gap, since a fixpoint cannot be run backwards.
 
   `extra` is the nodes the *goal* names and the network may not — `qcn/path-consistent`
@@ -444,22 +502,53 @@
   network's own nodes is a walk over every pair, which at a hundred nodes costs more than
   the pass lookup it precedes."
   [kb {:keys [algebra pc-cache] :as calc} context net extra]
-  (let [result (resident-pass
-                kb [(:name calc) context ::pass] net
-                (fn [stale]
-                  (caches/read-through
-                   pc-cache (caches/limit-of :path-consistency pc-cache-limit) net
-                   (fn []
-                     (let [warm (when (and (map? (:result stale))
-                                           (qcn/narrowing-of? net (:net stale) algebra))
-                                  (:result stale))]
-                       (if warm
-                         (qcn/path-consistent-from net warm extra algebra)
-                         (qcn/path-consistent net (into (nodes net) extra) algebra)))))))]
+  (resident-pass
+   kb [(:name calc) context ::pass] net
+   (fn [stale]
+     (caches/read-through
+      pc-cache (caches/limit-of :path-consistency pc-cache-limit) net
+      (fn []
+        (let [warm (when (and (map? (:result stale))
+                              (qcn/narrowing-of? net (:net stale) algebra))
+                     (:result stale))]
+          (if warm
+            (qcn/path-consistent-from net warm extra algebra)
+            (qcn/path-consistent net (into (nodes net) extra) algebra))))))))
+
+(defn tighten
+  "`pass` over `net`, reporting an unsatisfiable network through `report-inconsistency!` on
+  the way past — the pass has just proved it, and the alternative is a query that silently
+  answers nothing.  A cache hit of either kind does not re-record, so a query loop reports
+  once and a change of belief reports again.
+
+  `net` is a network as `network` reads it, never one `with-goal-nodes` extended:
+  `newly-seen?` holds one value per KB, calculus and context, so two networks alternating
+  under one key would each report as new.  A goal is tightened through `tighten-for-goal`."
+  [kb calc context net extra]
+  (let [result (pass kb calc context net extra)]
     (when (and (= :inconsistent result)
                (observe/newly-seen? (reasoning/qcn kb) [(:name calc) context ::reported] net))
       (report-inconsistency! kb calc context net))
     result))
+
+(defn- tighten-for-goal
+  "`[net closed extended?]` for a goal naming the nodes `extra` in `context`: the network
+  with the goal's nodes (`with-goal-nodes`), its pass, and whether the goal's nodes added
+  anything to the network as read.
+
+  The network as read is tightened first, through `tighten`, and an unsatisfiable one is
+  answered as it is, unextended.  So the ledger names the nodes the believed facts put in
+  the network and none a goal added, and holds one entry for any mix of goals.  A goal node
+  cannot make a satisfiable network unsatisfiable: a moment is inserted into a consistent
+  calendar chain, and a point is constrained only by its own thing's order.  The extended
+  network's pass runs through `pass`, which does not report."
+  [kb calc context extra]
+  (let [base (network kb calc context)
+        pc   (tighten kb calc context base extra)
+        net  (if (= :inconsistent pc) base (with-goal-nodes calc base extra))]
+    (if (identical? net base)
+      [net pc false]
+      [net (pass kb calc context net extra) true])))
 
 (defn constraint
   "The constraint set on `[i j]` in `net`: the identity on the diagonal, the recorded
@@ -471,8 +560,7 @@
   "The base relations still possible between `a` and `b` given everything believed in
   `context` — `#{}` when the network is inconsistent."
   [calc kb context a b]
-  (let [net (network kb calc context)
-        pc  (tighten kb calc context net [a b])]
+  (let [[_ pc _] (tighten-for-goal kb calc context [a b])]
     (if (= pc :inconsistent) #{} (constraint calc pc a b))))
 
 (defn definite
@@ -492,6 +580,36 @@
   [calc kb context]
   (let [net (network kb calc context)]
     (= :inconsistent (tighten kb calc context net nil))))
+
+(defn- governing-contexts
+  "The contexts holding a fact of any predicate that moves a network of `calc` — its
+  `:trigger-predicates` and every sub-predicate of what it answers — or a `genl` edge
+  into one of those sub-predicates, which decides whose facts a scoped fan reads, closed
+  under meets (`tax/meet-closure`).  `reader-contexts`' read widened to everything a
+  network reads, so each context sees the same such sentences as one of these at or
+  above it.  The sub-predicates are the global closure, which holds every context's.
+  Resident like `reader-contexts`."
+  [kb calc]
+  (observe/cached
+   (reasoning/qcn kb) [(:name calc) ::governing]
+   (fn [_stale]
+     (let [tx    (reasoning/taxonomy kb)
+           idx   (:index kb)
+           subs  (into #{} (mapcat #(tax/specs-global tx %)) (:predicates calc))
+           hs    (concat (mapcat #(reads/as-stored-with-functor idx %)
+                                 (into (:trigger-predicates calc) subs))
+                         (mapcat #(reads/as-stored-with-args idx 'genl {2 %}) subs))
+           held  (into #{} (keep #(:context (p/get-sentex (:records kb) %))) hs)]
+       (tax/meet-closure tx held)))))
+
+(defn unsatisfiable-somewhere?
+  "Is the network of `calc` unsatisfiable for some context?  Asked of the
+  `governing-contexts` alone: a context sees the facts one of them at or above it sees,
+  less what a defeat or an `except` withdraws below it, and a network over fewer facts
+  is never tighter — so no context is unsatisfiable where all of them are satisfiable
+  (docs/exceptions.md, \"Two withdrawals a firing carries\")."
+  [calc kb]
+  (boolean (some #(inconsistent? calc kb %) (governing-contexts kb calc))))
 
 ;; ---- support: which stored sentexes an entailment rests on ---------------
 
@@ -532,7 +650,7 @@
   `extra` folded into the node set (a goal may name a node no fact mentions)."
   [calc kb context extra]
   (let [{:keys [net support]} (read-network kb calc context)]
-    (tighten-with-support kb calc context net support extra)))
+    (tighten-with-support kb calc context (with-goal-nodes calc net extra) support extra)))
 
 ;; ---- what has moved since a caller last joined over this network ---------
 ;; A forward rule with a qualitative antecedent is re-joined whenever a fact of the
@@ -571,10 +689,10 @@
 (defn join-baseline
   "What a re-join is measured against: the handles the network of `calc` in `context` was
   read out of, and the network they close to.  Both are resident reads, so taking one
-  inside a pinned step costs a map lookup and the handle union."
+  inside a pinned step costs two map lookups."
   [kb calc context]
-  (let [{:keys [net support]} (read-network kb calc context)]
-    {:handles (into #{} (mapcat val) support)
+  (let [{:keys [net handles]} (read-network kb calc context)]
+    {:handles handles
      :net     (tighten kb calc context net nil)}))
 
 (defn join-delta
@@ -585,16 +703,19 @@
   `:moved` is `:all` — join over everything — whenever the delta cannot be trusted: no
   baseline recorded yet, either side unsatisfiable, or a handle gone from the network's
   input.  Otherwise it is the set of pairs, both directions, whose closed constraint
-  differs."
+  differs, and empty without a pair read when the baseline's handles and closed network
+  are the resident objects themselves (`read-network`)."
   [kb calc context]
   (let [now  (join-baseline kb calc context)
-        base (some-> (reasoning/qcn-joined kb) deref (get [(:name calc) context ::joined]))]
+        base (some-> (reasoning/qcn-joined kb) deref (get [(:name calc) context ::joined]))
+        same (fn [k] (identical? (get base k) (get now k)))]
     {:baseline now
-     :moved    (if (and base
-                        (map? (:net base)) (map? (:net now))
-                        (set/subset? (:handles base) (:handles now)))
+     :moved    (cond
+                 (or (nil? base) (not (map? (:net base))) (not (map? (:net now)))) :all
+                 (and (same :handles) (same :net))                                 #{}
+                 (or (same :handles) (set/subset? (:handles base) (:handles now)))
                  (differing-pairs (:net base) (:net now))
-                 :all)}))
+                 :else                                                             :all)}))
 
 (defn note-joined
   "Record `baseline` as the network every rule mentioning `calc` has now been joined over
@@ -641,6 +762,14 @@
   (let [r (resolved calc kb context nil)]
     (when-let [pair (:inconsistent r)]
       {:pair pair :support (:culprits r)})))
+
+(defn closure-with-support
+  "The support-carrying pass over the network of `calc` visible from `context`, every pair
+  at once: `{:network … :support …}`, or `{:inconsistent [i j] :culprits #{handle}}`.  A
+  caller reading many pairs of the network's own nodes reads them here: `support` extends
+  the network by its goal's nodes on each call, which walks every pair of it."
+  [calc kb context]
+  (resolved calc kb context nil))
 
 ;; ---- the prover ----------------------------------------------------------
 
@@ -695,17 +824,24 @@
   `pairs`, when given, is the **narrowed** shape: enumerate those pairs rather than the
   nodes, keeping the ones the goal's ground arguments select.  It is a different question,
   not a filter over the answers — filtering afterwards still walks every pair, which is
-  the O(n²) this exists to avoid — and it is the caller's to ask honestly: the answers it
+  the O(n²) this exists to avoid — and the caller is responsible for asking it: the answers it
   leaves out are real entailments, and only a caller that knows it has already acted on
-  them (`join-delta`) may skip them."
+  them (`join-delta`) may skip them.
+
+  `pairs` is ignored when the goal names a node the network lacks and `with-goal-nodes`
+  adds it.  `join-delta` measures the network without goal nodes, so no pair holding such
+  a node is ever in the delta, while a fact arriving can still entail one: a rule on
+  `(instantNotEqual ?x (InstantFn 2000 1 1 0 0 0))` would miss the second of two dated
+  facts in one arrival order and not in another.  The full enumeration answers such a
+  goal in every order."
   ([calc kb goal context] (solve-goal calc kb goal context nil))
   ([calc kb goal context pairs]
    (let [neg?  (some? (negated-literal goal))
          [pred a b] (claimed-literal calc goal)
          denot ((:denotation calc) pred)
-         net   (network kb calc context)
          extra (remove pvar? [a b])
-         pc    (tighten kb calc context net extra)]
+         [net pc extended?] (tighten-for-goal kb calc context extra)
+         pairs (when-not extended? pairs)]
      (when-not (= pc :inconsistent)
        (let [holds? (fn [x y]
                       (let [poss (constraint calc pc x y)]
@@ -750,7 +886,7 @@
   ;; constraint — so the goal and the fact meet in the same place.
   (applicable? [_ _ goal _]
     (some? (claimed-literal calculus goal)))
-  ;; Cheap and honest: the node count bounds an open enumeration, and the number of
+  ;; O(1) reads and an upper bound: the node count bounds an open enumeration, and the number of
   ;; stored facts of this calculus bounds the node count.  That is a sum of O(1)
   ;; functor-root reads, where actually building the network is a query per predicate —
   ;; an estimate must not cost what it estimates.
@@ -774,7 +910,7 @@
   ;; question rather than this one's, asked once of the goal instead of once per
   ;; claimant.
   (completeness [_ _ _ _] 100)
-  ;; A **variable** context means "in some context", and the honest answer to that is the
+  ;; A **variable** context means "in some context", and the answer to that is the
   ;; union of what the readers answer — not one read taken over the union of what they
   ;; see.  Those differ, and in the unsound direction: `(ntpp A B)` in one context and
   ;; `(ntpp B D)` in an incomparable one compose for nobody, since no context inherits
@@ -854,22 +990,37 @@
 
   What a calculus *answers*, which is what a rule antecedent is discharged by
   (`chain/qualitative-antecedent`).  A predicate that merely moves the network is
-  `calculus-triggered-by`'s question, and answering it here would have the join try to
+  `calculi-triggered-by`'s question, and answering it here would have the join try to
   discharge a `temporalDistance` antecedent off the interval algebra."
   [kb pred]
   (first (filter #(contains? (:predicates %) pred) (registered-calculi kb))))
 
-(defn calculus-triggered-by
-  "The registered calculus whose network `pred` moves, or nil — every predicate
-  `calculus-for` matches, plus the ones a narrowing reads.  The re-check and re-join
+(defn calculi-triggered-by
+  "Every registered calculus whose network a sentence on `pred` moves, or nil — for each,
+  one of whose `:trigger-predicates` (every predicate `calculus-for` matches, plus the ones
+  a narrowing reads) is `pred` or a super-predicate of it.  The re-check and re-join
   triggers ask this, because what has to be put in front of a settle is a rule joining on
-  a relation the network entails, and a metric constraint moves that network without being
-  a predicate any such rule mentions.
+  a relation the network entails, and a metric constraint moves that network without
+  being a predicate any such rule mentions.  A caller holding `(genl sub super)` asks it
+  of `super`, since the edge moves what a fact on `super` moves.
 
-  The set is folded into the calculus at construction (`calculus`), so this costs the same
-  membership test `calculus-for` does — it is asked per asserted sentence."
+  The global `genls` closure, since the network reads a sub-predicate's facts through the
+  matcher's fan in whichever context sees the edge, and a trigger that over-selects costs
+  a re-join that derives nothing.
+
+  All of them, not the first: one predicate can move two networks.  An instant fact is
+  answered by the point calculus and read by the Allen one's narrowing, so answering only
+  the first registered would re-join the Allen rules or not depending on registration
+  order, and a firing on them on which of rule and fact arrived last.
+
+  Asked per asserted sentence: nil off the registry with no calculus registered, else a
+  closure read and a membership test per supertype and calculus."
   [kb pred]
-  (first (filter #(contains? (:trigger-predicates %) pred) (registered-calculi kb))))
+  (let [cs (registered-calculi kb)]
+    (when (seq cs)
+      (let [ups (if (symbol? pred) (tax/genls-global (reasoning/taxonomy kb) pred) [pred])]
+        (not-empty (filterv (fn [c] (let [tp (:trigger-predicates c)] (some #(contains? tp %) ups)))
+                            cs))))))
 
 (defn solve-with-support
   "Entailed solutions for `goal` in `context`, each paired with the handles it rests on —

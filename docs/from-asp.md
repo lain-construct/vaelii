@@ -20,6 +20,7 @@ program for it. Read the two structural sections before the tables.
 | atom | a ground sentex | a sentence *plus* the context it holds in |
 | `h(X) :- b1(X), b2(X).` | `(implies (and (b1 ?x) (b2 ?x)) (h ?x))` | every literal is a predicate applied to arguments — there are no propositional atoms — and a rule is a sentex too, with a handle and truth maintenance → [inference.md](inference.md) |
 | `{h(X)} :- b(X).` | `set/assumptionRule` | a choice, and the only thing a solve is free to pick |
+| `h(X) :- b(X), c(X).` inside a program | `set/solveRule`, with `set/inertRule` beside it for a rule the solve alone runs | a normal rule over the choices, recursion and default negation included; the body splits into program literals and background facts proved over the base → [solving.md](solving.md#solverule--a-derived-atom-inside-a-solve) |
 | `h(X) :- a(X) ; b(X).` | `(implies (or (a ?x) (b ?x)) (h ?x))` | a body disjunction, stored as one rule per alternative rather than solved |
 | `:- b(X).` | `set/hardConstraint` | renders as a genuine integrity constraint; the model is excluded |
 | `:~ b(X). [1@l]` | `(set/softConstraint l (implies …))` | a violation atom and a `#minimize` at level `l`; without the leading `l` the level is 1 |

@@ -21,13 +21,12 @@
   order and demand the identical result.
 
   Almost everything here is **pure** — hand-built `Program` values, no store, no
-  fixture — in the style of `strength_test` and `jtms_blocked_test`.  That is not a
-  convenience: `core/decide-nogood` routes no plain default/default rebuttal to any
-  solver (a rebuttal is a represented dilemma, see `nmtms_test`), so the
-  `:contested` branch of `resolve-contradictions` is currently unreachable and the
-  stub cannot be driven end to end at all.  Testing it as a unit is the only way it
-  gets covered, and it is the level the contract lives at anyway: `set-solver` takes
-  any implementation, and this is the behaviour that implementation is replacing.
+  fixture — in the style of `strength_test` and `jtms_blocked_test`.  A settle hands no
+  nogood to a solver (`settle/decide-nogood` answers a defeat, a dilemma or a hard
+  clash), and labeling reaches the installed solver only when no ASP backend is
+  reachable (`label/labeling-solver`), so these tests drive the stub as a unit.  The
+  contract lives at that level: `set-solver` takes any implementation, and this is the
+  behaviour that implementation is replacing.
 
   The last section is the one part that needs a KB — that `local-solver` really is
   the solver a fresh KB ships with, and that `set-solver` swaps it."
@@ -51,7 +50,7 @@
   (into {} (map (fn [[h s]] [h {:sentence s :context 'C}])) (partition 2 pairs)))
 
 (defn- ng
-  "A nogood map in the shape `core/negation-nogoods` produces."
+  "A nogood map in the shape `settle/negation-nogoods` produces."
   [priority & handles]
   {:nogood (set handles) :priority priority :sentence (list 'contradicts handles)})
 

@@ -13,6 +13,7 @@
 # seven-equals separator is NOT matched: at a line start it is a Markdown
 # heading underline and an ASCII rule, so matching it would false-fail on
 # ordinary prose.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"
@@ -26,3 +27,5 @@ if [[ -n "$hits" ]]; then
   exit 1
 fi
 echo "no conflict markers"
+exit
+}

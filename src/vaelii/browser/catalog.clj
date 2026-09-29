@@ -50,9 +50,10 @@
   outside this namespace.
 
   **Unloading never deletes an on-disk KB.**  A memory-backed entry has its stores
-  cleared (they would otherwise hold the corpus for the life of the JVM); a disk-backed
-  one is *closed* — the file lock released, the directory left exactly as it was.  The
-  same directory can then be loaded again, or opened by another process."
+  cleared (they would otherwise hold the corpus for the life of the JVM); every other
+  backend is *closed* — the file lock released, the directory left exactly as it was, an
+  adapter's connection closed.  The same directory can then be loaded again, or opened by
+  another process."
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [taoensso.trove :as trove]
@@ -60,6 +61,7 @@
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
             [vaelii.host.io.generate :as generate]
+            [vaelii.host.spindle :as spindle]
             [vaelii.host.starter :as starter])
   (:import (java.io File)))
 
@@ -129,7 +131,7 @@
   "What the form's `:belief?` choice means to `import-dump`.
 
   The form speaks in verbs (`:rebuild` / `:stored` / `:skip`) because a checkbox cannot
-  offer three answers and a tri-state named `true`/`:stored`/`false` is indistinguishable from a typo in a
+  offer three answers and a tri-state named `true`/`:stored`/`false` looks like a typo in a
   dropdown.  A caller that already speaks the importer's own vocabulary is passed through,
   so this is a widening rather than a translation layer.
 
@@ -230,7 +232,7 @@
 
 (defn- du
   "Bytes on disk under `d`, or nil.  A store carries no count of what it holds, so its
-  size on disk is the honest thing to show instead."
+  size on disk is what the catalog shows instead."
   [^File d]
   (when (.isDirectory d)
     (reduce + 0 (map #(.length ^File %) (filter #(.isFile ^File %) (file-seq d))))))
@@ -250,7 +252,7 @@
 
   A found KB is offered whether or not this build has a reader for it: a corpus and a
   foreign-dialect dump each need one that ships as a plugin rather than in-tree
-  (`vaelii.impl.foreign`), and the honest answer to \"I cannot read this\" is a load that
+  (`vaelii.impl.foreign`), and a KB this build cannot read produces a load that
   fails saying so, not a KB that silently stops being listed."
   [^File d]
   (when-let [kind (classify d)]
@@ -436,6 +438,14 @@
 ;; registry's, under its own monitor, and nothing here takes them in the other order.
 (defonce ^:private start-monitor (Object.))
 
+;; The KBs `unload!` has released, so a write that resolved one before the release can be
+;; refused after it (`released?`).  Weak keys: an entry lasts while something still holds
+;; the KB value, which is exactly while a late write could still reach it.  A KB is a
+;; record whose atoms compare by identity, so two KB values are equal only when they are
+;; the same KB.
+(defonce ^:private released-kbs
+  (java.util.Collections/synchronizedMap (java.util.WeakHashMap.)))
+
 (defn- now [] (System/currentTimeMillis))
 
 (defn- claim-space!
@@ -571,6 +581,22 @@
                 (some #(and (= :export (:kind %))
                             (identical? kb (:kb (entry (:entry %)))))
                       (jobs/running)))))
+
+(defn released?
+  "Did `unload!` release `kb`'s stores — clear a memory KB, or close a disk one?
+
+  A write resolves its KB, reads its refusals, and then waits for the browser's write
+  monitor; `unload!` releases under that same monitor.  So a write that was parked on the
+  monitor while an unload released its KB asks this once it holds the monitor, and is
+  refused.
+
+  The question is \"was this KB released\" and not \"does the catalog hold this KB\": a KB
+  the catalog never held — a test's, an embedding's, the holder's fallback — is no
+  unload's business and is never refused.  An unload that releases nothing (an entry
+  `register!` filed with no `:where`) marks nothing either, and `register!` clears the
+  mark of a KB it files again."
+  [kb]
+  (boolean (and kb (.containsKey ^java.util.Map released-kbs kb))))
 
 (defn holder
   "A deref-able that always yields the KB to read — the active entry's, or `fallback`
@@ -765,6 +791,13 @@
                                                       (:max-derivations params))))]
       (assoc summary :derived (:derived r 0) :truncated? (boolean (:truncated? r))))))
 
+(defn- option-default
+  "The `:default` the option `key` declares in `options` — the value the card's form fills
+  in, and so the value a caller that names none is given, which keeps a card's load and
+  a `load-dir` or `load-source` with the key absent the same load."
+  [options key]
+  (:default (first (filter #(= key (:key %)) options))))
+
 (defn- run-load
   "Load `source` into a fresh KB under `params`, reporting through `progress!`.  Returns
   the loader's summary.
@@ -796,7 +829,8 @@
                    kb params progress!
                    (v/load-foreign!
                     kb :cyc-corpus path
-                    {:profile     (keyword (or (:profile params) "full"))
+                    {:profile     (keyword (or (:profile params)
+                                               (option-default corpus-options :profile)))
                      :bulk?       (boolean (:bulk? params))
                      :chain?      false
                      :on-progress progress!})))
@@ -833,6 +867,83 @@
       (throw (ex-info (str "unknown KB source kind " (pr-str kind) " — want :core,"
                            " :starter, :generated, :corpus, :dump or :store")
                       {:type :unknown-source :kind kind})))))
+
+(defn- sync-now!
+  "Sync `kb`'s shipped spindle (`spindle/sync-spindle!`), file the report on entry `key`
+  as `:spindle` and log it.  Returns the report.
+
+  A sync that throws is filed and logged as `{:error message}` rather than rethrown: the
+  KB loaded, and a spindle this engine could not bring current is a fact to report about
+  it, not a reason to refuse the load."
+  [key kb]
+  (let [report (try (spindle/sync-spindle! kb)
+                    (catch Exception e {:error (or (ex-message e) (str (class e)))}))]
+    (put-entry! key #(assoc % :spindle report))
+    (trove/log! {:level (if (or (:error report) (seq (:refused report))) :warn :info)
+                 :id    ::spindle-synced
+                 :msg   (if-let [err (:error report)]
+                          (str "the shipped spindle of " key " was not synced: " err)
+                          (str "synced the shipped spindle of " key ": " (:added report)
+                               " added, " (:removed report) " retracted, "
+                               (count (:refused report)) " refused"))
+                 :data  (assoc report :key key)})
+    report))
+
+(defn- sync-after-rebuild!
+  "Sync `kb`'s shipped spindle once the belief rebuild behind its image finishes, as a
+  writing job of its own.  A daemon thread waits for `v/write-hazards` to empty, and gives
+  up when the rebuild fails or the entry stops holding `kb` (it was unloaded).  A writer
+  held by another job is waited out, since the sync is owed to this KB whenever it runs."
+  [key kb]
+  (doto (Thread.
+         ^Runnable
+         (fn []
+           (loop []
+             (cond
+               (not (identical? kb (:kb (entry key)))) nil
+
+               (:failed (v/rebuild-progress kb))
+               (trove/log! {:level :warn :id ::spindle-synced
+                            :msg (str "the shipped spindle of " key " was not synced: the"
+                                      " belief rebuild failed, and writes stay refused")
+                            :data {:key key}})
+
+               (seq (v/write-hazards kb))
+               (do (Thread/sleep 2000) (recur))
+
+               :else
+               (when (= ::busy
+                        (try (jobs/submit {:label  (str "Sync the shipped spindle of " key)
+                                           :kind   :sync
+                                           :writes kb
+                                           :entry  key}
+                                          (fn [_] (sync-now! key kb)))
+                             (catch clojure.lang.ExceptionInfo e
+                               (if (= :job-busy (:type (ex-data e))) ::busy (throw e)))))
+                 (Thread/sleep 2000)
+                 (recur)))))
+         (str "vaelii-spindle-sync " key))
+    (.setDaemon true)
+    (.start)))
+
+(defn- sync-spindle
+  "Bring a loaded store's or dump's shipped spindle up to this engine's
+  (`vaelii.host.spindle`): inline when `kb` accepts writes, which a served browser's
+  recover leaves it doing, and after the rebuild when belief is being rebuilt behind an
+  image.  A store opened without a recover accepts no writes and is left as it is.  The
+  other source kinds are built from this engine's own files and are already in sync.
+  Returns the report, `{:deferred true}`, or nil."
+  [key {:keys [kind]} progress!]
+  (when-let [kb (and (#{:store :dump} kind) (:kb (entry key)))]
+    (let [hz (v/write-hazards kb)]
+      (cond
+        (empty? hz)
+        (do (progress! {:phase :spindle :done 0 :note "syncing the shipped spindle"})
+            (sync-now! key kb))
+
+        (:stale-belief hz)
+        (do (sync-after-rebuild! key kb)
+            {:deferred true})))))
 
 (defn- entry-key
   "The key an entry is filed under: the source id, suffixed when that source can be
@@ -907,7 +1018,10 @@
                     ;; refuses `:still-stopping`, both of them for ever.
                     (try
                       (let [note-kb! (fn [kb where] (put-entry! key #(assoc % :kb kb :where where)))
-                            summary  (run-load src params progress! note-kb!)]
+                            summary  (run-load src params progress! note-kb!)
+                            ;; while the entry still reads `:running`, so the browser's
+                            ;; writes wait for it (`write-blocked?`)
+                            _        (sync-spindle key src progress!)]
                         ;; a cancelled or failed load leaves whatever had landed in its
                         ;; stores; `unload!` is what takes those down
                         ;; `:progress` settles with the status, as it does on the job
@@ -978,25 +1092,52 @@
   "Nothing active but something loaded — fall to the most recent *finished* entry, so the
   browser is never left pointing at nothing while a KB is sitting right there.  `:done` and
   not merely \"has a KB\": an entry whose release failed is the one thing here nobody can
-  vouch for, and falling to it would put the browser straight back on it."
+  vouch for, and falling to it would put the browser straight back on it.
+
+  The test and the fall are one `swap!`, so an `activate` landing between them is not
+  overwritten.  The statuses are read before it, since a status is the load job's."
   []
-  (when-not (active)
-    (swap! state assoc :active
-           (last (filter #(= :done (:status (entry %))) (:order @state))))))
+  (let [done (into #{} (filter #(= :done (:status (entry %)))) (:order @state))]
+    (swap! state (fn [s]
+                   (cond-> s
+                     (nil? (:active s))
+                     (assoc :active (last (filter done (:order s)))))))))
+
+(defn- refuse-while-a-job-writes!
+  "Throw `:still-writing` when a job other than entry `e`'s loader claims its KB as the
+  KB it writes — a chaining run or a spindle sync (`jobs/kb-writer`).  A loader claims no
+  KB by identity (it opens its own), so the loader arm of `unload!` answers for that one."
+  [e key]
+  (when-let [w (jobs/kb-writer (:kb (entry key)))]
+    (throw (ex-info (str (:name e) " is being written by " (:label w) " (job " (:id w)
+                         ") — releasing its stores now would pull them out from under"
+                         " that job.  Cancel it on the jobs page, or wait for it to"
+                         " finish, then unload.")
+                    {:type :still-writing :key key :holder (:id w) :label (:label w)}))))
 
 (defn unload!
   "Take an entry down: cancel it if it is still loading, release what it held, and drop it
   from the registry.
 
   **A memory-backed KB is cleared** — its stores are keyed by space number and would
-  otherwise hold the corpus for the life of the JVM.  **A disk-backed one is closed, not
-  cleared**: the file lock is released and the directory is left exactly as it was, so
-  unloading an on-disk KB never destroys it.  The `!` is for the memory case, which does.
+  otherwise hold the corpus for the life of the JVM.  **Every other backend is closed, not
+  cleared** (`v/close!`): the file lock is released and the directory is left exactly as it
+  was, so unloading an on-disk KB never destroys it, and an adapter store (`:sqlite`,
+  `:pg-disk-log`) has its connection closed too.  An entry `register!` filed with no
+  `:where` releases nothing.  The `!` is for the memory case, which does destroy.
 
-  Three ways it declines to do that, each about a KB something else is still holding:
+  Four ways it declines to do that, each about a KB something else is still holding:
 
   - **its loader has not stopped.**  Cancellation is cooperative, so the stores are still
     the loader's until its thread returns.  Refused as `:still-stopping`, and retryable.
+  - **another job writes it.**  A chaining run or a spindle sync claims the KB as its
+    writer in the job registry, and the browser's chain holds the write monitor `:run-in`
+    takes for its whole run.  Refused as `:still-writing`, naming the job, and asked
+    **before** `:run-in` is entered — so the answer does not wait for the job, which a
+    fixpoint over a corpus makes minutes.  Refused rather than cancelled, unlike the
+    loader: the job is work the operator started on a KB they kept loaded, and a
+    daemon's chain reports no progress, so a cancel would reach it only when it ends.
+    Asked again inside, for a job registered between the first ask and the monitor.
   - **an export is walking it.**  `export!` fetches record by record with no snapshot to
     walk instead, so a release landing mid-walk leaves the dump a dump of a KB that
     stopped existing halfway through.  Refused as `:still-exporting` — the walk finishes
@@ -1013,10 +1154,15 @@
     is what stops the caller reporting a clean unload over a directory that did not
     close.  Unloading again retries the release.
 
-  `opts` takes `:run-in`, a wrapper the release runs inside — `export-entry!`'s own
-  option, and here for the same reason: the browser hands its write monitor, so a
-  synchronous write already past the write entry points drains before the stores go rather than
-  interleaving with the clear."
+  `opts` takes `:run-in`, a wrapper the check-and-release step runs inside —
+  `export-entry!`'s own option, and here for the same reason: the browser hands its write
+  monitor, so a synchronous write already inside the monitor finishes before the stores
+  go rather than interleaving with the clear.  A write still waiting for the monitor
+  enters after the release, and `released?` is what refuses it there: a KB this call
+  cleared or closed is marked released inside `run-in`.  `:run-in` is entered **before**
+  `start-monitor` is taken, so an unload waiting on the write monitor holds nothing a
+  load or an export asks for.  The browser's write monitor is process-wide, so an unload
+  of a KB no job writes still waits for a chain running on another KB."
   ([key] (unload! key nil))
   ([key {:keys [run-in]}]
    (when-let [e (entry key)]
@@ -1042,52 +1188,67 @@
                               " point at which it can be interrupted; unload it again in a"
                               " moment")
                          {:type :still-stopping :key key}))))
-     ;; and an export is a reader of exactly this KB, mid-request.  Not cancelled for the
-     ;; operator: a dump takes minutes and is nobody's to throw away on the way past, so
-     ;; the unload is what gives way.
-     ;;
-     ;; Checked and acted on under `start-monitor` — `export-entry!`'s monitor — because
-     ;; the test and the release are two touches of two separate registries, and the export
-     ;; that has to lose this race is the one that has not submitted yet.  Outside it, both
-     ;; requests pass their own check, the release lands first, and the walk dumps an
-     ;; emptied KB under a summary that is indistinguishable from a clean export.  `drop-entry!` is inside
-     ;; for the other half of the same reason: an export blocked here must find the entry
-     ;; *gone* rather than find it released.  The loader wait above stays outside — it is
-     ;; about the load, it can take thirty seconds, and an export cannot start against a
-     ;; KB a loader is still writing anyway.
-     (locking start-monitor
-       (when (exporting-kb? (:kb (entry key)))
-         (throw (ex-info (str (:name e) " is being exported — the dump walks its records one"
-                              " by one, so releasing them now would leave it a dump of a KB"
-                              " that stopped existing halfway through.  Wait for the export,"
-                              " or cancel it, then unload.")
-                         {:type :still-exporting :key key})))
-       (let [{:keys [backend]} (:where (entry key))
-             run-in (or run-in (fn [work] (work)))]
-         (try
-           (run-in (fn []
-                     (case backend
-                       :memory  (when-let [kb (:kb (entry key))] (v/clear! kb))
-                       (:disk-log :disk-columnar :disk-snapshot) (some-> (:kb (entry key)) v/close!)
-                       nil)))
-           (catch Exception ex
-             (let [why (or (.getMessage ex) (str (class ex)))]
-               (trove/log! {:level :warn :id ::unload-problem
-                            :msg (str "releasing KB " key ": " why)})
-               ;; the entry's own status, and the load job's dropped with it: that job
-               ;; finished `:done` and `with-job` prefers it while it is there, so leaving it
-               ;; on would report the settled load over the failed release
-               (put-entry! key #(-> (dissoc % :job)
-                                    (assoc :status :unreleased :finished (now)
-                                           :error (str "did not release cleanly — " why))))
-               (swap! state update :active #(when (not= % key) %))
-               (fall-back-active!)
-               (throw (ex-info (str (:name e) " did not release cleanly — " why
-                                    ".  It is still listed, and unloading it again retries"
-                                    " the release.")
-                               {:type :unreleased :key key :backend backend} ex))))))
-       (drop-entry! key)
-       (fall-back-active!))
+     ;; a job writing this KB holds the browser's write monitor for its whole run, so this
+     ;; is asked before `run-in` takes it: asked inside only, the answer waits for the job
+     (refuse-while-a-job-writes! e key)
+     (let [run-in (or run-in (fn [work] (work)))]
+       (run-in
+        (fn []
+          ;; and an export is a reader of exactly this KB, mid-request.  Not cancelled for
+          ;; the operator: a dump takes minutes and is nobody's to throw away on the way
+          ;; past, so the unload is what gives way.
+          ;;
+          ;; Checked and acted on under `start-monitor` — `export-entry!`'s monitor —
+          ;; because the test and the release are two touches of two separate registries,
+          ;; and the export that has to lose this race is the one that has not submitted
+          ;; yet.  Outside it, both requests pass their own check, the release lands first,
+          ;; and the walk dumps an emptied KB under a summary that is indistinguishable from
+          ;; a clean export.  `drop-entry!` is inside for the other half of the same reason:
+          ;; an export blocked here must find the entry *gone* rather than find it released.
+          ;; The loader wait above stays outside — it is about the load, it can take thirty
+          ;; seconds, and an export cannot start against a KB a loader is still writing
+          ;; anyway.  `start-monitor` is taken inside `run-in` and not around it, so an
+          ;; unload waiting for the write monitor holds up no load and no export.
+          (locking start-monitor
+            (when (exporting-kb? (:kb (entry key)))
+              (throw (ex-info (str (:name e) " is being exported — the dump walks its records"
+                                   " one by one, so releasing them now would leave it a dump"
+                                   " of a KB that stopped existing halfway through.  Wait for"
+                                   " the export, or cancel it, then unload.")
+                              {:type :still-exporting :key key})))
+            ;; a job submitted after the ask above and before this monitor was taken
+            (refuse-while-a-job-writes! e key)
+            (let [{:keys [backend]} (:where (entry key))]
+              (try
+                ;; every backend but memory is closed, the adapters' `:sqlite` and
+                ;; `:pg-disk-log` among them, so a backend `store-backend` answers later
+                ;; is released with no edit here.  No `:where` is an entry `register!`
+                ;; filed for a KB this process does not own, and nothing is released.
+                (when-let [kb (case backend
+                                nil     nil
+                                :memory (some-> (:kb (entry key)) v/clear!)
+                                (some-> (:kb (entry key)) v/close!))]
+                  ;; marked inside `run-in`, so a write parked on the browser's monitor
+                  ;; reads the mark when it gets the monitor (`released?`)
+                  (.put ^java.util.Map released-kbs kb true))
+                (catch Exception ex
+                  (let [why (or (.getMessage ex) (str (class ex)))]
+                    (trove/log! {:level :warn :id ::unload-problem
+                                 :msg (str "releasing KB " key ": " why)})
+                    ;; the entry's own status, and the load job's dropped with it: that job
+                    ;; finished `:done` and `with-job` prefers it while it is there, so
+                    ;; leaving it on would report the settled load over the failed release
+                    (put-entry! key #(-> (dissoc % :job)
+                                         (assoc :status :unreleased :finished (now)
+                                                :error (str "did not release cleanly — " why))))
+                    (swap! state update :active #(when (not= % key) %))
+                    (fall-back-active!)
+                    (throw (ex-info (str (:name e) " did not release cleanly — " why
+                                         ".  It is still listed, and unloading it again"
+                                         " retries the release.")
+                                    {:type :unreleased :key key :backend backend} ex))))))
+            (drop-entry! key)
+            (fall-back-active!)))))
      true)))
 
 (defn activate
@@ -1100,11 +1261,15 @@
   fact never means a false one.  Reading beside the loader is sound for the same reason
   a reader thread beside the writer is: one writer, and every store mutation lands
   atomically (docs/storage.md, the single-writer contract).  What a reader is owed is
-  being *told*, which is `active-caveat`'s job and the browser's — not being refused."
+  being *told*, which is `active-caveat`'s job and the browser's — not being refused.
+
+  The entry is tested inside the `swap!` that activates it, so an `unload!` dropping the
+  entry between the two cannot leave `:active` naming a key the registry no longer holds."
   [key]
-  (let [e (entry key)]
-    (when (:kb e)
-      (swap! state assoc :active key)
+  (let [s (swap! state (fn [s]
+                         (cond-> s
+                           (get-in s [:entries key :kb]) (assoc :active key))))]
+    (when (and (= key (:active s)) (get-in s [:entries key :kb]))
       true)))
 
 (defn write-blocked?
@@ -1134,7 +1299,8 @@
 
 (defn active-caveat
   "What is provisional about the KB the browser is reading, or nil when nothing is.
-  `{:key :name :status :progress :belief?}`.
+  `{:key :name :status :progress :belief? :recoverable? :rebuilding? :rebuild}`, `:rebuild`
+  being `v/rebuild-progress` while belief is rebuilt behind an installed image.
 
   Two independent reasons an answer can be less than the whole truth, and a reader is
   owed both:
@@ -1191,7 +1357,9 @@
         (when-not (and settled? belief? (not rebuilding?))
           {:key key :name (:name e) :status (if (= ::unreadable n) :unreadable (:status e))
            :progress (:progress e) :belief? belief? :recoverable? recoverable?
-           :rebuilding? rebuilding?})))))
+           :rebuilding? rebuilding?
+           ;; nil when the rebuild installed between the two reads
+           :rebuild (when rebuilding? (v/rebuild-progress kb))})))))
 
 ;; ---- exporting -----------------------------------------------------------
 ;;
@@ -1321,6 +1489,7 @@
    ;; `stats` is a four-read census, computed before the swap for the same reason as
    ;; `load-source`'s: a swap! fn re-runs per retry under contention
    (let [ks (stats kb)]
+     (.remove ^java.util.Map released-kbs kb)
      (swap! state (fn [s]
                     (-> s
                         (assoc-in [:entries key]
@@ -1332,23 +1501,27 @@
    key))
 
 (defn reset-registry!
-  "Forget every entry, releasing each as `unload!` does, and stop every job.  For a process
-  shutting down and for tests; nothing in the browser calls it.
+  "Forget every entry, releasing each as `unload!` does, and stop every job.  For tests:
+  nothing in the browser calls it, and no shutdown hook does.
 
-  The export is stopped **first** and waited for, and the entries come second: `unload!`
-  clears the stores an entry holds, and an export still walking one of them would be
-  reading a KB as it emptied.  `unload!` refuses that outright, so a walk not waited for
-  here would take the whole reset down with it rather than merely corrupting a dump.
+  Every running job is stopped **first** and waited for, and the entries come second:
+  `unload!` clears the stores an entry holds, and an export walking one of them would be
+  reading a KB as it emptied, and a chaining run or a spindle sync would be writing
+  one.  `unload!` refuses both outright (`:still-exporting`,
+  `:still-writing`), so a job not waited for here leaves its entry forgotten and its
+  stores unreleased.  The cancels are issued together and the waits overlap, each bounded
+  by 30 s; a job that does not stop within its bound keeps its KB, since `unload!`
+  refuses to release a KB under a live writer.
 
   One entry refusing to release does not stop the rest: this is what a process shutting
   down calls, and stranding four KBs because the first would not close is the wrong
   trade.  Each refusal is logged and the sweep goes on."
   []
-  ;; through `cancel-export!` — its docstring says why `jobs/latest` is the wrong ask
-  ;; (the newest export of any status is routinely one that settled this morning)
-  (when-let [id (:id (first (filter #(= :export (:kind %)) (jobs/running))))]
-    (jobs/cancel! id)
-    (jobs/wait id 30000))
+  ;; the running set rather than `jobs/latest` — `cancel-export!`'s docstring says why
+  ;; (the newest job of a kind is routinely one that settled this morning)
+  (let [ids (mapv :id (jobs/running))]
+    (doseq [id ids] (jobs/cancel! id))
+    (doseq [id ids] (jobs/wait id 30000)))
   (doseq [k (:order @state)]
     (try (unload! k)
          (catch Exception ex

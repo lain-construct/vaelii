@@ -40,22 +40,53 @@
 (deftest rule-round-trips
   (doseq [r [(sentex-types/->RuleSentex 'C 8
                                         '[(dog ?var0)] '(mammal ?var0) :monotonic '{?var0 ?x}
-                                        :forward true nil nil)
-             ;; multi-antecedent, every optional field set
+                                        #{:forward :backward} true :derive)
+             ;; multi-antecedent, a constraint rule, every optional field set
              (sentex-types/->RuleSentex 'CxKinship 9
                                         '[(parentOf ?var0 ?var1) (parentOf ?var1 ?var2)]
                                         '(grandparentOf ?var0 ?var2) :default '{?var0 ?a ?var1 ?b ?var2 ?c}
-                                        :backward true true :hard)
-             ;; and with every optional field nil
+                                        #{:solve} true :forbid)
+             ;; and with every nil-able field nil, the engines empty (an inert rule)
              (sentex-types/->RuleSentex 'C 10
-                                        '[(p ?var0)] '(q ?var0) nil nil nil nil nil nil)]]
+                                        '[(p ?var0)] '(q ?var0) nil nil #{} nil :derive)
+             (sentex-types/->RuleSentex 'C 11 '[(p ?var0)] '(q ?var0) nil nil #{:forward} nil :derive)
+             (sentex-types/->RuleSentex 'C 12 '[(p ?var0)] '(q ?var0) nil nil #{:solve} nil :choose)]]
     (testing (str "rule " (:consequent r))
       (let [t (sx-trip r)]
         (is (= r t) "equal")
         (is (instance? vaelii.impl.types.sentex.RuleSentex t) "and still a Rule")
         (is (vector? (:antecedent t))
             "the antecedent is still a VECTOR — decoding must not flatten it to a list")
-        (is (= (:varmap r) (:varmap t)) "and the varmap survives as a map")))))
+        (is (= (:varmap r) (:varmap t)) "and the varmap survives as a map")
+        (is (identical? (sx/canonical-engines (:engines r)) (:engines t))
+            "and the engines decode to the shared instance")))))
+
+(deftest a-rule-frame-with-three-wrapper-fields-decodes-to-engines-and-effect
+  ;; Rule tags 1, 3, 5, 7, 8 and 9, and a record nippy froze whole under those keys, spell
+  ;; the wrappers as `direction` / `assumption` / `constraint`.  Each reads into the two
+  ;; fields the record holds (`sx/fielded-rule-slots`).
+  (let [rule (fn [engines effect]
+               (sentex-types/->RuleSentex 'C 8 '[(p ?var0)] '(q ?var0) nil nil engines nil effect))]
+    (doseq [[fields engines effect] [[[:forward nil nil]      #{:forward :backward} :derive]
+                                     [[:both nil nil]         #{:forward :backward} :derive]
+                                     [[:backward nil nil]     #{:backward}          :derive]
+                                     [[:forward-only nil nil] #{:forward}           :derive]
+                                     [[:inert nil nil]        #{}                   :derive]
+                                     [[:forward true nil]     #{:solve}             :choose]
+                                     [[:backward nil :hard]   #{:solve}             :forbid]
+                                     [[:inert nil :soft]      #{:solve}             :penalize]]]
+      (let [[dir assum con] fields
+            want (rule engines effect)]
+        (testing (str "tag 8 " fields)
+          (is (= want (codec/decode-sentex (into [8 'C 8 '[(p ?var0)] '(q ?var0) nil nil]
+                                                 [dir nil assum con])))))
+        (testing (str "a whole record frozen with " fields)
+          (let [old (sentex-types/map->RuleSentex {:context 'C :id 8 :antecedent '[(p ?var0)]
+                                                   :consequent '(q ?var0) :direction dir
+                                                   :assumption assum :constraint con})
+                t   (codec/decode-sentex (nippy/thaw (nippy/freeze old)))]
+            (is (= want t))
+            (is (not-any? #(contains? t %) [:direction :assumption :constraint]))))))))
 
 (deftest justification-round-trips
   (doseq [d [(jtms/->just 20 :rule [1 2 3] 4 '{?x A} :monotonic)
@@ -97,7 +128,7 @@
   ;; existing store readable rather than needing a rewrite.
   (let [a      (sentex-types/->LiteralSentex '(dog Muffet) 'C 7 :monotonic)
         r      (sentex-types/->RuleSentex 'C 8
-                                          '[(p ?var0)] '(q ?var0) nil nil :forward nil nil nil)
+                                          '[(p ?var0)] '(q ?var0) nil nil #{:forward :backward} nil :derive)
         d      (jtms/->just 20 :rule [1 2] 3 nil :monotonic)
         plain  (fn [x] (nippy/thaw (nippy/freeze x)))]        ; no encode — a bare nippy frame
     (is (= a (codec/decode-sentex (plain a))))
@@ -114,11 +145,11 @@
   ;; `:polarity` key.
   (is (= (sentex-types/->LiteralSentex '(not (dog Muffet)) 'C 7 :monotonic)
          (codec/decode-sentex [0 '(not (dog Muffet)) 'C 7 :negative :monotonic])))
-  (is (= (sentex-types/->RuleSentex 'C 8 '[(p ?var0)] '(q ?var0) nil nil :forward nil nil nil)
+  (is (= (sentex-types/->RuleSentex 'C 8 '[(p ?var0)] '(q ?var0) nil nil #{:forward :backward} nil :derive)
          (codec/decode-sentex [1 '(implies (p ?var0) (q ?var0)) 'C 8 :positive
                                '[(p ?var0)] '(q ?var0) nil nil :forward nil nil nil])))
   (testing "tag 5 carries the rule's sentence and no polarity; decoding reads past it"
-    (is (= (sentex-types/->RuleSentex 'C 8 '[(p ?var0)] '(q ?var0) nil nil :forward nil nil nil)
+    (is (= (sentex-types/->RuleSentex 'C 8 '[(p ?var0)] '(q ?var0) nil nil #{:forward :backward} nil :derive)
            (codec/decode-sentex [5 '(implies (p ?var0) (q ?var0)) 'C 8
                                  '[(p ?var0)] '(q ?var0) nil nil :forward nil nil nil]))))
   (let [r (codec/decode-sentex (assoc (sentex-types/->LiteralSentex '(dog Muffet) 'C 7 nil)
@@ -169,13 +200,16 @@
    (sentex-types/->LiteralSentex '(measures Rod 1.5) 'C 14 nil)
    (sentex-types/->LiteralSentex '(p A) 'C nil nil)
    (sentex-types/->RuleSentex 'C 8
-                              '[(dog ?var0)] '(mammal ?var0) :monotonic '{?var0 ?x} :forward true nil nil)
+                              '[(dog ?var0)] '(mammal ?var0) :monotonic '{?var0 ?x}
+                              #{:forward :backward} true :derive)
    (sentex-types/->RuleSentex 'CxKinship 9
                               '[(parentOf ?var0 ?var1) (parentOf ?var1 ?var2)]
                               '(grandparentOf ?var0 ?var2) :default '{?var0 ?a ?var1 ?b ?var2 ?c}
-                              :backward true true :hard)
+                              #{:solve} true :forbid)
    (sentex-types/->RuleSentex 'C 10
-                              '[(p ?var0)] '(q ?var0) nil nil nil nil nil nil)])
+                              '[(p ?var0)] '(q ?var0) nil nil #{} nil :derive)
+   (sentex-types/->RuleSentex 'C 11
+                              '[(p ?var0)] '(q ?var0) nil nil #{:solve} nil :choose)])
 
 (deftest tokenized-bodies-round-trip
   (with-dict
@@ -204,12 +238,16 @@
             ;; tag 7: the rule's sentence leads the body, and no polarity follows it
             [sb sl]       (body ['(implies (p ?var0) (q ?var0)) 'C '[(p ?var0)]
                                  '(q ?var0) nil nil :forward nil nil nil])
+            ;; tag 9: no sentence, no polarity, the three wrapper fields
+            [nb nl]       (body ['C '[(p ?var0)] '(q ?var0) nil nil :forward nil true nil])
             want          (sentex-types/->RuleSentex 'C 8 '[(p ?var0)] '(q ?var0)
-                                                     nil nil :forward nil nil nil)]
+                                                     nil nil #{:forward :backward} nil :derive)]
         (is (= (sentex-types/->LiteralSentex '(not (dog Muffet)) 'C 7 :monotonic)
                (dec (nippy/thaw (nippy/freeze [2 lb ll 7])))))
         (is (= want (dec (nippy/thaw (nippy/freeze [3 rb rl 8])))))
-        (is (= want (dec (nippy/thaw (nippy/freeze [7 sb sl 8])))))))))
+        (is (= want (dec (nippy/thaw (nippy/freeze [7 sb sl 8])))))
+        (is (= (sentex-types/->RuleSentex 'C 8 '[(p ?var0)] '(q ?var0) nil nil #{:solve} nil :choose)
+               (dec (nippy/thaw (nippy/freeze [9 nb nl 8])))))))))
 
 (deftest tokenized-frames-are-smaller-than-positional-ones
   (with-dict

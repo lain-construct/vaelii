@@ -37,13 +37,13 @@
 
   ## What a choice constrains (docs/solving.md)
 
-  Constraints reach the **direct** ground choice heads and nothing further: the engine's
-  own contradictions among them — a `(not X)`/`X` pair, a `functional` predicate given
-  two values, a `disjoint` type clash — and every `hardConstraint` / `softConstraint`
-  rule ground over them.  Choices do **not** propagate through ordinary rules, because
-  the Program is built from the choice heads and the nogoods standing over them: nothing
-  runs the chainer with a choice held hypothetically, and nothing emits the rule base to
-  a grounder.  A constraint that only bites downstream of a rule has nothing to bite on."
+  Constraints reach the ground choice heads and the atoms the solve rules derive from
+  them: the engine's own contradictions among the choice heads — a `(not X)`/`X` pair, a
+  `functional` predicate given two values, a `disjoint` type clash — and every
+  `hardConstraint` / `softConstraint` rule ground over the program's atoms.  A choice
+  propagates through a `set/solveRule` and through nothing else: the solve rules are
+  ground into the program's normal rules (`ground-derivations`), and a rule without the
+  wrapper is not — nothing runs the chainer with a choice held hypothetically."
   (:require [clojure.set :as set]
             [vaelii.impl.asp.edge :as edge]
             [vaelii.impl.asp.solver :as solver]
@@ -78,7 +78,10 @@
 ;; the markers back through the term index.  So a user context that happens to be
 ;; named `<Into><i>` is neither read by `classify` nor swept by a re-run —
 ;; a name pattern would make both mistakes, and with a destructive sweep the
-;; second one is data loss.
+;; second one is data loss.  The classification context has one fixed name, so it is
+;; found by name and swept only when it carries the inert `(classificationOf
+;; <Into>Class <Into>)` marker `classify` writes; a non-empty `<Into>Class` without
+;; one is refused (`class-blocked`), never swept.
 
 (defn- ctx-sym [base & parts] (symbol (apply str (name base) parts)))
 (defn- class-context [into-cx]      (ctx-sym into-cx "Class"))
@@ -88,6 +91,9 @@
   "Is this stored sentence a `labelingOf` ownership marker?"
   [sentence]
   (and (seq? sentence) (= 'labelingOf (first sentence))))
+
+(defn- class-marker [into-cx]
+  (list 'classificationOf (class-context into-cx) into-cx))
 
 (defn- labeling-contexts
   "The labeling contexts a prior `label` created for `into-cx`, in labeling order —
@@ -143,9 +149,25 @@
                         (= into-cx (nth sentence 2 nil))))
                  (stored-in kb ctx))))
 
+(defn- class-blocked
+  "What stands between a run and replacing `<Into>Class`: `{:believed [klass]}` when
+  its extent holds a believed sentex, `{:unmarked [klass]}` when its extent is
+  non-empty and holds no `(classificationOf <Into>Class <Into>)` marker, else `{}`.
+  An unmarked extent is a user's context of that name or a classification written
+  before the marker existed; the two cannot be told apart, so neither is swept."
+  [kb into-cx]
+  (let [klass  (class-context into-cx)
+        extent (stored-in kb klass)]
+    (cond
+      (some #(jtms/in? (reasoning/tms kb) (:id %)) extent) {:believed [klass]}
+      (and (seq extent) (not-any? #(= (class-marker into-cx) (:sentence %)) extent))
+      {:unmarked [klass]}
+      :else {})))
+
 (defn- blocked-artifacts
   "What stands between a re-run and the replace-on-rerun promise, as
-  `{:believed [ctx …] :orphaned [ctx …]}` — both empty when nothing does.
+  `{:believed [ctx …] :orphaned [ctx …] :unmarked [ctx …]}` — all empty when nothing
+  does.  `:unmarked` and the class context's `:believed` entry are `class-blocked`'s.
 
   **`:believed`** is a context `clear-context!` would decline to touch.  Declining is
   right — the sweep must never destroy knowledge — but *proceeding afterwards* is not:
@@ -169,20 +191,42 @@
   of one and is decisive: a user context occupying a slot, even one they hung under this
   very base, holds what they asserted and is neither swept nor refused over.  So the two
   categories are disjoint, and the residue — a marker retracted *and* believed content
-  written in — is indistinguishable from the user's context, which is what it has become."
+  written in — is treated as the user's context, which is what it has become."
   [kb base into-cx]
   (let [existing (set (tax/contexts (reasoning/taxonomy kb)))
         taken?   (fn [c] (or (existing c) (pos? (reads/stored-count-in-context (:index kb) c))))
         slots    (take-while taken? (map #(labeling-context into-cx %) (iterate inc 1)))
-        mine     (set (labeling-contexts kb into-cx))]
-    {:believed (filterv #(believed-extent? kb %)
-                        (conj (vec mine) (class-context into-cx)))
+        mine     (set (labeling-contexts kb into-cx))
+        klass    (class-blocked kb into-cx)]
+    {:believed (into (filterv #(believed-extent? kb %) mine) (:believed klass))
      :orphaned (filterv #(and (not (mine %))
                               (seq (stored-in kb %))
                               (not (believed-extent? kb %))
                               (placed-under? kb % base)
                               (not (marked-for? kb % into-cx)))
-                        slots)}))
+                        slots)
+     :unmarked (vec (:unmarked klass))}))
+
+(defn- refuse-blocked!
+  "Throw `:labeling-run-blocked` when any of `blocked`'s three lists is non-empty."
+  [into-cx base {:keys [believed orphaned unmarked]}]
+  (when (or (seq believed) (seq orphaned) (seq unmarked))
+    (throw (ex-info (str "a previous solve's artifacts under " into-cx
+                         " cannot be replaced"
+                         (when (seq believed)
+                           (str "; believed sentexes in " (pr-str believed)))
+                         (when (seq orphaned)
+                           (str "; no labelingOf marker on " (pr-str orphaned)))
+                         (when (seq unmarked)
+                           (str "; no classificationOf marker on " (pr-str unmarked)
+                                ", so it is not known to be a classification"))
+                         " — a solve clears only the inert content it wrote, so retract"
+                         " what is believed there, retract the unmarked contexts' extents"
+                         " (and a labeling's genlCx edge), or label into a different Into")
+                    {:type :labeling-run-blocked
+                     :into into-cx :base base
+                     :believed (vec believed) :orphaned (vec orphaned)
+                     :unmarked (vec unmarked)}))))
 
 (defn- refuse-blocked-run!
   "Refuse the run when `blocked-artifacts` finds anything.  A solve replaces what the
@@ -195,20 +239,7 @@
   than after it; once inside `clear-run!`, where the destruction actually happens, so
   the guarantee is local to the thing that needs it."
   [kb base into-cx]
-  (let [{:keys [believed orphaned]} (blocked-artifacts kb base into-cx)]
-    (when (or (seq believed) (seq orphaned))
-      (throw (ex-info (str "a previous solve's artifacts under " into-cx
-                           " cannot be replaced"
-                           (when (seq believed)
-                             (str "; believed sentexes in " (pr-str believed)))
-                           (when (seq orphaned)
-                             (str "; no labelingOf marker on " (pr-str orphaned)))
-                           " — a solve clears only the inert content it wrote, so retract"
-                           " what is believed there, retract the unmarked contexts and"
-                           " their genlCx edges, or label into a different Into")
-                      {:type :labeling-run-blocked
-                       :into into-cx :base base
-                       :believed believed :orphaned orphaned})))))
+  (refuse-blocked! into-cx base (blocked-artifacts kb base into-cx)))
 
 (defn- clear-context!
   "Retract `ctx`'s own extent — the labeling truth values and their marker, or a stale
@@ -257,27 +288,37 @@
   Refuses rather than sweeps what it can: an artifact it cannot replace is one the
   next `classify` would read beside the new run's, so a partial sweep is worse than
   none (`refuse-blocked-run!`).  Nothing is retracted until every artifact has been
-  checked."
+  checked, and the classification is cleared only when it carries its marker."
   [kb base into-cx]
   (refuse-blocked-run! kb base into-cx)
   (doseq [ctx (labeling-contexts kb into-cx)]
     (clear-context! kb ctx base))
-  (clear-context! kb (class-context into-cx) nil))
+  (when (some #(= (class-marker into-cx) (:sentence %)) (stored-in kb (class-context into-cx)))
+    (clear-context! kb (class-context into-cx) nil)))
 
 ;; ---- grounding: assumptionRules × visible facts → choice heads -----------
 
-(defn- assumption-rules
-  "Every **believed** `assumptionRule` visible from `base` — scoped to `base` and its
-  genlCx up-closure, never the whole KB.  `sentexes-in-context` reads storage, so
-  the belief question is asked here, as both chainers ask it: a defeated or superseded
-  assumptionRule must not mint choice heads.  `rule-believed?` rather than `jtms/in?`
-  so an `:inert` rule stays available — this run is the fourth consumer of a rule's
-  firing beside the three chainers, and it reads rules by the same rule they do."
+(defn- program-rules
+  "Every **believed** rule a solve reads (`rules/solve-sentex?`) visible from `base` —
+  scoped to `base` and its genlCx up-closure, never the whole KB — in content order.
+  Read off the `:solve-rules` roster, which posts storage per context at the rule
+  index/unindex choke points, so the read costs the up-closure and its solve rules and
+  never a context's facts.  The belief question is asked here, as both chainers ask it
+  of the rule index: a defeated or superseded rule must not mint choice heads or forbid
+  models.  `rule-believed?` rather than `jtms/in?`, so a rule reads by the same rule
+  the chainers use."
   [kb base]
-  (for [ctx (distinct (cons base (tax/context-up (reasoning/taxonomy kb) base)))
-        s   (stored-in kb ctx)
-        :when (and (rules/assumption? s) (res/rule-believed? kb (:id s)))]
-    s))
+  (let [roster @(reasoning/solve-rules kb)]
+    (->> (distinct (cons base (tax/context-up (reasoning/taxonomy kb) base)))
+         (mapcat #(get roster %))
+         (keep #(p/get-sentex (:records kb) %))
+         (filter #(res/rule-believed? kb (:id %)))
+         (nm/sort-by-content-key #(nm/print-key [(sx/sentence-of %) (:context %)]) compare))))
+
+(defn- assumption-rules
+  "The believed `assumptionRule`s visible from `base` (`program-rules`)."
+  [kb base]
+  (filter rules/assumption? (program-rules kb base)))
 
 (defn- registry-bounds
   "`res/prove` bounds whose **leaf is the prover registry**, so a grounding join reaches an
@@ -402,17 +443,12 @@
 ;; which the direct-clash detectors above — always one shared individual — cannot.
 
 (defn- constraint-rules
-  "Every **believed** constraint rule visible from `base` — scoped to `base` and its
-  genlCx up-closure, and belief-filtered, like `assumption-rules`: a defeated or
-  superseded constraint must not go on forbidding models.  A **cardinality** rule is a
-  constraint rule too but grounds to a solver cardinality atom, not a conjunctive nogood,
-  so `cardinality-rules` takes those and this excludes them."
+  "The believed constraint rules visible from `base` (`program-rules`).  A
+  **cardinality** rule is a constraint rule too but grounds to a solver cardinality
+  atom, not a conjunctive nogood, so `cardinality-rules` takes those and this excludes
+  them."
   [kb base]
-  (for [ctx (distinct (cons base (tax/context-up (reasoning/taxonomy kb) base)))
-        s   (stored-in kb ctx)
-        :when (and (rules/constraint? s) (not (rules/cardinality-of s))
-                   (res/rule-believed? kb (:id s)))]
-    s))
+  (filter #(and (rules/constraint? %) (not (rules/cardinality-of %))) (program-rules kb base)))
 
 (defn- choice-arg-index
   "Index the ground choice heads for join lookup:
@@ -420,17 +456,19 @@
      :by-arg  {[pred pos val] #{head …}}      — heads with `val` at 1-based arg `pos`
   A partially-ground choice literal is matched by intersecting the `:by-arg` sets for its
   ground argument positions (`literal-heads`) — so an edge×colour probe is a couple of
-  set reads, not a scan of every head."
-  [heads]
-  (reduce
-   (fn [idx head]
-     (let [pred (first head)]
-       (reduce (fn [idx [i a]]
-                 (update-in idx [:by-arg [pred (inc i) a]] (fnil conj #{}) head))
-               (update-in idx [:by-pred pred] (fnil conj []) head)
-               (map-indexed vector (rest head)))))
-   {}
-   heads))
+  set reads, not a scan of every head.  With `idx`, extends that index by `heads`, which
+  is how a grounding round adds the atoms it derived without rebuilding what it had."
+  ([heads] (choice-arg-index {} heads))
+  ([idx heads]
+   (reduce
+    (fn [idx head]
+      (let [pred (first head)]
+        (reduce (fn [idx [i a]]
+                  (update-in idx [:by-arg [pred (inc i) a]] (fnil conj #{}) head))
+                (update-in idx [:by-pred pred] (fnil conj []) head)
+                (map-indexed vector (rest head)))))
+    idx
+    heads)))
 
 (defn- literal-heads
   "The choice heads a (partially ground) choice literal `lit` can match, via `idx` —
@@ -457,6 +495,24 @@
                   (join-choice-literals idx head->id (rest chs) b2 (conj ids (head->id head)))))
               (literal-heads idx lit)))))
 
+(defn- join-negated-literals
+  "`join-choice-literals` for the negated program literals `lits` — each a head required
+  *absent*.  A literal still holding a variable is joined against `idx`, so its variables
+  range over the atoms the program has.  A **ground** one names one atom: an atom the
+  program has joins the required-absent set, and one it does not is absent in every model,
+  so the literal holds and adds no member rather than dropping the binding."
+  [idx head->id lits b ids]
+  (if (empty? lits)
+    [[b ids]]
+    (let [lit (res/substitute (first lits) b)]
+      (if (sx/ground-term? lit)
+        (join-negated-literals idx head->id (rest lits) b
+                               (if-let [id (head->id lit)] (conj ids id) ids))
+        (mapcat (fn [head]
+                  (when-let [b2 (res/unify lit head b)]
+                    (join-negated-literals idx head->id (rest lits) b2 (conj ids (head->id head)))))
+                (literal-heads idx lit))))))
+
 (defn- neg-choice-lit?
   "A `(not <choice-literal>)` body literal — a choice head required to be *absent*.  A
   conjunction of these is an at-least-one requirement: `(not c1) (not c2) (not c3)`
@@ -464,7 +520,8 @@
 
   The literal may be partially ground: `ground-constraint-body` joins it against the
   choice-head index like a positive one, so `(not (pick ?c))` on its own means *every*
-  pick, one nogood each."
+  pick, one nogood each.  `choice-preds` holds the solve rules' derived predicates too, so
+  a derived atom required absent reads the same way."
   [choice-preds l]
   (and (seq? l) (= 'not (first l)) (sequential? (second l))
        (choice-preds (first (second l)))))
@@ -491,10 +548,12 @@
   and contribute no nogood — the at-least-one idiom in `neg-choice-lit?`'s own
   docstring, failing open and in silence.  Joining them against the same index the
   positive literals use grounds `?c` over every head the predicate has, one nogood per
-  combination, which is what the idiom means.  A literal matching *no* head drops its
-  binding rather than constraining anything, which the join gives for free and is the
-  right answer regardless: an atom that does not exist is absent in every model, so it
-  can never be false-*together* and the requirement it guards is vacuous.
+  combination, which is what the idiom means.  A negated literal left **ground** by the
+  positive join names one atom, and one the program does not have is absent in every
+  model: the literal holds, so it adds no member and the binding stays
+  (`join-negated-literals`).  A binding whose members all drop so is a nogood with none,
+  which a hard constraint reads as no admissible model — a required atom nothing can
+  make true, such as an element no chosen set covers.
 
   Order matters and is fixed here: positives first, so a variable shared with the
   background or a positive literal is already bound when the negated ones are reached."
@@ -505,11 +564,11 @@
         choice-lit? #(and (sequential? %) (choice-preds (first %)))
         bg  (remove choice-lit? rest-body)
         chs (filter choice-lit? rest-body)]
-    (for [bgb          (if (seq bg) (res/prove kb (fn [g] (provers/candidate-rules kb g base)) (vec bg) base bounds) [{}])
-          [b ids]      (join-choice-literals idx head->id chs bgb #{})
-          [b2 neg-ids] (join-choice-literals idx head->id neg-lits b #{})
-          :when        (or (seq ids) (seq neg-ids))]
-      [ids neg-ids (res/substitute consequent b2)])))
+    (when (or (seq chs) (seq neg-lits))
+      (for [bgb          (if (seq bg) (res/prove kb (fn [g] (provers/candidate-rules kb g base)) (vec bg) base bounds) [{}])
+            [b ids]      (join-choice-literals idx head->id chs bgb #{})
+            [b2 neg-ids] (join-negated-literals idx head->id neg-lits b #{})]
+        [ids neg-ids (res/substitute consequent b2)]))))
 
 (defn- check-minimize-weight
   "Throw `:not-well-formed` unless `weight` — the ground weight one binding of the
@@ -527,13 +586,15 @@
 
 (defn- constraint-nogoods
   "Ground every constraint rule visible from `base` into nogoods, one per satisfying
-  binding of its body.  A positive body yields a `:nogood` (those choice heads forbidden
+  binding of its body.  `head->id` is every atom the program has — the choice heads and
+  the derived ones — and `program-preds` the solve rules' derived predicates, which count
+  as program literals even where no atom was derived.  A positive body yields a `:nogood` (those choice heads forbidden
   to hold together); a negated-choice body yields a `:neg` (forbidden to be absent
   together — an at-least-one).  A `set/hardConstraint` rule's nogoods carry `:hard true`
   (an integrity constraint — a violating model is excluded outright); a
   `set/softConstraint` rule's are minimized like the auto-detector's."
-  [kb base head->id]
-  (let [choice-preds (into #{} (map first) (keys head->id))
+  [kb base head->id program-preds]
+  (let [choice-preds (into program-preds (map first) (keys head->id))
         idx          (choice-arg-index (keys head->id))
         bounds       (registry-bounds kb base)]
     (for [rsx (constraint-rules kb base)
@@ -560,19 +621,17 @@
 ;; the `C(n, k+1)` subset expansion into O(n) (docs/solving.md).
 
 (defn- cardinality-rules
-  "Every **believed** cardinality rule visible from `base` — the `constraint-rules`
-  counterpart for the rules that carry a `cardAtMost` / `cardAtLeast` marker."
+  "The believed cardinality rules visible from `base` (`program-rules`): the rules
+  that carry a `cardAtMost` / `cardAtLeast` marker."
   [kb base]
-  (for [ctx (distinct (cons base (tax/context-up (reasoning/taxonomy kb) base)))
-        s   (stored-in kb ctx)
-        :when (and (rules/cardinality-of s) (res/rule-believed? kb (:id s)))]
-    s))
+  (filter rules/cardinality-of (program-rules kb base)))
 
 (defn- cardinality-constraints
   "Ground every cardinality rule visible from `base` into `solve/Program` cardinality
-  entries.  The rule's pattern (its single antecedent) is matched against the ground
-  choice heads; each match binds the counted variable and the group variables, and the
-  matches are grouped by the group binding — so `(empireBuild ?c transport)` counted over
+  entries.  The rule's pattern (its single antecedent) is matched against the program's
+  atoms — the ground choice heads and the solve rules' derived atoms; each match binds
+  the counted variable and the group variables, and the matches are grouped by the group
+  binding — so `(empireBuild ?c transport)` counted over
   `?c` is one global group, and `(empireFerry ?a ?t)` counted over `?a` is one group per
   `?t`.  Each group yields one entry over the heads it collected.
 
@@ -591,8 +650,7 @@
                 hard?      (= :hard (rules/constraint-of rsx))
                 pattern    (first (:antecedent rsx))
                 group-vars (remove #{counted}
-                                   (distinct (filter sx/variable?
-                                                     (tree-seq sequential? seq pattern))))
+                                   (distinct (sx/form-vars pattern)))
                 matches    (for [head (literal-heads idx pattern)
                                  :let  [b (res/unify pattern head {})]
                                  :when b]
@@ -610,12 +668,194 @@
        :priority 1
        :sentence (list 'cardinalityBound op k (res/substitute pattern gkey))})))
 
+;; ---- solve rules: the normal rules a solve grounds ------------------------
+;; A `set/solveRule` (`:solve` in its engines) is `h :- b` inside a solve: its head holds
+;; in an answer set exactly when some ground instance's body does there.  Its body splits
+;; by predicate, as a constraint's does: a literal over a **program predicate** — a
+;; choice head's, or a solve rule's own head's — matches the program's atoms, and every
+;; other literal is background, proved over what `Base` believes.  A negated program
+;; literal is default negation in the answer set.  Grounding is a semi-naive fixpoint
+;; over the atoms that can become true, so a rule may read another solve rule's head, or
+;; its own — reachability over the chosen edges is the case that needs it, and the
+;; solver's unfounded-set reading keeps a loop of atoms from supporting itself.
+
+(def ^:private max-derived-atoms
+  "The most atoms a solve's rules may derive before grounding refuses.  A rule whose head
+  builds a larger term from its body's (a successor, a list cell) derives without bound,
+  and this is where that stops rather than exhausting memory."
+  200000)
+
+(defn- solve-rules
+  "The believed `set/solveRule`s visible from `base` (`program-rules`): the `:derive`
+  rules a solve runs."
+  [kb base]
+  (filter #(= :derive (:effect %)) (program-rules kb base)))
+
+(defn- program-literal?
+  "Is `lit` a literal over one of the program predicates `preds`?"
+  [preds lit]
+  (and (sequential? lit) (seq lit) (contains? preds (first lit))))
+
+(defn- negated-program-literal
+  "The atom pattern of `lit` when it is `(not <program literal>)`, else nil."
+  [preds lit]
+  (when (and (seq? lit) (= 'not (first lit)) (program-literal? preds (second lit)))
+    (second lit)))
+
+(defn- join-order
+  "The order a round joins a rule's body in when its positive program literal `i` reads
+  the atoms the round before added: that literal first, since it matches the fewest
+  atoms, then each literal sharing a variable with what is bound so far.  The background
+  bindings are one step among them (`bg?`), keyed on the variables bound where it falls,
+  so a round reads the background bindings its new atoms reach rather than all of them.
+  Returns `[[:atom j] … [:bg key-vars] …]`."
+  [pos bg-vars bg? i]
+  (loop [steps [[:atom i]]
+         bound (sx/form-variables (nth pos i))
+         left  (remove #{i} (range (count pos)))
+         bg?   bg?]
+    (if (and (empty? left) (not bg?))
+      steps
+      (let [shares? #(seq (set/intersection bound %))
+            j       (or (first (filter #(shares? (sx/form-variables (nth pos %))) left))
+                        (when-not (and bg? (shares? bg-vars)) (first left)))]
+        (if j
+          (recur (conj steps [:atom j]) (into bound (sx/form-variables (nth pos j))) (remove #{j} left) bg?)
+          (recur (conj steps [:bg (vec (sort-by nm/name-key (set/intersection bound bg-vars)))])
+                 (into bound bg-vars) left false))))))
+
+(defn- join-steps
+  "Extend binding `b` along `steps`: an `[:atom j literal]` step matches its literal
+  against the index `idx-of` gives position `j`, and a `[:bg key-vars index]` step reads
+  the background bindings filed under what `b` binds those variables to.  Returns
+  `[[binding [atom …]] …]`."
+  [steps idx-of b atoms]
+  (if (empty? steps)
+    [[b atoms]]
+    (let [[kind x y] (first steps)]
+      (if (= :atom kind)
+        (let [lit (res/substitute y b)]
+          (mapcat (fn [a]
+                    (when-let [b2 (res/unify lit a b)]
+                      (join-steps (rest steps) idx-of b2 (conj atoms a))))
+                  (literal-heads (idx-of x) lit)))
+        (mapcat (fn [b0]
+                  (when-let [b2 (reduce-kv (fn [acc k v] (or (res/unify k v acc) (reduced nil))) b0 b)]
+                    (join-steps (rest steps) idx-of b2 atoms)))
+                (get y (mapv #(res/substitute % b) x)))))))
+
+(defn- prepared-solve-rule
+  "A solve rule split for grounding: its positive and negated program literals, its
+  head, its `exceptWhen` guard, the bindings of its background literals — proved once,
+  since what `Base` believes does not move while the program grounds — and, per positive
+  literal, the join a round runs when that literal reads the new atoms (`join-order`),
+  with the background bindings indexed on the key its step reads them by."
+  [kb base preds bounds rsx]
+  (let [body (vec (:antecedent rsx))
+        head (:consequent rsx)
+        neg  (into [] (keep #(negated-program-literal preds %)) body)
+        pos  (filterv #(program-literal? preds %) body)
+        bg   (filterv #(not (or (program-literal? preds %) (negated-program-literal preds %))) body)]
+    (when (and (seq? head) (= 'not (first head)))
+      (throw (ex-info (str "a solve rule's head must be a positive literal, as a choice head"
+                           " is: " (pr-str (sx/sentence-of rsx)))
+                      {:type :not-well-formed :sentence (sx/sentence-of rsx) :base base})))
+    (let [bindings (vec (if (seq bg)
+                          (res/prove kb (fn [g] (provers/candidate-rules kb g base)) bg base bounds)
+                          [{}]))
+          by-key   (memoize (fn [kv] (group-by (fn [b0] (mapv #(res/substitute % b0) kv)) bindings)))
+          step     (fn [[kind x]]
+                     (if (= :atom kind) [:atom x (nth pos x)] [:bg x (by-key x)]))]
+      {:rsx rsx :pos pos :neg neg :head head
+       :guard (provers/rule-guard kb rsx base)
+       :bg    bindings
+       :plans (mapv #(mapv step (join-order pos (sx/form-variables bg) (boolean (seq bg)) %))
+                    (range (count pos)))})))
+
+(defn- rule-instances
+  "The ground instances of prepared rule `r` a round finds, as `{:head atom :pos #{atom}
+  :neg #{atom}}`: with positive literal `i` matched against the index `idx-of` gives
+  position `i` (the new atoms), and the others against theirs.  A rule with no positive
+  program literal has one instance per background binding.  A negated literal must be
+  ground once the positive ones are, since an answer set gives default negation no
+  binding to offer."
+  [r idx-of i]
+  (for [[b atoms] (if (empty? (:pos r))
+                    (map (fn [b0] [b0 []]) (:bg r))
+                    (join-steps (nth (:plans r) i) idx-of {} []))
+        :when     (or (nil? (:guard r)) ((:guard r) b))]
+    (let [head (res/substitute (:head r) b)
+          neg  (mapv #(res/substitute % b) (:neg r))]
+      (when-let [open (first (remove sx/ground-term? (cons head neg)))]
+        (throw (ex-info (str "a solve rule's head and negated literals must be bound by its"
+                             " positive ones; " (pr-str open) " is not, in "
+                             (pr-str (sx/sentence-of (:rsx r))))
+                        {:type :not-well-formed :sentence (sx/sentence-of (:rsx r))
+                         :unbound open})))
+      {:head head :pos (set atoms) :neg (set neg)})))
+
+(defn- ground-derivations
+  "Every ground instance of the solve rules `rules` over the atoms that can become true,
+  starting from the choice heads and the `seeds`.  Semi-naive: each round joins a rule
+  with at least one positive literal over the atoms the round before added, the literals
+  before it over the older atoms and those after it over all of them, so no instance is
+  found twice and none is missed.  The indexes carry over from round to round — the old
+  atoms' index is the last round's whole one, which the new atoms extend — so a round
+  costs what its new atoms reach, and a chain of `n` atoms grounds in `n` rounds without
+  reading all of them in each.  Negation plays no part in which atoms are possible, so
+  the fixpoint is over-approximated exactly the way an ASP grounder's is."
+  [rules choice-heads seeds]
+  (let [delta0 (into (set choice-heads) (map :head) seeds)
+        i0     (choice-arg-index delta0)]
+    (loop [full delta0, i-old {}, i-new i0, i-full i0, insts (set seeds), round 0]
+      (when (> (count full) max-derived-atoms)
+        (throw (ex-info (str "a solve's rules derive more than " max-derived-atoms
+                             " atoms — a head that builds a larger term from its"
+                             " body's derives without bound")
+                        {:type :not-well-formed :atoms (count full)})))
+      (let [found  (into #{}
+                         (mapcat (fn [r]
+                                   (let [k (count (:pos r))]
+                                     (if (zero? k)
+                                       (when (zero? round) (rule-instances r nil 0))
+                                       (mapcat (fn [i]
+                                                 (rule-instances r #(cond (< % i) i-old
+                                                                          (= % i) i-new
+                                                                          :else   i-full)
+                                                                 i))
+                                               (range k))))))
+                         rules)
+            fresh  (remove insts found)
+            added  (into #{} (comp (map :head) (remove full)) fresh)
+            insts' (into insts fresh)]
+        (if (empty? added)
+          insts'
+          (let [i-added (choice-arg-index added)]
+            (recur (into full added) i-full i-added (choice-arg-index i-full added)
+                   insts' (inc round))))))))
+
+(defn- seed-derivations
+  "The instances of each solve rule's head that `Base` already holds — proved there, over
+  the same registry leaf — as instances with an empty body: true in every answer set, as
+  a base fact is true in every labeling context below the base."
+  [kb base rules bounds]
+  (into #{}
+        (comp (map :head)
+              (distinct)
+              (mapcat (fn [h]
+                        (for [b (res/prove kb (fn [g] (provers/candidate-rules kb g base)) [h] base bounds)]
+                          {:head (res/substitute h b) :pos #{} :neg #{}})))
+              (filter #(sx/ground-term? (:head %))))
+        rules))
+
 ;; ---- the program ---------------------------------------------------------
 
 (defn- build
-  "Ground the choices **in memory**, detect the constraints among them (both the direct
-  auto-clashes and the ground constraint-rule bodies), and build the Program.  Returns
-  `{:program p :head->id {sentence id}}` or nil when there are no choices to make — and
+  "Ground the choices **in memory**, ground the solve rules over them into the program's
+  normal rules, detect the constraints among the atoms (both the direct auto-clashes
+  among the choice heads and the ground constraint-rule bodies), and build the Program.
+  Returns `{:program p :head->id {sentence id} :derived->id {sentence id}}` or nil when
+  there are no choices to make — and
   writes nothing, so a solve that goes on to fail (no backend) has no side effects to
   undo.
 
@@ -647,12 +887,32 @@
                       {:type :choice-head-not-positive :negated (vec neg) :base base})))
     (when (seq heads)
       (let [head->id (into {} (map-indexed (fn [i s] [s (inc i)])) heads)
-            content  (into {} (map (fn [[s id]] [id {:sentence s :context base}])) head->id)
+            bounds   (registry-bounds kb base)
+            srules   (solve-rules kb base)
+            dpreds   (into #{} (map #(first (:consequent %))) srules)
+            preds    (into dpreds (map first) heads)
+            prepared (mapv #(prepared-solve-rule kb base preds bounds %) srules)
+            insts    (when (seq prepared)
+                       (ground-derivations prepared heads (seed-derivations kb base prepared bounds)))
+            ;; a derived atom's id follows the choices', minted in the same content order
+            derived  (nm/sort-by-content-key nm/print-key compare
+                                             (into #{} (comp (map :head) (remove head->id)) insts))
+            atom->id (into head->id (map-indexed (fn [i s] [s (+ 1 (count heads) i)])) derived)
+            derivs   (into []
+                           (comp (map (fn [{:keys [head pos neg]}]
+                                        {:head (atom->id head)
+                                         :pos  (into #{} (map atom->id) pos)
+                                         ;; an atom nothing can derive is false, so its
+                                         ;; default negation holds and drops out
+                                         :neg  (into #{} (keep atom->id) neg)}))
+                                 (distinct))
+                           insts)
+            content  (into {} (map (fn [[s id]] [id {:sentence s :context base}])) atom->id)
             ngoods   (concat (nogoods kb base head->id)
-                             (constraint-nogoods kb base head->id))
-            cards    (cardinality-constraints kb base head->id)
-            program  (solve/program (set (vals head->id)) ngoods content cards)]
-        {:program program :head->id head->id}))))
+                             (constraint-nogoods kb base atom->id dpreds))
+            cards    (cardinality-constraints kb base atom->id)
+            program  (solve/program (set (vals head->id)) ngoods content cards derivs)]
+        {:program program :head->id head->id :derived->id (apply dissoc atom->id heads)}))))
 
 ;; ---- do/label: one inert labeling context per optimal answer set ---------
 
@@ -744,8 +1004,12 @@
   Phase timings (`:ground-ms` = grounding the Program, `:translate-ms` = rendering ASPIF,
   `:solve-ms` = the solve) ride the result for a profiling caller.
 
-  Returns `{:base :into :choices [..] :labelings [{:context :true [..] :false [..]}]
-  :count n}` (`:context` nil in `:one` mode, which persists nothing).  A `:one`/`:sat`
+  **A solve rule's derived atoms** (`set/solveRule`) are decided by the rules in each
+  answer set rather than chosen, and a labeling records them as it records the choices:
+  `(head)` where derived, `(not head)` where not.  `:derived` lists them.
+
+  Returns `{:base :into :choices [..] :derived [..] :labelings [{:context :true [..]
+  :false [..]}] :count n}` (`:context` nil in `:one` mode, which persists nothing).  A `:one`/`:sat`
   result also carries `:best-effort? true` when the solve was cancelled at the time
   limit with a model in hand — a valid labeling whose optimality went unproven (the key
   is absent otherwise).  `:count 0` with
@@ -764,9 +1028,12 @@
          t0      (System/nanoTime)
          built   (build kb base)
          t1      (System/nanoTime)]
-     (if-let [{:keys [program head->id]} built]
-       (let [id->head (zipmap (vals head->id) (keys head->id))
-             all-ids  (set (vals head->id))
+     (if-let [{:keys [program head->id derived->id]} built]
+       (let [atom->id (merge head->id derived->id)
+             id->head (zipmap (vals atom->id) (keys atom->id))
+             all-ids  (set (vals atom->id))
+             ;; the derived atoms in id order — content order, after the choices
+             derived  (mapv id->head (range (inc (count head->id)) (inc (count atom->id))))
              ;; the heads in the order `build` minted their ids (a `nm/print-key` sort over the
              ;; same set), read straight off `id->head` — no re-sort, no second key built
              choices  (mapv id->head (range 1 (inc (count head->id))))
@@ -781,7 +1048,7 @@
          (cond
            (nil? optima)
            (merge {:base base :into into-cx :count 0 :choices choices
-                   :reason :no-backend :labelings []} timing)
+                   :derived derived :reason :no-backend :labelings []} timing)
 
            ;; no answer set at all: the hard constraints admit no model.  Under `:all`
            ;; that falls out of enumerating nothing; under `:one` / `:sat` it has to be
@@ -789,13 +1056,13 @@
            ;; false — which is itself a world the constraints exclude.
            (and single? (empty? optima))
            (merge {:base base :into into-cx :count 0 :choices choices
-                   :reason :unsatisfiable :labelings []} timing)
+                   :derived derived :reason :unsatisfiable :labelings []} timing)
 
            ;; :one / :sat — return the single labeling, persist nothing.  `:best-effort?`
            ;; rides along when the solve was cancelled with a model in hand (unproven
            ;; optimal); absent otherwise, so a caller that ignores it sees no change.
            single?
-           (merge {:base base :into into-cx :count 1 :choices choices
+           (merge {:base base :into into-cx :count 1 :choices choices :derived derived
                    :labelings [(assoc (labeling (first optima)) :context nil)]}
                   (when best-effort? {:best-effort? true})
                   timing)
@@ -806,6 +1073,7 @@
              (clear-run! kb base into-cx)
              (let [ctxs (free-labeling-contexts kb into-cx (count optima))]
                (merge {:base base :into into-cx :count (count optima) :choices choices
+                       :derived derived
                        :labelings
                        (vec (map-indexed
                              (fn [i chosen]
@@ -858,21 +1126,17 @@
   and **one extent read per labeling** (`polarity-table`), with everything after in
   memory.  Its own previous classification is cleared first (replace-on-rerun,
   same discipline as `label`): a stale classification describes labelings that no
-  longer exist.  A `<Into>Class` holding *believed* content is one the sweep declines
-  to touch, so the run refuses (`:labeling-run-blocked`) rather than write a second
+  longer exist.  The classification carries an inert `(classificationOf <Into>Class
+  <Into>)` marker.  A `<Into>Class` holding *believed* content, or a non-empty one with
+  no marker, is one the sweep does not touch, so the run refuses
+  (`:labeling-run-blocked`, `class-blocked`) rather than write a second
   classification beside the first.  Returns
   `{:class-context :forced [..] :supportable [..] :excluded [..]}`, or `:count 0`
   `:reason :no-labelings` when `label` was never run for `Into`."
   [kb into-cx]
   (let [labelings (labeling-contexts kb into-cx)
         klass     (class-context into-cx)]
-    (when (believed-extent? kb klass)
-      (throw (ex-info (str "the classification under " klass " cannot be replaced — "
-                           klass " holds believed sentexes, and a classify sweep clears"
-                           " only the inert content it wrote.  Retract what is believed"
-                           " there, or classify into an Into other than " into-cx)
-                      {:type :labeling-run-blocked :into into-cx
-                       :believed [klass] :orphaned []})))
+    (refuse-blocked! into-cx nil (class-blocked kb into-cx))
     (if (empty? labelings)
       {:into into-cx :count 0 :reason :no-labelings
        :forced [] :supportable [] :excluded []}
@@ -886,6 +1150,7 @@
                       :else                     :supportable)))
             grouped (group-by classify-one heads)]
         (clear-context! kb klass nil)
+        (kb/find-or-create-sentex kb (class-marker into-cx) klass)
         (doseq [[k ss] grouped, s ss]
           (kb/find-or-create-sentex kb (list (symbol (name k)) s) klass))
         {:into into-cx :class-context klass :count (count labelings)

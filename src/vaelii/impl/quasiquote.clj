@@ -9,7 +9,7 @@
 
   The model is **skolemization**, not the `evaluate` prover: a `Quasiquote` is a
   term-constructor sitting in argument position (`(believes Tom (Quasiquote …))`), built
-  deterministically from a firing's bindings and reified before placement.  Reduction of a
+  deterministically from a firing's bindings and reified when the conclusion is placed.  Reduction of a
   ground `(Quasiquote T)` strips its `Unquote` holes to the expression `E`, then reifies
   `(Quote E)` — `Quote` being a reifiable **quoting** function, so `E` reifies to an opaque
   `nat/` constant that mention-opacity holds apart from its referents' merges.  Determinism
@@ -34,13 +34,14 @@
   — is not held opaque and folds the mention onto its referent's class."
   (:require [vaelii.impl.kb :as kb]
             [vaelii.impl.nat :as nat]
+            [vaelii.impl.provers :as provers]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.impl.wiring :as wiring]))
 
 (def quasiquote-function
-  "The reserved template-constructor functor, keyed on by name like `skolem/SkolemFn`."
+  "The reserved template-constructor functor, keyed on by name like `SkolemFn`."
   'Quasiquote)
 
 (def unquote-marker
@@ -84,9 +85,6 @@
 (defn quasiquote-form? [x]
   (and (seq? x) (= quasiquote-function (first x)) (= 2 (count x))))
 
-(defn- ground? [form]
-  (not-any? sx/variable? (tree-seq sequential? seq form)))
-
 (defn- strip-unquotes
   "The template body `t` with each `(Unquote v)` replaced by `v` — the constructed
   expression.  A `Quasiquote` nested inside is its own mention level and is left **whole**,
@@ -108,7 +106,7 @@
   direct open assert is a non-ground fact `wff` already refuses."
   [kb term reify-fn]
   (cond
-    (and (quasiquote-form? term) (ground? term))
+    (and (quasiquote-form? term) (sx/ground-term? term))
     (reify-fn (list quote-function (strip-unquotes (second term))))
     ;; a mention is opaque — a `quoting_function` application (`Quote`, or an open/nested
     ;; `Quasiquote`) or a quoting-predicate payload (`termOfUnit` / `rewriteOf`, the reified
@@ -125,27 +123,16 @@
     :else          term))
 
 (defn maybe-reduce
-  "Strip ground `Quasiquote`s to their `(Quote E)` mention form on the write and read
-  paths, and stop — the reify pass beside it (`maybe-reify-nats` on write, mints;
-  `maybe-reify-for-read` on read, dedups) reifies `(Quote E)`, so the two spellings of one
-  construction meet at one constant.  Structural: mints nothing itself.  Gated — a no-op
-  unless quasiquotation is declared."
+  "Strip ground `Quasiquote`s to their `(Quote E)` mention form on the write, derivation and
+  read paths, and stop — the reify pass beside it (`maybe-reify-nats` on write and
+  `chain/reify-conclusion` on a fired conclusion, both minting; `maybe-reify-for-read` on
+  read, deduping) reifies `(Quote E)`, so the spellings of one construction meet at one
+  constant.  Structural: mints nothing itself.  Gated — a no-op unless quasiquotation is
+  declared."
   [kb sentence]
   (if (any-quasiquote? kb)
     (reduce-term kb sentence identity)
     sentence))
-
-(defn reduce-in-conclusion
-  "Reduce ground `Quasiquote`s in a fired conclusion, minting `(Quote E)` to its constant
-  — the chain path (`chain/derive-conclusion`) places its conclusion directly and does not
-  run the write reify pass, so it reifies here, beside skolemization.  The mints run under
-  `*defer-settle?*` like a skolem's, so a mid-fixpoint construction does not settle belief.
-  Gated."
-  [kb raw]
-  (if (any-quasiquote? kb)
-    (binding [wiring/*defer-settle?* true]
-      (reduce-term kb raw #(nat/reify-or-mint-nat kb %)))
-    raw))
 
 (defn prepare-goal-for-read
   "Bring a `prove` / `query` / `ask` goal (a formula, or a vector of them = a conjunction)
@@ -161,7 +148,8 @@
   normalize theirs; stored facts are already in normal form (migration), so subgoals a
   rule expansion generates need no further rewriting — the same reliance `ask` makes.
   `rewrite-goal` exempts
-  `different`, whose arguments must stay un-rewritten to read class membership, and the
+  `different` and a positive equation, whose arguments must stay un-rewritten to read class
+  membership (`res/goal-held-as-spelled?`), and the
   congruence walk under it exempts a **mention** — a `quoting_function`'s arguments, and the
   proposition a `modal_predicate` attributes to its agent, which is normalized against the
   *agent's* partition where the projection reads it rather than against the asker's
@@ -176,3 +164,13 @@
   [kb goal context]
   (letfn [(prep [g] (kb/rewrite-goal kb (nat/maybe-reify-for-read kb (maybe-reduce kb g)) context))]
     (if (vector? goal) (mapv prep goal) (prep goal))))
+
+(defn ask-prepared
+  "Answer `goal` through the prover registry in the one context `ctx`, the goal prepared
+  as every read prepares it (`prepare-goal-for-read`).  This is `vaelii.core/ask`'s
+  per-context step, which `ask` and `ask?` call inside `read-in-context`, and the whole of
+  the read the `fluent` and `predall` audits run below `vaelii.core`: they pass a concrete
+  context, expand no rule, and the `genlCx` ancestor scoping is applied in the matching
+  layer below."
+  [kb goal ctx]
+  (provers/ask kb (prepare-goal-for-read kb goal ctx) ctx))

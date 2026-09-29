@@ -63,8 +63,8 @@
 
 (tu/deftest-kb one-arrangement-of-a-consistent-map-can-be-written-down
   ;; A network says what is possible; a scenario picks one arrangement that satisfies
-  ;; all of it at once.  Extraction is deterministic — every tie breaks on content —
-  ;; so the same map yields the same arrangement however the facts arrived.
+  ;; all of it at once.  This test reads it twice; that the arrangement does not depend
+  ;; on arrival order is `scenario_test/five-nodes-in-four-orders-give-one-enumeration`.
   (tu/with-terms [Cup Box Room]
     (state! kb (list 'nonTangentialProperPart Cup Box)
             (list 'nonTangentialProperPart Box Room))
@@ -163,7 +163,7 @@
   ;; Qualitative distance composes by the triangle inequality over class bounds, so
   ;; the answer is a *range* of classes rather than one: two very-close hops leave the
   ;; ends anywhere from co-located to close.  That the composition does not collapse to
-  ;; one class is the honest answer, and the derived `withinNearDistanceOf` is what a
+  ;; one class is the correct answer, and the derived `withinNearDistanceOf` is what a
   ;; caller usually wants from it.
   (tu/with-terms [Nest Branch Trunk]
     (state! kb (list 'veryCloseTo Nest Branch) (list 'veryCloseTo Branch Trunk))

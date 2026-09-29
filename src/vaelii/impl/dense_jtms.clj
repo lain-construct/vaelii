@@ -97,6 +97,7 @@
   churn past 2^31 pins `{:tms :reference}`, whose `Long`-keyed persistent maps have no
   such ceiling.  This is measured in density.md."
   (:require [taoensso.nippy :as nippy]
+            [vaelii.impl.io.thaw :as safe]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.jtms-protocol :refer [Tms]]
             [vaelii.impl.observe :as observe]
@@ -106,6 +107,7 @@
   (:import [it.unimi.dsi.fastutil.ints Int2IntOpenHashMap Int2ObjectOpenHashMap]
            [java.io DataInput DataOutput]
            [java.util Arrays]
+           [java.util.concurrent.atomic AtomicReference]
            [java.util.concurrent.locks StampedLock]
            [org.roaringbitmap RoaringBitmap]
            [vaelii.impl.types.tms HeapColumns TmsColumns]))
@@ -183,22 +185,16 @@
                            (doto (Int2IntOpenHashMap.) (.defaultReturnValue (int no-informant)))
                            (Int2ObjectOpenHashMap.)))
 
-(defn- ints-set
-  "An ascending `int[]` of ids as a Clojure set of Longs, the engine's handle type."
-  [^ints a]
-  (loop [i 0, s (transient #{})]
-    (if (< i (alength a)) (recur (inc i) (conj! s (long (aget a i)))) (persistent! s))))
-
 (defn- supports-set
   "The justification ids concluding `d`, as a set — empty for an unknown datum and for
   anything that cannot name one, nil included, as the reference's `get-in … #{}` is."
   [^TmsColumns cols d]
-  (if (integer? d) (ints-set (.supportsOf cols (int d))) #{}))
+  (if (integer? d) (postings/ints->set (.supportsOf cols (int d))) #{}))
 
 (defn- dependents-set
   "The justification ids citing `d`, as a set — total, as `supports-set` is."
   [^TmsColumns cols d]
-  (if (integer? d) (ints-set (.dependentsOf cols (int d))) #{}))
+  (if (integer? d) (postings/ints->set (.dependentsOf cols (int d))) #{}))
 
 ;; ---- reader/writer coordination -----------------------------------------
 ;;
@@ -242,7 +238,7 @@
 
 ;; The deftype's methods call the operations below, and those need the type itself for
 ;; their hints — a genuine in-file cycle, so the entry points are declared ahead of it.
-(declare add-just! clear-defeats! defeat! ensure! ensure-noop? just-record premise! relabel-all! restrength-informant! retract-datum! set-blocked! snapshot suspend-premise! sweep-from!)
+(declare add-just! clear-defeats! defeat! drop-just! ensure! ensure-noop? held-in held-in? just-record open-hold! premise! reader-hold relabel-all! restrength-informant! retract-datum! set-blocked! snapshot suspend-premise! sweep-from!)
 
 (deftype DenseTms [^StampedLock lock
                    ^RoaringBitmap nodes
@@ -263,7 +259,13 @@
                    ^RoaringBitmap touched-in
                    ^RoaringBitmap touched-new
                    ^RoaringBitmap mono
-                   ^clojure.lang.Atom superseded]
+                   ^clojure.lang.Atom superseded
+                   ;; nil, or the open hold: `observe/new-hold`'s map plus `:touched`,
+                   ;; `:in` and `:mono` bitmaps holding the labels as they were before the
+                   ;; hold's first relabel moved them, `:defeated` and `:blocked` holding
+                   ;; a copy of either set taken before the hold first changed it (nil
+                   ;; until then), and `:superseded`, the supersession map it began with
+                   ^AtomicReference hold]
   ;; `@tms` yields the canonical map the reference stores natively — materialized, so
   ;; this is a testing and debugging read, never an engine path.  It takes the shared read
   ;; stamp `-snapshot` takes: the map is built field by field, and a writer that sweeps a
@@ -272,21 +274,33 @@
   clojure.lang.IDeref
   (deref [this] (with-read lock (snapshot this)))
   Tms
-  (-believed? [_ datum]
-    (opt-read lock (and (rb-has? in datum) (not (contains? @superseded datum)))))
-  (-believed [_] (with-read lock (seq (remove @superseded (rb-longs in)))))
+  ;; The reads that answer from an open hold decide so inside the stamp they read under
+  ;; (`reader-hold`), so a hold opening or a relabel landing between the decision and the
+  ;; read fails the validation and the read is redone.
+  (-believed? [this datum]
+    (opt-read lock
+              (if-let [h (reader-hold this)]
+                (and (held-in? this h datum) (not (contains? (:superseded h) datum)))
+                (and (rb-has? in datum) (not (contains? @superseded datum))))))
+  (-believed [this]
+    (with-read lock
+      (if-let [h (reader-hold this)]
+        (seq (remove (:superseded h) (rb-longs (held-in this h))))
+        (seq (remove @superseded (rb-longs in))))))
   (-node? [_ datum] (opt-read lock (rb-has? nodes datum)))
   (-datums [_] (with-read lock (seq (rb-longs nodes))))
   ;; O(1)/early-terminating boolean checks — a poll on the render path must neither
   ;; drain the bitmap into boxed Longs (as `(first (-datums …))` would) nor walk it
   ;; while a writer rewrites it in place.
   (-any-node? [_] (opt-read lock (not (.isEmpty ^RoaringBitmap nodes))))
-  (-any-belief? [_]
+  (-any-belief? [this]
     (with-read lock
-      (and (not (.isEmpty ^RoaringBitmap in))
-           (let [sup @superseded]
+      (let [h   (reader-hold this)
+            ^RoaringBitmap bits (if h (held-in this h) in)
+            sup (if h (:superseded h) @superseded)]
+        (and (not (.isEmpty bits))
              (or (empty? sup)
-                 (let [it (.getIntIterator ^RoaringBitmap in)]
+                 (let [it (.getIntIterator bits)]
                    (loop []
                      (cond
                        (not (.hasNext it))               false
@@ -298,14 +312,26 @@
     (opt-read lock
               (when (rb-has? premises datum)
                 (if (rb-has? mono-premises datum) :monotonic :default))))
-  (-defeat-class [_ datum]
+  (-defeat-class [this datum]
     (opt-read lock
-              (when (rb-has? in datum) (if (rb-has? mono datum) :monotonic :default))))
-  (-defeated [_] (with-read lock (rb-set defeated)))
-  (-blocked [_] (with-read lock (rb-set blocked)))
+              (let [h (reader-hold this)]
+                (if (and h (rb-has? (:touched h) datum))
+                  (when (rb-has? (:in h) datum)
+                    (if (rb-has? (:mono h) datum) :monotonic :default))
+                  (when (rb-has? in datum) (if (rb-has? mono datum) :monotonic :default))))))
+  (-defeated [this]
+    (with-read lock
+      (let [^AtomicReference r (some-> (reader-hold this) :defeated)]
+        (rb-set (or (when r (.get r)) defeated)))))
+  (-blocked [this]
+    (with-read lock
+      (let [^AtomicReference r (some-> (reader-hold this) :blocked)]
+        (rb-set (or (when r (.get r)) blocked)))))
   ;; the supersession map is an immutable value in an atom, always consistent on its
-  ;; own — no stamp needed, and it is mutated only under the write stamp anyway
-  (-superseded [_] @superseded)
+  ;; own, and mutated only under the write stamp — so the stamp here is for the decision
+  ;; between it and the map an open hold keeps
+  (-superseded [this]
+    (opt-read lock (if-let [h (reader-hold this)] (:superseded h) @superseded)))
   (-touched [_] (with-read lock (rb-set touched)))
   (-touched-in [_] (with-read lock (rb-set touched-in)))
   (-touched-new [_] (with-read lock (rb-set touched-new)))
@@ -335,11 +361,72 @@
   (-defeat [this datums] (with-write lock (defeat! this datums)) nil)
   (-clear-defeats [this] (with-write lock (clear-defeats! this)) nil)
   (-set-blocked [this jids] (with-write lock (set-blocked! this jids)) nil)
-  (-update-blocked [this f] (with-write lock (set-blocked! this (f (rb-set blocked)))) nil)
-  (-supersede [_ m] (with-write lock (reset! superseded (into {} m))) nil)
+  (-supersede [_ m] (with-write lock (reset! superseded (if (map? m) m (into {} m)))) nil)
   (-retract [this datum] (with-write lock (retract-datum! this datum)))
   (-sweep [this seeds] (with-write lock (sweep-from! this seeds)))
-  (-snapshot [this] (with-read lock (snapshot this))))
+  (-drop-justification [this jid] (with-write lock (drop-just! this jid)))
+  (-snapshot [this] (with-read lock (snapshot this)))
+  (-hold [this h] (with-write lock (open-hold! this h)))
+  (-release [_ h] (with-write lock (when (identical? h (:hold (.get hold))) (.set hold nil))) nil)
+  (-held [_] (:hold (.get hold))))
+
+;; ---- the hold ------------------------------------------------------------
+;;
+;; `vaelii.impl.jtms-protocol`'s `-hold`: a settle opens one on its network, and until it
+;; closes, a thread other than its owner reads the labels as they stood when it opened.
+;; The first relabel to move a label records its value before the move (`relabel-region!`),
+;; and the defeated and blocked sets are copied before their first change, so the cost is
+;; the region each relabel already walks plus one copy of each small set.
+
+(defn- open-hold!
+  "Open hold `h` on `this`, whose write stamp the caller holds: true, or false when a hold
+  is open already."
+  [^DenseTms this h]
+  (let [^AtomicReference r (.-hold this)]
+    (if (some? (.get r))
+      false
+      (do (.set r {:hold       h
+                   :touched    (rb)
+                   :in         (rb)
+                   :mono       (rb)
+                   :defeated   (AtomicReference. nil)
+                   :blocked    (AtomicReference. nil)
+                   :superseded @^clojure.lang.Atom (.-superseded this)})
+          true))))
+
+(defn- reader-hold
+  "The open hold, when the current thread reads the labels it keeps (not its owner, and
+  `observe/reads-held?`), else nil — one field read when no hold is open.  Called inside
+  the stamp the read takes: the hold is opened and released under the write stamp, and
+  registered after it opens and unregistered before it is released, so a validated read
+  that finds it unregistered reads labels no settle was deciding."
+  [^DenseTms this]
+  (let [st (.get ^AtomicReference (.-hold this))]
+    (when (and st
+               (not (identical? (:owner (:hold st)) (Thread/currentThread)))
+               (observe/reads-held? (:hold st)))
+      st)))
+
+(defn- held-in?
+  "Was `d` IN when hold `st` opened?"
+  [^DenseTms this st d]
+  (if (rb-has? (:touched st) d)
+    (rb-has? (:in st) d)
+    (rb-has? ^RoaringBitmap (.-in this) d)))
+
+(defn- held-in
+  "The IN set as it stood when hold `st` opened, as a new bitmap."
+  ^RoaringBitmap [^DenseTms this st]
+  (doto (RoaringBitmap/andNot ^RoaringBitmap (.-in this) ^RoaringBitmap (:touched st))
+    (.or ^RoaringBitmap (:in st))))
+
+(defn- keep-held!
+  "Copy `live`, the network's `k` set, into the open hold before its first change, so a
+  held reader reads the set as it stood when the hold opened."
+  [^DenseTms this k ^RoaringBitmap live]
+  (when-let [st (.get ^AtomicReference (.-hold this))]
+    (let [^AtomicReference r (get st k)]
+      (when (nil? (.get r)) (.set r (.clone live))))))
 
 ;; ---- reading a justification out of the columns --------------------------
 
@@ -558,6 +645,14 @@
         ;; labels in place and the prior ones are then gone.  See `jtms/touched-in`.
         fresh    (RoaringBitmap/andNot region ^RoaringBitmap (.-touched this))
         fresh-in (RoaringBitmap/and fresh in)]
+    ;; ...and the same record for an open hold, whose readers read the labels as they
+    ;; were before its first relabel moved them — read FIRST for the same reason
+    (when-let [st (.get ^AtomicReference (.-hold this))]
+      (let [^RoaringBitmap ht (:touched st)
+            f (RoaringBitmap/andNot region ht)]
+        (.or ^RoaringBitmap (:in st) (RoaringBitmap/and f in))
+        (.or ^RoaringBitmap (:mono st) (RoaringBitmap/and f mono))
+        (.or ht f)))
     ;; Clearing the region out of each live bitmap leaves exactly the boundary, which is
     ;; what each fixpoint starts from and holds fixed.  In place: the static `andNot`
     ;; copies every container of a bitmap the size of the believed set, where the mutating
@@ -620,11 +715,45 @@
        (rb-has? ^RoaringBitmap (.-nodes this) datum)
        (<= (long (.depthOf ^TmsColumns (.-cols this) (int datum))) (long depth))))
 
+(defn- consequence-or-nil
+  "`j-consequence`, nil for an id no longer stored — the reading `jtms/lowered-depths` and
+  `jtms/region-depths` take."
+  [^DenseTms this jid]
+  (let [c (j-consequence this jid)] (when-not (neg? c) c)))
+
+(defn- lower-depth!
+  "Lower `d` to `depth` and push the fall down its consequences (`jtms/lowered-depths`)."
+  [^DenseTms this d depth]
+  (let [cols ^TmsColumns (.-cols this)]
+    (doseq [[x v] (jtms/lowered-depths d depth
+                                       #(dependents-of this %)
+                                       #(j-antecedents this %)
+                                       #(consequence-or-nil this %)
+                                       #(.depthOf cols (int %)))]
+      (.setDepth cols (int x) (int v)))))
+
+(defn- redepth!
+  "Re-solve the depths over the consequence closure of those `seeds` still in the graph
+  (`jtms/redepth*`'s dense half)."
+  [^DenseTms this seeds]
+  (let [live (filterv #(rb-has? ^RoaringBitmap (.-nodes this) %) seeds)]
+    (when (seq live)
+      (let [cols ^TmsColumns (.-cols this)]
+        (doseq [[d v] (jtms/region-depths (rb-longs (affected-region this live))
+                                          #(rb-has? ^RoaringBitmap (.-premises this) %)
+                                          #(supports-of this %)
+                                          #(dependents-of this %)
+                                          #(j-antecedents this %)
+                                          #(consequence-or-nil this %)
+                                          #(.depthOf cols (int %)))]
+          (.setDepth cols (int d) (int v)))))))
+
 (defn- ensure! [^DenseTms this datum depth]
   (let [d    (int (check-handle! datum "node handle"))
         cols ^TmsColumns (.-cols this)]
     (if (rb-has? ^RoaringBitmap (.-nodes this) d)
-      (.setDepth cols d (int (min (.depthOf cols d) (int depth))))
+      (when (< (long depth) (long (.depthOf cols d)))
+        (lower-depth! this d depth))
       ;; the window's record of what it created, taken here because this is the only
       ;; line that knows — see `jtms/touched-new`
       (do (rb-add! ^RoaringBitmap (.-nodes this) d)
@@ -647,7 +776,8 @@
   (when (rb-has? ^RoaringBitmap (.-nodes this) datum)
     (rb-del! ^RoaringBitmap (.-premises this) datum)
     (rb-del! ^RoaringBitmap (.-mono-premises this) datum)
-    (relabel-region! this (affected-region this [datum])))
+    (relabel-region! this (affected-region this [datum]))
+    (redepth! this [datum]))
   nil)
 
 (defn- add-just!
@@ -729,6 +859,7 @@
 
 (defn- defeat! [^DenseTms this datums]
   (let [d ^RoaringBitmap (.-defeated this)]
+    (keep-held! this :defeated d)
     (doseq [x datums] (rb-add! d x))
     (resettle! this datums)))
 
@@ -738,6 +869,7 @@
   [^DenseTms this]
   (let [d   ^RoaringBitmap (.-defeated this)
         was (rb-longs d)]
+    (keep-held! this :defeated d)
     (.clear d)
     (resettle! this was)))
 
@@ -750,6 +882,7 @@
         blocked ^RoaringBitmap (.-blocked this)
         changed (RoaringBitmap/xor want blocked)]
     (when-not (.isEmpty changed)
+      (keep-held! this :blocked blocked)
       (let [seeds (into [] (keep #(let [c (j-consequence this %)] (when-not (neg? c) c)))
                         (rb-longs changed))]
         (doto blocked (.clear) (.or want))
@@ -765,16 +898,36 @@
   justification whose exception no longer holds.  It lands unblocked, and a caller that
   wants either states the whole answer again."
   [^DenseTms this]
+  (keep-held! this :blocked (.-blocked this))
   (.clear ^RoaringBitmap (.-blocked this))
   (reset! ^clojure.lang.Atom (.-superseded this) {})
   (relabel-region! this (.clone ^RoaringBitmap (.-nodes this))))
 
 ;; ---- retraction ---------------------------------------------------------
 
+(defn- unlink-just!
+  "Take justification `jid` out of the columns: its live bit, its informant and class
+  slots, its consequence's support list and every dependent list it sits in.  No
+  relabel.  Reads the adjacency before the columns drop it."
+  [^DenseTms this jid]
+  (let [antes (j-antecedents this jid)
+        inf   (j-informant-int this jid)
+        c     (j-consequence this jid)
+        cols  ^TmsColumns (.-cols this)
+        k     (int jid)]
+    (rb-del! ^RoaringBitmap (.-jids this) k)
+    (.dropJustification cols k)
+    (.remove ^Int2ObjectOpenHashMap (.-j-inf-sym this) k)
+    (rb-del! ^RoaringBitmap (.-j-mono this) k)
+    (.removeSupport cols (int c) k)
+    (dotimes [i (alength antes)] (.removeDependent cols (aget antes i) k))
+    (when-not (== inf no-informant) (.removeDependent cols (int inf) k))))
+
 (defn- sweep!
   "Collect the datums in `suspects` that are no longer *structurally* derivable and are
   not premises, tear them and every justification touching them out of the graph, and
-  return the removals for the caller to apply to its own stores.
+  return the removals for the caller to apply to its own stores.  A survivor that lost a
+  justification, and each of `raised`, has its depth re-solved (`redepth!`).
 
   Groundability ignores defeats, so a defeated node with a surviving derivation is kept
   for revival, while one whose only support was just torn down is swept.  Blocking, by
@@ -785,7 +938,7 @@
   adjacency, never by scanning `jids` — `exceptWhen` blocks on ordinary fact arrival,
   so sweeping is routine, and a sweep that scanned the graph would make a run of them
   quadratic."
-  [^DenseTms this ^RoaringBitmap suspects]
+  [^DenseTms this ^RoaringBitmap suspects raised]
   (let [ground ^RoaringBitmap (.-groundable this)
         prem   ^RoaringBitmap (.-premises this)
         live   ^RoaringBitmap (.-jids this)
@@ -799,19 +952,10 @@
                         dead)
         ;; read the informants BEFORE the columns are unlinked — a premise
         ;; justification is the caller's own and is not ours to report as removed
-        removed-justs (into [] (remove #(= :premise (j-informant this %))) dead-jids)]
-    (doseq [jid dead-jids]
-      (let [antes (j-antecedents this jid)
-            inf   (j-informant-int this jid)
-            c     (j-consequence this jid)
-            k     (int jid)]
-        (rb-del! live k)
-        (.dropJustification cols k)
-        (.remove ^Int2ObjectOpenHashMap (.-j-inf-sym this) k)
-        (rb-del! ^RoaringBitmap (.-j-mono this) k)
-        (.removeSupport cols (int c) k)
-        (dotimes [i (alength antes)] (.removeDependent cols (aget antes i) k))
-        (when-not (== inf no-informant) (.removeDependent cols (int inf) k))))
+        removed-justs (into [] (remove #(= :premise (j-informant this %))) dead-jids)
+        ;; the survivors among these lost a justification
+        lost          (into (vec raised) (keep #(consequence-or-nil this %)) dead-jids)]
+    (doseq [jid dead-jids] (unlink-just! this jid))
     (doseq [d dead]
       (rb-del! ^RoaringBitmap (.-nodes this) d)
       (rb-del! ^RoaringBitmap (.-premises this) d)
@@ -824,10 +968,12 @@
       (.dropNode cols (int d)))
     ;; a block names a justification and a supersession names a datum, so a swept one
     ;; must lose both — an entry left behind would be reapplied to whatever reuses the id
+    (when (seq dead-jids) (keep-held! this :blocked (.-blocked this)))
     (doseq [jid dead-jids] (rb-del! ^RoaringBitmap (.-blocked this) jid))
     ;; one transient pass rather than `apply dissoc`, whose per-key HAMT path copy `dead`
     ;; — a whole swept region — would pay for on every `exceptWhen` block (`jtms/dissoc-all`)
     (swap! ^clojure.lang.Atom (.-superseded this) jtms/dissoc-all dead)
+    (redepth! this lost)
     {:removed-sentexes dead :removed-justifications removed-justs}))
 
 (defn- retract-datum!
@@ -845,10 +991,24 @@
         ;; closure is both the suspect set and the region to relabel
         (let [suspects (affected-region this [datum])]
           (relabel-region! this suspects)
-          (sweep! this suspects)))))
+          (sweep! this suspects [datum])))))
 
 (defn- sweep-from! [^DenseTms this seeds]
-  (sweep! this (affected-region this seeds)))
+  (sweep! this (affected-region this seeds) nil))
+
+(defn- drop-just!
+  "`jtms/drop-justification!`'s dense half: unlink `jid`, unblock it, relabel its
+  consequence's region and sweep it.  An unknown `jid` is a no-op."
+  [^DenseTms this jid]
+  (if-not (rb-has? ^RoaringBitmap (.-jids this) jid)
+    {:removed-sentexes [] :removed-justifications []}
+    (let [c (j-consequence this jid)]
+      (unlink-just! this jid)
+      (keep-held! this :blocked (.-blocked this))
+      (rb-del! ^RoaringBitmap (.-blocked this) jid)
+      (let [suspects (affected-region this [c])]
+        (relabel-region! this suspects)
+        (sweep! this suspects [c])))))
 
 ;; ---- the byte image -------------------------------------------------------
 ;;
@@ -950,10 +1110,13 @@
     (.writeInt o (alength b))
     (.write o b)))
 
-(defn- read-data [^DataInput i]
+(defn- read-data
+  "A `write-data!` frame, thawed behind the class-name check: an image is a file, and a
+  file is untrusted input (`vaelii.impl.io.thaw`)."
+  [^DataInput i]
   (let [b (byte-array (.readInt i))]
     (.readFully i b)
-    (nippy/thaw b)))
+    (safe/thaw b)))
 
 (defn- heap-cols
   "`t`'s columns as `HeapColumns`, which are the only columns the byte image writes and
@@ -1112,4 +1275,5 @@
               (rb) (rb) (rb) (rb) (rb) (rb) (rb) (rb)          ; in groundable defeated blocked
                                                                ; touched touched-in touched-new
                                                                ; mono
-              (atom {})))
+              (atom {})
+              (AtomicReference. nil)))

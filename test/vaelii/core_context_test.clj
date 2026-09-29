@@ -58,7 +58,7 @@
 
 (tu/deftest-kb remaining-argument-metadata-accepts-relations
   ;; A temporary type rather than `integer`, because the declarations are the subject and
-  ;; the type is incidental.  Under `VAELII_PRUNE_SUBSUMED_MINTS=1` a `quotedArg` written
+  ;; the type is incidental.  With subsumed mints pruned, the default, a `quotedArg` written
   ;; of `integer` gives it a type more specific than `thing`, which withdraws CxCore's own
   ;; minted `(thing integer)`; the re-mint after the teardown allocates a fresh handle, so
   ;; the baseline would come back saying the same thing under a different one, and

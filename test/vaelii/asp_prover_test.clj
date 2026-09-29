@@ -199,6 +199,41 @@
           (is (v/ask? kb (list 'bravely    quaker-form) 'CxUniverse))
           (is (v/ask? kb (list 'cautiously quaker-form) 'CxUniverse)))))))
 
+(deftest the-backend-classifies-the-asked-datums-component-once-per-write
+  ;; One program over independent dilemmas has the product of their optima, so the
+  ;; backend classifies only the member component the asked datum is in, and a second ask
+  ;; with no write between reads the first one's answer (docs/labeling.md).
+  (when asp?
+    (tu/with-neutral-kb [kb tu/fresh]
+      (v/add-reasoner kb :brave-cautious)
+      (let [{:keys [pacifist nixon]} (first (doall (repeatedly 3 #(nixon-diamond kb))))
+            P        (list pacifist nixon)
+            sizes    (atom [])
+            classify label/classify-program]
+        (with-redefs [label/classify-program
+                      (fn [program]
+                        (swap! sizes conj (count (:assumptions program)))
+                        (classify program))]
+          (is (v/ask? kb (list 'bravely P) 'CxUniverse))
+          (is (not (v/ask? kb (list 'cautiously P) 'CxUniverse))))
+        (is (= [2] @sizes))))))
+
+(deftest the-solve-free-bracket-runs-once-per-write
+  (with-redefs [solver/available? (constantly false)]
+    (tu/with-neutral-kb [kb tu/fresh]
+      (v/add-reasoner kb :brave-cautious)
+      (let [{:keys [pacifist nixon]} (nixon-diamond kb)
+            P     (list pacifist nixon)
+            runs  (atom 0)
+            local label/classify-local]
+        (with-redefs [label/classify-local (fn [k] (swap! runs inc) (local k))]
+          (is (v/ask? kb (list 'bravely P) 'CxUniverse))
+          (is (not (v/ask? kb (list 'cautiously P) 'CxUniverse)))
+          (is (= 1 @runs) "two asks, no write between")
+          (v/assert kb (list (tu/tmp-type) (tu/tmp-ind)) 'CxUniverse)
+          (is (v/ask? kb (list 'bravely P) 'CxUniverse))
+          (is (= 2 @runs) "a write moves the change clock"))))))
+
 (deftest a-both-sided-conclusion-is-an-ordinary-believed-sentex
   ;; The practical query, without the modal: a conclusion drawn from both sides of a
   ;; dilemma is believed and explained like any other. `ask` returns it, and `why` gives a

@@ -25,6 +25,7 @@
 #
 # Exit: 0 whatever it finds.  A tree with no artifacts to read is a new
 # checkout, not a failure.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -233,3 +234,4 @@ else
     "$added" "$RUNLOG_FILE" "$skipped"
 fi
 exit 0
+}

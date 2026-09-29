@@ -151,6 +151,33 @@
             "the premise is gone, so the released exception derives nothing")
         (is (zero? (recorded kb)) "and the dead entry is dropped")))))
 
+(deftest a-release-that-places-an-exception-blocks-the-next-release
+  (testing "two refusals freed by one retraction, the first one's conclusion excepting the second"
+    ;; Both firings are refused by `(rskip RM1)` and both are free once it goes.  Placing
+    ;; the first concludes `(cseen RM1)`, which the second rule is excepted by, so the
+    ;; second is re-decided as blocked at its own release.  The order that never refused
+    ;; either is the oracle: `cseen` holds and `dseen` does not.
+    (let [rule    (fn [q head]
+                    (list 'exceptWhen q (list 'set/defaultRule
+                                              (list 'set/forwardRule
+                                                    (list 'implies '(and (rmark ?x)) head)))))
+          rules!  (fn [kb]
+                    (v/assert kb (rule '(rskip ?x) '(cseen ?x)) ctx)
+                    (v/assert kb (rule '(rskip ?x) '(dseen ?x)) ctx)
+                    (v/assert kb (rule '(cseen ?x) '(dseen ?x)) ctx))
+          reading (fn [kb] [(v/ask? kb '(cseen RM1) ctx) (v/ask? kb '(dseen RM1) ctx)])]
+      (tu/with-cleared-kb [kb tu/isolated-fresh]
+        (rules! kb)
+        (v/assert kb '(rskip RM1) ctx)
+        (v/assert kb '(rmark RM1) ctx)
+        (is (= 2 (recorded kb)))
+        (v/retract! kb (v/handle-of kb '(rskip RM1) ctx))
+        (is (= [true false] (reading kb))))
+      (tu/with-cleared-kb [kb tu/isolated-fresh]
+        (rules! kb)
+        (v/assert kb '(rmark RM1) ctx)
+        (is (= [true false] (reading kb)) "the order with no refusal agrees")))))
+
 (deftest a-refusal-remembers-the-run-s-depth-bound-not-the-default
   (testing "the bound a release honours travels on the entry, set to the refusing run's"
     ;; `release-refusal!` re-derives in a settle with no run config in scope, so the

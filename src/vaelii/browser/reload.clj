@@ -28,8 +28,8 @@
   listeners, the thaw guard's installed readers.  Loading into the existing namespace
   keeps a `defonce`'s value, as `require :reload` does.
 
-  **Only loaded namespaces reload.**  A dependent this process never loaded, such as an
-  LLM provider the browser has not reached, stays unloaded: loading it would run code the
+  **Only loaded namespaces reload.**  A dependent this process never loaded stays
+  unloaded: loading it would run code the
   running server does not use.
 
   tools.namespace ships in the `:dev` profile only, so its dependency graph and ns-form

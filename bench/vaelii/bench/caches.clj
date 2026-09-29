@@ -9,20 +9,19 @@
   principle be evicted, and they are not equally interesting.  Every one of them except
   two is bounded by a *fixed cap* — the hot-record LRU at `vaelii.disk.cache`, `observe`
   at 256, the literal cache at 4,096, the STP closure at 256, the QCN passes at 256, its
-  decode table at 8,192, its compiled algebras at 64, and the taxonomy's *scoped* closure
-  level at `*scoped-memo-budget*`.  A fixed cap makes the resident bytes a function of the
+  decode table at 8,192, its compiled algebras at 64, and the taxonomy's closures at
+  `closure-memo-limit` terms.  A fixed cap makes the resident bytes a function of the
   cap and the entry size, never of the corpus, so it is computable without a corpus at
   all.  The `memoize`d closures are not caches in this sense either: every call site
   builds its memo inside a function body and drops it on return, so nothing survives the
   call that made it.
 
-  That leaves exactly two structures whose population grows with what is loaded, and they
-  are what this harness measures:
+  That leaves one structure whose population grows with what is loaded, and one this
+  harness measures beside it because its *bytes* depend on the hierarchy:
 
-  * `taxonomy` `:closure-memo`, **unscoped** level — one reach set per `[relation
-    direction node]` ever read, invalidated by a `:gen` bump rather than by size.  Its
-    population is bounded by the vocabulary and its *bytes* by the structure of the
-    hierarchy, since a memo of sets retains the sets.
+  * `taxonomy` `:closure-lru` — the reach sets read, global and scoped, weighed by the
+    terms they hold and bounded by weight, so its bytes are a function of the bound and
+    of which closures the workload keeps warm.
   * `taxonomy` `:vis-index` — one interned visible-context set per `[relation context]`,
     so it is bounded by the context census rather than by the read count.
 
@@ -50,12 +49,13 @@
   vector on the way past and logs the run."
   (:require [vaelii.bench.postings :as postings]
             [vaelii.core :as v]
+            [vaelii.host.starter :as starter]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.foreign :as foreign]
             [vaelii.impl.literal-cache :as lc]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as rules]
-            [vaelii.host.starter :as starter]
             [vaelii.impl.types.reasoning :as reasoning]))
 
 ;; ---- reporting ----------------------------------------------------------
@@ -88,23 +88,15 @@
 
 ;; ---- the two structures whose population is not capped -------------------
 
-(defn- closure-memo [kb] @(:closure-memo @(reasoning/taxonomy kb)))
+(defn- closure-lru  [kb] (:closure-lru @(reasoning/taxonomy kb)))
+(defn- closure-memo [kb] (:map (closure-lru kb)))
 (defn- vis-index    [kb] @(:vis-index    @(reasoning/taxonomy kb)))
 
 (defn- memo-census
-  "Entry counts inside the closure memo, split by level.  The unscoped level is the one
-  with no cap; the scoped level is capped per relation by `*scoped-memo-budget*`."
+  "The closure cache's population: how many closures it holds and the terms they weigh."
   [kb]
-  (let [m (closure-memo kb)]
-    (reduce (fn [acc [rel e]]
-              (-> acc
-                  (update :relations conj rel)
-                  (update :unscoped + (count (:fwd e)) (count (:rev e)))
-                  (update :vissets + (count (:scoped e)))
-                  (update :scoped + (reduce + 0 (for [[_ lv] (:scoped e)]
-                                                  (+ (count (:fwd lv)) (count (:rev lv))))))))
-            {:relations #{} :unscoped 0 :scoped 0 :vissets 0}
-            m)))
+  (let [lru (closure-lru kb)]
+    {:entries (caches/lru-size lru) :weight (caches/lru-weight lru)}))
 
 (defn- cache-sizes
   "Retained bytes per uncapped structure, plus the capped ones for scale."
@@ -120,9 +112,8 @@
 (defn- report-sizes [kb label]
   (let [c (cache-sizes kb)
         n (memo-census kb)]
-    (println (format "  %-22s closure-memo %8.2f MB (%,d unscoped / %,d scoped over %,d vissets, %d relations)"
-                     label (mb (:closure-memo c)) (:unscoped n) (:scoped n)
-                     (:vissets n) (count (:relations n))))
+    (println (format "  %-22s closure-lru  %8.2f MB (%,d closures, %,d terms)"
+                     label (mb (:closure-memo c)) (:entries n) (:weight n)))
     (println (format "  %-22s vis-index    %8.2f MB   literal-cache %,d entries   live heap %8.2f MB"
                      "" (mb (:vis-index c)) (:literal c) (mb (:heap-live c))))
     (assoc c :census n)))
@@ -139,22 +130,21 @@
     (v/specs kb t ctx)))
 
 (defn- growth-probe
-  "Sample the memo's population and retained bytes over a lengthening query stream.  A
-  level bounded by the vocabulary plateaus once the vocabulary is covered; a level
-  bounded by nothing keeps climbing as the same terms are re-read from more contexts."
+  "Sample the closure cache's population and retained bytes over a lengthening query
+  stream.  A cache bounded by weight plateaus at its bound however many contexts re-read
+  the same terms."
   [kb terms ctxs rounds]
   (banner "ops-5 reading 2 — growth over a query stream")
   (println (format "  %,d terms × %,d contexts × %d rounds" (count terms) (count ctxs) rounds))
   (println)
-  (println (format "  %-8s %-14s %-14s %-14s %s" "round" "unscoped" "scoped" "vissets" "retained MB"))
+  (println (format "  %-8s %-14s %-14s %s" "round" "closures" "terms" "retained MB"))
   (doseq [r (range 1 (inc rounds))]
     (doseq [ctx ctxs] (taxonomy-sweep! kb terms ctx))
     (let [n (memo-census kb)
           _ (settle-heap!)
           b (postings/retained [(closure-memo kb)])]
-      (println (format "  %-8d %-14s %-14s %-14s %.2f"
-                       r (format "%,d" (:unscoped n)) (format "%,d" (:scoped n))
-                       (format "%,d" (:vissets n)) (mb b))))))
+      (println (format "  %-8d %-14s %-14s %.2f"
+                       r (format "%,d" (:entries n)) (format "%,d" (:weight n)) (mb b))))))
 
 ;; ---- reading 3: what a full clear costs to rebuild -----------------------
 
@@ -167,7 +157,7 @@
   (let [t0 (System/nanoTime)
         _  (taxonomy-sweep! kb terms ctx)
         warm (ms t0)
-        _  (reset! (:closure-memo @(reasoning/taxonomy kb)) {})
+        _  (caches/lru-clear! (closure-lru kb))
         t1 (System/nanoTime)
         _  (taxonomy-sweep! kb terms ctx)
         cold (ms t1)]
@@ -327,7 +317,8 @@
 
 (defn- chain-depth
   "Depth per condensed component, then the distribution over rules.  Bounded and
-  cancellable — the failure this guards against is not incorrectness, it is five hours."
+  cancellable — the failure this guards against is not incorrectness, it is a walk that
+  does not return."
   [kb handles]
   (banner "ops-6 — chain depth over the rule graph")
   (let [t0   (System/nanoTime)

@@ -160,7 +160,7 @@
   "`e` believed `(except (sentexHandle H))` facts, each hiding a **decoy** — a fact no
   rule below reads.  Asserted in `base-ctx`, which the leaf sees, so every one survives
   the visibility filter and the read pays for all `e`: the worst case for the walk, and
-  the honest one to measure, since a KB that excepts anything at all excepts it from
+  the one to measure, since a KB that excepts anything at all excepts it from
   somewhere its readers can see."
   [kb ^long e]
   (v/with-deferred-settle kb

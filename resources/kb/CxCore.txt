@@ -181,8 +181,8 @@
 ;; computed, never stored) at zero sentex cost: DefnSufficientProver admits a member whose
 ;; sufficient condition holds, DefnNecessaryNegationProver proves a non-member whose
 ;; necessary fails.  A defnSufficient and a defnNecessary carry the same condition, so each
-;; collection is defined both ways (what defnIff said, without the forward rules that never
-;; fire on a computed condition).
+;; collection is defined both ways.  No conjunct of the condition is stored, so the
+;; defnSufficient expands to no forward rule.
 (defnSufficient positive_integer (and (integer ?x) (greaterThan ?x 0)))
 (defnNecessary  positive_integer (and (integer ?x) (greaterThan ?x 0)))
 (defnSufficient negative_integer (and (integer ?x) (lessThan ?x 0)))
@@ -354,7 +354,7 @@
 (genl fixed_arity_function function)
 
 (comment variable_arity
-         "(variable_arity ?relation) means that ?relation does not take one exact number of arguments; arityMin states its lower bound. Prefer it for a repeatable, homogeneously typed argument role. A relation may explicitly define a bounded optional tail instead, as functionCorrespondingPredicate does. The arity check reads this generic type through specialization.")
+         "(variable_arity ?relation) means that ?relation does not take one exact number of arguments; arityMin states its lower bound. Prefer it for a repeatable, homogeneously typed argument role. A relation with a bounded optional tail declares variable arity too, and its well-formedness check bounds the tail: functionCorrespondingPredicate takes two or three arguments. The arity check reads this generic type through specialization.")
 (unary_predicate variable_arity)
 (arg variable_arity 1 relation)
 (genl variable_arity relation)
@@ -626,7 +626,7 @@
 ;; is a sentence carrying ?x, which is why arg 2 is typed as a thing (a compound term is
 ;; typed by what its function is declared to yield, and nothing declared fails to reach
 ;; thing) and arg 1 with genlArg (the collection names a kind, like disjoint's).
-;; Neither relation_kind: they relate a kind to a sentence, so they are honestly mixed and
+;; Neither relation_kind: they relate a kind to a sentence, so they are mixed and
 ;; left unmarked, as result is.
 
 (comment defnNecessary
@@ -843,6 +843,13 @@
 (decontextualized_predicate functional)
 (genl functional binary_predicate)
 
+(comment functionalInArg
+         "(functionalInArg ?predicate ?n) means that the argument of ?predicate at position ?n is determined by the others: two applications agreeing everywhere but at ?n name one thing there. functional read at another position, and enforced the same way: two symbols derive (equals V1 V2) and merge, two non-symbols such as 1980 and 1990 are refused outright. Read up the predicate hierarchy, so a mark on a predicate governs its specs. Decontextualized like functional, so a mark stated in one theory merges from every context. Declared of capitalCityOf at position 1, for instance, beside (functional capitalCityOf): one capital per country and one country per capital. See docs/taxonomy.md.")
+(binary_predicate functionalInArg)
+(decontextualized_predicate functionalInArg)
+(arg functionalInArg 1 relation)
+(arg functionalInArg 2 positive_integer)
+
 (comment injection
          "(injection ?predicate) means that ?predicate is an injective function: single-valued, one-to-one, and total on the type its first argument is declared to be. Declared once, it stands in for four claims the engine already reads. Two forward rules derive (functional ?predicate) and (functionalInArg ?predicate 1), each a real mark the engine enforces in turn: the merge/refuse rule over a shared first argument, and the same rule mirrored over a shared second. A second symbol filler on either side derives (equals V1 V2) and merges, while two non-symbols such as 1980 and 1990 are refused outright. A third rule reads the domain off (arg ?predicate 1 ?d) and derives the binary integrity requirement (predAllSpecified ?predicate ?d); the required filler type is not restated — the audit derives it from ?predicate's own slot-2 contract at read time. That requirement is audited on demand by vaelii.core/specified-violations, which reports the domain members carrying no determinate filler. Totality is audited rather than enforced because an open world cannot refuse a write for a member whose filler has not arrived. A predicate with no arg 1 declaration gets the two enforced marks and no audit, since nothing states what the domain is; one typed at arg 1 but not at arg 2 concludes the requirement, and the audit reports the missing slot contract as an explicit gap rather than auditing unconstrained. A one-to-one relation that is not total is (functional P) beside (functionalInArg P 1), written directly. Also a type: (genl injection functional) classifies P as functional and so binary_predicate. Declared of a relation such as capitalCityOf, for instance. See docs/taxonomy.md.")
 (unary_predicate injection)
@@ -978,7 +985,7 @@
 ;; is still being read.  See the docstring there.
 
 (comment greaterThan
-         "(greaterThan ?number1 ?number2 …) means that the numbers descend. Variable arity, so (greaterThan 3 2 1) is indistinguishable from the chain 3 > 2 > 1. Evaluable: computed on demand from ground numbers, never stored. Canonicalizes to lessThan with the arguments reversed, so only the < direction is ever stored and a greaterThan goal is still answerable.")
+         "(greaterThan ?number1 ?number2 …) means that the numbers descend. Variable arity, so (greaterThan 3 2 1) states the chain 3 > 2 > 1. Evaluable: computed on demand from ground numbers, never stored. Canonicalizes to lessThan with the arguments reversed, so only the < direction is ever stored and a greaterThan goal is still answerable.")
 (arg greaterThan 1 thing)
 (arg greaterThan 2 thing)
 (variable_arity_predicate greaterThan)
@@ -1011,14 +1018,14 @@
 (arg ist 2 thing)
 
 (comment lessThan
-         "(lessThan ?number1 ?number2 …) means that the numbers ascend. Variable arity, so (lessThan 1 2 3) is indistinguishable from the chain 1 < 2 < 3. Evaluable: computed on demand from ground arguments, never stored and never forward-chained. Chained comparisons in a rule collapse into one literal, so (lessThan ?a ?b) beside (lessThan ?b ?c) becomes (lessThan ?a ?b ?c).")
+         "(lessThan ?number1 ?number2 …) means that the numbers ascend. Variable arity, so (lessThan 1 2 3) states the chain 1 < 2 < 3. Evaluable: computed on demand from ground arguments, never stored and never forward-chained. Chained comparisons in a rule collapse into one literal, so (lessThan ?a ?b) beside (lessThan ?b ?c) becomes (lessThan ?a ?b ?c).")
 (arg lessThan 1 thing)
 (arg lessThan 2 thing)
 (variable_arity_predicate lessThan)
 (arityMin lessThan 2)
 
 (comment matchesPattern
-         "(matchesPattern ?string ?pattern) means that the whole of ?string matches the regular expression ?pattern. Both arguments are string values — the text inspected and the pattern applied to it, each taken as written (quotedArg). Evaluable: computed on demand from two ground strings through a step-limited matcher, never stored and never forward-chained. The primitive a defn over a string subtype reads: a defnSufficient whose condition is (matchesPattern ?x pattern) resolves by evaluation at query time, the way the sign-refined integer collections read integer and the comparisons. matchesPattern answers false for a non-string subject, so the shape check alone defines the subtype and needs no separate (string ?x) conjunct, which the registry does not evaluate. A pattern that does not compile is refused at the assert entry point.")
+         "(matchesPattern ?string ?pattern) means that the whole of ?string matches the regular expression ?pattern. Both arguments are string values — the text inspected and the pattern applied to it, each taken as written (quotedArg). Evaluable: computed on demand from two ground strings through a step-limited matcher, and never stored. A rule antecedent on it is computed once the antecedents that bind both arguments have run, as lessThan is, and a rule in which nothing binds them is refused. The primitive a defn over a string subtype reads: a defnSufficient whose condition is (matchesPattern ?x pattern) resolves by evaluation at query time, the way the sign-refined integer collections read integer and the comparisons. matchesPattern answers false for a non-string subject, so the shape check alone defines the subtype and needs no separate (string ?x) conjunct, which the registry does not evaluate. A pattern that does not compile is refused at the assert entry point.")
 (binary_predicate matchesPattern)
 (quotedArg matchesPattern 1 string)
 (quotedArg matchesPattern 2 string)
@@ -1064,7 +1071,7 @@
 (genl irreflexive binary_predicate)
 
 (comment relation_kind
-         "(relation_kind ?predicate) means that ?predicate is one of the two relation kinds. The disjoint_metatype grouping instance_relation_predicate and type_relation_predicate, so a binary predicate is at most one of the two: it either relates individuals or relates kinds, and letting the readings mix is how a claim about kinds quietly becomes a claim about their members. At most, not exactly — a few predicates are honestly neither, and are left unmarked rather than forced: implies is a connective and relates no things at all, rewriteOf takes either role so long as its two sides agree with each other, result and genlResult relate a function to a type and so are mixed, and functionCorrespondingPredicate relates a function to a predicate. Marking one of those would make the metatype say something false, which costs more than the gap.")
+         "(relation_kind ?predicate) means that ?predicate is one of the two relation kinds. The disjoint_metatype grouping instance_relation_predicate and type_relation_predicate, so a binary predicate is at most one of the two: it either relates individuals or relates kinds, and letting the readings mix is how a claim about kinds quietly becomes a claim about their members. At most, not exactly — a few predicates are neither, and are left unmarked rather than forced: implies is a connective and relates no things at all, rewriteOf takes either role so long as its two sides agree with each other, result and genlResult relate a function to a type and so are mixed, and functionCorrespondingPredicate relates a function to a predicate. Marking one of those would make the metatype say something false, which costs more than the gap.")
 (unary_predicate relation_kind)
 (genlArg relation_kind 1 predicate)
 (set/monotonic (disjoint_metatype relation_kind))

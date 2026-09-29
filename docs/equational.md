@@ -93,6 +93,13 @@ a separate and larger mechanism. An equation whose variable condition fails both
   assertion, not a term. `fatherOf` the function symbol and `fatherOf` a predicate are
   the same symbol, so protecting the predication is what stops a rule about the *term*
   `fatherOf(fatherOf(x))` from rewriting a *fact* that merely shares the shape.
+- **An equality relation's arguments are mentions**, and `normalize-sentence` leaves
+  them as written at any depth (`rewrite/equality-relations`, the set ground congruence
+  reads for the same purpose). The denial `(not (equals (fatherOf (fatherOf Tom))
+  (grandfather_of Tom)))` keeps its spelling; normalizing inside it would give `(not
+  (equals (grandfather_of Tom) (grandfather_of Tom)))`, a denial of reflexivity. A
+  literal beside an equality literal, in a rule's antecedent for instance, normalizes as
+  usual, and `rule-applies?` reads the same positions `normalize-sentence` rewrites.
 
 ## The write path — cache, migrate, supersede
 
@@ -100,9 +107,14 @@ When a schematic equation is asserted (`vaelii.impl.special`, the equality table
 integrate arm):
 
 1. **Orient and cache.** `rewrite/orient` produces `[lhs rhs]`; `tax/add-rewrite-rule`
-   stores it belief-following (a support/active split reconciled by `refresh-beliefs`,
-   the same discipline as the equality partition — a defeated equation stops
-   rewriting, a revived one resumes).
+   stores it under the equation's handle in a support map and an active map, and
+   `refresh-beliefs` keeps the active map equal to the believed equations, the same
+   discipline as the equality partition. Retraction is the only write that takes a
+   schematic equation out of belief. Its denial is refused `:not-ground`, a rule
+   concluding it is refused `:not-range-restricted`, a monotonic denial of a rewritten
+   twin defeats the twin and leaves the equation IN, and a denial of a ground instance
+   leaves it IN and blocks the rewrite of that instance ("A denied ground instance"
+   below).
 2. **Migrate.** Every stored sentex the rule's LHS head reaches (`kb/find-sentexes`,
    one term-index lookup — a superset the per-sentex check narrows) gets a **rewritten
    twin** under the normal form, placed in the original's context, **derived and
@@ -133,7 +145,107 @@ meet at one normal form. **All four query paths normalize the top goal**: `sente
 **top** goal that is normalized — stored facts are already in normal form via
 migration, so a subgoal a rule expansion generates needs no further rewriting, the
 same reliance `ask` makes. `different` is exempt from goal rewriting: its arguments
-must stay un-rewritten to read class membership.
+must stay un-rewritten to read class membership. An equality relation inside a goal keeps
+its arguments as written, so a negated equation goal meets the stored denial as spelled.
+
+## A denied ground instance
+
+A believed denial of a ground instance of a schematic equation — `(not (equals (fatherOf
+(fatherOf Tom)) (grandfather_of Tom)))` beside the equation above — carves that instance
+out of the equation for every reader that sees the denial. The denial is stored as stated,
+and it blocks the one rewrite step between the two terms it names. The equation stays
+believed and keeps rewriting every other instance. Where the denial is visible:
+
+- `ask?` answers the instance `(equals (fatherOf (fatherOf Tom)) (grandfather_of Tom))`
+  false and the denial true.
+- `(fatherOf (fatherOf Tom))` stays its own term. A fact naming it is stored and read as
+  stated, with no twin, and a goal naming `(grandfather_of Tom)` does not reach it.
+- `Ann`'s instance still rewrites and answers true. A fact naming both terms takes the
+  normal form that rewrites `Ann` alone: `(pairChain (fatherOf (fatherOf Tom))
+  (grandfather_of Ann))`.
+
+`special` files each stored denial of an `equals` over a compound term in the taxonomy,
+under the head of each compound term it names (`tax/add-instance-denial`).
+`res/rewrite-rules-in` gives the reader's rules a `:blocked?` predicate, and
+`rewrite/normalize` asks it before each root rewrite. A rewrite of a redex headed
+`fatherOf` reads the denials filed under `fatherOf` and no others, and a KB storing no such
+denial skips the predicate. The predicate compares the redex and its reduct with the
+denial's two terms, each read under the reader's symbol congruence with its arguments
+normalized under the reader's rules. It asks belief and visibility of each denial as the
+read runs, so the block follows current belief and holds in every arrival order.
+Migration, every goal and `provers/EqualityProver` read the same rules.
+
+A block that starts or stops holding restates the facts it reaches. The denial arriving,
+leaving, changing belief, or changing visibility through an `except` of it or a `genlCx`
+edge queues its terms with the `except` moves, and the settle migrates again the stored
+sentexes that name one of them (`special/denial-move-sweep`, one term-index lookup per
+term). A twin made before the denial arrived no longer spells its original's normal form,
+so it loses the justification resting on that original (`jtms/drop-justification!`), the
+sweep collects it, and the original stops being superseded. Retracting the denial runs the
+same sweep, which makes the twin again and supersedes the original.
+
+**The block compares no strengths.** A denial of an instance is an exception to the
+equation at that instance, not a contradiction with it. The equation and the denial both
+stay IN and no nogood forms, as an `exceptWhen` that holds blocks a rule's firing
+whatever the rule's strength ([exceptions.md](exceptions.md)). So a `:default` denial carves its
+instance out of a `:default` equation exactly as a `:monotonic` denial does: the denial
+names the two terms, and the equation reaches them only through a variable. A `:default`
+denial carves an instance out of a `:monotonic` equation the same way.
+
+A denial strictly below the fact's context is not reconciled per reader. The fact's own
+context does not see the denial, so the twin stands there and supersedes the original. A
+reader below that sees the denial answers the instance false and reads the fact under the
+twin's spelling.
+
+## An except of an equation
+
+`(except (sentexHandle E))` of a schematic equation `E` leaves `E` believed and takes it
+out of rewriting at the contexts that read the except ([contexts.md](contexts.md)).
+`kb/rewrite-term` filters the rules by the reader's `visible?`, so a goal asked there is
+not normalized under `E`, and every twin `E` raised rests on `E`, so `res/hidden-fn`
+hides the twins there. What a reader there answers follows from where the fact lives:
+
+- **A fact whose own context reads the except is read as spelled.** A supersession is
+  decided at the datum's own context (`special/displacement`), and `E` does not displace a
+  spelling in a context that cannot see it, so the original stops being superseded and a
+  read of the stated spelling returns it. The normal form's spelling answers nothing there
+  unless a premise states it. Which equalities a context sees is recorded by no relabel,
+  so an `except` that arrives, leaves or changes label adds to the settle's supersession
+  region the superseded data it can change (`special/except-move-region`): those naming a
+  term an equality in the excepted handle's reach re-spells — `E`'s LHS head, a ground
+  merge's class, or the class of a merge resting on an excepted mark — and stored in a
+  context that sees the except. The reconcile stays proportional to what the except
+  reaches, not to every superseded datum.
+- **A fact stored while the except stands** is stored as spelled, with no twin, since
+  its context's normal form does not use `E`. When the except goes, the settle runs
+  `E`'s arrival sweep again (`special/except-move-sweeps`: `migrate-matching` over the
+  LHS head), so the fact gains its twin and its original is superseded, as in the KB
+  that never held the except. The same sweep runs for an except of a ground `sameAs` /
+  `equals` / `rewriteOf` (`migrate-class` over its class) and of a `functional`,
+  `functionalInArg` or `anti_symmetric` mark ([equality.md](equality.md), "A mark that
+  revives runs its arrival sweep again").
+- **An except strictly below the fact's context** makes that context a reader of its
+  own. The fact's context still sees `E`, so the original stays superseded there, and
+  the twin rests on `E`, which the reader below cannot see. Migration takes the contexts
+  holding an except of an equality that bears on the fact as readers
+  (`special/reader-contexts-for`, the meet with the fact's context) and stores a
+  **copy** of the fact's spelling in such a reader, justified by `[original, E, except]`
+  under the informant `except` (`special/migrate-into`), as it stores a twin in a reader
+  that elects another form. Reads and forward chaining in that reader and below it see
+  the copy. `E` is hidden wherever the copy is read, so a withdrawal reads the copy's
+  `E` at its current label (`res/belief-only-antecedent`); an except of the except
+  withdraws the copy through its third antecedent. Retracting the except or `E` takes
+  the copy OUT. The copy is stored while the original is superseded or not, and the
+  supersession reconcile retires it while an original it restates is not displaced (a
+  second except in the fact's own context), examining a copy whenever it examines the
+  original (`special/retired-copy`). So the stored copies and what a reader reads do not
+  depend on the order the facts and the excepts arrive in. A ground `sameAs` / `equals`
+  / `rewriteOf` excepted below the fact's context gives that reader a copy too, since the
+  except splits the reader's class.
+
+An except of an equality is never carried onto the twins the equality raised
+(`special/handle-twins`): migration never restates an equality, so the equality has no
+twin of its own, and a premise stated in the normal form stays readable.
 
 ## Order-independence
 
@@ -203,11 +315,15 @@ non-confluent set confluent), and AC-rewriting for permutative equations. See
   `vaelii.impl.sentex`.
 - `vaelii.impl.taxonomy` — the belief-following rewrite-rule cache
   (`add-rewrite-rule`, `del-rewrite-rule!`, `rewrite-rules`, refreshed by
-  `refresh-beliefs`, cleared by `clear-relations!`).
+  `refresh-beliefs`, cleared by `clear-relations!`) and the instance denials filed by
+  head (`add-instance-denial`, `instance-denials-at`).
+- `vaelii.impl.resolution` — `rewrite-rules-in`, the rules a reader normalizes under,
+  with the `:blocked?` predicate its visible denials give them.
 - `vaelii.impl.kb` — `rewrite-term` threads normalization into congruence.
 - `vaelii.impl.special` — the equality table's schematic arm:
   `integrate-rewrite-rule`, `migrate-matching`, and the schematic contributor
-  collection in `migrate-sentex`.
+  collection in `migrate-sentex`; `except-move-sweeps`, which the settle runs for an
+  `except` that moved, and `denial-move-sweep`, for a block that moved.
 - `vaelii.impl.wff` — `equality-problems` waves the schematic shape through and
   refuses an unorientable one.
 - `vaelii.impl.checks` — `check-ground` exempts a schematic equation from the
@@ -216,4 +332,6 @@ non-confluent set confluent), and AC-rewriting for permutative equations. See
   `recovered-supersessions` (the recover entry point).
 - Tests: `rewrite_test` (the pure algebra), `equational_test` (the integration:
   Part A, Part B, belief-following, termination, order-independence, KBO orientation,
-  the four-path parity), `recovery_test` (durability).
+  the four-path parity, an except of the equation, a denied ground instance),
+  `recovery_test` (durability),
+  `order_independence_test` (an except arriving and leaving around the facts).

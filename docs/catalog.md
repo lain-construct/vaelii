@@ -185,7 +185,7 @@ long loaders takes:
 | `io.import/import-dump` | sentexes → justifications → index-entries *or* reindex | from the dump's `meta.edn` |
 
 A load with a total gets a real percentage; one without gets a count and an indeterminate
-bar, which is the honest rendering of not knowing how far there is to go. **Chaining is a
+bar, which shows that the loader does not know how far there is to go. **Chaining is a
 phase of the second kind even in a load whose assert phases are counted exactly**: a
 fixpoint's agenda grows as it derives, so there is no total to count towards, and what it
 reports instead is what it has concluded and how much agenda is left.
@@ -232,29 +232,68 @@ The KB an entry loads into is in memory by default, over a space the catalog cla
 (from 100 up, clear of the block the test suite owns). Name a `:dir` and it is a durable
 `:disk-log` KB there instead — which is what a corpus far past what RAM holds wants.
 
+## A loaded KB states this engine's spindle
+
+A store or a dump holds the starter ontology of the engine that built it, and the engine
+loading it ships its own. So a load of either **syncs the shipped spindle**
+(`vaelii.host.spindle/sync-spindle!`) before the entry reads `:done`: while the entry is
+still `:running`, which is what makes the browser's writes wait for it (`write-blocked?`).
+The other source kinds are built from this engine's files and are in sync already.
+
+- **What is shipped** is what `starter/load-into` stores in a scratch in-memory KB, each
+  premise attributed to the file whose load stored it, compared as the form a KB file
+  writes (`text/premise-entries`). A strength that differs is one form retracted and
+  another asserted, since `assert` only raises a premise's strength.
+- **CxCore and the `kb/upper/` and `kb/middle/` contexts are the engine's** and end up
+  stating exactly what it ships: a premise there that the engine does not ship is
+  retracted. A context an author wires into the spindle is not one of them and is not
+  read.
+- **The collectors are only added to.** CxUniverse gathers what the engine routes there
+  from every context, so its other content is not the engine's to retract; a shipped
+  sentence is looked up there by handle and asserted only when absent, so a collector
+  holding a corpus is never read whole.
+- **Only the layers a KB has.** A file whose context holds nothing is not loaded, and the
+  collector files and the `unary_predicate` batch follow the upper layer, so a core-only
+  KB stays core-only.
+
+The report is filed on the entry as `:spindle` — `{:added :removed :refused}` — and
+logged. A shipped sentence the KB's own content refuses is listed under `:refused` rather
+than failing the load, and a sync that throws is filed as `{:error message}`: the KB
+loaded, and a spindle this engine could not bring current is a fact about it.
+
+**A KB that accepts no writes is not synced.** A store opened without a recover and a dump
+loaded with `:belief? :skip` or `:stored` keep what they hold. A store whose belief is
+rebuilt behind an installed image (`:recover? :background`, under `VAELII_DEV`) is synced
+when the rebuild finishes, by a writing job of its own (`:kind :sync`); a rebuild that
+fails leaves it unsynced, and the log says so.
+
 ## Unloading never deletes an on-disk KB
 
 This is the property to keep:
 
 * a **memory-backed** entry has its stores cleared. They are keyed by space number and
   would otherwise hold the corpus for the life of the JVM.
-* a **disk-backed** one is *closed*: the file lock released, the directory left exactly
-  as it was. The same directory can then be loaded again, or opened by another process.
+* every other backend is *closed* (`v/close!`): the file lock released, the directory left
+  exactly as it was. The same directory can then be loaded again, or opened by another
+  process. That covers an attached adapter store too — `:sqlite` has its JDBC connection
+  closed, `:pg-disk-log` its local index and its server connection — and any backend
+  `store-backend` answers later, with no edit to the release.
 
 So the `!` in `unload!` is about the memory case, which does destroy something. Unloading
 an attached daemon, or a KB registered by a caller that owns it, releases nothing at all.
 
 Unloading the active entry falls back to the most recent one still loaded, so the browser
 is never left pointing at nothing while a KB is sitting right there. It falls to a `:done`
-entry and not merely to one holding a KB, which matters because of the third refusal below.
+entry and not merely to one holding a KB, which matters because of the fourth refusal below.
 
-**Three things stop an unload, and each is something else still holding the KB.** Releasing
+**Four things stop an unload, and each is something else still holding the KB.** Releasing
 is the one operation here with no half state worth having, so it gives way rather than
 racing:
 
 | refusal | who is holding it |
 |---------|-------------------|
 | `:still-stopping` | its own loader — cancellation is cooperative, so the stores are the loader's until its thread returns |
+| `:still-writing` | a job that claims the KB as its writer in the job registry — a chaining run or a spindle sync. The refusal names the job |
 | `:still-exporting` | a dump walking it record by record, with no snapshot to walk instead ([`exporting-kb?`](#and-back-out-again)) |
 | `:unreleased` | nothing: the release itself threw |
 
@@ -267,7 +306,21 @@ then dumps a KB that was emptied under it, and reports `{:ok true}` over a summa
 reads exactly like a clean export. The entry is dropped inside the monitor too, so an
 export held at the entry point finds it gone rather than finding it released.
 
-The first two are retried after the thing holding the KB lets go. The third is the
+**`:still-writing` is a refusal and not a cancel-and-wait**, which is where it parts
+company with the loader arm. A chaining job is work the operator started on a KB they kept
+loaded, so the unload does not throw it away on the way past; a daemon's chain reports no
+progress, so a cancel would reach it only when the chain ends. The browser's chain also
+holds the write monitor for its whole run, and `unload!` asks the job registry **before**
+it takes that monitor, so the refusal answers while the chain runs rather than after it.
+It asks again under the monitor, for a job submitted between the two asks. To unload,
+cancel the job on the jobs page or wait for it, then unload.
+
+The write monitor is process-wide, so an unload of a KB no job writes still waits for a
+chain running on another KB, as every write to any KB does ([web.md](web.md)). It waits
+**outside** the catalog's own monitor: `unload!` enters the write monitor first and takes
+the catalog's inside it, so a load or an export asked for meanwhile answers at once.
+
+The first three are retried after the thing holding the KB lets go. The fourth is the
 truth-telling one. A release can fail — an index that will not fsync, a component that
 throws on close — and logging that and dropping the entry would tell the operator it had
 released a KB it had not. So the entry keeps its place with status `:unreleased` and the
@@ -277,8 +330,23 @@ the caller reporting a clean unload over a directory that did not close. Unloadi
 retries the release.
 
 `unload!` takes `:run-in` for the same reason `export-entry!` does: the browser hands its
-write monitor, so a synchronous write already past the write entry points drains before the stores
-go rather than interleaving with the clear.
+write monitor, so a synchronous write already inside the monitor finishes before the stores
+go rather than interleaving with the clear. A write that passed the write entry points and
+is still waiting for the monitor — behind a chain on another KB, which holds it for its
+whole run — enters after the release. `unload!` marks a KB it cleared or closed as
+released (`released?`, by identity, in a weak set), inside `:run-in`, and the browser's
+write paths ask `released?` once they hold the monitor: a page write renders "Nothing was
+written", `POST /op` answers **404** `:not-found`, and a chaining job submitted after the
+release fails naming the unload ([web.md](web.md)). The mark is the release's and not the
+catalog's membership, because a KB the catalog never held — a test's, an embedding's, the
+holder's fallback — is written to freely, and an entry `register!` filed with no `:where`
+releases nothing and marks nothing. The browser's unload also ends the change-feed
+subscriptions over the released KB ([feed.md](feed.md#across-the-wire)).
+
+`reset-registry!` cancels every running job and waits for each, up to 30 s apiece, before
+it unloads anything. An unload with a job still writing its KB refuses `:still-writing`,
+so a job that does not stop within its bound keeps its KB unreleased rather than having it
+cleared under it.
 
 ## And back out again
 

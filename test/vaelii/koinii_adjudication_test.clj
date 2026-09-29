@@ -24,10 +24,8 @@
   (try (thunk) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
 
 (defn- with-proof-tier
-  "Majority resolution requires the `:proof-tier` identity policy (R7#1) — a counted vote
-  is a supported way to settle a dispute only where ballots were verified at ingest.  So
-  the majority tests run under it; `channel`/`ballot!` never authenticate, so the binding
-  touches nothing but `resolve-by-majority`'s gate."
+  "Majority resolution requires the `:proof-tier` identity policy, so the majority tests
+  run under it and cast their ballots through `ballot!`, which attests them."
   [f] (binding [id/*policy* :proof-tier] (f)))
 
 (use-fixtures :each (tu/neutral-fresh adj-kb) with-proof-tier)
@@ -52,7 +50,7 @@
       (v/assert kb (list 'genlCx 'CxDeploy (id/context-for a)) 'CxUniverse {:strength :monotonic})))
   (:dispute-id (first (d/disputes-in kb 'CxDeploy))))
 
-;; ---- the default: a dispute opens and the KB stays honest ----------------
+;; ---- the default: a dispute opens and belief does not change -------------
 
 (tu/deftest-kb notify-records-the-dispute-and-changes-no-belief
   (clash! kb)
@@ -297,9 +295,20 @@
 
 ;; ---- a second resolution policy: majority vote ---------------------------
 
+(defn- principal
+  "A `:proof-tier` principal `authenticate` minted for `agent`: the credential is the id."
+  [agent]
+  (id/authenticate {:claimed-id agent :credential agent}
+                   {:policy :proof-tier :verify-fn (fn [a c] (= a c))}))
+
 (defn- ballot!
-  "Cast a `stance` (`:for`/`:against`) ballot on the claim at `claim-h`, in `agent`'s own
-  context — the shape `channel/vote` writes, asserted here without the channel dep."
+  "Cast `agent`'s attested `stance` (`:for`/`:against`) ballot on the claim at `claim-h`."
+  [kb agent claim-h stance]
+  (adj/cast-ballot kb (principal agent) stance claim-h))
+
+(defn- claimed-ballot!
+  "Store a `stance` ballot under the name `agent` with no attestation — the shape
+  `channel/vote` and a wire client write."
   [kb agent claim-h stance]
   (v/assert kb (list (case stance :for 'votesFor :against 'votesAgainst)
                      agent (sx/sentex-handle claim-h))
@@ -854,3 +863,55 @@
       (binding [adj/*timeout-ms* 1000
                 v/*clock*        (constantly (+ t0 2000))]
         (is (empty? (adj/sweep-stale kb 'CxDeploy)))))))
+
+(tu/deftest-kb a-ballot-cast-under-a-claimed-name-is-refused-and-named
+  ;; A ballot stored with a `:creator` the writer chose — the shape `channel/vote` and a
+  ;; wire client write — proves nobody cast it.  Under :proof-tier with no verify-fn,
+  ;; three invented names outvoting a 2-1 house would defeat the claim.
+  (let [ph (holds! kb 'AgentAtlas P)]
+    (holds! kb 'AgentBoreas not-P)
+    (doseq [a '[AgentAtlas AgentBoreas AgentCiel]]
+      (v/assert kb (list 'genlCx 'CxDeploy (id/context-for a)) 'CxUniverse {:strength :monotonic}))
+    (ballot! kb 'AgentAtlas ph :for)
+    (ballot! kb 'AgentCiel ph :for)
+    (ballot! kb 'AgentBoreas ph :against)
+    (let [did    (:dispute-id (first (d/disputes-in kb 'CxDeploy)))
+          spoof  (mapv #(claimed-ballot! kb % ph :against) '[AgentX1 AgentX2 AgentX3])
+          e      (try (adj/resolve-by-majority kb did ph 'CxDeploy) nil
+                      (catch clojure.lang.ExceptionInfo ex ex))]
+      (is (= :koinii/identity-unverified (:type (ex-data e))))
+      (is (= (set spoof) (:unattested (ex-data e))) "the refusal names every unattested ballot")
+      (is (d/disputed? kb P 'CxDeploy) "nothing was ruled"))))
+
+(tu/deftest-kb an-attestation-binds-the-voter-the-ballot-and-the-key
+  (let [ph (holds! kb 'AgentAtlas P)]
+    (holds! kb 'AgentBoreas not-P)
+    (doseq [a '[AgentAtlas AgentBoreas]]
+      (v/assert kb (list 'genlCx 'CxDeploy (id/context-for a)) 'CxUniverse {:strength :monotonic}))
+    (let [did     (:dispute-id (first (d/disputes-in kb 'CxDeploy)))
+          refused (fn [] (try (adj/resolve-by-majority kb did ph 'CxDeploy) #{}
+                              (catch clojure.lang.ExceptionInfo e (:unattested (ex-data e)))))
+          ha      (ballot! kb 'AgentAtlas ph :for)]
+      (testing "an attested ballot names its voter"
+        (is (= 'AgentAtlas (id/attested-by kb ha)))
+        (is (= #{} (refused))))
+      (testing "an attested ballot naming another voter is refused"
+        (let [h (id/ingest kb (principal 'AgentAtlas)
+                           (list 'votesAgainst 'AgentBoreas (sx/sentex-handle ph)))]
+          (is (= #{h} (refused)))
+          (v/retract! kb h)))
+      (testing "an attestation copied onto another ballot does not verify"
+        (let [h (claimed-ballot! kb 'AgentBoreas ph :against)]
+          (v/add-provenance kb h (select-keys (v/provenance kb ha) [:attestation]))
+          (is (nil? (id/attested-by kb h)))
+          (is (= #{h} (refused)))
+          (v/retract! kb h)))
+      (testing "an unattested ballot that would spoil a verified one is refused, not counted"
+        (let [h (claimed-ballot! kb 'AgentAtlas ph :against)]
+          (is (= {:for 0 :against 0} (adj/tally kb ph)) "it spoils Atlas's ballot")
+          (is (= #{h} (refused)))
+          (v/retract! kb h)))
+      (testing "a ballot attested under one key is unattested under another"
+        (binding [id/*attest-key* (apply str (repeat 32 "k"))]
+          (is (nil? (id/attested-by kb ha)))
+          (is (= #{ha} (refused))))))))

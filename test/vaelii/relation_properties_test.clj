@@ -22,6 +22,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
@@ -32,6 +33,39 @@
   (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
 
 (def U 'CxUniverse)
+
+(defn- orderings
+  "Every arrival order of `xs`, so a multi-order case runs over all of them rather than
+  over a hand-picked few."
+  [xs]
+  (if (< (count xs) 2)
+    [(vec xs)]
+    (for [x xs, tail (orderings (remove #{x} xs))]
+      (into [x] tail))))
+
+(defn- reach-entries
+  "The `:detail` of each entry of kind `kind` that the late-mark report
+  (`settle/report-unarbitrable-reach!`) filed through marked predicate `via`."
+  [kb kind via]
+  (into [] (comp (filter #(and (= kind (:violation %)) (= via (get-in % [:detail :via]))))
+                 (map :detail))
+        (v/violations kb)))
+
+(defn- refused-or-reported
+  "Run `steps` (a map of thunks) in `order`, then say whether the fact `ask` reads was
+  refused, or is stored and named by a `kind` entry through `via` — the property a
+  late mark owes in every arrival order."
+  [kb order steps ask kind via]
+  (let [refused (atom false)]
+    (doseq [s order]
+      (when (#{:irreflexive :anti-symmetric} (ex-type (steps s)))
+        (reset! refused true)))
+    (let [stored? (ask)]
+      {:refused? @refused
+       :stored?  stored?
+       :ok?      (if stored?
+                   (= 1 (count (reach-entries kb kind via)))
+                   @refused)})))
 
 ;;; ── irreflexive: a self tuple is refused at the entry point ──────────────────
 
@@ -84,6 +118,112 @@
           (is (= :irreflexive (ex-type #(v/assert kb (list before Alice Alice) U))))
           (is (empty? (v/contradictions kb))))))))
 
+;;; ── a late irreflexive mark reports the self tuple it reaches ──────────
+;;
+;; A self tuple names no second sentex, so the conviction is not arbitrable: the entry
+;; point refuses it under either policy, and a tuple stored before the mark reached it
+;; stands.  The late mark then files a report rather than a nogood — the `arity` reading
+;; (docs/nmtms.md) — so no arrival order leaves a convicted tuple nobody was told about.
+
+(tu/deftest-kb a-late-irreflexive-mark-reports-the-self-tuple-it-arrives-over
+  (testing "the mark first: the tuple is refused, and nothing is stored to report"
+    (tu/with-terms [near Dora]
+      (v/assert kb (list 'irreflexive near) U)
+      (is (= :irreflexive (ex-type #(v/assert kb (list near Dora Dora) U))))
+      (is (empty? (reach-entries kb :irreflexive near)))))
+  (testing "the tuple first: it stands, and the late mark reports it"
+    (tu/with-terms [near Dora]
+      (v/assert kb (list near Dora Dora) U)
+      (is (empty? (reach-entries kb :irreflexive near)) "no mark yet, nothing is wrong")
+      (v/assert kb (list 'irreflexive near) U)
+      (is (v/ask? kb (list near Dora Dora) U) "reported, not withdrawn")
+      (let [[e & more] (reach-entries kb :irreflexive near)]
+        (is (some? e) "the late mark files the report")
+        (is (nil? more) "one entry for the mark")
+        (is (= 1 (:count e)))
+        (is (= [(list near Dora Dora)] (:sample e)))))))
+
+(tu/deftest-kb a-self-tuple-under-a-descended-irreflexive-mark-is-refused-or-reported
+  ;; The mark on `near`, the tuple of `nearish` beneath it, and the edge between them:
+  ;; any of the three can arrive last, and the edge arriving last is a trigger of its own.
+  (doseq [order (orderings [:mark :edge :tuple])]
+    (tu/with-terms [near nearish Dora]
+      (let [r (refused-or-reported
+               kb order
+               {:mark  #(v/assert kb (list 'irreflexive near) U)
+                :edge  #(v/assert kb (list 'genl nearish near) U)
+                :tuple #(v/assert kb (list nearish Dora Dora) U)}
+               #(v/ask? kb (list nearish Dora Dora) U)
+               :irreflexive near)]
+        (is (:ok? r) (str "refused, or stored and reported once, under " (pr-str order)
+                          ": " (pr-str r)))
+        (is (= (:refused? r) (= :tuple (last order)))
+            (str "refused exactly when the tuple arrives last, under " (pr-str order)))))))
+
+(tu/deftest-kb a-self-tuple-across-a-context-edge-is-refused-or-reported
+  ;; The fourth ingredient names no predicate: the mark in `CxUp`, the tuple in `CxDown`,
+  ;; and the `genlCx` edge that lets the tuple's context see the mark.
+  (doseq [order (orderings [:mark :ctx-edge :tuple])]
+    (tu/with-terms [CxUp CxDown near Dora]
+      (v/assert kb (list 'genlCx CxUp U) U)
+      (let [r (refused-or-reported
+               kb order
+               {:mark     #(v/assert kb (list 'irreflexive near) CxUp)
+                :ctx-edge #(v/assert kb (list 'genlCx CxDown CxUp) U)
+                :tuple    #(v/assert kb (list near Dora Dora) CxDown)}
+               #(v/ask? kb (list near Dora Dora) CxDown)
+               :irreflexive near)]
+        (is (:ok? r) (str "refused, or stored and reported once, under " (pr-str order)
+                          ": " (pr-str r)))
+        (is (= (:refused? r) (= :tuple (last order)))
+            (str "refused exactly when the tuple arrives last, under " (pr-str order)))))))
+
+(tu/deftest-kb a-budget-spent-on-innocent-facts-still-says-the-reach-was-cut
+  ;; `aaa…` spends the budget and convicts nothing; `zzz…` sorts after it, holds the self
+  ;; tuple, and is swept zero facts deep.  With no finding for a flag to ride on, the
+  ;; truncation entry is the only thing that says a predicate went unswept.
+  (binding [tax/*exposure-instance-budget* 4]
+    (tu/with-terms [near Dora]
+      (let [aaa (symbol (str "aaa" (name near)))
+            zzz (symbol (str "zzz" (name near)))]
+        (dotimes [i 5]
+          (v/assert kb (list aaa Dora (symbol (str "TmpBud" i))) U))
+        (v/assert kb (list zzz Dora Dora) U)
+        (v/assert kb (list 'genl aaa near) U)
+        (v/assert kb (list 'genl zzz near) U)
+        (v/assert kb (list 'irreflexive near) U)
+        (is (v/ask? kb (list zzz Dora Dora) U) "the self tuple stands, as it did before")
+        (is (empty? (reach-entries kb :irreflexive near))
+            "the premise: the budget ran out before the tuple was examined")
+        (let [t (last (filter #(= :unarbitrable-reach-truncated (:violation %))
+                              (v/violations kb)))]
+          (is (some? t) "and the pass says a predicate went unswept rather than nothing")
+          (is (= [aaa zzz] (get-in t [:detail :sample]))
+              "naming the one that spent the budget and the one that got none")
+          (is (= 4 (get-in t [:detail :budget])))
+          (is (re-find #"went unswept" (get-in t [:detail :message]))))))))
+
+(tu/deftest-kb a-revived-mark-reports-again-and-a-revived-tuple-does-not
+  ;; the ledger is cleared before each revival, so an entry after it is filed by it
+  (testing "the mark revives: it is in the moved region and reports as an arriving one"
+    (tu/with-terms [near Dora]
+      (v/assert kb (list near Dora Dora) U)
+      (v/assert kb (list 'irreflexive near) U)
+      (let [d (v/assert kb (list 'not (list 'irreflexive near)) U {:strength :monotonic})]
+        (v/clear-violations! kb)
+        (v/retract! kb d)
+        (is (v/ask? kb (list 'irreflexive near) U))
+        (is (= 1 (count (reach-entries kb :irreflexive near)))))))
+  (testing "the tuple revives under the standing mark: the pass reads no plain fact"
+    (tu/with-terms [near Dora]
+      (v/assert kb (list near Dora Dora) U)
+      (v/assert kb (list 'irreflexive near) U)
+      (let [d (v/assert kb (list 'not (list near Dora Dora)) U {:strength :monotonic})]
+        (v/clear-violations! kb)
+        (v/retract! kb d)
+        (is (v/ask? kb (list near Dora Dora) U))
+        (is (empty? (reach-entries kb :irreflexive near)))))))
+
 ;;; ── anti_symmetric: a believed converse merges the two arguments ───────
 
 (defn- merged?
@@ -123,6 +263,17 @@
           (do (v/assert kb (list atOrAbove Bob Alice) U)
               (v/assert kb (list atOrAbove Alice Bob) U)))
         (is (merged? kb Alice Bob U))))))
+
+(tu/deftest-kb a-converse-stated-through-a-sub-predicate-merges-and-rests-on-the-edge
+  (tu/with-terms [atOrAbove strictlyAbove Alice Bob]
+    (v/assert kb (list 'anti_symmetric atOrAbove) U)
+    (let [edge (v/assert kb (list 'genl strictlyAbove atOrAbove) U)]
+      (v/assert kb (list atOrAbove Alice Bob) U)
+      (v/assert kb (list strictlyAbove Bob Alice) U)
+      (is (merged? kb Alice Bob U) "the sub-predicate's fact is a converse of the marked one")
+      (v/retract! kb edge)
+      (is (not (merged? kb Alice Bob U))
+          "the merge goes with the genl edge that made the two functors one relation"))))
 
 (tu/deftest-kb an-antisymmetric-declaration-arriving-last-still-merges
   ;; The retroactive direction — `special/antisym-equate-existing` — so the answer does
@@ -175,6 +326,38 @@
       (doseq [arbitrate? [false true]]
         (binding [checks/*arbitrate-constraints?* arbitrate?]
           (is (= :anti-symmetric (ex-type #(v/assert kb (list atOrAbove 2 1) U)))))))))
+
+(tu/deftest-kb a-late-antisymmetric-mark-reports-a-converse-no-merge-can-reconcile
+  ;; The pair the entry point refuses above, in the other order: both facts stand, since
+  ;; a converse of two numbers carries no arbitrable class, and the late mark reports
+  ;; them — the same reading as a late `irreflexive` mark over a self tuple.
+  (tu/with-terms [atOrAbove]
+    (v/assert kb (list atOrAbove 1 2) U)
+    (v/assert kb (list atOrAbove 2 1) U)
+    (is (empty? (reach-entries kb :anti-symmetric atOrAbove)) "no mark yet")
+    (v/assert kb (list 'anti_symmetric atOrAbove) U)
+    (is (and (v/ask? kb (list atOrAbove 1 2) U) (v/ask? kb (list atOrAbove 2 1) U))
+        "both directions stand")
+    (let [[e & more] (reach-entries kb :anti-symmetric atOrAbove)]
+      (is (some? e) "the late mark files the report")
+      (is (nil? more) "one entry for the mark")
+      (is (= 2 (:count e)) "each direction is convicted by the other")
+      (is (= [(list atOrAbove 1 2) (list atOrAbove 2 1)] (:sample e))))))
+
+(tu/deftest-kb an-unmergeable-converse-under-a-descended-mark-is-refused-or-reported
+  (doseq [order (orderings [:mark :edge :fact :converse])]
+    (tu/with-terms [atOrAbove atOrAboveStrict]
+      (let [r (refused-or-reported
+               kb order
+               {:mark     #(v/assert kb (list 'anti_symmetric atOrAbove) U)
+                :edge     #(v/assert kb (list 'genl atOrAboveStrict atOrAbove) U)
+                :fact     #(v/assert kb (list atOrAboveStrict 1 2) U)
+                :converse #(v/assert kb (list atOrAbove 2 1) U)}
+               #(and (v/ask? kb (list atOrAboveStrict 1 2) U)
+                     (v/ask? kb (list atOrAbove 2 1) U))
+               :anti-symmetric atOrAbove)]
+        (is (:ok? r) (str "refused, or both stored and reported once, under "
+                          (pr-str order) ": " (pr-str r)))))))
 
 (tu/deftest-kb an-antisymmetric-mark-on-a-super-predicate-merges-a-sub-pair
   ;; The mark descends the predicate hierarchy, exactly as functional's does.
@@ -243,7 +426,8 @@
         (is (not (merged? kb alice bob CxFam)))))))
 
 (tu/deftest-kb a-merge-mark-in-a-sibling-merges-from-every-context-in-either-order
-  ;; `anti_symmetric` and `functional` are decontextualized, so a mark stated in CxStory
+  ;; `anti_symmetric`, `functional` and `functionalInArg` are decontextualized, so a mark
+  ;; stated in CxStory
   ;; is lifted into CxUniverse and read from every context.  A merge is placed where its
   ;; mark is visible, so the copy derives the merge as well as the statement does
   ;; (`special/copy-merges`): the mark stated after the facts merged below CxStory
@@ -251,14 +435,17 @@
   (tu/with-terms [CxFam CxStory]
     (v/assert kb (list 'genlCx CxFam U) U)
     (v/assert kb (list 'genlCx CxStory U) U)
-    (doseq [mark        ['anti_symmetric 'functional]
+    (doseq [mark        ['anti_symmetric 'functional 'functionalInArg]
             decl-first? [true false]]
       (let [rel   (tu/tmp-pred "rel")
             [a b c] (repeatedly 3 #(tu/tmp-ind "Party"))
-            [facts x y] (if (= 'anti_symmetric mark)
-                          [[(list rel a b) (list rel b a)] a b]
-                          [[(list rel a b) (list rel a c)] b c])
-            decl! #(v/assert kb (list mark rel) CxStory)]
+            [facts x y] (case mark
+                          anti_symmetric  [[(list rel a b) (list rel b a)] a b]
+                          functional      [[(list rel a b) (list rel a c)] b c]
+                          ;; position 1 is the one a shared second argument determines
+                          functionalInArg [[(list rel b a) (list rel c a)] b c])
+            decl! #(v/assert kb (if (= 'functionalInArg mark) (list mark rel 1) (list mark rel))
+                             CxStory)]
         (v/assert kb (list 'arity rel 2) U)
         (when decl-first? (decl!))
         (doseq [f facts] (v/assert kb f U))
@@ -267,6 +454,37 @@
           (is (= [true true true]
                  (mapv #(= (v/representative kb x %) (v/representative kb y %))
                        [U CxFam CxStory]))))))))
+
+(tu/deftest-kb a-merge-mark-reaches-a-context-with-no-edge-only-from-its-own-statement
+  ;; CxIsle is named by no `genlCx` edge, so it sees CxUniverse no more than it sees
+  ;; anything else: a mark stated elsewhere, lifted or not, does not merge its facts, and
+  ;; one stated in it merges them there.  Its own statement is lifted like any other, so
+  ;; it merges the facts of every context that sees CxUniverse.  Each in either order.
+  (tu/with-terms [CxFam CxStory CxIsle]
+    (v/assert kb (list 'genlCx CxFam U) U)
+    (v/assert kb (list 'genlCx CxStory U) U)
+    (doseq [mark                       ['anti_symmetric 'functional 'functionalInArg]
+            [mark-cx fact-cx expected] [[CxIsle U [true true false]]
+                                        [CxStory CxIsle [false false false]]
+                                        [CxIsle CxIsle [false false true]]]
+            decl-first?                [true false]]
+      (let [rel   (tu/tmp-pred "rel")
+            [a b c] (repeatedly 3 #(tu/tmp-ind "Party"))
+            [facts x y] (case mark
+                          anti_symmetric  [[(list rel a b) (list rel b a)] a b]
+                          functional      [[(list rel a b) (list rel a c)] b c]
+                          functionalInArg [[(list rel b a) (list rel c a)] b c])
+            decl! #(v/assert kb (if (= 'functionalInArg mark) (list mark rel 1) (list mark rel))
+                             mark-cx)]
+        (v/assert kb (list 'arity rel 2) U)
+        (when decl-first? (decl!))
+        (doseq [f facts] (v/assert kb f fact-cx))
+        (when-not decl-first? (decl!))
+        (testing (str mark " in " mark-cx ", facts in " fact-cx
+                      (if decl-first? ", stated before" ", stated after"))
+          (is (= expected
+                 (mapv #(= (v/representative kb x %) (v/representative kb y %))
+                       [U CxFam CxIsle]))))))))
 
 ;;; ── anti_transitive: declared, chain conviction deferred ───────────────
 

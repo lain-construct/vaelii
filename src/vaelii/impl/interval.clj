@@ -54,6 +54,12 @@
   withdraws whatever was concluded from it.  It runs one way only: metric narrows
   qualitative, never the reverse (docs/stp.md).
 
+  The **point network** is a second such reader (`points-narrowing-with-support`): the
+  instant facts over two things' `(StartFn X)` / `(EndFn X)` points leave some of the four
+  endpoint comparisons settled, and a relation whose endpoint signature needs an ordering
+  the point network rules out is removed.  Also one way only: an interval fact does not
+  constrain the points.
+
   An emptied constraint anywhere means the asserted relations are unsatisfiable, and then
   *no* interval goal is answered — an inconsistent theory should not be mined for
   conclusions.
@@ -68,8 +74,11 @@
   grammar they are declared in.  The prover is **opt-in** on top of it: register it with
   `vaelii.core/add-prover`, and until then a KB stores and retrieves interval relations as
   ordinary facts without paying for the network."
-  (:require [vaelii.impl.qcn-kb :as qkb]
-            [vaelii.impl.stp :as stp]))
+  (:require [clojure.set :as set]
+            [vaelii.impl.point :as pt]
+            [vaelii.impl.qcn-kb :as qkb]
+            [vaelii.impl.stp :as stp]
+            [vaelii.impl.timepoint :as tp]))
 
 ;; ---- the algebra --------------------------------------------------------
 
@@ -257,6 +266,66 @@
     'sharesTimeWith      concurrent
     'temporallyDisjoint  #{:before :after :meets :met-by}}))
 
+;; ---- the second readers: metric bounds and point facts ------------------
+
+(defn- points-narrowing-with-support
+  "What the point network pins down about the interval relations, as
+  `{:net {[i j] → #{base relations}} :support {[i j] → #{handle}}}`.  A thing is read when
+  its `(StartFn X)` is a node of the point network and X is a symbol; a pair's relations
+  are those whose `stp/endpoint-signature` every one of the four endpoint comparisons
+  still admits, and its support is the four comparisons' support.  Only narrowed pairs
+  are recorded.  An inconsistent point network answers `stp/unsatisfiable-narrowing`,
+  supported by the point network's culprits.
+
+  The comparisons are read off the one closed point network, and the support off one
+  support-carrying pass (`qcn-kb/closure-with-support`), rather than asked of the network
+  as a goal each.  A thing's start and end are nodes of the network already, so a goal
+  reads the same closure, but first walks the network's node set, and a read over n
+  things asks 4n² goals.
+
+  Each comparison is read on its own, so the reading is sound but not sharp — the same
+  trade `stp/allen-narrowing-with-support` makes."
+  [kb context]
+  (let [calc    pt/instants
+        net     (qkb/network kb calc context)
+        things  (into #{} (comp (keep tp/thing-of) (filter symbol?)) (qkb/nodes net))
+        closed  (qkb/tighten kb calc context net nil)
+        pass    (delay (qkb/closure-with-support calc kb context))
+        ends    (into {} (map (fn [x] [x {:start (tp/point :start x) :end (tp/point :end x)}]))
+                      things)
+        between (fn [x y] (for [ex [:start :end] ey [:start :end]]
+                            [[ex ey] [(get-in ends [x ex]) (get-in ends [y ey])]]))]
+    (if (= :inconsistent closed)
+      (stp/unsatisfiable-narrowing things (:culprits @pass))
+      (reduce
+       (fn [acc [x y]]
+         (let [pts  (between x y)
+               cmp  (into {} (map (fn [[k [a b]]] [k (qkb/constraint calc closed a b)])) pts)
+               rels (into #{} (keep (fn [[rel sig]]
+                                      (when (every? (fn [[k r]] (contains? (cmp k) r)) sig)
+                                        rel)))
+                          stp/endpoint-signature)]
+           (if (= rels stp/allen-relations)
+             acc
+             (let [support (:support @pass)]
+               (-> acc
+                   (assoc-in [:net [x y]] rels)
+                   (assoc-in [:support [x y]]
+                             (into #{} (mapcat (fn [[_ ab]] (get support ab #{}))) pts)))))))
+       {:net {} :support {}}
+       (for [x things y things :when (not= x y)] [x y])))))
+
+(defn- both-narrowings
+  "The metric and the point readings intersected pair by pair, their support unioned.  An
+  absent pair is the universe in either, so a pair only one of them narrows takes that
+  one's set."
+  [kb context]
+  (let [m (stp/allen-narrowing-with-support kb context)
+        p (points-narrowing-with-support kb context)]
+    (when (or m p)
+      {:net     (merge-with set/intersection (:net m) (:net p))
+       :support (merge-with set/union (:support m) (:support p))})))
+
 ;; ---- the calculus, and the glue it shares with every other algebra -------
 
 (def allen
@@ -274,9 +343,11 @@
   second: it changes what a bound comes to, and a context holding one and no interval has
   nothing to narrow."
   (qkb/calculus :allen allen-algebra interval-denotation
-                {:fn       stp/allen-narrowing-with-support
-                 :sources  stp/allen-narrowing-sources
-                 :contexts (into stp/stp-predicates stp/endpoint-predicates)}))
+                {:fn       both-narrowings
+                 :sources  (into stp/allen-narrowing-sources (keys pt/instant-denotation))
+                 :contexts (-> stp/stp-predicates
+                               (into stp/endpoint-predicates)
+                               (into (keys pt/instant-denotation)))}))
 
 (defn possible-allen-relations
   "The Allen base relations still possible between intervals `i1` and `i2` given
@@ -292,7 +363,7 @@
   "The handles of the stored sentexes the relation set between `i1` and `i2` rests on —
   `possible-allen-relations`' support (`qcn-kb/support`).
 
-  `#{}` when the pair is unconstrained, which is the honest answer: an unconstrained pair
+  `#{}` when the pair is unconstrained: an unconstrained pair
   leaves all thirteen relations open, and nothing stored says so.  A caller drawing a
   conclusion from what the relations *narrow* rests on exactly this set."
   [kb context i1 i2]
@@ -304,13 +375,6 @@
   sources (`prover-types/SupportingProver`)."
   []
   (:predicates allen))
-
-(defn definite-allen-relation
-  "The single base relation between `i1` and `i2` when path consistency pins it down;
-  `:inconsistent` when the network contradicts itself, `:unknown` when two or more
-  relations remain possible."
-  [kb context i1 i2]
-  (qkb/definite allen kb context i1 i2))
 
 (defn allen-prover
   "The interval-algebra entailment prover, to register with `vaelii.core/add-prover`."

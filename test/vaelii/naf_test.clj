@@ -70,7 +70,7 @@
 (tu/deftest-kb unknown-refuses-an-open-goal
   ;; "must be fully bound to evaluate": an open `(unknown (flies ?x))` is not a test
   ;; but a search over the whole domain's complement, so the NAF prover refuses it —
-  ;; exactly the honest refusal `different` makes (FactProver is always listed, but it
+  ;; exactly the refusal `different` makes (FactProver is always listed, but it
   ;; finds no stored `(unknown ...)` fact, so nothing answers).
   (let [applicable (fn [goal] (set (map :prover (v/query-plan kb goal '?ctx))))]
     (testing "the NAF prover claims a *closed* unknown"
@@ -1087,3 +1087,13 @@
       (is (= #{} (sx/free-vars (list 'thereExists ['?x '?y] (list 'rel '?x '?y)))))
       (is (v/ask? kb (list 'thereExists ['?x '?y] (list 'rel '?x '?y))))
       (is (not (v/ask? kb (list 'thereExists ['?x '?y] (list 'rel '?x 'NoSuchThing))))))))
+
+(tu/deftest-kb a-lookup-budget-keeps-unknown-rather-than-inverting-it
+  ;; dropping `UnknownProver` past the cap would not under-report: an empty result for
+  ;; `(unknown S)` reads as "S is derivable" (docs/anytime.md)
+  (tu/with-terms [flies Tweety]
+    (let [g (list 'unknown (list flies Tweety))]
+      (is (v/ask? kb g 'CxWell) "S is not derivable, so (unknown S) holds")
+      (let [r (v/ask-within kb g 'CxWell {:max-cost :lookup})]
+        (is (seq (:results r)) "the lookup budget keeps UnknownProver, not an inverted empty")
+        (is (= :complete (:status r)))))))

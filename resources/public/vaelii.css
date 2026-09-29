@@ -200,7 +200,7 @@ p, .muted, .legend, .lede, dd, figcaption, blockquote, .comment {
   font-family: var(--prose);
   font-size-adjust: none;
 }
-.sx, .nat, .t-var, code, pre, kbd, samp, .badge, .tag, .chip,
+.sx, .nat, .t-var, code, pre, kbd, samp, .badge, .tag,
 input, textarea, select, button {
   font-family: var(--mono);
   font-size-adjust: var(--x-height);
@@ -845,13 +845,13 @@ h2 button.sx-edit:hover { opacity: 1; }
 
 /* the continuation row that ends a capped list: it fetches the next page when scrolled
    into view, and is clickable for a reader who would rather ask */
-li.more {
+li.more, div.more {
   list-style: none;
   cursor: pointer;
   padding: .3rem 0;
   font-size: .9em;
 }
-li.more:hover span { color: var(--accent); }
+li.more:hover span, div.more:hover span { color: var(--accent); }
 tr.more { cursor: pointer; }
 tr.more:hover span { color: var(--accent); }
 .more-td { padding-top: .35rem; }
@@ -1161,173 +1161,9 @@ ul.why summary:focus-visible { outline: 2px solid var(--accent); outline-offset:
   .stats-table th, .stats-table td { padding-right: .6rem; }
 }
 
-/* ---- the proposal panel (a term page) --------------------------------- */
-/* A card at the foot of the term page: an instruction box, and the region a turn's
-   answer swaps into.  Every line it renders is a proposal — nothing here is stored —
-   so the markers are the flat admissible / refused pair and nothing looks like belief. */
-
-.propose {
-  margin: 1.6rem 0 .6rem;
-  padding: .7rem .9rem .9rem;
-  background: var(--card);
-  border: 1px solid var(--card-edge);
-}
-.propose h3   { margin: .1rem 0 .5rem; }
-.propose .hint { font-size: .82em; color: var(--muted); margin: .4rem 0 0; }
-.propose label { display: block; font-size: .9em; margin-bottom: .25rem; }
-.propose-form textarea {
-  width: 100%;
-  box-sizing: border-box;
-  font: inherit;
-  font-size: .95em;
-  line-height: 1.5;
-  padding: .4rem .6rem;
-  background: var(--field-bg);
-  color: var(--ink);
-  border: 1px solid var(--field-edge);
-  resize: vertical;
-}
-.propose-form textarea:focus { outline: none; border-color: var(--accent); }
-.propose-form button[disabled] { cursor: progress; }
-.propose-form .editor-actions { margin-top: .5rem; }
-
-.propose-answer { margin-top: .8rem; border-top: 1px solid var(--edge); padding-top: .6rem; }
-.propose-lines  { list-style: none; padding-left: 0; margin: .4rem 0; }
-
-/* one proposed line: a fixed glyph gutter, then the sentence, then the chips.  The
-   gutter is a column the eye reads *down*, so the glyph's width is fixed and does not
-   depend on what the sentence beside it happens to be. */
-.p-line {
-  display: flex; flex-wrap: wrap; align-items: baseline; gap: .3em;
-  padding: .22rem 0;
-  border-bottom: 1px solid var(--edge);
-}
-.p-line:last-child { border-bottom: none; }
-.p-glyph {
-  flex: 0 0 1.2rem;
-  font-family: var(--mono); font-weight: 700; text-align: center;
-  cursor: default;
-}
-.p-ok        .p-glyph { color: #0a7d5a; }
-.p-coins     .p-glyph { color: var(--accent); }
-.p-uncertain .p-glyph { color: #b5651d; }
-.p-refused   .p-glyph { color: var(--err-ink); }
-.p-refused            { opacity: .82; }
-
-/* a corrected original is superseded, not hidden: struck and dimmed, with the rewrite
-   after the arrow — the author is the one choosing between them */
-.p-was   { text-decoration: line-through; opacity: .55; }
-.p-arrow { color: var(--muted); }
-.p-alts  { font-family: var(--mono); font-size: .78em; color: var(--muted); }
-
-.p-chips { display: inline-flex; flex-wrap: wrap; gap: .25em; margin-left: auto; }
-.chip {
-  display: inline-flex; align-items: baseline; gap: .25em;
-  font-size: .75rem; line-height: 1.5;
-  padding: 0 .5em;
-  border: 1px solid var(--field-edge);
-  background: var(--btn-bg); color: var(--ink);
-  white-space: nowrap; cursor: help;
-}
-.chip-g            { font-family: var(--mono); font-weight: 700; }
-.chip-ok           { border-color: #0a7d5a; }
-.chip-ok        .chip-g { color: #0a7d5a; }
-.chip-coins        { border-color: var(--accent); }
-.chip-coins     .chip-g { color: var(--accent); }
-.chip-uncertain    { border-color: #b5651d; }
-.chip-uncertain .chip-g { color: #b5651d; }
-.chip-refused      { border-color: var(--err-ink); }
-.chip-refused   .chip-g { color: var(--err-ink); }
-.chip-correction   { border-color: var(--muted); }
-.chip-correction .chip-g { color: var(--muted); }
-
-/* the explanation, one click away and never inline: a reviewer scanning twenty lines
-   is looking for the two that need reading */
-.p-why          { display: inline; }
-.p-why summary  {
-  display: inline-block; list-style: none;
-  width: 1.2rem; text-align: center;
-  color: var(--muted); cursor: pointer;
-}
-.p-why summary::-webkit-details-marker { display: none; }
-.p-why summary:hover        { color: var(--accent); }
-.p-why summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.p-why-body {
-  flex-basis: 100%;
-  margin: .2rem 0 .4rem 1.5rem;
-  padding: .35rem .6rem;
-  font-size: .86em;
-  background: var(--code-bg);
-  border-left: 2px solid var(--edge);
-}
-.p-why-body p { margin: .2rem 0; }
-
-/* disclosure levels: one row at three densities.  The switch is above the list — a
-   density buried in a preferences panel is one nobody changes, and the whole point is
-   that the same reader wants two of these within a session.  `guided` spells out what
-   the `?` folds at `working`; `dense` does not render it at all. */
-.p-levels { display: flex; align-items: center; gap: .3rem; margin: .2rem 0 .5rem; }
-.p-level {
-  font: inherit; font-size: .82em;
-  padding: .1rem .5rem; cursor: pointer;
-  background: var(--btn-bg); border: 1px solid var(--field-edge);
-}
-.p-level:hover { background: var(--btn-hover); }
-.p-level.on {
-  background: var(--sel-bg); border-color: var(--sel-edge); font-weight: 600;
-}
-.p-level:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-
-/* what `guided` says instead of folding it: the reason in the KB's own words, then what
-   the line would mean.  The gloss is composed, never generated (docs/web.md). */
-.p-said, .p-gloss {
-  flex-basis: 100%;
-  margin: .2rem 0 0 1.5rem;
-  font-size: .88em;
-}
-.p-said  { color: var(--ink); }
-.p-gloss { color: var(--muted); font-style: normal; border-left: 2px solid var(--edge);
-           padding-left: .5rem; }
-
-/* at `dense` the row is the gutter: no shape sentences, no alternatives hint, nothing
-   that is not a glyph or the claim itself */
-.p-at-dense .p-alts { display: none; }
-
-/* reviewing: the numbered shapes, the accept/reject pair, and the one button that
-   writes.  A row under the keyboard shows it — the reader's place has to be visible
-   when the hands never leave the home row. */
-.p-line:focus         { outline: none; }
-.p-line:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.p-accepted { background: var(--sel-bg); box-shadow: inset 2px 0 0 #0a7d5a; }
-.p-rejected { opacity: .45; }
-.p-rejected .p-chips, .p-rejected .p-opts { visibility: hidden; }
-
-.p-opts, .p-acts { display: inline-flex; gap: .2em; }
-.p-opts { margin-left: .4em; }
-.p-opt, .p-accept, .p-reject {
-  font: inherit; font-size: .75rem; line-height: 1.4;
-  min-width: 1.5em; padding: 0 .35em;
-  border: 1px solid var(--field-edge);
-  background: var(--btn-bg); color: var(--ink); cursor: pointer;
-}
-.p-opt:hover, .p-accept:hover, .p-reject:hover { background: var(--btn-hover); }
-.p-opt.on {
-  background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700;
-}
-.p-acts { margin-left: .4em; }
-.p-accept:hover { border-color: #0a7d5a; color: #0a7d5a; }
-.p-reject:hover { border-color: var(--err-ink); color: var(--err-ink); }
-
-/* what accepting would do: three counts, each folding open.  It sits between the list
-   and the button because that is the order the decision is made in — read the lines,
-   read what they would do, then commit. */
-.p-preview {
-  margin: .7rem 0 .2rem;
-  padding: .5rem .7rem;
-  border: 1px solid var(--edge);
-  background: var(--code-bg);
-}
-.p-preview > p:first-child, .p-preview > p:last-child { margin: 0; }
+/* ---- what a batch would do (the editor's lookahead) ------------------ */
+/* `v/preview` as three counts, each folding open, under a heading naming the batch.
+   The refused group opens itself; the rest are counts until asked for. */
 .p-cons-head { margin: 0 0 .4rem; font-size: .95rem; }
 .p-cons { margin: .15rem 0; }
 .p-cons summary {
@@ -1344,24 +1180,6 @@ ul.why summary:focus-visible { outline: 2px solid var(--accent); outline-offset:
 }
 .p-cons-list li { margin: .12rem 0; }
 .p-cons-list .tag { margin-right: .3em; }
-.p-preview .hint { margin: .35rem 0 0; }
-
-.p-commit { display: flex; align-items: center; gap: .6rem; margin: .7rem 0 .2rem; }
-.propose-answer kbd {
-  font-family: var(--mono); font-size: .85em;
-  padding: 0 .3em; border: 1px solid var(--field-edge);
-  background: var(--code-bg);
-}
-.propose-answer h4 { margin: .2rem 0 .4rem; }
-
-.propose-answer .legend .chip { margin: 0 .15em; }
-.propose-raw {
-  font-family: var(--mono); font-size: .82em;
-  white-space: pre-wrap; word-break: break-word;
-  max-height: 12rem; overflow: auto;
-  padding: .4rem .6rem; margin: .3rem 0;
-  background: var(--code-bg);
-}
 
 /* ---- the qualitative constraint network (/network) -------------------- */
 /* The matrix is the one wide thing on any page, so it scrolls inside its own

@@ -271,9 +271,9 @@
 ;; ---- the policy is the KB's, not the build's -----------------------------
 
 (defn- kb-with
-  "A cleared KB on the scratch space under one naming policy."
+  "An empty KB on the scratch space under one naming policy."
   [policy]
-  (fn [] (doto (v/open-kb (assoc tu/scratch-space :naming policy)) (tu/clear-kb!))))
+  (fn [] (tu/fresh {:naming policy})))
 
 (def ^:private misnamed '(parentOf Baby_Penguin Tom))
 
@@ -284,7 +284,7 @@
   (testing ":strict is the default, and refuses with a :naming type"
     (tu/with-cleared-kb [kb (kb-with :strict)]
       (is (= :strict (:naming kb)))
-      (is (= :strict (:naming (v/open-kb tu/scratch-space))) "the default, unasked for")
+      (is (= :strict (:naming (v/open-kb (tu/scratch-space)))) "the default, unasked for")
       (is (= :naming (:type (try (v/assert kb misnamed 'CxWell)
                                  (catch clojure.lang.ExceptionInfo e (ex-data e))))))
       (is (zero? (v/sentex-count kb)) "and nothing was stored")))
@@ -306,7 +306,7 @@
     ;; on the same ground as an unknown `open-kb` key: a KB that silently took :strict
     ;; when it was told :lenient refuses content the caller expected to land
     (is (= :unknown-option
-           (:type (try (v/open-kb (assoc tu/scratch-space :naming :lenient))
+           (:type (try (v/open-kb (assoc (tu/scratch-space) :naming :lenient))
                        (catch clojure.lang.ExceptionInfo e (ex-data e))))))))
 
 (deftest two-entry-points-over-one-store-disagree-and-both-are-right
@@ -314,13 +314,40 @@
   ;; strict editor can hold the same store at once — which is the whole point of it
   ;; being per-KB rather than a property of the build.
   (tu/with-cleared-kb [lenient (kb-with :off)]
-    (let [strict (v/open-kb (assoc tu/scratch-space :naming :strict :recover? false))]
+    (let [strict (v/open-kb (assoc (tu/scratch-space) :naming :strict :recover? false))]
       (v/assert lenient misnamed 'CxWell)
       (testing "the strict KB reads what the lenient one stored"
         (is (= [misnamed] (map :sentence (v/find-sentexes strict 'Baby_Penguin)))))
       (testing "but still refuses to be the one that writes it"
         (is (= :naming (:type (try (v/assert strict '(parentOf Other_Penguin Tom) 'CxWell)
                                    (catch clojure.lang.ExceptionInfo e (ex-data e))))))))))
+
+(deftest a-functor-a-firing-forms-is-held-to-the-naming-policy
+  ;; `(?f ?x)` passes the rule's own check, since a variable names nothing, so the functor
+  ;; a binding forms is first read when the conclusion is placed.  Both arrival orders,
+  ;; because the retroactive join places through the same path as a fresh firing.
+  (tu/with-terms [appliesTo Fido Rex dog]
+    (let [rule      (list 'set/forwardRule (list 'implies (list appliesTo '?x '?f) (list '?f '?x)))
+          facts     [(list appliesTo Fido Rex) (list appliesTo Fido dog)]
+          misnamed  (list Rex Fido)
+          admitted  (list dog Fido)
+          naming-of (fn [kb] (into #{} (comp (filter #(= :naming (:violation %)))
+                                             (map :sentence))
+                                   (v/violations kb)))]
+      (doseq [[label order] [["rule first" (cons rule facts)]
+                             ["facts first" (conj facts rule)]]]
+        (testing (str ":strict drops and reports it, " label)
+          (tu/with-cleared-kb [kb (kb-with :strict)]
+            (doseq [s order] (v/assert kb s 'CxWell))
+            (is (nil? (v/handle-of kb misnamed 'CxWell)))
+            (is (= #{misnamed} (naming-of kb)))
+            (is (some? (v/handle-of kb admitted 'CxWell))
+                "a conclusion the invariants admit is stored beside it"))))
+      (testing ":off stores it and reports nothing"
+        (tu/with-cleared-kb [kb (kb-with :off)]
+          (doseq [s (cons rule facts)] (v/assert kb s 'CxWell))
+          (is (some? (v/handle-of kb misnamed 'CxWell)))
+          (is (empty? (naming-of kb))))))))
 
 (deftest a-policy-moves-what-is-refused-never-how-a-role-is-read
   ;; The one cost of `:off`, stated as a test so it cannot be forgotten: the KB stores a
@@ -331,7 +358,7 @@
   (is (not (nm/individual? 'Baby_Penguin)))
   (testing "so the messages do not move either — only whether anyone throws them"
     (is (seq (nm/problems misnamed 'CxWell)))
-    (is (seq (nm/blocking-problems :strict misnamed 'CxWell)))
+    (is (= (nm/problems misnamed 'CxWell) (nm/blocking-problems :strict misnamed 'CxWell)))
     (is (empty? (nm/blocking-problems :warn misnamed 'CxWell)))
     (is (empty? (nm/blocking-problems :off  misnamed 'CxWell)))))
 
@@ -468,7 +495,7 @@
                               'CxUniverse)))))
 
 (deftest a-name-the-reader-would-not-read-back-is-refused
-  (testing "a leading digit is indistinguishable from a malformed number, not a symbol"
+  (testing "a leading digit is parsed as a malformed number, not a symbol"
     (is (thrown? Exception (read-string "134a-gas")))
     (is (nil? (v/term-role (symbol "134a-gas")))))
   (testing "and the escaped spelling reads, and is a sense"

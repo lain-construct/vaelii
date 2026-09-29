@@ -146,6 +146,62 @@ convention forbids; the tag's leading letter keeps the name a readable token (a
 digit-leading name is not) and doubles as the version — a later hash or encoding change
 is `nat/b…`, old constants keeping their names.
 
+## Derivation path
+
+The forward chainer stores a rule's conclusion itself rather than through `assert`, and it
+reifies the same way. `chain/place-conclusion` replaces every ground reifiable NAT in a
+fired conclusion with its constant before it stores anything (`reify-conclusion`). A rule
+concluding `(grownIn (FruitFn ?t) ?o)`, fired on `(bears AppleTree Orchard)`, stores
+`(grownIn K Orchard)`. `K` is the constant an asserted `(tagged (FruitFn AppleTree))`
+stores too, so a join between the two sentences meets, and a goal spelled with the compound
+finds the derived fact. A generator's stamped rule goes through the same pass, so a ground
+application in its antecedent is spelled with the constant the facts it matches are stored
+under.
+
+- An application that already has a term resolves to it — a `rewriteOf` target, the
+  value its corresponding predicate names, or the minted constant — through
+  `nat/reify-existing`, which mints nothing.
+- An application with no term is checked before it is minted. The placement's own checks
+  run over the conclusion under `checks/*entry-mints?*`, which reads the application as
+  the constant a mint would give it, the reading `check` uses (below). A conclusion those
+  checks drop is dropped with nothing minted, so no constant is left behind whose one use
+  was never stored. An admitted conclusion is minted by `mint-nat!`, and the placement
+  then runs its checks again over the reified sentence; that second pass draws the
+  argument-type entailments on the constant.
+- The mint writes what `assert`'s mint writes: the `termOfUnit` map, the materialized
+  result types and the correspondence projection, as premises in CxUniverse at
+  `:monotonic`. The constant's name is the expression's content, and its bookkeeping is
+  the same whichever path named the application first.
+- A mint is a full assert and can refuse. A firing does not throw mid-fixpoint
+  ([nmtms.md](nmtms.md#definitional-constraints-on-the-derivation-path)), so a refused
+  mint drops the conclusion and is recorded in `core/violations` as `:mint-refused`, with
+  the refusal's own type under `:refusal`. A firing has no batch to roll back, so the
+  bookkeeping the mint wrote before the refusal stays stored: a correspondence projection
+  its predicate's `arg` declaration refuses leaves the `termOfUnit` map and the result
+  types, and no removal names that constant for the region sweep to collect. The mint
+  runs under `*defer-settle?*`, as a skolem witness's mint does ([skolem.md](skolem.md)):
+  the fixpoint settles once when it finishes.
+
+**The derived conclusion is a use of the constant, and the bookkeeping does not rest on
+the firing.** The conclusion is justified like every other firing; the map and the result
+types are premises. The map says what the constant denotes, which does not vary by context
+or by which firing named it, so it is stored where every reader sees it and belongs to no
+one derivation. When the derived use goes — its antecedent retracted, or the settle's sweep
+deleting what it solely supported — the removal reaches the orphan sweep through
+`integrate/*removed-sink*` like any other removal (Rename and remove, below), and the
+constant is collected once nothing but its own bookkeeping names it. An asserted use keeps
+it, and a derived use keeps it after the asserted one goes. A re-derivation after a
+collection mints the same name, so derive-then-assert, assert-then-derive and a derivation
+retracted and restated all store the same sentences.
+
+**A backward proof mints nothing.** `prove` and `query` store no conclusion, so a backward
+rule concluding `(grownIn (FruitFn ?t) ?o)` binds `?f` to the compound `(FruitFn
+AppleTree)` in its answer, the way a computed term is a value in a binding map (below). The
+resolver does not unify a stored constant with an application in a rule's head, so a goal
+naming `K` is not answered by that rule — `(grownIn K ?o)` directly, or a conjunction that
+binds `?f` to `K` from a stored `(tagged K)`. A rule stored with a forward direction
+materializes the constant, and those goals then read the stored fact.
+
 ## Typing an application that is never minted
 
 A reified application arrives at the definitional checks as its constant, typed by the
@@ -193,10 +249,25 @@ Four things fix what that reading is and is not.
   materializes into `CxUniverse`, where every reader sees the result, and what a term
   denotes is not a thing a reader may vary. `nat/result-types` and
   `genl-result-types` carry both arities for exactly that split.
-- **One declaration, one verdict.** `(result F measure)` refuses the same sentence
-  whether `F` is reifiable or unreifiable — through the constant in the first case and
-  through this reading in the second. A reifiable function's application never reaches
-  this arm at all.
+- **One declaration, one verdict.** Under the constraint reading, `(result F measure)`
+  refuses the same sentence whether `F` is reifiable or unreifiable — through the constant
+  in the first case and through this reading in the second. On the assert path a
+  reifiable function's application never reaches this arm, since it is minted first.
+
+**`check` reads a reifiable application as the constant `assert` would mint.** `check`
+writes nothing, so it mints nothing. An application that already has a term
+(`nat/reify-existing`) is checked as that term. One that has none is read under
+`checks/*entry-mints?*`, with its function's result types standing where the minted
+constant's memberships would. Under assertive argument types ([argtypes.md](argtypes.md))
+the demand then refuses only a result type the taxonomy separates from the demanded type,
+with `:disjoint`, which is what the entailment `assert` draws over the constant refuses; any
+other result type is admitted, as `assert` admits it and mints the demanded type. The
+checks do not read what a rule would conclude of the new constant.
+
+What an application is *given* is a separate reading from what it denotes: each input is
+checked against the function's own argument declarations, for a reifiable function before
+the mint replaces the application with its constant
+([argtypes.md](argtypes.md#relation-wide-declarations-and-the-runtime-boundary)).
 
 A **quoting predicate's** argument is left alone: `(termOfUnit K (FruitFn AppleTree))`
 and a compound-argument `(rewriteOf T E)` carry the expression as a verbatim payload
@@ -427,6 +498,9 @@ and the loop ends on the round that removes nothing.
 - `vaelii.core` — the reify call sites: the write-path reify at the head of `assert`,
   the read-path reify at the query entries, and one call into
   `vaelii.impl.nat-maintenance` per maintenance site.
+- `vaelii.impl.chain` — `reify-conclusion`, the derivation-path reify `place-conclusion`
+  runs on a fired conclusion, with the checks asked before the mint. It gates on
+  `nat/names-reifiable-nat?`, a walk that rebuilds nothing.
 - `vaelii.impl.integrate` — `*removed-sink*`, the removal choke point's record of what a
   teardown took away, which is the region the orphan sweep runs over.
 - `vaelii.impl.special` — the two function-kind prop marks, the correspondence's
@@ -444,6 +518,9 @@ and the loop ends on the round that removes nothing.
   NAT findable, so a NAT that cannot be reified is reachable only through the coarser
   keys ([indexing.md](indexing.md)).
 - **An existential rule head is not skolemized here** ([skolem.md](skolem.md)).
+- **A backward rule's application is not reified.** A proof stores nothing, so its answer
+  carries the compound, and a goal naming the constant does not unify with the
+  application in the rule's head (Derivation path, above).
 
 The **measure-evaluating quantity prover** — measure comparison over a `dimensionOf` /
 `conversionFactor` table — reads the structural measures this gate preserves. It lives

@@ -277,9 +277,22 @@
   (when frames (sweep-readers! frames (fn [c] (c))))
   nil)
 
+(defn stream-closer
+  "The function that closes the stream behind `frames`, a seq one of the readers below
+  returned, or nil for any other seq.  The function holds the stream and not the seq, so a
+  caller that keeps it while the seq is walked keeps no frame the walk has passed.
+  Idempotent."
+  [frames]
+  (when frames
+    (some (fn [^clojure.lang.MapEntry e]
+            (when (identical? frames (.get ^java.lang.ref.WeakReference (key e))) (val e)))
+          (iterator-seq (.iterator open-readers)))))
+
 (defn closer
   "`frames` as a `java.io.Closeable`, so a consumer can put the stream in the `with-open`
-  it already has rather than wrapping its whole body in a `try`.
+  it already has rather than wrapping its whole body in a `try`.  The `Closeable` holds
+  the stream's close function (`stream-closer`) and not `frames`, so the frames the body
+  has walked past stay collectable.
 
   A frame seq closes its own file on being consumed to the end, and on a failure it
   raises itself — but **not** on a throw out of the consumer's body, which is the exit a
@@ -288,8 +301,9 @@
   to give the stream the same lifetime, and `with-open` closes in reverse order, so the
   stream goes after the sink that was reading against it."
   ^java.io.Closeable [frames]
-  (reify java.io.Closeable
-    (close [_] (close-frames! frames))))
+  (let [close (stream-closer frames)]
+    (reify java.io.Closeable
+      (close [_] (when close (close))))))
 
 (def ^:private max-chunk-bytes
   "The largest chunk `read-chunked-seq` will allocate for.  A chunk is read off a

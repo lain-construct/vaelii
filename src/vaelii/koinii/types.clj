@@ -42,7 +42,11 @@
     cursor, so there is nothing to fall off and nothing to resume.")
   (-feed-poll [medium token cursor opts]
     "Read a raw subscription forward — `{:events :cursor :lagged}`.  `:lagged` non-zero is
-    the whole point of catch-up: the cursor fell off the ring.  Local THROWS, as above."))
+    the whole point of catch-up: the cursor fell off the ring.  Local THROWS, as above.")
+  (-feed-close [medium token]
+    "Close a raw subscription `-feed-open` opened, so the far end stops holding it.  What
+    catch-up calls when a pass that opened one throws before storing its position.  Local
+    THROWS, as above."))
 
 (defprotocol CursorStore
   "Where an agent keeps 'the last feed position I processed' — `{:token :cursor}` — so a

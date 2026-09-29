@@ -1,6 +1,6 @@
 # Solving: assumptionRule and persistent, inert labeling contexts
 
-- **Covers:** how `assumptionRule`, constraint, cardinality, and objective
+- **Covers:** how `assumptionRule`, `solveRule`, constraint, cardinality, and objective
   (`asp/minimize` / soft-constraint priority) declarations become `do/label`'s
   persistent, inert labeling contexts, without touching base belief.
 - **Not here:** the ASPIF encoding and solver backends the resulting program runs on →
@@ -32,14 +32,17 @@ persists and is inspectable; the base KB is untouched either way.
 
 A choice rule (`{head} :- body` in ASP): when `body` is derivable, `head` is an atom a
 solve may set true or false. It is a virtual wrapper like `set/defaultRule` / `exceptWhen`,
-canonicalized into the `RuleSentex` record's **`:assumption`** field and, being part of the
-rule's identity, into the **trie key** — a choice rule and its bare twin are different
-sentexes.
+canonicalized into the `RuleSentex` record's **`:effect`** field as `:choose` and, being part
+of the rule's identity, into the **trie key** — a choice rule and its bare twin are
+different sentexes.
 
-`:assumption` is a *firing mode*, **not** a strength class (`strength.clj` keeps its two
-classes; there is no third). `forward-sentex?` / `backward-sentex?` return false for a
-choice rule, so it **never chains into belief** — asserting `(candidate Item)` does not
-derive `(color Item red)`. A solve is the only thing that consults it.
+A choice is a *head*, **not** a strength class (`strength.clj` keeps its two classes;
+there is no third). A choice rule's `:engines` is `#{:solve}`, so `forward-sentex?` /
+`backward-sentex?` return false for it and it **never chains into belief** — asserting `(candidate Item)` does not
+derive `(color Item red)`. A solve is the only thing that consults it. So a direction
+wrapper, `set/defaultRule` or a `:direction` opt on a choice rule states nothing, and
+`assert` refuses it, as it refuses a rule wrapped as both a choice and a constraint
+([canonicalization.md](canonicalization.md#rule-wrappers-become-fields)).
 
 **This is where a disjunctive conclusion lands.** `(implies <body> (or C1 C2))` is
 refused at the assert entry point, and the refusal points here: a disjunctive head says one of
@@ -51,6 +54,104 @@ answer set. (A rule **antecedent** that disjoins is a different question with a 
 answer: it is polycanonicalized into one rule per alternative and never reaches a solve
 at all — [canonicalization.md](canonicalization.md).)
 
+## `solveRule` — a derived atom inside a solve
+
+```clojure
+(set/solveRule (implies <body> <head>))
+```
+
+A normal rule (`head :- body` in ASP) that a solve runs: in each answer set its head holds
+exactly when some ground instance of its body does there. It is the third of the solve's
+rule forms — `assumptionRule` offers a choice, `solveRule` derives what follows from the
+choices, a constraint forbids — and the one that lets a constraint bite downstream of a
+choice: "the elements the picked sets cover", "the nodes the picked edges reach".
+
+The wrapper adds `:solve` to the record's `:engines` and leaves `:effect` `:derive`
+([canonicalization.md](canonicalization.md#rule-wrappers-become-fields)), so how the rule
+runs **in base** is said the ordinary way, beside it:
+
+| written | engines | in base | in a solve |
+|---|---|---|---|
+| `(set/solveRule R)` | `#{:backward :solve}` | answers backward goals | derives its head |
+| `(set/forwardRule (set/solveRule R))` | `#{:forward :backward :solve}` | forward and backward | derives its head |
+| `(set/inertRule (set/solveRule R))` | `#{:solve}` | nothing | derives its head |
+
+**Which to write.** A rule true of the domain — `atCapital` holds of whoever is assigned a
+capital — is the bare `set/solveRule`: base answers it over what it believes, and every
+answer set derives it over what that set chose, so a labeling states what base would state
+of the same assignments. A rule that exists only to phrase a constraint — `covered`,
+`reach` from a chosen root — is `set/inertRule` beside it: in base it would answer nothing
+useful, and a backward walk of a recursive one costs a search per goal. Forward beside it
+is for a rule whose base conclusions are worth materializing; a choice head is never
+believed, so a forward solve rule fires in base only on facts base holds. A choice or
+constraint rule runs in a solve already and takes no `set/solveRule`, and neither does a
+`set/defaultRule`, since one answer set has no defeat to apply — both are refused
+`:not-well-formed`.
+
+**Grounding runs when `do/label` builds its program**, in memory, and stores nothing. A
+solve rule fires forward over the atoms that can become true — every ground choice head,
+and every atom an earlier firing concluded — until no firing concludes a new atom. Each
+firing becomes one ground rule of the program, `h :- a1, .., not ak`
+([asp.md](asp.md)). Unlike a forward rule's firing in base, a firing here puts no sentex
+in the records and no justification in the JTMS: the solver reads the ground rules and
+decides, per answer set, which derived atoms hold.
+
+**Grounding splits the body by predicate**, as a constraint's is. A literal over a
+**program predicate** — a ground choice head's, or the head of a believed solve rule
+visible from `Base` — matches the program's atoms; every other literal is background,
+proved once over what `Base` believes (the registry leaf `assumptionRule` antecedents are
+proved over). A predicate no visible solve rule concludes is therefore background even in
+a constraint body, so `(not (covered ?x))` there reads believed negation and forbids
+nothing when no rule derives `covered`. A negated program literal `(not (busy ?w))` is
+default negation in the answer set, and it must be ground once the positive literals are.
+The atoms are grounded by a semi-naive fixpoint from the choice heads, so a rule may read another solve rule's head or its own; recursion is what
+reachability needs, and the solver's stable-model reading gives a loop of atoms that only
+support each other no atom — two chosen edges `B → C` and `C → B` do not make B reachable
+from a root that reaches neither. What `Base` already holds of a solve rule's head is
+proved there and enters every answer set as a fact, as a base fact holds in every
+labeling context below the base. A head building a larger term from its body's derives
+without bound, and grounding refuses past 200 000 atoms.
+
+Each semi-naive round starts a rule's join at the literal that reads the atoms the round
+before added, and reads the background bindings by the variables those atoms bind. The
+atom indexes carry over from round to round, so a chain of `n` derived atoms costs `n`
+rounds of one atom each rather than `n` rounds over all of them; `lein perf`'s
+`solve-rule-grounding` check holds the cost per derived atom flat from 500 atoms to
+8 000.
+
+A derived atom is recorded like a choice: a labeling context holds `(head)` where it is
+derived and `(not head)` where it is not, `do/classify` reads it the same way, and
+`do/label` lists the derived atoms in `:derived`. An `exceptWhen` on a solve rule is
+honored per binding, evaluated in `Base`.
+
+```clojure
+;; pick at most two sets; every element must be covered by a picked one
+(assert kb '(set/assumptionRule (implies (candidate ?s) (pick ?s))) ctx)
+(assert kb '(asp/atMost 2 ?s (pick ?s)) ctx)
+(assert kb '(set/inertRule (set/solveRule
+              (implies (and (pick ?s) (member ?x ?s)) (covered ?x)))) ctx)
+(assert kb '(set/hardConstraint
+              (implies (and (element ?x) (not (covered ?x))) (uncovered ?x))) ctx)
+```
+
+An `assumptionRule`'s antecedents are proved over base belief, so a derived atom does not
+gate a choice: a choice is offered or not by what `Base` holds. A literal over a choice
+predicate reads the ground choice heads alone, so what `Base` believes of that predicate
+outside an offered choice is not in the program; only a solve rule's head has its base
+instances entered as facts. A program needs a choice to solve: solve rules with no ground
+choice report `:no-choices`.
+
+### The solve's rule forms side by side
+
+| | `set/assumptionRule` | `set/solveRule` | `set/hardConstraint` / `softConstraint` | `asp/atMost` / `atLeast` |
+|---|---|---|---|---|
+| **in base** | chains in neither direction | as its direction wrappers say | chains in neither direction | chains in neither direction |
+| **body read over** | `Base` belief, the whole body | program literals over the atoms, the rest over `Base` | program literals over the atoms, the rest over `Base` | one pattern over the atoms |
+| **reads a derived atom** | no | yes | yes | yes |
+| **in the program** | `{h}.` per ground head | `h :- a1, .., not ak` per ground instance | `:- body` per binding, or a violation atom and a `#minimize` | one weight-body statement per group |
+| **in a labeling** | `(h)` / `(not h)` | `(h)` / `(not h)` | nothing | nothing |
+| **auto clashes** (`functional`, `disjoint`, `X` / `(not X)`) | among the choice heads | not applied | — | — |
+
 ## `hardConstraint` / `softConstraint` — a nogood over the choices
 
 ```clojure
@@ -61,10 +162,11 @@ at all — [canonicalization.md](canonicalization.md).)
 A constraint rule's head is a **contradiction marker**, not a truth, and its body is a
 conjunctive nogood mixing background facts with choice-head patterns. Like
 `assumptionRule` it is a virtual wrapper canonicalized into the `RuleSentex` record — into
-**`:constraint`**, as `:hard` or `:soft` — and, being part of the rule's identity, into
-the trie key: `sentex/key-tokens` gives every rule a constant `:constraint` slot, so a
-hard constraint, its soft twin and its bare twin are three sentexes. `rules/constraint-of`
-reads the class back off the record, `rules/constraint?` the bare fact of one.
+**`:effect`**, as `:forbid` (hard) or `:penalize` (soft) — and, being part of the rule's
+identity, into the trie key: `sentex/key-tokens` gives every rule a constant constraint
+slot, so a hard constraint, its soft twin and its bare twin are three sentexes.
+`rules/constraint-of` reads the class (`:hard` / `:soft`) back off the record,
+`rules/constraint?` the bare fact of one.
 
 It chains in neither direction (`forward-sentex?` / `backward-sentex?` are false for it),
 so the marker is never derived: asserting everything its body names concludes nothing. A
@@ -101,10 +203,13 @@ after them, so it may be partially ground and its own variables count as binding
 (assert kb '(set/hardConstraint (implies (not (pick ?c)) (must_pick ?c))) 'CxUniverse)
 ```
 
-A negated literal matching *no* head drops its binding rather than constraining
-anything, and that is the right answer either way: an atom that does not exist is
-absent in every model, so it can never be false-*together* with the rest and the
-requirement it guards is vacuous for that binding.
+A negated literal still holding a variable ranges over the atoms the program has, so it
+contributes one nogood per atom it matches and none for an atom that does not exist. A
+negated literal the positive join left **ground** names one atom, and when the program
+has no such atom it is absent in every model: the literal holds, adds no member, and the
+binding stays. A binding whose members all drop so is a nogood with none, and a hard one
+admits no model — a task no candidate can take, required taken, is unsatisfiable rather
+than silently met.
 
 **Hard and soft differ at the encoding** ([asp.md](asp.md)). A hard nogood renders as an
 ASPIF integrity constraint — no violation atom, no minimize term — so a model whose whole
@@ -137,8 +242,8 @@ head; `(asp/atMost 1 ?a (ferry ?a ?t))` groups by `?t`, so it is one bound per t
 **Grounding is one solver cardinality atom per group, not a subset of nogoods.** The rule
 is stored as a constraint rule whose consequent marker carries the operator and the count
 (`rules/normalize-cardinality`); `solve-context` matches its pattern against the ground
-choice heads, groups the matches by the group binding, and emits one `:cardinalities`
-entry per group. `edge/translate` renders each as a single ASPIF weight-body statement —
+choice heads and the solve rules' derived atoms, groups the matches by the group binding,
+and emits one `:cardinalities` entry per group. `edge/translate` renders each as a single ASPIF weight-body statement —
 `:- k+1 <= #count{ ... }` for a hard at-most, its default-negated mirror for at-least —
 so a cap of 10 over 30 heads is one constraint rather than `C(30, 11)` ≈ 54M. An
 application that clamped its inputs to keep the subset expansion finite can drop the clamp
@@ -269,6 +374,14 @@ and — under `:all` — materializes **one inert labeling context per optimal a
 The optional third argument is the mode: `:all` (the default), `:one` or `:sat`, and
 anything else is refused as `:not-assertible`.
 
+The rules a run reads — choice, constraint and cardinality rules, and `set/solveRule`s
+(`rules/solve-sentex?`) — come off the `:solve-rules` roster, `{context -> #{handle}}`,
+kept at the rule index/unindex choke points beside `:rule-contexts` and rebuilt by
+`recover`. The roster records storage; a run reads the entries for `Base` and its
+`genlCx` ancestor set and keeps the rules `res/rule-believed?` holds. Finding the rules
+therefore fetches one record per solve rule in that ancestor set and none of its facts
+(`solve_context_test`, `finding-a-solves-rules-reads-its-rules-not-the-corpus`).
+
 1. **Ground** — each assumptionRule's antecedents are proved over the knowledge visible
    from `Base` (a scoped, belief-filtered join — not a whole-KB scan), its head
    substituted per solution. The join runs over a **registry leaf** (`provers/solve-goal`),
@@ -331,13 +444,13 @@ three labelings to two) drops out of the hierarchy and `do/classify`
 cannot sweep it back in — plus the classification. So a solve converges instead of
 accreting; without the sweep, two groundings' truth values would union into one
 context, and an inert `(head)` beside an inert `(not head)` asserts nothing at all. A
-run that grounds *no* choices clears too — "no labelings" is its honest result. The
+run that grounds *no* choices clears too — "no labelings" is its result. The
 one exception is `:no-backend`: nothing was computed, so the previous artifact is left
 standing.
 
 **A run that cannot replace what is there refuses**, with `:labeling-run-blocked`, and
-refuses before the solve rather than after it. Two things stop the sweep, and
-proceeding past either is worse than not running at all:
+refuses before the solve rather than after it. Three things stop the sweep, and
+proceeding past any of them is worse than not running at all:
 
 - **A labeling context somebody has asserted believed content into.** The sweep
   declines to touch it — that is the guard above, and it is right — but the old marker
@@ -350,6 +463,11 @@ proceeding past either is worse than not running at all:
   more leaked slot on every re-run. It is recognized instead by what a marker-less
   artifact still is: a slot name, a non-empty extent with nothing believed in it, and
   this run's own placement edge under `Base`.
+- **A non-empty `<Into>Class` with no `classificationOf` marker.** The classification
+  context has one fixed name, so the marker is the only evidence that `do/classify`
+  wrote it. Without one the context is a user's context of that name or a
+  classification written before the marker existed, and `do/label` and `do/classify`
+  both refuse rather than sweep it (`:unmarked` in the `ex-data`).
 
 Believed content is what distinguishes a user's context from a lost artifact, and it is
 decisive in both directions: a context of one's own that occupies a slot — even one hung
@@ -414,12 +532,14 @@ head is:
 * **supportable** — otherwise (a brave / credulous consequence only).
 
 The result is written as inert sentexes `(forced H)` / `(supportable H)` / `(excluded H)`
-in `<Into>Class`, for inspection — replacing its own previous output, the same
-replace-on-rerun discipline `do/label` applies to the labelings.
+in `<Into>Class`, for inspection, beside an inert `(classificationOf <Into>Class <Into>)`
+ownership marker — replacing its own previous output, the same replace-on-rerun
+discipline `do/label` applies to the labelings.
 
 ```clojure
 (assert kb '(do/classify CxPlan) 'CxUniverse)
 ;; CxPlanClass: (supportable (color Item red)) (supportable (color Item blue))
+;;              (classificationOf CxPlanClass CxPlan)
 ```
 
 ## Inspecting a solve
@@ -434,13 +554,13 @@ re-running `do/label` under `:all` replaces the whole run.
 
 ## What a choice constrains
 
-A constraint — an auto-detected clash or a constraint rule alike — reaches the **direct**
-ground choice heads and nothing further. Choices do **not** propagate through ordinary
-rules — "choosing red makes it warm, and warm things can't be here" is not expressible
-as one, because the Program is built from the choice
-heads and the nogoods standing over them: nothing runs the chainer with a choice held
-hypothetically, and nothing emits the rule base to clingo's grounder. A constraint that
-only bites downstream of a rule therefore has nothing to bite on.
+A constraint rule (hard, soft or `asp/minimize`) and a cardinality bound reach the ground
+choice heads and the atoms the solve rules derive from them; an auto-detected clash reaches
+the choice heads alone. A choice propagates through a `set/solveRule` and through nothing
+else: "choosing red makes it warm, and warm things can't be here" is a solve rule
+concluding `warm` and a constraint over it. A rule without the wrapper is not ground into
+the program — nothing runs the chainer with a choice held hypothetically — so a
+constraint that bites only downstream of one has nothing to bite on.
 
 ## Relationship to dilemmas and `do/labeling`
 

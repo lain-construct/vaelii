@@ -7,12 +7,13 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
 (defn- assert-outcome
-  "`:ok`, or the `:type` of the refusal — so a case is indistinguishable from a value rather than the
+  "`:ok`, or the `:type` of the refusal — so a case is a value rather than the
   presence or absence of a throw."
   [kb sentence context]
   (try (v/assert kb sentence context) :ok
@@ -101,6 +102,27 @@
       (v/retract! kb (v/handle-of kb (list 'sibling_disjoint collection) 'CxUniverse))
       (is (not (v/disjoint? kb a b)))
       (is (v/assert kb (list b x) 'CxUniverse)))))
+
+(tu/deftest-kb a-genl-edge-into-a-marked-clique-reads-no-closure-of-the-parent
+  ;; Whether a type sits under the marked parent is read off the type's own supertype
+  ;; closure.  The parent's spec closure holds the whole clique and is rebuilt after every
+  ;; `genl` edge, so reading it made each new member cost the clique (`lein perf`'s
+  ;; `sibling-disjoint-new-spec`).
+  (let [root (tu/tmp-type) benign (tu/tmp-type)
+        spec (fn [i] (symbol (str root "_s" i)))
+        add! (fn [i] (let [x (tu/tmp-ind)]
+                       (v/assert kb (list benign x) 'CxUniverse)
+                       (v/assert kb (list (spec i) x) 'CxUniverse)
+                       (v/assert kb (list 'genl (spec i) root) 'CxUniverse)))
+        asked (atom [])
+        [specs specs-global] [tax/specs tax/specs-global]]
+    (v/assert kb (list 'sibling_disjoint root) 'CxUniverse)
+    (run! add! (range 4))
+    (with-redefs [tax/specs        (fn [t c ctx] (swap! asked conj c) (specs t c ctx))
+                  tax/specs-global (fn [t c] (swap! asked conj c) (specs-global t c))]
+      (add! 4))
+    (is (not-any? #{root} @asked))
+    (is (v/disjoint? kb (spec 0) (spec 4)))))
 
 (tu/deftest-kb the-mark-is-ill-formed-over-an-individual
   (let [fido (tu/tmp-ind)]
@@ -286,6 +308,47 @@
         (testing "retracting it re-arms the ab-initio pair as a dilemma"
           (is (v/disjoint? kb a b))
           (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))))))
+
+(deftest a-re-arm-past-the-instance-budget-names-the-exception-and-resumes
+  ;; the departed exception re-arms four members' pairs; a budget of one decides one,
+  ;; files the cut against the exception, and a later settle reaches the rest
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-kb [kb]
+      (tu/with-terms [collection a b other Zed]
+        (v/assert kb (list 'genl a collection) 'CxUniverse)
+        (v/assert kb (list 'genl b collection) 'CxUniverse)
+        (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
+        (let [exc     (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
+              members (repeatedly 4 #(tu/tmp-ind "Member"))
+              ours?   (fn [c] (some #((set members) (second (:sentence %))) (:sides c)))
+              mine    #(count (filter ours? (v/contradictions kb)))]
+          (doseq [m members]
+            (v/assert kb (list a m) 'CxUniverse)
+            (v/assert kb (list b m) 'CxUniverse))
+          (v/clear-violations! kb)
+          (binding [tax/*exposure-instance-budget* 1]
+            (v/retract! kb exc))
+          (is (= [[:arbitration-truncated [(list 'siblingDisjointException a b)] 1]]
+                 (mapv (juxt :violation #(get-in % [:detail :sample]) #(get-in % [:detail :budget]))
+                       (v/violations kb))))
+          (is (= 1 (mine)) "the budget decided one member's pair")
+          (v/assert kb (list other Zed) 'CxUniverse)
+          (is (= 4 (mine)) "and the next settle resumes past the cut"))))))
+
+(deftest a-sibling-separated-clash-is-exposed-where-its-mark-is-seen
+  (binding [checks/*arbitrate-constraints?* true]
+    (tu/with-kb [kb]
+      (tu/with-terms [collection a b Muffet CxMark]
+        (v/assert kb (list 'genlCx CxMark 'CxUniverse) 'CxUniverse)
+        (v/assert kb (list 'genl a collection) 'CxUniverse)
+        (v/assert kb (list 'genl b collection) 'CxUniverse)
+        (v/assert kb (list 'sibling_disjoint collection) CxMark)
+        (v/assert kb (list a Muffet) 'CxUniverse)
+        (v/assert kb (list b Muffet) 'CxUniverse)
+        (is (= [#{CxMark}]
+               (for [c (v/exposed-clashes kb) :when (= Muffet (get-in c [:detail :term]))]
+                 (get-in c [:detail :visible-from])))
+            "the witness rests on the mark's context")))))
 
 (deftest an-exception-asserted-last-releases-a-standing-dilemma
   (binding [checks/*arbitrate-constraints?* true]

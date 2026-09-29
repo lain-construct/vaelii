@@ -12,10 +12,13 @@
 
   On by default (`checks/*assertive-arg-types?*`), and every test here binds it anyway, so
   a run under `VAELII_ASSERTIVE_ARG_TYPES=0` still measures the entailment."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
-            [vaelii.test-util :as tu]))
+            [vaelii.test-util :as tu])
+  (:import [java.nio.file Files]
+           [java.nio.file.attribute FileAttribute]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
@@ -25,11 +28,19 @@
   `(binding [checks/*assertive-arg-types?* true] ~@body))
 
 (defmacro with-pruning
-  "Run the body with the entailment on and subsumed mints pruned — the opt-in reading
-  (`VAELII_PRUNE_SUBSUMED_MINTS=1`), which is off by default for what it costs."
+  "Run the body with the entailment on and subsumed mints pruned — the default reading,
+  bound so a run under `VAELII_PRUNE_SUBSUMED_MINTS=0` still measures it."
   [& body]
   `(binding [checks/*assertive-arg-types?* true
              checks/*prune-subsumed-mints?* true]
+     ~@body))
+
+(defmacro with-mints-kept
+  "Run the body with the entailment on and pruning off — the reading
+  `VAELII_PRUNE_SUBSUMED_MINTS=0` selects."
+  [& body]
+  `(binding [checks/*assertive-arg-types?* true
+             checks/*prune-subsumed-mints?* false]
      ~@body))
 
 (defmacro without-entailing
@@ -174,6 +185,58 @@
           (v/retract! kb fh)
           (is (believed? kb (list animal Fred) CxWorld)))))))
 
+(defn- two-route-steps
+  "The eight sentences of the two-route shape, keyed for an arrival order: `(arg pd 1
+  tt)` declared on `pd`, and `(pa Xone)` a `pd` tuple over two `genl` paths, `pa → pb →
+  pd` and `pa → pc → pd`."
+  [kb tt pa pb pc pd Xone ctx]
+  {:tt   #(a-type kb tt ctx)
+   :pd   #(a-type kb pd ctx)
+   :ab   #(v/assert kb (list 'genl pa pb) ctx)
+   :ac   #(v/assert kb (list 'genl pa pc) ctx)
+   :bd   #(v/assert kb (list 'genl pb pd) ctx)
+   :cd   #(v/assert kb (list 'genl pc pd) ctx)
+   :decl #(v/assert kb (list 'arg pd 1 tt) ctx)
+   :fact #(v/assert kb (list pa Xone) ctx)})
+
+(def ^:private two-route-orders
+  "Six arrival orders of the two-route shape: the fact last, the declaration first and
+  last, the declaration before either path is whole, and each path's edges arriving
+  after the declaration."
+  {:fact-last         [:tt :pd :ab :ac :bd :cd :decl :fact]
+   :decl-first        [:decl :fact :tt :pd :ab :bd :ac :cd]
+   :decl-last         [:fact :tt :pd :ab :ac :bd :cd :decl]
+   :decl-before-paths [:fact :tt :pd :decl :ab :bd :ac :cd]
+   :pc-path-last      [:fact :tt :pd :ab :bd :decl :ac :cd]
+   :pb-path-last      [:fact :tt :pd :ac :cd :decl :ab :bd]})
+
+(tu/deftest-kb a-type-entailed-over-two-routes-survives-either-route-going
+  ;; The mint names one route (`checks/edge-support`), so retracting an edge on that
+  ;; route sweeps the record, and defeating one takes it OUT.  The other route still
+  ;; entails the type, so the removal or the defeat re-derives it from the taxonomy it
+  ;; left (`special/rederive-descended`), and `isa?` agrees with `ask?` whichever edge
+  ;; went, however it went, and whatever the arrival order.
+  (let [results
+        (for [[order steps] (sort two-route-orders)
+              [how via]     [nil [:retract :ab] [:retract :ac] [:defeat :ab] [:defeat :ac]]]
+          (tu/with-neutral-kb [kb tu/fresh]
+            (tu/with-terms [tt pa pb pc pd Xone CxProbe]
+              (with-entailing
+                (a-context kb CxProbe)
+                (let [step (two-route-steps kb tt pa pb pc pd Xone CxProbe)]
+                  (run! #((step %)) steps))
+                (let [edge (list 'genl pa (if (= via :ab) pb pc))]
+                  (case how
+                    nil      nil
+                    :retract (v/retract! kb (v/handle-of kb edge CxProbe))
+                    :defeat  (v/assert kb (list 'not edge) CxProbe {:strength :monotonic})))
+                [order how via {:stored (believed? kb (list tt Xone) CxProbe)
+                                :isa    (v/isa? kb Xone tt CxProbe)
+                                :ask    (v/ask? kb (list tt Xone) CxProbe)}]))))]
+    (is (= #{{:stored true :isa true :ask true}} (set (map last results)))
+        (str "a route's edge going took the type with it: "
+             (pr-str (remove #(= {:stored true :isa true :ask true} (last %)) results))))))
+
 (tu/deftest-kb defeating-the-fact-takes-the-type-out-with-it
   (tu/with-terms [animal parentOf Fred Mary CxWorld]
     (with-entailing
@@ -245,12 +308,12 @@
           "two justifications — each fact holds it up on its own"))))
 
 (tu/deftest-kb a-subsuming-membership-does-not-suppress-the-entailment
-  ;; The default stance, stated as a test: `(dog Muffet)` under `(genl dog animal)` already
-  ;; *reaches* `animal` by subsumption, and the entailment is drawn anyway.  Withholding
-  ;; it is what `*prune-subsumed-mints?*` does, and it is opted into
+  ;; The stance with pruning off, stated as a test: `(dog Muffet)` under `(genl dog animal)`
+  ;; already *reaches* `animal` by subsumption, and the entailment is drawn anyway.
+  ;; Withholding it is what `*prune-subsumed-mints?*` does, by default
   ;; (`a-subsuming-membership-withholds-the-entailment-when-pruning`).
   (tu/with-terms [animal dog parentOf Muffet Mary CxWorld]
-    (with-entailing
+    (with-mints-kept
       (a-context kb CxWorld)
       (a-type kb animal CxWorld)
       (v/assert kb (list 'genl dog animal) CxWorld)
@@ -264,7 +327,7 @@
         (is (v/isa? kb Muffet animal CxWorld)
             "while subsumption, which never needed the record, still answers")))))
 
-;; ---- the opt-in: a mint the KB says more specifically is not stored ------------
+;; ---- pruning: a mint the KB says more specifically is not stored --------------
 
 (tu/deftest-kb a-subsuming-membership-withholds-the-entailment-when-pruning
   ;; `(dog Muffet)` reaches `animal` by subsumption, so a minted `(animal Muffet)` beside
@@ -639,13 +702,11 @@
       (is (nil? (v/handle-of kb (list t2 Fred) CxWorld)) "the link the declaration held")
       (is (believed? kb (list t1 Fred) CxWorld) "and only that one"))))
 
-(tu/deftest-kb the-refusal-lands-on-arrival-and-does-not-reach-back
-  ;; The `arg` family has no retroactive conviction — a declaration meeting facts already
-  ;; stored mints over them and reports what it cannot mint, and refuses nothing
-  ;; (docs/taxonomy.md's arrival-order table, entry_point_and_report_test's rows).  The
-  ;; entailment reading inherits that shape rather than changing it, so which of the two
-  ;; is refused is which one arrived second.  What does **not** vary is the entailment:
-  ;; the mint is absent in both orders, so no reader is answered differently.
+(tu/deftest-kb under-refuse-the-refusal-lands-on-arrival-and-a-late-declaration-mints
+  ;; Under `:refuse` the entry point refuses whichever of the fact and the membership
+  ;; arrives second, as it refuses two stated memberships.  A declaration arriving over
+  ;; both refuses nothing and mints over the stored fact, and the mint's clash with the
+  ;; membership is weighed at settle, as a rule's conclusion is.
   (letfn [(run [order]
             (tu/with-neutral-kb [kb tu/fresh]
               (tu/with-terms [p_a p_b rel Bert Mary CxWorld]
@@ -662,14 +723,73 @@
                         :fact (v/assert kb (list rel Bert Mary) CxWorld))
                       (catch clojure.lang.ExceptionInfo _ nil)))
                   {:fact  (some? (v/handle-of kb (list rel Bert Mary) CxWorld))
-                   :decl  (some? (v/handle-of kb (list 'arg rel 1 p_a) CxWorld))
-                   :mint  (some? (v/handle-of kb (list p_a Bert) CxWorld))}))))]
-    (is (= {:fact false :decl true :mint false} (run [:decl :fact]))
-        "the declaration first, and the fact it would convict is refused on the way in")
-    (is (= {:fact true :decl true :mint false} (run [:fact :decl]))
-        "the fact first, and the declaration reports the mint it cannot make")
-    (is (= (:mint (run [:decl :fact])) (:mint (run [:fact :decl])))
-        "the entailment reads the same either way, which is what belief may not vary on")))
+                   :mint  (believed? kb (list p_a Bert) CxWorld)
+                   :clash (count (v/contradictions kb))}))))]
+    (is (= {:fact false :mint false :clash 0} (run [:decl :fact])))
+    (is (= {:fact true :mint true :clash 1} (run [:fact :decl])))))
+
+(defn- mint-clash
+  "Belief in the fact, the mint and the membership, and the contradictions count, after
+  `order` under `:arbitrate`, with `(coll_t Foo)` at `strength` and `coll_t`/`rel_t`
+  disjoint at `:monotonic`."
+  [order strength]
+  (tu/with-neutral-kb [kb #(v/open-kb (assoc (tu/scratch-space) :constraints :arbitrate))]
+    (tu/with-terms [rel_t coll_t pp Foo Bar]
+      (with-entailing
+        (doseq [s [(list 'genl rel_t 'thing) (list 'genl coll_t 'thing) (list 'disjoint rel_t coll_t)]]
+          (v/assert kb s 'CxUniverse {:strength :monotonic}))
+        (doseq [step order]
+          (case step
+            :member (v/assert kb (list coll_t Foo) 'CxUniverse {:strength strength})
+            :decl   (v/assert kb (list 'arg pp 1 rel_t) 'CxUniverse)
+            :fact   (v/assert kb (list pp Foo Bar) 'CxUniverse)))
+        {:fact   (believed? kb (list pp Foo Bar) 'CxUniverse)
+         :mint   (believed? kb (list rel_t Foo) 'CxUniverse)
+         :member (believed? kb (list coll_t Foo) 'CxUniverse)
+         :clash  (count (v/contradictions kb))}))))
+
+(tu/deftest-kb a-minted-membership-clashing-with-a-believed-one-is-weighed-at-settle
+  ;; The mint is placed and the pair is arbitrated as two stated memberships are: an
+  ;; equal `:default` pair stays believed and is listed, a `:monotonic` membership takes
+  ;; the `:default` mint OUT.  The same in every arrival order.
+  (doseq [[strength want] [[:default   {:fact true :mint true :member true :clash 1}]
+                           [:monotonic {:fact true :mint false :member true :clash 0}]]
+          order [[:member :decl :fact] [:decl :fact :member] [:member :fact :decl]]]
+    (testing (str strength " " order)
+      (is (= want (mint-clash order strength))))))
+
+(tu/deftest-kb a-derived-declaration-mints-what-its-text-reload-mints
+  ;; A declaration a forward rule derives reaches the stored facts through
+  ;; `entail-existing`, after the clashing membership is believed; the text export
+  ;; reloads the same content in content order, where the declaration is derived before
+  ;; the fact arrives.  `:arbitrate`, so the reload's fact is admitted rather than
+  ;; refused on the way in.  The two hold the same sentences and believe the same ones.
+  (let [build #(tu/isolated-fresh {:constraints :arbitrate})
+        dir   (.toFile (Files/createTempDirectory "argtype-clash" (make-array FileAttribute 0)))
+        rows  (fn [kb pick]
+                (set (for [h (v/handles kb) :when (pick h)
+                           :let [sx (v/sentex kb h)]]
+                       [(v/sentence-of sx) (:context sx)])))
+        seen  (fn [kb] [(rows kb any?) (rows kb #(v/in? kb %))])]
+    (try
+      (tu/with-terms [rel_t coll_t pp marked Foo Bar]
+        (with-entailing
+          (let [chained (tu/with-cleared-kb [kb build]
+                          (doseq [s [(list 'genl rel_t 'thing) (list 'genl coll_t 'thing)
+                                     (list 'disjoint rel_t coll_t) (list coll_t Foo)
+                                     (list pp Foo Bar) (list marked pp)
+                                     (list 'set/forwardRule
+                                           (list 'implies (list marked '?p) (list 'arg '?p 1 rel_t)))]]
+                            (v/assert kb s 'CxUniverse))
+                          (v/export-text! kb (.getPath dir))
+                          (seen kb))
+                reloaded (tu/with-cleared-kb [kb build]
+                           (v/load-text! kb (.getPath dir))
+                           (seen kb))]
+            (is (contains? (first chained) [(list rel_t Foo) 'CxUniverse]))
+            (is (= reloaded chained)))))
+      (finally
+        (run! #(io/delete-file % true) (reverse (file-seq dir)))))))
 
 (tu/deftest-kb a-clash-the-asserting-context-cannot-see-does-not-refuse
   ;; The refusal is scoped like every other read: the mint is tested against what the
@@ -768,7 +888,7 @@
         (for [order (permutations [:decl :fact :type])]
           (tu/with-neutral-kb [kb tu/fresh]
             (tu/with-terms [animal dog parentOf Fred Mary CxWorld]
-              (with-entailing
+              (with-mints-kept
                 (a-context kb CxWorld)
                 (a-type kb animal CxWorld)
                 (v/assert kb (list 'genl dog animal) CxWorld)
@@ -810,20 +930,21 @@
              (pr-str (remove #(= {:edge true :noted true} (second %)) results))))))
 
 (tu/deftest-kb every-arrival-order-prunes-the-same-way
-  ;; The same six orders with pruning on.  Whether the KB *keeps* the minted `(animal
-  ;; Fred)` is then a question about what it believes rather than about what arrived
-  ;; first: the mint is withheld where the specific membership came before it and
-  ;; withdrawn where it came after, and all six end at one KB.
+  ;; The same orders with pruning on, and with the `genl` edge that makes `dog` more specific
+  ;; than `animal` among them.  Whether the KB *keeps* the minted `(animal Fred)` is then a
+  ;; question about what it believes rather than about what arrived first: the mint is
+  ;; withheld where `(dog Fred)` and the edge came before it and withdrawn where either came
+  ;; after, and all twenty-four end at one KB.
   (let [results
-        (for [order (permutations [:decl :fact :type])]
+        (for [order (permutations [:edge :decl :fact :type])]
           (tu/with-neutral-kb [kb tu/fresh]
             (tu/with-terms [animal dog parentOf Fred Mary CxWorld]
               (with-pruning
                 (a-context kb CxWorld)
                 (a-type kb animal CxWorld)
-                (v/assert kb (list 'genl dog animal) CxWorld)
                 (doseq [step order]
                   (case step
+                    :edge (v/assert kb (list 'genl dog animal) CxWorld)
                     :decl (v/assert kb (list 'arg parentOf 1 animal) CxWorld)
                     :fact (v/assert kb (list parentOf Fred Mary) CxWorld)
                     :type (v/assert kb (list dog Fred) CxWorld)))
@@ -834,3 +955,47 @@
         "and no order keeps the type the specific membership already says")
     (is (every? (comp :dog second) results)
         "which is the membership every order does keep")))
+
+(tu/deftest-kb every-arrival-order-prunes-the-same-way-across-contexts
+  ;; `(dog Fred)` is stated in CxDogs and the mint lands in CxWorld, so what makes the mint
+  ;; redundant is the `genlCx` edge that lets CxWorld see CxDogs.  An edge arriving last
+  ;; withdraws the mint that an edge arriving first withholds.
+  (let [results
+        (for [order (permutations [:cx :decl :fact :type])]
+          (tu/with-neutral-kb [kb tu/fresh]
+            (tu/with-terms [animal dog parentOf Fred Mary CxWorld CxDogs]
+              (with-pruning
+                (a-context kb CxWorld)
+                (a-context kb CxDogs)
+                (a-type kb animal 'CxUniverse)
+                (v/assert kb (list 'genl dog animal) 'CxUniverse)
+                (doseq [step order]
+                  (case step
+                    :cx   (v/assert kb (list 'genlCx CxWorld CxDogs) 'CxUniverse)
+                    :decl (v/assert kb (list 'arg parentOf 1 animal) CxWorld)
+                    :fact (v/assert kb (list parentOf Fred Mary) CxWorld)
+                    :type (v/assert kb (list dog Fred) CxDogs)))
+                [order (believed? kb (list animal Fred) CxWorld)]))))]
+    (is (= [false] (distinct (map second results)))
+        (str "the mint's record varied by arrival order: " (pr-str results)))))
+
+(tu/deftest-kb a-recovered-kb-withdraws-the-mint-a-membership-makes-redundant
+  ;; The mints a membership can displace are read off a roster kept in memory, so a KB
+  ;; rebuilt from its store has to rebuild that roster, or the membership arriving after the
+  ;; restart would leave the mint standing that the same membership withdraws without one.
+  (let [space {:space [::recovered-roster]}]
+    (tu/with-terms [animal dog parentOf Fred Mary CxWorld]
+      (let [kb (doto (v/open-kb (assoc space :recover? false)) (tu/clear-kb!))]
+        (try
+          (with-pruning
+            (a-context kb CxWorld)
+            (a-type kb animal CxWorld)
+            (v/assert kb (list 'genl dog animal) CxWorld)
+            (v/assert kb (list 'arg parentOf 1 animal) CxWorld)
+            (v/assert kb (list parentOf Fred Mary) CxWorld)
+            (is (believed? kb (list animal Fred) CxWorld) "minted before the restart")
+            (let [re (v/open-kb (assoc space :recover? :auto))]
+              (v/assert re (list dog Fred) CxWorld)
+              (is (nil? (v/handle-of re (list animal Fred) CxWorld))
+                  "withdrawn by the membership that arrives after it")))
+          (finally (tu/clear-kb! kb)))))))

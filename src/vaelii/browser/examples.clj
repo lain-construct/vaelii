@@ -300,15 +300,15 @@
   "Ask the goal, and say by what machinery.  `escalate` climbs the lookup-to-query
   stack and stops at the first level that answers, so the level *is* the mechanism:
   level 3 means context inheritance reached it, 5 means a closure, 7 means the rule
-  chainers had to run.  A goal nothing answers comes back with a nil level, which is
-  the honest report and not an error."
+  chainers had to run.  A goal nothing answers comes back with a nil level, which reports
+  that no level answered and is not an error."
   [kb {:keys [goal expect]} context]
   (let [{:keys [level name results]} (v/escalate kb goal context)
         answered? (some? level)
         ;; the handle off the level that answered, not a fresh `handle-of` in the asking
         ;; context: an answer inherited from a supercontext, or one the closures derived
         ;; and never materialized, has no record *there* — the first carries a handle
-        ;; from where it is really stored and the second honestly carries none
+        ;; from where it is really stored and the second carries none
         handle    (when answered? (:handle (first results)))]
     {:answered? answered?
      :level level :level-name name

@@ -31,13 +31,14 @@
             [clojure.test :refer [is]]
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
-            [vaelii.host.llm.ollama :as ollama]
             [vaelii.host.seed :as seed]
             [vaelii.host.starter :as starter]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.config :as config]
             [vaelii.impl.kb :as kb]
+            [vaelii.impl.memory :as mem]
             [vaelii.impl.observe :as observe]
+            [vaelii.impl.overlay.mount :as mount]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.types.reasoning :as reasoning])
   (:import [java.io File]
@@ -62,7 +63,7 @@
 ;; is a default that drifts, and a captured one cannot.
 
 (def sweeps
-  "The six configurations `scripts/test-sweeps.sh` runs, as data: the environment
+  "The seven configurations `scripts/test-sweeps.sh` runs, as data: the environment
   variable that selects each, and the vars whose root it replaces.  `test_util_test`
   holds the spellings against `scripts/lib/suite-configs.sh`, so a sweep added to that
   table without a row here fails — and the row is where its vars are named, which is what
@@ -70,11 +71,15 @@
 
   `VAELII_TEST_TMS` names none, and that is not an omission: the TMS is a KB **option**,
   chosen per `open-kb` rather than installed over a var, so a gate pins it by naming it in
-  its space (`assert_cost_test`'s `cost-space`) and no binding could."
+  its space (`assert_cost_test`'s `cost-space`) and no binding could.
+  `VAELII_ASSERTIVE_ARG_TYPES` names none either: `vaelii.impl.checks` reads it into its
+  own root before this namespace loads, so `shipped-defaults` would capture the sweep's
+  value.  `with-entailing` is its pin."
   [{:env "VAELII_TEST_TMS"       :vars []}
    {:env "VAELII_RETE"           :vars ['vaelii.impl.chain/*matcher*]}
    {:env "VAELII_HIER"           :vars ['vaelii.impl.resolution/*hierarchical-retrieval*]}
    {:env "VAELII_PLAN"           :vars ['vaelii.impl.plan/*enabled*]}
+   {:env "VAELII_ASSERTIVE_ARG_TYPES" :vars []}
    {:env "VAELII_QUERY_ENGINE"   :vars ['vaelii.core/*query-engine*
                                         'vaelii.impl.inference/*max-depth*]}
    {:env "VAELII_QUERY_STRATEGY" :vars ['vaelii.core/*query-options*]}])
@@ -162,7 +167,7 @@
 
   One rather than all, deliberately: `with-shipped-config` would also take the file off
   the node engine, the alternative matcher and the reference retrieval, and a file that
-  stops running under five sweeps to answer for one has traded a stand-aside for a
+  stops running under six sweeps to answer for one has traded a stand-aside for a
   larger one.  Pinning is what a file does INSTEAD of standing aside — the assertion
   count is identical under every configuration, which is what `config_expected_delta`
   reads.
@@ -214,6 +219,16 @@
   [vars & body]
   `((pinning ~vars) (fn [] ~@body)))
 
+(defmacro with-requirement
+  "`body` when `ready?`; otherwise one `SKIP <test>: <why>` line on stdout, so a run that
+  could not assert a claim says so rather than passing with nothing asserted.
+
+    (tu/with-requirement asp? \"no ASP solver on this box\" …)"
+  [ready? why & body]
+  `(if ~ready?
+     (do ~@body)
+     (println (str "SKIP " (some-> (first clojure.test/*testing-vars*) symbol) ": " ~why))))
+
 ;; Run the *whole* suite through the incremental forward-chaining matcher
 ;; (`vaelii.impl.rete`) rather than the reference `chain` when `VAELII_RETE` is set.
 ;; A regression harness only — the default (unset) leaves the reference matcher in
@@ -251,7 +266,9 @@
   (alter-var-root #'v/*query-engine* (constantly e))
   ;; The node engine has no default depth bound and refuses to start without one — the
   ;; depth a query needs is a property of the data, so the *caller* chooses.  For a sweep
-  ;; the caller is the suite, and 8 is what the fixtures' derivations reach.
+  ;; the caller is the suite, and 8 is what the fixtures' derivations reach.  `prove`
+  ;; reads it and `query` does not, so a depthless `query` answers the same here as in
+  ;; every other configuration.
   (alter-var-root (requiring-resolve 'vaelii.impl.inference/*max-depth*) (constantly 8)))
 
 ;; `VAELII_QUERY_STRATEGY=breadth-first` runs the whole suite under one of the node
@@ -320,8 +337,10 @@
 ;; can use distinct directories at once.
 
 (def ^:private block-top
-  (if-let [s (System/getenv "VAELII_TEST_SPACE")]
-    (let [n (try (Long/parseLong (str/trim s))
+  ;; A blank value is unset, as for every switch (`vaelii.impl.config`), so the shell's
+  ;; `VAR= cmd` runs on the default block.
+  (if-let [s (some-> (System/getenv "VAELII_TEST_SPACE") str/trim not-empty)]
+    (let [n (try (Long/parseLong s)
                  (catch NumberFormatException _
                    (throw (ex-info (str "VAELII_TEST_SPACE must be a space number, got " (pr-str s))
                                    {:value s}))))]
@@ -344,8 +363,11 @@
 ;; `scripts/test-backends.sh` runs every one of them.
 ;;
 ;; `overlay` is the odd one: it names a *decorator* rather than a store, so the opts it
-;; expands to are built per space by `space-opts` below.
-(def ^:private storage
+;; expands to are built per KB by `slot-opts` below.
+(def ^:dynamic *storage*
+  "The storage the suite's KBs open on, as `{:backend …}` — `VAELII_TEST_BACKEND`, read
+  here and nowhere else.  Dynamic so a test of the harness can build the overlay arm's KB
+  in any run."
   (if-let [b (some-> (System/getenv "VAELII_TEST_BACKEND") str/trim str/lower-case not-empty)]
     {:backend (keyword b)}
     {:backend :memory}))
@@ -356,97 +378,112 @@
 ;; `jtms_dense_oracle_test` proves the two agree op-by-op, and running the suite through
 ;; the reference one proves the *engine* agrees on the baseline the default replaced.
 (def ^:private tms-kind
-  (if-let [t (System/getenv "VAELII_TEST_TMS")]
-    (keyword (str/lower-case (str/trim t)))
+  (if-let [t (some-> (System/getenv "VAELII_TEST_TMS") str/trim str/lower-case not-empty)]
+    (keyword t)
     :dense))
 
 ;; :recover? false — a test KB is built over databases the *previous* test run may
 ;; have left populated, and `fresh` clears right after construction, so the
 ;; unrecovered-store warning would be noise on nearly every build.
 
-(defn- space-opts
-  "The KB opts for one of the suite's spaces, on whatever storage the run selected.
-  `overlay` is spelled out here rather than in `storage`, because a fork is a decorator
-  over *two* stores: the suite's own space becomes the writable overlay, and the base is an
-  empty space beside it — which is exactly the gate, a fork over nothing behaving as the
-  thing it forked."
+(def overlay-base-space
+  "The base every KB of the overlay arm is a fork over: an in-RAM space beside the suite's
+  block that the suite never writes, so a fork over it answers what a plain backend
+  answers."
+  {:backend :memory :space [::base block-top]})
+
+(def ^:private fork-spaces
+  "`{slot own-space}`: under the overlay arm, the `:space` of the fork each slot's store is
+  now, so `test-kb` reopens the fork the last `fresh` on that slot opened."
+  (atom {}))
+
+(defn- overlay? [] (= :overlay (:backend *storage*)))
+
+(defn- drop-fork-space!
+  "Forget every RAM store a fork's own half held under `own`: its records, its index and
+  its bookkeeping (`mount/meta-kv`)."
+  [own]
+  (mem/drop-record-space! own)
+  (mem/drop-index-space! own)
+  (mem/drop-index-space! [::mount/meta own]))
+
+(defn- slot-opts
+  "The KB opts for the store slot `s` holds now.  Under the overlay arm that store is a
+  fork over `overlay-base-space` whose own half is the slot's current fork space, taken on
+  the first call; on every other storage it is space `s`."
   [s]
   (let [common {:recover? false :tms tms-kind}]
-    (if (= :overlay (:backend storage))
-      (merge common {:backend :overlay
-                     :base    {:backend :memory :space [::base s]}
-                     :overlay {:backend :memory :space s}})
-      (merge {:space s} common storage))))
+    (if (overlay?)
+      (let [own (or (@fork-spaces s)
+                    ((swap! fork-spaces update s #(or % (:space (mount/fresh-overlay-opts)))) s))]
+        (merge common {:backend :overlay
+                       :base    overlay-base-space
+                       :overlay {:backend :memory :space own}}))
+      (merge {:space s} common *storage*))))
 
-(def scratch-space  (space-opts block-top))
-(def isolated-space (space-opts (- block-top 1)))
+(defn clear-kb!
+  "Wipe the stores under a KB the fixtures hand back over and over.  `v/clear!` without
+  the durability daemon's flush, plus the one piece of in-memory state a wipe must take
+  with it: the refusal record is keyed by rule handle and retired when the rule departs,
+  so nothing else drops the entries of rules this call just deleted."
+  [kb]
+  (p/clear-records! (:records kb))
+  (p/clear-index!   (:index kb))
+  ;; the same release `v/clear!` makes, and for its reason: a write hazard is a claim
+  ;; about the records that were here, and a wipe is the one moment that knows there are
+  ;; none.  `kb/write-hazards` reads emptiness without retiring anything — an importer
+  ;; declares its hazard while the store is still empty — so a fixture that wipes and
+  ;; hands the KB back has to say so, or the next test's own asserts are refused against
+  ;; a hazard declared for records it did not write.
+  (kb/note-hazards! kb {:no-belief false :no-index false})
+  (some-> (reasoning/refused kb) (reset! {})))
+
+(defn- fresh-slot
+  "An empty KB on slot `s` with `opts` merged into its opts.  Under the overlay arm the slot
+  moves to a new fork space and the one it held is dropped: clearing a fork hides its base
+  for the rest of the process (docs/overlay.md), and a fork that hides its base never
+  takes the merge read the arm exists to run.  On every other storage the slot's space is
+  cleared."
+  [s opts]
+  (if (overlay?)
+    (let [old  (get @fork-spaces s)
+          base (mem/memory-record-store overlay-base-space)]
+      ;; Mounting a fork allocates one handle from its base (docs/overlay.md), so each
+      ;; fork would mint from one higher than the fork before it, and two KBs built by the
+      ;; same writes would hold different handles.  Clearing an empty base restarts its
+      ;; counter and re-issues no handle a record holds.
+      (when (and (empty? (p/sentex-ids base)) (empty? (p/justification-ids base)))
+        (p/clear-records! base))
+      (swap! fork-spaces assoc s (:space (mount/fresh-overlay-opts)))
+      (some-> old drop-fork-space!)
+      (v/open-kb (merge (slot-opts s) opts)))
+    (doto (v/open-kb (merge (slot-opts s) opts)) (clear-kb!))))
+
+(defn scratch-space
+  "The opts of the KB on the shared scratch space as it stands now — what `test-kb`
+  opens.  A function because under the overlay arm each `fresh` moves the store."
+  [] (slot-opts block-top))
+
+(defn isolated-space
+  "`scratch-space` for the isolated space."
+  [] (slot-opts (dec block-top)))
 
 (def plain-memory-space
   "A plain in-RAM KB beside `*kb*`, whatever storage the run selected — for a test
   that needs a second, backend-independent KB (an export parity source, a round-trip
   target).  Its own derived space, so it shares a store with nothing: not the process
   default, and not the fork's writable half under the overlay run.  `(assoc
-  scratch-space :backend :memory)` is not this: under the overlay run that spelling
+  (scratch-space) :backend :memory)` is not this: under the overlay run that spelling
   drags the template's `:base`/`:overlay` halves along — a contradiction `open-kb`
   refuses — and, carrying no top-level space, would land on the process default."
   {:backend :memory
    :space [::plain block-top]
    :recover? false :tms tms-kind})
 
-;; ---- live model calls -----------------------------------------------------
-
-(defn live-llm?
-  "May this run talk to a real model?  **No, unless asked in so many words.**
-
-  `lein test` makes no LLM call: a reachable Ollama on the machine is not consent, a
-  credential in the environment is not consent, and a suite whose answers depend on
-  what a model happened to say is neither hermetic nor reproducible.  Everything the
-  pipeline does is tested against the offline stub.  Set `VAELII_LLM_LIVE=1` to opt
-  into the live tier."
-  []
-  (contains? #{"1" "true" "yes"}
-             (some-> (System/getenv "VAELII_LLM_LIVE") str/trim str/lower-case)))
-
-(defn live-model
-  "The model a live test runs against, or **nil with a printed reason** — the one helper
-  every `^:llm` test opens with, so the three ways such a test cannot run are answered in
-  one place and in one order.
-
-  Opting in is checked **first**, before the host is so much as probed: a reachable Ollama
-  is not consent.  Then reachability, then whether the host has actually pulled the model
-  — a host that is up but has never seen the model fails in a way that is indistinguishable from a bug in
-  the code under test.
-
-  `what` names the tier in the skip line.  `opts`: `:model` (default
-  `ollama/configured-model`) and `:env`, the variable that names it — omitted for a model
-  a test pins, where there is no variable to point anybody at.
-
-  One helper rather than a copy per file so that the consent path is one path: the source
-  scan in `vaelii.llm-test` follows a test's calls to `live-llm?` to prove it asked, and a
-  helper hoisted here is followed the same as one defined beside the test."
-  ([what] (live-model what {}))
-  ([what {:keys [model env] :or {env "VAELII_OLLAMA_MODEL"}}]
-   (let [model (or model (ollama/configured-model))]
-     (cond
-       (not (live-llm?))
-       (do (println (str "  [skip] " what ": set VAELII_LLM_LIVE=1 to opt in")) nil)
-
-       (not (ollama/available? {:timeout-ms 2000}))
-       (do (println (str "  [skip] " what ": no server at " (ollama/base-url)
-                         " — set VAELII_OLLAMA_HOST to point at one"))
-           nil)
-
-       (nil? (ollama/capabilities model))
-       (do (println (str "  [skip] " what ": " (ollama/base-url) " has no model " model
-                         (when env (str " — set " env))))
-           nil)
-
-       :else model))))
-
 (defn test-kb
-  "A KB on the shared scratch space."
+  "A KB on the shared scratch space, over the store the last `fresh` left there."
   []
-  (v/open-kb scratch-space))
+  (v/open-kb (scratch-space)))
 
 (defn isolated-test-kb
   "A KB on the isolated space, for a test that rebuilds a KB in a loop: `fresh`
@@ -454,7 +491,7 @@
   holding open through a `:once` fixture.  Such tests pass alone and fail together
   — the worst way to find out."
   []
-  (v/open-kb isolated-space))
+  (v/open-kb (isolated-space)))
 
 ;; ---- the supporter-visibility audit -----------------------------------------
 ;;
@@ -528,26 +565,11 @@
         (catch Throwable e
           (spit out (str (pr-str {:test test :audit-error (str e)}) "\n") :append true))))))
 
-(defn clear-kb!
-  "Wipe the stores under a KB the fixtures hand back over and over.  `v/clear!` without
-  the durability daemon's flush, plus the one piece of in-memory state a wipe must take
-  with it: the refusal record is keyed by rule handle and retired when the rule departs,
-  so nothing else drops the entries of rules this call just deleted."
-  [kb]
-  (p/clear-records! (:records kb))
-  (p/clear-index!   (:index kb))
-  ;; the same release `v/clear!` makes, and for its reason: a write hazard is a claim
-  ;; about the records that were here, and a wipe is the one moment that knows there are
-  ;; none.  `kb/write-hazards` reads emptiness without retiring anything — an importer
-  ;; declares its hazard while the store is still empty — so a fixture that wipes and
-  ;; hands the KB back has to say so, or the next test's own asserts are refused against
-  ;; a hazard declared for records it did not write.
-  (kb/note-hazards! kb {:no-belief false :no-index false})
-  (some-> (reasoning/refused kb) (reset! {})))
-
 (defn fresh
-  "An empty, cleared KB on the shared scratch space."
-  [] (doto (test-kb) (clear-kb!)))
+  "An empty KB on the shared scratch space, with `opts` (`:constraints`, `:naming`, …)
+  merged into its opts."
+  ([] (fresh {}))
+  ([opts] (fresh-slot block-top opts)))
 
 ;; ---- the starter ontology, built once and copied ------------------------
 
@@ -711,8 +733,9 @@
                     (doseq [[context dir] theories] (seed/load-context kb context dir))))))
 
 (defn isolated-fresh
-  "An empty, cleared KB on the isolated space.  See `isolated-test-kb`."
-  [] (doto (isolated-test-kb) (clear-kb!)))
+  "`fresh` on the isolated space.  See `isolated-test-kb`."
+  ([] (isolated-fresh {}))
+  ([opts] (fresh-slot (dec block-top) opts)))
 
 ;; ---- gensym'd temporary terms (naming-invariant by construction) --------
 ;; predicate  bare lowercase, uncommitted in arity -> tmppred1
@@ -822,7 +845,7 @@
     ;; dog -> tmpdog17   Muffet -> TmpMuffet18
     ;; parentOf -> tmpParentOf19   CxStory -> CxTmpStory20
 
-  So the test is indistinguishable from the ontology it is about, while every term stays unique and
+  So the test's terms keep the spelling of the ontology it is about, while every term stays unique and
   disposable (see the net-neutrality guarantee above).  A bare base like `dog` stays
   bare (`tmpdog17`) so the temp is not committed to arity 1; see `fresh-term`."
   [syms & body]
@@ -1070,9 +1093,9 @@
                "durable store not empty after clear teardown")))))
 
 (defmacro with-cleared-kb
-  "For a persistence test that intentionally mutates the durable store across a
-  restart (a second KB over the same scratch dbs): build, run the body, then FLUSH
-  and assert the store is empty.  Flushing is the honest teardown when the durable
+  "For a persistence test that intentionally mutates the durable store across a restart (a
+  second KB over the same scratch dbs): build, run the body, then FLUSH and assert the
+  store is empty.  Flushing is the teardown that leaves nothing behind when the durable
   store itself is the subject under test.
 
     (with-cleared-kb [kb starter-kb] …)"

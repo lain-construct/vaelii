@@ -211,8 +211,8 @@
   `reader!`'s throw to find out.
 
   Nothing in the engine asks it, and that is a decision rather than an oversight: the
-  catalog offers a found KB whether or not a reader is present, because the honest answer
-  to *I cannot read this* is a load that fails saying so and not a KB that quietly stops
+  catalog offers a found KB whether or not a reader is present, because a KB this build
+  cannot read produces a load that fails saying so and not a KB that quietly stops
   being listed (docs/foreign.md, \"Who asks\").  So this is published for a caller outside
   the engine, and every call site in here takes `reader` or `reader!` instead."
   [kind]

@@ -30,7 +30,12 @@
       (is (v/isa? kb muffet thing))
       (is (v/isa? kb tom thing))
       (is (not (v/isa? kb tom dog)))
-      (is (not (v/isa? kb muffet person))))))
+      (is (not (v/isa? kb muffet person))))
+    (testing "a compound term is a member through the fact that names it"
+      (let [pup (list (tu/tmp-ind "PuppyFn") muffet)]
+        (v/assert kb (list dog pup) 'CxNaturalWorld)
+        (is (v/isa? kb pup animal 'CxNaturalWorld))
+        (is (not (v/isa? kb pup person 'CxNaturalWorld)))))))
 
 (tu/deftest-kb arg-constraints-use-transitivity
   ;; Pinned to the constraint reading: transitivity is asserted here through a refusal, and

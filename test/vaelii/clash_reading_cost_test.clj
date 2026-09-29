@@ -100,8 +100,7 @@
   ;;   CxCrcW1 - sees CxCrcA CxCrcB CxCrcH1, so it defeats cat
   ;;   CxCrcW2 - sees CxCrcA CxCrcB CxCrcH2, so it defeats dog
   ;;   CxCrcZ  - sees both vantages, reads two verdicts and takes neither
-  (tu/with-neutral-kb [kb #(doto (v/open-kb (assoc tu/scratch-space :constraints :arbitrate))
-                             (tu/clear-kb!))]
+  (tu/with-neutral-kb [kb #(tu/fresh {:constraints :arbitrate})]
     (tu/with-terms [CxCrcA CxCrcB CxCrcH1 CxCrcH2 CxCrcW1 CxCrcW2 CxCrcZ
                     crc_cat crc_dog crc_cat_src crc_dog_src CrcRex]
       (types! kb crc_cat crc_dog)

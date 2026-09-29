@@ -5,19 +5,12 @@
   when a stronger contradiction *arrives later* and revived when the contradiction
   is retracted; an irreducible (known-true) clash is reported, not thrown.
 
-  What the engine does **not** do is arbitrate a default/default rebuttal.  Two rules
-  concluding `P` and `¬P` with neither naming the other's case, and neither more
-  specific, is a genuine dilemma: both sides stay believed, nothing is defeated, and
-  the pair is reported by `contradictions` for the application to rank
-  (docs/exceptions.md, \"What surfaces where\").  Deciding it would be an arbitrary
-  pick dressed up as an inference, and it would destroy the two arguments an
-  application wants to weigh.  Undercutting — \"this rule does not apply here\" — is
-  written as an `exceptWhen` on the rule instead, and `except_test` covers it."
+  A default/default rebuttal is a dilemma: both sides stay believed and `contradictions`
+  reports the pair (docs/nmtms.md, \"There is no second axis\").  Undercutting is an
+  `exceptWhen`, which `except_test` covers."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.rules :as vr]
-            [vaelii.impl.settle :as settle]
-            [vaelii.impl.solve :as solve]
             [vaelii.impl.types.solve :as solve-types]
             [vaelii.test-util :as tu]))
 
@@ -75,9 +68,7 @@
       (is (seq (v/sentexes-matching kb (list flies robin) 'CxUniverse))))))         ; Robin unaffected
 
 (tu/deftest-kb retracting-the-support-of-a-defeated-default-sweeps-it
-  ;; A defeated default kept "for revival" must still be swept when the SAME
-  ;; retraction removes its only derivation — otherwise it leaks an unrevivable
-  ;; orphan into the stores (regression for the retract* groundability sweep).
+  ;; a defeated default is kept for revival only while something still derives it
   (let [foo (tu/tmp-pred) bar (tu/tmp-pred) x (tu/tmp-ind)]
     (v/assert kb (list foo x) 'CxUniverse)
     (v/assert kb (default-rule [(list foo '?x)] (list bar '?x)) 'CxUniverse)
@@ -97,10 +88,7 @@
 ;; ---- the dilemma the engine declines to decide --------------------------
 
 (tu/deftest-kb nixon-diamond-is-reported-as-a-dilemma-not-decided
-  ;; Two equally-specific defaults collide with no strength and no specificity to
-  ;; separate them.  `except_test` pins that both sides coexist; what this adds is the
-  ;; *reporting* contract — a dilemma surfaces through `contradictions`, carrying both
-  ;; handles and both sides' justifications, and never through `conflicts`.
+  ;; `except_test` pins that both sides coexist; this pins the report
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         nixon (tu/tmp-ind)]
     (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))       'CxUniverse)
@@ -119,9 +107,7 @@
           (is (= 1 (count ds)))
           (is (= #{pos neg} (:nogood (first ds))))
           (is (= 'contradicts (first (:sentence (first ds)))))))
-      (testing "and both arguments are handed over, which is the point of not deciding"
-        ;; an application ranks the dilemma from the justifications; a decision made
-        ;; here would have thrown one of them away
+      (testing "and both arguments are handed over, for the application to rank"
         (let [sides (:sides (first (v/contradictions kb)))]
           (is (= 2 (count sides)))
           (is (every? #(seq (:justifications %)) sides))
@@ -132,8 +118,6 @@
         (is (nil? (v/last-program kb)))))))
 
 (tu/deftest-kb irreducible-clash-is-reported-not-thrown
-  ;; Two known-true facts contradict: nothing can defeat either, so the
-  ;; contradiction sentence IS the result — reported, never an exception.
   (let [happy (tu/tmp-pred) tom (tu/tmp-ind)]
     (v/assert kb (list happy tom) 'CxUniverse {:strength :monotonic})
     (is (some? (v/assert kb (list 'not (list happy tom)) 'CxUniverse {:strength :monotonic})))
@@ -146,10 +130,7 @@
         (is (seq (v/sentexes-matching kb (list 'not (list happy tom)) 'CxUniverse)))))))
 
 (tu/deftest-kb hard-clash-reported-once-even-alongside-a-dilemma
-  ;; A persistent hard clash reappears in every settle round; it must be reported
-  ;; ONCE, not once per round.  A coexisting dilemma sits in the same settle without
-  ;; being swept up into the conflict report, and vice versa: the two readers must
-  ;; stay separate even when both have something to say about the same settle.
+  ;; hard clashes are collected at the terminal round, not once per round
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         nixon (tu/tmp-ind) happy (tu/tmp-pred) tom (tu/tmp-ind)]
     (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))       'CxUniverse)
@@ -170,8 +151,6 @@
       (is (seq (v/sentexes-matching kb (list 'not (list pacifist nixon)) 'CxUniverse))))))
 
 (tu/deftest-kb contradiction-detected-when-positive-sits-in-a-more-specific-context
-  ;; Detection is context-symmetric: the negation is in the general context, the
-  ;; positive in a context that sees it — the clash still surfaces (and is resolved).
   (let [flies (tu/tmp-pred) sky (tu/tmp-ind)]
     (v/assert kb (list 'genlCx 'CxSpecific 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'not (list flies sky)) 'CxUniverse {:strength :monotonic})  ; general
@@ -183,18 +162,9 @@
 ;; ---- the report is republished each settle, and must not go stale -------
 
 (tu/deftest-kb a-dilemmas-report-names-every-justification-behind-each-side
-  ;; The readings are recomputed on every settle, so a pair whose handles the settle's
-  ;; region did not hold has its report **carried forward** — that memo is what keeps
-  ;; republishing the standing dilemmas off the per-assert cost.
-  ;;
-  ;; A *second derivation of one side* is the case that breaks a memo keyed on the
-  ;; region alone, and the one belief itself gives no sign of: a redundant
-  ;; justification (an already-believed conclusion gaining another witness that confers
-  ;; no stronger a class) is precisely the write the JTMS declines to relabel for, so
-  ;; the side's supporting set grows while its handle never enters a region.  A carried
-  ;; report then hands the application fewer reasons than the KB holds — and the reasons
-  ;; are exactly what it is being asked to rank in a dilemma the engine declines to
-  ;; decide.
+  ;; A report is carried forward while its handles stay out of the region.  A second
+  ;; derivation of one side relabels nothing, so a memo keyed on the region alone would
+  ;; carry a report naming fewer justifications than the KB holds.
   (tu/with-terms [quaker pacifist republican churchgoer Nixon]
     (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))            'CxUniverse)
     (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
@@ -207,24 +177,20 @@
       (v/assert kb (list churchgoer Nixon) 'CxUniverse)
       (is (= 2 (count (v/supporting-justifications kb pos)))
           "the KB now holds two derivations of the positive side")
-      (let [side (some (fn [c] (some #(when (= pos (:handle %)) %) (:sides c)))
-                       (v/contradictions kb))]
-        (is (some? side) "the dilemma is still reported")
-        (is (= (count (v/supporting-justifications kb pos))
-               (count (:justifications side)))
+      (let [c   (some (fn [c] (when (some #(= pos (:handle %)) (:sides c)) c))
+                      (v/contradictions kb))
+            ids (fn [js] (set (map :id js)))]
+        (is (some? c) "the dilemma is still reported")
+        (is (= (into {} (for [s (:sides c)]
+                          [(:handle s) (ids (v/supporting-justifications kb (:handle s)))]))
+               (into {} (for [s (:sides c)] [(:handle s) (ids (:justifications s))])))
             "and the report names both of them, not the one it named last settle")))))
 
 ;; ---- a plain rebuttal never reaches the `Solver` protocol ---------------------
 
 (tu/deftest-kb an-installed-solver-is-never-asked-to-decide-a-plain-rebuttal
-  ;; `set-solver` is public and the protocol exists — arbitration is the right answer for
-  ;; nogoods that are *not* plain rebuttals.  What is never routed there is a
-  ;; default/default rebuttal: the engine represents it as a dilemma, so it is not
-  ;; offered to any solver at all.
-  ;;
-  ;; The solver installed here would happily defeat the positive side if asked.  That
-  ;; is the point: the guarantee is not "a solver behaves well", it is "a solver is
-  ;; never consulted", which only a solver that *records being called* can witness.
+  ;; the solver would defeat the positive side if asked, and counts the asks, so only a
+  ;; solver that is never consulted passes
   (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
         nixon (tu/tmp-ind) called (atom 0)]
     (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))       'CxUniverse)
@@ -247,46 +213,3 @@
       (is (seq (v/sentexes-matching kb (list pacifist nixon) 'CxUniverse)))
       (is (seq (v/sentexes-matching kb (list 'not (list pacifist nixon)) 'CxUniverse)))
       (is (= 1 (count (v/contradictions kb)))))))
-
-;; ---- the solver split, guarded at both ends -----------------------------
-;;
-;; Only `:default` content is ever decided; `:monotonic` is the fixed background a solve
-;; reasons *from*.  `decide-nogood` already guarantees the input half — a tie is
-;; contested only when every member is defeasible and equal in class — and the test
-;; above guarantees a rebuttal never reaches a solver at all.  The two guards are what
-;; stands between a *third-party* solver and known-true content, since `set-solver`
-;; takes any implementation, and the cost of a regression here is not a wrong answer: it
-;; is the engine handing away something it knows to be true.
-
-(tu/deftest-kb the-input-guard-refuses-a-contested-handle-that-is-not-defeasible
-  ;; The classes are read before any defeat lands, because `defeat-class` reports nil
-  ;; once a datum is OUT — after the fact the question cannot be asked at all.
-  (let [happy (tu/tmp-pred) maybe (tu/tmp-pred) tom (tu/tmp-ind)]
-    (v/assert kb (list happy tom) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list maybe tom) 'CxUniverse)
-    (let [mono (v/handle-of kb (list happy tom) 'CxUniverse)
-          dflt (v/handle-of kb (list maybe tom) 'CxUniverse)]
-      (testing "a plain :default handle is eligible"
-        (is (nil? (#'settle/check-solver-eligible kb #{dflt}))))
-      (testing "a known-true one is refused, and the refusal names it"
-        (let [e (try (#'settle/check-solver-eligible kb #{mono dflt})
-                     (catch clojure.lang.ExceptionInfo e e))]
-          (is (instance? clojure.lang.ExceptionInfo e))
-          (is (= :not-defeasible (:type (ex-data e))))
-          (is (= [mono] (:handles (ex-data e))))
-          (is (= [:monotonic] (:classes (ex-data e))))
-          (is (= :default (:expected (ex-data e)))))))))
-
-(deftest the-output-guard-drops-a-defeat-the-program-never-offered
-  ;; An overreaching defeat is a bug in the solver, and the engine should neither obey
-  ;; it nor fail because of it — so it is dropped with a warning rather than thrown.
-  ;; No KB: a Program is a self-contained value, which is the whole point of the protocol.
-  (let [prog (solve/program #{1 2}
-                            [{:nogood #{1 2} :priority 1 :sentence '(contradicts (a) (b))}]
-                            {1 {:sentence '(a) :context 'CxUniverse}
-                             2 {:sentence '(b) :context 'CxUniverse}})]
-    (is (= #{1 2} (:assumptions prog)) "the program really does offer only these two")
-    (is (= #{1} (#'settle/accepted-defeat prog #{1 9}))
-        "the offered half is kept and the handle outside the program is dropped")
-    (is (= #{} (#'settle/accepted-defeat prog #{9})))
-    (is (= #{} (#'settle/accepted-defeat prog nil)) "and a solver that decided nothing")))

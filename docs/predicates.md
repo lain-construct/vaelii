@@ -152,7 +152,7 @@ list to fall out of step with the first.
 The distinction worth reading twice is `:predicate` against `:relation` in the first row. A
 mark read off a sentence's functor holds its subject to a symbol that is not an individual.
 An argument *constraint* is looser on purpose: a function has argument positions exactly as
-a predicate does, a function is CapitalCamelCase and so is indistinguishable from an individual, and a
+a predicate does, a function is CapitalCamelCase and so is indistinguishable from an individual by spelling, and a
 relation may be denoted by a NAT rather than named. Collapsing the two refuses the
 conventional spelling and waves the exotic one through.
 
@@ -289,7 +289,7 @@ is not reported, in the one arrival order that route was the only way into.
 | `refusal_roster_test`, `type_contract_test` | a new `ex-info` `:type` needs both, with its changelog entry. Reusing `:bad-table-entry` with a new `:mismatch` value is the cheaper move and needs one line — `type_contract_test`'s `discriminants`, where the `:mismatch` vocabulary is pinned as the `:type` one is. Check there first that the condition is not one another validator already has a word for |
 
 Then `lein gate`, and `lein test-matrix --owed`: a declaration change reaches inference,
-TMS and planning, so the matrix is owed — thirteen of the fifteen configurations, for a mark
+TMS and planning, so the matrix is owed — fourteen of the sixteen configurations, for a mark
 that touches `checks`, `settle` and `taxonomy`.
 
 ### What that comes to
@@ -364,10 +364,7 @@ fact it needs — and they are the two an *arbitrable* mark runs into.
   `[pred n]` pairs and has no prop keyword to be paired with, so it is correctly out of that
   roster and correctly in the sweep rosters beside it. The readers that want the wider set
   union `tax/functional-in-arg-predicates` in themselves: `clash-marked-below`,
-  `tuple-marks?`, `clash-vocabulary`, and the `:type` filter that decides which violations
-  become exposure entries. That last one filters on the prop keywords, which admits every
-  arbitrable mark the grammar has because each files under one of them — a coincidence of the
-  current five, not something either roster says about the other.
+  `tuple-marks?` and `clash-vocabulary`.
 
 ## Reading the answer back
 

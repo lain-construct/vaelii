@@ -28,8 +28,8 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- arbitrating-kb [] (v/open-kb (assoc tu/scratch-space :constraints :arbitrate)))
-(defn- refusing-kb    [] (v/open-kb (assoc tu/scratch-space :constraints :refuse)))
+(defn- arbitrating-kb [] (v/open-kb (assoc (tu/scratch-space) :constraints :arbitrate)))
+(defn- refusing-kb    [] (v/open-kb (assoc (tu/scratch-space) :constraints :refuse)))
 
 (deftest disjoint-clash-under-refuse
   (tu/with-neutral-kb [kb refusing-kb]

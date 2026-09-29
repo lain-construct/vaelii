@@ -226,6 +226,28 @@
         (is (contains? (rz/concluding-rule-handles kb loves) h)
             "the var-consequent bucket is unioned into the concrete-goal answer")))))
 
+(tu/deftest-kb a-bare-variable-consequent-is-refused-and-its-dotted-rest-rewrite-concludes
+  ;; `?s` is a term in a formula position.  The rewrite binds the functor and the
+  ;; arguments separately, and concludes the sentence the antecedent's argument holds.
+  (tu/with-terms [believes loves Tom Ann CxOne CxTwo]
+    (let [bare   (list 'implies (list believes '?x '?s) '?s)
+          dotted (list 'implies (list believes '?x '(?pred . ?args)) '(?pred . ?args))
+          fact   (list believes Tom (list loves Tom Ann))
+          e      (is (thrown? clojure.lang.ExceptionInfo (v/assert kb bare CxOne)))]
+      (is (= :not-well-formed (:type (ex-data e))))
+      (is (re-find #"\(\?pred \. \?args\)" (ex-message e)) "the message names the rewrite")
+      (testing "forward: the fact's sentence argument is concluded"
+        (v/assert kb (list 'set/forwardRule dotted) CxOne)
+        (v/assert kb fact CxOne)
+        (is (v/ask? kb (list loves Tom Ann) CxOne)))
+      (testing "backward: a goal on the concluded predicate reaches the rule"
+        (v/assert kb (list 'set/backwardRule dotted) CxTwo)
+        (v/assert kb fact CxTwo)
+        (is (not (v/ask? kb (list loves Tom Ann) CxTwo)) "nothing is concluded forward")
+        (is (= [(list loves Tom Ann)]
+               (mapv #(rz/substitute (list loves '?who Ann) %)
+                     (v/prove kb (list loves '?who Ann) CxTwo))))))))
+
 (tu/deftest-kb an-unbound-consequent-predicate-is-still-range-refused
   ;; The consequent split does not loosen range restriction: a consequent functor no
   ;; antecedent binds is a typo, not a metarule, and stays refused.
@@ -245,7 +267,7 @@
                                (vr/rule-sentence ['(?p ?x ?y) '(transitive ?p)] '(?p ?y ?x)))
                       'CxNaturalWorld)]
       (is (some? h) "the inert spelling still asserts")
-      (is (= :inert (:direction (v/sentex kb h))))
+      (is (= #{} (:engines (v/sentex kb h))))
       (is (not (contains? (rz/concluding-rule-handles kb likes) h))
           "an inert var-consequent rule keeps the dead ?var0 key — never a concluder for every goal")
       (v/retract! kb h))))

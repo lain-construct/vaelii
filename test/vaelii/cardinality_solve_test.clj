@@ -15,7 +15,6 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.asp.solver :as solver]
-            [vaelii.impl.config :as config]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as rules]
             [vaelii.test-util :as tu]))
@@ -70,21 +69,19 @@
                      (v/assert kb (list 'asp/atMost 2 '?x (list build '?c 'transport)) 'CxUniverse)))))))
 
 (deftest the-authored-surface-survives-a-round-trip
-  ;; The rule stores as `(set/hardConstraint (implies …))`, but `rewrap` restores the
+  ;; The rule stores as `(set/hardConstraint (implies …))`, but `rewrap-sentex` restores the
   ;; authored `asp/atMost` form for export/display rather than leaking the internal one.
   (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [build]
       (let [h  (v/assert kb (list 'asp/atMost 2 '?c (list build '?c 'transport)) 'CxUniverse)
             sx (sentex-of kb h)
-            surface (rules/rewrap (v/sentence-of sx) (:direction sx) (:defeasible sx)
-                                  (:assumption sx) (:constraint sx))]
+            surface (rules/rewrap-sentex (v/sentence-of sx) sx)]
         (is (= 'asp/atMost (first surface)) "the surface wrapper comes back, not set/hardConstraint")
         (is (= 2 (second surface)) "and the bound")
         (let [soft (v/assert kb (list 'asp/softAtMost 2 '?c (list build '?c 'transport)) 'CxUniverse)
               ssx  (sentex-of kb soft)]
           (is (= 'asp/softAtMost
-                 (first (rules/rewrap (v/sentence-of ssx) (:direction ssx) (:defeasible ssx)
-                                      (:assumption ssx) (:constraint ssx))))))))))
+                 (first (rules/rewrap-sentex (v/sentence-of ssx) ssx)))))))))
 
 ;; ---- 2. end to end: the bound prunes the models --------------------------
 
@@ -95,7 +92,7 @@
   [kb ctx build cities]
   (doseq [v '[transport army]]
     (v/assert kb (list 'set/assumptionRule (list 'implies (list 'cand '?c) (list build '?c v)))
-              ctx {:direction :forward}))
+              ctx))
   (v/assert kb (list 'functional build) ctx {:strength :monotonic})
   (v/assert kb (list 'set/hardConstraint
                      (list 'implies (list 'and (list 'not (list build '?c 'transport))
@@ -144,7 +141,7 @@
         ;; the point is that GROUNDING stays linear, not that a symmetric optimum is cheap
         (doseq [v '[transport army]]
           (v/assert kb (list 'set/assumptionRule (list 'implies (list 'cand '?c) (list build '?c v)))
-                    'CxBig {:direction :forward}))
+                    'CxBig))
         (v/assert kb (list 'functional build) 'CxBig {:strength :monotonic})
         (v/assert kb (list 'set/hardConstraint
                            (list 'implies (list 'and (list 'not (list build '?c 'transport))
@@ -169,7 +166,7 @@
     (tu/with-cleared-kb [kb tu/fresh]
       (tu/with-terms [deploy]
         (v/assert kb (list 'set/assumptionRule (list 'implies (list 'unit '?u) (list deploy '?u)))
-                  'CxAtl {:direction :forward})
+                  'CxAtl)
         (v/assert kb (list 'set/softConstraint (list 'implies (list deploy '?u) (list 'costd '?u)))
                   'CxAtl {:strength :monotonic})
         (v/assert kb (list 'asp/atLeast 2 '?u (list deploy '?u)) 'CxAtl {:strength :monotonic})
@@ -189,7 +186,7 @@
         (doseq [a '[A1 A2 A3], t '[T1 T2]]
           (v/assert kb (list 'ferryCand a t) 'CxFer {:strength :monotonic}))
         (v/assert kb (list 'set/assumptionRule (list 'implies (list 'ferryCand '?a '?t) (list ferry '?a '?t)))
-                  'CxFer {:direction :forward})
+                  'CxFer)
         (v/assert kb (list 'functional ferry) 'CxFer {:strength :monotonic})   ; each army ≤1 transport
         ;; each transport gathers ≤1 army — the grouped bound
         (v/assert kb (list 'asp/atMost 1 '?a (list ferry '?a '?t)) 'CxFer {:strength :monotonic})
@@ -259,7 +256,7 @@
               (tu/with-cleared-kb [kb tu/fresh]
                 (tu/with-terms [deploy]
                   (v/assert kb (list 'set/assumptionRule (list 'implies (list 'unit '?u) (list deploy '?u)))
-                            'CxSAtl {:direction :forward})
+                            'CxSAtl)
                   (v/assert kb (list 'set/softConstraint (list 'implies (list deploy '?u) (list 'costd '?u)))
                             'CxSAtl {:strength :monotonic})
                   (v/assert kb (list floor-wrapper 2 '?u (list deploy '?u)) 'CxSAtl {:strength :monotonic})
@@ -283,10 +280,10 @@
   (when asp?
     (tu/with-cleared-kb [kb tu/fresh]
       (tu/with-terms [deploy]
-        (v/assert kb '(set/assumptionRule (implies (thing ?x) (other ?x))) 'CxEmp {:direction :forward})
+        (v/assert kb '(set/assumptionRule (implies (thing ?x) (other ?x))) 'CxEmp)
         (v/assert kb '(thing W) 'CxEmp {:strength :monotonic})
         (v/assert kb (list 'set/assumptionRule (list 'implies (list 'unit '?u) (list deploy '?u)))
-                  'CxEmp {:direction :forward})
+                  'CxEmp)
         (v/assert kb (list 'asp/atLeast 2 '?u (list deploy '?u)) 'CxEmp {:strength :monotonic})
         ;; NO unit facts, so deploy grounds to zero choice heads
         (let [r (v/assert kb (list 'do/label 'CxEmp 'CxEmpPlan :sat) 'CxEmp)]
@@ -296,15 +293,13 @@
 ;; ---- 6. an interrupted optimisation hands back its best model ------------
 
 (deftest interrupted-optimisation-hands-back-its-best-model
-  ;; A cap over 30 interchangeable cities has C(30, 10) equal-cost optima: clingo finds one
-  ;; in milliseconds but proves it optimal slowly, so under a short budget the `:one` solve
-  ;; is cancelled WITH a model in hand. That model satisfies every hard constraint (each
-  ;; city builds one thing, at most ten transports), so the solve now returns it, marked
-  ;; `:best-effort? true`, instead of discarding it and reporting no answer. Gated on a
-  ;; short VAELII_ASP_TIME_LIMIT — the 60 s default would let the proof run for a minute —
-  ;; so run it deliberately, e.g. `VAELII_ASP_TIME_LIMIT=5 lein with-profile +with-clingo
-  ;; test vaelii.cardinality-solve-test`.
-  (when (and asp? (<= 1 (config/asp-time-limit) 15))
+  ;; A cap over 30 interchangeable cities has C(30, 10) equal-cost optima: the solver finds
+  ;; one in milliseconds, but proving it optimal takes more search than the default solve
+  ;; limit, so the `:one` solve stops at that limit WITH a model in hand.  That model
+  ;; satisfies every hard constraint (each city builds one thing, at most ten transports),
+  ;; so the solve returns it, marked `:best-effort? true`, instead of discarding it and
+  ;; reporting no answer.
+  (when asp?
     (tu/with-cleared-kb [kb tu/fresh]
       (tu/with-terms [build]
         (install-build! kb 'CxBestEffort build (mapv #(symbol (str "C" %)) (range 30)))

@@ -49,7 +49,7 @@
 
   Classification needs a real ASP backend; `local-solver` produces one labeling and
   cannot enumerate optima. With no backend reachable, `classify` reports every
-  contested assumption as `:supportable` — honest (each *is* one of several options)
+  contested assumption as `:supportable` — correct (each *is* one of several options)
   and never overclaims `:true`."
   (:require
    [vaelii.impl.asp.edge :as edge]
@@ -58,6 +58,7 @@
    [vaelii.impl.jtms :as jtms]
    [vaelii.impl.kb :as kb]
    [vaelii.impl.naming :as nm]
+   [vaelii.impl.observe :as observe]
    [vaelii.impl.protocols :as p]
    [vaelii.impl.settle :as settle]
    [vaelii.impl.solve :as solve]
@@ -65,17 +66,16 @@
    [vaelii.impl.types.solve :as solve-types]
    [vaelii.impl.wiring :as wiring]))
 
-;; `classify-program` lives in `asp.edge` (below core), so `settle` can stamp the
-;; classification onto the TMS as belief settles.  Re-exported here for the KB-level
-;; callers, which reach it at this layer.
+;; `classify-program` lives in `asp.edge`.  Re-exported here for the KB-level callers,
+;; which reach it at this layer.
 (def classify-program edge/classify-program)
 
 (defn classify
-  "Classify the tie `kb` last settled — which of its beliefs were forced, which were
-  an arbitrary pick, and which were excluded.
+  "Classify the program `kb` last labeled (`last-program`) — which of its assumptions
+  were forced, which were an arbitrary pick, and which were excluded.
 
   Returns `{:true #{handle} :supportable #{handle} :false #{handle}}`, all empty when
-  no tie has been arbitrated (nothing contested means nothing to be uncertain about)."
+  no labeling has recorded a program."
   [kb]
   (if-let [program @(reasoning/program kb)]
     (classify-program program)
@@ -99,6 +99,13 @@
                                 (:sides d))))
         dilemmas))
 
+(defn- dilemmas-program
+  "One `Program` over the dilemmas `ds` (`settle/contradictions-of` entries)."
+  [ds]
+  (solve/program (into #{} (mapcat :nogood) ds)
+                 (mapv #(select-keys % [:nogood :priority :sentence]) ds)
+                 (sides-content ds)))
+
 (defn dilemma-program
   "One `Program` covering **every** dilemma `kb` currently reports, or nil if it
   reports none.
@@ -109,10 +116,7 @@
   separately would let the same datum be believed by one answer and not the other,
   which is not a labeling of anything."
   [kb]
-  (when-let [ds (seq (settle/ranked (settle/contradictions-of kb)))]
-    (solve/program (into #{} (mapcat :nogood) ds)
-                   (mapv #(select-keys % [:nogood :priority :sentence]) ds)
-                   (sides-content ds))))
+  (some-> (seq (settle/ranked (settle/contradictions-of kb))) dilemmas-program))
 
 (defn- cluster-indices
   "Partition `[0 n)` into connected components under `edges` — a seq of `[i j]` index pairs
@@ -283,15 +287,61 @@
          :supportable (into #{} (:supportable grouped))
          :false       (into #{} (:false grouped))}))))
 
-(defn classify-dilemmas
-  "Classify the KB's current dilemmas into `:true`/`:supportable`/`:false` — through the
-  ASP backend when one is reachable (exact: `classify-program` over `dilemma-program`),
-  and otherwise the solve-free JTMS bracket (`classify-local`).  nil when there is no
-  dilemma to classify.  The `(bravely S)` / `(cautiously S)` prover reads this."
+(defn- member-components
+  "The dilemmas `ds` grouped into components: two dilemmas share a component when they
+  share a member, directly or through a chain of dilemmas.  A `Program` holds no
+  derivation between members, so the optima of a program over several components are
+  every combination of each component's optima, and a member's class over the whole
+  program is its class over its own component.  Returns a vector of dilemma vectors, each
+  in `ds` order."
+  [ds]
+  (let [ds    (vec ds)
+        edges (second
+               (reduce (fn [[first-seen es] i]
+                         (reduce (fn [[first-seen es] m]
+                                   (if-let [j (first-seen m)]
+                                     [first-seen (conj es [i j])]
+                                     [(assoc first-seen m i) es]))
+                                 [first-seen es] (:nogood (ds i))))
+                       [{} []] (range (count ds))))]
+    (mapv #(mapv ds (sort %)) (cluster-indices (count ds) edges))))
+
+(defn- classification
+  "What `classify-datum` reads, resident on the KB's `:qcn` atom and rebuilt when the
+  change clock moves (`observe/cached`), keyed on whether a backend is reachable.  With a
+  backend: the member components, each member's component index, and an atom of the
+  components classified so far.  Without one: `classify-local`'s answer."
   [kb]
-  (if (solver/available?)
-    (some-> (dilemma-program kb) classify-program)
-    (classify-local kb)))
+  (let [backend? (solver/available?)]
+    (observe/cached (reasoning/qcn kb) [::classification backend?]
+                    (fn [_]
+                      (if backend?
+                        (let [cs (member-components
+                                  (settle/ranked (settle/contradictions-of kb)))]
+                          {:components   cs
+                           :component-of (into {} (for [i (range (count cs))
+                                                        d (cs i), m (:nogood d)]
+                                                    [m i]))
+                           :classified   (atom {})})
+                        {:local (classify-local kb)})))))
+
+(defn classify-datum
+  "Handle `h`'s class over the optimal labelings of the KB's current dilemmas —
+  `:true`, `:supportable` or `:false`, as `classify` names them — or nil when no dilemma
+  classifies it.  With a backend it classifies the member component `h` is in
+  (`member-components`, `classify-program`), once per change clock; without one it reads
+  the solve-free JTMS bracket (`classify-local`), also once per change clock.  The
+  `(bravely S)` / `(cautiously S)` prover reads this."
+  [kb h]
+  (let [{:keys [local components component-of classified]} (classification kb)
+        cls (if local
+              local
+              (when-let [i (component-of h)]
+                (or (get @classified i)
+                    (get (swap! classified assoc i
+                                (classify-program (dilemmas-program (components i))))
+                         i))))]
+    (some #(when (contains? (get cls %) h) %) [:true :supportable :false])))
 
 (defn- labeling-solver
   "The solver the labeling solve must use: the **ASP edge solver whenever a backend is
@@ -359,10 +409,8 @@
 
   **Sourced from the solve, not from the TMS**, which is the opposite of
   `label-context` below and for a reason that is the same principle either way:
-  report what actually decided it.  A tie `settle` arbitrated was decided by the
-  engine, so the TMS holds the answer and re-solving risks disagreeing with the
-  engine's own belief.  A dilemma `settle` declined was decided by nobody — **both
-  sides are IN** — so reading current belief would copy both halves of the
+  report what actually decided it.  A dilemma `settle` declined was decided by nobody —
+  **both sides are IN** — so reading current belief would copy both halves of the
   contradiction into the labeling and recreate the dilemma one level down.  Here the
   solve is the only thing that decides.
 
@@ -472,10 +520,10 @@
   deliberately the other way round. With no recorded `Program` — a KB the engine never
   arbitrated in, or a dilemma it declined — the `genlCx` edge is written and `:handles`
   comes back empty: a specialization that sees its base and records nothing is what \"the
-  engine committed to nothing\" materializes as, and it is the honest shape for a caller
-  that asked to see one arbitration. `label-dilemmas` *makes* a choice rather than
-  reporting one, so minting a context for a choice it did not make would assert that one
-  happened.
+  engine committed to nothing\" materializes as, and it gives a caller that asked to see
+  one arbitration an empty view rather than an invented one. `label-dilemmas` *makes* a
+  choice rather than reporting one, so minting a context for a choice it did not make
+  would assert that one happened.
 
   Additive, so no `!`: this creates a context and asserts into it. The labeling is
   undone by retracting the returned handles; the `genlCx` edge is a premise of its own

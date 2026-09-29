@@ -51,6 +51,30 @@ answers before a deadline. Two of its modes are outside this contract and say so
 driven to completion before its racers can be unioned, so it has no partial answer to
 hand back. `prove-within` drives the ordinary stream.
 
+**A cap keeps *some* *k* answers, and arrival order decides which.** Under a
+`:max-results` smaller than the answer set, four things are the same in every arrival
+order: each capped answer is an answer of the uncapped read, the step's `:status`, its
+`:count`, and the answers the `resume` steps hand back, which hold every answer exactly
+once. The membership of the capped prefix is not among them. A stored literal's matches
+stream in the order the index holds their handles, and handles are allocated in
+assertion order, so three facts `(awp AwA)`, `(awp AwB)`, `(awp AwC)` asserted in six
+orders give different first answers under `{:max-results 1}` on `ask-within` and on both
+of `prove-within`'s executors. Sorting a literal's matches by content before the cap would
+realize the literal's whole extent, which is the cost `:max-results` bounds. The same
+argument holds one level up: putting the answers of a join or a rule chain in content
+order means running the search to completion. Two short lists are content-ordered,
+because each holds a handful of entries: the rules that conclude a goal
+(`provers/candidate-rules`, by `[sentence context]`) and the node frontier's cost ties
+(`inference/frontier-key`). So a capped proof whose rules each have one witness answers
+the same in any order, and a capped read that chooses among stored facts does not.
+`order_independence_test` pins both halves. A `:max-ms` deadline cuts at a moment rather
+than at a count, so its prefix depends on the machine as well as on arrival order.
+
+`take` over the lazy stream `ask` and `query` return has the same contract. Those streams
+read a literal's matches from the same index, so `(take k …)` holds *k* answers of the
+uncapped read, and arrival order decides which *k*. `find-terms :limit` sorts by name
+before it keeps the first *n*, so its prefix is chosen by content.
+
 **A bounded run does not poison the literal cache.** `matches-visible` answers are
 cached ([inference.md](inference.md)), and a cached stream accumulates as its consumer
 pulls but stores only at the moment the *source* runs dry — never when the consumer
@@ -71,11 +95,31 @@ A budget is a map of optional bounds; any subset, and `nil` / `{}` means unbound
 | `:max-depth` | transformation (rule-expansion) depth | `prove-within` |
 | `:max-term-growth` | how far a rule may grow a subgoal's nesting | `prove-within` |
 
-`:max-ms` is checked **between** yielded solutions — the honest granularity is one
+`:max-ms` is checked **between** yielded solutions — the granularity is one
 solution, so a single blocking pull (a closure fixpoint, one deep proof) is not
 interrupted mid-flight. This matches the engine's existing candor that "a closure
 has no partial answer"; it is a real limit, stated rather than hidden. `:max-cost`
 is the complement that keeps *per-solution* latency bounded — see below.
+
+One pull is interrupted: the argument-preservation prover's claim walk, which reads a
+predicate's extent or the product of the goal's reaches to answer one closed goal
+([inherit.md](inherit.md#what-one-question-costs)). Under `ask`, `ask?` and `ask-within`
+the walk checks the deadline per row it reads, so the step stops at the deadline and
+answers `:timeout` (`:budget-exhausted` at `ask` / `ask?`) at every extent
+(`inherit_test/an-ask-deadline-stops-the-claim-walk-at-the-row-it-passes-on`). An
+interrupted lazy stream cannot be pulled again, so the `ask-within` continuation rebuilds
+the stream, drops the answers already returned, and runs its first pull without the
+deadline: a resume gets past the interrupted walk, and a resume loop under a fixed budget
+terminates.
+
+`prove`, `provable?` and `prove-within` with a `:max-ms` carry the same deadline into the
+walk when it answers a leaf of the backward search, on both engines: the DFS stops at the
+deadline and answers `:timeout` (`:budget-exhausted` at `prove` / `provable?`)
+(`inherit_test/a-prove-deadline-stops-the-claim-walk-at-the-row-it-passes-on`). The
+stopped leaf, or the node engine's stopped node, stays where it was, a goal-stack frame
+or a frontier entry, and the continuation runs that one leaf without the deadline, so a
+resume loop under a fixed budget terminates here too. The other readers of the same walk
+— the asymmetry check at `assert`, settle, forward chaining — run under no deadline.
 
 ## The partial-result contract
 
@@ -92,7 +136,7 @@ is the complement that keeps *per-solution* latency bounded — see below.
 ```
 
 `:complete` is the required one and it is exact: it is reported only when the
-source was pulled and ended. The other two are the honest negation of that rather than
+source was pulled and ended. The other two are the negation of `:complete` rather than
 a claim that work remains — `collect` stops *before* pulling past its bound, since
 deciding whether a tail exists means realizing one more element than the cap allows.
 So `{:max-results 3}` over a source of exactly three answers reports `:capped` with a
@@ -167,28 +211,28 @@ for?* (`vaelii.impl.provers/cost-tiers`):
 
 The union path already orders applicable provers by this tier (cheapest first, so a
 consumer taking one answer never pays for a closure when a lookup answers).
-`:max-cost` turns the tier into a **ceiling**: `ask-within` drops every prover above
-it *before* the stream is built. So `{:max-cost :lookup}` runs bounded retrieval only —
-no closure fixpoint, no `thereExists`, no aggregate — and, `:search` being
-empty, `:compute` and `:search` both keep the whole registry. A goal answerable only by
-a dropped tier simply yields nothing (an honest empty, not a hang). Combined with `:max-ms` it is a genuine anytime
-strategy: *cheap tiers only, and stop at N milliseconds*.
+`:max-cost` turns the tier into a **ceiling**: `ask-within` drops every prover above it
+*before* the stream is built. So `{:max-cost :lookup}` runs bounded retrieval only — no
+closure fixpoint, no `thereExists`, no aggregate — and, `:search` being empty, `:compute`
+and `:search` both keep the whole registry. A goal answerable only by a dropped tier
+simply yields nothing (an empty result, not a hang). Combined with `:max-ms` it is a
+genuine anytime strategy: *cheap tiers only, and stop at N milliseconds*.
 
-**`unknown` is the one prover no ceiling drops**, and the asymmetry is what an honest
-empty rests on. Dropping a `:compute` prover makes a run *under-report*, which is the
-trade a ceiling is asking for; dropping the closed-world one **inverts** it — an empty
-result for `(unknown S)` reads as *S is derivable*, and the run reports `:complete`
-while saying it. So `cost-capped-provers` retains `UnknownProver` at every ceiling. It
-is applicable only to `unknown` goals, so keeping it narrows nothing else, and a wrong
-answer outranks a best-effort cost bound. `thereExists` and the aggregates under-report
-rather than invert, so they stay droppable.
+**`unknown` is the one prover no ceiling drops**, and the asymmetry is what the meaning of
+an empty result rests on. Dropping a `:compute` prover makes a run *under-report*, which
+is the trade a ceiling is asking for; dropping the closed-world one **inverts** it — an
+empty result for `(unknown S)` reads as *S is derivable*, and the run reports `:complete`
+while saying it. So `cost-capped-provers` retains `UnknownProver` at every ceiling. It is
+applicable only to `unknown` goals, so keeping it narrows nothing else, and a wrong answer
+outranks a best-effort cost bound. `thereExists` and the aggregates under-report rather
+than invert, so they stay droppable.
 
 A value that is not one of the three tiers is **refused** (`:type :unknown-option`), not
 read as no ceiling
 [why refuse](defenses.md#refusing-an-unrecognized-cost-ceiling).
 
-`:max-cost` is an `ask` concept — `prove` runs only facts and rules — so
-`prove-within` ignores it and uses `:max-depth` to bound the search instead.
+`:max-cost` bounds `ask`'s prover tiers rather than a search, so `prove-within` ignores
+it and uses `:max-depth` to bound the search instead.
 
 ## `:max-depth` — bounding transformation, not the stack
 
@@ -218,10 +262,11 @@ instead.
 
 ## What it is not
 
-- **No mid-solution interruption.** The deadline is checked between yielded
-  solutions; a single expensive `solve` (a large closure) runs to its own
-  completion. `:max-cost` is the lever for that case — exclude the expensive tier
-  rather than interrupt it.
+- **No mid-solution interruption** outside the argument-preservation claim walk. The
+  deadline is checked between yielded solutions (between DFS steps and node expansions
+  under `prove-within`); any other single expensive `solve` (a
+  large closure) runs to its own completion. `:max-cost` is the lever for that case —
+  exclude the expensive tier rather than interrupt it.
 - **No estimate-based admission control.** The budget spends *real* time, never a
   per-prover estimate
   [why qualitative](defenses.md#qualitative-cost-tiers-over-time-estimates);

@@ -53,13 +53,34 @@
 
   `cardinalities` (optional, default none) are at-most-`k` / at-least-`k` bounds over
   the contested heads — `solve-context` grounds `asp/atMost` / `asp/atLeast` rules into
-  them.  Their members are contested heads already, so they contribute no `fixed`."
+  them.  Their members are contested heads already, so they contribute no `fixed`.
+
+  `derivations` (optional) are a solve's normal rules, and the atoms they derive ride
+  the program as `:derived` beside the assumptions."
   ([contested nogoods content] (program contested nogoods content []))
   ([contested nogoods content cardinalities]
    (let [contested (set contested)
          relevant  (filterv #(seq (set/intersection (nogood-members %) contested)) nogoods)
          fixed     (into #{} (comp (mapcat nogood-members) (remove contested)) relevant)]
-     (solve-types/->Program contested fixed relevant (select-keys content contested) (vec cardinalities)))))
+     (solve-types/->Program contested fixed relevant (select-keys content contested) (vec cardinalities))))
+  ([contested nogoods content cardinalities derivations]
+   ;; A solve's program (`solve-context`): `derivations` are its normal rules,
+   ;; `[{:head id :pos #{id} :neg #{id}} …]`, and every head one derives that is not a
+   ;; contested choice is a **derived** atom — decided by the rules rather than by the
+   ;; solver, so it is neither an assumption nor fixed background.  A nogood over derived
+   ;; atoms alone is relevant, and so is a hard one with no member left, which no model
+   ;; satisfies (a required atom nothing can derive).
+   (let [contested (set contested)
+         derived   (into #{} (comp (map :head) (remove contested)) derivations)
+         atoms     (into contested derived)
+         relevant  (filterv #(or (seq (set/intersection (nogood-members %) atoms))
+                                 (and (:hard %) (empty? (nogood-members %))))
+                            nogoods)
+         fixed     (into #{} (comp (mapcat nogood-members) (remove atoms)) relevant)]
+     (assoc (solve-types/->Program contested fixed relevant (select-keys content atoms)
+                                   (vec cardinalities))
+            :derived derived
+            :derivations (vec derivations)))))
 
 (defn content-key
   "A stable total order on contested assumptions, derived from **what they assert**.

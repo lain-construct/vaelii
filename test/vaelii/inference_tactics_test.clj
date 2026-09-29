@@ -256,7 +256,7 @@
 
 (tu/deftest-kb first-result-mode-stops-the-frontier-growing-and-says-so
   ;; The one strategy that returns fewer answers.  It is excluded from the completeness
-  ;; sweep by name, and this is the test that keeps the exclusion honest.
+  ;; sweep by name, and this is the test that checks the excluded strategy on its own.
   (tu/with-terms [edgeOf anc CxFirst]
     (tu/with-terms [FsA FsB FsC FsD]
       (productive-kb! kb edgeOf anc CxFirst FsA FsB FsC FsD)

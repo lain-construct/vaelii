@@ -2,7 +2,7 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.api-surface-test
   "The published API surface, pinned: every public var of the six public namespaces,
-  with its arglists, frozen against `test/golden/api-surface.edn`.
+  with its arglists or a roster's members, frozen against `test/golden/api-surface.edn`.
 
   **What this catches that the suite does not.**  `public_api_test` pins which
   namespaces are public — exhaustively, in both directions, so a new file outside
@@ -34,12 +34,20 @@
     that entry, so the entry is what makes the sibling sweep able to find anything.
   - **An ADDED var extends the published surface.**  Run `lein regen-goldens`, give it
     a docstring and a place in `docs/api.md`, and commit the golden in the same commit.
+  - **A REMOVED roster member is breaking**, as a removed var is: a caller sending that
+    option key or op is refused where it was served.  An ADDED member is Additive
+    (CONTRIBUTING §3.8), and fails only so the addition is read.
 
   ## What is pinned, and what is not
 
-  Var **names** and **arglists**, per namespace.  Not docstrings, not metadata, not
-  the values — a golden that moved when a docstring was reworded would be regenerated
-  without being read, which is the failure mode that makes a golden worthless.
+  Var **names** and **arglists**, per namespace, and a **roster's members**.  A roster is
+  a public var whose value is a non-empty collection of keywords or a map keyed by
+  keywords: the `*-opt-keys` sets, `edit-batch-keys`, `vaelii.serve/ops`.  Its members
+  are the contract, since a caller spells them, so the golden holds them as a sorted
+  vector.  Any other value (a number, a dynamic var's default) pins its name alone.  Not
+  docstrings and not other metadata: a golden that moved when a docstring was reworded
+  would be regenerated without being read, which is the failure mode that makes a golden
+  worthless.
 
   Arglists are stored as `pr-str` strings rather than as data: a `:or` default holds a
   quote form, and `'x` round-trips through EDN as `(quote x)`, so a golden written as
@@ -88,16 +96,27 @@
                  (str/replace "/" ".") (str/replace "_" "-") symbol))
        sort))
 
+(defn- roster-members
+  "The members of a roster var, sorted, or nil when the value is not a roster.  A roster
+  is a non-empty collection of keywords, or a map keyed by keywords."
+  [v]
+  (let [x  @v
+        ks (if (map? x) (keys x) x)]
+    (when (and (coll? x) (seq ks) (every? keyword? ks))
+      (vec (sort ks)))))
+
 (defn- surface-of
-  "`{var-name arglists-or-:var}` for one namespace.  A bare `(def x …)` carries no
-  `:arglists` and pins by name alone — `serve/ops` and `core/assert-opt-keys` are
-  values, and a value has no shape to freeze beyond being there."
+  "`{var-name pin}` for one namespace.  A fn or macro pins its arglists as a string, a
+  roster var its members as a vector of keywords (`roster-members`), and any other var
+  `:var`, its name alone."
   [ns-sym]
   (require ns-sym)
   (into (sorted-map)
         (keep (fn [[sym v]]
                 (when-not (:no-doc (meta v))
-                  [sym (if-let [a (:arglists (meta v))] (pr-str (vec a)) :var)])))
+                  [sym (if-let [a (:arglists (meta v))]
+                         (pr-str (vec a))
+                         (or (roster-members v) :var))])))
         (ns-publics ns-sym)))
 
 (defn current-surface
@@ -117,9 +136,10 @@
   (let [surface (current-surface)]
     (spit golden-file
           (str ";; Frozen public API surface — every public var of the six public\n"
-               ";; namespaces, with its arglists.\n"
+               ";; namespaces, with its arglists, or a roster var's members.\n"
                ";; Regenerate: `lein regen-goldens`, and read vaelii.api-surface-test's\n"
-               ";; docstring first — a removed var or a changed arglist is breaking.\n"
+               ";; docstring first — a removed var, a changed arglist or a removed\n"
+               ";; roster member is breaking.\n"
                (with-out-str (pprint/pprint surface))))))
 
 (defn- golden [] (edn/read-string (slurp golden-file)))
@@ -152,7 +172,8 @@
             (str "BREAKING: " ns-sym " no longer publishes " (sort removed)
                  ". Restore them, or take the CONTRIBUTING §3.8 Breaking entry with the"
                  " migration line, and regenerate the golden in that commit."))
-        (doseq [v (sort (set/intersection (set (keys cur)) (set (keys gld))))]
+        (doseq [v (sort (set/intersection (set (keys cur)) (set (keys gld))))
+                :when (not (and (vector? (get gld v)) (vector? (get cur v))))]
           (is (= (get gld v) (get cur v))
               (str "BREAKING: " ns-sym "/" v " arglists changed\n"
                    "  was: " (get gld v) "\n"
@@ -176,6 +197,47 @@
                  " — compatible, but this extends the published surface. Run"
                  " `lein regen-goldens`, give each one a docstring and a place in"
                  " docs/api.md, and commit the golden in this same commit."))))))
+
+;; ---- a roster's members, both ways --------------------------------------
+
+(defn- roster-pins
+  "`[ns-sym var-sym frozen-members current-members]` for every var the golden and the
+  tree both pin as a roster."
+  [current frozen]
+  (for [ns-sym (sort (set/intersection (set (keys current)) (set (keys frozen))))
+        :let   [cur (get current ns-sym)
+                gld (get frozen ns-sym)]
+        v      (sort (set/intersection (set (keys cur)) (set (keys gld))))
+        :when  (and (vector? (get gld v)) (vector? (get cur v)))]
+    [ns-sym v (get gld v) (get cur v)]))
+
+(deftest a-roster-var-pins-its-members-and-another-value-its-name
+  (let [surface (current-surface)]
+    (is (= (vec (sort (keys @(requiring-resolve 'vaelii.serve/ops))))
+           (get-in surface '[vaelii.serve ops])))
+    (is (= (vec (sort @(requiring-resolve 'vaelii.core/assert-opt-keys)))
+           (get-in surface '[vaelii.core assert-opt-keys])))
+    (is (= :var (get-in surface '[vaelii.core default-describe-limit])))))
+
+(deftest no-roster-member-has-been-removed
+  (doseq [[ns-sym v was now] (roster-pins (current-surface) (golden))]
+    (let [removed (set/difference (set was) (set now))]
+      (is (empty? removed)
+          (str "BREAKING: " ns-sym "/" v " no longer holds " (sort removed)
+               ". A caller that sends one is refused where it was served. Restore"
+               " them, or take the CONTRIBUTING §3.8 Breaking entry with the migration"
+               " line naming the new spelling, and regenerate the golden in that"
+               " commit.")))))
+
+(deftest a-new-roster-member-is-recorded-in-the-golden
+  ;; An added member breaks nobody (§3.8 Additive); this fails so the addition is read.
+  (doseq [[ns-sym v was now] (roster-pins (current-surface) (golden))]
+    (let [added (set/difference (set now) (set was))]
+      (is (empty? added)
+          (str ns-sym "/" v " holds new member(s): " (sort added)
+               " — compatible, but this extends the published surface. Run"
+               " `lein regen-goldens`, document each one where the roster is"
+               " documented, and commit the golden in this same commit.")))))
 
 ;; ---- the two promises the golden's own failure message makes ------------
 

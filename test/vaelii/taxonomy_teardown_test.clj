@@ -8,7 +8,7 @@
   `disjoint_metatype` + members, the predicate properties, and `inverse` share the
   `:cache-support` count.  An entry survives losing one of several supporters and
   follows defeat.  Belief-tracking is covered in `taxonomy_belief_test`; this file
-  covers the *retract* half — the teardown wired through `core/disintegrate-sentex!`.
+  covers the *retract* half — the teardown wired through `special/disintegrate-sentex!`.
 
   The retract half is where a cache and the sentexes stating it can drift apart:
   nothing in the neutral fixture notices a leaked taxonomy entry, because it compares

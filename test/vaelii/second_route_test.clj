@@ -12,7 +12,8 @@
   answer with a KB that never held that edge.
 
   Five lattices — a subsumed match, a claim preserved along `genl` and along a fact
-  relation, the `genlCx` path a placement is seen over, and two routes that tie on
+  relation, the `genlCx` path a placement is seen over (with the fact at the knocked
+  edge's lower end, and in another ancestor of the reader), and two routes that tie on
   generality — and four ways to knock an edge out:
 
     retract    the record goes; the sweep's re-join brings the firing back
@@ -202,7 +203,25 @@
        :at      CxP
        :goal    (list pet_t Tom)
        :readers ['CxUniverse CxM CxP]
-       :below   #{CxP}})))
+       :below   #{CxP}})
+
+    ;; The placement path again, with the fact in neither of the knocked edge's ancestor
+    ;; sets: CxA sees the rule's context CxR directly and through CxM, and sees the fact
+    ;; in CxQ through a third edge of its own.  The direct edge is the one named.
+    :sight-view
+    (let [{:syms [cat_t pet_t Tom CxA CxM CxQ CxR]} (terms '[cat_t pet_t Tom CxA CxM CxQ CxR])]
+      {:base    [[(list 'genlCx CxM CxR) 'CxUniverse]
+                 [(list 'genlCx CxA CxQ) 'CxUniverse]
+                 [(list 'genl cat_t 'thing) 'CxUniverse]
+                 [(list 'set/forwardRule (list 'implies (list cat_t '?x) (list pet_t '?x))) CxR]]
+       :named   [[(list 'genlCx CxA CxR) 'CxUniverse]]
+       :other   [[(list 'genlCx CxA CxM) 'CxUniverse]]
+       :claim   [[(list cat_t Tom) CxQ]]
+       :knock   [(list 'genlCx CxA CxR) 'CxUniverse]
+       :at      CxA
+       :goal    (list pet_t Tom)
+       :readers [CxR CxM CxQ CxA]
+       :below   #{CxA}})))
 
 (defn- answers [kb {:keys [goal readers]}]
   (mapv #(v/ask? kb goal %) readers))
@@ -256,7 +275,8 @@
    [:named :other :claim :knock] [:other :named :claim :knock]])
 
 (def ^:private kinds
-  [:subsume :preserve :preserve-fact :sight :tie :sibling :sibling-fact :sibling-subsume])
+  [:subsume :preserve :preserve-fact :sight :sight-view :tie :sibling :sibling-fact
+   :sibling-subsume])
 
 (defn- agree-in [hows order-fn]
   (doseq [kind kinds, how hows, order (order-fn how)]
@@ -279,6 +299,7 @@
       (let [[_ reference] (run-order kind :network [:named :other :claim :knock])]
         (is (= (case kind
                  :sight                                    [false false true]
+                 :sight-view                               [false false false true]
                  :tie                                      [false true true]
                  (:sibling :sibling-fact :sibling-subsume) [false false true true]
                  [false true true])

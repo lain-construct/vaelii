@@ -2,14 +2,8 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.derived-callout-test
   "What a write turned out to mean — `vaelii.core/edit-with-consequences!` — and the
-  callout the browser renders from it.
-
-  The engine half is checked against `preview`, which answers the same question about the
-  same batch by a completely different route (apply, read, roll back, and read belief-before
-  off the restored KB).  They share the entry shapes and nothing else: this one captures
-  the labels on the way through, because it has no rollback to read after.  So agreement is
-  evidence, not tautology — and disagreement would mean one of them is wrong about what a
-  commit does, which is the whole claim the proposal panel rests on."
+  callout the browser renders from it.  The engine half is checked against `preview`,
+  which shares only the entry shapes with it (docs/preview.md, \"Tests\")."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.browser.web :as web]
@@ -74,8 +68,7 @@
             "still stored, so it is still addressable — defeat is not deletion")))))
 
 (tu/deftest-kb the-report-agrees-with-what-preview-promised
-  (testing "preview and the commit answer the same question about the same batch by two
-            different routes; a disagreement means one of them is wrong about the engine"
+  (testing "preview and the commit report the same diff for one batch"
     (tu/with-terms [cat purrs alive CxPair]
       (v/assert kb (list 'genlCx CxPair 'CxWell) 'CxUniverse)
       (v/assert-rule kb [(list cat '?x)] (list purrs '?x) CxPair {:direction :forward})
@@ -121,7 +114,7 @@
         (let [r (v/edit-with-consequences! kb {:add [[(list seed Thing) CxCap]]}
                                            {:max-results 2})]
           (is (= 2 (count (:believed-added r))))
-          (is (:bounded? r) "a partial answer never is indistinguishable from a complete one"))))))
+          (is (:bounded? r) "a partial answer is never presented as a complete one"))))))
 
 ;; ---- the browser: the callout --------------------------------------------
 

@@ -122,16 +122,14 @@
   SHA-256 truncated to 96 bits, base62 — and a later hash or encoding change is `b`, old
   constants keeping the names they were minted with (the whole reason a name carries its
   scheme).  One letter covers both jobs, so there is nothing to separate and no separator.
-  Not `g`, the prefix `fresh-constant`'s gensym still uses, so the tag also tells a
-  content-named constant from a legacy `nat/g…` one.
 
   Base62, not base64url, because a reified constant only ever stands in **argument**
   position, where it is held to the same spelling rules as any name
   (`naming/argument-problem`) — and base64url's two extra characters, `-` and `_`, are
   precisely the two those rules forbid (`-` would also make the name read as a `sense`).
   Base62 drops just those two, so `nat/a…` is `[A-Za-z0-9]` and matches the camelCase rule
-  (`naming/predicate?`) — the same rule the old `nat/g…` gensym matched, and why that one
-  passed.  The name is 18 characters: the one-letter tag and a 17-digit base62 payload."
+  (`naming/predicate?`).  The name is 18 characters: the one-letter tag and a 17-digit
+  base62 payload."
   "a")
 
 (def ^:private base62-alphabet
@@ -185,15 +183,6 @@
   [ns E]
   (symbol ns (content-name E)))
 
-(defn fresh-constant
-  "Allocate a fresh, opaque reified constant with a process-unique gensym name in the
-  given reserved namespace — `nat` (default) or `cx`.  For a throwaway constant not tied
-  to an expression; the mint path names by content instead (`constant-for`), so this is
-  not on it.  The `g…` name is camelCase, matching the argument convention the mint's
-  base62 name matches too (`constant-for`), so it needs no naming exemption either."
-  ([] (fresh-constant nat-namespace))
-  ([ns] (symbol ns (name (gensym "g")))))
-
 ;; ---- the reifiable gate --------------------------------------------------
 ;; A function's kind is predicate metadata, cached in the taxonomy like
 ;; transitive/symmetric/functional: `(reifiable_function F)` marks the `:reifiable`
@@ -241,11 +230,6 @@
        (or (tax/has-prop? (reasoning/taxonomy kb) :reifiable head)
            (tax/has-prop? (reasoning/taxonomy kb) :context-denoting head))))
 
-(defn- ground-form?
-  "True iff `form` contains no pattern variables anywhere (any nesting)."
-  [form]
-  (not-any? sx/variable? (tree-seq sequential? seq form)))
-
 (defn reifiable-ground-nat?
   "True iff `form` is a ground `(F …)` whose head F is an **object** reifiable_function — a
   NAT the sentence/argument reify walk may mint to a `nat/` constant.  Ground because an
@@ -267,7 +251,7 @@
        (seq form)
        (reifiable-function? kb (first form))
        (not (context-denoting-function? kb (first form)))
-       (ground-form? form)))
+       (sx/ground-term? form)))
 
 ;; ---- index-backed lookups ------------------------------------------------
 ;; `E → K` (dedup) and `K → E` (reverse) are both `(termOfUnit …)` queries — the
@@ -335,10 +319,11 @@
   `head` is declared with under `pred`.
 
   **Two vantages, and the caller picks by which question it is asking.**  The mint asks
-  globally: it materializes what it reads into `CxUniverse`, which every context sees, so
-  a declaration written where the minting assert cannot see it still types the constant
-  for every later reader — the context-independence `reifiable-function?` takes, and for
-  its reason, what a term denotes not being a thing a reader may vary.  A **check** asks
+  globally: it materializes what it reads into `CxUniverse`, which every context below
+  the joint sees, so a declaration written where the minting assert cannot see it still
+  types the constant for every later reader — the context-independence
+  `reifiable-function?` takes, and for its reason, what a term denotes not being a thing
+  a reader may vary.  A **check** asks
   from `context`: it convicts on an absence, and the whole definitional family judges from
   the asking context's vantage, so a declaration that context cannot see may not refuse
   it.
@@ -554,8 +539,27 @@
       (apply list (first s) (map #(reify-in kb % nat-fn) (rest s))))
     :else s))
 
+(defn- names-reifiable-nat-in?
+  "Does `s` hold a ground reifiable NAT at a position `reify-in` visits?  The walk is
+  `reify-in`'s, answering a boolean instead of rebuilding the form."
+  [kb s]
+  (cond
+    (reifiable-ground-nat? kb s) true
+    (vector? s) (boolean (some #(names-reifiable-nat-in? kb %) s))
+    (and (seq? s) (seq s)) (and (not (contains? nat-quoting-predicates (first s)))
+                                (boolean (some #(names-reifiable-nat-in? kb %) (rest s))))
+    :else false))
+
+(defn names-reifiable-nat?
+  "Does sentence `s` hold a ground reifiable NAT the write-mode reify would replace with
+  a constant?  The derivation path asks this of every conclusion it places, so the common
+  answer is reached without allocating: false on a KB that declares no reifiable
+  function (`any-reifiable-functions?`), and otherwise one walk that rebuilds nothing."
+  [kb s]
+  (and (any-reifiable-functions? kb) (names-reifiable-nat-in? kb s)))
+
 (defn- reify-nat-for-read
-  "Read-mode leaf: reify nested NAT args, then resolve the whole expression to its
+  "Read-mode leaf:reify nested NAT args, then resolve the whole expression to its
   EXISTING term (a `rewriteOf` target, the value its corresponding predicate names,
   else a minted `termOfUnit` constant) — or the `no-match` sentinel when it was never
   minted.  Never mints.
@@ -572,6 +576,22 @@
                    (map #(if (reifiable-ground-nat? kb %) (reify-nat-for-read kb %) %)
                         (rest form))))]
     (or (rewrite-target kb E) (correspondence-value kb E) (dedup-constant kb E) no-match)))
+
+(defn reify-existing
+  "Reify every reifiable ground NAT subterm of `sentence` that has an existing term to
+  that term, and leave every other one as written.  Never mints.
+
+  `vaelii.core/check` reads a sentence through this.  `assert` would reify the same subterms,
+  minting the ones with no term yet, and `check` may not write: an application with a
+  term is read as that term, as `assert` reads it, and one without stays an application,
+  which the argument checks read as the constant `assert` would mint
+  (`checks/*entry-mints?*`).  Cheap no-op when the KB declares no `reifiable_function`."
+  [kb sentence]
+  (if (any-reifiable-functions? kb)
+    (reify-in kb sentence (fn [kb form]
+                            (let [k (reify-nat-for-read kb form)]
+                              (if (= no-match k) form k))))
+    sentence))
 
 (defn maybe-reify-for-read
   "Reify every reifiable ground NAT subterm of a QUERY `sentence` to its existing
@@ -990,7 +1010,7 @@
   [kb form]
   (and (sequential? form) (seq form)
        (context-denoting-function? kb (first form))
-       (ground-form? form)))
+       (sx/ground-term? form)))
 
 (defn maybe-reify-context
   "Reify a **context slot** `(CxTimeFn …)` to its `cx/` constant — the context-slot twin

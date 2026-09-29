@@ -39,6 +39,10 @@
   or the test world has three generators.  See `rule-expansion-ms` for why its
   cartesian antecedent is spelled differently.
 
+  Every section runs on `:memory` and `:memory-columnar` side by side, one row each:
+  the estimates, the plans and the row counts should not move between them, and the
+  exec columns say what the index is worth to a planned join.
+
   Run: `lein bench-plan [chain-size] [loose-size]`  (default 400 40)"
   (:require [clojure.string :as str]
             [vaelii.core :as v]
@@ -169,33 +173,52 @@
         (dotimes [_ iters] (plan/order kb q 'CxUniverse {}))
         (/ (- (System/nanoTime) t0) 1e6 iters)))))
 
+(def ^:private backend-spaces
+  "The stores the report runs side by side, each with the first of its own run of space
+  numbers, one per width.  The in-RAM stores are shared per space, so a KB opened on a
+  number another already holds sees its records — and, opened without `recover`,
+  refuses to write over them.  `:memory` is the default store; `:memory-columnar` is
+  the faster index on the forward-chaining workloads, and the columns say whether
+  planning reads it differently."
+  (array-map :memory 30 :memory-columnar 40))
+
+(def ^:private short-name {:memory "memory" :memory-columnar "columnar"})
+
 (defn -main [& args]
   (let [n (or (some-> (first args) Long/parseLong) 400)
         m (or (some-> (second args) Long/parseLong) 40)
-        kbs (into {} (for [width [2 3 4 5]]
-                       (let [kb (v/open-kb {:backend :memory :space 30 :recover? false})]
-                         (build! kb width n m)
-                         [width kb])))]
+        bes (vec (keys backend-spaces))
+        kbs (into {} (for [be bes]
+                       [be (into {} (for [width [2 3 4 5]]
+                                      (let [kb (v/open-kb {:backend be :recover? false
+                                                           :space (+ (backend-spaces be) width)})]
+                                        (build! kb width n m)
+                                        [width kb])))]))]
     (println (format "vaelii conjunctive planning — chain of %,d facts per link, loose relation of %,d" n m))
+    (println (str "  each store side by side: " (str/join ", " (map #(str (short-name %) " = " %) bes))))
 
     ;; ---- the cost model, before any plan is timed --------------------------
     (println "\n  q-error per join depth — the estimate against the rows the prefix returns.")
     (println "  Flat in k is the claim that the estimates compose; growing in k withdraws it.")
-    (println (format "\n  %-7s %s" "lits" "q at k = 1, 2, …"))
+    (println (format "\n  %-7s %-9s %s" "lits" "store" "q at k = 1, 2, …"))
     (println (str "  " (apply str (repeat 60 \-))))
-    (doseq [width [2 3 4 5]]
-      (let [qs (q-errors (kbs width) (conjunction width))]
-        (println (format "  %-7s %s" (inc width)
+    (doseq [width [2 3 4 5]
+            be    bes]
+      (let [qs (q-errors (get-in kbs [be width]) (conjunction width))]
+        (println (format "  %-7s %-9s %s" (if (= be (first bes)) (inc width) "") (short-name be)
                          (str/join "  " (map #(format "%.2f" %) qs))))))
 
     ;; ---- and then the orders ----------------------------------------------
     ;; the conjunction is the chain plus the loose literal, so it is one wider
-    (println (format "\n  %-7s %-30s %10s %10s %9s %11s"
-                     "lits" "strategy" "rows" "exec ms" "exec x" "plan ms"))
-    (println (str "  " (apply str (repeat 82 \-))))
-    (println "  row counts are TRUSTED (structural); wall-clock is a ratio against the best of the three.")
-    (doseq [width [2 3 4 5]]
-      (let [kb (kbs width)
+    (println (format "\n  %-7s %-9s %-8s %10s %10s %9s %11s"
+                     "lits" "store" "strategy" "rows" "exec ms" "exec x" "plan ms"))
+    (println (str "  " (apply str (repeat 72 \-))))
+    (println "  row counts are TRUSTED (structural); wall-clock is a ratio against the best of")
+    (println "  the three on the same store, and the stores are read against each other by the")
+    (println "  exec ms of one strategy.")
+    (doseq [width [2 3 4 5]
+            be    bes]
+      (let [kb (get-in kbs [be width])
             q  (conjunction width)
             plans {:written  (vec q)
                    :greedy   (with-strategy* :greedy   #(plan/order kb q 'CxUniverse {}))
@@ -208,27 +231,32 @@
             best  (apply min (map (comp :ms val) runs))]
         (doseq [k [:written :greedy :placed]]
           (let [{:keys [rows ms]} (runs k)]
-            (println (format "  %-7s %-30s %,10d %10.1f %8.2fx %11.4f"
-                             (if (= k :written) (inc width) "")
+            (println (format "  %-7s %-9s %-8s %,10d %10.1f %8.2fx %11.4f"
+                             (if (and (= k :written) (= be (first bes))) (inc width) "")
+                             (if (= k :written) (short-name be) "")
                              (name k) rows ms (/ ms best)
                              (if (= k :written)
                                0.0
                                (plan-cost-ms kb q (if (= k :greedy) :greedy :placed) 1000))))))
-        (println)))
+        (when (= be (peek bes)) (println))))
     (println "  A `placed` row that beats `greedy` on rows is the whole claim; one that does")
-    (println "  not, at a width the engine actually sees, is the claim being withdrawn.")
+    (println "  not, at a width the engine actually sees, is the claim being withdrawn.  Rows")
+    (println "  that differ between the stores for one strategy are an index answering")
+    (println "  differently, which is a defect and not a reading.")
 
     ;; ---- and the same claim through a rule ---------------------------------
     (println "\n  The same conjunction as a rule's antecedents, reached by proving its head.")
     (println "  Stored antecedent order is canonical order, so what the planner is")
     (println "  standing between is the author's spelling and the cost of running it.")
-    (println (format "\n  %-9s %10s %14s %14s %9s"
-                     "antes" "solutions" "unplanned ms" "planned ms" "speedup"))
-    (println (str "  " (apply str (repeat 62 \-))))
-    (doseq [width [3 4]]
-      (let [[[n0 off] [n1 on]] (rule-expansion-ms (kbs width) width m)]
-        (println (format "  %-9s %,10d %14.1f %14.1f %8.2fx"
-                         (inc width) n1 off on (/ off (max 0.001 on))))
+    (println (format "\n  %-9s %-9s %10s %14s %14s %9s"
+                     "antes" "store" "solutions" "unplanned ms" "planned ms" "speedup"))
+    (println (str "  " (apply str (repeat 72 \-))))
+    (doseq [width [3 4]
+            be    bes]
+      (let [[[n0 off] [n1 on]] (rule-expansion-ms (get-in kbs [be width]) width m)]
+        (println (format "  %-9s %-9s %,10d %14.1f %14.1f %8.2fx"
+                         (if (= be (first bes)) (inc width) "") (short-name be)
+                         n1 off on (/ off (max 0.001 on))))
         (when (not= n0 n1)
           (println (format "  !! planned returned %,d solutions and unplanned %,d — planning may not change the answer set"
                            n1 n0)))))))

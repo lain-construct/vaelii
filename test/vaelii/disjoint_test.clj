@@ -250,7 +250,7 @@
 ;; context is only ever refused on grounds it can see.
 
 (defn- assert-outcome
-  "`:ok`, or the `:type` of the refusal — so a case is indistinguishable from a value rather than as
+  "`:ok`, or the `:type` of the refusal — so a case is a value rather than
   the presence or absence of a throw."
   [kb sentence context]
   (try (v/assert kb sentence context) :ok

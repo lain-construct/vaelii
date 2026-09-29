@@ -43,7 +43,9 @@
     (testing ":last names the final slot"
       (is (= [{'?r 5}] (v/ask kb (list sumLast 2 3 '?r)))))
     (testing "an integer index names an interior slot, the rest being the inputs"
-      (is (= [{'?r 5}] (v/ask kb (list sumMid 2 '?r 3)))))))
+      (is (= [{'?r 5}] (v/ask kb (list sumMid 2 '?r 3)))))
+    (testing "an input still unbound computes nothing"
+      (is (= [] (v/ask kb (list sumLast '?a 3 '?r)))))))
 
 ;; ---- registration composes through the KB's atom ------------------------
 
@@ -147,7 +149,7 @@
       ;; in the stored justification instead, which `why` reads.  That is `proof-tree`'s
       ;; contract: the search proof is for what the KB *derives*, `why` for what it *holds*,
       ;; and a materialized conclusion is held.
-      (testing "the materialized conclusion is indistinguishable from a stored leaf of the query proof"
+      (testing "the materialized conclusion appears as a stored leaf of the query proof"
         (let [proof (:proof (tu/sole-answer (v/query kb (list hasPassed Alice) 'CxUniverse
                                                      {:max-depth 2 :proof? true})))]
           (is (= [:leaf] (mapv :via proof)))

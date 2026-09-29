@@ -6,13 +6,12 @@
   browser uses, so the browser is written once against these names and runs unchanged
   against a local KB or a remote daemon.
 
-  A **target** is either a real KB (treated as local) or an access value from `local` /
-  `remote`.  A KB-read op dispatches on it:
+  A **target** is either a KB, read in-process, or an access value from `remote`.  A
+  KB-read op dispatches on it:
 
     :remote  → the client (`vaelii.host.client/call`) — one HTTP round-trip
-    :local   → `vaelii.core`, via `serve/ops` (the very allowlist the daemon serves, so
+    a KB     → `vaelii.core`, via `serve/ops` (the very allowlist the daemon serves, so
                local and remote answer through the same table and cannot drift)
-    a raw KB → the same local path (so a caller holding a plain KB needs no wrapper)
 
   The pure display fns (`term-role`, `reified-term?`, `readable-sentence`,
   `indexable-terms`, `negative?`, `rests-on`, `query-contexts`, `assertable-strengths`,
@@ -33,10 +32,6 @@
             [vaelii.host.client :as client]
             [vaelii.host.serve :as serve]))
 
-(defn local
-  "A local access over the in-process KB `kb` (optional — a raw KB works directly too)."
-  [kb] {:mode :local :kb kb})
-
 (defn remote
   "A remote access to the daemon at `host`:`port` — builds a client connection the
   KB-read ops send over.
@@ -52,23 +47,21 @@
 
   Every op above works either way, so a caller that only reads never needs this.  It is
   for the one thing that cannot go over the wire: handing the KB itself to a component
-  written against `vaelii.core` rather than against this facade — the LLM proposal path
-  reads a term's neighbourhood, its vocabulary and its checks through dozens of calls,
-  and doing that a round-trip at a time is not a thing to offer a reader.  A nil answer
-  is the honest one: say so, rather than degrade silently."
+  written against `vaelii.core` rather than against this facade — a browser extension
+  that reads a term's neighbourhood, its vocabulary and its checks through dozens of
+  calls, which a round-trip at a time is not a thing to offer a reader.  A nil answer
+  lets the caller say so, rather than degrade silently."
   [target]
   (case (:mode target)
     :remote nil
-    :local  (:kb target)
-    nil     target))                                      ; a raw KB is local
+    nil     target))                                      ; a KB is local
 
 (defn- dispatch
-  "Run KB-read op `op` with `args` against `target` (an access value or a raw KB)."
+  "Run KB-read op `op` with `args` against `target` (a remote access or a KB)."
   [op target args]
   (case (:mode target)
     :remote (client/call (:conn target) op (vec args))
-    :local  ((serve/ops op) (:kb target) (vec args))
-    nil     ((serve/ops op) target (vec args))))          ; a raw KB is local
+    nil     ((serve/ops op) target (vec args))))          ; a KB is local
 
 (defmacro ^:private defreads
   "Define a target-first wrapper per read op that dispatches through `dispatch`.  The op
@@ -85,15 +78,15 @@
        (def read-ops ~(mapv keyword names))))
 
 (defreads
-  query query? sentexes-matching ask ask? prove provable? sentex handle-of find-sentexes
+  sentexes-matching ask ask? sentex handle-of find-sentexes
   in? believed? belief-status believed why-not
-  why isa? types-of disjoint? genls specs types contexts premise? defeat-class justification
+  why genls types contexts premise? defeat-class justification
   supporting-justifications dependent-justifications
   ;; which justifications the rule exceptions currently block — the one thing about a
   ;; justification that cannot be read off belief, and so the one a remote reader would
   ;; otherwise have to render wrong
   blocked-justifications
-  lookup escalate explain-levels count-in-context
+  lookup escalate count-in-context
   sentexes-in-context sentexes-with-arg sentexes-with-functor count-with-arg
   count-with-functor disjoint-metatypes metatype-members conflicts contradictions
   ;; what a reified term denotes, so a reified NAT is displayed as the expression it was
@@ -115,9 +108,9 @@
   ;; into `violations`.  Computed on demand, so a caller asks for it rather than
   ;; receiving it, and a remote one pays a round trip for the pass
   exposed-clashes
-  ;; qualitative constraint reasoning: the network a context's facts constrain, the
-  ;; relations still possible between two terms, and one arrangement out of it
-  qualitative-network possible-relations qualitative-scenario qualitative-scenarios
+  ;; qualitative constraint reasoning: the network a context's facts constrain, and one
+  ;; arrangement out of it
+  qualitative-network qualitative-scenario
   ;; the dry run of the write path: `check` writes nothing, so it is a read like any
   ;; other and the editor validates a line before it is saved
   check check-edit

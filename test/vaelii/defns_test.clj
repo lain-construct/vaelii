@@ -225,6 +225,18 @@
     (is (believes? kb (list bachelor Tom) 'CxUniverse)
         "with both conjuncts met, membership is concluded")))
 
+(tu/deftest-kb a-sufficient-condition-no-stored-conjunct-binds-expands-to-no-rule
+  ;; The condition is computed, so no join can bind the member; evaluation answers
+  ;; membership at query time.
+  (tu/with-terms [short_word]
+    (let [before (v/sentex-count kb)]
+      (v/assert kb (list 'defnSufficient short_word (list 'matchesPattern '?x "[a-z]{1,4}"))
+                'CxUniverse)
+      (is (= (inc before) (v/sentex-count kb)) "the defn fact alone is stored")
+      (is (empty? (v/violations kb)) "and no companion rule was minted and dropped")
+      (is (v/ask? kb (list short_word "cat") 'CxUniverse))
+      (is (not (v/ask? kb (list short_word "giraffe") 'CxUniverse))))))
+
 ;; ---- well-formedness -----------------------------------------------------
 
 (tu/deftest-kb a-condition-that-ignores-the-member-is-refused

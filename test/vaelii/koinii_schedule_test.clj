@@ -15,7 +15,7 @@
   month?).  Two shapes of the same story:
 
   - **the argument** (in-process, no solver) — Ada proposes a date, Bo (away that day)
-    disputes it, the house is split 1-1 and stays honestly OPEN (Priest's LP), and a third
+    disputes it, the house is split 1-1 and stays OPEN (Priest's LP), and a third
     ballot carries it 2-1.  Composes the koinii dispute reads, the channel, and majority
     adjudication — the roommates story, but the subject is a calendar date.
   - **the solve** (guarded on the ASP solver) — the team's availability is over-constrained:
@@ -45,9 +45,17 @@
   (doto (tu/fresh) (core-context/load-into) (sa/load-speech-acts)
         (v/assert '(unreifiable_function DatetimeFn) 'CxUniverse)))
 
-;; Majority resolution requires the :proof-tier identity policy (R7#1); these tests run
-;; under it — the channel never authenticates, so it touches nothing but that gate.
+;; Majority resolution requires the :proof-tier identity policy and counts only attested
+;; ballots, so these tests run under it and vote through `vote!`.
 (use-fixtures :each (fn [f] (binding [id/*policy* :proof-tier] (f))))
+
+(defn- vote!
+  "Cast `agent`'s attested `stance` ballot on `claim-h`, under a `:proof-tier` principal
+  whose credential is its id."
+  [kb agent stance claim-h]
+  (adj/cast-ballot kb (id/authenticate {:claimed-id agent :credential agent}
+                                       {:policy :proof-tier :verify-fn (fn [a c] (= a c))})
+                   stance claim-h))
 
 (def ^:private asp? (solver/available?))
 
@@ -98,14 +106,14 @@
         (is (= 'AdaAndCyraCan (ch/answer-content (first (ch/answers-to cyra q))))))
 
       (let [id (dispute-id kb)]
-        (ch/vote ada :for ph)
-        (ch/vote bo :against ph)
+        (vote! kb 'AgentAda :for ph)
+        (vote! kb 'AgentBo :against ph)
         (testing "1-1 leaves the date undecided — the split house stays open"
           (is (= :tie (:outcome (adj/resolve-by-majority kb id ph 'CxSchedule))))
           (is (d/disputed? kb proposal 'CxSchedule)))
 
         (testing "Cyra breaks it 2-1 — the review is booked for the 10th, over Bo's objection"
-          (ch/vote cyra :for ph)
+          (vote! kb 'AgentCyra :for ph)
           (let [r (adj/resolve-by-majority kb id ph 'CxSchedule)]
             (is (= {:for 2 :against 1} (select-keys r [:for :against])))
             (is (= :for (:outcome r)))

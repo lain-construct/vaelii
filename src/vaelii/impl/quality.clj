@@ -35,8 +35,8 @@
     reaches the record store at all — the record reads are the listed rules' and the two
     rule-hygiene readings' below.
   - **The firing census reads each rule's own `:consequences` adjacency**, the candidate
-    set `jtms/restrength-informant*` uses, and never scans the justification map.  At
-    11.5M justifications that difference is the report existing or not.
+    set `jtms/restrength-informant*` uses, and never scans the justification map.  On a
+    store of millions of justifications that difference is the report existing or not.
   - **The chain depth condenses strongly-connected components first.**  A KB's rule graph
     is cyclic in the ordinary case — `(genl ?a ?b) & (genl ?b ?c) => (genl ?a ?c)` alone
     makes it so — so memoizing a *path* re-explores the reachable subgraph along every one
@@ -154,9 +154,7 @@
   [kb h]
   (when-let [sx (p/get-sentex (:records kb) h)]
     {:handle   h
-     :sentence (if-let [vm (:varmap sx)]
-                 (sx/originalize (sx/sentence-of sx) vm)
-                 (sx/sentence-of sx))
+     :sentence (sx/authored-sentence sx)
      :context  (:context sx)}))
 
 (defn- signature
@@ -526,17 +524,12 @@
 ;; whatever binds, so it would cover every rule in the KB and clash with every other,
 ;; which is a page of findings about one rule.
 
-(defn- form-variables
-  "Every variable anywhere in `form`, as a set."
-  [form]
-  (into #{} (filter sx/variable?) (tree-seq sequential? seq form)))
-
 (defn- rule-variables
   "Every variable across a rule's patterns, **sorted by name** — so the renamings below
   are a function of the rule's content rather than of a set's iteration order, and two
   loads of the same KB report the same substitution."
   [forms]
-  (sort (reduce into #{} (map form-variables forms))))
+  (sort (reduce into #{} (map sx/form-variables forms))))
 
 (defn- freezing
   "`[freeze unfreeze]` over a rule's variables: each replaced by a namespaced symbol no
@@ -550,7 +543,7 @@
   (let [m (into {}
                 (map-indexed (fn [i v] [v (symbol "vaelii.impl.quality" (str "frozen" i))]))
                 (rule-variables forms))]
-    [m (into {} (map (fn [[v f]] [f v])) m)]))
+    [m (set/map-invert m)]))
 
 (defn- restore
   "`form` with every term `m` names replaced.  `sentex/rename-vars` is the same walk for
@@ -580,7 +573,7 @@
   (let [conseq (:consequent sx)
         neg?   (sx/negation? conseq)
         body   (if neg? (second conseq) conseq)
-        sent   (if-let [vm (:varmap sx)] (sx/originalize (sx/sentence-of sx) vm) (sx/sentence-of sx))]
+        sent   (sx/authored-sentence sx)]
     {:handle     (:id sx)
      :context    (:context sx)
      :varmap     (:varmap sx)
@@ -592,10 +585,9 @@
      :polarity   (if neg? :negative :positive)
      :functor    (nm/functor body)
      :arity      (nm/arity body)
-     :direction  (:direction sx)
+     :engines    (:engines sx)
      :defeasible (boolean (:defeasible sx))
-     :assumption (boolean (:assumption sx))
-     :constraint (:constraint sx)}))
+     :effect     (:effect sx)}))
 
 (defn- rule-views
   "Every rule the census enumerated, as a `rule-view` — the one record read per rule these
@@ -636,37 +628,33 @@
 
 ;; ---- reading six: rules another rule already covers -----------------------
 
-(def ^:private direction-covers
-  "Which directions a rule of each direction can stand in for.  `:forward` and `:both`
-  both mean forward + backward, so each covers every chaining direction; `:forward-only`
-  forward-chains but answers no backward goal, so it covers only itself; `:backward`
-  covers only backward goals; and `:inert` covers nothing but `:inert`: a rule that
-  chains in neither engine cannot stand in for one that does."
-  {:both         #{:both :forward :backward :forward-only}
-   :forward      #{:both :forward :backward :forward-only}
-   :forward-only #{:forward-only}
-   :backward     #{:backward}
-   :inert        #{:inert}})
+(defn- engines-cover?
+  "Can a rule run by `e1` stand in for one run by `e2`?  When it runs in every engine `e2`
+  does: forward + backward covers every chaining set, forward-only covers only itself, and
+  backward covers only backward.  An inert rule (`#{}`) is covered by an inert rule
+  alone, since a rule that chains in neither engine is documentation, and a rule that
+  does chain is not a restatement of it."
+  [e1 e2]
+  (if (empty? e2) (empty? e1) (every? (set e1) e2)))
 
 (defn- available-at-least?
   "Is `r1` at least as **available** as `r2` — could every firing of `r2` have been one of
-  `r1`?  Four slots decide it, and each is a way one rule reaches where the other does
+  `r1`?  Three slots decide it, and each is a way one rule reaches where the other does
   not:
 
-  - **direction**, since a `:backward` rule forward-chains nothing and an `:inert` rule
-    chains in neither engine;
+  - **engines**, since a backward rule forward-chains nothing and an inert rule chains in
+    neither engine (`engines-cover?`);
   - **defeasibility**, since a default cannot stand in for a strict rule — its conclusion
     is defeated exactly where the strict one's stands;
-  - **`assumption`** and **`constraint`**, since neither chains at all: each is a *choice*
-    or a *nogood* for a solve (docs/solving.md) and part of the rule's identity.
+  - **effect**, since a choice or constraint rule does not chain at all: each is a
+    *choice* or a *nogood* for a solve (docs/solving.md) and part of the rule's identity.
 
   What it does not read is the rule sentex's own **strength**, which says how the rule is
   defeated rather than where it runs."
   [r1 r2]
-  (and (contains? (get direction-covers (:direction r1) #{}) (:direction r2))
+  (and (engines-cover? (:engines r1) (:engines r2))
        (or (not (:defeasible r1)) (:defeasible r2))
-       (= (:assumption r1) (:assumption r2))
-       (= (:constraint r1) (:constraint r2))))
+       (= (:effect r1) (:effect r2))))
 
 (defn- antecedents-covered
   "A binding extending `bindings` under which **every** literal of `generals` matches some

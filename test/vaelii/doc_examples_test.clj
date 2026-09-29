@@ -217,19 +217,18 @@
              (pr-str known-markers) ":\n" (str/join "\n" unknown)))))
 
 (deftest a-block-with-reach-beyond-its-own-stores-carries-no-marker
-  ;; Three things a marked block may not do, refused here rather than discovered by a
+  ;; Two things a marked block may not do, refused here rather than discovered by a
   ;; suite that hangs on a socket or runs the rest of its namespaces at `:trace`:
-  ;; `docs/llm.md` is every model example, `vaelii.client` is the wire client (whose
-  ;; examples all want a server), and `set-log-level` is the one dial in the API that
-  ;; moves the **process** rather than a KB, with no call that puts it back.
+  ;; `vaelii.client` is the wire client (whose examples all want a server), and
+  ;; `set-log-level` is the one dial in the API that moves the **process** rather than a
+  ;; KB, with no call that puts it back.
   (let [reaching (for [blk   (clojure-blocks)
                        :when (and (marked? blk)
-                                  (or (str/ends-with? (:file blk) "llm.md")
-                                      (str/includes? (:body blk) "vaelii.client")
+                                  (or (str/includes? (:body blk) "vaelii.client")
                                       (str/includes? (:body blk) "set-log-level")))]
                    (str (:file blk) ":" (:line blk)))]
     (is (empty? reaching)
-        (str "a block that reaches a provider, a server or the process-wide log dial "
+        (str "a block that reaches a server or the process-wide log dial "
              "carries `run`:\n" (str/join "\n" reaching)))))
 
 (deftest every-marked-doc-example-runs

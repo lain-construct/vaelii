@@ -108,7 +108,7 @@
 
 (def ^:private vocabulary
   "Terms in the roster the readers filter.  Big enough that the filter is the reading's
-  dominant term — which is the honest baseline, since that is what a search really costs
+  dominant term — which is the baseline to measure, since that is what a search costs
   — and small enough that building it is a second."
   600)
 

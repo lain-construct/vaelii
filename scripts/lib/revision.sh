@@ -4,7 +4,7 @@
 #
 # A verdict that does not name its revision is half a verdict.  On a shared
 # checkout those are two different questions: a matrix takes ~35 minutes and
-# another agent landing a test halfway through moves the test and assertion
+# another writer landing a test halfway through moves the test and assertion
 # counts under it — the artifact then shows counts that differ per run, which
 # reads exactly like a run that skipped something.  It cost one investigation to
 # establish that it was not.  The same applies to a gate whose log is read an
@@ -21,8 +21,8 @@
 # arguments and the repository, so both the suite scripts and `gate.sh` can take
 # it without taking anything else.
 
-# The revision, short.  `no-git` rather than empty, so a log line is indistinguishable from a fact
-# about a tarball rather than as a field somebody forgot to fill in.
+# The revision, short.  `no-git` rather than empty, so a log line states a fact
+# about a tarball rather than showing a field somebody forgot to fill in.
 revision_hash() {
   git rev-parse --short HEAD 2>/dev/null || echo "no-git"
 }

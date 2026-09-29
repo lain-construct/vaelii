@@ -2,10 +2,7 @@
 ;; compiles against. One entry per protocol a doc names as an extension point.
 ;; Regenerate: `lein regen-goldens`, and read vaelii.spi-surface-test's
 ;; docstring first — adding a method here is breaking too.
-{vaelii.host.llm.protocol/Provider
- {complete "[[provider request]]",
-  stream "[[provider request on-event]]"},
- vaelii.impl.protocols/BulkAnnotating
+{vaelii.impl.protocols/BulkAnnotating
  {mark-premise-batch "[[store id->strength]]",
   put-provenance-batch "[[store entries]]"},
  vaelii.impl.protocols/BulkLoading

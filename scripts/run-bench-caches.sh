@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # scripts/run-bench-caches.sh — the corpus run of `vaelii.bench.caches`, detached.
 #
-# The load alone is ~11 minutes and the sweeps follow it, so this outlives the session
-# that starts it: `nohup caffeinate -i scripts/run-bench-caches.sh <corpus-dir> &`.
+# The load alone grows with the corpus and the sweeps follow it, so this outlives the
+# session that starts it: `nohup caffeinate -i scripts/run-bench-caches.sh <corpus-dir> &`.
 # The log lives under target/ so it can be tailed without asking anyone, and the
 # sentinel is echoed *here* rather than by the calling shell — a killed JVM must not
 # report as a finished one.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 
 if [ $# -lt 1 ]; then
@@ -18,7 +19,7 @@ CORPUS="$1"
 PROFILE="${2:-ontology}"
 CHAIN="${3:-nochain}"
 # NOT under target/.  `lein clean` removes `:target-path`, and in a checkout several
-# agents share, somebody else's clean unlinks a log this run is still writing to — the
+# writers share, somebody else's clean unlinks a log this run is still writing to — the
 # writer keeps its descriptor, so the run finishes normally and the output is simply
 # gone.  testbench/ is gitignored and nothing sweeps it.
 LOG="testbench/bench-caches/run.log"
@@ -56,3 +57,4 @@ STATUS=$?
 } >> "$LOG"
 
 exit $STATUS
+}

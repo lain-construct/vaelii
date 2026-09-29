@@ -998,11 +998,82 @@
       (is (v/same-class? kb A B)))))
 
 (deftest the-mention-set-mirrors-the-canonical-equality-predicate-set
-  ;; `res/equality-mention-heads` is a private copy of `kb/equality-predicates` — `kb`
-  ;; requires `resolution`, so the canonical set cannot be required back into it.  Keep
-  ;; the two equal, or a relation added to one and not the other rewrites the mentions of
-  ;; the relation it forgot.
+  ;; `res/equality-mention-heads` is `rewrite/equality-relations`, a copy of
+  ;; `kb/equality-predicates` — `kb` requires `resolution`, so the canonical set cannot be
+  ;; required back into it.  Keep the two equal, or a relation added to one and not the
+  ;; other rewrites the mentions of the relation it forgot.
   (is (= kb/equality-predicates @#'res/equality-mention-heads)))
+
+;; ---- a stated equation is answered ----------------------------------------
+
+;; DECISION (Answering an equation): a believed `(sameAs A B)` is answered by every read.
+;; The stored equation is never restated, so no read may call it retired; `ask` reads the
+;; closure for the symmetric, reflexive and transitive forms and enumerates a bound
+;; symbol's class.  The stated sentence reaching none of `ask?`, `prove` and
+;; `sentexes-matching` is the failure this pins, and each column below is one of them.
+
+(defn- equation-reads
+  "Every read of `pred` over `a` / `b` / `c`, where `(pred a b)` and `(sameAs b c)` are
+  stated in `ctx`."
+  [kb pred a b c ctx]
+  {:stated    (v/ask? kb (list pred a b) ctx)
+   :symmetric (v/ask? kb (list pred b a) ctx)
+   :reflexive (v/ask? kb (list pred a a) ctx)
+   :chain     (v/ask? kb (list pred a c) ctx)
+   :open      (set (map #(get % '?y) (v/ask kb (list pred a '?y) ctx)))
+   :prove     (count (v/prove kb (list pred a b) ctx))
+   :matching  (count (v/sentexes-matching kb (list pred a b) ctx))})
+
+(tu/deftest-kb a-stated-equation-is-answered-by-every-read
+  (doseq [pred ['sameAs 'equals]]
+    (testing (str pred " is reflexive, symmetric and transitive through the closure")
+      (tu/with-terms [CxEq]
+        (let [[a b c] (sort [(tu/tmp-ind "Eq") (tu/tmp-ind "Eq") (tu/tmp-ind "Eq")])]
+          (v/assert kb (list pred a b) CxEq {:strength :monotonic})
+          (v/assert kb (list 'sameAs b c) CxEq {:strength :monotonic})
+          (is (= {:stated true :symmetric true :reflexive true :chain true
+                  :open #{a b c} :prove 1 :matching 1}
+                 (equation-reads kb pred a b c CxEq))))))))
+
+(tu/deftest-kb a-stated-rewrite-of-is-answered-as-a-directed-edge
+  ;; `rewriteOf` is directional: the stated edge answers every read, and neither its
+  ;; converse nor a self-edge (which `wff` refuses) is answered.  The goal is asked as
+  ;; spelled, since the spelling rename it states would otherwise rewrite the goal into
+  ;; `(rewriteOf a a)`.
+  (tu/with-terms [CxEq]
+    (let [[a b c] (sort [(tu/tmp-ind "Rw") (tu/tmp-ind "Rw") (tu/tmp-ind "Rw")])]
+      (v/assert kb (list 'rewriteOf a b) CxEq {:strength :monotonic})
+      (v/assert kb (list 'sameAs b c) CxEq {:strength :monotonic})
+      (is (= {:stated true :symmetric false :reflexive false :chain false
+              :open #{b} :prove 1 :matching 1}
+             (equation-reads kb 'rewriteOf a b c CxEq))))))
+
+(tu/deftest-kb an-equation-is-answered-only-where-it-is-visible
+  ;; The closure read is scoped like `same-class?`: a context outside the equation's
+  ;; ancestor set was told nothing, so the unique-name assumption still holds there.
+  (tu/with-terms [CxEq CxElsewhere]
+    (let [[a b] (sort [(tu/tmp-ind "Vis") (tu/tmp-ind "Vis")])]
+      (v/assert kb (list 'sameAs a b) CxEq {:strength :monotonic})
+      (testing "visible where stated"
+        (is (true? (v/ask? kb (list 'sameAs b a) CxEq))))
+      (testing "not visible from a context that does not inherit it"
+        (is (false? (v/ask? kb (list 'sameAs b a) CxElsewhere)))
+        (is (= #{a} (set (map #(get % '?y) (v/ask kb (list 'sameAs a '?y) CxElsewhere)))))
+        (is (true? (v/ask? kb (list 'different a b) CxElsewhere)))))))
+
+(tu/deftest-kb a-ground-instance-of-a-schematic-equation-is-answered
+  ;; Each side of a ground `equals` is a term, normalized at its own root: the instance
+  ;; of `(equals (fatherOf (fatherOf ?x)) (grandfather_of ?x))` at `Bob` reaches one
+  ;; normal form, and an instance of nothing does not.
+  (tu/with-terms [fatherOf grandfather_of Bob Ann CxEq]
+    (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfather_of '?x))
+              CxEq)
+    (is (true? (v/ask? kb (list 'equals (list fatherOf (list fatherOf Bob))
+                                (list grandfather_of Bob))
+                       CxEq)))
+    (is (false? (v/ask? kb (list 'equals (list fatherOf (list fatherOf Bob))
+                                 (list grandfather_of Ann))
+                        CxEq)))))
 
 ;; ---- a `different` guard is order-independent ----------------------------
 

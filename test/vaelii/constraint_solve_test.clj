@@ -63,7 +63,7 @@
                                (list 'and (list benchEdge '?x '?y)
                                      (list colored '?x '?k) (list colored '?y '?k))
                                (list 'monochrome '?x '?y)))
-                'CxUniverse {:direction :forward})
+                'CxUniverse)
       ;; even given a monochrome edge as plain facts, nothing derives the marker
       (v/assert kb (list benchEdge A B) 'CxUniverse)
       (v/assert kb (list colored A 'red) 'CxUniverse)
@@ -77,14 +77,14 @@
   [kb ctx colored nodes edges]
   (doseq [k '[k1 k2 k3]]
     (v/assert kb (list 'set/assumptionRule (list 'implies (list 'bench_node '?x) (list colored '?x k)))
-              ctx {:direction :forward}))
+              ctx))
   (v/assert kb (list 'functional colored) ctx {:strength :monotonic})
   (v/assert kb (list 'set/hardConstraint
                      (list 'implies
                            (list 'and (list 'benchEdge '?x '?y)
                                  (list colored '?x '?k) (list colored '?y '?k))
                            (list 'monochrome '?x '?y)))
-            ctx {:direction :forward})
+            ctx)
   (doseq [n nodes] (v/assert kb (list 'bench_node n) ctx {:strength :monotonic}))
   (doseq [[a b] edges] (v/assert kb (list 'benchEdge a b) ctx {:strength :monotonic})))
 
@@ -187,12 +187,12 @@
   [kb ctx colored nodes edges]
   (doseq [k '[k1 k2 k3]]
     (v/assert kb (list 'set/assumptionRule (list 'implies (list 'bench_node '?x) (list colored '?x k)))
-              ctx {:direction :forward}))
+              ctx))
   (doseq [[ka kc] '[[k1 k2] [k1 k3] [k2 k3]]]
     (v/assert kb (list 'set/hardConstraint
                        (list 'implies (list 'and (list colored '?x ka) (list colored '?x kc))
                              (list 'double_colored '?x)))
-              ctx {:direction :forward}))
+              ctx))
   (v/assert kb (list 'set/hardConstraint
                      (list 'implies
                            (list 'and (list 'bench_node '?x)
@@ -200,13 +200,13 @@
                                  (list 'not (list colored '?x 'k2))
                                  (list 'not (list colored '?x 'k3)))
                            (list 'uncolored '?x)))
-            ctx {:direction :forward})
+            ctx)
   (v/assert kb (list 'set/hardConstraint
                      (list 'implies
                            (list 'and (list 'benchEdge '?x '?y)
                                  (list colored '?x '?k) (list colored '?y '?k))
                            (list 'monochrome '?x '?y)))
-            ctx {:direction :forward})
+            ctx)
   (doseq [n nodes] (v/assert kb (list 'bench_node n) ctx {:strength :monotonic}))
   (doseq [[a b] edges] (v/assert kb (list 'benchEdge a b) ctx {:strength :monotonic})))
 
@@ -250,7 +250,7 @@
         (doseq [k '[k1 k2]]
           (v/assert kb (list 'set/assumptionRule
                              (list 'implies (list cand '?c) (list colored '?c k)))
-                    'CxNegJoin {:direction :forward}))
+                    'CxNegJoin))
         (v/assert kb (list 'functional colored) 'CxNegJoin)
         (v/assert kb (list cand Item) 'CxNegJoin {:strength :monotonic})
         (testing "without the at-least-one: two optima, one colour apiece"
@@ -259,7 +259,7 @@
         (v/assert kb (list 'set/hardConstraint
                            (list 'implies (list 'not (list colored '?x '?k))
                                  (list 'mustColor '?x '?k)))
-                  'CxNegJoin {:direction :forward})
+                  'CxNegJoin)
         (testing "with it: no colour may be absent, so the one legal world keeps both"
           (let [r (v/assert kb (list 'do/label 'CxNegJoin 'CxNegJoinPlan :all) 'CxNegJoin)]
             (is (= 1 (:count r)))

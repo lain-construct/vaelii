@@ -26,7 +26,8 @@
       and this is what says so.  Rules are permuted with the facts, since \"the rule
       arrived last\" is what a rule's own full join would otherwise paper over, and the
       shapes are the awkward ones: a default general claim, an asymmetric predicate's
-      converse stated one level down, and an explicit denial of one tuple."
+      converse stated one level down, an explicit denial of one tuple, and a shortcut
+      edge, whose route replaces a longer one a firing named before it arrived."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
@@ -165,6 +166,10 @@
           bs      (chain "pb" 4)
           content (concat
                    (chain-edges as) (chain-edges bs)
+                   ;; a shortcut across each chain: the orders that bring it after a
+                   ;; firing over the long route must replace that route with it
+                   [(list 'genl (nth as 0) (nth as 2))
+                    (list 'genl (nth bs 0) (nth bs 3))]
                    [(list 'asymmetric relOf)
                     (list 'transitiveInArg relOf 1 'genl)
                     (list 'transitiveInArg relOf 2 'genl)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/lib/suite-configs.sh — the fifteen configurations the whole suite can be run
+# scripts/lib/suite-configs.sh — the sixteen configurations the whole suite can be run
 # in, and the environment that selects each.  One table, three readers.
 #
 # Two axes, and they are independent (which is why they are two lists and not a
@@ -9,7 +9,9 @@
 #              `<records>-<index>`, plus `overlay`, which is not a ninth pair but the
 #              fork decorator over an empty base (docs/overlay.md).
 #   SWEEPS   — which implementation answers, storage held at the default.  Six
-#              components the engine otherwise picks for itself.
+#              components the engine otherwise picks for itself, and one reading:
+#              `assertive-off` runs the argument declarations as constraints only,
+#              the supported opt-out from the entailment (docs/argtypes.md).
 #
 # `test-backends.sh` runs the first list, `test-sweeps.sh` the second, and
 # `test-matrix.sh` runs both at once — so the roster lives here rather than in the
@@ -18,7 +20,7 @@
 #
 # Three more readings of the same table live here for the same reason: the GROUP words a
 # runner takes in place of a list of names (`config_group`), the ROUTINE roster a bare
-# run uses against the full fifteen (`ROUTINE_SKIP`), and what a changed FILE owes
+# run uses against the full sixteen (`ROUTINE_SKIP`), and what a changed FILE owes
 # (`config_owed_for_path`), which is how a change runs the configurations that could
 # disagree about it instead of all of them.
 #
@@ -38,19 +40,20 @@ ALL_BACKENDS=(memory memory-dense memory-columnar
 # Cheapest first, so a matrix that is going to fail on the retrieval switch says so
 # before spending twenty minutes on the node engine.  Kept as parallel arrays rather
 # than one associative array: bash 3.2 is what macOS ships, and `declare -A` is bash 4.
-ALL_SWEEPS=(tms-reference rete hier-off plan-off query-engine tactician)
+ALL_SWEEPS=(tms-reference rete hier-off plan-off assertive-off query-engine tactician)
 SWEEP_ENVS=(
   "VAELII_TEST_TMS=reference"
   "VAELII_RETE=1"
   "VAELII_HIER=0"
   "VAELII_PLAN=0"
+  "VAELII_ASSERTIVE_ARG_TYPES=0"
   "VAELII_QUERY_ENGINE=inference"
   "VAELII_QUERY_ENGINE=inference VAELII_QUERY_STRATEGY=breadth-first"
 )
 
 # ---- the ROUTINE roster ---------------------------------------------------
 #
-# What a bare `test-matrix.sh` runs, against the fifteen `full` runs.  Two
+# What a bare `test-matrix.sh` runs, against the sixteen `full` runs.  Two
 # configurations sit it out, and both are the same one claim written a third time.
 #
 # `disk-memory`, `disk-dense` and `disk-columnar` are durable records under a DERIVED
@@ -137,7 +140,7 @@ shuffle_inplace() {
 #
 # The matrix's claim is that the suite is failing-set-identical across configurations,
 # so what a change owes is decided by which configurations could disagree ABOUT IT.
-# Three answers, and the third is the one that keeps this honest:
+# Three answers, and the third is the one that spares a change the matrix run:
 #
 #   SWAPPED     the file is one half of a configuration — a record store, an index, a
 #               decorator, a matcher, a TMS, an executor, a planner.  The
@@ -152,8 +155,8 @@ shuffle_inplace() {
 # **This is a floor, not a proof.**  A configuration disagreeing about a third-bucket
 # file is possible — it is a bug in one of the first two, reached from an odd angle —
 # so a change whose blast radius you cannot see owes `routine`, and saying so costs one
-# argument.  What the floor buys is that the common case stops running fifteen suites
-# to learn something thirteen of them were never asked.
+# argument.  What the floor buys is that the common case stops running sixteen suites
+# to learn something fourteen of them were never asked.
 config_owed_for_path() {
   case "$1" in
     # --- swapped: the file IS half of a configuration ---
@@ -198,6 +201,12 @@ config_owed_for_path() {
     src/vaelii/impl/chain.clj)           printf 'rete hier-off backends' ;;
     # retrieval is the swept half AND what every backend is read through
     src/vaelii/impl/resolution.clj)      printf 'hier-off backends' ;;
+    # the entailment's mint, withdrawal and pruning paths, which `assertive-off` turns
+    # off; `checks.clj` holds the switch and owes `routine`, which includes this run
+    src/vaelii/impl/special.clj)         printf 'assertive-off' ;;
+    # the shipped ontology is read under both readings, and a membership the
+    # entailment mints is one the constraint-only reading needs stated
+    resources/kb/*)                      printf 'assertive-off' ;;
     # --- swapped on both store axes at once: every backend ---
     # `kb.clj` is also where `:tms` picks the network, the one read of that option
     src/vaelii/impl/kb.clj)              printf 'backends tms-reference' ;;
@@ -265,7 +274,7 @@ config_wants_disk() {
 
 # ---- how many assertions a configuration is EXPECTED to run short ----------
 #
-# The suite is failing-set-identical across all fifteen, and the assertion COUNT moves
+# The suite is failing-set-identical across all sixteen, and the assertion COUNT moves
 # only where a test says why.  `test-backends.sh` and `test-sweeps.sh` have both stated
 # that for as long as they have existed; what follows is the same claim, checked.  Any
 # other difference is a run that skipped something the others ran — a namespace that

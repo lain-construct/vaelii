@@ -508,7 +508,7 @@
   the way it was written.  nil when the handle names nothing (a retracted rule)."
   [kb handle]
   (when-let [sx (and handle (p/get-sentex (:records kb) handle))]
-    (sx/originalize (sx/sentence-of sx) (:varmap sx))))
+    (sx/authored-sentence sx)))
 
 (defn proof-tree
   "Why this node's conjunction follows — the derivation the search actually took, read
@@ -605,6 +605,33 @@
                 (rewritable? kb sentence context nvars)))
          (subvec literals (long from)))))
 
+(defn- node-solutions
+  "The solutions `node`'s conjunction has against the leaf, past its guards and belief's
+  defeats and in the asker's variables — realized, and with nothing recorded, so a
+  `step!` stopped inside it leaves the session as it found it."
+  [kb node context leaf-solver est-override defeated]
+  (->> (solve-inline kb (mapv :sentence (:literals node)) context leaf-solver est-override)
+       (filter (fn [s] (every? #(ask-guard % s) (:guards node))))
+       (map res/resolve-bindings)
+       ;; A rewrite above answered a goal; belief may already have decided
+       ;; against that answer, and the proving levels agree with belief
+       ;; (`res/defeated-answer?`).  Asked here rather than at the rewrite
+       ;; for the guards' reason — this is the moment the argument is
+       ;; complete — and skipped outright for a node with nothing recorded,
+       ;; which is every node of a KB with no defeat in play.
+       (remove (fn [s]
+                 (and (seq (:derived node))
+                      (some #(res/defeated-answer?
+                               kb defeated (res/substitute % s) context)
+                            (:derived node)))))
+       ;; the node solves in its own namespace; `:answer-terms` says what
+       ;; each of the asker's variables now stands for here, so reading the
+       ;; answer out is resolving those terms and nothing more.  A rule's own
+       ;; scratch variables are named by nothing in that map, which is the
+       ;; whole of why they never reach an answer
+       (map #(resolve-terms (:answer-terms node) %))
+       vec))
+
 (defn step!
   "Expand the cheapest node: solve its conjunction inline, claim and enqueue its
   children, and return the solutions it completed — a vector, empty when it completed
@@ -619,72 +646,62 @@
   Whether the node produced anything is what the tactician's **child bias** reads
   (`tactics/child-bias`): a parent that is paying can recommend its children either way,
   and the bias is how it says so.  Under `:first-result?` a productive node builds no
-  children at all — the one strategy that stops the search rather than steering it."
-  [{:keys [kb context queue nodes counter stats seen strategy leaf-solver est-override
-           proof? defeated truncated]
-    :as sess}]
-  (when-let [[[_ _ id] q'] (queue-pop @queue)]
-    (reset! queue q')
-    ;; One node expansion is one search step, so it is the scope the transitive-closure
-    ;; memo and the resident-value pin belong to: the inline join below solves a literal
-    ;; once per binding of its join variable, which is exactly the repetition the memo
-    ;; collapses.  `sols` is reduced to a vector inside, so nothing lazy escapes.
-    (observe/with-search-scope
-      (let [node (get @nodes id)
-            ;; The depth bound's one silent failure mode, made observable: a rewrite site
-            ;; this node reached and the bound refused (`depth-truncated?`).  Off entirely
-            ;; unless the session asked for it, and skipped once a prior node already
-            ;; found one — a report needs the bit set, not every place it was set.
-            _    (when (and truncated (not @truncated) (depth-truncated? kb node context))
-                   (reset! truncated true))
-            sols (->> (solve-inline kb (mapv :sentence (:literals node)) context
-                                    leaf-solver est-override)
-                      (filter (fn [s] (every? #(ask-guard % s) (:guards node))))
-                      (map res/resolve-bindings)
-                      ;; A rewrite above answered a goal; belief may already have decided
-                      ;; against that answer, and the proving levels agree with belief
-                      ;; (`res/defeated-answer?`).  Asked here rather than at the rewrite
-                      ;; for the guards' reason — this is the moment the argument is
-                      ;; complete — and skipped outright for a node with nothing recorded,
-                      ;; which is every node of a KB with no defeat in play.
-                      (remove (fn [s]
-                                (and (seq (:derived node))
-                                     (some #(res/defeated-answer?
-                                              kb defeated (res/substitute % s) context)
-                                           (:derived node)))))
-                      ;; the node solves in its own namespace; `:answer-terms` says what
-                      ;; each of the asker's variables now stands for here, so reading the
-                      ;; answer out is resolving those terms and nothing more.  A rule's own
-                      ;; scratch variables are named by nothing in that map, which is the
-                      ;; whole of why they never reach an answer
-                      (map #(resolve-terms (:answer-terms node) %))
-                      ;; Dedup keys on the **bindings**, with or without a proof: two
-                      ;; derivations of one answer are one answer, and the proof
-                      ;; returned is the first one found.  A caller wanting every
-                      ;; derivation wants the search tree, not this seq.
-                      (reduce (fn [acc s]
-                                (let [[old new] (swap-vals! seen conj s)]
-                                  (if (identical? old new)
-                                    acc
-                                    (conj acc (if proof?
-                                                {:bindings s
-                                                 :proof    (proof-tree kb sess node)}
-                                                s)))))
-                              []))
-            paid (boolean (seq sols))
-            bias (tactics/child-bias strategy paid)]
-        (when-not (and (:first-result? strategy) paid)
-          (doseq [kid (children kb node context defeated)]
-            (if (claim! sess (node-key kid))
-              (let [kid-id (swap! counter inc)
-                    kid    (assoc kid :id kid-id :parent-id id)]
-                (swap! nodes assoc kid-id kid)
-                (swap! queue queue-push (+ (long (*estimate* kb strategy kid)) (long bias))
-                       (frontier-key kid) kid-id))
-              (swap! stats update :dropped inc))))
-        (swap! stats (fn [s] (-> s (update :expanded inc)
-                                 (update :solutions + (count sols)))))
-        sols))))
+  children at all — the one strategy that stops the search rather than steering it.
+
+  `dl` is the `System/nanoTime` instant a leaf's walk stops at (`budget/interruptible`;
+  nil, the 1-arity, is none).  A node the deadline stops inside goes back on the frontier
+  as it was, and the answer is `::budget/interrupted`."
+  ([sess] (step! sess nil))
+  ([{:keys [kb context queue nodes counter stats seen strategy leaf-solver est-override
+            proof? defeated truncated]
+     :as sess}
+    dl]
+   (let [q0 @queue]
+     (when-let [[[_ _ id] q'] (queue-pop q0)]
+       (reset! queue q')
+       ;; One node expansion is one search step, so it is the scope the transitive-closure
+       ;; memo and the resident-value pin belong to: the inline join below solves a literal
+       ;; once per binding of its join variable, which is exactly the repetition the memo
+       ;; collapses.  `sols` is reduced to a vector inside, so nothing lazy escapes.
+       (observe/with-search-scope
+         (let [node  (get @nodes id)
+               ;; The depth bound's one silent failure mode, made observable: a rewrite
+               ;; site this node reached and the bound refused (`depth-truncated?`).  Off
+               ;; entirely unless the session asked for it, and skipped once a prior node
+               ;; already found one — a report needs the bit set, not every place it was set.
+               _     (when (and truncated (not @truncated) (depth-truncated? kb node context))
+                       (reset! truncated true))
+               found (budget/interruptible
+                      dl #(node-solutions kb node context leaf-solver est-override defeated))]
+           (if (identical? ::budget/interrupted found)
+             (do (reset! queue q0) found)
+             (let [;; Dedup keys on the **bindings**, with or without a proof: two
+                   ;; derivations of one answer are one answer, and the proof returned is
+                   ;; the first one found.  A caller wanting every derivation wants the
+                   ;; search tree, not this seq.
+                   sols (reduce (fn [acc s]
+                                  (let [[old new] (swap-vals! seen conj s)]
+                                    (if (identical? old new)
+                                      acc
+                                      (conj acc (if proof?
+                                                  {:bindings s
+                                                   :proof    (proof-tree kb sess node)}
+                                                  s)))))
+                                [] found)
+                   paid (boolean (seq sols))
+                   bias (tactics/child-bias strategy paid)]
+               (when-not (and (:first-result? strategy) paid)
+                 (doseq [kid (children kb node context defeated)]
+                   (if (claim! sess (node-key kid))
+                     (let [kid-id (swap! counter inc)
+                           kid    (assoc kid :id kid-id :parent-id id)]
+                       (swap! nodes assoc kid-id kid)
+                       (swap! queue queue-push (+ (long (*estimate* kb strategy kid)) (long bias))
+                              (frontier-key kid) kid-id))
+                     (swap! stats update :dropped inc))))
+               (swap! stats (fn [s] (-> s (update :expanded inc)
+                                        (update :solutions + (count sols)))))
+               sols))))))))
 
 (defn search-seq
   "The session's solutions, lazily — one node expanded per pull, so a consumer that
@@ -718,36 +735,50 @@
   completed past a `:max-results` cap ride the continuation as `pending` rather than
   being dropped or over-delivered — exactly n are returned, and the rest head the
   next step.  The order of checks is `collect`'s — cap, deadline, then work — so
-  `:capped` with work left and `:timeout` with work left mean what they mean there."
-  ([sess budget] (search-within sess budget []))
-  ([sess budget pending]
+  `:capped` with work left and `:timeout` with work left mean what they mean there.
+
+  The deadline also reaches inside an expansion, to a leaf's walk (`step!`'s `dl`).  A
+  node it stops there is back on the frontier, and the continuation expands that first
+  node with no deadline, so a resume loop under a fixed budget gets past a walk longer
+  than the budget and terminates."
+  ([sess budget] (search-within sess budget [] false))
+  ([sess budget pending unbounded-first?]
    (budget/check-budget! budget)
    (let [max-results (:max-results budget)
          dl          (budget/deadline budget)
          start       (System/nanoTime)]
-     (loop [pending (vec pending), acc (transient [])]
+     (loop [pending (vec pending), acc (transient []), unbounded? unbounded-first?]
        (cond
          (and max-results (>= (count acc) (long max-results)))
          (budget/from-batch (persistent! acc) :capped start
-                            (fn [b] (search-within sess b pending)))
+                            (fn [b] (search-within sess b pending unbounded?)))
 
          (and dl (>= (System/nanoTime) (long dl)))
          (budget/from-batch (persistent! acc) :timeout start
-                            (fn [b] (search-within sess b pending)))
+                            (fn [b] (search-within sess b pending unbounded?)))
 
          (seq pending)
-         (recur (subvec pending 1) (conj! acc (nth pending 0)))
+         (recur (subvec pending 1) (conj! acc (nth pending 0)) unbounded?)
 
          :else
-         (let [r (step! sess)]
-           (if (nil? r)
+         (let [r (step! sess (when-not unbounded? dl))]
+           (cond
+             (nil? r)
              (budget/from-batch (persistent! acc) :complete start nil)
-             (recur (vec r) acc))))))))
+
+             (identical? ::budget/interrupted r)
+             (budget/from-batch (persistent! acc) :timeout start
+                                (fn [b] (search-within sess b [] true)))
+
+             :else
+             (recur (vec r) acc false))))))))
 
 (defn- run-one
-  "One search, under one strategy — the whole engine, and what every mode below drives."
+  "One search, under one strategy — the whole engine, and what every mode below drives.
+  `:max-results` stops the search once that many solutions are in hand."
   [kb goals context opts]
-  (vec (search-seq (session kb goals context opts))))
+  (let [xs (search-seq (session kb goals context opts))]
+    (vec (if-let [n (:max-results opts)] (take n xs) xs))))
 
 (def default-racers
   "The tacticians a portfolio races when the caller names none: the shipped ordering, a
@@ -827,7 +858,9 @@
   `opts` carries `:max-depth`, the `:strategy` (`tactics/strategy`), `:portfolio?` to
   race the default racers instead of running one ordering, and `:auto?` to let
   `tactics/auto-strategy` pick from the structure of the query.  An explicit `:strategy`
-  answers `:auto?`, so naming one turns the probe off.
+  answers `:auto?`, so naming one turns the probe off.  `:max-results` caps the answer
+  at that many, and every racer's run too, for an existence question
+  (`core/query?`, `core/provable?`), which reads only whether the vector is empty.
 
   Neither `:portfolio?` nor an `:auto?` that picks one is an **anytime** mode: a race is
   driven to completion before it can be unioned, so it has no partial answer to give.
@@ -837,42 +870,10 @@
    (let [pick (when (and (:auto? opts) (not (:strategy opts)))
                 (tactics/auto-strategy kb goals context (required-depth (:max-depth opts))))
          opts (cond-> opts (and pick (not= :portfolio pick)) (assoc :strategy pick))]
-     (if (or (:portfolio? opts) (= :portfolio pick))
-       (portfolio-solutions kb goals context opts)
-       (run-one kb goals context opts)))))
-
-(defn- goal-answers
-  "`goal`'s solutions through the node engine, projected onto its own variables."
-  [kb goal context opts]
-  (solutions kb [goal] context opts))
-
-(defn backchain
-  "Answer `goal` by **rule expansion**, with every literal the search will not rewrite
-  handed to `leaf-solver`.
-
-  This is what `ask` uses for the rule half of its answer, and why the node engine is a
-  reasonable thing to put there rather than a path-structured search.  A converging rule
-  graph asks one subgoal from many branches; a path engine re-derives it per branch and
-  needs a per-query memo to claw that back, while here the claimed-key set drops the
-  second arrival before it is ever enqueued.  The sharing is the search's own structure
-  rather than a cache laid beside it.
-
-  **The leaf solver must not itself backchain**, and `provers/solve-goal` does not:
-  nothing in the registry expands a rule.  That is what makes the division clean — this
-  engine expands the rules, the leaf answers everything that is not a rule — and it is
-  required rather than incidental.  A leaf that started its own backward search would
-  run the engine's rewriting *plus* a nested search per binding under it, which measured
-  24-73x slower than the divided arrangement on the same queries.
-
-  The claimed-key set is what makes the sharing free: a converging rule graph asks one
-  subgoal from many branches, and a path engine re-derives it per branch, while here the
-  second arrival is dropped before it is ever enqueued.
-
-  What it costs is this engine's termination: `*max-depth*` is a real ceiling, so a
-  derivation deeper than it is not found.  See docs/inference.md."
-  ([kb goal context leaf-solver] (backchain kb goal context leaf-solver {}))
-  ([kb goal context leaf-solver opts]
-   (goal-answers kb goal context (assoc opts :leaf-solver leaf-solver))))
+     (cond->> (if (or (:portfolio? opts) (= :portfolio pick))
+                (portfolio-solutions kb goals context opts)
+                (run-one kb goals context opts))
+       (:max-results opts) (into [] (take (:max-results opts)))))))
 
 (defn tree-stats
   "The search tree as data once (or while) it is running: how many nodes were built and

@@ -183,8 +183,8 @@
 
 (tu/deftest-kb the-lookup-ceiling-keeps-the-closed-world-prover
   ;; `UnknownProver` costs `:compute`, and every other `:compute` member falls out under a
-  ;; `:lookup` ceiling.  This one does not, and the asymmetry is what an honest empty rests
-  ;; on: dropping a `:compute` prover makes a run *under-report*, which is the trade a
+  ;; `:lookup` ceiling.  This one does not, and the asymmetry is what the meaning of an empty
+  ;; result rests on: dropping a `:compute` prover makes a run *under-report*, which is the trade a
   ;; ceiling asks for, while dropping the closed-world one **inverts** it — an empty result
   ;; for `(unknown S)` reads as "S is derivable" and the run reports `:complete` while
   ;; saying it.  So both directions are pinned here: with the prover dropped, the second
@@ -325,7 +325,7 @@
 
 (tu/deftest-kb an-exhausted-clock-is-a-refusal-and-never-a-short-answer
   ;; `{:max-ms 0}` is a deadline already past, so the search stops at its first bound check
-  ;; whatever the box is doing — the honest reading of "no time at all", and the only
+  ;; whatever the box is doing — the literal reading of "no time at all", and the only
   ;; spelling of this that reads the same on an idle box and under a dozen JVMs.
   (tu/with-terms [p SuccFn A CxLoop]
     ;; a rule whose every expansion wraps one more term around its subgoal, so it asks a

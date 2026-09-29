@@ -158,9 +158,3 @@
   ([kb context dir]
    (load-sentences kb (read-sentences context dir) context)))
 
-(defn load-layer
-  "Load several context files into their contexts, in the order given.  `dir` names
-  the layer sub-directory, nil for the `kb/` root (the collector files).  Returns kb."
-  [kb dir contexts]
-  (doseq [c contexts] (load-context kb c dir))
-  kb)

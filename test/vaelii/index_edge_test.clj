@@ -233,7 +233,7 @@
   ;; has no natural answer at the backend (`kv-intersect` is only defined for one or more
   ;; keys), so without the guard `find-sentexes-all` on no terms could throw from deep
   ;; in the store rather than reporting the caller passed nothing.  An empty
-  ;; conjunction of constraints is vacuous; the honest answer is the empty set.
+  ;; conjunction of constraints is vacuous; the answer is the empty set.
   (tu/with-terms [dog Muffet CxTerm]
     (v/assert kb (list dog Muffet) CxTerm)
     (testing "the guard lives on the index protocol, and answers with a set"

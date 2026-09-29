@@ -154,7 +154,7 @@
   is no way to hold the guarantee there.
 
   Windows is the refused case and everything else is admitted: the evidence is one
-  operating system's file-locking model, so \"not Windows\" is the honest reading of it.
+  operating system's file-locking model, so \"not Windows\" is all that evidence supports.
   The durable store itself is untouched by this — its logs and slots are ordinary
   appends and positional writes, and refusing them here would turn a working platform
   into a refused one on the strength of an off-by-default feature."

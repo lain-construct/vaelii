@@ -285,6 +285,19 @@
             (is (nil? (get-in snap [:reads :trie-counts]))
                 "the walk reads the backend directly; the counts family is the planner's")))))))
 
+(deftest the-fetch-tally-names-each-record-read
+  ;; `pos?` rather than an exact count: an overlay's read consults the fork and then the
+  ;; base, and counts both (docs/profile.md)
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [h    (v/assert kb (list (tu/tmp-type) (tu/tmp-ind)) 'CxUniverse {:strength :monotonic})
+          recs (:records kb)]
+      (doseq [[kind read] [[:sentex            #(p/get-sentex recs h)]
+                           [:premise-strength  #(p/premise-strength recs h)]
+                           [:sentex-ids        #(p/sentex-ids recs)]
+                           [:justification-ids #(p/justification-ids recs)]
+                           [:premise-ids       #(p/premise-ids recs)]]]
+        (is (pos? (long (get (:fetches (collected read)) kind 0))) (name kind))))))
+
 ;; ---- the fan tally ------------------------------------------------------
 
 (deftest the-fan-tally-counts-what-the-walk-touched

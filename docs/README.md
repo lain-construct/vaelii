@@ -29,6 +29,7 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 | make a rule fire, and see what it concluded | [inference.md](inference.md) | [levels.md](levels.md), [contexts.md](contexts.md) |
 | say "usually, but not when…" | [exceptions.md](exceptions.md) | [nmtms.md](nmtms.md), [inherit.md](inherit.md) |
 | understand why the KB believes something | [nmtms.md](nmtms.md) | [preview.md](preview.md), [feed.md](feed.md) |
+| check that the settle computed the right belief | [reference.md](reference.md) | [nmtms.md](nmtms.md), [defenses.md](defenses.md) |
 | understand why a subsystem is designed the way it is | [defenses.md](defenses.md) | [nmtms.md](nmtms.md) |
 | resolve a contradiction | [nmtms.md](nmtms.md) | [solving.md](solving.md), [asp.md](asp.md), [labeling.md](labeling.md) |
 | keep a KB across restarts | [storage.md](storage.md) | [overlay.md](overlay.md) |
@@ -40,7 +41,6 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 | judge whether a KB's knowledge is any good | [quality.md](quality.md) | [taxonomy.md](taxonomy.md), [inference.md](inference.md) |
 | read another system's KB in | [foreign.md](foreign.md) | [kbs.md](kbs.md) |
 | write for this engine when I already think in another one | [arriving.md](arriving.md) | [from-cyc.md](from-cyc.md), [from-asp.md](from-asp.md), [from-prolog.md](from-prolog.md), [from-production-rules.md](from-production-rules.md) |
-| turn English into sentexes | [reading.md](reading.md) | [llm.md](llm.md) |
 | find the code behind a subsystem | [namespaces.md](namespaces.md) | [dependencies.md](dependencies.md) |
 | add a predicate the engine itself reads | [predicates.md](predicates.md) | [namespaces.md](namespaces.md), [naming.md](naming.md) |
 | understand what a query costs | [indexing.md](indexing.md) | [density.md](density.md), [anytime.md](anytime.md) |
@@ -58,7 +58,7 @@ page costs a sentence rather than a section.
 - [api.md](api.md) — the public API: every fn on `vaelii.core`, with what it takes and returns, and the five thin entry-point namespaces beside it.
 - [troubleshooting.md](troubleshooting.md) — indexed by symptom rather than subsystem: an empty query, a rule that will not fire, a refused `assert`, a KB holding facts nobody asserted.
 - [glossary.md](glossary.md) — every term used across these docs and the code, tagged by subsystem.
-- [commonsense.md](commonsense.md) — the questions this KB is asked, one per reasoning subsystem, what the schema had to grow to answer them, and the outside judge that reads the answers back.
+- [commonsense.md](commonsense.md) — the questions this KB is asked, one per reasoning subsystem, and what the schema had to grow to answer them.
 - [arriving.md](arriving.md) — the way in for a reader with a prior: which orientation page belongs to which background, and the facts that hold whatever you arrived from.
 
 ## Arriving from another system
@@ -98,6 +98,7 @@ rather than a compatibility claim.
 - [exceptions.md](exceptions.md) — `exceptWhen`: how a rule states its own exception, and why the exception is never stored.
 - [naf.md](naf.md) — negation as failure: `unknown` / `thereExists`, evaluated at level 6, storing nothing (and why a justification has no out-list).
 - [aggregate.md](aggregate.md) — aggregation as a query operator: the five reductions over a query's solutions, where GROUP BY comes from, and how a firing that rests on a count is maintained.
+- [reference.md](reference.md) — what belief *is*: `believed?(W, S, C)` as a function of the writes offered and a context, computed when asked and local, with no region, memo, budget or pass; the fragment the brute-force reference in `vaelii.ref.*` covers; the four invariants it states and the nine decisions behind them; the standing state a settle keeps and what invalidates each part.
 - [belief.md](belief.md) — modal belief projection: `(believes Agent P)` answered by proving `P` in the agent's own context, `modal_predicate` / `register-modal-predicate` to open the same machinery to `knows` / `desires` / `intends`, why contradictory agents coexist without a contradiction, and the opacity of the proposition — whose merges may rewrite a term inside a belief.
 - [nmtms.md](nmtms.md) — the non-monotonic TMS: assumption strengths, soft prioritized contradictions, the `Solver` protocol.
 - [defenses.md](defenses.md) — the design defenses: why a non-obvious decision across the engine is shaped the way it is and why the alternative to avoid is worse, collected out of the subsystem docs so each states the mechanism and links the argument.
@@ -107,7 +108,7 @@ rather than a compatibility claim.
 - [nat.md](nat.md) — non-atomic terms: reifiable functions reified to opaque constants before the index, unreifiable applications kept structural.
 - [context-nat.md](context-nat.md) — reified-NAT contexts: a `Cx*Fn` reifies to a `cx/` context, and a declared argument ordering computes the `genlCx` edge between sibling contexts (a month context a spec of its year).
 - [quantity.md](quantity.md) — the measure-evaluating quantity prover: measure comparison over a `dimensionOf` / `conversionFactor` table, with an epsilon float policy.
-- [skolem.md](skolem.md) — head existentials `(exists ?y C)` skolemized to deterministic NAT constants on forward firing, and the occurs-check in `unify`.
+- [skolem.md](skolem.md) — head existentials `(exists ?y C)` skolemized to deterministic NAT constants on forward firing.
 
 ## Qualitative reasoning
 
@@ -136,8 +137,6 @@ rather than a compatibility claim.
   a term page opens with its shape drawn, server-side and inside a read budget.
 - [catalog.md](catalog.md) — the KB catalog: what a process can load (shipped, generated, corpus, dump, on-disk store), loading one in the background with progress and cancellation, and switching which one every page reads.
 - [caches.md](caches.md) — the cache register: the derived, droppable structures a process holds beside the stores, each self-declared with its scope, unit and bound; the wholesale-clear policy; `caches` / `clear-caches`; and a snapshot roster of all eighteen with their sizes.
-- [llm.md](llm.md) — the pluggable LLM that reads a KB through generated tools and *proposes* an edit batch, graded by the engine's own well-formedness checks.
-- [reading.md](reading.md) — English in: a candidate generator with a reviewer between it and the store, resolving the document's own words against the KB's vocabulary before anything is asked, carrying the span each candidate came from, reporting what it could not translate — and scored against the hand-written fables.
 - [foreign.md](foreign.md) — the formats we read and do not write: no reader ships here, and a bridge is a plugin that declares itself in one edn resource on the classpath.
 
 ## Generated

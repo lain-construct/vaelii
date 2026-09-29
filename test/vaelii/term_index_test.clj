@@ -21,7 +21,11 @@
       (is (= 2 (count (v/find-sentexes kb 'CxNaturalWorld)))))  ; by context
     (testing "intersection of several terms"
       (is (= 1 (count (v/find-sentexes-all kb [bob muffet]))))
-      (is (= 0 (count (v/find-sentexes-all kb [tom muffet])))))))
+      (is (= 0 (count (v/find-sentexes-all kb [tom muffet])))))
+    (testing "a compound holding no symbol is found by its own key"
+      (let [h (v/assert kb (list likesPet tom (list 7 8)) 'CxNaturalWorld)]
+        (is (= [h] (mapv :id (v/find-sentexes kb (list 7 8)))))
+        (is (empty? (v/find-sentexes kb (list 8 7))))))))
 
 (tu/deftest-kb ist-finds-or-creates
   (let [loves (tu/tmp-pred) mary (tu/tmp-ind) john (tu/tmp-ind)

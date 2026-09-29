@@ -66,7 +66,14 @@
   record frames citing that id are the other half of the same cross-file skew, and the
   open repairs them the way it repairs a slot pointing past its log's end: the walk in
   `record-store`'s `rebuild-premises!` tombstones a record whose ids the dictionary
-  does not hold, and it runs before anything can mint the retired id again."
+  does not hold, and it runs before anything can mint the retired id again.
+
+  A trailing frame whose length landed and whose payload does not thaw is the same torn
+  tail, and is truncated the same way: frame *i* is id *i*, so a frame left in place
+  would shift every id minted after it.  A frame that does not thaw with frames after it
+  is damage, not a tail, and the open refuses with `:damaged-frame` (`f/scan-log`).  The
+  dictionary is not cut short there: every record citing a later id would read as crash
+  skew to `rebuild-premises!`, which tombstones it on disk."
   [dir]
   (let [path (str dir "/tokens.log")
         log  (f/open-log path)
@@ -81,10 +88,12 @@
       ;; a reloaded token is pooled, so every record decoded through the dictionary shares
       ;; the one vocabulary object per name with the in-memory store — as it did before the
       ;; restart, when the token came from a canonicalized sentence
-      (f/scan-log log (fn [_ tok]
-                        (let [tok (sx/intern-sym tok)]
-                          (.put fwd (Key. tok) (Integer/valueOf (count @rev)))
-                          (vswap! rev conj! tok))))
+      (f/truncate-log! log
+                       (f/scan-log log path
+                                   (fn [_ tok]
+                                     (let [tok (sx/intern-sym tok)]
+                                       (.put fwd (Key. tok) (Integer/valueOf (count @rev)))
+                                       (vswap! rev conj! tok)))))
       (store-types/->TokenLog log path fwd (atom (persistent! @rev)) (Object.))
       (catch Throwable t
         (try (f/close! log) (catch Throwable _ nil))

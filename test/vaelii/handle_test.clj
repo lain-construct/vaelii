@@ -34,12 +34,12 @@
 (defn- rm-rf! [^File d] (doseq [^File f (reverse (file-seq d))] (.delete f)))
 
 (defn- with-each-backend
-  "Run `f` over an empty KB on each backend in turn.  Db numbers outside the suite's
-  block, and a private temp directory for `:disk` — a directory derived from a db
-  number is a fixed global path, and a run that was killed rather than closed leaves
-  its single-writer lock behind on it."
+  "Run `f` over an empty KB on each backend in turn, and empty it again after.  A space
+  this namespace alone names, and a private temp directory for `:disk` — a directory
+  derived from a db number is a fixed global path, and a run that was killed rather than
+  closed leaves its single-writer lock behind on it."
   [f]
-  (doseq [opts [{:backend :memory :space 96}
+  (doseq [opts [{:backend :memory :space [::handle]}
                 {:backend :disk-log}]]
     (testing (str (:backend opts))
       (let [dir (when (= :disk-log (:backend opts)) (temp-dir))
@@ -49,6 +49,7 @@
           (tu/clear-kb! kb)
           (f kb)
           (finally
+            (tu/clear-kb! kb)
             (when dir (backend/close-dir! (.getPath dir)) (rm-rf! dir))))))))
 
 ;;; ── the counter ───────────────────────────────────────────────────────
@@ -122,7 +123,7 @@
 ;; from "there was nothing to do".
 ;;
 ;; `nil` is deliberately NOT that mistake. `handle-of` answers nil for a sentence the KB
-;; does not hold, so `(in? kb (handle-of kb s ctx))` is ordinary and its honest answer is
+;; does not hold, so `(in? kb (handle-of kb s ctx))` is ordinary and its answer is
 ;; `false`. Both halves are pinned because tightening the first without exempting the
 ;; second is the easy over-correction.
 

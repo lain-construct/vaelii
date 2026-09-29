@@ -18,10 +18,15 @@
   representation, independent of any solver."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
+            [vaelii.impl.asp.solve-context :as sc]
             [vaelii.impl.asp.solver :as solver]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
+            [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.prover :as prover-types]
+            [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
 (def ^:private asp? (solver/available?))
@@ -36,16 +41,19 @@
       (let [bare (v/assert kb (list 'implies (list candidate '?c) (list color '?c 'red)) 'CxUniverse {:direction :forward})
             asm  (v/assert kb (list 'set/assumptionRule
                                     (list 'implies (list candidate '?c) (list color '?c 'red)))
-                           'CxUniverse {:direction :forward})]
+                           'CxUniverse)]
         (testing "the wrapper is part of identity, so they are two sentexes"
           (is (not= bare asm)))
         (testing "assumption? reads the record, true only for the wrapped one"
           (is (rules/assumption? (sentex-of kb asm)))
           (is (not (rules/assumption? (sentex-of kb bare)))))
+        (testing "the choice is the record's effect, and a solve is its one engine"
+          (is (= [:choose #{:solve}] ((juxt :effect :engines) (sentex-of kb asm))))
+          (is (= [:derive #{:forward :backward}] ((juxt :effect :engines) (sentex-of kb bare)))))
         (testing "and re-asserting the same assumptionRule is idempotent"
           (is (= asm (v/assert kb (list 'set/assumptionRule
                                         (list 'implies (list candidate '?c) (list color '?c 'red)))
-                               'CxUniverse {:direction :forward}))))))))
+                               'CxUniverse))))))))
 
 (deftest an-assumption-rule-does-not-forward-chain
   ;; The defining behaviour: a choice head is not a derived truth. The bare rule fires
@@ -54,7 +62,7 @@
     (tu/with-terms [candidate color Item]
       (v/assert kb (list 'implies (list candidate '?c) (list color '?c 'red)) 'CxUniverse {:direction :forward})
       (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'blue)))
-                'CxUniverse {:direction :forward})
+                'CxUniverse)
       (v/assert kb (list candidate Item) 'CxUniverse)
       (is (seq (v/sentexes-matching kb (list color Item 'red) 'CxUniverse)) "bare rule fired")
       (is (empty? (v/sentexes-matching kb (list color Item 'blue) 'CxUniverse)) "assumptionRule did not"))))
@@ -98,9 +106,9 @@
   [kb]
   (let [candidate (tu/tmp-pred) color (tu/tmp-pred) item (tu/tmp-ind)]
     (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'red)))
-              'CxUniverse {:direction :forward})
+              'CxUniverse)
     (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'blue)))
-              'CxUniverse {:direction :forward})
+              'CxUniverse)
     (v/assert kb (list 'functional color) 'CxUniverse)
     (v/assert kb (list candidate item) 'CxUniverse)
     {:color color :item item}))
@@ -133,7 +141,7 @@
     (tu/with-cleared-kb [kb tu/fresh]
       (tu/with-terms [candidate wants Item]
         (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list wants '?c 'tea)))
-                  'CxUniverse {:direction :forward})
+                  'CxUniverse)
         (v/assert kb (list candidate Item) 'CxUniverse)
         (let [r (v/assert kb (list 'do/label 'CxUniverse (tu/tmp-ctx "Plan")) 'CxUniverse)]
           (is (= 1 (:count r)))
@@ -158,7 +166,7 @@
       (v/assert kb (list candidate Cand) 'CxUniverse)
       (v/assert kb (list 'set/assumptionRule
                          (list 'implies (list candidate '?c) (list 'not (list paints '?c))))
-                'CxUniverse {:direction :forward})
+                'CxUniverse)
       (let [e (try (v/assert kb (list 'do/label 'CxUniverse (tu/tmp-ctx "Plan")) 'CxUniverse)
                    (catch clojure.lang.ExceptionInfo ex ex))]
         (is (instance? clojure.lang.ExceptionInfo e) "the negated-head label is refused")
@@ -203,9 +211,9 @@
                            (list 'implies (list registered '?c) (list candidate '?c)))
                   'CxUniverse)
         (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'red)))
-                  'CxUniverse {:direction :forward})
+                  'CxUniverse)
         (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'blue)))
-                  'CxUniverse {:direction :forward})
+                  'CxUniverse)
         (v/assert kb (list 'functional color) 'CxUniverse)
         (testing "before the precondition: nothing is a candidate, so a do/label grounds nothing"
           (let [r (v/assert kb (list 'do/label 'CxUniverse plan) 'CxUniverse)]
@@ -229,7 +237,7 @@
   ;; a candidate that rests on a registered prover is a legal antecedent, not something the
   ;; caller must pre-project into a stored candidate fact.  Here the antecedent `(reach ?c)`
   ;; has no stored fact and no rule concludes it; only the registered prover answers it, and
-  ;; the choice still grounds.  (The stored-fact leaf `prove` alone left it dormant.)
+  ;; the choice still grounds.  (A stored-fact leaf alone left it dormant.)
   (tu/with-cleared-kb [kb tu/fresh]
     (tu/with-terms [reach color Item]
       (v/add-prover kb (reify prover-types/Prover
@@ -244,9 +252,9 @@
                                (= x Item)                                    [{}]
                                :else                                         [])))))
       (v/assert kb (list 'set/assumptionRule (list 'implies (list reach '?c) (list color '?c 'red)))
-                'CxUniverse {:direction :forward})
+                'CxUniverse)
       (v/assert kb (list 'set/assumptionRule (list 'implies (list reach '?c) (list color '?c 'blue)))
-                'CxUniverse {:direction :forward})
+                'CxUniverse)
       (v/assert kb (list 'functional color) 'CxUniverse)
       (testing "the antecedent has no stored fact and no rule concludes it — only the prover answers"
         (is (empty? (v/sentexes-matching kb (list reach Item) 'CxUniverse))))
@@ -277,19 +285,19 @@
                                  (= x Ay) [{}]
                                  :else    [])))))
         (v/assert kb (list 'set/assumptionRule (list 'implies (list cand '?x) (list pick '?x)))
-                  'CxUniverse {:direction :forward})
+                  'CxUniverse)
         (v/assert kb (list cand Ay) 'CxUniverse)
         (v/assert kb (list cand Bee) 'CxUniverse)
         ;; hard: a pick the prover marks forbidden is a nogood over that choice head
         (v/assert kb (list 'set/hardConstraint
                            (list 'implies (list 'and (list pick '?x) (list forbidden '?x))
                                  (list 'probe_forbidden_pick '?x)))
-                  'CxUniverse {:direction :forward})
+                  'CxUniverse)
         ;; soft: take a pick when one is allowed, so the optimum reaches for Bee
         (v/assert kb (list 'set/softConstraint
                            (list 'implies (list 'and (list 'not (list pick Ay)) (list 'not (list pick Bee)))
                                  (list 'probe_no_pick Ay)))
-                  'CxUniverse {:direction :forward})
+                  'CxUniverse)
         (let [r      (v/assert kb (list 'do/label 'CxUniverse (tu/tmp-ctx "Plan") :one) 'CxUniverse)
               truths (:true (first (:labelings r)))]
           (is (some #(= (list pick Bee) %) truths)
@@ -326,10 +334,10 @@
       (tu/with-terms [candidate color Item]
         (v/assert kb (list 'set/assumptionRule
                            (list 'implies (list candidate '?c) (list color '?c 'red)))
-                  'CxUniverse {:direction :forward})
+                  'CxUniverse)
         (v/assert kb (list 'set/assumptionRule
                            (list 'implies (list candidate '?c) (list color '?c 'blue)))
-                  'CxUniverse {:direction :forward})
+                  'CxUniverse)
         (let [fh   (v/assert kb (list 'functional color) 'CxUniverse)
               cand (v/assert kb (list candidate Item) 'CxUniverse)
               r1   (v/assert kb '(do/label CxUniverse CxReplacePlan) 'CxUniverse)]
@@ -360,10 +368,10 @@
       (tu/with-terms [candidate color Item]
         (v/assert kb (list 'set/assumptionRule
                            (list 'implies (list candidate '?c) (list color '?c 'red)))
-                  'CxUniverse {:direction :forward})
+                  'CxUniverse)
         (v/assert kb (list 'set/assumptionRule
                            (list 'implies (list candidate '?c) (list color '?c 'blue)))
-                  'CxUniverse {:direction :forward})
+                  'CxUniverse)
         (let [fh (v/assert kb (list 'functional color) 'CxUniverse)]
           (v/assert kb (list candidate Item) 'CxUniverse)
           (v/assert kb '(do/label CxUniverse CxReclassPlan) 'CxUniverse)
@@ -374,9 +382,10 @@
           (let [c2 (v/assert kb '(do/classify CxReclassPlan) 'CxUniverse)]
             (is (= 2 (count (:forced c2))) "one world now: both colors forced")
             (is (empty? (:supportable c2)))
-            (testing "the class context holds only the fresh classification"
+            (testing "the class context holds only the fresh classification and its marker"
               (is (= #{(list 'forced (list color Item 'red))
-                       (list 'forced (list color Item 'blue))}
+                       (list 'forced (list color Item 'blue))
+                       '(classificationOf CxReclassPlanClass CxReclassPlan)}
                      (set (map :sentence (v/sentexes-in-context kb 'CxReclassPlanClass))))))))))))
 
 (deftest a-backendless-rerun-leaves-the-previous-run-standing
@@ -440,8 +449,8 @@
           (testing "two classifications later the user's edge stands"
             (is (v/in? kb edge))
             (is (seq (v/sentexes-matching kb '(genlCx CxOwnPlanClass CxUniverse) 'CxUniverse))))
-          (testing "and the classification was written beside it"
-            (is (= 2 (count (v/sentexes-in-context kb 'CxOwnPlanClass)))))
+          (testing "and the classification and its marker were written beside it"
+            (is (= 3 (count (v/sentexes-in-context kb 'CxOwnPlanClass)))))
           (v/assert kb '(do/label CxUniverse CxOwnPlan) 'CxUniverse)
           (testing "a re-run replaces the labeling but leaves the claim about it"
             (is (v/in? kb claim))
@@ -553,12 +562,38 @@
             (is (= (inc before) (count (v/sentexes-in-context kb 'CxClsPlanClass)))
                 "the user's own sentex, and nothing else")))))))
 
+(deftest an-unmarked-context-named-like-the-classification-refuses-the-run
+  ;; `<Into>Class` has one fixed name, so ownership rests on its `classificationOf`
+  ;; marker.  A non-empty context of that name with no marker, believed or not, is a
+  ;; user's or predates the marker, and a run refuses rather than sweep it.
+  (when asp?
+    (tu/with-cleared-kb [kb tu/fresh]
+      (tu/with-terms [p Tom]
+        (color-choices kb)
+        (let [h (v/assert-inert kb (list p Tom) 'CxFooClass)]
+          (doseq [op ['(do/label CxUniverse CxFoo) '(do/classify CxFoo)]]
+            (let [e (is (thrown? clojure.lang.ExceptionInfo (v/assert kb op 'CxUniverse)))]
+              (is (= [:labeling-run-blocked '[CxFooClass]]
+                     ((juxt :type :unmarked) (ex-data e)))
+                  (str op))))
+          (testing "the user's sentex survives both refusals"
+            (is (some? (sentex-of kb h))))
+          (testing "retracting it unblocks the run, and the classification carries its marker"
+            (v/retract! kb h)
+            (is (= 2 (:count (v/assert kb '(do/label CxUniverse CxFoo) 'CxUniverse))))
+            (v/assert kb '(do/classify CxFoo) 'CxUniverse)
+            (is (some #(= '(classificationOf CxFooClass CxFoo) (:sentence %))
+                      (v/sentexes-in-context kb 'CxFooClass)))
+            (is (= 2 (:count (v/assert kb '(do/label CxUniverse CxFoo) 'CxUniverse)))
+                "a marked classification is swept by the re-run")
+            (is (empty? (v/sentexes-in-context kb 'CxFooClass)))))))))
+
 (deftest a-do-label-run-makes-exactly-one-solve-in-every-mode
   ;; `VAELII_ASP_TIME_LIMIT` is a per-solve budget and a solve runs on the single
   ;; writer, so what an operation holds the writer for is the budget times the solves
   ;; it makes (docs/asp.md tabulates the multipliers).  `do/label` is the one at 1× in
   ;; all three modes — `:all` enumerates once, `:one` and `:sat` solve once — and this
-  ;; is what keeps that row of the table honest.
+  ;; test checks that row of the table.
   (when asp?
     (tu/with-cleared-kb [kb tu/fresh]
       (color-choices kb)
@@ -568,6 +603,92 @@
           (with-redefs [solver/solve (fn [a m] (swap! seen conj m) (solve a m))]
             (v/assert kb (list 'do/label 'CxUniverse 'CxOneSolvePlan mode) 'CxUniverse))
           (is (= [expected] @seen) (str mode)))))))
+
+;; ---- 3b. finding the rules a solve reads ---------------------------------
+
+(defn- walked-rules
+  "The rules a solve reads, found by walking each visible context's whole extent: the
+  reference `program-rules` answers without the walk."
+  [kb base]
+  (set (for [ctx (distinct (cons base (tax/context-up (reasoning/taxonomy kb) base)))
+             h   (reads/as-stored-in-context (:index kb) ctx)
+             :let [s (p/get-sentex (:records kb) h)]
+             :when (and s (rules/solve-sentex? s) (res/rule-believed? kb h))]
+         h)))
+
+(deftest the-solve-rule-roster-answers-what-the-extent-walk-answers
+  ;; Rules of every solve kind in three contexts, one a sibling the base cannot see, plus a
+  ;; derived assumption rule and a chaining rule the roster must leave out.  Across
+  ;; arrival orders, and after a retraction, a defeat and a withdrawn genlCx edge, the
+  ;; roster read equals the walk, and its content order does not move with the order.
+  (tu/with-terms [candidate color flag hasTone clashOf Tom CxMid CxLow CxSide]
+    (let [orders (atom #{})]
+      (doseq [seed [1 2 3 4]]
+        (tu/with-cleared-kb [kb tu/fresh]
+          (let [red   (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'red)))
+                items [[(list 'genlCx CxMid 'CxUniverse) 'CxUniverse]
+                       [(list 'genlCx CxLow CxMid) 'CxUniverse]
+                       [(list 'genlCx CxSide 'CxUniverse) 'CxUniverse]
+                       [red CxMid]
+                       [(list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'blue))) CxSide]
+                       [(list 'set/hardConstraint
+                              (list 'implies (list 'and (list color '?c 'red) (list color '?c 'blue))
+                                    (list clashOf '?c '?c)))
+                        CxLow]
+                       [(list 'asp/atMost 1 '?k (list color Tom '?k)) 'CxUniverse]
+                       [(list 'set/solveRule (list 'implies (list color '?c 'red) (list hasTone '?c 'warm))) CxLow]
+                       [(list 'set/forwardRule (list 'implies (list candidate '?c) (list flag '?c))) CxLow]
+                       [(list 'set/forwardRule
+                              (list 'implies (list flag '?t)
+                                    (list 'set/assumptionRule
+                                          (list 'implies (list candidate '?t) (list color '?t 'green)))))
+                        CxLow]
+                       [(list candidate Tom) 'CxUniverse]]
+                rnd   (java.util.Random. seed)
+                order (let [l (java.util.ArrayList. ^java.util.Collection items)]
+                        (java.util.Collections/shuffle l rnd)
+                        (vec l))
+                read  #(let [rs (#'sc/program-rules kb CxLow)]
+                         (is (= (walked-rules kb CxLow) (set (map :id rs))) (str "seed " seed " " %))
+                         (mapv :sentence rs))]
+            (doseq [[s ctx] order]
+              ;; the edges monotonic, the rest default, so the denial below defeats `flag`
+              (if (= 'genlCx (first s))
+                (v/assert kb s ctx {:strength :monotonic})
+                (v/assert kb s ctx)))
+            (let [all (read "all arrived")]
+              (is (= 5 (count all)) "red, the derived green, the constraint, the bound, the solve rule")
+              (swap! orders conj all))
+            (v/retract! kb (v/handle-of kb red CxMid))
+            (read "after a retraction")
+            (v/assert kb (list 'not (list flag Tom)) CxLow {:strength :monotonic})
+            (is (= 3 (count (read "after the derived rule's support is defeated"))))
+            (run! #(v/retract! kb (:id %))
+                  (v/sentexes-matching kb (list 'genlCx CxLow CxMid) 'CxUniverse))
+            (read "after the genlCx edge is withdrawn"))))
+      (is (= 1 (count @orders)) "one content order in every arrival order"))))
+
+(deftest finding-a-solves-rules-reads-its-rules-not-the-corpus
+  ;; The count witness: finding the assumption rules visible from the base fetches one
+  ;; record per solve rule posted in the base's ancestor set, whatever else those contexts hold.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (tu/with-terms [candidate color noise]
+      (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'red)))
+                'CxUniverse)
+      (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list color '?c 'blue)))
+                'CxUniverse)
+      (let [fetches (fn []
+                      (let [n    (atom 0)
+                            recs (:records kb)
+                            counting #_{:clj-kondo/ignore [:missing-protocol-method]}
+                            (reify p/RecordStore
+                              (get-sentex [_ id] (swap! n inc) (p/get-sentex recs id)))]
+                        (dorun (#'sc/assumption-rules (assoc kb :records counting) 'CxUniverse))
+                        @n))
+            before  (fetches)]
+        (dotimes [_ 200] (v/assert kb (list noise (tu/tmp-ind)) 'CxUniverse))
+        (is (= before (fetches)) "200 more facts in the base, no more fetches")
+        (is (= before (count (mapcat val @(reasoning/solve-rules kb)))))))))
 
 ;; ---- 4. do/classify: gather brave/cautious over the labelings -----------
 
@@ -584,7 +705,8 @@
             (is (empty? (:excluded c))))
           (testing "and the classification persists as inert sentexes"
             (is (= #{(list 'supportable (list color item 'red))
-                     (list 'supportable (list color item 'blue))}
+                     (list 'supportable (list color item 'blue))
+                     (list 'classificationOf (:class-context c) into)}
                    (set (map :sentence (v/sentexes-in-context kb (:class-context c))))))))))))
 
 (deftest classify-marks-an-unconstrained-choice-forced
@@ -593,7 +715,7 @@
     (tu/with-cleared-kb [kb tu/fresh]
       (tu/with-terms [candidate wants Item]
         (v/assert kb (list 'set/assumptionRule (list 'implies (list candidate '?c) (list wants '?c 'tea)))
-                  'CxUniverse {:direction :forward})
+                  'CxUniverse)
         (v/assert kb (list candidate Item) 'CxUniverse)
         (let [into (tu/tmp-ctx "Plan")]
           (v/assert kb (list 'do/label 'CxUniverse into) 'CxUniverse)

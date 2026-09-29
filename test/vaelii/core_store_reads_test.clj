@@ -9,8 +9,8 @@
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.config :as config]
+            [vaelii.impl.disk.files :as dfiles]
             [vaelii.impl.foreign :as foreign]
-            [vaelii.impl.io.import :as io-import]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
@@ -81,7 +81,7 @@
     (is (= :malformed-manifest
            (:type (refusal #(v/read-manifest (temp-file "{:format-version")))))))
   (testing "a manifest past the byte bound is refused before it is read whole"
-    (with-redefs [io-import/manifest-bytes 8]
+    (with-redefs [dfiles/manifest-bytes 8]
       (is (= :manifest-too-large
              (:type (refusal #(v/read-manifest (temp-file "{:format-version 1 :pad \"xxxxxxxx\"}")))))))))
 

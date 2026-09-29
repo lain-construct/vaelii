@@ -13,8 +13,29 @@
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
-(use-fixtures :once (tu/loaded (fn [kb] (-> kb starter/load-into world/load-into))))
+(def ^:private starter-violations
+  "The violations ledger as the starter load leaves it, read by the `:once` fixture
+  before the test-world loads beneath it."
+  (atom ::unread))
+
+(use-fixtures :once (tu/loaded (fn [kb]
+                                 (starter/load-into kb)
+                                 (reset! starter-violations (v/violations kb))
+                                 (world/load-into kb))))
 (use-fixtures :each (tu/neutral))
+
+(deftest the-starter-loads-with-no-violation
+  ;; The browser opens on the starter, so `/stats` shows this ledger to every first-time
+  ;; reader.  A cut notice here says a sweep of the shipped ontology left clashes
+  ;; unreported or content undecided.  The starter load closes on one deferred settle
+  ;; whose region names every stored sentex, one of them a denial, and both retroactive
+  ;; sweeps skip such a region
+  ;; (`exposure_test/a-settle-over-the-whole-store-sweeps-nothing-and-files-no-cut`).
+  ;; Swept, they reach 66,054 and 57,767 instances against the 8,192 budget.  Any other
+  ;; entry is a defect the shipped files carry.
+  (is (not= ::unread @starter-violations) "the fixture read the ledger")
+  (is (empty? @starter-violations)
+      (str "the starter load files violations: " (pr-str @starter-violations))))
 
 (defn- authored-sentences
   "Every sentence the shipped ontology's own source files contain, paired with the context

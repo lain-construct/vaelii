@@ -378,7 +378,7 @@
 ;; ---- a witness nobody named ---------------------------------------------
 
 (tu/deftest-kb every-dog-had-a-mother-whether-or-not-anyone-knows-who
-  ;; A head existential is the honest form of "there is one, I cannot name them": the
+  ;; A head existential is the form that states "there is one, I cannot name them": the
   ;; firing mints a deterministic witness instead of leaving the claim unsaid or
   ;; inventing a name that looks like somebody's.
   (tu/with-terms [Stray]

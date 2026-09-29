@@ -1,9 +1,10 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.tactics
-  "Does a tactician earn its place?  Runs a query set through **every** ordering the node
-  engine offers (`vaelii.impl.tactics`), checks each returns the same answer set as the
-  `:cost` baseline, and then measures the only thing an ordering can change.
+  "Does a tactician lower the cost of a query?  Runs a query set through **every**
+  ordering the node engine offers (`vaelii.impl.tactics`), checks each returns the same
+  answer set as the `:cost` baseline, and then measures the only thing an ordering can
+  change.
 
   **An exhaustive search expands the same node set under every ordering.**  That is the
   whole content of the completeness invariant, and it has a consequence stated here

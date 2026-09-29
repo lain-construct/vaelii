@@ -199,8 +199,8 @@
         posv  (mapv (fn [r]
                       (if (rule? r)
                         [1 (:sentence r) (:context r) (:truth r) (:strength r)
-                         (:antecedent r) (:consequent r) (:varmap r) (:direction r)
-                         (:defeasible r) (:assumption r)]
+                         (:antecedent r) (:consequent r) (:varmap r) (:engines r)
+                         (:defeasible r) (:effect r)]
                         [0 (:sentence r) (:context r) (:truth r) (:strength r)]))
                     recs)
         pos-b (frozen-bytes posv)
@@ -229,7 +229,7 @@
 
 (defn- build-disk-store
   "A scratch store holding `recs`, with the hot cache **off** — the per-fetch numbers
-  below are the honest cost of reaching disk, not a partly-cached average."
+  below are the full cost of reaching disk, not a partly-cached average."
   [recs]
   (let [dir   (scratch-dir)
         store (drs/open-record-store dir {:cache-capacity 0})]

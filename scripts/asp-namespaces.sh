@@ -13,9 +13,12 @@
 # scan against a committed roster, so the set changing is visible in review.
 #
 # Prints one namespace per line, sorted.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 cd "$(dirname "$0")/.."
 grep -rlE '\((solver|clasp)/available\?\)' test/ \
   | grep -v '/asp_roster_test\.clj$' \
   | sed -e 's|^test/||' -e 's|\.clj$||' -e 's|/|.|g' -e 's|_|-|g' \
   | sort
+exit
+}

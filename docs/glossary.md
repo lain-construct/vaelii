@@ -195,12 +195,6 @@ predicates that denote its base relations — `{:name :algebra :denotation}`, wh
 `qcn-kb` needs to read facts into a network and read entailments back out. Six
 ship; `core/calculi` is them as data. See [qcn.md](qcn.md).
 
-**Candidate** ![kb](../.github/badges/cat-kb.svg): A `[sentence context opts]` entry
-read **out of English** — the shape `edit!` takes, carrying the span of text it came
-from in its provenance, checked by `check-edit` and never asserted. Nothing in the
-engine can say a candidate means what the text said, which is why a reviewer sits
-between the pipeline and the store. See [reading.md](reading.md).
-
 **Canonical form** ![kb](../.github/badges/cat-kb.svg): The normalized shape a
 sentence is stored in so logically identical knowledge stores once — canonical
 variables, canonical literal order, symmetric- and commuting-argument sorting, and
@@ -310,9 +304,9 @@ defeating its strictly weakest member. See [nmtms.md](nmtms.md).
 
 **Deferred literal** ![inference](../.github/badges/cat-inference.svg): A literal
 whose position is operational, not logical, so canonicalization holds it in the
-author's order: the fifteen `sentex/deferred-predicates` (`evaluate`, `lessThan`,
-`greaterThan`, `different`, `unknown`, the five quantity comparisons and the five
-aggregation operators) and a recursive rule's recursive literal. See
+author's order: the seventeen `sentex/deferred-predicates` (`evaluate`, `lessThan`,
+`greaterThan`, `integer`, `matchesPattern`, `different`, `unknown`, the five quantity
+comparisons and the five aggregation operators) and a recursive rule's recursive literal. See
 [canonicalization.md](canonicalization.md).
 
 **`defnNecessary` / `defnSufficient` / `defnIff`** ![kb](../.github/badges/cat-kb.svg):
@@ -350,14 +344,15 @@ closure, keeping the unique-name assumption. Variable-arity, ground-only, and
 not assertible. See [equality.md](equality.md).
 
 **Direction** ![kb](../.github/badges/cat-kb.svg): Whether a rule chains
-`:forward`, `:backward`, `:both`, `:forward-only`, or `:inert`. `:forward` and `:both` are
-one class — forward + backward — so a `set/forwardRule` rule answers backward goals too;
-`:forward-only` (`set/forwardOnlyRule`) forward-chains but never backchains, the direction
-for a rule a backward walk would cycle on, a tests-only
-mode the ontology avoids. The `set/*Rule` wrappers canonicalize into the record's
-`:direction` field; a bare `implies` needs none and reads `:backward`, the tractable
-default, since forward chaining materializes a conclusion per match. The chainers read the
-field. See [inference.md](inference.md).
+`:forward`, `:backward`, `:both`, `:forward-only`, or `:inert` — the values the `set/*Rule`
+wrappers and the `:direction` opt spell. `:forward` and `:both` are one class — forward +
+backward — so a `set/forwardRule` rule answers backward goals too; `:forward-only`
+(`set/forwardOnlyRule`) forward-chains but never backchains, the direction for a rule a
+backward walk would cycle on, a tests-only mode the ontology avoids. The record holds the
+engines a direction names, in its `:engines` field (`#{:forward :backward}` for
+`:forward`, `#{}` for `:inert`); a bare `implies` needs no wrapper and holds
+`#{:backward}`, the tractable default, since forward chaining materializes a conclusion
+per match. The chainers read the field. See [inference.md](inference.md).
 
 **`disjoint` / `disjoint_metatype`** ![kb](../.github/badges/cat-kb.svg): Declare
 types share no instance, closed under genl. A metatype's members are pairwise
@@ -370,6 +365,20 @@ disjoint by being consulted, not by storing the clique. Belief-following. See
 that arbitrates only the contested *edges* of a soft contradiction; known-true
 content is the fixed background and is never sent. Deterministic stub by default,
 ASP backend opt-in. See [solving.md](solving.md).
+
+**Effect** ![kb](../.github/badges/cat-kb.svg): What a rule's head is, the
+`RuleSentex` field its head wrapper sets: `:derive` for a truth the rule concludes,
+`:choose` for a `set/assumptionRule`'s choice, `:forbid` / `:penalize` for a
+`set/hardConstraint` / `set/softConstraint` marker. Part of the rule's identity, so a
+choice rule and its bare twin are two sentexes; only a `:derive` rule chains. See
+[canonicalization.md](canonicalization.md#rule-wrappers-become-fields),
+[solving.md](solving.md).
+
+**Engines** ![kb](../.github/badges/cat-kb.svg): Which engines run a rule, the
+`RuleSentex` field its direction wrapper sets: a subset of `#{:forward :backward :solve}`.
+`set/solveRule` adds `:solve`, and a choice or constraint rule holds `#{:solve}`. A
+re-assert joins two spellings by union.
+See Direction, [canonicalization.md](canonicalization.md#rule-wrappers-become-fields).
 
 **Entry point** ![kb](../.github/badges/cat-kb.svg): A public function knowledge
 reaches the engine through: `assert` / `assert-rule` / `edit!`, the `check` family that
@@ -625,7 +634,7 @@ names and a Mark family has to agree about. `facet-contract`'s `:lane?` says whi
 are ones: `:retriggers` is not, because a re-check posting is one line inside one Arm
 rather than a wiring of its own, and `:query-only` and `:inert` are not, because a
 classification of the whole term is nothing a family can differ about. The scale is a
-subsystem's whole reading of the declaration — the merge lane, the clash-exposure lane —
+subsystem's whole reading of the declaration — the merge lane, the arbitration lane —
 and a family joined to one in one spelling and not another is #52 and #54. See
 [predicates.md](predicates.md).
 
@@ -963,7 +972,7 @@ without a scan. See [indexing.md](indexing.md).
 
 **RuleSentex** ![kb](../.github/badges/cat-kb.svg): The sentex record for an
 implication: `[context id strength]` and the rule-only slots `[antecedent consequent
-varmap direction defeasible assumption constraint]`, and no `sentence` —
+varmap engines defeasible effect]`, and no `sentence` —
 `sentex/sentence-of` builds the `implies` form from the antecedent and consequent. Indexed
 additionally by antecedent/consequent predicates. See [inference.md](inference.md).
 
@@ -1055,6 +1064,14 @@ addition table. See [sign.md](sign.md).
 a rule conclusion's existential variable with a term built from the variables
 the antecedent bound, so the same binding names the same witness twice and a
 re-derivation does not mint a second one. See [skolem.md](skolem.md).
+
+**Solve rule** ![asp](../.github/badges/cat-asp.svg): A rule wrapped
+`set/solveRule`, which a `do/label` solve runs as a normal rule `h :- body`. The solve
+grounds it forward over the atoms that can become true — the ground choice heads and what
+earlier firings concluded — and hands each ground instance to the solver, which decides
+per answer set which derived atoms hold. Nothing a firing concludes is stored. The
+rule's direction wrappers say how it runs in base. See
+[solving.md](solving.md#solverule--a-derived-atom-inside-a-solve).
 
 **Source identity** ![backend](../.github/badges/cat-backend.svg): The digest of
 the engine definitions that derive belief (`vaelii.impl.source-identity`). It covers the
@@ -1234,16 +1251,18 @@ none. See [canonicalization.md](canonicalization.md).
 **`violations`** ![inference](../.github/badges/cat-inference.svg): The
 accumulating ledger of conclusions *dropped* on the derivation path — a failed
 arg / disjoint / functional check, a placement-less firing, or a derived
-cycle through negation — recorded rather than thrown. Four groups drop nothing
-and report: the **cross-context** `:disjoint` clash no vantage convicted, carrying
-`:visible-from`; the six that say bounded work did not cover everything —
-`:exposure-truncated`, `:arbitration-truncated` and `:arity-truncated`, all three
-sweeps cut short; `:arity-report-truncated`, a pass finding more predicates than it will
+cycle through negation — recorded rather than thrown. Three groups drop nothing
+and report: the seven that say bounded work did not cover everything —
+`:arbitration-truncated`, `:arity-truncated` and
+`:unarbitrable-reach-truncated`, all three sweeps cut short; `:arity-report-truncated`, a pass finding more predicates than it will
 file; `:partner-sweep-truncated`, a vantage the cap kept the arbitration from consulting
-at all; and
+at all;
 `:context-edge-exposure-truncated`, the only one filed eagerly from an assert rather than
-a settle, over merges a `genlCx` edge's ancestor set did not reach; a retroactive
-`:arity` reach beside a `:non-confluent` pair of equations; and the provers' own —
+a settle, over merges a `genlCx` edge's ancestor set did not reach; and
+`:genl-edge-revival-truncated`, over merges a revived `genl` edge's subtree walk did not
+reach; a retroactive
+`:arity` reach, and a retroactive `:irreflexive` / `:anti-symmetric` reach over facts a
+late mark convicts, beside a `:non-confluent` pair of equations; and the provers' own —
 `:aggregate` for an extent that will not reduce, `:qualitative-inconsistency` and the two
 `:metric-temporal-*` for a network a context cannot satisfy, and `:sign-inconsistency`
 for sign facts that leave a quantity no sign at all. An entry about a term, a pair or

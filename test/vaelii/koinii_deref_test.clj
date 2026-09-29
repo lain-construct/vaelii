@@ -151,6 +151,118 @@
         (is (not= (d/commit-id a) (d/commit-id b))))
       (finally (tu/clear-kb! a) (tu/clear-kb! b)))))
 
+;;; ── a reply is located by its target ─────────────────────────────────
+;;; Every koinii response act names its target as `(sentexHandle n)`, and `n` is the
+;;; number the storing seat minted.  Two seats that build one conversation in different
+;;; orders mint different numbers, so the locator digests the target's identity in `n`'s
+;;; place, and the marker carries the target's marker so the other seat can find it.
+
+(defn- conversation!
+  "Atlas's claim, Boreas's claim, Boreas endorsing Atlas's, and Atlas endorsing that
+  endorsement — Atlas's claim first when `atlas-first?`, Boreas's otherwise.  The other
+  order also mints and retracts one unrelated fact first, so no handle it mints equals
+  the first order's.  Returns the four handles."
+  [kb atlas-first?]
+  (binding [v/*clock* (constantly 1750000000000)]
+    (let [junk    (when-not atlas-first? (v/assert kb '(colour Grass Green) 'CxBoreas))
+          [ha hb] (if atlas-first?
+                    [(atlas-writes! kb) (boreas-writes! kb)]
+                    (let [hb (boreas-writes! kb)] [(atlas-writes! kb) hb]))
+          end     (v/assert kb (list 'endorses 'AgentBoreas (v/sentex-handle ha)) 'CxBoreas
+                            {:creator 'AgentBoreas})
+          end2    (v/assert kb (list 'endorses 'AgentAtlas (v/sentex-handle end)) 'CxAtlas
+                            {:creator 'AgentAtlas})]
+      (when junk (v/retract! kb junk))
+      {:atlas ha :boreas hb :end end :end2 end2})))
+
+(deftest a-reply-is-located-by-its-target
+  (let [a (fresh-seat :reply-a)
+        b (fresh-seat :reply-b)]
+    (try
+      (let [ha (conversation! a true)
+            hb (conversation! b false)]
+        (is (every? #(not= (% ha) (% hb)) [:atlas :end :end2])
+            "the two orders put the target and both replies at different handles")
+        (testing "each reply has one locator on both seats, and so does a reply to a reply"
+          (is (= (d/locator-of a (:end ha)) (d/locator-of b (:end hb))))
+          (is (= (d/locator-of a (:end2 ha)) (d/locator-of b (:end2 hb)))))
+        (testing "so the two seats agree on the commit id and the state root"
+          (is (= (d/commit-id a) (d/commit-id b)))
+          (is (= (d/state-root a) (d/state-root b))))
+        (testing "`locate` computes a reply's locator from its sentence"
+          (is (= (d/locator-of a (:end2 ha))
+                 (d/locate a (v/sentence-of (v/sentex a (:end2 ha))) 'CxAtlas))))
+        (testing "a reply to a different target is a different locator"
+          (let [other (v/assert a (list 'endorses 'AgentBoreas (v/sentex-handle (:boreas ha)))
+                                'CxBoreas)]
+            (is (not= (d/locator-of a other) (d/locator-of a (:end ha)))))))
+      (finally (tu/clear-kb! a) (tu/clear-kb! b)))))
+
+(deftest a-reply-marker-resolves-on-a-seat-that-built-the-conversation
+  (let [a (fresh-seat :rmark-a)
+        b (fresh-seat :rmark-b)]
+    (try
+      (let [ha   (conversation! a true)
+            hb   (conversation! b false)
+            m    (read-string (pr-str (d/marker a (:end2 ha))))]
+        (testing "the marker carries its target's marker, and that one its own target's"
+          (is (= #{(:end ha)} (set (keys (:targets m)))))
+          (is (= #{(:atlas ha)} (set (keys (get-in m [:targets (:end ha) :targets]))))))
+        (testing "the other seat resolves each target first, then the reply, to its own handles"
+          (let [r (d/dereference b m)]
+            (is (:resolved? r))
+            (is (= (:end2 hb) (:handle r)))))
+        (testing "without `:targets` the numbers are the sender's, and the other seat holds no such reply"
+          (is (= :not-received (:reason (d/dereference b (dissoc m :targets))))))
+        (testing "a target this seat does not hold fails the reply and names the target"
+          (let [r (d/dereference b (assoc-in m [:targets (:end ha) :targets (:atlas ha) :sentence]
+                                             '(usesDatabase ProdCluster Oracle)))]
+            (is (false? (:resolved? r)))
+            (is (= :not-received (:reason r)))
+            (is (= (:end ha) (:target r)))))
+        (testing "a target swapped for another stored record fails the reply's rehash or lookup"
+          (let [r (d/dereference b (assoc-in m [:targets (:end ha) :targets (:atlas ha)]
+                                             (d/marker b (:boreas hb))))]
+            (is (false? (:resolved? r)))))
+        (testing "a `:targets` that is not a map of handle numbers to markers is malformed"
+          (doseq [t [[1 2] {"1" {}} {1 "x"}]]
+            (is (= [:malformed :targets]
+                   ((juxt :reason :problem) (d/dereference b (assoc m :targets t))))
+                (pr-str t))))
+        (testing "a chain of targets deeper than the bound is malformed and does not recurse"
+          (let [deep (reduce (fn [inner _] (assoc m :targets {(:end ha) inner})) m (range 80))]
+            (is (= [:malformed :targets] ((juxt :reason :problem) (d/dereference b deep)))))))
+      (finally (tu/clear-kb! a) (tu/clear-kb! b)))))
+
+(deftest a-record-naming-itself-or-no-record-digests
+  (let [a (fresh-seat :self-a)
+        b (fresh-seat :self-b)]
+    (try
+      (boreas-writes! b)
+      (let [self! (fn [kb]
+                    ;; the next handle, named in the sentence stored at it
+                    (let [n (inc (reduce max 0 (v/handles kb)))
+                          h (v/assert kb (list 'endorses 'AgentAtlas (v/sentex-handle n)) 'CxAtlas)]
+                      (is (= n h) "the fixture predicted the handle")
+                      h))
+            sa (self! a)
+            sb (self! b)]
+        (testing "a record naming itself is one locator on two seats with different handles"
+          (is (not= sa sb))
+          (is (= (d/locator-of a sa) (d/locator-of b sb)))
+          (is (= (d/locator-of a sa) (d/locate a (v/sentence-of (v/sentex a sa)) 'CxAtlas))))
+        (testing "its marker is finite and resolves"
+          (let [m (d/marker a sa)]
+            (is (nil? (:targets m)))
+            (is (:resolved? (d/dereference a m))))))
+      (testing "a handle naming no record digests its number, so two such references differ"
+        (let [h1 (v/assert a (list 'endorses 'AgentAtlas (v/sentex-handle 900001)) 'CxAtlas)
+              h2 (v/assert a (list 'endorses 'AgentAtlas (v/sentex-handle 900002)) 'CxAtlas)]
+          (is (re-matches #"sha256:[0-9a-f]{64}" (d/locator-of a h1)))
+          (is (not= (d/locator-of a h1) (d/locator-of a h2)))
+          (is (nil? (:targets (d/marker a h1))))))
+      (finally (tu/clear-kb! a) (tu/clear-kb! b)))))
+
 ;;; ── byte-stable export: the same state exports to the same bytes ──────
 
 (deftest publishing-the-same-state-twice-yields-byte-identical-record-streams
@@ -224,7 +336,7 @@
         (d/publish! source dump)
         (d/pull! seat dump)
         (let [mk (d/marker source ha)]
-          (testing "the honest marker resolves"
+          (testing "the genuine marker resolves"
             (is (:resolved? (d/dereference seat mk))))
           (testing "a tampered locator fails the rehash — the marker's payload is rejected, not the KB"
             ;; one hex digit of the digest body flipped, the "sha256:" tag intact: a
@@ -266,7 +378,7 @@
         (d/publish! source dump)
         (d/pull! seat dump)
         (let [mk (d/marker source ha)]
-          (testing "the honest marker still resolves — the gate lets a real one through"
+          (testing "the genuine marker still resolves — the gate lets a real one through"
             (is (:resolved? (d/dereference seat mk))))
 
           (testing "a malformed :sentence is answered, not thrown — the bug this closes"
@@ -281,6 +393,20 @@
               (is (false? (:resolved? r)))
               (is (= :malformed (:reason r)))
               (is (= :unsupported-context (:problem r)))))
+
+          ;; `handle-of` refuses these by `:shape` rather than answering nil, so a peer
+          ;; sending one reads as sending garbage and not as out of sync
+          (testing "a sentence that is not a list, or a context that is not one, is malformed"
+            (doseq [[label bad] [[":sentence a number" (assoc mk :sentence 42)]
+                                 [":sentence a map"    (assoc mk :sentence {:a 1})]
+                                 [":sentence a string" (assoc mk :sentence "x")]
+                                 [":context nil"       (assoc mk :context nil)]
+                                 [":context a number"  (assoc mk :context 42)]
+                                 [":context a variable" (assoc mk :context '?ctx)]]]
+              (let [r (d/dereference seat bad)]
+                (is (false? (:resolved? r)) label)
+                (is (= :malformed (:reason r)) label)
+                (is (= :shape (:problem r)) label))))
 
           (testing "a malformed :locator is refused before the KB is consulted at all"
             (doseq [[label bad] [["not a string" 42]
@@ -317,7 +443,7 @@
             (testing "but the CLAIMED seat is not required — dereference never reads it"
               (is (:resolved? (d/dereference seat (dissoc mk :seat))))))
 
-          ;; the gate must not swallow the honest absence it exists to stay distinct from
+          ;; the gate must not swallow the genuine absence it exists to stay distinct from
           (testing "a WELL-FORMED marker for a sentence this seat does not hold is still :not-received"
             (let [r (d/dereference seat (assoc mk :sentence '(usesDatabase ProdCluster Mango9)))]
               (is (false? (:resolved? r)))
@@ -338,7 +464,7 @@
       (v/assert seat '(likes Alpha Beta) 'CxS)
       (let [good (d/locate seat '(likes Alpha Beta) 'CxS)
             idx  (d/locator-index seat)]
-        (testing "the honest locator resolves, by both arities"
+        (testing "the genuine locator resolves, by both arities"
           (is (:resolved? (d/resolve-by-locator seat good)))
           (is (:resolved? (d/resolve-by-locator seat good idx))))
         (testing "a string that is not a locator is :malformed, not :not-received"
@@ -573,7 +699,7 @@
       (let [loc  (d/locate a '(likes Alpha Beta) 'CxS)
             root (d/commit-id a)
             good (d/inclusion-proof a loc)]
-        (testing "the honest proof verifies"
+        (testing "the genuine proof verifies"
           (is (true? (d/verify-inclusion loc good root))))
         (testing "a malformed proof returns false, never throws — it is untrusted transport data"
           (is (false? (d/verify-inclusion loc [{:hash "zzzz" :side :right}] root)) "non-hex sibling")

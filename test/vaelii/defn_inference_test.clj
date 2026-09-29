@@ -18,7 +18,7 @@
      necessary before descending to a spec's sufficient, and never re-checking a defn
      reachable by two genl paths.
 
-  Call-counts are observed the honest way: each defn's condition is an `add-evaluatable`
+  Call-counts are observed from outside the walk: each defn's condition is an `add-evaluatable`
   predicate backed by a counter atom, so the count is a side effect of the real
   admittance walk, not a peek into its internals."
   (:require [clojure.test :refer [is use-fixtures]]

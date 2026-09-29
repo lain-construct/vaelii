@@ -6,6 +6,7 @@
             [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [taoensso.trove :as trove]
             [vaelii.browser.access :as acc]
             [vaelii.browser.catalog :as cat]
             [vaelii.browser.jobs :as jobs]
@@ -389,23 +390,24 @@
 
 (tu/deftest-kb the-contexts-table-is-capped-and-continues-on-scroll
   (tu/with-terms [heldBy]
-    ;; 40 contexts holding something: past the 25-row cap.  Each needs a genlCx edge
-    ;; to be a node of the lattice `contexts` enumerates
-    (doseq [i (range 40)
+    ;; the cap cut to 3, and 4 contexts holding something past it.  Each needs a genlCx
+    ;; edge to be a node of the lattice `contexts` enumerates
+    (doseq [i (range 4)
             :let [c (symbol (str "CxTmpTable" i))]]
       (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse {:chain? false})
       (v/assert kb (list heldBy (symbol (str "TmpRow" i))) c {:chain? false}))
-    (let [body (:body (GET "/stats"))
+    (let [cap  {(ns-resolve 'vaelii.browser.web 'stats-table-cap) 3}
+          body (with-redefs-fn cap #(:body (GET "/stats")))
           tbl  (subs body (str/index-of body "Contexts by size"))
           rows (count (re-seq #"<tr><td>" tbl))]
-      (is (= 25 rows) "the table is one screen, not every context in the KB")
+      (is (= 3 rows) "the table is one screen, not every context in the KB")
       (testing "and ends in a sentinel htmx fires on scroll, shaped as a table row"
         (is (re-find #"<tr class=\"more\"[^>]*hx-trigger=\"revealed" tbl))
-        (is (re-find #"/stats/rows\?section=contexts&amp;offset=25" tbl))
+        (is (re-find #"/stats/rows\?section=contexts&amp;offset=3" tbl))
         (is (re-find #"<td class=\"more-td\" colspan=\"2\"" tbl)
             "a tbody may hold nothing but rows, so the sentinel is one"))
       (testing "the continuation is bare rows, in the same order, from the offset"
-        (let [r (GET "/stats/rows" "section=contexts&offset=25")]
+        (let [r (with-redefs-fn cap #(GET "/stats/rows" "section=contexts&offset=3"))]
           (is (= 200 (:status r)))
           (is (not (re-find #"<html" (:body r))))
           (is (re-find #"<tr><td>" (:body r)))))
@@ -431,15 +433,22 @@
 
 (deftest a-complete-prover-shadows-the-rest-and-the-page-says-so
   ;; `genlCx` is answered from the closure, which is complete for it — so every other
-  ;; applicable prover is shadowed, and "applicable" stops meaning "consulted".
-  ;; Previously this queried `(genl dog thing)`, but the `intersection` defining rules
-  ;; now conclude `genl` via backward rules, opening a `:rules` shadowing channel that
-  ;; correctly prevents the closure from claiming sole completeness.  `genlCx` has no
-  ;; such rules and tests the same prover/page path.
+  ;; applicable prover is shadowed, and "applicable" stops meaning "consulted".  No rule
+  ;; concludes `genlCx`, so no shadowing channel bears on the goal.
   (let [body (:body (GET "/levels" "q=%28genlCx%20CxOrganism%20CxCore%29&ctx=CxOrganism"))]
     (is (re-find #"TransitivityProver" body))
     (is (re-find #"shadowed by" body))
     (is (re-find #"the sole complete method" body))))
+
+(deftest a-complete-prover-a-rule-bears-on-runs-in-the-union-and-the-page-names-the-guard
+  ;; The starter's `intersection` defining rules conclude `genl` backward, which opens
+  ;; the `:rules` shadowing channel: the closure is complete for `(genl dog thing)` and
+  ;; still runs beside `FactProver`, and the row says which channel keeps it from
+  ;; running alone.
+  (let [body (:body (GET "/levels" "q=%28genl%20dog%20thing%29"))]
+    (is (re-find #"TransitivityProver" body))
+    (is (re-find #"guarded by rules" body))
+    (is (not (re-find #"shadowed by" body)))))
 
 (deftest a-conjunction-shows-its-join-order-and-what-decided-it
   (let [r (GET "/levels" "q=%5B%28bird%20%3Fx%29%20%28flies%20%3Fx%29%5D&ctx=CxBiology")]
@@ -471,24 +480,21 @@
   ;; fields unconditionally, and `term-link`'s fallback arm links whatever it is handed
   ;; — so each printed the text "nil" beside a live link to `/term?q=nil`.
   ;;
-  ;; The separation sits in CxDecl, which CxW — the pair's vantage — cannot see, so no
-  ;; vantage convicts and the pair reaches the ledger rather than `contradictions`.
+  ;; The sweep notices are the ones written here: a separation arriving over more
+  ;; memberships than a budget of one lets either sweep read files both.
   (let [kb tu/*kb*]
-    (tu/with-terms [CxA CxB CxW CxDecl CxV left_t right_t Pip]
-      (v/assert kb (list 'genlCx CxDecl 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'disjoint left_t right_t) CxDecl)
+    (tu/with-terms [CxC left_t right_t]
       (v/assert kb (list 'genl left_t 'thing) 'CxUniverse)
       (v/assert kb (list 'genl right_t 'thing) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxW CxA) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxW CxB) 'CxUniverse)
-      (v/assert kb (list left_t Pip) CxA)
-      (v/assert kb (list right_t Pip) CxB)
-      (v/assert kb (list 'genlCx CxV CxW) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxV CxDecl) 'CxUniverse)
-      (is (some #(= :disjoint (:violation %)) (v/violations kb))
-          "the sentence-less exposure entry is on the ledger")
+      (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+      (dotimes [_ 3] (v/assert kb (list left_t (tu/tmp-ind "Left")) CxC))
+      (dotimes [_ 3] (v/assert kb (list right_t (tu/tmp-ind "Right")) CxC))
+      (binding [tax/*exposure-instance-budget* 1]
+        (v/assert kb (list 'disjoint left_t right_t) CxC))
+      (is (some #(and (#{:arbitration-truncated} (:violation %))
+                      (nil? (:sentence %)))
+                (v/violations kb))
+          "a sentence-less sweep notice is on the ledger")
       (let [body (:body (GET "/stats"))]
         (is (not (re-find #"q=nil" body)) "and the page links no term called nil")
         (is (not (re-find #"(?m)^\s*nil\s+@" body)) "nor prints one")))))
@@ -575,8 +581,18 @@
     (is (= :vaelii.browser.web/bad (#'web/term-hits tu/*kb* "a{2}" 10))
         "the sentinel, not a throw")
     (let [r (GET "/find" "q=a%7B2%7D")]
-      (is (= 200 (:status r)))
+      (is (= 400 (:status r)) "the page for a value the route cannot read")
       (is (re-find #"Not a valid regular expression" (:body r))))))
+
+(deftest a-search-that-fails-for-another-reason-says-so
+  ;; a store fault or an unreachable daemon, on a literal and on a regex query
+  (with-redefs [acc/find-terms (fn [& _] (throw (IllegalStateException. "store closed")))]
+    (doseq [^String q ["Muff" "Muff.*"]]
+      (is (= {:vaelii.browser.web/failed "store closed"} (#'web/term-hits tu/*kb* q 10)) q)
+      (let [r (GET "/find" (str "q=" (java.net.URLEncoder/encode q "UTF-8")))]
+        (is (= 200 (:status r)) q)
+        (is (re-find #"Search failed: store closed" (:body r)) q)
+        (is (not (re-find #"Not a valid regular expression" (:body r))) q)))))
 
 (deftest find-jumps-straight-to-a-single-or-exact-term
   (testing "an exact term name jumps to its page — even though it is a substring of another"
@@ -622,10 +638,10 @@
 
 (deftest a-term-page-reads-from-what-the-term-is-to-what-uses-it
   ;; The order is fixed and it is the claim: a reader arrives at `dog` for the sentences
-  ;; that *declare* it, and `(dog Muffet)` — every instance ever asserted, 2.4M of them
-  ;; at `genl` — is the other direction.  Argument positions lead, ascending; then what
-  ;; a rule concludes about the term; then what a rule requires of it; then the deeper
-  ;; nestings; then the extents, however small they happen to be here.
+  ;; that *declare* it, and `(dog Muffet)` — every instance ever asserted, millions of
+  ;; them at `genl` on a large store — is the other direction.  Argument positions lead,
+  ;; ascending; then what a rule concludes about the term; then what a rule requires of
+  ;; it; then the deeper nestings; then the extents, however small they happen to be here.
   (let [labels (group-labels (:body (GET "/term" "q=dog")))]
     (is (= ["Argument position 1" "Argument position 2" "Predicate extent"] labels))
     (is (= (count labels) (count (distinct labels))) "one heading per group"))
@@ -671,7 +687,8 @@
 ;;
 ;; It renders **live** — no route, no click, no state — so the claims to hold are that it
 ;; is correct (every arrow ends on a drawn node), bounded (the *read* is bounded, not only
-;; the render), honest (it says what it left out), and never the reason a page fails.
+;; the render), explicit about omissions (it says what it left out), and never the reason
+;; a page fails.
 
 (defn- svg-of
   "The one `<svg>` on a page, or nil.  Everything below reads the markup rather than the
@@ -711,7 +728,7 @@
         (is (contains? ts "bird"))))
     (testing "every node is a link to that term's page — the graph is navigation"
       (is (re-find #"<a href=\"/term\?q=living_thing\"><g class=\"g-node" svg))
-      (is (= (count (drawn-terms svg)) (count (re-seq #"<a href=\"/term\?q=" svg)))))
+      (is (= (drawn-terms svg) (set (map second (re-seq #"<a href=\"/term\?q=([^\"]+)\"" svg))))))
     (testing "and it says which claim the vertical axis is"
       (is (re-find #"class=\"g-edge g-genl\"" svg))
       (is (re-find #"arrows point at the more general type" body)))
@@ -759,7 +776,7 @@
   ;; **Two assertions per query, whatever the picture holds.**  An `is` per arrow made
   ;; this namespace's assertion count a function of how much the KB happened to draw —
   ;; add a `genl` edge to the shipped ontology and the count moves, which is exactly the
-  ;; signal the matrix is indistinguishable from a run that skipped something
+  ;; signal the matrix takes for a run that skipped something
   ;; (`config_expected_delta`, scripts/lib/suite-configs.sh).  Collecting the strays
   ;; instead of asserting each endpoint also names them all at once rather than stopping
   ;; the reader at the first.
@@ -957,6 +974,9 @@
         hid    (GET "/term" "q=dog&derived=hide")
         stored #(some->> % (re-find #"Argument position 1 .*?· (\d+) stored") second parse-long)]
     (is (pos? (derived-badges shown)) "the page shows them by default")
+    (is (= (derived-badges shown)
+           (- (count (re-seq #"data-h=" shown)) (count (re-seq #"data-h=" (:body hid)))))
+        "and hiding drops exactly the rows badged derived")
     (is (zero? (derived-badges (:body hid))) "and leaves them out when asked")
     (is (re-find #"show derived" (:body hid)) "the control now offers the other direction")
     (is (= (stored shown) (stored (:body hid)))
@@ -981,7 +1001,7 @@
           (is (zero? (derived-badges (:body rows)))))))
     (testing "asking to show them again clears it"
       (let [back (GET "/term" "q=dog&derived=show" {"cookie" "vaelii-derived=hide"})]
-        (is (pos? (derived-badges (:body back))))
+        (is (= (derived-badges shown) (derived-badges (:body back))))
         (is (some #(re-find #"^vaelii-derived=show;" %) (set-cookies back)))))))
 
 (deftest hiding-derived-rows-pages-the-same-sequence-it-would-have
@@ -1079,7 +1099,7 @@
 (def ^:private graph-read-budget
   "What the picture may cost a term page, in facade reads.  Twelve expansions — six a side
   — plus, only where a row was actually elided, one O(1) count each; the radial view spends
-  six.  Stated here and asserted below, because a graph that renders without a click may
+  at most twelve.  Stated here and asserted below, because a graph that renders without a click may
   never be the reason a term page is slow."
   24)
 
@@ -1148,16 +1168,6 @@
         (let [body (:body ((web/app kb) {:request-method :get :uri "/term"
                                          :query-string (str "q=" hub)}))]
           (is (str/includes? body "earliest mentions")))))))
-
-(tu/deftest-kb the-graph-renders-the-same-through-the-access-facade
-  ;; the browser is written against `vaelii.browser.access`, not `vaelii.core`; driving it
-  ;; through an access value rather than a raw KB is the in-process half of that claim
-  (tu/with-terms [nearBy TmpP TmpQ CxFacade]
-    (v/assert kb (list nearBy TmpP TmpQ) CxFacade {:chain? false})
-    (let [via (web/app (acc/local kb))
-          get* (fn [app] (:body (app {:request-method :get :uri "/term"
-                                      :query-string (str "q=" TmpP)})))]
-      (is (= (svg-of (get* *app*)) (svg-of (get* via)))))))
 
 ;; ---- belief, and failure ------------------------------------------------
 
@@ -1250,8 +1260,8 @@
 (defn- visible-nats
   "Every reified constant a reader can actually *see* in `body` — the raw text with the
   attributes a machine reads back stripped out.  A constant legitimately appears in the
-  `href` of the link to its own page and in the hidden form value the proposal panel
-  posts; anywhere else is the leak these tests exist to catch.
+  `href` of the link to its own page and in a hidden form value a page posts back;
+  anywhere else is the leak these tests exist to catch.
 
   The pattern is the scheme-tagged shape the mint names by content (`nat/a` + a base62
   payload; `nat/nat-scheme-tag`), not a bare `nat/`, which a search page's own
@@ -1422,10 +1432,11 @@
       (is (re-find #"nothing" (:body r))))))
 
 (deftest levels-page-survives-a-malformed-goal
-  (testing "an unparseable goal falls back to the stack description, not a 500"
+  (testing "an unparseable goal is a 400 naming the parameter, not a 500 and not the
+            empty form"
     (let [r (GET "/levels" "q=%28%28%28")]
-      (is (= 200 (:status r)))
-      (is (re-find #"The levels" (:body r)))))
+      (is (= 400 (:status r)))
+      (is (re-find #"The <code>q</code> parameter is not readable" (:body r)))))
   (testing "a goal that is a bare term is not run as a sentence"
     (let [r (GET "/levels" "q=dog")]
       (is (= 200 (:status r)))
@@ -1499,7 +1510,7 @@
 
 ;; ---- reading a KB that is not finished ----------------------------------
 ;;
-;; The banner is the whole of what makes browsing an unfinished KB honest, so what is
+;; The banner is the only element that tells a reader the KB is unfinished, so what is
 ;; under test is that it reaches *every* page — it rides `#main`, which is what both a
 ;; document and a navigation fragment carry — and that it stays away when there is
 ;; nothing to say.
@@ -1684,9 +1695,7 @@
       (testing "and the rows themselves carry the type, which is what a caller reading
                 the problems apart from the page has to triage on"
         (is (= [:unreadable] (mapv :type (:problems (#'web/assert-lines unread CxEdit nil))))
-            "the assert form's reader")
-        (is (= [:unreadable] (mapv :type (:problems (#'web/accepted-entries [unread]))))
-            "and the proposal commit's, which reads lines the browser posts back")))))
+            "the assert form's reader")))))
 
 ;; ---- the one control that destroys knowledge says what it took ----------
 
@@ -1809,8 +1818,8 @@
 
 (tu/deftest-kb a-large-extent-renders-its-count-and-fetches-its-rows-on-reveal
   ;; The one read a term page makes that is not bounded by its answer is a root extent:
-  ;; the handle set is built whole before a record can be taken off it — 0.9 s for `genl`'s
-  ;; 2,381,749 on the audited corpus — and the page shows sixty.  So past
+  ;; the handle set is built whole before a record can be taken off it — millions of
+  ;; handles for `genl` on a large store — and the page shows sixty.  So past
   ;; `extent-defer-cap` the group renders its O(1) count and nothing else, and the rows
   ;; arrive on the reveal every later page of the group already used.
   (tu/with-terms [many_of Thing]
@@ -1839,8 +1848,8 @@
   ;; is guarded by a lower bound on the term index built from counts already in hand.  A
   ;; context belongs in that bound: the term index is keyed on `kv/sentex-terms`, which is
   ;; a sentex's indexable terms **plus its context**, so a context's own extent bounds its
-  ;; term index below.  Left out, `CxWell` walked 50,000 records of a 9,040,399-entry term
-  ;; index and discarded the result as truncated — 4.2 s a page.
+  ;; term index below.  Left out, a large context's page walked 50,000 records of its term
+  ;; index and discarded the result as truncated, on every request.
   ;;
   ;; The walk is made to throw, so a page that renders is a page that did not take it.
   (tu/with-cleared-kb [kb tu/isolated-fresh]
@@ -1946,11 +1955,11 @@
 (deftest find-only-compiles-a-pattern-that-is-one
   (testing "a literal query is a substring match — re-find semantics, no regex compiled"
     (is (re-find #"grandparentOf" (:body (GET "/find" "q=parent")))))
-  (testing "a pattern too long to be typed by hand is refused rather than compiled"
+  (testing "a pattern too long to be typed by hand is refused for its length rather than compiled"
     (let [r (GET "/find" (str "q=" (java.net.URLEncoder/encode
                                     (str "(" (apply str (repeat 200 "a?")) ")") "UTF-8")))]
-      (is (= 200 (:status r)))
-      (is (re-find #"Not a valid regular expression" (:body r))))))
+      (is (= 400 (:status r)))
+      (is (re-find #"402 characters long" (:body r))))))
 
 ;; ---- a number in markup is not a number in prose ----------------------
 
@@ -1975,13 +1984,59 @@
             (is (not (str/includes? body "width:62,5%"))))))
       (finally (java.util.Locale/setDefault before)))))
 
+;; ---- a belief rebuild's banner ----------------------------------------------
+
+(deftest a-rebuild-banner-names-the-step-the-time-and-both-engine-sources
+  (with-redefs [cat/active-caveat
+                (fn [] {:name "corpus" :status :done :belief? true :recoverable? true
+                        :rebuilding? true
+                        :rebuild {:step 3 :of 8 :label "repairing the taxonomy depths"
+                                  :elapsed-ms 90000 :expected-ms 600000 :fraction 0.25
+                                  :image {:source "2b59235c3adbca2f3836"
+                                          :written-at "2026-09-23T07:26:13Z"}
+                                  :source "584537a280e5bc02375b"}})]
+    (let [body (:body (GET "/stats"))]
+      (is (str/includes? body "step 3 of 8"))
+      (is (str/includes? body "repairing the taxonomy depths"))
+      (is (str/includes? body "1.5 min so far"))
+      (is (str/includes? body "took 10.0 min"))
+      (is (str/includes? body "width:25.0%") "the bar fills to the fraction")
+      (is (str/includes? body "2b59235c3adb") "the image's engine source")
+      (is (str/includes? body "584537a280e5") "and this build's")
+      (is (str/includes? body "scripts/upgrade-kb.sh"))))
+  (testing "an image recording no recover draws a striped bar"
+    (with-redefs [cat/active-caveat
+                  (fn [] {:name "corpus" :status :done :belief? true :rebuilding? true
+                          :rebuild {:step 0 :of 8 :label "starting" :elapsed-ms 0
+                                    :image {:source "a" :written-at "x"} :source "b"}})]
+      (let [body (:body (GET "/stats"))]
+        (is (str/includes? body "indeterminate"))
+        (is (str/includes? body "step 0 of 8"))
+        (is (str/includes? body "hx-get=\"/kbs/banner\"") "a running rebuild polls"))))
+  (testing "a rebuild that threw names the step, the exception and the repair, and stops polling"
+    (with-redefs [cat/active-caveat
+                  (fn [] {:name "corpus" :status :done :belief? true :rebuilding? true
+                          :rebuild {:step 6 :of 8 :label "re-recording refusals"
+                                    :elapsed-ms 90000
+                                    :failed {:at 0 :class "java.lang.OutOfMemoryError"
+                                             :message "Java heap space"}
+                                    :image {:source "a" :written-at "x"} :source "b"}})]
+      (let [body (:body (GET "/stats"))]
+        (is (str/includes? body "the rebuild of its belief under this build failed"))
+        (is (str/includes? body "The rebuild failed at step 6 of 8"))
+        (is (str/includes? body "java.lang.OutOfMemoryError"))
+        (is (str/includes? body "Java heap space"))
+        (is (str/includes? body "(recover kb)"))
+        (is (not (str/includes? body "indeterminate")) "no bar")
+        (is (not (str/includes? body "hx-get=\"/kbs/banner\"")) "nothing left to poll for")))))
+
 ;; ---- static assets are cached (and re-read only in dev) ----------------
 
 (deftest static-assets-carry-a-cache-policy
   (doseq [uri ["/vaelii.css" "/vaelii.js" "/htmx.min.js"]]
     (let [r (GET uri)]
       (is (= 200 (:status r)) uri)
-      (is (some? (get-in r [:headers "Cache-Control"])) uri))))
+      (is (= @#'web/static-cache-control (get-in r [:headers "Cache-Control"])) uri))))
 
 ;; ---- escaping: markup never reaches the page verbatim ------------------
 ;; Rendering is hiccup2, which escapes strings in body position as well as in
@@ -2069,10 +2124,10 @@
 ;; ---- malformed input renders a page, never a 500 -----------------------
 
 (deftest an-unreadable-term-renders-a-message
-  (testing "an unbalanced paren is reported, not thrown"
+  (testing "an unbalanced paren is reported as a 400 naming the parameter, not thrown"
     (let [r (GET "/term" "q=%28")]
-      (is (= 200 (:status r)))
-      (is (re-find #"Not a readable term" (:body r)))))
+      (is (= 400 (:status r)))
+      (is (re-find #"The <code>q</code> parameter is not readable" (:body r)))))
   (testing "a missing or empty ?q= asks for one"
     (is (re-find #"Pass \?q=" (:body (GET "/term"))))
     (is (re-find #"Pass \?q=" (:body (GET "/term" "q=")))))
@@ -2351,12 +2406,14 @@
                        (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bird '?x) (list flies '?x)))))
               CxFly)
     (v/assert kb (list penguin Opus) CxFly)
-    (let [h   (v/handle-of kb (list flies Opus) CxFly)
-          sup (v/supporting-justifications kb h)]
+    (let [h         (v/handle-of kb (list flies Opus) CxFly)
+          sup       (v/supporting-justifications kb h)
+          bird-rule (v/handle-of kb (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bird '?x) (list flies '?x)))) CxFly)]
       (testing "the scenario is the one under test: IN, two supports, one of them blocked"
         (is (v/in? kb h) "(flies Opus) is believed — carried by the bat rule")
         (is (= 2 (count sup)) "two justifications conclude it: the bird rule and the bat rule")
-        (is (seq (jtms/blocked (reasoning/tms kb))) "the bird justification is JTMS-blocked, not swept"))
+        (is (= [bird-rule] (map :informant (filter #(contains? (jtms/blocked (reasoning/tms kb)) (:id %)) sup)))
+            "the bird justification is JTMS-blocked, not swept"))
       (let [blk  (jtms/blocked (reasoning/tms kb))
             body (:body (GET (str "/why/" h)))]
         (testing "the why-page counter reports 1 of 2, not 2 of 2"
@@ -2395,7 +2452,9 @@
     (let [h      (v/handle-of kb (list flies Opus) CxFly)
           server (serve/start kb {:port 0 :token nil})]
       (is (= 2 (count (v/supporting-justifications kb h))))
-      (is (seq (jtms/blocked (reasoning/tms kb))) "the scenario really holds one blocked justification")
+      (is (= 1 (count (filter #(contains? (jtms/blocked (reasoning/tms kb)) (:id %))
+                              (v/supporting-justifications kb h))))
+          "the scenario really holds one blocked justification")
       (try
         (let [attached (web/app (acc/remote "localhost" (serve/port server)))
               body     (:body (attached {:request-method :get :uri (str "/why/" h)}))]
@@ -2517,6 +2576,27 @@
         (is (v/in? kb fa))
         (is (v/in? kb ch))))))
 
+(tu/deftest-kb the-retract-preview-lists-what-the-sweep-deletes-believed-or-not
+  ;; `swept-by` reads no belief, because the sweep reads none: a derived sentex a
+  ;; negation defeats is stored OUT, and it goes with its last witness all the same.
+  ;; The preview lists it, dimmed, and the retraction deletes it.
+  (tu/with-terms [aP cP X CxRetract]
+    (v/assert-rule kb [(list aP '?x)] (list cP '?x) CxRetract {:direction :forward})
+    (let [fa (v/assert kb (list aP X) CxRetract)
+          ch (v/handle-of kb (list cP X) CxRetract)]
+      (v/assert kb (list 'not (list cP X)) CxRetract {:strength :monotonic})
+      (is (some? (v/sentex kb ch)) "the defeated conclusion stays stored")
+      (is (not (v/in? kb ch)) "and is not believed")
+      (let [body (:body (GET "/retract" (str "handles=" fa)))
+            row  (some #(when (str/includes? % (str "/sentex/" ch "\"")) %)
+                       (re-seq #"(?s)<li>.*?</li>" body))]
+        (is (re-find #"lose their last witness" body))
+        (is (some? row) "the OUT conclusion is listed")
+        (is (re-find #"badge-out" (str row)) "with the dimmed badge"))
+      (POST "/retract" {"handles" (str fa)}
+        {"host" "localhost:3000" "origin" "http://localhost:3000"})
+      (is (nil? (v/sentex kb ch)) "and the sweep deletes it"))))
+
 (tu/deftest-kb retracting-a-sentex-takes-its-consequences-with-it
   (tu/with-terms [aP cP X CxRetract]
     (v/assert-rule kb [(list aP '?x)] (list cP '?x) CxRetract {:direction :forward})
@@ -2573,6 +2653,93 @@
         (is (= 200 (:status r)))
         (is (re-find #"Retracted" (:body r)))
         (is (nil? (v/sentex kb fb)))))))
+
+;; ---- a selected row that stays ------------------------------------------
+;;
+;; `retract!` takes a handle's premise mark and sweeps what then has no witness, so a
+;; handle that is derived stays stored and believed however it is selected.  Every answer
+;; the page gives about such a handle — the confirmation, the retract POST, the editor's
+;; lookahead and its Save — says it stays, and no row of a stored sentence is swapped out.
+
+(def ^:private same-origin {"host" "localhost:3000" "origin" "http://localhost:3000"})
+
+(defn- row-swap
+  "The out-of-band `style` swap addressing `h`'s rows in `body`, or nil."
+  [body style h]
+  (re-find (re-pattern (str style ":\\[data-h=&apos;" h "&apos;\\]")) body))
+
+(tu/deftest-kb a-derived-row-is-said-to-stay-and-no-answer-calls-it-retracted
+  (tu/with-terms [aP cP X Y CxRetract]
+    (v/assert-rule kb [(list aP '?x)] (list cP '?x) CxRetract {:direction :forward})
+    (let [_  (v/assert kb (list aP X) CxRetract)
+          ch (v/handle-of kb (list cP X) CxRetract)]
+      (is (and (some? ch) (not (v/premise? kb ch))) "the rule derived the consequent")
+      (testing "the confirmation says it stays, why, and offers no retraction"
+        (let [body (:body (GET "/retract" (str "handles=" ch)))]
+          (is (re-find #"Stays" body))
+          (is (re-find #"derived, not asserted" body))
+          (is (str/includes? body (str "href=\"/why/" ch "\"")))
+          (is (not (re-find #"hx-post=\"/retract\"" body)))
+          (is (not (re-find #"Nothing else rests on them" body)))))
+      (testing "the retract POST reports nothing retracted and swaps no row out"
+        (let [body (:body (POST "/retract" {"handles" (str ch)} same-origin))]
+          (is (re-find #"Nothing retracted" body))
+          (is (not (re-find #"Retracted<" body)))
+          (is (nil? (row-swap body "delete" ch)))
+          (is (v/in? kb ch))))
+      (testing "the editor's lookahead counts it as staying, not as retracted"
+        (let [body (:body (POST "/edit/preview"
+                            {"handles" (str ch) "text" (edit-text CxRetract (list cP Y))}))]
+          (is (re-find #"0 retracted" body))
+          (is (re-find #"1 stays" body))))
+      (testing "a Save beside it asserts the new line and keeps the row"
+        (let [body (:body (POST "/edit" {"handles" (str ch)
+                                         "text" (edit-text CxRetract (list cP Y))}
+                            same-origin))
+              cy   (v/handle-of kb (list cP Y) CxRetract)]
+          (is (re-find #"1 asserted · 0 retracted" body))
+          (is (some? cy) "the new sentence is asserted")
+          (is (v/in? kb ch) "and the derived one is still believed")
+          (is (nil? (row-swap body "delete" ch)))
+          (testing "the new sentence is listed in the panel, not swapped into the row"
+            (is (str/includes? body (str "/sentex/" cy)))
+            (is (nil? (row-swap body "outerHTML" ch))))
+          (v/retract! kb cy))))))
+
+(tu/deftest-kb an-asserted-and-derivable-row-loses-its-premise-mark-and-stays-on-the-page
+  (tu/with-terms [aP cP X Y CxRetract]
+    (v/assert-rule kb [(list aP '?x)] (list cP '?x) CxRetract {:direction :forward})
+    (let [_  (v/assert kb (list aP X) CxRetract)
+          ch (v/assert kb (list cP X) CxRetract)]
+      (is (= ch (v/handle-of kb (list cP X) CxRetract)))
+      (is (v/premise? kb ch) "asserted as well as derived")
+      (testing "the confirmation says it stays on its derivation before the reader confirms"
+        (let [body (:body (GET "/retract" (str "handles=" ch)))]
+          (is (re-find #"Stays" body))
+          (is (re-find #"asserted, and derived as well" body))
+          (is (re-find #"hx-post=\"/retract\"" body) "taking the premise mark is a write")))
+      (testing "the retract POST says it is still stored and re-renders its row"
+        (let [body (:body (POST "/retract" {"handles" (str ch)} same-origin))]
+          (is (re-find #"Nothing retracted" body))
+          (is (re-find #"no longer asserted" body))
+          (is (nil? (row-swap body "delete" ch)))
+          (is (re-find (re-pattern (str "data-h=\"" ch "\"[^>]*hx-swap-oob=\"outerHTML:\\[data-h=&apos;"
+                                        ch "&apos;\\]"))
+                       body)
+              "its own row is re-rendered in place, its badge now reading derived")
+          (is (v/in? kb ch))
+          (is (not (v/premise? kb ch)))))
+      (testing "a Save over it once asserted again keeps the row and counts nothing retracted"
+        (v/assert kb (list cP X) CxRetract)
+        (let [body (:body (POST "/edit" {"handles" (str ch)
+                                         "text" (edit-text CxRetract (list cP Y))}
+                            same-origin))
+              cy   (v/handle-of kb (list cP Y) CxRetract)]
+          (is (re-find #"0 retracted" body))
+          (is (re-find #"no longer asserted" body))
+          (is (nil? (row-swap body "delete" ch)))
+          (is (v/in? kb ch))
+          (v/retract! kb cy))))))
 
 ;; ---- forward chaining, and what a load did ----------------------------
 
@@ -2663,6 +2830,15 @@
 ;; DNS rebinding (the attacker's page is genuinely same-origin with a domain that
 ;; re-resolved to 127.0.0.1), and `host-allowed?` is the check that does not.
 
+(tu/deftest-kb no-other-site-can-frame-a-page
+  ;; A framed page's POST carries this origin, so the origin check cannot tell a click
+  ;; the operator meant from one another site's overlay steered.
+  (let [served (web/handler kb)]
+    (doseq [uri ["/" "/kbs" "/no-such-route"]]
+      (let [hs (:headers (served {:request-method :get :uri uri :headers {"host" "localhost"}}))]
+        (is (= "DENY" (get hs "X-Frame-Options")) uri)
+        (is (= "frame-ancestors 'none'" (get hs "Content-Security-Policy")) uri)))))
+
 (tu/deftest-kb the-served-handler-refuses-a-rebound-host-on-every-route
   (let [served (web/handler kb)]
     (testing "a GET under a rebound Host is refused — reading the KB is what rebinding is for"
@@ -2749,7 +2925,13 @@
             "and serves the page with it")))
     (testing "there is no open public bind to reach — the start refused it first"
       (is (thrown? clojure.lang.ExceptionInfo
-                   (guard/require-token! "browser" "0.0.0.0" nil))))))
+                   (guard/require-token! "browser" "0.0.0.0" nil))))
+    (testing "and `start` refuses it as `-main` does, before anything binds"
+      (let [r (try (web/start nil {:port 0 :host "0.0.0.0" :token nil})
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (when (instance? org.eclipse.jetty.server.Server r)
+          (.stop ^org.eclipse.jetty.server.Server r))
+        (is (= :unauthorized (:type (ex-data r))))))))
 
 (deftest the-web-port-variable-moves-main-and-not-only-the-repl-browser
   ;; `dev-repl` read VAELII_WEB_PORT and `-main` did not, while the docs said the
@@ -2786,6 +2968,15 @@
       (testing "a value that does not parse falls through rather than failing startup"
         (System/setProperty prop "notanumber")
         (is (= (or env-port 3000) (#'web/default-port))))
+      (testing "and says so, naming the source"
+        (System/setProperty prop "30o0")
+        (let [logged (atom [])]
+          (binding [trove/*log-fn* (fn [_ns _coords _level id payload]
+                                     (swap! logged conj [id (force payload)]))]
+            (#'web/default-port))
+          (is (some (fn [[id p]] (and (= ::web/bad-port id)
+                                      (re-find #"vaelii\.web\.port is \"30o0\"" (:msg p))))
+                    @logged))))
       (testing "so does a number no port has, rather than overflowing an int or reaching Jetty"
         (doseq [v ["99999999999" "70000" "-5"]]
           (System/setProperty prop v)

@@ -12,10 +12,19 @@
     verify <path>   — one run, then a handle-free content dump to <path>
     profile         — one warmup run, then a run with clj-async-profiler around
                       the timed section (needs the +repl profile on the classpath)
+    backends [reps] — `:memory` and `:memory-columnar` interleaved, `reps` rounds
+                      (default 3), each run's wall clock, thread CPU, allocation and
+                      resident heap, then the medians side by side
   Any mode takes flag suffixes, composable: `-ref` runs the placement fast paths
   off (that A/B's reference side), `-nosup` enumerates every trigger of a firing
   rather than one (the duplicate-suppression A/B), `-rete` matches through the alpha
-  memories (the matcher A/B) — `time-ref`, `verify-nosup`, `time-rete-ref`.
+  memories (the matcher A/B), and `-columnar` / `-dense` open that index in place of
+  `:memory` — `time-ref`, `verify-nosup`, `time-rete-ref`, `profile-columnar`.
+
+  `:memory` is the default store and the one the field bench's cell runs, so it is
+  what a plain run measures.  `backends` puts the columnar index beside it: that
+  index is the faster one on this workload, and is not the default because a reader
+  on a second thread can see its fields mid-write (docs/storage.md).
 
   `VAELII_PYRAMID_CORPUS` names the corpus directory (the one holding
   `vaelii.txt` and `expected/a_ext.sha1`) and is required — see `corpus-dir`.
@@ -44,7 +53,8 @@
             [vaelii.impl.protocols :as p]
             [vaelii.impl.rete :as rete]
             [vaelii.impl.types.reasoning :as reasoning])
-  (:import (java.security MessageDigest)))
+  (:import (java.lang.management ManagementFactory)
+           (java.security MessageDigest)))
 
 (defn- corpus-dir
   "The join.1k corpus directory, named by `VAELII_PYRAMID_CORPUS`.
@@ -72,8 +82,17 @@
       (.update md (.getBytes (str line "\n") "US-ASCII")))
     (format "%040x" (BigInteger. 1 (.digest md)))))
 
-(defn- fresh-kb []
-  (let [kb (v/open-kb {:backend :memory :space 44
+(def ^:private backend-spaces
+  "The stores a run can open, each on its own space number.  The in-RAM stores are
+  shared per space, so two backends on one number would read each other's records."
+  {:memory 44 :memory-columnar 45 :memory-dense 46})
+
+(def ^:private backend
+  "The store a run opens: `:memory` unless a `-columnar` or `-dense` flag names another."
+  (atom :memory))
+
+(defn- fresh-kb [be]
+  (let [kb (v/open-kb {:backend be :space (backend-spaces be)
                        :recover? false})]
     (p/clear-records! (:records kb))
     (p/clear-index! (:index kb))
@@ -103,11 +122,13 @@
   (atom false))
 
 (defn run-once
-  "One full cell run.  `around` (fn [thunk] -> result) wraps the timed section —
-  identity for a plain run, the profiler for a profiled one."
+  "One full cell run on `be` (default: the flag-selected store).  `around`
+  (fn [thunk] -> result) wraps the timed section — identity for a plain run, the
+  profiler for a profiled one."
   ([] (run-once (fn [t] (t))))
-  ([around]
-   (let [kb  (fresh-kb)
+  ([around] (run-once around @backend))
+  ([around be]
+   (let [kb  (fresh-kb be)
          _   (load-corpus! kb)
          _   (add-rules! kb)
          _   (when @rete? (rete/track! kb))
@@ -151,6 +172,60 @@
                "defeated" (count (jtms/defeated tms))
                "superseded" (count (jtms/superseded tms))))))
 
+(defn- measured-run
+  "One run on `be` with the thread's CPU time and allocated bytes read around the timed
+  section, and the resident heap read after it.  The KB's stores are emptied once the
+  heap is read, so the next run, on either backend, starts from a heap without them."
+  [be]
+  (let [mx  ^com.sun.management.ThreadMXBean (ManagementFactory/getThreadMXBean)
+        tid (.getId (Thread/currentThread))
+        at  (volatile! nil)
+        r   (run-once (fn [t]
+                        (let [a0 (.getThreadAllocatedBytes mx tid)
+                              c0 (.getCurrentThreadCpuTime mx)
+                              v  (t)]
+                          (vreset! at [(- (.getCurrentThreadCpuTime mx) c0)
+                                       (- (.getThreadAllocatedBytes mx tid) a0)])
+                          v))
+                      be)
+        _   (System/gc)
+        rt  (Runtime/getRuntime)
+        used (quot (- (.totalMemory rt) (.freeMemory rt)) (* 1024 1024))
+        [cpu alloc] @at]
+    (p/clear-records! (:records (:kb r)))
+    (p/clear-index! (:index (:kb r)))
+    (-> (dissoc r :kb)
+        (assoc :cpu-ms (/ cpu 1e6) :alloc-mb (/ alloc 1e6) :heap-mb used))))
+
+(defn- median [xs] (nth (sort xs) (quot (count xs) 2)))
+
+(defn- compare-backends
+  "`bes` interleaved over `n` rounds, the first of each round alternating so a drift in
+  the machine's load lands on every backend alike; one line per run, then the medians
+  with each backend's ratio to the first.  Thread CPU and allocation move far less with
+  load than wall clock does, so on a busy machine they are the columns to read."
+  [bes n]
+  (let [runs (reduce (fn [acc i]
+                       (reduce (fn [acc be]
+                                 (let [r (measured-run be)]
+                                   (println (format (str "PYRAMID backend=%s run=%d ms=%.1f cpu-ms=%.1f"
+                                                         " alloc-mb=%.0f heap-used-mb=%d gate=%s")
+                                                    (name be) i (:ms r) (:cpu-ms r)
+                                                    (:alloc-mb r) (:heap-mb r) (:pass r)))
+                                   (update acc be conj r)))
+                               acc (if (even? i) bes (rseq bes))))
+                     (zipmap bes (repeat [])) (range n))
+        med  (fn [be k] (median (map k (runs be))))
+        base (first bes)]
+    (println (format "\n  %-16s %10s %10s %10s %8s   %s" "median of runs" "wall ms" "cpu ms"
+                     "alloc MB" "heap MB" "cpu ratio to :memory"))
+    (doseq [be bes]
+      (println (format "  %-16s %10.1f %10.1f %10.0f %8d   %.2f"
+                       (name be) (med be :ms) (med be :cpu-ms) (med be :alloc-mb)
+                       (med be :heap-mb) (/ (med be :cpu-ms) (med base :cpu-ms)))))
+    (when-not (every? :pass (mapcat val runs))
+      (println "  !! a run failed the a_ext gate — its timing is not a reading"))))
+
 (defn -main [& [mode reps]]
   ;; flags suffix the mode and compose (`time-rete-ref`): `-ref` runs the placement
   ;; fast paths off (`observe/*chain-fast-paths*` root-bound false — the reference
@@ -166,6 +241,8 @@
       (alter-var-root #'observe/*chain-fast-paths* (constantly false)))
     (when (flags "nosup")
       (alter-var-root #'chain/*suppress-duplicate-firings* (constantly false)))
+    (when (flags "columnar") (reset! backend :memory-columnar))
+    (when (flags "dense") (reset! backend :memory-dense))
     (when (flags "rete")
       (reset! rete? true)
       (alter-var-root #'chain/*matcher* (constantly rete/rete-match-pattern)))
@@ -181,6 +258,9 @@
           (println (format "PYRAMID run=%d ms=%.1f a-count=%d gate=%s heap-used-mb=%d"
                            i ms a-count pass used))
           (identity kb)))
+
+      "backends"
+      (compare-backends [:memory :memory-columnar] (or (some-> reps parse-long) 3))
 
       ;; verify <path>: one run, then the handle-free content dump to <path> — diff
       ;; a plain one against a `-ref` one to prove the fixpoints identical.

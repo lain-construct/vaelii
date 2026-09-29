@@ -71,9 +71,9 @@
   store hashes its slots, a `:memory` store folds its records, a SQL store answers a count
   — and all compare against the same manifest number.  Which digest a caller passes is its
   business; the sink only compares."
-  (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
             [taoensso.trove :as trove]
+            [vaelii.impl.disk.files :as dfiles]
             [vaelii.impl.io.frames :as frames]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.protocols :as p]
@@ -146,9 +146,9 @@
   (read-manifest [_]
     (let [^File f (io/file root manifest-file)]
       (when (.exists f)
-        ;; a corrupt manifest is a different fact from an absent one, but the caller turns
-        ;; both into the same rebuild; nil, and it rebuilds
-        (try (edn/read-string (slurp f)) (catch Exception _ nil)))))
+        ;; a corrupt or oversized manifest is a different fact from an absent one, but the
+        ;; caller turns all three into the same rebuild; nil, and it rebuilds
+        (try (dfiles/read-edn-manifest f) (catch Exception _ nil)))))
   (read-section [this name]
     (let [m (or @manifest* (reset! manifest* (read-manifest this)))]
       (frames/read-chunked-seq (section-file root name) (:compression m)))))
@@ -163,8 +163,8 @@
 
 (defrecord MemoryMedium [state]
   ;; one object that is both sink and source over one atom, so a test writes and reads the
-  ;; same image without a file — and, more than a convenience, the second target that keeps
-  ;; the file sink honest: a section written here loads there and vice versa, which is the
+  ;; same image without a file — and, more than a convenience, the second target that checks
+  ;; the file sink: a section written here loads there and vice versa, which is the
   ;; portability the protocol exists to give.
   SnapshotSink
   (write-section! [_ name frames]

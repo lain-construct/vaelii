@@ -150,7 +150,7 @@
                                  (:rules (gen/plan small))))]
           (is (= (count wanted) (count rules)))
           (is (= (count (filter #(= :forward (:direction %)) wanted))
-                 (count (filter #(= :forward (:direction %)) rules))))
+                 (count (filter #(= #{:forward :backward} (:engines %)) rules))))
           (is (= (count (filter :defeasible? wanted))
                  (count (filter :defeasible rules)))))))))
 

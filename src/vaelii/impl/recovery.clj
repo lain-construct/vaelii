@@ -21,6 +21,7 @@
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.observe :as observe]
+            [vaelii.impl.overlay.frozen :as frozen]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reasoning-image :as reasoning-image]
             [vaelii.impl.settle :as settle]
@@ -38,14 +39,9 @@
 
 (defn- check-abandoned!
   "Throw an `ex-info` carrying `::abandoned` when the rebuild running on this thread has
-  been asked to stop.
-  Called through the network replay and before the closing settle, where no record has
-  been written yet, so a rebuild abandoned at one of those points leaves the stores as it
-  found them. The closing settle itself can place a conclusion, and the call after it
-  therefore sees records the abandoned rebuild wrote. A read stays on the installed image
-  until an install succeeds, a later synchronous `recover` derives from the larger record
-  set, and a crash in that window leaves a reasoning image whose fingerprint no longer
-  matches the records, so the next open recovers."
+  been asked to stop.  Called through the network replay and before the closing settle.
+  A background rebuild writes no record (`start-rebuild!`), so one abandoned at any point
+  leaves the stores as it found them."
   []
   (when-let [a *abandon?*]
     (when (a)
@@ -64,6 +60,135 @@
   replaces the installed image's, or nil.  Nil everywhere but a test, which binds it
   around `open-kb` to hold the rebuild while it reads the KB the image answers for."
   nil)
+
+;; ---- progress -----------------------------------------------------------------
+
+(def ^:private recover-steps
+  "The steps of a recover from the records, in the order `recover-from-records` runs
+  them, each with the phrase a progress line names it by."
+  [[:network  "rebuilding the belief network"]
+   [:taxonomy "replaying the taxonomy"]
+   [:depths   "repairing the taxonomy depths"]
+   [:rosters  "rebuilding the derived rosters"]
+   [:settle   "settling belief"]
+   [:refusals "re-recording refusals"]])
+
+(def ^:private rebuild-steps
+  "The steps of a belief rebuild behind an installed image: the recover's, then the two
+  `rebuild-and-install!` adds."
+  (into recover-steps [[:install "installing the rebuilt belief"]
+                       [:image   "writing the reasoning image"]]))
+
+(def ^:private step-index
+  (into {} (map-indexed (fn [i [k _]] [k i])) rebuild-steps))
+
+(def ^:private step-label (into {} rebuild-steps))
+
+(def ^:private logged-recover-size
+  "The sentex count from which a recover logs each step at `:info` rather than `:debug`.
+  A recover over a million sentexes runs for minutes."
+  1000000)
+
+(def ^:dynamic ^:private *on-step*
+  "A function of a step key from `rebuild-steps`, called as that step begins, or nil.  The
+  belief rebuild binds it (`rebuild-reporter`); a recover with none bound logs its steps."
+  nil)
+
+(defn- minutes [ms] (/ (double ms) 60000.0))
+
+(defn- step-marker
+  "A function that marks the start of a recover step when given its key, and the end of
+  the last step when given nil.  Each start goes to `*on-step*`, or is logged when none is
+  bound: at `:info` over a store of `logged-recover-size` sentexes or more, else at
+  `:debug`.  The end files the step durations in `kb`'s `:unrecovered` atom as
+  `:last-recover` `{:ms total :steps {key ms}}`, which the reasoning image's stamp carries."
+  [kb]
+  (let [on-step *on-step*
+        level   (when-not on-step
+                  (if (>= (long (cap/count-sentexes (:records kb))) (long logged-recover-size))
+                    :info
+                    :debug))
+        t0      (System/nanoTime)
+        marks   (volatile! [])
+        ms      (fn [a b] (quot (- (long b) (long a)) 1000000))]
+    (fn [k]
+      (let [now (System/nanoTime)]
+        (vswap! marks conj [k now])
+        (cond
+          (nil? k)
+          (swap! (:unrecovered kb) assoc :last-recover
+                 {:ms    (ms t0 now)
+                  :steps (into {} (map (fn [[[k a] [_ b]]] [k (ms a b)])) (partition 2 1 @marks))})
+
+          on-step (on-step k)
+
+          :else
+          (trove/log! {:level level :id ::recover-step
+                       :msg (format "recover of %s: step %d/%d, %s (%.1f min in)"
+                                    (or (:snapshot-dir kb) "an in-memory KB")
+                                    (inc (long (step-index k))) (count recover-steps)
+                                    (step-label k) (minutes (ms t0 now)))}))))))
+
+(defn- rebuild-reporter
+  "The `*on-step*` a belief rebuild of `kb` binds: file the step under `:rebuild` in `kb`'s
+  `:unrecovered` atom, where `rebuild-progress` reads it, and log it at `:info`."
+  [kb]
+  (fn [k]
+    (let [now (System/currentTimeMillis)
+          r   (:rebuild (swap! (:unrecovered kb) update :rebuild assoc
+                               :key k :step-started-at now))
+          exp (get-in r [:image :recover :ms])]
+      (trove/log! {:level :info :id ::rebuild-step
+                   :msg (format "belief rebuild of %s: step %d/%d, %s (%.1f min in%s)"
+                                (:snapshot-dir kb) (inc (long (step-index k)))
+                                (count rebuild-steps) (step-label k)
+                                (minutes (- now (long (:started-at r))))
+                                (if exp
+                                  (format "; the recover the image records took %.1f min"
+                                          (minutes exp))
+                                  ""))}))))
+
+(defn rebuild-progress
+  "Where the belief rebuild behind `kb`'s installed image has got to, or nil when none runs.
+  A rebuild that threw is reported until a `recover` replaces it, with `:failed` added and
+  its clock stopped at the throw.
+
+    :step :of :key :label    the step running now, 1-based, of `rebuild-steps`; step 0 is
+                             the moment between the open and the first step.  After a
+                             throw, the step the rebuild was in
+    :failed                  after a throw: `{:at :class :message}`, when (epoch ms), the
+                             exception's class name, and its message
+    :started-at :elapsed-ms  when the rebuild began (epoch ms), and how long ago, or how
+                             long it ran before the throw
+    :image                   the installed image's `:source` digest, its `:written-at`, and
+                             its `:recover`, the step timings of the recover it was written
+                             after, when the image records them
+    :source                  the running build's source digest
+    :expected-ms :fraction   from the image's `:recover`, when present: that recover's
+                             total, and the share of it the steps done so far took there"
+  [kb]
+  (let [u @(:unrecovered kb)]
+    (when-let [r (and (:stale-belief u) (:rebuild u))]
+      (let [now      (long (or (get-in r [:failed :at]) (System/currentTimeMillis)))
+            k        (:key r)
+            i        (when k (long (step-index k)))
+            expected (get-in r [:image :recover])
+            fraction (when-let [steps (not-empty (:steps expected))]
+                       (let [total   (reduce + 0 (vals steps))
+                             before  (reduce + 0 (keep #(get steps (first %))
+                                                       (take (or i 0) rebuild-steps)))
+                             in-step (min (long (get steps k 0))
+                                          (- now (long (or (:step-started-at r) now))))]
+                         (when (pos? (long total))
+                           (min 1.0 (/ (double (+ (long before) (if i in-step 0)))
+                                       (double total))))))]
+        (cond-> (-> r
+                    (dissoc :step-started-at)
+                    (assoc :step (if i (inc (long i)) 0) :of (count rebuild-steps)
+                           :label (if k (step-label k) "starting")
+                           :elapsed-ms (- now (long (:started-at r)))))
+          expected (assoc :expected-ms (:ms expected))
+          fraction (assoc :fraction fraction))))))
 
 (defn- recovered-supersessions
   "Every stored sentex the rebuilt equality closure displaces, as `refresh-supersessions`
@@ -162,7 +287,10 @@
         stored? (fn [h] (or (not (integer? h))
                             (contains? live h)
                             (some? (p/get-sentex rec h))))
-        skipped (volatile! 0)]
+        skipped (volatile! 0)
+        ;; the records an argument declaration's justification concludes, for the mint
+        ;; roster (`special/rebuild-minted!`), collected on this walk rather than another
+        minted  (volatile! (transient #{}))]
     ;; The replay is `settle-phases`' `:belief` centre for a `recover`: `add-justification`
     ;; relabels each consequence's region as it lands, and the region relabels compose to
     ;; the fixpoint (no closing whole-graph pass and no chaining), so this is the belief
@@ -181,8 +309,11 @@
               :let [d (p/get-justification rec id)] :when d]
         (check-abandoned!)
         (if (and (stored? (:consequence d)) (every? stored? (jtms/rests-on d)))
-          (jtms/add-justification tms d)
+          (do (jtms/add-justification tms d)
+              (when (special/mint-informant? (:informant d))
+                (vswap! minted conj! (:consequence d))))
           (vswap! skipped inc))))
+    (special/rebuild-minted! kb (persistent! @minted))
     (when (pos? (long @skipped))
       (trove/log! {:level :warn :id ::justifications-unrooted
                    :msg  (str @skipped " stored justifications name a sentex this store"
@@ -203,15 +334,12 @@
   against belief immediately after it is what narrows the caches to what the KB entails.
   Belief is settled last."
   [kb]
-  ;; The scoped closure memo (`tax/*scoped-memo-budget*`) is sized for steady-state, whose
-  ;; hot working set is a few recently-touched contexts.  A cold rebuild is the opposite:
-  ;; it reads the whole corpus from every context at once — OpenCyc induces 561 vissets by
-  ;; the budget's own census — so the default 128 flushes and re-walks `specs` closures
-  ;; forever, which the clash pass then pays per membership.  Widen it for the rebuild so
-  ;; the whole context set stays memoised; this is pure cache size (docstring: "a heap, not
-  ;; a wrong answer"), and the cap only bounds retention, so the memory is the working set
-  ;; either way — the 561 closures the walk computes regardless, kept instead of redone.
-  (binding [tax/*scoped-memo-budget* (max (long tax/*scoped-memo-budget*) 8192)]
+  ;; The taxonomy's closures are one weighted LRU (`tax/closure-memo-limit`), so a cold
+  ;; rebuild that reads the corpus from every context at once keeps its hot closures —
+  ;; the upper types every walk passes — and evicts the cold ones, rather than holding
+  ;; every closure it walks, which on a large import is a set per type and fills the heap.
+  (let [step! (step-marker kb)]
+    (step! :network)
     (rebuild-tms kb)
     (check-abandoned!)
     ;; The rebuild replays every stored `genl` / `genlCx` edge, so it is a bulk load
@@ -226,6 +354,7 @@
     ;; computes `:scc` for the whole replay instead (see the var).
     (binding [tax/*defer-depths?*    true
               tax/*defer-cycle-scc?* true]
+      (step! :taxonomy)
       (special/rebuild-taxonomy kb)
       ;; Now narrow the replayed caches to belief, and **unconditionally**.  The
       ;; region-scoped arm of `refresh-beliefs` reconciles what a settle moved, and the
@@ -240,6 +369,7 @@
       ;; placement, exception queries — reads a taxonomy that already agrees with belief;
       ;; the settle's own reconcile then keeps the two together across whatever it moves.
       (tax/refresh-beliefs (reasoning/taxonomy kb) #(jtms/in? (reasoning/tms kb) %)))
+    (step! :depths)
     (tax/restore-depths (reasoning/taxonomy kb))
     ;; Nothing about an exception is stored, so blocking cannot be read back: recovery lands
     ;; unblocked (a fresh network holds no blocks, and the settle below re-derives them) and the
@@ -247,11 +377,12 @@
     ;; below re-evaluates and withdraws them.  This is recovery, not a store mutation,
     ;; so it is a deliberate explicit trigger rather than the choke-point extension point: no
     ;; sentence arrived or left — the whole in-memory blocking state did.
+    (step! :rosters)
     (special/recheck-every-exception kb)
     ;; ...and the same for supersession, which is derived from the equality closure and
     ;; is likewise not readable back from the store.  Seeded before the settle, since
     ;; `refresh-supersessions` only re-examines the entries it already holds.
-    (special/refresh-supersessions kb (recovered-supersessions kb))
+    (special/refresh-supersessions kb (recovered-supersessions kb) nil)
     ;; the P/¬P coincidence set is derived from storage and no store holds it, so rebuild
     ;; it before the settle below reads it (`settle/negation-nogoods`)
     (kb/rebuild-opposed! kb)
@@ -273,17 +404,18 @@
     ;; could narrow only against JTMS belief. Re-run through the common transition
     ;; boundary now that recovery can also answer which declarations are excepted.
     (special/reconcile-belief-change kb)
-    ;; the last point a background rebuild can stop at: the settle below can place a
-    ;; conclusion, which writes a record into the stores the open KB shares
+    ;; the last point a background rebuild can stop at before the settle below, which can
+    ;; place a conclusion; a background rebuild's records refuse that write
     (check-abandoned!)
-    ;; ...and the settle that finishes the rebuild is told it *is* one, so the exposure
-    ;; pass stays out of it: what it reports is what a change newly made jointly visible,
-    ;; and a restore changes nothing (`settle/*rebuilding?*`).
+    ;; ...and the settle that finishes the rebuild is told it *is* one, so the passes that
+    ;; report or re-derive what a change moved stay out of it: a restore changes nothing
+    ;; (`settle/*rebuilding?*`).
     (binding [settle/*rebuilding?* true]
       ;; `rebuild-tms` made a node for every stored sentex and nothing has cleared the
       ;; touched set since, so this settle's region is the whole store and its retroactive
       ;; sweeps add no candidate (`settle/*whole-store-region?*`).  The re-fire's settle
       ;; below is not bound: its region is only what the re-fire moved.
+      (step! :settle)
       (binding [settle/*whole-store-region?* true]
         (settle/settle kb))
       ;; The **refusal** record is the other in-memory state no store holds: a firing
@@ -293,11 +425,13 @@
       ;; refuse re-records what they refuse, and it runs after the settle above because a
       ;; refusal is a claim about what the KB *believes*.  A re-fire that placed something
       ;; the narrowed re-chain had not owes a second settle.
+      (step! :refusals)
       (let [{:keys [derived]} (chain/rerecord-refusals! kb)]
         ;; ...and the lifts and declarations still waiting on an absent type,
         ;; which that re-fire does not reach
         (special/rebuild-pending! kb)
         (when (pos? (long (or derived 0))) (settle/settle kb))))
+    (step! nil)
     kb))
 
 ;; ---- rebuilding belief behind an installed image ------------------------------
@@ -325,37 +459,75 @@
     (feed/note-region! kb (into #{} (map long) moved) (into #{} (map long) was-in))
     (feed/deliver! kb)))
 
+(defn- rebuild-write-refusal
+  "The refusal a background rebuild's record store throws for the write `op`."
+  [op]
+  (let [msg (str "the belief rebuild on its own thread writes no record, and this build"
+                 " places one the image's records lack (" op " refused).  (recover kb)"
+                 " rebuilds belief on the calling thread, which writes it")]
+    (ex-info msg {:type :unrecovered-kb :hazards [:stale-belief] :operation op
+                  :repair 'recover :message msg})))
+
+(defn- read-only-records
+  "`records` refusing every write with `rebuild-write-refusal`."
+  [records]
+  (frozen/frozen-records records rebuild-write-refusal))
+
 (defn- rebuild-and-install!
-  "Recover `kb`'s belief on a second KB over its stores (`kb/rebuild-kb`), install it into
-  `kb` (`install-rebuilt!`), write `kb`'s image, and retire the `:stale-belief` hazard.
-  Returns the source digest the image carries.  Throws an `ex-info` carrying `::abandoned`
-  when the rebuild is
-  asked to stop before its install."
-  [kb]
-  (let [rebuilt (kb/rebuild-kb kb)]
+  "Recover `kb`'s belief on a second KB over its stores (`kb/rebuild-kb`, its record store
+  passed through `wrap-records`), install it into `kb` (`install-rebuilt!`), write `kb`'s
+  image, and retire the `:stale-belief` hazard.  Returns the source digest the image
+  carries.  Throws an `ex-info` carrying `::abandoned` when the rebuild is asked to stop
+  before its install."
+  [kb wrap-records]
+  (let [rebuilt (kb/rebuild-kb kb wrap-records)]
     (recover-from-records rebuilt)
     (when-let [f *before-install*] (f rebuilt))
     (check-abandoned!)
+    (when-let [f *on-step*] (f :install))
     (let [moved  (install-rebuilt! kb rebuilt)
+          ;; the rebuilt KB's step timings, for the image's stamp
+          _      (swap! (:unrecovered kb) assoc :last-recover
+                        (:last-recover @(:unrecovered rebuilt)))
+          _      (when-let [f *on-step*] (f :image))
           ;; the image before the hazard is retired, so no write lands while it is written
           source (or (:source (reasoning-image/save! kb)) (reasoning-image/source-digest))]
       (kb/note-hazards! kb {:no-belief false :stale-belief false})
       (deliver-moved! kb moved)
       source)))
 
-(defn- rebuild-failed! [dir ^Throwable t]
+(defn- rebuild-failed!
+  "Log the throw that ended `kb`'s belief rebuild, and file it under `:rebuild` as
+  `:failed`, where `rebuild-progress` reports it: a failed rebuild leaves `:stale-belief`
+  standing, and without the record a caller polling progress reads the failure as no
+  rebuild at all."
+  [kb ^Throwable t]
+  (swap! (:unrecovered kb) update :rebuild assoc
+         :failed {:at      (System/currentTimeMillis)
+                  :class   (.getName (class t))
+                  :message (.getMessage t)})
   (trove/log! {:level :error :id ::belief-rebuild-failed :error t
-               :msg (str "the belief rebuild for " dir " failed (" (.getMessage t) "). The KB"
-                         " answers from the image an earlier build wrote and refuses writes;"
-                         " (recover kb) rebuilds belief under this build in place.")}))
+               :msg (str "the belief rebuild for " (:snapshot-dir kb) " failed ("
+                         (.getMessage t) "). The KB answers from the image an earlier build"
+                         " wrote and refuses writes; (recover kb) rebuilds belief under this"
+                         " build in place.")}))
 
 (defn- start-rebuild!
   "Rebuild belief under this build for `kb`, whose open installed an image written under
   other engine source (`reasoning-image/install!`'s `:stale`), on a daemon thread, and return
   nil.  Until the rebuilt belief is installed, `kb` answers from the image and refuses writes
   (`:stale-belief`).  `kb/stop-rebuild!` and the directory close both stop the rebuild,
-  and return once it has stopped at a point that has written no record."
-  [kb]
+  and return once it has stopped.  The rebuild KB's records refuse every write
+  (`read-only-records`), so the rebuild writes no record and no index posting from this
+  thread.  A rebuild whose belief places a conclusion, and a rebuild that throws for any
+  other reason, leave the image answering and writes refused, and file the throw as
+  `:failed` under `:rebuild` (`rebuild-failed!`); `recover` then rebuilds on the calling
+  thread.
+
+  `image` is the installed image's `:source`, `:written-at` and `:recover`, and `source`
+  the running build's digest; both are filed under `:rebuild` for `rebuild-progress`, and
+  each step is logged at `:info` as it begins (`rebuild-reporter`)."
+  [kb image source-now]
   (let [dir    (:snapshot-dir kb)
         cancel (atom false)
         done   (promise)
@@ -364,8 +536,9 @@
         run    (bound-fn []
                  (let [t0 (System/nanoTime)]
                    (try
-                     (binding [*abandon?* #(deref cancel)]
-                       (reset! source (rebuild-and-install! kb)))
+                     (binding [*abandon?* #(deref cancel)
+                               *on-step*  (rebuild-reporter kb)]
+                       (reset! source (rebuild-and-install! kb read-only-records)))
                      (trove/log! {:level :info :id ::belief-rebuilt
                                   :msg (format (str "rebuilt the belief for %s under this build in"
                                                     " %.1f min and installed it; writes are accepted")
@@ -375,16 +548,23 @@
                          (trove/log! {:level :info :id ::belief-rebuild-stopped
                                       :msg (str "the belief rebuild for " dir " stopped before"
                                                 " its install; the next open recovers")})
-                         (rebuild-failed! dir e)))
-                     (catch Throwable t (rebuild-failed! dir t))
+                         (rebuild-failed! kb e)))
+                     (catch Throwable t (rebuild-failed! kb t))
                      (finally
-                       (swap! (:unrecovered kb) dissoc :stop-rebuild)
+                       ;; a failed rebuild keeps its `:rebuild` entry, `:failed` included,
+                       ;; until a `recover` replaces it
+                       (swap! (:unrecovered kb)
+                              #(cond-> (dissoc % :stop-rebuild)
+                                 (not (get-in % [:rebuild :failed])) (dissoc :rebuild)))
                        (deliver done true)))))]
     ;; `:install-pending` is filed before the open returns, so every public read of the
     ;; KB runs against a view of one belief (`kb/read-view`); `install-rebuilt!` retires
     ;; it, on this thread or on the one a `recover` runs the rebuild on.
     (kb/note-hazards! kb {:no-belief false :stale-belief true :stop-rebuild stop!
-                          :install-pending true})
+                          :install-pending true
+                          :rebuild {:started-at (System/currentTimeMillis)
+                                    :image      image
+                                    :source     source-now}})
     (reasoning-image/register-rebuild-close! kb stop! #(deref source))
     (doto (Thread. ^Runnable run (str "vaelii-belief-rebuild " dir))
       (.setDaemon true)
@@ -411,10 +591,12 @@
   [kb]
   (kb/stop-rebuild! kb)
   (if (:stale-belief @(:unrecovered kb))
-    (do (reasoning-image/register-close! kb (rebuild-and-install! kb))
-        kb)
+    (do ;; the progress of a stopped or failed background rebuild; this one runs here
+      (swap! (:unrecovered kb) dissoc :rebuild)
+      (reasoning-image/register-close! kb (rebuild-and-install! kb identity))
+      kb)
     (let [t0 (System/nanoTime)
-          {:keys [reasoning reason source image-source]}
+          {:keys [reasoning reason source image-source image]}
           (reasoning-image/install! kb (if kb/*background-belief?* #{:source-differs} #{}))
           ms #(/ (- (System/nanoTime) t0) 1e6)]
       (case reasoning
@@ -422,6 +604,8 @@
         (do (trove/log! {:level :info :id ::reasoning-image-installed
                          :msg (format "installed the reasoning image for %s in %.0f ms"
                                       (:snapshot-dir kb) (ms))})
+            ;; carried into the next image this KB writes, which no recover precedes
+            (swap! (:unrecovered kb) assoc :last-recover (:recover image))
             (reasoning-image/register-close! kb source))
 
         :stale
@@ -432,7 +616,7 @@
                                            " until the rebuilt belief is installed")
                                       (:snapshot-dir kb) (ms)
                                       (subs (str image-source) 0 (min 12 (count (str image-source)))))})
-            (start-rebuild! kb))
+            (start-rebuild! kb image source))
 
         (do (when (reasoning-image/applies? kb)
               (trove/log! {:level :info :id ::reasoning-image-declined

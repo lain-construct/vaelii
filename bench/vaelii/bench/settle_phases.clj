@@ -1,11 +1,10 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.settle-phases
-  "Where a bulk settle spends its **wall clock**, attributed to the four cost centres —
-  the reading `settle-parallelism.md`'s candidates are each argued against, and which
+  "Where a bulk settle spends its **wall clock**, attributed to the cost centres
   `vaelii.impl.settle-phases` collects.
 
-  Two shapes, the ones prompts 02 and 03 divide:
+  Two shapes:
 
   * **the additive load** — one forward rule and `n` facts, chaining ON, so the settle
     machinery runs per assert: a stream of small relabels, a chain firing per fact, and
@@ -27,10 +26,10 @@
   Run: `lein bench-settlephases [n] [memory|disk|both]`
   (defaults 200000 both).  Wall-clock is UNTRUSTED under contention: the split (a ratio
   between centres measured in one run) survives a shared box, but the absolute
-  millisecond does not — re-run the 1M/10M loads solo, as `scale-100m.md` Phase 0 does.
+  millisecond does not, so re-run the 1M/10M loads solo.
 
-  This is the caller `settle-phases` has in mind when its docstring says nothing there
-  formats: the percentiles and the split are taken here."
+  `vaelii.impl.settle-phases` formats nothing: the percentiles and the split are taken
+  here."
   (:require [clojure.string :as str]
             [vaelii.bench.util :as u :refer [zipf-sample]]
             [vaelii.core :as v]

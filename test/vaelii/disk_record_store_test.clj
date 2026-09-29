@@ -852,6 +852,40 @@
                 (is (nil? (p/get-sentex s c))))))
           (finally (drs/close! s)))))))
 
+;; A reader that pages a record in and a writer that tombstones it race on the cache put.
+;; The kind's cache is replaced with a map whose put parks until released, the reader
+;; parks there, and the writer's `kill!` runs while it is parked: the put must not land
+;; after the writer's drop, or the tombstoned record answers every later read.
+(deftest a-read-cannot-put-a-record-back-after-the-writer-drops-it
+  (with-tmp
+    (fn [dir]
+      (let [s (drs/open-record-store dir)]
+        (try
+          (let [a       (p/put-sentex s {:sentence '(dog Muffet) :context 'C})
+                inner   (java.util.concurrent.ConcurrentHashMap.)
+                parked  (promise)
+                release (promise)
+                cache   (reify java.util.Map
+                          (get [_ id] (.get inner id))
+                          (put [_ id rec] (deliver parked true) @release (.put inner id rec))
+                          (remove [_ id] (.remove inner id)))
+                k       (assoc (:sentexes (:kinds s)) :cache cache)
+                lock    ^java.util.concurrent.locks.ReentrantReadWriteLock (:lock k)
+                reader  (future (#'drs/fetch k a))
+                _       (deref parked 10000 nil)
+                writer  (future (#'drs/kill! k a))]
+            ;; the writer has either finished or is waiting on the kind lock the reader holds
+            (loop [i 0]
+              (when (and (< i 10000) (not (realized? writer)) (not (.hasQueuedThreads lock)))
+                (Thread/sleep 1)
+                (recur (inc i))))
+            (deliver release true)
+            (is (= '(dog Muffet) (:sentence (deref reader 10000 nil))) "the reader read the live record")
+            (deref writer 10000 nil)
+            (is (nil? (.get inner a)) "the cache does not hold the record the writer tombstoned")
+            (is (nil? (#'drs/fetch k a)) "and a later read answers nothing for it"))
+          (finally (drs/close! s)))))))
+
 (deftest hot-cache-is-bounded-and-lru
   (with-tmp
     (fn [dir]
@@ -924,7 +958,8 @@
             a  (p/put-sentex s1 {:sentence '(dog Muffet) :context 'C})
             b  (p/put-sentex s1 (sentex-types/->LiteralSentex '(bornIn Tom 1970) 'CxWell nil :monotonic))
             r  (p/put-sentex s1 (sentex-types/->RuleSentex 'C nil '[(dog ?var0)] '(mammal ?var0)
-                                                           :monotonic '{?var0 ?x} :forward true nil nil))
+                                                           :monotonic '{?var0 ?x} #{:forward :backward}
+                                                           true :derive))
             d  (p/put-justification s1 {:informant :rule :antecedents [a b]})]
         (testing "reads back in the same session"
           (is (= '(bornIn Tom 1970) (:sentence (p/get-sentex s1 b))))
@@ -943,7 +978,7 @@
                 (is (= '(mammal ?var0) (:consequent rule)))
                 (is (vector? (:antecedent rule)))
                 (is (= '{?var0 ?x} (:varmap rule)))
-                (is (= :forward (:direction rule))))
+                (is (= #{:forward :backward} (:engines rule))))
               (is (= [a b] (:antecedents (p/get-justification s2 d))))
               (finally (drs/close! s2)))))
 
@@ -1002,6 +1037,72 @@
             (let [c (p/put-sentex s2 (sentex-types/->LiteralSentex '(cat Tom) 'C nil nil))]
               (is (= '(cat Tom) (:sentence (p/get-sentex s2 c)))))
             (finally (drs/close! s2))))))))
+
+;; ---- a token frame that does not thaw -----------------------------------
+;; A frame of `tokens.log` that does not thaw, with frames after it, is not the torn tail
+;; `a-record-citing-a-lost-token-is-tombstoned-on-open` repairs.  Read as one, it ended
+;; the dictionary at that frame, and the open's walk tombstoned on disk every record
+;; citing a later token: 27 of 31 here.  Two faults reach it — an `OutOfMemoryError`
+;; inside one thaw, and two zeroed payload bytes under an intact length prefix.
+
+(defn- thirty-one-records!
+  "A tokenized store under `dir` holding 31 sentexes, each naming a token of its own, closed."
+  [dir]
+  (let [s (drs/open-record-store dir {:tokenize? true})]
+    (dotimes [i 30]
+      (p/put-sentex s (sentex-types/->LiteralSentex (list 'dog (symbol (str "Rex" i))) 'C nil nil)))
+    (p/put-sentex s (sentex-types/->LiteralSentex '(genl dog animal) 'C nil nil))
+    (drs/close! s)))
+
+(defn- frame-offset
+  "The byte offset of frame `i` of the log at `path`, walked by its length prefixes."
+  ^long [^String path ^long i]
+  (with-open [raf (RandomAccessFile. path "r")]
+    (loop [pos 0 k 0]
+      (if (= k i)
+        pos
+        (do (.seek raf pos) (recur (+ pos 4 (.readInt raf)) (inc k)))))))
+
+(defn- record-count [dir]
+  (let [s (drs/open-record-store dir {:tokenize? true})]
+    (try (count (p/sentex-ids s)) (finally (drs/close! s)))))
+
+(deftest a-damaged-token-frame-refuses-the-open-and-tombstones-nothing
+  (with-tmp
+    (fn [dir]
+      (thirty-one-records! dir)
+      (let [tl    (str dir "/records/tokens.log")
+            off   (frame-offset tl 7)
+            saved (byte-array 2)]
+        (with-open [raf (RandomAccessFile. tl "rw")]
+          (.seek raf (+ off 4)) (.readFully raf saved)
+          (.seek raf (+ off 4)) (.write raf (byte-array 2)))
+        (let [e (is (thrown? clojure.lang.ExceptionInfo
+                             (drs/open-record-store dir {:tokenize? true})))]
+          (is (= {:type :damaged-frame :path tl :offset off :frame 7}
+                 (select-keys (ex-data e) [:type :path :offset :frame]))
+              "the refusal names the token log, the frame and its offset"))
+        (with-open [raf (RandomAccessFile. tl "rw")]
+          (.seek raf (+ off 4)) (.write raf saved))
+        (is (= 31 (record-count dir))
+            "with the two bytes restored every record is still on disk")))))
+
+(deftest an-error-inside-a-token-thaw-fails-the-open-and-tombstones-nothing
+  (with-tmp
+    (fn [dir]
+      (thirty-one-records! dir)
+      (let [thaw   @#'f/thaw-bytes
+            opener (Thread/currentThread)
+            n      (atom 0)]
+        ;; the token log is the first log the open thaws, and it holds 30+ frames
+        (with-redefs [f/thaw-bytes (fn [bs]
+                                     (if (and (identical? opener (Thread/currentThread))
+                                              (= 8 (swap! n inc)))
+                                       (throw (OutOfMemoryError. "witness"))
+                                       (thaw bs)))]
+          (is (thrown? OutOfMemoryError (drs/open-record-store dir {:tokenize? true}))))
+        (is (= 8 @n) "the fault fired inside the token scan")
+        (is (= 31 (record-count dir)) "the next open reads every record")))))
 
 (deftest an-idle-tick-does-not-rewrite-the-counters-blob
   ;; The durability daemon calls `fsync` every three seconds for the life of the process,

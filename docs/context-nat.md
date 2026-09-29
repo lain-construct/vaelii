@@ -111,18 +111,21 @@ written before January existed (vaelii#56). The producer calls
 `special/reconcile-context-edge`, the one entry point all three paths share, on the
 **transition into belief**: after the justification, because the sweeps read the
 belief-filtered closure and a line earlier the edge supports nothing, and only on the
-transition, because this producer is idempotent and re-runs over every context of a
-declared function — an edge owes exactly one sweep in its life, and a second route to one
-already believed widens no ancestor set and owes none. What it merges is carried back out to
+transition, because this producer is idempotent and a declaration or a revival re-runs it
+over every pair of a function's contexts — an edge owes exactly one sweep in its life, and a
+second route to one already believed widens no ancestor set and owes none. What it merges is carried back out to
 `assert`, which gives it the same follow-through an asserted edge's merges get: the
 retired spellings reconciled, the twins chained, the violations reported, one settle.
 
 **Every arrival order converges.** Three things can arrive last, and each has an arm. A
-declaration arriving after the contexts sweeps them (`reconcile-function`); a context
-arriving after a declaration is swept when it is stored into; and an `(R a b)` **evidence
-fact** arriving after both sweeps the functions declared to order by `R`
-(`functions-ordered-by`), which is the arm a comparator dimension never needs and a
-stored-fact one cannot do without. The maintenance hook sits beside the correspondence
+declaration arriving after the contexts sweeps every pair of them (`reconcile-function`); a
+context arriving after a declaration is swept when it is minted, over the pairs it is in;
+and an `(R a b)` **evidence fact** arriving after both sweeps the pairs ordered `a` below `b`
+in the functions declared to order by `R` (`functions-ordered-by`), which is the arm a
+comparator dimension never needs and a stored-fact one cannot do without. A fact stored into
+a context that already exists creates no pair and sweeps nothing, so its cost does not grow
+with the context's siblings (`lein perf`'s `context-nat-existing-context`); a mint costs one
+oracle call per sibling. The maintenance hook sits beside the correspondence
 reconcile at the tail of `assert` and behind the same free in-memory reifiable gate — a
 `context_denoting_function` is a reify-kind, so any KB with a context NAT to order already
 passes it, and a KB that reifies nothing pays neither the hook nor the

@@ -190,7 +190,7 @@
     (v/assert kb (list p1 'Muffet Ind1) CxA)
     (v/assert kb (list p2 Ind1 Ind2) CxB)
     (let [goal [(list p1 'Muffet '?x) (list p2 '?x '?y)]]
-      (is (seq (v/query kb goal 'CxEverything))
+      (is (= [{'?x Ind1 '?y Ind2}] (vec (v/query kb goal 'CxEverything)))
           "the syntactic reading asks what the store spells, not what a vantage holds")
       (is (empty? (v/query kb goal 'CxInference))
           "which is the whole difference between the two"))))
@@ -245,8 +245,8 @@
   ;; `ist` resolution runs first, so the named context wins and there is no query context
   ;; left to refuse — the entry point answers about CxUniverse, as it would have anyway.
   (tu/with-terms [p1 Ind1]
-    (v/assert kb (list p1 Ind1) 'CxUniverse)
-    (is (some? (v/handle-of kb (list 'ist 'CxUniverse (list p1 Ind1)) 'CxInference)))))
+    (let [h (v/assert kb (list p1 Ind1) 'CxUniverse)]
+      (is (= h (v/handle-of kb (list 'ist 'CxUniverse (list p1 Ind1)) 'CxInference))))))
 
 ;; ---- post-hoc's ingredients are not only the facts -----------------------
 

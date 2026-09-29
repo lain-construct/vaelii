@@ -360,6 +360,33 @@
               (frames/close-frames! s)))))                   ; closed under the failure; a no-op
       (finally (rm-rf! dir)))))
 
+(defn- closer-over-a-walked-seq
+  "A `frames/closer` over a chunked reader of `f` whose first two chunks have been read, and
+  a weak reference to that reader's head, which nothing else holds."
+  [f]
+  (let [s (frames/read-chunked-seq f :none)]
+    (dorun (take 8 s))
+    [(frames/closer s) (java.lang.ref.WeakReference. s)]))
+
+(deftest a-closer-holds-the-stream-and-not-the-frames
+  ;; A consumer holds the closer for its whole walk (`with-open`), so a closer holding the
+  ;; seq keeps every frame the walk has passed until the walk ends.
+  (let [dir (temp-dir "closer")]
+    (try
+      (let [^File f (File. dir "section.nippy.stream")]
+        (frames/write-frames! f (map (fn [i] [i (str "v" i)]) (range 40))
+                              {:compression :none :chunk-size 4})
+        (let [[^java.io.Closeable c ^java.lang.ref.WeakReference head]
+              (closer-over-a-walked-seq f)
+              collected? (loop [i 0]
+                           (System/gc)
+                           (cond (nil? (.get head)) true
+                                 (< i 50)           (do (Thread/sleep 20) (recur (inc i)))
+                                 :else              false))]
+          (is collected? "the walked frames are collectable while the closer is held")
+          (.close c)))
+      (finally (rm-rf! dir)))))
+
 ;;; ── the record hash across builds ─────────────────────────────────────
 
 ;; An index dump carries the fingerprint of the records it was derived from, and the reader
@@ -377,3 +404,13 @@
     (is (= 4125258215038561605 (fp/record-hash 1 rule)) "a rule hashes its implies form")
     (is (= 3244354055351357446 (fp/record-hash 1 lit))
         "a negative literal hashes its sentence and its sign")))
+
+(deftest a-choice-rule-and-its-bare-twin-hash-apart
+  ;; the effect is in the trie key, so an index built for one does not describe the other
+  (let [kb     (v/open-kb {:backend :memory :space (gensym "recordhash")})
+        recs   (:records kb)
+        r      '(implies (likes ?x ?y) (keeps ?x ?y))
+        hashes (for [s [r (list 'set/assumptionRule r) (list 'set/hardConstraint r)
+                        (list 'set/softConstraint r)]]
+                 (fp/record-hash 1 (p/get-sentex recs (v/assert kb s 'CxTest))))]
+    (is (= 4 (count (distinct hashes))))))

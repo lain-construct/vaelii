@@ -14,10 +14,12 @@
   file until somebody runs `lein regen-client` and reads the diff.  That is the same
   bargain the three goldens make — the red is the notification, not the chore.
 
-  These read var metadata and file text, never a KB, so they are identical across the
-  backends and owe the matrix nothing."
-  (:require [clojure.java.io :as io]
+  These read var metadata and file text, or call a wrapper with its HTTP send stubbed,
+  never a KB, so they are identical across the backends and owe the matrix nothing."
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
+            [vaelii.client :as vc]
             [vaelii.host.client :as client]
             [vaelii.host.serve :as serve]
             [vaelii.regen-client :as regen])
@@ -112,19 +114,74 @@
       (is (= (slurp (io/file path)) (regen/rendered target))
           (str path " is out of step with vaelii.host.serve/ops — `lein regen-client`")))))
 
-(deftest a-wrapper-body-sends-the-op-it-names
-  ;; Read off the file rather than called, because calling one needs a daemon: the
-  ;; generated body is `(call conn :op [args…])`, so the op keyword is in the text beside
-  ;; the name.  What this catches is a generator that emitted the right name against the
-  ;; wrong keyword — which no arity or roster check above can see.
-  (let [text (slurp (io/file "src/vaelii/host/client.clj"))]
-    (doseq [op (sort (keys serve/ops))]
-      (is (re-find (re-pattern (str "\\(defn " (java.util.regex.Pattern/quote
-                                                (str (regen/wrapper-name op)))
-                                    "\\n(?s).*?\\(call conn "
-                                    (java.util.regex.Pattern/quote (str op)) " \\["))
-                   text)
-          (str (regen/wrapper-name op) " does not send " op)))))
+(defn- accepts?
+  "Does fn `f` have an arity taking `n` arguments?  Read off the compiled class rather
+  than `:arglists`, since the arglists are metadata a `defn` can state wrongly."
+  [f n]
+  (or (some #(and (= "invoke" (.getName ^java.lang.reflect.Method %))
+                  (= n (alength (.getParameterTypes ^java.lang.reflect.Method %))))
+            (.getDeclaredMethods (class f)))
+      (and (instance? clojure.lang.RestFn f)
+           (>= n (.getRequiredArity ^clojure.lang.RestFn f)))))
+
+(defn- feed-shapes
+  "The argument vectors feed op `op` accepts, as its own `feed-args!` call names them."
+  [op]
+  (with-redefs [serve/feed-args! (fn [_ _ shapes] (throw (ex-info "shapes" {::shapes shapes})))]
+    (try ((serve/feed-ops op) {} []) nil
+         (catch clojure.lang.ExceptionInfo e (::shapes (ex-data e))))))
+
+(defn- daemon-accepts?
+  "Does the daemon run `op` on `args` without an arity refusal?  An engine op applies
+  its `vaelii.core` fn to the KB and `args` (`args` alone for a `kbless-ops` op); a
+  feed op checks `args` against its own shapes."
+  [op args]
+  (cond
+    (serve/ops op)      (accepts? @(regen/core-var op)
+                                  (cond-> (count args) (not (serve/kbless-ops op)) inc))
+    (serve/feed-ops op) (contains? (set (map count (feed-shapes op))) (count args))
+    :else               false))
+
+(defn- sent
+  "The `{:op :args}` body wrapper `f` POSTs when called on `args`, with the HTTP send
+  stubbed, so no socket opens."
+  [f args]
+  (let [body (atom nil)]
+    (with-redefs [client/send-edn (fn [_ _ b & _] (reset! body (edn/read-string b))
+                                    [200 {:ok true :result nil}])]
+      (apply f args))
+    @body))
+
+(deftest every-wrapper-sends-an-op-the-daemon-serves-at-an-arity-it-accepts
+  ;; Called at every arity, rather than read off the file: what reaches the daemon is the
+  ;; op keyword and the argument vector the body builds, and neither the arglists nor the
+  ;; generated text say what that is.  The shim is called beside the implementation, so a
+  ;; shim delegating to the wrong wrapper sends a different body.
+  (let [conn  (client/client "localhost" 4200 {:token nil})
+        own   (into {} (map (juxt regen/wrapper-name identity)) (keys serve/ops))
+        hosts (ns-publics 'vaelii.host.client)]
+    (doseq [ns-sym '[vaelii.host.client vaelii.client]
+            [nm v] (sort-by key (apply dissoc (ns-publics ns-sym) '[client health]))
+            params (:arglists (meta v))]
+      (let [args (if (= 'call nm)
+                   (cond-> [conn :contexts []] (= 4 (count params)) (conj {:timeout-ms 5}))
+                   (into [conn] (map #(keyword (str "arg" %))) (range 1 (count params))))
+            body (sent @v args)]
+        (testing (str ns-sym "/" nm " at " (count params))
+          (is (daemon-accepts? (:op body) (:args body))
+              (str "sends " (pr-str body) ", which the daemon refuses"))
+          (is (= (if (= 'call nm) [] (subvec args 1)) (:args body))
+              "the arguments cross the wire as the caller passed them")
+          (when (own nm)
+            (is (= (own nm) (:op body)) "a generated wrapper sends the op it is named for"))
+          (when (= 'vaelii.client ns-sym)
+            (is (= (sent @(hosts nm) args) body)
+                "the shim sends what the implementation sends")))))
+    (testing "the shim's conn is the implementation's"
+      (is (= (dissoc (client/client "localhost" 4200 {:token nil}) :http)
+             (dissoc (vc/client "localhost" 4200 {:token nil}) :http)))
+      (is (= (dissoc (client/client "localhost" 4200) :http)
+             (dissoc (vc/client "localhost" 4200) :http))))))
 
 (deftest the-client-requires-no-engine
   ;; The reason the wrappers are generated at build time rather than macroexpanded from
@@ -170,9 +227,8 @@
   ;; changes it — so a value carrying a trailing newline reaches the JDK, which quotes a
   ;; rejected header value *verbatim* in the `IllegalArgumentException` it raises.  That
   ;; message is the credential, in whatever log or reply the exception reaches, which is
-  ;; why the throw is replaced rather than left to travel (`vaelii.host.llm.anthropic`
-  ;; does the same for its own).  No socket opens: `with-token` sets a header on a
-  ;; builder.
+  ;; why the throw is replaced rather than left to travel.  No socket opens:
+  ;; `with-token` sets a header on a builder.
   (let [with-token #'client/with-token
         secret     "s3cret-token"
         builder    #(HttpRequest/newBuilder (URI/create "http://127.0.0.1:4200/op"))]

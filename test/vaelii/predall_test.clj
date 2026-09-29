@@ -246,15 +246,15 @@
 ;;
 ;; Cyc taught us that skolems suck, so we're not prioritizing this line of inference
 (tu/deftest-kb exists-inference-from-a-predAllExists-is-not-yet-supported
-  (tu/with-terms [parts construct llm Lain]
+  (tu/with-terms [parts construct mind Lain]
     (v/assert kb (list 'binary_predicate parts) 'CxUniverse)
     (v/assert kb (list 'unary_predicate construct) 'CxUniverse)
-    (v/assert kb (list 'unary_predicate llm) 'CxUniverse)
-    (v/assert kb (list 'predAllExists parts construct llm) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate mind) 'CxUniverse)
+    (v/assert kb (list 'predAllExists parts construct mind) 'CxUniverse)
     (is (not (v/ask? kb (list 'thereExists '?x
-                              (list 'and (list llm '?x) (list parts Lain '?x)))
+                              (list 'and (list mind '?x) (list parts Lain '?x)))
                      'CxUniverse))
-        "no existential llm part of Lain is derivable from the inert record — pending")))
+        "no existential mind part of Lain is derivable from the inert record — pending")))
 
 ;; ==== Specified class: an integrity audit ==================================
 
@@ -325,7 +325,10 @@
          (is false "arg on a type_relation_predicate must refuse through arg1 too")
          (catch clojure.lang.ExceptionInfo e
            (is (= :arg-constraint-kind (:type (ex-data e)))
-               "the relation-kind arm fires for the projection as for the ternary")))))
+               "the relation-kind arm fires for the projection as for the ternary")))
+    (is (= [:arg-constraint-kind]
+           (mapv :type (v/check kb (list 'interArg 'genl 1 dog 2 dog) 'CxUniverse)))
+        "and for an interArg over the same relation")))
 
 (tu/deftest-kb a-declaration-without-slot-typing-is-a-reported-gap
   ;; missing slot typing is an explicit declaration-contract diagnostic, never a silent
@@ -894,7 +897,7 @@
 
 (tu/deftest-kb negative-zero-permutations-are-canonicalized
   ;; Pace's Cyc-canonicalizer check: -0.0 must not be a distinct term from 0.0 (the
-  ;; Allegro bug).  Honest scope note: (= 0.0 -0.0) is true in Clojure, so the -0.0 rows
+  ;; Allegro bug).  Scope note: (= 0.0 -0.0) is true in Clojure, so the -0.0 rows
   ;; are settled by =-level canonicalization before the equality closure is ever
   ;; consulted — this pins the reader-and-equality layer, not a closure read.  (An
   ;; integer -0 literal reads as 0 and is pure reflexivity, so it is not a row.)

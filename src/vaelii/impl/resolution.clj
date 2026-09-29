@@ -9,6 +9,7 @@
   that applied to its more general types — we consult the genl closure at match
   time rather than materializing supertype facts."
   (:require [clojure.walk :as walk]
+            [vaelii.impl.budget :as budget]
             [vaelii.impl.capabilities :as cap]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.literal-cache :as lc]
@@ -555,7 +556,7 @@
   answer here is a rule that silently stops firing.
 
   An **inert rule** is a different thing and is *not* what this arm is about: it is
-  believed like any other rule and gated by its `:direction` alone
+  believed like any other rule and gated by its `:engines` alone
   (`rules/forward-sentex?` / `backward-sentex?`), which is what makes it documentation
   rather than an absence (docs/inference.md)."
   [kb handle]
@@ -662,9 +663,32 @@
   monotonic denial of a default equality is silently lost (docs/equality.md).  `different`
   is not here: it is never stored and `goal-normal-form` exempts it whole at the goal.
 
-  Mirrors `kb/equality-predicates`, which cannot be required here (`kb` requires this
-  namespace); `equality_mention_test` pins the two in step."
-  '#{rewriteOf sameAs equals})
+  The schematic half of the normal form reads the same set: `rewrite/normalize-sentence`
+  leaves these positions unrewritten too, so a stored `(not (equals (fatherOf (fatherOf
+  Tom)) (grandfather_of Tom)))` is not restated by the equation it denies.
+  `kb/equality-predicates`, which cannot be required here (`kb` requires this namespace),
+  mirrors it; `equality_test` pins the two in step."
+  rewrite/equality-relations)
+
+(defn equation?
+  "Is `sentence` a positive equation — `(rewriteOf P D)`, `(sameAs A B)` or `(equals A B)`
+  at the top?  Migration never restates one (`kb/rewritable-sentex?`), so the stored
+  equation is the only spelling of itself there will ever be.  Two readers depend on
+  that: `retired-for?` never reports an equation retired, and `goal-normal-form` asks an
+  equation goal as spelled, so the goal and the stored sentence meet unrewritten.  The
+  equality closure answers the rest of what an equation goal asks, through
+  `provers/EqualityProver`."
+  [sentence]
+  (and (sequential? sentence) (contains? equality-mention-heads (first sentence))))
+
+(defn- names-equality-relation?
+  "Does `term` hold an equality relation at any depth — `(not (sameAs A B))`, say?  The
+  flat per-symbol read in `retired-for?` does not know that such a relation's arguments
+  are mentions, so a sentence this answers true for takes the structural walk instead."
+  [term]
+  (and (sequential? term)
+       (or (contains? equality-mention-heads (first term))
+           (boolean (some names-equality-relation? term)))))
 
 (defn- spelling-term-plain
   "The spelling-only congruence walk — every non-variable symbol to its `rewriteOf`
@@ -778,7 +802,8 @@
   This covers ground congruence, which is what an identity merge does.  The oriented
   equational rewriting `kb/rewrite-term*` applies after it (`rewrite/normalize-sentence`)
   is a walk over argument terms that does not read these marks, so a schematic `equals`
-  normalizes inside a quoted position as it does outside one."
+  normalizes inside a quoted position as it does outside one.  It skips an equality
+  relation's arguments, the one mention position both halves share."
   [kb visible? term]
   (if-let [marks (tax/mention-marks (reasoning/taxonomy kb))]
     (representative-term-mention kb visible? marks term false)
@@ -851,6 +876,53 @@
     (displacements-mention kb visible? marks sentence false {})
     (displacements-plain kb visible? sentence)))
 
+(defn- visible-rewrite-rules
+  "The believed oriented rewrite rules the reader `visible?` sees (nil: every one)."
+  [kb visible?]
+  (cond->> (tax/rewrite-rules (reasoning/taxonomy kb))
+    visible? (filterv #(visible? (:handle %)))))
+
+(defn rewrite-block-fn
+  "The `:blocked?` predicate a rewrite rule carries for the reader `visible?`, or nil when
+  no denial of a ground equation over a compound term is stored.  `(blocked? redex
+  reduct)` answers whether the reader sees a believed denial naming the two terms
+  (docs/equational.md, \"A denied ground instance\").  The candidates are the denials
+  filed under the redex's head (`tax/instance-denials-at`), so a rewrite pays one map
+  read unless a denial names a term with that head.  A denied term is compared in the
+  spelling the redex has at that step: its symbols under the reader's congruence and its
+  arguments normalized under the reader's rules.  The unscoped read (`visible?` nil)
+  asks belief alone."
+  [kb visible?]
+  (let [tx (reasoning/taxonomy kb)]
+    (when (seq (tax/instance-denials tx))
+      (let [rules (visible-rewrite-rules kb visible?)
+            seen? (or visible? #(jtms/in? (reasoning/tms kb) %))
+            spell (fn [t]
+                    (let [t (representative-term kb visible? t)]
+                      (if (and (sequential? t) (seq t))
+                        (apply list (first t) (map #(rewrite/normalize rules %) (rest t)))
+                        t)))]
+        (fn [redex reduct]
+          (let [r (delay (spell reduct))]
+            (boolean
+             (some (fn [dh]
+                     (when (seen? dh)
+                       (let [[a b] (:terms (get (tax/instance-denials tx) dh))]
+                         (or (and (= redex (spell a)) (= @r (spell b)))
+                             (and (= redex (spell b)) (= @r (spell a)))))))
+                   (tax/instance-denials-at tx (first redex))))))))))
+
+(defn rewrite-rules-in
+  "The oriented rewrite rules the reader `visible?` sees (nil: every believed one), each
+  carrying the reader's `rewrite-block-fn` as `:blocked?` when there is one.  Every
+  normal form reads its rules here: `normal-form`, `provers/EqualityProver` and an
+  exception's goal rewrite."
+  [kb visible?]
+  (let [rules (visible-rewrite-rules kb visible?)]
+    (if-let [blocked? (and (seq rules) (rewrite-block-fn kb visible?))]
+      (mapv #(assoc % :blocked? blocked?) rules)
+      rules)))
+
 (defn normal-form
   "`term` (a sentence or a term) in the **equality normal form** the KB stores and asks in:
   every symbol to its class representative (`representative-term`), then argument terms
@@ -865,23 +937,35 @@
   builds it once; nil is the unscoped read, which asks about the KB rather than from a
   vantage.  `kb/rewrite-term` is the spelling for a caller holding a context instead."
   [kb term visible?]
-  (let [sym   (representative-term kb visible? term)
-        rules (cond->> (tax/rewrite-rules (reasoning/taxonomy kb))
-                visible? (filterv #(visible? (:handle %))))]
-    (rewrite/normalize-sentence rules sym)))
+  (rewrite/normalize-sentence (rewrite-rules-in kb visible?)
+                              (representative-term kb visible? term)))
+
+(defn goal-held-as-spelled?
+  "Is `goal` asked **as spelled**, exempt from the goal rewrite?  Two shapes are.
+
+  * **`different`** — rewriting its arguments would map each to its class representative,
+    so a merged pair would compare equal, and reading class membership is the whole job
+    of `different`.  `provers/DifferentProver` normalizes its own arguments instead.
+  * **A positive equation** (`equation?`) — its arguments are mentions, and a `rewriteOf`
+    spelling rename would turn `(rewriteOf P D)` into the self-edge `(rewriteOf P P)`.
+    The stored equation is never restated, so the goal meets it only as spelled, and
+    `provers/EqualityProver` reads the closure for the symmetric, reflexive and
+    transitive answers."
+  [goal]
+  (and (sequential? goal)
+       (or (= 'different (nm/functor goal))
+           (equation? goal))))
 
 (defn goal-normal-form
-  "`normal-form` for a **goal**, as `context` sees the merges, with `different` exempt —
-  rewriting its arguments would map each to its class representative, so a merged pair
-  would compare equal and reading class membership is the whole job of `different`.  The
-  prover normalizes its own arguments instead.
+  "`normal-form` for a **goal**, as `context` sees the merges, except for a goal
+  `goal-held-as-spelled?` exempts.
 
   A question asked from a context is a question about what that context holds, so a merge
   it does not inherit must not rename what it asked.  `kb/rewrite-goal` is the read entry points'
   spelling; `BeliefProjectionProver` calls this one directly, to put a proposition held
   opaque to the asker into the normal form of the **agent** whose belief it is."
   [kb goal context]
-  (if (and (sequential? goal) (= 'different (nm/functor goal)))
+  (if (goal-held-as-spelled? goal)
     goal
     (normal-form kb goal (visible-supporter-fn kb context))))
 
@@ -1005,6 +1089,7 @@
         ;; a literal pattern reads the stored `:sentence` straight, as every fact is
         rule-pat? (some? (:antecedent pat))
         psent (sx/sentence-of pat)
+        pneg? (sx/negative? pat)
         match (fn [h]
                 (when (or blind? (jtms/in? tms h))
                   (let [stored (p/get-sentex recs h)]
@@ -1019,7 +1104,7 @@
                                ;; not bind ?p to `not` against a stored negation (the
                                ;; wildcard trie lookup can surface a `[:false ..]` key, but
                                ;; the truths differ).
-                               (= (sx/negative? pat) (sx/negative? stored)))
+                               (= pneg? (sx/negative? stored)))
                       (when-let [b (unify (:context pat) (:context stored)
                                           (unify psent (if rule-pat?
                                                          (sx/sentence-of stored)
@@ -1030,53 +1115,51 @@
         cands (candidate-handles kb pat)]
     (keep match (hinting kb cands))))
 
-(defn raw-match
-  "Match a literal in one **literal** context — no genlCx inheritance, no subtype
-  fan-out — trying **both argument orders for a symmetric predicate**.  Only
-  fully-ground symmetric literals are stored sorted (see `vaelii.impl.sentex`), so the
-  mirrored probe is what makes lookup order-insensitive: it retrieves `(siblingOf
-  Ann Carol)` from the pattern `(siblingOf ?x Carol)` or `(siblingOf Carol ?x)`
-  alike, and keeps a fact reachable even if it was asserted before its `symmetric`
-  declaration.
+(defn raw-match-with
+  "Match a literal by `probe` — `(probe form)` → a seq of `[handle bindings …]`, one
+  literal context — over every argument arrangement the predicate licences: the mirror
+  for a **symmetric** predicate, the other arrangements of the commuting component for a
+  **commutative** one.  Only fully-ground symmetric and commuting literals are stored
+  sorted (see `vaelii.impl.sentex`), so the fan is what makes lookup order-insensitive:
+  it retrieves `(siblingOf Ann Carol)` from the pattern `(siblingOf ?x Carol)` or
+  `(siblingOf Carol ?x)` alike, and keeps a fact reachable even if it was asserted
+  before its `symmetric` declaration.
 
-  **Deduped by handle *and bindings*, not by handle.**  A palindrome — `(sibOf Ann
-  Ann)`, or any pattern the mirror binds exactly as the direct probe did — is one
-  answer, and dropping the second is the whole point.  But a pattern whose arguments
-  are both variables matches one stored fact **twice, differently**: `(sibOf ?a ?b)`
-  over a stored `(sibOf Rex Tib)` binds `?a Rex, ?b Tib` directly and `?a Tib, ?b Rex`
-  through the mirror, and those are two answers about one handle.  Keying the dedup on
-  the handle alone dropped the second, so a join led by such a literal saw one
-  orientation — order-dependently, since which literal leads is a plan decision — and a
-  rule that reached the fact the other way derived nothing.
+  **Deduped by handle *and bindings*, not by handle.**  A palindrome — `(sibOf Ann Ann)`,
+  or any pattern the mirror binds exactly as the direct probe did — is one answer.  A
+  pattern whose arguments are both variables matches one stored fact **twice,
+  differently**: `(sibOf ?a ?b)` over a stored `(sibOf Rex Tib)` binds `?a Rex, ?b Tib`
+  directly and `?a Tib, ?b Rex` through the mirror, and those are two answers about one
+  handle.  A dedup keyed on the handle alone drops the second, so a join led by such a
+  literal sees one orientation, and which literal leads is a plan decision.
 
-  Lazy through the mirror: `lazy-cat` defers the second probe *and* the `seen` set
-  that dedupes it, so a consumer answered by the direct hits never pays for either."
-  [kb sentence context]
-  (let [hits (match-one kb sentence context)
+  Lazy through the fan: each probe filters against what the earlier probes emitted, and
+  the set handed to the next is not built until a consumer walks past its own hits, so a
+  consumer answered by the direct hits pays for no second probe and no set.
+
+  The one definition of the fan and the dedup: `raw-match` calls it with `match-one`, the
+  rete alpha matcher (`vaelii.impl.rete`) with its alpha-memory probe, so the two
+  retrieval paths cannot fan differently."
+  [kb probe sentence]
+  (let [hits (probe sentence)
         tax  (reasoning/taxonomy kb)
         ;; the global property, matching kb-sentex's key discipline — the mirror probe
         ;; exists because storage sorted the arguments, and storage does not vary by reader
         others (if (sx/symmetric-literal? sentence #(tax/has-prop? tax :symmetric %))
                  [(sx/mirror-literal sentence)]
-                 ;; The commutativity marks generalize the mirror to a declared component:
                  ;; `commuting-arrangements` returns the literal first and then the other
                  ;; arrangements a stored fact can have, so `rest` is the fan-out.  The
-                 ;; declaration read stands in front of it so an unmarked predicate — which
-                 ;; is all but a handful, on a path every literal-context match runs — pays
-                 ;; one map lookup and builds neither the closure nor the vector.
+                 ;; declaration read stands in front of it so an unmarked predicate — all
+                 ;; but a handful, on a path every literal-context match runs — pays one
+                 ;; map lookup and builds neither the closure nor the vector.
                  (let [f (when (sequential? sentence) (first sentence))]
                    (when (and (symbol? f) (seq (tax/commuting-groups tax f)))
                      (rest (sx/commuting-arrangements
                             sentence (fn [g _] (tax/commuting-groups tax g)))))))]
     (if (seq others)
-      ;; Lazy the whole way down: each probe filters against what the *earlier* probes
-      ;; emitted, and the set it hands the next one is not built until a consumer walks
-      ;; past its own hits.  So a consumer answered by the direct hits pays for no probe
-      ;; and no set, exactly as the single mirror cost before the fan generalized it.
       (letfn [(step [forms seen]
                 (when-let [form (first forms)]
-                  (let [hs (remove (fn [[h b]] (contains? seen [h b]))
-                                   (match-one kb form context))]
+                  (let [hs (remove (fn [[h b]] (contains? seen [h b])) (probe form))]
                     (if (next forms)
                       (concat hs (lazy-seq
                                   (step (rest forms)
@@ -1084,6 +1167,13 @@
                       hs))))]
         (lazy-cat hits (step others (into #{} (map (fn [[h b]] [h b])) hits))))
       hits)))
+
+(defn raw-match
+  "Match a literal in one **literal** context — no genlCx inheritance, no subtype
+  fan-out — over every argument arrangement its predicate licences (`raw-match-with`),
+  probing the stored index with `match-one`.  Yields `[handle bindings stored-sentex]`."
+  [kb sentence context]
+  (raw-match-with kb #(match-one kb % context) sentence))
 
 (defn sub-predicates
   "The sub-predicate (genl spec) closure the matching fan-out walks for functor `f`,
@@ -1420,11 +1510,9 @@
 
           ;; A variable functor names no predicate, so there is no scope to read: the
           ;; predicate-agnostic root (a union over the slot roster) is the whole
-          ;; candidate set, and `unify` binds the functor per candidate.
-          (alt pos)
-          (reduce (fn [acc pz] (concat acc (p/sentexes-with-arg ix pz term)))
-                  (p/sentexes-with-arg ix pos term)
-                  (alt pos))
+          ;; candidate set, and `unify` binds the functor per candidate.  It permutes
+          ;; nothing either — `alts` is non-nil only with a symmetric or commuting spec —
+          ;; so there is no alternate position to read.
           :else
           (p/sentexes-with-arg ix pos term)))
       (mapcat #(p/sentexes-with-functor ix %) specs))))
@@ -1601,7 +1689,7 @@
               ;; — and the dedup keys on `[handle bindings]`, which leaves no
               ;; handle-keyed early exit to skip the fetch with.  That pairing is what
               ;; makes the two retrieval paths return one set (`raw-match` says why the
-              ;; pair is the honest key).
+              ;; pair is the key).
               (lazy-mapcat
                (fn [h]
                  (when-let [stored (admit h)]
@@ -1632,8 +1720,10 @@
 
 (defn- except-in-force?
   "Is except-handle `eh` believed **and** not itself hidden by a cascading meta-except?
-  Recursive with a `seen` set as cycle guard (unreachable with well-formed input, since
-  stratification forbids the cycle, but defensive).
+  Recursive with a `seen` set as cycle guard: `assert` admits an except only over a
+  stored handle, so the graph it builds is acyclic (`checks/check-except-target`), and
+  the guard answers for a store written by import or recovery, where a member already on
+  the walk reads as not in force.
 
   The cascade semantics: `(except H)` hides H.  `(except E)` where E is the except that
   hides H suppresses E's effect, restoring H.  `(except M)` where M is the meta-except
@@ -1673,7 +1763,8 @@
 
   Returns `{handle {:in? bool :in-force? bool}}`.  Memoization keeps a linear chain
   linear instead of re-walking every suffix while rendering the diagnostic forest.
-  `seen` retains the defensive cycle answer; valid graphs are stratified."
+  `seen` gives `except-in-force?`'s cycle answer, for a store written by import or
+  recovery."
   [tms target->ehs roots]
   (let [states (atom {})]
     (letfn [(active? [eh seen]
@@ -1694,8 +1785,9 @@
       @states)))
 
 (defn- exception-node
-  "One deterministic diagnostic node in the exception forest.  `seen` is only the
-  defensive cycle witness; valid exception graphs are stratified and never take it."
+  "One deterministic diagnostic node in the exception forest.  `seen` marks a cycle
+  `:cycle? true`, which only a store written by import or recovery can hold, since
+  `assert` admits an except only over a stored handle."
   [records states target->ehs eh seen]
   (if (contains? seen eh)
     {:handle eh :in? (get-in states [eh :in?] false) :in-force? false
@@ -1732,6 +1824,29 @@
       {:exceptions roots
        :excepted? (boolean (some :in-force? roots))})
     {:exceptions [] :excepted? false}))
+
+(defn- in-force-targets
+  "The targets of `target->ehs` (`visible-exception-index`'s answer) that an except in
+  force hides, as a set: `excepted-handles` over a roster its caller already read."
+  [kb target->ehs]
+  (if (empty? target->ehs)
+    #{}
+    (let [tms       (reasoning/tms kb)
+          ;; With a meta-except stored, the cascade is evaluated once per except over the
+          ;; whole visible roster (`exception-states`), so a chain of n excepts costs n
+          ;; reads rather than one walk of its suffix per target.
+          in-force? (if (pos? @(reasoning/meta-except-count kb))
+                      (let [states (exception-states tms target->ehs
+                                                     (into [] cat (vals target->ehs)))]
+                        #(get-in states [% :in-force?]))
+                      #(jtms/in? tms %))]
+      (persistent!
+       (reduce-kv (fn [acc target ehs]
+                    (if (some in-force? ehs)
+                      (conj! acc target)
+                      acc))
+                  (transient #{})
+                  target->ehs)))))
 
 (defn excepted-handles
   "The handles hidden from `view-context` by believed `(except (sentexHandle H))`
@@ -1774,24 +1889,7 @@
   **A caller asking about particular handles wants `excepted?`**, which answers the same
   question without materializing this set."
   [kb view-context]
-  (if-let [target->ehs (visible-exception-index kb view-context)]
-    (let [tms       (reasoning/tms kb)
-          ;; With a meta-except stored, the cascade is evaluated once per except over the
-          ;; whole visible roster (`exception-states`), so a chain of n excepts costs n
-          ;; reads rather than one walk of its suffix per target.
-          in-force? (if (pos? @(reasoning/meta-except-count kb))
-                      (let [states (exception-states tms target->ehs
-                                                     (into [] cat (vals target->ehs)))]
-                        #(get-in states [% :in-force?]))
-                      #(jtms/in? tms %))]
-      (persistent!
-       (reduce-kv (fn [acc target ehs]
-                    (if (some in-force? ehs)
-                      (conj! acc target)
-                      acc))
-                  (transient #{})
-                  target->ehs)))
-    #{}))
+  (in-force-targets kb (visible-exception-index kb view-context)))
 
 (defn except-hidden-fn
   "A predicate `(fn [handle]) -> boolean` answering, for **one** `view-context`, what
@@ -1865,6 +1963,19 @@
                          (some #(jtms/in? tms %) ehs)))
                      live)))))))))
 
+(defn install-withdrawn!
+  "Install `v` at `k` in the `:withdrawn` cache `cache`, unless the cache's generation
+  moved since the reader read generation `gen` there.  A read beside the writer computes
+  from the state before a settle's move and installs after it, so an unstamped install
+  would leave an answer about that state for every later reader, the writer included.
+  `watch` is the set of handles the answer reads (`reconcile-withdrawn!`); an entry
+  installed without one is dropped at every reconcile."
+  ([cache gen k v] (install-withdrawn! cache gen k v nil))
+  ([cache gen k v watch]
+   (swap! cache (fn [m] (if (= (::gen m) gen)
+                          (cond-> (assoc m k v) watch (assoc-in [::watch k] watch))
+                          m)))))
+
 (defn- undecided-pairs*
   [kb up]
   (let [ds @(reasoning/vantage-disagreements kb)]
@@ -1893,33 +2004,60 @@
   disagreement — which is every KB with one vantage per nogood.  Otherwise cached per
   reader beside the withdrawal it feeds, and emptied with it."
   [kb reader]
-  (if (or (empty? @(reasoning/vantage-disagreements kb)) (sx/variable? reader))
+  (cond
+    (or (empty? @(reasoning/vantage-disagreements kb)) (sx/variable? reader))
     #{}
-    (let [cache (reasoning/withdrawn kb)
-          k     [::undecided reader]
-          hit   (get @cache k ::absent)]
-      (if (identical? ::absent hit)
-        (let [v (undecided-pairs* kb (tax/context-up-global (reasoning/taxonomy kb) reader))]
-          (swap! cache assoc k v)
-          v)
-        hit))))
+
+    :else
+    (let [compute #(undecided-pairs* kb (tax/context-up-global (reasoning/taxonomy kb) reader))]
+      ;; a reader of a settle's held belief neither reads nor fills the cache
+      (jtms/through-cache
+       (reasoning/tms kb) compute
+       #(let [cache (reasoning/withdrawn kb)
+              k     [::undecided reader]
+              m     @cache
+              hit   (get m k ::absent)]
+          (if (identical? ::absent hit)
+            (let [v (compute)]
+              (install-withdrawn! cache (::gen m) k v)
+              v)
+            hit))))))
+
+(defn belief-only-antecedent
+  "The antecedent justification `j` rests on for belief and not for visibility, or nil.
+  Only a reader's copy has one: `[original equality except]` under informant `except`
+  (`special/migrate-sentex`) is stored in a context that reads the except, so the equality
+  is hidden wherever the copy is read, and that hiding is the copy's reason rather than a
+  withdrawal of it."
+  [j]
+  (when (= 'except (:informant j))
+    (nth (:antecedents j) 1 nil)))
 
 (defn- withdrawal*
+  "`{:value :watch}`: `withdrawal`'s answer, and the handles it reads — the region and
+  the `except` handles visible from `reader`, whose label decides which target is hidden."
   [kb reader with-excepts?]
-  (let [up    (tax/context-up-global (reasoning/taxonomy kb) reader)
-        und   (undecided-pairs* kb up)
-        extra (into (if with-excepts? (excepted-handles kb reader) #{})
-                    (comp (filter #(contains? up (key %)))
-                          (mapcat (fn [[v hs]] (map #(vector v %) hs)))
-                          (remove und)
-                          (map peek))
-                    @(reasoning/scoped-defeats kb))]
-    (when (seq extra)
-      (let [{:keys [region in]} (jtms/grounded-in-region (reasoning/tms kb) extra)]
-        {:region region :in in :out (into #{} (remove in) region)}))))
+  (let [up     (tax/context-up-global (reasoning/taxonomy kb) reader)
+        und    (undecided-pairs* kb up)
+        t->ehs (when with-excepts? (visible-exception-index kb reader))
+        extra  (into (in-force-targets kb t->ehs)
+                     (comp (filter #(contains? up (key %)))
+                           (mapcat (fn [[v hs]] (map #(vector v %) hs)))
+                           (remove und)
+                           (map peek))
+                     @(reasoning/scoped-defeats kb))
+        ehs    (into #{} cat (vals t->ehs))]
+    (if (empty? extra)
+      {:value nil :watch ehs}
+      (let [{:keys [region in]} (jtms/grounded-in-region (reasoning/tms kb) extra
+                                                         belief-only-antecedent)
+            out (into #{} (remove in) region)]
+        {:value {:region region :in in :out out :derived (into #{} (remove extra) out)}
+         :watch (into region ehs)}))))
 
 (defn withdrawal
-  "What `reader` reads as withdrawn, as `{:region :in :out}`, or nil when nothing is.
+  "What `reader` reads as withdrawn, as `{:region :in :out :derived}`, or nil when nothing
+  is.  `:derived` is the part of `:out` withdrawn only by resting on a withdrawn handle.
 
   Three things withdraw a handle from a reader: a believed `except` visible from it, a
   scoped defeat at a vantage it sees (`:scoped-defeats`, written by the settle), and resting
@@ -1927,14 +2065,18 @@
   first two forced OUT: `:region` is their forward consequence closure, `:in` the part of
   it that stays believed, and `:out` the rest.  So a conclusion stored in a context above
   the `except` or the vantage is withdrawn from this reader when every justification it has
-  rests on a withdrawn handle (docs/nmtms.md, \"A defeat is scoped to its vantage\").
+  rests on a withdrawn handle (docs/nmtms.md, \"A defeat is scoped to its vantage\").  A
+  reader's copy reads its equality at its current label (`belief-only-antecedent`).
 
   Nil at once, with two derefs, when the KB stores no `except` and holds no scoped defeat,
   and for a variable reader, which reads every context.  Otherwise cached per reader in
-  `:withdrawn`.  The settle empties that cache at every point it moves the network or the
-  roster (`clear-withdrawn!`), so between two settles a reader computes its answer once.  A
+  `:withdrawn`.  The settle drops the entries a move reaches at every point it moves the
+  network (`reconcile-withdrawn!`), and empties the cache when a roster moves
+  (`clear-withdrawn!`), so a reader computes its answer once per move that reaches it.  A
   forward chaining run between two settles therefore reads the consequences as they stood
   at the last settle.  The `except` targets themselves are asked live, by `hidden-fn`.
+  A thread reading a settle's held belief computes its answer and neither reads nor fills
+  the cache (`jtms/through-cache`).
 
   `with-excepts?` false leaves the `except` roster out and answers for the scoped defeats
   alone.  That is the **belief** half of the answer, which `defeat-withdrawn-set` gives
@@ -1944,14 +2086,18 @@
    (when-not (or (sx/variable? reader)
                  (and (empty? @(reasoning/scoped-defeats kb))
                       (or (not with-excepts?) (empty? @(reasoning/excepted kb)))))
-     (let [cache (reasoning/withdrawn kb)
-           k     (if with-excepts? reader [reader :defeats])
-           hit   (get @cache k ::absent)]
-       (if (identical? ::absent hit)
-         (let [w (withdrawal* kb reader with-excepts?)]
-           (swap! cache assoc k w)
-           w)
-         hit)))))
+     (jtms/through-cache
+      (reasoning/tms kb)
+      #(:value (withdrawal* kb reader with-excepts?))
+      #(let [cache (reasoning/withdrawn kb)
+             k     (if with-excepts? reader [reader :defeats])
+             m     @cache
+             hit   (get m k ::absent)]
+         (if (identical? ::absent hit)
+           (let [{w :value watch :watch} (withdrawal* kb reader with-excepts?)]
+             (install-withdrawn! cache (::gen m) k w watch)
+             w)
+           hit))))))
 
 (defn withdrawn-set
   "The handles `reader` reads as withdrawn (`withdrawal`'s `:out`), or nil when none are."
@@ -1967,9 +2113,21 @@
   [kb reader]
   (:out (withdrawal kb reader false)))
 
+(defn- withdrawal-stamp
+  "What a `:withdrawn` entry reads besides the justifications and labels its watch names:
+  the network, the three rosters, the supersession map, the meta-except count and the
+  `genlCx` generation.  `reconcile-withdrawn!` compares it with `=`, which answers on
+  identity first; a roster write installs a new value."
+  [kb]
+  (let [tms (reasoning/tms kb)]
+    [tms @(reasoning/excepted kb) @(reasoning/scoped-defeats kb)
+     @(reasoning/vantage-disagreements kb) (jtms/superseded tms)
+     @(reasoning/meta-except-count kb) (tax/relation-gen (reasoning/taxonomy kb) :genlCx)]))
+
 (defn clear-withdrawn!
-  "Empty the per-reader `withdrawal` cache.  The settle calls this wherever it moves the
-  network or `:scoped-defeats`.
+  "Empty the per-reader `withdrawal` cache, and record the `withdrawal-stamp` its next
+  entries are computed under.  The settle calls this where it moves `:scoped-defeats` or
+  the vantage disagreements, and `reconcile-withdrawn!` calls it when the stamp moved.
 
   Moves the taxonomy's supporter-visibility generation too, when anything can be
   withdrawn at all: the scoped closure reads are memoized on that generation, and which
@@ -1983,12 +2141,61 @@
         ;; empties the roster and then calls this, so the two roster reads below both
         ;; answer empty there and would skip the bump — leaving every scoped closure
         ;; memoized under a defeat that is gone.
-        had?  (seq @cache)]
-    (reset! cache {})
+        had?  (seq (dissoc @cache ::gen ::stamp ::watch))
+        stamp (withdrawal-stamp kb)]
+    (swap! cache (fn [m] {::gen (inc (long (::gen m 0))) ::stamp stamp}))
     (when (or had?
               (seq @(reasoning/scoped-defeats kb))
               (seq @(reasoning/excepted kb)))
       (tax/note-supporter-visibility-change! (reasoning/taxonomy kb)))))
+
+(defn- stale-keys
+  "The keys of `watches` (`{key watch-set}`) that a move of a handle in `touched` can
+  change the answer of: the watch holds the handle, a handle one of its justifications
+  rests on, or the conclusion of a justification resting on it.  A justification gained
+  or lost puts its conclusion in `touched` (`jtms/touched`), so the three reach every
+  region member, every edge into or out of a region and every boundary label an answer
+  reads."
+  [tms watches touched]
+  (loop [ts (seq touched), live watches, stale #{}]
+    (if (or (nil? ts) (empty? live))
+      stale
+      (let [h    (first ts)
+            near (-> [h]
+                     (into (comp (keep #(jtms/justification tms %)) (mapcat jtms/rests-on))
+                           (jtms/supports tms h))
+                     (into (keep #(:consequence (jtms/justification tms %)))
+                           (jtms/dependents tms h)))
+            hit  (into [] (keep (fn [[k w]] (when (some #(contains? w %) near) k))) live)]
+        (recur (next ts) (reduce dissoc live hit) (into stale hit))))))
+
+(defn reconcile-withdrawn!
+  "Drop the `:withdrawn` entries the network's moves since the last settle can change,
+  and keep the rest.  The settle calls this wherever it moves the network.
+
+  An entry is dropped when its watch (`install-withdrawn!`) meets a handle in
+  `jtms/touched` or a neighbour of one (`stale-keys`), and when it has no watch.  The
+  cache is emptied (`clear-withdrawn!`) when the `withdrawal-stamp` moved, and when it
+  holds no entry.  A kept entry equals a fresh recompute, since nothing it reads moved.
+  The supporter-visibility generation moves only when an entry is dropped
+  (docs/nmtms.md, \"The withdrawal cache\")."
+  [kb]
+  (let [cache (reasoning/withdrawn kb)
+        m     @cache
+        ks    (into #{} (remove #{::gen ::stamp ::watch}) (keys m))]
+    (if (or (empty? ks) (not= (::stamp m) (withdrawal-stamp kb)))
+      (clear-withdrawn! kb)
+      (let [tms     (reasoning/tms kb)
+            watches (select-keys (::watch m) ks)
+            kept    (into #{} (remove (stale-keys tms watches (jtms/touched tms)))
+                          (keys watches))]
+        ;; a key installed since `m` was read describes a state this call did not check
+        (swap! cache (fn [cur] (-> (select-keys cur kept)
+                                   (assoc ::gen (inc (long (::gen cur 0)))
+                                          ::stamp (::stamp cur)
+                                          ::watch (select-keys (::watch cur) kept)))))
+        (when (< (count kept) (count ks))
+          (tax/note-supporter-visibility-change! (reasoning/taxonomy kb)))))))
 
 (defn supporter-filter-roster
   "What the taxonomy's `supporter-filter-active?` callback answers (`kb/attach-visibility!`):
@@ -1999,14 +2206,15 @@
   forward consequence closure, since a handle resting only on a withdrawn one is withdrawn
   from the same reader.  The taxonomy reads only the entries' target keys
   (`relation-filter-active?`) to decide whether a relation needs its supporters asked one by
-  one, so the closure rides in one extra entry.  Computed once per settle and cached in
-  `:withdrawn`, because the taxonomy calls this on every scoped read."
+  one, so the closure rides in one extra entry.  Cached in `:withdrawn` with the region
+  as its watch, because the taxonomy calls this on every scoped read."
   [kb]
   (let [ex @(reasoning/excepted kb)
         sd @(reasoning/scoped-defeats kb)]
     (when (or (seq ex) (seq sd))
       (let [cache (reasoning/withdrawn kb)
-            hit   (get @cache ::roster ::absent)]
+            m     @cache
+            hit   (get m ::roster ::absent)]
         (if (identical? ::absent hit)
           (let [seeds  (-> #{}
                            (into (comp (map val) (mapcat keys)) ex)
@@ -2015,7 +2223,7 @@
                 ;; one map, so every entry the taxonomy reads with `val` is a map entry
                 roster (seq (cond-> ex
                               (seq region) (assoc ::withdrawable (zipmap region (repeat #{})))))]
-            (swap! cache assoc ::roster roster)
+            (install-withdrawn! cache (::gen m) ::roster roster (or region #{}))
             roster)
           hit)))))
 
@@ -2078,15 +2286,30 @@
   identity merge, which makes the flat per-symbol shortcut unsound there and would retire a
   belief nobody renamed.  Whether the sentence quotes at all is asked first
   (`any-mention-position?`), so an ordinary sentence in a KB that merely grants `believes`
-  keeps the flat read."
+  keeps the flat read.
+
+  **An equality relation's arguments are mentions too** (`equality-mention-heads`): a
+  `sameAs` merge does not restate `(not (sameAs A B))`, so the flat read, which would
+  call `B` retired, is confirmed against the structural walk before it drops the
+  sentence.  A positive **equation** is never retired at all (`equation?`): migration
+  never restates one, so dropping it would leave a believed equation that no read
+  returns under any spelling."
   [kb visible merged? sentence]
   (let [marks (tax/mention-marks (reasoning/taxonomy kb))]
-    (if (and marks (any-mention-position? marks sentence))
+    (cond
+      (equation? sentence)
+      false
+
+      (and marks (any-mention-position? marks sentence))
       (not= (representative-term-mention kb @visible marks sentence false) sentence)
-      (sx/some-symbol? (fn [t]
-                         (and (merged? t) (not (sx/variable? t))
-                              (not= t (representative-in kb @visible t))))
-                       sentence))))
+
+      :else
+      (and (sx/some-symbol? (fn [t]
+                              (and (merged? t) (not (sx/variable? t))
+                                   (not= t (representative-in kb @visible t))))
+                            sentence)
+           (or (not (names-equality-relation? sentence))
+               (not= (representative-term-plain kb @visible sentence) sentence))))))
 
 (defn without-retired
   "Drop the matches whose stored spelling `view-context` has **retired** — the
@@ -2116,16 +2339,43 @@
       (let [visible (delay (visible-supporter-fn kb view-context))]
         (remove (fn [m] (retired-for? kb visible merged? (sx/sentence-of (nth m 2)))) matches)))))
 
+(defn- with-open-functor-supers
+  "A positive **open-functor** pattern's matches, each also answering the functor
+  variable with every super-predicate of the one it matched (`super-predicates`, from
+  `view-context`), on the same stored fact.
+
+  A named functor reaches a fact through its own spec closure: `(animal ?x)` matches a
+  stored `(dog Muffet)`.  An open one binds the functor the fact was stored under, so
+  `(?c Muffet)` answered `dog` and not `animal` though `(animal Muffet)` holds, and a
+  conjunction `[(genl ?c animal) (?c Muffet)]` answered `animal` when the `genl` literal
+  ran first and not when the open one led.  A functor variable that also stands as an
+  argument keeps the functor as stored: a super-predicate there would bind that argument
+  as well.  A negative pattern keeps it too."
+  [kb sentence view-context matches]
+  (let [fv (when (and (seq? sentence) (sx/variable? (first sentence))) (first sentence))]
+    (if (or (nil? fv) (some #(= fv %) (tree-seq sequential? seq (rest sentence))))
+      matches
+      (mapcat (fn [[h b stored :as m]]
+                (let [f (get b fv)]
+                  (if (symbol? f)
+                    (cons m (for [g (nm/sort-by-content-key nm/print-key compare
+                                                            (disj (super-predicates kb f view-context) f))]
+                              [h (assoc b fv g) stored]))
+                    [m])))
+              matches))))
+
 (defn- visible-matches
   "The retrieval both of `matches-visible`'s arities perform: the chosen path, then the
-  two visibility filters.  One definition, so a cached and an uncached read cannot come
-  to answer differently."
+  two visibility filters, then an open functor's super-predicates
+  (`with-open-functor-supers`).  One definition, so a cached and an uncached read cannot
+  come to answer differently."
   [kb sentence view-context]
   (->> (if *hierarchical-retrieval*
          (matches-hierarchical kb sentence view-context)
          (matches-visible* kb sentence view-context))
        (without-excepted kb view-context)
-       (without-retired kb view-context)))
+       (without-retired kb view-context)
+       (with-open-functor-supers kb sentence view-context)))
 
 (defn matches-visible
   "Type-aware matches of `sentence` *visible from* `view-context`.  A variable
@@ -2304,18 +2554,12 @@
 ;; forced to agree on variables that were never meant to be shared.  Renaming the clash
 ;; apart is what gives each instance variables of its own.
 
-(defn form-variables
-  "Every variable anywhere in `form`, as a set — `#{}` rather than `sx/symbols-where`'s
-  nil, since every caller here folds the answer into something."
-  [form]
-  (or (sx/symbols-where sx/variable? form) #{}))
-
 (defn- spoken-for
   "Every variable `bindings` already speaks for — the ones it binds, and the ones still
   standing unbound inside its values."
   [bindings]
   (persistent!
-   (reduce-kv (fn [acc k v] (reduce conj! (conj! acc k) (form-variables v)))
+   (reduce-kv (fn [acc k v] (reduce conj! (conj! acc k) (sx/form-variables v)))
               (transient #{}) bindings)))
 
 (defn- fresh-var
@@ -2345,7 +2589,7 @@
   instance's variables resolved to.  A guard that fired before renaming fires after it."
   [{:keys [antecedents consequent guard] :as rule} taken]
   (let [clash (when (seq taken)
-                (into [] (filter taken) (form-variables (cons consequent antecedents))))]
+                (into [] (filter taken) (sx/form-variables (cons consequent antecedents))))]
     (if (empty? clash)
       rule
       (let [m  (first (reduce (fn [[m tk] v]
@@ -2401,30 +2645,19 @@
 ;; it.  So the registry is reached through `vaelii.impl.wiring`, where that call is one of
 ;; the two the require graph cannot express and the reason is written down.
 
-(def ^:dynamic *deferred-solver*
-  "An optional **override** for how the backward chainers evaluate a deferred
-  antecedent — `(fn [kb goal context] -> seq of extension binding-maps)`.  nil (the
-  default) uses the prover registry through `wiring/solve-goal`; a caller may bind this to
-  substitute a different evaluator (a test, a restricted registry).  See
-  `solve-deferred` and docs/naf.md."
-  nil)
-
 (defn solve-deferred
   "Extension binding-maps for a deferred antecedent `g` — already substituted, so its
-  inputs are ground (canonical order and the planner pin it after its binders).  Uses
-  `*deferred-solver*` if a caller has bound one, else the registry.  Nothing when the
-  literal is inapplicable (unbound inputs, a false test): a deferred literal that
-  yields no solution simply prunes the branch, the evaluable contract
-  `vaelii.impl.plan` documents.
+  inputs are ground (canonical order and the planner pin it after its binders), computed
+  by the prover registry through `wiring/solve-goal`.  Nothing when the literal is
+  inapplicable (unbound inputs, a false test): a deferred literal that yields no solution
+  simply prunes the branch, the evaluable contract `vaelii.impl.plan` documents.
 
   This lets this chainer discharge a `different` / `evaluate` / `unknown` antecedent by
   computation; matching or rule expansion alone would silently prove nothing for it,
   where `ask` honours it because the registry holds a prover for each, and forward
   chaining honours it at the antecedent join.  See docs/naf.md."
   [kb g context]
-  (if-let [solve *deferred-solver*]
-    (solve kb g context)
-    (wiring/solve-goal kb g context)))
+  (wiring/solve-goal kb g context))
 
 ;; ---- guard markers on the goal stack ------------------------------------
 ;; `prove` reduces a rule to subgoals by pushing them, so a rule's `exceptWhen` guard
@@ -2626,32 +2859,20 @@
   "An optional observer of the DFS's **dead ends** — `(fn [goal depth])` — or nil, the
   default.
 
-  A dead end is a subgoal the search could neither match nor expand: no visible
-  believed fact unified with it, and no rule concluding it unified either.  It is
-  reported only when the branch was not merely **cut short** — by the per-path loop
-  guard, by `:max-depth`, or by the term-growth ceiling
-  (`default-max-term-growth`) — and that distinction is the whole of what makes the
-  callback worth having.  A truncated branch is a search that ran out of *budget*; a
-  dead end is a search that ran out of *knowledge*, and only the second names something
-  the KB could be told (`vaelii.impl.abduce`, docs/abduction.md).
-
-  The goal handed over is already substituted under the frame's bindings, so what the
-  observer sees is the literal that failed.  Its return value is ignored: this is a
-  **sink, not a filter**, so an observed run and an unobserved one take byte-identical
-  paths and `abduce` gets the very search `prove` runs rather than a variant of it.
-
-  Only the DFS reports.  `backward` is lazy — its dead ends would be discovered
-  whenever a consumer happened to realize the seq, and the thread binding would
-  already be gone — so abduction rides `prove`, which is a loop.
-
-  nil costs one var deref per expanded goal."
+  A dead end is a subgoal, substituted under the frame's bindings, that no visible
+  believed fact and no rule consequent unified with.  A branch **cut short** — by the
+  per-path loop guard, `:max-depth` or the term-growth ceiling
+  (`default-max-term-growth`) — is not reported.  The return value is ignored, so an
+  observed run takes the same path as an unobserved one.  Only `prove`'s loop reports;
+  the lazy `backward` does not.  nil costs one var deref per expanded goal.
+  docs/abduction.md, \"The dead end\", gives the reasons."
   nil)
 
 (defn- leaf-solutions
   "Extension bindings for `g` without expanding any rule — the chainer's **leaf**.
 
-  nil `leaf-solver` reads the stored facts (`matches-visible`), which is what `prove`
-  means by a leaf and the only thing it has ever meant.
+  nil `leaf-solver` reads the stored facts (`matches-visible`).  `vaelii.core/prove` and
+  `vaelii.core/query` pass the registry.
 
   The separate call exists because a rule's antecedent is not always a fact question.  A caller
   that wants an antecedent answerable by *any* prover — transitivity, an evaluable, an
@@ -2693,14 +2914,16 @@
      :bindings    no-bindings
      :seen        #{}
      :depth       0
-     :answer-vars (form-variables (vec goals))
+     :answer-vars (sx/form-variables (vec goals))
      :term-base   (reduce (fn [d g] (max (long d) (long (term-depth g)))) 0 goals)}]))
 
 (defn prove-from
   "The resumable core of `prove`: run the DFS from an explicit `stack` (and the
   `solutions` gathered so far) under `bounds`, a map of optional caps —
 
-    :deadline     an absolute `System/nanoTime` instant; stop once reached
+    :deadline     an absolute `System/nanoTime` instant; stop once reached, checked
+                  between steps and, through `budget/*deadline*`, inside a leaf's
+                  walk (`budget/interruptible`)
     :max-results  stop once this many solutions are in hand
     :max-depth    do not expand a rule past this rule-expansion depth
     :max-term-growth
@@ -2726,7 +2949,10 @@
   *transformation* depth — the search's reach through rules — not the goal-stack
   size.  The bound checks sit at the loop top, ahead of the frame work, so a run
   can stop between any two steps and the stack it leaves behind is a faithful
-  continuation."
+  continuation.  A leaf the deadline stops inside is one step not taken: its frame goes
+  back on the stack marked `:unbounded-leaf?`, and the segment that resumes it runs that
+  leaf with no deadline, so a resume loop under a fixed budget gets past a walk longer
+  than the budget and terminates."
   [kb rules-fn context
    {:keys [deadline max-results max-depth max-term-growth leaf-solver est-override]}
    stack solutions]
@@ -2757,7 +2983,8 @@
           {:solutions solutions :status :timeout :stack stack}
 
           :else
-          (let [{:keys [goals bindings seen depth answer-vars term-base]} (peek stack)
+          (let [frame (peek stack)
+                {:keys [goals bindings seen depth answer-vars term-base]} frame
                 stack (pop stack)
                 ;; the ceiling a subgoal's nesting may reach on this path: the deepest
                 ;; term the path has met — the query's own, raised by whatever a leaf
@@ -2805,7 +3032,7 @@
 
               ;; A deferred goal (`different` / `evaluate` / `unknown`) is *computed* by the
               ;; registry, not matched or expanded: push one continuation frame per extension
-              ;; binding, and no rule frames (see the `*deferred-solver*` section above).
+              ;; binding, and no rule frames (see `solve-deferred` above).
               (sx/deferred-literal? (substitute (first goals) bindings))
               (let [g          (substitute (first goals) bindings)
                     rest-goals (rest goals)
@@ -2816,67 +3043,79 @@
                 (recur (into stack frames) solutions))
 
               :else
-              (let [g          (substitute (first goals) bindings)
-                    rest-goals (rest goals)
-                    k          (goal-key g)
-                    ;; a leaf match may hand the conjuncts behind it a deep *stored* term,
-                    ;; and nothing about that is a rule growing one — so the basis rises
-                    ;; with it (`grown-term-base`), and only a rule's own nesting is
-                    ;; measured against the allowance
-                    fact-frames (for [b (leaf-solutions kb g context leaf-solver)]
-                                  {:goals rest-goals :bindings (merge bindings b) :seen seen
-                                   :depth depth :answer-vars answer-vars
-                                   :term-base (grown-term-base term-base b)})
-                    ;; expansion cut short rather than exhausted: the goal is re-entering
-                    ;; its own derivation path, the depth bound bit, or its arguments have
-                    ;; grown past the term ceiling (`default-max-term-growth`).  Either way
-                    ;; the branch says nothing about what the KB is missing (see
-                    ;; `*dead-end*`).  The facts above are still read: a goal at the
-                    ;; ceiling may be stored, and only its *expansion* is refused.
-                    cut?        (or (contains? seen k)
-                                    (boolean (and max-depth (>= depth max-depth)))
-                                    (> (long (term-depth g)) ceiling))
-                    ;; every name already in play on this path: what the bindings speak
-                    ;; for, the goal's own variables, and the conjuncts still queued — the
-                    ;; last of which are outer rules' unsolved antecedents, equally
-                    ;; capturable by an instance expanded under them
-                    taken       (when-not cut?
-                                  (-> (spoken-for bindings)
-                                      (into (form-variables g))
-                                      (into (form-variables rest-goals))))
-                    ;; asked once per expanded goal rather than once per rule: whether an
-                    ;; answer to this goal *could* be one belief has defeated is a property
-                    ;; of the goal, and it is false for every goal on a KB with no defeats
-                    defeatable? (and (not cut?) (defeatable-goal? @defeated g))
-                    rule-frames (when-not cut?
-                                  (for [rule (rules-fn g)
-                                        :let [{:keys [antecedents consequent guard]}
-                                              (freshen-rule rule taken)
-                                              b (subsuming-unify kb g consequent bindings context)]
-                                        :when b]
-                                    {:goals    (into (-> (planned-antecedents
-                                                          kb antecedents consequent context b
-                                                          est-override)
-                                                         (cond-> guard (conj (->guard-marker guard)))
-                                                         ;; behind the guard, so an excepted
-                                                         ;; firing is refused before belief
-                                                         ;; is asked about its answer
-                                                         (cond-> defeatable?
-                                                           (conj (->defeat-marker g)))
-                                                         ;; behind both: the scope is
-                                                         ;; restored once this rule's own
-                                                         ;; subtree is finished with it
-                                                         (conj (->scope-marker seen)))
-                                                     rest-goals)
-                                     :bindings b
-                                     :seen     (conj seen k)
-                                     :depth    (inc depth)
-                                     :answer-vars answer-vars
-                                     :term-base term-base}))]
-                (when (and *dead-end* (not cut?)
-                           (empty? fact-frames) (empty? rule-frames))
-                  (*dead-end* g depth))
-                (recur (into stack (concat fact-frames rule-frames)) solutions)))))))))
+              (let [g     (substitute (first goals) bindings)
+                    solve #(vec (leaf-solutions kb g context leaf-solver))
+                    ;; the leaf is where a walk longer than one step runs (the
+                    ;; argument-preservation prover's claim walk), so the deadline reaches
+                    ;; inside it; a walk it stops leaves this frame on the stack, marked
+                    ;; so the resumed segment runs that one leaf unbounded
+                    leaf  (if (or deadline (:unbounded-leaf? frame))
+                            (budget/interruptible (when-not (:unbounded-leaf? frame) deadline)
+                                                  solve)
+                            (solve))]
+                (if (identical? ::budget/interrupted leaf)
+                  {:solutions solutions :status :timeout
+                   :stack     (conj stack (assoc frame :unbounded-leaf? true))}
+                  (let [rest-goals (rest goals)
+                        k          (goal-key g)
+                        ;; a leaf match may hand the conjuncts behind it a deep *stored* term,
+                        ;; and nothing about that is a rule growing one — so the basis rises
+                        ;; with it (`grown-term-base`), and only a rule's own nesting is
+                        ;; measured against the allowance
+                        fact-frames (for [b leaf]
+                                      {:goals rest-goals :bindings (merge bindings b) :seen seen
+                                       :depth depth :answer-vars answer-vars
+                                       :term-base (grown-term-base term-base b)})
+                        ;; expansion cut short rather than exhausted: the goal is re-entering
+                        ;; its own derivation path, the depth bound bit, or its arguments have
+                        ;; grown past the term ceiling (`default-max-term-growth`).  Either way
+                        ;; the branch says nothing about what the KB is missing (see
+                        ;; `*dead-end*`).  The facts above are still read: a goal at the
+                        ;; ceiling may be stored, and only its *expansion* is refused.
+                        cut?        (or (contains? seen k)
+                                        (boolean (and max-depth (>= depth max-depth)))
+                                        (> (long (term-depth g)) ceiling))
+                        ;; every name already in play on this path: what the bindings speak
+                        ;; for, the goal's own variables, and the conjuncts still queued — the
+                        ;; last of which are outer rules' unsolved antecedents, equally
+                        ;; capturable by an instance expanded under them
+                        taken       (when-not cut?
+                                      (-> (spoken-for bindings)
+                                          (into (sx/form-variables g))
+                                          (into (sx/form-variables rest-goals))))
+                        ;; asked once per expanded goal rather than once per rule: whether an
+                        ;; answer to this goal *could* be one belief has defeated is a property
+                        ;; of the goal, and it is false for every goal on a KB with no defeats
+                        defeatable? (and (not cut?) (defeatable-goal? @defeated g))
+                        rule-frames (when-not cut?
+                                      (for [rule (rules-fn g)
+                                            :let [{:keys [antecedents consequent guard]}
+                                                  (freshen-rule rule taken)
+                                                  b (subsuming-unify kb g consequent bindings context)]
+                                            :when b]
+                                        {:goals    (into (-> (planned-antecedents
+                                                              kb antecedents consequent context b
+                                                              est-override)
+                                                             (cond-> guard (conj (->guard-marker guard)))
+                                                             ;; behind the guard, so an excepted
+                                                             ;; firing is refused before belief
+                                                             ;; is asked about its answer
+                                                             (cond-> defeatable?
+                                                               (conj (->defeat-marker g)))
+                                                             ;; behind both: the scope is
+                                                             ;; restored once this rule's own
+                                                             ;; subtree is finished with it
+                                                             (conj (->scope-marker seen)))
+                                                         rest-goals)
+                                         :bindings b
+                                         :seen     (conj seen k)
+                                         :depth    (inc depth)
+                                         :answer-vars answer-vars
+                                         :term-base term-base}))]
+                    (when (and *dead-end* (not cut?)
+                               (empty? fact-frames) (empty? rule-frames))
+                      (*dead-end* g depth))
+                    (recur (into stack (concat fact-frames rule-frames)) solutions)))))))))))
 
 (defn prove
   "A simple depth-first backward chainer using loop/recur over an explicit goal
@@ -2900,8 +3139,8 @@
   `:max-results`), so a caller can run this eager search with a **registry leaf**
   (`{:leaf-solver provers/solve-goal :est-override (provers/registry-est-override kb ctx)}`)
   — an antecedent answered by a prover, an evaluatable or a cached closure rather than only
-  a stored fact, the division `vaelii.core/query` runs.  The 4-arg keeps the stored-fact
-  leaf (`nil` bounds), which is what `prove` has always meant by a leaf."
+  a stored fact, the division `vaelii.core/prove` and `vaelii.core/query` run.  The 4-arg
+  keeps the stored-fact leaf (`nil` bounds)."
   ([kb rules-fn goals context] (prove kb rules-fn goals context nil))
   ([kb rules-fn goals context bounds]
    (:solutions (prove-from kb rules-fn context bounds

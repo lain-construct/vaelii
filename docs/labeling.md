@@ -242,7 +242,7 @@ three-level objective already ends in a content-keyed tiebreak for this reason.
 on a plain build:
 
 * materialization works — the stub's pick is well-defined and content-keyed;
-* classification reports every contested assumption `:supportable`, which is honest
+* classification reports every contested assumption `:supportable`, which is correct
   (each *is* one of several) and never overclaims `:true`.
 
 A build without clingo behaves like one with it, minus the ability to distinguish
@@ -264,11 +264,19 @@ S)` prover answers that question as a read.
 
 `(cautiously S)` holds when `S` is in **every** optimal labeling of the current dilemmas,
 `(bravely S)` when `S` is in **some** — the cautious and brave halves of one classification
-the prover reads through `label/classify-dilemmas`: the ASP backend when one is reachable
-(`dilemma-program` then `classify-program`), and otherwise the solve-free JTMS bracket
-below. Over a datum in no dilemma both reduce to ordinary belief, since every resolution
-agrees there. The read **commits nothing**: after asking, belief, `contradictions` and
-`last-program` are exactly as they were.
+the prover reads through `label/classify-datum`: the ASP backend when one is reachable,
+and otherwise the solve-free JTMS bracket below. Over a datum in no dilemma both reduce to
+ordinary belief, since every resolution agrees there. The read **commits nothing**: after
+asking, belief, `contradictions` and `last-program` are exactly as they were.
+
+The backend classifies only the asked datum's **member component**: the dilemmas that
+share a member with one naming it, directly or through a chain. A `Program` encodes no
+derivation between members, so the optima of dilemmas that share no member are every
+combination of each component's optima, and a member's class over the whole program is its
+class over its component. The whole program's optima multiply across independent dilemmas
+(twenty Nixon diamonds have 2^20), and one component's do not. Each classification is held
+on the KB until the change clock moves, so two asks with no write between them classify
+once (`lein perf`'s `brave-ask-between-writes`).
 
 Three limits, none silent:
 
@@ -286,7 +294,7 @@ Three limits, none silent:
 
 ### The solve-free bracket
 
-`label/classify-dilemmas` reads the ASP backend when one is reachable and
+`label/classify-datum` reads the ASP backend when one is reachable and
 `label/classify-local` otherwise. `classify-local` classifies the current dilemmas from
 the JTMS dependency graph, with no answer-set enumeration and no backend, so a plain build
 answers `bravely` and `cautiously` rather than reporting every contested datum

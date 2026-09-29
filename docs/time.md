@@ -143,10 +143,10 @@ entailment; both are exactly the shape [qcn.md](qcn.md) describes. So `(before A
 and `(during A B)` with `(during B C)` entails `(during A C)` and the weaker
 `(subintervalOf A C)` and `(sharesTimeWith A C)` with it.
 
-Where the derived predicates earn their place is a network that pins something without
-pinning a base relation. `(meets A B)` and `(metBy B D)` force A and D to end at the same
-moment and say nothing about where they start, leaving `#{:finishes :finished-by :equal}`:
-no base predicate is entailed, and `sharesTimeWith` is.
+The derived predicates entail something no base predicate does in a network that pins
+something without pinning a base relation. `(meets A B)` and `(metBy B D)` force A and D
+to end at the same moment and say nothing about where they start, leaving
+`#{:finishes :finished-by :equal}`: no base predicate is entailed, and `sharesTimeWith` is.
 
 `core/possible-relations kb :allen ctx i1 i2` is the algebra read directly rather than
 through a goal — the base relations still possible between two intervals, `#{}` when the
@@ -207,6 +207,104 @@ table is duplicated rather than shared: there the three relations are a position
 and an implementation detail of the two nine-relation algebras built over them, here they
 are an order in time with their own vocabulary. Nine identical entries are cheaper than the
 coupling, and either copy is checkable against its own definitions.
+
+## The points of a temporal thing
+
+Every temporal thing has six named points, each a structural `unreifiable_function`
+application declared in `CxTime` and handled in `vaelii.impl.timepoint`:
+
+| Term | Names |
+|---|---|
+| `(StartFn X)`, `(EndFn X)` | where X begins and ends |
+| `(EarliestStartFn X)`, `(LatestStartFn X)` | the range the start falls in |
+| `(EarliestEndFn X)`, `(LatestEndFn X)` | the range the end falls in |
+
+The four bounds are for a start or an end known only to lie in a range — "he became
+president sometime in 2008" — and for a thing with no sharp boundary, a period like the
+Renaissance. A bound is a point of the thing, not a reading of what is known about it, so a
+fact can relate one thing's bound to another thing's point: "the Baroque began within the
+Renaissance's closing period" is `(EarliestEndFn Renaissance) ≤ (StartFn Baroque) ≤
+(LatestEndFn Renaissance)`.
+
+**Facts are instant relations over the points.** `(instantBefore (EndFn Trick1) (StartFn
+Trick2))` is an ordinary fact the point network reads; the network takes a point term as a
+node as it takes a symbol. Nothing is minted and nothing is stored beyond what was stated. A
+point is a node only when a fact or a goal mentions it, and a thing any of whose points is a
+node brings its start and end in with it.
+
+**The terms fix an order nobody states.** `timepoint/constraints-over` is the point
+network's second reader, a function of the node set alone:
+
+- one thing's points: `ES ≤ S ≤ LS`, `EE ≤ E ≤ LE`, `S < E`, `ES ≤ EE`, `LS ≤ LE`, over the
+  ones present. `S < E` gives every thing extent.
+- a moment's points: an `(InstantFn …)` term and a point term name a moment, and each of a
+  moment's six points is the moment, so `(StartFn (InstantFn 2000 1 1 0 0 0))` is that
+  instant and `(EndFn (StartFn X))` is `(StartFn X)`.
+- calendar moments: an `(InstantFn …)` term, or a point of a calendar term, is placed by
+  its fields. The ones present are sorted and each is ordered against the next, so
+  `(EndFn (YearFn 2008))` falls before `(InstantFn 2009 1 20 12 0 0)` and `(EndFn (YearFn
+  1999))` equals `(StartFn (YearFn 2000))`. A calendar term's bounds are sharp: its earliest
+  and latest start are its start.
+
+**The reader tells a moment from a thing by the spelling of the argument.** A symbol
+argument is a thing, and has extent, even when a `time_point` membership says the symbol is
+a moment. A narrowing only narrows ([qcn.md](qcn.md#a-network-can-have-a-second-reader)):
+a fact arriving never loosens a pair, and the delta join relies on that. A reader that
+dropped `S < E` when a membership arrived would loosen the pair, and a conclusion drawn from
+`S < E` would outlive the membership that withdrew it. An `arg` declaration cannot refuse
+the case either. A declaration demands a type, and `time_point` is below `temporal`, so no
+type admits every thing with extent and excludes a moment. So a moment named by a symbol
+has no points. Stating that `(StartFn Noon)` and `(EndFn Noon)` are `Noon` is the
+network's ordinary inconsistency, and `inconsistency-culprits` names those two facts. A
+fact about a symbol moment relates the moment itself.
+
+Because the reader needs no KB, `qcn-kb` also runs it over the nodes a **goal** names and no
+fact does, so a question about a calendar moment nobody stated is ordered against the ones
+they did. The constraints it adds carry no support — the terms fix them and no retraction
+moves them — and an entailment through one still rests on the stated facts it also used.
+
+So a story's own order, dated clues and a period's uncertain boundaries are one network.
+"While president in 2009, he received the Nobel Peace Prize" puts the prize inside both the
+presidency and 2009, and a handful of such clues bound when the presidency began and ended
+with no date for either stated. A clue that cannot fit closes a cycle, which is the point
+network's ordinary `:qualitative-inconsistency` report, and `qcn-kb/inconsistency-culprits`
+names the facts behind the pair that emptied.
+
+**A thing against a moment.** `(includesInstant X t)` holds when t is at or after X's start
+and before its end — the calendar terms' half-open convention — and its negation when t falls
+before the start or at or after the end. `IncludesInstantProver` answers both off the point
+network (`add-reasoner :includes-instant`) and answers a stored `includesInstant` fact as
+well, so `argue` answers `:true`, `:false`, or `:unknown` for a moment inside a range a bound
+leaves open: 1450 is inside a Renaissance that began by 1400 and unknown for one that began
+sometime between 1400 and 1450. An open argument ranges over what the network names: `?x`
+over the things with a point in it, `?t` over its nodes. A calendar moment no fact names can
+still fall inside a thing, so the prover reports an open argument as maximally unselective,
+and a conjunction or a forward rule binds it first ([inference.md](inference.md), "The cost
+model").
+
+**Allen relations follow.** The interval network's second narrowing reads, for every pair of
+things with points in the point network, which of the four endpoint comparisons the network
+still allows, and keeps the Allen relations whose endpoint signature fits
+(`stp/endpoint-signature`). A pair's support is the four comparisons'. The comparisons are
+read independently of each other, so the reading is sound but not sharp, as the metric one
+is. All of them
+are read off one closed point network and one support-carrying pass, so an Allen read after
+a write costs those two passes and a lookup per comparison. An
+unsatisfiable point network makes the interval network unsatisfiable too, supported by the
+point network's culprits, so a cycle of instants anywhere in a context withdraws the Allen
+firings the points licensed there. With two or more things in the point network, no Allen
+goal is answered there until the cycle is retracted.
+
+What it does not do:
+
+- **An Allen fact does not constrain the points.** The narrowing runs from points to
+  intervals only; `(before A B)` stated outright says nothing about `(EndFn A)`.
+- **A calendar term is not an Allen node.** The narrowing reads things named by a symbol, so
+  the relation between a thing and `(YearFn 2013)` is asked through their points.
+- **No durations.** "After seven years" is metric, and point facts do not reach the
+  `temporalDistance` network ([stp.md](stp.md)).
+- **The culprits name one derivation.** They are the support of the pair that emptied, which
+  contains every fact whose removal alone restores consistency but may name more.
 
 ## Naming an interval: the calendar constructors
 
@@ -343,7 +441,7 @@ written at computed instants — `(happens RexSleeps (InstantFn 2000 1 15 15 0 0
 ordinary `happens`, `(InstantFn …)` being a `time_point` where a calendar term is not —
 and it then needs its `instantBefore` edges written down exactly as an afternoon of named
 moments does. The calendar clock supplies none of them, and **both** halves of the theory
-stop at the same place, which is what keeps the pair honest rather than half-sighted:
+stop at the same place, so neither half answers a question the other refuses:
 `clipped`'s forward join and inertia's backward one each reach `instantBefore` with one
 end **open** — "what happened before six", not "is three before six" — and an open end is
 what the clock refuses (["What the clock does not reach"](#what-the-clock-does-not-reach)).
@@ -376,8 +474,11 @@ second reader ([qcn.md](qcn.md), "A network can have a second reader"), so a KB 
 down two meetings' endpoints and the gap between them answers `(before Standup Review)` off
 the measures with no interval relation stated. The entailment names the constraints, the
 endpoint facts and the unit rows behind it, so a forward rule resting on it is withdrawn
-when any of them is retracted — an ordinary firing, on a relation nobody stored. It is the
-only calculus of the six with a narrowing; the other five read stored facts alone.
+when any of them is retracted — an ordinary firing, on a relation nobody stored. The
+interval algebra takes a second narrowing from the point network, over a thing's
+`StartFn` / `EndFn` points ([The points of a temporal thing](#the-points-of-a-temporal-thing)),
+and the point network takes one from its own node terms; the other four calculi read
+stored facts alone.
 
 ### The calendar clock
 
@@ -452,7 +553,7 @@ NAT sweep ([nat.md](nat.md)). The prover implements `Prover` and *not*
 `SupportingProver`, which is the exact claim that its answer reads nothing stored and no
 retraction can invalidate it ([inference.md](inference.md), "What a computed answer rests
 on"). So `why` has no handle to show and is not the entry point: a computed relation is explained
-by `query … {:proof? true}`, where it is indistinguishable from a `:leaf`, and by this page — the term and
+by `query … {:proof? true}`, where it appears as a `:leaf`, and by this page — the term and
 the convention are the whole of what it rests on. Order independence and locality are
 free for the same reason: there is no state to accumulate and nothing to relabel.
 

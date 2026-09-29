@@ -18,6 +18,7 @@ Both backward chainers thread one binding map down a derivation path and hand it
             [vaelii.impl.inference :as inference]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.resolution :as res]
+            [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -31,8 +32,7 @@ Both backward chainers thread one binding map down a derivation path and hand it
 
 (defn- level-7-prove
   "Backward chaining at level 7 of the lookup stack — the recursive chainer with the
-  *registry* as its leaf rather than stored facts, which is a third search and not a
-  spelling of one of the other two."
+  *registry* as its leaf, `prove`'s search driven lazily and deduplicated by answer."
   [kb goal context]
   (map :bindings (v/lookup kb 7 goal context)))
 
@@ -168,7 +168,7 @@ Both backward chainers thread one binding map down a derivation path and hand it
               b     (res/freshen-rule rule taken)]
           (is (= (:consequent a) (:consequent b)))
           (is (= (:antecedents a) (:antecedents b)))
-          (is (some #(re-find #"'" (name %)) (res/form-variables (:consequent a)))
+          (is (some #(re-find #"'" (name %)) (sx/form-variables (:consequent a)))
               "nothing here needs renaming, so this is not measuring what it claims"))))))
 
 ;; ---- what a solution is a map over ---------------------------------------

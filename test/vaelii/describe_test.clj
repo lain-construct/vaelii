@@ -125,7 +125,15 @@
            (is (false? (:exact? (:disjoint d)))
                "and the total is the bound it is — a sum of closures over-counts an overlap")
            (is (= [right_type] (:terms (:disjoint-maximal d))))
-           (is (true? (:exact? (:disjoint-maximal d)))))))))
+           (is (true? (:exact? (:disjoint-maximal d)))))))
+    (testing "past the sort budget a union that fits the window is still exact and sorted"
+      (tu/with-terms [small_type other_type]
+        (v/assert kb (list 'genl small_type 'thing) 'CxUniverse {:chain? false})
+        (v/assert kb (list 'genl other_type 'thing) 'CxUniverse {:chain? false})
+        (v/assert kb (list 'disjoint small_type other_type) 'CxUniverse {:chain? false})
+        (with-redefs-fn {(ns-resolve 'vaelii.core 'describe-sortable) 0}
+          #(is (= {:terms [other_type] :total 1 :exact? true :sorted? true}
+                  (:disjoint (v/describe kb small_type 'CxUniverse)))))))))
 
 (tu/deftest-kb a-type-names-the-predicates-whose-declarations-admit-it
   ;; The question behind it: I have a `dog`, what may I say about one?  A predicate

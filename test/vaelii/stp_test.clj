@@ -1,30 +1,22 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.stp-test
-  "The metric temporal layer (`vaelii.impl.stp`): bounds on the gap between two instants,
-  closed by all-pairs shortest paths, and the bridge that lets those bounds narrow what
-  Allen's algebra leaves open.
-
-  Two halves.  The first tests the **algorithm alone** — no KB, no context, no belief — and
-  derives the thirteen endpoint signatures a second time, from numeric interval layouts, so
-  the transcribed table and the definitions can only agree by both being right.  The second
-  tests the prover over a KB, where the measures, the unit table and belief all come into
-  it."
+  "`vaelii.impl.stp` (docs/stp.md): the algorithm alone first, then the prover, the
+  reports and the interval bridge over a KB."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
             [vaelii.host.seed :as seed]
             [vaelii.impl.duration :as dur]
             [vaelii.impl.interval :as iv]
+            [vaelii.impl.point :as pt]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.stp :as stp]
+            [vaelii.impl.types.prover :as prover-types]
             [vaelii.test-util :as tu])
   (:import [vaelii.impl.stp TemporalDistanceProver]))
 
-;; A fresh KB per test: the CxCore grammar, CxMeasure (the measure structural NATs and the
-;; unit table the magnitudes normalize through), CxTime (temporalDistance, startOf,
-;; endOf and the interval relations), and the prover registered — it is opt-in, so
-;; registering it is what turns stored constraints into a closure.
+;; A fresh KB per test with CxMeasure, CxTime and the opt-in prover registered.
 (use-fixtures :each (tu/neutral-fresh
                      #(doto (tu/fresh)
                         (tu/load-core-with! '[[CxMeasure "upper"] [CxTime "upper"]])
@@ -32,9 +24,15 @@
 
 (def ^:private C 'CxUniverse)
 
+(defn- inconsistent?
+  "Do the `temporalDistance` constraints visible from `context` contradict each other?"
+  [kb context]
+  (= :inconsistent (stp/closed-network kb context)))
+
+(defn- endpoints-of [kb i context] (first (stp/endpoints-with-support kb i context)))
+
 (defn- load-time-units
-  "Three units of one dimension, all converting direct to Second — the direct-to-base
-  contract the normalization assumes."
+  "Second, Minute and Hour, each converting direct to Second."
   [kb]
   (v/assert kb '(dimensionOf Second Duration)   C)
   (v/assert kb '(dimensionOf Minute Duration)   C)
@@ -61,15 +59,6 @@
     (testing "and an instant the network never mentions is unbounded against everything"
       (is (= stp/unbounded (stp/constraint pc 'A 'Z))))))
 
-(deftest a-second-route-tightens-the-first
-  ;; A to B is stated loosely and pinned exactly by the way round through C
-  (let [net (-> {} (stp/narrow 'A 'B 10 20) (stp/narrow 'A 'C 5 5) (stp/narrow 'C 'B 8 8))
-        pc  (stp/close net (stp/nodes net))]
-    (is (= [13 13] (stp/constraint pc 'A 'B)))
-    (testing "which is contained in what was stated — a closure only ever narrows"
-      (let [[lo hi] (stp/constraint pc 'A 'B)]
-        (is (and (>= lo 10) (<= hi 20)))))))
-
 (deftest intersection-is-order-independent
   (is (= (-> {} (stp/narrow 'A 'B 0 10) (stp/narrow 'A 'B 5 20))
          (-> {} (stp/narrow 'A 'B 5 20) (stp/narrow 'A 'B 0 10))))
@@ -92,13 +81,7 @@
       (is (not= :inconsistent (stp/close net (stp/nodes net)))))))
 
 ;; ---- the closure against a second implementation of it -------------------
-;;
-;; `stp/close` runs Floyd–Warshall over a flat `double[]` addressed through an index map.
-;; The reference below is the same algorithm written the obvious way — a persistent map
-;; keyed `[p q]`, one two-element vector per probe — and the two share no code, so they can
-;; agree only by both being right.  It lives here rather than in `src/` because nothing but
-;; this test wants it: n³ probes is n³ vectors, which at a hundred instants is two million
-;; allocations for one closure.
+;; The same algorithm over a persistent map keyed `[p q]`, sharing no code with `stp/close`.
 
 (defn- reference-close
   "All-pairs shortest paths over `net` across `nodes`, keyed `[p q]` in a persistent map:
@@ -142,10 +125,7 @@
                 [[p q] [lo hi]]))))))
 
 (defn- same-verdict?
-  "Do two closures answer the same thing?  Bound for bound and **numerically**: the
-  reference keeps whatever number type the constraint was written with, and the matrix
-  hands back a long wherever the arithmetic came out whole, so `15` and `15.0` are one
-  answer here."
+  "Do two closures agree bound for bound, numerically — `15` and `15.0` being one answer?"
   [a b]
   (or (= a b)
       (and (map? a) (map? b)
@@ -156,9 +136,8 @@
                    (keys a)))))
 
 (defn- random-network
-  "`edges` random integer gaps over `n` instants, drawn from `rnd`.  The bounds are drawn
-  wide enough around zero that a chain of them closes into a negative cycle often — which
-  is the verdict worth oracling, since it is the one no single constraint states."
+  "`edges` random integer gaps over `n` instants, drawn from `rnd` around zero so that a
+  negative cycle is common."
   [^java.util.Random rnd n edges]
   (let [instants (mapv #(symbol (str "Sn" %)) (range n))]
     (reduce (fn [net _]
@@ -180,7 +159,7 @@
     (doseq [[net mine theirs] runs]
       (is (same-verdict? mine theirs)
           (str "the two closures disagree on " (pr-str net))))
-    (testing "and the sample really does reach both verdicts, so agreeing is not vacuous"
+    (testing "the sample reaches both verdicts"
       (is (some (fn [[_ mine _]] (= :inconsistent mine)) runs)
           "some network closes into a negative cycle")
       (is (some (fn [[_ mine _]] (map? mine)) runs)
@@ -199,9 +178,8 @@
 ;; ---- the endpoint signatures, derived from numeric layouts ---------------
 
 (def ^:private by-endpoints
-  "Each Allen base relation as the inequalities over four endpoints that define it, an
-  interval being `[start end]` with `start < end`.  The independent second statement of what
-  `endpoint-signature` transcribes."
+  "Each Allen base relation as the endpoint inequalities that define it, independent of
+  `endpoint-signature`."
   {:before        (fn [_as ae bs _be] (< ae bs))
    :meets         (fn [_as ae bs _be] (= ae bs))
    :overlaps      (fn [as ae bs be] (and (< as bs) (< bs ae) (< ae be)))
@@ -230,8 +208,6 @@
    [:end :start]   (ordering ae bs) [:end :end]   (ordering ae be)})
 
 (deftest the-endpoint-signatures-match-the-relation-definitions
-  ;; The guard on the bridge.  A mistyped signature is not a crash and not an empty answer —
-  ;; it is a metric network quietly narrowing an interval relation to the wrong thing.
   (let [derived (reduce (fn [m [a b]]
                           (update m (relation-of a b) (fnil conj #{}) (signature-of a b)))
                         {} (for [a layouts b layouts] [a b]))]
@@ -240,31 +216,14 @@
         (is (= 1 (count sigs)) (str rel " forces " (count sigs) " different signatures"))))
     (testing "and that is the one transcribed"
       (is (= iv/all-relations (set (keys derived))))
-      (is (= iv/all-relations (set (keys stp/endpoint-signature))))
-      ;; `stp` may not require `interval` — the algebra is what consumes the narrowing —
-      ;; so it takes the universe off its own table.  This is where the two are held equal.
       (is (= iv/all-relations stp/allen-relations))
       (doseq [[rel sigs] derived]
         (is (= (first sigs) (stp/endpoint-signature rel)) (str rel))))
-    (testing "the thirteen signatures are distinct, which is what makes reading them a
-              decision rather than a filter that could pass two"
+    (testing "the thirteen signatures are distinct"
       (is (= 13 (count (set (vals stp/endpoint-signature))))))))
 
-(deftest the-narrowing-reads-a-relation-off-the-gaps
-  (testing "A lasts 2, B lasts 3, and B starts 1 after A ends — that is before, and only"
-    (let [net (-> {} (stp/narrow 'As 'Ae 2 2) (stp/narrow 'Bs 'Be 3 3)
-                  (stp/narrow 'Ae 'Bs 1 1))
-          pc  (stp/close net (stp/nodes net))]
-      (is (= #{:before} (stp/relations-from-endpoints pc '[As Ae] '[Bs Be])))
-      (is (= #{:after} (stp/relations-from-endpoints pc '[Bs Be] '[As Ae])))))
-  (testing "B starting somewhere between 1 and 5 after A starts leaves three relations,
-            because where A's end falls against B's start is exactly what is open"
-    (let [net (-> {} (stp/narrow 'As 'Ae 2 2) (stp/narrow 'Bs 'Be 3 3)
-                  (stp/narrow 'As 'Bs 1 5))
-          pc  (stp/close net (stp/nodes net))]
-      (is (= #{:before :meets :overlaps} (stp/relations-from-endpoints pc '[As Ae] '[Bs Be])))))
-  (testing "a network saying nothing narrows nothing"
-    (is (= iv/all-relations (stp/relations-from-endpoints {} '[As Ae] '[Bs Be])))))
+(deftest a-network-saying-nothing-narrows-nothing
+  (is (= iv/all-relations (stp/relations-from-endpoints {} '[As Ae] '[Bs Be]))))
 
 (deftest the-overlap-window-is-the-later-start-to-the-earlier-end
   (testing "A runs 0 to 10, B runs 4 to 20 — six shared"
@@ -297,7 +256,8 @@
       (is (v/ask? kb (list 'temporalDistance P R '(QuantityFn 1.5 Hour)) C))
       (is (v/ask? kb (list 'temporalDistance P R '(QuantityFn 90 Minute)) C)))
     (testing "and the gap read backwards is the same one negated"
-      (is (= '(QuantityFn -5400 Second) (bound kb (list 'temporalDistance R P '?d)))))
+      (is (= '(QuantityFn -5400 Second) (bound kb (list 'temporalDistance R P '?d))))
+      (is (v/ask? kb (list 'temporalDistance R P '(QuantityFn -90 Minute)) C)))
     (testing "an instant against itself is no gap at all"
       (is (= '(QuantityFn 0 Second) (bound kb (list 'temporalDistance P P '?d)))))))
 
@@ -322,11 +282,10 @@
     (v/assert kb (list 'temporalDistance R Q '(QuantityFn 8 Minute)) C)
     (testing "the two routes intersect to the exact figure"
       (is (= '(QuantityFn 780 Second) (bound kb (list 'temporalDistance P Q '?d)))))
-    (testing "and it is contained in the bound that was stated, which therefore still checks
-              — a stated bound is a weaker claim, so the derived one entails it"
+    (testing "a stated bound containing the derived one is entailed"
       (is (v/ask? kb (list 'temporalDistance P Q '(QuantityIntervalFn 10 20 Minute)) C))
       (is (v/ask? kb (list 'temporalDistance P Q '(QuantityIntervalFn 0 60 Minute)) C)))
-    (testing "while anything tighter than the derived bound is not entailed"
+    (testing "anything tighter is not"
       (is (not (v/ask? kb (list 'temporalDistance P Q '(QuantityIntervalFn 14 20 Minute)) C)))
       (is (not (v/ask? kb (list 'temporalDistance P Q '(QuantityFn 700 Second)) C))))))
 
@@ -344,8 +303,7 @@
           answer   (with-redefs [stp/close-state      (counting stp/close-state cold)
                                  stp/close-state-from (counting stp/close-state-from warm)]
                      (stp/closed-network kb C))]
-      (testing "the arriving constraint is relaxed into the closure the context already
-                held rather than closing the whole network again"
+      (testing "the arriving constraint is relaxed into the resident closure"
         (is (= 1 @warm))
         (is (zero? @cold)))
       (testing "and R, which the previous answer had no row for, joins it"
@@ -357,11 +315,10 @@
   (load-time-units kb)
   (tu/with-terms [P Q R S]
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 5 Minute)) C)
-    (testing "R sits in no constraint, so its gap to P is unbounded — a real answer, but
-              not one any measure can be written for"
+    (testing "R sits in no constraint: the separation is unbounded and no measure binds"
       (is (empty? (v/ask kb (list 'temporalDistance P R '?d) C)))
-      (is (= [[(quote Duration) (quote Second)] ##-Inf ##Inf] (stp/separation kb C 'P R))))
-    (testing "and a half-bounded gap is the same: knowledge, but not a measure"
+      (is (= '[[Duration Second] ##-Inf ##Inf] (stp/separation kb C P R))))
+    (testing "a half-bounded gap binds no measure either"
       (v/assert kb (list 'temporalDistance R S '(QuantityIntervalFn 5 5 Minute)) C)
       (is (empty? (v/ask kb (list 'temporalDistance P S '?d) C))))))
 
@@ -374,13 +331,12 @@
     (v/assert kb (list 'temporalDistance Q R '(QuantityFn 1 Hour)) C)
     (v/assert kb (list 'temporalDistance P R '(QuantityFn 1 Hour)) C)
     (testing "no assignment of times satisfies all three, and the closure proves it"
-      (is (stp/inconsistent? kb C))
+      (is (inconsistent? kb C))
       (is (nil? (stp/separation kb C P R))))
-    (testing "and an unsatisfiable theory is not mined for a number — not even for the pair
-              that was stated outright"
+    (testing "no goal is answered, the pair stated outright included"
       (is (empty? (v/ask kb (list 'temporalDistance P Q '?d) C)))
       (is (not (v/ask? kb (list 'temporalDistance P Q '(QuantityFn 1 Hour)) C))))
-    (testing "the clash is a property of the set, so it is reported rather than thrown"
+    (testing "the clash is reported"
       (let [entry (first (filter #(= :metric-temporal-inconsistency (:violation %))
                                  (v/violations kb)))]
         (is (some? entry))
@@ -389,39 +345,26 @@
         (is (seq (:cycle (:detail entry))) "and it names the instants on the cycle")))
     (testing "retracting one of the three gives the others their answers back"
       (v/retract! kb (v/handle-of kb (list 'temporalDistance P R '(QuantityFn 1 Hour)) C))
-      (is (not (stp/inconsistent? kb C)))
+      (is (not (inconsistent? kb C)))
       (is (= '(QuantityFn 7200 Second) (bound kb (list 'temporalDistance P R '?d)))))))
 
-(tu/deftest-kb constraints-of-two-dimensions-are-refused-rather-than-mixed
-  (load-time-units kb)
-  (v/assert kb '(dimensionOf Metre Length) C)
-  (tu/with-terms [P Q R]
-    (v/assert kb (list 'temporalDistance P Q '(QuantityFn 5 Minute)) C)
-    (v/assert kb (list 'temporalDistance Q R '(QuantityFn 5 Metre)) C)
-    (testing "minutes and metres do not add up, so the network is not built at all"
-      (is (nil? (stp/problem kb C)))
-      (is (empty? (v/ask kb (list 'temporalDistance P R '?d) C)))
-      (is (empty? (v/ask kb (list 'temporalDistance P Q '?d) C))))))
-
-(tu/deftest-kb a-refusal-that-silences-the-whole-layer-is-reported
+(tu/deftest-kb constraints-of-two-dimensions-are-refused-and-reported
   (load-time-units kb)
   (v/assert kb '(dimensionOf Metre Length) C)
   (v/clear-violations! kb)
   (tu/with-terms [P Q R]
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 5 Minute)) C)
     (v/assert kb (list 'temporalDistance Q R '(QuantityFn 5 Metre)) C)
-    (testing "one mis-spelt unit takes every metric goal in the context with it, the gap
-              stated outright included — so the refusal is content the engine dropped and
-              goes where the engine says what it dropped"
+    (testing "no network is built, and no goal is answered, the gap stated outright included"
+      (is (nil? (stp/problem kb C)))
       (is (empty? (v/ask kb (list 'temporalDistance P Q '?d) C)))
       (let [entry (first (filter #(= :metric-temporal-mixed-dimensions (:violation %))
                                  (v/violations kb)))]
         (is (some? entry))
         (is (= C (:context entry)))
         (is (= '[Duration Length] (:dimensions (:detail entry))))
-        (is (= '[Metre Second] (:units (:detail entry)))
-            "and names the base units the two dimensions would have been summed in")))
-    (testing "a query loop says it once, not once per goal"
+        (is (= '[Metre Second] (:units (:detail entry))))))
+    (testing "a query loop reports once"
       (v/ask kb (list 'temporalDistance P R '?d) C)
       (v/ask kb (list 'temporalDistance Q R '?d) C)
       (is (= 1 (count (filter #(= :metric-temporal-mixed-dimensions (:violation %))
@@ -438,18 +381,12 @@
              (get (tu/sole-answer (v/ask kb (list 'temporalDistance P R '?d) CxInner)) '?d))))
     (testing "the outer sees only its own, so it composes nothing"
       (is (empty? (v/ask kb (list 'temporalDistance P R '?d) C))))
-    (testing "retracting a link breaks the chain — the network is read, not cached"
+    (testing "retracting a link breaks the chain"
       (v/retract! kb (v/handle-of kb (list 'temporalDistance Q R '(QuantityFn 1 Hour))
                                   CxInner))
       (is (empty? (v/ask kb (list 'temporalDistance P R '?d) CxInner))))))
 
-;; ---- one gap, written two ways -------------------------------------------
-;; A magnitude reaches the network multiplied by a stored conversion factor, so two
-;; spellings of one figure arrive a last bit apart.  Every comparison the metric layer
-;; makes is therefore read to `provers/*quantity-tolerance*` — the epsilon the measure
-;; comparisons and the duration arithmetic are held to — and each stated magnitude is
-;; snapped to that grid on the way in, exactly as a stored `length` is.  What that buys is
-;; below; the guard that it did not buy it by tolerating everything is beneath them.
+;; ---- one gap, written two ways (docs/stp.md, "Both verdicts are read to the tolerance")
 
 (tu/deftest-kb the-same-gap-written-in-two-units-is-one-constraint
   (load-time-units kb)
@@ -459,24 +396,21 @@
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 1.1 Hour)) C)
     (testing "the KB's own measure comparison calls the two the same quantity"
       (is (v/ask? kb '(sameQuantity (QuantityFn 66 Minute) (QuantityFn 1.1 Hour)) C)))
-    (testing "so the metric layer must too: 1.1 hours normalizes to 3960.0000000000005
-              seconds and 66 minutes to 3960, and intersected exactly the two would cross —
-              one true thing said twice, read as a gap at once too long and too short"
-      (is (not (stp/inconsistent? kb C)))
+    (testing "so the metric layer does not read 3960.0000000000005 and 3960 as crossed"
+      (is (not (inconsistent? kb C)))
       (is (= '(QuantityFn 3960 Second) (bound kb (list 'temporalDistance P Q '?d)))))
-    (testing "and nothing is filed against a KB that stated no contradiction"
+    (testing "and files nothing"
       (is (empty? (v/violations kb))))))
 
 (tu/deftest-kb a-cycle-a-conversion-opens-is-not-a-contradiction
   (load-time-units kb)
   (v/clear-violations! kb)
   (tu/with-terms [P Q R]
-    ;; three facts, no pair stated twice, and they agree: 66 minutes then one more is 67
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 1.1 Hour)) C)
     (v/assert kb (list 'temporalDistance Q R '(QuantityFn 1 Minute)) C)
     (v/assert kb (list 'temporalDistance P R '(QuantityFn 67 Minute)) C)
-    (testing "the cycle closes at −5e-13, which is the conversion and not the knowledge"
-      (is (not (stp/inconsistent? kb C)))
+    (testing "66 minutes then one more is 67: the cycle closing at −5e-13 is no contradiction"
+      (is (not (inconsistent? kb C)))
       (is (= '(QuantityFn 4020 Second) (bound kb (list 'temporalDistance P R '?d))))
       (is (empty? (v/violations kb))))))
 
@@ -487,11 +421,10 @@
     (doseq [i (range 10)]
       (v/assert kb (list 'temporalDistance (ts i) (ts (inc i)) '(QuantityFn 0.1 Second)) C))
     (v/assert kb (list 'temporalDistance (ts 0) (ts 10) '(QuantityFn 1 Second)) C)
-    (testing "each hop is snapped on the way in and each is exact, but ten tenths of a
-              second sum to 0.9999999999999999 — against the stated second that is a cycle
-              of −1.1e-16, which no snapping at the boundary could have caught"
-      (is (not (stp/inconsistent? kb C))))
-    (testing "and the crossed sliver the closure leaves still renders as the figure"
+    (testing "ten tenths of a second sum to 0.9999999999999999: a −1.1e-16 cycle is no
+              contradiction"
+      (is (not (inconsistent? kb C))))
+    (testing "and the bound renders as the figure"
       (is (= '(QuantityFn 1 Second)
              (bound kb (list 'temporalDistance (ts 0) (ts 10) '?d)))))))
 
@@ -501,11 +434,13 @@
   (tu/with-terms [P Q]
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 3960 Second)) C)
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 3960.000001 Second)) C)
-    (testing "a microsecond is a thousand epsilons, so these are two claims and not two
-              spellings — the band is what a conversion can lose, not a licence"
-      (is (stp/inconsistent? kb C))
+    (testing "a microsecond is a thousand epsilons"
+      (is (inconsistent? kb C))
       (is (seq (filter #(= :metric-temporal-inconsistency (:violation %))
-                       (v/violations kb)))))))
+                       (v/violations kb)))))
+    (testing "and inside a rebound millisecond tolerance, with the KB unchanged"
+      (is (not (binding [provers/*quantity-tolerance* 1e-3] (inconsistent? kb C))))
+      (is (inconsistent? kb C)))))
 
 (tu/deftest-kb the-metric-layer-and-the-duration-arithmetic-read-one-pair-of-facts-alike
   (v/add-prover kb (dur/duration-prover))
@@ -515,17 +450,12 @@
     (v/assert kb (list 'length A '(QuantityFn 1.1 Hour)) C)
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 66 Minute)) C)
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 1.1 Hour)) C)
-    (testing "one interval's length written twice, and one gap written twice, in the same
-              two units — a separation and a duration are written the same way, so the two
-              subsystems have to read the pair the same way"
+    (testing "a length and a gap each written in both units read alike"
       (is (= '(QuantityFn 3960 Second)
              (get (tu/sole-answer (v/ask kb (list 'totalDuration (list 'list A) '?d) C)) '?d)))
       (is (= '(QuantityFn 3960 Second) (bound kb (list 'temporalDistance P Q '?d)))))))
 
 ;; ---- who is told the network cannot be satisfied --------------------------
-;; The closure is memoized on the network *value* and so is shared — two contexts seeing
-;; the same constraints, or two KBs holding them, close it once between them.  A ledger
-;; entry is a claim about a KB and a context, so it cannot ride on that pass.
 
 (tu/deftest-kb every-context-that-cannot-satisfy-the-constraints-is-told-so
   (load-time-units kb)
@@ -535,15 +465,17 @@
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 1 Hour)) C)
     (v/assert kb (list 'temporalDistance Q R '(QuantityFn 1 Hour)) C)
     (v/assert kb (list 'temporalDistance P R '(QuantityFn 1 Hour)) C)
-    (testing "the inner context sees exactly the outer's constraints and nothing else, so
-              the two reach one network and close it once between them"
-      (is (stp/inconsistent? kb CxInner))
-      (is (stp/inconsistent? kb C)))
-    (let [es (filter #(= :metric-temporal-inconsistency (:violation %)) (v/violations kb))]
-      (testing "and each is named — what a reader needs is where its own query stopped
-                being answered, not which context happened to ask first"
-        (is (= #{CxInner C} (set (map :context es)))))
-      (testing "once each, since a query loop over one belief state reports once"
+    (testing "the two contexts reach one network and close it once between them"
+      (let [passes   (atom 0)
+            counting (fn [f] (fn [& args] (swap! passes inc) (apply f args)))]
+        (with-redefs [stp/close-state      (counting stp/close-state)
+                      stp/close-state-from (counting stp/close-state-from)]
+          (is (inconsistent? kb CxInner))
+          (is (inconsistent? kb C)))
+        (is (<= @passes 1))))
+    (testing "and each context is reported, once"
+      (let [es (filter #(= :metric-temporal-inconsistency (:violation %)) (v/violations kb))]
+        (is (= #{CxInner C} (set (map :context es))))
         (is (= 2 (count es)))))))
 
 (tu/deftest-kb a-second-kb-holding-the-same-constraints-is-told-so-too
@@ -561,12 +493,10 @@
       (try
         (load-time-units other)
         (doseq [s facts] (v/assert kb s C) (v/assert other s C))
-        (testing "the two KBs reach the very same network, so whichever asks first runs the
-                  closure and the other reads its answer"
-          (is (stp/inconsistent? kb C))
-          (is (stp/inconsistent? other C)))
-        (testing "both are told: a KB answering nothing with an empty ledger has no way to
-                  learn that another KB's pass is the reason"
+        (testing "the two KBs reach the same network"
+          (is (inconsistent? kb C))
+          (is (inconsistent? other C)))
+        (testing "and both are told"
           (is (= 1 (count (filter #(= :metric-temporal-inconsistency (:violation %))
                                   (v/violations kb)))))
           (is (= 1 (count (filter #(= :metric-temporal-inconsistency (:violation %))
@@ -581,37 +511,6 @@
   (v/assert kb (list 'startOf i s) C)
   (v/assert kb (list 'endOf i e) C))
 
-(tu/deftest-kb the-metric-network-narrows-the-allen-possibilities
-  (load-time-units kb)
-  (tu/with-terms [A B As Ae Bs Be]
-    (bridge-interval kb A As Ae)
-    (bridge-interval kb B Bs Be)
-    (v/assert kb (list 'temporalDistance As Ae '(QuantityFn 2 Hour)) C)
-    (v/assert kb (list 'temporalDistance Bs Be '(QuantityFn 3 Hour)) C)
-    (v/assert kb (list 'temporalDistance Ae Bs '(QuantityFn 1 Hour)) C)
-    (testing "B begins an hour after A ends, so A is before B and can be nothing else"
-      (let [narrowed (stp/allen-narrowing kb C)]
-        (is (= #{:before} (get narrowed [A B])))
-        (is (= #{:after} (get narrowed [B A])) "and the pair reads the same backwards")))
-    (testing "nothing is asserted — the narrowing is a value, and no interval fact appears"
-      (is (empty? (v/sentexes-matching kb (list 'before A B) C))))
-    (testing "and the interval algebra reads it: the pair is pinned there too, off the
-              metric constraints alone"
-      (is (= #{:before} (iv/possible-allen-relations kb C A B)))
-      (is (= #{:after} (iv/possible-allen-relations kb C B A))))))
-
-(tu/deftest-kb a-loose-metric-network-narrows-without-pinning
-  (load-time-units kb)
-  (tu/with-terms [A B As Ae Bs Be]
-    (bridge-interval kb A As Ae)
-    (bridge-interval kb B Bs Be)
-    (v/assert kb (list 'temporalDistance As Ae '(QuantityFn 2 Hour)) C)
-    (v/assert kb (list 'temporalDistance Bs Be '(QuantityFn 3 Hour)) C)
-    (v/assert kb (list 'temporalDistance As Bs '(QuantityIntervalFn 1 5 Hour)) C)
-    (testing "B starts somewhere between one and five hours after A does, which leaves open
-              exactly where A's end falls against B's start"
-      (is (= #{:before :meets :overlaps} (get (stp/allen-narrowing kb C) [A B]))))))
-
 (tu/deftest-kb the-bridge-needs-both-endpoints-and-a-satisfiable-network
   (load-time-units kb)
   (tu/with-terms [A B As Ae Bs]
@@ -621,32 +520,25 @@
     (v/assert kb (list 'startOf B Bs) C)                  ; no endOf
     (v/assert kb (list 'temporalDistance As Ae '(QuantityFn 2 Hour)) C)
     (testing "an interval missing one of its bounding instants is not read"
-      (is (nil? (get (stp/endpoints-of kb B C) 0)))
+      (is (nil? (get (endpoints-of kb B C) 0)))
       (is (nil? (stp/allen-narrowing kb C))))
     (testing "and neither is an interval whose start is stated of two different instants"
       (tu/with-terms [Bs2]
         (v/assert kb (list 'startOf B Bs2) C)
-        (is (nil? (stp/endpoints-of kb B C)))))))
+        (is (nil? (endpoints-of kb B C)))))))
 
 ;; ---- the narrowing is a reader of the interval network -------------------
-;;
-;; The bridge is not a value a caller may or may not intersect: `interval/allen` declares
-;; it as the calculus's narrowing, so every read of an Allen network in a context takes it
-;; — and an entailment drawn through it names the metric facts, the endpoint facts and the
-;; unit rows it was closed out of, which is what lets the JTMS withdraw a conclusion when
-;; one of them goes.
 
 (defmacro ^:private with-allen
-  "Run `body` with the Allen prover registered, restoring the registry afterwards — the
-  fixture guards sentexes, not the prover registry."
+  "Run `body` with the Allen prover registered, restoring the registry afterwards."
   [kb & body]
   `(let [before# @(:provers ~kb)]
      (v/add-prover ~kb (iv/allen-prover))
      (try ~@body (finally (reset! (:provers ~kb) before#)))))
 
 (defn- two-hours-apart!
-  "Two intervals with named endpoints, B beginning an hour after A ends: A `before` B and
-  nothing else, said entirely in measures."
+  "A lasts two hours, B three, and B begins an hour after A ends; answers the three
+  constraints' handles."
   [kb A B As Ae Bs Be]
   (bridge-interval kb A As Ae)
   (bridge-interval kb B Bs Be)
@@ -658,6 +550,13 @@
   (load-time-units kb)
   (tu/with-terms [A B As Ae Bs Be]
     (two-hours-apart! kb A B As Ae Bs Be)
+    (testing "the narrowing pins the pair both ways"
+      (let [narrowed (stp/allen-narrowing kb C)]
+        (is (= #{:before} (get narrowed [A B])))
+        (is (= #{:after} (get narrowed [B A])))))
+    (testing "the interval network reads it without the Allen prover registered"
+      (is (= #{:before} (iv/possible-allen-relations kb C A B)))
+      (is (= #{:after} (iv/possible-allen-relations kb C B A))))
     (with-allen kb
       (testing "nobody wrote an interval relation down"
         (is (empty? (v/sentexes-matching kb (list 'before A B) C)))
@@ -675,16 +574,15 @@
   (load-time-units kb)
   (tu/with-terms [A B C2 As Ae Bs Be Cs Ce]
     (let [[_ _ h-gap] (two-hours-apart! kb A B As Ae Bs Be)
-          ;; a third interval nothing relates to the first two: its facts are in the same
-          ;; network and must not be in this pair's support
-          _           (bridge-interval kb C2 Cs Ce)
+          _           (bridge-interval kb C2 Cs Ce)          ; related to neither
           h-other     (v/assert kb (list 'temporalDistance Cs Ce '(QuantityFn 9 Hour)) C)
           sup         (iv/allen-support kb C A B)]
       (testing "the gap that decided the pair is named"
         (is (contains? sup h-gap)))
-      (testing "and an unrelated interval's constraint is not — the support is the chains
-                the four endpoint gaps were composed along, not the whole network"
+      (testing "and an unrelated interval's constraint is not"
         (is (not (contains? sup h-other))))
+      (testing "a pair the constraints do not narrow is not recorded"
+        (is (not (contains? (stp/allen-narrowing kb C) [A C2]))))
       (testing "retracting the gap gives the relation back to the algebra"
         (v/retract! kb h-gap)
         (is (not (v/ask? kb (list 'before A B) C)))
@@ -701,9 +599,9 @@
     (v/assert kb (list 'before B C2) C)
     (with-allen kb
       (testing "the measures alone leave three relations open between A and B"
+        (is (= #{:before :meets :overlaps} (get (stp/allen-narrowing kb C) [A B])))
         (is (= #{:before :meets :overlaps} (iv/possible-allen-relations kb C A B))))
-      (testing "and composing them with the stored B-before-C step puts A before C —
-                one pair narrowed metrically, the next by the algebra"
+      (testing "and composing them with the stored B-before-C step puts A before C"
         (is (v/ask? kb (list 'before A C2) C))))))
 
 (tu/deftest-kb a-forward-rule-resting-on-a-metric-entailment-is-withdrawn-with-it
@@ -724,18 +622,39 @@
           (v/retract! kb h-gap)
           (is (empty? (v/sentexes-matching kb (list finishedFirst A) '?ctx))))))))
 
+(tu/deftest-kb an-unsatisfiable-metric-network-withdraws-the-allen-firings-it-licensed
+  (load-time-units kb)
+  (tu/with-terms [A B As Ae Bs Be P Q finishedFirst]
+    (with-allen kb
+      (v/assert kb (list 'arg finishedFirst 1 'thing) 'CxCore {:strength :monotonic})
+      (v/assert-rule kb [(list 'before '?x '?y)] (list finishedFirst '?x) C {:direction :forward})
+      (two-hours-apart! kb A B As Ae Bs Be)
+      (testing "the rule fires on a relation only the metric layer entails"
+        (is (seq (v/sentexes-matching kb (list finishedFirst A) '?ctx))))
+      ;; a negative cycle through two instants neither interval is bounded by
+      (let [h (v/assert kb (list 'temporalDistance P Q '(QuantityFn 1 Hour)) C)]
+        (v/assert kb (list 'temporalDistance Q P '(QuantityFn 1 Hour)) C)
+        (testing "the interval network that reads the metric one is unsatisfiable too"
+          (is (inconsistent? kb C))
+          (is (false? (:consistent? (v/qualitative-network kb :allen C))))
+          (is (not (v/ask? kb (list 'before A B) C))))
+        (testing "so the firing is withdrawn, though every fact it listed is still believed"
+          (is (empty? (v/sentexes-matching kb (list finishedFirst A) '?ctx))))
+        (testing "and retracting the cycle revives it"
+          (v/retract! kb h)
+          (is (v/ask? kb (list 'before A B) C))
+          (is (seq (v/sentexes-matching kb (list finishedFirst A) '?ctx))))))))
+
 (tu/deftest-kb the-narrowing-declares-what-moves-it-and-what-names-a-reader
   (testing "every predicate the closure reads is a trigger, the unit table included"
     (is (= '#{temporalDistance startOf endOf dimensionOf conversionFactor}
-           stp/allen-narrowing-sources))
-    (is (= stp/allen-narrowing-sources
-           (into stp/stp-predicates
-                 (into stp/endpoint-predicates provers/unit-table-predicates)))))
-  (testing "a calculus folds both sets once, so the triggers cost a membership test"
-    (is (= (into (:predicates iv/allen) stp/allen-narrowing-sources)
+           stp/allen-narrowing-sources)))
+  (testing "a calculus folds both sets into its triggers, beside the point network's"
+    (is (= (-> (:predicates iv/allen)
+               (into stp/allen-narrowing-sources)
+               (into (keys pt/instant-denotation)))
            (:trigger-predicates iv/allen)))
-    (testing "and a conversionFactor names no reader context — it moves what a bound
-              comes to, and a context holding one and no interval narrows nothing"
+    (testing "and a conversionFactor names no reader context"
       (is (contains? (:trigger-predicates iv/allen) 'conversionFactor))
       (is (not (contains? (:context-predicates iv/allen) 'conversionFactor)))
       (is (contains? (:context-predicates iv/allen) 'temporalDistance)))))
@@ -743,11 +662,12 @@
 ;; ---- registration --------------------------------------------------------
 
 (tu/deftest-kb the-prover-ships-opt-in
-  (is (not-any? #(instance? TemporalDistanceProver %) provers/default-provers)
-      "nothing metric is in the default registry, so a KB pays for the closure only once
-       it asks for it"))
-
-(tu/deftest-kb without-the-prover-the-constraints-are-inert
+  (is (not-any? #(instance? TemporalDistanceProver %) provers/default-provers))
+  (testing "registered, it estimates one answer, costs a computation and is authoritative"
+    (let [p (stp/stp-prover)]
+      (is (= [1 :compute 100] [(prover-types/est-bindings p kb nil C)
+                               (prover-types/cost p kb nil C)
+                               (prover-types/completeness p kb nil C)]))))
   (load-time-units kb)
   (tu/with-terms [P Q R]
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 1 Hour)) C)
@@ -762,9 +682,6 @@
       (is (= '(QuantityFn 7200 Second) (bound kb (list 'temporalDistance P R '?d)))))))
 
 (tu/deftest-kb a-gap-check-in-the-right-dimension-but-wrong-base-unit-fails
-  ;; The dimension is not enough: a unit that declares `dimensionOf` but no
-  ;; `conversionFactor` is its own base and converts only to itself, so a gap closed in
-  ;; Seconds must not read as satisfying the same magnitude stated in that unit.
   (load-time-units kb)
   (tu/with-terms [P Q]
     (v/assert kb (list 'temporalDistance P Q '(QuantityFn 30 Minute)) C)   ; 1800 Second

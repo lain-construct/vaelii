@@ -92,9 +92,12 @@
 ;; prioritized contradictions".
 ;;
 ;; `rule-antecedents` and `rule-contexts` are the rule rosters `special` bumps on every
-;; rule index/unindex and reads per settle for the visibility seeds.  Neither is stored,
-;; and recovery replays belief and the taxonomy rather than rule indexing, so
-;; `rebuild-rule-roster!` is what refills them on a recovered, reopened or forked KB.
+;; rule index/unindex and reads per settle for the visibility seeds.  `solve-rules` is the
+;; third, `{context -> #{handle}}` of the rules a solve reads (`rules/solve-sentex?`),
+;; which `do/label` reads in place of each context's extent.  All three hold storage, not
+;; belief.  None is stored, and recovery replays belief and the taxonomy rather than rule
+;; indexing, so `rebuild-rule-roster!` is what refills them on a recovered, reopened or
+;; forked KB.
 ;;
 ;; `excepted` is the visibility roster beside `:opposed`, and kept the same way: `{context
 ;; -> {except-handle -> hidden-handle}}` for the stored `(except (sentexHandle H))` facts,
@@ -110,7 +113,8 @@
 ;; reads as withdrawn (docs/nmtms.md, "A defeat is scoped to its vantage").  It is derived
 ;; state, cleared and re-decided by every settle exactly as the network's defeated set is.
 ;; `withdrawn` is the per-reader answer built from it and from `excepted`, `{reader ->
-;; #{handle}}`, emptied whenever either input or the network moves.
+;; #{handle}}`, emptied whenever either input or the network moves.  Each emptying moves
+;; its generation, so a reader thread cannot install an answer computed before it.
 ;;
 ;; `vantage-disagreements` is `[{vantage -> handle} …]`, one entry per nogood whose live
 ;; vantages defeated **different** members.  A reader that sees two of an entry's vantages
@@ -118,13 +122,24 @@
 ;; and the nogood is reported by `contradictions` (docs/nmtms.md, "Vantages that
 ;; disagree").  Empty on nearly every KB, and every read of it is gated on that.
 ;;
+;; `minted` is the mint roster, `{:by-term {x #{handle}} :by-context {context #{handle}}}`:
+;; every stored `(t x)` or `(genl x t)` an `arg`, `genlArg` or `interArg` justification has
+;; concluded, which `special/subsumed-mint-blocks` reads instead of the index
+;; (docs/argtypes.md).  A record stays in it until it leaves the store.  Kept at the one
+;; place a mint justification is added (`special/entail-arg-type`) and the one place a
+;; record leaves (`integrate/sentex-removed!`), and rebuilt by `recover`.  Its `:departed`
+;; is the queue of removed records that can have subsumed a mint
+;; (`special/note-departure!`), which every settle drains.
+;;
 ;; `kb/empty-reasoning` states what the remaining fields hold, beside the expression that
 ;; makes each one.
 (defrecord Reasoning [tms taxonomy clash-readings program violations recheck refused
                       settle-stats chain-stats opposed preserving preserved-clashes excepted
-                      meta-except-count rule-antecedents rule-contexts negations clashes
+                      meta-except-count rule-antecedents rule-contexts solve-rules
+                      negations clashes
                       sib-exc-dirty supersessions qcn qcn-joined matches closures
-                      scoped-defeats vantage-disagreements withdrawn])
+                      scoped-defeats vantage-disagreements withdrawn respell except-moves
+                      arbitration-cursors minted])
 
 (defn of
   "The `Reasoning` value `kb` holds now."
@@ -246,6 +261,12 @@
   [kb]
   (:rule-contexts @(:reasoning kb)))
 
+(defn solve-rules
+  "`kb`'s `:solve-rules` atom."
+  {:inline (fn [kb] `(:solve-rules (deref (:reasoning ~kb))))}
+  [kb]
+  (:solve-rules @(:reasoning kb)))
+
 (defn negations
   "`kb`'s `:negations` atom."
   {:inline (fn [kb] `(:negations (deref (:reasoning ~kb))))}
@@ -264,11 +285,35 @@
   [kb]
   (:sib-exc-dirty @(:reasoning kb)))
 
+(defn arbitration-cursors
+  "`kb`'s `:arbitration-cursors` atom."
+  {:inline (fn [kb] `(:arbitration-cursors (deref (:reasoning ~kb))))}
+  [kb]
+  (:arbitration-cursors @(:reasoning kb)))
+
+(defn minted
+  "`kb`'s `:minted` atom."
+  {:inline (fn [kb] `(:minted (deref (:reasoning ~kb))))}
+  [kb]
+  (:minted @(:reasoning kb)))
+
 (defn supersessions
   "`kb`'s `:supersessions` atom."
   {:inline (fn [kb] `(:supersessions (deref (:reasoning ~kb))))}
   [kb]
   (:supersessions @(:reasoning kb)))
+
+(defn respell
+  "`kb`'s `:respell` atom."
+  {:inline (fn [kb] `(:respell (deref (:reasoning ~kb))))}
+  [kb]
+  (:respell @(:reasoning kb)))
+
+(defn except-moves
+  "`kb`'s `:except-moves` atom."
+  {:inline (fn [kb] `(:except-moves (deref (:reasoning ~kb))))}
+  [kb]
+  (:except-moves @(:reasoning kb)))
 
 (defn qcn
   "`kb`'s `:qcn` atom."

@@ -476,11 +476,11 @@
   ;; `disjoint`, so no `?p` satisfies two antecedents and the pairs are unreachable rather
   ;; than unstated (docs/quality.md).
   ;;
-  ;; The eight `:disjoint` pairs are the checker's residual limitation.  Each pairs an
-  ;; integer-classification rule — `(integer ?x)` or a signed refinement of it concluding
-  ;; another — with CxCriedWolf's `lied_before → liar`, whose conclusions `integer` and
-  ;; `liar` a separation makes disjoint.  No ground term is both an integer and a person,
-  ;; so the pairs are unreachable, but the checker cannot read that: `integer` and
+  ;; The four `:disjoint` pairs are the checker's residual limitation.  Each pairs an
+  ;; integer-classification rule — a signed refinement concluding `integer` — with
+  ;; CxCriedWolf's `lied_before → liar`, whose conclusions `integer` and `liar` a
+  ;; separation makes disjoint.  No ground term is both an integer and a person,
+  ;; so the pairs are unreachable, but the checker cannot read that: the sign types and
   ;; `lied_before` carry no `arg` declaration, so the only type each antecedent states is
   ;; the membership that is itself the clash.  The relation-classification rules — arity,
   ;; `bijection`, the arity classes — do carry an `arg` declaration typing their variable a
@@ -488,7 +488,7 @@
   ;; as unreachable (vaelii#95).
   (let [pairs (:pairs (:clashes (v/kb-quality kb {:limit 100})))
         kinds (frequencies (map :kind pairs))]
-    (is (= {:negation 4, :disjoint 8} kinds)
+    (is (= {:negation 4, :disjoint 4} kinds)
         (str "clashes: " (pr-str (mapv (juxt :kind :sentences) pairs))))
     (is (every? :excepted (filter #(= :negation (:kind %)) pairs))
         "negation clashes are excepted; the disjoint clashes are integer/person rules the checker cannot prune")))

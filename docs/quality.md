@@ -56,8 +56,8 @@ reading comes off state that is already there:
 - **The firing census reads each rule's own `:consequences` adjacency** — the candidate set
   `restrength-informant*` already uses, filtered to the justifications whose *informant* is
   that rule, so a justification that merely uses the rule's handle as an ordinary
-  antecedent is not counted. It never scans the justification map; at 11.5M justifications
-  the difference is the report existing or not.
+  antecedent is not counted. It never scans the justification map; on a store of millions
+  of justifications the difference is the report existing or not.
 - **The declaration census enumerates the declarations** and asks each what binds its own
   predicate's length, rather than asking every predicate what declares it. That is a map
   read where the predicate carries a length of its own and one read per super-predicate
@@ -238,12 +238,12 @@ forwards and once backwards:
   consequent on a *super* does not cover. This is the half a reader expects to be
   symmetric and is not.
 
-R1 must also be **at least as available**, and four slots decide that. `direction` must
-cover — `:both` covers `:forward` and `:backward`, every other direction covers only
-itself, and `:inert` covers nothing but `:inert` because it chains in neither engine.
-**A default cannot stand in for a strict rule**: a defeasible conclusion is defeated
-exactly where the strict one stands. `assumption` and `constraint` must match, since
-neither chains at all ([solving.md](solving.md)). And R1 must carry no `exceptWhen` R2
+R1 must also be **at least as available**, and three slots decide that. Its `engines`
+must include R2's — forward + backward covers forward-only and backward, every other set
+covers only itself, and an inert rule (`#{}`) is covered by an inert rule alone, because
+it chains in neither engine. **A default cannot stand in for a strict rule**: a
+defeasible conclusion is defeated exactly where the strict one stands. The `effect` must
+match, since a choice or constraint rule does not chain at all ([solving.md](solving.md)). And R1 must carry no `exceptWhen` R2
 lacks — an exception is a binding R1 declines to conclude for and R2 concludes for, which
 is exactly not covering it. What is *not* read is the rule sentex's own strength, which
 says how the rule is defeated rather than where it runs.

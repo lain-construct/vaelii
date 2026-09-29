@@ -113,7 +113,16 @@
 (instance_relation_predicate refuse)
 (arg refuse 1 agent)
 
-;; ---- the one rule that earns its place: disputed claims are queryable ----
+;; ---- placement: the mark every koinii placement writes ----
+
+(comment agentContext
+         "(agentContext ?context ?agent) means that ?context is ?agent's own per-agent context. Written into ?context itself by identity/place-agent-context, the one placement channel/join, speech-acts/speaker-context and identity/agent-context all go through, so a reader tells an agent's context from a channel by a stored fact rather than by its spelling or its genlCx edges. Declared here, which a context rooted under CxSpeechActs sees; identity/agent-context roots the agent's context under CxCore alone, and there the mark is stored with no declaration in view.")
+(binary_predicate agentContext)
+(instance_relation_predicate agentContext)
+(quotedArg agentContext 1 symbol)
+(arg agentContext 2 agent)
+
+;; ---- the one rule in this context: disputed claims are queryable ----
 ;; A disputes edge marks its target as contested, so 'which claims are under dispute'
 ;; is a plain read rather than a meta-sentex walk.  It only REPRESENTS (it does not
 ;; adjudicate).  Belief-following by construction: the conclusion is JTMS-supported by

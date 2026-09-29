@@ -19,6 +19,7 @@
 #
 # SLF4J prints one "no providers" warning at startup: the no-op provider ships in the
 # :dev and :uberjar profiles, and this run drops :dev.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -54,3 +55,4 @@ export JVM_OPTS
 
 echo "vaelii daemon: port $port, opening $KB" >&2
 exec lein with-profile -user,-dev trampoline run -m vaelii.serve "$port" "$KB" "$@"
+}

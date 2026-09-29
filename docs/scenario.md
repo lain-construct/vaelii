@@ -46,8 +46,8 @@ later. Nothing in it names a relation, a predicate or a table: everything it nee
 `qcn` and `qcn-kb`'s public surface — the network, its nodes, a constraint, the converse, and
 the pass.
 
-That is the same payoff `qcn-kb` itself takes: a new calculus is a table and a prover, and it
-gets scenario extraction for free along with the caches and the entailment reading.
+That is the same arrangement `qcn-kb` itself takes: a new calculus is a table and a prover,
+and it gets scenario extraction for free along with the caches and the entailment reading.
 
 ## Determinism
 
@@ -103,5 +103,5 @@ calculi.
 
 Note what a scenario is *not*: path consistency is sound but not in general complete outside
 an algebra's tractable subclass, so a singleton-valued network that survives the pass is one
-no *local* reasoning refutes. For the algebras that ship, that is the honest strength of the
+no *local* reasoning refutes. For the algebras that ship, that is the strength of the
 claim, and it is the same strength every other answer read off the pass carries.

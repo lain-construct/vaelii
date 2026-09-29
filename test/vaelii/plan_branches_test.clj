@@ -168,9 +168,8 @@
 
 (tu/deftest-kb one-evaluate-may-feed-another-but-only-downhill
   ;; A deferred literal's output binds the ones written *after* it, because that is the
-  ;; order the join runs them in — `plan/order` pins deferred literals where the author
-  ;; put them.  An aggregate's output is the exception (the placement phase reorders it
-  ;; into dependency order), and nothing here is an aggregate, so written order decides.
+  ;; order the join runs them in: `plan/order` pins deferred literals where the author
+  ;; put them.  The placement phase that runs an aggregate keeps written order too.
   (tu/with-terms [age chained Tom CxPlan]
     (v/assert kb (list age Tom 30) CxPlan)
     (testing "written in dependency order, the chain runs"

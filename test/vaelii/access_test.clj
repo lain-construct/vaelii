@@ -9,15 +9,8 @@
   The end-to-end proof is byte equality: the same page rendered over the in-process KB
   and over the daemon (across the wire) must be identical HTML.  That only holds if the
   wire preserves sentence structure — a sentence is a list, and it must not arrive as a
-  vector — so this doubles as the regression for `serve/wire-safe`.
-
-  The claim is about **what the KB says**, which is the whole of every page but one
-  element: the term page's proposal panel is about what this *process* can do, and
-  running a proposal a round-trip at a time against a daemon is not something to offer a
-  reader (`access/local-kb` answers nil there).  So the panel is compared for its
-  difference and the KB-derived remainder for its equality — weakening neither."
-  (:require [clojure.string :as str]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+  vector — so this doubles as the regression for `serve/wire-safe`."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.browser.access :as access]
             [vaelii.browser.web :as web]
             [vaelii.core :as v]
@@ -61,15 +54,13 @@
     ;; that the one-directional check above reads as intended.
     (is (seq (remove (set access/read-ops) (keys serve/ops))))))
 
-;; ---- dispatch: local, raw-kb, and remote agree ---------------------------
+;; ---- dispatch: a KB and a remote access agree ----------------------------
 
-(deftest a-raw-kb-and-local-access-answer-like-vaelii-core
+(deftest a-kb-answers-like-vaelii-core
   (let [via-core   (map :sentence (v/sentexes-matching tu/*kb* '(dog ?x) 'CxNaturalWorld))
-        via-raw    (map :sentence (access/sentexes-matching tu/*kb* '(dog ?x) 'CxNaturalWorld))
-        via-local  (map :sentence (access/sentexes-matching (access/local tu/*kb*) '(dog ?x) 'CxNaturalWorld))]
+        via-raw    (map :sentence (access/sentexes-matching tu/*kb* '(dog ?x) 'CxNaturalWorld))]
     (is (= '[(dog Muffet)] (vec via-core)))
-    (is (= (vec via-core) (vec via-raw) (vec via-local))
-        "a raw KB and an explicit local access both take the in-process path")))
+    (is (= (vec via-core) (vec via-raw)) "a KB takes the in-process path")))
 
 (deftest remote-access-answers-across-the-wire-like-local
   (testing "a fact query"
@@ -88,11 +79,9 @@
         expected (v/belief-status tu/*kb* h 'CxNaturalWorld)]
     (is (= (v/believed? tu/*kb* h 'CxNaturalWorld)
            (access/believed? tu/*kb* h 'CxNaturalWorld)
-           (access/believed? (access/local tu/*kb*) h 'CxNaturalWorld)
            (access/believed? *remote* h 'CxNaturalWorld)))
     (is (= expected
            (access/belief-status tu/*kb* h 'CxNaturalWorld)
-           (access/belief-status (access/local tu/*kb*) h 'CxNaturalWorld)
            (access/belief-status *remote* h 'CxNaturalWorld)))))
 
 (deftest the-vocabulary-reads-the-same-over-the-wire
@@ -129,13 +118,6 @@
 (defn- GET [app uri qs]
   (app (cond-> {:request-method :get :uri uri} qs (assoc :query-string qs))))
 
-(defn- kb-part
-  "A term page up to the proposal panel — everything the KB is the author of.  The panel
-  is what the *process* can do rather than what the KB holds, and it is the last element
-  on the page, so cutting at it leaves exactly the part both targets must agree on."
-  [body]
-  (subs body 0 (or (str/index-of body "<div class=\"propose\"") (count body))))
-
 (deftest browser-over-a-daemon-matches-the-in-process-render
   (let [local-app  (web/app tu/*kb*)
         remote-app (web/app *remote*)]
@@ -146,14 +128,8 @@
         (is (re-find #"Muffet" (:body rr)) "the daemon's fact renders")
         (is (re-find #"class=\"g-edge g-genl\"" (:body rr))
             "and the taxonomy read behind the picture — one `describe` round trip — renders too")
-        (is (= (kb-part (:body lr)) (kb-part (:body rr)))
+        (is (= (:body lr) (:body rr))
             "remote browsing is identical to in-process browsing")))
-    (testing "the one exception, and it says why rather than offering a dead button"
-      (let [lr (GET local-app "/term" "q=dog")
-            rr (GET remote-app "/term" "q=dog")]
-        (is (re-find #"hx-post=\"/propose\"" (:body lr)))
-        (is (not (re-find #"hx-post=\"/propose\"" (:body rr))))
-        (is (re-find #"attached to a daemon" (:body rr)))))
     (testing "the default page too"
       (is (= (:body (GET local-app "/" nil))
              (:body (GET remote-app "/" nil)))))

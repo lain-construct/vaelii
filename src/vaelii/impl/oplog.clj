@@ -108,11 +108,18 @@
 (defn- header [generation] {:oplog format-version :generation generation})
 
 (defn- scan
-  "Every frame of `raf` in order, and the offset past the last whole one."
-  [^RandomAccessFile raf]
+  "Every frame of `raf` in order, the offset past the last whole one, and the offset of a
+  frame inside the log that does not thaw (nil when none does).  The frames returned stop
+  before that frame, and so does the offset."
+  [^RandomAccessFile raf path]
   (let [acc (transient [])
-        end (f/scan-log raf (fn [_ v] (conj! acc v)))]
-    [(persistent! acc) end]))
+        [end damaged-at]
+        (try [(f/scan-log raf path (fn [_ v] (conj! acc v))) nil]
+             (catch clojure.lang.ExceptionInfo e
+               (if (= :damaged-frame (:type (ex-data e)))
+                 [(:offset (ex-data e)) (:offset (ex-data e))]
+                 (throw e))))]
+    [(persistent! acc) end damaged-at]))
 
 (defn- unusable-reason
   "Why `frames` cannot be replayed, or nil: a header of another format, or the first
@@ -126,11 +133,18 @@
 (defn open-log
   "Open the operation log under `dir` and register it with the durability daemon.  A torn
   trailing frame is truncated.  A log with no header — a new one, or one a crash emptied
-  — starts at `generation`."
+  — starts at `generation`.
+
+  A frame inside the log that does not thaw (`f/scan-log`'s `:damaged-frame`) ends what
+  can be replayed: the log is truncated at it, and a `{:unusable [:damaged-frame
+  offset]}` frame is appended unless an earlier mark already holds.  A replay of the
+  frames before it would miss the writes after it, and the watermark check catches a
+  missed write only when it allocated a handle — a deletion below the watermark leaves
+  nothing to find."
   [dir generation]
   (let [path (log-path dir)
         raf  (f/open-log path)
-        [frames end] (scan raf)
+        [frames end damaged-at] (scan raf path)
         _    (f/truncate-log! raf end)
         lock (Object.)
         log  (store-types/->Oplog path raf lock (atom nil) (atom nil) (atom nil))]
@@ -141,6 +155,15 @@
         (reset! (:state log) (assoc (fresh-state (:generation (first frames)))
                                     :ops ops :synced ops
                                     :unusable (unusable-reason frames)))))
+    (when (and damaged-at (nil? (:unusable @(:state log))))
+      (let [reason [:damaged-frame damaged-at]]
+        (locking lock (f/append-record! raf {:unusable reason}))
+        (swap! (:state log) assoc :unusable reason)
+        (trove/log! {:level :warn :id ::damaged-frame
+                     :msg  (str "operation log " path " holds a frame at byte offset "
+                                damaged-at " that does not decode, with frames after it —"
+                                " truncated there and marked unusable")
+                     :data {:reason reason}})))
     (reset! (:reg log)
             (dur/register! {:label (str "oplog " path)
                             :fsync (fn [_]
@@ -162,8 +185,8 @@
 
 (defn read-frames
   "The frames of `log` after its header, in append order, `:unusable` marks included."
-  [{:keys [^RandomAccessFile raf lock]}]
-  (locking lock (vec (rest (first (scan raf))))))
+  [{:keys [^RandomAccessFile raf lock path]}]
+  (locking lock (vec (rest (first (scan raf path))))))
 
 (defn generation
   "The generation `log` holds."
@@ -276,7 +299,11 @@
 (defn replay!
   "Run each operation frame of `frames` against `kb` (the namespace docstring,
   \"Generations and replay\").  Throws with `::diverged` in its ex-data when a replayed
-  write differs from the stored record, or a frame names an operation nothing installed."
+  write differs from the stored record, or a frame names an operation nothing installed.
+
+  Only an `ex-info` is a refusal to skip.  Anything else a frame throws — an `Error`, an
+  I/O failure — propagates, so the restore declines rather than answering for a KB that
+  is missing the write."
   [kb frames]
   (binding [*replaying?* true, feed/*enabled?* false]
     (doseq [{:keys [op args in]} frames
@@ -284,7 +311,7 @@
       (let [g (or (get @dispatch op) (diverged! :operation op))]
         (binding [*replay-inputs* in]
           (try (apply g kb args)
-               (catch Throwable t
+               (catch clojure.lang.ExceptionInfo t
                  (when (::diverged (ex-data t)) (throw t)))))))))
 
 ;; ---- the logged record store --------------------------------------------
@@ -341,19 +368,6 @@
       (p/write-record! sink rec))
     java.io.Closeable
     (close [_] (.close ^java.io.Closeable sink))))
-
-(defn- replay-sink
-  "A sink writing each record through `store`'s own replayed put, and marking a premise
-  when `premises?` and the record carries a strength."
-  [store put-fn premises?]
-  (reify
-    p/RecordSink
-    (write-record! [_ rec]
-      (let [id (put-fn store rec)]
-        (when (and premises? (:strength rec)) (p/mark-premise store id (:strength rec)))
-        id))
-    java.io.Closeable
-    (close [_] nil)))
 
 ;; `watermark` and `counter` are atoms because a seal moves the watermark under a KB value
 ;; every caller already holds, and `mode` because a restore switches it from `:replay` to
@@ -440,11 +454,11 @@
   p/BulkLoading
   (open-sentex-sink [this opts]
     (if (identical? :replay @mode)
-      (replay-sink this p/put-sentex (:premises? opts true))
+      (cap/loop-sink this p/put-sentex (:premises? opts true))
       (guarded-sink log watermark (cap/sentex-sink inner opts))))
   (open-justification-sink [this opts]
     (if (identical? :replay @mode)
-      (replay-sink this p/put-justification false)
+      (cap/loop-sink this p/put-justification false)
       (guarded-sink log watermark (cap/justification-sink inner opts))))
 
   p/BulkAnnotating

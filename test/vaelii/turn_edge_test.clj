@@ -11,7 +11,7 @@
   common_sense_test / predicate_meta_test / recovery_test.  Each deftest builds
   its own KB on the scratch dbs and is net-neutral: `tu/with-neutral-kb` retracts
   what the test added; the persistence tests (a second KB over the same durable
-  store) use `tu/with-cleared-kb`, whose honest teardown is a clear.  Invented
+  store) use `tu/with-cleared-kb`, whose teardown is a clear.  Invented
   domain terms are gensym'd; the real spindle contexts and starter/story terms a
   test verifies stay literal."
   (:require [clojure.test :refer [deftest is testing]]
@@ -45,6 +45,9 @@
     (testing "ratios stay exact; integer expt is integer-exact"
       (is (= 1/3 (one (v/ask kb '(evaluate ?r (/ 1 3))    '?ctx) '?r)))
       (is (= 8   (one (v/ask kb '(evaluate ?r (expt 2 3)) '?ctx) '?r))))
+    (testing "a fractional or negative exponent is a floating power"
+      (is (= (Math/sqrt 2) (one (v/ask kb '(evaluate ?r (expt 2 0.5)) '?ctx) '?r)))
+      (is (= 0.5 (one (v/ask kb '(evaluate ?r (expt 2 -1)) '?ctx) '?r))))
     (testing "a deeply mixed expression evaluates inside-out"
       (is (= 18  (one (v/ask kb '(evaluate ?r (- (* 4 5) (mod 17 5))) '?ctx) '?r)))
       (is (= 25  (one (v/ask kb '(evaluate ?r (max (abs -25) (+ 1 (* 2 3)))) '?ctx) '?r))))

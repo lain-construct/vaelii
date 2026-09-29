@@ -21,7 +21,9 @@
       CxW
          |
       CxD"
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.set :as set]
+            [clojure.test :refer [deftest is testing]]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.taxonomy :as tax]))
 
 (def ^:private lattice-handles
@@ -152,7 +154,7 @@
       (is (nil? (tax/reach-support t :genl 'dog 'animal 'CxB))))))
 
 (deftest a-scoped-read-follows-belief-per-context
-  ;; the payoff of refresh-relation's retarget arm, read back out: the edge is
+  ;; the effect of refresh-relation's retarget arm, read back out: the edge is
   ;; supported from A and B, so defeating one supporter moves the answer for one
   ;; reader and not the other.  ctx-counts stays belief-blind — A still holds a
   ;; (disbelieved) supporter, so reader A stays scoped rather than falling into
@@ -241,18 +243,45 @@
     (tax/refresh-beliefs t (into lattice-handles #{1 2}))
     (is (tax/disjoint? t 'dog 'cat 'CxA))))
 
-(deftest the-scoped-memo-budget-flushes-without-changing-answers
-  ;; the budget is memory insurance, never semantics: with room for one visset,
-  ;; alternating readers flush each other's level and every answer stays right.
-  (binding [tax/*scoped-memo-budget* 1]
+(deftest the-closure-cache-bound-evicts-without-changing-answers
+  ;; the bound is memory insurance, never semantics: pinned at the profile's floor, the
+  ;; cache evicts on nearly every read from alternating readers, every answer stays right,
+  ;; and what it holds stays under the bound
+  (caches/set-limit :taxonomy-closures 16)
+  (try
     (let [t (lattice)]
       (tax/add-genl t 'dog 'animal 1 'CxA)
       (tax/add-genl t 'cat 'animal 2 'CxB)
+      (tax/add-genl t 'animal 'thing 3 nil)
       (dotimes [_ 3]
-        (is (= '#{dog animal} (tax/genls t 'dog 'CxA)))
+        (is (= '#{dog animal thing} (tax/genls t 'dog 'CxA)))
         (is (= '#{dog} (tax/genls t 'dog 'CxB)))
-        (is (= '#{cat animal} (tax/genls t 'cat 'CxB)))
-        (is (= '#{cat} (tax/genls t 'cat 'CxO)))))))
+        (is (= '#{cat animal thing} (tax/genls t 'cat 'CxB)))
+        (is (= '#{cat} (tax/genls t 'cat 'CxO)))
+        (is (= '#{dog cat animal} (tax/specs t 'animal nil))))
+      (is (<= (caches/lru-weight (:closure-lru @t)) 16)))
+    (finally (caches/set-limit :taxonomy-closures nil))))
+
+(deftest a-scope-seeing-every-context-a-closure-rests-on-reads-the-global-closure
+  ;; `closure-needs`: the scoped walk is skipped, and the global set itself is the answer,
+  ;; when the reader sees the context of every edge the global closure walks.  CxA is a
+  ;; scoped reader (CxB asserts too), and dog's closure rests on CxA alone.
+  (let [t (lattice)]
+    (tax/add-genl t 'dog 'animal 1 'CxA)
+    (tax/add-genl t 'animal 'thing 2 'CxA)
+    (tax/add-genl t 'cat 'animal 3 'CxB)
+    (is (= '#{CxA} (tax/visible-ctxs t :genl 'CxA)))
+    (testing "the global set object, not a copy"
+      (is (= '#{dog animal thing} (tax/genls t 'dog 'CxA)))
+      (is (identical? (tax/genls-global t 'dog) (tax/genls t 'dog 'CxA))))
+    (testing "a reader missing one of those contexts walks"
+      (is (= '#{dog} (tax/genls t 'dog 'CxB)))
+      (is (= '#{cat animal thing} (tax/genls t 'cat 'CxW)))
+      (is (= '#{cat} (tax/genls t 'cat 'CxA))))
+    (testing "an edge of two supporting contexts walks, and still reads right"
+      (tax/add-genl t 'dog 'animal 4 'CxB)
+      (is (= '#{dog animal thing} (tax/genls t 'dog 'CxA)))
+      (is (= '#{dog animal} (tax/genls t 'dog 'CxB))))))
 
 ;; ---- the reachability witness ----------------------------------------------
 ;; `reach-support` names one supporter per edge, and whatever depends on the
@@ -339,6 +368,10 @@
             (doseq [n nodes]
               (is (= (get (:up ref) n #{n}) (tax/genls t n reader))
                   (str "genls of " n " from " reader))
+              ;; `settle/genl-view` compares the two by count, which is equality only
+              ;; because the scoped closure is inside the global one
+              (is (set/subset? (tax/genls t n reader) (tax/genls-global t n))
+                  (str "genls of " n " from " reader " inside the global closure"))
               (is (= (get (:down ref) n #{n}) (tax/specs t n reader))
                   (str "specs of " n " from " reader)))
             ;; reachability must agree with the closure it claims to answer
@@ -461,8 +494,8 @@
 ;; ---- the disjointness witnesses ---------------------------------------------
 ;; `disjointness-witnesses` answers a *scoped* question from unscoped state: each yield
 ;; is one complete derivation's supporting contexts, and the claim is that a reader sees
-;; the clash iff it sees every context in some one of them.  That claim is the exposure
-;; story's floor, and it is only worth anything if it agrees with the verdict
+;; the clash iff it sees every context in some one of them.  `settle/exposed-clashes`
+;; reads `:visible-from` off that claim, which holds only if it agrees with the verdict
 ;; `disjoint?` reaches by walking the same declarations under the same visibility.
 
 (deftest a-witness-is-seen-by-exactly-the-readers-that-see-the-clash
@@ -491,3 +524,51 @@
                      (boolean (some (fn [w] (every? #(contains? up %) w))
                                     (tax/disjointness-witnesses t a b))))
                   (str "clash " a "/" b " from " r)))))))))
+
+;; ---- the unscoped reads ---------------------------------------------------
+;; A nil or variable context reads every supporter, and visibility is monotone, so each
+;; unscoped read holds every scoped read of the same question, and equals the scoped read
+;; of a reader that sees every context.
+
+(deftest an-unscoped-read-is-the-union-of-the-scoped-ones
+  (let [t       (doto (lattice)
+                  (tax/add-genlCx 'CxAll 'CxD 907)
+                  (tax/add-genlCx 'CxAll 'CxO 908))
+        readers '[CxU CxA CxB CxW CxD CxE CxO]
+        types   '[a1 b1 m1 m2 s1 s2 p1 p2 w0]
+        class   (fn [h] (if (odd? h) :monotonic :default))]
+    ;; one separation of each kind, its ingredients spread over the two branches
+    (tax/add-genl t 'a1 'aa 1 'CxA)
+    (tax/add-genl t 'b1 'bb 2 'CxB)
+    (tax/add-disjoint t 'aa 'bb 3 'CxU)
+    (tax/mark-disjoint-metatype t 'meta_kind 4 'CxE)
+    (tax/add-metatype-member t 'meta_kind 'm1 5 'CxO)
+    (tax/add-metatype-member t 'meta_kind 'm2 6 'CxA)
+    (tax/mark-sibling-disjoint t 'cc 7 'CxB)
+    (tax/add-genl t 's1 'cc 8 'CxA)
+    (tax/add-genl t 's2 'cc 9 'CxO)
+    (tax/add-cover t 'w0 ['p1 'p2] :partition 10 'CxE)
+    (tax/add-genl t 'p1 'w0 10 'CxE)
+    (tax/add-genl t 'p2 'w0 10 'CxE)
+    (let [reads {:disjoint?    (fn [c] (set (for [a types b types :when (tax/disjoint? t a b c)] [a b])))
+                 :partners     (fn [c] (set (for [a types, y (tax/separating-partners t a c)] [a y])))
+                 :pairs        (fn [c] (set (tax/separating-pairs t c)))
+                 :covers-over  (fn [c] (set (for [a types, cv (tax/covers-over t a c)] [a cv])))
+                 :class        (fn [c] (set (for [a types b types
+                                                  :let [k (tax/disjointness-class t a b c class)]
+                                                  :when k]
+                                              [a b k])))
+                 :key-class    (fn [c] (set (for [k [[:disjoint '#{aa bb}] [:metatype 'meta_kind]
+                                                     [:sib-disjoint 'cc]]
+                                                  :let [kc (tax/key-class t k c class)]
+                                                  :when kc]
+                                              [k kc])))}
+          rows  (for [[r f] reads]
+                  (let [whole (f nil)]
+                    {:read          r
+                     :some?         (boolean (seq whole))
+                     :variable      (= whole (f '?ctx))
+                     :all-seeing    (= whole (f 'CxAll))
+                     :each-scoped   (every? #(every? whole (f %)) readers)}))]
+      (is (= (for [[r] reads] {:read r :some? true :variable true :all-seeing true :each-scoped true})
+             rows)))))

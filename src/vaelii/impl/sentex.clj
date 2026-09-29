@@ -48,7 +48,8 @@
   `RuleSentex` (an implication) — so a literal sentex does not carry the rule-only slots
   (there are 100M+ of them), and each still round-trips through nippy with its type intact."
   (:refer-clojure :exclude [name])
-  (:require [vaelii.impl.caches :as caches]
+  (:require [clojure.string :as str]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.types.sentex :as sentex-types])
   (:import [java.util.concurrent ConcurrentHashMap]))
 
@@ -58,8 +59,8 @@
   constants), so a KB of that vocabulary never rotates a generation and keeps every name
   shared.  A store whose vocabulary is larger, or a minter running per fact, rotates the
   generations: a name mentioned since the previous rotation stays pooled, and a name not
-  mentioned for two rotations leaves.  Dynamic for the reason `taxonomy/*scoped-memo-budget*`
-  is: a test exercises the rotation by binding a small limit."
+  mentioned for two rotations leaves.  Dynamic so a test exercises the rotation by binding
+  a small limit."
   1000000)
 
 (defonce ^{:private true
@@ -75,7 +76,7 @@
   non-atomic term), head-existential skolemization (`skolem/skolemize-conclusion`, one witness per
   existential per firing frontier) and abduction (one scratch context each).  A disk store
   can also name more than the limit outright: its index snapshot's token dictionary interns
-  every token it holds when the store opens, and a 12M-sentex store holds several million.
+  every token it holds when the store opens, and a large store holds millions.
   Nothing hands an entry back on its own: the pool is static, process-wide and shared by
   every KB in it, so `retract!`, the store clears, `core/clear!`, a KB close and a catalog
   switch all leave it exactly as large as it was.
@@ -196,8 +197,12 @@
   (`vaelii.impl.types.sentex/variable?`, which the columnar trie calls)."
   sentex-types/variable?)
 
-(defn- form-vars
-  "Every variable anywhere in a form, in order of occurrence."
+(defn form-vars
+  "Every variable anywhere in `form`, in order of occurrence and with duplicates, so a
+  variable used twice counts twice (locality reads occurrence counts).  Lazy.  The one
+  walk for a variable sequence: `rules`, `skolem`, `rewrite`, `assert-entry`,
+  `asp.solve-context` and `vaelii.core`'s exception check call it; `form-variables` is
+  the set form."
   [form]
   (filter variable? (tree-seq sequential? seq form)))
 
@@ -261,7 +266,7 @@
 ;; ---- virtual rule wrappers (canonicalized into the record) ---------------
 ;; `(set/forwardRule (implies …))` is not data about a rule — it *is* how the rule's
 ;; direction is written.  Like not / implies / and, the wrapper canonicalizes into
-;; the record (`:direction`, `:defeasible`, `:assumption`) and never reaches the stored
+;; the record (`:engines`, `:defeasible`, `:effect`) and never reaches the stored
 ;; sentence, so a rule carries its own direction rather than it living in a side index.
 ;; (`exceptWhen` is the exception: it is split off at the assert layer and stored as a
 ;; separate meta-sentex, not folded into the record — see `exceptWhen-meta`.)
@@ -274,7 +279,7 @@
 
 (def assumption-rule-wrapper
   "`(set/assumptionRule (implies …))` — the rule's head is a *choice* offered to a
-  solve, not a truth to derive.  Canonicalizes into `:assumption`; the rule never
+  solve, not a truth to derive.  Canonicalizes into `:effect :choose`; the rule never
   forward-chains into belief and is consulted only when grounding a solve
   (docs/solving.md)."
   'set/assumptionRule)
@@ -282,11 +287,100 @@
 (def constraint-rule-wrappers
   "`(set/hardConstraint (implies …))` / `(set/softConstraint (implies …))` — the rule's
   head is a *contradiction marker* and its body a conjunctive nogood over background
-  facts and choice-head patterns.  Canonicalizes into `:constraint` (`:hard` / `:soft`);
+  facts and choice-head patterns.  Canonicalizes into `:effect` (`:forbid` / `:penalize`);
   like an assumptionRule the rule never forward-chains, and a solve grounds its body
   (docs/solving.md).  A hard constraint renders as an ASPIF integrity constraint (models
   violating it are excluded); a soft one as a minimized violation."
   '{set/hardConstraint :hard, set/softConstraint :soft})
+
+(def solve-rule-wrapper
+  "`(set/solveRule (implies …))` — the rule also runs in a solve, as a normal rule
+  (`h :- b`): a solve derives its head in every answer set whose atoms satisfy its body,
+  and a constraint may name it.  Adds `:solve` to the record's `:engines`; a direction
+  wrapper beside it says how the rule runs in base (backward when there is none), and
+  `set/inertRule` makes it a rule that runs in a solve alone (docs/solving.md)."
+  'set/solveRule)
+
+;; ---- the record's two wrapper fields ------------------------------------
+;; The wrappers state two things, and a rule record holds them as two fields
+;; (`vaelii.impl.types.sentex`): `:engines`, which engines run the rule, and `:effect`,
+;; what its head is.  Only a `:derive` rule has a choice of engines; a choice or
+;; constraint head runs in a solve and nowhere else.
+
+(def ^:private engine-sets
+  "Every `:engines` value, each as one shared instance: a rule record holds one of these
+  rather than a set of its own."
+  (into {}
+        (map (fn [s] [s s]))
+        (for [f [nil :forward] b [nil :backward] v [nil :solve]] (into #{} (remove nil?) [f b v]))))
+
+(defn canonical-engines
+  "The shared instance of the engine set `engines`."
+  [engines]
+  (get engine-sets (set engines)))
+
+(def direction-engines
+  "The engines each `set/*Rule` direction runs a rule in, as the `:direction` opt and the
+  wrappers spell them.  `:forward` and `:both` are one set: a forward rule answers
+  backward goals too."
+  {:backward     (canonical-engines #{:backward})
+   :forward      (canonical-engines #{:forward :backward})
+   :both         (canonical-engines #{:forward :backward})
+   :forward-only (canonical-engines #{:forward})
+   :inert        (canonical-engines #{})})
+
+(def solve-engines
+  "The engines of a choice or constraint rule: a solve alone reads it."
+  (canonical-engines #{:solve}))
+
+(defn engines-direction
+  "The direction whose `set/*Rule` wrapper spells the base engines of `engines` (`:solve`
+  aside) — `:backward`, `:forward`, `:forward-only` or `:inert`."
+  [engines]
+  (let [base (disj (set engines) :solve)]
+    (cond (= #{:forward :backward} base) :forward
+          (= #{:forward} base)           :forward-only
+          (= #{:backward} base)          :backward
+          :else                          :inert)))
+
+(defn wrapper-effect
+  "The `:effect` a rule's head wrappers give it: `:choose` under `set/assumptionRule`,
+  `:forbid` / `:penalize` under a hard / soft constraint, `:derive` under neither."
+  [assumption constraint]
+  (cond assumption            :choose
+        (= :hard constraint)  :forbid
+        (= :soft constraint)  :penalize
+        :else                 :derive))
+
+(defn effect-constraint
+  "The constraint class of an `:effect` — `:hard` for `:forbid`, `:soft` for `:penalize`,
+  nil otherwise."
+  [effect]
+  (case effect :forbid :hard :penalize :soft nil))
+
+(defn rule-slots
+  "The record's `[engines effect]` for a rule written with direction `dir` (nil when no
+  direction wrapper was written) under the head wrappers `assumption` / `constraint`, and
+  under `set/solveRule` when `solve?`.  An unwrapped rule runs backward, and an unwrapped
+  generator forward, since no backward goal asks for a rule; `solve?` adds `:solve`.  A
+  choice or constraint rule runs in a solve whatever `dir` says."
+  ([dir assumption constraint generator?]
+   (rule-slots dir assumption constraint false generator?))
+  ([dir assumption constraint solve? generator?]
+   (let [effect (wrapper-effect assumption constraint)]
+     [(if (= :derive effect)
+        (let [base (direction-engines (or dir (if generator? :forward :backward)))]
+          (if solve? (canonical-engines (conj base :solve)) base))
+        solve-engines)
+      effect])))
+
+(defn fielded-rule-slots
+  "The `[engines effect]` of a rule frame that spells its wrappers as the three fields
+  `direction` / `assumption` / `constraint` — the disk codec's rule tags 1, 3, 5, 7, 8 and
+  9, a record thawed whole under those keys, and a dump frame keyed by them.  Such a frame
+  always carries a direction."
+  [direction assumption constraint]
+  (rule-slots (or direction :backward) assumption constraint false))
 
 (def except-wrapper
   "`(exceptWhen <query> <rule>)` — the rule does not conclude for a binding its
@@ -419,7 +513,8 @@
         loose (distinct (remove bound (mapcat form-vars exception)))]
     (when (seq loose)
       (throw (ex-info (str "exception is not closed: " (pr-str (vec loose))
-                           " unbound by the rule's antecedents")
+                           " unbound by the rule's antecedents — bind each one in an antecedent,"
+                           " or take it out of the exception")
                       {:type :exception-not-closed :unbound (vec loose)
                        :exception (vec exception) :antecedents (vec antecedents)})))))
 
@@ -428,7 +523,8 @@
   [direction defeasible exception assumption constraint inner].  Wrappers may nest in
   any order — a defeasible forward rule with an exception, an assumption rule, a hard
   constraint — and two `exceptWhen`s conjoin.  `exception` is nil or a vector of
-  literals; `assumption` is true or nil; `constraint` is `:hard` / `:soft` or nil."
+  literals; `assumption` is true or nil; `constraint` is `:hard` / `:soft` or nil.  A
+  `set/solveRule` is stripped too, and `solve-wrapped?` reports it."
   [form]
   (loop [f form, dir nil, def? nil, exc nil, assum nil, con nil]
     (if (and (sequential? f) (seq f))
@@ -438,10 +534,72 @@
           (= h assumption-rule-wrapper) (recur (second f) dir def? exc true con)
           (constraint-rule-wrappers h)  (recur (second f) dir def? exc assum (constraint-rule-wrappers h))
           (rule-direction-wrappers h)   (recur (second f) (rule-direction-wrappers h) def? exc assum con)
+          (= h solve-rule-wrapper)      (recur (second f) dir def? exc assum con)
           (and (= h except-wrapper) (= 3 (count f)))
           (recur (nth f 2) dir def? (into (or exc []) (exception-conjuncts (second f))) assum con)
           :else                         [dir def? exc assum con f]))
       [dir def? exc assum con f])))
+
+(defn- wrapper-stack
+  "The `set/*` wrapper heads around one rule, outermost first, read through any
+  `exceptWhen` and past a constraint wrapper's leading priority.  Stops at the first form
+  that is not a wrapper, so a generator's stamped rule is a stack of its own."
+  [form]
+  (loop [f form, acc []]
+    (let [h (when (and (sequential? f) (seq f)) (first f))]
+      (cond
+        (or (= h default-rule-wrapper) (= h assumption-rule-wrapper) (= h solve-rule-wrapper)
+            (contains? rule-direction-wrappers h))
+        (recur (second f) (conj acc h))
+        (constraint-rule-wrappers h)
+        (recur (if (and (= 3 (count f)) (integer? (second f))) (nth f 2) (second f)) (conj acc h))
+        (and (= h except-wrapper) (= 3 (count f))) (recur (nth f 2) acc)
+        :else acc))))
+
+(defn solve-wrapped?
+  "Is `form` a rule written under `set/solveRule`, at any depth of its wrapper stack?"
+  [form]
+  (boolean (some #{solve-rule-wrapper} (wrapper-stack form))))
+
+(defn wrapper-stack-problems
+  "What is wrong with the combination of `set/*` wrappers around one rule, as strings.
+  The wrappers state two things: how a rule runs (a direction wrapper, `set/defaultRule`)
+  and what its head is (`set/assumptionRule` a choice, `set/hardConstraint` /
+  `set/softConstraint` a contradiction marker).  Four combinations state nothing the
+  record can hold, and each would otherwise be dropped in silence:
+
+  * two different direction wrappers — the record holds one direction, and the innermost
+    would win;
+  * two different head wrappers — a head is one of a choice, a hard constraint and a soft
+    one;
+  * a head wrapper with a direction wrapper, `set/defaultRule` or `set/solveRule` — a
+    choice or constraint head is decided by a solve and never chained or believed, so how
+    it would chain, and what strength its conclusions would carry, say nothing, and it
+    runs in a solve already (docs/solving.md);
+  * `set/solveRule` with `set/defaultRule` — one answer set has no defeat to apply, so a
+    defeasible rule has no reading inside a solve."
+  [form]
+  (let [stack (wrapper-stack form)
+        ;; a wrapper repeated says one thing twice, so only distinct ones count
+        dirs  (into [] (comp (filter #(contains? rule-direction-wrappers %)) (distinct)) stack)
+        heads (into [] (comp (filter #(or (= assumption-rule-wrapper %) (constraint-rule-wrappers %)))
+                             (distinct))
+                    stack)
+        modes (filterv #(or (contains? rule-direction-wrappers %) (= default-rule-wrapper %)
+                            (= solve-rule-wrapper %))
+                       stack)]
+    (cond-> []
+      (< 1 (count dirs))
+      (conj (str "a rule takes one direction wrapper, got " (str/join " and " dirs)))
+      (< 1 (count heads))
+      (conj (str "a rule's head is one of a choice (set/assumptionRule), a hard constraint"
+                 " and a soft one, got " (str/join " and " heads)))
+      (and (seq heads) (seq modes))
+      (conj (str (first heads) " is decided by a solve and never chained, so it takes no "
+                 (str/join " or " (distinct modes)) " — drop the wrapper"))
+      (and (some #{solve-rule-wrapper} stack) (some #{default-rule-wrapper} stack))
+      (conj (str "set/solveRule takes no set/defaultRule: one answer set has no defeat to"
+                 " apply, so a defeasible rule has no reading inside a solve")))))
 
 ;; ---- structural connectives (canonicalized into the record) -------------
 
@@ -652,18 +810,12 @@
     (:sentence sx)))
 
 ;; ---- aggregation: counting what the KB believes --------------------------
-;; `(agg/count ?n ?v <body>)` and its four siblings are the third member of the
-;; `unknown` / `thereExists` family: query operators, answered by a prover
-;; (`vaelii.impl.provers/AggregateProver`), refused by `wff` as assertions, and never
-;; stored.  `?v` is **projected out** exactly as a `thereExists` binder is — it is
-;; counted, not witnessed — and `?n` is the only binding the operator produces.  They
-;; live up here, above the canonicalization, because the deferred set below is built
-;; from them.  See docs/aggregate.md.
+;; These sit above the canonicalization because `deferred-predicates` is built from them.
+;; See docs/aggregate.md.
 
 (def aggregate-functors
-  "The five aggregation operators, mapped to the reduction each names.  Every one has
-  the same shape — `(<op> ?n ?v <body>)`, four elements — so one prover answers all
-  five and one frame arm covers them everywhere a form is walked."
+  "The five aggregation operators, mapped to the reduction each names.  All five take
+  the shape `(<op> ?n ?v <body>)`."
   '{agg/count :count
     agg/sum   :sum
     agg/min   :min
@@ -750,13 +902,14 @@
   one variable-arity literal would smuggle in a normalization the prover has not run —
   the same over-eager analogy the `different` note warns against.
 
-  The **aggregates** are deferred for the sharpest version of the reason: an
-  `(agg/count ?n ?v (ancestorOf ?v ?x))` is a census taken *of a group*, and which
-  group is decided by `?x`, so running it before a generator binds `?x` would count the
-  whole relation instead of one node's share.  Pinning it after its binders is also
-  where GROUP BY comes from — the aggregate runs once per binding of the variables the
-  generators supply, and yields one `?n` each (docs/aggregate.md)."
-  (into '#{evaluate lessThan greaterThan different unknown
+  The **aggregates** are deferred because a group variable such as `?x` in `(agg/count
+  ?n ?v (ancestorOf ?v ?x))` must be bound first, or the census counts the whole
+  relation (docs/aggregate.md).
+
+  `integer` and `matchesPattern` are here for the `lessThan` reason: `EvaluableProver`
+  computes them from ground arguments and nothing stores them, so a rule's join sends
+  `(matchesPattern ?s \"a+b\")` to the registry once the literal binding `?s` has run."
+  (into '#{evaluate lessThan greaterThan different unknown integer matchesPattern
            sameQuantity quantityLessThan quantityGreaterThan
            quantityLessThanOrEqual quantityGreaterThanOrEqual}
         (keys aggregate-functors)))
@@ -837,9 +990,8 @@
   so is the list `(?x ?y)` it becomes once `canon` / variable numbering / goal rewriting
   have normalized every sequential to a `PersistentList` — so this must not key on
   `vector?`, or a binder would silently stop binding the moment the form was
-  canonicalized.  Non-variables are dropped (a malformed binder binds nothing), which
-  makes `free-vars` treat a bad quantifier as vacuous rather than throwing during a
-  pure construction; the well-formedness check refuses it separately."
+  canonicalized.  Non-variables are dropped, so `free-vars` reads a binder holding a
+  constant without throwing; `check-naf-closed` refuses a rule that holds one."
   [form]
   (let [q (second form)]
     (cond
@@ -848,14 +1000,8 @@
       :else           #{})))
 
 ;; ---- head existential: an existential variable in a rule consequent -------
-;; `(exists <var-or-vars> C)` on a rule head marks a consequent variable that no
-;; antecedent binds.  Range restriction (`rules/range-problems`) permits exactly the
-;; marked variable — every *other* consequent variable must still be antecedent-bound —
-;; and forward firing skolemizes it to a deterministic constant
-;; (`vaelii.impl.skolem/skolemize-conclusion`).  The wrapper is stripped in the constructor: the stored
-;; consequent is the inner `C`, so the existential variable survives as an ordinary
-;; unbound consequent variable, which is exactly what firing re-derives it from.  See
-;; docs/skolem.md.
+;; `(exists <var-or-vars> C)` marks a consequent variable no antecedent binds, which
+;; forward firing skolemizes (docs/skolem.md).
 
 (def exists-functor 'exists)
 
@@ -873,6 +1019,19 @@
   "The consequent `C` inside a head `(exists <vars> C)`."
   [form] (nth form 2))
 
+(defn- check-binder
+  "Throw `:not-well-formed` unless the `thereExists`, `forall` or head `exists` `q` binds
+  a variable or a sequence of variables.  A constant in the binder binds nothing, so the
+  body reads it as that constant: `(unknown (thereExists Kid (owns ?x Kid)))` holds of
+  every `?x` that owns no individual named `Kid`."
+  [q]
+  (let [b (second q)]
+    (when-not (or (variable? b) (and (sequential? b) (every? variable? b)))
+      (throw (ex-info (str (first q) " binds " (pr-str b) ", which is not a variable or a"
+                           " list of variables — a constant in the binder binds nothing,"
+                           " so the body reads it as that constant: write a variable")
+                      {:type :not-well-formed :quantifier q})))))
+
 (defn free-vars
   "The variables of `form` that must be **bound** before it can be evaluated — every
   variable it mentions, *minus* any bound by a quantifier within it.
@@ -886,22 +1045,13 @@
     (unknown? form)      (free-vars (second form))
     (or (there-exists? form) (forall? form))
     (into #{} (remove (quantified-vars form)) (free-vars (nth form 2)))
-    ;; an aggregate subtracts **both** of its own slots: `?v` is projected out (the
-    ;; quantifier reading, as for `thereExists`) and `?n` is the operator's *output*,
-    ;; so neither is a variable an earlier antecedent has to supply
+    ;; an aggregate subtracts both its slots: `?v` is projected out, `?n` is its output
     (aggregate? form)    (disj (into #{} (free-vars (aggregate-body form)))
                                (aggregate-value-var form)
                                (when (variable? (second form)) (second form)))
     (variable? form)     #{form}
     (sequential? form)   (into #{} (mapcat free-vars) form)
     :else                #{}))
-
-(defn- var-occurrences
-  "Every variable occurrence in `form`, with duplicates — so a variable used twice
-  inside one literal counts twice.  Locality reads occurrence counts to tell 'only
-  here' from 'here and elsewhere'."
-  [form]
-  (filter variable? (tree-seq sequential? seq form)))
 
 ;; ---- what a deferred literal reads, and what it writes -------------------
 ;; A deferred literal is *computed*, so unlike a matched one it has a direction: some
@@ -926,12 +1076,8 @@
     #{}))
 
 (defn deferred-input-vars
-  "The variables a deferred literal must have bound before it can run.
-
-  `unknown` and the aggregates read `free-vars`, which already knows to subtract a
-  quantifier's own binder — an aggregate's `?v` is projected out and its `?n` is
-  written, so neither is an input.  Everything else reads every argument it does not
-  write."
+  "The variables a deferred literal must have bound before it can run: `free-vars` for
+  `unknown` and the aggregates, and every argument it does not write for the rest."
   [g]
   (cond
     (not (sequential? g))            #{}
@@ -939,20 +1085,10 @@
     :else (into #{} (mapcat form-vars) (drop (get deferred-output-arity (first g) 0) (rest g)))))
 
 (defn census-bound-vars
-  "The variables an aggregate's census `body` binds **for itself** — what its generator
-  conjuncts match, plus what its computed conjuncts write.
-
-  A census body is a joined conjunction (`provers/conjunction-solutions`), so it is a
-  little query with its own scope: `(agg/sum ?n ?a (and (childOf Bob ?c) (ageOf ?c ?a)))`
-  sums the ages of Bob's children, and `?c` is the join between the two conjuncts rather
-  than a group the caller has to supply.  This is the set that says so — the reduction
-  variable is in it, and so is every variable the body can reach a witness for.
-
-  An inner `thereExists` binder is **not**: `free-vars` subtracts it and the existential
-  projects it out, so it binds nothing the rest of the body can read.  Read at two
-  places, which is why it is one function: the assert-time census check refuses a local
-  variable that is not in it, and `provers/AggregateProver` claims a goal only when every
-  variable still free in it is."
+  "The variables an aggregate's census `body` binds **for itself**: what its generator
+  conjuncts match, plus what its computed conjuncts write.  An inner `thereExists` binder
+  is not among them.  Read by `check-naf-closed`'s census check and by
+  `provers/AggregateProver`'s applicability (docs/aggregate.md, \"Grouping\")."
   [body]
   (let [cs       (conjuncts body)
         computed (fn [c] (or (unknown? c) (deferred-literal? c)))]
@@ -1006,7 +1142,7 @@
         cs       (conjuncts body)
         qs       (if (there-exists? q) (quantified-vars q) #{})
         computed (fn [c] (or (unknown? c) (deferred-literal? c)))
-        gen-vars (into #{} (mapcat var-occurrences) (remove computed cs))]
+        gen-vars (into #{} (mapcat form-vars) (remove computed cs))]
     (concat (mapcat (fn [c] (filter #(and (qs %) (not (gen-vars %))) (deferred-input-vars c)))
                     (filter computed cs))
             (mapcat #(unproducible-inputs (second %)) (filter unknown? cs)))))
@@ -1085,52 +1221,28 @@
     conjuncts of one query and by nothing else, which is exactly the scope the join
     needs (`unproducible-inputs` holds the other half — a quantified variable some
     generator conjunct of the same query has to produce).
-  * **An aggregate is closed and its reduction variable is local.**  Same two rules,
-    for the same two reasons: `(agg/count ?n ?v (ancestorOf ?v ?x))` groups by
-    `?x`, so `?x` must be bound or the census is of the whole relation, and
-    `?v` is projected out, so a `?v` in the consequent would be a range-restriction
-    hole that `range-problems` cannot see (it reads occurrences, and `?v` occurs).
-    A **conjunctive** census body is joined, exactly as a NAF query's is, so its
-    conjuncts share `?v` and a body variable the rule names nowhere else is the census's
-    own join rather than a group — bound by the body, not by an antecedent.  Every such
-    local variable must be one `census-bound-vars` reaches, `?v` above all, since the
-    join runs generators first and never reaches a conjunct that only reads it.
-  * **The reduction slot holds a variable.**  `(agg/count ?n Ada Body)` reduces over
-    nothing — no prover claims it, so the rule stores and can never fire, which is the
-    one outcome worse than an error.
-  * **Every deferred literal's inputs are bound.**  A computed literal reaching the
-    join without them cannot be answered *or* refuted, and the chainer throws rather
-    than reporting a comparison that never ran as one that failed — mid-fixpoint,
-    where a throw is exactly what the derivation path must not do.  So the rule is
-    refused here, before anything is stored.
+  * **An aggregate is closed and its reduction variable is local**, by the same two
+    rules.  A body variable the rule names nowhere else is the census's own join, and
+    must be one `census-bound-vars` reaches (`:naf-not-closed`).
+  * **The reduction slot holds a variable** (`:not-well-formed`), and so does every
+    `thereExists`, `forall` and head `exists` binder.
+  * **Every deferred literal's inputs are bound** by a generator antecedent or by a
+    deferred literal written **before** it (an aggregate's `?n`, an `evaluate`'s
+    output), since the chainer throws on an unbound input mid-fixpoint.
 
-  **What counts as bound** is a generator antecedent's variables *plus* what the
-  deferred literals themselves write: an aggregate's `?n` and an `evaluate`'s output.
-  That is what lets a count be compared (`(and (person ?x) (agg/count ?n ?c (childOf
-  ?x ?c)) (lessThan 2 ?n))`) — the reading that made aggregation worth having, and one
-  the generator-only rule refused by counting the aggregate as a consumer only.
-
-  A written output binds only the literals written **after** it, because that is the
-  order every chainer runs them in: canonical order holds a deferred literal in the
-  author's position, so `(and (evaluate ?z (+ ?q 1)) (evaluate ?q (+ 1 1)))` is refused
-  and always was.  An aggregate is no exception — reordering the placement phase so a
-  comparison could sit above its own count is something the forward chainer could do
-  and the backward one could not, and two chainers disagreeing about one rule is worse
-  than asking for the obvious writing order."
+  docs/aggregate.md, \"Grouping\" and \"Comparing the count\", gives the reasons."
   [antes conseq exc]
   (let [scope    (vec (concat antes [conseq] exc))
         ;; Every check here is about a form most rules do not contain, and the readings
         ;; they need are whole-rule walks.  So each is drawn where it is used: a rule
         ;; with no quantifier never counts occurrences, and one with nothing that
         ;; consumes bindings never reads what its generators bind.
-        rule-occ (delay (frequencies (var-occurrences scope)))
-        ;; "does this variable of `lit` reach the rest of the rule" — one occurrence
-        ;; count against the whole-rule one.  Locality reads it to refuse a leak; the
-        ;; aggregate reads it to tell a **group** variable (shared, so bound outside)
-        ;; from a **local** one (mentioned only here, so the census binds it itself).
+        rule-occ (delay (frequencies (form-vars scope)))
+        ;; "does this variable of `lit` reach the rest of the rule": locality reads it to
+        ;; refuse a leak, the aggregate to tell a group variable from a local one
         escapes?
         (fn [lit]
-          (let [local (frequencies (var-occurrences lit))]
+          (let [local (frequencies (form-vars lit))]
             (fn [v] (> (get @rule-occ v 0) (get local v 0)))))
         local-check
         (fn [lit vars kind]
@@ -1152,20 +1264,13 @@
                                  " inputs must be bound first")
                             {:type :naf-not-closed :unbound (vec loose)
                              kind lit :antecedents (vec antes)}))))
-        ;; What an aggregate needs from **outside**: its body's free variables, minus the
-        ;; ones the census is the only mention of.  A body variable the rest of the rule
-        ;; also names is the group — `(agg/count ?n ?a (ancestorOf ?a ?x))` beside a
-        ;; `(node ?x)` runs once per node — and must be bound before the aggregate runs.
-        ;; One the rule names nowhere else is the census body's own join variable, which
-        ;; the join binds itself and no antecedent could supply.
+        ;; an aggregate's inputs are its group variables: the body's free variables the
+        ;; rest of the rule also names
         aggregate-inputs
         (fn [ag] (filter (escapes? ag) (deferred-input-vars ag)))
         census-check
-        ;; And the local ones have to be bindable.  A census body is **joined**
-        ;; (`provers/conjunction-solutions`), generators first, so a local variable only a
-        ;; *computed* conjunct reads — the reduction variable above all — is one the join
-        ;; can never reach a witness for, and the count would be of nothing whatever the
-        ;; KB holds.  The `unknown` half of the same rule is `unproducible-inputs`.
+        ;; ...and the local ones must be bound by the census body itself; the `unknown`
+        ;; half of this rule is `unproducible-inputs`
         (fn [ag]
           (let [body    (aggregate-body ag)
                 escapes (escapes? ag)
@@ -1180,10 +1285,14 @@
                                    " antecedent, and this is neither")
                               {:type :naf-not-closed :unbound (vec loose) :aggregate ag
                                :antecedents (vec antes)})))))]
-    ;; locality: each thereExists / aggregate binder occurs only within its own literal.
-    ;; One walk for the two shapes — the rule is descended to *find* a quantifier, and
-    ;; descending it twice to find two kinds of one costs what finding them does.
-    (let [quantifiers (forms-where #(or (there-exists? %) (aggregate? %)) scope)]
+    ;; each quantifier's binder holds variables only, and locality: each thereExists /
+    ;; aggregate binder occurs only within its own literal.  One walk for every shape —
+    ;; the rule is descended to *find* a quantifier, and descending it once per kind
+    ;; multiplies what finding them costs.
+    (let [quantifiers (forms-where #(or (there-exists? %) (forall? %) (head-exists? %)
+                                        (aggregate? %))
+                                   scope)]
+      (run! check-binder (remove aggregate? quantifiers))
       (doseq [te (filter there-exists? quantifiers)]
         (local-check te (quantified-vars te) :thereExists))
       (doseq [ag (filter aggregate? quantifiers)]
@@ -1224,7 +1333,7 @@
       (let [;; a generator is a positive literal that *produces* bindings by matching —
             ;; which the deferred literals (aggregates and `unknown` among them) never do
             generators (remove #(or (unknown? %) (deferred-literal? %)) antes)
-            matched    (into #{} (mapcat var-occurrences) generators)]
+            matched    (into #{} (mapcat form-vars) generators)]
         (reduce (fn [bound a]
                   (if (or (unknown? a) (deferred-literal? a))
                     (do (closed-check a
@@ -1370,6 +1479,13 @@
   "True when `t` contains no pattern variable anywhere."
   [t]
   (not (some-symbol? variable? t)))
+
+(defn form-variables
+  "Every variable anywhere in `form`, as a set — `#{}` rather than `symbols-where`'s nil,
+  since every caller folds the answer into something or calls it as a fn.  The one set
+  walk: `resolution`, `plan`, `quality`, `provers` and `asp.solve-context` call it."
+  [form]
+  (or (symbols-where variable? form) #{}))
 
 (defn symmetric-literal?
   "A binary literal whose predicate is declared symmetric (and not a dotted form)."
@@ -2009,7 +2125,10 @@
 
   Built from the sentence as written, where the member is still `?x`; each rule is
   canonicalized when stored, and a necessary condition that is a conjunction splits into
-  one rule per conjunct like any conjunctive consequent."
+  one rule per conjunct like any conjunctive consequent.  A sufficient condition in which
+  no generator conjunct names `?x` — `(and (integer ?x) (greaterThan ?x 0))`, every
+  conjunct computed — expands to no rule: nothing binds the member for a join, so
+  `check-naf-closed` would refuse it, and `DefnSufficientProver` answers membership."
   [[pred coll cond]]
   (let [member     (list coll defn-member-var)
         ;; A companion rule materializes membership (or the condition) forward, so it is
@@ -2017,11 +2136,15 @@
         ;; backward default would otherwise make backward-only.
         fwd        (fn [r] (list 'set/forwardRule r))
         necessary  (fwd (rule-sentence [member] cond))
-        sufficient (fwd (rule-sentence (defn-condition-antecedents cond) member))]
+        antes      (defn-condition-antecedents cond)
+        sufficient (when (some #(and (not (or (unknown? %) (forall? %) (deferred-literal? %)))
+                                     (some-symbol? #{defn-member-var} %))
+                               antes)
+                     (fwd (rule-sentence antes member)))]
     (case pred
       defnNecessary  [necessary]
-      defnSufficient [sufficient]
-      defnIff        [necessary sufficient])))
+      defnSufficient (if sufficient [sufficient] [])
+      defnIff        (if sufficient [necessary sufficient] [necessary]))))
 
 (defn defn-condition-problems
   "Why the `defn*` sentence `s` is not well-formed, as problem strings (empty if OK).
@@ -2053,11 +2176,8 @@
       (let [body       (desugar-forall-rule body)     ; forall is nested NAF, at the entry point
             antes0     (rule-antecedents body)
             conseq-raw (rule-consequent body)
-            ;; a head existential `(exists ?y C)` stores as its inner `C`: the marked
-            ;; variable survives as an ordinary unbound consequent variable that
-            ;; forward firing skolemizes.  Range restriction already permitted it
-            ;; (`rules/range-problems`, on the wrapped surface form).  See docs/skolem.md.
-            conseq0    (if (head-exists? conseq-raw) (head-exists-body conseq-raw) conseq-raw)]
+            ;; a head existential `(exists ?y C)` stores as its inner `C` (docs/skolem.md)
+            conseq0   (if (head-exists? conseq-raw) (head-exists-body conseq-raw) conseq-raw)]
         ;; A surface `exceptWhen` wrapper (`_exc`) is stripped and dropped here: the
         ;; exception is not part of the rule and cannot be represented on the record.  The
         ;; assert layer splits it off first and stores it as a meta-sentex (`vaelii.core`),
@@ -2074,12 +2194,12 @@
               ;; conclusion per match, which is intractable on a large KB, so it is opt-in
               ;; (`set/forwardRule`).  A generator is the one exception: it stamps a rule by
               ;; firing forward and no backward goal asks for a rule, so a bare generator
-              ;; stays forward.  `:forward` and `:both` both mean forward + backward
-              ;; (`rules/backward?`), so wrapping a rule `set/forwardRule` never removes a
-              ;; backward use it had — which is what lets a rule move to forward by adding
-              ;; the wrapper alone.
-              dir* (or dir (if (implies? (peek (peel-rule-wrapper conseq0)))
-                             :forward :backward))]
+              ;; stays forward.  `set/forwardRule` runs a rule forward *and* backward, so
+              ;; wrapping a rule never removes a backward use it had — which is what lets a
+              ;; rule move to forward by adding the wrapper alone.
+              [engines effect]
+              (rule-slots dir assum con (solve-wrapped? sentence)
+                          (implies? (peek (peel-rule-wrapper conseq0))))]
           ;; A rule record holds its antecedent and consequent and no sign, so a negated
           ;; rule has no representation.  `connective-problems` refuses one at `assert`;
           ;; this refuses it on the paths that construct without asserting (import, a
@@ -2089,7 +2209,7 @@
                                  " — a rule record holds no sign; negate its consequent"
                                  " instead")
                             {:type :not-well-formed :sentence sentence})))
-          (sentex-types/->RuleSentex ctx nil antes conseq nil varmap dir* def? assum con)))
+          (sentex-types/->RuleSentex ctx nil antes conseq nil varmap engines def? effect)))
       (let [b      (normalize-literal body marks)
             stored (if (= polarity :negative) (list not-functor b) b)]
         ;; a wrapper on a non-rule is meaningless; it is stripped and ignored
@@ -2174,7 +2294,8 @@
 
   The author wants `S` to be **visible** in some context, and two mechanisms state
   that: `(decontextualized_predicate P)` takes every `(P ...)` into CxUniverse, which
-  every context sees, and a `genlCx` edge puts one context in another's ancestor set.
+  every context below the joint sees, and a `genlCx` edge puts one context in another's
+  ancestor set.
   Under either the literal is written plainly."
   [role]
   (if (= :consequent role)
@@ -2195,7 +2316,10 @@
     at arity 2 would throw a bare exception, and one at arity 4 would silently drop
     its tail;
   * a rule or exception literal that is not itself a sentence — a bare symbol in
-    antecedent or consequent position matches nothing and checks as nothing;
+    antecedent or consequent position matches nothing and checks as nothing, and one
+    as the operand of a rule wrapper or a `not` is no rule and no fact.  A bare
+    variable is a term, so it is refused in every rule role and as a wrapper's operand;
+    a derived sentence whose predicate a firing binds is written `(?pred . ?args)`;
   * a head existential outside consequent position — `exists` marks a consequent
     variable for skolemization and is not a predicate;
   * an `(ist Ctx S)` in any rule position — as a read the literal matches nothing, and
@@ -2211,16 +2335,41 @@
     retraction instead (the record has no shape for it — a rule under `not` would
     store a sentence its own key cannot be computed from);
   * a top-level `and` — a conjunction is an antecedent or a query, never one
-    assertable sentence; assert its conjuncts."
+    assertable sentence; assert its conjuncts;
+  * a combination of `set/*` wrappers the record cannot hold — two directions, two head
+    wrappers, or a choice or constraint head under a direction or `set/defaultRule`
+    (`wrapper-stack-problems`)."
   [sentence]
   (letfn
-   [(walk [role form]
+   [;; the one sentence a wrapper or a `not` takes.  Below the top level a bare symbol
+    ;; is caught by `walk1`'s literal arm; at the top level that arm defers to the
+    ;; sentence-shape check, which reads the outermost form only, so the operand is
+    ;; judged here
+    (operand [role h x stacked?]
+      (if (and (= :sentence role) (not (sequential? x)))
+        [(str (pr-str h) " takes a sentence, got " (pr-str x))]
+        (walk role x stacked?)))
+    (walk
+      ([role form] (walk role form false))
+      ;; `stacked?` is true inside a wrapper stack, so the stack's combination is judged
+      ;; once, at its outermost wrapper (`wrapper-stack-problems`)
+      ([role form stacked?]
+       (let [ps (walk1 role form)]
+         (if (or stacked? (empty? (wrapper-stack form)))
+           ps
+           (into (wrapper-stack-problems form) ps)))))
+    (walk1 [role form]
       (cond
-        (variable? form) []                        ; a pattern position; not ours
         (not (sequential? form))
         (if (= :sentence role)
           []                                       ; top-level shape has its own check
-          [(str "a " (clojure.core/name role) " literal must be a sentence, got " (pr-str form))])
+          [(str ({:antecedent "an antecedent" :exception "an exception"} role "a consequent")
+                " literal must be a sentence, got " (pr-str form)
+                (when (variable? form)
+                  (str " — a variable is a term, not a formula"
+                       (when (= :consequent role)
+                         (str "; write the consequent as (?pred . ?args), bound in the"
+                              " antecedent")))))])
         (empty? form) ["an empty form is not a sentence"]
         :else
         (let [h (first form) n (count form)]
@@ -2233,20 +2382,20 @@
             ;; `rules/normalize-soft-priority` moves onto the consequent marker before store
             (constraint-rule-wrappers h)
             (cond
-              (= 2 n)                                (walk role (second form))
-              (and (= 3 n) (integer? (second form))) (walk role (nth form 2))
+              (= 2 n)                                (operand role h (second form) true)
+              (and (= 3 n) (integer? (second form))) (operand role h (nth form 2) true)
               :else [(str (pr-str h) " wraps one rule (optionally after a priority level), got arity "
                           (dec n))])
-            (or (= h default-rule-wrapper) (= h assumption-rule-wrapper)
+            (or (= h default-rule-wrapper) (= h assumption-rule-wrapper) (= h solve-rule-wrapper)
                 (contains? rule-direction-wrappers h))
             (if (= 2 n)
-              (walk role (second form))
+              (operand role h (second form) true)
               [(str (pr-str h) " wraps one rule, got arity " (dec n))])
             (= h except-wrapper)
             (if (= 3 n)
               (into (vec (mapcat #(walk :exception %)
                                  (exception-conjuncts (second form))))
-                    (walk role (nth form 2)))
+                    (operand role h (nth form 2) true))
               [(str "exceptWhen takes a query and a rule, got arity " (dec n))])
             (= h not-functor)
             (cond
@@ -2254,7 +2403,7 @@
               [(str "not takes one sentence, got arity " (dec n))]
               (implies? (peek (peel-rule-wrapper (second form))))
               ["a rule cannot be negated; retract it, or state the exception the negation means"]
-              :else (walk role (second form)))
+              :else (operand role h (second form) false))
             (= h ist-functor)
             (cond
               (contains? #{:antecedent :exception :consequent} role) [(ist-rule-problem role)]
@@ -2301,6 +2450,16 @@
             :else []))))]
     (walk :sentence sentence)))
 
+(defn connective-problem
+  "`connective-problems` as one `:not-well-formed` problem map, or nil.  `assert` and
+  `check` read it right after the sentence shape, and an import reads it over each frame,
+  so a malformed connective frame is refused before it can store as an opaque fact or a
+  rule that answers wrongly."
+  [sentence]
+  (when-let [ps (seq (connective-problems sentence))]
+    {:type :not-well-formed :sentence sentence
+     :message (str "not well-formed: " (str/join "; " ps))}))
+
 (defn rename-vars
   "`form` with every variable `m` names replaced by the name it maps to — **one pass**,
   each position rewritten at most once.  Unmapped terms are left alone, and a vector
@@ -2329,6 +2488,17 @@
   (`{?var0 ?x}`), for display.  `rename-vars` under the name the display path calls it."
   [form varmap]
   (rename-vars form varmap))
+
+(defn authored-sentence
+  "A stored sentex's sentence with the author's variable names restored through its own
+  `:varmap`; a fact carries no varmap and its sentence comes back unchanged.  The one
+  spelling of the display form: `vaelii.core/readable-sentence` delegates here, and
+  `chain`'s refusal report, `inference`'s proof tree, `io.text`'s writer, `quality`'s
+  rule lines and `violations`' dropped-rule entry call it."
+  [sx]
+  (if-let [vm (:varmap sx)]
+    (originalize (sentence-of sx) vm)
+    (sentence-of sx)))
 
 (defn canonical-conjunction
   "`[canonical varmap]` for a conjunction: every variable across **all** of `literals`
@@ -2439,13 +2609,14 @@
 (defn- key-tokens
   "The trie tokens for a sentex, with the `implies` / `and` rule frame canonicalized
   out and variables α-renamed.  A rule is keyed
-  `[:rule <antecedents> <consequent> <assumption> <constraint>]` (a negative literal
+  `[:rule <antecedents> <consequent> <choice> <constraint>]` (a negative literal
   inside keeps its `not` — its polarity); a negative fact `[:false <body>]` (body kept
   whole so a `(not ?s)` pattern matches); a positive fact is its body **linearized** —
   the functor then each argument in preorder, so a nested compound is a run of trie
   levels rather than one opaque token (see the structural section above).
 
-  `:assumption` (a choice rule) and `:constraint` (a contradiction rule) are **constant
+  The two trailing slots spell the rule's `:effect` — `true` in the first for a choice
+  rule, `:hard` / `:soft` in the second for a constraint rule — and are **constant
   slots**, present (as nil) on every rule, so a choice / constraint rule and its bare
   twin get distinct keys and every rule keys at one depth — a ragged level would let a
   wildcard context slot descend into it and read child tokens as handles.  An
@@ -2467,12 +2638,15 @@
   narrow on, so a trie lookup of an open negative finds nothing rather than finding
   less.  `res/candidate-handles` is what honours it, routing an open negative to the
   secondary roots — which span both polarities — instead of here."
-  [{:keys [sentence antecedent assumption constraint] :as sx}]
+  [{:keys [sentence antecedent effect] :as sx}]
   (if (some? antecedent)
     ;; the rule's whole form, renamed as one, so the antecedents and the consequent
-    ;; share one numbering — the key the layout on disk holds
+    ;; share one numbering — the key the layout on disk holds.  The two trailing slots
+    ;; are the `:effect`'s spelling in that layout: `true` in the first for a choice, the
+    ;; constraint class in the second, nil and nil for a `:derive` rule
     (let [a (alpha-rename (sentence-of sx))]
-      [:rule (vec (rule-antecedents a)) (rule-consequent a) assumption constraint])
+      [:rule (vec (rule-antecedents a)) (rule-consequent a)
+       (when (= :choose effect) true) (effect-constraint effect)])
     (let [a (alpha-rename sentence)]
       (cond
         ;; `:false` is the index's own path token for a negative literal: the token

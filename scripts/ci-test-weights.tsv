@@ -180,14 +180,6 @@ vaelii.levels-test	0.37
 vaelii.limit-alloc-cost-test	1.43
 vaelii.literal-cache-engine-test	0.05
 vaelii.literal-cache-test	0.00
-vaelii.llm-correct-test	7.81
-vaelii.llm-oracle-test	14.26
-vaelii.llm-page-test	30.38
-vaelii.llm-selection-test	25.97
-vaelii.llm-session-test	9.46
-vaelii.llm-test	5.41
-vaelii.llm-text-test	19.59
-vaelii.llm-verdict-test	6.86
 vaelii.logging-test	0.03
 vaelii.matches-hierarchical-test	10.52
 vaelii.meta-sentex-test	0.35
@@ -275,7 +267,6 @@ vaelii.serve-parity-test	0.10
 vaelii.serve-test	0.76
 vaelii.settle-region-cost-test	0.34
 vaelii.sibling-disjoint-test	0.15
-vaelii.sign-integer-defn-test	2.99
 vaelii.sign-test	22.40
 vaelii.skolem-test	6.13
 vaelii.snapshot-sink-test	0.20
@@ -333,7 +324,6 @@ vaelii.web-inference-test	0.72
 vaelii.web-jobs-test	6.29
 vaelii.web-kbs-test	21.65
 vaelii.web-network-test	7.57
-vaelii.web-propose-test	25.08
 vaelii.web-reasoning-test	7.17
 vaelii.web-test	79.53
 vaelii.wff-edge-test	0.06

@@ -62,7 +62,7 @@
   ;; The bound is a real safety limit over a cyclic rule graph, and the report is the
   ;; other half of the prompt's requirement: the cut is reported rather than silently
   ;; swallowed.  A cyclic set always has one deeper level the bound refuses, so it is
-  ;; truncated at every depth — which is the honest answer for a search a bound, not the
+  ;; truncated at every depth — which is the correct answer for a search a bound, not the
   ;; data, terminated.
   (tu/with-terms [edge reach A B CxC]
     (v/assert kb (list edge A B) CxC)

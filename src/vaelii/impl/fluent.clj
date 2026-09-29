@@ -21,9 +21,8 @@
   Reached from outside through `vaelii.core/functional-at-instant-violations` and
   `vaelii.core/all-functional-at-instant-violations`, thin delegations to the readers here.
   This namespace sits **below** `vaelii.core`, which requires it, so no delegation runs
-  through `vaelii.impl.wiring`.  The fact reads run through the prover registry below
-  (`provers/ask`), each goal prepared as the public read prepares it
-  (`quasiquote/prepare-goal-for-read`); the one read that needs a rule — `holdsAt`, which the
+  through `vaelii.impl.wiring`.  The fact reads are `vaelii.core/ask`'s per-context step
+  (`quasiquote/ask-prepared`); the one read that needs a rule — `holdsAt`, which the
   registry does not expand — runs the node engine directly (`inference/solutions`) at a
   bounded depth, the below-`vaelii.core` form of the read `vaelii.core/query` runs.  The audit
   still answers what a user's read answers: it passes only concrete contexts, and the `genlCx`
@@ -42,16 +41,6 @@
   backward-only and unbounded search over a long instant chain does not terminate cheaply."
   4)
 
-(defn- ask
-  "The scoped fact read the audit runs, reached below `vaelii.core`: prepare `goal` exactly as
-  the public read prepares it (`quasiquote/prepare-goal-for-read`), then answer it through the
-  prover registry in `ctx`.  This is the whole of what `vaelii.core/ask` does for the audit's
-  inputs, which are always a concrete context; the `genlCx` ancestor scoping the answer rests
-  on is applied in the matching layer below.  `ask` follows belief, so a fact under a
-  disbelieved sentex is not returned."
-  [kb goal ctx]
-  (provers/ask kb (quasiquote/prepare-goal-for-read kb goal ctx) ctx))
-
 (defn- holds-at?
   "Is `(holdsAt fluent instant)` provable in `ctx` within `holds-at-depth` rewrites?  The
   below-`vaelii.core` form of the bounded read `vaelii.core/query?` runs: `holdsAt` is a
@@ -66,6 +55,7 @@
          [(quasiquote/prepare-goal-for-read kb (list 'holdsAt fluent instant) ctx)]
          ctx
          {:max-depth    holds-at-depth
+          :max-results  1
           :leaf-solver  provers/solve-goal
           :est-override (provers/registry-est-override kb ctx)}))))
 
@@ -83,9 +73,9 @@
                           [(second expr) (nth expr 2) fl])))]
     (into #{}
           (comp (map from) (remove nil?))
-          (concat (for [b (ask kb (list 'initiates '?e '?fluent '?t) context)]
+          (concat (for [b (quasiquote/ask-prepared kb (list 'initiates '?e '?fluent '?t) context)]
                     (get b '?fluent))
-                  (for [b (ask kb (list 'initially '?fluent) context)]
+                  (for [b (quasiquote/ask-prepared kb (list 'initially '?fluent) context)]
                     (get b '?fluent))))))
 
 (defn functional-at-instant-violations
@@ -103,7 +93,8 @@
   [kb f context]
   (let [fillers  (fluent-fillers kb f context)
         subjects (into #{} (map first) fillers)
-        moments  (into #{} (map #(get % '?t)) (ask kb '(time_point ?t) context))]
+        moments  (into #{} (map #(get % '?t))
+                       (quasiquote/ask-prepared kb '(time_point ?t) context))]
     (into #{}
           (for [t moments
                 s subjects
@@ -123,7 +114,7 @@
   is the per-declaration reader it is built from."
   [kb context]
   (into {}
-        (for [b     (ask kb '(functional_at_instant ?f) context)
+        (for [b     (quasiquote/ask-prepared kb '(functional_at_instant ?f) context)
               :let  [f  (get b '?f)
                      vs (functional-at-instant-violations kb f context)]
               :when (seq vs)]

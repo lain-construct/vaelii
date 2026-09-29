@@ -6,9 +6,8 @@
 
   Reached from outside through `vaelii.core/specified-violations` and
   `vaelii.core/all-specified-violations`, which are thin delegations to the readers here.
-  The audit reads through the prover registry below (`provers/ask`) with each goal prepared
-  exactly as the public read prepares it (`quasiquote/prepare-goal-for-read`), so this
-  namespace sits **below** `vaelii.core` and `vaelii.core` requires it — no layering
+  The audit reads through `vaelii.core/ask`'s per-context step (`quasiquote/ask-prepared`),
+  so this namespace sits **below** `vaelii.core` and `vaelii.core` requires it — no layering
   inversion.  The audit still answers what a user's `ask` answers: it passes only concrete
   contexts and expands no rule, and the `genlCx` ancestor scoping is applied in the matching
   layer below (docs/namespaces.md, \"The layering\").
@@ -54,21 +53,11 @@
   [kb term ctx]
   (provers/indeterminate-term? kb term ctx))
 
-(defn- ask
-  "The scoped read the audit runs, reached below `vaelii.core`: prepare `goal` exactly as
-  the public read prepares it (`quasiquote/prepare-goal-for-read` — reify ground NATs,
-  rewrite terms to their equality-class representatives), then answer it through the prover
-  registry in `ctx`.  This is the whole of what `vaelii.core/ask` does for the audit's
-  inputs, which are always a concrete context and never expand a rule; the `genlCx` ancestor
-  scoping the answer rests on is applied in the matching layer below."
-  [kb goal ctx]
-  (provers/ask kb (quasiquote/prepare-goal-for-read kb goal ctx) ctx))
-
 (defn- ask?
-  "Is `goal` answerable in `ctx`?  The boolean twin of `ask`, matching
+  "Is `goal` answerable in `ctx`?  The boolean form of `quasiquote/ask-prepared`, matching
   `vaelii.core/ask?`'s no-clock branch."
   [kb goal ctx]
-  (boolean (seq (ask kb goal ctx))))
+  (boolean (seq (quasiquote/ask-prepared kb goal ctx))))
 
 (defn- slot-typings
   "The visible slot-`n` typing constraints binding `pred`'s tuples in `ctx`, as a set
@@ -95,12 +84,12 @@
   (into #{}
         cat
         [(for [cp (res/constraining-predicates kb 'arg pred ctx)
-               b  (ask kb (list 'arg cp n '?t) ctx)
+               b  (quasiquote/ask-prepared kb (list 'arg cp n '?t) ctx)
                :let [t (get b '?t)]
                :when (some? t)]
            {:check :membership :type t})
          (for [cp (res/constraining-predicates kb 'genlArg pred ctx)
-               b  (ask kb (list 'genlArg cp n '?t) ctx)
+               b  (quasiquote/ask-prepared kb (list 'genlArg cp n '?t) ctx)
                :let [t (get b '?t)]
                :when (some? t)]
            {:check :subtype :type t})
@@ -154,7 +143,7 @@
   about nil is not a membership question."
   [kb pred x typings n ctx]
   (let [goal    (if (= n 2) (list pred x '?y) (list pred '?y x))
-        answers (ask kb goal ctx)]
+        answers (quasiquote/ask-prepared kb goal ctx)]
     (boolean
      (some (fn [b]
              (let [y (get b '?y)]
@@ -208,13 +197,13 @@
         (into #{}
               (comp (map #(get % '?x))
                     (remove #(admissible-filler? kb pred % typings n ctx)))
-              (ask kb (list indep '?x) ctx))}))))
+              (quasiquote/ask-prepared kb (list indep '?x) ctx))}))))
 
 (defn- declaration-args
   "Read the stored binary `(functor pred indep)` declarations in `ctx` as
   `[pred indep]` tuples."
   [kb functor ctx]
-  (for [b (ask kb (list functor '?pred '?indep) ctx)]
+  (for [b (quasiquote/ask-prepared kb (list functor '?pred '?indep) ctx)]
     [(get b '?pred) (get b '?indep)]))
 
 (defn- legacy-ternary-declarations
@@ -226,7 +215,7 @@
   audit, would otherwise vanish from the sweep entirely, turning an unmigrated KB
   into a fake clean sweep."
   [kb functor ctx]
-  (for [b (ask kb (list functor '?pred '?a '?b) ctx)]
+  (for [b (quasiquote/ask-prepared kb (list functor '?pred '?a '?b) ctx)]
     [(get b '?pred) (get b '?a) (get b '?b)]))
 
 (defn all-specified-violations

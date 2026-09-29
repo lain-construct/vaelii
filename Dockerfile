@@ -4,7 +4,7 @@
 # production, and the uberjar already is the self-contained artifact.
 
 # ---- build ----------------------------------------------------------------
-FROM eclipse-temurin:21-jdk AS build
+FROM eclipse-temurin:25-jdk AS build
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends curl ca-certificates \
@@ -30,7 +30,7 @@ COPY . .
 RUN lein uberjar && mv target/uberjar/*-standalone.jar /build/vaelii.jar
 
 # ---- run ------------------------------------------------------------------
-FROM eclipse-temurin:21-jre AS run
+FROM eclipse-temurin:25-jre AS run
 
 # curl is here for HEALTHCHECK below and nothing else.
 RUN apt-get update \
@@ -40,6 +40,21 @@ RUN apt-get update \
             --shell /usr/sbin/nologin vaelii
 
 COPY --from=build /build/vaelii.jar /app/vaelii.jar
+
+# The class-loading cache the entry point reads (`-XX:AOTCache`).  A training run of
+# the daemon itself — up on a scratch store until `/health` answers, then stopped, the
+# cache written at its exit — so the cache holds what a start loads.  It is built here
+# rather than in the build stage because a cache is valid only for the JVM build and the
+# jar that made it, and these are the ones the container runs; the flags match the
+# entry point's for the same reason.  A daemon over an empty store that reads it answers
+# `/health` in 0.58 s against 1.61 s without (2026-09-28), for about 90 MB of image.
+RUN java --enable-native-access=ALL-UNNAMED --sun-misc-unsafe-memory-access=allow \
+         -XX:+UseCompactObjectHeaders -XX:AOTCacheOutput=/app/vaelii.aot \
+         -cp /app/vaelii.jar clojure.main -m vaelii.host.serve 4299 /tmp/aot-train & \
+    pid=$! \
+ && for _ in $(seq 1 120); do curl -fsS http://127.0.0.1:4299/health && break; sleep 1; done \
+ && kill "$pid" && wait "$pid"; \
+    test -s /app/vaelii.aot && rm -rf /tmp/aot-train
 
 # The store.  One container per directory: the `:disk` backend takes an exclusive
 # file lock on open and a second opener is refused with `:disk-locked`, so
@@ -69,7 +84,14 @@ ENV VAELII_LOG_LEVEL=info
 #
 # `clojure.main -m` rather than `java -jar`: `:gen-class` is on `vaelii.core`, so
 # the jar's Main-Class is the API entry point and not this one.
-ENTRYPOINT ["java", "-cp", "/app/vaelii.jar", "clojure.main", "-m", "vaelii.host.serve"]
+#
+# The first three flags are project.clj's top-level `:jvm-opts`, which an uberjar does
+# not carry: without the two `--` ones JDK 25 warns when JNA loads a native solver and
+# when nippy's LZ4 (aircompressor) calls `sun.misc.Unsafe`, and compact object headers
+# hold about 8% less heap.  `-XX:AOTCache` reads the cache the training run above wrote.
+ENTRYPOINT ["java", "--enable-native-access=ALL-UNNAMED", "--sun-misc-unsafe-memory-access=allow", \
+            "-XX:+UseCompactObjectHeaders", "-XX:AOTCache=/app/vaelii.aot", \
+            "-cp", "/app/vaelii.jar", "clojure.main", "-m", "vaelii.host.serve"]
 
 # `[port [dir]] [--listen ADDR]`.  Binding an address inside the container is what
 # lets a published port reach the daemon — and the daemon refuses that bind unless

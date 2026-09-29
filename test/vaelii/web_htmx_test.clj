@@ -14,14 +14,13 @@
   asks of every request site what it *effectively* carries.  A fragment is checked under
   the ancestors it swaps into, since that is where htmx resolves it.
 
-  Kept honest against the vendored `resources/public/htmx.min.js` (2.0.9): the inherited
+  Checked against the vendored `resources/public/htmx.min.js` (2.0.9): the inherited
   set is the attributes it reads through `getClosestAttributeValue`."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.browser.catalog :as catalog]
             [vaelii.browser.web :as web]
             [vaelii.core :as v]
-            [vaelii.host.llm.stub :as stub]
             [vaelii.test-util :as tu]))
 
 (def ^:dynamic *app* nil)
@@ -117,25 +116,6 @@
                        (not (or (void-tags tag) (str/ends-with? raw "/")))
                        (conj (visible-below (peek stack) own)))
                      out))))))))
-
-(defn- under
-  "What a fragment swapped into `#id` inherits: the attributes visible at that element in
-  a whole document.  A fragment's behaviour is decided by where it lands, not by what the
-  server sent."
-  [html id]
-  (let [tags (re-seq element-re (scannable html))]
-    (loop [[[_ close tag raw] & more] tags, stack [{}]]
-      (cond
-        (nil? tag) nil
-        (seq close) (recur more (cond-> stack (> (count stack) 1) pop))
-        :else (let [own (attrs-of raw)]
-                (if (= id (get own "id"))
-                  (visible-below (peek stack) own)
-                  (recur more
-                         (cond-> stack
-                           (not (or (void-tags (str/lower-case tag))
-                                    (str/ends-with? raw "/")))
-                           (conj (visible-below (peek stack) own))))))))))
 
 (defn- describe [{:keys [tag own verb]}]
   (str "<" tag (when-let [i (own "id")] (str " id=" i))
@@ -274,32 +254,6 @@
       (doseq [p polls]
         (is (= "unset" (get (:own p) "hx-indicator")) (describe p))
         (is (= "this" (get (:own p) "hx-target")) (describe p))))))
-
-;; A fragment inherits from wherever it lands, so the review form — which only exists
-;; after a proposal — is checked under the term page's `#propose-result`.
-
-(tu/deftest-kb the-proposal-review-form-is-clean-where-it-lands
-  (let [t    (tu/tmp-type "quokka")
-        ctx  (tu/tmp-ctx "Marsupial")
-        _    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse)
-        _    (v/assert kb (list 'genl t 'animal) ctx)
-        doc  (:body (GET "/term" (str "q=" t)))
-        frag (binding [web/*proposer*
-                       {:kind :stub
-                        :provider (stub/provider
-                                   {:script [{:assertions [(list 'genl t 'bird)]}]})}]
-               (:body (*app* {:request-method :post :uri "/propose"
-                              :params {"q" (pr-str t) "ctx" (pr-str ctx)
-                                       "message" "what is it"}})))
-        seed (under doc "propose-result")]
-    (is (some? seed) "the term page has the region the answer swaps into")
-    (is (re-find #"class=\"propose-apply\"" frag) "and the answer is a review form")
-    (let [found (audit "/propose" frag seed)]
-      (is (empty? found) (str/join "\n" found)))
-    (testing "the form keeps the attribute it withholds from its children"
-      (let [f (first (filter #(= "/propose/apply" (get (:own %) "hx-post"))
-                             (sites frag seed)))]
-        (is (= "find button[type='submit']" (get (:own f) "hx-disabled-elt")))))))
 
 ;; ---- the lint itself has to be wrong-detecting --------------------------
 

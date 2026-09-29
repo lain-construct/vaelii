@@ -137,6 +137,42 @@ by, and never sees them. Blind, because a comparator that read variable names wo
 the author's choice of `?x` over `?a` decide antecedent order, and two spellings of one
 rule would canonicalize apart.)
 
+## Answering an equation
+
+A believed equation is answered by every read, and three rules make that hold.
+
+- **A stored equation is never retired.** Migration never restates a positive
+  `rewriteOf` / `sameAs` / `equals` (`kb/rewritable-sentex?`), so the stated spelling is
+  the only one there will ever be. `res/retired-for?` therefore never drops one: the
+  per-reader filter that hides a displaced spelling (`res/without-retired`) would
+  otherwise hide `(sameAs A B)` from every reader that sees the merge it states, and no
+  read would return it under any name. An equality relation nested inside a sentence,
+  `(not (sameAs A B))` say, is read through the mention walk, since its arguments move
+  by a spelling rename and not by an identity merge.
+- **An equation goal is asked as spelled**, like a `different` goal
+  (`res/goal-held-as-spelled?`). Its arguments are mentions, and the goal rewrite would
+  turn `(rewriteOf P D)` into the self-edge `(rewriteOf P P)`, which matches nothing.
+- **`sameAs` and `equals` goals are answered from the closure** by
+  `provers/EqualityProver`, scoped to the asking context the way `same-class?` is. A
+  ground goal holds when both sides reach one normal form (congruence, then the visible
+  schematic equations), so the stated form, its symmetric form, the reflexive form and a
+  form joining two ends of a chain all answer true. A goal binding a symbol on one side
+  and a variable on the other enumerates that symbol's class, itself included.
+
+Three shapes are not answered from the closure, and each is left to the stored
+equations. A goal open on both sides asks for every pair over the domain, reflexive
+pairs included, so it returns the stated equations only. A goal binding a **compound**
+beside a variable asks for every term that normalizes with it, which is E-unification
+("What is not built" below). And **`rewriteOf`** is directional: `(rewriteOf P D)` is
+answered by the stored edge, its converse and the self-edge are not, and a chain does
+not compose into a stated edge, since the preference it records is per edge.
+
+`sentexes-matching` is a storage read, so it returns the stated equation as spelled and
+nothing else: the symmetric form of an equation stated one way round is not a stored
+sentex. `prove` takes the stored facts as its leaf, so it proves the stated spelling;
+the closure's other answers come through `ask`, or through `prove` run with a registry
+leaf ([inference.md](inference.md)).
+
 ## What a merge does
 
 Four parts, all reusing machinery that already exists:
@@ -197,6 +233,10 @@ come out false the moment anything merged. Its arguments are already
 rewrite-invariant: the prover consults the closure directly. Exempt it explicitly
 rather than relying on the rewrite being a no-op.
 
+**A positive equation is exempt from step 3 too**, for the reason "Answering an
+equation" gives: its arguments are mentions and the stored equation is never restated,
+so the goal meets it only as spelled.
+
 Dropping the equality invalidates the derivations, the dependency-directed sweep
 collects the twins, and un-superseding revives the originals.
 
@@ -216,15 +256,25 @@ holding while the closure stands still, the displaced datum leaving and its rest
 leaving with it, and the region names both. Migration's own output is examined alongside,
 which is what covers a merge arriving: `migrate-class` walks the whole class an edge
 moved, so a class move that came with a migration is already described by what the
-migration handed over.
+migration handed over. The write path reconciles migration's output alone, and leaves
+the region to the settle that closes the window, so a deferred batch of n merges
+examines each entry once rather than once per later merge.
 
 The closure itself is the other half, and it is compared rather than assumed: the active
 equality edges, the `rewriteOf` preference claims they carry, the believed schematic
-rewrite rules, and the `genlCx` generation. A move in any of those can retire an
-entry that nothing relabelled — an equation leaving re-normalizes every sentence it
-reached, a context edge changes which merges a reader can see — so a settle that moved one
-of them re-examines the whole set. A stamp that cannot be compared, which is a freshly
-opened KB and a recovered one, reads the same way: one full pass, never a wrong answer.
+rewrite rules, and the `genlCx` generation. A class the equality partition moved, by an
+edge joining, leaving, or moving in or out of belief, is named term by term
+(`tax/take-equality-moves!`), so an un-merge, or an equality defeated or revived,
+re-examines the stored sentexes naming a term of that class and no other entry. A
+schematic rewrite rule or a context edge can retire an entry that nothing relabelled and
+no class move names — a rule leaving re-normalizes every sentence it reached, a context
+edge changes which merges a reader can see — so a settle that moved one of them
+re-examines the whole set. A stamp that cannot be compared, which is a freshly opened KB
+and a recovered one, reads the same way: one full pass, never a wrong answer.
+
+`settle-finish` then reconciles the taxonomy's caches over the region and the data whose
+supersession changed since the last settle (`special/take-supersession-moves!`), since a
+supersession flip moves belief with no relabel behind it.
 
 ### Scope, context, and re-election
 
@@ -456,10 +506,10 @@ bounded by real vocabulary growth — the edge names the predicate whose subtree
 where a `genlCx` edge names two *contexts*, and the ancestor set they open can be large even when
 the edge itself is small: a context wired under a genuinely huge store makes all of it
 newly relevant. `equate-under-context-edge` caps its candidates at
-`tax/*exposure-instance-budget*` (shared with `vaelii.impl.settle`'s own exposure passes,
+`tax/*exposure-instance-budget*` (shared with `vaelii.impl.settle`'s own bounded sweeps,
 so one dial governs every cross-context sweep in the KB) and, past it, files a
 `:context-edge-exposure-truncated` violation — never silently. Unlike a cut sweep in
-`settle`, whose residual a later settle's exposure pass re-examines, a merge this cap
+`settle`, whose residual a later settle's resumed sweep re-examines, a merge this cap
 prevents has no second chance: nothing re-triggers on a `genlCx` edge that already
 finished landing, so the pairs past the cut stay unmerged for good, this edge.
 
@@ -499,6 +549,34 @@ collapses to one class rather than to the first pair walked. The sweep reads wha
 **stored** rather than what is believed, for `entail-existing`'s reason: an equality
 derived off a defeated fact rests on that fact and is defeated with it, where skipping it
 would leave the merge missing when the fact revives.
+
+**A mark that revives runs its arrival sweep again.** A defeat of the declaration or of a
+`genl` edge the merge descended through takes every merge it licensed OUT through the
+JTMS, since each names it among its antecedents, and a revival brings them back the same
+way. A fact that arrived **while** the declaration was OUT merged nothing: its own
+direction read a taxonomy without the mark, and the declaration's arrival was already
+over. So `settle` hands every datum it revives to `special/revived-declaration-sweeps`,
+which runs `equate-existing` and `antisym-equate-existing` for it as its arrival did
+(`order_independence_test/a-revived-mark-reaches-the-facts-that-arrived-while-it-was-out`).
+An `except` of the declaration moves which readers see it without a relabel, so a fact
+that arrived while the except stood merged nothing either. Every `except` that arrives,
+leaves or changes label queues its target, and the settle runs the same sweeps for it
+(`special/except-move-sweeps`), together with the migration an equality's arrival runs
+when the target is an equality ([equational.md](equational.md#an-except-of-an-equation);
+`order_independence_test/an-except-that-moves-reaches-what-an-equality-or-a-mark-restates`).
+
+A revived `genl` edge under a `functional`, `functionalInArg` or `anti_symmetric` mark
+runs `equate-under-edge` and `antisym-equate-under-edge` over one walk of its spec subtree
+(`special/revived-edge-sweep`), and that walk is **budgeted** where the arrival's is not:
+a settle revives an edge far more often than one arrives, and `lein perf`'s
+`constraint-genl-mark-descent` holds a revived edge flat in the subtree past
+`tax/*exposure-instance-budget*`. Below the budget the revival merges what the same
+sentences in any other order merge. Past it the walk stops, files one
+`:genl-edge-revival-truncated` violation naming the edge, and the facts past the cut that
+arrived while the edge was OUT stay unmerged. The walk reads the subtree's predicates in
+content order and each posting in the index's order. An edge under no such mark reads two `props-over` closures and walks
+nothing, which `constraint-genl-edge-gate` holds flat
+(`order_independence_test/a-revived-genl-edge-merges-up-to-the-budget-and-names-the-cut`).
 
 One antecedent the fourth direction's equality does **not** carry: the `genlCx` edge that
 made the pair jointly visible is not among the facts `why` names, so retracting that edge
@@ -625,8 +703,9 @@ unequal sizes, and an equal-size pair is oriented by a fixed symbol precedence, 
 AC-rewriting, a separate mechanism. Normalization reaches all four query paths:
 `sentexes-matching`, `ask`, `prove`, and `query` all rewrite the top goal — the last two
 through `quasiquote/prepare-goal-for-read`, which is what keeps a goal naming a merged spelling
-from being answered by `ask` and silently missed by `prove`. `different` is exempt, since
-its arguments must stay un-rewritten to read class membership.
+from being answered by `ask` and silently missed by `prove`. `different` and a positive
+equation are exempt, since their arguments must stay un-rewritten to read class
+membership.
 
 The **open-goal / search** half stays unbuilt. No **E-unification or
 paramodulation** — proving `(equals ?x ?y)` by searching rewrites of a goal on
@@ -663,7 +742,7 @@ individual merging:
   declaration is a sentex the merge re-canonicalizes.
 - **Rules** are migrated too (the gate above), through the same justified-twin path:
   the rewritten rule re-posts under the representative's predicates in the rule
-  index, keeps its `:direction` / `:defeasible` (re-applied by `rules/rewrap`,
+  index, keeps its `:engines` / `:defeasible` / `:effect` (re-applied by `rules/rewrap-sentex`,
   since the wrappers ride the record, not the stored sentence), and fires under the
   representative while the original is superseded. **In both arrival orders**, which is
   the rule entry point's own arm: `migrate-class` restates a rule already stored when the merge
@@ -710,6 +789,9 @@ refuse.
   every edit. `representative` / `same-class?` / `equiv-class` / `deprecated?` are
   re-exported on `vaelii.core`.
 - The `different` prover: ground-only, refuses an open goal, reads the closure.
+- The equation prover, `provers/EqualityProver`: a ground `sameAs` / `equals` goal
+  compared by normal form, a symbol-bound one answered by the scoped class, read from the
+  asking context ("Answering an equation").
 - Routing in `special/integrate-sentex` / `disintegrate-sentex!`, beside `genl` and the
   predicate metadata. `different` is refused by `wff` on the way in.
 - The **derivation** path's routing, `special/integrate-equality-sentex`, called by name
@@ -751,7 +833,8 @@ refuse.
   `sentexes-matching-as-stored`: a match whose stored spelling the *asking* context has
   retired is dropped, so a reader below a merge reports the fact once, under the name it
   elected. Gated on the closure being non-empty.
-- Goal rewriting in `sentexes-matching` and `ask`, with `different` exempt. `handle-of` and the
+- Goal rewriting in `sentexes-matching` and `ask`, with `different` and a positive
+  equation exempt (`res/goal-held-as-spelled?`). `handle-of` and the
   `lookup` levels deliberately do not rewrite: they answer about storage, not truth.
   Scoped by the goal's context, so a merge the asker cannot see does not rename what it
   asked.

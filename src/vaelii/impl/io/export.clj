@@ -58,6 +58,7 @@
             [vaelii.impl.io.frames :as frames]
             [vaelii.impl.io.snapshot :as snapshot]
             [vaelii.impl.kv :as kv]
+            [vaelii.impl.observe :as observe]
             [vaelii.impl.opts :as opts]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reasoning-image :as reasoning-image]
@@ -299,7 +300,10 @@
   exactly those records under the same source identity installs it in place of `recover`.
   It is written only for a KB on the dense network, with the default provers and solver,
   whose network covers its records; the summary's `:reasoning-image` is `:written`,
-  `:not-writable` or `:omitted` (`:belief? false`).  A phase `:belief` reports it.
+  `:not-writable` or `:omitted` (`:belief? false`).  A phase `:belief` reports it.  **It
+  is declined, as `:not-writable`, when the change clock moved during the export**: the
+  network is read after the walks and stamped with their fingerprints, so a write between
+  the two would install on import as belief the streamed records never had.
 
   `dir` must not exist or must be empty (`:type :not-empty`), and `meta.edn` is
   written **last**.  The provenance stream is omitted entirely when no handle carries
@@ -308,13 +312,12 @@
   **`:provenance? false` omits it even when handles do carry it**, and it is not a
   micro-optimization: provenance is an open per-handle map an application layers whatever
   it likes into, so it has no size bound of its own and can dominate the records it
-  annotates.  Measured on the converted engine KB — 10.2M sentexes — the provenance
-  stream is 317.9 MB of a 556 MB dump, **57%, larger than the records**, and what it
-  holds there is the extraction pipeline's own bookkeeping rather than anything a reader
-  of the ontology wants.  Belief never reads provenance and the importer treats the
-  stream as optional, so a dump without it is a complete KB, just an unannotated one;
-  that makes this the right knob for a dump meant to be downloaded, and the wrong one for
-  a backup."
+  annotates.  Measured on one large imported KB, the provenance stream is **57% of the
+  dump, larger than the records**, and what an import pipeline writes there is its own
+  bookkeeping rather than anything a reader of the ontology wants.  Belief never reads
+  provenance and the importer treats the stream as optional, so a dump without it is a
+  complete KB, just an unannotated one; that makes this the right knob for a dump meant
+  to be downloaded, and the wrong one for a backup."
   ([kb dir] (export! kb dir {}))
   ([kb dir {:keys [variant compression chunk-size on-progress provenance? belief?]
             :or   {variant :records compression :gzip chunk-size 10000
@@ -324,6 +327,7 @@
    (check-compression! compression)
    (check-variant! variant)
    (let [t0       (System/nanoTime)
+         clock    (observe/change-clock)
          ^File d  (ensure-empty-dir! dir)
          records  (:records kb)
          sx-set   (p/sentex-ids records)
@@ -369,7 +373,8 @@
                  (on-progress {:phase :reasoning-image :done 0 :total 1})
                  (reasoning-image/write-sections!
                   kb (io/file d reasoning-image/dir-name)
-                  (reasoning-image/stamp kb {:sentexes (fprint) :justifications (jprint)})))]
+                  (reasoning-image/stamp kb {:sentexes (fprint) :justifications (jprint)})
+                  #(= clock (observe/change-clock))))]
      (on-progress {:phase :meta :done 0 :total 1})
      (write-meta! d (array-map
                      :format              format-marker

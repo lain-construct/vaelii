@@ -69,7 +69,7 @@
 (defn- var-counts
   "A map of each pattern variable in `term` to how many times it occurs."
   [term]
-  (frequencies (filter sx/variable? (tree-seq sequential? seq term))))
+  (frequencies (sx/form-vars term)))
 
 (defn- var-dominates?
   "Does every variable occur at least as often in `a` as in `b`?  The KBO variable
@@ -228,13 +228,22 @@
   rewrite, so a partly-normalized form can only *miss*, never match wrongly."
   4096)
 
+(defn- reduct
+  "The term `rule` rewrites `term` to at its root, or nil when its LHS does not match or
+  its `:blocked?` predicate, called with `term` and the reduct, refuses the step.  A
+  rule carries `:blocked?` when a denial of one of its ground instances is visible to
+  the reader (`res/rewrite-rules-in`); the predicate is the only part of a block this
+  namespace sees."
+  [{:keys [lhs rhs blocked?]} term]
+  (when-let [sigma (match lhs term)]
+    (let [r (subst rhs sigma)]
+      (when-not (and blocked? (blocked? term r)) r))))
+
 (defn- rewrite-root
   "Rewrite `term` at its root with the first applicable rule, or nil when none
   applies.  `rules` is a seq of `{:lhs :rhs}` oriented pairs."
   [rules term]
-  (some (fn [{:keys [lhs rhs]}]
-          (when-let [sigma (match lhs term)] (subst rhs sigma)))
-        rules))
+  (some #(reduct % term) rules))
 
 (defn normalize
   "The normal form of `term` under the oriented `rules`: rewrite innermost subterms to
@@ -253,20 +262,69 @@
         (recur red (inc guard))
         term'))))
 
+(def equality-relations
+  "The equality relations, whose argument positions are **mentions**: `(equals A B)`
+  relates two names and uses neither as a term.  `normalize-sentence` and
+  `rule-applies?` leave those positions as written, at any depth.  Normalizing them
+  would restate what the sentence says: under `(equals (fatherOf (fatherOf ?x))
+  (grandfather_of ?x))`, the denial `(not (equals (fatherOf (fatherOf Tom))
+  (grandfather_of Tom)))` would become `(not (equals (grandfather_of Tom)
+  (grandfather_of Tom)))`, a denial of reflexivity.  Ground congruence reads the same
+  set (`res/equality-mention-heads` is this var), and `kb/equality-predicates` mirrors
+  it."
+  '#{rewriteOf sameAs equals})
+
+(defn- holds-equality-relation?
+  "Does `term` hold an equality relation at any depth?"
+  [term]
+  (and (sequential? term)
+       (or (contains? equality-relations (first term))
+           (boolean (some holds-equality-relation? term)))))
+
+(defn- sentence-argument?
+  "Is `sentence` a predication whose arguments `normalize-sentence` reduces — a non-empty
+  compound that is not itself an equality relation?"
+  [sentence]
+  (and (sequential? sentence) (seq sentence)
+       (not (contains? equality-relations (first sentence)))))
+
+(defn- map-argument-terms
+  "`sentence` with `f` applied to each argument term `normalize-sentence` reduces.  An
+  argument holding no equality relation is one such term.  An equality relation is
+  left as written.  Any other compound holding one keeps its head, and its arguments
+  are taken the same way, so `(not (equals …))` and a rule's `(and (equals …) …)` keep
+  their equality literals while every other literal beside them normalizes."
+  [f sentence]
+  (letfn [(arg [t]
+            (cond
+              (not (holds-equality-relation? t))      (f t)
+              (contains? equality-relations (first t)) t
+              :else                                    (apply list (first t) (map arg (rest t)))))]
+    (apply list (first sentence) (map arg (rest sentence)))))
+
+(defn- argument-terms
+  "The terms `map-argument-terms` applies its function to, in the same walk."
+  [sentence]
+  (letfn [(arg [t]
+            (cond
+              (not (holds-equality-relation? t))      [t]
+              (contains? equality-relations (first t)) []
+              :else                                    (mapcat arg (rest t))))]
+    (when (sentence-argument? sentence)
+      (mapcat arg (rest sentence)))))
+
 (defn normalize-sentence
   "Normalize a **sentence** `(pred arg…)`: rewrite each argument as a term, leaving the
   predication's functor and shape untouched.  A schematic equation is about denoting
   terms, which live in argument position; a predication is an assertion, not a term.
-  A no-op when `rules` is empty."
+  An equality relation's arguments are not rewritten, at the top or nested
+  (`equality-relations`).  A no-op when `rules` is empty."
   [rules sentence]
-  (if (and (seq rules) (sequential? sentence) (seq sentence))
-    (apply list (first sentence) (map #(normalize rules %) (rest sentence)))
+  (if (and (seq rules) (sentence-argument? sentence))
+    (map-argument-terms #(normalize rules %) sentence)
     sentence))
 
 ;; ---- schematic-equation detection ----------------------------------------
-
-(defn- has-variable? [form]
-  (boolean (some sx/variable? (tree-seq sequential? seq form))))
 
 (defn schematic-equation?
   "Is `sentence` a schematic equational rule — an `(equals L R)` whose sides carry a
@@ -280,7 +338,7 @@
        (= 'equals (first sentence))
        (= 3 (count sentence))
        (some sequential? (rest sentence))
-       (has-variable? sentence)))
+       (not (sx/ground-term? sentence))))
 
 (defn rule-applies?
   "Does the oriented rule `{:lhs …}` rewrite some argument subterm of `sentence`?  The
@@ -290,10 +348,12 @@
   The positions asked about are exactly the positions `normalize` reduces at
   (`rewritable-subterms`), so the two agree: a wider read here would justify a twin by a
   rule that never touched it, and retracting that rule would then withdraw a twin it
-  never made."
-  [{:keys [lhs]} sentence]
-  (boolean (some #(some (fn [st] (match lhs st)) (rewritable-subterms %))
-                 (when (sequential? sentence) (rest sentence)))))
+  never made.  The same holds of the argument terms: an equality relation's arguments
+  are not among them (`equality-relations`), and neither is a redex the rule's
+  `:blocked?` predicate refuses."
+  [rule sentence]
+  (boolean (some #(some (fn [st] (reduct rule st)) (rewritable-subterms %))
+                 (argument-terms sentence))))
 
 ;; ---- confluence surfacing: critical pairs between rules ------------------
 ;; A terminating rewrite system is confluent iff every **critical pair** joins (the
@@ -366,7 +426,7 @@
   rules being overlapped share no variable names.  RHS variables are a subset of the
   LHS's (orientation guarantees it), so the LHS numbering covers both."
   [rule prefix]
-  (let [vars (distinct (filter sx/variable? (tree-seq sequential? seq (:lhs rule))))
+  (let [vars (distinct (sx/form-vars (:lhs rule)))
         m    (into {} (map-indexed (fn [i v] [v (symbol (str prefix i))]) vars))]
     {:lhs (subst (:lhs rule) m) :rhs (subst (:rhs rule) m)}))
 

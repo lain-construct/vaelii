@@ -3,7 +3,7 @@
 (ns vaelii.jtms-protocol-test
   "`vaelii.impl.jtms-protocol/roles` against the `Tms` protocol it classifies.
 
-  The protocol's docstring divides its methods into seven roles and states what each
+  The protocol's docstring divides its methods into eight roles and states what each
   role holds, what supplies it and where it enters belief.  A docstring that says so and
   a protocol that grew a method since are two claims, not one, so the division is written
   as data beside the protocol and checked here.

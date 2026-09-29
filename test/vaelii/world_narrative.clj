@@ -108,12 +108,10 @@
   is what a state persisting until something ends it *means*, and it is the one thing the
   fable turns on.
 
-  In **CxRaceClock**, a context of its own below CxTortoiseHare, rather than in the fable.
-  A fable context is also a scoring document: its own sentexes are the gold set a reader of
-  the English text is measured against (docs/reading.md), and the prose says nothing about
-  instants and orderings, so putting them there would drop that fable's recall for a reason
-  that has nothing to do with reading.  Below it, the timeline sees the fable's facts and
-  every character keeps its name.
+  In **CxRaceClock**, a context of its own below CxTortoiseHare, rather than in the fable,
+  so the fable context holds the tale as it is told and nothing about instants and
+  orderings.  Below it, the timeline sees the fable's facts and every character keeps its
+  name.
 
   The four consecutive links are stated and no more: `instantBefore` is transitive, and a
   forward join over a transitive antecedent reads the closure, so the race's beginning

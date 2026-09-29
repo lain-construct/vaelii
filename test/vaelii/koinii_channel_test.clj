@@ -384,7 +384,9 @@
       (is (= :koinii/no-wire-feed (:type (refusal #(koinii-types/-feed-open m nil 'CxDeploy))))
           "opening a feed on a medium that issues no cursor")
       (is (= :koinii/no-wire-feed (:type (refusal #(koinii-types/-feed-poll m nil nil nil))))
-          "and resuming from one it never issued"))))
+          "and resuming from one it never issued")
+      (is (= :koinii/no-wire-feed (:type (refusal #(koinii-types/-feed-close m nil))))
+          "and closing one"))))
 
 ;; ---- the two entry points that nil-punned: a bad handle, and a bad stance -------
 
@@ -461,6 +463,19 @@
           (is (stopped? sub) "the dead subscription reads stopped, not live")
           (is (some #{[:error ::ch/subscription-failed]} @logged)
               "and the failure was logged at :error rather than swallowed")))
+      (finally (restore!)))))
+
+(deftest a-wire-poll-that-raises-an-error-ends-the-subscription-and-reports-it-too
+  (let [[medium poll] (scripted-wire (fn [_] (throw (StackOverflowError. "deep reply"))))
+        [logged restore!] (collecting-log-fn)]
+    (try
+      (with-redefs [vc/watch   (fn ([_] {:token "T" :cursor 0})
+                                 ([_ _ _] {:token "T" :cursor 0}))
+                    vc/unwatch (fn [_ _] true)
+                    vc/poll    poll]
+        (let [sub (koinii-types/-subscribe medium nil 'CxDeploy (fn [_]) nil)]
+          (is (stopped? sub) "an Error ends the loop as an exception does, and reads stopped")
+          (is (some #{[:error ::ch/subscription-failed]} @logged))))
       (finally (restore!)))))
 
 (deftest a-caller-supplied-on-error-replaces-the-default-line
@@ -640,7 +655,9 @@
   ;; some context is its own.  `AgentDeploy` maps to `CxDeploy` by the naming convention,
   ;; and the channel of that name is still a channel until a placement says otherwise.
   (id/load-registry kb)
-  (id/register-agent kb (id/admin-principal) 'AgentDeploy "the deploy bot" 1)
+  (id/register-agent kb (id/authenticate {:claimed-id 'AdminRoot :admin? true}
+                                         {:verify-fn (fn [_ _ claims] (:admin? claims))})
+                     'AgentDeploy "the deploy bot" 1)
   (let [atlas (ch/join (ch/local kb) 'CxDeploy 'AgentAtlas)]
     (is (= 'CxAtlas (:context atlas)))
     (is (v/sees? kb 'CxDeploy 'CxAtlas))))

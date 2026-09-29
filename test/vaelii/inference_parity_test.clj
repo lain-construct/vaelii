@@ -19,6 +19,7 @@
             [vaelii.core :as v]
             [vaelii.impl.inference :as inf]
             [vaelii.impl.resolution :as res]
+            [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -26,7 +27,7 @@
 (defn- projected
   "`sols` deduped and projected onto the query's variables."
   [goal sols]
-  (let [qvars (res/form-variables (if (vector? goal) goal [goal]))]
+  (let [qvars (sx/form-variables (if (vector? goal) goal [goal]))]
     (set (map #(select-keys (res/resolve-bindings %) qvars) sols))))
 
 (defn- parity

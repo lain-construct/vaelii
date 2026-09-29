@@ -33,7 +33,10 @@
   * **`:sift`** — the three widths of one set-algebra retrieval: how many candidates the
     argument-root probe returned, how many reached `unify`, how many matched.  Keyed like
     `:goals`, and the read-efficiency reading a layout change is judged on.
-  * **`:fetches`** — every `RecordStore` fetch, by kind.  **The other index**: a `:reads`
+  * **`:fetches`** — every `RecordStore` read, by kind: the three record fetches
+    (`:sentex`, `:justification`, `:provenance`), `:premise-strength`, and the three
+    whole-roster reads (`:sentex-ids`, `:justification-ids`, `:premise-ids`), each
+    counted once per call whatever the roster's size.  **The other index**: a `:reads`
     figure prices what the trie and the roots were asked, and says nothing at all about
     the records those handles then name.  The two come apart exactly where it hurts — a
     probe that narrows to one index read and then fetches a record per candidate handle
@@ -101,10 +104,10 @@
   * **`:fetches` counts the protocol call, not the work behind it.**  A store's own
     internal reads are its own business — the durable store re-reads a record inside
     `mark-premise` where the RAM one reaches into its state map — so counting those would
-    make the tally a reading of which backend is running.  What is counted is
-    `p/get-sentex` / `p/get-justification` / `p/get-provenance`, which is the number a
-    caller controls: an overlay fetch that consults the base and then the fork counts
-    twice, which is what a fork costs.  A fetch answering **nil** counts, because the
+    make the tally a reading of which backend is running.  What is counted is each call
+    of a `RecordStore` read method, which is the number a caller controls: an overlay
+    fetch that consults the base and then the fork counts twice, which is what a fork
+    costs.  A fetch answering **nil** counts, because the
     caller paid for it.
 
   ## Reading it
@@ -233,8 +236,8 @@
 ;; ---- the record-fetch tally ---------------------------------------------
 
 (defn record-fetch
-  "Tally one `RecordStore` fetch against the kind that answered it — `:sentex`,
-  `:justification` or `:provenance`.  The record-store twin of `record-read`, and it
+  "Tally one `RecordStore` read against its kind, one of the seven `:fetches` names in
+  the namespace docstring.  The record-store twin of `record-read`, and it
   exists because the two quantities move independently: `find-sentex-handle` narrowed
   from a wildcard `lookup` to the exact `leaf-at` moved **no** `:reads` figure and took
   a fetch per candidate handle off the dedup path (2,779 µs against 13 µs per call at

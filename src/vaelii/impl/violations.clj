@@ -32,6 +32,67 @@
   it so a pathological load cannot grow it unbounded — newest entries win."
   1000)
 
+(defn- newest
+  "The ledger `v` cut to its newest `max-violations` entries."
+  [v]
+  (let [n (count v)]
+    (if (<= n max-violations)
+      v
+      ;; `vec` *over* the `subvec`, not the subvec itself: a subvec holds a reference to
+      ;; the vector it was cut from, so returning one would pin every entry it just
+      ;; dropped — on a ledger that trims again on the next overflow, the cap would bound
+      ;; the count and nothing else.
+      (vec (subvec v (- n max-violations))))))
+
+(def ^:dynamic *batch-entries*
+  "The entries filed by a batch that can be rolled back, as an identity set, or nil outside
+  one.  `vaelii.core`'s `edit!`, `preview` and single `assert` bind it on the thread that
+  runs the batch (`batch-entries`), `report` and `report-unstamped` add each entry they
+  append, and the rollback removes exactly those (`restore!`).
+
+  Bound per thread, so an entry a reader thread appends while the batch runs is not the
+  batch's: the qualitative, metric and sign calculi file their inconsistencies from inside
+  a read, and a rollback on the writer's thread leaves what a concurrent `query` filed.
+  An identity set, because an entry a reader files can be equal to one the batch filed and
+  is still the reader's."
+  nil)
+
+(defn batch-entries
+  "An empty identity set for `*batch-entries*`, synchronized, since a batch that hands
+  work to a `bound-fn` files from that thread too."
+  ^java.util.Set []
+  (java.util.Collections/synchronizedSet
+   (java.util.Collections/newSetFromMap (java.util.IdentityHashMap.))))
+
+(defn- note-batch!
+  "Add `entries` to the batch's identity set when a batch is running on this thread."
+  [entries]
+  (when-let [^java.util.Set filed *batch-entries*]
+    (doseq [e entries] (.add filed e))))
+
+(defn restore!
+  "Put `kb`'s ledger back to `baseline`, the value it held when a batch began, and keep
+  every entry appended since that the batch did not file.  `filed` is the batch's
+  `*batch-entries*` set.
+
+  The entries the batch appended are removed and the entries it withdrew or cut off at
+  the cap come back, so the ledger holds what it held when the batch began plus what
+  other threads filed while it ran.  The restore is one `swap!`, so an entry a reader
+  appends during the restore is kept too.  A reader's entry the cap evicted while the batch ran does not come back."
+  [kb baseline ^java.util.Set filed]
+  (when-let [v (reasoning/violations kb)]
+    (let [ours (doto (java.util.Collections/newSetFromMap (java.util.IdentityHashMap.))
+                 (.addAll ^java.util.Collection baseline)
+                 (.addAll (or filed #{})))]
+      (swap! v (fn [cur] (newest (into baseline (remove #(.contains ours %)) cur))))))
+  nil)
+
+(defn filed-by-batch
+  "The entries of `kb`'s ledger that are in `filed`, the batch's `*batch-entries*` set, in
+  ledger order."
+  [kb ^java.util.Set filed]
+  (filterv #(.contains filed %) (some-> (reasoning/violations kb) deref)))
+
 (defn- dropping-rule
   "The rule an entry blames, as the sentence its author wrote — variable names restored,
   since a rule is stored canonically numbered.  Nil for an entry that names no rule and
@@ -42,21 +103,20 @@
   families name none: an aggregate's numeric refusal and the post-join literal declined
   for answering two ways, both of which are about a *literal* and not a firing; the five
   notices that a pass stopped short of what it might have said —
-  `:exposure-truncated`, `:arbitration-truncated`, `:arity-truncated` and
-  `:partner-sweep-truncated`, where a budget ran out before the work was done, and
+  `:arbitration-truncated`, `:arity-truncated`,
+  `:unarbitrable-reach-truncated` and `:partner-sweep-truncated`, where a budget ran out
+  before the work was done, and
   `:arity-report-truncated`, where the work *was* done and a cap on entries kept the rest
   of it unnamed — all of which are about a bound rather than about a firing; and what the
-  settle reports about content that was already stored, the cross-context `:disjoint`
-  clash and the `:arity` reach over facts a later arity binding convicts.  Those last kinds also arrive *with* a
+  settle reports about content that was already stored, the `:arity` reach over facts a later arity binding convicts, and the
+  `:irreflexive` / `:anti-symmetric` reach over facts a later mark convicts.  Those last kinds also arrive *with* a
   rule when the chainer drops a conclusion under one of them, so the discriminant is the
   key rather than the kind — which is why this reads `(:rule entry)` and not a roster."
   [kb entry]
   (when-let [h (:rule entry)]
     (let [rsx (p/get-sentex (:records kb) h)]
       {:rule h
-       :sentence (when rsx (if-let [vm (:varmap rsx)]
-                             (sx/originalize (sx/sentence-of rsx) vm)
-                             (sx/sentence-of rsx)))})))
+       :sentence (when rsx (sx/authored-sentence rsx))})))
 
 (defn report
   "Append dropped-conclusion entries to the accumulating ledger, stamped with the
@@ -79,17 +139,18 @@
         (trove/log! {:level :warn :id ::dropped-conclusion :data e})
         (when (:rule e)
           (trove/log! {:level :debug :id ::dropping-rule :data (dropping-rule kb e)})))
-      (swap! (reasoning/violations kb)
-             (fn [v]
-               (let [v' (into v stamped)
-                     n  (count v')]
-                 (if (<= n max-violations)
-                   v'
-                   ;; `vec` *over* the `subvec`, not the subvec itself: a subvec holds a
-                   ;; reference to the vector it was cut from, so returning one would pin
-                   ;; every entry it just dropped — on a ledger that trims again on the
-                   ;; next overflow, the cap would bound the count and nothing else.
-                   (vec (subvec v' (- n max-violations))))))))))
+      (note-batch! stamped)
+      (swap! (reasoning/violations kb) #(newest (into % stamped))))))
+
+(defn report-unstamped
+  "Append one entry to the ledger as it is, with no chaining-run stamp and no log line:
+  `report` for a reading no firing reaches, so there is no run to name.  The
+  qualitative, metric and sign calculi file their inconsistencies here and log them
+  themselves.  A KB with no ledger answers nil."
+  [kb entry]
+  (when-let [v (reasoning/violations kb)]
+    (note-batch! [entry])
+    (swap! v #(newest (conj % entry)))))
 
 (defn report-once
   "`report` one entry, unless an entry equal to it (`:run` aside) already stands in the

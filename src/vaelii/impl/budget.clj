@@ -12,9 +12,10 @@
   A **budget** is a map of optional bounds (any subset; nil / {} means unbounded):
 
     :max-ms       wall-clock milliseconds — a soft deadline, checked *between*
-                  yielded results (a single blocking pull is not interrupted, so
-                  the granularity is one solution — the honest limit, matching a
-                  closure that has no partial answer)
+                  yielded results (between DFS steps and node expansions in
+                  `prove-within`), and inside one only by a walk that reads
+                  `*deadline*` (the argument-preservation prover's claim walk);
+                  every other single pull or step runs to its end
     :max-results  stop after this many solutions
     :max-cost     a qualitative prover-cost ceiling — a tier keyword (see
                   `vaelii.impl.provers/cost-tiers`).  Honored by `ask-within`,
@@ -100,6 +101,35 @@
   (when-let [ms (:max-ms budget)]
     (+ (System/nanoTime) (long (* ms 1e6)))))
 
+(def ^:dynamic *deadline*
+  "The `System/nanoTime` instant a walk inside one step of a bounded read stops at: bound
+  by `collect` around its pulls when the caller hands it a `restart`, and by the two
+  backward chainers around a leaf (`interruptible`); nil otherwise.  A walk reads it
+  through `check-deadline!`."
+  nil)
+
+(defn check-deadline!
+  "Throw the signal `collect` catches when the instant `dl` has passed.  A nil `dl`
+  never throws."
+  [dl]
+  (when (and dl (>= (System/nanoTime) (long dl)))
+    (throw (ex-info "the deadline passed inside a pull" {::deadline dl}))))
+
+(defn interruptible
+  "`(f)` with `*deadline*` bound to `dl` (nil: no deadline, whatever an enclosing frame
+  bound), or `::interrupted` when a walk inside it threw `check-deadline!`'s signal.  `f`
+  must be eager: a lazy seq handed back realizes after the binding has popped, and outside
+  the catch."
+  [dl f]
+  (try (binding [*deadline* dl] (f))
+       (catch clojure.lang.ExceptionInfo e
+         (if (contains? (ex-data e) ::deadline) ::interrupted (throw e)))))
+
+(defn- pull
+  "`(seq xs)` under the `*deadline*` `collect` bound, or `::interrupted`."
+  [xs]
+  (interruptible *deadline* #(seq xs)))
+
 (defn prove-bounds
   "A budget as the DFS prover's `bounds` map (`res/prove-from`) — the deadline the
   wall-clock bound resolves to, plus the caps it reads under their own names.
@@ -107,8 +137,8 @@
   One translation, and it lives beside `budget-keys` on purpose: the roster and the
   map that honours it are two halves of one claim, and a bound rostered there but not
   built here is accepted and then ignored — precisely what `check-budget!` refuses a
-  misspelt key to prevent.  `:max-cost` is absent because it is an `ask` concept
-  (`prove` runs facts and rules, and no prover registry), and the node-engine arm of
+  misspelt key to prevent.  `:max-cost` is absent because it bounds `ask`'s prover tiers
+  rather than a search, and the node-engine arm of
   `prove-within` takes the budget itself rather than this map.
 
   A bound the caller did not name reads nil, which `prove-from` takes as unbounded —
@@ -138,6 +168,35 @@
    :elapsed-ms (ms-since start-nanos)
    :resume     (when (not= status :complete) resume-fn)})
 
+(defn- collect*
+  [xs budget restart delivered unbounded-first?]
+  (check-budget! budget)
+  (let [max-results (:max-results budget)
+        dl          (deadline budget)
+        start       (System/nanoTime)
+        stop        (fn [acc status next-step]
+                      (let [results (persistent! acc)]
+                        (from-batch results status start
+                                    (fn [b] (next-step b (cond-> delivered restart (into results)))))))]
+    (binding [*deadline* (when restart dl)]
+      (loop [xs xs, n 0, acc (transient []), unbounded? unbounded-first?]
+        (if (and max-results (>= n max-results))
+          (stop acc :capped (fn [b seen] (collect* xs b restart seen false)))
+          (let [s (cond (and dl (>= (System/nanoTime) dl)) ::passed
+                        unbounded? (binding [*deadline* nil] (seq xs))
+                        :else      (pull xs))]
+            (cond
+              (identical? ::passed s)
+              (stop acc :timeout (fn [b seen] (collect* xs b restart seen false)))
+
+              (identical? ::interrupted s)
+              (stop acc :timeout (fn [b seen]
+                                   (let [seen-set (set seen)]
+                                     (collect* (remove seen-set (restart)) b restart seen true))))
+
+              (nil? s) (from-batch (persistent! acc) :complete start nil)
+              :else    (recur (rest s) (inc n) (conj! acc (first s)) false))))))))
+
 (defn collect
   "Realize the lazy seq `xs` under `budget`, returning the partial-result contract.
 
@@ -145,6 +204,14 @@
   the source n times and a passed deadline stops without over-reading; the element
   under the cursor is never lost — it stays the head of the captured tail, so
   `resume` re-pulls it.  A `nil` / `{}` budget realizes the whole seq (`:complete`).
+
+  `restart`, a 0-arg fn building `xs` afresh, lets a walk inside one pull stop at the
+  deadline too: the pulls run with `*deadline*` bound, and a pull a walk interrupts
+  (`check-deadline!`) answers `:timeout`.  An interrupted lazy seq cannot be re-pulled (a
+  `LazySeq` whose nested realization threw reads as empty afterwards), so the
+  continuation rebuilds the stream with `restart`, drops the answers already returned,
+  and runs its first pull without the deadline.  Each resume therefore gets past the
+  interrupted walk, and a resume loop under a fixed budget terminates.
 
   `rest`, not `next`: `next` realizes one element *ahead* to decide whether a tail
   exists, so a cap of n would pull n+1 from the source.  `rest` defers that, and the
@@ -159,24 +226,8 @@
   chunk on the first pull whatever the cap says, and no cap check above it can prevent
   that.  So the promise a caller may rely on is the one about the source: n pulls, and
   the tail resumable from where they stopped."
-  [xs budget]
-  (check-budget! budget)
-  (let [max-results (:max-results budget)
-        dl          (deadline budget)
-        start       (System/nanoTime)]
-    (loop [xs xs, n 0, acc (transient [])]
-      (cond
-        (and max-results (>= n max-results))
-        (from-batch (persistent! acc) :capped start (fn [b] (collect xs b)))
-
-        (and dl (>= (System/nanoTime) dl))
-        (from-batch (persistent! acc) :timeout start (fn [b] (collect xs b)))
-
-        (empty? xs)
-        (from-batch (persistent! acc) :complete start nil)
-
-        :else
-        (recur (rest xs) (inc n) (conj! acc (first xs)))))))
+  ([xs budget] (collect* xs budget nil [] false))
+  ([xs budget restart] (collect* xs budget restart [] false)))
 
 (defn resume
   "Continue a `:timeout` / `:capped` partial result under a fresh `budget`.  A

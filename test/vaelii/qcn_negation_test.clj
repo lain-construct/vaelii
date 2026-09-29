@@ -18,6 +18,7 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.interval :as iv]
+            [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.space :as space]
             [vaelii.test-util :as tu]))
 
@@ -37,7 +38,7 @@
   (tu/with-terms [A B D]
     (v/assert kb (list 'nonTangentialProperPart A B) C)
     (v/assert kb (list 'nonTangentialProperPart B D) C)
-    (is (= #{:ntpp} (space/possible-relations kb C A D)))
+    (is (= #{:ntpp} (qkb/possible space/rcc8 kb C A D)))
     (testing "the composed pair is refuted for every predicate its possible set misses"
       (is (v/ask? kb (list 'not (list 'spatiallyDisconnected A D)) C))
       (is (v/ask? kb (list 'not (list 'regionDiscreteFrom A D)) C))
@@ -57,7 +58,7 @@
     ;; two components with no path between them, so no composition reaches across
     (v/assert kb (list 'nonTangentialProperPart A B) C)
     (v/assert kb (list 'nonTangentialProperPart D E) C)
-    (is (= space/all-relations (space/possible-relations kb C B E))
+    (is (= space/all-relations (qkb/possible space/rcc8 kb C B E))
         "B and E are unconstrained: nothing relates the two components")
     (testing "so neither polarity is answered about them"
       (is (not (v/ask? kb (list 'partOfRegion B E) C)))
@@ -115,9 +116,9 @@
   ;; DC alone — so a *negative* fact entails a *positive* goal nobody stated.
   (tu/with-terms [A B]
     (v/assert kb (list 'not (list 'regionConnectedTo A B)) C)
-    (is (= #{:dc} (space/possible-relations kb C A B))
+    (is (= #{:dc} (qkb/possible space/rcc8 kb C A B))
         "the complement of C's denotation is the singleton DC")
-    (is (= :dc (space/definite-relation kb C A B)))
+    (is (= :dc (qkb/definite space/rcc8 kb C A B)))
     (testing "and the positive goal it pins down is answered"
       (is (v/ask? kb (list 'spatiallyDisconnected A B) C))
       (is (v/ask? kb (list 'regionDiscreteFrom A B) C))
@@ -126,7 +127,7 @@
       (is (v/ask? kb (list 'spatiallyDisconnected B A) C)))
     (testing "and it follows belief: retract it and the pair is unknown again"
       (v/retract! kb (v/handle-of kb (list 'not (list 'regionConnectedTo A B)) C))
-      (is (= space/all-relations (space/possible-relations kb C A B)))
+      (is (= space/all-relations (qkb/possible space/rcc8 kb C A B)))
       (is (not (v/ask? kb (list 'spatiallyDisconnected A B) C))))))
 
 (tu/deftest-kb a-negative-fact-composes-with-a-positive-one
@@ -137,7 +138,7 @@
     (v/assert kb (list 'not (list 'regionConnectedTo B D)) C)   ; B is DC from D
     (testing "A is strictly inside B and B is disconnected from D, so A is disconnected
               from D — a composition with a negative fact for one of its inputs"
-      (is (= #{:dc} (space/possible-relations kb C A D)))
+      (is (= #{:dc} (qkb/possible space/rcc8 kb C A D)))
       (is (v/ask? kb (list 'spatiallyDisconnected A D) C))
       (is (v/ask? kb (list 'not (list 'partOfRegion A D)) C)))))
 
@@ -150,7 +151,7 @@
                  (list 'not (list 'hasRegionPart A B))]
           nets  (for [order [[0 1 2] [2 1 0] [1 0 2] [1 2 0]]]
                   (let [hs (mapv #(v/assert kb (nth facts %) C) order)
-                        net (space/region-network kb C)]
+                        net (qkb/network kb space/rcc8 C)]
                     (doseq [h hs] (v/retract! kb h))
                     net))]
       (is (= 1 (count (set nets))) "all four orders read one network")
@@ -164,9 +165,9 @@
     (v/assert kb (list 'genlCx CxSide C) 'CxUniverse)
     (v/assert kb (list 'not (list 'regionConnectedTo A B)) CxSide)
     (testing "invisible from the more general context"
-      (is (= space/all-relations (space/possible-relations kb C A B))))
+      (is (= space/all-relations (qkb/possible space/rcc8 kb C A B))))
     (testing "and in force in the context that states it"
-      (is (= #{:dc} (space/possible-relations kb CxSide A B))))))
+      (is (= #{:dc} (qkb/possible space/rcc8 kb CxSide A B))))))
 
 ;; ---- a negative fact that contradicts a positive one ---------------------
 
@@ -192,7 +193,7 @@
         (is (contains? (set (:pairs (:detail (first es)))) [A B]))))
     (testing "dropping either one restores a satisfiable network"
       (v/retract! kb (v/handle-of kb (list 'not (list 'partOfRegion A B)) C))
-      (is (= #{:ntpp} (space/possible-relations kb C A B)))
+      (is (= #{:ntpp} (qkb/possible space/rcc8 kb C A B)))
       (is (v/ask? kb (list 'partOfRegion A B) C)))))
 
 (tu/deftest-kb two-negatives-that-exhaust-the-universe-are-inconsistent

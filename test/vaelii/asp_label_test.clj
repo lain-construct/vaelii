@@ -233,7 +233,7 @@
 (deftest label-context-records-nothing-when-nothing-was-arbitrated
   ;; `label-context` materializes the labeling the engine *committed to*, read from the
   ;; recorded program's assumptions.  A dilemma produces no program and no commitment,
-  ;; so an empty record is the honest result.
+  ;; so an empty record is the result.
   ;;
   ;; The failure this guards against is specific and tempting: `label-context` could
   ;; read current belief instead of the recorded program, find both sides IN, and write

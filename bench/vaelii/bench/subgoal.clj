@@ -42,7 +42,12 @@
 
   Run: `lein bench-subgoal`            — the census and all three replay workloads
        `lein bench-subgoal census`     — the census alone
-       `lein bench-subgoal replay [n]` — the replay alone, `n` interleaved repetitions"
+       `lein bench-subgoal replay [n]` — the replay alone, `n` interleaved repetitions
+       `lein bench-subgoal replay 7 memory-columnar` — any mode on another store
+
+  The store is an argument rather than a second column: the census counts solves, which
+  no index changes, and the replay's reading is a ratio of two arms on one store.  The
+  default is `:memory`, the store a KB opens with."
   (:require [clojure.string :as str]
             [clojure.walk :as walk]
             [vaelii.core :as v]
@@ -139,12 +144,16 @@
 
 ;; ---- the KB --------------------------------------------------------------
 
+(def ^:private backend
+  "The store both KBs open, `:memory` unless the third argument names another."
+  (atom :memory))
+
 (defn- build-kb
   "The starter schema, the test-world (the cast and the four fables), and every worked
   example's premises written into one sandbox — the KB a reader of the browser has in
   front of them once they have clicked through the gallery."
   []
-  (let [kb  (v/open-kb {:backend :memory :space 42 :recover? false})
+  (let [kb  (v/open-kb {:backend @backend :space 42 :recover? false})
         _   (starter/load-into kb)
         _   (world/load-into kb)
         cx  (sandbox/context-for (sandbox/mint-token))]
@@ -371,7 +380,7 @@
   table meets each read empty however much the reads repeat.  The roommates' emergent
   argument from `koinii_roommates_test`, minus the wire."
   []
-  (let [kb       (doto (v/open-kb {:backend :memory :space 43 :recover? false})
+  (let [kb       (doto (v/open-kb {:backend @backend :space 43 :recover? false})
                    (core-context/load-into)
                    (sa/load-speech-acts))
         proposal (list 'shouldAdopt 'Apartment 'Dog)
@@ -494,8 +503,10 @@
 (defn -main [& args]
   (let [mode (or (first args) "all")
         reps (or (some-> (second args) Long/parseLong) 7)]
+    (some->> (nth args 2 nil) keyword (reset! backend))
     (install!)
-    (println "vaelii cross-query subgoal tabling — the starter ontology plus the test-world")
+    (println "vaelii cross-query subgoal tabling — the starter ontology plus the test-world"
+             (str "on " @backend))
     (println "ratios are readable within this harness only (see the namespace docstring)")
     (let [[kb cx] (build-kb)]
       (when (contains? #{"all" "census"} mode) (run-census! kb cx) (run-koinii!))

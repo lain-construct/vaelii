@@ -25,6 +25,11 @@
     taxonomy edge *outside* it are believed and true at every sample, never briefly
     false while a relabel or a closure recompute passes over something else.
 
+  **A settle is published once.**  A settle lifts every standing defeat before it
+  re-decides any, so the tests at the foot of this file seed a standing contradiction and
+  read its loser beside a settle: the reader reads the belief the settle began from, and
+  the writer decides on its own network and on no cache entry the reader filled.
+
   Both representations run, in one test, with the same assertions either way — the
   reference (persistent maps, consistent by construction) is the control, and the dense
   network (bitmaps mutated in place under a `StampedLock`) is the claim the default
@@ -32,6 +37,12 @@
   here: each arm names its representation."
   (:require [clojure.test :refer [deftest is]]
             [vaelii.core :as v]
+            [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.literal-cache :as literal-cache]
+            [vaelii.impl.observe :as observe]
+            [vaelii.impl.resolution :as res]
+            [vaelii.impl.settle :as settle]
+            [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
 (def ^:private pool
@@ -139,3 +150,205 @@
   ;; over the two KBs here.
   (doseq [tms [:dense :reference]]
     (check! (name tms) (stress tms))))
+
+(deftest a-withdrawal-computed-before-a-settle-is-not-installed-after-it
+  ;; A reader thread computes what `CxSubA` reads as withdrawn while a second support of
+  ;; `(drvp Anne)` stands, and is held there while the writer retracts that support and
+  ;; settles.  Installed afterwards, its answer would tell the writer's own next read that
+  ;; the conclusion is still believed from `CxSubA`, where its one remaining support is
+  ;; hidden by an `except`.
+  (doseq [tms [:dense :reference]]
+    (let [kb      (v/open-kb {:backend :memory :space [::withdrawn-stamp tms]
+                              :tms tms :recover? false})
+          _       (tu/clear-kb! kb)
+          _       (v/assert kb '(genlCx CxSubA CxUniverse) 'CxUniverse)
+          _       (v/assert kb '(set/forwardRule (implies (srcp ?x) (drvp ?x))) 'CxUniverse
+                            {:strength :monotonic})
+          _       (v/assert kb '(set/forwardRule (implies (altp ?x) (drvp ?x))) 'CxUniverse
+                            {:strength :monotonic})
+          src     (v/assert kb '(srcp Anne) 'CxUniverse {:strength :monotonic})
+          _       (v/assert kb (list 'except (list 'sentexHandle src)) 'CxSubA
+                            {:strength :monotonic})
+          alt     (v/assert kb '(altp Anne) 'CxUniverse {:strength :monotonic})
+          drv     (v/handle-of kb '(drvp Anne) 'CxUniverse)
+          reader  (promise)
+          parked  (promise)
+          release (promise)
+          compute @#'res/withdrawal*]
+      (with-redefs [res/withdrawal* (fn [& args]
+                                      (let [w (apply compute args)]
+                                        (when (identical? (Thread/currentThread) @reader)
+                                          (deliver parked true)
+                                          @release)
+                                        w))]
+        (let [f (future (deliver reader (Thread/currentThread))
+                        (v/believed? kb drv 'CxSubA))]
+          (is (true? (deref parked 10000 false)) (str (name tms) ": the reader never computed"))
+          (v/retract! kb alt)
+          (deliver release true)
+          (is (true? (deref f 10000 ::timeout))
+              (str (name tms) ": the reader answers for the state it read"))
+          (is (false? (v/believed? kb drv 'CxSubA))
+              (str (name tms) ": the writer read the reader's answer about the state before"
+                   " its retraction"))))
+      (tu/clear-kb! kb))))
+
+(deftest a-match-computed-across-a-tms-call-is-not-served-after-it
+  ;; A TMS call moves the change clock and then the network.  The writer's call is parked
+  ;; between the two, and a reader on this thread computes `(perch ?x)` there: it reads the
+  ;; moved clock and the network before the call, and installs its answer in the literal
+  ;; cache under that clock.  Once the call has taken `(perch Robin)` out of force, a read
+  ;; at the clock the call leaves behind must not be served the reader's answer.
+  (doseq [tms [:dense :reference]]
+    (let [kb      (v/open-kb {:backend :memory :space [::clock-order tms]
+                              :tms tms :recover? false})
+          _       (tu/clear-kb! kb)
+          h       (v/assert kb '(perch Robin) 'CxUniverse)
+          writer  (promise)
+          armed   (atom true)
+          parked  (promise)
+          release (promise)
+          bump    @#'observe/note-change
+          answer  #(set (map '?x (v/query kb '(perch ?x) 'CxUniverse)))]
+      (with-redefs [observe/note-change
+                    (fn []
+                      (let [c (bump)]
+                        (when (and (realized? writer)
+                                   (identical? (Thread/currentThread) @writer)
+                                   (compare-and-set! armed true false))
+                          (deliver parked true)
+                          @release)
+                        c))]
+        (let [w (future (deliver writer (Thread/currentThread))
+                        (jtms/suspend-premise (reasoning/tms kb) h)
+                        (answer))]
+          (is (true? (deref parked 10000 false)) (str (name tms) ": the writer never parked"))
+          (is (= '#{Robin} (answer))
+              (str (name tms) ": the reader reads the network before the call"))
+          (deliver release true)
+          (is (= #{} (deref w 10000 ::timeout))
+              (str (name tms) ": the writer read the reader's answer about the network"
+                   " before its own call"))
+          (is (false? (v/believed? kb h 'CxUniverse)))
+          (is (= #{} (answer))
+              (str (name tms) ": a read after the call read the answer computed across it"))))
+      (tu/clear-kb! kb))))
+
+;; ---- a settle publishes once ------------------------------------------------------
+;;
+;; A settle lifts every standing defeat and empties both scoped rosters before it
+;; re-decides any of them, so the network it is deciding holds the loser of every standing
+;; contradiction believed, rounds at a time.  A reader beside it reads the belief the
+;; settle began from, and then the belief it reached; never one in between.
+
+(defn- standing-contradiction!
+  "A KB on `tms` holding a standing contradiction whose `:default` member loses: globally
+  when `scoped?` is false, and at the vantage `CxLow` below the loser's own context `CxTop`
+  when it is true.  Answers `[kb loser vantage home]`, the context the loser is withdrawn
+  from and the one it is stored in."
+  [tms scoped?]
+  (let [kb (v/open-kb {:backend :memory :space [::standing tms scoped?] :tms tms :recover? false})]
+    (tu/clear-kb! kb)
+    (let [[home vantage] (if scoped? '[CxTop CxLow] '[CxUniverse CxUniverse])]
+      (when scoped?
+        (v/assert kb '(genlCx CxTop CxUniverse) 'CxUniverse)
+        (v/assert kb '(genlCx CxLow CxTop) 'CxUniverse))
+      (v/assert kb '(flies Tweety) home)
+      (v/assert kb '(not (flies Tweety)) vantage {:strength :monotonic})
+      [kb (v/handle-of kb '(flies Tweety) home) vantage home])))
+
+(defn- loser-reading
+  "What a reader reads about `loser`: the network's label, its belief at the vantage and
+  at its own context, and whether a match at the vantage returns it."
+  [kb loser vantage home]
+  {:in?          (v/in? kb loser)
+   :at-vantage   (v/believed? kb loser vantage)
+   :at-home      (v/believed? kb loser home)
+   :matched      (boolean (some #(= loser (:id %))
+                                (v/sentexes-matching kb '(flies Tweety) vantage)))})
+
+(deftest a-reader-beside-a-settle-reads-the-belief-the-settle-began-from
+  ;; The writer asserts an unrelated fact, and its settle is parked at one of two points
+  ;; after it has lifted the standing defeat: before the discovery pass re-reads the
+  ;; contradiction, and before the resolution re-decides it.  A reader on this thread reads
+  ;; the loser there, and must read what it read before the settle.  Parked before the
+  ;; discovery, the reader's reads come first, and the loser still defeated afterwards
+  ;; says the writer decided on its own network rather than on what the reader read.
+  (doseq [tms   [:dense :reference]
+          scoped? [false true]
+          park  [#'settle/constraint-nogoods #'settle/resolve-contradictions]]
+    (let [[kb loser vantage home] (standing-contradiction! tms scoped?)
+          label   (str (name tms) (if scoped? " scoped" " global") " at " (:name (meta park)))
+          before  (loser-reading kb loser vantage home)
+          armed   (atom true)
+          parked  (promise)
+          release (promise)
+          orig    @park]
+      (is (false? (:at-vantage before)) (str label ": the seed does not defeat the loser"))
+      (let [during (with-redefs-fn {park (fn [& args]
+                                           (when (compare-and-set! armed true false)
+                                             (deliver parked true)
+                                             @release)
+                                           (apply orig args))}
+                     (fn []
+                       (let [w (future (v/assert kb '(noise Kay) 'CxUniverse))]
+                         (try
+                           (when (deref parked 10000 false)
+                             (loser-reading kb loser vantage home))
+                           (finally (deliver release true) (deref w 10000 nil))))))]
+        (is (= before during)
+            (str label ": a reader beside the settle read the loser as the settle held it"))
+        (is (= before (loser-reading kb loser vantage home))
+            (str label ": the settle reached the belief it began from")))
+      (tu/clear-kb! kb))))
+
+(deftest a-held-reader-and-the-writer-share-no-cache-entry
+  ;; While a settle holds belief, a reader derives what it reads from the belief the
+  ;; settle began from, and the writer from the network it is deciding.  The change clock
+  ;; each stamps a cache entry with keeps the two apart, in both directions.
+  (let [cache  (atom {})
+        opened (promise)
+        done   (promise)
+        writer (future
+                 (let [h (observe/new-hold)]
+                   (observe/open-hold! h)
+                   (try
+                     (deliver opened (observe/change-clock))
+                     @done
+                     (literal-cache/lookup cache ::k (constantly [:writer]))
+                     (finally (observe/close-hold! h)))))
+        wclock (deref opened 10000 nil)]
+    (is (and wclock (not (neg? (long wclock)))) "the writer reads the clock itself")
+    (is (neg? (observe/change-clock)) "a reader beside the hold reads a clock no writer stamps")
+    (is (= [:reader] (vec (literal-cache/lookup cache ::k (constantly [:reader])))))
+    (deliver done true)
+    (is (= [:writer] (vec @writer)) "the writer computes past the reader's entry")
+    (is (not (neg? (observe/change-clock))) "a closed hold leaves the reader on the clock")
+    (is (not= [:reader] (vec (literal-cache/lookup cache ::k (constantly [:after]))))
+        "nor does a reader after the hold read the entry a held reader stored")))
+
+(deftest ^:slow a-standing-loser-never-reads-believed-beside-a-writer
+  ;; The probe behind the settle's hold: every settle lifts the standing defeat, including
+  ;; one for an unrelated fact, so a reader looping on the loser while the writer asserts
+  ;; unrelated facts reads it believed on a share of its reads unless the settle holds.
+  (doseq [tms [:dense :reference]]
+    (let [[kb loser vantage home] (standing-contradiction! tms false)
+          stop   (atom false)
+          reads  (atom 0)
+          hits   (atom 0)
+          errs   (atom [])
+          reader (future
+                   (while (not @stop)
+                     (try
+                       (swap! reads inc)
+                       (let [r (loser-reading kb loser vantage home)]
+                         (when (or (:in? r) (:at-vantage r) (:matched r)) (swap! hits inc)))
+                       (catch Throwable t (swap! errs conj t)))))]
+      (try
+        (dotimes [i 400] (v/assert kb (list 'noise (symbol (str "Kay" i))) 'CxUniverse))
+        (finally (reset! stop true) @reader))
+      (is (empty? @errs) (str (name tms) ": a reader threw beside the writer"))
+      (is (pos? @reads) (str (name tms) ": the reader never ran"))
+      (is (zero? @hits)
+          (str (name tms) ": " @hits " of " @reads " reads beside the writer read the loser"))
+      (tu/clear-kb! kb))))

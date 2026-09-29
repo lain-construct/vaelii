@@ -1,14 +1,9 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.bench.aggchain
-  "What a forward rule over an **aggregate** antecedent costs at load time.
-
-  The cost is structural and worth naming rather than discovering: a count is
-  recomputed, never cached, so a rule that joins on one has to be re-joined whenever a
-  counted fact arrives.  Not merely re-checked — **re-joined**, over the whole extent,
-  because an aggregate binds a *value* and a moved count is a different conclusion
-  rather than the same one relabelled (docs/aggregate.md, \"Maintenance\").  So loading
-  *n* facts on a counted predicate pays *n* joins of *n* groupings each.
+  "What a forward rule over an **aggregate** antecedent costs at load time: loading *n*
+  facts on a counted predicate re-joins the rule *n* times over *n* groupings
+  (docs/aggregate.md, \"What it costs\").
 
     no rule             the floor: the same facts with nothing counting them
     rule first          the real cost — the rule is standing as the facts arrive

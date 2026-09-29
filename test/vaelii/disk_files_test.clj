@@ -119,7 +119,7 @@
   (testing "the rank rides bits 2..3 without disturbing what the premise bit says"
     (doseq [rank [0 1 2]]
       (is (= true (f/slot-premise (f/premise-flags true rank)))
-          "a premise carrying any rank still is indistinguishable from a premise")
+          "a premise carrying any rank still decodes as a premise")
       (is (= rank (f/slot-strength (f/premise-flags true rank)))
           "and the rank reads back exactly"))
     (is (= 0 (f/slot-strength (f/premise-flags false 2)))
@@ -314,8 +314,75 @@
         (let [full (f/log-length log)]
           (is (= full (f/log-tail-offset log))
               "the walk truncated a log whose frames are merely undecodable")
-          (is (not= full (f/scan-log log (fn [_ _] nil)))
-              "and scan-log would have — which is the behaviour being retired"))
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (f/scan-log log path (fn [_ _] nil))))]
+            (is (= {:type :damaged-frame :path path :offset 0 :frame 0}
+                   (select-keys (ex-data e) [:type :path :offset :frame]))
+                "and the decoding scan refuses at the first frame rather than reading the log as empty")))
+        (f/close! log)))))
+
+;; ---- a frame that does not thaw ------------------------------------------
+;; The decoding scan stops where the length chain stops.  A frame inside the chain that
+;; does not thaw is damage when frames follow it and a torn tail when none do: stopping
+;; at a damaged frame as though the log ended there drops every frame after it, and a
+;; caller rebuilding state from the log (the token dictionary) loses all of them.
+
+(defn- zero-payload!
+  "Zero the first two payload bytes of the frame whose prefix is at `offset`, leaving its
+  length prefix intact."
+  [^java.io.RandomAccessFile log ^long offset]
+  (.seek log (+ offset 4))
+  (.write log (byte-array 2)))
+
+(deftest a-frame-that-does-not-thaw-mid-log-is-refused-by-name
+  (with-tmp
+    (fn [dir]
+      (let [path (str dir "/t.log")
+            log  (f/open-log path)
+            offs (mapv #(f/append-record! log {:v %}) (range 10))
+            seen (atom [])]
+        (zero-payload! log (offs 7))
+        (let [len (f/log-length log)
+              e   (is (thrown? clojure.lang.ExceptionInfo
+                               (f/scan-log log path (fn [_ v] (swap! seen conj v)))))]
+          (is (= {:type :damaged-frame :path path :offset (offs 7) :frame 7}
+                 (select-keys (ex-data e) [:type :path :offset :frame]))
+              "the refusal names the file, the byte offset and the frame")
+          (is (some? (ex-cause e)) "and carries the thaw's own exception")
+          (is (= len (f/log-length log)) "the scan leaves the file as it found it"))
+        (is (= (mapv (fn [i] {:v i}) (range 7)) @seen) "the frames before it were read")
+        (f/close! log)))))
+
+(deftest a-last-frame-that-does-not-thaw-is-a-torn-tail
+  (with-tmp
+    (fn [dir]
+      (let [path (str dir "/t.log")
+            log  (f/open-log path)
+            offs (mapv #(f/append-record! log {:v %}) (range 4))]
+        (zero-payload! log (offs 3))
+        (is (= (offs 3) (f/scan-log log path (fn [_ _] nil)))
+            "the scan stops at the last frame's offset, the point a caller truncates to")
+        (testing "a zero-filled region after it ends the chain there too"
+          (.seek log (f/log-length log))
+          (.write log (byte-array 64))
+          (is (= (offs 3) (f/scan-log log path (fn [_ _] nil)))))
+        (f/close! log)))))
+
+(deftest an-error-thrown-inside-a-thaw-is-not-a-verdict-on-the-frame
+  ;; An `OutOfMemoryError` inside one thaw said nothing about the frame; read as a torn
+  ;; tail, it cut the token dictionary short and the open tombstoned every record citing
+  ;; a later token.
+  (with-tmp
+    (fn [dir]
+      (let [log  (f/open-log (str dir "/t.log"))
+            _    (dotimes [i 10] (f/append-record! log {:v i}))
+            thaw @#'f/thaw-bytes
+            n    (atom 0)]
+        (with-redefs [f/thaw-bytes (fn [bs] (if (= 5 (swap! n inc))
+                                              (throw (OutOfMemoryError. "witness"))
+                                              (thaw bs)))]
+          (is (thrown? OutOfMemoryError (f/scan-log log (fn [_ _] nil)))))
+        (is (= (f/log-length log) (f/scan-log log (fn [_ _] nil)))
+            "and the log reads whole once the thaw can finish")
         (f/close! log)))))
 
 ;; ---- the clean-shutdown marker ------------------------------------------

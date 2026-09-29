@@ -11,15 +11,15 @@
   second query was fast\" is a demo; \"the second query was fast because it was served
   from a cache, and here is the rate\" is a measurement.
 
-  **A register rather than a dozen accessors.**  This namespace requires only `config`, a
-  leaf that holds no cache, so the reader still has no require edge down to a namespace
-  holding one: every such namespace requires *this* one and declares itself at load, and
+  **A register rather than a dozen accessors.**  This namespace requires only `config` and
+  the logger, neither of which holds a cache, so the reader still has no require edge down
+  to a namespace holding one: every such namespace requires *this* one and declares itself at load, and
   there is no list here that a new cache has to be added to twice.  The `config` edge reads
   one switch, `VAELII_CACHE_SCALE`, and `limit-of` applies it to every count-bounded
   cache's limit.  A cache in a namespace this
   process never loaded — a qualitative calculus nobody registered, the metric-time
-  reasoner — is absent from the read because it is absent from the process, which is the
-  honest answer rather than a row of zeroes.
+  reasoner — is absent from the read because it is absent from the process, rather than
+  present as a row of zeroes.
 
   **Two scopes, and never one wearing the other's clothes.**  `:scope` says what a row's
   `:entries` counts: `:kb` for a cache hanging off a KB record, `:process` for a static
@@ -44,7 +44,8 @@
   carrying `:error` rather than allowed to take the answer down with it.  A diagnostic
   is worth most while something is already wrong, which is exactly when it must not be
   the next thing to break."
-  (:require [vaelii.impl.config :as config])
+  (:require [taoensso.trove :as trove]
+            [vaelii.impl.config :as config])
   (:import [com.sun.management GarbageCollectionNotificationInfo]
            [java.lang.management ManagementFactory GarbageCollectorMXBean MemoryUsage]
            [javax.management NotificationEmitter NotificationListener Notification]
@@ -141,7 +142,9 @@
   "`#(limit-of id default)`, for a descriptor's `:limit`, so its `rows` entry reports the
   effective bound rather than the shipped default.  See `register-cache`."
   [id default]
-  (fn [] (limit-of id default)))
+  ;; the metadata is what `pin-problem` reads: a descriptor whose bound comes through here
+  ;; is one a pin moves, and no other is
+  (with-meta (fn [] (limit-of id default)) {::profile-id id}))
 
 (defn set-scale
   "Multiply every count-bounded cache's shipped limit by `x`, and return the profile.
@@ -227,6 +230,24 @@
   reject the very configuration a bulk load sets up before touching the calculus."
   [id]
   (contains? @registry id))
+
+(defn pin-problem
+  "Why a pin cannot move registered cache `id`'s bound, as a phrase, or nil when it can.
+
+  A pin moves a bound exactly when the descriptor's `:limit` is the `limit-thunk` for `id`,
+  the one bound `limit-of` reads the overrides into.  Two kinds of registered cache fail
+  that: a nil-bound cache, bounded by something other than a count the profile holds
+  (hot records by its own knob, `vaelii.disk.cache`), and a bound standing outside the
+  profile — the symbol pool's and the scoped-closure budget's dynamic vars
+  (docs/caches.md).  `set-cache-limit` refuses a pin on either rather than recording one
+  nothing enforces.  Nil for an id nothing has registered, which `registered?` answers."
+  [id]
+  (when-let [d (get @registry id)]
+    (let [limit (:limit d)]
+      (cond
+        (nil? limit)                            "not a count the cache profile holds"
+        (= id (::profile-id (meta limit)))      nil
+        :else                                   "a dynamic var outside the cache profile"))))
 
 (defn- hit-rate
   "Hits over lookups, or nil when nothing has been counted.  Nil rather than zero for an
@@ -354,6 +375,81 @@
       (swap! a (fn [m] (if (> (count m) target) (into {} (take target) m) m))))
     (max 0 (- before (count @a)))))
 
+;; ---- the weighted LRU: a bound on what is held, evicting the coldest ----
+;;
+;; `assoc-bounded` counts entries and clears wholesale, which is right for a cache whose
+;; entries cost about the same and whose queries move on.  A cache whose entries differ in
+;; size by orders of magnitude — a supertype closure of one type against one of a
+;; thousand — needs its bound on the **sum** of what it holds, and one whose hot entries
+;; recur (the upper types every closure walk passes) needs to keep them when it evicts.
+;; So: an access-ordered map, a running weight, and eviction from the cold end until the
+;; weight is back under the bound.
+
+(defn weighted-lru
+  "An empty weighted LRU.  `limit` is a thunk answering the most weight it holds — a
+  `limit-thunk`, so the profile's scale and the memory guard's pressure move it — and
+  `weigh` answers an entry's weight from its value.  Read and written through `lru-get`
+  and `lru-put!`; an access-ordered map reorders on a read, so every operation holds its
+  monitor, uncontended on a single writer."
+  [limit weigh]
+  {:map (java.util.LinkedHashMap. 16 0.75 true) :weight (long-array 1)
+   :limit limit :weigh weigh})
+
+(defn- evict-to!
+  "Drop entries from the cold end of `lru` until its weight is at most `target`, and answer
+  how many went.  Called under the map's monitor."
+  [{:keys [^java.util.LinkedHashMap map ^longs weight weigh]} ^long target]
+  (let [it (.iterator (.entrySet map))]
+    (loop [n 0]
+      (if (and (> (aget weight 0) target) (.hasNext it))
+        (let [^java.util.Map$Entry e (.next it)]
+          (aset weight 0 (- (aget weight 0) (long (weigh (.getValue e)))))
+          (.remove it)
+          (recur (inc n)))
+        n))))
+
+(defn lru-get
+  "The value `lru` holds at `k`, or nil, marking it the most recently used."
+  [{:keys [^java.util.LinkedHashMap map]} k]
+  (locking map (.get map k)))
+
+(defn lru-put!
+  "Hold `v` at `k` in `lru`, evicting the least recently used entries until the weight is
+  back under the bound, and answer `v`.  A value heavier than the whole bound is evicted
+  by its own insertion: answered, and not held."
+  [{:keys [^java.util.LinkedHashMap map ^longs weight weigh limit] :as lru} k v]
+  (locking map
+    (when-some [old (.put map k v)]
+      (aset weight 0 (- (aget weight 0) (long (weigh old)))))
+    (aset weight 0 (+ (aget weight 0) (long (weigh v))))
+    (evict-to! lru (long (limit))))
+  v)
+
+(defn lru-trim!
+  "Evict from the cold end of `lru` until it weighs at most `target`; answer how many
+  entries went.  The weighted cache's `:trim`: the recent half survives a trim."
+  [{:keys [map] :as lru} target]
+  (locking map (evict-to! lru (long target))))
+
+(defn lru-clear!
+  "Empty `lru`, and answer how many entries went."
+  [{:keys [^java.util.LinkedHashMap map ^longs weight]}]
+  (locking map
+    (let [n (.size map)]
+      (.clear map)
+      (aset weight 0 0)
+      n)))
+
+(defn lru-weight
+  "What `lru` holds, in its weight's unit."
+  ^long [{:keys [map ^longs weight]}]
+  (locking map (aget weight 0)))
+
+(defn lru-size
+  "How many entries `lru` holds."
+  ^long [{:keys [^java.util.LinkedHashMap map]}]
+  (locking map (.size map)))
+
 ;; ---- the memory-pressure guard ------------------------------------------
 ;;
 ;; A post-collection listener reads how full the old generation is after each garbage
@@ -405,6 +501,11 @@
   ;; strand a listener still attached to the JVM's collectors.
   (atom {:installed? false :emitters nil :listener nil :kbs (constantly nil)}))
 
+(defonce ^:private guard-lifecycle
+  ;; The monitor `install-memory-guard!` and `uninstall-memory-guard!` run under, so two
+  ;; host starts at once cannot both find the guard uninstalled and arm two listeners.
+  (Object.))
+
 (defn- set-pressure!
   "Set the guard's pressure multiplier, clamped to [pressure-min 1.0], and answer it."
   [^double p]
@@ -415,12 +516,20 @@
 (defn- trim-to-bounds!
   "Trim every cache that offers a `:trim` down to its current effective limit — a process
   cache once, a KB-scoped one for each live KB in `kbs` — and answer how many entries went.
-  A trim that throws costs its own cache and no other, the way a read or a clear does."
+  A trim that throws costs its own cache and no other, the way a read or a clear does, and
+  is logged at `:warn`."
   [kbs]
   (reduce
-   (fn [total {:keys [scope trim] :as d}]
+   (fn [total {:keys [cache scope trim] :as d}]
      (let [target (long (or (bound (:limit d)) 0))
-           one    (fn [kb] (long (or (try (trim kb target) (catch Throwable _ 0)) 0)))]
+           one    (fn [kb]
+                    (long (or (try (trim kb target)
+                                   (catch Throwable t
+                                     (trove/log! {:level :warn :id ::trim-failed :error t
+                                                  :msg (str "trimming cache " cache " to "
+                                                            target " failed: " (ex-message t))})
+                                     0))
+                              0)))]
        (+ total (if (= :process scope) (one nil) (reduce + 0 (map one (seq kbs)))))))
    0
    (filter :trim (vals @registry))))
@@ -482,35 +591,38 @@
 
   Attached by the servers and by nothing at engine load, so a library embedding pays for no
   listener it did not ask for.  Idempotent: a second call replaces the `:kbs` thunk and arms
-  no second listener.  A JVM whose collectors emit no such notification keeps pressure at 1.0
-  — the guard is a best-effort relief, not a guarantee.  `!` because it attaches to the
-  process's collectors; `uninstall-memory-guard!` detaches."
+  no second listener, and two concurrent calls arm one between them (`guard-lifecycle`).  A
+  JVM whose collectors emit no such notification keeps pressure at 1.0 — the guard is a
+  best-effort relief, not a guarantee.  `!` because it attaches to the process's collectors;
+  `uninstall-memory-guard!` detaches."
   [{:keys [kbs]}]
-  (swap! guard assoc :kbs (or kbs (constantly nil)))
-  (when-not (:installed? @guard)
-    (try
-      (let [listener (reify NotificationListener
-                       (handleNotification [_ notif _]
-                         (when (= GarbageCollectionNotificationInfo/GARBAGE_COLLECTION_NOTIFICATION
-                                  (.getType ^Notification notif))
-                           (let [info  (GarbageCollectionNotificationInfo/from
-                                        ^CompositeData (.getUserData ^Notification notif))
-                                 after (.getMemoryUsageAfterGc (.getGcInfo info))]
-                             (on-collection after)))))
-            emitters (for [^GarbageCollectorMXBean b (ManagementFactory/getGarbageCollectorMXBeans)
-                           :when (instance? NotificationEmitter b)]
-                       (doto ^NotificationEmitter b (.addNotificationListener listener nil nil)))]
-        (swap! guard assoc :installed? true :listener listener :emitters (vec emitters)))
-      (catch Throwable _ (swap! guard assoc :installed? false))))
+  (locking guard-lifecycle
+    (swap! guard assoc :kbs (or kbs (constantly nil)))
+    (when-not (:installed? @guard)
+      (try
+        (let [listener (reify NotificationListener
+                         (handleNotification [_ notif _]
+                           (when (= GarbageCollectionNotificationInfo/GARBAGE_COLLECTION_NOTIFICATION
+                                    (.getType ^Notification notif))
+                             (let [info  (GarbageCollectionNotificationInfo/from
+                                          ^CompositeData (.getUserData ^Notification notif))
+                                   after (.getMemoryUsageAfterGc (.getGcInfo info))]
+                               (on-collection after)))))
+              emitters (for [^GarbageCollectorMXBean b (ManagementFactory/getGarbageCollectorMXBeans)
+                             :when (instance? NotificationEmitter b)]
+                         (doto ^NotificationEmitter b (.addNotificationListener listener nil nil)))]
+          (swap! guard assoc :installed? true :listener listener :emitters (vec emitters)))
+        (catch Throwable _ (swap! guard assoc :installed? false)))))
   (memory-guard))
 
 (defn uninstall-memory-guard!
   "Detach the guard's listener from every collector it armed and restore pressure to 1.0;
   answer the guard state.  Safe when nothing is installed."
   []
-  (let [{:keys [emitters listener]} @guard]
-    (doseq [^NotificationEmitter e emitters]
-      (try (.removeNotificationListener e ^NotificationListener listener) (catch Throwable _ nil))))
-  (set-pressure! 1.0)
-  (swap! guard assoc :installed? false :emitters nil :listener nil)
+  (locking guard-lifecycle
+    (let [{:keys [emitters listener]} @guard]
+      (doseq [^NotificationEmitter e emitters]
+        (try (.removeNotificationListener e ^NotificationListener listener) (catch Throwable _ nil))))
+    (set-pressure! 1.0)
+    (swap! guard assoc :installed? false :emitters nil :listener nil))
   (memory-guard))

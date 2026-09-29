@@ -11,6 +11,7 @@
             [vaelii.browser.catalog :as cat]
             [vaelii.browser.jobs :as jobs]
             [vaelii.core :as v]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.io.import :as import]
             [vaelii.impl.jtms :as jtms]
@@ -119,7 +120,7 @@
   ;; A blank value is *unset* everywhere else this build reads a switch
   ;; (`vaelii.impl.config`, `guard/api-token`).  Read as a value here it splits to
   ;; nothing and discovery walks **no** directory at all, so `/kbs` offers the built-ins
-  ;; and reports nothing found — which is indistinguishable from a machine holding no KBs rather than as
+  ;; and reports nothing found — which a reader takes for a machine holding no KBs rather than for
   ;; a variable somebody exported empty.  The catalog file's name is the same shape: a
   ;; blank one named the empty path, which is no file, so every entry in it went missing.
   (let [path (System/getProperty "vaelii.kb.path")
@@ -127,8 +128,13 @@
     (try
       (System/setProperty "vaelii.kb.path" "  ")
       (System/setProperty "vaelii.kb.catalog" "")
-      (is (seq (cat/search-path))
-          "a blank value falls through, so discovery still has somewhere to walk")
+      (let [env (System/getenv "VAELII_KB_PATH")]
+        (is (= (if (str/blank? env)
+                 [(str (System/getProperty "user.dir") "/kbs")
+                  (str (System/getProperty "user.home") "/.vaelii/kbs")]
+                 (remove str/blank? (str/split env #":")))
+               (cat/search-path))
+            "a blank value falls through, so discovery still has somewhere to walk"))
       (is (not-any? str/blank? (cat/search-path))
           "and no entry of what it walks is the empty path")
       (is (not (str/blank? (str (#'cat/catalog-file))))
@@ -145,7 +151,7 @@
   ;; The form speaks in verbs and `import-dump` speaks in `true` / `:stored` / `false`,
   ;; so the catalog widens one into the other.  What it must not do is *swallow* the
   ;; importer's own refusal: defaulted here, `{:belief? :store}` — one letter off
-  ;; `:stored` — is indistinguishable from the records-only load, which never opens the justification
+  ;; `:stored` — is treated as the records-only load, which never opens the justification
   ;; stream, so what the typo dropped is dropped for good and nothing says so.
   (let [mode #'cat/belief-mode]
     (testing "the three verbs, and the importer's own vocabulary, translate"
@@ -161,6 +167,22 @@
       (is (= :store (mode :store)))
       (is (not (contains? import/belief-modes (mode :store)))))))
 
+(deftest a-corpus-loaded-with-no-profile-takes-the-profile-the-card-offers
+  ;; `load-dir`'s params are the kind's options, and the corpus kind declares
+  ;; `:default "ontology"` for `:profile`, which the card's form fills in.  A caller that
+  ;; names no profile — `load-dir` or `load-source` with `{}` — gets the card's load.
+  (let [asked   (atom [])
+        offered (:default (first (filter #(= :profile (:key %)) @#'cat/corpus-options)))]
+    (with-redefs-fn {#'cat/open-kb-for       (fn [_] [::kb {:backend :memory}])
+                     #'core-context/load-into (fn [_] nil)
+                     #'v/load-foreign!        (fn [_ _ _ opts] (swap! asked conj (:profile opts)) {})}
+      (fn []
+        (doseq [params [{} {:profile "full"}]]
+          (#'cat/run-load {:kind :corpus :path "/nowhere"} params (fn [_] nil) (fn [_ _] nil)))))
+    (is (= "ontology" offered) "the card offers the ontology profile first")
+    (is (= [:ontology :full] @asked)
+        "an absent profile loads the one the card offers, and a named one is kept")))
+
 ;; ---- the lifecycle -------------------------------------------------------
 
 (deftest loading-registers-an-entry-and-activates-the-first-one
@@ -171,8 +193,8 @@
       (is (= :done (:status e)))
       (is (= :done (get-in e [:progress :phase])))
       (testing "the entry carries the counts the page shows"
-        (is (pos? (:sentexes (:stats e))))
-        (is (pos? (:terms (:stats e)))))
+        (is (= (v/sentex-count (cat/active-kb)) (:sentexes (:stats e))))
+        (is (= (v/term-count (cat/active-kb)) (:terms (:stats e)))))
       (testing "the first KB loaded becomes the one the browser reads"
         (is (= key (cat/active)))
         (is (some? (cat/active-kb)))))))
@@ -418,10 +440,37 @@
                 (str "unload deleted " (pr-str (set/difference before (data)))))))
         (testing "and it can be picked up again, with its content intact"
           (let [kb (v/open-kb {:backend :disk-log :dir dir :recover? :auto})]
-            (is (pos? (v/sentex-count kb)))
+            (is (= (:sentexes (:stats e)) (v/sentex-count kb)))
             ((requiring-resolve 'vaelii.impl.disk.backend/close-dir!) dir))))
       (finally
         (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^java.io.File f))))))
+
+(deftest unloading-closes-a-store-on-a-backend-the-catalog-does-not-name
+  ;; The store arm attaches with whatever backend `v/store-backend` reads off the
+  ;; directory, and that includes the adapters' `:sqlite` and `:pg-disk-log`, which live
+  ;; outside this repo.  `v/close!` releases such a store by closing a record store that is
+  ;; `Closeable` (the SQLite adapter's JDBC connection), so a stand-in KB whose record store
+  ;; counts its closes is the witness, filed under each adapter's backend name and under
+  ;; one no backend has yet.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (doseq [backend [:sqlite :pg-disk-log :a-backend-added-later]]
+      (let [closes (atom 0)
+            stub   {:records (reify java.io.Closeable (close [_] (swap! closes inc)))}]
+        (cat/register! "attached" "An attached store" kb)
+        (#'cat/put-entry! "attached" #(assoc % :kb stub :where {:backend backend :dir "/a/store"}))
+        (is (true? (cat/unload! "attached")))
+        (testing (str backend " — the entry is gone and its store is closed, not left open")
+          (is (nil? (cat/entry "attached")))
+          (is (= 1 @closes))
+          (is (cat/released? stub)))))
+    (testing "an entry filed with no :where is not this catalog's to release"
+      (let [closes (atom 0)
+            stub   {:records (reify java.io.Closeable (close [_] (swap! closes inc)))}]
+        (cat/register! "daemon" "A daemon" kb)
+        (#'cat/put-entry! "daemon" #(assoc % :kb stub))
+        (is (true? (cat/unload! "daemon")))
+        (is (zero? @closes))
+        (is (not (cat/released? stub)))))))
 
 (deftest a-release-that-did-not-happen-is-not-reported-as-one
   ;; The half of unloading nobody sees until it goes wrong: the release can fail — an
@@ -459,7 +508,8 @@
   ;; settled one either, so it refuses on the same ground and asks to be tried again.
   (tu/with-cleared-kb [kb tu/fresh]
     (v/assert kb '(genl tmp_still_stopping_type thing) 'CxUniverse)
-    (let [key (cat/register! "mine" "My KB" kb)]
+    (let [key    (cat/register! "mine" "My KB" kb)
+          before (v/sentex-count kb)]
       (#'cat/put-entry! key #(assoc % :status :running :job "a-job-the-registry-dropped"))
       (is (= :running (:status (cat/entry key))) "the entry reads as one still loading")
       (let [e (is (thrown? clojure.lang.ExceptionInfo (cat/unload! key)))]
@@ -468,11 +518,75 @@
       (testing "and nothing was taken: the entry is whole, and says what it waits on"
         (is (some? (cat/entry key)))
         (is (re-find #"still stopping" (:error (cat/entry key))))
-        (is (pos? (v/sentex-count kb))))
+        (is (= before (v/sentex-count kb))))
       (testing "settled, the same unload takes"
         (#'cat/put-entry! key #(-> (dissoc % :job :error) (assoc :status :done)))
         (is (true? (cat/unload! key)))
         (is (nil? (cat/entry key)))))))
+
+(defn- held-writer
+  "Submit a job that claims `kb` as its writer, as a chaining run does, and hold it inside
+  `monitor` until `gate` is delivered.  Returns the job id once the job holds the monitor."
+  [kb monitor gate]
+  (let [held (promise)
+        id   (jobs/submit {:label "Chain mine" :kind :chain :writes kb}
+                          (fn [_] (locking monitor (deliver held true) (deref gate 60000 nil))))]
+    (deref held 10000 nil)
+    id))
+
+(deftest an-unload-of-a-kb-a-job-writes-refuses-without-waiting-for-the-job
+  ;; A chaining job holds the browser's write monitor for its whole run, and the browser
+  ;; hands `unload!` that monitor as `:run-in`.  Asked only inside it, the unload waits for
+  ;; the chain; asked of nothing, it releases the stores the chain is writing.
+  (tu/with-cleared-kb [kb tu/fresh]
+    (v/assert kb '(genl tmp_still_writing_type thing) 'CxUniverse)
+    (cat/register! "mine" "My KB" kb {:where {:backend :memory}})
+    (let [monitor (Object.)
+          gate    (promise)
+          id      (held-writer kb monitor gate)]
+      (try
+        (testing "with the write monitor as `:run-in`, the refusal answers while the job
+                  still holds the monitor"
+          (let [u (future (try (cat/unload! "mine" {:run-in (fn [work] (locking monitor (work)))})
+                               (catch clojure.lang.ExceptionInfo e (ex-data e))))
+                r (deref u 5000 ::parked)]
+            (is (= :still-writing (:type r)) (str "answered " (pr-str r)))
+            (is (= id (:holder r)) "and it names the job that holds the KB")))
+        (testing "without `:run-in`, as `reset-registry!` calls it, nothing is released
+                  under the job"
+          (is (thrown-with-msg? clojure.lang.ExceptionInfo #"being written by Chain mine"
+                                (cat/unload! "mine")))
+          (is (some? (cat/entry "mine")))
+          (is (pos? (v/sentex-count kb))))
+        (finally (deliver gate true)))
+      (jobs/wait id 10000)
+      (testing "once the job has settled the unload takes"
+        (is (true? (cat/unload! "mine")))
+        (is (nil? (cat/entry "mine")))))))
+
+(deftest a-reset-stops-a-writing-job-before-it-releases-the-kb
+  (tu/with-cleared-kb [kb tu/fresh]
+    (v/assert kb '(genl tmp_reset_writer_type thing) 'CxUniverse)
+    (cat/register! "mine" "My KB" kb {:where {:backend :memory}})
+    (let [stopped-at (promise)
+          running    (promise)]
+      ;; a job that writes until it is cancelled, as a fixpoint does, and records what the
+      ;; KB held at the moment it stopped
+      (jobs/submit {:label "Chain mine" :kind :chain :writes kb}
+                   (fn [progress!]
+                     (try (loop []
+                            (deliver running true)
+                            (progress! {:phase :chaining :done 0})
+                            (Thread/sleep 5)
+                            (recur))
+                          (finally (deliver stopped-at (v/sentex-count kb))))))
+      (deref running 10000 nil)
+      (cat/reset-registry!)
+      (is (pos? (deref stopped-at 10000 -1))
+          "the job stopped before the release, so it never wrote into an emptied KB")
+      (testing "and the release still happened, after the job stopped"
+        (is (nil? (cat/entry "mine")))
+        (is (zero? (v/sentex-count kb)))))))
 
 (deftest a-failed-load-says-why-and-can-still-be-cleaned-up
   (let [root (io/file (System/getProperty "java.io.tmpdir")
@@ -620,7 +734,8 @@
     (testing "nothing to estimate for an entry with no in-process KB"
       (is (nil? (cat/footprint "no-such-entry"))))
     (testing "a source that knows its own size says what loading it would cost"
-      (is (pos? (cat/predicted-footprint {:total 1000})))
+      (is (= (long (* 1000 (reduce + 0 (vals cat/resident-bytes-per-sentex))))
+             (cat/predicted-footprint {:total 1000})))
       (is (nil? (cat/predicted-footprint {})) "and one that does not, says nothing"))
     (cat/unload! "mine")))
 
@@ -651,7 +766,7 @@
           (let [j (jobs/latest :export)]
             (is (= :done (:status j)))
             (is (= "My KB" (:name j)))
-            (is (pos? (:sentexes (:summary j))))
+            (is (= (v/sentex-count kb) (:sentexes (:summary j))))
             (is (pos? (:bytes (:summary j))))
             (is (false? (:writes? j))
                 "a dump is written to the filesystem, so it claims no writer and a load
@@ -689,7 +804,8 @@
         ;; `:run-in` is the wrapper the walk runs inside, so holding it here holds the
         ;; export at exactly the point an in-flight reader sits: the job is running and
         ;; the KB is spoken for.
-        (let [gate (promise)]
+        (let [gate   (promise)
+              before (v/sentex-count kb)]
           (cat/export-entry! "mine" (.getPath dump)
                              {:compression :none :run-in (fn [work] @gate (work))})
           (is (true? (cat/exporting-kb? kb)))
@@ -700,7 +816,7 @@
                                   (cat/unload! "mine"))))
           (testing "and nothing was taken: the entry is whole and the KB is still live"
             (is (some? (cat/entry "mine")))
-            (is (pos? (v/sentex-count kb))))
+            (is (= before (v/sentex-count kb))))
           (deliver gate true)
           (is (wait-for-export)))
         (testing "once the walk is done the unload takes, as it always did"
@@ -759,7 +875,7 @@
                 (testing "and the walk it let through dumped a KB that was still there"
                   (is (= before (v/sentex-count kb)))
                   (is (= :done (:status (jobs/latest :export))))
-                  (is (pos? (:sentexes (:summary (jobs/latest :export)) 0))
+                  (is (= before (:sentexes (:summary (jobs/latest :export))))
                       "the dump is of the KB, not of what was left of it"))
                 (testing "and the unload it let through took the KB whole, dumping nothing"
                   (is (zero? (v/sentex-count kb))
@@ -905,3 +1021,25 @@
                 KB alone"
         (cat/unload! "mine")
         (is (nil? (cat/entry "mine")))))))
+
+(deftest a-loaded-dump-has-its-shipped-spindle-brought-to-this-engine
+  ;; a starter KB whose CxCore holds a premise this engine does not ship, exported the
+  ;; way an older build's KB would arrive: the load syncs it while the entry is running
+  (let [dir (str (System/getProperty "java.io.tmpdir") "/vaelii-catalog-spindle-" (System/nanoTime))
+        kb  (doto (v/open-kb {:backend :memory :space (beside-the-block ::spindle) :recover? false})
+              (tu/clear-kb!)
+              (tu/load-starter!))]
+    (try
+      (v/assert kb '(unary_predicate spindle_retired_kind) 'CxCore)
+      (v/export! kb dir {})
+      (let [key (cat/load-dir dir {:belief? :rebuild})]
+        (is (wait-for))
+        (let [e      (cat/entry key)
+              loaded (:kb e)]
+          (is (= :done (:status (#'cat/with-job e))))
+          (is (= {:added 0 :removed 1 :refused []} (:spindle e)))
+          (is (nil? (v/handle-of loaded '(unary_predicate spindle_retired_kind) 'CxCore)))
+          (cat/unload! key)))
+      (finally
+        (tu/clear-kb! kb)
+        (doseq [f (reverse (file-seq (io/file dir)))] (io/delete-file f true))))))

@@ -21,10 +21,13 @@
   the reader needs no snapshot-vs-delta discrimination; it also bounds replay length and
   reclaims the delta frames (compaction is this store's snapshot cadence).
 
-  Crash-safety: `scan-log` truncates a torn tail on open (a partial op frame is dropped
-  whole, never half-applied), and compaction rewrites the log crash-safely
-  (`files/recover-compaction!`).  All log writes hold the backend lock (the RAF file
-  pointer is shared)."
+  Crash-safety: the open truncates a torn tail (a partial op frame is dropped whole,
+  never half-applied), and compaction rewrites the log crash-safely
+  (`files/recover-compaction!`).  A frame that does not thaw with frames after it is
+  damage inside the log (`files/scan-log`'s `:damaged-frame`): the replay keeps the ops
+  before it and flags the store `damaged`, which the open gate answers by rebuilding the
+  index from the records.  All log writes hold the backend lock (the RAF file pointer is
+  shared)."
   (:require [clojure.set :as set]
             [taoensso.trove :as trove]
             [vaelii.impl.disk.durability :as dur]
@@ -38,12 +41,25 @@
   from a fsynced temp — so a write over it would compound the damage; the store is
   repaired by reopening, which finishes the install off the commit marker.  Reads are
   left working: they answer from the in-RAM map, which the failed install never touched
-  (`kv-clear!`, the kv twin of `clear-records!`, supersedes rather than consulting this)."
-  [failed log-path]
+  (`kv-clear!`, the kv twin of `clear-records!`, supersedes rather than consulting this).
+
+  The store's **fault latch** is read first (`files/with-io-guard`): a channel that closed
+  under the log, a write or an fsync that failed, or a `close!` stops the store, and from
+  then on reads refuse as well as writes (`readable!`), with `:store-unusable`."
+  [fault failed log-path]
+  (f/check-fault! fault)
   (when-let [t @failed]
     (throw (ex-info (str "disk kv: a compaction of " log-path " failed after its commit"
                          " point — the store refuses writes until it is reopened")
                     {:type :compaction-failed :log log-path} t))))
+
+(defn- readable!
+  "Refuse a read once the fault latch is set.  A read answers from the RAM map and
+  touches no channel, so it is the latch alone that stops it: a store that is closed, or
+  whose log stopped taking writes, answers every call with the one refusal rather than
+  reads from a map the log no longer backs."
+  [fault]
+  (f/check-fault! fault))
 
 (defn- apply-ops!
   "Apply write ops: fold them into the RAM map, append one frame **per op** to the WAL
@@ -65,15 +81,15 @@
   the whole pre-clear map over a log that was just truncated.  The clear case is the one
   that bites: `reindex` is clear-plus-rebuild, and a large reindex is exactly when a
   compaction is queued."
-  [{:keys [data log lock frames failed log-path]} ops]
+  [{:keys [data log lock frames failed fault log-path]} ops]
   (locking lock
-    (usable! failed log-path)
+    (usable! fault failed log-path)
     (let [[m1 replies]
           (reduce (fn [[m rs] op]
                     (let [[m' r] (kv/apply-op m op)]
                       [m' (conj rs r)]))
                   [@data []] ops)]
-      (f/append-records! log ops)
+      (f/with-io-guard fault log-path true (f/append-records! log ops))
       (vswap! frames + (count ops))
       (reset! data m1)
       replies)))
@@ -81,21 +97,22 @@
 ;; `closed` (a volatile boolean, written and read under `lock`) is `compact!`'s guard:
 ;; the durability daemon's queued-task check runs outside this store's lock, so a close
 ;; can land between that check and `compact!` acquiring the lock — see `compact!`.
-(defrecord DiskKvBackend [dir data log log-path lock frames closed damaged failed]
+(defrecord DiskKvBackend [dir data log log-path lock frames closed damaged failed fault]
   p/KvBackend
-  (kv-get  [_ k]   (get @data k))
+  (kv-get  [_ k]   (readable! fault) (get @data k))
   (kv-put  [b k v] (apply-ops! b [[:put k v]]) nil)
   (kv-delete  [b k]   (apply-ops! b [[:delete k]]) nil)
   (kv-increment [b k]   (first (apply-ops! b [[:increment k]])))
   (kv-decrement [b k]   (first (apply-ops! b [[:decrement k]])))
   (kv-add-to-set [b k m] (apply-ops! b [[:add-to-set k m]]) nil)
   (kv-remove-from-set [b k m] (apply-ops! b [[:remove-from-set k m]]) nil)
-  (kv-members [_ k] (get @data k #{}))
+  (kv-members [_ k] (readable! fault) (get @data k #{}))
   ;; a read is the in-RAM map, so membership is the hash lookup the memory backend does —
   ;; the log buys durability, never a different read cost
-  (kv-member? [_ k m] (contains? (get @data k) m))
-  (kv-count    [_ k] (count (get @data k)))
+  (kv-member? [_ k m] (readable! fault) (contains? (get @data k) m))
+  (kv-count    [_ k] (readable! fault) (count (get @data k)))
   (kv-intersect [_ ks]
+    (readable! fault)
     (if (empty? ks)
       #{}
       (let [m @data] (apply set/intersection (map #(get m % #{}) ks)))))
@@ -104,7 +121,7 @@
   ;; the RAM map is already the portable shape; the install goes through the ordinary
   ;; op path so every entry is durably logged, batched so a replay is not one fsync-able
   ;; write per entry.
-  (kv-entries [_] (seq @data))
+  (kv-entries [_] (readable! fault) (seq @data))
   (kv-load [b entries]
     (doseq [batch (partition-all 10000 entries)]
       (apply-ops! b (mapv (fn [[k v]] [:put k v]) batch)))
@@ -115,13 +132,16 @@
   ;; writes every entry of it back over the log this just emptied
   (kv-clear! [_]
     (locking lock
+      ;; a failed compaction is superseded; a fault is not, since the log it would
+      ;; truncate is the channel that stopped
+      (f/check-fault! fault)
       ;; a wipe SUPERSEDES a pending (or failed) compaction: drop the commit marker and
       ;; temps under the same lock, or a `reindex` (clear-then-rebuild) landing after a
       ;; post-commit failure would leave them for the next open's `recover-compaction!`
       ;; to replay the pre-wipe snapshot back over the rebuilt log
       (let [{:keys [temps marker]} (f/compact-temp-paths log-path)]
         (f/delete-compact-temps! marker temps))
-      (f/truncate! log)
+      (f/with-io-guard fault log-path true (f/truncate! log))
       (vreset! frames 0)
       (reset! data {})
       (reset! failed nil))
@@ -147,8 +167,10 @@
           ;; `[:put]` per key in hash order, where the lost keys are arbitrary and the
           ;; batch-seal counter may well be among the survivors.  The tail walk below
           ;; still finds a clean frame boundary and replays what remains; the flag is
-          ;; how the open gate knows that what remains is not everything.
-          damaged? (let [expected (get clean "kv")]
+          ;; how the open gate knows that what remains is not everything.  It holds the
+          ;; reason, `:short-log` here or `:damaged-frame` from the replay below, and the
+          ;; gate's warning names it.
+          short?   (let [expected (get clean "kv")]
                      (and (integer? expected)
                           (not= (long expected) (f/log-length log))))]
       ;; The replay owns the handle until it hands it to the record it returns.  A frame
@@ -160,20 +182,41 @@
       (try
         (f/truncate-log! log (first (f/log-tail-offset-from log (get clean "kv"))))
         (let [m      (volatile! {})
-              frames (volatile! 0)]
-          (f/scan-log log (fn [_ op]
-                            (vswap! frames inc)
-                            (vswap! m (fn [mm] (first (kv/apply-op mm op))))))
+              frames (volatile! 0)
+              ;; A frame that does not thaw mid-log leaves the ops after it unread, so the
+              ;; map is short by an unknown set of keys.  The log is left as it is — the
+              ;; index is derived, and the open gate's rebuild (`clear-index!`, then
+              ;; `reindex`) empties it — and the store is flagged the way a length
+              ;; mismatch against the clean marker flags it.
+              frame? (try
+                       (f/truncate-log! log
+                                        (f/scan-log log log-path
+                                                    (fn [_ op]
+                                                      (vswap! frames inc)
+                                                      (vswap! m (fn [mm] (first (kv/apply-op mm op)))))))
+                       false
+                       (catch clojure.lang.ExceptionInfo e
+                         (when-not (= :damaged-frame (:type (ex-data e))) (throw e))
+                         (trove/log! {:level :warn :id ::damaged-frame
+                                      :msg (str "disk kv: " (ex-message e) " — the index"
+                                                " replayed the " @frames " frame(s) before"
+                                                " it and is marked damaged")})
+                         true))]
           (->DiskKvBackend root (atom @m) log log-path (Object.) frames (volatile! false)
-                           damaged? (atom nil)))
+                           (cond frame? :damaged-frame short? :short-log)
+                           (atom nil) (atom nil)))
         (catch Throwable t
           (try (f/close! log) (catch Throwable _ nil))
           (throw t))))))
 
 (defn fsync
-  "fsync the WAL."
-  [{:keys [log lock]}]
-  (locking lock (f/force! log false)))
+  "fsync the WAL.  A failed fsync stops the store (`:fsync-failed`) rather than being
+  retried on the next tick over pages the kernel may already have dropped, and a stopped
+  store's fsync is a no-op."
+  [{:keys [log lock fault log-path]}]
+  (locking lock
+    (when-not @fault
+      (f/with-io-guard fault log-path :fsync (f/force! log false)))))
 
 (defn dead-ratio
   "The delta-accumulation ratio: `1 - live-keys / frames-written`, the fraction of the
@@ -181,9 +224,9 @@
   a key touched K times since the last snapshot carries K-1 frames a `[:put k v]`
   snapshot would fold away; `frames` drops to the live-key count on `compact!`, so this
   reads 0 immediately after and climbs as deltas accumulate against the live footprint."
-  ^double [{:keys [data frames]}]
+  ^double [{:keys [data frames fault]}]
   (let [fr (long @frames)]
-    (if (pos? fr) (max 0.0 (- 1.0 (/ (double (count @data)) (double fr)))) 0.0)))
+    (if (and (pos? fr) (nil? @fault)) (max 0.0 (- 1.0 (/ (double (count @data)) (double fr)))) 0.0)))
 
 (defn compact!
   "Crash-safely rewrite the WAL as one `[:put k v]` op frame per live key — the
@@ -200,9 +243,9 @@
   compaction.  Under the lock there is no window: `close!` sets the flag holding the
   same lock, so a compaction that acquires it either runs against a store that stays
   open until it finishes, or sees the flag and writes nothing."
-  [{:keys [data log log-path lock frames closed failed]}]
+  [{:keys [data log log-path lock frames closed failed fault]}]
   (locking lock
-    (usable! failed log-path)
+    (when-not @closed (usable! fault failed log-path))
     (if @closed
       (trove/log! {:level :debug
                    :msg (str "disk kv: compact! of " log-path
@@ -264,28 +307,10 @@
                                            " install succeeded")
                                  :error t})))))))))))
 
-(defn close!
-  "Compact if the deltas have earned it, flush durably, record the length the WAL closed
-  at, and close it.  The next open skips the torn-tail walk while that length still
-  agrees.
-
-  **Why compact here.** Opening this store is a replay: every frame is thawed and folded
-  through `kv/apply-op`, so the open costs the *frame count*, not the live-key count. A
-  bulk load leaves those far apart — 5.81M frames against 2.01M live keys on a 300k-fact
-  KB, a 0.65 dead ratio — and a compaction collapses each key's delta chain to the one
-  `[:put k v]` a replay actually needs. Closing is the moment to pay for it: the writer
-  is done, and the cost lands once instead of on every subsequent open.
-
-  Gated on the *same* switch and threshold the background tick uses
-  (`vaelii.impl.disk.durability`), so a store closed just after a compaction does not
-  rewrite its log for nothing, and one knob turns both off.
-
-  **The WAL is released and the flag is set whatever the compaction or the flush did.**
-  Both can fail — a full disk — and `backend/close-dir!` releases the directory's OS
-  lock on a failed close as deliberately as on a clean one; a store left with `closed`
-  false and its RAF still open is then one a queued auto-compaction will still try to
-  rewrite, over a directory another process may already hold."
-  [{:keys [dir log lock closed failed] :as b}]
+(defn- close-healthy!
+  "`close!` of a store with no fault latched: compact if earned, flush, stamp the clean
+  marker, latch `:closed`, release the log."
+  [{:keys [dir log lock closed failed fault log-path] :as b}]
   (try
     ;; not a `failed` store: its log is torn and a reopen finishes the install off the
     ;; marker, so re-compacting here would only throw `:compaction-failed` out of close
@@ -310,4 +335,43 @@
         ;; idempotent — already set on the path above, and this is the arm that covers a
         ;; compaction or flush that threw before the marker was written
         (vreset! closed true)
+        (f/latch-closed! fault log-path)
         (f/close! log)))))
+
+(defn close!
+  "Compact if the deltas have earned it, flush durably, record the length the WAL closed
+  at, and close it.  The next open skips the torn-tail walk while that length still
+  agrees.
+
+  **Why compact here.** Opening this store is a replay: every frame is thawed and folded
+  through `kv/apply-op`, so the open costs the *frame count*, not the live-key count. A
+  bulk load leaves those far apart — 5.81M frames against 2.01M live keys on a 300k-fact
+  KB, a 0.65 dead ratio — and a compaction collapses each key's delta chain to the one
+  `[:put k v]` a replay actually needs. Closing is the moment to pay for it: the writer
+  is done, and the cost lands once instead of on every subsequent open.
+
+  Gated on the *same* switch and threshold the background tick uses
+  (`vaelii.impl.disk.durability`), so a store closed just after a compaction does not
+  rewrite its log for nothing, and one knob turns both off.
+
+  **The WAL is released and the flag is set whatever the compaction or the flush did.**
+  Both can fail — a full disk — and `backend/close-dir!` releases the directory's OS
+  lock on a failed close as deliberately as on a clean one; a store left with `closed`
+  false and its RAF still open is then one a queued auto-compaction will still try to
+  rewrite, over a directory another process may already hold.
+
+  **A store whose fault latch is already set closes without throwing**: it writes no
+  clean marker, so the next open walks the log's tail and the open gate checks the
+  index's coverage, and it releases the log.  The fault was reported when it latched.  A
+  flush that fails here is a fault first found by the close, and it throws.  Either way
+  the latch ends set, so a call on the store after the close is refused by name."
+  [{:keys [log lock closed fault log-path] :as b}]
+  (if-let [prior @fault]
+    (do (trove/log! {:level :warn :id ::closed-faulted
+                     :msg (str "disk kv: closing " log-path " after it stopped ("
+                               (name (:reason prior)) ") — no clean marker, so the next"
+                               " open walks it as an unclean shutdown")})
+        (locking lock
+          (vreset! closed true)
+          (try (f/close! log) (catch Throwable _ nil))))
+    (close-healthy! b)))

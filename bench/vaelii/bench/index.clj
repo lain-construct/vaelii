@@ -52,7 +52,7 @@
     `#'vaelii.bench.index/open-layout!`, so the two harnesses compare the same layouts
     over the same corpora rather than two spellings of them.
 
-  ## The columnar arm is indistinguishable from a KB that never touches its trie
+  ## The columnar arm reports no index reads
 
   This matters more here than anywhere else in the repo, so it is handled explicitly
   rather than noted.  **Only the `:goals` tally is index-independent** (docs/profile.md):
@@ -629,7 +629,7 @@
                                         rows))))
     (println)
     (println "    n/a = a native trie with no `KvIndexStore`.  Its flat families do tally,")
-    (println "    delegating to an embedded KvIndexStore, so a mixed row is the honest reading:")
+    (println "    delegating to an embedded KvIndexStore, so a mixed row is expected:")
     (println "    the flat numbers are real and the trie ones are not there to be read.")))
 
 ;; ---- the q-error arm ----------------------------------------------------

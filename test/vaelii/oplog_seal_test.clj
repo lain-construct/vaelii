@@ -35,9 +35,14 @@
             :let [t (.toFile (.resolve dst (.relativize src (.toPath f))))]]
       (if (.isDirectory f)
         (.mkdirs t)
-        (Files/copy (.toPath f) (.toPath t)
-                    ^"[Ljava.nio.file.CopyOption;"
-                    (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))))))
+        ;; A store still open on `from` renames a temp file away between the listing and
+        ;; the copy (the durability daemon's `counters.nippy` write), and a file gone by
+        ;; then is one the directory no longer holds.
+        (try
+          (Files/copy (.toPath f) (.toPath t)
+                      ^"[Ljava.nio.file.CopyOption;"
+                      (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))
+          (catch java.nio.file.NoSuchFileException _ nil))))))
 
 (defn- open
   ([dir] (open dir nil))
@@ -143,6 +148,29 @@
           (finally (v/close! lkb))))
       (finally (rm-rf! a)))))
 
+(deftest a-frame-that-fails-rather-than-refuses-stops-the-restore
+  ;; A frame that refused when it was made refuses again, and replay goes on.  A frame
+  ;; that throws something else did not refuse: skipped, it restored a KB missing the
+  ;; write — here the retraction, so `(animal Plato)` came back believed — and answered
+  ;; `:restored true`.
+  (let [a (tmpdir)]
+    (try
+      (let [lkb (seal/attach! (open a))]
+        (try
+          (write-world! lkb)
+          (let [dir (tmpdir)]
+            (try
+              (copy-dir! a dir)
+              (let [kb (open dir {:recover? false})]
+                (try
+                  (is (thrown? OutOfMemoryError
+                               (with-redefs [v/retract! (fn [& _] (throw (OutOfMemoryError. "witness")))]
+                                 (seal/restore! kb))))
+                  (finally (v/close! kb))))
+              (finally (rm-rf! dir))))
+          (finally (v/close! lkb))))
+      (finally (rm-rf! a)))))
+
 (deftest an-unusable-log-declines
   (let [a (tmpdir)]
     (try
@@ -154,6 +182,39 @@
                             (is (not (:restored r)))
                             (is (= [:unusable [:config :set-solver]] (:reason r)))
                             (is (:clean? r))))
+          (finally (v/close! lkb))))
+      (finally (rm-rf! a)))))
+
+(deftest a-log-with-a-damaged-frame-inside-it-declines
+  ;; A frame that does not thaw with frames after it ends what can be replayed.  Read as a
+  ;; torn tail, the log was cut there and the frames before it replayed: here the two
+  ;; retractions were lost, the replay rewrote both records, and the restore answered
+  ;; `:restored true` with `(animal Plato)` believed.  A retraction allocates no handle,
+  ;; so the extra-records check has nothing to find.
+  (let [a (tmpdir)]
+    (try
+      (let [lkb (seal/attach! (open a))]
+        (try
+          (let [hs (mapv #(v/assert lkb (list 'animal %) 'CxUniverse) '[Socrates Plato Aristotle])]
+            (v/retract! lkb (hs 1))
+            (v/retract! lkb (hs 2)))
+          (let [offset (atom nil)]
+            (restore-copy a
+                          (fn [dir]
+                            ;; frame 0 is the header, 1-3 the asserts, 4 the first retraction
+                            (with-open [raf (RandomAccessFile. (log-path dir) "rw")]
+                              (let [off (loop [pos 0 k 0]
+                                          (if (= k 4)
+                                            pos
+                                            (do (.seek raf pos)
+                                                (recur (+ pos 4 (.readInt raf)) (inc k)))))]
+                                (reset! offset off)
+                                (.seek raf (+ off 4))
+                                (.write raf (byte-array 2)))))
+                          (fn [r]
+                            (is (not (:restored r)))
+                            (is (= [:unusable [:damaged-frame @offset]] (:reason r)))
+                            (is (:clean? r)))))
           (finally (v/close! lkb))))
       (finally (rm-rf! a)))))
 

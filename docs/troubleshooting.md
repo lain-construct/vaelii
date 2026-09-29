@@ -29,7 +29,7 @@ fix. The mechanism stays in the subsystem's own page and is linked, never restat
 | [`do/label` refuses to re-run](#dolabel-refuses-to-re-run) | a previous run's labeling context has been written into, or has lost its marker |
 | [A foreign KB will not load](#a-foreign-kb-will-not-load) | no reader on the classpath |
 | [`open-kb` refuses an unknown backend](#open-kb-refuses-an-unknown-backend) | a `:backend`, `:records`, `:index` or `:tms` opt names something the storage layer doesn't implement — `:axis` says which |
-| [The disk KB will not open](#the-disk-kb-will-not-open) | another process holds the lock |
+| [The disk KB will not open](#the-disk-kb-will-not-open) | another process holds the lock, or the directory cannot hold the lock file |
 | [The daemon exits 2](#the-daemon-exits-2-without-serving) | `--listen` names an address and no token is set |
 | [Every call to the daemon is refused](#every-call-to-the-daemon-is-refused) | the client presents no token, or a different one |
 | [The log does not say enough](#the-log-does-not-say-enough) | the run boundaries are at `:debug`, and the level is a dial |
@@ -211,7 +211,7 @@ without storing anything, and answers with the identical problem.
 | `:naming` | a symbol's spelling does not match its role — [naming.md](naming.md) |
 | `:not-ground` | a fact with a variable in it; write a universal as a rule |
 | `:shape` | not an s-expression at all — a string, `nil`, a map, a bare symbol — or a **vector**, which is a query's conjunction.  Refused at the read entry points as well as the write ones, carrying `:goal` or `:conjunct` ([api.md](api.md)) |
-| `:not-well-formed` | a malformed connective frame, such as a bare `(implies)` — or an `or` somewhere the polycanonicalization cannot expand it away: a conclusion, a closed-query body, an `exceptWhen` query, under `not` ([canonicalization.md](canonicalization.md)) |
+| `:not-well-formed` | a malformed connective frame, such as a bare `(implies)`, a bare symbol or variable under `not` or a `set/*` wrapper, a bare variable as a rule's antecedent, exception or consequent literal (a derived sentence whose predicate a firing binds is `(?pred . ?args)`), or an `exceptWhen` around a fact ([exceptions.md](exceptions.md)) — or a `thereExists`, `forall` or head `exists` whose binder is not a variable ([naf.md](naf.md)) — or an `or` somewhere the polycanonicalization cannot expand it away: a conclusion, a closed-query body, an `exceptWhen` query, under `not` ([canonicalization.md](canonicalization.md)) — or a combination of `set/*` wrappers the record cannot hold: two different directions, two different head wrappers, or a choice or constraint under a direction or `set/defaultRule` ([canonicalization.md](canonicalization.md#rule-wrappers-become-fields)) |
 | `:not-range-restricted` | a rule variable in the consequent that no antecedent binds — asked per alternative of a disjunctive antecedent, and the message names the disjunct |
 | `:disjunction-too-wide` | a disjunctive antecedent over the 16-alternative cap; the message names the count — [canonicalization.md](canonicalization.md) |
 | `:arg-type` / `:arg-genl` | an `arg` / `genlArg` constraint convicted it — [argtypes.md](argtypes.md) |
@@ -329,12 +329,13 @@ count of proofs.
 `:labeling-run-blocked` means the previous run's artifacts under this `Into` cannot be
 replaced, and a run that cannot replace them must not write beside them — two groundings
 in one `Into` make a `do/classify` that aggregates worlds from different solves. The
-`ex-data` names the contexts, in one of two keys:
+`ex-data` names the contexts, in one of three keys:
 
 | key | what happened | fix |
 |---|---|---|
 | `:believed` | a labeling context, or `<Into>Class`, holds a **believed** sentex — everything a solve writes is inert, so this came from somewhere else | retract that sentex, or name a different `Into` |
 | `:orphaned` | a labeling context lost its `labelingOf` ownership marker, so nothing can rediscover it while its `genlCx` edge still holds it under the base | retract the context's extent and its `(genlCx <ctx> <Base>)` edge, or name a different `Into` |
+| `:unmarked` | `<Into>Class` holds sentexes and no `(classificationOf <Into>Class <Into>)` marker: a context of your own with that name, or a classification written before the marker existed | retract the context's extent (after checking it holds nothing of yours), or name a different `Into` |
 
 ```clojure
 (v/sentexes-in-context kb 'CxPlan1)                        ; what is actually in there
@@ -348,8 +349,8 @@ replace. [solving.md](solving.md).
 
 This build reads its own dump format and nothing else; a corpus or a foreign dialect needs
 a reader on the classpath, which ships as a separate artifact. A found KB is still
-*offered* without one — the honest answer to "I cannot read this" is a load that fails
-saying so — so the card appears and the load reports `this build does not read
+*offered* without one — a KB this build cannot read produces a load that fails saying
+so — so the card appears and the load reports `this build does not read
 cyc-corpus`. That message means the reader is absent, not that the KB is bad.
 
 The route to a reader, and what each load costs, is [kbs.md](kbs.md); the extension point it plugs
@@ -412,6 +413,16 @@ and the refusal names the other JVM's pid, host and the time it took the lock. T
 processes over one store corrupt rather than lag, which is why it is a lock and not a
 warning: point this JVM at a different directory, or `(v/close!)` the KB holding it.
 [storage.md](storage.md).
+
+Two refusals come before the lock is tried, because creating the lock file is the first
+thing an open writes: `:not-a-directory` when the directory, or a part of the path above
+it, is a regular file, and `:not-writable` when this process cannot create files there.
+Each names the directory rather than the lock file, and `:not-writable` names the user the
+process runs as. A read needs write access as well, since it takes the lock too.
+
+The CLI adds one more before it opens anything: a `--dir` whose parent does not exist is
+refused (`:unknown-source`) and nothing is created, so a mistyped path answers "no KB"
+rather than an empty result from a store the typo made. [operations.md](operations.md).
 
 A daemon holding a directory is the ordinary case, and the browser reads one over the API
 rather than opening the store beside it — `lein run -m vaelii.web --attach HOST PORT`.
@@ -489,7 +500,7 @@ so a keyword caught in a `catch` is never a dead end.
 ```
 
 A refusal built as a **problem map** rather than thrown — what `check`, `check-edit` and
-the browser's proposal preview answer with — carries the same keyword under the same key,
+the browser's edit preview answer with — carries the same keyword under the same key,
 so one vocabulary reads both.
 
 | `:type` | What happened | Where |
@@ -523,11 +534,11 @@ so one vocabulary reads both.
 | `:budget-exhausted` | a bounded `ask` / `ask?` / `prove` / `provable?` hit its `:max-ms` before the search ran dry, so what it held was a prefix rather than an answer | [anytime.md](anytime.md) |
 | `:choice-head-not-positive` | an `assumptionRule` head is negated, and a choice head must be a positive literal | [solving.md](solving.md) |
 | `:compaction-failed` | a record or index log compaction failed after its commit point — the store refuses writes until it is reopened | [storage.md](storage.md) |
-| `:context-escape` | a proposed sentence is an `ist`, so it would file itself somewhere other than the context the caller named | [llm.md](llm.md) |
 | `:cover` | a coverage claim refuted: a term holds the whole and every named part is explicitly denied of it — see [`assert` refused it](#assert-refused-it) | [taxonomy.md](taxonomy.md) |
 | `:cross-origin` | the daemon refused a request whose `Origin` names another site | [operations.md](operations.md) |
 | `:daemon-error` | the daemon refused and its reply carried no `:type` of its own — the client's fallback | [operations.md](operations.md) |
 | `:damaged-dictionary` | a tokenized frame cites a token id the dictionary has no entry for | [storage.md](storage.md) |
+| `:damaged-frame` | a frame inside a log the open reads whole — `tokens.log`, the index's `kv.log`, the operation log — does not decode, and frames follow it; the refusal names the file, the byte offset and the frame | [storage.md](storage.md) |
 | `:disjoint` | a definitional clash between two disjoint types — see [`assert` refused it](#assert-refused-it) | [exceptions.md](exceptions.md) |
 | `:disjunction-too-wide` | a disjunctive antecedent over the alternative cap | [canonicalization.md](canonicalization.md) |
 | `:disk-locked` | another JVM holds the directory's single-writer lock — see [The disk KB will not open](#the-disk-kb-will-not-open) | [storage.md](storage.md) |
@@ -547,21 +558,14 @@ so one vocabulary reads both.
 | `:job-busy` | a job holding this process's one writer is already running | [operations.md](operations.md) |
 | `:labeling-inconsistent` | a labeling disagrees with the brave/cautious classification of the same program | [labeling.md](labeling.md) |
 | `:labeling-run-blocked` | a previous run's artifacts cannot be replaced — see [`do/label` refuses to re-run](#dolabel-refuses-to-re-run) | [solving.md](solving.md) |
-| `:llm-api-error` | a provider answered an error status, or put an error in a 200 body or a stream chunk | [llm.md](llm.md) |
-| `:llm-bad-credential` | a credential holds a character an HTTP header cannot carry; the value is never quoted back | [llm.md](llm.md) |
-| `:llm-bad-response` | a provider answered with a body that is not JSON | [llm.md](llm.md) |
-| `:llm-encode` | a content block whose `:type` the request encoder does not write | [llm.md](llm.md) |
-| `:llm-no-credential` | no provider credential is set | [llm.md](llm.md) |
-| `:llm-not-applicable` | a proposal was asked to apply at a status that does not admit it; `{:force? true}` overrides | [llm.md](llm.md) |
-| `:llm-timeout` | a provider stopped answering inside the turn's `:timeout-ms` budget | [llm.md](llm.md) |
 | `:malformed-entry` | an index entry stream holds something that is not a `[key value]` pair | [storage.md](storage.md) |
-| `:malformed-manifest` | a `meta.edn` / `format.edn` / `catalog.edn` the EDN reader cannot parse — cut mid-form, or never EDN | [storage.md](storage.md) |
-| `:malformed-record` | a tokenized record body holds a code this codec does not write | [storage.md](storage.md) |
+| `:malformed-manifest` | a `meta.edn` / `format.edn` / `catalog.edn` / an index's `records.edn` the EDN reader cannot parse — cut mid-form, or never EDN | [storage.md](storage.md) |
+| `:malformed-record` | a tokenized record body holds a code this codec does not write; the open's walk tombstones the record | [storage.md](storage.md) |
 | `:manifest-too-large` | a manifest file longer than the bound the reader allows; a manifest is a handful of keys | [storage.md](storage.md) |
 | `:missing-adapter` | a **legal** `:sqlite` or `:pg` records axis whose Apache-2.0 sibling is not on the classpath — `:coordinate` names the dependency to add, and the backend is not the thing to change | [storage.md](storage.md) |
 | `:missing-resource` | a KB file, ontology layer or text KB is not where it was looked for | [kbs.md](kbs.md) |
 | `:naf-justification` | a dump names a justification with a non-empty `:out`, and a justification here has no out-list | [naf.md](naf.md) |
-| `:naf-not-closed` | an `unknown` antecedent or an aggregate census reads a variable nothing else in the rule binds | [naf.md](naf.md) |
+| `:naf-not-closed` | an `unknown` antecedent, a computed antecedent (`lessThan`, `matchesPattern`, `integer` …) or an aggregate census reads a variable nothing else in the rule binds | [naf.md](naf.md) |
 | `:naming` | a symbol's spelling does not match its role — see [`assert` refused it](#assert-refused-it) | [naming.md](naming.md) |
 | `:nippy-version-moved` | the nippy on the classpath is not the release the class-name check was written against; re-read its three attachment points, then move `thaw/pinned-nippy-version` | [defenses.md](defenses.md) |
 | `:nippy-version-unreadable` | nippy's own Maven descriptor could not be read, so the class-name check cannot say which release it is guarding | [defenses.md](defenses.md) |
@@ -570,11 +574,10 @@ so one vocabulary reads both.
 | `:no-destination` | an export was asked for with a blank destination directory | [catalog.md](catalog.md) |
 | `:no-dump` | the directory holds no `meta.edn`, so it is not a dump | [storage.md](storage.md) |
 | `:no-foreign-reader` | this build reads no such format — see [A foreign KB will not load](#a-foreign-kb-will-not-load) | [foreign.md](foreign.md) |
-| `:not-a-directory` | an export destination names a file | [storage.md](storage.md) |
+| `:not-a-directory` | an export destination, or a disk KB's directory, names a file — or, for the directory, a path under a file | [storage.md](storage.md) |
 | `:not-a-report` | a value handed to the quality renderer is not the map `kb-quality` answers | [quality.md](quality.md) |
 | `:not-assertible` | a `do/` imperative inside a rule, an imperative this build does not carry, or one written with the wrong arguments | [labeling.md](labeling.md) |
 | `:not-checkable` | `check` was handed a `do/` imperative, which stores nothing and so has nothing to check | [api.md](api.md) |
-| `:not-defeasible` | known-true content reached the edge solver, which arbitrates `:default` content only | [solving.md](solving.md) |
 | `:not-edn` | a request body does not read as EDN | [operations.md](operations.md) |
 | `:not-empty` | an export or import destination already holds content, and each wants a place of its own | [storage.md](storage.md) |
 | `:not-encodable` | a value in a sentence does not round-trip through the durable log | [storage.md](storage.md) |
@@ -586,10 +589,10 @@ so one vocabulary reads both.
 | `:not-stratified` | the rule set would close a cycle through negation | [naf.md](naf.md) |
 | `:not-watchable` | a `watch` that could never deliver — no listener, a goal nothing unifies with, or an unscoped goal | [feed.md](feed.md) |
 | `:not-well-formed` | a malformed connective frame, or an `or` somewhere polycanonicalization cannot expand it away | [canonicalization.md](canonicalization.md) |
+| `:not-writable` | a disk KB's directory is not writable by this process, and every open, reads included, creates the single-writer lock file there — see [The disk KB will not open](#the-disk-kb-will-not-open) | [storage.md](storage.md) |
 | `:pattern-too-costly` | a `find-terms` regex read past its per-term or scan-wide character budget | [api.md](api.md) |
 | `:quantifier-not-local` | a bound existential or universal variable appears outside its own quantifier | [aggregate.md](aggregate.md) |
 | `:quoted-arg-type` | a `quotedArg` constraint convicted the argument on its EDN kind as a term | [argtypes.md](argtypes.md) |
-| `:report-only` | the proposal preview's row for a line the corrector would rewrite rather than store | [web.md](web.md) |
 | `:reserved-family` | a packed index key names the reserved family, which nothing packs | [indexing.md](indexing.md) |
 | `:reset` | the sandbox page's row saying how much a reset discarded | [web.md](web.md) |
 | `:shape` | not an s-expression at all — see [`assert` refused it](#assert-refused-it) | [api.md](api.md) |
@@ -603,6 +606,8 @@ so one vocabulary reads both.
 | `:still-exporting` | an unload was asked for while an export of that KB is running | [catalog.md](catalog.md) |
 | `:still-loading` | an export was asked for while the KB is still being written | [catalog.md](catalog.md) |
 | `:still-stopping` | an unload was asked for while the loader has not reached an interruptible point | [catalog.md](catalog.md) |
+| `:still-writing` | an unload was asked for while a job — a chaining run, a spindle sync — writes that KB | [catalog.md](catalog.md) |
+| `:store-unusable` | a disk store stopped: it was closed, a thread interrupt closed one of its channels, or a write or an fsync failed. `:reason` says which, and every call refuses until the directory is opened again | [storage.md](storage.md#a-store-that-stops) |
 | `:too-many-subscriptions` | the daemon already holds its maximum of feed subscriptions | [feed.md](feed.md) |
 | `:too-many-waiters` | the daemon already has its maximum of long polls parked | [feed.md](feed.md) |
 | `:torn-snapshot` | a durable index part reloaded at a size its own metadata contradicts | [storage.md](storage.md) |
@@ -622,8 +627,7 @@ so one vocabulary reads both.
 | `:unknown-subscription` | the feed token names no subscription — it was dropped, timed out, or belongs to another daemon | [feed.md](feed.md) |
 | `:unknown-tactician` | a strategy names a tactician the ordering table does not hold | [inference.md](inference.md) |
 | `:unminted-nat` | `assert-inert` was handed a reifiable NAT this KB never minted; it never mints, so assert the NAT-bearing fact first | [nat.md](nat.md) |
-| `:unparseable` | a model's answer does not read as EDN | [llm.md](llm.md) |
-| `:unreadable` | a line of a proposal or an edit batch does not read as EDN | [web.md](web.md) |
+| `:unreadable` | a line of an edit batch, or a form of a text KB file, does not read as EDN; `:line` places it, and a text KB's refusal names the `:file` | [web.md](web.md), [kbs.md](kbs.md) |
 | `:unreadable-store` | the records in that store do not thaw as sentexes — it was written by a build whose record classes differ | [storage.md](storage.md) |
 | `:unrecovered-kb` | the KB is open over a store whose belief was never built, so writes are refused until `recover` runs; with `:hazards [:stale-belief]`, a `:recover? :background` open is rebuilding belief behind an earlier build's image, and writes resume when the rebuild finishes | [storage.md](storage.md) |
 | `:unrecovered-premise` | a retract named a premise this KB never recovered, so the dedup walk that would find its twin has not run | [storage.md](storage.md) |
@@ -642,12 +646,13 @@ rather than adding to the engine's flat one ([koinii.md](koinii.md)).
 |---|---|
 | `:arbiter-is-party` | the arbiter holds a side of the dispute it was asked to rule, so a ruling would restamp or retract its own claim |
 | `:koinii/admin-off-registry` | an admin principal aimed a write at a context other than the registry it governs |
+| `:koinii/bad-attest-key` | `identity/*attest-key*` holds something other than a byte array or string of at least 32 bytes |
 | `:koinii/catchup-thrashing` | catch-up spent its snapshot budget — the subscription is reaped, or the consumer cannot keep up |
 | `:koinii/compression-pinned` | `publish!` pins `:compression :none`, since a published commit's streams are a byte-stable function of the KB |
 | `:koinii/creator-mismatch` | an agent handle was asked to assert under another agent's `:creator` |
 | `:koinii/feed-error` | a catch-up poll failed and said nothing about why — an untyped transport failure, reported rather than read as an empty batch |
 | `:koinii/foreign-context` | an agent aimed a write at a context that is not its own |
-| `:koinii/identity-unverified` | a `:proof-tier` claim has no verify-fn bound, or did not pass the one that is |
+| `:koinii/identity-unverified` | a `:proof-tier` or `:admin?` claim has no verify-fn bound or did not pass it, a principal claims `:authenticated?` with no grant, or a majority count read a ballot with no attestation |
 | `:koinii/missing-seed` | koinii's seed KB file for a context is not on the classpath |
 | `:koinii/no-cursor` | a catch-up poll answered something that is not a resumable cursor |
 | `:koinii/no-such-handle` | a handle names no record on this medium |
@@ -655,7 +660,7 @@ rather than adding to the engine's flat one ([koinii.md](koinii.md)).
 | `:koinii/no-wire-feed` | an in-process medium has no cursor feed; catch-up is a wire-only concern |
 | `:koinii/not-a-channel` | an agent cannot join under that parent, since a channel is a context agents are lifted into |
 | `:koinii/not-own-statement` | an agent may disregard only its own statement |
-| `:koinii/registry-forbidden` | the governed may not write the authority that governs them |
+| `:koinii/registry-forbidden` | the governed may not write the authority that governs them; an `:admin?` map `authenticate` did not mint is governed (`:minted? false`) |
 | `:koinii/registry-not-functional` | a registry read matched more than one row, where the vocabulary declares one |
 | `:koinii/reply-inadmissible` | a multi-claim reply's batch did not pass `check-edit`, and a batch lands whole or not at all |
 | `:koinii/speaker-mismatch` | a speech act names a speaker other than the handle that asserted it |

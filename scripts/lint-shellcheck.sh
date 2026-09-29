@@ -22,6 +22,7 @@
 # the entry out in the same change that makes the script dev-only.  Nothing under
 # scripts/ is withheld today, which is why the two lists agree by having nothing
 # to disagree about.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -45,6 +46,7 @@ SCRIPTS=(
   scripts/test-sweeps.sh
   scripts/test-matrix.sh
   scripts/test-parallel.sh
+  scripts/test-full-kb.sh
   scripts/test-selector.sh
   scripts/test-shuffle.sh
   scripts/lib/revision.sh
@@ -92,6 +94,27 @@ while IFS= read -r f; do
   drift=1
 done < <(find scripts -name '*.sh' | sort)
 
+# EVERY SCRIPT OUTSIDE scripts/lib/ IS ONE BRACE GROUP, ending in `exit` or `exec`.  Bash
+# reads a script a buffer at a time as it runs it, so an in-place write to the file (an
+# editor's save, `sed -i`) reaches a run already going: the run resumes at its old byte
+# offset in the new text, and a matrix that finished its suites dies in its report with a
+# syntax error.  A brace group is one command, which bash parses whole before running any
+# of it, and the `exit` or `exec` at its end stops bash before it reads past the group.
+# The libraries are exempt: `source` reads the whole file at once, and an `exit` in one
+# would end the script that sourced it.
+for f in "${SCRIPTS[@]}"; do
+  [[ "$f" == scripts/lib/* ]] && continue
+  tail2=$(grep -v '^[[:space:]]*$' "$f" | tail -2)
+  if grep -q '^{ # ' "$f" && [[ "${tail2##*$'\n'}" == "}" ]] \
+     && [[ "${tail2%%$'\n'*}" =~ ^(exit|exec)([[:space:]]|$) ]]; then
+    continue
+  fi
+  echo "lint-shellcheck: $f is not one \`{ # …\` group ending in exit or exec — see $0." >&2
+  drift=1
+done
+
 (( drift == 0 )) || exit 1
 
 shellcheck "${SCRIPTS[@]}"
+exit
+}

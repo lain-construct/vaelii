@@ -13,14 +13,16 @@
             [clojure.java.io :as io]
             [clojure.set :as set]
             [clojure.test :refer [deftest is testing]]
+            [taoensso.nippy :as nippy]
             [vaelii.core :as v]
             [vaelii.impl.disk.record-store :as drs]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reasoning-image :as ri]
+            [vaelii.impl.settle :as settle]
             [vaelii.impl.types.reasoning :as reasoning])
-  (:import [java.io File RandomAccessFile]
+  (:import [java.io DataInputStream DataOutputStream File RandomAccessFile]
            [java.nio.file CopyOption Files StandardCopyOption]
            [java.nio.file.attribute FileAttribute]))
 
@@ -36,9 +38,14 @@
             :let [t (.toFile (.resolve dst (.relativize src (.toPath f))))]]
       (if (.isDirectory f)
         (.mkdirs t)
-        (Files/copy (.toPath f) (.toPath t)
-                    ^"[Ljava.nio.file.CopyOption;"
-                    (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))))))
+        ;; A store still open on `from` renames a temp file away between the listing and
+        ;; the copy (the durability daemon's `counters.nippy` write), and a file gone by
+        ;; then is one the directory no longer holds.
+        (try
+          (Files/copy (.toPath f) (.toPath t)
+                      ^"[Ljava.nio.file.CopyOption;"
+                      (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))
+          (catch java.nio.file.NoSuchFileException _ nil))))))
 
 (defn- manifest ^File [dir] (io/file dir "reasoning" "manifest.edn"))
 
@@ -125,6 +132,30 @@
             (finally (v/close! a)))))
       (finally (rm-rf! dir)))))
 
+(deftest a-clash-with-a-derived-side-reinstalls
+  ;; A clash report lists each side's supporting justifications, and a derived side has
+  ;; some: the image writes them as field maps, since its reader refuses a class name,
+  ;; and reads them back into the records the writer held.
+  (let [dir (tmpdir)]
+    (try
+      (let [kb (open dir)]
+        ;; before `content!`, whose disjointness arrives last and so settles the clash
+        ;; rather than refusing the fact that makes it
+        (v/assert kb '(set/forwardRule (implies (and (kitten ?x)) (cat ?x))) 'CxUniverse)
+        (v/assert kb '(kitten Tom) 'CxUniverse {:strength :default})
+        (v/assert kb '(dog Tom) 'CxUniverse {:strength :default})
+        (content! kb)
+        (let [closed (whole kb)
+              sides  (mapcat :sides (v/contradictions kb))]
+          (is (some #(seq (:justifications %)) sides) "a side of some clash is derived")
+          (v/close! kb)
+          (let [a (open dir)]
+            (try
+              (is (installed? a) "the image was installed")
+              (same-as! closed (whole a))
+              (finally (v/close! a))))))
+      (finally (rm-rf! dir)))))
+
 (deftest an-image-a-recover-wrote-reinstalls-that-recover
   (let [dir (tmpdir)]
     (try
@@ -179,6 +210,30 @@
 (defn- rewrite-manifest! [dir f]
   (spit (manifest dir) (pr-str (f (edn/read-string (slurp (manifest dir)))))))
 
+(deftest an-image-whose-taxonomy-holds-no-context-census-installs-one
+  ;; The flat-cache census is counted from the entries at the install, so an image whose
+  ;; taxonomy lacks it reads the same ground contexts as the KB that wrote it.
+  (let [dir (tmpdir)]
+    (try
+      (let [kb     (open dir)
+            _      (content! kb)
+            census (:cache-ctx-counts @(reasoning/taxonomy kb))
+            f      (io/file dir "reasoning" "state.nippy")]
+        (v/close! kb)
+        (let [st (with-open [i (DataInputStream. (io/input-stream f))] (nippy/thaw-from-in! i))]
+          (with-open [o (DataOutputStream. (io/output-stream f))]
+            (nippy/freeze-to-out! o (update st :taxonomy dissoc :cache-ctx-counts))))
+        (rewrite-manifest! dir #(assoc-in % [:bytes :state] (.length f)))
+        (let [a (open dir)]
+          (try
+            (is (installed? a) "the image was installed")
+            (is (seq census) "the KB counted the contexts its declarations sit in")
+            (is (= census (:cache-ctx-counts @(reasoning/taxonomy a))))
+            (finally (v/close! a)))))
+      (finally (rm-rf! dir)))))
+
+(defrecord Planted [a])
+
 (defn- truncate! [^File f]
   (with-open [r (RandomAccessFile. f "rw")] (.setLength r (quot (.length r) 2))))
 
@@ -198,7 +253,13 @@
    ["a truncated network section"
     (fn [dir] (truncate! (io/file dir "reasoning" "network.bin")))]
    ["a truncated state section"
-    (fn [dir] (truncate! (io/file dir "reasoning" "state.nippy")))]])
+    (fn [dir] (truncate! (io/file dir "reasoning" "state.nippy")))]
+   ["a state section naming a class"
+    (fn [dir]
+      (let [f  (io/file dir "reasoning" "state.nippy")
+            st (with-open [i (DataInputStream. (io/input-stream f))] (nippy/thaw-from-in! i))]
+        (with-open [o (DataOutputStream. (io/output-stream f))]
+          (nippy/freeze-to-out! o (assoc-in st [:taxonomy ::planted] (->Planted 1))))))]])
 
 (deftest a-stale-or-torn-image-is-declined-and-the-open-recovers
   (doseq [[label spoil!] spoilers]
@@ -227,6 +288,34 @@
       (is (not (.exists (manifest dir))) "nor does its close write one")
       (finally (rm-rf! dir)))))
 
+(deftest no-image-is-written-while-a-settle-decides-the-belief
+  ;; The writer's settle is parked before its resolution, and the image write on this
+  ;; thread declines: the stamp covers the records, and a settle moves belief without
+  ;; writing one, so an image of a network a settle is deciding would pass the next open's
+  ;; check and install belief no settled KB held.
+  (let [dir (tmpdir)]
+    (try
+      (let [kb      (open dir)
+            _       (content! kb)
+            parked  (promise)
+            release (promise)
+            orig    @#'settle/resolve-contradictions
+            armed   (atom true)]
+        (with-redefs [settle/resolve-contradictions
+                      (fn [& args]
+                        (when (compare-and-set! armed true false)
+                          (deliver parked true)
+                          @release)
+                        (apply orig args))]
+          (let [w (future (v/assert kb '(dog Spot) 'CxUniverse))]
+            (try
+              (is (true? (deref parked 10000 false)) "the settle never reached its resolution")
+              (is (nil? (ri/save! kb)) "an image was written while a settle held the network")
+              (finally (deliver release true) (deref w 10000 nil)))))
+        (is (some? (ri/save! kb)) "the settle has published, and the image is written")
+        (v/close! kb))
+      (finally (rm-rf! dir)))))
+
 (deftest a-kb-whose-belief-does-not-cover-its-records-writes-no-image
   (testing "a loader declared the belief unbuilt"
     (let [dir (tmpdir)]
@@ -250,8 +339,8 @@
         (finally (rm-rf! dir))))))
 
 (deftest every-kb-atom-is-imaged-or-named-as-left-alone
-  (let [kb    (v/open-kb {:space 15 :recover? false})
-        atoms (into #{} (keep (fn [[k x]] (when (instance? clojure.lang.Atom x) k)))
+  (let [kb    (v/open-kb {:backend :memory :space [::atoms] :recover? false})
+        atoms (into #{} (keep (fn [[k x]] (when (instance? clojure.lang.IAtom x) k)))
                     (concat kb (reasoning/of kb)))]
     (is (= atoms (set/union (set ri/state-atoms) ri/unimaged-atoms))
         "a new KB atom must be carried by the image or named in `unimaged-atoms`")))
@@ -300,6 +389,35 @@
      (is (= :not-writable (:reasoning-image ex)))
      (is (= {:reasoning :recovered :reason :absent} (:reasoning-image im)))
      (is (= (belief a) (belief b))))))
+
+(deftest a-dump-written-while-the-kb-moved-carries-no-image
+  ;; The network is read after the walks and stamped with their fingerprints.  A write
+  ;; between the two — here from the export's own progress callback, once the sentexes
+  ;; have streamed — would install on import as belief the streamed records never had:
+  ;; the premise is in the dump and OUT in the network.
+  (let [dir  (tmpdir)
+        dump (str dir "/dump")
+        open (fn [tag] (v/open-kb {:backend :memory :space [::moved-dump tag] :recover? false}))
+        a    (open :a)
+        _    (v/assert-rule a '[(dog ?x)] '(animal ?x) 'CxUniverse {:direction :forward})
+        hs   (mapv #(v/assert a (list 'dog (symbol (str "Dog" %))) 'CxUniverse) (range 3))
+        done (atom false)]
+    (try
+      (let [ex (v/export! a dump {:chunk-size 1
+                                  :on-progress (fn [{:keys [phase]}]
+                                                 (when (and (= :justifications phase)
+                                                            (compare-and-set! done false true))
+                                                   (v/retract! a (first hs))))})
+            b  (open :b)
+            im (v/import! b dump)]
+        (is @done "the retraction ran mid-export")
+        (is (= :not-writable (:reasoning-image ex)))
+        (is (= {:reasoning :recovered :reason :absent} (:reasoning-image im)))
+        (is (v/ask? b '(dog Dog0) 'CxUniverse)
+            "the premise the dump streamed is believed, as a recover of it believes it")
+        (is (v/ask? b '(animal Dog0) 'CxUniverse) "and so is what it derives")
+        (doseq [kb [a b]] (v/clear! kb)))
+      (finally (rm-rf! dir)))))
 
 (deftest the-records-stamp-covers-the-justifications
   (let [dir (tmpdir)]

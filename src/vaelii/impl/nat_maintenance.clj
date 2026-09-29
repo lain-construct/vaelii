@@ -61,7 +61,7 @@
 ;; ---- the assert path ------------------------------------------------------
 
 (defn reconcile-assert
-  "The reified-NAT maintenance a just-stored `sentence` in `context` calls for, run after
+  "The reified-NAT maintenance a just-stored `sentence` calls for, run after
   the sentence is in and its own chaining has settled.  `opts` is the assert's, carried
   through to the chain a computed `genlCx` edge's merges run.
 
@@ -70,8 +70,8 @@
   - `nat/reconcile-nats!` — the collision merge a rename may have caused, and the
     correspondence a value, an application or a declaration arriving last leaves to
     settle (docs/nat.md).
-  - `context-nat/reconcile-genlCx` — the structural `genlCx` edges a fact stored into a
-    `cx/` context, or a `contextArgSubrelation` declaration, entails; materialized
+  - `context-nat/reconcile-genlCx` — the structural `genlCx` edges a context's mint, a
+    `contextArgSubrelation` declaration or an `R`-evidence fact entails; materialized
     justified so they belief-follow (docs/context-nat.md).  A computed edge widens which
     merges a context can see exactly as a stated one does, so
     `apply-computed-edge-merges` gives it the same follow-through — nil, and one test,
@@ -83,11 +83,11 @@
   nothing to reconcile.  So a KB that reifies nothing pays neither the
   `any-context-subrelations?` index read nor the correspondence count
   (`assert_cost_test`)."
-  [kb sentence context opts]
+  [kb sentence opts]
   (when (and (nat/any-reifiable-functions? kb) (sequential? sentence))
     (nat/reconcile-nats! kb sentence)
     (apply-computed-edge-merges
-     kb (context-nat/reconcile-genlCx kb sentence context) opts)))
+     kb (context-nat/reconcile-genlCx kb sentence) opts)))
 
 ;; ---- the teardown path ----------------------------------------------------
 
@@ -182,12 +182,14 @@
     whole NAT population; `remove-orphaned-nats!` says why a merely *defeated* use is not
     a use that went, and why collecting on one would be the dangling symbol rather than
     the fix for it.
-  * **`rollback-batch!` passes nothing and asks the whole KB.**  It is putting a KB
-    back rather than taking something out of one, so the claim it owes — the KB is as it
-    was found — is about all of it rather than about one teardown's region; and a
-    preview's batch reached this sweep at no point, having run with the settle sweep off
-    (`settle/*sweep?*`).  A rollback runs once per batch, and only for a preview or a
-    batch that refused, so the whole-KB cost is one it can carry.
+  * **`rollback-batch!` for a batch passes nothing and asks the whole KB.**  It is
+    putting a KB back rather than taking something out of one, so the claim it owes — the
+    KB is as it was found — is about all of it rather than about one teardown's region;
+    and a preview's batch reached this sweep at no point, having run with the settle
+    sweep off (`settle/*sweep?*`).  A rollback runs once per batch, and only for a
+    preview or a batch that refused, so the whole-KB cost is one it can carry.  The
+    rollback of a single refused `assert` passes its removal record, since its settles
+    ran with the sweep on.
 
   **The two arms therefore ask different questions, not one question at two costs.**  The
   region arm asks what a teardown's removals orphaned; the whole-KB arm asks which

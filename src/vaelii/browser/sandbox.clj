@@ -23,10 +23,12 @@
   - **The context is created on the first write, not on the first page.**  A reader who
     only looks costs the KB nothing, and a KB full of empty sandboxes would be a KB with
     a `genlCx` edge per idle visitor.
-  - **The session id is in the context name**, so two readers of one process never share
-    one.  It is minted into a cookie by `wrap-session` and validated on the way back in —
-    a name is being built from it, and a name built from unvalidated client input is an
-    injection.
+  - **A digest of the session id is in the context name**, so two readers of one
+    process never share one.  The id is minted into a cookie by `wrap-session` and
+    validated on the way back in — a name is being built from it, and a name built from
+    unvalidated client input is an injection.  The name carries a digest rather than the
+    id because every reader sees every context's name (`/find`, `CxWell`'s term page,
+    `/op :contexts`), and the id is what the cookie carries.
   - **Reset is a real teardown**, not a flag: every sentex in the extent goes through
     `edit`'s `:remove`, and the `genlCx` edge with them.  The edge is not in the
     extent — `genlCx` is a forced-decontextualized predicate, so it is stored in
@@ -61,11 +63,15 @@
 
 (defn context-for
   "The sandbox context named by `token`, or nil when the token is not one we minted.
-  `CxSandbox<token>` satisfies the context naming invariant (`Cx` prefix,
-  CapitalCamelCase), so it is an ordinary context in every other respect."
+  `CxSandbox<digest>` satisfies the context naming invariant (`Cx` prefix,
+  CapitalCamelCase), so it is an ordinary context in every other respect.  The digest
+  is the first 128 bits of the token's SHA-256: the name is listed to every reader, so
+  it must not be a cookie value one of them can send."
   [token]
   (when (and token (re-matches token-pattern (str token)))
-    (symbol (str "CxSandbox" token))))
+    (let [d (.digest (java.security.MessageDigest/getInstance "SHA-256")
+                     (.getBytes (str token) java.nio.charset.StandardCharsets/UTF_8))]
+      (symbol (apply str "CxSandbox" (map #(format "%02x" %) (take 16 d)))))))
 
 (defn- cookies
   "The request's cookies as a map, parsed off the raw header.  Ring's cookie middleware

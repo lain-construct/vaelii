@@ -50,7 +50,11 @@
   ;; and again when a compaction finishes, so the interval floors the probe and the
   ;; rewrite alike.
   (atom {}))
-(defonce ^:private compaction-paused (atom false))
+(defonce ^:private compaction-paused
+  ;; How many pauses are open.  A count and not a flag, so two imports that overlap each
+  ;; hold the pause for their own duration: the first to finish closes its own pause and
+  ;; leaves the other's standing.
+  (atom 0))
 (defonce ^:private compaction-stopped
   ;; Set by `stop!` under `lifecycle`, cleared by the next `register!` under the same
   ;; monitor.  Without it a tick already inside `submit-compaction!` when `stop!` ran
@@ -85,15 +89,17 @@
   For a bulk load, whose monotonic delta accumulation trips the dead-ratio trigger
   repeatedly and would rewrite a growing multi-GB index mid-load — stalling the writer
   on the backend lock each time — pause for the load's duration and let the next tick
-  compact once afterwards.  Idempotent; pair with `resume-compaction!`, or wrap the load
-  in `call-with-compaction-paused`.  Only the daemon's automatic firing is gated: a
-  manual `compact!` and the dead-ratio bookkeeping are untouched."
-  [] (reset! compaction-paused true))
+  compact once afterwards.  Each call opens one pause and is paired with one
+  `resume-compaction!`, or the load is wrapped in `call-with-compaction-paused`; the
+  daemon stays paused while any pause is open.  Only the daemon's automatic firing is
+  gated: a manual `compact!` and the dead-ratio bookkeeping are untouched."
+  [] (swap! compaction-paused inc) nil)
 
 (defn resume-compaction!
-  "Re-enable background auto-compaction paused by `pause-compaction!`.  The next flush
-  tick compacts any backend whose dead ratio has crossed the threshold."
-  [] (reset! compaction-paused false))
+  "Close one pause opened by `pause-compaction!`; a call with none open does nothing.
+  When the last open pause closes, the next flush tick compacts any backend whose dead
+  ratio has crossed the threshold."
+  [] (swap! compaction-paused #(max 0 (dec (long %)))) nil)
 
 (defn call-with-compaction-paused
   "Run `thunk` with background auto-compaction paused, resuming on the way out (even on
@@ -215,7 +221,7 @@
   and the cost of that is detection latency bounded by the same interval — which is
   what the floor already promised the rewrite."
   []
-  (when (and (auto-compact?) (not @compaction-paused))
+  (when (and (auto-compact?) (zero? (long @compaction-paused)))
     (let [now       (System/currentTimeMillis)
           interval  (config/disk-compact-min-interval-ms)
           threshold (compact-dead-ratio)]
@@ -323,7 +329,7 @@
 
 (def ^:private quiesce-timeout-ms
   "How long `await-compaction-quiescent!` waits before giving up and saying so.  Long
-  enough that no honest rewrite hits it — an aborted one stops at its next frame check
+  enough that no rewrite making progress hits it — an aborted one stops at its next frame check
   and a KV rewrite is bounded by the live key count — and short enough that a wedged
   compactor does not hang a close forever.  Not a config knob: a caller that has to tune
   this has a bug behind it, and the log line names which store."

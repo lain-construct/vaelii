@@ -3,72 +3,12 @@
 (ns vaelii.negation-oracle-test
   "Incremental P/¬P pairing finds the same nogoods an exhaustive pass does.
 
-  `settle` has to know which believed negations coexist with a believed positive of the
-  same body, jointly visible from some context — and that question is exhaustive by
-  nature: every doubly-stored body, every believed sentex of each polarity, crossed.
-  Asking it that way costs two belief-filtered `query` calls and a cross product per
-  opposed body per settle *round*, and a settle runs after every mutation, so a KB would
-  load N contradictions in quadratic time even when no two of them share a term.
-
-  So the engine narrows it twice, and each narrowing is a *claim* that what it skips
-  cannot have changed the answer:
-
-  * **`:opposed`** (`kb/note-opposed!`) — a body with no stored twin can pair with
-    nothing, so it is never looked at.  That narrowing is old and this namespace takes it
-    for granted; `lein perf`'s `negation-load` is what holds it.
-  * **the per-body memo** (`settle/*incremental-negations*`) — only the opposed bodies
-    this settle could have moved are re-derived, and every other body's pairs and
-    priorities are carried forward from the last settle verbatim.  That is what these
-    tests are about.
-
-  A wrong narrowing is not a crash.  It is a dilemma that stops being reported, or a
-  defeat that stops being applied, on a KB that looks entirely healthy — the failure mode
-  a unit test written against a hand-built scenario is worst at catching, because the
-  scenario names the very pair the narrowing would have to skip to be wrong.
-
-  `settle/*incremental-negations*` bound to `false` is the exhaustive question, asked in
-  full on every call.  The randomized oracle below runs the same operation sequence into
-  two KBs, one each way, and compares **after every step**: believed content, the
-  dilemmas, the conflicts, and whether the write was refused at all.  Step by step rather
-  than at the end, so a divergence names the operation that caused it.
-
-  ## What the memo has to be told, and by what
-
-  Three things move a body's pairing, and no one of them sees the other two.  The
-  directed tests after the oracle isolate each, because a random stream that happened not
-  to generate one would report a clean run:
-
-  * **a store or a removal** — a second `(not S)` arriving in another context pairs two
-    sentexes that were *both already believed*, so no label moves and the relabelled
-    region is empty.  `note-opposed!` posts the body as dirty.
-  * **a relabel** — a defeat or a revival changes which pairs are believed while nothing
-    is stored.  `jtms/touched` carries it.
-  * **a genlCx edge** — joint visibility is read through that closure rather than
-    through either side's handles, so an edge can make a pair visible that neither side
-    went near.  Each entry records the visibility verdict for the contexts it crosses,
-    and the entries whose verdicts moved are the ones re-derived.
-
-  And one that is none of the three: a **supersession flip**, which subtracts a spelling
-  from belief with no relabel to record it (docs/equality.md).  `settle-finish` hands
-  those handles over by name, exactly as it does to the taxonomy reconcile beside it.
-
-  ## What these tests reach, checked by breaking it
-
-  Each of the three inputs above has a directed test that goes red when that input alone
-  is removed — dropping `:dirty` reddens the retraction case, dropping `jtms/touched` the
-  revival case, dropping the visibility verdicts the exposure and withdrawal cases — and
-  the randomized oracle catches all three as well.
-
-  The supersession hand-off is the one mechanism here that **nothing below reaches**, and
-  the reason matters rather than leaving as a gap.  Displacing a body normally
-  *carries* its entry rather than dropping it: migration writes the twins on the
-  representative's body, so nothing stores, removes or relabels on the displaced one, and
-  the carried entry is filtered out on belief while it is displaced and simply becomes
-  live again when the merge goes.  The hand-off matters only when something *else*
-  re-derives the displaced body mid-window and drops the entry — a shape these streams do
-  not generate, since a rule firing at a displaced conclusion is placed at the
-  representative rather than at the displaced spelling.  `settle/note-supersession-flips!`
-  carries the argument; a stream that produced the shape would belong here."
+  A randomized oracle runs one operation stream into two KBs, one with
+  `settle/*incremental-negations*` bound false, and compares believed content, dilemmas,
+  conflicts and refusals after every step, so a divergence names its operation.  The
+  directed tests for `:dirty`, the relabelled region and the visibility verdicts
+  (docs/nmtms.md, \"The negation memo\") each go red when that input alone is removed.
+  None generates the supersession window `settle/note-supersession-flips!` covers."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is]]
             [vaelii.core :as v]
@@ -82,10 +22,8 @@
 ;; ---- the shared ontology ------------------------------------------------
 
 (def ^:private ctxs
-  "Three contexts, two of them **incomparable**: `CxNegLeft` and `CxNegRight`
-  both inherit `CxNegBase` and neither sees the other.  A pair straddling them is
-  invisible until something below both exists, which is the joint-visibility case
-  `common-descendant?` answers and the `sees?` test alone would miss."
+  "Three contexts: `CxNegLeft` and `CxNegRight` both inherit `CxNegBase` and neither
+  sees the other, so a pair straddling them pairs only once a context below both exists."
   '[CxNegBase CxNegLeft CxNegRight])
 
 (def ^:private preds '[nflies nswims nsings])
@@ -99,11 +37,8 @@
 ;; ---- the operation stream -----------------------------------------------
 
 (defn- rand-op
-  "One write, drawn to hit every route a negation nogood can arrive, leave and come back
-  by: either polarity of a shared body in any of the three contexts, at either strength
-  (so a pair can be decided by rank or stand as a dilemma), retraction of either side,
-  and — the case no store or relabel announces — a `genlCx` edge arriving *after* a
-  pair that only it makes jointly visible."
+  "One write: either polarity of a shared body in any context, at either strength,
+  retraction of either side, or a `genlCx` edge that makes standing pairs jointly visible."
   [^java.util.Random rng]
   (let [ctx  (nth ctxs (.nextInt rng (count ctxs)))
         pred #(nth preds (.nextInt rng (count preds)))
@@ -115,17 +50,14 @@
       (3 4 5) [:assert (list 'not (body)) ctx (str8)]
       6       [:retract (body) ctx]
       7       [:retract (list 'not (body)) ctx]
-      ;; the third context is dropped *below* the other two, which makes every
-      ;; left/right pair standing at the time jointly visible at once — with no handle
-      ;; of any of them stored or relabelled
+      ;; CxNegJoin below both sides exposes every standing left/right pair at once
       8       [:assert (list 'genlCx 'CxNegJoin (nth ctxs 1)) 'CxUniverse
                {:strength :monotonic}]
       9       [:assert (list 'genlCx 'CxNegJoin (nth ctxs 2)) 'CxUniverse
                {:strength :monotonic}])))
 
 (defn- apply-op!
-  "Run one op, reporting the refusal rather than propagating it — a refusal is an
-  observation the two KBs must agree on, not a reason to stop the trial."
+  "Run one op, returning a refusal's `:type` as an observation the two KBs must agree on."
   [kb [kind sentence context opts]]
   (try (case kind
          :assert  (do (v/assert kb sentence context opts) :ok)
@@ -138,9 +70,7 @@
 ;; ---- the observation ----------------------------------------------------
 
 (defn- clash-key
-  "A reported pair as content: the rank, the `contradicts` form and both sides.  Handles
-  are dropped — they are allocated in arrival order, and the two KBs are compared on what
-  they believe, not on where they put it."
+  "A reported pair as content, without handles, which differ between the two KBs."
   [e]
   [(:priority e) (:sentence e)
    (into #{} (map (juxt :sentence :context :defeat-class)) (:sides e))])
@@ -193,12 +123,8 @@
                (pr-str (diff si se)))))))
 
 ;; ---- oracle 2: the removal whose record is already gone -----------------
-;;
-;; What only `:dirty` covers.  Three sentexes on one body across two contexts; retract one
-;; and the body is still opposed, so its entry must be re-derived — but `note-opposed!`
-;; has already dropped that entry, and the relabelled region cannot help, because the
-;; retracted handle's record is deleted and the settle can no longer ask it which body it
-;; was about.  A memo told only by `jtms/touched` loses the surviving pair here.
+;; Only `:dirty` covers this: the retracted handle's record is gone, so the region cannot
+;; name its body, and `note-opposed!` has dropped the body's entry.
 
 (deftest a-retraction-re-derives-a-body-that-stays-opposed
   (let [[step op si se]
@@ -213,29 +139,16 @@
           ;; one negation goes; the body is still stored in both polarities, so the
           ;; other pair stands and has to be re-derived without it
           [:retract (list 'not '(nflies NA)) (nth ctxs 2)]
-          ;; one more settle, which is where a pair dropped by the retraction and never
-          ;; re-derived would silently stay gone
+          ;; one more settle, where a pair the retraction dropped would stay gone
           [:assert '(nsings NB) (first ctxs) {}]])]
     (is (nil? step)
         (str "diverged at step " step " on " (pr-str op) "\n" (pr-str (diff si se))))))
 
 ;; ---- oracle 2b: the revival nothing writes ------------------------------
-;;
-;; What only the relabelled region covers.  A defeated pair leaves the memo, because
-;; re-derivation is belief-filtered and there is nothing believed to pair — so bringing it
-;; back is not a stale entry to refresh but an absent one to find again.  Here the defeat
-;; is lifted by retracting a *different* body: two rules conclude `(nflies NA)`, and
-;; dropping the known-true route leaves the conclusion standing on the defeasible one at a
-;; lower class, which revives the negation.  Nothing is stored or removed on `(nflies NA)`
-;; — the write is a retraction of `(nq NA)` — so the dirty set is filtered empty and only
-;; `clear-defeats!`'s relabel says the pair is back.
-;;
-;; Note what is *not* testable here, and why the memo need not carry it: a carried
-;; entry's `:priority` cannot go stale in any way a caller can see.  `decide-nogood` reads
-;; the defeat classes live rather than off the entry, and a pair that stays a dilemma has
-;; both members at `:default` by definition — the moment either rises the pair stops being
-;; a dilemma and is decided instead.  So what a carried entry has to get right is *which
-;; pairs exist*, and belief is re-read at every decision.
+;; Only the relabelled region covers this.  Retracting `(nq NA)` drops the monotonic route
+;; to `(nflies NA)`, which then stands at :default and revives the defeated negation, with
+;; nothing stored or removed on the body.  A carried entry's `:priority` cannot go stale
+;; visibly: `decide-nogood` reads classes live, so only which pairs exist is tested.
 
 (deftest a-revival-elsewhere-brings-a-pair-back
   (let [[step op si se]
@@ -263,11 +176,8 @@
         (str "diverged at step " step " on " (pr-str op) "\n" (pr-str (diff si se))))))
 
 ;; ---- oracle 3: the edge that makes a standing pair visible --------------
-;;
-;; Two incomparable contexts each holding one polarity: no context sees both, so there is
-;; no clash.  A context inheriting both then makes every such pair visible at once — with
-;; nothing stored about them and no label moved.  Only the joint-visibility verdict the
-;; memo recorded for the two contexts says so.
+;; Only the recorded visibility verdicts cover this: nothing is stored or relabelled on
+;; either side.
 
 (deftest a-genlCx-edge-exposes-standing-pairs
   (let [[step op si se]
@@ -286,12 +196,8 @@
         (str "diverged at step " step " on " (pr-str op) "\n" (pr-str (diff si se))))))
 
 (deftest a-genlCx-edge-leaving-withdraws-the-pairs-it-exposed
-  ;; The other direction of the same claim, and one the exposure case does not imply.  A
-  ;; memo told what to re-derive by the verdicts it recorded has to notice a verdict going
-  ;; from true back to *false*: a pair that was jointly visible and is not any more must
-  ;; stop being reported, with nothing stored, removed or relabelled on either side of it.
-  ;; Retracting one of the two edges is enough — it makes left and right incomparable
-  ;; again, and every pair the join exposed goes with it.
+  ;; A verdict moving from true back to false: retracting one edge withdraws every pair
+  ;; the join exposed.
   (let [[step op si se]
         (run-stream
          (concat
@@ -306,8 +212,7 @@
            [:retract '(genlCx CxNegJoin CxNegRight) 'CxUniverse]
            ;; one more settle, which is where a pair still carried would keep showing up
            [:assert '(nsings NC) (nth ctxs 1) {}]
-           ;; ...and back, since a verdict that has moved twice is the one a stamp
-           ;; comparing the wrong thing gets right by accident
+           ;; ...and back: the same verdict moving a second time
            [:assert '(genlCx CxNegJoin CxNegRight) 'CxUniverse
             {:strength :monotonic}]
            [:assert '(nflies NB) (nth ctxs 1) {}]]))]
@@ -315,11 +220,6 @@
         (str "diverged at step " step " on " (pr-str op) "\n" (pr-str (diff si se))))))
 
 ;; ---- oracle 4: defeat, then revival -------------------------------------
-;;
-;; A default against known-true content loses, and the loser must come back when the
-;; winner is retracted.  Re-derivation is belief-filtered, so the defeated pair leaves the
-;; memo entirely while it is out; what brings it back is `clear-defeats!` relabelling the
-;; region it sits in, which is the one narrowing input that is *not* a store.
 
 (deftest a-defeated-pair-revives-when-its-defeater-goes
   (let [[step op si se]
@@ -333,13 +233,8 @@
         (str "diverged at step " step " on " (pr-str op) "\n" (pr-str (diff si se))))))
 
 ;; ---- oracle 5: the belief change with no relabel behind it -------------
-;;
-;; A merge displaces a spelling: `in?` subtracts the superseded set, so both sides of a
-;; standing pair stop being believed while neither label moves and nothing on their body
-;; is stored or removed (the twins are written on the *representative's* body).  Dropping
-;; the merge hands the spellings back the same way.  Neither direction reaches
-;; `moved-bodies` through its own two inputs, which is why `settle-finish` posts the
-;; flipped handles by name.
+;; A merge supersedes both sides of a standing pair with no relabel, and dropping it
+;; hands the spellings back the same way.
 
 (deftest a-merge-and-its-undoing-move-a-pair
   (let [[step op si se]
@@ -358,12 +253,7 @@
         (str "diverged at step " step " on " (pr-str op) "\n" (pr-str (diff si se))))))
 
 ;; ---- the standing dilemma an unrelated assert must not erase ------------
-;;
-;; The bug the carry-forward exists to prevent, stated directly rather than differentially:
-;; `contradictions` is recomputed from scratch each settle, so a dilemma whose ingredients
-;; sat still while something unrelated was asserted would be reported once and then
-;; silently vanish.  Directed, because the oracle compares two KBs and would stay green if
-;; *both* of them lost it.
+;; Directed, because the oracle stays green if both KBs lose the dilemma.
 
 (deftest a-standing-dilemma-survives-unrelated-asserts
   (let [kb (tu/fresh)]

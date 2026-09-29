@@ -14,6 +14,7 @@
   of them takes it away again."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.chain :as chain]
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.space :as space]
             [vaelii.test-util :as tu]))
@@ -179,6 +180,54 @@
           (is (true? (:consistent? (v/qualitative-network kb :rcc8 CxClashChain))))
           (is (seq (v/sentexes-matching kb (list contained RegA) '?ctx))
               "blocked, not destroyed — the same revival an excepted conclusion gets"))))))
+
+(tu/deftest-kb a-network-unsatisfiable-only-where-two-contexts-meet-withdraws-the-firing-there
+  ;; Each side's network is satisfiable; only the context seeing both composes A ⊂ B ⊂ D
+  ;; against A disconnected from D.  The settle asks the contexts where the facts meet, so
+  ;; the firing placed there goes and the ones placed on either side stay.
+  (tu/with-terms [RegA RegB RegD containedIn CxLeft CxRight CxMeet]
+    (with-spatial kb
+      (doseq [[sub sup] [[CxLeft 'CxWell] [CxRight 'CxWell] [CxMeet CxLeft] [CxMeet CxRight]]]
+        (v/assert kb (list 'genlCx sub sup) 'CxUniverse {:strength :monotonic}))
+      (doseq [n [1 2]]
+        (v/assert kb (list 'arg containedIn n 'thing) 'CxCore {:strength :monotonic}))
+      (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list containedIn '?x '?y)
+                     'CxWell {:direction :forward})
+      (v/assert kb (list 'nonTangentialProperPart RegA RegB) CxLeft {:strength :monotonic})
+      (v/assert kb (list 'nonTangentialProperPart RegB RegD) CxRight {:strength :monotonic})
+      (let [held? #(seq (v/sentexes-matching kb (list containedIn %1 %2) '?ctx))]
+        (is (held? RegA RegD) "the pair only the meeting context composes fires there")
+        (let [clash (v/assert kb (list 'spatiallyDisconnected RegA RegD) CxLeft
+                              {:strength :monotonic})]
+          (is (true? (:consistent? (v/qualitative-network kb :rcc8 CxLeft))))
+          (is (false? (:consistent? (v/qualitative-network kb :rcc8 CxMeet))))
+          (is (not (held? RegA RegD)) "withdrawn where the network is unsatisfiable")
+          (is (held? RegA RegB) "the firing on the satisfiable side stays")
+          (v/retract! kb clash)
+          (is (held? RegA RegD) "and it comes back with the network"))))))
+
+(defn- redecided
+  "How many justifications `f` puts in front of `chain/justification-excepted?`."
+  [f]
+  (let [n (atom 0), orig chain/justification-excepted?]
+    (with-redefs-fn {#'chain/justification-excepted? (fn [kb j] (swap! n inc) (orig kb j))}
+      (fn [] (f) @n))))
+
+(tu/deftest-kb an-arrival-over-a-satisfiable-network-re-decides-no-standing-firing
+  ;; docs/exceptions.md, "Two withdrawals a firing carries": a satisfiable network
+  ;; withdraws nothing, so the firings a rule over it stands on are not asked again
+  (tu/with-terms [contained CxSteady]
+    (with-spatial kb
+      (v/assert kb (list 'genlCx CxSteady 'CxWell) 'CxUniverse {:strength :monotonic})
+      (v/assert kb (list 'arg contained 1 'thing) 'CxCore {:strength :monotonic})
+      (v/assert-rule kb [(list 'properPartOfRegion '?x '?y)] (list contained '?x)
+                     CxSteady {:direction :forward})
+      (nest! kb CxSteady (into [] (repeatedly 6 #(tu/tmp-ind "Rs"))))
+      (let [[a b] [(tu/tmp-ind "Rs") (tu/tmp-ind "Rs")]
+            n     (redecided #(v/assert kb (list 'nonTangentialProperPart a b) CxSteady
+                                        {:strength :monotonic}))]
+        (is (zero? n) (str n " standing firings re-decided"))
+        (is (seq (v/sentexes-matching kb (list contained a) '?ctx)) "the arrival fires")))))
 
 ;; ---- residency, counted -------------------------------------------------
 ;;

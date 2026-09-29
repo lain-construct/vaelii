@@ -276,10 +276,62 @@ touches nothing but memory — does not allow inside the per-firing loop.
 rather than a set of sentences: a `genl`/`genlCx` edge change (the next section), the two
 argument-side channels — preservation and `arg`-inference — a **declaration** whose
 subject is the exception's predicate, an **equality** moving the closure (all four under
-"Four channels" below), and a rule that has just been indexed. In
+"Five channels" below), and a rule that has just been indexed. In
 each the sentence that moved — an edge, a `(symmetric P)`, a `(sameAs A B)`, nothing at
 all — shares no argument with the exception conjunct, so reading it would narrow the
-firings away rather than down.
+firings away rather than down. Two more paths have no such sentence either, and narrow
+by what the firing's withdrawal reads instead (the next section).
+
+### Two withdrawals a firing carries
+
+Two withdrawals belong to a rule's firings rather than to its exception, and each is
+posted on ordinary fact arrival: an **unsatisfiable network** (`chain/entailment-withdrawn?`,
+posted by `special/recheck-on-qualitative` for every rule joining on a calculus the
+sentence moves, [qcn.md](qcn.md), and by `special/composed-exception-rules` for every
+rule whose block literal the calculus answers, "Five channels" below) and a **more
+specific contrary claim** (`chain/inheritance-withdrawn?`, posted by
+`special/recheck-preserving-firings` for every
+rule with an antecedent on a preserved predicate the sentence moves,
+[inherit.md](inherit.md)). The sentence is no narrowing trigger for either: a constraint
+moves entailments network-wide, and a claim or a reach edge shares no argument with the
+goals it moves, and `:all` would re-decide every firing the rule has made on every
+arrival, quadratic over a load. Each posts a **marker** instead, with its own test
+(`settle/exception-candidates`):
+
+- **`::entailment`.** A firing is withdrawn only while a network its rule joins on is
+  unsatisfiable at the firing's placement context. The *governing* contexts are those
+  holding a fact the network reads, or a `genl` edge into a sub-predicate it reads,
+  closed under meets; every context sees the sentences one of them at or above it sees,
+  less what a defeat or an `except` withdraws below it, and a network over fewer facts is
+  never tighter. So while every governing network is satisfiable
+  (`qcn-kb/unsatisfiable-somewhere?`), the candidates are the rule's **blocked** firings,
+  which a network turned satisfiable releases, and no other; otherwise every firing. A
+  rule whose block literals name a predicate a calculus answers keeps every firing, since
+  that answer moves with the network as a whole: every arrival that moves the calculus
+  re-decides every firing of such a rule. The answer to a ground `(P a b)` moves only
+  with the closed constraint on `(a b)` or with the network's satisfiability, but a
+  firing is decided at join time against the network of that moment, and a baseline of
+  the closed network taken when the queue drains does not hold it: a retraction loosens
+  `(a b)`, a firing joins and is not excepted, and a fact the same settle derives
+  tightens `(a b)` back, so the baseline and the network agree on that pair and the
+  firing, decided against the loosened network, is never asked again. `lein perf`'s `qcn-arrival-over-composed-exceptions`
+  reads the cost, about 13 µs a firing per arrival.
+- **`{::preserving s}`.** A claim moves only a goal whose product holds its tuple, so every
+  argument of such a goal is an argument of the claim or a term one of them licenses. A
+  fact on a relation moves only a goal whose reach crosses it, and a walk from the goal's
+  term reaches the fact's first end whether or not the fact stands, so some argument of
+  the goal is an end of the fact or a term one licenses along it
+  (`inherit/moved-goal-test`, read at `'?ctx`). A firing is a candidate when a goal it
+  bound on a declared predicate passes, read under both spellings when the KB has merged
+  anything. A declaration, `transitive`, `asymmetric`, a permuting mark and a `genl` edge
+  into a declared predicate have no test and keep every firing.
+
+Neither marker narrows what the pass re-chains or which refusals it re-asks: a marked rule
+takes both as an `:all` one does. The entailment test costs the governing networks'
+satisfiability per settle, with nothing per firing, and `lein perf`'s
+`qcn-arrival-over-standing-firings` bounds an arrival over standing firings. The
+preservation test still reads one record per firing, and the chainer's full re-join of the
+same rules (`inherit/rejoin-rules`) is linear in the claims beside it.
 
 ### Re-chaining what was released, not what was touched
 
@@ -293,8 +345,9 @@ matched: quadratic again, and independently of the re-check above.
 Re-derivation is needed for what the pass **released** — the informants of the
 justifications that were blocked and are not any more. A newly *blocked* justification
 has nothing to revive; its conclusion is what the sweep is about to collect. Three
-things are re-chained: those released rules, the rules queued with `:all` (no sentence
-to say whether the move blocked or released), and whatever the sweep itself queued —
+things are re-chained: those released rules, the rules queued with `:all` or a
+withdrawal marker (no sentence to say whether the move blocked or released), and whatever
+the sweep itself queued —
 deleting a fact can release some other rule's exception at derive time, where no block
 ever existed to lift.
 
@@ -342,19 +395,17 @@ elsewhere rather than forgotten:
 | a post-join literal had no answer | no | an aggregate is a *value* that moved, and a queued aggregate rule is re-joined whatever the blocked set did (`settle/rejoin-on-arrival-rules`) |
 | a visibility `except` hides an antecedent | no | an `except` arriving or leaving queues every rule that could fire on the hidden fact (`special/recheck-except`), and queues it with **`:all`** — so it takes the coarse re-join and the refusal is re-derived there. An entry would be one nothing reads |
 
-The record holds four more kinds of entry, none of them a refusal by an exception. Three
-are kept because the thing that refused them was an **absence** that later content can
-fill; the fourth is the opposite, a derivation withheld for something the KB has:
+The record holds three more kinds of entry, none of them a refusal by an exception. Each
+is kept because the thing that refused it was an **absence** that later content can fill:
 
 | entry | kept under | refused because | re-asked when |
 |---|---|---|---|
 | `:constraint` | the rule | `place-fact-conclusion` dropped the conclusion on an `arg` / `genlArg` / `interArg` / `interArgs` / `interArgAndRest` / `quotedArg` conviction: the argument's types had no path to the declared one | a `genl` or `genlCx` generation moved since the entry was decided, or a settle relabelled a sentex naming the convicted term |
 | `:lift` | the source fact | a `decontextualized_predicate` copy from a context that does not see CxUniverse failed the same argument check there | the same two |
 | `:mint` | the declaration | the declared type did not yet reach `thing` (`checks/mintable-type?`), so the declaration minted nothing over its facts | a `genl` or `genlCx` generation moved |
-| `:subsumed` | each antecedent that entails it | the minted type is one a believed membership says more specifically (`checks/subsumed-mint`), so no record was written — or the one written was blocked and swept | the membership it gave way to stops being believed, or a `genl` generation moved |
 
 `settle` re-asks them each pass (`released-constraint-refusals`, `released-lifts`,
-`released-mints`, `released-subsumed`): a conclusion now admissible is placed from the entry, a copy lifted, a
+`released-mints`): a conclusion now admissible is placed from the entry, a copy lifted, a
 declaration's whole sweep run again (`special/entail-existing`), and what each creates goes
 on the agenda. A `:constraint` or `:lift` entry re-asked and still convicted is stamped with
 the current generations and with the term the conviction names **now**
@@ -364,20 +415,14 @@ entry that kept its first term would never be re-asked when the last one is type
 order the arguments were typed in would decide whether the conclusion is placed. Placed, a
 `:constraint` or `:lift` entry withdraws the ledger entry its drop
 filed (`violations/withdraw!`), since the order that brought the type first filed none.
-A `:subsumed` entry is re-derived rather than re-inserted — `checks/constraint-entailments`
-over the antecedent's own sentence, narrowed to the sentence that was withheld — so the
-record comes back justified exactly as the arrival order that never withheld it justifies
-it (docs/argtypes.md). Its two gates are O(1) per entry, which is what lets a KB holding a
-thousand withheld mints re-ask them all on every settle.
+A mint withheld because the KB says it more specifically is the opposite case, a
+derivation withheld for something the KB has, and it has no entry: the settle re-derives
+it when that something leaves (docs/argtypes.md).
 
 `recover` rebuilds the `:mint` and `:lift` entries (`special/rebuild-pending!`); the
 `:constraint` ones are not rebuilt, since that would mean re-firing every forward rule
 over the store, so a KB restarted with a standing constraint drop re-derives it only when
-its rule next fires. The `:subsumed` ones are not rebuilt either, and for the same kind of
-reason: rebuilding them would mean running every declaration's sweep over the store to
-find the mints it withholds. A KB restarted with a withheld mint keeps withholding it —
-which is what the store says — and draws it again when the fact, the declaration or an
-edge under them next moves.
+its rule next fires.
 
 Both unrecorded reasons are covered by a **coarse re-join** rather than by nothing, and
 that is what makes the record an efficiency structure rather than a completeness one.
@@ -568,15 +613,15 @@ Both are gated on the `[:exception-index :rules]` roster being non-empty, so a K
 no `exceptWhen` pays one set read per edge and stops — which matters, because that guard
 is what keeps a deep taxonomy load from going quadratic on the up-closure alone.
 
-### Four channels a declaration or a fact reaches an exception through sideways
+### Five channels a declaration or a fact reaches an exception through sideways
 
 The index's keying is *the exception's predicate and every supertype of it*, which is
 sound for every level-6 prover that answers an exception from content on that predicate
 (or a spec of it) — the fact fan-out, the transitive closures, the symmetric mirror.
-Four things do not, and each arrives with no predicate relationship to the exception
-at all for the genls walk to follow. All four queue `:all`, for the same reason the
-taxonomy path does: what moved is about one predicate and the exception is about
-another, so the sentence could not narrow the right firings anyway.
+Five things do not, and each arrives with no predicate relationship to the exception
+at all for the genls walk to follow. All five keep every firing of the rules they queue,
+for the same reason the taxonomy path does: what moved is about one predicate and the
+exception is about another, so the sentence could not narrow the right firings anyway.
 
 - **Argument preservation, from the relation's side.** `TransitiveInArgProver` answers by
   walking the *arguments'* reach, so `(genl chihuahua dog)` flips an exception on
@@ -635,18 +680,33 @@ another, so the sentence could not narrow the right firings anyway.
   blind: what a released condition owes a re-derivation to includes the firings the
   block already swept, and a swept firing holds no bindings to test.
 
-All four are free for a KB not using the feature: the declarations are read off the
+- **Composition, where a calculus answers the exception.** A registered calculus answers
+  `(spatiallyDisconnected Canary Room)` from `(spatiallyDisconnected Cage Room)` and
+  `(nonTangentialProperPart Canary Cage)`: the network reads one predicate to answer
+  another, and neither fact names the canary and the room together. The genls walk from
+  `nonTangentialProperPart` never reaches `spatiallyDisconnected`, and the `dc` fact's
+  arguments agree with the firing's literal on nothing. `special/composed-exception-rules`
+  closes it: a sentence that moves a calculus (`qkb/calculi-triggered-by`, which counts a
+  sub-predicate's fact and a metric narrowing's source, [qcn.md](qcn.md#what-a-registered-prover-is-reachable-from))
+  queues every rule with a block literal on a predicate the calculus claims or on a
+  super-predicate of one, with the `::entailment` marker, which keeps every firing of such
+  a rule and re-asks every refusal ("Two withdrawals a firing carries"). A `genl` edge
+  under a calculus predicate queues the same rules `:all` from `recheck-genl-edge`, and
+  `special/rules-watching` names them for a defeat.
+
+All five are free for a KB not using the feature: the declarations are read off the
 functor roots behind an O(1) cardinality gate, the declaration roster is a map lookup on
 the functor, and the whole path sits behind the `[:exception-index :rules]` roster being
 non-empty — which is what a KB that merges but carries no re-check condition pays, once
-per merge. All four are read **globally** rather than per context, deliberately: a
+per merge, and the fifth tests the registered calculi against the arriving predicate's
+supertypes. All five are read **globally** rather than per context, deliberately: a
 declaration this context cannot see still qualifies a rule in one that can, and a
 trigger has to be conservative in the direction the answer is.
 
 A firing's **stored bindings** are the other half of that last channel, and they are the
 half a trigger cannot fix. A justification records what matched when it fired, and a
 merge does not go back and edit it — so a re-check substituting them asks about a term
-the KB no longer answers under, and gets the honest empty that reads as *not excepted*.
+the KB no longer answers under, and gets an empty result that reads as *not excepted*.
 The condition's own **written-in constants** are the same problem from the other side: a
 rule is held back from an individual-only rewrite migration, so `(exceptWhen (mskip
 MOne) …)` goes on naming `MOne` after the merge has retired it.
@@ -661,7 +721,7 @@ inheritance re-check. Both scope to the conclusion's context, the scoping every 
 read of the partition takes, since a merge the conclusion cannot see must not rename
 what its own re-check asks about.
 
-The general rule these four are instances of: **a re-check trigger is sound only for the
+The general rule these five are instances of: **a re-check trigger is sound only for the
 provers whose answer is addressed by the key it uses.** Keying on the exception's
 predicate covers every prover that reads content *at* that predicate; a prover that
 reads the arguments, or reads one predicate to answer another, needs its own channel or
@@ -788,10 +848,27 @@ one to write by accident — would look stratified. Everything else is reached t
 the rule index (`rules-by-consequent`, complete whatever a rule's direction), so
 nothing scans.
 
+A check builds each stored rule's node once. `checks/stratification-concluders` returns a
+fn that memoizes the rule-index lookup per predicate and the node per rule handle; each
+check builds one and drops it when it returns, so the store cannot change under it. The
+walk pushes one copy of each state an expansion reaches and writes a state's path only
+when it pushes the state. The graph is dense where an antecedent reads a type with many specs: loading cyc-tiny at
+`:ontology`, the argument-type entailment derives 334 `genl` edges, each walked from up to
+six excepted rules, and a walk yields about 27,000 successors over a hundred rules. With a
+node built per edge reached and a path written per successor, the edge checks took 187 s
+of a 195 s load; with both bounded as above, the whole load takes 7 s
+([kbs.md](kbs.md#cyc-tiny-the-cyc-fixture-the-plugin-ships)). `lein perf`'s
+`edge-stratification-walk` holds the shape: an excepted rule and a variable-consequent rule
+both read a type with n specs, and a `genl` edge's check at 16x the specs reads under 30x.
+
 The check runs **before anything is written**, so a refused rule leaves no partial
 state: no sentex, no justification, and no posting in the rule or exception indexes. It
 throws `ex-info` with `:type :not-stratified` and a `:cycle` naming the nodes and
-edges around the loop.
+edges around the loop. Where several cycles pass through the start, the walk takes each
+node's predicates and each predicate's concluding rules in content order, so the cycle
+named is the same in every arrival order
+(`stratification_test/two-cycles-through-one-rule-name-the-same-cycle-in-either-arrival-order`).
+A stored rule's node is labelled `rule#<handle>`, so the label's number is not.
 
 **Fast path:** with no negative dependency on the rule being added — no exception, no
 `unknown`, no aggregate, no closed-extent negative and no `different` — and no exception
@@ -935,8 +1012,9 @@ no canonical number to align to. It throws `ex-info` with `:type :exception-not-
 The anonymous wildcard `_` is refused for the same reason range restriction refuses it —
 two occurrences are two different variables, so no antecedent can ever bind one.
 
-**Degenerate wrappers.** `exceptWhen` around a non-rule is stripped and ignored, as the
-other wrappers are. Two `exceptWhen`s written together conjoin into one meta-sentex
+**Degenerate wrappers.** `exceptWhen` around a non-rule is refused `:not-well-formed` by
+`assert` and reported so by `check`: an exception blocks what a rule concludes, and a fact
+concludes nothing. Two `exceptWhen`s written together conjoin into one meta-sentex
 (block-if-all); two asserted separately are independent exceptions (block-if-any).
 
 ## The parts
@@ -950,7 +1028,7 @@ other wrappers are. Two `exceptWhen`s written together conjoin into one meta-sen
   form its context answers under** (`condition-normalizer`), the preparation
   `levels/engine-goal` gives a level-6 read and `kb/rewrite-goal` a query: a bound term
   and a written-in constant alike may be a spelling an equality merge has retired, and a
-  conjunct asked as written gets the honest empty that reads as *not excepted*. Nothing
+  conjunct asked as written gets an empty result that reads as *not excepted*. Nothing
   in the registry expands a rule, which is what keeps the check bounded.
   `exceptions-block?` ORs this over a rule's exceptions.
 - **Blocking, in every chainer.** Forward chaining checks before placing

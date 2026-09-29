@@ -11,19 +11,18 @@
     (`put-premise-mark`), and resolved from content rather than arrival order
     (`mark-premise` says why a bare re-assert may not downgrade a class).
   - **The rule slots**, reconciled when a rule is stated twice
-    (`reconcile-rule-slots!`, `join-direction`).
+    (`reconcile-rule-slots!`, `join-engines`).
   - **The dispatch** a sentence takes — imperative, `ist`, rule, or plain fact
     (`assert-one`).
 
-  `*premise-audit*` is the one hook `preview` and `edit!` need: bound to an atom, every
-  mark records the datum's prior state first, which is the whole of what putting a KB
-  back the way it was found requires.
+  `*premise-audit*` is the hook a batch rollback reads (`core/rollback-batch!`).
 
   **`assert-one` takes the re-entry as an argument.**  An `(ist Ctx S)` sentence is not
   stored — it asserts `S` in `Ctx` — so the dispatch re-enters the caller's own entry
   point.  That is `vaelii.core/assert`, and an engine namespace may not require
   `vaelii.core`, so the caller passes it in."
-  (:require [clojure.string :as str]
+  (:require [clojure.set :as set]
+            [clojure.string :as str]
             [vaelii.impl.chain :as chain]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.imperative :as imperative]
@@ -45,12 +44,10 @@
 
 (def ^:dynamic *premise-audit*
   "When bound to an atom, every premise mark on the assert path first records the
-  datum's **prior** premise state here — `{handle {:premise? bool :strength kw}}`,
-  first writer wins.  That is the whole of what `preview` needs to put a KB back the
-  way it found it: a handle it marked and that did not exist before is retracted, one
-  that existed as a non-premise is un-marked, and one that was already a premise gets
-  its original strength back.  `edit!` binds it too, for the same undo on a batch that
-  refused.  Nil, and free, on every ordinary assert."
+  datum's **prior** premise state here — `{handle {:premise? bool :strength kw
+  :spellings rec}}`, first writer wins, `:spellings` read only for a prior premise.
+  `core/preview`, `core/edit!` and a single `core/assert` bind it, and
+  `core/rollback-batch!` reads it (docs/preview.md, \"The mechanism\")."
   nil)
 
 (defn put-premise-mark
@@ -85,18 +82,25 @@
   assertion changes nothing.
 
   Narrowing a class is `retract!` and re-assert, exactly as it is for a rule's
-  `:direction`, `:defeasible` and `:strength` (docs/canonicalization.md).  A handle that
+  `:engines`, `:defeasible` and `:strength` (docs/canonicalization.md).  A handle that
   is not a premise stands at nothing — `jtms/premise-strength` reads nil, which ranks 0
   — so it takes the offered class whole, and a retraction therefore leaves no class
   behind for the next assertion to inherit."
   [kb h strength]
   (when-let [audit *premise-audit*]
-    (let [tms (reasoning/tms kb)]
-      (swap! audit (fn [m]
-                     (if (contains? m h)
-                       m
-                       (assoc m h {:premise? (jtms/premise? tms h)
-                                   :strength (jtms/premise-strength tms h)}))))))
+    (when-not (contains? @audit h)
+      (let [tms      (reasoning/tms kb)
+            premise? (jtms/premise? tms h)]
+        ;; the spellings are read only for a handle that is a premise already, the one
+        ;; arm of the undo that restores them.  A handle that is not one is retracted
+        ;; instead, and every `assert` runs under an audit, so reading them there would
+        ;; add a record-store read to every new fact for nothing.
+        (swap! audit (fn [m]
+                       (if (contains? m h)
+                         m
+                         (assoc m h {:premise?  premise?
+                                     :strength  (jtms/premise-strength tms h)
+                                     :spellings (when premise? (integrate/spellings kb h))})))))))
   (put-premise-mark kb h (strength/max (jtms/premise-strength (reasoning/tms kb) h) strength)))
 
 (defn check-rule-sentence
@@ -108,25 +112,19 @@
   [kb sentence context]
   (checks/check-rule! kb sentence context))
 
-(defn- join-direction
-  "The direction a rule stated two ways holds in: the **least restrictive** of the two.
+(defn- join-engines
+  "The engines a rule stated two ways runs in: the **union** of the two spellings'.
 
-  `:inert` is the bottom (it runs in neither engine).  `:backward` (backward only) and
-  `:forward-only` (forward only) are partial and incomparable; `:forward` / `:both` are
-  the top — both mean forward + backward.  Joining two spellings that each lack what the
-  other has therefore adds that capability and comes to `:both`, the canonical forward +
-  backward value.  A join rather than a pick, because the two spellings are two claims
-  about the same rule and a rule that may run forwards *and* may run backwards may do
-  both."
+  `#{}` (inert) is the bottom, and the join only ever adds an engine: a backward-only and
+  a forward-only spelling come to `#{:forward :backward}`.  A join rather than a pick,
+  because the two spellings are two claims about the same rule and a rule that may run
+  forwards *and* may run backwards may do both.  A choice or constraint rule is
+  `#{:solve}` in every spelling, so the join leaves it there."
   [a b]
-  (cond
-    (= a b)      a
-    (= :inert a) b
-    (= :inert b) a
-    :else        :both))
+  (sx/canonical-engines (into a b)))
 
 (defn- reconcile-rule-slots!
-  "Bring a re-asserted rule's `:direction` / `:defeasible` to the value the two
+  "Bring a re-asserted rule's `:engines` / `:defeasible` to the value the two
   assertions jointly state, and re-chain it if that newly lets it run forwards.
 
   These two slots are not in the sentex identity key — a rule is one rule however its
@@ -137,8 +135,8 @@
   tie with — the same two assertions reaching two sets of beliefs, which
   `docs/nmtms.md` does not permit.
 
-  So the slots are resolved from **content** instead: the least restrictive direction
-  (`join-direction`), and strict over defeasible — a rule asserted once without
+  So the slots are resolved from **content** instead: the union of the engines
+  (`join-engines`), and strict over defeasible — a rule asserted once without
   `set/defaultRule` is a rule somebody stated as holding outright.  Both are commutative
   and idempotent, so the two orders agree and a third assertion changes nothing.
 
@@ -149,19 +147,19 @@
   fn exists to remove — facts asserted *between* the two spellings would hold
   conclusions at `:default` that the same assertions in the other order hold at
   `:monotonic`.  `jtms/restrength-informant` updates that slot and relabels the
-  affected region.  The direction join needs no such reach-back: it only ever *adds*
-  capability (`join-direction` is a join, never a meet), backward capability is read
+  affected region.  The engines join needs no such reach-back: it only ever *adds*
+  capability (`join-engines` is a join, never a meet), backward capability is read
   off the record at query time, and new forward capability is the `chain-all` below.
 
   The trie key does not carry these slots, and `index-rule-sentex` indexes predicates
   rather than direction, so nothing is re-indexed."
   [kb h stored sentence context opts]
   (let [incoming (res/kb-sentex kb sentence context)
-        dir      (join-direction (:direction stored) (:direction incoming))
+        engines  (join-engines (:engines stored) (:engines incoming))
         def?     (when (and (:defeasible stored) (:defeasible incoming)) true)]
-    (when (or (not= dir (:direction stored))
+    (when (or (not= engines (:engines stored))
               (not= (boolean def?) (boolean (:defeasible stored))))
-      (let [s' (assoc stored :direction dir :defeasible def?)]
+      (let [s' (assoc stored :engines engines :defeasible def?)]
         (p/put-sentex (:records kb) s')
         (when (not= (boolean def?) (boolean (:defeasible stored)))
           ;; Both copies of the conferred strength, together — the record store's
@@ -184,7 +182,7 @@
 
 (defn- assert-rule-sentence
   "Assert a rule **as written** — any `set/*Rule` wrapper included, since the sentex
-  constructor canonicalizes it into the record's `:direction` / `:defeasible`.  The
+  constructor canonicalizes it into the record's `:engines` / `:defeasible`.  The
   well-formedness checks run on the bare rule inside the wrappers.
 
   Idempotent: a re-asserted rule resolves to the existing sentex.  Where the two
@@ -206,7 +204,7 @@
   other entry point.  Left unmarked, `assert` answered with a handle for a rule that the next
   retraction of the generator took away with it.
 
-  All three slots resolve alike, and from **content**: `:direction` and `:defeasible`
+  All three slots resolve alike, and from **content**: `:engines` and `:defeasible`
   in `reconcile-rule-slots!`, `:strength` below by taking the stronger.  A re-assert
   carrying no `:strength` states nothing about the class — the `:default` it falls back
   to is the entry point's fallback, not the caller's claim — so reading that silence as a
@@ -258,7 +256,7 @@
         ;;
         ;; **Resolved from content, like the two slots above it.**  `strength/max` takes
         ;; the stronger, so the two orders agree and a third assertion changes nothing —
-        ;; the rule `reconcile-rule-slots!` holds for `:direction` and `:defeasible`, and
+        ;; the rule `reconcile-rule-slots!` holds for `:engines` and `:defeasible`, and
         ;; it holds here for the same reason: a re-assert carrying no `:strength` states
         ;; nothing about the class, so reading that silence as a downgrade made
         ;; `defeat-class` answer differently for the same two assertions in either order.
@@ -299,12 +297,13 @@
       (throw (ex-info (str "exceptWhen names handle " rule-handle ", which is not a rule")
                       {:type :not-well-formed :handle rule-handle :exception (vec exc)})))
     (let [author  (into #{} (vals author-vm))                       ; the rule's author variables
-          inv     (into {} (map (fn [[cv av]] [av cv])) author-vm)  ; {?x ?var0}
-          exc-vars (distinct (mapcat #(filter sx/variable? (tree-seq sequential? seq %)) exc))
+          inv     (set/map-invert author-vm)                        ; {?x ?var0}
+          exc-vars (distinct (mapcat sx/form-vars exc))
           loose   (remove author exc-vars)]
       (when (seq loose)
         (throw (ex-info (str "exception is not closed: " (pr-str (vec loose))
-                             " unbound by the rule's antecedents")
+                             " unbound by the rule's antecedents — bind each one in an antecedent,"
+                             " or take it out of the exception")
                         {:type :exception-not-closed :unbound (vec loose)
                          :exception (vec exc) :rule rule-handle})))
       (let [aligned (sx/sort-conjuncts (map #(sx/canon (res/substitute % inv)) exc))
@@ -354,6 +353,19 @@
   {:type :shape :sentence sentence
    :message (str "an (ist Ctx S) names a context and a sentence, got " (pr-str sentence))})
 
+(defn storage-context
+  "The context a fact whose functor is `pred` is stored in when asserted in `context`:
+  CxUniverse for a `forced_decontextualized_predicate`, `context` otherwise.  Reads the
+  **global** property on purpose: this decides where the sentex is stored, storage does
+  not vary by the writer's visibility, and scoping the placement by what can see the
+  declaration would be circular.  `assert-one` places with it, and `vaelii.core`'s
+  `fact-problems` and `check-reified-inputs!` read with it, so a check reads the fact
+  from the context the store would hold it in."
+  [kb pred context]
+  (if (and pred (tax/has-prop? (reasoning/taxonomy kb) :forced-decontextualized pred))
+    special/universal-context
+    context))
+
 ;; `(ist Ctx S)` handed to `assert` recurses into `assert` with the inner sentence
 ;; (`assert-one` below), and `assert` is defined after it — a genuine forward
 ;; reference, and the only one here: query and settle live below this namespace, in
@@ -384,7 +396,7 @@
 
     ;; Every rule flavour takes one path: a bare `(implies ..)` (a :both rule) and
     ;; any `set/*Rule` wrapping of one.  The wrapper is not stripped here — it is
-    ;; canonicalized into the record's :direction / :defeasible by the sentex
+    ;; canonicalized into the record's :engines / :defeasible by the sentex
     ;; constructor.  Routing through the checked rule path also gets
     ;; range-restriction and rule indexing, rather than storing a plain premise.
     (rules/rule-sentence? (rules/inner-rule sentence))
@@ -404,11 +416,7 @@
     ;; CxUniverse by force — no justification, the fact simply lives there.
     (let [sentence (rules/inner-rule sentence)
           pred    (nm/functor sentence)
-          ;; the global property read on purpose: this decides where the sentex is
-          ;; *stored*, and storage cannot vary by the writer's visibility — scoping
-          ;; the lift by what could see the declaration would be circular
-          context (if (and pred (tax/has-prop? (reasoning/taxonomy kb) :forced-decontextualized pred))
-                    special/universal-context context)]
+          context (storage-context kb pred context)]
       ;; Bulk load skips every check below: each only *validates* (none writes), and
       ;; the caller has guaranteed the corpus is well-formed — including the arg
       ;; store query in `constraint-checks`, the dominant per-fact cost (`:bulk?`).
@@ -423,6 +431,7 @@
                    (when-let [ps (seq (special/wff-problems (reasoning/taxonomy kb) sentence context))]
                      (throw (ex-info (str "not well-formed: " (str/join "; " ps))
                                      {:type :not-well-formed :sentence sentence})))
+                   (checks/check-except-target kb sentence)
                    ;; the rule-set half of well-formedness, for the *other* thing that can
                    ;; close a cycle through negation: a genl / genlCx edge arriving
                    ;; underneath rules already stored (docs/exceptions.md).  Before anything
@@ -433,7 +442,7 @@
                    ;; arriving underneath rules that read the predicate negatively, which
                    ;; is what turns those reads into negation as failure (docs/naf.md)
                    (checks/check-closed-extent-stratified kb sentence context)
-                   (checks/constraint-checks kb sentence context))
+                   (checks/constraint-checks kb sentence context (get opts :strength :default)))
             strength (get opts :strength :default)
             ;; Bulk load skips the dedup trie-walk: a distinct corpus never hits an
             ;; existing sentex, so `create-sentex` directly is the same result the
@@ -460,8 +469,16 @@
                                           (or (tax/has-prop? tax :symmetric pred)
                                               (seq (tax/commuting-groups tax pred)))))))
                        (let [[h s] (kb/create-sentex kb sentence context strength)] [h s true])
-                       (kb/find-or-create-sentex kb sentence context strength))]
+                       (kb/find-or-create-sentex kb sentence context strength))
+            ;; a predicate a mark permutes may store this assertion under a spelling other
+            ;; than the one written, and the row has to remember which, for the mark's
+            ;; leaving to hand it back (`integrate/spellings-key`) — read before the mark
+            ;; below moves the class the record starts from
+            permuted? (integrate/permuting? kb (integrate/permuted-functor sentence))
+            prior    (when permuted? (jtms/premise-strength (reasoning/tms kb) h))]
         (mark-premise kb h strength)
+        (when permuted?
+          (integrate/note-premise-spelling! kb h (:sentence s) sentence strength prior))
         ;; The add-side choke point: the sentex is reflected into every cache
         ;; through the special-predicate table and the exception re-check is queued
         ;; — one call, so no assert path can forget either half.  An equality
@@ -557,36 +574,42 @@
                 mig   (update mig :violations into
                               (concat (:violations lift) (:violations args)
                                       (:violations back) (:violations down)
-                                      (:violations dfn)))
-                seeds (-> [h]
-                          (into (:new mig))
-                          (into (:new lift))
-                          (into (special/minted-seeds kb (:new down)))
-                          ;; the companion rule goes on the agenda so it fires over the
-                          ;; facts already stored, the way a minted generator rule does
-                          (into (:new dfn))
-                          ;; a minted type makes this fact matchable at a type it did
-                          ;; not have, so it goes on the agenda for the same reason the
-                          ;; genl seeds below do — a rule on `(animal ?x)` must fire off
-                          ;; a type the entailment minted, within this same assert,
-                          ;; and a minted genl edge seeds what it brings under a rule
-                          (into (special/minted-seeds kb (:new args)))
-                          (into (special/minted-seeds kb (:new back)))
-                          ;; a new genl edge makes stored facts matchable at a
-                          ;; supertype they did not have — they go back on the agenda,
-                          ;; or the same knowledge would derive different things in
-                          ;; different arrival orders
-                          (into (special/subsumption-seeds kb sentence))
-                          ;; ...and a new genlCx edge makes stored facts visible to
-                          ;; a rule that could not see them, which is the same failure
-                          ;; through the other closure
-                          (into (special/visibility-seeds kb sentence))
-                          ;; ...and a new link of a declared-transitive predicate extends
-                          ;; a closure that is answered rather than stored, so no pair of
-                          ;; it is ever a datum: the partner triggers of the rules joined
-                          ;; to it go back, or the same failure again through a third
-                          (into (special/transitive-seeds kb sentence)))]
-            (when (:chain? opts true) (chain/chain-all kb seeds opts))
+                                      (:violations dfn)))]
+            ;; The seeds feed `chain-all` and nothing else, so an assert that does not
+            ;; chain computes none: `visibility-seeds` alone reads the whole rule-relevant
+            ;; corpus per `genlCx` edge, which an unchained bulk load pays for nothing.
+            (when (:chain? opts true)
+              (chain/chain-all
+               kb
+               (-> [h]
+                   (into (:new mig))
+                   (into (:new lift))
+                   (into (special/minted-seeds kb (:new down)))
+                   ;; the companion rule goes on the agenda so it fires over the
+                   ;; facts already stored, the way a minted generator rule does
+                   (into (:new dfn))
+                   ;; a minted type makes this fact matchable at a type it did
+                   ;; not have, so it goes on the agenda for the same reason the
+                   ;; genl seeds below do — a rule on `(animal ?x)` must fire off
+                   ;; a type the entailment minted, within this same assert,
+                   ;; and a minted genl edge seeds what it brings under a rule
+                   (into (special/minted-seeds kb (:new args)))
+                   (into (special/minted-seeds kb (:new back)))
+                   ;; a new genl edge makes stored facts matchable at a
+                   ;; supertype they did not have — they go back on the agenda,
+                   ;; or the same knowledge would derive different things in
+                   ;; different arrival orders
+                   (into (special/subsumption-seeds kb sentence))
+                   ;; ...and a new genlCx edge makes stored facts visible to
+                   ;; a rule that could not see them, which is the same failure
+                   ;; through the other closure
+                   (into (special/visibility-seeds kb sentence))
+                   ;; ...and a new link of a declared-transitive predicate extends
+                   ;; a closure that is answered rather than stored, so no pair of
+                   ;; it is ever a datum: the partner triggers of the rules joined
+                   ;; to it go back, or the same failure again through a third
+                   (into (special/transitive-seeds kb sentence)))
+               opts))
             ;; **After** the chain, so the entry carries the run that just ran: a
             ;; violation a merge created — the twin that would have made one individual
             ;; both a dog and a cat — is this assert's to report, and
@@ -594,9 +617,5 @@
             ;; (docs/equality.md, "Interactions — Disjointness").  The ledger itself
             ;; accumulates and is emptied only by `clear-violations!`.
             (violations/report kb (:violations mig))))
-        ;; `*defer-settle?*` is bound only while a rule firing mints a skolem NAT
-        ;; mid-fixpoint (`skolemize-conclusion`): the nested `(termOfUnit K E)` assert
-        ;; is monotonic bookkeeping and the enclosing firing settles once when it
-        ;; completes, so settling here per mint is redundant churn (docs/skolem.md).
         (when-not *defer-settle?* (settle/settle kb))
         h))))

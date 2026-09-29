@@ -46,7 +46,14 @@
                           (> (get depth a -1) (get depth b -1)))))
           edges)))
 
-(defn- sound? [t k] (empty? (violations t k)))
+(defn- index-exact?
+  "`:scc-members` is exactly the inverse of `:scc`: the repairs read a component's
+  members off it, so an entry it lacks or keeps is a lift that moves the wrong nodes."
+  [t k]
+  (let [{:keys [scc scc-members]} (rel t k)]
+    (= scc-members (reduce-kv (fn [m n r] (update m r (fnil conj #{}) n)) {} scc))))
+
+(defn- sound? [t k] (and (empty? (violations t k)) (index-exact? t k)))
 (defn- loose? [t k] (boolean (:loose? (rel t k))))
 
 (defn- ty [i] (symbol (str "d" i "_t")))
@@ -358,6 +365,31 @@
       (is (not (tax/sees? t 'CxSpC 'CxSpTop))
           "the ring was what carried SpC up to the top")
       (is (not (tax/sees? t 'CxSpTop 'CxSpA))))))
+
+(deftest a-split-that-leaves-a-smaller-component-indexes-it
+  ;; A split can leave a non-trivial piece, and a relation already loose drops the
+  ;; component whole.  Both rewrite `:scc`, so both must rewrite its inverse with it.
+  (let [t   (tax/create-taxonomy)
+        scc #(:scc (rel t :genlCx))]
+    (tax/add-genlCx t 'CxSsA 'CxSsB 1)
+    (tax/add-genlCx t 'CxSsB 'CxSsA 2)
+    (tax/add-genlCx t 'CxSsB 'CxSsC 3)
+    (tax/add-genlCx t 'CxSsC 'CxSsA 4)
+    (tax/restore-depths t)
+    (is (= 3 (count (scc))))
+    (tax/del-genlCx! t 'CxSsC 'CxSsA 4)
+    (is (= #{'CxSsA 'CxSsB} (set (keys (scc)))) "A and B still see each other")
+    (is (sound? t :genlCx))
+    (testing "a loose relation drops the component from the map and from its inverse"
+      (binding [tax/*defer-depths?* true]
+        (tax/add-genlCx t 'CxSsX 'CxSsY 5)
+        (tax/add-genlCx t 'CxSsY 'CxSsZ 6))
+      (is (loose? t :genlCx))
+      (tax/del-genlCx! t 'CxSsB 'CxSsA 2)
+      (is (empty? (scc)))
+      (is (index-exact? t :genlCx))
+      (tax/restore-depths t)
+      (is (sound? t :genlCx)))))
 
 ;; ---- the same thing through the KB ---------------------------------------
 

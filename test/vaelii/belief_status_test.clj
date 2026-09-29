@@ -108,9 +108,12 @@
             (is (false? (:visible? status)))
             (is (false? (v/believed? kb handle CxStatus))))))
       (testing "a dangling exception remains diagnosable without making its target stored"
-        (let [missing 999999999
+        ;; `assert` refuses an except over an unstored handle, so the except dangles only
+        ;; once its target is retracted
+        (let [missing (v/assert kb (list flies (tu/tmp-ind)) CxStatus {:strength :monotonic})
               eh (v/assert kb (list 'except (sx/sentex-handle missing)) CxStatus
                            {:strength :monotonic})
+              _ (v/retract! kb missing)
               status (v/belief-status kb missing CxStatus)]
           (is (false? (:stored? status)))
           (is (false? (:in? status)))

@@ -271,15 +271,9 @@
 ;; ---- the one ordering key in this family that is read off the source ----
 
 (deftest a-clash-reports-sides-are-keyed-on-content-alone
-  ;; `clash-report` orders a report's two sides by `[sentence context]`, and those two
-  ;; keys are **total**: sentence-plus-context is what identifies a sentex, so two sides
-  ;; agreeing on both are one canonical sentex and one handle — not a pair at all. A third
-  ;; key could therefore only ever be dead weight that reads as assertion order, on a
-  ;; public reading (`contradictions`, `conflicts`).
-  ;;
-  ;; A scan rather than a behavioural arm, for `sort_by_content_key_test`'s reason: the
-  ;; unreachable tie-break is invisible to every reading, so only the source says whether
-  ;; it is there.
+  ;; `[sentence context]` is total, so a handle tie-break in the key is unreachable and
+  ;; invisible to every reading; only the source shows it (`sort_by_content_key_test`'s
+  ;; reason for a scan).
   (let [line (->> (str/split-lines (slurp "src/vaelii/impl/settle.clj"))
                   (filter #(str/includes? % "(sort-by (juxt :sentence :context"))
                   first)]

@@ -159,106 +159,122 @@
   transport that throws something else — or an `ex-info` with no `:type` at all — is still
   the poll not having answered: it is re-thrown with the original as the cause rather than
   falling through to the drained-to-head arm, which would persist a nil cursor and hand
-  back the stale view as though the stream were current."
+  back the stale view as though the stream were current.
+
+  **A pass that throws closes the subscription it opened** (`-feed-close`), unless the
+  stored position names it.  Nothing else holds that token, so the next pass opens
+  another, and the daemon would keep each one until its idle reap."
   [consumer]
   (let [{:keys [handle goal context store view lock]} consumer
         m         (:medium handle)
-        snapshot! (fn [] (reset! view (snapshot handle goal context)))]
+        snapshot! (fn [] (reset! view (snapshot handle goal context)))
+        ;; the subscription this pass opened last, the one a throw leaves unstored
+        opened    (volatile! nil)
+        open!     (fn [] (let [sub (koinii-types/-feed-open m goal context)]
+                           (vreset! opened (:token sub))
+                           sub))]
     (locking lock
-      ;; the stored position is read INSIDE the monitor: read outside it, two callers both
-      ;; see "no cursor", both bootstrap, and the second's snapshot lands on top of the
-      ;; first's applied batch
-      (let [pos0 (read-position store)]
-        (loop [pos     (or pos0
+      (try
+        ;; the stored position is read INSIDE the monitor: read outside it, two callers
+        ;; both see "no cursor", both bootstrap, and the second's snapshot lands on top of
+        ;; the first's applied batch
+        (let [pos0 (read-position store)]
+          (loop [pos   (or pos0
                            ;; bootstrap: open a subscription, snapshot, tail from it
-                           (let [{:keys [token cursor]} (koinii-types/-feed-open m goal context)]
+                           (let [{:keys [token cursor]} (open!)]
                              (snapshot!)
                              {:token token :cursor cursor}))
-               snaps (if (nil? pos0) 1 0)]          ; snapshots taken THIS pass (bounds re-snap)
-          (let [{:keys [token cursor]} pos
-                result   (try {:ok (koinii-types/-feed-poll m token cursor nil)}
-                              (catch Exception e {:err e}))
-                err      (:err result)
-                ;; nil for anything that is not a typed refusal, which is why the arms
-                ;; below branch on `err` itself and read the type only to *classify* it
-                err-type (:type (ex-data err))]
-            (cond
-              ;; the subscription was reaped (idle past the daemon's window) — re-open,
-              ;; snapshot, and tail the fresh subscription (its early events overlap the
-              ;; snapshot; set-safe).  Bounded on the same budget a lag spends: a daemon
-              ;; whose idle window closes between every open and the poll that follows
-              ;; answers this every time, and retrying it unbounded is a `sync!` that never
-              ;; returns while re-reading the whole context each turn — the loop this bound
-              ;; exists to refuse, arrived at by the other road.
-              (= :unknown-subscription err-type)
-              (if (< snaps max-catchup-snapshots)
-                (let [{re-token :token re-cursor :cursor} (koinii-types/-feed-open m goal context)]
-                  (snapshot!)
-                  (recur {:token re-token :cursor re-cursor} (inc snaps)))
-                (throw (ex-info (str "koinii: catch-up lost its subscription again after "
-                                     max-catchup-snapshots " snapshots in one pass — it is"
-                                     " reaped faster than the consumer can open one and poll"
-                                     " it")
-                                {:type :koinii/catchup-thrashing
-                                 :condition :unknown-subscription
-                                 :token token :snapshots snaps}
-                                err)))
+                 snaps (if (nil? pos0) 1 0)]          ; snapshots taken THIS pass (bounds re-snap)
+            (let [{:keys [token cursor]} pos
+                  result   (try {:ok (koinii-types/-feed-poll m token cursor nil)}
+                                (catch Exception e {:err e}))
+                  err      (:err result)
+                  ;; nil for anything that is not a typed refusal, which is why the arms
+                  ;; below branch on `err` itself and read the type only to *classify* it
+                  err-type (:type (ex-data err))]
+              (cond
+                ;; the subscription was reaped (idle past the daemon's window) — re-open,
+                ;; snapshot, and tail the fresh subscription (its early events overlap the
+                ;; snapshot; set-safe).  Bounded on the same budget a lag spends: a daemon
+                ;; whose idle window closes between every open and the poll that follows
+                ;; answers this every time, and retrying it unbounded is a `sync!` that never
+                ;; returns while re-reading the whole context each turn — the loop this bound
+                ;; exists to refuse, arrived at by the other road.
+                (= :unknown-subscription err-type)
+                (if (< snaps max-catchup-snapshots)
+                  (let [{re-token :token re-cursor :cursor} (open!)]
+                    (snapshot!)
+                    (recur {:token re-token :cursor re-cursor} (inc snaps)))
+                  (throw (ex-info (str "koinii: catch-up lost its subscription again after "
+                                       max-catchup-snapshots " snapshots in one pass — it is"
+                                       " reaped faster than the consumer can open one and poll"
+                                       " it")
+                                  {:type :koinii/catchup-thrashing
+                                   :condition :unknown-subscription
+                                   :token token :snapshots snaps}
+                                  err)))
 
-              (some? err)
-              ;; The default is a **keyword literal**, and the pass-through is the
-              ;; override laid over it — not `(or err-type :koinii/feed-error)`, whose
-              ;; `:type` is a form.  The refusal rosters read the sources for a literal
-              ;; `:type :<kw>` inside an `ex-info` (`type_contract_test`), so a
-              ;; form-valued one is a word of the vocabulary neither roster can see:
-              ;; untested and undocumented while every check stays green.
-              (throw (ex-info (str "koinii: catch-up feed error — the poll on subscription "
-                                   (pr-str token) " answered "
-                                   (pr-str (or err-type :koinii/feed-error)) ": "
-                                   (or (ex-message err) (pr-str (class err))))
-                              (merge {:type :koinii/feed-error :token token}
-                                     (when err-type {:type err-type}))
-                              err))
+                (some? err)
+                ;; The default is a **keyword literal**, and the pass-through is the
+                ;; override laid over it — not `(or err-type :koinii/feed-error)`, whose
+                ;; `:type` is a form.  The refusal rosters read the sources for a literal
+                ;; `:type :<kw>` inside an `ex-info` (`type_contract_test`), so a
+                ;; form-valued one is a word of the vocabulary neither roster can see:
+                ;; untested and undocumented while every check stays green.
+                (throw (ex-info (str "koinii: catch-up feed error — the poll on subscription "
+                                     (pr-str token) " answered "
+                                     (pr-str (or err-type :koinii/feed-error)) ": "
+                                     (or (ex-message err) (pr-str (class err))))
+                                (merge {:type :koinii/feed-error :token token}
+                                       (when err-type {:type err-type}))
+                                err))
 
-              :else
-              (let [{:keys [events lagged]} (:ok result)
-                    next-cursor (:cursor (:ok result))]
-                ;; a poll that answered without a cursor cannot be resumed from, and
-                ;; storing the nil would turn the next `sync!` into a bootstrap that
-                ;; re-snapshots silently — so the malformed reply is refused where it lands
-                (when-not (nat-int? next-cursor)
-                  (throw (ex-info (str "koinii: catch-up poll answered "
-                                       (pr-str next-cursor) " as its next cursor — a"
-                                       " cursor is the non-negative integer position the"
-                                       " following poll resumes from, and there is no"
-                                       " resuming from this")
-                                  {:type :koinii/no-cursor :token token :cursor next-cursor})))
-                (cond
-                  ;; fell off the ring: the stored cursor cannot replay the gap.  Snapshot
-                  ;; (the only complete recovery), then resume from the cursor the poll
-                  ;; handed back — the surviving ring events are already in the snapshot.
-                  ;; **Every** lag re-snapshots, not only the first: a second lag in one
-                  ;; pass means events were dropped AFTER the earlier snapshot, so applying
-                  ;; the partial batch onto that view would install a hole and advance the
-                  ;; cursor past it — the exact silent loss this whole path exists to
-                  ;; prevent.  A bound catches a consumer that cannot keep up at all,
-                  ;; which is a real condition to surface rather than thrash on forever.
-                  (pos? (long (or lagged 0)))
-                  (if (< snaps max-catchup-snapshots)
-                    (do (snapshot!)
-                        (recur {:token token :cursor next-cursor} (inc snaps)))
-                    (throw (ex-info (str "koinii: catch-up kept falling off the ring after "
-                                         max-catchup-snapshots " snapshots in one pass — the"
-                                         " consumer is not keeping up with the channel")
-                                    {:type :koinii/catchup-thrashing :condition :lagged
-                                     :token token :snapshots snaps})))
+                :else
+                (let [{:keys [events lagged]} (:ok result)
+                      next-cursor (:cursor (:ok result))]
+                  ;; a poll that answered without a cursor cannot be resumed from, and
+                  ;; storing the nil would turn the next `sync!` into a bootstrap that
+                  ;; re-snapshots silently — so the malformed reply is refused where it lands
+                  (when-not (nat-int? next-cursor)
+                    (throw (ex-info (str "koinii: catch-up poll answered "
+                                         (pr-str next-cursor) " as its next cursor — a"
+                                         " cursor is the non-negative integer position the"
+                                         " following poll resumes from, and there is no"
+                                         " resuming from this")
+                                    {:type :koinii/no-cursor :token token :cursor next-cursor})))
+                  (cond
+                    ;; fell off the ring: the stored cursor cannot replay the gap.  Snapshot
+                    ;; (the only complete recovery), then resume from the cursor the poll
+                    ;; handed back — the surviving ring events are already in the snapshot.
+                    ;; **Every** lag re-snapshots, not only the first: a second lag in one
+                    ;; pass means events were dropped AFTER the earlier snapshot, so applying
+                    ;; the partial batch onto that view would install a hole and advance the
+                    ;; cursor past it — the exact silent loss this whole path exists to
+                    ;; prevent.  A bound catches a consumer that cannot keep up at all,
+                    ;; which is a real condition to surface rather than thrash on forever.
+                    (pos? (long (or lagged 0)))
+                    (if (< snaps max-catchup-snapshots)
+                      (do (snapshot!)
+                          (recur {:token token :cursor next-cursor} (inc snaps)))
+                      (throw (ex-info (str "koinii: catch-up kept falling off the ring after "
+                                           max-catchup-snapshots " snapshots in one pass — the"
+                                           " consumer is not keeping up with the channel")
+                                      {:type :koinii/catchup-thrashing :condition :lagged
+                                       :token token :snapshots snaps})))
 
-                  ;; drained to the head — persist the position and return the view
-                  (empty? events)
-                  (do (write-position! store {:token token :cursor next-cursor})
-                      @view)
+                    ;; drained to the head — persist the position and return the view
+                    (empty? events)
+                    (do (write-position! store {:token token :cursor next-cursor})
+                        @view)
 
-                  ;; in-ring: apply the batch onto the durable view and keep draining
-                  :else
-                  (do (swap! view apply-events events)
-                      (write-position! store {:token token :cursor next-cursor})
-                      (recur {:token token :cursor next-cursor} snaps)))))))))))
+                    ;; in-ring: apply the batch onto the durable view and keep draining
+                    :else
+                    (do (swap! view apply-events events)
+                        (write-position! store {:token token :cursor next-cursor})
+                        (recur {:token token :cursor next-cursor} snaps))))))))
+        (catch Throwable t
+          (when-let [tok @opened]
+            (when-not (= tok (:token (read-position store)))
+              (try (koinii-types/-feed-close m tok)
+                   (catch Throwable c (.addSuppressed t c)))))
+          (throw t))))))

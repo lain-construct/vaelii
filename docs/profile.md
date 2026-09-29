@@ -26,7 +26,7 @@ is the instrument that answers it from outside.
 | `:reads` | `IndexStore` read, keyed by family | which families are read at all |
 | `:fan` | trie walk, keyed by the path's first token | what a walk cost in node probes |
 | `:sift` | set-algebra retrieval, keyed like `:goals` | how wide a superset the probe handed the filter |
-| `:fetches` | `RecordStore` fetch, keyed by kind | how many records a question paged |
+| `:fetches` | `RecordStore` read, keyed by kind | how many records a question paged |
 | `:writes` | `index-sentex`, keyed by functor | what an assert costs each family |
 | `:retracts` | `unindex-sentex!`, keyed by functor | what a retraction costs each family |
 
@@ -47,8 +47,9 @@ milliseconds, at the identical `:reads` count ([storage.md](storage.md)). On the
 store a fetch is a
 positional slot read, a positional frame read and a nippy thaw past the LRU, so the two
 quantities are not even the same order. It counts the protocol call — `get-sentex`,
-`get-justification`, `get-provenance` — and not a backend's internal re-reads, so it reads
-the same on every store.
+`get-justification`, `get-provenance`, `premise-strength`, and the roster reads
+`sentex-ids`, `justification-ids` and `premise-ids`, once per call whatever the roster
+holds — and not a backend's internal re-reads, so it reads the same on every store.
 
 `:retracts` is a tally of its own rather than `:writes` with a sign on it, and `:dead` is
 why. Every other quantity in either is decided by the sentex — its arity, its terms, its
@@ -282,7 +283,7 @@ across runs, machines and a loaded box, which is what lets it live in the suite 
 of behind a command somebody has to remember. Its configuration is pinned rather than
 inherited — `:backend :memory` because the counted calls are `KvIndexStore`'s and the columnar
 store has none, and every retrieval switch at its shipped default — so it says
-the same thing on all eight backend runs of `scripts/test-backends.sh` and all six sweeps
+the same thing on all eight backend runs of `scripts/test-backends.sh` and all seven sweeps
 of `scripts/test-sweeps.sh`.
 
 Budgets are **exact**, not ceilings. A ceiling lets a change spend whatever is already

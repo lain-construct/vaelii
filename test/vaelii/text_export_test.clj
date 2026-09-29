@@ -73,8 +73,7 @@
     (cond-> [s (if (and (symbol? f) (v/has-prop? kb :forced-decontextualized f))
                  ::anywhere
                  (:context sx))]
-      (:antecedent sx) (conj [(:direction sx) (:defeasible sx)
-                              (:assumption sx) (:constraint sx)]))))
+      (:antecedent sx) (conj [(:engines sx) (:defeasible sx) (:effect sx)]))))
 
 (defn- content [kb]
   (let [recs (:records kb)

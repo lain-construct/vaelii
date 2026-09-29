@@ -53,13 +53,13 @@
     records the seat **believes**, not everything it stores: a defeated default is retained
     on purpose and is no part of what the seat holds, so two seats that agree on every
     belief compute one id however differently their stores were built.  Order- and
-    handle-independent for every sentence that names no handle, so two seats that reached
-    the same beliefs by different routes compute the same commit id (belief and storage
-    are order-independent — `docs/nmtms.md`), and a KB exported, pulled and recovered on
-    another seat carries the id across.  A sentence that names a sentex by
-    `(sentexHandle n)` — every koinii response act — digests the number `n`: its locator
-    survives a pull, which keeps handles, and differs between two seats that built the
-    same conversation in different orders.  The Merkle shape buys pure auditability:
+    handle-independent, so two seats that reached the same beliefs by different routes
+    compute the same commit id (belief and storage are order-independent —
+    `docs/nmtms.md`), and a KB exported, pulled and recovered on another seat carries the
+    id across.  A sentence that names a sentex by `(sentexHandle n)` — every koinii
+    response act — digests the named record's own identity in place of `n`
+    (`identity-of`), so a reply is located by its target and two seats that built one
+    conversation in different orders agree on it.  The Merkle shape buys pure auditability:
     `inclusion-proof` yields an audit path and `verify-inclusion` recomputes the root from
     just a `(locator, proof)` pair — no KB — which a flat digest cannot.  `commit-id` fingerprints **knowledge** (what two seats compare to agree they
     hold the same thing); `state-root` is a second root whose leaves fold each record's
@@ -85,7 +85,8 @@
   is `handles` / `sentex`, and the canonicalization is `canonical-sentex`, so a seat
   digests what the store itself would.  Nothing under `vaelii.impl`, and nothing in core
   loads it."
-  (:require [vaelii.core :as v])
+  (:require [clojure.walk :as walk]
+            [vaelii.core :as v])
   (:import (java.io ByteArrayOutputStream DataOutputStream)
            (java.math BigDecimal BigInteger)
            (java.security MessageDigest)))
@@ -97,6 +98,12 @@
 ;; encoder only needs DETERMINISM and INJECTIVITY, not a canonicalization of its own.  It
 ;; must not, however, lean on `pr-str`: a printed form depends on ambient `*print-*` vars
 ;; and cannot type-tag, so two distinct values could print (and thus digest) alike.
+
+(deftype ^:private SentexRef [tag payload]
+  ;; A `(sentexHandle n)` term after `identity-of` has resolved it: `tag` is one of the
+  ;; three reference tags `encode!` specifies, `payload` the value that tag carries.  A
+  ;; type of this module's own, so no value a sentence can hold encodes as a reference.
+  )
 
 (defn- write-len-bytes!
   "Write a length-prefixed byte payload — a 4-byte big-endian count then the bytes — so a
@@ -142,6 +149,19 @@
       symbol   0x0A  <optstr namespace> <str name>
       sequence 0x0B  count:int32  then each element encoded
       char     0x0C  int32 codepoint                          ; legal sentence content (naming/form-rank)
+      target   0x0D  32 raw bytes: the SHA-256 of the named record's identity encoding
+      backref  0x0E  distance:int32                           ; names a record on the current path
+      dangling 0x0F  handle:int64                             ; names no record this seat holds
+
+  The last three are the reference tags: a `(sentexHandle n)` inside a sentence never
+  reaches the encoder as the sequence it is spelled with.  `identity-of` replaces it with a
+  `SentexRef`, so a sentence naming a stored record encodes that record's own digest
+  (0x0D) and not the number one store minted for it.  A record whose walk re-enters a
+  record already being digested — itself, or an ancestor in the chain of targets — encodes
+  0x0E with the number of frames between the two (0 for a record naming itself), which is
+  also a function of content.  A handle that names no record encodes 0x0F with the number:
+  the content is gone, and the number is the only thing left to keep two such references
+  distinct.
 
   The tag makes each type its own space (a symbol, a string and a keyword with the same
   characters take tags 0x0A / 0x08 / 0x09 and so differ); the length/count prefixes make
@@ -180,6 +200,14 @@
     ;; rather than reach the `:else` throw — one poison record would otherwise disable
     ;; commit-id/locate for the WHOLE seat, since commit-id folds every sentex.
     (char? x)    (do (.writeByte out 0x0C) (.writeInt out (int ^Character x)))
+    (instance? SentexRef x)
+    (let [r ^SentexRef x
+          t (long (.tag r))]
+      (.writeByte out (int t))
+      (case t
+        0x0D (let [^bytes b (.payload r)] (.write out b 0 (alength b)))
+        0x0E (.writeInt out (int (.payload r)))
+        0x0F (.writeLong out (long (.payload r)))))
     (sequential? x) (do (.writeByte out 0x0B)
                         (.writeInt out (count x))
                         (doseq [e x] (encode! out e)))
@@ -270,22 +298,94 @@
       :negative
       :positive)))
 
+;; `resolve-refs` and `identity-digest` are mutually recursive: a sentence's references
+;; are resolved by digesting the records they name, and digesting a record resolves the
+;; references in its sentence.
+(declare identity-digest)
+
+(defn- resolve-refs
+  "`x` with every `(sentexHandle n)` term replaced by the `SentexRef` `encode!` writes for
+  it, as `[x' reach]`.  `path` is the vector of handles being digested, outermost first,
+  and the frame `x` sits in is its last element.  `reach` is the smallest path index a
+  back-reference anywhere inside `x` points at, `##Inf` when there is none; `identity-digest`
+  reads it to decide whether a digest depends on the frames above it.  `x` comes back
+  unchanged when it names no handle."
+  [kb memo path x]
+  (cond
+    (v/sentex-handle? x)
+    (let [n (v/handle-id x)
+          i (.indexOf ^java.util.List path n)]
+      (cond
+        (>= i 0)
+        [(SentexRef. 0x0E (- (dec (count path)) i)) i]
+
+        (contains? @memo n)
+        [(SentexRef. 0x0D (get @memo n)) ##Inf]
+
+        :else
+        (if-let [sx (v/sentex kb n)]
+          (let [[d reach] (identity-digest kb memo path n sx)]
+            [(SentexRef. 0x0D d) reach])
+          [(SentexRef. 0x0F n) ##Inf])))
+
+    (sequential? x)
+    (let [rs (mapv #(resolve-refs kb memo path %) x)]
+      (if (every? true? (map (fn [[x' _] e] (identical? x' e)) rs x))
+        [x ##Inf]
+        [(mapv first rs) (reduce min ##Inf (map second rs))]))
+
+    :else [x ##Inf]))
+
 (defn- identity-of
   "A sentex's canonical **identity** as a value: its context, sign (`sign-of`), and
   canonicalized sentence — everything the store keys a sentex on EXCEPT the per-store
-  handle.  The fields come off the constructor already canonical (canonical
-  variables, sorted symmetric arguments, folded comparisons), so digesting them is
-  digesting the same form on every seat."
-  [sx]
-  [(:context sx) (sign-of sx) (v/sentence-of sx)])
+  handle — as `[identity reach]` (`resolve-refs`).  The fields come off the constructor
+  already canonical (canonical variables, sorted symmetric arguments, folded comparisons),
+  so digesting them is digesting the same form on every seat.
+
+  **A reply is located by its target.**  Every koinii response act names its target as
+  `(sentexHandle n)`, and `n` is the number the storing seat minted.  The identity carries
+  the target's own digest in its place (`resolve-refs`, the reference tags in `encode!`), so
+  two seats that built one conversation in different orders compute one locator for each
+  reply, and one commit id."
+  [kb memo path sx]
+  (let [[s reach] (resolve-refs kb memo path (v/sentence-of sx))]
+    [[(:context sx) (sign-of sx) s] reach]))
+
+(defn- identity-digest
+  "The raw SHA-256 of the identity of `sx`, stored at handle `h`, digested as a frame
+  below `path`, as `[digest reach]`.  The digest goes into `memo` (a volatile
+  `{handle digest}` scoped to one enumeration) when no back-reference inside it reaches
+  above its own frame: such a digest is the same wherever the walk meets `h`, and a chain
+  of replies is then digested once per record rather than once per path to it."
+  [kb memo path h sx]
+  (let [path'     (conj path h)
+        [id reach] (identity-of kb memo path' sx)
+        d         (sha256 (canonical-bytes id))]
+    (when (>= reach (count path))
+      (vswap! memo assoc h d))
+    [d reach]))
+
+(defn- new-memo
+  "An empty digest memo for one enumeration (`identity-digest`).  Never held across calls:
+  a KB is mutable, and a digest cached across a write could name a retracted target."
+  []
+  (volatile! {}))
+
+(defn- locator-with
+  "The locator of the stored sentex at `handle`, digesting through `memo`, or nil when the
+  handle names no record."
+  [kb memo handle]
+  (when-let [sx (v/sentex kb handle)]
+    (str locator-prefix (hex (first (identity-digest kb memo [] handle sx))))))
 
 (defn locator-of
   "The locator of the stored sentex at `handle` — `\"sha256:\"` + hex SHA-256 of its
   canonical identity.  Independent of the handle, so it is reproducible on any seat that
-  holds the same assertion.  nil if the handle names no record."
+  holds the same assertion; a `(sentexHandle n)` inside it digests as the record `n` names
+  (`identity-of`).  nil if the handle names no record."
   [kb handle]
-  (when-let [sx (v/sentex kb handle)]
-    (content-locator (identity-of sx))))
+  (locator-with kb (new-memo) handle))
 
 (defn locate
   "The locator `sentence` in `context` **would** have, computed without requiring it be
@@ -293,9 +393,19 @@
   (`v/canonical-sentex`, which sorts a symmetric predicate's arguments against this KB's
   taxonomy) and its identity digested.  So `(locate kb S C)` equals `(locator-of kb h)`
   for the handle `h` that `S`/`C` resolves to — the content-address is a function of the
-  assertion, not of whether or where it was stored, and not of the number it landed on."
+  assertion, not of whether or where it was stored, and not of the number it landed on.
+
+  A sentence that names a handle and is stored reads its locator off the stored record,
+  because a record naming ITSELF digests that reference as a back-reference (`encode!`'s
+  0x0E), which an unstored sentence has no frame to point at."
   [kb sentence context]
-  (content-locator (identity-of (v/canonical-sentex kb sentence context))))
+  (let [csx (v/canonical-sentex kb sentence context)
+        h   (when (some v/sentex-handle? (tree-seq sequential? seq (v/sentence-of csx)))
+              (v/handle-of kb sentence context))]
+    (if h
+      (locator-of kb h)
+      (str locator-prefix
+           (hex (sha256 (canonical-bytes (first (identity-of kb (new-memo) [] csx)))))))))
 
 ;; ---- the Merkle commit: an auditable, domain-separated tree over the state -
 
@@ -401,9 +511,9 @@
 (defn commit-id
   "A content-addressed fingerprint of the seat's **believed knowledge** — the RFC-6962
   Merkle root over its sorted per-sentex content locators, prefixed `\"sha256:\"`.
-  Order-independent and handle-independent for every sentence that names no handle, so two
-  seats believing the same records compute the same commit id whatever order they were built
-  in (a `(sentexHandle n)` inside a sentence digests `n` — the module docstring), and a KB
+  Order-independent and handle-independent, so two seats believing the same records compute
+  the same commit id whatever order they were built in (a `(sentexHandle n)` inside a
+  sentence digests the record it names — `identity-of`), and a KB
   exported, pulled and recovered on another seat carries it across — the flow the
   distributed topology uses: 'pull the same commit' is a git operation, 'agree on the
   commit id' is this.
@@ -417,16 +527,18 @@
   seats meet only if they also derived to the same extent (same rules, same `*max-depth*`).
   For attribution-sensitive snapshot identity, see `state-root`."
   [kb]
-  (merkle-root (map #(locator-of kb %) (believed-handles kb))))
+  (let [memo (new-memo)]
+    (merkle-root (map #(locator-with kb memo %) (believed-handles kb)))))
 
 (defn- record-locator
   "The provenance-scoped locator of the record at `handle`: content-locator of
   `[creator created identity]`.  A `state-root` leaf — identity as `commit-id`'s leaf sees
   it, plus who asserted it and when."
-  [kb handle]
+  [kb memo handle]
   (let [sx   (v/sentex kb handle)
         prov (v/provenance kb handle)]
-    (content-locator [(:creator prov) (:created prov) (identity-of sx)])))
+    (content-locator [(:creator prov) (:created prov)
+                      (first (identity-of kb memo [handle] sx))])))
 
 (defn state-root
   "A content-addressed **snapshot** identity of the seat's believed records — the same
@@ -441,7 +553,8 @@
   seen two ways, so a leaf in one and not the other would make them roots of different
   trees."
   [kb]
-  (merkle-root (map #(record-locator kb %) (believed-handles kb))))
+  (let [memo (new-memo)]
+    (merkle-root (map #(record-locator kb memo %) (believed-handles kb)))))
 
 (defn inclusion-proof
   "The audit path proving `locator` is a leaf of this seat's `commit-id` tree — a vector of
@@ -454,7 +567,8 @@
   against the published root: a stored-but-defeated record is absent from the tree, so
   asking for its proof answers nil rather than a path that verifies against nothing."
   [kb locator]
-  (let [leaves (sorted-leaves (map #(locator-of kb %) (believed-handles kb)))
+  (let [memo   (new-memo)
+        leaves (sorted-leaves (map #(locator-with kb memo %) (believed-handles kb)))
         target (hex (leaf-hash locator))
         m      (first (keep-indexed (fn [i l] (when (= target (hex l)) i)) leaves))]
     (when m (audit-path m leaves))))
@@ -529,31 +643,61 @@
 
 ;; ---- the marker: the untrusted transport payload -------------------------
 
-(defn marker
-  "The transportable marker for the assertion at `handle` — what a seat sends over a
-  transport so another seat can dereference it:
+(defn- named-handles
+  "The distinct handle numbers `sentence` names by `(sentexHandle n)`, in walk order."
+  [sentence]
+  (into [] (comp (filter v/sentex-handle?) (map v/handle-id) (distinct))
+        (tree-seq sequential? seq sentence)))
 
-      {:locator <sha256:hex>  :sentence <asserted form>  :context <ctx>  :seat <claimed>}
-
-  The `:locator` is the part that decides it; `:sentence` / `:context` are a lookup payload
-  the receiver does NOT trust for meaning (it resolves against its own KB and rehashes
-  what it finds), and `:seat` is the *claimed* asserter — the real one comes off the
-  resolved sentex's provenance.  Throws if `handle` names no record."
-  [kb handle]
+(defn- marker-at
+  "`marker`'s body, with `path` the handles whose markers are being built around this one:
+  a handle on it is left out of `:targets`, so a record that names itself, or names a
+  record naming it back, yields a finite marker."
+  [kb handle path]
   (let [sx (v/sentex kb handle)]
     (when (nil? sx)
       (throw (ex-info (str "koinii: no sentex at handle " (pr-str handle)
                            " — it names no record in this KB")
                       {:type :koinii/no-such-handle :handle handle})))
-    {:locator  (locator-of kb handle)
-     ;; the stored `:sentence` IS the asserted form for BOTH signs — a negative sentex
-     ;; keeps its `(not …)` in `:sentence` (docs/storage.md), and the sign is read off
-     ;; that head — so `handle-of` finds it by this field unchanged.  The
-     ;; field travels raw: it is not re-wrapped in `not`, which would double-negate a
-     ;; negative fact into a positive one that resolves to nothing (`:not-received`).
-     :sentence (v/sentence-of sx)
-     :context  (:context sx)
-     :seat     (:creator (v/provenance kb handle))}))
+    (let [path'   (conj path handle)
+          targets (into {}
+                        (keep (fn [n]
+                                (when (and (not (some #{n} path')) (v/sentex kb n))
+                                  [n (marker-at kb n path')])))
+                        (named-handles (v/sentence-of sx)))]
+      (cond-> {:locator  (locator-of kb handle)
+               ;; the stored `:sentence` IS the asserted form for BOTH signs — a negative
+               ;; sentex keeps its `(not …)` in `:sentence` (docs/storage.md), and the sign
+               ;; is read off that head — so `handle-of` finds it by this field unchanged.
+               ;; The field travels raw: it is not re-wrapped in `not`, which would
+               ;; double-negate a negative fact into a positive one that resolves to
+               ;; nothing (`:not-received`).
+               :sentence (v/sentence-of sx)
+               :context  (:context sx)
+               :seat     (:creator (v/provenance kb handle))}
+        (seq targets) (assoc :targets targets)))))
+
+(defn marker
+  "The transportable marker for the assertion at `handle` — what a seat sends over a
+  transport so another seat can dereference it:
+
+      {:locator <sha256:hex>  :sentence <asserted form>  :context <ctx>  :seat <claimed>
+       :targets {n <marker> …}}
+
+  The `:locator` is the part that decides it; `:sentence` / `:context` are a lookup payload
+  the receiver does NOT trust for meaning (it resolves against its own KB and rehashes
+  what it finds), and `:seat` is the *claimed* asserter — the real one comes off the
+  resolved sentex's provenance.  Throws if `handle` names no record.
+
+  **`:targets` carries the marker of every record the sentence names.**  A response act's
+  sentence holds `(sentexHandle n)`, and `n` is this seat's number: a seat that pulled
+  this one holds the same numbers, and a seat that built the same conversation itself
+  holds other numbers for the same records.  `dereference` resolves each target marker on
+  its own seat first and substitutes the handle it finds there, so both kinds of seat
+  resolve a reply.  The key is absent when the sentence names no stored record; a handle
+  already on the chain of markers being built is left out (`marker-at`)."
+  [kb handle]
+  (marker-at kb handle []))
 
 ;; ---- dereference: resolve a marker against the seat's OWN KB --------------
 
@@ -619,7 +763,7 @@
   answer: `handle-of` either consents to the question or it does not, and where it
   consents its nil stands unedited as \"I do not hold that\".  Nothing a seat can STORE
   trips the refusal — a bare disjunction is not assertable and a rule's `or` is
-  polycanonicalized away before storage — so an honest marker never reads as malformed."
+  polycanonicalized away before storage — so a genuine marker never reads as malformed."
   [kb sentence context]
   (try
     {:handle (v/handle-of kb sentence context)}
@@ -628,6 +772,57 @@
         (if (request-refusals t)
           {:refused t}
           (throw e))))))
+
+(def ^:private max-target-depth
+  "How deep a chain of `:targets` markers `dereference` follows before it answers
+  `:malformed` with `:problem :targets`.  Each level is one reply naming the level below,
+  and the chain arrives over an untrusted transport, so its depth is bounded before the
+  recursion reads it."
+  64)
+
+(defn- targets-problem
+  "True when `marker`'s `:targets` is present and not a map of integer handle numbers to
+  maps.  The values are judged as markers when `local-handle` resolves them."
+  [marker]
+  (let [t (:targets marker)]
+    (and (contains? marker :targets)
+         (not (and (map? t) (every? (fn [[k m]] (and (integer? k) (map? m))) t))))))
+
+(defn- local-handle
+  "The handle of `marker`'s sentence in THIS seat's store, as `{:handle h}`, or the failure
+  map `dereference` answers with.  Each `:targets` marker is resolved here first, by the same
+  function, and every `(sentexHandle n)` in the sentence is rewritten to the handle its
+  target has on this seat, so a reply resolves on a seat that minted different numbers.
+
+  A target is looked up in storage, not in belief, and its locator is not compared: the
+  reply's own locator digests each target's identity, so `dereference`'s one comparison
+  checks the whole chain.  A target that fails makes the reply fail with the target's
+  reason, and `:target` names the sender's number for it."
+  [kb marker depth]
+  (let [locator (when (map? marker) (:locator marker))]
+    (if-let [problem (marker-problem marker)]
+      (malformed problem locator)
+      (if (or (targets-problem marker) (> depth max-target-depth))
+        (malformed :targets locator)
+        (let [resolved (reduce (fn [acc [n tm]]
+                                 (let [r (local-handle kb tm (inc depth))]
+                                   (if (:handle r)
+                                     (assoc acc n (:handle r))
+                                     (reduced (assoc (dissoc r :handle) :target n)))))
+                               {} (:targets marker))]
+          (if (:reason resolved)
+            (assoc resolved :locator locator)
+            (let [sentence (if (seq resolved)
+                             (walk/prewalk-replace
+                              (into {} (map (fn [[n h]] [(v/sentex-handle n) (v/sentex-handle h)]))
+                                    resolved)
+                              (:sentence marker))
+                             (:sentence marker))
+                  {:keys [refused] h :handle} (handle-lookup kb sentence (:context marker))]
+              (cond
+                refused  (malformed refused locator)
+                (nil? h) {:resolved? false :reason :not-received :locator locator}
+                :else    {:handle h}))))))))
 
 (defn dereference
   "Resolve `marker` against the seat's OWN KB — the whole point of the distributed
@@ -652,6 +847,13 @@
   - `:not-received` — the marker's sentence is not in this seat's store.  The seat has
     not pulled the commit that carries it; it does **not** fall back to trusting the
     marker's payload.
+  - a target's reason, with `:target` naming the sender's handle number — the marker's
+    `:targets` (`marker`) named a record this seat resolves no handle for, or a target
+    marker that is itself malformed.  Each target is resolved first and its handle on
+    THIS seat substituted into the sentence, so a reply built independently on two seats
+    resolves on both (`local-handle`).  A `:targets` value that is not a map of integers to
+    markers, or a chain deeper than `max-target-depth`, is `:malformed` with
+    `:problem :targets`.
   - `:not-believed` — the sentence IS stored, and this seat does not believe it (a
     defeated default, or a conclusion whose support was withdrawn — both retained on
     purpose, `docs/nmtms.md`).  What a seat *holds* is what it believes, which is the
@@ -666,16 +868,11 @@
   So the marker is never required: meaning, attribution and (via `why-marker`) proof
   all come from what this seat's KB actually holds."
   [kb marker]
-  (if-let [problem (marker-problem marker)]
-    (malformed problem (:locator marker))
-    (let [{:keys [refused] h :handle} (handle-lookup kb (:sentence marker) (:context marker))]
+  (let [r (local-handle kb marker 0)
+        h (:handle r)]
+    (if-not h
+      r
       (cond
-        refused
-        (malformed refused (:locator marker))
-
-        (nil? h)
-        {:resolved? false :reason :not-received :locator (:locator marker)}
-
         ;; `handle-of` is a STORAGE read and the commit family enumerates BELIEF — so
         ;; without this arm a defeated record resolves here while answering no inclusion
         ;; proof, and the two halves of one seat disagree about what it holds
@@ -723,9 +920,10 @@
   `inclusion-proof` fold.  The index is that commit tree's leaf set read backwards, so a
   locator resolves here exactly when it has a leaf to prove."
   [kb]
-  (persistent!
-   (reduce (fn [m h] (assoc! m (locator-of kb h) h))
-           (transient {}) (believed-handles kb))))
+  (let [memo (new-memo)]
+    (persistent!
+     (reduce (fn [m h] (assoc! m (locator-with kb memo h) h))
+             (transient {}) (believed-handles kb)))))
 
 (defn resolve-by-locator
   "Resolve a bare `locator` string against the seat's own KB via `index` (default: a

@@ -1,0 +1,33 @@
+;; CxDisputes — the context koinii's dispute lifecycle marks live in (vaelii.koinii.dispute,
+;; design D9).  A dispute is open, notified, resolved or stale.  Open and resolved are read
+;; off current belief; notified and stale are stored here as ordinary assertions, so `why`
+;; explains them and retracting one reopens the dispute.  The marks are bookkeeping about
+;; clashes, not knowledge a channel reasons with, so nothing sees this context by default.
+;;
+;; Sees CxCore for its vocabulary.  vaelii.koinii.dispute loads this file the first time
+;; it writes a mark into a KB that does not hold it, so the declarations below are in
+;; force where the marks are stored.  Every position is typed as written (quotedArg): the
+;; dispute term is a mention whose sentexHandle arguments no argument type names, the
+;; time is the clock's integer and the reason a symbol, and none of them is a thing a
+;; type membership should be entailed of.
+
+(genlCx CxDisputes CxCore)      ; CxDisputes speaks CxCore's vocabulary
+
+(comment dispute
+         "(dispute (sentexHandle ?h1) (sentexHandle ?h2) …) denotes the dispute over the clash between the sentexes it names, the handles sorted and as many as the clash has: a nogood is a set, and an anti_transitive clash has three members. An unreifiable_function, so an application stays a structural term inside the mark that carries it and nothing is minted for it. The term is the key the notify and stale sweeps read a mark back by (dispute/dispute-term).")
+(unreifiable_function dispute)
+(variable_arity_function dispute)
+(arityMin dispute 1)
+
+(comment disputeNotified
+         "(disputeNotified ?dispute ?at) records that the dispute ?dispute was pushed to subscribers or a person at time ?at, a millisecond clock reading the driver supplies. The mark stops the driver announcing one clash twice; retracting it (dispute/reopen!) returns the dispute to open. See dispute/mark-notified.")
+(binary_predicate disputeNotified)
+(quotedArg disputeNotified 1 non_atomic_term)
+(quotedArg disputeNotified 2 integer)
+
+(comment disputeStale
+         "(disputeStale ?dispute ?at ?reason) records that the dispute ?dispute stayed open past the driver's timeout with no ruling, flagged at time ?at for ?reason (a symbol, e.g. TimedOut). Staleness does not resolve the clash; the dispute is still live and the mark only flags it. See dispute/mark-stale.")
+(ternary_predicate disputeStale)
+(quotedArg disputeStale 1 non_atomic_term)
+(quotedArg disputeStale 2 integer)
+(quotedArg disputeStale 3 symbol)

@@ -686,8 +686,8 @@
 ;; ---- the platform the image publishes on --------------------------------
 ;;
 ;; The commit is `Files/move` with `REPLACE_EXISTING` over a file this process has
-;; mapped, and Windows does not permit that.  CI runs neither Windows nor an honest way
-;; to fake one, so the platform *read* is injected: string-matching `os.name` inside the
+;; mapped, and Windows does not permit that.  CI runs no Windows host and no emulation
+;; of one, so the platform *read* is injected: string-matching `os.name` inside the
 ;; test would assert the expression under test.
 
 (defn- on-windows

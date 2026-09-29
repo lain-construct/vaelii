@@ -12,14 +12,11 @@
 - **Assumes:** context, belief, handle, support, prover, forward join →
   [glossary.md](glossary.md).
 
-Nobody knows how fast the tap runs. Nobody knows how fast the drain empties. Everybody
-knows that the tub fills when the tap runs faster than the drain, and that is a real
-inference over quantities with no figure attached to any of them.
-
-`vaelii.impl.sign` is that inference. A quantity's **sign** is one of three values —
-`SignNegative`, `SignZero`, `SignPositive` — and three declared relations say which
-quantities add, subtract and multiply into which. There are no numbers anywhere in the
-layer.
+Nobody knows how fast the tap runs or how fast the drain empties, and everybody knows the
+tub fills when the tap runs faster than the drain. `vaelii.impl.sign` draws that
+inference. A quantity's **sign** is one of `SignNegative`, `SignZero`, `SignPositive`,
+and three declared relations say which quantities add, subtract and multiply into which.
+The layer holds no numbers.
 
 ## The vocabulary
 
@@ -35,12 +32,11 @@ layer.
 (v/ask? kb '(trendOf WaterLevel SignPositive) ctx)   ;=> true — the tub fills
 ```
 
-Seven predicates, all in `resources/kb/upper/CxMeasure.txt`, beside the measures because
-they are about the same quantities the measures measure:
+The seven predicates live in `resources/kb/upper/CxMeasure.txt`, beside the measures:
 
 | | |
 |---|---|
-| `(signOf Q S)` | Q is negative, nil or positive |
+| `(signOf Q S)` | Q is negative, zero or positive |
 | `(trendOf Q S)` | Q is falling, steady or rising — the sign of its rate of change |
 | `(derivativeOf R Q)` | R is the rate at which Q changes |
 | `(qualitativeSum A B Q)` | Q is A + B |
@@ -48,21 +44,18 @@ they are about the same quantities the measures measure:
 | `(qualitativeProduct A B Q)` | Q is A × B |
 | `(greaterInMagnitudeThan A B)` | A is further from zero than B |
 
-The three arithmetic relations are **declarations about which quantities stand in the
-relation**, not sentences about numbers. `(qualitativeSum Tap Drain NetFlow)` says the
-net flow is the sum of the two; what either of them *is* nobody has said, and the whole
-point is that nobody has to.
+The arithmetic relations say which quantities stand in the relation; no fact states what
+any of them amounts to.
 
-The three sign values are individuals of the type `sign_value`, and they are **jointly
-exhaustive and pairwise disjoint** over the reals: exactly one holds of any quantity.
-That is the same property a relation algebra's base relations have ([qcn.md](qcn.md)),
-and it is what makes a *set* of them a real constraint rather than an absence of
-knowledge — and what licenses a refutation.
+The three sign values are individuals of the type `sign_value`, **jointly exhaustive and
+pairwise disjoint** over the reals, the property a relation algebra's base relations have
+([qcn.md](qcn.md)). So a set of them is a constraint, and excluding a value proves the
+negation.
 
 ## The tables
 
-**Addition.** Zero is the identity, like signs keep theirs, and opposite signs are the
-whole problem:
+**Addition.** Zero is the identity, like signs keep theirs, and opposite signs take the
+sign of the larger addend:
 
 | + | − | 0 | + |
 |---|---|---|---|
@@ -70,126 +63,91 @@ whole problem:
 | **0** | − | 0 | + |
 | **+** | ? | + | + |
 
-`?` is not a failure to compute. The total takes the sign of whichever addend is larger
-and is nil when they are equal, so **all three values survive**, and a goal about the sum
-is answered with nothing at all. Guessing one of three is the single thing this layer
-exists not to do.
+At `?` **all three values survive**, and a goal about the sum is answered with nothing.
+A stated `(greaterInMagnitudeThan A B)` resolves it: the sum takes A's sign, and is not
+zero, since the order is strict. The comparison is between two quantities with no figure;
+`quantityGreaterThan` compares two ground `(QuantityFn …)` terms ([quantity.md](quantity.md)).
 
-**What resolves it** is `(greaterInMagnitudeThan A B)`: the sum then takes A's sign, and
-it is not zero, because "further from zero" is strict. The comparison is between two
-*quantities*, which is what separates it from `quantityGreaterThan` — that one compares
-two ground `(QuantityFn …)` terms through the unit table ([quantity.md](quantity.md)) and
-is the wrong tool here, since the case sign arithmetic is for is exactly the one where
-nobody has a figure. It is declared `transitive` and `asymmetric`, a strict order, so a
-cycle of magnitude claims is a contradiction the KB reports.
+**Subtraction** is addition with the subtrahend negated, so two quantities of the *same*
+sign make the ambiguous difference, and the same comparison of the two quantities
+resolves it.
 
-**Subtraction** is addition with the subtrahend negated, so it shares the table and its
-ambiguity — with the cases turned round. Two quantities of the *same* sign are the
-ambiguous difference, and the same comparison resolves it.
-
-**Multiplication** is never ambiguous. Anything times nothing is nothing, like signs give
-a positive, opposite signs a negative, and magnitudes do not come into it — so no
-comparison is ever read for a product.
+**Multiplication** is never ambiguous: anything times zero is zero, like signs give a
+positive and opposite signs a negative.
 
 ## Trends are signs, one edge along
 
-`(trendOf Q S)` is not a second theory. `(derivativeOf R Q)` says R is the rate at which Q
-changes, and a trend is that rate's sign read at the other end of the edge. So there is
-one arithmetic and one fixpoint, and the edge is a constraint **both ways**:
+`(derivativeOf R Q)` says R is the rate at which Q changes, and `(trendOf Q S)` is R's
+sign read at Q. One arithmetic and one fixpoint serve both, and the edge constrains
+**both ways**:
 
-- *down* — a rate whose sign is known makes the quantity it is the rate of rising, falling
-  or steady. That is the tub.
-- *up* — a quantity stated rising pins the rate that produced it, which can then be an
-  addend of something else, and it makes two rates declared of one quantity agree rather
-  than sit side by side.
+- *down* — a rate with a known sign makes its quantity rising, falling or steady.
+- *up* — a stated trend pins the rate, which can then be an addend elsewhere, and two
+  rates declared of one quantity take the same sign.
 
-A rate is an ordinary quantity, so **the rate of a sum is stated as a sum of the rates**
-rather than read off the sum. That is deliberate: `d(A+B) = dA + dB` is true and
-`d(A×B)` is not a function of `dA` and `dB` at all, so a rule inferring rate arithmetic
-from quantity arithmetic would be right for two of the three relations and quietly wrong
-for the third. Writing the rate relation down is one sentence and it is always right.
-
-`trendOf` is stated directly where the rate has no name worth giving it — a cooling body's
-temperature falls, and nothing needs to be called the cooling.
+A rate is an ordinary quantity, so **the rate of a sum is stated as a sum of the rates**.
+No rule infers rate arithmetic from quantity arithmetic: `d(A+B) = dA + dB` holds, and
+`d(A×B)` is not a function of `dA` and `dB`. `trendOf` is stated directly where the rate
+has no name.
 
 ## The fixpoint
 
-The reading is a **greatest fixpoint** over sets of possible signs, and it is the same
-shape as a path-consistency pass:
+The reading is a **greatest fixpoint** over sets of possible signs, computed as a
+path-consistency pass is (`resolve-state` documents the state and constraint maps). Each
+arithmetic relation is one constraint and each `derivativeOf` edge two; a stated sign
+narrows its quantity to one value, and two stated signs that disagree narrow it to
+nothing. Every step shrinks a set in a three-element lattice over finitely many keys, so
+the pass terminates, and intersection is commutative and associative, so the fixpoint
+does not depend on constraint order. The pass re-applies a constraint only after one of
+its inputs moved, and a narrowed quantity's support shares the supports it was derived
+from rather than copying them, so a chain of n links costs n narrowings and a rebuild of
+the reading is linear in the sign facts (`lein perf`'s `sign-chain-rebuild`).
 
-- a **state** is `{[attribute quantity] → [#{signs} #{handle}]}`, where the attribute is
-  `:sign` or `:trend` and an unrecorded key is all three values — nothing known;
-- a **constraint** narrows one key by what its inputs allow. Each arithmetic relation is
-  one; each `derivativeOf` edge is two, one per direction;
-- a stated `(signOf Q S)` narrows Q to that one value, and **two that disagree narrow it
-  to nothing**;
-- the pass runs every constraint until nothing shrinks.
+**A set narrowed to nothing is a contradiction.** The reading is then `:inconsistent`, a
+`:sign-inconsistency` entry naming the emptied quantities goes to `(violations kb)`, and
+**no** sign goal in that context is answered, a stated one included. It is a report and
+not a `wff` refusal, [as for a qualitative
+network](defenses.md#an-impossible-network-is-reported-off-the-pass-not-thrown-as-a-wff-check).
 
-It terminates because every step shrinks a set in a three-element lattice over finitely
-many keys, and it reaches the same state whatever order the constraints are taken in:
-intersection is commutative and associative, so the fixpoint is unique.
-
-**A set narrowed to nothing is a contradiction.** The reading is then `:inconsistent`, an
-entry goes to the `(violations kb)` ledger as `:sign-inconsistency` naming the quantities
-that emptied, and **no** sign goal in that context is answered — not even one stated
-outright, since an unsatisfiable theory is not mined for conclusions. It is a report and
-not a `wff` refusal for the three reasons [qcn.md](qcn.md) gives: `wff` throws and would
-blame whichever fact arrived last where the clash is a property of the set, the check
-costs a fixpoint and `wff` runs per assert, and the prover is opt-in.
-
-`signOf` is deliberately **not** declared `functional`, though a quantity has one sign.
-`functional` merges two symbol arguments through the equality partition
-([equality.md](equality.md)), so a KB that had said both positive and negative would have
-`SignPositive` and `SignNegative` made one term instead of the contradiction reported.
+`signOf` is **not** declared `functional`, though a quantity has one sign. `functional`
+merges two symbol arguments through the equality partition ([equality.md](equality.md)),
+so a KB that said both positive and negative would have `SignPositive` and
+`SignNegative` made one term instead of the contradiction reported.
 
 ## What a derived sign rests on
 
-`SignProver` implements `prover-types/SupportingProver`, so each answer comes back with the
-handles behind it and a forward rule joining on a derived sign is an ordinary firing that
-the JTMS withdraws when one of them goes.
+`SignProver` implements `prover-types/SupportingProver`, so each answer carries the
+handles behind it, and the JTMS withdraws a forward firing on a derived sign when one of
+them goes.
 
-A narrowing's support is the union of its inputs' supports, the relation's own handle, and
-the comparison's handle where one was read — accumulated **only when the set actually
-moved**, so a constraint that merely agrees with what is already known adds no handle and
-a conclusion rests on what pinned it. It over-approximates one derivation on the two
-counts [qcn.md](qcn.md) states for the qualitative side, and what is guaranteed is the
-piece a justification needs: every handle named was really read, and the set is enough to
-have produced the answer on its own.
-
-**Which** witness a narrowing names is one among several, so the constraints are taken in
-an order fixed by their **content** — the relation and its arguments, and for a derivative
-edge which way it runs. A run keyed on arrival order would make what a conclusion rests on
-depend on when its facts were stored, which is the thing [nmtms.md](nmtms.md) refuses. The
-same reason `qcn-kb/tighten-with-support` declines a warm start.
+A narrowing's support is the union of its inputs' supports, the relation's handle and,
+where a stored comparison decided the result, the comparison's handle, added **only when the
+set moved**. A comparison decides only a sum whose addends can have opposite signs, so a
+product, or a sum of like signs, does not rest on one. It
+over-approximates one derivation on the two counts [qcn.md](qcn.md#support-what-an-entailed-relation-rests-on)
+states. The constraints run in an order fixed by their **content** (relation, arguments,
+edge direction), so which witness a narrowing names does not depend on arrival order
+([nmtms.md](nmtms.md)).
 
 `support-sources` names all seven predicates, so a `greaterInMagnitudeThan` arriving
 *after* the rule and the facts re-joins the rules carrying a sign antecedent
-([inference.md](inference.md), "What a computed answer rests on"). Without it the tub
-would fill or not depending on which of the five sentences was written last.
+([inference.md](inference.md), "What a computed answer rests on").
 
 ## Reading out
 
-A goal `(signOf Q S)` is answered by **entailment**: the possible set must be exactly the
-sign named, since anything wider leaves the question open. An open `S` binds when the set
-is a singleton; an open `Q` enumerates the quantities the reading records, in a content
-order. `(not (signOf Q S))` is answered by **refutation** — the possible set excludes that
-sign — licensed by the three values being jointly exhaustive and pairwise disjoint, so
-ruling one out proves the negation rather than failing to prove the claim.
+A goal `(signOf Q S)` is answered by **entailment**: the possible set must be exactly
+`S`. An open `S` binds when the set is a singleton; an open `Q` enumerates the quantities
+the reading records, in content order. `(not (signOf Q S))` is answered by
+**refutation**: the possible set excludes `S`. An open `S` under a negation is not
+answered.
 
-A quantity the reading never reached is answered with nothing at all, under either
-polarity. There is no closed world here: a term nobody mentioned has no sign the engine
-knows and no sign it can rule out.
+A quantity the reading never reached is answered with nothing under either polarity:
+the engine knows no sign for it and can rule none out.
 
-`cost` is `:compute` (a fixpoint over the stored facts before the first answer),
-`est-bindings` is 1 for a ground check and a small constant otherwise — an estimate must
-not cost what it estimates, and counting the reading's quantities is the whole pass — and
-`completeness` is 100: the stated facts are read *into* the reading and answered back out
-of it, so unioning a raw fact match in would add nothing.
-
-The reading is **resident** on the KB, stamped with the change clock exactly as a
-qualitative network is ([qcn.md](qcn.md), "The network is resident, and the clock is what
-makes that sound"), so a rule joining a sign antecedent over many bindings reads the KB
-once rather than once per binding.
+`cost` is `:compute` and `completeness` is 100. The reading is **resident** on the KB,
+stamped with the change clock as a qualitative network is ([qcn.md](qcn.md), "The
+network is resident, and the clock is what makes that sound"), so a rule joining a sign
+antecedent over many bindings computes it once.
 
 ## Opt-in
 
@@ -197,32 +155,24 @@ once rather than once per binding.
 (v/add-reasoner kb :sign)
 ```
 
-The prover is opt-in and the vocabulary is not — the same split every calculus takes. Until
-it is registered a KB stores and retrieves `signOf` and the rest as ordinary facts, and
-composes none of them.
-
-It is opt-in rather than a member of `default-provers`, where `QuantityProver` sits,
-because of what it reads. A measure comparison is computed from the two ground measures in
-the goal against a small table, answers at `:lookup` cost, and is never a stored fact. A
-sign is a property of a *network* of stated facts and relations, and registering the prover
-changes what a KB **derives** from what it has stored — which is exactly what
-`add-reasoner` is the documented opt-in for. The namespace boundary agrees:
-`default-provers` lives in `vaelii.impl.provers`, which this namespace requires, so a
-default registration would be a require cycle. The six calculi and the three temporal
-reasoners are exposed the same way for the same two reasons.
+The prover is opt-in and the vocabulary is not. Until the prover is registered a KB
+stores and retrieves `signOf` and the rest as ordinary facts and composes none of them.
+`QuantityProver` sits in `default-provers` because it computes from the two ground
+measures in the goal at `:lookup` cost; a sign is read off a network of stored facts, and
+registering the prover changes what a KB derives.
 
 ## What is not here
 
-- **No magnitudes.** Two positives are two positives; nothing here holds "how much", and
-  a KB that does have figures compares them with [quantity.md](quantity.md)'s measures.
-  The two layers do not meet: a `weightOf` measure is not read into a sign, and a sign is
+- **No magnitudes.** A KB with figures compares them with [quantity.md](quantity.md)'s
+  measures. The two layers do not meet: a measure is not read into a sign, and a sign is
   not read out as a measure.
 - **No reverse arithmetic.** A sum's sign is derived from its addends' and never the other
-  way about: knowing the total and one addend does bound the other, and that is a second
-  pass this does not run. The `derivativeOf` edge is the one constraint that runs both
-  ways, because it is an identity rather than an implication.
-- **No division.** `qualitativeProduct` covers the sign of a quotient — the sign table is
-  the same — but nothing declares one, so a KB that wants it states the product the other
-  way round.
+  way about, though the total and one addend bound the other. The `derivativeOf` edge is
+  the one constraint that runs both ways.
+- **No chained comparison.** `greaterInMagnitudeThan` is declared `transitive`, and the
+  reading consults only the stored comparisons: `A > B` and `B > C` leave a sum of `A`
+  and `C` ambiguous although `(greaterInMagnitudeThan A C)` is answered true.
+- **No division.** The sign of a quotient is the sign of a product, and a KB states the
+  product the other way round.
 - **No time.** A trend is the sign of a rate and says nothing about *when*. What holds at
   a moment is the event calculus in [time.md](time.md), and the two are not connected.

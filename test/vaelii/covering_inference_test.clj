@@ -22,6 +22,18 @@
         (v/assert kb (list 'not (list cat Muffet)) 'CxUniverse)
         (is (v/ask? kb (list dog Muffet) 'CxUniverse))))))
 
+(tu/deftest-kb retracting-one-of-two-covers-sharing-a-part-leaves-the-other-reading
+  (tu/with-terms [animal dog cat bird Rex]
+    (let [first-cover (v/assert kb (list 'covering animal dog cat) 'CxUniverse)]
+      (v/assert kb (list 'covering animal dog bird) 'CxUniverse)
+      (v/assert kb (list animal Rex) 'CxUniverse)
+      (v/assert kb (list 'not (list dog Rex)) 'CxUniverse)
+      (is (every? #(v/ask? kb (list % Rex) 'CxUniverse) [cat bird]) "each cover proves its other part")
+      (v/retract! kb first-cover)
+      (is (not (v/ask? kb (list cat Rex) 'CxUniverse)) "the retracted cover proves nothing")
+      (is (v/ask? kb (list bird Rex) 'CxUniverse)
+          "and the cover over the same whole and the same part still does"))))
+
 (tu/deftest-kb a-whole-instance-with-no-part-known-stays-unknown
   (tu/with-terms [animal dog cat Rex]
     (v/assert kb (list 'covering animal dog cat) 'CxUniverse)
@@ -142,12 +154,14 @@
 
 (tu/deftest-kb a-refuted-cover-names-the-evidence-it-is-against
   (tu/with-terms [animal dog cat Rex]
-    (v/assert kb (list 'covering animal dog cat) 'CxUniverse)
-    (let [m (v/assert kb (list animal Rex) 'CxUniverse)
+    (let [c (v/assert kb (list 'covering animal dog cat) 'CxUniverse)
+          m (v/assert kb (list animal Rex) 'CxUniverse)
           n (v/assert kb (list 'not (list dog Rex)) 'CxUniverse)
           d (try (v/assert kb (list 'not (list cat Rex)) 'CxUniverse) nil
                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
       (is (= :cover (:type d)))
       (testing "the membership and the other negation, so arbitration can weigh them"
         (is (contains? (set (:opposing-handles d)) m))
-        (is (contains? (set (:opposing-handles d)) n))))))
+        (is (contains? (set (:opposing-handles d)) n)))
+      (testing "and not the declaration the refutation is read through"
+        (is (not (contains? (set (:opposing-handles d)) c)))))))

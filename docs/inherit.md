@@ -203,6 +203,7 @@ justification's antecedents, so the two behaviours fall out of how the general c
 asserted, with no second declaration:
 
 ```clojure
+;; the declarations and the genl edges under dog and cat {:strength :monotonic}
 (asymmetric largerThan)
 (transitiveInArg largerThan 1 genl)  (transitiveInArg largerThan 2 genl)
 
@@ -211,6 +212,9 @@ asserted, with no second declaration:
 ;   "largerThan cannot hold both ways, and (largerThan dog cat) is known true
 ;    (which reaches (largerThan chihuahua maine_coon) by argument preservation)"
 ```
+
+The refusal reads the claim and its reading together: with a `:default` declaration or
+edge the converse is admitted, and the pair is the dilemma of the next section.
 
 ```clojure
 (asymmetric typicallyLargerThan)
@@ -265,6 +269,19 @@ rather than exclude: defeating a reason dissolves the detection, and that is the
 resolution rather than a bug, because this claim has no sentex of its own for a defeat
 to reach instead.
 
+**The entry point reads the same floor.** `checks/asymmetry-problems` names a converse
+reached by preservation together with its reading (`inherit/claim-reading`), and refuses
+only when every one of them is known-true. Otherwise the converse is stored and this
+section's pair forms, whichever of the two claims arrived first. The settle leaves that
+pair to `preserving-nogoods` and forms no `:asymmetric` pair over the general claim
+alone.
+
+**A claim read over several routes opposes at its strongest reading.** A reading's class
+is its weakest member's, and `claim-reading` and `clashing-claim` take the reading whose
+class is highest, the first in content order among equals. A `:default` shortcut edge
+beside a known-true route of any length therefore leaves the reading known-true, and the
+converse is refused, or defeated, whichever edge arrived first.
+
 The same list `supports-for` hands a justification, and for the same reason: those
 sentexes are what the claim *is*, so a set that must not hold in full is that set and not
 a pair inside it. The report carries `:kind :inherited` and an `:inherited` map naming the
@@ -298,18 +315,44 @@ Nothing about this is a second defeat axis. Specificity still decides who may un
 whom, and defeat class still decides everything else; what changed is that a pair the
 engine could not name now has a name.
 
-**The pair is judged from the stored claim's own context**, which is the vantage the
-inherited claim exists in at all: a claim reaches the contexts that can see it and no
-others. So a general claim stated in a context the stored one cannot see denies nothing,
-and two contexts neither of which sees the other pair nothing. A definitional clash
-split across a visibility edge is weighed at the context that sees both halves instead
-([nmtms.md](nmtms.md), "Who asks the pair's question"); this reach has no such vantage
-to ask from, the second side never having been stored.
+**The pair is judged at every context that reads it whole**: the stored claim's own
+context, and the most general contexts that see the stored claim, the general claim and
+everything the reading rests on. An inherited claim exists only where a reader sees the
+claim and each edge the reach travels, so the vantages are found before any reader is
+asked: `inherit/denial-contexts` reads, from the whole KB, the claims that would deny the
+stored one and the contexts each reading rests on, and `settle/group-vantages` takes the
+most general common descendants of those contexts and the stored claim's
+([nmtms.md](nmtms.md), "A defeat is scoped to its vantage"). Each vantage then asks
+`clashing-claim` on what it sees.
+
+```
+CxA  (bigP mammal insect) :monotonic     CxB  (bigP ant dog) :default
+(genl dog mammal), (genl ant insect) in CxA
+CxW sees CxA and CxB
+```
+
+CxW reads `(bigP dog ant)` by preservation beside the stored converse and weighs the
+pair: with the edges and the declarations known-true the default loses at CxW and below,
+and with any of them a default it is a dilemma CxW reports. CxB, which cannot see the
+general claim, keeps the stored claim either way. With the edges in a context only a
+context below CxW sees, CxW reads no reach and keeps the stored claim, and that lower
+context is the vantage.
 
 **The diagonal is excluded**, as it is for `supports-for`: `witness-terms` is reflexive, so
 the claim stated at the very tuple the stored negation is about comes back through the
 reach too — and that pair is an ordinary `P` beside an ordinary `(not P)`, which
 `negation-nogoods` already forms. Reporting it here as well would report one pair twice.
+
+**A claim never denies the sentence it states.** Under `(asymmetric P)` with both
+arguments preserved, a `genl` cycle between `a` and `b` carries the converse of a stored
+`(P b a)` back to `(P b a)`'s own tuple: the converse sits at `[a b]`, and each position
+reaches the other term around the cycle. That reading files one sentence on both sides,
+the shape `claims` skips at a self tuple (below), so `clashing-claim` and
+`denial-contexts` drop a claim whose sentence is the one asked about. The cycle itself
+is refused at assert, and a live KB still reaches one inside a settle: defeat
+`(genl a b)` through an inherited nogood, assert `(genl b a)` past the cycle check, and
+the settle that places the new edge re-decides the old nogood with `(genl a b)` IN
+([taxonomy.md](taxonomy.md)).
 
 ## `(asymmetric P)`
 
@@ -326,9 +369,10 @@ cannot both hold.
 And it makes a strict order **detectable**. Without it, `(largerThan dog cat)` and
 `(largerThan cat dog)` coexist silently — zero conflicts, both believed — and with
 `(transitive largerThan)` on top you get `(largerThan dog dog)` and nothing objects.
-With it, the second claim is judged against the first's **defeat class**, whether the
-first was stated directly or reached by preservation: known-true, and it is refused;
-merely believed, and the two are admitted as a represented dilemma. Either way the KB
+With it, the second claim is judged against the first's **defeat class**, and a first
+claim reached by preservation against the weakest class of the claim and its reading:
+known-true, and it is refused; merely believed, and the two are admitted as a represented
+dilemma. Either way the KB
 stops holding both directions in silence, which is the whole point of the
 declaration.
 
@@ -473,7 +517,7 @@ first, reads no moved predicates at all, since every extent they would add is al
 the region.
 
 **A defeat inside arbitration moves the same joins with no sentence arriving at all.**
-Belief flips where the solver clears a dilemma, nothing is stored or removed, and so
+Belief flips where arbitration defeats a member, nothing is stored or removed, and so
 nothing queues the re-join an arrival would. `settle`'s `preserved-rejoins-for` reads the
 rules each defeated sentence licensed and re-chains them like any blanket mark, so a
 firing whose named witness went OUT either re-derives through a route that witness did not
@@ -491,9 +535,10 @@ on *its own* declaration, so the one named is the stored sentence's functor's, w
 the goal predicate's only where the two coincide; a symmetry declared on a sub-predicate
 therefore moves every preserved super it feeds. The declaration named is the one no other
 covers from the reader, which is the CxUniverse copy the engine lifts every `(symmetric …)`
-into ([contexts.md](contexts.md#where-a-relation-property-is-read-from)), so a mark stated
-in either of two siblings places the firing at CxUniverse and the firing goes with the last
-statement of it. A firing the ordinary matcher makes over a mirror names the mark the same
+into ([contexts.md](contexts.md#where-a-relation-property-is-read-from)), so the firing
+goes with the last statement of a mark stated in either of two siblings. The declaration
+joins the justification and not the placement, which the claim and the rule decide
+([contexts.md](contexts.md#a-context-outside-the-spindle)). A firing the ordinary matcher makes over a mirror names the mark the same
 way ([inference.md](inference.md#forward-chaining)).
 
 **A more specific contrary claim withdraws a conclusion with nothing retracted.**
@@ -504,7 +549,8 @@ believed, so the justification cannot express the withdrawal. The firing is **bl
 the way an `exceptWhen`-excepted one is (`chain/inheritance-withdrawn?`, queued by
 `special/recheck-preserving-firings`), which means the existing sweep collects the
 conclusion and the existing revival machinery brings it back when the specific claim
-goes. The check is asked only of an antecedent the KB does not state at the bound tuple:
+goes. A settle re-decides only the firings whose goal the moved sentence can bear on
+([exceptions.md](exceptions.md#two-withdrawals-a-firing-carries)). The check is asked only of an antecedent the KB does not state at the bound tuple:
 a stored claim is withdrawn by its own handle going, and asking `verdict` about one would
 block an ordinary firing over a pair the KB happens to hold in both polarities.
 
@@ -601,8 +647,13 @@ feature:
   keep the tuples that land in the product — cost: what was written about that
   predicate.
 
-`found-claims` weighs one against the other per goal: the functor root's cardinality,
-narrowed by the most selective pinned argument position, against the product's size.
+`found-claims` weighs one against the other per goal: the functor roots of every
+predicate the probe fans over (the sub-predicates for a positive probe, the
+super-predicates for a negated one), capped by the most selective pinned argument
+position, against the product's size. A predicate that stores nothing while a
+sub-predicate stores the facts is priced at the sub-predicate's extent, since that is
+what the open probe walks
+(`inherit_test/the-extent-estimate-counts-the-sub-predicates-the-probe-fans-over`).
 The pinned position is read at the place the probe will actually **put** it, which is
 not always the tuple index — the converse an asymmetric predicate is denied by swaps
 them, so a term pinned at tuple index 0 is looked up at argument position 2, and
@@ -612,6 +663,17 @@ Both paths go through `matches-visible`, so subsumption through a sub-predicate,
 symmetric mirror, context visibility and belief are the same set either way — the
 choice is retrieval, never semantics, and `inherit_oracle_test` holds the two against
 each other on randomized taxonomies (`inherit/*retrieval*` forces one or the other).
+
+The cheaper of two growing costs still grows, and neither path has a ceiling of its own.
+The caller's deadline bounds them instead: under `ask`, `ask?`, `ask-within`, `prove`,
+`provable?` or `prove-within` with a `:max-ms`, the prover checks the deadline per probe and per row read and stops there,
+so a walk past it answers `:budget-exhausted` or `:timeout` rather than reading to the
+end ([anytime.md](anytime.md#the-budget)). `inherit/*deadline*` carries it, and only
+`TransitiveInArgProver` binds it: the asymmetry check at `assert`, settle's
+`clashing-claim` / `denial-contexts` and forward chaining read the same claims with no
+deadline, since a refusal there would make what is admitted, believed or derived depend
+on the clock
+(`inherit_test/a-claims-reader-other-than-the-ask-prover-walks-past-the-deadline`).
 
 That turns the cost from *how deep is the taxonomy* into *how many claims were
 written*, which is the quantity the answer actually depends on. Measured by `lein

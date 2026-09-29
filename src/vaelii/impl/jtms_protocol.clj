@@ -54,7 +54,7 @@
 
   `vaelii.impl.jtms` states each of the three at length under *the state*.
 
-  ## The seven roles
+  ## The eight roles
 
   `roles` below assigns every method exactly one, and `jtms_protocol_test` fails on a
   method in none or in two.  The roles are a division of **what a method touches**, not
@@ -64,13 +64,14 @@
 
   | role | what it holds | what supplies it |
   |---|---|---|
-  | `:graph` | nodes, justifications, depth, adjacency | `-ensure-node`, the two `-add-*`, `-retract`, `-sweep` |
+  | `:graph` | nodes, justifications, depth, adjacency | `-ensure-node`, the two `-add-*`, `-retract`, `-sweep`, `-drop-justification` |
   | `:attribute` | a premise's and a justification's strength | written with the element, and by `-restrength-informant` |
   | `:blocked` | the blocked justification-id set | the caller's exception query |
   | `:defeated` | the forced-OUT datum set | the caller's contradiction decision |
   | `:superseded` | the `datum -> reason` map | the caller's equality closure |
   | `:output` | `in`, `groundable`, `classes` | every relabel |
   | `:window` | the touched sets | every relabel |
+  | `:hold` | the labels a settle has moved, as they were when it began | the settle |
 
   **A fourth place belief is decided is not on this protocol.**  A scoped defeat and a
   visibility `except` are applied per reading context by `vaelii.impl.resolution`, over
@@ -107,7 +108,13 @@
      docs/storage.md).  *How* is not the obligation and the two differ: the reference
      by compare-and-set on its state atom, the dense network by taking its
      `StampedLock` for writing.  Gate: `jtms_atomicity_test`, whose atomicity half runs
-     against both networks for exactly this reason.
+     against both networks for exactly this reason.  **While a hold is open**
+     (`-hold`), a thread other than its owner reads the `:output`, `:defeated`,
+     `:blocked` and `:superseded` roles as they stood when the hold began, so a settle's
+     run of relabels reaches such a reader as one step when the hold closes.  The reference keeps
+     its state map from that moment; the dense network records each label the first
+     relabel after it moves, which costs the region that relabel walks.  Gate:
+     `kb_concurrency_test`, on both networks.
 
   3. **The flips are inside the published window, and the window inside the region.**
      Binds `:window`.  `-touched` is not diagnostics: `preview`, the consequence report and the change
@@ -160,9 +167,9 @@
   (-dependents       [tms datum] "Justification ids using `datum` as an antecedent.")
   (-justification    [tms jid]   "The graph justification (`graph-just` — no bindings), or nil.")
   (-justifications   [tms]       "Every live graph justification.")
-  (-ensure-node      [tms datum depth] "Create the node if absent; lower its depth.  The
-    one graph mutation that relabels nothing: a node with no premise mark and no
-    justification is OUT either way.")
+  (-ensure-node      [tms datum depth] "Create the node if absent; lower its depth and the
+    depths below it (`jtms/lowered-depths`).  The one graph mutation that relabels
+    nothing: a node with no premise mark and no justification is OUT either way.")
   (-add-premise      [tms datum strength] "Mark `datum` a premise at `strength`, and
     relabel its region.  Writes `:attribute` as well as `:graph` — `strength` is the
     premise strength `-premise-strength` answers.")
@@ -171,6 +178,8 @@
     its own strength, so this writes `:attribute` too.")
   (-retract          [tms datum] "Drop the premise, relabel, sweep; return the removals.")
   (-sweep            [tms seeds] "Sweep the consequence closure of `seeds`.")
+  (-drop-justification [tms jid] "Remove the one justification `jid`, relabel what it
+    supported, and sweep what that leaves ungroundable; return the removals.")
   (-relabel          [tms]       "Whole-graph relabel — no engine path calls it; see
     `vaelii.impl.jtms/relabel`.  The one method whose cost is the graph rather than a
     region, which is why nothing on the engine path may acquire the habit.")
@@ -192,8 +201,6 @@
     exceptions and hands `jids` in — the network holds no KB and cannot run the query —
     so the cost here is the region seeded by the justifications whose blocked status
     changed, never the cost of deciding which those are.")
-  (-update-blocked   [tms f]     "Apply `f` to the blocked set as one atomic step,
-    otherwise `-set-blocked`.")
 
   ;; ---- :defeated — datums forced OUT, decided by the caller -------------------
   (-defeated         [tms]       "The forced-OUT set.")
@@ -210,7 +217,8 @@
   (-supersede        [tms m]     "Replace the supersession map.  No relabel, and the one
     override mutation that walks no region: supersession subtracts *reported* belief
     after both fixpoints, so no label moves.  The caller computes `m` from the equality
-    closure; the cost is the size of `m`.")
+    closure.  A map `m` is installed as it is, in O(1); any other collection of entries
+    costs its size.")
 
   ;; ---- :output — what a relabel writes ---------------------------------------
   (-believed?        [tms datum] "Is `datum` believed (IN, minus supersession)?  Reads
@@ -233,11 +241,20 @@
   (-touched          [tms]       "Datums whose region was relabelled since the reset.")
   (-touched-in       [tms]       "Of those, the ones already believed when first relabelled.")
   (-touched-new      [tms]       "Datums whose node this window created.")
-  (-reset-touched    [tms]       "Clear the touched sets."))
+  (-reset-touched    [tms]       "Clear the touched sets.")
+
+  ;; ---- :hold — the labels a settle keeps for the other threads ----------------
+  (-hold             [tms h]     "Open hold `h` (`vaelii.impl.observe/new-hold`) on this
+    network, and answer true, or answer false when a hold is open on it already.  From this
+    call until `-release`, every relabel records the labels it moves as they were before
+    the first move, and a read on a thread other than `h`'s owner answers from those while
+    `vaelii.impl.observe/reads-held?` is true of `h`.")
+  (-release          [tms h]     "Close hold `h` on this network, when it is the one open.")
+  (-held             [tms]       "The hold open on this network, or nil."))
 
 (def roles
   "Which role each `Tms` method is in, as `{role #{method-name}}` — the protocol
-  docstring's *The seven roles* written as data, so a test holds it rather than review.
+  docstring's *The eight roles* written as data, so a test holds it rather than review.
 
   It is a partition of what a method **touches**, and the protocol docstring says why it
   cannot be a partition of what a network may be implemented without: every mutation
@@ -249,10 +266,12 @@
   that the protocol does not define."
   '{:graph      #{-node? -datums -any-node? -depth -premise? -supports -dependents
                   -justification -justifications -ensure-node -add-premise
-                  -suspend-premise -add-justification -retract -sweep -relabel}
+                  -suspend-premise -add-justification -retract -sweep -drop-justification
+                  -relabel}
     :attribute  #{-premise-strength -restrength-informant}
-    :blocked    #{-blocked -set-blocked -update-blocked}
+    :blocked    #{-blocked -set-blocked}
     :defeated   #{-defeated -defeat -clear-defeats}
     :superseded #{-superseded -supersede}
     :output     #{-believed? -believed -any-belief? -defeat-class -snapshot}
-    :window     #{-touched -touched-in -touched-new -reset-touched}})
+    :window     #{-touched -touched-in -touched-new -reset-touched}
+    :hold       #{-hold -release -held}})

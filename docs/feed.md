@@ -79,9 +79,9 @@ both the consequence report and a feed event call it. An application that got di
 answers from the two would have no way to tell which was the KB's.
 
 The alternative — snapshot the believed set, mutate, diff — is O(KB) per write and is
-what [preview.md](preview.md) measures at 4.4 ms / 41.6 ms / 401 ms over 2.7k / 23k / 224k
-sentexes. `lein perf`'s `feed-listener-scaling` is the gate that says the feed does not do
-that; wired to diff the believed set it reads 7.2× growth against a 2.0× bound, and 0.7×
+what [defenses.md](defenses.md#the-touched-window-is-a-superset-not-the-flip-set)
+measures at 4.4 ms / 41.6 ms / 401 ms over 2.7k / 23k / 224k sentexes. `lein perf`'s
+`feed-listener-scaling` is the gate that says the feed does not do that; wired to diff the believed set it reads 7.2× growth against a 2.0× bound, and 0.7×
 as built.
 
 ## One settle is one event
@@ -99,6 +99,13 @@ revived in the second would arrive as a removal followed by an addition when the
 operation's net effect on it was nothing; that flicker is the same failure a preview
 would send, and the reason for both suppressions is the same. Holds nest, so the orphan
 sweep's retractions inside a retraction stay inside one event.
+
+An `assert` that reifies a ground NAT settles more than once too: the mint's own
+assertions settle before the sentence that names the constant is checked. So `assert` holds
+the feed while a listener is installed, and delivers one event for the mint and the
+sentence together. When a check after the mint refuses the sentence, `assert` takes the mint
+back ([api.md](api.md#validating-without-writing)) with the feed off, the held region then
+names only handles that are gone, and no event is delivered.
 
 ## A standing query is a filter, not a re-run
 
@@ -184,12 +191,21 @@ change what its neighbours are told about this event — only produce a further 
 A listener that **throws** loses its own event and nothing else. It is logged at `:warn`
 with its token, the remaining listeners still run, and the settle it was hearing about is
 already committed — aborting there would leave the KB settled and every other listener
-uninformed, which punishes the wrong party.
+uninformed, which punishes the wrong party. Two throws are handled otherwise. A
+`VirtualMachineError` (`OutOfMemoryError`, `StackOverflowError`) propagates out of the write
+that delivered the event, and the listeners after it are not called. An
+`InterruptedException` is logged and skipped like any other throw, with the writing thread's
+interrupt flag set again, so the interrupt reaches the writer as
+[api.md](api.md) describes for an interrupted writing thread.
 
 `unwatch` takes the token and is idempotent; a token is monotone per KB and never
 reissued, so dropping a stale one removes nothing and says so. A listener may drop
 itself mid-delivery: the registry is read once per event, so editing it cannot make the
-loop skip or repeat a neighbour.
+loop skip or repeat a neighbour. The same read is why an `unwatch` from **another** thread
+can be followed by one more call: an event whose delivery read the registry before the
+`unwatch` still reaches the listener, once, after `unwatch` has returned true. A listener
+that releases something when it is unwatched checks a flag of its own first, as the
+wire's `file-event!` checks the subscription is still registered.
 
 **`f` runs on the writing thread**, synchronously, inside the `assert` that caused it.
 That is what makes a listener's own write an ordinary write and lets it read a settled
@@ -221,10 +237,13 @@ and start from what it says. A feed is how belief *moves*, never how it is first
   the half that would send the retraction.
 - **Anything during `recover` / `reindex`.** They relabel everything, so a feed running
   through one would hand a reconnecting application the whole KB as newly believed. Off
-  under `settle/*rebuilding?*`, the same gate the disjointness exposure pass takes and for
+  under `settle/*rebuilding?*`, the same gate the settle's cut notices take and for
   the same reason: the entry means *newly*, and on a rebuild there is no newly.
-- **A datum the dependency-directed sweep deleted.** It is in the region with no record
-  left to describe, so it is dropped rather than guessed at.
+- **A retraction, and every datum its sweep deleted.** `retract!` and an `edit!`
+  `:remove` delete the premise and every conclusion that rested only on it; each is in the
+  region with no record left to describe, so it is dropped rather than guessed at. A
+  conclusion that leaves belief and stays stored — a defeated default, or one resting on
+  it — does arrive, in `:believed-removed`.
   `edit-with-consequences!` has the same gap; `preview` is what answers "what would this
   removal take with it", since it suspends instead of retracting and can still name every
   casualty.
@@ -375,6 +394,16 @@ bulk-loading KB it is also the row holding the most heap.
 daemon*, so two handlers over one KB are two daemons and neither answers the other's
 token. A daemon owns its KB for its lifetime, so a subscription pins nothing the handler
 was not already holding.
+
+**A feed ends when its KB's stores do.** `close!` drops every listener registered on the
+KB value it closes, so `watchers` answers empty afterwards: a closed store refuses every
+later write (`:store-unusable`), and a listener left registered would be listed as live
+and never called again. The browser answers `POST /op` over whichever KB is active, from
+one registry for the process. When `/kbs/unload` clears or closes a KB, it drops every
+subscription whose listener is on that KB (`subscribe/unwatch-kb`), and a poll parked on
+one answers `:unknown-subscription` at once, as it does after `:unwatch`. A `:watch` that
+was waiting for the write monitor while the unload ran is refused **404** `:not-found`,
+so no subscription is registered on a released KB ([operations.md](operations.md)).
 
 **The one refusal the wire adds is a context with no goal.** `core/watch`'s whole-feed
 arity takes no context at all, so `[nil CxDeploy]` would register an unscoped listener

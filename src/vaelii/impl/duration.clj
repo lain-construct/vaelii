@@ -20,9 +20,9 @@
   **Bounds throughout, not points.** A stored length may itself be an interval measure,
   and an overlap is often only bounded rather than known, so every computation carries
   `[lo hi]` and the render decides the shape: `lo` and `hi` within tolerance give a point
-  `(QuantityFn …)`, anything wider gives `(QuantityIntervalFn lo hi …)`.  That is what
-  keeps the answer honest — an over-approximation renders as an interval and says so,
-  rather than as a point that would claim more than the KB knows.
+  `(QuantityFn …)`, anything wider gives `(QuantityIntervalFn lo hi …)`.  So the answer
+  never claims more precision than its inputs carry — an over-approximation renders as an
+  interval and says so, rather than as a point that would claim more than the KB knows.
 
   **The result is rendered in the dimension's base unit**, which is read back out of the
   same `conversionFactor` table the normalization used — `(conversionFactor U Base F)`
@@ -62,13 +62,6 @@
 
 ;; ---- measures in and out -------------------------------------------------
 
-(defn- approx=
-  "Are two base magnitudes equal within the measure tolerance?  Normalization multiplies
-  by a stored (usually floating-point) conversion factor, so exact `=` would make one
-  sum unequal to itself written in another unit."
-  [a b]
-  (<= (abs (- a b)) provers/*quantity-tolerance*))
-
 (defn- emit
   "Bind or check the answer slot `d` against the computed `[lo hi]` bounds of `dim`, each
   answer paired with what it rests on.  A variable takes the rendered measure; a ground
@@ -91,7 +84,7 @@
                            ;; compare five fortnights equal to five seconds
                            (if (and (= dim dim*)
                                     (= unit base)
-                                    (approx= lo lo*) (approx= hi hi*))
+                                    (provers/q= lo lo*) (provers/q= hi hi*))
                              [[{} (into (into sup msup) bsup)]]
                              []))
     :else []))
@@ -197,7 +190,7 @@
   (let [lo (max lo1 lo2), hi (min hi1 hi2)]
     (cond
       (<= lo hi)      [lo hi]
-      (approx= lo hi) [hi hi]
+      (provers/q= lo hi) [hi hi]
       :else           nil)))
 
 (defn- sharpen-overlap

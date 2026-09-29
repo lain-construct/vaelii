@@ -84,10 +84,10 @@
 
 (def kbless-ops
   "The ops whose `vaelii.core` fn takes no KB (`op*` above).  Held as data rather than
-  left implicit in the closures, because two generators read this table and both have to
-  know whether an op's first `vaelii.core` parameter is the KB the daemon supplies or an
-  argument the caller sends: `vaelii.host.client`'s wrappers (arity for arity) and
-  `vaelii.host.llm.tools`' schemas (parameter by parameter)."
+  left implicit in the closures, because a generator reading this table has to know
+  whether an op's first `vaelii.core` parameter is the KB the daemon supplies or an
+  argument the caller sends: `vaelii.host.client`'s wrappers (arity for arity) read it
+  here, and so does any caller that builds a call schema from `ops`."
   #{:levels :calculi :readable-sentence :sentence-of :quality-report})
 
 (defn- wire-handles
@@ -126,13 +126,24 @@
   option rosters differ (`query-opt-keys` has no `:max-ms` to fill in, `search-tree`'s
   has both, an anytime budget map is `:max-ms` and takes no default of its own).
 
-  **An entry point with no bound of its own is not on it**, which is a fact about the entry point rather
-  than a category: `:sentexes-matching` has no dial to raise, so there is nothing to
-  clamp. The four backward-search entry points do have one (`core/ask-opt-keys`,
-  `core/prove-opt-keys`), and are held to the ceiling like the rest — `:ask` and `:ask?`
-  to the clock alone, since nothing in the prover registry expands a rule."
+  **The table holds the search bounds of reads, and no write's bound.** A read with no
+  dial of its own is not on it: `:sentexes-matching` has nothing to raise, so there is
+  nothing to clamp. The four backward-search entry points do have one
+  (`core/ask-opt-keys`, `core/prove-opt-keys`), and are held to the ceiling like the rest
+  — `:ask` and `:ask?` to the clock alone, since nothing in the prover registry expands
+  a rule.
+
+  **Seven writes name a bound this table does not hold.** `:assert`, `:assert-many`,
+  `:assert-rule` and `:forward-chain` read `:max-depth` and `:max-derivations`
+  (`core/assert-opt-keys`, `forward-chain`'s roster), and `:edit`,
+  `:edit-with-consequences` and `:preview` read the same two keys off each batch entry's
+  opts. Both bound the chaining fixpoint (`chain/default-chain-opts`, 64 and 100,000 when
+  the request names neither), which runs on the same monitor for its whole length, and a
+  request may name either at any size. `:preview` also takes no clock. docs/operations.md
+  states the same absence beside the ceilings."
   {:query              #{:max-depth}
    :query?             #{:max-depth}
+   :query-status       #{:max-depth}
    :argue              #{:max-depth}
    :why                #{:max-depth}
    :why-not            #{:max-depth :max-ms}
@@ -221,14 +232,13 @@
   "Wrap an op's `(fn [kb args])` so the trailing option/budget map its caller sent is
   held under `search-bounds`' ceilings.
 
-  Wrapped **in the table** rather than at the HTTP route, because the table is what two
-  callers dispatch through: `POST /op` and the model's generated tool set
-  (`vaelii.host.llm.tools`, which builds its schemas from this map and calls back into
-  it).  A ceiling applied at one of those entry points would be a ceiling the other does not
-  have.
+  Wrapped **in the table** rather than at the HTTP route, because `POST /op` is not the
+  only thing that dispatches through it: the browser's access facade does, and so can
+  any in-process caller that generates calls from this map.  A ceiling applied at one
+  entry point would be a ceiling the others do not have.
 
   For a `clock-fill` op the args are padded first, so a caller who sent no option map
-  still gets one to be clamped: absent means *no clock* at those entry points, and no clock is
+  still gets one to be clamped: absent means *no clock* at every entry point, and no clock is
   the exposure rather than a smaller question."
   [op f]
   (if-let [ks (search-bounds op)]
@@ -242,7 +252,11 @@
 
 (def ops
   "The reachable operations, keyed by op keyword.  Reads, writes, and introspection —
-  the working set a remote caller needs; extend by adding a `vaelii.core` fn here.
+  the working set a remote caller needs.  A `vaelii.core` fn that takes a KB is either a
+  row here or a row of docs/operations.md's table of fns that are not ops, and the rule
+  that page states decides which: data in and out, the KB rather than the process, a
+  write through the checks every served write runs, and a cost a request can bound or one
+  that grows with the KB.  `serve_parity_test` fails on a fn that is in neither.
 
   Every entry is wrapped by `bounded`, which is a no-op for an op `search-bounds` does
   not name."
@@ -279,6 +293,10 @@
     :sentexes-matching (op v/sentexes-matching)
     :query        (op v/query)
     :query?       (op v/query?)
+    ;; `query`'s answers with the report a bare `query` cannot give: whether the depth
+    ;; bound cut the search.  The daemon's own ceiling is the depth a remote caller is
+    ;; most likely to be cut by, so the read that says so is served under the same one
+    :query-status (op v/query-status)
     :ask          (op v/ask)
     :ask?         (op v/ask?)
     :prove        (op v/prove)
@@ -299,6 +317,7 @@
     :sentex       (op v/sentex)
     :handle-of    (op v/handle-of)
     :find-sentexes (op v/find-sentexes)
+    :find-sentexes-all (op v/find-sentexes-all)
     ;; the vocabulary — enumerate / count / search the terms themselves.  Served because
     ;; the alternative for a remote client is shipping every sentex over the wire to
     ;; collect the terms out of them.
@@ -312,6 +331,10 @@
     ;; (and why), or never did — read O(rules) off the ledger and the justification graph
     :chain-report (op v/chain-report)
     :conflicts    (op v/conflicts)
+    ;; the question the edge solver was last asked — the contested assumptions and the
+    ;; nogoods among them — beside `:conflicts`, the part of its answer it could not
+    ;; satisfy.  A `Program` record, projected to a map like every other record
+    :last-program (op v/last-program)
     :contradictions (op v/contradictions)
     :violations   (op v/violations)
     ;; the *standing* disjointness question, as against the arising one `settle` files
@@ -325,6 +348,11 @@
     ;; audited collection, which is the caller's to spend (docs/predall.md)
     :specified-violations     (op v/specified-violations)
     :all-specified-violations (op v/all-specified-violations)
+    ;; the fluent-lane twin: per-instant clashes of a `functional_at_instant` function,
+    ;; one declaration or every visible one.  Reported rather than filed, and a sweep
+    ;; over every believed `time_point`, like the pair above (docs/time.md)
+    :functional-at-instant-violations     (op v/functional-at-instant-violations)
+    :all-functional-at-instant-violations (op v/all-functional-at-instant-violations)
     ;; how a goal would be answered: the provers bearing on it with their estimates, or
     ;; for a conjunction the join order and the counts behind it
     :query-plan   (op v/query-plan)
@@ -410,6 +438,12 @@
     :context-up   (op v/context-up)
     :context-down (op v/context-down)
     :sees?        (op v/sees?)
+    ;; the relationship between two types, read off the same closures as `:genl?` and
+    ;; `:disjoint?` plus one facts-only read for a shared instance.  Each answers one pair
+    ;; of types; the whole-hierarchy sweep behind `disjointness-audit` is not served
+    ;; (docs/operations.md)
+    :subsumption-status   (op v/subsumption-status)
+    :subsumption-statuses (op v/subsumption-statuses)
     ;; the declared predicate properties, and the inverse pairing — read off the cached
     ;; closures rather than matched, so a remote caller has no other way to ask
     :has-prop?    (op v/has-prop?)
@@ -464,8 +498,8 @@
 ;; difference is worth being able to state: `ops` is the surface a caller could also
 ;; reach in process, and `vaelii.browser.access` dispatches through it for exactly that
 ;; reason; `feed-ops` is the daemon's own, and a local caller holding a KB uses
-;; `core/watch` instead.  `vaelii.host.llm.tools` derives the model's tool set from
-;; `ops` alone, so a subscription is not something a model can allocate.
+;; `core/watch` instead.  A caller that generates calls from `ops` therefore cannot
+;; allocate a subscription.
 
 (defn- feed-args!
   "The args a feed op takes, or a `:bad-args` refusal naming what it wanted.  The
@@ -478,9 +512,38 @@
                            (when (not= 1 (count args)) "s"))
                       {:type :bad-args :op op}))))
 
+(defn- entry-arity-error?
+  "Was ArityException `e` raised calling op `f`'s entry point, or a wrapper around it,
+  with the caller's arguments?  The fn `e` names is then `f` or a fn `f` closes over,
+  reached through at most six closures.  An arity error from a call inside the op names
+  some other fn, and is a fault of the engine rather than of the request."
+  [f ^clojure.lang.ArityException e]
+  (let [thrower (.-name e)]
+    (letfn [(reaches? [g depth]
+              (and (instance? clojure.lang.Fn g)
+                   (< depth 6)
+                   (or (= thrower (.getName (class g)))
+                       (boolean
+                        (some (fn [^java.lang.reflect.Field fld]
+                                (when-not (java.lang.reflect.Modifier/isStatic (.getModifiers fld))
+                                  (.setAccessible fld true)
+                                  (reaches? (.get fld g) (inc depth))))
+                              (.getDeclaredFields (class g)))))))]
+      (reaches? f 0))))
+
+(defn- admit!
+  "Call `admit` — nil, or a fn of no arguments that answers nil or a refusal
+  `{:status :type :error}` — and throw the refusal.  Called inside the monitor, so the
+  answer holds for the op that runs next.  The throw carries `::status`, which
+  `handle-op` answers with in place of its own status for the `:type`."
+  [admit]
+  (when-let [{ty :type :keys [status error]} (when admit (admit))]
+    (throw (ex-info error {:type ty ::status status}))))
+
 (def feed-ops
   "The change-feed operations, keyed by op keyword — `(fn [ctx args])` over a `ctx` of
-  `{:kb :registry :monitor}`.
+  `{:kb :registry :monitor}`, plus an optional `:admit`: `handle-op`'s, which `:watch`
+  calls inside the monitor before it registers anything.
 
   Each says its own relationship to the daemon's write monitor, which is the one thing
   about them that is not like an engine op.  `:watch` and `:unwatch` take it: they are
@@ -492,25 +555,27 @@
   the registry and expires what has expired, and a listing that had to queue behind a
   bulk load is a listing an operator asks for while the daemon is busy."
   {:watch
-   (fn [{:keys [kb registry monitor]} args]
+   (fn [{:keys [kb registry monitor] :as ctx} args]
      (let [[goal context] (feed-args! :watch args [[] '[goal context]])]
-       (locking monitor (sub/watch registry kb goal context))))
+       (locking monitor
+         (admit! (:admit ctx))
+         (sub/watch registry kb goal context))))
 
    :poll
-   (fn [{:keys [kb registry]} args]
+   (fn [{:keys [registry]} args]
      (let [[token cursor opts] (feed-args! :poll args ['[token cursor]
                                                        '[token cursor opts]])]
-       (sub/poll registry kb token cursor opts)))
+       (sub/poll registry token cursor opts)))
 
    :unwatch
-   (fn [{:keys [kb registry monitor]} args]
+   (fn [{:keys [registry monitor]} args]
      (let [[token] (feed-args! :unwatch args ['[token]])]
-       (locking monitor (sub/unwatch registry kb token))))
+       (locking monitor (sub/unwatch registry token))))
 
    :watchers
-   (fn [{:keys [kb registry]} args]
+   (fn [{:keys [registry]} args]
      (feed-args! :watchers args [[]])
-     (sub/subscriptions registry kb))})
+     (sub/subscriptions registry))})
 
 (def op-names
   "Every op keyword this daemon answers, sorted — the `vaelii.core` allowlist and the
@@ -605,96 +670,116 @@
   Two tables are looked up, in order: the `vaelii.core` allowlist (`ops`, run under the
   monitor), then the daemon's own change-feed ops (`feed-ops`, which take the handler's
   subscription registry and decide about the monitor themselves — a long poll parks, and
-  a parked poll holding it would block every writer)."
-  [kb registry monitor req]
-  (let [edn-reply (fn [status m]
-                    {:status status
-                     :headers {"content-type" "application/edn"}
-                     :body (pr-str m)})]
-    (try
-      (cond
-        (not (guard/edn-body? req))
-        (edn-reply 415 {:ok false :type :not-edn
-                        :error "POST /op requires Content-Type: application/edn"})
+  a parked poll holding it would block every writer).
 
-        (not (guard/same-origin? req))
-        (edn-reply 403 {:ok false :type :cross-origin
-                        :error "cross-origin request refused"})
+  `admit` is nil, or a fn of no arguments the op runs behind: called **inside** the
+  monitor, before an engine op and before `:watch` registers, it answers nil to let the
+  op run or `{:status :type :error}` to refuse it with that reply.  The browser passes one
+  because its KB can be released while a request waits for the monitor, and only a check
+  made inside the monitor sees that release."
+  ([kb registry monitor req] (handle-op kb registry monitor req nil))
+  ([kb registry monitor req admit]
+   (let [edn-reply (fn [status m]
+                     {:status status
+                      :headers {"content-type" "application/edn"}
+                      :body (pr-str m)})]
+     (try
+       (cond
+         (not (guard/edn-body? req))
+         (edn-reply 415 {:ok false :type :not-edn
+                         :error "POST /op requires Content-Type: application/edn"})
 
-        :else
-        ;; The body read is its own step so an unreadable one answers **400 `:not-edn`**
-        ;; rather than falling into the catch below as a 500 with the reader's message —
-        ;; a malformed request is the client's fault, and `docs/operations.md` promises a
-        ;; client discriminates on `:type` rather than on the status code.
-        (let [body (guard/read-capped-body req)
-              form (try (edn/read-string body)
-                        (catch Throwable t
-                          (throw (ex-info (str "request body does not read as EDN: "
-                                               (.getMessage t))
-                                          {:type :not-edn}))))
-              {:keys [op args]} (when (map? form) form)
-              ;; `:args` is spliced with `(vec args)` below, so a non-sequential one —
-              ;; `{:op :assert :args 5}` — would throw a bare IllegalArgumentException
-              ;; into the Throwable arm and answer 500 with no usable `:type`.  It is
-              ;; the caller's mistake, so it is a 400 `:bad-args` like the arity
-              ;; mismatch beside it.
-              _ (when-not (or (nil? args) (sequential? args))
-                  (throw (ex-info (str "op :args must be a sequence, got " (pr-str args))
-                                  {:type :bad-args :op op})))
-              f (ops op)
-              g (when-not f (feed-ops op))]
-          (cond
-            ;; `wire-safe` inside the monitor, not after it: the walk is what *realizes*
-            ;; a lazy answer stream, so releasing the lock around the call alone would
-            ;; let a `:query` read its matches while a concurrent `:assert` is settling
-            ;; — one reply straddling two states of the KB.  The daemon promises reads
-            ;; pay the same lock, and the read is not over until its seq is.
-            ;; an arity mismatch is the caller naming the wrong number of args, so it is
-            ;; a 400 like the unknown op beside it rather than a server fault
-            f
-            (let [result (try (locking monitor (wire-safe (f kb (vec args))))
-                              (catch clojure.lang.ArityException t
-                                (throw (ex-info (str "wrong number of arguments for op "
-                                                     (pr-str op) ": " (.getMessage t))
-                                                {:type :bad-args :op op}))))]
-              (edn-reply 200 {:ok true :result result}))
+         (not (guard/same-origin? req))
+         (edn-reply 403 {:ok false :type :cross-origin
+                         :error "cross-origin request refused"})
 
-            ;; the feed's own, **outside** the monitor here — each takes it for itself
-            ;; where it needs it, and `:poll` must not, since a parked long poll holding
-            ;; the daemon's one lock would stall every writer for the length of its wait.
-            ;; Nothing a feed op answers is a lazy stream over the store, so realizing it
-            ;; out here straddles no state: the events were built at settle time and are
-            ;; already values.
-            g
-            (edn-reply 200 {:ok true
-                            :result (wire-safe (g {:kb kb :registry registry :monitor monitor}
-                                                  (vec args)))})
+         :else
+         ;; The body read is its own step so an unreadable one answers **400 `:not-edn`**
+         ;; rather than falling into the catch below as a 500 with the reader's message —
+         ;; a malformed request is the client's fault, and `docs/operations.md` promises a
+         ;; client discriminates on `:type` rather than on the status code.  A body that
+         ;; ends before its `Content-Length` is the same fault, one step earlier.
+         (let [body (try (guard/read-capped-body req)
+                         (catch java.io.IOException t
+                           (throw (ex-info (str "request body did not arrive whole: "
+                                                (.getMessage t))
+                                           {:type :not-edn}))))
+               form (try (edn/read-string body)
+                         (catch Throwable t
+                           (throw (ex-info (str "request body does not read as EDN: "
+                                                (.getMessage t))
+                                           {:type :not-edn}))))
+               {:keys [op args]} (when (map? form) form)
+               ;; `:args` is spliced with `(vec args)` below, so a non-sequential one —
+               ;; `{:op :assert :args 5}` — would throw a bare IllegalArgumentException
+               ;; into the Throwable arm and answer 500 with no usable `:type`.  It is
+               ;; the caller's mistake, so it is a 400 `:bad-args` like the arity
+               ;; mismatch beside it.
+               _ (when-not (or (nil? args) (sequential? args))
+                   (throw (ex-info (str "op :args must be a sequence, got " (pr-str args))
+                                   {:type :bad-args :op op})))
+               f (ops op)
+               g (when-not f (feed-ops op))]
+           (cond
+             ;; `wire-safe` inside the monitor, not after it: the walk is what *realizes*
+             ;; a lazy answer stream, so releasing the lock around the call alone would
+             ;; let a `:query` read its matches while a concurrent `:assert` is settling
+             ;; — one reply straddling two states of the KB.  The daemon promises reads
+             ;; pay the same lock, and the read is not over until its seq is.
+             ;; an arity mismatch at the entry point is the caller naming the wrong number
+             ;; of args, so it is a 400 like the unknown op beside it; one raised inside the
+             ;; op is a server fault and keeps its 500
+             f
+             (let [result (try (locking monitor
+                                 (admit! admit)
+                                 (wire-safe (f kb (vec args))))
+                               (catch clojure.lang.ArityException t
+                                 (if (entry-arity-error? f t)
+                                   (throw (ex-info (str "wrong number of arguments for op "
+                                                        (pr-str op) ": " (.getMessage t))
+                                                   {:type :bad-args :op op}))
+                                   (throw t))))]
+               (edn-reply 200 {:ok true :result result}))
 
-            :else
-            (edn-reply 400 {:ok false :error (str "unknown op: " (pr-str op))
-                            :type :unknown-op
-                            :ops op-names}))))
-      (catch clojure.lang.ExceptionInfo e
-        (let [ty (:type (ex-data e))]
-          (cond
-            (= :body-too-large ty)
-            (edn-reply 413 {:ok false :error (.getMessage e) :type :body-too-large})
-            (or (#{:not-edn :bad-args} ty) (client-error-types ty))
-            (edn-reply 400 {:ok false :error (.getMessage e) :type ty})
-            :else
-            (do (trove/log! {:level :warn :id ::op-error :error e})
-                (edn-reply 500 {:ok false :error (.getMessage e)
-                                :type (or ty :internal-error)})))))
-      ;; `Throwable`, not `Exception`: an oversized or deeply-nested body raises
-      ;; `OutOfMemoryError`/`StackOverflowError`, which an `Exception` catch lets
-      ;; escape the handler and kill the connection rather than answering on it.
-      ;; `:internal-error` when the throwable carries no `:type` of its own — a bare
-      ;; Java exception would otherwise answer `:type nil`, the key present and
-      ;; useless, breaching the one-vocabulary promise (`docs/operations.md`).
-      (catch Throwable t
-        (trove/log! {:level :warn :id ::op-error :error t})
-        (edn-reply 500 {:ok false :error (.getMessage t)
-                        :type (:type (ex-data t) :internal-error)})))))
+             ;; the feed's own, **outside** the monitor here — each takes it for itself
+             ;; where it needs it, and `:poll` must not, since a parked long poll holding
+             ;; the daemon's one lock would stall every writer for the length of its wait.
+             ;; Nothing a feed op answers is a lazy stream over the store, so realizing it
+             ;; out here straddles no state: the events were built at settle time and are
+             ;; already values.
+             g
+             (edn-reply 200 {:ok true
+                             :result (wire-safe (g {:kb kb :registry registry :monitor monitor
+                                                    :admit admit}
+                                                   (vec args)))})
+
+             :else
+             (edn-reply 400 {:ok false :error (str "unknown op: " (pr-str op))
+                             :type :unknown-op
+                             :ops op-names}))))
+       (catch clojure.lang.ExceptionInfo e
+         (let [ty (:type (ex-data e))]
+           (cond
+             (::status (ex-data e))
+             (edn-reply (::status (ex-data e)) {:ok false :error (.getMessage e) :type ty})
+             (= :body-too-large ty)
+             (edn-reply 413 {:ok false :error (.getMessage e) :type :body-too-large})
+             (or (#{:not-edn :bad-args} ty) (client-error-types ty))
+             (edn-reply 400 {:ok false :error (.getMessage e) :type ty})
+             :else
+             (do (trove/log! {:level :warn :id ::op-error :error e})
+                 (edn-reply 500 {:ok false :error (.getMessage e)
+                                 :type (or ty :internal-error)})))))
+       ;; `Throwable`, not `Exception`: an oversized or deeply-nested body raises
+       ;; `OutOfMemoryError`/`StackOverflowError`, which an `Exception` catch lets
+       ;; escape the handler and kill the connection rather than answering on it.
+       ;; `:internal-error` when the throwable carries no `:type` of its own — a bare
+       ;; Java exception would otherwise answer `:type nil`, the key present and
+       ;; useless, breaching the one-vocabulary promise (`docs/operations.md`).
+       (catch Throwable t
+         (trove/log! {:level :warn :id ::op-error :error t})
+         (edn-reply 500 {:ok false :error (.getMessage t)
+                         :type (:type (ex-data t) :internal-error)}))))))
 
 ;; ---- authentication: one shared bearer token -----------------------------
 
@@ -703,7 +788,7 @@
   set.  A daemon only its token-holder can probe is one no container orchestrator, load
   balancer or shell script can watch, and `{:ok true}` tells a caller nothing it did not
   already know by connecting.  Stated here because an unauthenticated route inside an
-  authenticated daemon is indistinguishable from an oversight to delete: this one is a decision."
+  authenticated daemon looks like an oversight to delete: this one is a decision."
   #{"/health"})
 
 (defn- wrap-bearer-auth
@@ -776,12 +861,17 @@
                                     :body (pr-str {:ok true})})}]
           ["/op" {:post (fn [req] (handle-op kb registry monitor req))}]])
         (ring/create-default-handler
-         {:not-found (fn [_] {:status 404 :headers {"content-type" "application/edn"}
-                              ;; typed like every other {:ok false} — the migration
-                              ;; line "every reply carries a non-nil :type" holds on
-                              ;; this route too, not only on POST /op
-                              :body (pr-str {:ok false :error "not found"
-                                             :type :not-found})})}))
+         {:not-found (fn [req]
+                       {:status 404 :headers {"content-type" "application/edn"}
+                        ;; typed like every other {:ok false} — the migration
+                        ;; line "every reply carries a non-nil :type" holds on
+                        ;; this route too, not only on POST /op
+                        :body (pr-str {:ok false
+                                       :error (str "no route for "
+                                                   (str/upper-case (name (:request-method req :get)))
+                                                   " " (:uri req) " — the daemon answers POST /op"
+                                                   " and GET /health")
+                                       :type :not-found})})}))
        allowed
        (fn [_] {:status 400
                 :headers {"content-type" "application/edn"}
@@ -797,8 +887,10 @@
   `:host` defaults to loopback; pass an address (`\"0.0.0.0\"`) to bind publicly, and
   read the note on `loopback` before doing so.  `:token` is `app`'s, forwarded only
   when the key is there, so an omitted one still reads `VAELII_API_TOKEN` and an
-  explicit nil still serves open."
+  explicit nil serves open on loopback.  An address with no token is refused
+  (`guard/require-token!`) before anything binds, as `-main` refuses it."
   ^Server [kb {:keys [port host] :or {port 4200 host loopback} :as opts}]
+  (guard/require-token! "daemon" host (if (contains? opts :token) (:token opts) (guard/api-token)))
   (jetty/run-jetty (app kb (assoc (select-keys opts [:token]) :host host))
                    {:port port :host host :join? false :max-threads http-threads}))
 

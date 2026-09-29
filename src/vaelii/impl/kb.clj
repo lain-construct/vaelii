@@ -39,7 +39,11 @@
             [vaelii.impl.solve :as solve]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.kb :as kb-types]
-            [vaelii.impl.types.reasoning :as reasoning]))
+            [vaelii.impl.types.reasoning :as reasoning])
+  (:import [vaelii.impl.columnar ColumnarIndexStore]
+           [vaelii.impl.dense_kv TieredKvBackend]
+           [vaelii.impl.kv KvIndexStore]
+           [vaelii.impl.memory MemoryKvBackend MemoryRecordStore]))
 
 ;; ---- storage selection: two independent axes ------------------------------
 ;;
@@ -276,6 +280,10 @@
   compute one (`image-record-axis`).  So `:pg` records take `:pg-disk-log`, and the
   refusal says so.
 
+  **`:overlay` is both axes or neither.**  A fork's records and its index decorate one
+  base together (docs/overlay.md), so `:overlay` on one axis alone is refused naming the
+  half to change.
+
   **`:disk` names no pairing here and no index axis.**  Both spellings are refused, and
   each refusal names the pairing to take instead rather than resolving to something near
   it (`reserved-backend-names`)."
@@ -302,6 +310,18 @@
                                   :axis :backend :kind backend :backend backend})))
         axes {:records (or records (:records pair))
               :index   (or index   (:index pair))}]
+    (when (not= (= :overlay (:records axes)) (= :overlay (:index axes)))
+      (let [half (if (= :overlay (:records axes)) :index :records)]
+        (throw (ex-info (str "a fork is :overlay on both axes, and this selection is "
+                             (pr-str (:records axes)) " records under an "
+                             (pr-str (:index axes)) " index.  The fork's records and its index "
+                             "decorate one base together; either half alone reads the base "
+                             "through one store and not the other.  Spell the fork "
+                             "{:backend :overlay :base … :overlay …}, or set " half
+                             " :overlay.")
+                        {:type :unknown-backend :mismatch :illegal-pair
+                         :axis half :kind (get axes half) :instead :overlay
+                         :records (:records axes) :index (:index axes)}))))
     (when-let [{:keys [with why]} (and (not (durable-under-log-index (:records axes)))
                                        (durable-index-axes (:index axes)))]
       (throw (ex-info (str "the " (:index axes) " index needs durable records — " with " — and these are "
@@ -739,6 +759,21 @@
                         {:type :stale-index-layout :dir root})))))
   index-store)
 
+(defn- written-state
+  "The object `store` writes to, which every open of that store shares.  A RAM store is a
+  new instance per open over its space's one state (`vaelii.impl.memory`'s registry), so
+  for those this is the state; any other store is shared per store (a `:disk` directory's
+  per canonical path) and is its own key."
+  [store]
+  (condp instance? store
+    MemoryRecordStore  (:state store)
+    ColumnarIndexStore (:trie store)
+    KvIndexStore       (let [b (:backend store)]
+                         (if (or (instance? MemoryKvBackend b) (instance? TieredKvBackend b))
+                           (:state b)
+                           b))
+    store))
+
 (defn- resolve-base
   "The `{:records :index}` pair a fork mounts over, frozen by the mount itself."
   [{:keys [base base-stores]}]
@@ -798,6 +833,68 @@
   (opts/check! opts opt-keys where
                (str "An option nothing reads takes the default in silence,"
                     " which for a store number means sharing a store.")))
+
+(defn- store-space?
+  "Is `space` a value `:space` names a store with?  A whole number 0 or more, or a
+  keyword, a symbol or a vector — the spelling of a **private** space, one no number can
+  name: `fork` takes `[::fork n]`, `diff` and the spindle take a vector of their own, and a
+  test takes a `gensym` or a namespaced keyword.
+
+  Each backend derives its store from the value — the memory registry keys on it, the
+  disk backend names a directory `space-<value>` — so what is refused is a value that
+  names a store the caller did not mean.  A string names the directory its number or its
+  symbol names (`\"3\"` and `3` are both `space-3`) while keying a separate RAM store; nil
+  keys a RAM store apart from space 0 and a directory `space-`; a negative or fractional
+  number, and a big integer, are numbers no documented space is.  A map or a set is
+  refused because two equal ones can print in two orders, so one RAM store would
+  answer to two directories."
+  [space]
+  (or (nat-int? space) (keyword? space) (symbol? space) (vector? space)))
+
+(defn- store-dir?
+  "Is `dir` a value `:dir` names a directory with?  A string or a `java.io.File`, and not
+  blank: a blank path resolves against the JVM's working directory, so the store would
+  land wherever the process was started."
+  [dir]
+  (cond
+    (string? dir)             (not (str/blank? dir))
+    (instance? java.io.File dir) (not (str/blank? (.getPath ^java.io.File dir)))
+    :else                     false))
+
+(defn- base-stores?
+  "Is `stores` the `{:records :index}` pair of open stores `resolve-base` mounts — a
+  `RecordStore` and an `IndexStore`, as `core/fork` hands over from a live KB?"
+  [stores]
+  (and (map? stores)
+       (satisfies? p/RecordStore (:records stores))
+       (satisfies? p/IndexStore (:index stores))))
+
+(defn- check-store-values!
+  "Refuse a `:space`, `:dir` or `:base-stores` whose value names no store, returning `opts`.
+
+  `check-opts!` settles the keys and `check-mount-opts!` which of them this axis selection
+  reads; this is the value check after both, for the three values that pick **which
+  store** a KB opens over, so a key the selection does not read is refused as that first.
+  Unchecked, a value outside its domain does one of two things: it opens a store other
+  than the one it spells — a string `:space` shares the directory of the number it prints
+  as, a blank `:dir` writes into the JVM's working directory — or it reaches a protocol
+  call and throws a bare `IllegalArgumentException` naming a class.  **A present nil is
+  refused**, as `:naming nil` and `:pg nil` are: it is what `(:space cfg)` hands back for
+  a key `cfg` does not hold, and taking the default for it is the silent sharing
+  `check-opts!` exists to prevent.  `:unknown-option` with `:mismatch :bad-value`,
+  `:option` and `:value`, as every value refusal carries."
+  [opts where]
+  (doseq [[k ok? want] [[:space store-space?
+                         "a whole number 0 or more (or a keyword, a symbol or a vector, for a private space)"]
+                        [:dir store-dir? "a non-blank path string or a java.io.File"]
+                        [:base-stores base-stores?
+                         "the {:records :index} pair of open stores a live KB holds (fork passes it)"]]]
+    (when (contains? opts k)
+      (let [v (get opts k)]
+        (when-not (ok? v)
+          (throw (ex-info (str where " " k " must be " want ", got " (pr-str v))
+                          {:type :unknown-option :mismatch :bad-value :option k :value v}))))))
+  opts)
 
 ;; How many in-RAM KBs this process has opened on the **default** space without naming
 ;; it — read by `note-default-ram-space!` below.  `defonce` so a REPL reload does not
@@ -861,8 +958,8 @@
                            " but neither axis is :overlay, so nothing would be mounted"
                            " — the KB opens plain and every read of the base answers"
                            " empty.  A fork is spelled {:backend :overlay :base …} (or"
-                           " :records / :index :overlay); drop the key if no fork was"
-                           " meant.")
+                           " :records :overlay :index :overlay); drop the key if no fork"
+                           " was meant.")
                       {:type :unknown-option :mismatch :conflict :unknown (vec given)
                        :records rkind :index ikind}))))
   (when-not (or (= :disk rkind) (= :disk-log ikind) (= :sqlite rkind))
@@ -935,12 +1032,13 @@
 (def constraint-policies
   "The constraint policies a KB's public entry point may hold, as `open-kb`'s `:constraints`.
 
-    :refuse     `assert` refuses a disjoint / functional clash, and a declaration
-                arriving after the content it convicts reports rather than decides
+    :refuse     `assert` refuses a disjoint / functional / cover clash
     :arbitrate  refuse only against `:monotonic` content; against a `:default` claim
-                admit the sentence and let `settle` arbitrate the pair — and let a
-                declaration reach back over what is already stored, so a violating set
-                lands on the same belief in every arrival order
+                admit the sentence and let `settle` arbitrate the pair
+
+  Under either policy a declaration arriving after the content it convicts reaches back
+  over what is stored and `settle` decides the pair (docs/nmtms.md, \"Which entry point
+  the content came through\").
 
   This is **this KB's** policy, not the build's, for `:naming`'s reason: whether a writer
   is told no is an application question, and one process can hold a KB curating a
@@ -988,7 +1086,7 @@
                    build on a daemon thread and then replaces the image's
                    (`vaelii.impl.recovery`).  Writes are refused until then
 
-  `true` is an **alias**, not a fifth behaviour: a `?`-suffixed option is indistinguishable from a
+  `true` is an **alias**, not a fifth behaviour: a caller takes a `?`-suffixed option for a
   boolean, and a caller who writes one is asking for the recovery rather than for the
   warning."
   {:auto :auto, true :auto, :background :background, :warn :warn, false false})
@@ -1241,14 +1339,14 @@
     ;; contexts is two sentexes, and the first retraction must not retire
     ;; what the second still says.
     :preserving (atom {})
-    ;; The candidates `settle/preserving-nogoods` reported a clash for
-    ;; last settle, so a standing report survives an unrelated assert:
-    ;; `conflicts` and `contradictions` are recomputed from scratch every
-    ;; settle and the region is only what that settle moved.  `:clashes`
-    ;; beside it does the same job for the definitional pairs; this holds
-    ;; one handle rather than a pair, since the other side of an
-    ;; inherited clash is not a sentex.
-    :preserved-clashes (atom #{})
+    ;; The inherited clashes `settle/preserving-nogoods` found, keyed on
+    ;; the stored claim, with what each was read under
+    ;; (`settle/preserving-entries`), so a standing report survives an
+    ;; unrelated assert without being asked again.  `:clashes` beside it
+    ;; does the same job for the definitional pairs; this is keyed on one
+    ;; handle rather than a pair, since the other side of an inherited
+    ;; clash is not a sentex.
+    :preserved-clashes (atom {})
     ;; `{context -> {except-handle -> hidden-handle}}` — which stored
     ;; `(except (sentexHandle H))` facts sit in which context, so a
     ;; reader takes the visible ones off the map rather than fetching
@@ -1264,17 +1362,21 @@
     ;; `{vantage -> #{handle}}` — the losers the settle disbelieved at a
     ;; vantage strictly below their own context.  Derived, cleared and
     ;; re-decided each settle like the network's defeated set, so neither
-    ;; `recover` nor a store has anything to replay.
-    :scoped-defeats (atom {})
+    ;; `recover` nor a store has anything to replay.  A held atom: while a
+    ;; settle re-decides it, the other threads read the roster it began
+    ;; from (`observe/hold-atom!`).
+    :scoped-defeats (observe/held-atom {})
     ;; `[{vantage -> handle} …]` — one entry per nogood whose live vantages
     ;; defeated different members.  A reader seeing two of an entry's
     ;; vantages reads every member as believed (`res/withdrawal`).  Derived
-    ;; and re-decided each settle, like `:scoped-defeats`.
-    :vantage-disagreements (atom [])
+    ;; and re-decided each settle, and held while it is, like `:scoped-defeats`.
+    :vantage-disagreements (observe/held-atom [])
     ;; `{reader -> #{handle}}` — what each reader reads as withdrawn:
     ;; hidden by an except, scoped-defeated at a vantage it sees, or
-    ;; resting only on those (`res/withdrawn-set`).  A cache, emptied
-    ;; whenever the network, `:excepted` or `:scoped-defeats` moves.
+    ;; resting only on those (`res/withdrawn-set`).  A cache: a network move
+    ;; drops the entries it reaches (`res/reconcile-withdrawn!`), a roster
+    ;; move empties it, and a generation stamps each install
+    ;; (`res/install-withdrawn!`).
     :withdrawn (atom {})
     ;; `{antecedent-key -> how many rules take it}` — the roster
     ;; `special/visibility-seeds` enumerates instead of walking a context
@@ -1293,6 +1395,9 @@
     ;; wiring an empty context under a full one holds none.  Kept and
     ;; rebuilt with the roster above, in the same two places.
     :rule-contexts (atom {})
+    ;; `{context -> #{handle}}` — the rules a solve reads, kept and rebuilt with
+    ;; the two rosters above.  A set, not a count: a handle is posted once.
+    :solve-rules (atom {})
     :negations (atom {})
     :clashes   (atom {})
     ;; `#{#{x y} …}` — the sibling-disjointness exception pairs a retract
@@ -1302,6 +1407,14 @@
     ;; this to drive `two-sided-reach` over each departed pair, then
     ;; `settle-finish` clears it.  Belief-quiet asserts never post to it.
     :sib-exc-dirty (atom #{})
+    ;; `{key [part …]}` — the unread tails of the arbitration sweeps a
+    ;; settle's budget cut, keyed as `:clashes`' `:pending` names them, for
+    ;; the next settle to resume (`settle/carry-arbitration-sweeps!`).  A
+    ;; key with no tail here resumes from the start of its reach
+    :arbitration-cursors (atom {})
+    ;; the argument-declaration mints by term and by context, described
+    ;; beside the `Reasoning` record
+    :minted    (atom {:by-term {} :by-context {}})
     ;; the equality state `special/refresh-supersessions` last
     ;; reconciled the superseded set against (`special/supersession-stamp`).
     ;; nil means "not reconciled yet", which reads as *reconcile
@@ -1309,6 +1422,21 @@
     ;; direction: a stamp that cannot be compared costs a full pass and
     ;; never a wrong answer
     :supersessions (atom nil)
+    ;; `#{pred}` — the predicates whose permuting marks moved by a
+    ;; removal or a relabel since the last settle (`special/note-permuting-moves!`),
+    ;; for `chain/reconcile-spellings!` to bring their stored rows to.
+    ;; Empty at rest: the settle that follows a move drains it, and a
+    ;; rebuild clears it, since a store recovered is already spelled
+    :respell   (atom #{})
+    ;; `{:pending {handle #{context}} :extra [[datum reason]] :region
+    ;; #{datum}}` — the handles a visibility `except` began or stopped
+    ;; hiding since the last settle, with the contexts the excepts are
+    ;; stated in (`special/note-except-move!`), the supersessions the
+    ;; settle's sweep of them owes (`special/except-move-sweeps`), and the
+    ;; superseded data the moves can change, which join the settle's
+    ;; supersession region (`special/except-move-region`).  Empty at rest:
+    ;; the settle that follows a move drains it, and a rebuild clears it
+    :except-moves (atom {})
     :qcn       (atom {})
     ;; the join baselines beside the network cache, never inside it:
     ;; the resident cache clears wholesale at its bound, and a baseline
@@ -1318,7 +1446,7 @@
     :matches   (atom {})
     ;; one shape, not a map of stamped entries: every entry in it is
     ;; retired by the same clock move, so the stamp belongs to the map
-    ;; (`provers/closure-answers`)
+    ;; (`provers/closure-hit`)
     :closures  (atom {})}))
 
 (defn- attach-visibility!
@@ -1328,9 +1456,13 @@
   even after an install replaces `kb`'s belief."
   [kb b]
   (let [view (assoc kb :reasoning (volatile! b))]
+    ;; Both read live under a settle's hold (`observe/live`): the closures they decide
+    ;; are memoized where the writer reads them, so they describe the network the writer
+    ;; holds now, and a reader beside a settle reads the taxonomy as the writer moves it.
     (tax/install-supporter-visibility! (:taxonomy b)
-                                       #(res/supporter-filter-roster view)
-                                       (partial res/supporter-believed? view))))
+                                       #(observe/live (res/supporter-filter-roster view))
+                                       (fn [handle context]
+                                         (observe/live (res/supporter-believed? view handle context))))))
 
 (def rebuild-shared
   "The KB fields a rebuild KB (`rebuild-kb`) takes from the KB it rebuilds: the two
@@ -1352,14 +1484,17 @@
   (`vaelii.impl.recovery`).  It takes the `rebuild-shared` fields from `kb`, a new empty
   `empty-reasoning` under `:reasoning`, and fresh `rebuild-own` fields.  A field named in none
   of these is not copied, so a field added to the KB reaches a rebuild only once one of
-  them names it."
-  [kb]
-  (let [r (kb-types/map->KB (merge (select-keys kb rebuild-shared)
-                                   {:feed        (feed/create-feed)
-                                    :unrecovered (atom {})
-                                    :reasoning   (volatile! (empty-reasoning :dense))}))]
-    (attach-visibility! r (reasoning/of r))
-    r))
+  them names it.  `wrap-records`, when given, is applied to `kb`'s record store, and the
+  rebuild KB reads and writes through the store it returns."
+  ([kb] (rebuild-kb kb identity))
+  ([kb wrap-records]
+   (let [r (kb-types/map->KB (merge (select-keys kb rebuild-shared)
+                                    {:records     (wrap-records (:records kb))
+                                     :feed        (feed/create-feed)
+                                     :unrecovered (atom {})
+                                     :reasoning   (volatile! (empty-reasoning :dense))}))]
+     (attach-visibility! r (reasoning/of r))
+     r)))
 
 (def ^:dynamic *background-belief?*
   "True while `open-kb` recovers a KB opened with `:recover? :background`.
@@ -1409,7 +1544,8 @@
   (doseq [half [:base :overlay]]
     (when-let [sub (get opts half)]
       (check-opts! sub (str half))
-      (check-mount-opts! sub (backend-axes sub) (str half))))
+      (check-mount-opts! sub (backend-axes sub) (str half))
+      (check-store-values! sub (str half))))
   ;; A fork's own writable half needs bookkeeping beside its records (`mount/meta-kv`),
   ;; which exists for `:memory` and `:disk` and not for a server.  Refused **here**, at the
   ;; entry point, rather than where `meta-kv` says no: by then `open-kb` has already built the
@@ -1429,9 +1565,9 @@
         {rkind :records ikind :index} (backend-axes opts)
         _                             (check-mount-opts! opts {:records rkind :index ikind}
                                                          "open-kb")
+        _                             (check-store-values! opts "open-kb")
         _                             (note-default-ram-space! opts rkind)
         overlay?                      (or (= :overlay rkind) (= :overlay ikind))
-        base                          (when overlay? (resolve-base opts))
         ov-opts                       (:overlay opts {})
         {ovr :records ovi :index}     (when overlay? (backend-axes ov-opts))
         ;; The fork's own half and its base resolving to one store — one `:disk`
@@ -1439,8 +1575,9 @@
         ;; registry shares per number — is base immutability off with no error:
         ;; `FrozenRecords` guards only the calls routed through it, and the fork's
         ;; writes go to the same state direct.  Refused on the *descriptors* when the
-        ;; base arrives as opts (before anything opens), and on store identity as the
-        ;; backstop when it arrives as `:base-stores`.
+        ;; base arrives as opts, before `resolve-base` opens it (a `:disk` base takes the
+        ;; directory's lock and creates `index/` and `records/`), and on `written-state`
+        ;; as the backstop when it arrives as `:base-stores`.
         _ (when (and overlay? (map? (:base opts)))
             (let [b            (:base opts)
                   {brk :records} (backend-axes b)
@@ -1461,15 +1598,17 @@
                                      " fork's own half its own "
                                      (if (= :disk brk) ":dir" ":space") " under :overlay")
                                 {:type :base-is-overlay})))))
+        base       (when overlay? (resolve-base opts))
         own-rstore (when (= :overlay rkind) (record-store-for ovr ov-opts))
         own-istore (when (= :overlay ikind) (first (index-store-for ovi ovr ov-opts)))
-        _ (when (or (and own-rstore (identical? own-rstore (:records base)))
-                    (and own-istore (identical? own-istore (:index base))))
+        same-rstore? (and own-rstore
+                          (identical? (written-state own-rstore) (written-state (:records base))))
+        _ (when (or same-rstore?
+                    (and own-istore
+                         (identical? (written-state own-istore) (written-state (:index base)))))
             (throw (ex-info (str "the fork's own half and its base resolve to one store —"
                                  " the "
-                                 (if (and own-rstore (identical? own-rstore (:records base)))
-                                   "records"
-                                   "index")
+                                 (if same-rstore? "records" "index")
                                  " half of the fork is the store its base mounts, and a"
                                  " fork cannot write its own base.  Open that half on its"
                                  " own :dir or :space under :overlay, or pass"
@@ -1653,12 +1792,12 @@
           ;; the file is not the one that was closed.
           (let [indexed  (long (p/count-at istore []))
                 sealed   (long (p/count-at istore kv/sealed-prefix))
-                damaged? (boolean (:damaged (:backend istore)))
+                damaged  (:damaged (:backend istore))
                 ;; the record count, not the roster: on a store whose enumeration is a
                 ;; query this is the difference between one row and the whole table, and
                 ;; the coverage gate asks it on every open (`p/Tallying`).
                 stored   (cap/count-sentexes (:records kb))]
-            (when (or damaged?
+            (when (or damaged
                       (if (pos? sealed) (not= sealed stored) (not= indexed stored)))
               (dfiles/mark-index-rebuilding! root)
               (p/clear-index! istore)
@@ -1670,7 +1809,10 @@
                              :msg (format "the durable index at %s described %d of %d records%s — rebuilt from %d records (%d rules) in %.0f ms"
                                           (disk/disk-dir opts)
                                           (if (pos? sealed) sealed indexed) stored
-                                          (if damaged? " (and its log is shorter than its clean marker recorded)" "")
+                                          (case damaged
+                                            :short-log " (and its log is shorter than its clean marker recorded)"
+                                            :damaged-frame " (and a frame inside its log does not decode)"
+                                            "")
                                           (long sentexes) (long rules) ms)})))))))
     ;; A durable fork's **own** index half is held to the same gates as a plain
     ;; `:disk-log` index — the layout sentinel, and the coverage instruments under
@@ -1713,8 +1855,8 @@
           (let [stored   (cap/count-sentexes (:records kb))
                 sealed   (long (p/count-at istore kv/sealed-prefix))
                 indexed  (long (p/count-at istore []))
-                damaged? (boolean (:damaged (:backend own-istore)))]
-            (when (or damaged?
+                damaged  (:damaged (:backend own-istore))]
+            (when (or damaged
                       (if (pos? sealed) (not= sealed stored) (not= indexed stored)))
               (dfiles/mark-index-rebuilding! root)
               (let [{:keys [sentexes rules]} (reindex-fn kb)]
@@ -1722,7 +1864,10 @@
                 (trove/log! {:level :warn :id ::fork-index-coverage-rebuilt
                              :msg (format "the fork's merged index described %d of %d records through its own half at %s%s — rebuilt from %d records (%d rules)"
                                           (if (pos? sealed) sealed indexed) stored root
-                                          (if damaged? " (whose log is shorter than its clean marker recorded)" "")
+                                          (case damaged
+                                            :short-log " (whose log is shorter than its clean marker recorded)"
+                                            :damaged-frame " (a frame inside whose log does not decode)"
+                                            "")
                                           (long sentexes) (long rules))})))))))
     (cond
       ;; A **derived** index opens empty over records that are not, so the repair is
@@ -1763,12 +1908,11 @@
                                  :msg (format "rebuilt the derived index from %d records (%d rules) in %.0f ms%s"
                                               (long sentexes) (long rules) ms
                                               (cond
-                                                (and snapshot? snap)
+                                                ;; `snap` is read only when `snapshot?`
+                                                snap
                                                 (str " — the :snapshot index found no usable image ("
                                                      (name (:reason snap)) "), so this open paid the"
                                                      " rebuild the backend is named to skip")
-                                                snap (str " — no usable index snapshot ("
-                                                          (name (:reason snap)) ")")
                                                 :else ""))})))))
             (trove/log! {:level :warn :id ::unrecovered-store
                          :msg (str "the record store (space " space ") already holds sentexes "
@@ -1925,27 +2069,34 @@
           distinct))))
 
 (defn memberships
-  "What a term is, as the checks need to ask it: `{:types [t …] :closures [#{…} …]}` —
-  the types asserted of `x` and visible from `context`, each paired with its own genl
-  up-closure.
+  "What a term is, as the checks need to ask it: `{:types [t …] …}` — the types asserted
+  of `x` and visible from `context`, with what `isa-among?` needs to ask whether one of
+  them is under a given type.
 
-  The closures are what make repeated questions free.  `isa? x t` is \"does some type
-  `x` holds reach `t`\", and reachability is the *same* edge set read either way — `t' ∈
-  specs(t)` iff `t ∈ genls(t')` — so the two directions differ only in what they cost
-  here.  `specs(t)` is unbounded in the wrong direction: with `t` = `thing`, the floor
-  every `arg` check tests first, it is every type in the KB.  The up-closure of a
-  type a term actually holds is one chain, cached, and once read every constraint on
-  that term is one set membership."
+  `isa? x t` is \"does some type `x` holds reach `t`\", and reachability is the *same* edge
+  set read either way — `t' ∈ specs(t)` iff `t ∈ genls(t')` — so the direction is chosen
+  for cost.  `specs(t)` is unbounded in the wrong direction: with `t` = `thing`, the floor
+  every `arg` check tests first, it is every type in the KB.  Up from a type the term
+  holds is the cheap direction, and **`genl?` walks it without building the closure**:
+  depth-pruned, it rejects most pairs at once and stops at the first path that arrives.
+  A closure per held type, built for every term a check reads, was the heap of a whole-
+  corpus clash pass — `disjoint-problems` reads only `:types` — and answers the same
+  questions a pruned walk answers.  Each answer is memoized per `memberships` read, which
+  `membership-reader` memoizes per term, so a question asked twice is walked once."
   [kb x context]
-  (let [tax (reasoning/taxonomy kb)
-        ts  (vec (types-of kb x context))]
-    {:types ts :closures (mapv #(tax/genls tax % context) ts)}))
+  {:types (vec (types-of kb x context)) :tax (reasoning/taxonomy kb) :context context
+   :isa (volatile! {})})
 
 (defn isa-among?
-  "Is `t` in one of the genl up-closures a `memberships` read returned?  The subtype
-  test, once the retrieval it rests on has been paid for."
-  [closures t]
-  (boolean (some #(contains? % t) closures)))
+  "Is `t` a supertype of one of the types a `memberships` read `ms` holds — by `genl?` from
+  its context, reflexively?  Memoized in `ms`."
+  [{:keys [types tax context isa]} t]
+  (let [m @isa]
+    (if (contains? m t)
+      (get m t)
+      (let [a (boolean (some #(tax/genl? tax % t context) types))]
+        (vswap! isa assoc t a)
+        a))))
 
 (defn isa?
   "Is individual `x` (transitively) of type `t`?  Considers only type memberships
@@ -1964,7 +2115,7 @@
   ([kb x t context]
    (if (and (symbol? x) (not (sx/variable? x)))
      (let [tax (reasoning/taxonomy kb)]
-       (boolean (some #(contains? (tax/genls tax % context) t) (types-of kb x context))))
+       (boolean (some #(tax/genl? tax % t context) (types-of kb x context))))
      (exists-in? kb (list t x) context))))
 
 (defn reach-strength
@@ -2272,7 +2423,7 @@
 
 ;; ---- the argument-preservation roster --------------------------------------
 ;; `settle/preserving-nogoods` has to decide, once per settle, whether this KB declares
-;; any argument preservation at all — and the honest read of that (`inherit/declarations-
+;; any argument preservation at all — and the exact read of that (`inherit/declarations-
 ;; exist?`) is a set-cardinality read per declaration functor, on the path every assert
 ;; runs.  `assert_cost_test` prices exactly that kind of constant.  So the declarations
 ;; are kept here as storage instead: `:preserving`'s bargain is `:opposed`'s, except that
@@ -2484,8 +2635,8 @@
   '[:rule ?antecedents ?consequent ?assumption ?constraint ?context])
 
 (defn rebuild-rule-roster!
-  "Recompute `:rule-antecedents` and `:rule-contexts` from storage — the scan a
-  **recover** needs, since both are derived state no store holds, and the one a **fork**
+  "Recompute `:rule-antecedents`, `:rule-contexts` and `:solve-rules` from storage — the
+  scan a **recover** needs, since all three are derived state no store holds, and the one a **fork**
   needs for the same reason: a fork's derived state is rebuilt over the merged view
   rather than inherited, so its own rosters start empty over a base full of rules.
 
@@ -2505,20 +2656,22 @@
   reaches any reader — the same footing as `rebuild-excepted!` above."
   [kb]
   (let [recs (:records kb)
-        [antes ctxs]
+        [antes ctxs solve]
         (reduce (fn [acc h]
                   (if-let [sx (p/get-sentex recs h)]
-                    (-> acc
-                        (update 0 (fn [m]
-                                    (reduce (fn [m k] (update m k (fnil inc 0)))
-                                            m
-                                            (rules/antecedent-keys (:antecedent sx)))))
-                        (update 1 update (:context sx) (fnil inc 0)))
+                    (cond-> (-> acc
+                                (update 0 (fn [m]
+                                            (reduce (fn [m k] (update m k (fnil inc 0)))
+                                                    m
+                                                    (rules/antecedent-keys (:antecedent sx)))))
+                                (update 1 update (:context sx) (fnil inc 0)))
+                      (rules/solve-sentex? sx) (update 2 update (:context sx) (fnil conj #{}) h))
                     acc))
-                [{} {}]
+                [{} {} {}]
                 (p/lookup (:index kb) rule-key-pattern))]
     (reset! (reasoning/rule-antecedents kb) antes)
-    (reset! (reasoning/rule-contexts kb) ctxs)))
+    (reset! (reasoning/rule-contexts kb) ctxs)
+    (reset! (reasoning/solve-rules kb) solve)))
 
 (defn create-sentex
   "Store `sentence` in `context` as a new sentex, index it, and return `[handle sentex]`.
@@ -2528,16 +2681,36 @@
   a premise says so here rather than storing the record and having `mark-premise` store it
   again — on the disk backend that second store is a second full frame, leaving the first
   dead the moment it is written, which is half the record log and what trips its compaction
-  threshold mid-load."
+  threshold mid-load.
+
+  **An index write that throws takes the record with it.**  The record lands first, since
+  the record store allocates the handle the index keys on, so a refused index write —
+  a durable index that refuses writes until it is reopened, a closed channel — leaves a
+  record no index names.  The caller is told the write failed, and the next open's
+  coverage gate would index that record and believe it as a premise whose forward rules
+  never ran.  So the postings the index write did land are taken out and the record is
+  deleted before the throw travels, and the store holds what it held before the call.
+  An unindex or a delete that fails too is added to the throw as suppressed: the store
+  has then refused as well, and the next open's gate is what repairs the pair."
   ([kb sentence context] (create-sentex kb sentence context nil))
   ([kb sentence context strength]
    (let [s (cond-> (res/kb-sentex kb sentence context)
              strength (assoc :strength strength))
          h (p/put-sentex (:records kb) s)
          s (assoc s :id h)]
-     (p/index-sentex (:index kb) s h)
+     (try
+       (p/index-sentex (:index kb) s h)
+       (catch Throwable t
+         ;; the index write may have landed some of its postings before it threw, and a
+         ;; posting left naming `h` is found by the dedup probe and by `handle-of` after
+         ;; the record is gone
+         (try (p/unindex-sentex! (:index kb) s h)
+              (catch Throwable t2 (.addSuppressed t t2)))
+         (try (p/delete-sentex! (:records kb) h)
+              (catch Throwable t2 (.addSuppressed t t2)))
+         (throw t)))
      ;; the index image's cadence, on the one thread allowed to write this index
-     ;; (`disk/backend/maybe-refresh-index-snapshot!`).  `:snapshot-dir` is non-nil only
+     ;; (`disk/maybe-refresh-index-snapshot!`).  `:snapshot-dir` is non-nil only
      ;; on a KB that *has* an image, so every other backend pays one field read: the root
      ;; count is a profiled index read and the refresh call resolves nothing, so both stay
      ;; behind the gate rather than being evaluated for a directory with no image in it.
@@ -2839,6 +3012,11 @@
   the same recursive walk (`res/representative-term`) and then compares the results, so
   the exemption is explicit here rather than resting on the rewrite happening to be a
   no-op.
+
+  **A positive equation is exempt too.**  Its arguments are mentions, the stored equation
+  is never restated, and a `rewriteOf` spelling rename would turn `(rewriteOf P D)` into
+  the self-edge `(rewriteOf P P)`; `provers/EqualityProver` reads the closure for the rest
+  (`res/goal-held-as-spelled?`, docs/equality.md).
 
   **A `modal_predicate`'s proposition is exempt too**, and by the same kind of reason: it
   is what the *agent* holds true, so the asker's merges must not rewrite it.  That one is

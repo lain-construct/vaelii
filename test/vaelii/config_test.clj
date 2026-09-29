@@ -12,15 +12,13 @@
 
   Three switches read the *environment* (`VAELII_ARBITRATE_CONSTRAINTS`,
   `VAELII_ASSERTIVE_ARG_TYPES`, `VAELII_DEV`) and a JVM cannot set its own, so they are
-  covered where the coverage is honest: through `prop-bool`, which is the whole of each
+  covered where a test can reach them: through `prop-bool`, which is the whole of each
   accessor's body."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.browser.catalog :as catalog]
             [vaelii.browser.web :as web]
             [vaelii.core :as v]
             [vaelii.host.guard :as guard]
-            [vaelii.host.llm.ollama :as ollama]
-            [vaelii.host.llm.provider :as provider]
             [vaelii.impl.config :as config]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.disk.files :as f]))
@@ -201,23 +199,17 @@
   "The properties cleared before the defaults below are read, so a `-D` on this box
   cannot answer for one.  The disk directory, the browser's port and KB discovery hold
   their default at their own call site rather than going through a `prop-*` reader; the
-  solver and the model host each name a **registry member**, so unset is the absence of
-  a choice rather than a default to check — `vaelii.asp.solver` still reads through
-  `config/asp-solver`, and refuses a name outside the roster like every other switch
-  here."
+  solver names a **registry member**, so unset is the absence of a choice rather than a
+  default to check — `vaelii.asp.solver` still reads through `config/asp-solver`, and
+  refuses a name outside the roster like every other switch here."
   ["vaelii.disk.dir" "vaelii.web.port" "vaelii.kb.path" "vaelii.kb.catalog"
-   "vaelii.asp.solver" "vaelii.llm.provider"])
+   "vaelii.asp.solver"])
 
 (def ^:private env-spelled-defaults
   "The variable-spelled switches whose default this test can only read as the
   environment leaves it, with the reader and what `docs/operations.md` promises."
   [["VAELII_API_TOKEN"              #(guard/api-token)                   nil]
-   ["VAELII_KB_PATH"                #(count (catalog/search-path))       2]
-   ["VAELII_LLM_PROVIDER"           #(provider/configured)               nil]
-   ["VAELII_OLLAMA_MODEL"           #(ollama/configured-model)           "phi4:14b"]
-   ["VAELII_OLLAMA_GENERATION_MODEL" #(ollama/configured-generation-model) "qwen3-coder:30b"]
-   ["VAELII_OLLAMA_NUM_CTX"         #(ollama/configured-num-ctx)         8192]
-   ["VAELII_OLLAMA_KEEP_ALIVE"      #(ollama/configured-keep-alive)      "30m"]])
+   ["VAELII_KB_PATH"                #(count (catalog/search-path))       2]])
 
 (deftest nothing-set-is-the-documented-default-outside-this-namespace
   ;; `config_surface_test` pins every switch's *name* and its citation; this is the
@@ -241,7 +233,7 @@
         (is (nil? (config/log-level))))
       ;; A JVM cannot clear its own environment, so these are read as this machine
       ;; leaves them — the same reading when unset, and skipped rather than wrongly
-      ;; failed on a developer box that exports one (`OLLAMA_HOST` is the likely one).
+      ;; failed on a developer box that exports one.
       (testing "the variable-spelled switches this environment leaves unset"
         (let [unset (remove (fn [[nm _ _]] (System/getenv nm)) env-spelled-defaults)]
           (is (seq unset)

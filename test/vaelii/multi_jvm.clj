@@ -22,8 +22,10 @@
   Every child's stderr is folded into its stdout and kept, so a failure reports the
   child's transcript — a stack trace in a process the test framework cannot see is
   otherwise a timeout with no cause attached."
-  (:require [clojure.java.io :as io])
+  (:require [clojure.java.io :as io]
+            [clojure.string :as str])
   (:import [java.io BufferedWriter File]
+           [java.lang.management ManagementFactory]
            [java.util.concurrent LinkedBlockingQueue TimeUnit]))
 
 (def marker
@@ -36,6 +38,14 @@
   the version the classpath was built for."
   ^String []
   (str (System/getProperty "java.home") File/separator "bin" File/separator "java"))
+
+(defn- inherited-options
+  "This JVM's own `--` options — `project.clj`'s native-access and `sun.misc.Unsafe`
+  flags, and a profile's `--add-opens` — so a child runs under the permissions the parent
+  does, and its transcript carries no JDK warning the parent's run does not."
+  []
+  (filterv #(str/starts-with? % "--")
+           (.getInputArguments (ManagementFactory/getRuntimeMXBean))))
 
 (defn- pump!
   "Drain `proc`'s merged output into `queue`, keeping every line in `transcript`.  A
@@ -63,9 +73,11 @@
   [source & args]
   (let [script (File/createTempFile "vaelii-child-" ".clj")
         _      (spit script source)
-        cmd    (into [(java-binary) "-cp" (System/getProperty "java.class.path")
-                      "clojure.main" (.getPath script)]
-                     (map str args))
+        cmd    (-> [(java-binary)]
+                   (into (inherited-options))
+                   (into ["-cp" (System/getProperty "java.class.path")
+                          "clojure.main" (.getPath script)])
+                   (into (map str args)))
         proc   (-> (ProcessBuilder. ^java.util.List cmd)
                    (.redirectErrorStream true)
                    (.start))

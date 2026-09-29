@@ -268,7 +268,7 @@
   ;; level 1 ignores the goal's arguments, so it answers *any* goal whose functor has
   ;; a fact in the context — including one that is only true transitively.  Escalating
   ;; from 0 would name level 1 as the mechanism, which is wrong; the default floor is
-  ;; what keeps escalate honest.
+  ;; what keeps escalate from naming level 1.
   (tu/with-terms [ancestorOf Ann Bob Carol CxStory]
     (v/assert kb (list 'transitive ancestorOf) CxStory)
     (v/assert kb (list ancestorOf Ann Bob) CxStory)

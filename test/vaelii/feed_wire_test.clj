@@ -423,12 +423,8 @@
         "and an unknown-op refusal lists them, so a caller discovering the surface
          sees one roster rather than the larger half of two"))
   (testing "they are not in the vaelii.core allowlist, which is what keeps them out of
-            the model's tool set and out of the local access facade"
-    (is (empty? (filter serve/ops (keys serve/feed-ops))))
-    (require 'vaelii.host.llm.tools)
-    (let [read-ops ((resolve 'vaelii.host.llm.tools/read-ops))]
-      (is (empty? (filter (set (keys serve/feed-ops)) read-ops))
-          "a subscription is heap, and heap is not a thing a model allocates"))))
+            the local access facade and out of any call table generated from `ops`"
+    (is (empty? (filter serve/ops (keys serve/feed-ops))))))
 
 (tu/deftest-kb ^:slow the-client-drives-the-feed-over-a-socket
   ;; The one full loop: `vaelii.client`'s three wrappers against a real daemon, which is
@@ -527,7 +523,7 @@
   (let [reg   (sub/registry)
         token (:token (sub/watch reg kb nil nil))]
     (with-redefs [sub/max-parked 1]
-      (let [parked (future (try (sub/poll reg kb token 0 {:wait-ms 20000})
+      (let [parked (future (try (sub/poll reg token 0 {:wait-ms 20000})
                                 (catch Exception e (:type (ex-data e)))))]
         ;; wait for it to actually be parked rather than sleeping a guessed interval
         (loop [n 0]
@@ -535,11 +531,11 @@
         (is (= 1 (:parked @reg)) "the permit is held for the duration of the wait")
         (testing "and the next poll asking to wait is refused rather than queued"
           (let [e (is (thrown? clojure.lang.ExceptionInfo
-                               (sub/poll reg kb token 0 {:wait-ms 20000})))]
+                               (sub/poll reg token 0 {:wait-ms 20000})))]
             (is (= :too-many-waiters (:type (ex-data e))))))
         (testing "while a timer poll goes through beside it"
-          (is (= [] (:events (sub/poll reg kb token 0)))))
-        (sub/unwatch reg kb token)
+          (is (= [] (:events (sub/poll reg token 0)))))
+        (sub/unwatch reg token)
         (is (= :unknown-subscription @parked)
             "dropping the subscription wakes the parked poll rather than leaving it to time out")
         (is (zero? (:parked @reg)) "and the permit came back")))))
@@ -555,7 +551,7 @@
         result (promise)
         flag   (promise)
         body   (fn []
-                 (deliver result (try {:ok (sub/poll reg kb token 0 {:wait-ms 20000})}
+                 (deliver result (try {:ok (sub/poll reg token 0 {:wait-ms 20000})}
                                       (catch Throwable e {:threw e})))
                  (deliver flag (.isInterrupted (Thread/currentThread))))
         t      (Thread. ^Runnable body "vaelii-test-parked-poll")]
@@ -573,7 +569,7 @@
       (is (true? (deref flag 5000 ::timeout))
           "and the interrupt is back for whoever owns the thread"))
     (is (zero? (:parked @reg)) "and the permit came back")
-    (sub/unwatch reg kb token)))
+    (sub/unwatch reg token)))
 
 (tu/deftest-kb a-wait-value-no-long-holds-is-a-refusal-and-not-a-fault
   ;; Every one of these is a well-formed request with a bad option *value*.  Answered
@@ -610,5 +606,30 @@
     (is (= before (count (v/watchers kb)))
         "and the listener came straight back off the KB rather than leaking onto it")
     (testing "so the feed still answers, which a zombie entry would have stopped"
-      (is (= [] (sub/subscriptions reg kb)))
+      (is (= [] (sub/subscriptions reg)))
       (is (:token (sub/watch reg kb nil nil))))))
+
+(clojure.test/deftest a-subscription-unregisters-from-the-kb-it-watched
+  ;; One registry, two KBs: the browser's serves whichever KB is active at each request.
+  ;; Listener tokens are numbered per KB, so both listeners below are token 0 on their
+  ;; own KB, and an unwatch that unregistered from the KB of the request took the other
+  ;; subscription's listener while leaving its own registered.
+  (let [open (fn [tag] (doto (v/open-kb {:backend :memory :space [::unwatch-home tag]
+                                         :recover? false})
+                         (tu/clear-kb!)))
+        a    (open :a)
+        b    (open :b)
+        reg  (sub/registry)
+        tb   (:token (sub/watch reg b nil nil))
+        ta   (:token (sub/watch reg a nil nil))]
+    (is (= (v/watchers a) (v/watchers b)) "the two listeners carry one token")
+    (is (true? (sub/unwatch reg ta)))
+    (is (empty? (v/watchers a)) "the unwatched subscription's listener left its own KB")
+    (is (= 1 (count (v/watchers b))) "and the other KB's listener stayed")
+    (v/assert b '(genlCx CxTmpHome CxUniverse) 'CxUniverse)
+    (is (= 1 (count (:events (sub/poll reg tb 0))))
+        "so the other subscription still hears its KB")
+    (sub/unwatch reg tb)
+    (is (empty? (v/watchers b)))
+    (tu/clear-kb! a)
+    (tu/clear-kb! b)))

@@ -68,8 +68,8 @@
   settle readings, which a recover rebuilds from the records instead of reading
   ([docs/defenses.md](docs/defenses.md), \"A reasoning image is installed whole or not at
   all\")."
-  (:require [clojure.edn :as edn]
-            [clojure.java.io :as io]
+  (:require [clojure.java.io :as io]
+            [clojure.walk :as walk]
             [taoensso.nippy :as nippy]
             [taoensso.trove :as trove]
             [vaelii.impl.capabilities :as cap]
@@ -77,17 +77,23 @@
             [vaelii.impl.config :as config]
             [vaelii.impl.dense-jtms :as dense]
             [vaelii.impl.disk.backend :as disk]
+            [vaelii.impl.disk.files :as dfiles]
             [vaelii.impl.disk.record-store :as drs]
+            [vaelii.impl.io.thaw :as safe]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.observe :as observe]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.solve :as solve]
             [vaelii.impl.source-identity :as si]
-            [vaelii.impl.types.reasoning :as reasoning])
+            [vaelii.impl.taxonomy :as tax]
+            [vaelii.impl.types.reasoning :as reasoning]
+            [vaelii.impl.types.tms :as tms-types])
   (:import [java.io BufferedInputStream BufferedOutputStream DataInputStream
             DataOutputStream File FileInputStream FileOutputStream]
            [java.nio.file CopyOption Files StandardCopyOption]
            [vaelii.impl.dense_jtms DenseTms]
-           [vaelii.impl.disk.record_store DiskRecordStore]))
+           [vaelii.impl.disk.record_store DiskRecordStore]
+           [vaelii.impl.types.tms Justification]))
 
 (def format-version
   "The image's own layout number, beside `dense/image-version` (the network section's).
@@ -107,8 +113,8 @@
   in neither this list nor `unimaged-atoms`."
   [:clash-readings :program :recheck :refused :opposed :preserving
    :preserved-clashes :excepted :meta-except-count :rule-antecedents :rule-contexts
-   :negations :clashes :sib-exc-dirty :supersessions :scoped-defeats
-   :vantage-disagreements])
+   :solve-rules :negations :clashes :sib-exc-dirty :supersessions :scoped-defeats
+   :vantage-disagreements :minted])
 
 (def unimaged-atoms
   "The KB atoms an image leaves as the open made them.  `:taxonomy` has its own section.
@@ -120,15 +126,22 @@
   `:unrecovered` is the write-hazard record recovery clears after an install.  `:feed`
   holds the change feed's subscriptions, which a caller in this process registered.
   `:violations` is the log of what writes newly exposed; a restore exposes nothing
-  (`settle/*rebuilding?*`), so an installed KB starts it empty, as a recovered one does."
+  (`settle/*rebuilding?*`), so an installed KB starts it empty, as a recovered one does.
+  `:respell` is the queue of predicates whose permuting marks moved, and `:except-moves`
+  the queue of handles an `except` began or stopped hiding; every settle drains both, so
+  they are empty whenever an image can be taken.  `:arbitration-cursors` holds lazy
+  enumerations, which do not freeze; the imaged `:clashes` names the sweeps they resume,
+  and an installed KB restarts each from the start of its reach."
   #{:taxonomy :provers :solver :settle-stats :chain-stats :qcn :qcn-joined :matches
-    :closures :withdrawn :unrecovered :feed :violations})
+    :closures :withdrawn :unrecovered :feed :violations :respell :except-moves
+    :arbitration-cursors})
 
 (def taxonomy-side-slots
   "The taxonomy keys an image leaves as the open made them: the two callbacks
-  `kb/open-kb` installs, which close over the KB, and the three side caches, which are
-  atoms stamped by a relation's own `:gen`."
-  [:supporter-filter-active? :supporter-visible? :closure-memo :vis-index :rewrite-order])
+  `kb/open-kb` installs, which close over the KB, and the four side caches, each keyed or
+  stamped by a relation's own `:gen`."
+  [:supporter-filter-active? :supporter-visible? :closure-memo :closure-lru :vis-index
+   :rewrite-order])
 
 ;; ---- which KB ---------------------------------------------------------------
 
@@ -184,16 +197,20 @@
 (defn stamp
   "What an image of `kb` whose records fingerprint is `records` is valid against.
   `:libraries` is carried for a reader of the manifest; the source digest already covers
-  it."
+  it.  `:recover`, the step timings of the last recover of `kb`'s belief (`{:ms total
+  :steps {step ms}}`, filed by `vaelii.impl.recovery`), is carried when `kb` holds one,
+  for a later rebuild to report its progress against; `decision` does not read it."
   [kb records]
-  (let [sid (si/source-identity)]
-    {:format    format-version
-     :network   dense/image-version
-     :records   records
-     :source    (:digest sid)
-     :libraries (:libraries sid)
-     :policy    {:arbitrate           (boolean (checks/arbitrating? kb))
-                 :assertive-arg-types (boolean (config/assertive-arg-types?))}}))
+  (let [sid (si/source-identity)
+        lr  (some-> (:unrecovered kb) deref :last-recover)]
+    (cond-> {:format    format-version
+             :network   dense/image-version
+             :records   records
+             :source    (:digest sid)
+             :libraries (:libraries sid)
+             :policy    {:arbitrate           (boolean (checks/arbitrating? kb))
+                         :assertive-arg-types (boolean (config/assertive-arg-types?))}}
+      lr (assoc :recover lr))))
 
 (defn decision
   "Why the image `manifest` describes cannot be installed into a KB whose stamp is `now`,
@@ -211,11 +228,11 @@
 
 (defn read-manifest
   "The committed manifest of the image in `dir`, or nil when there is none or it does not
-  read."
+  read under the manifest byte bound."
   [^File dir]
   (let [f (section dir "manifest.edn")]
     (when (.exists f)
-      (try (edn/read-string (slurp f)) (catch Exception _ nil)))))
+      (try (dfiles/read-edn-manifest f) (catch Exception _ nil)))))
 
 ;; ---- writing ----------------------------------------------------------------
 
@@ -240,6 +257,27 @@
   {:taxonomy (apply dissoc @(reasoning/taxonomy kb) taxonomy-side-slots)
    :atoms    (into {} (map (fn [a] [a @(get (reasoning/of kb) a)])) state-atoms)})
 
+;; A file the engine writes states no class name, and the image's reader refuses one
+;; (`vaelii.impl.io.thaw`).  One atom holds records: a clash report lists, per side, the
+;; justifications supporting it (`settle/clash-report`), and a derived side has some.  So
+;; `:clash-readings` is written with each justification as its field map and read back
+;; into the record, which leaves the installed state equal to the state written.  The
+;; walk is that one atom's: the others hold no record, and walking the taxonomy would
+;; rebuild the largest structure in the image for nothing.
+
+(def ^:private justification-fields (set (keys (tms-types/map->Justification {}))))
+
+(defn- justification-map? [x]
+  (and (map? x) (not (record? x)) (= justification-fields (set (keys x)))))
+
+(defn- written-state [st]
+  (update-in st [:atoms :clash-readings]
+             (partial walk/postwalk #(if (instance? Justification %) (into {} %) %))))
+
+(defn- read-back-state [st]
+  (update-in st [:atoms :clash-readings]
+             (partial walk/postwalk #(if (justification-map? %) (tms-types/map->Justification %) %))))
+
 (defn write-sections!
   "Write `kb`'s network and state into `dir`, then a manifest carrying `stamp`, and return
   the manifest — or nil when `commit?`, asked after both sections are written, answers
@@ -254,7 +292,7 @@
      (write-atomic! (section dir "network.bin")
                     (fn [f] (with-open [o (data-out f)] (dense/write-image (reasoning/tms kb) o))))
      (write-atomic! (section dir "state.nippy")
-                    (fn [f] (with-open [o (data-out f)] (nippy/freeze-to-out! o (state-of kb)))))
+                    (fn [f] (with-open [o (data-out f)] (nippy/freeze-to-out! o (written-state (state-of kb))))))
      (when (commit?)
        (let [manifest (assoc stamp
                              :written-at (str (java.time.Instant/now))
@@ -267,15 +305,25 @@
 
 (defn save!
   "Write a `:disk-snapshot` KB's image into its own directory, and return the manifest —
-  or nil when nothing was written: the KB does not keep one (`applies?`, `writable?`), or
-  its records moved while the sections were written.  A failure is logged and returns nil:
-  the image is a cache of a recover, and the next open recovers without it."
+  or nil when nothing was written: the KB does not keep one (`applies?`, `writable?`), a
+  settle is deciding its belief on another thread, or its records or belief moved while
+  the sections were written.  A failure is logged and returns nil: the image is a cache of
+  a recover, and the next open recovers without it.
+
+  The stamp covers the records alone, so an image of belief a settle had not finished
+  deciding would pass the next open's check.  The write is therefore declined while a
+  settle holds the network (`jtms/held`), and committed only when the change clock read
+  before the sections equals the one read after them; the clock moves on every mutation
+  in the process, so a write beside another KB's writer is declined as well."
   [kb]
-  (when (and (applies? kb) (writable? kb))
+  (when (and (applies? kb) (writable? kb) (nil? (jtms/held (reasoning/tms kb))))
     (try
       (let [t0      (System/nanoTime)
+            clock   (observe/change-clock)
             records (drs/reasoning-fingerprint (:records kb))
-            moved?  #(not= records (drs/reasoning-fingerprint (:records kb)))
+            moved?  #(or (some? (jtms/held (reasoning/tms kb)))
+                         (not= clock (observe/change-clock))
+                         (not= records (drs/reasoning-fingerprint (:records kb))))
             m       (write-sections! kb (disk-dir kb) (stamp kb records) #(not (moved?)))]
         (if m
           (trove/log! {:level :info :id ::written
@@ -283,7 +331,7 @@
                                     (:snapshot-dir kb) (/ (- (System/nanoTime) t0) 1e6))})
           (trove/log! {:level :warn :id ::records-moved
                        :msg (str "reasoning image for " (:snapshot-dir kb) " abandoned: the"
-                                 " records moved while it was written")}))
+                                 " records or the belief moved while it was written")}))
         m)
       (catch Throwable t
         (trove/log! {:level :warn :id ::write-failed :error t
@@ -327,7 +375,8 @@
   [kb stop! source]
   (disk/register-reasoning-image! (:snapshot-dir kb)
                                   #(do (stop!)
-                                       (when-let [s (source)] (save-at-close! kb s)))))
+                                       (when-let [s (source)] (save-at-close! kb s)))
+                                  stop!))
 
 (defn source-digest
   "The source identity's digest for the source on the classpath now."
@@ -336,22 +385,25 @@
 
 ;; ---- installing -------------------------------------------------------------
 
-(defn- read-state [^File dir]
-  (let [st (with-open [i (data-in (section dir "state.nippy"))] (nippy/thaw-from-in! i))]
+(defn- read-state
+  "`state.nippy`, thawed behind the class-name check (`vaelii.impl.io.thaw`)."
+  [^File dir]
+  (let [st (with-open [i (data-in (section dir "state.nippy"))] (safe/thaw-from-in! i))]
     (when-not (and (map? (:taxonomy st)) (= (set state-atoms) (set (keys (:atoms st)))))
       (throw (IllegalStateException. "state.nippy does not hold the atoms this build images")))
-    st))
+    (read-back-state st)))
 
 (defn install-from!
   "Install the image in `dir` into `kb` in place of a recover.  `records-fn` returns the
   KB's records fingerprint in the form the image's manifest carries; it runs only once the
-  cheaper conditions hold.  Returns `{:reasoning :installed :source d}`, or `{:reasoning :recover
-  :reason r}` with the KB untouched — `r` one of `decision`'s reasons, a `refusal`,
+  cheaper conditions hold.  Returns `{:reasoning :installed :source d :image m}`, or
+  `{:reasoning :recover :reason r}` with the KB untouched — `r` one of `decision`'s reasons, a `refusal`,
   `:not-applicable`, `:network-populated` or `:unreadable`.  `:source` is the source
-  identity's digest, which `register-close!` takes.
+  identity's digest, which `register-close!` takes, and `:image` the installed manifest's
+  `:source`, `:written-at` and `:recover`.
 
   `accept` is a set of `decision` reasons under which the image is installed anyway, and
-  the result is then `{:reasoning :stale :reason r :source d :image-source d'}`, `d'` the
+  the result is then `{:reasoning :stale :reason r :source d :image-source d' :image m}`, `d'` the
   digest the image was written under.  `vaelii.impl.recovery` passes `#{:source-differs}`
   under `:recover? :background` and rebuilds belief behind the installed image."
   ([kb dir records-fn] (install-from! kb dir records-fn #{}))
@@ -371,12 +423,13 @@
                        (dense/read-image! (dense/create-dense-tms) i))
                  st  (read-state dir)]
              (dense/copy-into! (reasoning/tms kb) net)
-             (swap! (reasoning/taxonomy kb) merge (:taxonomy st))
+             (swap! (reasoning/taxonomy kb) #(tax/with-cache-census (merge % (:taxonomy st))))
              (doseq [[a v] (:atoms st)] (reset! (get (reasoning/of kb) a) v))
-             (if why
-               {:reasoning :stale :reason why :source (:source now)
-                :image-source (:source manifest)}
-               {:reasoning :installed :source (:source now)}))
+             (let [image (select-keys manifest [:source :written-at :recover])]
+               (if why
+                 {:reasoning :stale :reason why :source (:source now)
+                  :image-source (:source manifest) :image image}
+                 {:reasoning :installed :source (:source now) :image image})))
            (catch Throwable t
              (trove/log! {:level :warn :id ::unreadable :error t
                           :msg (str "reasoning image in " dir " unreadable ("

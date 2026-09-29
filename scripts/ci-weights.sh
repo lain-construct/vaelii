@@ -20,6 +20,7 @@
 # namespace whose every test is `^:slow` is weighted at what it costs the
 # `:default` selector instead of at the mean.  A namespace added to the tree since
 # the run gets no line at all, and scripts/ci-shard.sh gives it the mean.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -153,3 +154,5 @@ HDR
 } > "$OUT.new" && mv "$OUT.new" "$OUT"
 
 echo "ci-weights: $OUT — $count namespaces, ${total}s, from $REPO run $RUN" >&2
+exit
+}

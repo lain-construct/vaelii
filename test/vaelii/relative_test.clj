@@ -210,8 +210,8 @@
     (testing "left∘left = left, so the mouse is left of the rock though nobody said so"
       (is (v/ask? kb (list 'leftOf Mouse Rock) C)))
     (testing "and the computed table pins it to exactly that"
-      (is (= #{:left} (rel/possible-relative-directions kb C Mouse Rock)))
-      (is (= :left (rel/definite-relative-direction kb C Mouse Rock))))
+      (is (= #{:left} (qkb/possible rel/relative kb C Mouse Rock)))
+      (is (= :left (qkb/definite rel/relative kb C Mouse Rock))))
     (testing "so a relation the network excludes is not answered"
       (is (not (v/ask? kb (list 'rightOf Mouse Rock) C)))
       (is (not (v/ask? kb (list 'inFrontOf Mouse Rock) C)))
@@ -221,7 +221,7 @@
   (tu/with-terms [A B D]
     (v/assert kb (list 'leftOf A B) C)
     (v/assert kb (list 'inFrontOf B D) C)
-    (is (= #{:front-left} (rel/possible-relative-directions kb C A D)))
+    (is (= #{:front-left} (qkb/possible rel/relative kb C A D)))
     (is (v/ask? kb (list 'frontLeftOf A D) C))
     (testing "and the converse corner holds the other way round"
       (is (v/ask? kb (list 'behindRightOf D A) C)))))
@@ -247,8 +247,8 @@
     ;; and yet every one of them is leftward
     (v/assert kb (list 'frontLeftOf A B) C)
     (v/assert kb (list 'behindLeftOf B D) C)
-    (is (= #{:behind-left :left :front-left} (rel/possible-relative-directions kb C A D)))
-    (is (= :unknown (rel/definite-relative-direction kb C A D)))
+    (is (= #{:behind-left :left :front-left} (qkb/possible rel/relative kb C A D)))
+    (is (= :unknown (qkb/definite rel/relative kb C A D)))
     (testing "no base relation is entailed"
       (is (not (v/ask? kb (list 'leftOf A D) C)))
       (is (not (v/ask? kb (list 'frontLeftOf A D) C)))
@@ -273,7 +273,7 @@
 (tu/deftest-kb a-derived-assertion-constrains-without-pinning
   (tu/with-terms [A B]
     (v/assert kb (list 'leftwardOf A B) C)
-    (is (= #{:left :front-left :behind-left} (rel/possible-relative-directions kb C A B)))
+    (is (= #{:left :front-left :behind-left} (qkb/possible rel/relative kb C A B)))
     (testing "the predicate asserted is entailed, and its converse"
       (is (v/ask? kb (list 'leftwardOf A B) C))
       (is (v/ask? kb (list 'rightwardOf B A) C)))
@@ -288,7 +288,7 @@
     ;; relation to the corner between them
     (v/assert kb (list 'leftwardOf A B) C)                ; #{:left :front-left :behind-left}
     (v/assert kb (list 'frontwardOf A B) C)               ; #{:front :front-left :front-right}
-    (is (= #{:front-left} (rel/possible-relative-directions kb C A B))
+    (is (= #{:front-left} (qkb/possible rel/relative kb C A B))
         "the constraint is the intersection, whichever order they were read in")
     (is (v/ask? kb (list 'frontLeftOf A B) C))
     (is (not (v/ask? kb (list 'leftOf A B) C)))))
@@ -298,7 +298,7 @@
     (v/assert kb (list 'sameRelativePositionAs A B) C)
     (v/assert kb (list 'leftOf B D) C)
     (testing "eq is the identity, so A stands where B does"
-      (is (= #{:left} (rel/possible-relative-directions kb C A D)))
+      (is (= #{:left} (qkb/possible rel/relative kb C A D)))
       (is (v/ask? kb (list 'leftOf A D) C)))))
 
 ;; ---- the frame of reference is the context ------------------------------
@@ -314,18 +314,18 @@
     (v/assert kb (list 'leftOf Mouse Lion) CxFromTheLion)
     (v/assert kb (list 'rightOf Mouse Lion) CxFromTheMouse)
     (testing "each frame answers its own way"
-      (is (= #{:left} (rel/possible-relative-directions kb CxFromTheLion Mouse Lion)))
-      (is (= #{:right} (rel/possible-relative-directions kb CxFromTheMouse Mouse Lion)))
+      (is (= #{:left} (qkb/possible rel/relative kb CxFromTheLion Mouse Lion)))
+      (is (= #{:right} (qkb/possible rel/relative kb CxFromTheMouse Mouse Lion)))
       (is (v/ask? kb (list 'leftOf Mouse Lion) CxFromTheLion))
       (is (v/ask? kb (list 'rightOf Mouse Lion) CxFromTheMouse)))
     (testing "and refuses what the other frame says"
       (is (not (v/ask? kb (list 'rightOf Mouse Lion) CxFromTheLion)))
       (is (not (v/ask? kb (list 'leftOf Mouse Lion) CxFromTheMouse))))
     (testing "neither frame is incoherent — the two claims never meet"
-      (is (not (rel/inconsistent? kb CxFromTheLion)))
-      (is (not (rel/inconsistent? kb CxFromTheMouse))))
+      (is (not (qkb/inconsistent? rel/relative kb CxFromTheLion)))
+      (is (not (qkb/inconsistent? rel/relative kb CxFromTheMouse))))
     (testing "and the context both of them see sees neither: visibility runs upwards"
-      (is (= rel/all-relations (rel/possible-relative-directions kb C Mouse Lion)))
+      (is (= rel/all-relations (qkb/possible rel/relative kb C Mouse Lion)))
       (is (not (v/ask? kb (list 'leftOf Mouse Lion) C)))
       (is (not (v/ask? kb (list 'rightOf Mouse Lion) C))))))
 
@@ -337,11 +337,11 @@
     (v/assert kb (list 'genlCx CxBothWays CxFromTheMouse) C)
     (v/assert kb (list 'leftOf Mouse Lion) CxFromTheLion)
     (v/assert kb (list 'rightOf Mouse Lion) CxFromTheMouse)
-    (is (rel/inconsistent? kb CxBothWays))
-    (is (= #{} (rel/possible-relative-directions kb CxBothWays Mouse Lion)))
+    (is (qkb/inconsistent? rel/relative kb CxBothWays))
+    (is (= #{} (qkb/possible rel/relative kb CxBothWays Mouse Lion)))
     (testing "while the two frames it sees are each still coherent on their own"
-      (is (not (rel/inconsistent? kb CxFromTheLion)))
-      (is (not (rel/inconsistent? kb CxFromTheMouse))))))
+      (is (not (qkb/inconsistent? rel/relative kb CxFromTheLion)))
+      (is (not (qkb/inconsistent? rel/relative kb CxFromTheMouse))))))
 
 (tu/deftest-kb the-network-follows-belief-and-visibility
   (tu/with-terms [A B D CxInner CxOuter]
@@ -364,8 +364,8 @@
     (v/assert kb (list 'leftOf A B) C)
     (v/assert kb (list 'rightOf A B) C)
     (testing "left and right are disjoint base relations, so their pair empties"
-      (is (= #{} (rel/possible-relative-directions kb C A B)))
-      (is (= :inconsistent (rel/definite-relative-direction kb C A B))))
+      (is (= #{} (qkb/possible rel/relative kb C A B)))
+      (is (= :inconsistent (qkb/definite rel/relative kb C A B))))
     (testing "and an inconsistent theory is not mined for conclusions — anywhere"
       (is (not (v/ask? kb (list 'leftOf A B) C)))
       (is (not (v/ask? kb (list 'rightOf A B) C)))
@@ -384,7 +384,7 @@
     (v/assert kb (list 'leftOf A B) C)
     (v/assert kb (list 'leftOf B D) C)
     (v/assert kb (list 'rightOf A D) C)
-    (is (= :inconsistent (rel/definite-relative-direction kb C A D)))
+    (is (= :inconsistent (qkb/definite rel/relative kb C A D)))
     (is (not (v/ask? kb (list 'leftOf A B) C))
         "the whole network is unsatisfiable, so no pair of it is answered")))
 

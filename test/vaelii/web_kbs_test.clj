@@ -4,15 +4,20 @@
   "The browser's knowledge-bases page: what it lists, what its controls do, and the one
   property the whole feature exists for — activating another entry re-points every other
   page at it, with no restart."
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [vaelii.browser.access :as access]
             [vaelii.browser.catalog :as catalog]
+            [vaelii.browser.jobs :as jobs]
             [vaelii.browser.web :as web]
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
             [vaelii.host.io.generate :as generate]
             [vaelii.impl.kb :as kb]
-            [vaelii.test-util :as tu]))
+            [vaelii.test-util :as tu])
+  (:import [java.io ByteArrayInputStream]
+           [java.lang.management ManagementFactory]))
 
 (def ^:dynamic *app* nil)
 
@@ -122,6 +127,41 @@
     (is (= "base" (catalog/active)))
     (testing "and the pages answer from the KB that is left, not from a torn-down one"
       (is (= 200 (:status (GET "/")))))))
+
+(deftest an-unload-during-a-chain-answers-without-waiting-for-it
+  ;; A chaining job holds the process-wide write monitor for its whole run.  This job
+  ;; stands in for one: it claims the KB as its writer and holds the monitor until the
+  ;; gate opens.
+  (let [kb      tu/*kb*
+        other   (tu/isolated-fresh)
+        monitor @#'web/write-monitor
+        gate    (promise)
+        held    (promise)
+        id      (jobs/submit {:label "Chain base" :kind :chain :writes kb}
+                             (fn [_] (locking monitor (deliver held true) (deref gate 60000 nil))))]
+    (catalog/register! "other" "Other KB" other)
+    (try
+      (deref held 10000 nil)
+      (testing "unloading the KB the chain writes answers with a refusal naming the job"
+        (let [r (deref (future (POST "/kbs/unload" {"key" "base"})) 5000 ::parked)]
+          (is (not= ::parked r) "the unload waited for the chain")
+          (is (= 200 (:status r)))
+          (is (re-find #"being written by Chain base" (str (:body r)))))
+        (is (some? (catalog/entry "base")) "and nothing was released"))
+      (testing "an unload of another KB waits for the monitor without holding the catalog's,
+                so a load asked for meanwhile answers"
+        (let [u (future (POST "/kbs/unload" {"key" "other"}))]
+          (Thread/sleep 200)
+          (let [l (deref (future (POST "/kbs/load" {"id" "core"})) 5000 ::parked)]
+            (is (not= ::parked l) "the load waited behind the parked unload")
+            (is (= 200 (:status l))))
+          (deliver gate true)
+          (is (= 200 (:status (deref u 10000 nil))))
+          (is (nil? (catalog/entry "other")))))
+      (finally
+        (deliver gate true)
+        (jobs/wait id 10000)
+        (tu/clear-kb! other)))))
 
 (deftest a-refused-load-is-reported-on-the-page
   (testing "loading what is already loaded is a state the page shows, not an error status"
@@ -235,6 +275,114 @@
     (is (nil? (catalog/active)))
     (is (= 200 (:status (GET "/kbs"))))
     (is (= 200 (:status (GET "/"))))))
+
+;; ---- what reaches a KB after its release ---------------------------------
+
+(defn- op
+  "`POST /op` with `form` as its EDN body, and the reply read back into `:edn`."
+  [form]
+  (let [r (*app* {:request-method :post :uri "/op"
+                  :headers {"content-type" "application/edn"}
+                  :body (ByteArrayInputStream. (.getBytes (pr-str form) "UTF-8"))})]
+    (assoc r :edn (edn/read-string (:body r)))))
+
+(defn- late-kb!
+  "A memory KB registered as entry \"late\" with a release to perform, and active."
+  []
+  (let [kb (tu/isolated-fresh)]
+    (catalog/register! "late" "Late KB" kb {:where {:backend :memory}})
+    (catalog/activate "late")
+    kb))
+
+(defn- blocked-on?
+  "Is thread `t` blocked entering `monitor`?"
+  [^Thread t monitor]
+  (let [info (.getThreadInfo (ManagementFactory/getThreadMXBean) (.getId t))]
+    (boolean (and info
+                  (= Thread$State/BLOCKED (.getThreadState info))
+                  (some-> (.getLockInfo info) .getIdentityHashCode
+                          (= (System/identityHashCode monitor)))))))
+
+(defn- parked-behind-an-unload
+  "Run `request` on its own thread while this thread holds the browser's write monitor,
+  as a chain on another KB does.  Once `request` is blocked entering the monitor, and so
+  past every refusal read outside it, unload entry `key` from this thread: the monitor is
+  reentrant, so the unload runs to completion before `request` enters.  Answers what
+  `request` answered."
+  [key request]
+  (let [monitor @#'web/write-monitor
+        out     (promise)
+        ^Runnable run (bound-fn [] (deliver out (try (request) (catch Throwable e e))))
+        t       (Thread. run)]
+    (locking monitor
+      (.start t)
+      (let [deadline (+ (System/currentTimeMillis) 10000)]
+        (while (and (not (blocked-on? t monitor)) (< (System/currentTimeMillis) deadline))
+          (Thread/sleep 5)))
+      (is (blocked-on? t monitor) "the request is parked on the write monitor")
+      (is (= 200 (:status (POST "/kbs/unload" {"key" key}))))
+      (is (nil? (catalog/entry key)) "and the unload released the entry"))
+    (deref out 10000 ::no-answer)))
+
+(deftest a-write-parked-on-the-monitor-does-not-land-on-a-kb-unloaded-before-it
+  (tu/with-terms [likesOf Ann Bob]
+    (testing "an op answers 404 :not-found and stores nothing"
+      (let [kb (late-kb!)
+            r  (parked-behind-an-unload
+                "late" #(op {:op :assert :args [(list likesOf Ann Bob) 'CxUniverse]}))]
+        (is (= [404 :not-found] [(:status r) (get-in r [:edn :type])]))
+        (is (zero? (v/sentex-count kb)))))
+    (testing "a :watch answers 404 :not-found and registers no listener"
+      (let [kb (late-kb!)
+            r  (parked-behind-an-unload "late" #(op {:op :watch :args []}))]
+        (is (= [404 :not-found] [(:status r) (get-in r [:edn :type])]))
+        (is (empty? (v/watchers kb)))))
+    (testing "a page write answers with the refusal page and stores nothing"
+      (let [kb (late-kb!)
+            r  (parked-behind-an-unload
+                "late" #(POST "/assert" {"text" (pr-str (list likesOf Ann Bob))
+                                         "ctx"  "CxUniverse"}))]
+        (is (= 200 (:status r)))
+        (is (re-find #"Nothing was written" (str (:body r))))
+        (is (re-find #"unloaded" (str (:body r))))
+        (is (zero? (v/sentex-count kb)))))))
+
+(deftest a-chain-whose-kb-is-unloaded-before-its-job-is-submitted-does-not-run
+  ;; `/chain` reads its refusals and then submits; an unload landing between the two finds
+  ;; no job writing the KB and releases it.  The redefined submit stages that order.
+  (let [_       (late-kb!)
+        submit  jobs/submit
+        id      (atom nil)
+        chained (atom 0)]
+    (with-redefs [jobs/submit     (fn [spec work]
+                                    (when (= :chain (:kind spec))
+                                      (is (= 200 (:status (POST "/kbs/unload" {"key" "late"})))))
+                                    (reset! id (submit spec work)))
+                  access/forward-chain (fn [& _] (swap! chained inc) {:derived 0})]
+      (POST "/chain" {})
+      (jobs/wait @id 10000))
+    (is (nil? (catalog/entry "late")))
+    (is (zero? @chained) "the chain never ran over the released KB")
+    (is (= :failed (:status (jobs/job @id))))
+    (is (re-find #"unloaded" (str (:error (jobs/job @id)))))))
+
+(deftest an-unload-ends-the-feeds-over-its-kb
+  (let [kb     (late-kb!)
+        token  (get-in (op {:op :watch :args []}) [:edn :result :token])
+        parked (future (op {:op :poll :args [token 0 {:wait-ms 20000}]}))
+        reg    @#'web/op-registry
+        until  (+ (System/currentTimeMillis) 10000)]
+    (while (and (zero? (:parked @reg)) (< (System/currentTimeMillis) until))
+      (Thread/sleep 5))
+    (is (= 1 (:parked @reg)) "the poll is parked")
+    (is (= 1 (count (v/watchers kb))))
+    (POST "/kbs/unload" {"key" "late"})
+    (let [r (deref parked 1000 ::still-parked)]
+      (is (not= ::still-parked r) "the parked poll is woken, not left to its deadline")
+      (is (= :unknown-subscription (get-in r [:edn :type]))))
+    (is (empty? (v/watchers kb)) "the listener is off the released KB")
+    (is (= :unknown-subscription (get-in (op {:op :poll :args [token 0]}) [:edn :type]))
+        "and a later poll of the token is refused")))
 
 ;; ---- and back out again --------------------------------------------------
 

@@ -287,6 +287,13 @@
   [conn handle m]
   (c/add-provenance conn handle m))
 
+(defn all-functional-at-instant-violations
+  "Audit every `(functional_at_instant f)` declaration visible in `context`, and return `{f
+  #{violation…} …}` — declarations that clash nowhere are omitted, so an empty map is a
+  clean sweep."
+  [conn context]
+  (c/all-functional-at-instant-violations conn context))
+
 (defn all-specified-violations
   "Audit every binary `predAllSpecified` and `predSpecifiedAll` declaration visible in
   `context`, and return `{[functor pred indep] result…}` — each result carrying a
@@ -485,6 +492,11 @@
   [conn]
   (c/exposed-clashes conn))
 
+(defn find-sentexes-all
+  "Every stored sentex that contains all of `terms`."
+  [conn terms]
+  (c/find-sentexes-all conn terms))
+
 (defn find-terms
   "The vocabulary terms whose name matches `q`, sorted by name."
   ([conn q] (c/find-terms conn q))
@@ -495,6 +507,14 @@
   (resolve contradictions)."
   ([conn] (c/forward-chain conn))
   ([conn opts] (c/forward-chain conn opts)))
+
+(defn functional-at-instant-violations
+  "The per-instant functionality clashes of one `(functional_at_instant f)` declaration in
+  `context`, as a set of maps `{:function f :subject s :instant t :values #{v…} :kind k}`
+  — one per moment `t` at which more than one distinct value of the fluent function `f`
+  holds for one subject `s`."
+  [conn f context]
+  (c/functional-at-instant-violations conn f context))
 
 (defn genl?
   "Is `sub` a (reflexive-transitive) subtype of `super`? Types, not individuals — for an
@@ -541,6 +561,12 @@
   than a number:"
   ([conn] (c/kb-quality conn))
   ([conn opts] (c/kb-quality conn opts)))
+
+(defn last-program
+  "The last edge `Program` handed to the solver — the contested assumptions and the nogoods
+  among them — or nil if no tie has ever been arbitrated."
+  [conn]
+  (c/last-program conn))
 
 (defn levels
   "The stack as data: {:level :name :below :adds} per level."
@@ -623,8 +649,14 @@
   ([conn goal] (c/query-plan conn goal))
   ([conn goal context] (c/query-plan conn goal context)))
 
+(defn query-status
+  "`query`'s answers, plus a **report** of the run — what a bare `query` cannot say."
+  ([conn goal context] (c/query-status conn goal context))
+  ([conn goal context opts] (c/query-status conn goal context opts)))
+
 (defn query?
-  "Is `goal` answerable under `opts`? `query`, asked for one answer."
+  "Is `goal` answerable under `opts`? `query`, asked for one answer: the search stops at
+  the first."
   ([conn goal] (c/query? conn goal))
   ([conn goal context] (c/query? conn goal context))
   ([conn goal context opts] (c/query? conn goal context opts)))
@@ -705,6 +737,23 @@
   typing at the audited position."
   ([conn pred indep context] (c/specified-violations conn pred indep context))
   ([conn pred indep context arg-pos] (c/specified-violations conn pred indep context arg-pos)))
+
+(defn subsumption-status
+  "The subsumption relationship of type `a` to type `b`, one of: `:coextensional` (each is
+  `genl` the other), `:genl` (`(genl a b)` holds — `a` is a subtype of `b`), `:spec`
+  (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint` (provably no shared
+  instance), `:orthogonal` (neither subsumes the other and not disjoint, but a shared
+  instance the registry answers without rule expansion exists), `:unknown` (none of the
+  above is provable), or `:inconsistent` (multiple contradictory relationships hold, e.g.
+  both genl-related and disjoint)."
+  ([conn a b] (c/subsumption-status conn a b))
+  ([conn a b context] (c/subsumption-status conn a b context)))
+
+(defn subsumption-statuses
+  "The set of applicable subsumption relationships between types `a` and `b`: any subset of
+  `#{:coextensional :genl :spec :disjoint :orthogonal}`."
+  ([conn a b] (c/subsumption-statuses conn a b))
+  ([conn a b context] (c/subsumption-statuses conn a b context)))
 
 (defn supporting-justifications
   "Justifications that conclude `handle` (its supporting justifications), in **content**

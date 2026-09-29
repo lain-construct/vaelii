@@ -5,7 +5,8 @@
   placed, refused (and why), or silent.  Read off the standing refusal ledger and the
   justification graph, so it needs no per-run instrumentation; the core read
   (`chain-report`) is exercised directly as well as through the page."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.browser.catalog :as catalog]
             [vaelii.browser.jobs :as jobs]
             [vaelii.browser.web :as web]
@@ -68,6 +69,26 @@
     (testing "the summary counts the three kinds"
       (is (re-find #"forward rules" b))
       (is (re-find #"fire" b)))))
+
+(deftest the-funnel-continues-like-every-other-list
+  ;; a page of 20 cards, so CxCore's forward rules and the three above take several pages,
+  ;; and every page but the last ends in a sentinel
+  (with-redefs [web/funnel-render-cap 20]
+    (let [href  #(second (re-find #"hx-get=\"(/funnel/rows\?offset=\d+)\"" %))
+          rules #(map second (re-seq #"href=\"/sentex/(\d+)\"" %))
+          n     (count (v/chain-report tu/*kb*))
+          pages (loop [body (:body (GET "/funnel")), pages []]
+                  (let [pages (conj pages body)]
+                    (if-let [h (and (< (count pages) 100) (href body))]
+                      (let [[uri qs] (str/split h #"\?")] (recur (:body (GET uri qs)) pages))
+                      pages)))]
+      (is (< 20 n) "more rules than one page holds")
+      (is (= "/funnel/rows?offset=20" (href (first pages))) "the first page ends in a sentinel")
+      (is (nil? (href (peek pages))) "and the last page ends without one")
+      (testing "the pages walk every rule once"
+        (let [seen (mapcat rules pages)]
+          (is (= (quot (+ n 19) 20) (count pages)))
+          (is (= n (count seen) (count (distinct seen)))))))))
 
 (deftest funnel-links-to-the-rules-and-back-from-stats
   (testing "each rule row links to its sentex page"

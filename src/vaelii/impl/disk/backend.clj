@@ -36,13 +36,11 @@
 ;; — the component keys are present only for what was actually opened.
 (defonce ^:private stores (atom {}))
 
-(defn canonical-dir
-  "`dir`'s canonical path — the identity a directory's stores are keyed by, and what
-  anything else keying state off a disk KB's directory (the derived index's shared
-  state, `vaelii.impl.kb`) must key on too, so two spellings of one directory are one
-  KB rather than two."
-  [dir]
-  (.getCanonicalPath (io/file dir)))
+(def canonical-dir
+  "`dir`'s canonical path, the key of the store registry above: `lock/canonical-dir`,
+  whose registry keys on it as well, so a directory's lock and its stores are one entry
+  each under one spelling."
+  lock/canonical-dir)
 
 (defn store-backend
   "The `open-kb` backend the store in `dir` was written by, read off its files, or nil when
@@ -232,20 +230,26 @@
   registration stands.  The index is shared by every KB over a directory, and belief is
   not: it lives in the KB that recovered it, and a second KB opened over a directory is
   the one that has the current belief — the first one's writes are invisible to it
-  (docs/storage.md, the single-writer contract)."
-  [dir save-fn]
-  (let [cdir (canonical-dir dir)]
-    (locking stores
-      (when-let [old (get-in @stores [cdir :dur-ids :reasoning-image])]
-        (dur/deregister! old))
-      (let [id (dur/register! {:fsync (fn [_] nil)
-                               :close save-fn
-                               :phase :image
-                               :label (str "reasoning-image " cdir)})]
-        (swap! stores update cdir
-               #(-> (or % {:dir cdir :dur-ids {}})
-                    (assoc :reasoning-image save-fn)
-                    (assoc-in [:dur-ids :reasoning-image] id)))))))
+  (docs/storage.md, the single-writer contract).
+
+  `stop-rebuild`, when given, stops a background belief rebuild and returns once it has
+  stopped.  `close-dir!` runs it **before** it takes the registry monitor, so a rebuild
+  that takes minutes to reach its next stop check blocks only the close waiting on it, not
+  every other directory's open and close.  A registration without one drops the one before."
+  ([dir save-fn] (register-reasoning-image! dir save-fn nil))
+  ([dir save-fn stop-rebuild]
+   (let [cdir (canonical-dir dir)]
+     (locking stores
+       (when-let [old (get-in @stores [cdir :dur-ids :reasoning-image])]
+         (dur/deregister! old))
+       (let [id (dur/register! {:fsync (fn [_] nil)
+                                :close save-fn
+                                :phase :image
+                                :label (str "reasoning-image " cdir)})]
+         (swap! stores update cdir
+                #(-> (or % {:dir cdir :dur-ids {}})
+                     (assoc :reasoning-image save-fn :stop-rebuild stop-rebuild)
+                     (assoc-in [:dur-ids :reasoning-image] id))))))))
 
 (defn maybe-refresh-index-snapshot!
   "Rewrite `cdir`'s index image if the live index has drifted past the threshold.
@@ -335,12 +339,19 @@
   released either way.
 
   **The order is the contract**, because handing a directory over is the point:
-  deregister → abort any rewrite → join the compactor → write the image → close the
-  components → release the lock.  Releasing the OS lock is the last thing that happens,
+  stop a background belief rebuild (outside the registry monitor) → deregister → abort
+  any rewrite → join the compactor → write the image → close the components → release
+  the lock.  Releasing the OS lock is the last thing that happens,
   because it is the thing the other process is waiting on, and everything above it is a
   file of this directory's still being written."
   [dir]
   (let [cdir (canonical-dir dir)]
+    ;; A background belief rebuild is stopped before the monitor is taken: the stop waits
+    ;; for the rebuild's next stop check, which can be a whole-store settle away, and every
+    ;; other directory's open and close takes this monitor.  `reasoning-image` stops it again
+    ;; under the monitor, which returns at once for this rebuild and waits only for one
+    ;; registered in between.
+    (when-let [stop (get-in @stores [cdir :stop-rebuild])] (stop))
     (locking stores
       (when-let [{:keys [records index overlay-meta snapshot reasoning-image dur-ids]} (@stores cdir)]
         ;; Deregister first: it is the signal a task the compaction executor has queued
@@ -357,7 +368,8 @@
         ;; with that rewrite still running is two processes appending to one temp log and
         ;; a replay installing frames from both — the exact tearing the directory lock
         ;; exists to prevent, under a setting (`vaelii.disk.auto-compact`) that is on by
-        ;; default.  The abort makes the wait short; the wait makes the release honest.
+        ;; default.  The abort makes the wait short; the wait ensures no rewrite outlives the
+        ;; release.
         (when records (drs/abort-compaction! records))
         (dur/await-compaction-quiescent! (vals dur-ids))
         ;; The image after the join and before the closes: it is stamped against the

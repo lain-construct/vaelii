@@ -27,7 +27,7 @@
   (:refer-clojure :exclude [])
   (:require [vaelii.impl.caches :as caches]
             [vaelii.impl.types.reasoning :as reasoning])
-  (:import [java.util.concurrent.atomic AtomicLong]))
+  (:import [java.util.concurrent.atomic AtomicLong AtomicReference]))
 
 (defonce ^{:private true
            :doc "A `(fn [kb sentex handle])` run after a sentex is stored + indexed, or nil."}
@@ -101,8 +101,9 @@
   "Something that a resident derived structure is a function of has just changed.  Three
   places bump it, and together they are the *whole* of what such a structure can depend
   on: the two store choke points (`kb/create-sentex`, `integrate/sentex-removed!`), every
-  mutating `jtms` entry point, and a watch on the taxonomy's atom — which sentexes exist,
-  which of them are believed, and what the closures say.  Two bulk operations bump by hand
+  mutating `jtms` entry point (before and after its mutation, `jtms/moving`), and a watch
+  on the taxonomy's atom — which sentexes exist, which of them are believed, and what the
+  closures say.  Two bulk operations bump by hand
   because they move a store without passing either choke point: `core/clear!` and
   `reindex/reindex`.
 
@@ -118,11 +119,156 @@
   []
   (.incrementAndGet clock))
 
+;; ---- the published view: a settle's holds ------------------------------------
+;;
+;; A settle is a sequence of network mutations, and between its first and its last the
+;; network holds states no settled KB holds: `settle*` lifts every standing defeat and
+;; re-decides it rounds later.  A settle therefore **holds** the belief it started from
+;; for every other thread, and publishes what it decided in one step when it ends
+;; (`vaelii.impl.settle/settle`).  The network records the labels the settle moves as they
+;; were when it began (`vaelii.impl.jtms/hold!`), the scoped rosters keep the value they
+;; had (`held-atom`), and this registry says which holds are open and which thread owns
+;; each.  Closing a hold is one swap here, so a reader switches from the held belief to
+;; the published one in one step across the network, the rosters and the clock.
+
+(defonce ^{:private true
+           :tag AtomicReference
+           :doc "The open holds, as `{token owner-thread}`.  Empty on nearly every read."}
+  holds
+  (AtomicReference. {}))
+
+(def ^:dynamic *live*
+  "True where a thread reads what the writer holds now even while a hold is open.  The
+  taxonomy's visibility callbacks bind it (`live`): the closures they decide are memoized
+  where the writer reads them, so they must describe the network the writer is deciding."
+  false)
+
+(defn- owns-a-hold?
+  "Does thread `t` own one of the holds in `m`?"
+  [m t]
+  (reduce-kv (fn [_ _ owner] (if (identical? owner t) (reduced true) false)) false m))
+
+(defn held-reader?
+  "Does the current thread read held belief: a hold is open, this thread owns none, and
+  it is not reading live (`*live*`)?"
+  []
+  (let [m (.get holds)]
+    (and (not (zero? (count m)))
+         (not (owns-a-hold? m (Thread/currentThread)))
+         (not *live*))))
+
+(defn registry
+  "The open holds, as one value.  Every open and every close replaces it, so a reader
+  that reads it before and after a read of live state, and finds the same value both
+  times, knows no hold opened or closed in between."
+  []
+  (.get holds))
+
+(defn reads-held-in?
+  "Does the current thread read the belief hold `h` keeps, by `registry` value `m`: `h`
+  is open in `m`, this thread owns no hold there, and it is not reading live?  The
+  network and the held atoms ask this after their own owner check, so the writer's reads
+  never reach it."
+  [m h]
+  (and (contains? m (:token h))
+       (not (owns-a-hold? m (Thread/currentThread)))
+       (not *live*)))
+
+(defn reads-held?
+  "`reads-held-in?` against the registry as it is now."
+  [h]
+  (reads-held-in? (.get holds) h))
+
+(defn new-hold
+  "A hold owned by the current thread, not yet open: `{:token :owner}`."
+  []
+  {:token (Object.) :owner (Thread/currentThread)})
+
+(defn open-hold!
+  "Open hold `h`: move the change clock, then register `h`, after which every thread that
+  owns no hold reads the belief `h` keeps.  The clock moves first so a cache entry a held
+  reader installs under this hold carries a stamp no earlier hold's reader used
+  (`change-clock`)."
+  [h]
+  (note-change)
+  (loop []
+    (let [m (.get holds)]
+      (when-not (.compareAndSet holds m (assoc m (:token h) (:owner h))) (recur))))
+  h)
+
+(defn close-hold!
+  "Close hold `h`: from this call on, every thread reads the belief its writer published."
+  [h]
+  (loop []
+    (let [m (.get holds)]
+      (when-not (.compareAndSet holds m (dissoc m (:token h))) (recur))))
+  nil)
+
+(defmacro live
+  "Run `body` reading what the writer holds now, whatever hold is open.  Binds `*live*`
+  only on a thread that reads held belief (`held-reader?`), so the writer and every read
+  outside a settle pay one registry read."
+  [& body]
+  `(if (held-reader?) (binding [*live* true] ~@body) (do ~@body)))
+
+(deftype HeldAtom [^clojure.lang.Atom a ^AtomicReference held]
+  ;; `held` is nil, or `{:hold h :value v}`: the value `a` held when hold `h` began.  Every
+  ;; write goes to `a`; a deref answers `v` to a thread that reads `h`'s belief.
+  ;;
+  ;; A deref that answers `a`'s own value reads the registry before and after it, and
+  ;; reads again when a hold opened or closed in between: a settle writes the rosters only
+  ;; while its hold is open, so a value read with no hold open on either side is one no
+  ;; settle was deciding.
+  clojure.lang.IDeref
+  (deref [_]
+    (let [p (.get held)]
+      (if (and p (identical? (:owner (:hold p)) (Thread/currentThread)))
+        (.deref a)
+        (loop []
+          (let [m (.get holds)
+                p (.get held)]
+            (if (and p (reads-held-in? m (:hold p)))
+              (:value p)
+              (let [v (.deref a)]
+                (if (identical? m (.get holds)) v (recur)))))))))
+  clojure.lang.IAtom
+  (swap [_ f] (.swap a f))
+  (swap [_ f x] (.swap a f x))
+  (swap [_ f x y] (.swap a f x y))
+  (swap [_ f x y args] (.swap a f x y args))
+  (compareAndSet [_ o n] (.compareAndSet a o n))
+  (reset [_ v] (.reset a v)))
+
+(defn held-atom
+  "An atom holding `v` that keeps its value for a hold's readers (`hold-atom!`)."
+  [v]
+  (HeldAtom. (atom v) (AtomicReference. nil)))
+
+(defn hold-atom!
+  "Keep `ha`'s current value for the readers of hold `h`, until `release-atom!`."
+  [^HeldAtom ha h]
+  (.set ^AtomicReference (.-held ha) {:hold h :value (.deref ^clojure.lang.Atom (.-a ha))})
+  nil)
+
+(defn release-atom!
+  "Stop keeping a value for a hold's readers: every deref reads `ha`'s own value."
+  [^HeldAtom ha]
+  (.set ^AtomicReference (.-held ha) nil)
+  nil)
+
 (defn change-clock
   "The current value of the change clock.  A reader stamps what it derived with this
-  and re-derives when it has moved."
+  and re-derives when it has moved.
+
+  A thread that reads held belief (`held-reader?`) reads `-1 - clock` instead.  What it
+  derives describes the belief the hold keeps, and the writer's entries describe the
+  network it is deciding, so the two must never share an entry: every cache compares the
+  stamp it stored with this value, and a negative stamp equals no stamp the writer or a
+  reader outside a hold uses.  `open-hold!` moves the clock, so two holds' readers do not
+  share one either."
   ^long []
-  (.get clock))
+  (let [c (.get clock)]
+    (if (held-reader?) (- -1 c) c)))
 
 ;; ---- the stored-handle cache --------------------------------------------
 
@@ -258,7 +404,7 @@
   immediate-consequence step is by definition computed from one state, and what a step
   enables is picked up by the next round rather than mid-step.  So the pin is bound where
   a step runs — one agenda datum (`chain/process-datum`), one node expansion
-  (`inference/expand-node`) — and never wider than the thing whose answer must come from
+  (`inference/step!`) — and never wider than the thing whose answer must come from
   one state.  Outside such a scope there is nothing to hold fixed and the clock answers
   alone.
 
@@ -387,7 +533,7 @@
   binding of the join variable, and each solve walks the closure over nodes many of
   those seeds share, re-hitting the store for the same `(pred node)` neighbour set.
   A backward search establishes one memo per search step — one `res/prove-from` segment,
-  one `inference/expand-node` — so each neighbour lookup touches the store once instead of
+  one `inference/step!` — so each neighbour lookup touches the store once instead of
   once per binding of the join variable.  The step is the scope because that is where the
   repetition is; a session-wide binding could not survive the node engine's laziness
   anyway.  Created fresh per step and a query never mutates belief, so it cannot go
@@ -412,7 +558,7 @@
   an outer scope rather than shadowing it, so a nested expansion shares what its parent
   already paid for.
 
-  A *step*, not a query: `inference/expand-node` binds it per node and `res/prove-from`
+  A *step*, not a query: `inference/step!` binds it per node and `res/prove-from`
   per segment of its loop, so a lazily driven search opens one per pull.  That is the
   finest scope at which the repetition above still collapses, and the widest at which a
   lazy consumer can still be handed a seq — see `res/prove-seq`.

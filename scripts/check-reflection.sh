@@ -23,6 +23,7 @@
 #
 # The second form is what `gate.sh` uses on the test log, and what lets this script
 # have a test: feed it a log with a known warning and it must exit 1.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 
 # The three the compiler emits under the flag.  Auto-boxing and the primitive-recur
@@ -86,3 +87,4 @@ printf '%s\n' "$hits"
 printf '\n%s reflection/boxing warning(s) — hint the call site.\n' \
        "$(printf '%s\n' "$hits" | grep -c .)" >&2
 exit 1
+}

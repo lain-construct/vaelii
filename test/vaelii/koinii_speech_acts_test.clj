@@ -29,6 +29,13 @@
   (is (seq (v/sentexes-matching kb (list 'comment 'endorses '?t) 'CxSpeechActs))
       "and its vocabulary — the endorses doc — is present"))
 
+(tu/deftest-kb the-placement-mark-is-declared-where-it-is-stored
+  ;; every placement writes (agentContext CxAtlas AgentAtlas) into the agent's own context,
+  ;; which speaker-context roots under CxSpeechActs, so the declaration is in view there
+  (let [actx (sa/speaker-context kb 'CxDeploy 'AgentAtlas)]
+    (is (seq (v/sentexes-matching kb '(agentContext ?c AgentAtlas) actx)) "the mark is stored")
+    (is (v/ask? kb '(arity agentContext 2) actx) "and its arity declaration is in view there")))
+
 ;; ---- verify (1): a round-trip conversation, recoverable as data ----------
 
 (tu/deftest-kb a-round-trip-conversation-is-recoverable-as-data

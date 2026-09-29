@@ -4,7 +4,7 @@
   "The read-only mount: a `KvBackend` and a `RecordStore` that answer every read and
   **refuse every write**.
 
-  A base shared by N forks is only shared if nothing can write it, and the honest way to
+  A base shared by N forks is only shared if nothing can write it, and the way to
   guarantee that is structurally rather than by review: an overlay composes over one of
   these, so a write path that forgot to divert fails loudly at the boundary instead of
   silently mutating what every other fork is reading.  That is invariant 1 of
@@ -33,11 +33,13 @@
   (:require [vaelii.impl.capabilities :as cap]
             [vaelii.impl.protocols :as p]))
 
-(defn- refuse [op]
-  (throw (ex-info (str "the overlay's base is mounted read-only — " op " is refused."
-                       "  A fork writes through its own half, so call it on the fork's"
-                       " stores rather than on the base's")
-                  {:type :frozen-base :op op})))
+(defn- base-refusal [op]
+  (ex-info (str "the overlay's base is mounted read-only — " op " is refused."
+                "  A fork writes through its own half, so call it on the fork's"
+                " stores rather than on the base's")
+           {:type :frozen-base :op op}))
+
+(defn- refuse [op] (throw (base-refusal op)))
 
 ;; ---- the index half --------------------------------------------------------
 
@@ -66,7 +68,7 @@
 
 ;; ---- the record half -------------------------------------------------------
 
-(defrecord FrozenRecords [base]
+(defrecord FrozenRecords [base refusal]
   p/RecordStore
   (get-sentex        [_ id] (p/get-sentex        base id))
   (get-justification [_ id] (p/get-justification base id))
@@ -78,15 +80,15 @@
   ;; allocation, not mutation — see the namespace docstring
   (next-id           [_]    (p/next-id base))
 
-  (put-sentex           [_ _]   (refuse "put-sentex"))
-  (delete-sentex!       [_ _]   (refuse "delete-sentex!"))
-  (put-justification    [_ _]   (refuse "put-justification"))
-  (delete-justification! [_ _]  (refuse "delete-justification!"))
-  (put-provenance       [_ _ _] (refuse "put-provenance"))
-  (delete-provenance!   [_ _]   (refuse "delete-provenance!"))
-  (mark-premise         [_ _ _] (refuse "mark-premise"))
-  (unmark-premise!      [_ _]   (refuse "unmark-premise!"))
-  (clear-records!       [_]     (refuse "clear-records!"))
+  (put-sentex            [_ _]   (throw (refusal "put-sentex")))
+  (delete-sentex!        [_ _]   (throw (refusal "delete-sentex!")))
+  (put-justification     [_ _]   (throw (refusal "put-justification")))
+  (delete-justification! [_ _]   (throw (refusal "delete-justification!")))
+  (put-provenance        [_ _ _] (throw (refusal "put-provenance")))
+  (delete-provenance!    [_ _]   (throw (refusal "delete-provenance!")))
+  (mark-premise          [_ _ _] (throw (refusal "mark-premise")))
+  (unmark-premise!       [_ _]   (throw (refusal "unmark-premise!")))
+  (clear-records!        [_]     (throw (refusal "clear-records!")))
 
   ;; A frozen base is a read of its base, tallies included — and through the *helpers*,
   ;; not the protocol ops, so a base without the capability falls back to its own
@@ -116,6 +118,8 @@
     nil))
 
 (defn frozen-records
-  "`base` as a read-only `RecordStore`."
-  [base]
-  (if (instance? FrozenRecords base) base (->FrozenRecords base)))
+  "`base` as a read-only `RecordStore`.  A write throws what `refusal`, a function of the
+  op's name, returns: `:frozen-base` by default, and `:unrecovered-kb` for the store a
+  background belief rebuild reads (`vaelii.impl.recovery`)."
+  ([base] (if (instance? FrozenRecords base) base (->FrozenRecords base base-refusal)))
+  ([base refusal] (->FrozenRecords base refusal)))

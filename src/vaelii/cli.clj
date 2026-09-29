@@ -11,7 +11,9 @@
 (defn open-kb-from
   "The KB a set of parsed CLI options names — `--dir` for the store there, under the
   backend its files were written by, or a new durable `:disk-log` store when it holds none
-  (recovered on open), `--starter` for a starter-loaded in-memory one, else empty."
+  (recovered on open), `--starter` for a starter-loaded in-memory one, else empty.  A
+  `--dir` whose parent does not exist is refused (`:unknown-source`) and nothing is
+  created."
   [opts]
   (cli/open-kb-from opts))
 

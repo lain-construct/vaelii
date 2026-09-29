@@ -52,6 +52,7 @@
 #   scripts/update-badges.sh --deps     # also re-run lein antq, refresh the deps badge + docs/dependencies.md report
 #   scripts/update-badges.sh --dry-run  # measure + print, leave README alone
 #   scripts/update-badges.sh --glossary-only # only regenerate the glossary category badges
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 
 # One level up: this lives in scripts/, beside every other script here. Moving it
@@ -78,7 +79,7 @@ done
 
 # Seeds for the two badges whose measurement is opt-in. Precedence is
 # --flag live run > the value in the existing SVG > this seed, so a
-# non-numeric seed renders literally and keeps the badge honest until the
+# non-numeric seed renders literally, so the badge shows no number until the
 # expensive run has happened once.
 COVERAGE_FALLBACK=n/a
 DEPS_FALLBACK=n/a
@@ -145,6 +146,7 @@ clj=(--include='*.clj')
 
 # count lines matching a pattern, tolerating zero matches (grep exits 1).
 count() { local n; n=$("$@" | wc -l | tr -d ' '); echo "${n:-0}"; }
+# shellcheck disable=SC2317,SC2329  # called through count below; shellcheck 0.10 names it SC2317
 g() { grep "$@" || true; }
 
 # Render a badge SVG to $1. Args: outfile label message color
@@ -487,3 +489,5 @@ else
   ' README.md
   echo "  README badges regenerated: coverage ${cov_msg} | docstrings ${docstrings}% | deps ${deps_msg}" >&2
 fi
+exit
+}

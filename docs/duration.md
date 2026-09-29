@@ -36,11 +36,11 @@ Every computation carries `[lo hi]` magnitude bounds, and the render decides the
 bounds within tolerance give a point `(QuantityFn …)`, anything wider gives
 `(QuantityIntervalFn lo hi …)`.
 
-That is what keeps the answer honest. A stored length may itself be an interval measure,
-and an overlap is often only bounded rather than known — so an over-approximation renders
-as an interval and *says* it is one, instead of as a point that would claim more than the
-KB knows. Two hours overlapping half an hour "somewhere" is
-`(QuantityIntervalFn 0 1800 Second)`, not a figure.
+The answer therefore never claims more precision than its inputs carry. A stored length
+may itself be an interval measure, and an overlap is often only bounded rather than known
+— so an over-approximation renders as an interval and *says* it is one, instead of as a
+point that would claim more than the KB knows. Two hours overlapping half an hour
+"somewhere" is `(QuantityIntervalFn 0 1800 Second)`, not a figure.
 
 ## Which unit the answer is in
 
@@ -123,7 +123,7 @@ for a number either.
 
 ## Sharpened by the metric network
 
-The last row of that table is the honest answer to "how long do these two overlap?" when
+The last row of that table is the answer to "how long do these two overlap?" when
 nothing is known, and it is a poor answer when something is. If the KB says where the two
 intervals' endpoints fall relative to one another — `(startOf I P)` / `(endOf I P)` and the
 `temporalDistance` constraints of [stp.md](stp.md) — there is a real figure, and

@@ -65,7 +65,7 @@
   (docs/inference.md).  The disk store holds its counter the same way, so both backends
   allocate alike."
   [state counter kind id rec]
-  (swap! state assoc-in [kind id] rec)
+  (swap! state (fn [m] (assoc m kind (assoc (get m kind) id rec))))
   (when (> (long id) (long @counter)) (swap! counter max (long id)))
   id)
 
@@ -81,7 +81,7 @@
   ;; store and the durable one count the same events (`mark-premise` reaches into the
   ;; state map here and re-`fetch`es there, and a tally that counted both would be a
   ;; reading of which backend is running).
-  (get-sentex [_ id] (prof/record-fetch :sentex) (get-in @state [:sentexes id]))
+  (get-sentex [_ id] (prof/record-fetch :sentex) (get (:sentexes @state) id))
   (delete-sentex! [_ id]
     (swap! state (fn [st] (-> st
                               (update :sentexes dissoc id)
@@ -91,17 +91,17 @@
   (put-justification [this justification]
     (let [id (or (:id justification) (p/next-id this))]
       (store-record state counter :justifications id (assoc justification :id id))))
-  (get-justification [_ id] (prof/record-fetch :justification) (get-in @state [:justifications id]))
+  (get-justification [_ id] (prof/record-fetch :justification) (get (:justifications @state) id))
   (delete-justification! [_ id]
     (swap! state (fn [st] (-> st
                               (update :justifications dissoc id)
                               (update :provenance dissoc id))))
     nil)
   (put-provenance    [_ id prov] (swap! state assoc-in [:provenance id] prov) prov)
-  (get-provenance    [_ id]      (prof/record-fetch :provenance) (get-in @state [:provenance id]))
+  (get-provenance    [_ id]      (prof/record-fetch :provenance) (get (:provenance @state) id))
   (delete-provenance! [_ id]     (swap! state update :provenance dissoc id) nil)
-  (sentex-ids    [_] (set (keys (:sentexes @state))))
-  (justification-ids [_] (set (keys (:justifications @state))))
+  (sentex-ids    [_] (prof/record-fetch :sentex-ids) (set (keys (:sentexes @state))))
+  (justification-ids [_] (prof/record-fetch :justification-ids) (set (keys (:justifications @state))))
   (mark-premise [_ id strength]
     ;; the assumption strength lives on the sentex record itself; premises are also
     ;; tracked in a set.  Guard both on the record existing — a handle with no sentex
@@ -129,8 +129,10 @@
                      (get-in st [:sentexes id]) (assoc-in [:sentexes id :strength] nil)
                      :always                    (update :premises disj id))))
     nil)
-  (premise-ids [_] (set (:premises @state)))
-  (premise-strength [_ id] (or (:strength (get-in @state [:sentexes id])) :default))
+  (premise-ids [_] (prof/record-fetch :premise-ids) (set (:premises @state)))
+  (premise-strength [_ id]
+    (prof/record-fetch :premise-strength)
+    (or (:strength (get (:sentexes @state) id)) :default))
   (clear-records! [_] (reset! state empty-record-state) (reset! counter 0) nil)
 
   ;; The tallies read the maps this store already holds, so implementing them buys
@@ -152,6 +154,17 @@
   [{:keys [space] :or {space 0}}]
   (->MemoryRecordStore (space-atom record-spaces space empty-record-state)
                        (space-atom record-counters space 0)))
+
+(defn drop-record-space!
+  "Forget the records and the handle counter held under `space`, so a process that opens
+  a KB per private space does not keep every space it has finished with.  A store already
+  holding the space keeps its atoms; a store opened on `space` afterwards starts empty.
+  Returns true when an entry was dropped."
+  [space]
+  (let [had? (contains? @record-spaces space)]
+    (swap! record-spaces dissoc space)
+    (swap! record-counters dissoc space)
+    had?))
 
 ;; ---- index KV backend ----------------------------------------------------
 ;; One map keyed by the structured key vectors, holding a Long at each counter key
@@ -196,7 +209,8 @@
 (defn- mem-op!
   "The transient twin of `kv/apply-op`: apply one write op to transient map `t`, returning
   the new transient (a transient op's return must be captured).  No reply is computed —
-  the only bulk caller (`index-sentex`) ignores them.  The set *values* stay persistent;
+  the bulk caller (`index-sentex`) ignores them, and `kv-batch`'s ordinary fold reads a
+  counter's value back off the transient.  The set *values* stay persistent;
   it is the millions-of-keys map that is transient.
 
   That trade is right for the trie's child and leaf sets, which are small.  It is not
@@ -271,18 +285,26 @@
       ;; bulk load: fold every op into the transient (no per-op path copy, no swap!);
       ;; index-sentex ignores the replies, so return the aligned nil placeholders.
       (do (vswap! tv (fn [t] (reduce mem-op! t ops))) (mapv (fn [_#] nil) ops))
-      ;; apply every op in one swap!, capturing the per-op replies; the capture is
-      ;; recomputed each swap attempt, so a retry (never, under single-writer) cannot
-      ;; double-count.
-      (let [replies (atom nil)]
+      ;; apply every op in one swap!, over one transient of the state map, capturing the
+      ;; per-op replies.  One assert's index write is some twenty ops into one map, and
+      ;; folded persistently each op copies the path from the root down; folded through
+      ;; a transient a node is copied once per batch.  The ops mean what `mem-op!` says,
+      ;; which is `kv/apply-op`'s transient twin, and a counter's reply is its value
+      ;; after the op, read back off the transient.  The capture is recomputed each swap
+      ;; attempt, so a retry (never, under single-writer) cannot double-count.
+      (let [replies (volatile! nil)]
         (swap! state
                (fn [m]
-                 (let [[m' rs] (reduce (fn [[m rs] op]
-                                         (let [[m2 r] (kv/apply-op m op)]
-                                           [m2 (conj rs r)]))
-                                       [m []] ops)]
-                   (reset! replies rs)
-                   m')))
+                 (let [rs (java.util.ArrayList.)
+                       t  (reduce (fn [t [op k :as o]]
+                                    (let [t' (mem-op! t o)]
+                                      (.add rs (when (or (identical? op :increment)
+                                                         (identical? op :decrement))
+                                                 (get t' k)))
+                                      t'))
+                                  (transient m) ops)]
+                   (vreset! replies (vec rs))
+                   (persistent! t))))
         @replies)))
   ;; this backend's resident shape *is* the portable one — structured vector keys,
   ;; Clojure sets and Longs — so both directions are the map itself, with no key

@@ -7,10 +7,13 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.pprint :as pp]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.browser.catalog :as catalog]
+            [vaelii.cli :as pcli]
             [vaelii.core :as v]
             [vaelii.host.cli :as cli]
+            [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.io.import :as imp]
             [vaelii.impl.reasoning-image :as ri]
             [vaelii.test-util :as tu])
@@ -62,9 +65,28 @@
         (cli/dispatch kb "retract" [h] {})
         (is (empty? (cli/dispatch kb "match" [(list dog Muffet) CxCli] {})))))))
 
+(tu/deftest-kb the-public-shim-answers-what-the-cli-answers
+  ;; `vaelii.cli` is a one-line delegation, and a delegation to the wrong var passes every
+  ;; test written against `vaelii.host.cli`.  `open-kb-from` is driven down its two
+  ;; refusals, which open no store.
+  (tu/with-terms [dog Muffet CxCli]
+    (pcli/dispatch kb "assert" [(list dog Muffet) CxCli] {})
+    (is (= (cli/dispatch kb "match" [(list dog '?x) CxCli] {})
+           (pcli/dispatch kb "match" [(list dog '?x) CxCli] {})
+           [(list dog Muffet)])))
+  (let [refusal (fn [f opts] (try (f opts) nil
+                                  (catch clojure.lang.ExceptionInfo e (ex-data e))))
+        d       (temp-dir "shim")]
+    (try
+      (doseq [opts [{:memory true :dir "kb"} {:dir (str d "/no-parent/kb")}]]
+        (is (some? (refusal cli/open-kb-from opts)))
+        (is (= (refusal cli/open-kb-from opts) (refusal pcli/open-kb-from opts))
+            (pr-str opts)))
+      (finally (rm-rf! d)))))
+
 (tu/deftest-kb a-command-word-the-table-does-not-know-is-refused-with-the-table
   ;; The refusal is for a typo at the shell.  Dispatched as nothing it would exit 0
-  ;; having run no command — `asserr '(dog Muffet)' CxCli` is indistinguishable from a stored fact to
+  ;; having run no command — `asserr '(dog Muffet)' CxCli` looks like a stored fact to
   ;; whoever typed it — so the word comes back named, with the roster of the ones that
   ;; do exist for a shell to print.
   (let [e (is (thrown? clojure.lang.ExceptionInfo (cli/dispatch kb "frobnicate" [] {})))
@@ -359,8 +381,8 @@
         out  (with-out-str
                (with-in-str (str "why " deep "\ntypes\nexit\n")
                  (#'cli/repl-loop kb {})))]
-    (is (re-find #"error: StackOverflowError" out)
-        "the overflow is reported as an ordinary error line")
+    (is (re-find #"error: \[:internal-error\] java.lang.StackOverflowError" out)
+        "the overflow is reported as an ordinary error line, classed as the daemon classes it")
     (is (re-find #"bye" out) "and the loop survived it to reach exit")))
 
 (deftest an-unknown-flag-is-refused-not-keywordized
@@ -373,6 +395,19 @@
     (let [e (try (cli/parse-opts args) nil
                  (catch clojure.lang.ExceptionInfo e (ex-data e)))]
       (is (= :unknown-option (:type e)) (pr-str args)))))
+
+(deftest the-operands-are-refused-before-a-kb-is-opened
+  ;; `-main` asks `check-args!` before `open-kb-from`, so each of these is refused with no
+  ;; KB built: no `--dir` store created, no `--starter` loaded into one
+  (let [refusal (fn [f] (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))]
+    (is (= :bad-args (refusal #(cli/check-args! "assert" ['(dog Muffet)] {}))))
+    (is (= :bad-args (refusal #(cli/read-arg "assert" "(dog Muffet) (cat Felix)"))))
+    (is (= :unknown-option (refusal #(cli/check-args! "query" ['(dog ?x) 'CxWell] {:depth "abc"}))))
+    (is (= :unknown-option (refusal #(cli/check-args! "export" ["/tmp/out"] {:format "texr"}))))
+    (is (= :unknown-option (refusal #(cli/check-args! "export" ["/tmp/out"]
+                                                      {:format "text" :compression "gzip"}))))
+    (is (= :unknown-option (refusal #(cli/check-args! "why-not" [3] {:nearest "2"}))))
+    (is (nil? (refusal #(cli/check-args! "assert" ['(dog Muffet) 'CxWell] {}))))))
 
 (deftest a-short-command-line-names-the-missing-argument
   ;; `dispatch` reaches into `args` with `nth`, so a line missing its context
@@ -532,3 +567,94 @@
     (is (= "" (str out)) "nothing reached the data stream")
     (is (re-find #"::exported|:vaelii.cli-test/exported" (str err))
         "and the line itself is on stderr, not dropped")))
+
+;; ---- what the shell is told -------------------------------------------------
+
+(defn- run-captured
+  "`cli/run` over `argv`, as `{:status :out :err}` — the three things a shell script
+  reads of one invocation."
+  [& argv]
+  (let [out (java.io.StringWriter.)
+        err (java.io.StringWriter.)
+        st  (binding [*out* out *err* err] (cli/run (vec argv)))]
+    {:status st :out (str out) :err (str err)}))
+
+(defn- first-line [s] (first (str/split-lines s)))
+
+(deftest a-refusal-line-carries-its-type
+  ;; `-main` printed `(.getMessage e)` alone, so the `:type` the daemon puts on the wire
+  ;; and the browser renders as a chip never reached the shell: a script telling a naming
+  ;; refusal from a clash had to match English prose, and every refusal exits 1.
+  (let [root (temp-dir "refusal")
+        dir  (str (io/file root "kb"))]
+    (try
+      (testing "a flag the driver does not know"
+        (let [r (run-captured "assert" "(dog Muffet)" "CxWell" "--strenght" "monotonic")]
+          (is (= 1 (:status r)))
+          (is (re-find #"^error: \[:unknown-option\] unknown flag: --strenght" (:err r)))
+          (is (= "" (:out r)) "and stdout, the stream a script takes its answer from, is empty")))
+      (testing "an operand count"
+        (is (re-find #"^error: \[:bad-args\] assert takes 2 arguments"
+                     (:err (run-captured "assert" "(dog Muffet)")))))
+      (testing "the engine's own refusal, after the KB is open"
+        (let [r (run-captured "assert" "(warmBlooded Muffet)" "CxWell" "--dir" dir)]
+          (is (= 1 (:status r)))
+          (is (re-find #"^error: \[:naming\] " (:err r)) (:err r))
+          (is (= "" (:out r)))))
+      (testing "an unknown command word keeps its own exit status"
+        (let [r (run-captured "asserr" "(dog Muffet)" "CxWell")]
+          (is (= 2 (:status r)))
+          (is (= "error: [:unknown-command] unknown command: asserr" (first-line (:err r))))))
+      (testing "a throwable with no :type is :internal-error, the daemon's word for one"
+        (is (= "error: [:internal-error] boom" (cli/refusal-line (RuntimeException. "boom"))))
+        (is (= "error: [:internal-error] java.lang.StackOverflowError"
+               (cli/refusal-line (StackOverflowError.)))))
+      (finally (backend/close-dir! dir) (rm-rf! root)))))
+
+(deftest a-dir-under-a-missing-parent-is-refused-and-nothing-is-created
+  ;; The store creates every missing component of the path it opens, so a mistyped
+  ;; `--dir` answered a read with `[]` at exit 0 and left an empty store behind to answer
+  ;; the same way next time.
+  (let [root    (temp-dir "missing-parent")
+        typo    (io/file root "nowhere" "kb")
+        fresh   (io/file root "fresh")]
+    (try
+      (testing "a --dir whose parent does not exist"
+        (let [r (run-captured "match" "(dog ?x)" "CxWell" "--dir" (str typo))]
+          (is (= 1 (:status r)))
+          (is (re-find #"^error: \[:unknown-source\] no KB at --dir " (:err r)) (:err r))
+          (is (re-find (re-pattern (java.util.regex.Pattern/quote (str (io/file root "nowhere"))))
+                       (:err r))
+              "naming the part of the path that is missing")
+          (is (= "" (:out r)) "no answer: `[]` would say no such fact")
+          (is (not (.exists (io/file root "nowhere"))) "and nothing is created")))
+      (testing "upgrade's keyword, from the open itself"
+        (let [e (try (cli/open-kb-from {:dir (str typo)}) nil
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (= :unknown-source (:type (ex-data e))))
+          (is (= (str typo) (:path (ex-data e))))))
+      (testing "an absent --dir under an existing parent is how a new KB is made, and still is"
+        (let [r (run-captured "match" "(dog ?x)" "CxWell" "--dir" (str fresh))]
+          (is (= 0 (:status r)) (:err r))
+          (is (.isDirectory fresh))))
+      (finally (backend/close-dir! (str fresh)) (rm-rf! root)))))
+
+(deftest diff-opens-no-kb-so-a-held-dir-does-not-refuse-it
+  ;; `diff` reads two text KBs into KBs of their own and never the run's, but `-main`
+  ;; opened the `--dir` KB first — taking its single-writer lock — so beside a daemon
+  ;; owning that directory the comparison was refused with the lock message.  The open is
+  ;; stood in for by one that refuses as a held lock does; `multi_jvm_test` holds a real one.
+  (let [root (temp-dir "diff")
+        a    (io/file root "a")
+        b    (io/file root "b")]
+    (try
+      (.mkdirs a) (.mkdirs b)
+      (spit (io/file a "CxWell.txt") "(dog Muffet)\n")
+      (spit (io/file b "CxWell.txt") "(dog Muffet)\n(dog Rex)\n")
+      (with-redefs [cli/open-kb-from (fn [_] (throw (ex-info "Disk KB is locked by another JVM"
+                                                             {:type :disk-locked})))]
+        (let [r (run-captured "diff" (str a) (str b) "--dir" (str (io/file root "held")))]
+          (is (= 0 (:status r)) (:err r))
+          (is (= '[(dog Rex)] (map :sentence (:added (edn/read-string (:out r)))))
+              "the answer is the comparison of the two text KBs")))
+      (finally (rm-rf! root)))))

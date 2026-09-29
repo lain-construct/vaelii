@@ -29,19 +29,30 @@
    is closed in a finally and every Control is freed in one; a malformed program
    throws rather than segfaults.
 
-   The time limit (`config/asp-time-limit`) is not a flag here — libclingo's
-   control takes solver options only and refuses `--time-limit` — so each solve runs
-   async and is drained through `clingo_solve_handle_wait` with what remains of the
-   budget; a solve still running when it runs out is cancelled and reports the
+   The search flags are clasp's (`clasp/search-args`): one thread, a fixed seed, and
+   `--solve-limit` from `config/asp-solve-limit`, which the control takes as a solver
+   option and applies to each solve.  A search the solve limit stops reports neither
+   the exhausted bit nor the interrupted one, and `finalize` reads that as
+   `:interrupted`.
+
+   The time limit (`config/asp-time-limit`), the backstop behind it, is not a flag here
+   — libclingo's control takes solver options only and refuses `--time-limit` — so each
+   solve runs async and is drained through `clingo_solve_handle_wait` with what remains
+   of the budget; a solve still running when it runs out is cancelled and reports the
    interrupted bit, read as `:interrupted`."
-  (:require [taoensso.trove :as trove]
+  (:require [clojure.string :as str]
+            [taoensso.trove :as trove]
+            [vaelii.impl.asp.clasp :as clasp]
             [vaelii.impl.config :as config])
   (:import [com.sun.jna NativeLibrary Function Pointer Memory Native]
            [com.sun.jna.ptr PointerByReference IntByReference LongByReference]))
 
 (def ^:dynamic *clingo-lib*
-  "Library name (resolved via jna.library.path) or absolute path to libclingo."
-  (or (System/getProperty "vaelii.clingo.lib") "clingo"))
+  "Library name (resolved via jna.library.path) or absolute path to libclingo.  A blank
+  `vaelii.clingo.lib` is unset, as every switch's blank is (`vaelii.impl.config`):
+  `-Dvaelii.clingo.lib=` names no library, and read as one it would ask JNA for a
+  library called \"\"."
+  (or (some-> (System/getProperty "vaelii.clingo.lib") str/trim not-empty) "clingo"))
 
 (defonce ^:private lib (delay (NativeLibrary/getInstance ^String *clingo-lib*)))
 
@@ -108,6 +119,8 @@
 (def ^:private result-sat   1)
 
 (def ^:private result-unsat 2)
+
+(def ^:private result-exhausted 4)
 
 (def ^:private result-interrupted 8)
 
@@ -333,8 +346,7 @@
 
 (defn- control-backend
   "The backend accessor of live control `ctl` (`clingo_control_backend`) — the handle a
-   `clingo_backend_*` batch runs against. Obtained fresh per batch (the accessor is cheap
-   and idempotent); each batch brackets its own `begin`/`end`."
+   `clingo_backend_*` batch runs against."
   ^Pointer [ctl]
   (let [br (PointerByReference.)]
     (chk! "control_backend" (ci "clingo_control_backend" ctl br))
@@ -342,33 +354,25 @@
 
 (defn- intern-atom!
   "Intern vaelii atom id `vid` on `backend` as the clingo function symbol `a(<vid>)`,
-   returning `[cid sym]` — its `clingo_atom_t` and the symbol. Idempotent on one live
-   backend: `clingo_backend_add_atom` keys on the (interned) symbol, so a `vid` seen in an
-   earlier batch re-interns to the SAME cid. That identity is what lets a later
-   incremental batch reference an earlier batch's atoms."
+   returning `[cid sym]` — its `clingo_atom_t` and the symbol."
   [backend vid]
   (let [sym (create-function "a" [(create-number vid)] true)]
     [(backend-add-atom backend sym) sym]))
 
-(defn- backend-batch!
-  "Run ONE backend batch on the already-obtained `backend`: begin, intern the atom
-   universe of `stmts` as `a(<id>)` symbols, emit every head and body/weight literal
+(defn- backend-load!
+  "Inject the ground program `stmts` into control `ctl` through the `clingo_backend_*`
+   accessors — no ASPIF text, no temp file, no parse — as one batch: begin, intern the
+   atom universe of `stmts` as `a(<id>)` symbols, emit every head and body/weight literal
    remapped through that vid→cid table (sign preserved on body literals), end. No show
-   statement is emitted — the symbol association is the show. Returns
-   `{:sym->label <symbol → label> :vid->cid <vid → cid>}`: the map the model readback
-   reads through (`model-atoms`, holding only the *labelled* atoms — an unlabelled one is
-   dropped there anyway, and omitting it keeps a session's `merge` from clobbering a label
-   an earlier batch gave the same atom), and the vid→cid table an incremental session
-   accumulates so a later batch — and `assign-external!` — can name these atoms.
-
-   Repeatable on one live control: `clingo_backend_begin`/`_end` bracket a batch and may be
-   called again between solves, and clasp retains its learned clauses across them — the
-   multi-shot capability `clingo_control_load_aspif` (one-shot) lacks."
-  [backend stmts]
+   statement is emitted — the symbol association is the show. Returns the symbol → label
+   map the model readback reads through (`model-atoms`), holding only the *labelled*
+   atoms, since an unlabelled one is dropped there anyway."
+  [ctl stmts]
   (let [vid->label (into {} (keep (fn [{:keys [type atom text]}]
                                     (when (= :show type) [atom text])))
                          stmts)
-        universe   (into (set (keys vid->label)) (mapcat stmt-vids) stmts)]
+        universe   (into (set (keys vid->label)) (mapcat stmt-vids) stmts)
+        backend    (control-backend ctl)]
     (chk! "backend_begin" (ci "clingo_backend_begin" backend))
     (let [entries    (mapv (fn [vid]
                              (let [[cid sym] (intern-atom! backend vid)] [vid cid sym]))
@@ -390,15 +394,7 @@
           :minimize          (backend-minimize! backend priority (map wlit literals))
           :show              nil))
       (chk! "backend_end" (ci "clingo_backend_end" backend))
-      {:sym->label sym->label :vid->cid vid->cid})))
-
-(defn- backend-load!
-  "Inject the ground program `stmts` into control `ctl` through the `clingo_backend_*`
-   accessors — no ASPIF text, no temp file, no parse — as one batch (`backend-batch!` on
-   `ctl`'s backend). Returns that batch's `{:sym->label ... :vid->cid ...}`; the one-shot
-   `backend-solve` reads only `:sym->label` (the vid→cid table matters to a live session)."
-  [ctl stmts]
-  (backend-batch! (control-backend ctl) stmts))
+      sym->label)))
 
 (defn- backend-solve
   "Solve the ground program `stmts` in-process through the backend accessors under
@@ -413,7 +409,7 @@
                             Pointer/NULL Pointer/NULL (Integer/valueOf 20) ctlr))
     (let [ctl (.getValue ctlr)]
       (try
-        (let [{:keys [sym->label]} (backend-load! ctl stmts)
+        (let [sym->label (backend-load! ctl stmts)
               hr         (PointerByReference.)]
           (chk! "solve" (ci "clingo_control_solve" ctl mode-async-yield Pointer/NULL
                             (Long/valueOf 0) Pointer/NULL Pointer/NULL hr))
@@ -473,24 +469,28 @@
    which holds only what the mode's retention kept (`keep-model`) — a model dropped
    for being off the best cost still had its say in both.
 
-   `:interrupted` is the cancelled search (the time limit ran out) with NO model to
-   show for it.  A `:label` search cancelled *after* it had a model in hand is
-   `:best-effort` instead: that model satisfies every hard constraint and is the lowest
+   `:interrupted` is a search stopped short with NO model to show for it: cancelled at
+   the time limit (the interrupted bit), or stopped by the solve limit (neither the
+   exhausted bit nor `:unsat` — a `:sat` search stops at its first model unexhausted on
+   purpose, so there only a search with no model is short).  A `:label` search stopped
+   *after* it had a model in hand is `:best-effort` instead: that model satisfies every hard constraint and is the lowest
    cost seen — only its optimality went unproven — so it is an answer worth handing back
    rather than discarding.  A caller that needs a proven optimum reads the status and
    refuses it; one that wants a good labeling under a deadline takes it.  `:all-optima`
    and the classify modes need the search to finish (an incomplete enumeration or a
    cut-short cautious set is unsound), so they stay `:interrupted`."
   [{:keys [result models any-optimal?] opt :optimum :as raw} mode]
-  (let [cost  (first opt)
-        status (cond
-                 (and (pos? (bit-and result result-interrupted))
-                      (#{:label :sat} mode) (seq models))   :best-effort
-                 (pos? (bit-and result result-interrupted)) :interrupted
-                 (pos? (bit-and result result-unsat))       :unsat
-                 (and opt any-optimal?)                     :optimum
-                 (pos? (bit-and result result-sat))         :sat
-                 :else                                       :unknown)]
+  (let [cost     (first opt)
+        stopped? (or (pos? (bit-and result result-interrupted))
+                     (and (zero? (bit-and result (bit-or result-exhausted result-unsat)))
+                          (not (and (= :sat mode) (seq models)))))
+        status   (cond
+                   (and stopped? (#{:label :sat} mode) (seq models)) :best-effort
+                   stopped?                                          :interrupted
+                   (pos? (bit-and result result-unsat))              :unsat
+                   (and opt any-optimal?)                            :optimum
+                   (pos? (bit-and result result-sat))                :sat
+                   :else                                             :unknown)]
     (case mode
       (:label :sat)
       {:status status :atoms (vec (:atoms (first (optimal-models models opt)))) :cost cost :raw raw}
@@ -519,7 +519,9 @@
    improving models there would enumerate every model."
   [{:keys [stmts]} mode]
   (let [mode (if (and (= :label mode) (not (objective? stmts))) :sat mode)]
-    (finalize (backend-solve (mode-args-or-throw mode) stmts (mode-retention mode)) mode)))
+    (finalize (backend-solve (into (mode-args-or-throw mode) (clasp/search-args)) stmts
+                             (mode-retention mode))
+              mode)))
 
 (defn- load-block!
   "Load the base ASPIF program into `ctl` via clingo_control_load_aspif. NOT
@@ -602,136 +604,6 @@
   (doseq [k keep :when (instance? java.io.File k)]
     (try (.delete ^java.io.File k) (catch Throwable _ nil))))
 
-;; ---- an incremental session: grow one live control and toggle externals ----
-;;
-;; `open-control` above base-loads ASPIF text a live control can then only solve, because
-;; `clingo_control_load_aspif` is one-shot ("incremental aspif programs are not
-;; supported").  The backend accessors are not: `clingo_backend_begin`/`_end` bracket a
-;; batch of ground rules and may be called REPEATEDLY on one live `clingo_control`, so a
-;; session grows its program in place across `clingo_control_solve` calls and clasp keeps
-;; the clauses it learned between them (multi-shot).  Externals
-;; (`clingo_backend_external` + `clingo_control_assign_external`) toggle an atom's truth
-;; between solves with no re-grounding.  These are backend/multi-shot only — clasp is a
-;; one-shot subprocess that cannot toggle them — so they live here, not on the ASPIF text
-;; path, and there is no `:external` statement type in `aspif.clj`.
-
-(def ^:private external-type
-  "`clingo_external_type_t` — the truth an external atom is declared with on the backend.
-   `:release` (3) drops the external entirely; the session API does not expose it."
-  {:free 0 :true 1 :false 2 :release 3})
-
-(def ^:private truth-value
-  "`clingo_truth_value_t` — the truth `clingo_control_assign_external` forces on an
-   external's literal between solves.  Shares 0/1/2 with `external-type`, minus `:release`."
-  {:free 0 :true 1 :false 2})
-
-(defn open-session
-  "Open an incremental session: a live control created with `arg-strs` flags and NO
-   program loaded — the multi-shot analogue of `open-control`, which base-loads ASPIF text
-   a live control cannot then grow.  Returns
-
-     {:ctl <Pointer> :syms (atom {}) :cids (atom {}) :keep [argcs]}
-
-   `:syms` accumulates the symbol→label map across every `add-program!` /
-   `declare-external!` batch (`solve-session`'s model readback reads through it); `:cids`
-   accumulates vid→cid so a later batch and `assign-external!` can name an earlier batch's
-   atoms; `:keep` holds the JNA arg buffers that must outlive the control.  Close with
-   `close-session!` exactly once (`free-control!`).
-
-   No free-on-throw wrapper, unlike `open-control`: a failed `control_new` throws in
-   `chk!` before a control exists, and nothing between the successful create and the
-   returned map can throw — a session base-loads nothing."
-  [arg-strs]
-  (let [argcs (mapv cstr arg-strs)
-        argv  (if (seq argcs) (ptr-array argcs) Pointer/NULL)
-        ctlr  (PointerByReference.)]
-    (chk! "control_new" (ci "clingo_control_new" argv (Long/valueOf (long (count argcs)))
-                            Pointer/NULL Pointer/NULL (Integer/valueOf 20) ctlr))
-    {:ctl (.getValue ctlr) :syms (atom {}) :cids (atom {}) :keep [argcs]}))
-
-(defn add-program!
-  "Grow `session`'s live program by one backend batch of `stmts` — `control_backend` →
-   begin → emit → end on the kept control (`backend-batch!`) — merging the batch's
-   sym→label into `(:syms session)` and vid→cid into `(:cids session)`.  Because
-   `clingo_backend_add_atom` is idempotent on a symbol, a `vid` first seen in an earlier
-   batch re-interns to the SAME cid, so a later batch's rules can reference earlier atoms
-   and the program genuinely grows in place (clasp keeps its learned clauses across the
-   solves between batches).  Returns the session."
-  [session stmts]
-  (let [{:keys [sym->label vid->cid]} (backend-batch! (control-backend (:ctl session)) stmts)]
-    (swap! (:syms session) merge sym->label)
-    (swap! (:cids session) merge vid->cid)
-    session))
-
-(defn declare-external!
-  "Declare atom `vid` an EXTERNAL of `session`'s live control with initial truth `initial`
-   (`:free` | `:true` | `:false`), inside a backend `begin`/`end` bracket (it is a backend
-   op).  Interns `a(<vid>)` → cid (recording vid→cid, and a sym→label from `label` or
-   `(str vid)` so the external is observable in model readback), then
-   `clingo_backend_external(backend, cid, <type>)`.  Unlike a rule, an external's truth is
-   then toggled between solves by `assign-external!` with NO re-grounding.  Returns the
-   session."
-  ([session vid initial] (declare-external! session vid initial (str vid)))
-  ([session vid initial label]
-   (let [backend (control-backend (:ctl session))]
-     (chk! "backend_begin" (ci "clingo_backend_begin" backend))
-     (let [[cid sym] (intern-atom! backend vid)]
-       (chk! "backend_external"
-             (ci "clingo_backend_external" backend (Integer/valueOf (int cid))
-                 (Integer/valueOf (int (external-type initial)))))
-       (chk! "backend_end" (ci "clingo_backend_end" backend))
-       (swap! (:cids session) assoc vid cid)
-       (swap! (:syms session) assoc sym label)
-       session))))
-
-(defn assign-external!
-  "Set external `vid`'s truth on `session`'s live control to `truth` (`:free` | `:true` |
-   `:false`) via `clingo_control_assign_external`.  A CONTROL op called BETWEEN solves — no
-   backend bracket, no open solve handle — that re-grounds nothing, so the next
-   `solve-session` sees the flipped value with clasp's learned clauses intact.  The literal
-   is the atom's positive program literal, the `clingo_literal_t` cid `declare-external!`
-   recorded.  Refuses a `vid` no batch on this session ever interned — there is no literal
-   to assign.  Returns the session."
-  [session vid truth]
-  (let [cid (get @(:cids session) vid)]
-    (when (nil? cid)
-      (throw (ex-info (str "assign-external!: atom " vid " has no interned cid on this"
-                           " session — declare it (declare-external!) or ground a rule over"
-                           " it (add-program!) before toggling it")
-                      {:type :solver-failed :op "assign_external" :vid vid})))
-    (chk! "assign_external"
-          (ci "clingo_control_assign_external" (:ctl session)
-              (Integer/valueOf (int cid)) (Integer/valueOf (int (truth-value truth)))))
-    session))
-
-(defn solve-session
-  "Solve `session`'s live control in `mode`, keeping the models the mode reads and reading
-   their true atoms back through the session's accumulated sym→label map (`model-atoms`) —
-   the backend analogue of `solve-control`, but on the kept control and WITHOUT freeing it,
-   so it is callable repeatedly as the program grows and externals toggle.  The clingo
-   flags are fixed at `open-session`; `mode` selects only the retention and `finalize`
-   post-processing, so it must agree with those flags.  Returns the public `finalize`
-   contract (`:status :atoms :cost :raw`)."
-  [session mode]
-  (let [retain (or (mode-retention mode)
-                   (throw (ex-info (str "unknown clingo mode: " (pr-str mode) " — want one of "
-                                        (pr-str (vec (sort (keys mode-retention)))))
-                                   {:type :unknown-option :mismatch :bad-value :mode mode})))
-        syms   @(:syms session)
-        hr     (PointerByReference.)]
-    (chk! "solve" (ci "clingo_control_solve" (:ctl session) mode-async-yield Pointer/NULL
-                      (Long/valueOf 0) Pointer/NULL Pointer/NULL hr))
-    (finalize (drain-handle hr (config/asp-time-limit) retain
-                            (fn [m] (model-atoms m syms)))
-              mode)))
-
-(defn close-session!
-  "Free a session's live control (exactly once, like `free-control!`).  Its `:keep` arg
-   buffers become reclaimable; a session writes no temp file, so there is nothing else to
-   clean up."
-  [session]
-  (free-control! (:ctl session)))
-
 (defn- config-subkey ^long [conf parent-key name]
   (let [kr (IntByReference.)]
     (chk! "configuration_map_at"
@@ -760,7 +632,8 @@
    `{:cautious <result> :brave <result>}`, each shaped like `solve` for the
    corresponding classify mode."
   [aspif-text]
-  (let [{:keys [ctl keep]} (open-control ["--opt-mode=optN" "--models=0"] aspif-text)]
+  (let [{:keys [ctl keep]} (open-control (into ["--opt-mode=optN" "--models=0"] (clasp/search-args))
+                                         aspif-text)]
     (try
       (let [run (fn [enum-mode]
                   (set-enum-mode! ctl enum-mode)

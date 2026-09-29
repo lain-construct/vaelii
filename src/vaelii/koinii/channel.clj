@@ -17,7 +17,7 @@
     `answers` / `disputes` / `endorses` / `justifies`), so it lives ON the target rather
     than merely naming it: retract the target and its replies are torn down with it
     (`target_following_predicate`), no dangling edges.
-  - **D7, the single-writer total order.**  See the docstring on `*writer-order*` below.
+  - **D7, the single-writer total order.**  See the docstring on `writer-order` below.
 
   **Two deployment shapes, one surface.**  The `Medium` protocol has two
   implementations, and which one an agent joins is the whole single-process /
@@ -108,11 +108,11 @@
              (fn []
                (loop [cur cursor]
                  (when @running
-                   ;; one arm: `ExceptionInfo` is a `RuntimeException`, so a clause of its
-                   ;; own ahead of this one filed the identical `{:err e}` and the `:type`
-                   ;; read below is a lookup either way
+                   ;; one arm, and `Throwable` for the reason the callback's arm below
+                   ;; gives: an `Error` out of the poll that ended this thread would leave
+                   ;; `running` true on a subscription that never delivers again
                    (let [step (try {:ok (c/poll conn token cur {:wait-ms wait-ms})}
-                                   (catch Exception e {:err e}))]
+                                   (catch Throwable e {:err e}))]
                      (if-let [e (:err step)]
                        ;; subscription gone (unwatch / reap / bad-cursor) -> stop quietly;
                        ;; anything else -> surface once, then stop rather than hot-loop.
@@ -177,7 +177,8 @@
   (-query      [{:keys [conn]} goal ctx]   (c/query conn goal ctx))
   (-feed-open  [{:keys [conn]} goal ctx]   (if goal (c/watch conn goal ctx) (c/watch conn)))
   (-feed-poll  [{:keys [conn]} token cursor opts]
-    (if opts (c/poll conn token cursor opts) (c/poll conn token cursor))))
+    (if opts (c/poll conn token cursor opts) (c/poll conn token cursor)))
+  (-feed-close [{:keys [conn]} token]     (c/unwatch conn token)))
 
 ;; ---- local: the single-process shape, a plain in-process listener --------
 
@@ -208,6 +209,10 @@
                          " issues a poll token, so there is none to resume from."
                          "  Subscribe to this medium, or take a wire medium"
                          " (koinii.channel/wire over a daemon connection)")
+                    {:type :koinii/no-wire-feed})))
+  (-feed-close [_ _token]
+    (throw (ex-info (str "koinii: an in-process medium has no cursor feed — nothing here"
+                         " issues a poll token, so there is none to close")
                     {:type :koinii/no-wire-feed}))))
 
 (defn wire
@@ -334,7 +339,7 @@
   - **a `:creator` that disagrees with the handle's agent** is refused
     (`:koinii/creator-mismatch`).  Ownership is required — `belief/disregard` will only
     withdraw a statement whose creator is the withdrawing agent — so neither silent outcome
-    is honest: honouring it lets an agent sign another's name, dropping it leaves a stamp
+    is acceptable: honouring it lets an agent sign another's name, dropping it leaves a stamp
     that looks like it took.
   - **a speech act naming someone else as its speaker** is refused
     (`:koinii/speaker-mismatch`).  `speaker-of` reads the speaker off the sentence's first
@@ -455,11 +460,10 @@
   (sentexHandle T))`, `:against` -> `(votesAgainst agent (sentexHandle T))`.  A meta-sentex
   in the agent's own context, creator stamped — a coordination move like `endorse`, but
   one a resolution policy COUNTS rather than merely records:
-  `adjudication/resolve-by-majority` tallies these ballots and, under the `:proof-tier`
-  identity policy, upholds the side with strictly more, leaving a tie honestly OPEN (a
-  split house decides nobody).  Anyone may vote and be counted, under any name: this entry point
-  authenticates nobody, and the `:proof-tier` gate on the ruling reads the policy the
-  resolver runs under, not how the ballot arrived.  A ballot is
+  `adjudication/tally` counts these ballots.  This entry point authenticates nobody, so
+  its ballot carries no attestation, and `adjudication/resolve-by-majority` refuses a
+  count that includes one; `adjudication/cast-ballot` casts the attested ballot in
+  process.  A ballot is
   a response act like the rest — `target_following_predicate` in `CxSpeechActs` — so
   retracting the disputed claim withdraws the votes cast on it.  Idempotent by sentence
   identity — one

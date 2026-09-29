@@ -6,7 +6,7 @@
   A test utility that accepts a shape and quietly does something else with it is worse
   than one that throws, because what it breaks is the *evidence*: a test still runs, still
   passes, and no longer means what it says.  `with-kb` is the case that motivated this
-  namespace — its binding vector is indistinguishable from a `let`'s and takes a symbol only, so an init
+  namespace — its binding vector looks like a `let`'s but takes a symbol only, so an init
   form written there is refused at macroexpansion rather than dropped.
 
   **No fixture here.**  These tests are about the harness rather than about a
@@ -18,6 +18,7 @@
             [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
 (defn- refusal
@@ -73,6 +74,21 @@
     (is (some? kb))
     (is (= {:sentexes 0 :justifications 0} (tu/content-count kb))
         "fresh means empty, not merely bound")))
+
+(deftest the-overlay-arms-fresh-kb-reads-through-its-base
+  ;; Built under the overlay arm whatever the run selected, so the default gate holds the
+  ;; arm's `fresh` too.  A cleared fork hides its base for the rest of the process
+  ;; (docs/overlay.md), so a `fresh` that cleared the slot's fork would read none of the
+  ;; record written into the base below.  The base is the one the whole arm shares, so it
+  ;; is emptied again before the test ends.
+  (binding [tu/*storage* {:backend :overlay}]
+    (let [base (doto (v/open-kb (assoc tu/overlay-base-space :recover? false)) (v/clear!))
+          h    (v/assert base '(dog Muffet) 'CxUniverse {:strength :monotonic})]
+      (try
+        (let [kb (tu/fresh)]
+          (is (= h (v/handle-of kb '(dog Muffet) 'CxUniverse)) "the index half reads the base")
+          (is (= '(dog Muffet) (:sentence (v/sentex kb h))) "the record half reads the base"))
+        (finally (v/clear! base))))))
 
 ;; ---- the sweep roster, against the table the scripts read ---------------
 

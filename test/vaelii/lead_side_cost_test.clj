@@ -7,10 +7,10 @@
 
   `:auto` leads a broad-type clash retrieval from the term's own postings (a handful)
   rather than from one predicate-scoped bucket per sub-predicate (`O(|spec-closure|)`),
-  which is what collapses a 12M-sentex cold rebuild's closing settle.  The win is a
-  *shape*: the
-  argument reads a broad retrieval costs are flat in how wide the predicate hierarchy is,
-  where the per-spec lead grows with it.  `lein perf` would hold a shape like this as a
+  which is what keeps a cold rebuild's closing settle on a large store from growing with
+  the predicate hierarchy.  The win is a *shape*: the argument reads a broad retrieval
+  costs are flat in how wide the predicate hierarchy is, where the per-spec lead grows
+  with it.  `lein perf` would hold a shape like this as a
   ratio, but this one runs in the default suite so a change that quietly widens `:auto`'s
   read back toward the per-spec cost fails a week before the weekly sweep would say so —
   the same reasoning `clash_oracle_test/the-retrieval-strategy-does-not-change-what-clashes`

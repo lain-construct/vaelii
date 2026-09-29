@@ -183,6 +183,48 @@
         (is (holds? kb (list outweighs chihuahua_t maine_coon_t)))
         (is (v/ask? kb (list outweighs chihuahua_t maine_coon_t) ctx))))))
 
+(tu/deftest-kb an-edge-bringing-a-contrary-claim-into-reach-withdraws-the-conclusion
+  ;; The contrary claim is stored first, about a kind nothing links the chihuahua to; the
+  ;; edge arriving last is what puts it in the pair's reach, and it names neither
+  ;; argument of the claim.
+  (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t toy_t
+                  typicallyLargerThan outweighs]
+    (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
+                :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
+    (preserving! kb typicallyLargerThan)
+    (v/assert kb (list typicallyLargerThan dog_t cat_t) ctx)
+    (v/assert kb (list 'implies (list typicallyLargerThan '?x '?y)
+                       (list outweighs '?x '?y))
+              ctx {:direction :forward})
+    (v/assert kb (list typicallyLargerThan maine_coon_t toy_t) ctx)
+    (is (holds? kb (list outweighs chihuahua_t maine_coon_t)) "out of the claim's reach")
+    (v/assert kb (list 'genl chihuahua_t toy_t) ctx)
+    (is (not (holds? kb (list outweighs chihuahua_t maine_coon_t))))
+    (is (not (v/ask? kb (list outweighs chihuahua_t maine_coon_t) ctx)))
+    (is (holds? kb (list outweighs golden_retriever_t maine_coon_t)))))
+
+(defn- redecided
+  "How many justifications `f` puts in front of `chain/justification-excepted?`."
+  [f]
+  (let [n (atom 0), orig chain/justification-excepted?]
+    (with-redefs-fn {#'chain/justification-excepted? (fn [kb j] (swap! n inc) (orig kb j))}
+      (fn [] (f) @n))))
+
+(tu/deftest-kb a-claim-arriving-re-decides-only-the-firings-it-can-bear-on
+  ;; docs/exceptions.md, "Two withdrawals a firing carries": a claim moves only goals
+  ;; whose arguments it names or licenses, so the firings over unrelated kinds stand
+  (tu/with-terms [typicallyLargerThan outweighs]
+    (preserving! kb typicallyLargerThan)
+    (v/assert kb (list 'implies (list typicallyLargerThan '?x '?y)
+                       (list outweighs '?x '?y))
+              ctx {:direction :forward})
+    (dotimes [_ 8]
+      (v/assert kb (list typicallyLargerThan (tu/tmp-type "big") (tu/tmp-type "small")) ctx))
+    (let [[a b] [(tu/tmp-type "big") (tu/tmp-type "small")]
+          n     (redecided #(v/assert kb (list typicallyLargerThan a b) ctx))]
+      (is (<= n 1) (str n " firings re-decided"))
+      (is (holds? kb (list outweighs a b))))))
+
 ;; ---- the relation is a parameter ----------------------------------------
 
 (tu/deftest-kb a-fact-relation-carries-a-firing-the-same-way

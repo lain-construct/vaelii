@@ -41,7 +41,6 @@
     (is (jtms/in? tms 2) "the conclusion holds while the justification is valid")
     (jtms/set-blocked tms #{101})
     (testing "the blocked justification stops supporting its conclusion"
-      (is (jtms/blocked? tms 101))
       (is (= #{101} (jtms/blocked tms)))
       (is (not (jtms/in? tms 2))))
     (testing "and nothing else moved — the antecedent is a premise and stands"
@@ -68,11 +67,6 @@
     (is (not (jtms/in? tms 2)))
     (testing "clearing the set revives the conclusion — belief is recomputed"
       (jtms/set-blocked tms #{})
-      (is (jtms/in? tms 2)))
-    (testing "and the delta spelling does the same"
-      (jtms/block tms [101])
-      (is (not (jtms/in? tms 2)))
-      (jtms/unblock tms [101])
       (is (jtms/in? tms 2)))))
 
 (deftest blocking-cascades-to-the-consequences
@@ -158,8 +152,8 @@
                   tms))
         observe (fn [tms] (select-keys @tms [:in :groundable :classes :blocked]))
         routes [(fn [tms] (jtms/set-blocked tms #{101 104}))
-                (fn [tms] (jtms/block tms [104]) (jtms/block tms [101]))
-                (fn [tms] (jtms/block tms [101]) (jtms/block tms [104]))
+                (fn [tms] (jtms/set-blocked tms #{104}) (jtms/set-blocked tms #{101 104}))
+                (fn [tms] (jtms/set-blocked tms #{101}) (jtms/set-blocked tms #{101 104}))
                 (fn [tms] (jtms/set-blocked tms #{102 103})
                   (jtms/set-blocked tms #{101 104}))]
         results (into #{} (map (fn [r] (let [tms (build)] (r tms) (observe tms)))) routes)]
@@ -239,7 +233,8 @@
   [tms touched]
   (jtms/->RefTms
    (atom (update @tms :justs
-                 #(into {} (map (fn [[jid j]] [jid (->CountingJust (into {} j) jid touched)])) %)))))
+                 #(into {} (map (fn [[jid j]] [jid (->CountingJust (into {} j) jid touched)])) %)))
+   (java.util.concurrent.atomic.AtomicReference. nil)))
 
 (defn- sweepable-fan
   "`n` independent premise ⇒ conclusion pairs as background, plus a separate two-link

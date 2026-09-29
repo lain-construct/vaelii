@@ -25,6 +25,7 @@
             [vaelii.impl.overlay.frozen :as frozen]
             [vaelii.impl.overlay.kv :as okv]
             [vaelii.impl.overlay.mount :as mount]
+            [vaelii.impl.overlay.store :as ostore]
             [vaelii.impl.protocols :as p]
             [vaelii.kv-backend-test :as kvt]
             [vaelii.test-util :as tu])
@@ -146,7 +147,45 @@
                                      :recover? false})
                          nil
                          (catch clojure.lang.ExceptionInfo e (ex-data e))))))
-      (finally (v/clear! base)))))
+      (finally (v/clear! base))))
+  (testing "two :disk halves naming one directory, refused by path before either opens"
+    (let [dir  (tmpdir)
+          spec {:backend :disk-log :dir dir :recover? false}]
+      (try
+        (let [e (try (v/open-kb {:backend :overlay :base spec :overlay spec :recover? false})
+                     nil
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (= :base-is-overlay (:type (ex-data e))))
+          (is (re-find #"both are :disk at" (ex-message e)))
+          (is (empty? (.list (File. dir))) "no lock, index/ or records/ is left behind"))
+        (finally (disk/close-dir! dir) (rm-rf! dir)))))
+  (testing "an open :disk base handed over as :base-stores, its own half the same directory"
+    (let [dir  (tmpdir)
+          spec {:backend :disk-log :dir dir :recover? false}]
+      (try
+        (let [b (v/open-kb spec)
+              e (try (v/open-kb {:backend :overlay :base-stores {:records (:records b) :index (:index b)}
+                                 :overlay spec :recover? false})
+                     nil
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (= :base-is-overlay (:type (ex-data e))))
+          (is (re-find #"resolve to one store" (ex-message e))))
+        (finally (disk/close-dir! dir) (rm-rf! dir)))))
+  (testing "an open :memory base handed over as :base-stores, its own half the same space"
+    ;; each memory open is a new store instance over the space's one state atom
+    (let [spec {:backend :memory :space [::selffork-stores] :recover? false}
+          b    (doto (v/open-kb spec) (v/clear!))]
+      (try
+        (v/assert b '(dog Rex) 'CxUniverse)
+        (let [before (p/sentex-ids (:records b))
+              e      (try (v/open-kb {:backend :overlay
+                                      :base-stores {:records (:records b) :index (:index b)}
+                                      :overlay spec :recover? false})
+                          nil
+                          (catch clojure.lang.ExceptionInfo e e))]
+          (is (= :base-is-overlay (:type (ex-data e))))
+          (is (= before (p/sentex-ids (:records b)))))
+        (finally (v/clear! b))))))
 
 (deftest a-fork-reads-through-to-its-base
   (let [base (fresh-base 1)
@@ -158,7 +197,8 @@
           "including what the base's rule derived")
       (is (v/isa? f 'Muffet 'animal) "and the genl closure the base's edge licenses"))
     (testing "the term index and the roots read through too"
-      (is (seq (v/find-sentexes f 'Muffet)))
+      (is (= '#{(dog Muffet) (ownerOf Ann Muffet) (mammal Muffet)}
+             (sentences (v/find-sentexes f 'Muffet))))
       (is (= (v/count-with-functor base 'dog) (v/count-with-functor f 'dog)))
       (is (= (v/sentex-count base) (v/sentex-count f))))
     (v/clear! base)))
@@ -278,6 +318,21 @@
       (v/assert f '(cat Tom) 'CxOverlay {:strength :monotonic})
       (is (= '#{(cat Tom)} (sentences (v/sentexes-matching f '(cat ?x) 'CxOverlay)))))
     (is (= before (base-snapshot base)) "the base survived the fork's clear")
+    (v/clear! base)))
+
+(deftest a-cleared-memory-fork-reopened-on-its-space-still-hides-its-base
+  ;; a space of its own per run: the cleared flag outlives every KB value on the space
+  (let [n     (gensym)
+        bspec (base-opts n)
+        base  (fresh-base n)
+        open  #(v/open-kb {:backend :overlay :base bspec :overlay (fork-opts n)
+                           :recover? :auto})]
+    (let [f (open)]
+      (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching f '(dog ?x) 'CxOverlay))))
+      (v/clear! f))
+    (is (empty? (v/sentexes-matching (open) '(dog ?x) 'CxOverlay)))
+    (is (= '#{(dog Muffet)} (sentences (v/sentexes-matching base '(dog ?x) 'CxOverlay)))
+        "while the base itself still holds the fact")
     (v/clear! base)))
 
 (deftest reindexing-a-fork-rebuilds-the-merged-index-from-the-merged-records
@@ -499,13 +554,13 @@
   ;; must reduce to the plain backend's.  (`VAELII_TEST_BACKEND=overlay` runs the whole
   ;; suite this way — see scripts/test-backends.sh.)
   (let [base (doto (v/open-kb (assoc (base-opts 9) :recover? false)) (v/clear!))
-        f    (v/fork base (fork-opts 9))]
+        f    (v/fork base)]
     (tu/with-terms [dog Muffet CxThis]
       (v/assert f (list 'genl dog 'thing) CxThis {:strength :monotonic})
       (v/assert-rule f [(list dog '?x)] (list 'mammal '?x) CxThis {:direction :forward})
       (v/assert f (list dog Muffet) CxThis {:strength :monotonic})
       (is (= 1 (count (v/sentexes-matching f (list dog '?x) CxThis))))
-      (is (seq (v/sentexes-matching f (list 'mammal '?x) CxThis)))
+      (is (= #{(list 'mammal Muffet)} (sentences (v/sentexes-matching f (list 'mammal '?x) CxThis))))
       (is (v/isa? f Muffet 'thing))
       (v/retract! f (v/handle-of f (list dog Muffet) CxThis))
       (is (empty? (v/sentexes-matching f (list 'mammal '?x) CxThis)) "and retraction sweeps"))
@@ -521,7 +576,7 @@
                                      :recover? false))
                (v/clear!))]
     (try
-      (let [f (v/fork base (fork-opts 10))]
+      (let [f (v/fork base)]
         (is (= :warn (:naming f)))
         (is (= :arbitrate (:constraints f)))
         (testing "and the inherited policy is the one that acts"
@@ -533,7 +588,7 @@
             (is (= 1 (count (v/contradictions f))))))
         (v/clear! f))
       (testing "and the fork's own opts still win"
-        (let [g (v/fork base (assoc (fork-opts 11) :naming :strict :constraints :refuse))]
+        (let [g (v/fork base {:naming :strict :constraints :refuse})]
           (is (= :strict (:naming g)))
           (is (= :refuse (:constraints g)))
           (v/clear! g)))
@@ -619,10 +674,12 @@
   ;; a clear-and-rebuild, which is a write, and a base is mounted read-only: so this arm
   ;; refuses and names the directory to open as a KB of its own first.
   (let [dir    (tmpdir)
+        ;; a fresh fork space per call: the clear below marks the fork's space cleared
+        ;; for the process, so a fork reopened on it would hide this base
         forked (fn []
                  (try (let [f (v/open-kb {:backend  :overlay
                                           :base     {:backend :disk-log :dir dir}
-                                          :overlay  (fork-opts 31)
+                                          :overlay  (mount/fresh-overlay-opts)
                                           :recover? false})]
                         (v/clear! f)
                         :mounted)
@@ -702,6 +759,32 @@
         (rm-rf! dir)
         (v/clear! base)))))
 
+(deftest a-fork-whose-own-index-lost-its-tail-is-rebuilt-on-remount
+  ;; the damaged twin of the healthy remount above: the own half's log is shorter than
+  ;; its clean marker recorded, so the coverage gate rebuilds the merged index
+  (let [base   (fresh-base 11)
+        dir    (tmpdir)
+        logged (atom [])]
+    (try
+      (let [f (v/fork base {:backend :disk-log :dir dir})]
+        (dotimes [i 12]
+          (v/assert f (list 'dog (symbol (str "TmpPup" i))) 'CxOverlay)))
+      (disk/close-dir! dir)
+      (let [log (java.io.RandomAccessFile. (str dir "/index/kv.log") "rw")]
+        (.setLength log (- (.length log) 64))
+        (.close log))
+      (let [f (binding [trove/*log-fn* (fn [_ _ _ id _] (swap! logged conj id))]
+                (v/open-kb {:backend :overlay :base (base-opts 11)
+                            :overlay {:backend :disk-log :dir dir} :recover? :auto}))]
+        (is (some #{::kb/fork-index-coverage-rebuilt} @logged))
+        (is (= 12 (count (filter #(re-find #"^TmpPup" (name (second (:sentence %))))
+                                 (v/sentexes-matching f '(dog ?x) 'CxOverlay))))
+            "every fork-local fact is served again"))
+      (finally
+        (disk/close-dir! dir)
+        (rm-rf! dir)
+        (v/clear! base)))))
+
 ;; ---- what the capability entry points read off a fork ----------------------------
 ;; A fork's record store is a decorator over two others, so the two OPTIONAL capabilities
 ;; a base may carry have to reach it or be lost at the protocol: the `Tallying` samplers
@@ -750,10 +833,21 @@
     (prefetch-sentexes!       [_ ids] (swap! hints update :sentexes (fnil into []) ids) nil)
     (prefetch-justifications! [_ ids] (swap! hints update :justifications (fnil into []) ids) nil)))
 
+(defn- clear-fork-space!
+  "Empty what a `:memory` fork on `(fork-opts n)` keeps between opens: its records, its
+  index, and the bookkeeping `mount/meta-kv` holds in a space of its own (tombstones,
+  released marks, the cleared flag).  Clearing the records alone leaves a second run's
+  fork reading the first run's tombstones."
+  [n]
+  (p/clear-records! (mem/memory-record-store (fork-opts n)))
+  (p/kv-clear! (mem/memory-kv-backend (fork-opts n)))
+  (p/kv-clear! (mount/meta-kv :memory (fork-opts n))))
+
 (defn- fork-over
   "A fork whose base records are `store` — the `:base-stores` road `core/fork` takes,
-  spelled out so a test can hand in a wrapped base."
+  spelled out so a test can hand in a wrapped base.  The fork's own space starts empty."
   [base store n]
+  (clear-fork-space! n)
   (v/open-kb {:backend :overlay
               :base-stores {:records store :index (:index base)}
               :overlay (fork-opts n)
@@ -892,3 +986,51 @@
                nil
                (catch clojure.lang.ExceptionInfo e (ex-data e)))]
     (is (= :no-base (:type d)) "a fork with no base is refused rather than answered")))
+
+;; ---- a read beside the fork's writer ---------------------------------------
+
+(defn- parking-records
+  "A `RecordStore` over `inner` whose `delete-sentex!` and `clear-records!` make their
+  write, deliver `parked`, and wait for `release` — the fork's overlay half, held between
+  the overlay's write and the fork's next one."
+  [inner parked release]
+  #_{:clj-kondo/ignore [:missing-protocol-method]}
+  (reify p/RecordStore
+    (next-id [_] (p/next-id inner))
+    (put-sentex [_ sx] (p/put-sentex inner sx))
+    (get-sentex [_ id] (p/get-sentex inner id))
+    (delete-sentex! [_ id] (p/delete-sentex! inner id) (deliver parked true) @release nil)
+    (get-provenance [_ id] (p/get-provenance inner id))
+    (delete-provenance! [_ id] (p/delete-provenance! inner id))
+    (clear-records! [_] (p/clear-records! inner) (deliver parked true) @release nil)))
+
+(deftest a-read-beside-a-fork-writer-never-answers-the-base-record-behind-an-override
+  ;; The fork overrides a base record, then deletes it or clears.  A read made while the
+  ;; overlay's copy is gone and the fork's own bookkeeping is not yet written answers the
+  ;; override or nothing — the fork before the call or after it — and never the base's
+  ;; record, which the fork never held.
+  (doseq [[label op] [["a deletion" (fn [recs h] (p/delete-sentex! recs h))]
+                      ["a clear" (fn [recs _] (p/clear-records! recs))]]]
+    (testing label
+      (let [base    (doto (mem/memory-record-store {:space [::torn-base 1]}) p/clear-records!)
+            inner   (doto (mem/memory-record-store {:space [::torn-fork 1]}) p/clear-records!)
+            meta    (doto (mem/memory-kv-backend {:space [::torn-meta 1]}) p/kv-clear!)
+            h       (p/put-sentex base {:sentence '(dog Muffet) :context 'CxOverlay})
+            parked  (promise)
+            release (promise)
+            recs    (ostore/overlay-record-store (parking-records inner parked release) base meta)]
+        (try
+          (p/put-sentex recs {:id h :sentence '(dog Rex) :context 'CxOverlay})
+          (is (= '(dog Rex) (:sentence (p/get-sentex recs h))) "the override wins the read")
+          (let [writer (future (op recs h))]
+            (is (deref parked 10000 false) "the writer reached the overlay's write")
+            (let [read (:sentence (p/get-sentex recs h))]
+              (deliver release true)
+              @writer
+              (is (not= '(dog Muffet) read) "the read beside the write is not the base's record")
+              (is (nil? (p/get-sentex recs h)) "and the finished write leaves nothing at the handle")))
+          (finally
+            (deliver release true)
+            (p/clear-records! base)
+            (p/clear-records! inner)
+            (p/kv-clear! meta)))))))

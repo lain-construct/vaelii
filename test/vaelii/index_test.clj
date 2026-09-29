@@ -133,19 +133,19 @@
   (tu/with-terms [p q]
     (testing "a bare implies is backward by default"
       (let [h (v/assert kb (list 'implies (list p '?x) (list q '?x)) 'CxUniverse)]
-        (is (= :backward (:direction (v/sentex kb h))))
+        (is (= #{:backward} (:engines (v/sentex kb h))))
         (is (nil? (:defeasible (v/sentex kb h))))))))
 
 (tu/deftest-kb each-wrapper-lands-on-the-record
-  (doseq [[wrapper expected] '{set/forwardRule  :forward
-                               set/backwardRule :backward
-                               set/inertRule    :inert}]
+  (doseq [[wrapper expected] '{set/forwardRule  #{:forward :backward}
+                               set/backwardRule #{:backward}
+                               set/inertRule    #{}}]
     (tu/with-terms [p q]
       (let [h (v/assert kb (list wrapper (list 'implies (list p '?x) (list q '?x)))
                         'CxUniverse)
             s (v/sentex kb h)]
-        (testing (str wrapper " sets :direction " expected)
-          (is (= expected (:direction s))))
+        (testing (str wrapper " sets :engines " expected)
+          (is (= expected (:engines s))))
         (testing "and the wrapper itself is not stored — the sentence is the bare rule"
           (is (= 'implies (first (v/sentence-of s))))
           (is (some? (:antecedent s))))))))
@@ -172,8 +172,8 @@
           viaWrap (v/assert kb (list 'set/backwardRule
                                      (list 'implies (list p '?x) (list r '?x)))
                             'CxUniverse)]
-      (is (= :backward (:direction (v/sentex kb viaOpt))))
-      (is (= :backward (:direction (v/sentex kb viaWrap)))))))
+      (is (= #{:backward} (:engines (v/sentex kb viaOpt))))
+      (is (= #{:backward} (:engines (v/sentex kb viaWrap)))))))
 
 (tu/deftest-kb direction-lives-only-on-the-record
   (tu/with-terms [p q]
@@ -197,7 +197,7 @@
           h1   (v/assert kb (list 'set/forwardRule rule) 'CxUniverse)
           h2   (v/assert kb (list 'set/backwardRule rule) 'CxUniverse)]
       (is (= h1 h2))
-      (is (= :both (:direction (v/sentex kb h1)))))))
+      (is (= #{:forward :backward} (:engines (v/sentex kb h1)))))))
 
 (tu/deftest-kb rule-predicate-indexes-are-complete-in-both-directions
   (let [p (tu/tmp-pred) q (tu/tmp-pred)]
@@ -208,7 +208,7 @@
         (is (contains? (p/rules-by-antecedent (:index kb) p) fwd)))
       (testing "and its direction is on its own record, not inferred from the index"
         (let [s (v/sentex kb fwd)]
-          (is (= :forward-only (:direction s)))
+          (is (= #{:forward} (:engines s)))
           (is (rules/forward-sentex? s))
           (is (not (rules/backward-sentex? s))))))))
 

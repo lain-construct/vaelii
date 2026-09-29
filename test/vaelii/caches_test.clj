@@ -23,10 +23,10 @@
             [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
+            [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.caches :as caches]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu])
   (:import [java.io File]))
 
@@ -115,7 +115,7 @@
 ;; ---- whose numbers are whose --------------------------------------------
 
 (tu/deftest-kb the-literal-cache-counts-entries-per-kb-and-hits-per-process
-  (let [other (v/open-kb tu/plain-memory-space)
+  (let [other (doto (v/open-kb tu/plain-memory-space) (tu/clear-kb!))
         lit   #(row % :literal-matches)]
     (try
       (v/clear-caches kb {:counters? true})
@@ -141,10 +141,7 @@
   (is (= 1000000 (:limit (row kb :symbol-pool))))
   (binding [sx/*symbol-pool-limit* 8]
     (is (= 8 (:limit (row kb :symbol-pool)))
-        "the pool flushes at 8 here, so the page must not say a million"))
-  (is (= 128 (:limit (row kb :taxonomy-scoped-closures))))
-  (binding [tax/*scoped-memo-budget* 1]
-    (is (= 1 (:limit (row kb :taxonomy-scoped-closures))))))
+        "the pool flushes at 8 here, so the page must not say a million")))
 
 ;; ---- the tunable profile ------------------------------------------------
 
@@ -187,7 +184,8 @@
       (v/set-cache-scale scale)
       (is (= Long/MAX_VALUE (:limit (row kb :literal-matches))) (str "at " scale))
       (is (nil? (:error (row kb :literal-matches))) (str "the row reads at " scale))
-      (is (seq (v/query kb (list parentOf Tom '?x) CxFarm)) (str "a query answers at " scale)))))
+      (is (= [{'?x Bob}] (vec (v/query kb (list parentOf Tom '?x) CxFarm)))
+          (str "a query answers at " scale)))))
 
 (tu/deftest-kb the-symbol-pool-is-structural-and-the-scale-leaves-it-alone
   ;; The interning pool's check runs per symbol interned — the hottest path on a load — and
@@ -223,6 +221,37 @@
                        (catch clojure.lang.ExceptionInfo e (ex-data e)))))
         (str "a limit of " (pr-str bad) " is refused"))))
 
+(tu/deftest-kb a-pin-moves-the-row-it-names-or-is-refused
+  ;; `set-cache-limit` promises a bound "regardless of the scale".  Every registered row
+  ;; either takes the pin — its reported :limit becomes the pinned number — or refuses it:
+  ;; a pin recorded for a bound nothing reads through the profile is a setting reported
+  ;; and enforced nowhere.
+  (let [outcome (fn [id]
+                  (try (v/set-cache-limit id 7)
+                       (let [l (:limit (row kb id))]
+                         (v/set-cache-limit id nil)
+                         [:pinned l])
+                       (catch clojure.lang.ExceptionInfo e
+                         [(:type (ex-data e)) (:cache (ex-data e))])))
+        rows    (v/caches kb)
+        ;; one assertion over every row rather than one per row: which rows exist is a
+        ;; property of which namespaces the run loaded, and the assertion count must not
+        ;; depend on it
+        outcomes (into (sorted-map) (map (juxt :cache (comp outcome :cache))) rows)]
+    (is (= {} (into {} (remove (fn [[id o]] (#{[:pinned 7] [:unknown-option id]} o))) outcomes))
+        "every row takes the pin or refuses it")
+    (testing "the rows outside the profile are the refused ones"
+      (is (= {:symbol-pool       [:unknown-option :symbol-pool]
+              :taxonomy-closures [:pinned 7]}
+             (select-keys outcomes [:symbol-pool :taxonomy-closures])))
+      (is (every? (fn [{id :cache limit :limit}] (or (some? limit) (= [:unknown-option id] (outcomes id))))
+                  rows)
+          "a row with no count to pin refuses one")
+      (is (= [:pinned 7] (outcomes :literal-matches)) "and a profile-scaled row takes it"))
+    (testing "a refused pin leaves no override behind, and clearing one is accepted"
+      (is (= {} (:overrides (v/cache-profile))))
+      (is (= {} (:overrides (v/set-cache-limit :symbol-pool nil)))))))
+
 ;; ---- the memory-pressure guard ------------------------------------------
 
 (deftest pressure-response-decides-by-the-two-water-marks
@@ -251,9 +280,9 @@
 
 (tu/deftest-kb the-pressure-floor-keeps-a-fraction-rather-than-running-cold
   (dotimes [_ 20] (caches/shrink! []))
-  (is (<= 0.1 (:pressure (v/cache-profile))) "pressure never reaches zero")
-  (is (pos? (:limit (row kb :resident)))
-      "so a cache under sustained pressure still holds something"))
+  (is (= 0.125 (:pressure (v/cache-profile))) "pressure never reaches zero")
+  (is (= 32 (:limit (row kb :resident)))
+      "so a cache under sustained pressure still holds an eighth of its bound"))
 
 (tu/deftest-kb pressure-trims-an-override-even-though-the-scale-does-not
   ;; The decision behind the guard: a pin the operator set with set-cache-limit stands against
@@ -292,6 +321,22 @@
           (is (= 40 (:limit (row kb :probe-trim))))
           (is (= 40 (count @a)) "trimmed to the lowered bound, not emptied")
           (is (>= dropped 60) "and the shrink reports what it dropped"))))))
+
+(tu/deftest-kb a-trim-that-throws-is-logged-and-costs-only-its-cache
+  (let [logged (atom [])]
+    (with-registered
+      {:cache :probe-bad-trim :label "Probe" :scope :process :unit "probes"
+       :limit (caches/limit-thunk :probe-bad-trim 80) :counters nil :note "a probe."
+       :read (fn [_] {:entries 0})
+       :trim (fn [_ _] (throw (IllegalStateException. "trim broke")))}
+      (fn []
+        (binding [trove/*log-fn* (fn [_ns _coords _level id payload]
+                                   (swap! logged conj [id (force payload)]))]
+          (is (map? (caches/shrink! []))))))
+    (is (some (fn [[id p]] (and (= ::caches/trim-failed id)
+                                (re-find #"probe-bad-trim" (:msg p))
+                                (= "trim broke" (ex-message (:error p)))))
+              @logged))))
 
 (tu/deftest-kb a-kb-scoped-shrink-hands-the-trim-each-live-kb
   ;; trim-to-bounds! runs a :process cache's trim once and a :kb cache's trim once for each
@@ -454,7 +499,7 @@
   ;; the KB a clear names — which is why a plain clear must not do it. Both halves are
   ;; pinned here, in both directions: what a plain clear leaves alone, and what
   ;; `:counters? true` then reaches.
-  (let [other (v/open-kb tu/plain-memory-space)
+  (let [other (doto (v/open-kb tu/plain-memory-space) (tu/clear-kb!))
         lit   #(row % :literal-matches)]
     (try
       (tu/with-terms [parentOf Tom Bob CxFarm]
@@ -478,8 +523,9 @@
               "nor anything it believed")
           ;; and the opt-in half: asked for, it does reach, and says what it zeroed
           (let [report (v/clear-caches kb {:counters? true})]
-            (is (seq (:counters-reset report))
-                "the wider control names the caches it reset")
+            (is (= (set (map :cache (filter #(= :process (:counters %)) (v/caches kb))))
+                   (set (map :cache (:counters-reset report))))
+                "the wider control names the caches it reset: every row counting per process")
             (is (every? #(and (keyword? (:cache %)) (nat-int? (:hits %)))
                         (:counters-reset report))
                 "and what each of them held, so the measurement is not merely lost")
@@ -525,7 +571,7 @@
   count, so adding one is a visible change in a diff and not merely a number that moved."
   #{:literal-matches :resident :stored-handles :closure-neighbours :closure-answers
     :pinned-values :justification-dedup :symbol-pool :compiled-algebras :relation-decode
-    :path-consistency :network-support :taxonomy-closures :taxonomy-scoped-closures
+    :path-consistency :network-support :taxonomy-closures
     :taxonomy-visibility :hot-records :rete-alpha :source-parses :preservation-crossing})
 
 (def ^:private optional-roster
@@ -567,6 +613,8 @@
                               "per base relation; a build decision, and the table is not "
                               "evicted")
    "disk-cache-capacity" "config.clj — the reader for the hot-record LRU, which has a row"
+   "asp-solve-limit"     (str "config.clj — the conflicts one ASP solve may spend before "
+                              "its search stops; a search bound, nothing retained")
    "asp-time-limit"      (str "config.clj — the seconds one ASP solve may run before the "
                               "backend is interrupted; a time bound, nothing retained")
    "classify-resolution-budget" (str "config.clj — the reader for the solve-free "
@@ -579,8 +627,8 @@
    "default-node-budget" (str "inference.clj — how many nodes the debugger's bounded "
                               "search-tree walk expands before it stops; a per-read "
                               "search bound, not a retained cache")
-   "*exposure-instance-budget*" (str "settle.clj — how many members of a type a "
-                                     "disjointness exposure check instantiates")
+   "*exposure-instance-budget*" (str "taxonomy.clj — how many candidate instances one "
+                                     "bounded arbitration or merge sweep enumerates")
    "regex-step-budget"   (str "core.clj — how many characters a `find-terms` regex may "
                               "read against one term before it is refused too costly; a "
                               "per-match evaluation bound, nothing retained")
@@ -606,7 +654,7 @@
    "closure-cache-limit"   :metric-closures
    "*symbol-pool-limit*"   :symbol-pool
    "generation-limit"      :symbol-pool
-   "*scoped-memo-budget*"  :taxonomy-scoped-closures
+   "closure-memo-limit"    :taxonomy-closures
    "parse-memo-limit"      :source-parses
    "crossing-reads-limit"  :preservation-crossing})
 
@@ -640,3 +688,34 @@
         (doseq [[nm id] (sort bound-to-cache)]
           (is (contains? registered id)
               (str nm " bounds " id ", which no namespace registered")))))))
+
+;; ---- the weighted LRU ---------------------------------------------------
+
+(deftest the-weighted-lru-evicts-the-coldest-by-weight
+  (let [lim (atom 10)
+        lru (caches/weighted-lru (fn [] @lim) count)]
+    (caches/lru-put! lru :a [1 2 3])
+    (caches/lru-put! lru :b [1 2 3])
+    (caches/lru-put! lru :c [1 2 3])
+    (testing "a read makes an entry the most recent"
+      (is (= [1 2 3] (caches/lru-get lru :a))))
+    (caches/lru-put! lru :d [1 2 3])
+    (testing "past the bound, the least recently used goes: b, not the re-read a"
+      (is (nil? (caches/lru-get lru :b)))
+      (is (some? (caches/lru-get lru :a)))
+      (is (= 9 (caches/lru-weight lru)))
+      (is (= 3 (caches/lru-size lru))))
+    (testing "replacing a value re-weighs it"
+      (caches/lru-put! lru :a [1])
+      (is (= 7 (caches/lru-weight lru))))
+    (testing "a trim keeps the recent half"
+      (is (= 1 (caches/lru-trim! lru 5)))
+      (is (<= (caches/lru-weight lru) 5)))
+    (testing "a value heavier than the bound is answered and not held"
+      (reset! lim 4)
+      (is (= [1 2 3 4 5] (caches/lru-put! lru :big [1 2 3 4 5])))
+      (is (nil? (caches/lru-get lru :big)))
+      (is (<= (caches/lru-weight lru) 4)))
+    (testing "a clear empties it"
+      (caches/lru-clear! lru)
+      (is (= [0 0] [(caches/lru-size lru) (caches/lru-weight lru)])))))

@@ -106,9 +106,12 @@ see.
 The companion rule fires on a condition that is **stored and believed**. A condition
 built out of *computed* predicates is neither: `(defnSufficient positive_integer (and
 (integer ?x) (greaterThan ?x 0)))` — CxCore's own worked example — rests on checks the
-evaluables answer rather than on facts anybody asserted, so nothing matches the rule's
-body and `(positive_integer 7)` does not arrive by forward chaining. Two provers in the
-registry answer the question where it is asked instead.
+evaluables answer rather than on facts anybody asserted. No conjunct of it is a stored
+literal that binds `?x`, so the join has nothing to compute `integer` against, and a
+sufficient condition of that shape expands to **no** companion rule (the rule
+`check-naf-closed` would refuse, [naf.md](naf.md)). `(positive_integer 7)` therefore does
+not arrive by forward chaining. Two provers in the registry answer the question where it
+is asked instead.
 
 `matchesPattern` extends the evaluable set from numbers to strings: `(matchesPattern
 ?string ?pattern)` holds when the whole of a ground `?string` matches the regular
@@ -194,7 +197,7 @@ or a `disjoint` declaration and an explicit `not` for a genuine exclusion
 `defnNecessary` / `defnSufficient` / `defnIff` are declared in `CxCore` as binary
 predicates. The first argument names a collection (a kind, so `genlArg … 1 thing`); the
 second is the condition sentence, a term (`arg … 2 thing`). They relate a kind to a
-sentence, so they are honestly mixed and marked neither `instance_relation_predicate` nor
+sentence, so they are mixed and marked neither `instance_relation_predicate` nor
 `type_relation_predicate`, the way `result` is ([argtypes.md](argtypes.md)).
 
 The condition carries the member variable `?x`, so a `defn*` fact is not ground — and it

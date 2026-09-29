@@ -24,6 +24,11 @@
     ignores ambient `*print-*` vars (it is not `pr-str`).
   - `commit-id-is-an-order-independent-function-of-state` — a Merkle root over the
     *set*, so order does not move it and a superset does.
+  - `a-conversation-with-replies-commits-alike-in-two-orders` — the order-independence
+    above over sentences that name other sentexes by `(sentexHandle n)`, the shape every
+    koinii response act has: replies (and replies to replies) built on two seats that
+    minted different handles digest alike, and each reply's marker resolves on the other
+    seat.
   - `commit-id-is-knowledge-and-state-root-is-snapshot` — content vs. provenance:
     same facts under different provenance share a `commit-id` but not a `state-root`.
   - `inclusion-proofs-are-sound-and-complete` — every believed locator's proof
@@ -32,7 +37,7 @@
   - `the-commit-identity-is-belief-not-storage` — a stored-but-defeated record is no
     leaf: a seat holding it and a seat that never heard of it compute one commit id,
     one state root, and no inclusion proof for it.
-  - `markers-are-untrusted` — an honest marker resolves to its asserting creator; a
+  - `markers-are-untrusted` — a genuine marker resolves to its asserting creator; a
     tampered locator is `:locator-mismatch`; an unreceived sentence is `:not-received`;
     and every way of corrupting a marker on the wire is ANSWERED `:malformed` with the
     problem naming the part, never thrown out of the resolve path.
@@ -82,7 +87,7 @@
 ;; that happens to open the same derived space.
 (def ^:private seat-tags
   [:loc-a :loc-b :inj :enc :cid-a :cid-b :split-a :split-b :split-c :split-d
-   :proof :marker :belief-a :belief-b])
+   :proof :marker :belief-a :belief-b :reply-a :reply-b])
 
 (use-fixtures :once
   (fn [f]
@@ -247,6 +252,45 @@
                              (not= cid-b (d/commit-id b))
                              true)))))))
 
+;;; ── 4b. the same over replies: sentences that name a sentex by handle ─────
+
+(def ^:private gen-replies
+  "0–6 replies, each `[individual target-index context]`: a `(respondsTo ind (sentexHandle
+  h))` naming the record at `target-index` (mod the records before it — the facts, then
+  the earlier replies), so replies to replies occur."
+  (gen/vector (gen/tuple (gen/elements individuals) gen/nat (gen/elements contexts)) 0 6))
+
+(defn- reply!
+  "Assert `replies` into `seat` after the facts whose handles are `facts`, returning the
+  handle of every item in order (facts first).  A reply names the handle its target
+  landed at on THIS seat."
+  [seat facts replies]
+  (reduce (fn [hs [ind idx c]]
+            (let [target (nth hs (mod idx (count hs)))]
+              (conj hs (v/assert seat (list 'respondsTo ind (v/sentex-handle target)) c))))
+          facts replies))
+
+(defspec a-conversation-with-replies-commits-alike-in-two-orders 60
+  (prop/for-all [pairs   gen-distinct-pairs
+                 replies gen-replies]
+                (with-two-seats :reply-a :reply-b
+                  (fn [a b]
+                    (let [ha   (reply! a (mapv (fn [[f c]] (v/assert a f c)) pairs) replies)
+                          ;; seat B mints one throwaway handle first and takes the facts in
+                          ;; reverse, so the handles it mints differ from seat A's
+                          junk (v/assert b '(hosts Omega Omega) 'CxOne)
+                          hb   (reply! b (vec (rseq (mapv (fn [[f c]] (v/assert b f c))
+                                                          (reverse pairs))))
+                                       replies)]
+                      (v/retract! b junk)
+                      (and (= (d/commit-id a) (d/commit-id b))
+                           (every? true?
+                                   (map (fn [x y]
+                                          (let [r (d/dereference b (d/marker a x))]
+                                            (and (:resolved? r) (= y (:handle r))
+                                                 (= (d/locator-of a x) (d/locator-of b y)))))
+                                        (drop (count pairs) ha) (drop (count pairs) hb)))))))))
+
 ;;; ── 5. the knowledge / snapshot split (commit-id vs state-root) ───────────
 
 (defspec commit-id-is-knowledge-and-state-root-is-snapshot 60
@@ -336,15 +380,15 @@
                     (let [[f c]    (nth pairs (mod idx (count pairs)))
                           h        (v/handle-of seat f c)
                           mk       (d/marker seat h)
-                          honest   (d/dereference seat mk)
+                          genuine  (d/dereference seat mk)
                           ;; a well-formed locator with one digit flipped: stored, but the
                           ;; marker's locator no longer matches what the KB recomputes
                           tampered (d/dereference seat (assoc mk :locator (tamper-locator (:locator mk))))
                           [corrupt expected] corruption
                           garbled  (d/dereference seat (corrupt mk))
                           [af ac]  absent]
-                      (and (:resolved? honest)
-                           (= marker-creator (:seat honest))
+                      (and (:resolved? genuine)
+                           (= marker-creator (:seat genuine))
                            (false? (:resolved? tampered))
                            (= :locator-mismatch (:reason tampered))
                            ;; a corrupted marker is answered, with the part named — and a

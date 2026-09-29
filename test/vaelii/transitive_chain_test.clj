@@ -102,6 +102,32 @@
     (is (v/ask? kb (list traceable Spark Alarm) W)
         "and the declaration brings the rule round over the chain already there")))
 
+(tu/deftest-kb a-walk-is-placed-where-its-declaration-is-seen
+  ;; The hops in one context and the declaration in another: the pair two hops apart
+  ;; holds only below both, so the firing lands there, and the hops' own context, which
+  ;; sees no declaration, holds nothing.  The support names the declaration, which is
+  ;; what places the firing and what lets retracting it withdraw the firing.
+  (tu/with-terms [causes traced Spark Fire Alarm CxHops CxDecl CxBoth]
+    (v/assert kb (list 'genlCx CxBoth CxHops) W)
+    (v/assert kb (list 'genlCx CxBoth CxDecl) W)
+    (let [decl (v/assert kb (list 'transitive causes) CxDecl {:strength :monotonic})]
+      (v/assert kb (list causes Spark Fire) CxHops)
+      (v/assert kb (list causes Fire Alarm) CxHops)
+      (v/assert kb (list 'implies (list causes Spark '?c) (list traced '?c)) CxHops
+                {:direction :forward})
+      (testing "the far pair is derived below both, and not where the hops alone are"
+        (is (seq (v/sentexes-matching kb (list traced Alarm) CxBoth)))
+        (is (empty? (v/sentexes-matching kb (list traced Alarm) CxHops)))
+        (is (seq (v/sentexes-matching kb (list traced Fire) CxHops))
+            "the one stored hop needs no declaration"))
+      (testing "resting on the declaration it was walked under"
+        (let [h     (v/handle-of kb (list traced Alarm) CxBoth)
+              named (set (tree-seq coll? seq (v/why kb h)))]
+          (is (contains? named decl))))
+      (testing "and withdrawn with it"
+        (v/retract! kb decl)
+        (is (empty? (v/sentexes-matching kb (list traced Alarm) '?ctx)))))))
+
 (tu/deftest-kb a-rule-that-concludes-what-it-would-walk-takes-the-matcher-alone
   ;; The written-out closure and the walk must not both run: a rule storing `(P x z)` from
   ;; `(P x y)` and `(P y z)` moves its own graph inside the fixpoint, so which chain was
@@ -175,3 +201,34 @@
         (v/retract! kb d)
         (is (v/in? kb near) "the edge revives...")
         (is (v/ask? kb (list traceable Spark Alarm) W) "...and so does the conclusion")))))
+
+(tu/deftest-kb a-join-binding-both-ends-walks-a-diamond-and-a-cycle
+  ;; the first rule binds both ends of the walk before it, so the join asks a ground pair
+  ;; across a diamond (two routes to one node); the second asks a node back to itself
+  (tu/with-terms [causes spark target alarmOf loops A B C D]
+    (v/assert kb (list 'transitive causes) W {:strength :monotonic})
+    (v/assert kb (list 'implies (list 'and (list spark '?a) (list target '?d) (list causes '?a '?d))
+                       (list alarmOf '?a '?d))
+              W {:direction :forward})
+    (v/assert kb (list 'implies (list 'and (list spark '?a) (list causes '?a '?a)) (list loops '?a))
+              W {:direction :forward})
+    (v/assert kb (list spark A) W)
+    (v/assert kb (list target D) W)
+    (doseq [[x y] [[A B] [A C] [B D] [C D]]] (v/assert kb (list causes x y) W))
+    (is (= [(list alarmOf A D)] (map :sentence (v/sentexes-matching kb (list alarmOf '?a '?d) W))))
+    (is (empty? (v/sentexes-matching kb (list loops '?a) W)) "no route leads back yet")
+    (let [back (v/assert kb (list causes D A) W)]
+      (is (= [(list loops A)] (map :sentence (v/sentexes-matching kb (list loops '?a) W))))
+      (v/retract! kb back)
+      (is (empty? (v/sentexes-matching kb (list loops '?a) W))
+          "the loop rests on the edge that closed it"))))
+
+(tu/deftest-kb a-self-pair-antecedent-walks-every-node-back-to-itself
+  ;; `(causes ?x ?x)` binds neither end, so the join enumerates the nodes on a cycle
+  (tu/with-terms [causes loops A B C]
+    (v/assert kb (list 'transitive causes) W {:strength :monotonic})
+    (v/assert kb (list 'implies (list causes '?x '?x) (list loops '?x)) W {:direction :forward})
+    (doseq [[x y] [[A B] [B A] [C A]]] (v/assert kb (list causes x y) W))
+    (is (= #{(list loops A) (list loops B)}
+           (set (map :sentence (v/sentexes-matching kb (list loops '?x) W))))
+        "C reaches the cycle and is not on it")))

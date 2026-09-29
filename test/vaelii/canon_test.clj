@@ -9,7 +9,8 @@
   that names the rule by handle and aligns its query to the rule's canonical
   variables; and a spec-type fact in a spec context triggers a general rule (genl +
   genlCx together)."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.set :as set]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.host.starter :as starter]
             [vaelii.impl.protocols :as p]
@@ -59,29 +60,30 @@
         birthYearOf (tu/tmp-pred) mortal (tu/tmp-pred)
         immortal (tu/tmp-pred) likes (tu/tmp-pred)]
     (v/assert kb (list 'genl person animal) 'CxU)
-    (v/assert kb (list 'arg birthYearOf 1 person) 'CxU)
-    (v/assert kb (list person tom) 'CxU)
-    (v/assert kb (list birthYearOf tom 1970) 'CxU)
-    (v/assert kb (list 'comment tom "a fine fellow") 'CxU)
-    (v/assert-rule kb [(list person '?p)] (list mortal '?p) 'CxU {:direction :forward})
-    (v/assert-rule kb [(list person '?p)] (list 'not (list immortal '?p)) 'CxU {:direction :forward})   ; a nested `not` inside a rule
-    (v/assert-rule kb [(list person '?p)] (list likes '?p bone) 'CxU {:direction :forward})             ; a constant argument
-    (v/assert kb (list 'not (list mortal tom)) 'CxU)
-    (testing "a number is not a term-index key"
-      (is (empty? (v/find-sentexes kb 1970))))
-    (testing "a string is not a term-index key"
-      (is (empty? (v/find-sentexes kb "a fine fellow"))))
-    (testing "the structural connectives are never term-indexed, even nested in a rule"
-      (is (empty? (v/find-sentexes kb 'implies)))
-      (is (empty? (v/find-sentexes kb 'and)))
-      (is (empty? (v/find-sentexes kb 'not))))           ; the (not (immortal ?p)) rule must not leak it
-    (testing "symbols and ground compounds are still found"
-      (is (seq (v/find-sentexes kb birthYearOf)))
-      (is (seq (v/find-sentexes kb tom)))
-      (is (seq (v/find-sentexes kb (list birthYearOf tom 1970))))
-      (is (seq (v/find-sentexes kb mortal)))             ; a rule is found by its predicates
-      (is (seq (v/find-sentexes kb immortal)))           ; the stripped-`not` literal's predicate
-      (is (seq (v/find-sentexes kb bone))))))            ; and by a constant argument
+    (let [h-arg      (v/assert kb (list 'arg birthYearOf 1 person) 'CxU)
+          h-person   (v/assert kb (list person tom) 'CxU)
+          h-born     (v/assert kb (list birthYearOf tom 1970) 'CxU)
+          h-comment  (v/assert kb (list 'comment tom "a fine fellow") 'CxU)
+          r-mortal   (v/assert-rule kb [(list person '?p)] (list mortal '?p) 'CxU {:direction :forward})
+          r-immortal (v/assert-rule kb [(list person '?p)] (list 'not (list immortal '?p)) 'CxU {:direction :forward})   ; a nested `not` inside a rule
+          r-likes    (v/assert-rule kb [(list person '?p)] (list likes '?p bone) 'CxU {:direction :forward})             ; a constant argument
+          h-not      (v/assert kb (list 'not (list mortal tom)) 'CxU)
+          found      (fn [q] (set (map :id (v/find-sentexes kb q))))]
+      (testing "a number is not a term-index key"
+        (is (empty? (v/find-sentexes kb 1970))))
+      (testing "a string is not a term-index key"
+        (is (empty? (v/find-sentexes kb "a fine fellow"))))
+      (testing "the structural connectives are never term-indexed, even nested in a rule"
+        (is (empty? (v/find-sentexes kb 'implies)))
+        (is (empty? (v/find-sentexes kb 'and)))
+        (is (empty? (v/find-sentexes kb 'not))))           ; the (not (immortal ?p)) rule must not leak it
+      (testing "symbols and ground compounds are still found"
+        (is (= #{h-born h-arg} (found birthYearOf)))
+        (is (set/subset? #{h-person h-born h-comment h-not} (found tom)))
+        (is (= #{h-born} (found (list birthYearOf tom 1970))))
+        (is (set/subset? #{r-mortal h-not} (found mortal)))  ; a rule is found by its predicates
+        (is (contains? (found immortal) r-immortal))          ; the stripped-`not` literal's predicate
+        (is (contains? (found bone) r-likes))))))              ; and by a constant argument
 
 ;; ---- rules identical up to variable names collapse to one handle --------
 
@@ -238,8 +240,8 @@
           ;; forward joined with backward is both: the two assertions are two claims
           ;; about one rule, and a rule that may run each way may run both.  Resolving
           ;; from content is what makes the answer the same in either arrival order.
-          (is (= :both (:direction (v/sentex kb h))))
-          (is (= :both (:direction (v/sentex kb (v/assert kb (list 'set/backwardRule (list 'implies (list a '?x) (list b '?x))) 'CxU))))
+          (is (= #{:forward :backward} (:engines (v/sentex kb h))))
+          (is (= #{:forward :backward} (:engines (v/sentex kb (v/assert kb (list 'set/backwardRule (list 'implies (list a '?x) (list b '?x))) 'CxU))))
               "and a third assertion changes nothing — the join is idempotent")))))
   (let [bird (tu/tmp-type) animal (tu/tmp-type) penguin (tu/tmp-type)
         flies (tu/tmp-pred) pengu (tu/tmp-ind)]
@@ -451,11 +453,10 @@
   (let [sib (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
     (v/assert kb (list 'symmetric sib) 'CxU)
     (v/assert kb (list sib a b) 'CxU)
-    (testing "a partially-ground query finds it from both sides"
-      (is (seq (v/sentexes-matching kb (list sib '?x b) 'CxU)))
-      (is (seq (v/sentexes-matching kb (list sib b '?x) 'CxU)))
-      (is (seq (v/sentexes-matching kb (list sib '?x a) 'CxU)))
-      (is (seq (v/sentexes-matching kb (list sib a '?x) 'CxU))))
+    (testing "a partially-ground query finds it from both sides, as the one stored sentex"
+      (let [h (v/handle-of kb (list sib a b) 'CxU)]
+        (doseq [pat [(list sib '?x b) (list sib b '?x) (list sib '?x a) (list sib a '?x)]]
+          (is (= [h] (map :id (v/sentexes-matching kb pat 'CxU))) (pr-str pat)))))
     (testing "and so does the prover engine"
       (is (v/ask? kb (list sib '?x b) 'CxU))
       (is (v/ask? kb (list sib b '?x) 'CxU)))
@@ -467,12 +468,12 @@
 (tu/deftest-kb a-fact-asserted-before-its-symmetric-declaration-stays-reachable
   ;; Canonical sorting only applies once `(symmetric P)` is known, so a fact stored
   ;; earlier may sit in the "wrong" order.  The declaration re-spells it where it lies
-  ;; (`integrate/symmetrize-existing`), so the handle survives, both directions answer,
+  ;; (`integrate/symmetrize-row!`), so the handle survives, both directions answer,
   ;; and the mirror asserted afterwards resolves to it rather than storing a second row.
   ;;
   ;; Both orders of the pair, because only one of them is out of order and which one is
-  ;; decided by the generated names: run over the canonically-spelled fact alone this
-  ;; is indistinguishable from a claim about the other and never stores one.
+  ;; decided by the generated names: run over the canonically-spelled fact alone the
+  ;; test would appear to cover the out-of-order case and never store one.
   (let [a (tu/tmp-ind) b (tu/tmp-ind)]
     (doseq [[x y] [[a b] [b a]]]
       (let [sib (tu/tmp-pred)
@@ -519,6 +520,16 @@
     (testing "and nothing was stored"
       (is (empty? (v/find-sentexes kb q))))))
 
+(tu/deftest-kb an-anonymous-wildcard-in-an-antecedent-is-a-fresh-variable-each-time
+  ;; each `_` is its own variable, so two of them join nothing to each other and the
+  ;; rule fires on a fact whose two positions differ
+  (let [owns (tu/tmp-pred) dog (tu/tmp-type) barks (tu/tmp-type)
+        rex (tu/tmp-ind) bone (tu/tmp-ind)]
+    (v/assert kb (list dog rex) 'CxU)
+    (v/assert kb (list owns rex bone) 'CxU)
+    (v/assert-rule kb [(list dog '?x) (list owns '_ '_)] (list barks '?x) 'CxU {:direction :forward})
+    (is (= [(list barks rex)] (map :sentence (v/sentexes-matching kb (list barks '?y) 'CxU))))))
+
 (tu/deftest-kb a-rule-antecedent-over-a-symmetric-predicate-still-joins
   ;; a partially-substituted antecedent is a pattern, so it must not be reordered —
   ;; otherwise forward chaining would under-derive over symmetric relations.
@@ -527,8 +538,9 @@
     (v/assert kb (list 'symmetric sib) 'CxU)
     (v/assert kb (list sib a b) 'CxU)
     (v/assert-rule kb [(list sib '?p '?q)] (list knows '?p '?q) 'CxU {:direction :forward})
-    (testing "the rule fires on the stored symmetric fact"
-      (is (seq (v/sentexes-matching kb (list knows '?x '?y) 'CxU))))))
+    (testing "the rule fires on the stored symmetric fact, in both directions"
+      (is (= #{(list knows a b) (list knows b a)}
+             (set (map :sentence (v/sentexes-matching kb (list knows '?x '?y) 'CxU))))))))
 
 (tu/deftest-kb symmetric-arguments-canonicalize-to-one-sentex
   (let [sib (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
@@ -656,7 +668,7 @@
                      (tree-seq sequential? seq (sx/sentence-of s))))))
     (testing "the sibling wrappers still canonicalize into their own fields"
       (is (true? (:defeasible s)))
-      (is (= :backward (:direction s))))
+      (is (= #{:backward} (:engines s))))
     (testing "the record carries no exception — that lives on a meta-sentex"
       (is (nil? (:except s))))))
 

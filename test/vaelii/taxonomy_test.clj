@@ -7,6 +7,7 @@
   and the edge is active while at least one supporter is believed.  The handles here
   are bare integers — the closure math does not care where they came from."
   (:require [clojure.test :refer [deftest is testing]]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.taxonomy :as tax]))
 
 (deftest genl-closures
@@ -295,6 +296,45 @@
                        "\n  incremental: " (pr-str (incremental t :genl))
                        "\n  oracle:      " (pr-str (oracle t :genl)))))))))))
 
+(deftest an-up-closure-built-from-its-parents-agrees-under-any-bound
+  ;; `reach-by-parents` builds an up-closure from the closures of its parents, which the
+  ;; LRU holds: under a roomy bound every ancestor is found built, under a tight one a
+  ;; parent is evicted between the reads and the build falls back to the walk.  Cycles
+  ;; are walked as components; under `*defer-cycle-scc?*` a cycle closed since the last
+  ;; `restore-depths` is missing from `:scc`, and the build falls back to the walk.  Every
+  ;; answer is the reference rebuild's, over random edit sequences with diamonds and
+  ;; cycles.
+  (let [nodes (mapv #(symbol (str "d_" %)) (range 14))
+        rnd   (java.util.Random. 271828)]
+    (doseq [bound [nil 7 1], defer? [false true]]
+      (caches/set-limit :taxonomy-closures bound)
+      (try
+        (binding [tax/*defer-depths?*    defer?
+                  tax/*defer-cycle-scc?* defer?]
+          (dotimes [trial 12]
+            (let [t (tax/create-taxonomy), live (atom #{})]
+              (dotimes [_ 40]
+                (let [delete? (and (seq @live) (< (.nextInt rnd 10) 3))
+                      i       (.nextInt rnd (count nodes))
+                      ;; mostly downhill, so components are the exception they are
+                      j       (if (< (.nextInt rnd 10) 2)
+                                (.nextInt rnd (count nodes))
+                                (+ i (.nextInt rnd (- (count nodes) i))))
+                      [a b]   (if delete?
+                                (nth (sort @live) (.nextInt rnd (count @live)))
+                                (when (not= i j) [(nodes i) (nodes j)]))]
+                  (when a
+                    (if delete?
+                      (do (tax/del-genl! t a b 1) (swap! live disj [a b]))
+                      (do (tax/add-genl t a b 1) (swap! live conj [a b])))
+                    ;; the upward reads first, in a seeded order, so a closure is built
+                    ;; before the ancestors whose closures it is built from
+                    (doseq [n (sort-by (fn [_] (.nextInt rnd)) nodes)] (tax/genls-global t n))
+                    (is (agrees? t :genl)
+                        (str "bound " bound " defer " defer? " trial " trial " after "
+                             (if delete? "deleting " "adding ") [a b]))))))))
+        (finally (caches/set-limit :taxonomy-closures nil))))))
+
 (deftest genl?-agrees-with-reference-under-loose-depths
   ;; `genl?` / `sees?` answer reachability with a depth-pruned early-exit walk, *not*
   ;; by building the full closure `agrees?` compares.  The prune is sound only while
@@ -551,7 +591,7 @@
 (deftest the-handle-index-is-the-exact-reverse-of-support
   ;; `:handle-edge` is what scopes the belief reconcile to the moved region, and it is
   ;; only sound while it is *exact*: a supporter missing from it is an edge a settle
-  ;; would skip, which is indistinguishable from a stale closure and not as a crash.  A handle asserts
+  ;; would skip, which shows up as a stale closure and not as a crash.  A handle asserts
   ;; one edge, so the index is the transpose of `:support` after every edit — including
   ;; the two that are easy to get wrong, a shared edge losing one of its supporters and
   ;; a supporter re-asserting an edge it already holds.
@@ -589,7 +629,7 @@
   ;; So drive the *scoped* arity, which the oracles above do not — they pass no moved set
   ;; and take the unconditional pass — and check the same two references after every
   ;; step: the believed recompute of `:edge-ctxs`, and the from-scratch closure over
-  ;; whatever edge set survived.  `moved` is the honest flip set, computed as a diff
+  ;; whatever edge set survived.  `moved` is the exact flip set, computed as a diff
   ;; against the previous belief, and a handle joins it on the edit that creates it —
   ;; which is what `settle` hands over, an assert being believed as it integrates.
   (let [nodes  (mapv #(symbol (str "s_" %)) (range 9))
@@ -668,7 +708,7 @@
 (def ^:private flat-decls
   "A pool of flat-cache declarations, deliberately overlapping: the driver below draws
   from it with repeats, so an entry routinely carries two or three supporters.  That is
-  the form the belief-blind writers are indistinguishable from a superset, and the only shape `:cache-dirty`
+  the form the belief-blind writers take for a superset, and the only shape `:cache-dirty`
   is about — a single-supporter entry is exact without it."
   '[[:disjoint d_a d_b]
     [:disjoint d_a d_c]
@@ -731,7 +771,7 @@
   ;; So drive the *scoped* arity, which the flat-cache tests above do not — they pass no
   ;; moved set and take the unconditional pass — and check the whole derived surface after
   ;; every reconcile against that same unconditional pass over a detached copy.  `moved`
-  ;; is the honest flip set, computed as a diff against the previous belief, and a handle
+  ;; is the exact flip set, computed as a diff against the previous belief, and a handle
   ;; joins it on the edit that creates it: what `settle` hands over, an assert being
   ;; believed as it integrates.  A *retraction* names nothing, which is the case
   ;; `:cache-dirty` exists for and the one this fails without.
@@ -851,6 +891,25 @@
       (tax/restore-depths t)
       (is (= '#{CxWell}
              (tax/maximal-common-descendant-contexts t '[CxWell CxBeta]))))))
+
+(deftest placement-by-walk-matches-the-filtered-intersection
+  ;; With no member seeing the others, the maxima are found by walking down from one
+  ;; member; they must be the maxima of the whole intersection, cycles included.
+  (let [rnd (java.util.Random. 57721)]                   ; fixed seed: a failure reproduces
+    (dotimes [trial 40]
+      (let [t  (tax/create-taxonomy)
+            cx (vec (for [i (range 14)] (symbol (str "CxR" i))))]
+        (doseq [i (range 1 14)]
+          (tax/add-genlCx t (cx i) 'CxUniverse (* 100 i)))
+        (dotimes [e 30]
+          (let [a (.nextInt rnd 14) b (.nextInt rnd 14)]
+            (when (not= a b) (tax/add-genlCx t (cx a) (cx b) (+ 10000 (* 100 trial) e)))))
+        (tax/restore-depths t)
+        (dotimes [_ 20]
+          (let [cs (vec (repeatedly (+ 2 (.nextInt rnd 2)) #(cx (.nextInt rnd 14))))]
+            (is (= (tax/maximal-contexts t (tax/common-descendants t cs))
+                   (tax/maximal-common-descendant-contexts t cs))
+                (str "trial " trial " " (pr-str cs)))))))))
 
 (deftest common-descendant-existence
   ;; the boolean sibling of the placement function, for the callers that only ever

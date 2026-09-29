@@ -17,6 +17,9 @@
 # `logs/test/<selector>-run-<pid>.log` and one row to `logs/runs.tsv`
 # (scripts/lib/runlog.sh).
 #
+# `lein test-full-kb` runs this too, for `:full-kb`, once scripts/test-full-kb.sh has
+# prepared the full-size KB the probes open.
+#
 # `scripts/test-parallel.sh` does this for the sharded selectors and is not what
 # runs here.  Neither of these may be sharded: `:multi-jvm` forks a second JVM
 # and `:fuzz` names its own four backends, so both want one JVM and the whole
@@ -24,10 +27,12 @@
 #
 #   bash scripts/test-selector.sh :multi-jvm
 #   bash scripts/test-selector.sh :fuzz [<namespace> …]
+#   VAELII_FULL_KB_DIR=<store> bash scripts/test-selector.sh :full-kb
 #
 # Arguments after the selector pass through to `lein test`.
 #
 # Exit: `lein test`'s own status.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -71,3 +76,4 @@ if [[ -n "$ran" && -n "$bad" ]]; then
   runlog_record test "$SELECTOR" "$state" "${ran#Ran } — $bad" "$LOG"
 fi
 exit "$rc"
+}

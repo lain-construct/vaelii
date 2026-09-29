@@ -177,7 +177,10 @@ stamped rule concluding a conjunction is polycanonicalized into one rule per con
 and one whose antecedent disjoins into one rule per alternative, exactly as an asserted
 one is. The expansion happens at the **mint**, not at the generator's own assert: the
 holes are ground by then, so the alternatives stored are the alternatives of the rule
-that was stamped ([canonicalization.md](canonicalization.md)).
+that was stamped ([canonicalization.md](canonicalization.md)). A ground application of
+a reifiable function in the stamped rule is reified to its constant first, as `assert`
+reifies one in a rule it stores, so the stamped rule's literals are spelled the way the
+facts they match are stored ([nat.md](nat.md), "Derivation path").
 
 That the list is one list is what makes nesting safe rather than merely legal: a middle
 level is checked **twice** — once as the pattern its author wrote, and again as the rule
@@ -216,7 +219,7 @@ shared variable is `?x`, which the first level has already ground, so the rule i
 is fixed before it is stored. Share a variable the levels above it do not.
 
 A head existential *inside* the stamped rule is fine, and skolemizes one firing later,
-against the stamped rule's own handle — the generator's firing deliberately does not
+keyed on the stamped rule's own content — the generator's firing deliberately does not
 skolemize, since the stamped rule's free variables are its own ([skolem.md](skolem.md)).
 
 **What bounds a generator is the cycle check, not the depth.** A nested generator stamps

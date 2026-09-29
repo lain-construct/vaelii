@@ -2,9 +2,9 @@
 # scripts/stage-mine.sh [--session <id>] [--records <dir>] <path>… — stage the
 # hunks THIS session wrote, and none of the ones it did not.
 #
-# Several agents write this checkout, so a file's diff against HEAD is
+# Several writers work in this checkout, so a file's diff against HEAD is
 # everybody's work at once. `git add <path>` takes the whole file and cannot
-# tell the difference, `git add -p` is interactive and an agent has no terminal
+# tell the difference, `git add -p` is interactive and a scripted session has no terminal
 # to answer it from, and what is left is reading hunks by hand and hoping. This
 # is that reading, done mechanically.
 #
@@ -26,7 +26,7 @@
 #   git hash-object -w                         ->  that content, as a blob
 #   git update-index --cacheinfo               ->  the index points at the blob
 #
-# THE WORKTREE IS NEVER WRITTEN. It holds both agents' work and keeps holding
+# THE WORKTREE IS NEVER WRITTEN. It holds both writers' work and keeps holding
 # it; only the index moves. So `git status` afterwards shows your paths staged
 # and the other writer's hunks still unstaged, which is exactly true, and their
 # next commit takes them.
@@ -36,16 +36,17 @@
 # lost. The path is reported, the index is left alone, and the two of you sort
 # out who lands first.
 #
-# The session id comes from --session <id>, or $CLAUDE_CODE_SESSION_ID. A hook
+# The session id comes from --session <id>, or $EDIT_SESSION. A hook
 # that sweeps its records after a day means a delta you never staged is gone
 # after that. The staging guard on the other side blocks the `git add` that
 # would have swept, and prints the line to run instead — records directory and
 # all — so the ordinary way to reach this script is to copy that line.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 
 usage() { sed -n '2,41p' "$0"; }
 
-session="${CLAUDE_CODE_SESSION_ID:-}"
+session="${EDIT_SESSION:-}"
 state="${EDIT_RECORDS:-}"
 while [[ "${1:-}" == -* ]]; do
   case "$1" in
@@ -61,7 +62,7 @@ done
 
 [[ $# -gt 0 ]] || { usage; exit 2; }
 if [[ -z "$session" ]]; then
-  echo "stage-mine: no session id (\$CLAUDE_CODE_SESSION_ID unset). Pass --session <id>." >&2
+  echo "stage-mine: no session id (\$EDIT_SESSION unset). Pass --session <id>." >&2
   exit 2
 fi
 if [[ -z "$state" ]]; then
@@ -165,3 +166,5 @@ if [[ $staged -gt 0 && -n "$last_root" ]]; then
   echo "The worktree is untouched — everybody else's hunks are still in the files."
 fi
 [[ $skipped -eq 0 ]]
+exit
+}

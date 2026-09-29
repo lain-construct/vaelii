@@ -150,7 +150,7 @@
     (testing "before∘before = before, so P precedes R though nobody said so"
       (is (v/ask? kb (list 'instantBefore P R) C))
       (is (= #{:before} (pt/possible-point-relations kb C P R)))
-      (is (= :before (pt/definite-point-relation kb C P R))))
+      (is (= :before (qkb/definite pt/instants kb C P R))))
     (testing "so a relation the network excludes is not answered"
       (is (not (v/ask? kb (list 'instantAfter P R) C)))
       (is (not (v/ask? kb (list 'instantEqual P R) C))))
@@ -205,7 +205,7 @@
 (tu/deftest-kb a-pair-nothing-reaches-is-unconstrained
   (tu/with-terms [P Q]
     (is (= pt/all-relations (pt/possible-point-relations kb C P Q)))
-    (is (= :unknown (pt/definite-point-relation kb C P Q)))
+    (is (= :unknown (qkb/definite pt/instants kb C P Q)))
     (testing "and the two loose composition entries leave a real pair open too"
       (tu/with-terms [R]
         (v/assert kb (list 'instantBefore P Q) C)   ; P < Q
@@ -222,15 +222,15 @@
     (v/assert kb (list 'instantBefore Q R) C)
     (v/assert kb (list 'instantBefore R P) C)
     (testing "no assignment of moments makes all three hold, and the pass proves it"
-      (is (pt/inconsistent? kb C))
+      (is (qkb/inconsistent? pt/instants kb C))
       (is (= #{} (pt/possible-point-relations kb C P R)))
-      (is (= :inconsistent (pt/definite-point-relation kb C P R))))
+      (is (= :inconsistent (qkb/definite pt/instants kb C P R))))
     (testing "and an inconsistent theory is not mined for conclusions — anywhere"
       (is (not (v/ask? kb (list 'instantBefore P Q) C)))
       (is (empty? (v/ask kb (list 'instantBefore P '?y) C))))
     (testing "retracting one of the three gives the others their answers back"
       (v/retract! kb (v/handle-of kb (list 'instantBefore R P) C))
-      (is (not (pt/inconsistent? kb C)))
+      (is (not (qkb/inconsistent? pt/instants kb C)))
       (is (v/ask? kb (list 'instantBefore P R) C)))))
 
 (tu/deftest-kb two-facts-about-one-pair-can-contradict-outright
@@ -238,7 +238,7 @@
     (v/assert kb (list 'instantBefore P Q) C)
     (v/assert kb (list 'instantAfter P Q) C)
     (is (= #{} (pt/possible-point-relations kb C P Q)))
-    (is (pt/inconsistent? kb C))))
+    (is (qkb/inconsistent? pt/instants kb C))))
 
 ;; ---- open enumeration ----------------------------------------------------
 

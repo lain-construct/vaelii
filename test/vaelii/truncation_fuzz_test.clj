@@ -382,8 +382,8 @@
   ;; over this corpus.  A probe is a directory copied and a store opened under recovery,
   ;; so the cost tracks the number of *opens* and not the number of bytes — and, since
   ;; an open costs a device cache flush and almost nothing else, `scratch-dir` is what
-  ;; decides whether that is ten minutes or under two.  The sampled sweep above is what
-  ;; keeps this harness honest between the runs that name it.
+  ;; decides whether that is ten minutes or under two.  The sampled sweep above
+  ;; exercises this harness between the runs that name it.
   (doseq [s (subjects)]
     (testing (:label s)
       (check! (:label s) (sweep s nil)))))

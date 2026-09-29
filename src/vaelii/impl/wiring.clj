@@ -43,9 +43,9 @@
     `(termOfUnit K E)` assert is monotonic bookkeeping and the enclosing firing settles
     once when it finishes, so settling per mint would be redundant churn — and worse,
     would relabel belief inside the running chain (docs/skolem.md);
-  - a fired conclusion reducing a ground `Quasiquote` to its constant
-    (`vaelii.impl.quasiquote/reduce-in-conclusion`), which is the same mint at the same
-    moment and defers for the same reason;
+  - a placed conclusion minting the constants of its ground reifiable NATs
+    (`vaelii.impl.chain/reify-conclusion`), a reduced `Quasiquote`'s `(Quote E)` among
+    them, which is the same mint inside the same fixpoint and defers for the same reason;
   - `with-deferred-settle` / `assert-many`, which run a whole batch of asserts under it
     and settle once at the end, so a bulk load pays one belief reconciliation instead of
     N.  Chaining still runs per assert (only the `settle` is deferred), so the final

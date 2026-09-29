@@ -31,6 +31,7 @@
   neutral fixture asserts the KB is restored."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.checks :as checks]
             [vaelii.impl.rules :as vr]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
@@ -170,6 +171,40 @@
         (v/assert kb (except-rule (list exc '?x) [(list otherBase '?x)] (list other '?x))
                   CxFast)
         (is (pos? (walks #(v/assert kb (list 'genl sub super) CxFast))))))))
+
+;; ---- the walk's cost -----------------------------------------------------
+;; A walk reaches a rule once per edge into it, and the graph is dense wherever an
+;; antecedent reads a type with many specs.  A stored rule's node is read from the store
+;; (the record, and the rule's exceptWhen meta-sentexes off the index), so an edge check
+;; builds each one once, however many edges reach it and however many start rules walk.
+
+(defn- node-builds
+  "Run `f`, returning how many stored-rule nodes the stratification checks built."
+  [f]
+  (let [n    (atom 0)
+        orig @#'checks/stored-rule-node]
+    (with-redefs-fn {#'checks/stored-rule-node
+                     (fn [kb h] (swap! n inc) (orig kb h))}
+      f)
+    @n))
+
+(tu/deftest-kb an-edge-check-builds-each-stored-rule-node-once
+  (tu/with-terms [hub exc p sub CxDense]
+    (let [spokes (vec (repeatedly 6 #(tu/tmp-type "spoke")))]
+      (doseq [t spokes] (v/assert kb (list 'genl t hub) CxDense))
+      ;; the start rule: excepted, and reading `hub`, so its positive edges fan over
+      ;; every spoke
+      (v/assert kb (except-rule (list exc '?x) [(list hub '?x)] (list p '?x)) CxDense)
+      ;; one rule concluding each spoke, each reading `hub` as well: every rule reaches
+      ;; every spoke's rule, six edges out of each
+      (doseq [t spokes]
+        (v/assert kb (vr/rule-sentence [(list hub '?x)] (list t '?x)) CxDense
+                  {:direction :forward}))
+      (let [n (node-builds #(v/assert kb (list 'genl sub hub) CxDense))]
+        (testing "the edge is accepted: nothing concludes the exception's predicate"
+          (is (tax/genl?-global (reasoning/taxonomy kb) sub hub)))
+        (testing "seven stored rules, seven nodes, against 42 edges into them"
+          (is (= 7 n)))))))
 
 ;; ---- the derivation path -------------------------------------------------
 ;; DECISION: a *derived* edge is **dropped and reported**, not thrown.  Forward

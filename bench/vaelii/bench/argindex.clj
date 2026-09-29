@@ -13,11 +13,11 @@
   (context / functor / term / rule, all compact int-keyed) it routes to the slow
   fallback (`dense_roots/route :argument-root → :fallback → MemoryKvBackend.kv-members`),
   where a `PersistentHashMap.find` compares the whole vector via `APersistentVector`'s
-  `doEquiv`.  A real 11M-sentex settle spent ~28% CPU in that comparison and ~98% of its
+  `doEquiv`.  A settle over a large store spent ~28% CPU in that comparison and ~98% of its
   allocation materializing the posting-list seqs the read returns.
 
   This harness has two layers, both reproducible and both meant to be re-run **verbatim**
-  by the two later agents who implement index-layout variants — comparability is the
+  by the two later changes that implement index-layout variants — comparability is the
   whole point:
 
   * **micro** — isolates one argument-root probe.  A hot subject sits at argument 1 of
@@ -91,7 +91,7 @@
 ;; ---- naming (well-formed for the real v/assert path) --------------------
 ;; predicates lowercase-initial camelCase; individuals/types/contexts Capitalized —
 ;; the invariants v/assert enforces.  Types are lowercase-initial symbols ending `_t`,
-;; the shape bench/checks.clj uses so a type is indistinguishable from a predicate applied to a term.
+;; the shape bench/checks.clj uses so a type is spelled like a predicate and applied to a term as one.
 
 (defn- type-name [i] (symbol (str "bt" i "_t")))
 (defn- ind-name  [i] (symbol (str "BI" i)))

@@ -33,7 +33,14 @@ enforces it with a fail-fast file lock. That shapes how the surfaces coexist:
   monitor, so concurrent client writes apply one at a time.
 - The **CLI** with `--dir` takes the same lock, so it and a daemon **cannot own one
   directory at once**. Point them at different directories, or let the daemon own the
-  writable KB and give the CLI its own.
+  writable KB and give the CLI its own. `diff` and `upgrade` are the two commands that
+  open no KB of the run's, so `diff` answers beside a daemon holding `--dir`.
+- **Every open writes the lock file first**, reads included, so the directory must be
+  writable by the process opening it. A directory that cannot hold the file is refused
+  by name before the lock is tried: `:not-a-directory` when the path, or a part of it
+  above, is a regular file, and `:not-writable` when the process cannot create files
+  there, naming the user it runs as. The OS's own words name `.vaelii.lock`, a file the
+  operator never typed, so neither refusal repeats them as its subject.
 - An in-memory KB (no `--dir`) has no lock and no persistence — fine for a REPL session
   or a one-shot check, useless for one-shot commands that expect earlier facts.
 
@@ -61,7 +68,7 @@ lein cli repl --starter                                                    # int
 - **A command that answers a set prints it sorted.** `match`, `query` and `ask` answer
   sets, and a set has no order of its own — so an unsorted print was whichever order the
   retrieval enumerated, and two loads of the same knowledge printed it differently, which
-  a `diff` of two runs is indistinguishable from a change in the KB. They are ordered by content key
+  a `diff` of two runs reports as a change in the KB. They are ordered by content key
   (`naming/print-key`), alongside `types` and `contexts`, which always were. **`prove` is
   the exception and stays in DFS order**: it answers one solution per derivation, and the
   order those were found in is part of what a proof says ([inference.md](inference.md)).
@@ -96,9 +103,11 @@ lein cli repl --starter                                                    # int
   is a handle, as `why`'s is — and the flag belongs to the goal: a stored handle is
   stored, so `:not-stored` is not an answer it can get, and the pairing is **refused**
   rather than dropped.
-- **`diff <a> <b>`** is the one command that reads two KBs and neither of them is the one
-  the run opened: both arguments are **text KBs on disk**, each read into an in-RAM KB of
-  its own, and what it prints is `{:added :removed :moved :belief-changed}`. Keyed on
+- **`diff <a> <b>`** is the one command that reads two KBs and neither of them is the
+  run's: both arguments are **text KBs on disk**, each read into an in-RAM KB of its own,
+  and what it prints is `{:added :removed :moved :belief-changed}`. It opens no KB for
+  `--dir`, and so takes no lock: a daemon owning that directory does not refuse it, and
+  `--dir`, `--memory` and `--starter` change nothing it prints. Keyed on
   content, so two exports of one KB taken at different handles diff empty and a `diff` of
   the output means something. Pair it with `export --format text` to see what a day of
   editing did.
@@ -115,12 +124,27 @@ lein cli repl --starter                                                    # int
   the outside exactly like one that was applied. `text` is the **only** value `--format`
   takes, and any other is refused for that same reason: dropped, `--format texr` wrote the
   dump the flag was there to replace and exited 0. The destination must be empty or
-  absent; a refusal is printed as `error: …` **on stderr** in the engine's own words,
-  with a non-zero exit status — the same message the daemon and the browser report,
-  because none of them writes one of its own, and on the stream that leaves stdout's
-  data parseable when a script redirects it.
+  absent.
+- **A refusal is one line on stderr, and it names its class**:
+  `error: [:naming] naming invariant: functor warmBlooded …`. The bracket holds the
+  refusal's `:type`, the keyword the daemon returns on the wire and the browser renders
+  as a chip, so a script branches on it rather than on the prose
+  ([troubleshooting.md](troubleshooting.md#i-have-a-type-and-do-not-know-what-it-means)
+  lists them all). A throwable carrying no `:type`, such as a missing `load` file's
+  `FileNotFoundException`, reads `[:internal-error]`, the daemon's word for the same
+  case. The message after the bracket is the engine's own words, the same message the
+  daemon and the browser report, because none of them writes one of its own. The exit
+  status is 1 for every refusal and 2 for an unknown command word, whose line
+  (`[:unknown-command]`) is followed by the roster. stderr is the stream that leaves
+  stdout's data parseable when a script redirects it.
 - **Options:** `--dir <path>` selects the durable backend (recovered on open, so it
-  persists across invocations); `--memory` says the ephemeral default out loud — and
+  persists across invocations). The CLI creates the KB's own directory and nothing
+  above it: an existing directory, empty or holding a store, opens, and so does an absent
+  one under an existing parent, which is how a new KB is made. A `--dir` whose **parent
+  does not exist** is refused (`:unknown-source`, the keyword `upgrade` refuses a
+  directory holding no store under) and nothing is created, since the store would
+  otherwise create the whole path and a mistyped one would answer a read with `[]` at
+  exit 0, from an empty store left behind to answer the same way next time. Of the other options, `--memory` says the ephemeral default out loud — and
   contradicts `--dir`, so naming both is refused; `--starter` loads the shipped schema
   so you can explore the ontology; `--strength monotonic` marks an `assert` or
   `assert-rule` known-true — for a rule that is the rule's own defeat class, not the
@@ -197,14 +221,19 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   connecting.
 - **What it binds decides what it requires.** `--listen` naming a **non-loopback**
   address requires `VAELII_API_TOKEN`: without one the daemon prints a line and exits
-  **2**, before it opens the KB and takes the directory's writer lock. It is the flag
+  **2**, before it opens the KB and takes the directory's writer lock. A caller starting
+  either server from code (`vaelii.serve/start`, `vaelii.web/start`) with an address and
+  no `:token` is refused the same way, `:unauthorized`, before anything binds. It is the flag
   that publishes `POST /op` *and* the flag that drops the `Host` allowlist, so the
   exposed configuration must not also be the one with the fewest checks. On **loopback**
   — the default, and `--listen 127.0.0.1` said out loud — the token is used when set and
   its absence is a startup warning naming the flag that would require one; an open
   loopback daemon is drivable by every process on the machine. Either way the daemon
   logs which posture it started in, since that is the line to grep for after an incident.
-  Put a reverse proxy in front for TLS and rate limiting; the wire is plaintext.
+  Put a reverse proxy in front for TLS and rate limiting; the wire is plaintext. The
+  origin check reads the scheme from `X-Forwarded-Proto` when a proxy sets one and the
+  host from `Host` alone, never `X-Forwarded-Host`: a proxy that rewrites `Host` makes
+  every browser write a 403, so pass the browser's `Host` through.
 - **Wire format is EDN.** A sentence is a symbol s-expression — `(dog Muffet)`, `?x` —
   which EDN round-trips losslessly; JSON would mangle the symbols. Bodies are read with
   `clojure.edn/read-string`, which has no reader-eval, so an untrusted body cannot run
@@ -255,10 +284,16 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   names *no* `:max-ms` is given the ceiling's, because absent there means no clock at all
   — and for the four backward-search entry points that holds even when the request sent no
   option map, since the alternative is an unbounded search on the write monitor. `0` on
-  either variable lifts that ceiling. The ops it applies to are the ones with a bound to
-  raise — `:query`, `:query?`, `:argue`, `:why`, `:why-not`, `:search-tree`,
-  `:compare-tacticians`, `:ask`, `:ask?`, `:prove`, `:provable?`, `:ask-within`,
-  `:prove-within`. A search that reaches its clock is **400** `{:type
+  either variable lifts that ceiling. The ceilings hold the search bounds of reads, and
+  apply to fourteen ops — `:query`, `:query?`, `:query-status`, `:argue`, `:why`, `:why-not`,
+  `:search-tree`, `:compare-tacticians`, `:ask`, `:ask?`, `:prove`, `:provable?`,
+  `:ask-within`, `:prove-within`. **No write's bound is held to a ceiling.** Seven
+  writes name one: `:assert`, `:assert-many`, `:assert-rule` and `:forward-chain` read
+  `:max-depth` and `:max-derivations`, and `:edit`, `:edit-with-consequences` and
+  `:preview` read the same two keys off each batch entry's opts. Both keys bound the
+  forward-chaining fixpoint (64 and 100,000 when the request names neither), a request
+  may name either at any size, and the run holds the write monitor for its whole length.
+  `:preview` takes no clock either. A search that reaches its clock is **400** `{:type
   :budget-exhausted}` at the four plain entry points, which answer with a solution set or a
   boolean and have no room to say the answer is a prefix; `:ask-within` and
   `:prove-within` return the prefix with a `:status` instead
@@ -266,12 +301,39 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   (`vaelii.client`, below): every op runs under the single write monitor, so a read still
   running past the point the caller stopped listening is holding every other request
   behind an answer nobody will receive. The ceiling is applied in the op table rather
-  than at this route, so the model's generated tool surface is held to it too
-  ([llm.md](llm.md)).
+  than at this route, so every caller dispatching through the table is held to it too.
   [why a refusal and not a clamp](defenses.md#a-search-bound-may-be-lowered-by-a-request-and-not-raised)
 - **A read is realized under the write monitor.** Projecting the answer for the wire is
   what realizes a lazy result, so it runs *inside* the lock the daemon serializes ops
   with. [why inside the lock](defenses.md#a-read-that-crosses-the-wire-is-realized-inside-the-write-monitor)
+  A read therefore waits for the whole of the op ahead of it: behind one `:assert-many`
+  it waits for the whole batch, so a loader sharing the daemon with readers sets their
+  wait by the size of the batches it sends. `GET /health` is outside the monitor and
+  answers throughout.
+- **An op runs to completion whether or not its caller is still listening.** The daemon
+  does not watch the socket: a caller whose read timeout fires, or whose connection
+  drops, has abandoned the reply and not the op, which runs, settles and is answered to
+  nobody. A request still queued for the monitor when its caller leaves runs too. The
+  caller holds a `java.net.http.HttpTimeoutException` (from `vaelii.client`) and nothing
+  that says how far the op got, so the one way to learn the outcome is to read the KB —
+  `:handle-of` for a sentence, `:sentexes-matching` for a pattern. A re-send is the other
+  way, since it queues behind the first and answers after it. Re-sent after the first
+  landed, each write answers as follows:
+
+  | Re-sent write | Answers |
+  |---|---|
+  | `:assert`, `:assert-many`, `:assert-rule` | the same handles, and nothing new is stored: a sentence dedups to its canonical form's handle ([canonicalization.md](canonicalization.md)) |
+  | `:edit`, `:edit-with-consequences` | with `:add` alone, the same handles; with a `:remove`, refused `:unknown-handle`, and the KB stays as the first send left it |
+  | `:retract` | `{:removed-sentexes 0 :removed-justifications 0}` |
+  | `:forward-chain` | `{:derived 0}`, the fixpoint being reached |
+  | `:add-provenance` | the same merged map |
+  | `:abduce-discard` | zero counts |
+  | `:export` | refused `:not-empty`, and the first dump stands |
+  | `:abduce` with `{:keep? true}` | **a second scratch context**, each one discarded through the context its own answer names; without `:keep?` the KB is left as it was found either time |
+  | `:watch` | **a second subscription**; the first counts toward the 64 until it has gone five minutes unpolled and a later feed call reaps it |
+
+  The dedup is a property of `assert`, not of the protocol: a request carries no id, and
+  the daemon keeps no record of what it answered.
 - **The change feed crosses the wire as a subscription with a cursor** (`:watch`,
   `:poll`, `:unwatch`, `:watchers` — [feed.md](feed.md), "Across the wire"). These are
   the one thing on the wire that is *not* a `vaelii.core` fn with the KB supplied, which
@@ -291,8 +353,9 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   (415 for a missing or wrong content-type — the guard above — and 400 for a body
   that does not read as EDN), `:cross-origin` (403), `:bad-host` (400),
   `:body-too-large` (413), `:bad-args` (400 — the wrong number of args for the op, or
-  an `:args` that is not a sequence), `:unknown-op` (400, with the op roster in the
-  reply), `:not-found` (404, any route the router does not serve), and
+  an `:args` that is not a sequence; an arity error raised by a call inside the op is a
+  fault of the daemon and answers 500 `:internal-error`), `:unknown-op` (400, with the
+  op roster in the reply), `:not-found` (404, any route the router does not serve), and
   `:internal-error` (500, the default the catch-all arms fill in when nothing typed
   the failure, so the key is never present with nil in it). Every other `{:ok false}`
   carries whatever `:type` the engine threw — the request-refusal vocabulary
@@ -391,6 +454,18 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   owns the KB, a KB value does not cross an EDN wire, and a text export is a directory the
   daemon can read — so the remote reading is "what has the live KB done since this export
   was taken".
+- **`:query-status` says whether the depth bound cut an answer.** A query truncated at
+  `:max-depth` answers the same empty or short seq as a goal the KB does not entail, and
+  over the wire the bound in force is often the daemon's `VAELII_MAX_QUERY_DEPTH` rather
+  than the caller's. `:query-status` answers `query`'s answers with `:status`
+  (`:complete` or `:truncated`) and the run's counters, under the same depth ceiling as
+  `:query` ([api.md](api.md)).
+- **Six reads are served beside a read on the wire that answers the same kind of
+  question**: `:find-sentexes-all` beside `:find-sentexes`,
+  `:subsumption-status` and `:subsumption-statuses` beside `:genl?` and `:disjoint?`,
+  `:functional-at-instant-violations` and `:all-functional-at-instant-violations` beside
+  the `predAllSpecified` pair `:specified-violations` and `:all-specified-violations`,
+  and `:last-program`, the question the edge solver was last asked, beside `:conflicts`.
 - **Export runs on the daemon's host** (`:export`). It is a write to the *filesystem*
   rather than to the KB, and the directory it names is resolved where the daemon runs —
   the only place it can be, since the daemon owns the KB and there is no stream to hand a
@@ -405,20 +480,52 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   the same terms — but `load-text!` reads a path, so over a wire it would name a file on
   the daemon's disk while reading like one on the caller's. Text goes over the CLI, which
   is in the process that can see the files.
-- **Five `vaelii.core` fns are deliberately not ops**, and each is the same kind of
-  absence: a lifecycle operation belongs to whoever owns the process, and the daemon's
-  callers do not.
+- **A `vaelii.core` fn that takes a KB is an op or a row of the table below**, and one
+  rule decides which. A fn is an op when four conditions hold:
 
-  | Not served | Why |
-  |---|---|
-  | `import!` | a dump lands in an **empty** KB, in the process that owns it — a daemon is already serving one |
-  | `recover` | rebuilds the taxonomy and the JTMS from the durable stores at open; a client cannot know the daemon is unrecovered, and a rebuild mid-service moves belief under every other caller |
-  | `reindex` | the same, for the index — a whole-store rewrite under the one lock every other request is queued behind |
-  | `clear!` | destroys the KB the daemon exists to serve, and leaves every client's handles naming nothing |
-  | `close!` | ends the process's ownership of the store; the socket that asked would be answering from a KB that no longer has one |
+  1. **The data crosses the wire.** Every argument and the answer are values an EDN body
+     carries: no function, no KB value, and no path the daemon would load knowledge
+     from.
+  2. **The fn acts on the KB, not on the process.** It reads or writes knowledge. The
+     process's ownership of the store, its prover registry and the state that opening
+     the store left belong to whoever started the process, and the daemon's callers did
+     not.
+  3. **A write runs every check.** A write goes through the checks
+     `assert`, `edit!` and `retract!` run for a local caller, so a remote write is
+     refused wherever a local one is. A write that empties a diagnostic record every
+     caller reads, and that nothing rebuilds, fails this condition too.
+  4. **Something bounds the cost.** A request's own bounds (the ceilings above, a
+     required limit) or the size of what the fn reads bounds its cost.
 
-  All five stay reachable where they belong — the CLI, `vaelii.starter`, or the process
-  that called `open-kb` — and none of them is a read a client is short of.
+  A fn that fails a condition is a row below, with the condition it fails. A fn whose
+  work an op already does under another spelling is a row too, naming that op.
+  `serve_parity_test/every-kb-fn-is-an-op-or-a-named-absence` fails on a `vaelii.core`
+  fn that takes a KB and is in neither `serve/ops` nor this table, so a fn added to the
+  API is decided in the commit that adds it.
+
+  | Not served | Fails | Why |
+  |---|---|---|
+  | `import!` | 2 | A dump lands in an **empty** KB, in the process that owns it — a daemon is already serving one |
+  | `recover` | 2 | It rebuilds the taxonomy and the JTMS from the durable stores at open; a client cannot know the daemon is unrecovered, and a rebuild mid-service moves belief under every other caller |
+  | `reindex` | 2 | It does the same for the index, as a whole-store rewrite under the one lock every other request is queued behind |
+  | `clear!` | 2 | It destroys the KB the daemon exists to serve, and leaves every client's handles naming nothing |
+  | `close!` | 2 | It ends the process's ownership of the store; the socket that asked would be answering from a KB that no longer has one |
+  | `write-hazards`, `store-state`, `rebuild-progress` | 2 | Each reads the state that opening the store left. The daemon opens with `{:recover? :auto}`, so each answers the same value for the whole of its service, and the repair each one names (`recover`, `reindex`, a reload) is a row above. A write into an unrecovered KB is refused `:unrecovered-kb` over the wire as in process |
+  | `add-prover`, `add-evaluatable`, `add-reasoner`, `set-solver` | 1, 2 | The prover registry and the edge solver are held in the process's memory, and none of them is stored. `add-prover` and `add-evaluatable` take a function, and `add-reasoner` and `set-solver` answer the KB value |
+  | `fork` | 1 | It answers a KB value |
+  | `with-deferred-settle` | 1 | It is a macro over a body of forms, and `:assert-many` is the batch a request sends |
+  | `watch`, `unwatch`, `watchers` | 1 | `watch` takes a callback. The feed crosses as a subscription with a cursor, `serve/feed-ops` (above) |
+  | `load-text!`, `load-foreign!` | 1 | Each reads a path, which over a wire names a file on the daemon's disk while reading like one on the caller's (the export bullet above). Text goes over the CLI |
+  | `export-text!` | 1 | It is the other half of `load-text!`, and the two are served together or not at all |
+  | `assert-inert` | 3 | It stores past the constraint, wff and equality checks, and never premises what it stores. It is the solve's labeling primitive ([solving.md](solving.md)) |
+  | `bulk-assert-facts!` | 3 | It skips the definitional checks and the dedup for a corpus its caller vouches for. `:assert-many` is the checked batch |
+  | `clear-violations!`, `reset-settle-stats!` | 3 | Each empties a diagnostic record every caller reads (`:violations`, `:settle-stats`), and nothing rebuilds either one |
+  | `disjointness-audit` | 4 | It runs a subsumption read for every pair of the n types, n(n−1)/2 of them, with no bound a request can set. `:subsumption-status` answers one pair |
+  | `ist` | — | It is `assert` with its arguments reordered: `:assert` of `(ist Ctx S)` stores the same sentex |
+  | `register-modal-predicate` | — | `:assert` of `(modal_predicate pred)` in the context is the same write, and answers a handle where this answers the KB |
+
+  Every row stays reachable in the process that called `open-kb`, and the lifecycle rows
+  through the CLI and `vaelii.starter` as well.
 - `serve/app` is a pure `request -> response` handler (reitit-ring), so it is tested
   without a socket; `serve/start` runs it on jetty and returns the `Server`.
 
@@ -430,7 +537,12 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   the KB's one writer. Three refusals precede the op: **404** `:not-found` when the browser
   reads a remote daemon (`--attach`), and **409** `:still-loading` or `:still-exporting`
   while a job writes or an export walks the active KB. The two 409s refuse reads as well,
-  because the op table does not mark which ops write. The token rule is the browser's:
+  because the op table does not mark which ops write. The op then waits for the monitor,
+  and `handle-op` asks again once it holds it: a KB `/kbs/unload` released meanwhile
+  answers **404** `:not-found` and nothing is written, and a KB an export started walking
+  meanwhile answers **409** `:still-exporting`. `:watch` is asked the same question, so no
+  subscription is registered on a released KB, and the unload drops the subscriptions
+  already on it ([feed.md](feed.md)). The token rule is the browser's:
   a loopback bind asks for none, and `--listen` with an address requires it on every
   route, `GET /health` included ([web.md](web.md)).
 
@@ -474,6 +586,10 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   the one refusal no `:type` vocabulary covers: a proxy's 502 and a daemon that answered
   200 with a truncated body are two different faults and the status is what tells them
   apart.
+- **A `:bad-reply` says nothing about whether a write was applied.** The daemon applies
+  the op and then sends the reply, so a write whose reply was truncated or replaced on
+  the way back is stored at the daemon although the caller received an exception.
+  Before retrying a write after a `:bad-reply`, read whether it landed (`handle-of`).
 - **Every op has a wrapper, and the op table is what says so.** A wrapper mirrors the
   `vaelii.core` fn its op runs — bare or `!`-marked exactly as `vaelii.core` spells it,
   never as the op keyword does (the keywords drop the suffix, so `:retract` runs
@@ -556,13 +672,12 @@ lein run -m vaelii.web --attach localhost 4200   # browse it, over the API, on :
 - The default (no `--attach`) is still an in-process starter KB — fast, standalone, and
   the right choice for local exploration. Attach is for inspecting a running daemon.
 - **Writing over the wire:** the browser's Save and its Retract dispatch to the daemon
-  `:edit` op, its assert form and its accepted-proposal commit to
+  `:edit` op, its assert form to
   `:edit-with-consequences` (which answers with what the batch turned out to mean), and
   its forward-chain trigger to `:forward-chain` — so modifying a KB works against an
   attached daemon too, with the daemon the single writer serializing each one under its
   lock. The write forms are preceded by a `:check-edit` round-trip, so a refusal costs
-  a message rather than a half-applied batch; the proposal preview runs on a local KB
-  only (`docs/web.md`), so an attached browser proposes without previewing.
+  a message rather than a half-applied batch.
 
 ## Container — the daemon as an image
 
@@ -578,11 +693,24 @@ the whole file when it *parses* it: the token is declared required, so a bare
 `docker build -t vaelii .` reads no compose file and needs nothing set.
 
 `Dockerfile` builds in two stages and ships the second: Leiningen resolves and
-`lein uberjar` runs in a JDK stage, and what reaches the runtime image is a JRE and the
-jar. The uberjar needs no checkout and no local artifact — every `:dependencies` entry
+`lein uberjar` runs in a Temurin 25 JDK stage, and what reaches the runtime image is a
+Temurin 25 JRE and the jar. The uberjar needs no checkout and no local artifact — every `:dependencies` entry
 resolves from a public repository and the uberjar path activates no profile — so the
 image builds from a clean clone. `clojure.main -m vaelii.host.serve` is the entry point
-rather than `java -jar`, because the jar's Main-Class is `vaelii.core`.
+rather than `java -jar`, because the jar's Main-Class is `vaelii.core`. The entry point
+also names the flags `project.clj`'s `:jvm-opts` give a JVM that lein launches, since an
+uberjar carries no `:jvm-opts`: `--enable-native-access=ALL-UNNAMED` and
+`--sun-misc-unsafe-memory-access=allow`, without which JDK 25 warns when JNA loads a native
+solver and when nippy's LZ4 compressor calls `sun.misc.Unsafe`, and
+`-XX:+UseCompactObjectHeaders`, an 8-byte object header that holds about 8% less heap.
+
+- **The image carries a class-loading cache.** The build runs the daemon once over a
+  scratch store until `/health` answers, and the JVM writes what that start loaded to
+  `/app/vaelii.aot`, which the entry point reads with `-XX:AOTCache`. A daemon over an
+  empty store answers `/health` in 0.58 s with it and 1.61 s without, for about 90 MB of
+  image. The cache is valid only for the JVM build and the jar that wrote it, which is
+  why it is built in the runtime stage; a JVM that finds it stale logs a warning and starts
+  without it.
 
 - **A token is not optional here.** The container binds an address so that a published
   port can reach it, and `vaelii.serve` refuses that bind with no `VAELII_API_TOKEN`,
@@ -607,7 +735,7 @@ rather than `java -jar`, because the jar's Main-Class is `vaelii.core`.
   `lein with-profile +zgc` selects it for a JVM that has a reason.
 - **`HEALTHCHECK` polls `/health`**, the one route that answers without the token, since
   a daemon only its token-holder can probe is one no orchestrator can watch. An empty
-  volume answers in about three seconds; the start period is far longer than that because
+  volume answers in under a second; the start period is far longer than that because
   it is sized for the other case, where a restart over a populated volume runs `recover` —
   one pass over every stored record — before Jetty accepts a connection. That pass is
   O(records), so a store large enough to outlast the window wants a longer one. The probe
@@ -698,6 +826,11 @@ What follows is worth knowing before an incident rather than during one:
   holds. The daemon does log a **500** (`::op-error`, at `:warn`, with the
   exception) and its two start-up posture lines — which is why the authentication posture
   is announced at start: it is the line to grep for afterwards.
+- **No request line is written, but a request's content can reach the log.** The
+  exception in an `::op-error` line carries its message and `ex-data`, which can hold the
+  path or sentence the request named. The engine's own `:warn` and `:info` lines
+  (`::probably-not-meant`, `::dropped-conclusion`, `::exported`) name the sentences and
+  paths they are about. No token reaches a log line at any level.
 - **Turning the dial up does not add request lines.** The dial governs the engine's own
   statements; there are no HTTP ones for it to reach.
 - **An application embedding the engine chooses its own SLF4J provider, or none.**
@@ -765,8 +898,8 @@ the read still found one of them. Set a new floor by rounding the first mention 
 | `VAELII_MAX_BODY_BYTES` | `src/vaelii/host/guard.clj:160+` | a positive whole number of bytes; blank is unset | `16777216` (16 MiB) | The request-body ceiling both servers refuse above, with 413. |
 | `VAELII_MAX_QUERY_MS` | `src/vaelii/impl/config.clj:330+` | a whole number of milliseconds, 0 or more | `30000` | The wall clock a served read may name. A request may name less and is refused (`:over-ceiling`, 400) for naming more; a read naming none is given this, the four backward-search entry points included. `0` lifts the ceiling. |
 | `VAELII_MAX_QUERY_DEPTH` | `src/vaelii/impl/config.clj:340+` | a whole number of rule expansions, 0 or more | `256` | The rule-expansion depth a served read may name, refused the same way. `0` lifts it. |
-| `VAELII_WEB_PORT` | `src/vaelii/browser/web.clj:5830+` | a port number | `3000` | The port the browser binds. An unparseable value, or a number outside 0–65535, falls through to the property rather than failing the start. |
-| `vaelii.web.port` | `src/vaelii/browser/web.clj:5830+` | a port number | `3000` | The same port, read after the variable. |
+| `VAELII_WEB_PORT` | `src/vaelii/browser/web.clj:5830+` | a port number | `3000` | The port the browser binds. An unparseable value, or a number outside 0–65535, is logged at `:warn` and falls through to the property rather than failing the start. |
+| `vaelii.web.port` | `src/vaelii/browser/web.clj:5830+` | a port number | `3000` | The same port, read after the variable, and logged the same way when unusable. |
 | `VAELII_KB_DIR` | `src/vaelii/browser/web.clj:6930+` | a KB directory: a store, a dump or a corpus; blank is unset | unset | The directory the browser loads at startup, as a catalog job with belief recovered, while it serves the starter. The KB becomes the active one when the load finishes. A path holding no KB is logged and the browser stays on the starter. The three `scripts/start-vaelii*.sh` set it. |
 | `VAELII_HEAP` | `scripts/lib/start.sh:20+` | a JVM heap size (`40g`, `24g`) | `40g` | The `-Xmx` the three `scripts/start-vaelii*.sh` add to `JVM_OPTS`, beside `-XX:+ExitOnOutOfMemoryError`. |
 | `VAELII_DEV` | `src/vaelii/impl/config.clj:240+` | the boolean vocabulary | `false` | Whether `lein browser` hot-reloads source edits (`docs/web.md`) and re-reads its stylesheet per request, serving it uncached. Set only by `scripts/start-vaelii-dev.sh`; `-main` never hot-reloads. |
@@ -829,38 +962,16 @@ representation nobody chose.
 |---|---|---|---|---|
 | `VAELII_ARBITRATE_CONSTRAINTS` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `false` | Whether the process arbitrates a definitional clash rather than refusing it. A KB naming a `:constraints` policy overrides it. |
 | `VAELII_ASSERTIVE_ARG_TYPES` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `true` | Whether the argument constraints entail types as well as constrain them; `=0` opts out to the constraint-only reading ([argtypes.md](argtypes.md)). |
-| `VAELII_PRUNE_SUBSUMED_MINTS` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `false` | Whether a minted argument type gives way to a membership the KB believes more specifically; `=1` opts in, storing about a tenth fewer sentexes for the same answers, at +42% on a settle-dense workload ([argtypes.md](argtypes.md)). |
+| `VAELII_PRUNE_SUBSUMED_MINTS` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `true` | Whether a minted argument type gives way to a membership the KB believes more specifically, storing about a tenth fewer sentexes for the same answers; `=0` opts out and stores every mint ([argtypes.md](argtypes.md)). |
 | `VAELII_ASP_SOLVER` | `src/vaelii/impl/config.clj:270+` | `clingo` `clasp` | unset | Which ASP backend solves. Unset is auto: in-process clingo when it loads, else clasp. A name outside the roster is refused rather than read as auto. |
 | `vaelii.asp.solver` | `src/vaelii/impl/config.clj:50+` | `clingo` `clasp` | unset | The same choice, and it is read **first**. |
 | `VAELII_CLINGO_MAX_BYTES` | `src/vaelii/impl/config.clj:280+` | a whole number of bytes, 0 or more | `3000` | The program size above which auto mode routes a plain-ASP program to clasp even where clingo loads. |
-| `VAELII_ASP_TIME_LIMIT` | `src/vaelii/impl/config.clj:290+` | a whole number of seconds, 0 or more | `60` | How long one ASP solve may run before the backend is interrupted; 0 lifts the limit. An interrupted solve is no answer: the edge solver decides nothing and an imperative refuses with `:solver-failed`. One *operation* makes several solves, each with the whole budget ([asp.md](asp.md)). |
+| `VAELII_ASP_SOLVE_LIMIT` | `src/vaelii/impl/config.clj:370+` | a whole number of conflicts, 0 or more | `100000` | How many conflicts one ASP solve may spend before its search stops; 0 sets no limit. Both backends take it as clasp's `--solve-limit` and search on one thread under a fixed seed, so a solve that meets it meets it on every machine and under any load. A solve it stops is no answer, as at the time limit: the edge solver decides nothing, an imperative refuses with `:solver-failed`, and a `:label` solve holding a model returns it as best-effort ([asp.md](asp.md#the-solve-limit)). |
+| `VAELII_ASP_TIME_LIMIT` | `src/vaelii/impl/config.clj:380+` | a whole number of seconds, 0 or more | `60` | How long one ASP solve may run before the backend is interrupted; 0 lifts the limit. It is the backstop behind `VAELII_ASP_SOLVE_LIMIT`, and the only limit when that is set to 0: which solves meet it depends on the machine. A clasp process still running at twice the limit (at least the limit plus 10 s) is killed and the solve raises `:solver-unavailable`. An interrupted solve is no answer: the edge solver decides nothing and an imperative refuses with `:solver-failed`. One *operation* makes several solves, each with the whole budget ([asp.md](asp.md)). |
 | `VAELII_CLASSIFY_MAX_CLUSTER_MEMBERS` | `src/vaelii/impl/config.clj:400+` | a whole number ≥ 1 | `12` | The most members a coupled dilemma cluster may hold for the solve-free brave/cautious classifier to enumerate its resolutions; a larger cluster is left `:supportable`, and a backend is the tool for the large interacting set. Read per classification by `classify-local`, which reads resolutions from the JTMS and calls no solver ([labeling.md](labeling.md)). |
 | `VAELII_CLASSIFY_RESOLUTION_BUDGET` | `src/vaelii/impl/config.clj:400+` | a whole number ≥ 1 | `20000` | The number of candidate subsets one cluster's resolution enumeration may examine before the classifier abandons the cluster to `:supportable`. A cluster of *m* members has 2^*m* − 1 candidates, so under the default member cap of 12 (at most 4,095) the budget binds only once `VAELII_CLASSIFY_MAX_CLUSTER_MEMBERS` is raised above 14. A per-read search bound, nothing retained. |
 | `VAELII_CLASSIFY_MAX_JOINT_OPTIMA` | `src/vaelii/impl/config.clj:400+` | a whole number ≥ 1 | `1024` | The cap on the product of optima a cross-cluster datum's classification enumerates — the clusters that move the datum, times their optima. A datum whose product is larger is left `:supportable`, since its class needs joint resolutions a backend enumerates. |
-| `vaelii.clingo.lib` | `src/vaelii/impl/asp/clingo.clj:20+` | a library name or an absolute path | `clingo`, resolved through `jna.library.path` | Which libclingo the in-process bridge loads. |
-
-**The model host.**
-
-| Switch | Read at | Legal values | Default | What it decides |
-|---|---|---|---|---|
-| `VAELII_LLM_PROVIDER` | `src/vaelii/host/llm/provider.clj:10+` | `ollama` `anthropic` | unset | Which backend the LLM pipeline calls. |
-| `vaelii.llm.provider` | `src/vaelii/host/llm/provider.clj:10+` | `ollama` `anthropic` | unset | The same choice, read **first**. |
-| `VAELII_OLLAMA_HOST` | `src/vaelii/host/llm/ollama.clj:40+` | a base URL | `http://localhost:11434` | Where the Ollama backend connects. |
-| `VAELII_OLLAMA_MODEL` | `src/vaelii/host/llm/ollama.clj:40+` | a model name | `phi4:14b` | The model a turn runs. |
-| `VAELII_OLLAMA_GENERATION_MODEL` | `src/vaelii/host/llm/ollama.clj:60+` | a model name | `qwen3-coder:30b` | The model the page-generation path runs. |
-| `VAELII_OLLAMA_NUM_CTX` | `src/vaelii/host/llm/ollama.clj:90+` | a whole number of tokens | `8192` | The context window a request asks for. An unparseable value is indistinguishable from the default. |
-| `VAELII_OLLAMA_KEEP_ALIVE` | `src/vaelii/host/llm/ollama.clj:80+` | an Ollama duration (`30m`, `0`) | `30m` | How long the host is asked to hold the model resident after a turn. |
-
-**Read, not ours.** Four names another project defines and the engine reads. An operator
-still sets them, and a rename by Anthropic or Ollama is their change rather than a break
-here.
-
-| Switch | Read at | Legal values | Default | What it decides |
-|---|---|---|---|---|
-| `OLLAMA_HOST` | `src/vaelii/host/llm/ollama.clj:40+` | a base URL; a bind address (`0.0.0.0`, `::`, `*`) is ignored | unset | Ollama's own variable, read after `VAELII_OLLAMA_HOST`. A host binds `0.0.0.0`; nothing connects to it. |
-| `ANTHROPIC_API_KEY` | `src/vaelii/host/llm/anthropic.clj:100+` | an API key | unset | The credential sent as `x-api-key`, tried first. |
-| `ANTHROPIC_AUTH_TOKEN` | `src/vaelii/host/llm/anthropic.clj:100+` | a bearer token | unset | The credential sent as `Authorization: Bearer`, tried when there is no key. |
-| `ANTHROPIC_BASE_URL` | `src/vaelii/host/llm/anthropic.clj:370+` | a base URL | `https://api.anthropic.com` | The host that backend calls. |
+| `vaelii.clingo.lib` | `src/vaelii/impl/asp/clingo.clj:20+` | a library name or an absolute path; blank is unset | `clingo`, resolved through `jna.library.path` | Which libclingo the in-process bridge loads. |
 
 **The build stamp.**
 
@@ -876,14 +987,15 @@ CI sets these too; nothing in a deployment does.
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
 | `VAELII_TEST_BACKEND` | `test/vaelii/test_util.clj:210+` | a `<records>-<index>` backend name (`memory`, `disk-log`, `memory-columnar`, …), or `overlay` | `memory` | Which of the eight stores the whole suite runs on. |
-| `VAELII_TEST_TMS` | `test/vaelii/test_util.clj:60+` | `reference` `dense` | `dense` | Which truth-maintenance representation the suite runs on. |
-| `VAELII_TEST_SPACE` | `test/vaelii/test_util.clj:190+` | a whole number from 5 to 15 | `15` | The top of the two-space block the suite's KBs live on, so two runs can have distinct directories. |
-| `VAELII_AUDIT_SUPPORT` | `test/vaelii/test_util.clj:460+` | a directory that exists | unset (no audit) | Makes the suite's teardown write, one EDN map per line into `<dir>/<pid>.edn`, every stored justification whose conclusion's context does not see the context of one of its supporters — an antecedent, or the rule a firing names. Changes no test's outcome. |
+| `VAELII_TEST_TMS` | `test/vaelii/test_util.clj:60+` | `reference` `dense`; blank is unset | `dense` | Which truth-maintenance representation the suite runs on. |
+| `VAELII_TEST_SPACE` | `test/vaelii/test_util.clj:190+` | a whole number from 5 to 15; blank is unset | `15` | The top of the two-space block the suite's KBs live on, so two runs can have distinct directories. |
+| `VAELII_AUDIT_SUPPORT` | `test/vaelii/test_util.clj:410+` | a directory that exists | unset (no audit) | Makes the suite's teardown write, one EDN map per line into `<dir>/<pid>.edn`, every stored justification whose conclusion's context does not see the context of one of its supporters — an antecedent, or the rule a firing names. Changes no test's outcome. |
 | `VAELII_TEST_TMPDIR` | `test/vaelii/truncation_fuzz_test.clj:70+` | a directory that exists | unset (the platform temp directory) | Where the `^:fuzz` truncation sweep builds each probe's directory. A probe's whole cost is one device cache flush, so pointing this at a tmpfs (`/dev/shm`) takes the sweep from ~10 minutes to a couple. Nothing else reads it. |
-| `VAELII_TEST_LOG_LEVEL` | `project.clj:130+` | `error` `warn` `info` `debug` `trace` | `error` | The floor the `:test` profile installs the engine's logging at, through `set-log-level` itself. |
+| `VAELII_FULL_KB_DIR` | `test/vaelii/full_kb_test.clj:20+` | a store directory; blank is unset | unset (the `^:full-kb` tests fail at once) | The store the `^:full-kb` probes open and write into. `scripts/test-full-kb.sh` sets it to a disposable clone; set it by hand only to a KB you can lose. |
+| `VAELII_FULL_KB_WORK` | `scripts/test-full-kb.sh:0+` | a directory on the same volume as KB-DIR | `target/full-kb` | Where `lein test-full-kb` puts each run's clone of KB-DIR, deleted after the run. KB-DIR itself is what the run upgrades. The clone is an APFS clone, so another volume turns it into a full copy. The script's `VAELII_HEAP` default is `44g`. |
+| `VAELII_TEST_LOG_LEVEL` | `project.clj:130+` | `error` `warn` `info` `debug` `trace`; blank is unset | `error` | The floor the `:test` profile installs the engine's logging at, through `set-log-level` itself. |
 | `VAELII_TEST_NS_COUNTS` | `project.clj:150+` | the boolean vocabulary | `false` | Prints one `NSCOUNT <namespace> <assertions>` line per test namespace. Two runs diffed name the namespace whose count moved, which is what `test-backends.sh`'s assertion-count check cannot say on its own. |
-| `VAELII_BENCH_LOG_LEVEL` | `project.clj:170+` | `error` `warn` `info` `debug` `trace` | `error` | The same floor for the `:bench` profile, so `lein perf` and the `bench-*` harnesses print readings rather than the logging their workloads provoke. |
-| `VAELII_LLM_LIVE` | `test/vaelii/test_util.clj:200+` | `1` `true` `yes` | unset | The consent to call a real model. The `^:llm` mark is the separate half, and both are needed. |
+| `VAELII_BENCH_LOG_LEVEL` | `project.clj:170+` | `error` `warn` `info` `debug` `trace`; blank is unset | `error` | The same floor for the `:bench` profile, so `lein perf` and the `bench-*` harnesses print readings rather than the logging their workloads provoke. |
 | `VAELII_RETE` | `test/vaelii/test_util.clj:30+` | the boolean vocabulary | `false` | Runs the suite's forward chaining through the incremental matcher instead of the reference. |
 | `VAELII_HIER` | `test/vaelii/test_util.clj:60+` | the boolean vocabulary | `true` | The set-algebra context-scoped retrieval. `0` routes every match through the reference nested fan-out instead. |
 | `VAELII_PLAN` | `test/vaelii/test_util.clj:60+` | the boolean vocabulary | `true` | The conjunctive planner's cost ranking. `0` runs a conjunction's generators in the order they were written, so the whole suite answers unranked; the readiness discipline is not behind it and runs either way. |
@@ -899,15 +1011,18 @@ CI sets these too; nothing in a deployment does.
 | `TEST_SWEEPS_OUT` | `scripts/test-sweeps.sh:50+` | a directory | `target/test-sweeps` | Where `lein test-sweeps` writes one log per run. **Unpinned.** |
 | `SUITE_PROGRESS` | `scripts/lib/suite-marks.sh:40+` | `marks` `lines` `auto` | `auto` | How `lein test-backends` and `lein test-sweeps` report a namespace as it finishes: `marks` is the ✔/✘ rows a terminal animates, `lines` is one named, counted and timed line each — what a log, a pipe or CI gets, since a row of ticks in a file names nothing. `auto` reads the terminal. **Unpinned.** |
 | `TEST_MATRIX_OUT` | `scripts/test-matrix.sh:50+` | a directory | `logs/test-matrix/run-<pid>` | Where `lein test-matrix` writes one log per configuration, plus `summary.tsv`; per-run, with `latest` pointing at the newest. Under `logs/` (gitignored), not `target/`, so a concurrent `lein clean` cannot delete a live run; old run dirs are pruned to the last `MATRIX_KEEP_RUNS` (20), sparing any touched in the last 24h. **Unpinned.** |
-| `MATRIX_JOBS` | `scripts/test-matrix.sh:50+` | a whole number | performance cores − 2, less the vaelii JVMs already running (`scripts/lib/slots.sh`) | How many of the thirteen configurations run at once. One run is about one core of test work, so more slots than cores buys nothing and costs a JVM each. **Unpinned.** |
+| `MATRIX_JOBS` | `scripts/test-matrix.sh:50+` | a whole number | performance cores − 2, less the vaelii JVMs already running (`scripts/lib/slots.sh`) | How many of the fourteen configurations run at once. One run is about one core of test work, so more slots than cores buys nothing and costs a JVM each. `lein test-matrix --set-jobs <n>` changes the running matrix's count; its scheduler re-reads it every pass, launching more at once on a raise and nothing new on a lower until fewer are running. **Unpinned.** |
+| `MATRIX_OWED_MAX` | `scripts/test-matrix.sh:50+` | a whole number; `0` disables | `4` | The most configurations `lein test-matrix --owed` starts: the ones a changed file names itself first, then the ones a group word brought in, each half in the (shuffled) launch order; the rest are on the `not run:` line. A queued owed run is capped the same way. **Unpinned.** |
+| `MATRIX_RED_COOLDOWN` | `scripts/lib/slots.sh:200+` | seconds; `0` disables | `1800` | How long after a red `lein test-matrix` run no matrix starts or queues. The refusal (exit 75) names the red run's directory, its failing tests per configuration with a one-test re-run command each, who requested it, and the queued requests it dropped; the red run drops the queue, and a green run lifts the cooldown. **Unpinned.** |
 | `TEST_MATRIX_SEED` | `scripts/test-matrix.sh:50+` | a whole number | a fresh one per run | The seed the launch order is shuffled with. `lein test-matrix` shuffles by default, so a run stopped early — by `--fail-fast`, by ^C, by the box — has covered a random subset of the roster rather than the same prefix every time; the seed is printed with the header and again with the verdict, and giving it back runs that order again. `--ordered` ignores it and schedules the longest configuration first instead, which is ~1 minute faster over the routine roster. **Unpinned.** |
 | `MATRIX_JVM_OPTS` | `scripts/test-matrix.sh:50+` | JVM flags | unset | Extra `JVM_OPTS` for every configuration. `-XX:ActiveProcessorCount=2` is the one worth measuring on a loaded box — each JVM otherwise sizes its GC and JIT pools from every core while doing one core of work. It lands in each configuration's log header (`# env … lein test …`, under the revision stamp), so a run stays reproducible by copying that line. **Unpinned.** |
-| `MATRIX_HEARTBEAT` | `scripts/test-matrix.sh:50+` | seconds; `0` disables | `60` | How often `lein test-matrix` prints how far each running configuration has got. Thirteen interleaved per-namespace streams are not readable, so this is what replaces them. **Unpinned.** |
+| `ALLOW_WORKTREE_RUN` | `scripts/lib/slots.sh:70+` | any non-empty value | unset | Lets `lein test-matrix`, `test-backends`, `test-sweeps`, `test-shuffle` and `perf` run from a linked worktree, which each refuses otherwise (exit 3): a second fleet of JVMs beside the primary's drops every runner to one slot. For a release gated in a scratch worktree at the carved sha. **Unpinned.** |
+| `MATRIX_HEARTBEAT` | `scripts/test-matrix.sh:50+` | seconds; `0` disables | `60` | How often `lein test-matrix` prints how far each running configuration has got. Fourteen interleaved per-namespace streams are not readable, so this is what replaces them. **Unpinned.** |
 
-Those nine are the names the contract test does not freeze, and the reason is what a
+The rows marked **Unpinned** are the names the contract test does not freeze, and the reason is what a
 regex can tell apart: `${VAELII_…}` in a shell script is name-shaped enough for one
 pattern, and `${GATE_JOBS}` is indistinguishable from every local variable the script
-has. Nine names outside the net, named as such, is a better trade than a test that
+has. A few names outside the net, named as such, is a better trade than a test that
 parses shell. The scripts also honour `NO_COLOR`, `CI` and `TERM` — conventions, read as
 inputs to the colour decision and not knobs of this project's.
 
@@ -919,7 +1034,7 @@ inputs to the colour decision and not knobs of this project's.
 | `VAELII_SURVEY_STORE` | `bench/vaelii/bench/survey.clj:20+` | a directory holding a record log | as above | A second name for the same directory, read when the row above is unset. |
 | `VAELII_PYRAMID_CORPUS` | `bench/vaelii/bench/pyramid.clj:20+` | a directory holding `vaelii.txt` | none — a run without it is refused, naming itself | The join.1k corpus the pyramid benchmark reads. It is a field-harness artifact and is not in this repo, so a default could only name whoever wrote one. |
 | `VAELII_RECOVER_CORPUS` | `bench/vaelii/bench/recoverphase.clj:570+` | a directory holding a `:disk` store of sentexes | none — a store-reading run without it is refused, naming itself | The corpus the recover benchmark's store-reading modes read when the command line names no path. A dev-box `:disk` store, not in this repo, so a default could only name whoever wrote one. |
-| `vaelii.memo.budget` | `bench/vaelii/bench/recoverphase.clj:90+` | a whole number of distinct visibility sets | `8192` | The `*scoped-memo-budget*` the recover benchmark binds while it recovers, so the scoped-closure cache the phase runs under is a knob rather than the code's steady-state constant. |
+| `vaelii.closure.limit` | `bench/vaelii/bench/recoverphase.clj:90+` | a whole number of closure terms | unset (the cache profile's `closure-memo-limit`) | The bound the recover benchmark pins on the taxonomy's closure cache while it recovers (`caches/set-limit :taxonomy-closures`), so the cache the phase runs under is a knob rather than the shipped default. |
 
 ## Not here
 

@@ -5,7 +5,8 @@
   write boundary, an admin-only registry with trust as a mutable number, and the
   policy-conditional auth extension point.  One deftest per 'How to verify' bullet, plus the
   registry-load and trust-mutation checks the design decisions (D3) demand."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
             [vaelii.koinii.identity :as id]
@@ -20,6 +21,18 @@
 
 (use-fixtures :each (tu/neutral-fresh registry-kb))
 
+(defn- admin-verify
+  "A deployment's verify-fn: no agent passes, and `AdminRoot` passes as an admin with the
+  credential \"root\"."
+  ([_ _] false)
+  ([id credential claims] (and (:admin? claims) (= id 'AdminRoot) (= credential "root"))))
+
+(defn- admin
+  "The registry's admin, minted through `authenticate`."
+  []
+  (id/authenticate {:claimed-id 'AdminRoot :credential "root" :admin? true}
+                   {:verify-fn admin-verify}))
+
 ;; ---- the registry context loads ------------------------------------------
 
 (tu/deftest-kb registry-context-loads-under-core
@@ -30,7 +43,7 @@
 ;; ---- verify (c): the registry is a plain context-scoped read -------------
 
 (tu/deftest-kb registry-is-queryable
-  (let [admin (id/admin-principal)]
+  (let [admin (admin)]
     (id/register-agent kb admin 'AgentAtlas  "Atlas"  0.9)
     (id/register-agent kb admin 'AgentBoreas "Boreas" 0.6)
     (testing "which agents exist, and at what trust — a CxRegistry read"
@@ -57,7 +70,7 @@
       (is (empty? (id/registered-agents kb)))
       (is (nil? (id/trust-of kb 'AgentBoreas))))
     (testing "only the admin principal writes it"
-      (id/register-agent kb (id/admin-principal) 'AgentBoreas "Boreas" 0.6)
+      (id/register-agent kb (admin) 'AgentBoreas "Boreas" 0.6)
       (is (= 0.6 (id/trust-of kb 'AgentBoreas))))))
 
 ;; ---- verify (a): an agent cannot write another agent's context -----------
@@ -128,7 +141,7 @@
 ;; ---- D3: trust is a MUTABLE number, overwritten not accumulated -----------
 
 (tu/deftest-kb trust-is-a-mutable-number
-  (let [admin (id/admin-principal)]
+  (let [admin (admin)]
     (id/register-agent kb admin 'AgentAtlas "Atlas" 1)   ; operator-assigned tier at bootstrap
     (is (= 1 (id/trust-of kb 'AgentAtlas)))
     (id/set-trust! kb admin 'AgentAtlas 0.94)             ; later overwritten by earned reputation
@@ -146,7 +159,7 @@
   ;; is declared `functional`, so the second value is refused at assert.  Both halves are
   ;; pinned here — the refusal that holds it, and the read's own refusal for the state the
   ;; first one prevents.
-  (let [admin (id/admin-principal)]
+  (let [admin (admin)]
     (id/register-agent kb admin 'AgentAtlas "Atlas" 1)
     (testing "a second trust value is refused outright — never stored beside the first"
       (is (thrown-with-msg? ExceptionInfo #"functional violation"
@@ -172,7 +185,7 @@
   (testing "an admin aimed at a non-registry context is refused — it curates the authority,
             it is not a general writer over every agent's context"
     (is (thrown-with-msg? ExceptionInfo #"admin-off-registry"
-                          (id/ingest-into kb (id/admin-principal) 'CxAtlas
+                          (id/ingest-into kb (admin) 'CxAtlas
                                           (list 'ran 'ProdCluster))))))
 
 ;; ---- authenticate refuses a policy it does not know -----------------------
@@ -199,3 +212,74 @@
       (is (= :koinii/missing-seed (:type d)) "refused by name rather than read as empty")
       (is (= "kb/koinii/CxNoSuchKoiniiSeed.txt" (:resource d))
           "naming the classpath resource the build did not ship"))))
+
+(defn- refusal [thunk]
+  (try (thunk) nil (catch ExceptionInfo e (ex-data e))))
+
+(tu/deftest-kb a-hand-built-admin-map-writes-no-registry
+  (let [forged {:id 'AgentMallory :admin? true}]
+    (is (= :koinii/registry-forbidden
+           (:type (refusal #(id/register-agent kb forged 'AgentMallory "Mallory" 1)))))
+    (is (empty? (id/registered-agents kb)) "nothing landed in the registry")))
+
+(tu/deftest-kb the-admin-grant-is-minted-only-by-a-verified-admin-request
+  (let [req {:claimed-id 'AdminRoot :credential "root" :admin? true}]
+    (testing "no verify-fn, under either policy, mints no admin"
+      (doseq [policy [:cooperative :proof-tier]]
+        (is (= {:type :koinii/identity-unverified :admin? true :verifier? false}
+               (select-keys (refusal #(id/authenticate req {:policy policy}))
+                            [:type :admin? :verifier?])))))
+    (testing "a verify-fn with no three-argument arm mints no admin"
+      (is (= :koinii/identity-unverified
+             (:type (refusal #(id/authenticate req {:verify-fn (fn [_ _] true)}))))))
+    (testing "a wrong credential mints no admin"
+      (is (= :koinii/identity-unverified
+             (:type (refusal #(id/authenticate (assoc req :credential "guess")
+                                               {:verify-fn admin-verify}))))))
+    (testing "a minted admin renamed after minting is not an admin"
+      (let [d (refusal #(id/register-agent kb (assoc (admin) :id 'AgentMallory)
+                                           'AgentMallory "Mallory" 1))]
+        (is (= [:koinii/registry-forbidden false] [(:type d) (:minted? d)]))))
+    (testing "a minted admin is not an admin under another key"
+      (let [a (admin)]
+        (binding [id/*attest-key* (apply str (repeat 32 "k"))]
+          (is (= :koinii/registry-forbidden
+                 (:type (refusal #(id/set-trust! kb a 'AgentAtlas 1))))))))
+    (is (empty? (id/registered-agents kb)) "nothing landed in the registry")))
+
+(tu/deftest-kb ingest-attests-a-proof-tier-write-and-no-other
+  (id/agent-context kb 'CxDeploy 'AgentAtlas)
+  (let [verify (fn [a c] (= c (str "sig:" (name a))))
+        atlas  (id/authenticate {:claimed-id 'AgentAtlas :credential "sig:AgentAtlas"}
+                                {:policy :proof-tier :verify-fn verify})
+        key    (apply str (repeat 4 "attest-key-0123"))]
+    (binding [id/*attest-key* key]
+      (let [h (id/ingest kb (id/authenticate {:claimed-id 'AgentAtlas
+                                              :credential "sig:AgentAtlas"}
+                                             {:policy :proof-tier :verify-fn verify})
+                         '(ran ProdCluster))]
+        (is (= 'AgentAtlas (id/attested-by kb h)) "a proof-tier ingest attests the write")
+        (is (not (str/includes? (pr-str (v/provenance kb h)) key))
+            "provenance carries the MAC and never the key")))
+    (testing "the attestation verifies only under the key it was made with"
+      (let [h (id/ingest kb atlas '(ran StagingCluster))]
+        (is (= 'AgentAtlas (id/attested-by kb h)))
+        (binding [id/*attest-key* key] (is (nil? (id/attested-by kb h))))))
+    (testing "a cooperative ingest attests nothing"
+      (let [h (id/ingest kb (id/authenticate {:claimed-id 'AgentAtlas} {:policy :cooperative})
+                         '(ran TestCluster))]
+        (is (nil? (id/attested-by kb h)))))
+    (testing "a principal claiming :authenticated? without a grant is refused"
+      (is (= {:type :koinii/identity-unverified :minted? false}
+             (select-keys (refusal #(id/ingest kb (dissoc atlas :grant) '(ran DevCluster)))
+                          [:type :minted?]))))))
+
+(deftest a-short-attest-key-is-refused-by-its-class-alone
+  (let [key "too-short"
+        e   (try (binding [id/*attest-key* key]
+                   (id/authenticate {:claimed-id 'AgentAtlas :credential "c"}
+                                    {:policy :proof-tier :verify-fn (constantly true)}))
+                 nil
+                 (catch ExceptionInfo e e))]
+    (is (= {:type :koinii/bad-attest-key :key-class "java.lang.String"} (ex-data e)))
+    (is (not (str/includes? (ex-message e) key)) "the refusal never prints the key")))

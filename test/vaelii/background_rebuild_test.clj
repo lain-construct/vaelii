@@ -12,9 +12,11 @@
             [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
+            [vaelii.impl.protocols :as p]
             [vaelii.impl.recovery :as recovery]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning])
@@ -124,7 +126,8 @@
   `with-deferred-settle` is a macro.  The rest read or set subscriptions, caches,
   statistics or hazards rather than belief, or open another KB."
   #{#'v/close! #'v/with-deferred-settle #'v/watch #'v/unwatch #'v/watchers #'v/caches
-    #'v/clear-caches #'v/reset-settle-stats! #'v/write-hazards #'v/fork #'v/load-foreign!})
+    #'v/clear-caches #'v/reset-settle-stats! #'v/write-hazards #'v/rebuild-progress
+    #'v/fork #'v/load-foreign!})
 
 (deftest every-public-fn-taking-a-kb-is-a-write-a-viewed-read-or-unviewed
   (let [takes-kb? (fn [v] (let [as (:arglists (meta v))]
@@ -200,6 +203,115 @@
         (v/close! kb)
         (rm-rf! dir)))))
 
+(deftest a-rebuild-reports-its-step-against-the-recover-the-image-records
+  (let [dir (store!)
+        _   (restamp! dir :recover {:ms 600 :steps {:network 100 :taxonomy 100 :depths 100
+                                                    :rosters 100 :settle 100 :refusals 100}})
+        [kb ^CountDownLatch reached ^CountDownLatch release] (open-held dir)]
+    (try
+      (is (.await reached 30 TimeUnit/SECONDS) "the rebuild reaches its install")
+      (let [p (v/rebuild-progress kb)]
+        (is (= [6 8 "re-recording refusals"] ((juxt :step :of :label) p))
+            "held before its install, the rebuild is at the recover's last step")
+        (is (= "stale" (get-in p [:image :source])))
+        (is (string? (get-in p [:image :written-at])))
+        (is (not= "stale" (:source p)) "the running build's digest is reported beside it")
+        (is (nat-int? (:elapsed-ms p)))
+        (is (= 600 (:expected-ms p)))
+        (is (<= (/ 5.0 6.0) (:fraction p) 1.0)
+            "five of the six recorded steps are done, and the sixth is running"))
+      (.countDown release)
+      (is (await-rebuilt kb) "the rebuilt belief is installed within 30 s")
+      (is (nil? (v/rebuild-progress kb)) "no rebuild runs once the rebuilt belief is installed")
+      (is (= #{:network :taxonomy :depths :rosters :settle :refusals}
+             (set (keys (:steps (:recover (stamp dir))))))
+          "the image the rebuild writes records the step timings of its recover")
+      (finally
+        (.countDown release)
+        (v/close! kb)
+        (rm-rf! dir)))))
+
+(defn- await-failed
+  "Wait up to 30 s for `kb`'s rebuild to report `:failed`; its progress then, or at the
+  timeout."
+  [kb]
+  (loop [i 0]
+    (let [p (v/rebuild-progress kb)]
+      (if (or (:failed p) (>= i 3000)) p (do (Thread/sleep 10) (recur (inc i)))))))
+
+(deftest a-rebuild-that-throws-is-reported-until-recover-replaces-it
+  ;; A failure read as "no rebuild runs" would leave a caller polling progress with a KB
+  ;; that refuses writes for no reason it can see.
+  (let [dir    (store!)
+        logged (atom [])
+        kb     (binding [recovery/*before-install*
+                         (fn [_] (throw (ex-info "injected rebuild failure" {})))
+                         trove/*log-fn*
+                         (fn [_ns _coords level id _payload]
+                           (when (= :error level) (swap! logged conj id)))]
+                 (v/open-kb {:backend :disk-snapshot :dir dir :recover? :background}))]
+    (try
+      (let [p (await-failed kb)]
+        (testing "progress reports the throw, the step it was in, and a stopped clock"
+          (is (= "injected rebuild failure" (get-in p [:failed :message])))
+          (is (= "clojure.lang.ExceptionInfo" (get-in p [:failed :class])))
+          (is (= [6 8 "re-recording refusals"] ((juxt :step :of :label) p)))
+          (is (= (:elapsed-ms p) (:elapsed-ms (v/rebuild-progress kb)))
+              "a failed rebuild's elapsed time does not grow"))
+        (is (= [::recovery/belief-rebuild-failed] @logged) "the throw is logged at :error"))
+      (testing "the image still answers, and writes are still refused"
+        (is (= {:stale-belief true} (kb/write-hazards kb)))
+        (is (= ['(dog Rex)] (dogs kb)))
+        (is (= :unrecovered-kb
+               (:type (ex-data (try (v/assert kb '(dog Fido) 'CxUniverse) nil
+                                    (catch clojure.lang.ExceptionInfo e e)))))))
+      (testing "recover rebuilds on the calling thread and clears the report"
+        (v/recover kb)
+        (is (nil? (v/rebuild-progress kb)))
+        (is (= {} (kb/write-hazards kb)))
+        (is (not= "stale" (:source (stamp dir))))
+        (is (some? (v/assert kb '(dog Fido) 'CxUniverse))))
+      (finally
+        (v/close! kb)
+        (rm-rf! dir)))))
+
+(deftest a-background-rebuild-writes-no-record-and-fails-naming-recover
+  ;; The rule is stored unchained, so the store holds no `(pet Rex)`, and a recover's
+  ;; re-fire of the rules that can refuse places it.  A rebuild on its own thread writes
+  ;; neither the shared record store nor the shared index a caller's read walks.
+  (let [dir (tmpdir)
+        kb0 (v/open-kb {:backend :disk-snapshot :dir dir})
+        _   (v/assert kb0 '(dog Rex) 'CxUniverse)
+        _   (v/assert kb0 '(set/forwardRule (implies (and (dog ?x) (unknown (cat ?x))) (pet ?x)))
+                      'CxUniverse
+                      {:chain? false})
+        pets   (fn [kb] (mapv v/sentence-of (v/sentexes-matching kb '(pet ?x) 'CxUniverse)))
+        counts (fn [kb] [(count (p/sentex-ids (:records kb)))
+                         (count (p/justification-ids (:records kb)))])
+        stored (counts kb0)]
+    (is (= [] (pets kb0)) "the unchained rule placed nothing")
+    (v/close! kb0)
+    (restamp! dir :source "stale")
+    (let [logged (atom [])
+          kb     (binding [trove/*log-fn* (fn [_ns _coords level id _payload]
+                                            (when (= :error level) (swap! logged conj id)))]
+                   (v/open-kb {:backend :disk-snapshot :dir dir :recover? :background}))]
+      (try
+        (let [p (await-failed kb)]
+          (is (= "clojure.lang.ExceptionInfo" (get-in p [:failed :class])))
+          (is (str/includes? (str (get-in p [:failed :message])) "(recover kb)")
+              "the failure names the call that rebuilds on the calling thread"))
+        (is (= [::recovery/belief-rebuild-failed] @logged))
+        (is (= stored (counts kb)) "the rebuild wrote no sentex and no justification")
+        (is (nil? (v/handle-of kb '(pet Rex) 'CxUniverse)) "and no index posting")
+        (is (= {:stale-belief true} (kb/write-hazards kb)))
+        (v/recover kb)
+        (is (= {} (kb/write-hazards kb)))
+        (is (= ['(pet Rex)] (pets kb)) "recover on the calling thread places the conclusion")
+        (finally
+          (v/close! kb)
+          (rm-rf! dir))))))
+
 (deftest a-close-during-the-rebuild-stops-it-and-the-next-open-recovers
   (let [dir (store!)
         [kb ^CountDownLatch reached ^CountDownLatch release] (open-held dir)]
@@ -216,6 +328,43 @@
       (finally
         (.countDown release)
         (rm-rf! dir)))))
+
+(deftest a-close-waiting-on-the-rebuild-blocks-no-other-directory
+  ;; The hold stands in for a whole-store settle, which reads no stop request: it goes on
+  ;; after the close asks it to stop.  The close waits for it, and that wait must not hold
+  ;; the monitor every other directory's open takes.
+  (let [dir     (store!)
+        other   (tmpdir)
+        reached (CountDownLatch. 1)
+        asked   (CountDownLatch. 1)
+        release (CountDownLatch. 1)
+        kb      (binding [recovery/*before-install*
+                          (fn [_]
+                            (.countDown reached)
+                            (loop [i 0]
+                              (when (recovery/abandoning?) (.countDown asked))
+                              (when (and (pos? (.getCount release)) (< i 6000))
+                                (Thread/sleep 5)
+                                (recur (inc i)))))]
+                  (v/open-kb {:backend :disk-snapshot :dir dir :recover? :background}))]
+    (try
+      (let [held?   (.await reached 30 TimeUnit/SECONDS)
+            closing (future (v/close! kb))
+            asked?  (.await asked 30 TimeUnit/SECONDS)
+            opening (future (v/close! (v/open-kb {:backend :disk-log :dir other
+                                                  :recover? false}))
+                            :opened)
+            opened  (deref opening 10000 ::blocked)]
+        (.countDown release)
+        @closing
+        (is (and held? asked?) "the close asked the held rebuild to stop")
+        (is (= :opened opened)
+            "another directory opens while the close waits on the rebuild")
+        (is (= :opened (deref opening 30000 ::blocked))))
+      (finally
+        (.countDown release)
+        (rm-rf! dir)
+        (rm-rf! other)))))
 
 (deftest recover-during-the-rebuild-runs-it-on-the-calling-thread
   (let [dir (store!)

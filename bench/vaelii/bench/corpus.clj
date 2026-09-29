@@ -4,13 +4,13 @@
   "Generate a corpus shaped like the real KB and watch how forward inference **behaves** on
   it — the open question being how a rule set of this shape works at all, not just how fast.
 
-  It cannot use the real rules (they fail `v/assert` wholesale on naming — namespaced `ex/`
-  predicates, hyphenated individuals; see bench-forward `real`), so it *synthesizes* rules
+  It does not assert a real store's rules, whose spellings need not pass `v/assert`'s
+  naming checks (bench-forward `real` reads them instead), so it *synthesizes* rules
   with the measured structure (bench-backward): antecedent count peaking at 3–4, chain joins
   with shared variables (range-restricted), and Zipf-skewed **hot consequents**.  Facts
   populate a base band of predicates; rules draw antecedents Zipf from ALL predicates, so some
   fire straight from facts, some fire only after a cascade, and many (referencing sparse
-  predicates) never fire — the real corpus's 37k rule-only predicates in miniature.
+  predicates) never fire — a real corpus's rule-only predicates in miniature.
 
   Then it turns a fraction of the rules FORWARD and reports the behaviour: how much fires, the
   materialization factor, cascade depth / recursion truncation, contradictions and dropped

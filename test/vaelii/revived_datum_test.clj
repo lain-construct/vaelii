@@ -1,24 +1,10 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.revived-datum-test
-  "A datum whose label goes OUT ⇒ IN is a datum the agenda has not seen.
-
-  The sibling of `refused_firing_test` through the other entry point.  There a firing was built
-  and refused at placement, so its release is found by re-asking the refusal record.
-  Here the join never produced a candidate at all: `chain/*matcher*` is belief filtered,
-  so an OUT antecedent is not a match and a partner arriving after it joins against
-  nothing.  Reviving the antecedent then moves a label and nothing else — no
-  justification enters or leaves a blocked set, and no refusal was ever recorded — so a
-  pass reading only those instruments converges having derived nothing.
-
-  The cost half is as required as the belief half.  *Every* datum a settle's window
-  created is newly believed too, and re-seeding those would chain the whole window a
-  second time, on the hottest path in the engine; `jtms/touched-new` is what keeps them
-  out, and the two cost guards below are what says so.
-
-  Each test builds its own KB on the **isolated** database pair: it rebuilds in a loop,
-  which would clear the shared pair out from under another namespace's `:once`
-  fixture."
+  "A datum whose label goes OUT ⇒ IN, or a spelling an un-merge gives back, is re-seeded
+  onto the chaining agenda, and nothing else is (docs/nmtms.md, \"A revived datum is a
+  datum the agenda has not seen\").  Each test builds its own KB on the **isolated**
+  database pair, since it rebuilds in a loop."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.jtms :as jtms]
@@ -86,11 +72,9 @@
 
 (deftest a-revival-carries-down-the-derivations-that-rest-on-it
   (testing "the datum that flipped is not always the one the join needed"
-    ;; A defeat takes a *derived* datum OUT with its premise, and the derived one is what
-    ;; the second rule joins against.  Re-seeding the premise alone reaches nothing: the
-    ;; rule that concludes the middle datum re-fires into a conclusion that already holds
-    ;; its justification, and the dedup stops there.  So the whole flipped set is the
-    ;; seed, not the roots of it.
+    ;; The defeat takes the derived middle datum OUT with its premise.  Re-seeding the
+    ;; premise alone re-fires into a conclusion that already holds its justification, so
+    ;; the middle datum has to be a seed too.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (tu/with-terms [pa mid qa ra X Y Z]
         (v/assert-rule kb [(list pa '?x '?z)] (list mid '?x '?z) ctx {:direction :forward})
@@ -124,10 +108,8 @@
 
 (deftest a-rebuilt-kb-agrees-with-the-live-one-about-a-revival
   (testing "the release reaches a revived datum across a restart"
-    ;; A rebuild relabels the whole graph from the store, so nearly everything it
-    ;; believes reads as newly believed and the re-seed stands aside (`*rebuilding?*`).
-    ;; What it must not do is lose the *later* revival: the KB has to answer the undefeat
-    ;; after the restart exactly as one that never restarted does.
+    ;; The re-seed stands aside during the rebuild (`*rebuilding?*`) and must still
+    ;; run for the undefeat after it.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (tu/with-terms [pa qa ra X Y Z]
         (join-rule! kb pa qa ra)
@@ -143,19 +125,11 @@
         (is (seq (v/sentexes-matching kb (list ra X Y) ctx))
             "so the revival re-derives across the restart")))))
 
-;; ---- what the re-seed must never grow into ------------------------------
-;;
-;; A relabelled region is mostly datums that did not move, plus every datum the window
-;; created — and both read as "believed now" to anything comparing the region against
-;; belief.  Seeding those is a second forward chain over the whole window, per settle.
+;; ---- what the re-seed must not include ----------------------------------
 
 (defn- reseeded
-  "Every datum any re-seed route put back on the agenda while `f` ran.
-
-  Wrapped at `rechain-seeds` rather than at either trigger, because that is the one entry point
-  all of them go through — the relabelled revival, `settle`'s un-merge round, and a
-  released refusal's placed conclusions alike.  A guard that watched one trigger would
-  say nothing about the next one added."
+  "Every datum handed to `settle/rechain-seeds` while `f` ran: the one entry point every
+  re-seed route goes through, so a route added later is covered too."
   [f]
   (let [seen (atom [])
         orig settle/rechain-seeds]
@@ -166,16 +140,9 @@
 
 (deftest an-ordinary-write-re-seeds-nothing
   (testing "a fact that arrives has already been chained from"
-    ;; Every one of these datums — the asserted facts, the rule, the conclusions the rule
-    ;; draws, and the twin the merge derives — is in its settle's region and is believed
-    ;; at the end of it and was not believed at the start.  Only `jtms/touched-new`
-    ;; separates them from a datum that came back, and without it this is indistinguishable from a dozen
-    ;; revivals and chains twice.
-    ;;
-    ;; The merge is here rather than in a test of its own because it is the case the
-    ;; second re-seed route could get wrong in the cheap direction: **displacing** a
-    ;; spelling is not reviving one, and a settle that merges must put nothing back on
-    ;; the agenda.
+    ;; Every datum here is in its settle's region, believed at the end and not at the
+    ;; start; `jtms/touched-new` is what separates it from a revival.  The merge covers
+    ;; the un-merge route: displacing a spelling is not reviving one.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (tu/with-terms [pa qa ra Pref Dep X Y Z]
         (is (empty?
@@ -195,9 +162,8 @@
 
 (deftest a-revival-re-seeds-what-flipped-not-the-settles-whole-region
   (testing "the seed is the flip, and its size does not follow the window's"
-    ;; One deferred batch loads `n` facts *and* lifts a defeat, so one settle sees a
-    ;; region holding the whole load beside the single datum that came back.  Re-seeding
-    ;; the region would grow with `n`; re-seeding the flip is one datum at every size.
+    ;; One deferred batch loads `n` facts and lifts a defeat, so one settle's region holds
+    ;; the whole load beside the single datum that came back.
     (let [flipped
           (fn [n]
             (tu/with-cleared-kb [kb tu/isolated-fresh]
@@ -224,20 +190,9 @@
 
 ;; ---- the equality entry point --------------------------------------------------
 ;;
-;; A merge displaces a spelling and its twin joins in its place, so a partner arriving
-;; during the merge concludes at the *twin's* spelling.  Un-merging sweeps the twin and
-;; revives the original, and the conclusion has to be re-derived at the surviving
-;; spelling or the KB holds neither — believing both antecedents of a forward rule and
-;; none of its conclusions, where the same knowledge in the other order holds one.
-;;
-;; This reaches the re-seed by a different route from the defeat entry point above, and has to:
-;; supersession moves belief with **no relabel behind it**, so an un-merged spelling is
-;; in none of the three window sets and `jtms/revived` cannot see it.
-;;
-;; Both ways an equality stops being believed are here.  Asserting its *negation* is not
-;; one of them and is not tested as one: the merge rewrites the negation's own terms, so
-;; `(not (rewriteOf Pref Dep))` is stored as a claim about `Pref` alone and clashes with
-;; nothing.
+;; docs/nmtms.md, "The other half: a spelling an un-merge gives back".  Both ways an
+;; equality stops being believed are here; asserting its negation is not one, since the
+;; merge rewrites `(not (rewriteOf Pref Dep))` to a claim about `Pref` alone.
 
 (defn- merged-scenario
   "Merge, partner, un-merge — or the same knowledge with the partner arriving after the
@@ -281,12 +236,10 @@
                   #(v/retract! kb eq)))})
 
 (defn- functional-equality
-  "The other route, and the sanctioned way a merge is *inferred*: two symbol values for
-  the same slot of a `functional` predicate derive `(equals V1 V2)`, and withdrawing
-  either fact un-merges (docs/equality.md).  `equals` elects the smaller symbol, so the
-  larger of the pair is the displaced one.  This arm moves a label on the equality
-  itself, which the asserted case does not; the spelling it displaced still comes back
-  with no relabel of its own, which is the point."
+  "The derived route: two symbol values for one slot of a `functional` predicate derive
+  `(equals V1 V2)`, and withdrawing either fact un-merges (docs/equality.md).  `equals`
+  elects the smaller symbol, so the larger is displaced.  The equality's own label moves,
+  and the displaced spelling still comes back with no relabel of its own."
   [A B]
   {:displaced (last (sort [A B]))
    :install!  (fn [kb]

@@ -128,7 +128,7 @@
       ;; No direction wrapper on the stamped rule, so it takes the mint default: forward
       ;; (forward + backward).  A set/backwardRule / set/forwardOnlyRule inside the
       ;; consequent would set it otherwise.
-      (is (= :forward (:direction minted))))))
+      (is (= #{:forward :backward} (:engines minted))))))
 
 ;; ---- a mint is derived content -------------------------------------------
 
@@ -261,9 +261,8 @@
       (is (empty? (v/sentexes-matching kb (list dst Fido) 'CxUniverse))))))
 
 (tu/deftest-kb a-stamped-existential-head-skolemizes-when-the-stamped-rule-fires
-  ;; the generator's firing must NOT skolemize — the stamped rule's variables are its
-  ;; own — but an `exists` the author marked inside the stamped rule still means what it
-  ;; means, one firing later and against the stamped rule's own handle
+  ;; the generator's firing does not skolemize; the `exists` inside the stamped rule
+  ;; skolemizes when that rule fires (docs/generators.md)
   (tu/with-terms [marker src linked Fido]
     (v/assert kb (list 'implies (list marker '?p)
                        (list 'implies (list '?p '?x)
@@ -287,7 +286,15 @@
     (testing "and a generator that feeds itself"
       (is (= :not-stratified
              (refusal kb (list 'implies (list qq '?o)
-                               (list 'implies (list '?o '?a) (list qq '?a)))))))))
+                               (list 'implies (list '?o '?a) (list qq '?a))))))))
+  (testing "the same pair in the other arrival order, the reader first"
+    (tu/with-terms [mm nn kk pp]
+      (is (= :accepted
+             (refusal kb (list 'implies (list 'and (list kk '?o) (list nn '?o))
+                               (list 'implies (list '?o '?a) (list pp '?a))))))
+      (is (= :not-stratified
+             (refusal kb (list 'implies (list mm '?o)
+                               (list 'implies (list '?o '?a) (list kk '?a)))))))))
 
 (tu/deftest-kb the-cycle-check-sees-a-wrapped-generator-too
   ;; every generator is filed under the one key `implies`, which means peeling the

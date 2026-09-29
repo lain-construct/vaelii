@@ -148,7 +148,7 @@
   ;; two in one binding vector tests only the half that cannot fail.
   (testing "opened over a store still empty, then filled by the other end"
     (let [first-kb  (tu/fresh)
-          second-kb (v/open-kb (assoc tu/scratch-space :recover? false))]
+          second-kb (v/open-kb (assoc (tu/scratch-space) :recover? false))]
       (v/assert first-kb '(dog Muffet) 'CxUniverse)
       (is (seq (p/sentex-ids (:records second-kb))) "one store behind two KB values")
       (is (empty? (kb/write-hazards second-kb))
@@ -158,7 +158,7 @@
   (testing "opened over the records, which its open can see and does declare"
     (let [first-kb (tu/fresh)]
       (v/assert first-kb '(dog Muffet) 'CxUniverse)
-      (let [second-kb (v/open-kb (assoc tu/scratch-space :recover? false))]
+      (let [second-kb (v/open-kb (assoc (tu/scratch-space) :recover? false))]
         (is (= {:no-belief true} (kb/write-hazards second-kb))
             "the same pairing, guarded, because this end opened after the records")
         (is (= :unrecovered-kb (ex-type #(v/assert second-kb '(cat Tom) 'CxUniverse)))))
@@ -256,6 +256,25 @@
           (v/recover kb)
           (is (map? (v/retract! kb derived))))
         (v/close! kb)))))
+
+(deftest a-teardown-over-a-derived-index-names-reindex-at-every-entry-point
+  ;; an inert record has no TMS node, so over a KB whose belief was never built the
+  ;; teardown is refused under the opt too; `:no-index` makes the repair `reindex`
+  (let [kb (tu/fresh)
+        h  (v/assert-inert kb '(dog Muffet) 'CxUniverse)]
+    (kb/note-hazards! kb {:no-belief true :no-index true})
+    (binding [v/*write-unrecovered?* true]
+      (doseq [[where f] [["retract!" #(v/retract! kb h)]
+                         ["edit!"    #(v/edit! kb {:remove [h]})]]]
+        (testing where
+          (let [d (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+            (is (= [:unrecovered-kb 'reindex where [:no-belief :no-index]]
+                   ((juxt :type :repair :operation :hazards) d))))))
+      (testing "and the dry run reports the removal edit! refuses"
+        (is (= [[:unrecovered-kb :remove 0 'reindex]]
+               (mapv (juxt :type :in :index :repair) (v/check-edit kb {:remove [h]}))))))
+    (is (some? (p/get-sentex (:records kb) h)) "the record is still there")
+    (tu/clear-kb! kb)))
 
 ;; ---- what the refusal is protecting, stated as the defect ----------------
 

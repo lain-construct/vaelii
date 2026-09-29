@@ -10,9 +10,6 @@
         clicked or pressed, the way a terminal monitor hides a box. Which regions are
         folded is held per path, so a page opens the way the reader left it.
      3. the `/kbs` page's option sliders, which show their own value as it moves.
-     4. the proposal review's keys — j/k to move, a/x to accept or reject, 1-9 to pick
-        a shape — holding a decision per row *index*, since choosing a shape swaps the
-        row out from under the element that held it.
 
    A sentex row carries no script.  The row is text, so a press-drag over it selects
    that text the way a press-drag over any other text does, and the row's `[edit]`
@@ -158,6 +155,18 @@
   // leaves the active menubar link pointing at where the reader used to be
   document.addEventListener("htmx:afterSwap", () => { reflect(); reflectFolds(); });
 
+  // A 400 into #main is a page: the one a route renders for a parameter it cannot read,
+  // naming the parameter.  htmx swaps only a 2xx unless told otherwise, so a page's own
+  // form sending a value its route refuses would answer with nothing on screen.  Only a
+  // swap into #main: a continuation row and the editor panel keep what they hold.
+  document.addEventListener("htmx:beforeSwap", (ev) => {
+    const d = ev.detail;
+    if (d.xhr && d.xhr.status === 400 && d.target && d.target.id === "main") {
+      d.shouldSwap = true;
+      d.isError = false;
+    }
+  });
+
   const setPalette = (p) => apply("palette", p);
   const setTheme = (t) => apply("theme", t);
   window.vaelii = { closeEditor, setPalette, setTheme, fold };
@@ -197,136 +206,6 @@
     const hid = knob && knob.querySelector("[data-knob-value]");
     if (out) out.textContent = v.toLocaleString() + (r.dataset.unit || "");
     if (hid) hid.value = v;
-  });
-})();
-
-// ---- reviewing a proposal (/propose) ------------------------------------
-// Ten proposed lines have to be reviewable without the mouse, so the review list is a
-// second ARIA grid with its own keys: j/k move, a/x decide and step on, 1–9 pick which
-// shape of the line to store.  Everything else is htmx and the browser:
-//
-//   * picking a shape is the numbered button's own hx-post — this only clicks it, so
-//     the round-trip that re-checks the sentence is declarative like every other one.
-//   * accepting **enables the row's hidden field**, and the form submits exactly the
-//     enabled ones.  No payload is assembled here; a decision is one `disabled` flag.
-//
-// Decisions are held by row index rather than by element, because choosing a shape
-// swaps the row out from under them — the server re-renders it undecided and this puts
-// the reader's decision back.  A whole new proposal clears them.
-(() => {
-  "use strict";
-
-  const decisions = new Map();       // data-i -> "accept" | "reject"
-  const list = () => document.querySelector("#propose-result .propose-lines");
-  const rows = () => Array.from(document.querySelectorAll("#propose-result .p-line"));
-  const at = (i) => document.querySelector("#propose-result .p-line[data-i='" + i + "']");
-
-  // The consequence preview listens for this on <body>; its own hx-trigger carries the
-  // `delay:` that debounces it, so holding `a` down the list costs one preview and not
-  // one per row.  A plain CustomEvent, so nothing here needs htmx's own API — the
-  // request stays declarative, in the markup, like every other one on this page.
-  let lastAccepted = "";                                 // a fresh list has nothing accepted
-  function announce(accepted) {
-    const key = accepted.join("\0");
-    if (key === lastAccepted) return;                    // a move or a re-render is not a change
-    lastAccepted = key;
-    document.body.dispatchEvent(new CustomEvent("accepted-changed"));
-  }
-
-  function sync(focusIndex) {
-    const all = rows();
-    // the roving tabindex follows the reader: deciding a line must not send Tab back to
-    // the top of a list they are halfway down
-    const here = document.activeElement && document.activeElement.closest
-      ? document.activeElement.closest("#propose-result .p-line") : null;
-    all.forEach((el, k) => {
-      const state = decisions.get(el.dataset.i) || "undecided";
-      const on = state === "accept";
-      el.dataset.state = state;
-      el.classList.toggle("p-accepted", on);
-      el.classList.toggle("p-rejected", state === "reject");
-      el.setAttribute("aria-selected", on ? "true" : "false");
-      el.tabIndex = (here ? el === here : k === 0) ? 0 : -1;
-      // the accept mechanism, in one line: a disabled field is not submitted, so the
-      // form posts the accepted rows and nothing else
-      const field = el.querySelector("input[name='line']");
-      if (field) field.disabled = !on;
-    });
-    const accepted = all.filter((el) => decisions.get(el.dataset.i) === "accept");
-    const n = accepted.length;
-    const count = document.querySelector("#p-count");
-    if (count) count.textContent = n + " accepted";
-    const commit = document.querySelector(".propose-apply button[type='submit']");
-    if (commit) commit.disabled = n === 0;
-    // the *lines*, not the count: re-choosing a shape on an accepted row changes what
-    // would be stored without changing how many rows are accepted
-    announce(accepted.map((el) => {
-      const f = el.querySelector("input[name='line']");
-      return f ? f.value : "";
-    }));
-    if (focusIndex !== undefined) {
-      const el = at(focusIndex);
-      if (el) { el.tabIndex = 0; el.focus(); }
-    }
-  }
-
-  const decide = (row, state) => {
-    const i = row.dataset.i;
-    if (decisions.get(i) === state) decisions.delete(i); else decisions.set(i, state);
-    sync();
-  };
-
-  function move(row, delta) {
-    const all = rows(), i = all.indexOf(row);
-    const next = all[Math.min(Math.max(i + delta, 0), all.length - 1)];
-    if (next) { all.forEach((el) => { el.tabIndex = -1; }); next.tabIndex = 0; next.focus(); }
-  }
-
-  document.addEventListener("keydown", (ev) => {
-    if (ev.metaKey || ev.ctrlKey || ev.altKey) return;
-    const t = ev.target;
-    // the instruction box and the search field keep their own keys
-    if (t.closest && t.closest("input, textarea, select")) return;
-    const row = t.closest && t.closest("#propose-result .p-line");
-    if (!row) return;
-    const k = ev.key;
-    if (k === "j" || k === "ArrowDown") move(row, 1);
-    else if (k === "k" || k === "ArrowUp") move(row, -1);
-    else if (k === "a" || k === "x") {
-      // a row the correction cannot repair has no field to enable, so it has no decision
-      if (row.querySelector("input[name='line']")) decide(row, k === "a" ? "accept" : "reject");
-      move(row, 1);
-    } else if (/^[1-9]$/.test(k)) {
-      const b = row.querySelector(".p-opt[data-n='" + k + "']");
-      if (!b) return;                                    // a shape this line does not have
-      b.click();
-    } else return;
-    ev.preventDefault();
-  });
-
-  document.addEventListener("click", (ev) => {
-    const btn = ev.target.closest && ev.target.closest("[data-accept], [data-reject]");
-    if (!btn) return;
-    const row = btn.closest(".p-line");
-    if (row) { ev.preventDefault(); decide(row, btn.hasAttribute("data-accept") ? "accept" : "reject"); }
-  });
-
-  // A new proposal is a new review: the old decisions are about lines that no longer
-  // exist.  A row swapped in place (a shape choice) is the same line, so its decision
-  // survives and the keyboard's place goes back where it was.
-  document.addEventListener("htmx:afterSwap", (ev) => {
-    const t = ev.target;
-    if (!t || !t.closest) return;
-    if (t.id === "propose-result") {
-      decisions.clear();
-      lastAccepted = "";                                 // a new proposal, so a new baseline
-      sync();
-      const first = rows()[0];
-      if (first) first.focus();                          // the reader typed; now they read
-    } else if (t.closest("#propose-result") || (list() && t.contains(list()))) {
-      const row = t.closest(".p-line") || t.querySelector(".p-line");
-      sync(row ? row.dataset.i : undefined);
-    }
   });
 })();
 

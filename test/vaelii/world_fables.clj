@@ -80,54 +80,6 @@
     (comment CxAntGrasshopper "The Ant and the Grasshopper — moral: prepare in the good times for the hard times.")
     (comment CxCriedWolf      "The Boy Who Cried Wolf — moral: a liar is not believed even when he tells the truth.")])
 
-;; ---- the same four stories, in English ----------------------------------
-
-(def texts
-  "Each fable as prose, keyed by its context — the **input** side of the reading
-  pipeline (`vaelii.host.llm.text`), against which the formal version below is the
-  ground truth (`vaelii.host.llm.score`).
-
-  Written as a retelling rather than as a transliteration of the sentexes: the sentences
-  are ones a reader would write, the characters are introduced by their kind rather than
-  by the name the modeller gave them, and the general claims are stated the way a fable
-  states its moral.  A text that spelled the s-expressions out in words would score well
-  and measure nothing.
-
-  What it *does* share with the formal version is vocabulary, and that matters
-  plainly: the narrative predicates were named after the English words the fable uses
-  (`spared`, `napped`, `prepared_for_winter`), so resolving a word to a term is easier here
-  than it would be on arbitrary prose.  The score is a floor on the formalism, not a claim
-  about English."
-  {'CxLionMouse
-   (str "A lion caught a mouse in his paw, but he spared the little creature and let "
-        "it go. Not long afterwards the lion himself was trapped in a hunter's net. "
-        "The mouse heard him roaring, came running, and freed him by gnawing through "
-        "the ropes. Whoever is spared will, given the chance, free the one who spared "
-        "them, and so repay the kindness.")
-
-   'CxTortoiseHare
-   (str "A tortoise and a hare raced each other along the road. The hare was "
-        "overconfident, so certain of winning that he lay down and napped in the "
-        "shade. The tortoise persevered, plodding on without once stopping. When two "
-        "animals race, and the slower one perseveres while the faster one naps, the "
-        "slower one wins.")
-
-   'CxAntGrasshopper
-   (str "All through the warm months the ant prepared for winter, carrying grain down "
-        "into her nest, while the grasshopper idled in summer and sang. Whoever "
-        "prepared for winter survives winter. Whoever idled in summer suffers in "
-        "winter. And one who survives the winter was better prepared than one who "
-        "suffers it.")
-
-   'CxCriedWolf
-   (str "The boy who watched the sheep had lied before, raising a false alarm for the "
-        "fun of seeing the village run. A liar is a kind of person, one whose word is "
-        "no longer trusted, and anyone who has lied before is a liar. Today the boy "
-        "cries wolf again, and this time a wolf really is approaching him. A cry is "
-        "believed by default, except from a liar: a liar who cries wolf is not "
-        "believed. The danger is real all the same, for whenever the wolf is "
-        "approaching someone who cries wolf, that person is in danger.")})
-
 ;; ---- the stories --------------------------------------------------------
 
 (defn- assert-all [kb ctx forms] (doseq [s forms] (v/assert kb s ctx)))

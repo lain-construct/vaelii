@@ -7,7 +7,7 @@
   or nest; this says where one place lies *relative to* another.  (Orientation is the
   standard qualitative-spatial
   name for this family — topology, orientation, distance — and it keeps the namespace
-  clear of a rule's chaining `:direction`, which is an unrelated thing.)
+  clear of a rule's chaining `:engines`, which is an unrelated thing.)
 
   The nine base relations are the projection-based cardinal direction calculus.  A
   direction decomposes into two **independent** one-dimensional point relations, one per
@@ -123,19 +123,6 @@
   vocabulary, and the two caches.  Everything below delegates to the shared glue, which
   is the same code RCC-8 and the interval algebra run."
   (qkb/calculus :cardinal direction-algebra direction-denotation))
-
-(defn possible-directions
-  "The base directions still possible from place `a` to place `b` given everything
-  believed in `context` — `#{}` when the network is inconsistent."
-  [kb context a b]
-  (qkb/possible cardinal kb context a b))
-
-(defn definite-direction
-  "The single base direction from `a` to `b` when path consistency pins it down;
-  `:inconsistent` when the network contradicts itself, `:unknown` when two or more
-  directions remain possible."
-  [kb context a b]
-  (qkb/definite cardinal kb context a b))
 
 (defn orientation-prover
   "The cardinal-direction entailment prover, to register with `vaelii.core/add-prover`."

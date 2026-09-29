@@ -101,6 +101,73 @@
           (is (= 1 (count (jtms/supports (reasoning/tms kb) h2)))
               "and exactly one where there is one witness"))))))
 
+;; ---- the rule as a participant ------------------------------------------
+;; A firing's participants are its rule and its facts, and `forward-chain` seeds both
+;; onto one agenda.  The rule's own datum joins the whole store and every fact's datum
+;; triggers the rule, so unless the rule's arrival is compared too, a firing is
+;; enumerated by its latest fact *and* by its rule.
+
+(defn- duplicate-attempts
+  "Run `load!` on a fresh KB with the suppression set to `suppress?`, counting the
+  placements that found their justification already there.  Returns `[count content]`."
+  [load! suppress?]
+  (let [dups (atom 0)
+        has? jtms/has-justification?]
+    (tu/with-cleared-kb [kb tu/fresh]
+      (with-redefs [jtms/has-justification? (fn [& args]
+                                              (let [r (apply has? args)]
+                                                (when r (swap! dups inc))
+                                                r))]
+        (binding [chain/*suppress-duplicate-firings* suppress?]
+          (load! kb)))
+      [@dups (fixpoint-content kb)])))
+
+(deftest a-rule-and-its-facts-on-one-agenda-place-each-justification-once
+  (tu/with-terms [linksTo leadsTo reaches spans nearBy A B C D E CxStory]
+    (let [load! (fn [kb]
+                  ;; facts before the first rule, so the rule's datum arrives last for
+                  ;; those firings, and facts after it, so theirs do
+                  (doseq [f [(list linksTo A B) (list leadsTo B C)
+                             (list linksTo A D) (list leadsTo D C)]]
+                    (v/assert kb f CxStory {:chain? false}))
+                  (v/assert-rule kb [(list linksTo '?a '?m) (list leadsTo '?m '?b)]
+                                 (list reaches '?a '?b) CxStory
+                                 {:direction :forward :chain? false})
+                  (doseq [f [(list linksTo C E) (list leadsTo E A) (list nearBy C D)]]
+                    (v/assert kb f CxStory {:chain? false}))
+                  ;; a recursive rule over the first one's conclusions, so derived facts
+                  ;; arrive after both rules
+                  (v/assert-rule kb [(list reaches '?a '?m) (list linksTo '?m '?b)]
+                                 (list reaches '?a '?b) CxStory
+                                 {:direction :forward :chain? false})
+                  (v/assert-rule kb [(list reaches '?a '?m) (list nearBy '?m '?b)]
+                                 (list spans '?a '?b) CxStory
+                                 {:direction :forward :chain? false})
+                  (v/forward-chain kb))
+          [dups content]         (duplicate-attempts load! true)
+          [ref-dups ref-content] (duplicate-attempts load! false)]
+      (agree [content ref-content] "rules seeded beside their facts")
+      (is (pos? ref-dups) "the reference enumerates some firing twice, so the count reads something")
+      (is (zero? dups) "and the suppressed run places each justification once")
+      (is (some #(= (list spans A D) (first %)) (:sentexes content))
+          "the chain reaches through the recursive rule to the last one"))))
+
+(deftest a-disbelieved-datum-still-fires-a-rule-that-arrived-after-it
+  ;; the later rule's own join follows belief and cannot find an OUT datum, so the datum
+  ;; keeps enumerating that rule's firings itself
+  (tu/with-terms [bestFriendOf parentOf grandparentOf A B C CxStory]
+    (let [load! (fn [kb]
+                  (v/assert kb (list 'functional bestFriendOf) CxStory
+                            {:strength :monotonic :chain? false})
+                  (v/assert kb (list bestFriendOf C A) CxStory {:strength :monotonic})
+                  (v/assert kb (list bestFriendOf C B) CxStory {:strength :monotonic})
+                  (v/assert kb (list parentOf B A) CxStory {:strength :monotonic})
+                  (v/assert-rule kb [(list parentOf '?x '?y) (list parentOf '?y '?z)]
+                                 (list grandparentOf '?x '?z) CxStory
+                                 {:direction :forward :chain? false})
+                  (v/forward-chain kb))]
+      (agree (both-ways load!) "a superseded spelling beside a later rule"))))
+
 ;; ---- a fact that fills two positions of one rule ------------------------
 
 (deftest a-self-join-and-a-four-antecedent-rule-agree-with-the-reference

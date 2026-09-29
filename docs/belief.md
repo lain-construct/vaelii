@@ -74,7 +74,7 @@ rather than being engineered here.
 
 An agent context has **no `genlCx` edge** by default, so it is independent: the agent
 believes exactly what is asserted in its context, and nothing true in base leaks in. That
-is the honest default for modal use — an agent who believes a falsehood should not thereby
+is the default for modal use — an agent who believes a falsehood should not thereby
 contradict base. To let an agent see base too, add the edge yourself:
 
 ```clojure

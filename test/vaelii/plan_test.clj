@@ -695,7 +695,7 @@
           (range 4))))
 
 (tu/deftest-kb ^:slow the-planned-order-runs-close-to-the-best-permutation
-  ;; The honest measure of a cost model is not whether the plans changed but whether
+  ;; The measure of a cost model is not whether the plans changed but whether
   ;; they run fewer rows, and the only way to know that without another model to argue
   ;; with is an oracle: all twenty-four permutations, costed by the engine.
   ;;
@@ -1060,7 +1060,7 @@
 
 (tu/deftest-kb an-evaluable-antecedent-still-computes-under-planning
   ;; An evaluable is reachable through the *prover* stack, so the conjunction that
-  ;; exercises it is a rule's antecedents (planned by `provers/planned-antecedents`)
+  ;; exercises it is a rule's antecedents (planned by `resolution/planned-antecedents`)
   ;; rather than a `prove` goal vector — see the limitation pinned below.
   (tu/with-terms [age young Tom Bob Cid CxPlan]
     (v/assert kb (list age Tom 30) CxPlan)
@@ -1076,7 +1076,7 @@
 
 (tu/deftest-kb prove-evaluates-an-evaluable-conjunct
   ;; `res/prove` now discharges a *deferred* antecedent (`lessThan` / `evaluate` /
-  ;; `different` / `unknown`) through the registry via `res/*deferred-solver*`, so an
+  ;; `different` / `unknown`) through the registry via `res/solve-deferred`, so an
   ;; evaluable conjunct is **computed**, not looked up — and the planned run agrees with
   ;; the unplanned one, since planning only reorders (docs/naf.md).
   (tu/with-terms [age Tom CxPlan]

@@ -42,7 +42,9 @@
     its receiver, and a query that quietly shrank a posting is a corrupt index the oracle
     finds late rather than never."))
 
-(defn- ints->set [^ints a]
+(defn ints->set
+  "An `int[]` of ids as a Clojure set of Longs, the engine's handle type."
+  [^ints a]
   (loop [i 0, s (transient #{})]
     (if (< i (alength a)) (recur (inc i) (conj! s (long (aget a i)))) (persistent! s))))
 

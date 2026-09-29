@@ -116,8 +116,9 @@ sentex's decomposition:
   `(flies ?x)` and one concluding `(not (flies ?x))` get distinct keys), then the two
   solver slots (see [solving.md](solving.md)).
 
-`:assumption` and `:constraint` are **constant slots**, `nil` for a rule that is
-neither, so every rule keys at one depth. That is not cosmetic: a variable in a path
+The two solver slots spell the rule's `:effect` — `true` in the first for a choice rule,
+`:hard` / `:soft` in the second for a constraint rule — and are **constant slots**, `nil`
+for a `:derive` rule, so every rule keys at one depth. That is not cosmetic: a variable in a path
 fans out over a node's whole child set, so at a ragged level a wildcard *context* slot
 would descend into the deeper rule's extra node and read child tokens back as handles.
 Being in the key at all is the point — a choice rule and a plain rule with the same
@@ -361,7 +362,11 @@ so `res/match-one` consults them for exactly that case, gated by
   present at that slot (usually one, a handful when several predicates share it),
   with a `nil` functor to intersect: **flat in the vocabulary** where the trie fan is
   linear in it. A pattern with nothing indexable to lead with (`(?type ?x)`,
-  `(?p ?x 1970)`) keeps the trie, since there is no root to read.
+  `(?p ?x 1970)`) keeps the trie, since there is no root to read. A stored `(dog Muffet)`
+  answers a positive open functor with `dog` and with every super-predicate of `dog`
+  visible from the reader (`res/with-open-functor-supers`), as `(animal ?x)` reaches it
+  through `animal`'s spec closure; a functor variable that is also an argument, or one
+  under a negation, binds the stored functor alone.
 - **Hierarchical retrieval (`res/matches-hierarchical`).** A context-scoped
   `(p a ?x)@c` is an intersection over three hierarchies — predicate ∈ `specs(p)`,
   context ∈ `context-up(c)`, arguments unify — which `matches-visible` answered by a
@@ -381,6 +386,17 @@ so `res/match-one` consults them for exactly that case, gated by
   over the candidates. Only where a mirror can bind one stored fact twice — an all-variable
   pattern over a stored `(sibOf Rex Tib)`, which binds both ways round — does the key
   become `[handle bindings]` and a candidate yield a sequence rather than an answer.
+- **A scoped read pays for the matches stored where its reader cannot see.** Both
+  retrievals key a sentex by its content and reach the context after it: the context is
+  the trie's last level, and `matches-hierarchical` tests each candidate of a bound
+  argument's bucket against the reader's context closure. So `(ghLikes GHTom ?x)` read
+  from one context walks every stored `ghLikes` fact naming `GHTom`, in every context, and
+  drops the ones it cannot see one candidate at a time. Twenty such reads took 9 ms with
+  1,000 of those facts in contexts the reader does not see, and 127 ms with 10,000, for
+  one answer at both sizes. Intersecting with the reader's context roots first would
+  bound the read by the extent of the contexts the reader sees, and that set holds the
+  broad contexts where most of a KB is stated, so it is not the smaller side in general.
+  `lein perf`'s `visibility-reading` times what an `except` hides, not this.
 
 `sentexes-matching` shares this argument-root retrieval — it routes through `res/raw-match` (the
 level-2 matcher), so a leading-variable-then-ground-arg `sentexes-matching` (`(parentOf ?x Tom)`)
@@ -437,7 +453,11 @@ consequent predicate to key on, so its consequent is filed under one catch-all b
 `[:rule-index :consequent :var-pred]` (`protocols/var-consequent-key`). It fires *forward*
 through its concrete antecedent like any other rule; for the *backward* read, "what could
 conclude P?" is the `P` bucket unioned with that catch-all, since a rule concluding `(?p …)`
-could conclude any `P` once `?p` binds. `resolution/concluding-rule-handles` does the union,
+could conclude any `P` once `?p` binds. A consequent that is a bare variable,
+`(implies (holds ?x ?s) ?s)`, is refused `:not-well-formed`
+([naming.md](naming.md#literals-wrappers-and-arguments)); the dotted rest `(implies
+(holds ?x (?pred . ?args)) (?pred . ?args))` states it and is filed in this bucket.
+`resolution/concluding-rule-handles` does the union,
 and `rules/direct-concluders` does the same stored-graph read for the stratification and
 blocked-firing paths. A variable functor in an *antecedent* is a different matter and stays
 refused ([the split](defenses.md#a-variable-functor-rule-is-refused-not-silently-accepted)).
@@ -453,7 +473,7 @@ So `(prove kb '(?p Tom ?y))` and `(query kb '(?p Tom ?y) ctx {:max-depth 2})` re
 rule concluding `ancestorOf` exactly as fact matching reaches a stored `parentOf` through
 the argument roots ([inference.md](inference.md), "Backward chaining").
 
-What may actually *fire* is **not indexed**. A rule's `:direction` and `:defeasible`
+What may actually *fire* is **not indexed**. A rule's `:engines` and `:defeasible`
 are fields on its own sentex, put there by its `set/*Rule` wrapper (see
 [storage.md](storage.md)), and every consumer reads them from the record:
 `fire-rules-for` and `process-datum` check `rules/forward-sentex?`, the backward

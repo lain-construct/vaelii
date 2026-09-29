@@ -214,6 +214,66 @@
           (is (= 1 (p/kv-get b [:v :a])) "what the log does hold still replays")
           (dkv/close! b))))))
 
+;; ---- a kv.log frame that does not thaw ------------------------------------
+;; A frame inside `kv.log` that does not thaw, with frames after it, is damage rather
+;; than a torn tail.  Read as a tail, the replay stopped there and the open answered from
+;; a map missing every op after it, with nothing flagged; on a compacted log (one `[:put]`
+;; per key in hash order) the batch-seal counter can sit before the damage, so the open
+;; gate's counts agree and nothing rebuilds.  The replay keeps the ops before the frame
+;; and flags the store, and the open gate rebuilds a flagged index from the records.
+
+(defn- forty-keys! [dir]
+  (let [b (dkv/open-kv-backend dir)]
+    (dotimes [i 40] (p/kv-put b [:k i] i))
+    (dkv/close! b)))
+
+(defn- frame-offset
+  "The byte offset of frame `i` of `kv.log`, walked by its length prefixes."
+  ^long [dir ^long i]
+  (with-open [raf (RandomAccessFile. (str dir "/index/kv.log") "r")]
+    (loop [pos 0 k 0]
+      (if (= k i)
+        pos
+        (do (.seek raf pos) (recur (+ pos 4 (.readInt raf)) (inc k)))))))
+
+(deftest a-damaged-frame-inside-the-log-flags-the-index
+  (with-tmp
+    (fn [dir]
+      (forty-keys! dir)
+      (let [path (str dir "/index/kv.log")
+            len  (.length (java.io.File. path))]
+        (with-open [raf (RandomAccessFile. path "rw")]
+          (.seek raf (+ (frame-offset dir 7) 4))
+          (.write raf (byte-array 2)))
+        (let [b (dkv/open-kv-backend dir)]
+          (try
+            (is (= :damaged-frame (:damaged b))
+                "the store is flagged, which the open gate answers with a rebuild")
+            (is (= (into {} (map (fn [i] [[:k i] i])) (range 7)) (into {} (p/kv-entries b)))
+                "the ops before the damaged frame replay")
+            (is (= len (.length (java.io.File. path))) "the log is not truncated at the damage")
+            (finally (dkv/close! b))))))))
+
+(deftest an-error-inside-a-kv-thaw-fails-the-open
+  (with-tmp
+    (fn [dir]
+      (forty-keys! dir)
+      (let [thaw   @#'f/thaw-bytes
+            opener (Thread/currentThread)
+            n      (atom 0)]
+        (with-redefs [f/thaw-bytes (fn [bs]
+                                     (if (and (identical? opener (Thread/currentThread))
+                                              (= 8 (swap! n inc)))
+                                       (throw (OutOfMemoryError. "witness"))
+                                       (thaw bs)))]
+          (is (thrown? OutOfMemoryError (dkv/open-kv-backend dir))
+              "an open that could not finish its replay does not answer from a short map"))
+        (let [b (dkv/open-kv-backend dir)]
+          (try
+            (is (= 40 (count (p/kv-entries b))) "the next open replays every op")
+            (is (not (:damaged b)))
+            (finally (dkv/close! b))))))))
+
 (defn- log-bytes ^long [dir]
   (with-open [raf (RandomAccessFile. (str dir "/index/kv.log") "r")]
     (.length raf)))
@@ -314,6 +374,21 @@
         (is (= 11 (p/kv-get b [:v :k])) "the reopened state is what the close wrote")
         (is (= :x (p/kv-get b [:v :other])))
         (dkv/close! b)))))
+
+(deftest a-pause-stands-until-every-pauser-resumes
+  ;; Two imports that overlap each pause auto-compaction for their own duration; the
+  ;; first to finish must not resume it under the second.
+  (let [paused? #(let [v @@#'dur/compaction-paused] (if (number? v) (pos? (long v)) (boolean v)))]
+    (is (not (paused?)) "nothing else in the suite holds a pause open")
+    (dur/pause-compaction!)
+    (try
+      (dur/pause-compaction!)
+      (dur/resume-compaction!)
+      (is (paused?) "one resume of two pauses leaves the daemon paused")
+      (finally (dur/resume-compaction!)))
+    (is (not (paused?)) "the second resume ends the pause")
+    (dur/resume-compaction!)
+    (is (not (paused?)) "and a resume with no pause open leaves none open for the next")))
 
 (deftest a-compaction-queued-for-a-closed-store-is-dropped
   ;; Auto-compaction runs on a **single-thread queue**, so a task submitted by one tick

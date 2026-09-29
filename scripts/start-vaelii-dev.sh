@@ -18,6 +18,7 @@
 # `lein browser` alone and a served process never reload. An edit inside a protocol,
 # record or type definition, or to a held namespace, takes a restart, and every page names
 # it until then (docs/web.md).
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -33,3 +34,4 @@ export JVM_OPTS
 
 echo "vaelii dev: browser :${VAELII_WEB_PORT:-3000}, profiler :${VAELII_PROFILER_PORT:-8080}, loading $KB" >&2
 exec lein browser :headless
+}

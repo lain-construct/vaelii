@@ -94,7 +94,7 @@
           "re-running an example finds its premises rather than duplicating them"))))
 
 (tu/deftest-kb an-example-this-kb-cannot-support-is-unavailable-not-wrong
-  ;; the honest failure mode, and the whole reason a card names its dependencies: on a
+  ;; the intended failure mode, and the whole reason a card names its dependencies: on a
   ;; corpus that does not hold them the card says so rather than answering from
   ;; vocabulary that is not there
   (tu/with-terms [nowhere Zork]

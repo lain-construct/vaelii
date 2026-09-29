@@ -13,13 +13,62 @@
 `arg` (including `arg1` / `arg2` / `arg3`), `genlArg`, `quotedArg`, `interArg`, the
 covering forms `args` / `argsGenl` / `argAndRest` / `argAndRestGenl` (below), and the
 homogeneity forms `interArgs` / `interArgAndRest` (below) accept a `relation` as their
-subject: either a predicate or a function. Accepting and storing a function's declaration
-does **not** enforce its input constraints recursively inside a nested function
-application. The checks read the asserted sentence's argument declarations. For `arg` / `genlArg`, a function
-application filling a constrained slot is checked through its `result` / `genlResult`,
-not by recursively checking every input against that function's declarations.
-`quotedArg` instead exempts compound arguments from its value-kind check.
-No check enforces a function's input declarations recursively.
+subject: either a predicate or a function. A function's declarations are enforced on the
+inputs of every application of it, at any depth, and two readings run on each
+application:
+
+- **Where it sits**, the application is typed by its function's `result` / `genlResult`
+  against the declaration of the position it fills — what it denotes
+  ([nat.md](nat.md#typing-an-application-that-is-never-minted)).
+- **Inside it**, each input is checked against the function's own `arg`, `genlArg`,
+  `quotedArg`, `interArg` and covering declarations, with the function standing where the
+  predicate stands at the top level. A well-typed input does not rescue an application
+  whose result misses, and a result that reaches does not excuse an ill-typed input.
+
+```clojure
+(unreifiable_function InputGapFn)
+(arg InputGapFn 1 integer)
+(result InputGapFn thing)
+(arg inputGapObserver 1 thing)
+
+(inputGapObserver (InputGapFn 5))                 ; admitted
+(inputGapObserver (InputGapFn "not-an-integer"))  ; refused :arg-type — the string is
+                                                  ; arg 1 of InputGapFn, :application names
+                                                  ; (InputGapFn "not-an-integer")
+```
+
+The refusal carries the arm's own `:type`, `:arg`, `:expected` and `:position` (the
+position in the function), plus `:application`, the innermost application whose input
+failed. The boundary of the inner reading:
+
+- **The constraint reading only.** A nested input is convicted when its visible types
+  reach `thing` and miss the declared type; an input with no visible type is no evidence,
+  as at the top level. No entailment is drawn for a nested input, under
+  `*assertive-arg-types?*` or off it: a declaration arriving after the fact mints over
+  the facts it finds by predicate, and nothing finds the applications of a function
+  inside stored facts, so a nested mint would be drawn in one arrival order and not the
+  other. A refusal stores nothing, so it is the reading the nested level can take.
+- **Terms, not formulas.** A connective's argument (a genuine `(not (P …))`) and a
+  compound whose head the KB knows as a predicate are formulas, not applications, and
+  are not read as one. A head the KB has not classified is read as a function.
+- **A mention is not descended into.** A position a `quotedArg` declaration types holds
+  the term written there, so an application in it is syntax, and neither its result nor
+  its inputs are read. The same holds for the argument of a quoting predicate
+  (`termOfUnit`, `rewriteOf`) and of a `quoting_function`. A quoting function's own
+  declarations are still read over its application; only what it quotes is left alone.
+  `quotedArg` itself stays open-world about a compound argument's kind: no shape
+  classifier exists, so a compound in a `(quotedArg P n string)` position is neither a
+  string nor convicted of not being one.
+- **Reifiable and unreifiable alike.** `assert` mints a ground reifiable application into
+  a constant before the checks run, and the constant carries the result types, not the
+  inputs, so the inputs are read over the sentence as written, before the mint; a refused
+  sentence leaves no constant behind. `check` does not mint, reads the same inputs
+  structurally, and reaches the same verdict. A rule's applications are read when a
+  firing's conclusion is admitted, on the derivation path, before the firing mints the
+  application's constant ([nat.md](nat.md), "Derivation path").
+- **Context-scoped.** The function's declarations are read from the asking context's
+  vantage, like every definitional check: a context below the one they are written in
+  inherits them, a sibling is not refused by them.
 
 ### A unary predicate declares a position only when its `genl` parent does not imply it
 
@@ -155,7 +204,7 @@ answers, so the constraint-only reading stays one `binding` away.
 
 ## What this is not
 
-`prover-types/ArgTypeProver` already answers a ground `(animal Fred)` goal from exactly this
+`provers/ArgTypeProver` already answers a ground `(animal Fred)` goal from exactly this
 declaration — arg read as an inference is not new. What is new is that the type
 becomes a **record**: a handle, a justification naming what it rests on, a place in the
 taxonomy that `isa?` / `types-of` and the definitional checks read, and a datum the
@@ -204,27 +253,42 @@ refuses a sentence exactly when it would refuse what the sentence entails**:
 ;; which cannot be admitted — disjointness violated: Bert cannot be both animal and rock"
 ```
 
-The violation is the **mint's own**, so its `:type` is what `refuses-assert?` weighs: a
-disjointness clash refuses under the `:refuse` policy and is arbitrated under
-`:arbitrate`, exactly as a direct assertion of that membership would be
-([exceptions.md](exceptions.md)).
+The violation is the **mint's own**, and `checks/mint-refused?` weighs it. A violation
+naming no opposing sentex refuses, and so does a disjointness clash under the `:refuse`
+policy. Under `:arbitrate` a clash with a believed membership refuses only when the
+sentence is `:monotonic` and `refuses-assert?` refuses the pair; otherwise the sentence is
+stored and its mint is weighed at settle (below). A mint of a `:default` sentence is at
+most `:default`, so it loses to a `:monotonic` membership or ties with a `:default` one.
 
 Asked before the store, which is the whole point of asking here.
 `special/entail-arg-type` asks the same question of each mint as it materializes, but it
-runs *after* the triggering sentex exists — so a mint it cannot admit is dropped and
-recorded, leaving the KB believing a fact whose declared consequence it rejects. Asked at
-the entry point, the refusal reaches the writer and nothing is stored.
+runs *after* the triggering sentex exists — so a mint whose violation names no opposing
+sentex is dropped and recorded, leaving the KB believing a fact whose declared
+consequence it rejects. Asked at the entry point, the refusal reaches the writer and
+nothing is stored.
+
+**A mint that clashes with a believed membership is placed and weighed at settle**, as a
+rule's conclusion is (`checks/derivation-violation`): the stronger class wins, and an
+equal `:default` pair both stay believed and are listed by `contradictions`. With
+`(disjoint relation collection)` and `(arg p 1 relation)`, `(collection Foo)` and
+`(p Foo)` at `:default` leave both memberships believed and the pair listed in every
+arrival order under `:arbitrate`, and a `:monotonic` `(collection Foo)` takes
+`(relation Foo)` OUT in every order. A declaration arriving over both, including one a
+rule derives, mints under either policy and is weighed the same way
+(`argtype_entail_test/a-minted-membership-clashing-with-a-believed-one-is-weighed-at-settle`).
 
 **Two arms, because a clash has two shapes.** `disjoint-problems` names an opposing
 *handle*, so it reads clashes against **stored** memberships. A pair the cascade supplies
 both sides of has no second record — `(p1 Fred)` and the `(p2 Fred)` it entails — and
 `checks/cascade-clash` reads those as content instead. Without it the same clash would
-refuse when the opposing type arrived earlier and pass when the cascade produced it.
+refuse when the opposing type arrived earlier and pass when the cascade produced it. The
+two arms are weighed alike: under `:refuse` both refuse, and under `:arbitrate` both refuse
+only a `:monotonic` sentence, and the materializer places the two mints for settle.
 
 **The derivation path still reports.** A rule firing has no caller to refuse and may not
-throw mid-fixpoint, so `constraint-admission` leaves the conclusion standing and the mint
-is recorded in the violations ledger as before. That is the split every other check
-already draws.
+throw mid-fixpoint, so `constraint-admission` leaves the conclusion standing and a mint
+whose violation names no opposing sentex is recorded in the violations ledger. That is the
+split every other check already draws.
 
 Three convictions are **not** asked at the entry point — naming, well-formedness and edge
 stratification. Those three live above `checks` (`special/inadmissible` is where the four
@@ -281,7 +345,23 @@ while the subsumption is. Naming the fact and the declaration alone would leave 
 standing after the edge was retracted — a derived record supported by content that no
 longer entails it, which is the whole failure justifying an entailment is meant to
 prevent. `checks/edge-support` names one supporter per edge on a shortest visible path,
-the same witness rule everything else depending on a reachability takes.
+the same witness rule everything else depending on a reachability takes. A shorter route
+arriving after the entailment draws the pair again over itself, and that justification
+replaces the one over the longer route (`special/drop-replaced-routes!`), so a pair holds
+one justification in every arrival order ([nmtms.md](nmtms.md), "Where the layer stops",
+states where replacement stops).
+
+One named path is not the only path. With `pa → pb → pd` and `pa → pc → pd` both stated,
+`(arg pd 1 tt)` over `(pa Xone)` names the route through `pb`, and retracting
+`(genl pa pb)` deletes that justification while the route through `pc` still entails
+`(tt Xone)`. The removal draws the entailment again from the taxonomy it left
+(`special/rederive-descended`): the retraction path reads the justifications the sweep
+deleted before it deletes their records (`special/edge-descended-justifications`), and a
+settle that defeats an edge reads the derivations the edge took OUT
+(`special/lost-descended-derivations`). Where a route survives, the type comes back resting
+on it; where none does, nothing is drawn. The descended `functional` and `anti_symmetric`
+equalities ([equality.md](equality.md)) name their routes the same way and are drawn again
+by the same two arms.
 
 ## Three directions, or belief depends on arrival order
 
@@ -371,49 +451,88 @@ and deduplication happens where it is a property of content: `find-or-create-sen
 gives one sentex per sentence, `has-justification?` one justification per pair.
 
 The consequence is stated as a test: `(dog Muffet)` under `(genl dog animal)` already
-*reaches* `animal` by subsumption, and `(animal Muffet)` is minted anyway. That the engine
+*reaches* `animal` by subsumption, and with pruning off `(animal Muffet)` is minted anyway.
+The one narrowing that reads belief rather than arrival is the next section's. That the engine
 never materializes a supertype membership for *matching* is a different question —
 matching fans the functor over the spec closure and needs no record. Here the declaration
 makes the claim, and being a record is the whole of what this adds.
 
-### Pruning what the KB says more specifically — `VAELII_PRUNE_SUBSUMED_MINTS`, off
+### Pruning what the KB says more specifically — `VAELII_PRUNE_SUBSUMED_MINTS`, on
 
-One narrowing is **not** of that kind, and the engine offers it as an opt-in: a mint the
-KB already holds more specifically. While `(dog Muffet)` is believed, the minted
-`(animal Muffet)` beside it is the same claim one step vaguer, and with
-`VAELII_PRUNE_SUBSUMED_MINTS=1` it is not stored. What makes this admissible where the
+One narrowing is **not** of that kind, and the engine takes it by default: a mint the KB
+already holds more specifically. While `(dog Muffet)` is believed, the minted
+`(animal Muffet)` beside it is the same claim one step vaguer, and it is not stored
+(`VAELII_PRUNE_SUBSUMED_MINTS=0` stores it). What makes this admissible where the
 narrowings above are not is that it reads **current belief**, not arrival: while the
 specific membership is believed there is no record, and when it stops being believed the
-mint is drawn. Three sentences in any of their six orders leave the same KB, which is
-what `every-arrival-order-prunes-the-same-way` asks.
+mint is drawn. The membership, the edge that puts its type under the mint's, the fact and
+the declaration in any of their twenty-four orders leave the same KB, which is what
+`every-arrival-order-prunes-the-same-way` asks, and
+`every-arrival-order-prunes-the-same-way-across-contexts` asks of the `genlCx` edge that
+lets the mint's context see the membership.
 
 Both arrival orders reach that state, and neither remembers how it got there:
 
 * the specific membership **first** — `special/entail-arg-type` finds it
-  (`checks/subsumed-mint`) and writes no record, keeping the withheld sentence in the
-  refusal record under each antecedent that entails it (docs/exceptions.md);
-* the specific membership **last** — the mint is already stored, so `settle` blocks its
-  justifications (`special/subsumed-mint-blocks`) and the sweep that collects an excepted
-  conclusion collects it, with the same entry kept for the way back.
+  (`checks/subsumed-mint`) and writes no record;
+* the specific membership **last**, or the `genl` or `genlCx` edge that makes it more
+  specific or visible — the mint is already stored, so `settle` blocks its justifications
+  (`special/subsumed-mint-blocks`) and the sweep that collects an excepted conclusion
+  collects it.
 
-The record comes back when the membership that displaced it stops being believed —
-retracted, defeated, or swept. Two conditions keep the withdrawal from eating what holds
-it up: the record has to be the entailment's own (no premise support, every justification
-an argument declaration's), and the subsuming membership must not itself rest on the mint.
+The settle finds the stored mints a record it moved can displace in the **mint roster**,
+`:minted` on the `Reasoning` value: every record an argument declaration's justification
+concludes, by the term it is about and by its context.
+
+| the record the settle moved | the mints it asks about |
+|---|---|
+| a membership `(T x)` | the mints about `x`, each tested against `(T x)` alone |
+| a `genl` edge `(genl sub super)` | the edges minted out of `sub`, tested against the edge; the mints about each type under `sub` and each member of one, asked `checks/subsumed-mint` |
+| a `genlCx` edge `(genlCx sub super)` | the mints stated in each context under `sub`, asked `checks/subsumed-mint` |
+
+The types and members under a `genl` edge are gathered once per settle over **all** the
+edges it moved (`special/edge-route-candidates`, one `tax/specs-of-all` walk), not once per
+edge: a `recover` moves every edge together, and per edge it would walk a subtree as many
+times as edges leave it.
+
+The roster over-approximates: a record stays in it until it leaves the store, whatever
+else comes to support it, and `mint-only?` rejects the ones that are not the entailment's
+own. `recover` refills it from the justification walk that rebuilds the network, one
+record read per minted handle.
+
+Two conditions keep the withdrawal from eating what holds it up: the record has to be the
+entailment's own (no premise support, every justification an argument declaration's), and
+the subsuming membership must not itself rest on the mint.
+
+**Nothing records a withheld mint.** It comes back when the record that displaced it
+leaves belief or the store — retracted, defeated or swept — and the settle finds it by
+re-deriving the mints that departure can have released (`special/withheld-releases`), as
+`deduce-arg-types` derives them for a fact arriving now:
+
+| the record that left | the facts re-derived |
+|---|---|
+| a membership `(T x)` | the facts naming `x`, for the mints about `x` |
+| a `genl` edge `(genl sub super)` | the same, for `sub`, each type under it and each member of one |
+| a `genlCx` edge `(genlCx sub super)` | every fact stored in a context under `sub` |
+
+A departure reaches the settle from the network when a record goes OUT, and from
+`integrate/sentex-removed!`, which queues each removed record of those three shapes on the
+roster's `:departed`; a mint the same settle withdrew is left out, since what subsumed it
+subsumes what it did. The release is therefore a function of the store: a KB rebuilt by
+`recover` releases what the KB that withheld the mint releases, which
+`recovery_test/a-recovered-kb-releases-a-withheld-mint-as-the-live-one-does` asks of each
+of the five ways a subsumption ends.
+
+One arrival re-derives too. A record takes the justification of everything that entails
+it, so a record that is not a mint coming IN while a believed record subsumes it — an
+author's `(animal Fred)` beside `(dog Fred)` — has the facts naming `Fred` re-derive that
+one sentence, and each whose mint of it was withheld adds its justification.
 
 The KB **answers** the same either way: `isa?`, matching and the definitional checks all
 read the taxonomy, which reaches `animal` from `dog` with or without a record in between.
 Storage differs — the shipped starter holds 3,702 sentexes against 4,142, CxCore 1,256
 against 1,544 — and so does `why`, which shows the subsumption route rather than a minted
 record.
-
-**Why it is off.** Not for what it does but for what it costs: every settle that moves a
-membership has to ask what that membership displaces, and the answer is a term's records
-read and weighed. Measured at **+42%** on `distance-test`, a settle-dense qualitative
-workload (71 s to 101 s), spread evenly across the trigger, the candidate read and the
-decision. Turning it on by default wants a roster of minted handles by
-term, so the trigger is a map lookup rather than an index read; until that exists, a KB
-that wants the smaller store opts in and pays.
 
 ## The minted type is ordinary content
 
@@ -431,9 +550,10 @@ all 120 orders.
 
 It is **checked**: `special/inadmissible` runs the same triple `place-conclusion` runs
 over a rule conclusion — naming, the definitional constraints, `wff`, and edge
-stratification. A minted `(T x)` can clash with a disjoint membership, and a minted
-`(genl X T)` can close a taxonomy cycle or a cycle through negation. A failure is
-**reported, not thrown**: this runs after the triggering sentex is stored and inside a
+stratification, with the definitional constraints read as `place-conclusion` reads them:
+a minted `(T x)` that clashes with a believed disjoint membership is placed and weighed at
+settle. A minted `(T x)` at an arity its type denies, and a minted `(genl X T)` that closes
+a taxonomy cycle or a cycle through negation, are **reported, not thrown**: this runs after the triggering sentex is stored and inside a
 fixpoint, neither of which may abort halfway, so it lands in `(violations kb)` the way
 the lift's does.
 
@@ -478,15 +598,22 @@ default — and nothing to do, on/off straddles parity, which is as precise
 as this bench gets; the shared `declaration-reader` is what bought that. Where it mints,
 the run stores twice as many sentexes, so the ~1.9× is the minting, not the gate.
 
-**With `VAELII_PRUNE_SUBSUMED_MINTS=1` a settle pays one index read per membership it
-moves**, and nothing on a KB that declares no argument constraint. Three gates stand in
-front of it, and the first two read no index at all: the records the settle relabelled are
-filtered by shape (only a membership or a `genl` edge can subsume a mint) and by
-transition (a record that did not move subsumes what it subsumed before), and the
-declaration roster is the taxonomy's rather than the index's cardinality. Past them the
-term's records are read once and the network filters them, since `premise?` rejects most
-candidates for an O(1) read. With the switch off — the default — none of that runs, and
-`assert_cost_test`'s budgets are the ones the entailment alone sets.
+**With subsumed mints pruned, the default, a membership a settle moves costs one mint-roster
+lookup**, and nothing on a KB that holds no mint. The records the settle relabelled are
+filtered by shape (only a membership, a `genl` edge or a `genlCx` edge can subsume a mint)
+and by transition (a record that did not move subsumes what it subsumed before), and an
+empty roster stops the trigger before any record is read. A membership about a term
+holding no mint reads no posting however many facts name the term — the one read the
+release adds for a membership that is not a mint, `checks/subsumed-mint`, is the term's
+slot roster — which `lein perf`'s `mint-withdrawal-under-busy-term` holds. A `genl` edge
+still reads its subtree's stored extent, the read `entail-under-edge` makes for the same
+edge. The release is paid on a departure rather than on a write: a membership leaving
+re-derives the facts naming its term, a `genl` edge the facts naming each term under it,
+and a `genlCx` edge the facts stored under it, and a settle that moves none of the three
+reads nothing about the mints the KB withholds, which `settle-beside-withheld-mints`
+holds. The gate in front of the release reads the taxonomy's declaration roster rather
+than the index, so `assert_cost_test`'s budgets are the ones the entailment alone sets
+whichever way the switch stands. With it off none of that runs.
 
 **`interArg` is read behind an O(1) gate where the other two are unconditional**, and
 the asymmetry is deliberate. `arg` is what a typed ontology is mostly made of, so its
@@ -500,23 +627,22 @@ perf check cannot catch this class, since a constant added to every write divide
 
 ## The gates
 
-The suite runs green on all eight backends `scripts/test-backends.sh` covers (the seven
-legal record×index pairings plus the overlay decorator), **both ways** — the routine run
-is the on-path default, and `VAELII_ASSERTIVE_ARG_TYPES=0` runs the constraint-only
-reading. Same failing set (empty) in all sixteen runs. The disk arms matter here beyond
-storage parity: a minted type is a real record with a real justification, so they are what
-says `recover` rebuilds the same belief over it from the durable store.
+`lein gate` runs the suite under the entailing reading, the default. The constraint-only
+reading is the `assertive-off` sweep (`VAELII_ASSERTIVE_ARG_TYPES=0`): `lein test-sweeps`,
+`lein test-matrix` and the `deep` workflow run it on the default backend, and `lein
+test-matrix --owed` names it for a change to `checks.clj`, `special.clj` or
+`resources/kb/`. Both readings must fail the same set and run the same number of
+assertions, as every sweep must ([CONTRIBUTING.md](../CONTRIBUTING.md)), so a test whose
+count or answer depends on the reading pins one: `tu/with-entailing` where the entailment
+is its subject, `tu/without-entailing` where the constraint is.
 
-The toggle-on run reports **6 fewer assertions** over the whole suite, and the small
-number hides larger movements that nearly cancel. The sampling oracles fall:
-`arg-root-retrieval-test` by 24 and `matches-hierarchical-test` by 132. Both draw a
-fixed-size sample of stored facts and generate one probe per blanked argument position,
-and with the entailment on the test world holds minted *unary* type facts, which displace
-binary facts from the sample and yield fewer probes each. The rest of the suite gains the
-balance back, for the same reason read the other way: a KB with more in it gives the
-namespaces that count what they find more to find. Same sample size, same contract,
-different composition — and the retrieval paths agree on both samples. It is not a test
-doing less; it is evidence the feature is putting content in the KB.
+On `memory` at `:default` both readings run 5,102 tests, and a per-namespace count
+(`VAELII_TEST_NS_COUNTS=1`) puts every namespace at the same assertion count under both.
+The sampling oracles `arg-root-retrieval-test` and `matches-hierarchical-test` run the
+same count under both readings. `full-kb-test`'s small-KB twin samples derived literals
+per context, where the mints sit, so it pins the entailing reading. Subsumed-mint pruning
+(`VAELII_PRUNE_SUBSUMED_MINTS`) acts only on mints, so the constraint-only run leaves it
+idle; the tests of pruning pin the entailment on.
 
 `backend_parity_test` pins the toggle off inside its scripted session. That namespace's
 question is whether eight storage backends answer hand-written expectations alike, and
@@ -620,7 +746,7 @@ decides at all, rather than every non-symbol being exempt:
 **Checked and never entailed is not the same as read literally.** Whose declarations speak
 for a tuple is one question for all four spellings — `res/constraining-predicates`, the
 predicate's own and every super-predicate the asking context can see — so a `quotedArg` on
-`pAgeOf` refuses a `pInfantAgeOf` tuple at the entry point. `prover-types/MetaConstraintProver`
+`pAgeOf` refuses a `pInfantAgeOf` tuple at the entry point. `provers/MetaConstraintProver`
 answers `quotedArg` along that same closure, position 1 descending the predicate and
 position 3 widening up the type, exactly as it answers the other three; the alternative was
 one declaration meaning one thing to `assert` and another to `ask`. What stays out is the

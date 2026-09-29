@@ -108,8 +108,8 @@
         orig-gir jtms/grounded-in-region
         orig-cl  @#'label/cluster-indices]
     (with-redefs [jtms/grounded-in-region
-                  (fn [tms extra]
-                    (let [res (orig-gir tms extra)]
+                  (fn [tms extra & more]
+                    (let [res (apply orig-gir tms extra more)]
                       (swap! calls inc)
                       (swap! work + (count (:region res)))
                       res))

@@ -366,9 +366,11 @@
         roots  (root-keys sentex)                       ; derived from the sentex alone
         roster (roster-adds backend terms)              ; reads the pre-write postings
         slots  (slot-adds backend sentex)]              ; likewise
-    {:ops    (concat (map (fn [t] [:add-to-set (term-key t) handle]) terms)
-                     (map (fn [k] [:add-to-set k handle]) roots)
-                     roster slots)
+    {:ops    (-> []
+                 (into (map (fn [t] [:add-to-set (term-key t) handle])) terms)
+                 (into (map (fn [k] [:add-to-set k handle])) roots)
+                 (into roster)
+                 (into slots))
      :counts {:terms  (count terms)
               :roots  (count roots)
               :roster (count roster)
@@ -505,17 +507,18 @@
           n    (count pth)
           flat (flat-family-adds backend sentex handle)] ; reads the pre-write postings
       (kv-batch backend
-                (concat
-                 (mapcat (fn [i]
-                           (let [prefix (subvec pth 0 i)]
-                             [[:increment (count-key prefix)]
-                              (if (< i n)
-                                [:add-to-set (set-key prefix)  (nth pth i)]   ; child edge
-                                [:add-to-set (leaf-key prefix) handle])]))    ; leaf handle
-                         (range (inc n)))
-                 (:ops flat)
-                 ;; the batch seal, last on purpose — `sealed-prefix` says why
-                 [[:increment (count-key sealed-prefix)]]))
+                (-> (reduce (fn [ops i]
+                              (let [prefix (subvec pth 0 i)]
+                                (-> ops
+                                    (conj! [:increment (count-key prefix)])
+                                    (conj! (if (< i n)
+                                             [:add-to-set (set-key prefix)  (nth pth i)] ; child edge
+                                             [:add-to-set (leaf-key prefix) handle])))))  ; leaf handle
+                            (transient []) (range (inc n)))
+                    (as-> ops (reduce conj! ops (:ops flat)))
+                    ;; the batch seal, last on purpose — `sealed-prefix` says why
+                    (conj! [:increment (count-key sealed-prefix)])
+                    persistent!))
       ;; what this assert cost the index, per family, when somebody is asking
       ;; (`vaelii.impl.profile`).  The trie depth is this store's own number; the four
       ;; family counts come back with the ops that produced them, so the tally cannot
@@ -534,7 +537,7 @@
   ;; **And says so**, because the no-op is safe and not therefore right.  The caller is
   ;; `integrate/sentex-removed!`, which deletes the record on the next line whether or
   ;; not anything came out of the index: a genuine record/index divergence therefore
-  ;; leaves the trie handing out a handle whose record is gone, which is indistinguishable from a
+  ;; leaves the trie handing out a handle whose record is gone, which shows up as a
   ;; corrupted store several operations later and nowhere near here.  Silence made that
   ;; indistinguishable from a caller retracting a handle twice.  `reindex` is the repair,
   ;; and the log is what tells somebody to run it.
@@ -585,17 +588,20 @@
   ;; key, holding no marker for the skip to read, walks one level per token.
   (lookup [_ pattern]
     (prof/record-read :trie-lookup)
+    ;; Eager vectors throughout: a lazy `mapcat` per level is a seq and a lock per child
+    ;; token, on the walk every join's partially bound literal takes.
     (letfn [(child-tokens [prefix] (kv-members backend (set-key prefix)))
             (skip-one [prefix]                         ; advance past one complete form
-              (mapcat (fn [c]
+              (reduce (fn [acc c]
                         (if (sx/subterm-mark? c)
-                          (skip-n (conj prefix c) (sx/subterm-arity c))
-                          [(conj prefix c)]))
+                          (into acc (skip-n (conj prefix c) (sx/subterm-arity c)))
+                          (conj acc (conj prefix c))))
+                      []
                       (child-tokens prefix)))
             (skip-n [prefix n]                         ; advance past n complete forms
               (if (zero? n)
                 [prefix]
-                (mapcat #(skip-n % (dec n)) (skip-one prefix))))]
+                (reduce (fn [acc p] (into acc (skip-n p (dec n)))) [] (skip-one prefix))))]
       ;; `visits` and `widest` describe the walk itself: one probe per frontier node per
       ;; level, and how wide the frontier ever got.  A narrowing walk holds the frontier
       ;; at one node and visits one per level; a walk that got stuck behind a variable
@@ -607,7 +613,11 @@
              visits 0
              widest 1]
         (if (empty? qs)
-          (let [hs (into #{} (mapcat (fn [prefix] (kv-members backend (leaf-key prefix)))) frontier)]
+          ;; one node reached — the walk that narrowed all the way — answers its leaf set
+          ;; as stored rather than copied into a new one
+          (let [hs (if (== 1 (count frontier))
+                     (set (kv-members backend (leaf-key (nth frontier 0))))
+                     (into #{} (mapcat (fn [prefix] (kv-members backend (leaf-key prefix)))) frontier))]
             (prof/record-fan pattern (+ visits (count frontier)) widest (count hs))
             hs)
           (let [q (first qs)

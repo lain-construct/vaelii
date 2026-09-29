@@ -44,6 +44,7 @@
 # `lint-drift` / `lint-kondo` / `lint-cljfmt` / `lint-shellcheck` /
 # `lint-reflect` / `lint-unused` / `lint-prose` aliases run a
 # single check for a quick one-off.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail   # NOT -e: every check must run even after one fails.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -120,8 +121,8 @@ print_status() {
     # cljfmt's failure detail is the whole reformat diff, and `lein fix` is what
     # applies it — so the diff is noise in a report you read to decide what to do,
     # and on a big rewrite it buries every other check's finding.  Keep cljfmt's
-    # own file list and count, drop the diff (and lein's $CLASSPATH WARNING with
-    # it), unless VERBOSE asked for all of it.  Every other check's detail IS the
+    # own file list and count, drop the diff, unless VERBOSE asked for all of
+    # it.  Every other check's detail IS the
     # finding, so it prints in full.
     if [[ "$label" == cljfmt && $VERBOSE -eq 0 ]]; then
       grep -E 'has incorrect formatting|[0-9]+ file\(s\) formatted incorrectly' "$o" \
@@ -315,3 +316,4 @@ verdict=$(sed 's/\x1b\[[0-9;]*m//g' "$LOG" | grep -E '^lint: ' | tail -1)
 [[ $rc -eq 0 ]] && state=passed || state=failed
 runlog_record lint - "$state" "${verdict#lint: }" "$LOG"
 exit "$rc"
+}

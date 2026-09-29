@@ -12,14 +12,23 @@
    The four modes are the ones `vaelii.impl.asp.edge` asks for:
    :label, :all-optima, :classify-true, :classify-supportable.
 
-   Every run carries `--time-limit` from `config/asp-time-limit` (0 lifts it): a
-   solve that hits it comes back `Result: UNKNOWN` with `TIME LIMIT: 1`, read here
-   as `:interrupted`."
+   Every run is single-threaded under a fixed seed and carries `--solve-limit` from
+   `config/asp-solve-limit` when it is positive (`search-args`), so where a search stops
+   is a function of the program.  `--time-limit` from `config/asp-time-limit` (0 lifts
+   it) is the backstop, and a process still running at `deadline-ms` is killed.  A
+   search stopped by either limit is read as `:interrupted` (`stopped-short?`).
+
+   Ownership: `run-clasp` starts the process and is its only owner.  It returns only
+   after the process has exited, and it kills the process and every descendant on the
+   paths that leave it running: the deadline and a throw out of the wait (an interrupt)."
   (:require
    [cheshire.core :as json]
-   [clojure.java.shell :as shell]
+   [clojure.java.io :as io]
    [clojure.string :as str]
-   [vaelii.impl.config :as config]))
+   [vaelii.impl.config :as config])
+  (:import
+   [java.lang ProcessHandle]
+   [java.util.concurrent TimeUnit]))
 
 (def ^{:dynamic true
        :doc "Name (or absolute path) of the clasp executable. Bind to point
@@ -43,22 +52,65 @@
    :classify-true        ["--opt-mode=optN" "-e" "cautious" "-n" "0"]
    :classify-supportable ["--opt-mode=optN" "-e" "brave"    "-n" "0"]})
 
+(defn- deadline-ms
+  "Milliseconds the JVM waits on one clasp process before killing it: the time limit
+   plus the larger of the time limit and 10 s, so 120 s at the default.  Nil when
+   `config/asp-time-limit` is 0, which lifts both.  clasp stops itself at
+   `--time-limit`, so this fires only on a process that did not."
+  []
+  (let [n (long (config/asp-time-limit))]
+    (when (pos? n) (* 1000 (+ n (max n 10))))))
+
+(defn- kill-tree!
+  "Kill `p` and every process it started, then wait for `p` to exit.  The descendants
+   are read first: once `p` is gone they are no longer its descendants."
+  [^Process p]
+  (run! #(.destroyForcibly ^ProcessHandle %) (iterator-seq (.iterator (.descendants p))))
+  (.destroyForcibly p)
+  (.waitFor p))
+
+(defn- run-clasp
+  "Run `*clasp-binary*` with `args` and `in` on stdin: `{:exit :out :err}`.
+
+   The process is exec'd directly (no shell), so a missing binary is an IOException,
+   never the shell's exit-127 convention.  Both are `:solver-unavailable`: a missing
+   binary, and a process still running at `deadline-ms`, which is killed with its
+   descendants first.  stdin is written and stdout and stderr read on their own
+   threads, so a process that reads nothing or writes more than a pipe buffer cannot
+   block the wait."
+  [args ^String in]
+  (let [^Process p (try
+                     (.start (ProcessBuilder. ^java.util.List (into [*clasp-binary*] args)))
+                     (catch java.io.IOException e
+                       (throw (ex-info (str "clasp binary not found: " (pr-str *clasp-binary*)
+                                            " — put clasp on PATH, or bind"
+                                            " vaelii.impl.asp.clasp/*clasp-binary* to its path")
+                                       {:type :solver-unavailable :binary *clasp-binary*} e))))
+        out (future (slurp (.getInputStream p) :encoding "UTF-8"))
+        err (future (slurp (.getErrorStream p) :encoding "UTF-8"))
+        ms  (deadline-ms)]
+    ;; a process that exits without reading all of stdin breaks the pipe; its answer is
+    ;; on stdout, and the write has nothing to add
+    (future (try (with-open [w (io/writer (.getOutputStream p) :encoding "UTF-8")]
+                   (.write w in))
+                 (catch java.io.IOException _ nil)))
+    (let [exited? (try (if ms
+                         (.waitFor p (long ms) TimeUnit/MILLISECONDS)
+                         (do (.waitFor p) true))
+                       (catch Throwable e (kill-tree! p) (throw e)))]
+      (when-not exited?
+        (kill-tree! p)
+        (throw (ex-info (str "clasp did not exit within " ms " ms (VAELII_ASP_TIME_LIMIT"
+                             " plus its grace) and was killed")
+                        {:type :solver-unavailable :binary *clasp-binary* :deadline-ms ms})))
+      {:exit (.exitValue p) :out @out :err @err})))
+
 (defn- invoke-clasp
   "Run clasp with `argv` and `aspif-text` on stdin. Returns parsed JSON.
-   Throws only when clasp cannot be run or produces unparseable output —
-   UNSAT is a valid outcome, not an error."
+   Throws when clasp cannot be run or does not exit by its deadline (`run-clasp`), or
+   produces unparseable output — UNSAT is a valid outcome, not an error."
   [argv aspif-text]
-  (let [{:keys [exit out err]}
-        ;; `shell/sh` execs directly (no shell), so a missing binary is an
-        ;; IOException here, never the shell's exit-127 convention
-        (try
-          (apply shell/sh *clasp-binary* "--outf=2"
-                 (concat argv [:in aspif-text]))
-          (catch java.io.IOException e
-            (throw (ex-info (str "clasp binary not found: " (pr-str *clasp-binary*)
-                                 " — put clasp on PATH, or bind"
-                                 " vaelii.impl.asp.clasp/*clasp-binary* to its path")
-                            {:type :solver-unavailable :binary *clasp-binary*} e))))]
+  (let [{:keys [exit out err]} (run-clasp (into ["--outf=2"] argv) aspif-text)]
     (if (str/blank? out)
       (throw (ex-info (str "clasp produced no output (exit " exit ") — a solve answers"
                            " JSON on stdout under --outf=2, so an empty body is clasp"
@@ -74,15 +126,24 @@
                                " opens " (pr-str (subs out 0 (min 200 (count out)))))
                           {:type :solver-failed :exit exit :out out :err err} e)))))))
 
-(defn- interrupted?
-  "Did clasp stop before it finished — the time limit, or a signal?  Reported as flags
-   beside `Result` rather than in it: a run that found a model before the limit still
-   says `SATISFIABLE`, and that model is not the answer the mode asked for."
-  [parsed]
-  (boolean (some #(= 1 (get parsed (keyword %))) ["TIME LIMIT" "INTERRUPTED"])))
+(defn- all-witnesses [parsed]
+  (or (-> parsed :Call first :Witnesses) []))
 
-(defn- status-of [parsed]
-  (if (interrupted? parsed)
+(defn- stopped-short?
+  "Did clasp stop before its search finished — the solve limit, the time limit, or a
+   signal?  None of the three is in `Result`: a run that found a model before it stopped
+   still says `SATISFIABLE`, and that model is not the answer the mode asked for.  The
+   time limit and a signal are flags beside it; the solve limit sets neither and shows
+   only as `More: yes`, a search that did not exhaust its space.  Under `-n 1` (`sat?`)
+   a search stops at its first model on purpose and says `More: yes` too, so there it
+   stopped short only when it has no model."
+  [parsed sat?]
+  (boolean (or (some #(= 1 (get parsed (keyword %))) ["TIME LIMIT" "INTERRUPTED"])
+               (and (= "yes" (-> parsed :Models :More))
+                    (not (and sat? (seq (all-witnesses parsed))))))))
+
+(defn- status-of [parsed sat?]
+  (if (stopped-short? parsed sat?)
     :interrupted
     (case (:Result parsed)
       "OPTIMUM FOUND" :optimum
@@ -96,8 +157,17 @@
   (let [n (config/asp-time-limit)]
     (when (pos? n) [(str "--time-limit=" n)])))
 
-(defn- all-witnesses [parsed]
-  (or (-> parsed :Call first :Witnesses) []))
+(defn search-args
+  "The flags under which a solve's search is a function of its program alone: one
+   thread, clasp's own default seed (1) stated rather than assumed, and
+   `--solve-limit=N` for a positive `config/asp-solve-limit`.  The limit counts
+   conflicts, so it stops a search at the same point on any machine, where
+   `--time-limit` stops it wherever the machine has got to.  In-process clingo's control
+   takes the same flags (`vaelii.impl.asp.clingo`)."
+  []
+  (let [n (config/asp-solve-limit)]
+    (cond-> ["--parallel-mode=1" "--seed=1"]
+      (pos? n) (conj (str "--solve-limit=" n)))))
 
 (defn- optimum-costs
   "Full optimum cost VECTOR reported by clasp — one entry per minimize
@@ -158,18 +228,20 @@
    A `:label` solve of a program with no objective runs under `:sat`'s flags: streaming
    improving models there would enumerate every model.
 
-   `:interrupted` is the time limit (`config/asp-time-limit`) or a signal with NO witness
-   to show for it.  A `:label` run cut off *after* it had a witness is `:best-effort`
-   instead — that model is a valid labeling, its optimality merely unproven — which the
-   imperative `:one` caller takes over nothing (`asp.edge/kept-of`); the enumerating modes
-   need a finished search, so they stay `:interrupted`."
+   `:interrupted` is the solve limit (`config/asp-solve-limit`), the time limit
+   (`config/asp-time-limit`) or a signal with NO witness to show for it.  A `:label`
+   run cut off *after* it had a witness is `:best-effort` instead — that model is a
+   valid labeling, its optimality merely unproven — which the imperative `:one` caller
+   takes over nothing (`asp.edge/kept-of`); the enumerating modes need a finished
+   search, so they stay `:interrupted`."
   [aspif-text mode]
-  (let [argv (or (mode-args (if (and (= :label mode) (not (objective? aspif-text))) :sat mode))
-                 (throw (ex-info (str "unknown clasp mode: " (pr-str mode) " — want one of "
-                                      (pr-str (vec (sort (keys mode-args)))))
-                                 {:type :unknown-option :mismatch :bad-value :mode mode :valid (keys mode-args)})))
-        parsed (invoke-clasp (concat argv (time-limit-args)) aspif-text)
-        status (status-of parsed)]
+  (let [run    (if (and (= :label mode) (not (objective? aspif-text))) :sat mode)
+        argv   (or (mode-args run)
+                   (throw (ex-info (str "unknown clasp mode: " (pr-str mode) " — want one of "
+                                        (pr-str (vec (sort (keys mode-args)))))
+                                   {:type :unknown-option :mismatch :bad-value :mode mode :valid (keys mode-args)})))
+        parsed (invoke-clasp (concat argv (search-args) (time-limit-args)) aspif-text)
+        status (status-of parsed (= :sat run))]
     (case mode
       (:label :sat)
       (let [best (first (optimal-witnesses parsed))]
@@ -201,5 +273,5 @@
    Used by tests to skip cleanly when clasp isn't installed."
   []
   (try
-    (zero? (:exit (shell/sh *clasp-binary* "--version")))
+    (zero? (long (:exit (run-clasp ["--version"] ""))))
     (catch Exception _ false)))

@@ -22,7 +22,7 @@
   "The record store — canonical sentexes and justifications, keyed by integer handle.
   The durable ground truth: everything else the KB holds is derived from it.
 
-  **The three fetches are counted** (`vaelii.impl.profile`'s `:fetches`), because a
+  **Every read method is counted** (`vaelii.impl.profile`'s `:fetches`), because a
   record read is not an index read and no index tally can stand in for one: a probe that
   narrows to a single `lookup` and then pages a record per candidate handle costs almost
   nothing by `:reads` and everything by this.  Every implementation tallies its own kind

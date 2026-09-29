@@ -193,6 +193,32 @@
       (is (= 1 (:handles reading)) "and both spellings resolve to the one handle")
       (is (= [true true] [(:ask-sf reading) (:ask-fs reading)])))))
 
+(tu/deftest-kb a-late-mark-hands-back-its-spellings-after-a-restart
+  ;; The spellings a mark folded are recorded on the row (`integrate/spellings-key`), and
+  ;; that record is what retracting the mark hands them back from — so it has to be in the
+  ;; store, not in the process that folded them.  The mark is retracted on the
+  ;; **restarted** KB, whose every in-memory structure was rebuilt from the records, and
+  ;; it has to answer as a KB never told the mark: each spelling its own row, at the class
+  ;; it was asserted at.
+  (tu/with-terms [pborders SEsp SFra]
+    (v/assert kb (list pborders SFra SEsp) 'CxUniverse)
+    (v/assert kb (list pborders SEsp SFra) 'CxUniverse {:strength :monotonic})
+    (let [mark    (v/assert kb (list 'symmetric pborders) 'CxUniverse)
+          back    (restarted)
+          _       (v/retract! back mark)
+          observe (fn [k]
+                    {:rows    (set (map :sentence (v/sentexes-matching k (list pborders '?x '?y) '?c)))
+                     :classes (mapv #(v/defeat-class k (v/handle-of k % 'CxUniverse))
+                                    [(list pborders SFra SEsp) (list pborders SEsp SFra)])})
+          reading (one-reading! "a late mark retracted after a restart" back observe)]
+      (is (= {:rows    #{(list pborders SFra SEsp) (list pborders SEsp SFra)}
+              :classes [:default :monotonic]}
+             reading)
+          "both spellings are back as written, each at its own class"))
+    ;; the split was made by the *rebuilt* KB, which the fixture's KB value holds no node
+    ;; for, so the store is cleared here rather than left to its teardown
+    (tu/clear-kb! (tu/test-kb))))
+
 (tu/deftest-kb a-different-guarded-rule-is-re-checkable-after-a-restart
   ;; A `(different …)` antecedent holds by the *absence* of a merge, so it names no handle
   ;; a justification can carry and the re-check index is the only instrument that can

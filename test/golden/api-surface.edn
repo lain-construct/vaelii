@@ -1,7 +1,8 @@
 ;; Frozen public API surface — every public var of the six public
-;; namespaces, with its arglists.
+;; namespaces, with its arglists, or a roster var's members.
 ;; Regenerate: `lein regen-goldens`, and read vaelii.api-surface-test's
-;; docstring first — a removed var or a changed arglist is breaking.
+;; docstring first — a removed var, a changed arglist or a removed
+;; roster member is breaking.
 {vaelii.cli
  {-main "[[& args]]",
   dispatch "[[kb cmd args opts]]",
@@ -10,6 +11,7 @@
  {abduce "[[conn goal] [conn goal context] [conn goal context opts]]",
   abduce-discard! "[[conn result]]",
   add-provenance "[[conn handle m]]",
+  all-functional-at-instant-violations "[[conn context]]",
   all-specified-violations "[[conn context]]",
   argue "[[conn asent context] [conn asent context opts]]",
   ask "[[conn goal] [conn goal context] [conn goal context opts]]",
@@ -63,8 +65,10 @@
   export! "[[conn dir] [conn dir opts]]",
   exposed-clashes "[[conn]]",
   find-sentexes "[[conn term]]",
+  find-sentexes-all "[[conn terms]]",
   find-terms "[[conn q] [conn q opts]]",
   forward-chain "[[conn] [conn opts]]",
+  functional-at-instant-violations "[[conn f context]]",
   genl? "[[conn sub super] [conn sub super context]]",
   genls "[[conn t] [conn t context]]",
   handle-of "[[conn sentence context]]",
@@ -77,6 +81,7 @@
   justification "[[conn jid]]",
   kb-diff "[[conn b]]",
   kb-quality "[[conn] [conn opts]]",
+  last-program "[[conn]]",
   levels "[[conn]]",
   lookup "[[conn level goal] [conn level goal context]]",
   metatype-members "[[conn m]]",
@@ -96,6 +101,7 @@
   quality-report "[[conn quality]]",
   query "[[conn goal] [conn goal context] [conn goal context opts]]",
   query-plan "[[conn goal] [conn goal context]]",
+  query-status "[[conn goal context] [conn goal context opts]]",
   query? "[[conn goal] [conn goal context] [conn goal context opts]]",
   readable-sentence "[[conn sx]]",
   representative "[[conn term] [conn term context]]",
@@ -115,6 +121,8 @@
   specified-violations
   "[[conn pred indep context] [conn pred indep context arg-pos]]",
   specs "[[conn t] [conn t context]]",
+  subsumption-status "[[conn a b] [conn a b context]]",
+  subsumption-statuses "[[conn a b] [conn a b context]]",
   supporting-justifications "[[conn handle]]",
   term-count "[[conn]]",
   term-expression "[[conn term]]",
@@ -148,17 +156,26 @@
   all-specified-violations "[[kb context]]",
   argue "[[kb asent context] [kb asent context opts]]",
   ask "[[kb goal] [kb goal context] [kb goal context opts]]",
-  ask-opt-keys :var,
+  ask-opt-keys [:max-ms],
   ask-within "[[kb goal budget] [kb goal context budget]]",
   ask? "[[kb goal] [kb goal context] [kb goal context opts]]",
   assert
   "[[kb sentence] [kb sentence context] [kb sentence context opts]]",
   assert-inert "[[kb sentence context]]",
   assert-many "[[kb sentences context] [kb sentences context opts]]",
-  assert-opt-keys :var,
+  assert-opt-keys
+  [:chain?
+   :creator
+   :direction
+   :max-depth
+   :max-derivations
+   :on-progress
+   :progress-every-ms
+   :provenance
+   :strength],
   assert-rule
   "[[kb antecedents consequent] [kb antecedents consequent context] [kb antecedents consequent context opts]]",
-  assertable-strengths :var,
+  assertable-strengths [:default :monotonic],
   belief-status "[[kb handle context]]",
   believed "[[kb handles]]",
   believed? "[[kb handle context]]",
@@ -179,7 +196,8 @@
   close! "[[kb]]",
   compare-tacticians
   "[[kb goal] [kb goal context] [kb goal context opts]]",
-  compare-tacticians-opt-keys :var,
+  compare-tacticians-opt-keys
+  [:max-depth :max-ms :node-budget :tacticians],
   conflicts "[[kb]]",
   context-down "[[kb c]]",
   context-of-agent "[[agent]]",
@@ -190,7 +208,7 @@
   count-in-context "[[kb context]]",
   count-with-arg "[[kb pos term]]",
   count-with-functor "[[kb pred]]",
-  default-chain-opts :var,
+  default-chain-opts [:max-depth :max-derivations],
   default-describe-limit :var,
   default-nearest-depth :var,
   default-nearest-ms :var,
@@ -198,12 +216,12 @@
   dependent-justifications "[[kb handle]]",
   deprecated? "[[kb term] [kb term context]]",
   describe "[[kb term] [kb term context] [kb term context opts]]",
-  describe-opt-keys :var,
+  describe-opt-keys [:limit],
   disjoint-metatypes "[[kb]]",
   disjoint? "[[kb a b] [kb a b context]]",
   disjointness-audit "[[kb] [kb context]]",
   edit! "[[kb batch]]",
-  edit-batch-keys :var,
+  edit-batch-keys [:add :remove],
   edit-with-consequences! "[[kb batch] [kb batch opts]]",
   equiv-class "[[kb term] [kb term context]]",
   escalate "[[kb goal] [kb goal context] [kb goal context floor]]",
@@ -249,7 +267,7 @@
   props "[[kb kind]]",
   provable? "[[kb goal] [kb goal context] [kb goal context opts]]",
   prove "[[kb goal] [kb goal context] [kb goal context opts]]",
-  prove-opt-keys :var,
+  prove-opt-keys [:max-depth :max-ms],
   prove-within "[[kb goal budget] [kb goal context budget]]",
   provenance "[[kb handle]]",
   qualitative-network "[[kb calculus context]]",
@@ -258,7 +276,8 @@
   quality-report "[[quality]]",
   query "[[kb goal] [kb goal context] [kb goal context opts]]",
   query-contexts :var,
-  query-opt-keys :var,
+  query-opt-keys
+  [:auto? :max-depth :portfolio? :proof? :racers :strategy],
   query-plan "[[kb goal] [kb goal context]]",
   query-status "[[kb goal context] [kb goal context opts]]",
   query? "[[kb goal] [kb goal context] [kb goal context opts]]",
@@ -266,6 +285,7 @@
   readable-sentence "[[sx]]",
   reasoner "[[nm]]",
   reasoners "[[]]",
+  rebuild-progress "[[kb]]",
   recover "[[kb]]",
   register-modal-predicate "[[kb pred] [kb pred context]]",
   reified-term? "[[term]]",
@@ -277,7 +297,7 @@
   retract! "[[kb handle]]",
   same-class? "[[kb a b] [kb a b context]]",
   search-tree "[[kb goal] [kb goal context] [kb goal context opts]]",
-  search-tree-opt-keys :var,
+  search-tree-opt-keys [:max-depth :max-ms :node-budget :strategy],
   sees? "[[kb k y]]",
   sentence-of "[[sx]]",
   sentex "[[kb handle]]",
@@ -317,19 +337,253 @@
   why "[[kb handle] [kb handle opts]]",
   why-not
   "[[kb handle] [kb sentence context] [kb sentence context opts]]",
-  why-not-opt-keys :var,
+  why-not-opt-keys [:max-depth :max-ms :nearest],
   with-deferred-settle "[[kb & body]]",
   write-hazards "[[kb]]"},
  vaelii.serve
  {-main "[[& args]]",
   app "[[kb] [kb opts]]",
-  feed-ops :var,
-  op-names :var,
-  ops :var,
+  feed-ops [:poll :unwatch :watch :watchers],
+  op-names
+  [:abduce
+   :abduce-discard
+   :add-provenance
+   :all-functional-at-instant-violations
+   :all-specified-violations
+   :argue
+   :ask
+   :ask-within
+   :ask?
+   :assert
+   :assert-many
+   :assert-rule
+   :belief-status
+   :believed
+   :believed?
+   :blocked-justifications
+   :caches
+   :calculi
+   :canonical-sentex
+   :chain-report
+   :chain-stats
+   :check
+   :check-edit
+   :clear-caches
+   :compare-tacticians
+   :conflicts
+   :context-down
+   :context-up
+   :contexts
+   :contexts-of
+   :contradictions
+   :count-in-context
+   :count-with-arg
+   :count-with-functor
+   :defeat-class
+   :dependent-justifications
+   :deprecated?
+   :describe
+   :disjoint-metatypes
+   :disjoint?
+   :edit
+   :edit-with-consequences
+   :equiv-class
+   :escalate
+   :explain-levels
+   :export
+   :exposed-clashes
+   :find-sentexes
+   :find-sentexes-all
+   :find-terms
+   :forward-chain
+   :functional-at-instant-violations
+   :genl?
+   :genls
+   :handle-of
+   :handles
+   :has-prop?
+   :in?
+   :inverse-of
+   :isa?
+   :justification
+   :kb-diff
+   :kb-quality
+   :last-program
+   :levels
+   :lookup
+   :metatype-members
+   :poll
+   :possible-relations
+   :premise?
+   :preview
+   :props
+   :provable?
+   :prove
+   :prove-within
+   :provenance
+   :qualitative-network
+   :qualitative-scenario
+   :qualitative-scenarios
+   :quality-report
+   :query
+   :query-plan
+   :query-status
+   :query?
+   :readable-sentence
+   :representative
+   :retract
+   :same-class?
+   :search-tree
+   :sees?
+   :sentence-of
+   :sentex
+   :sentex-count
+   :sentexes-in-context
+   :sentexes-matching
+   :sentexes-with-arg
+   :sentexes-with-functor
+   :settle-stats
+   :specified-violations
+   :specs
+   :subsumption-status
+   :subsumption-statuses
+   :supporting-justifications
+   :term-count
+   :term-expression
+   :terms
+   :types
+   :types-of
+   :unwatch
+   :violations
+   :vocabulary-audit
+   :watch
+   :watchers
+   :why
+   :why-not],
+  ops
+  [:abduce
+   :abduce-discard
+   :add-provenance
+   :all-functional-at-instant-violations
+   :all-specified-violations
+   :argue
+   :ask
+   :ask-within
+   :ask?
+   :assert
+   :assert-many
+   :assert-rule
+   :belief-status
+   :believed
+   :believed?
+   :blocked-justifications
+   :caches
+   :calculi
+   :canonical-sentex
+   :chain-report
+   :chain-stats
+   :check
+   :check-edit
+   :clear-caches
+   :compare-tacticians
+   :conflicts
+   :context-down
+   :context-up
+   :contexts
+   :contexts-of
+   :contradictions
+   :count-in-context
+   :count-with-arg
+   :count-with-functor
+   :defeat-class
+   :dependent-justifications
+   :deprecated?
+   :describe
+   :disjoint-metatypes
+   :disjoint?
+   :edit
+   :edit-with-consequences
+   :equiv-class
+   :escalate
+   :explain-levels
+   :export
+   :exposed-clashes
+   :find-sentexes
+   :find-sentexes-all
+   :find-terms
+   :forward-chain
+   :functional-at-instant-violations
+   :genl?
+   :genls
+   :handle-of
+   :handles
+   :has-prop?
+   :in?
+   :inverse-of
+   :isa?
+   :justification
+   :kb-diff
+   :kb-quality
+   :last-program
+   :levels
+   :lookup
+   :metatype-members
+   :possible-relations
+   :premise?
+   :preview
+   :props
+   :provable?
+   :prove
+   :prove-within
+   :provenance
+   :qualitative-network
+   :qualitative-scenario
+   :qualitative-scenarios
+   :quality-report
+   :query
+   :query-plan
+   :query-status
+   :query?
+   :readable-sentence
+   :representative
+   :retract
+   :same-class?
+   :search-tree
+   :sees?
+   :sentence-of
+   :sentex
+   :sentex-count
+   :sentexes-in-context
+   :sentexes-matching
+   :sentexes-with-arg
+   :sentexes-with-functor
+   :settle-stats
+   :specified-violations
+   :specs
+   :subsumption-status
+   :subsumption-statuses
+   :supporting-justifications
+   :term-count
+   :term-expression
+   :terms
+   :types
+   :types-of
+   :violations
+   :vocabulary-audit
+   :why
+   :why-not],
   port "[[server]]",
   start "[[kb opts]]"},
  vaelii.starter {load-into "[[kb]]"},
  vaelii.web
  {-main "[[& args]]",
+  consequences "[[view heading batch]]",
   handler "[[target] [target opts]]",
-  start "[[target opts]]"}}
+  local-kb "[[view]]",
+  read-form "[[s]]",
+  register-extension "[[ext-name ext]]",
+  render-form "[[view form]]",
+  start "[[target opts]]",
+  stored-sentexes "[[view result]]",
+  term-link "[[view term]]",
+  unregister-extension "[[ext-name]]"}}

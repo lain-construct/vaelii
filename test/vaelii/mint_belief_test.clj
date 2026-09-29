@@ -26,8 +26,8 @@
   *fact*, so `vr/generator-sentex?` is false of it and it is an **asserted premise**,
   correctly IN for the whole scenario (nothing in the engine defeats a rule, only its
   conclusion — docs/nmtms.md).  A `(->> rules (remove generator?) first)` helper picks
-  *it* up, not the derived mint, and then reports a believed rule after the defeat and
-  is indistinguishable from a soundness hole.  `the-marker-default-is-not-the-mint` pins the two apart:
+  *it* up, not the derived mint, and then reports a believed rule after the defeat, which
+  looks like a soundness hole.  `the-marker-default-is-not-the-mint` pins the two apart:
   the marker is a premise, the mint is derived, and only the mint's belief moves."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]

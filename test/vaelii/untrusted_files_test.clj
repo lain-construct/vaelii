@@ -8,16 +8,20 @@
   are read before anything about them has been checked.  A nippy frame can name a class,
   and reading one resolves the name and builds an instance of it; an EDN manifest is read
   by name, so a gigabyte called `meta.edn` is a gigabyte in the heap on the strength of a
-  filename.  `vaelii.impl.io.thaw` closes the first and `vaelii.impl.io.import`'s
-  `read-edn-manifest` the second.
+  filename.  `vaelii.impl.io.thaw` closes the first and `vaelii.impl.disk.files`'
+  `read-edn-manifest` the second.  A text KB file is read form by form, and a form that
+  does not read is refused by file and line without its text.
 
   The *truncation* half of the same question — a file cut at an arbitrary byte — is
   `vaelii.truncation-fuzz-test`."
   (:require [clojure.java.io :as io]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [taoensso.nippy :as nippy]
             [vaelii.browser.catalog :as catalog]
             [vaelii.core :as v]
+            [vaelii.impl.disk.backend :as backend]
+            [vaelii.impl.disk.files :as dfiles]
             [vaelii.impl.io.frames :as frames]
             [vaelii.impl.io.import :as import]
             [vaelii.impl.io.thaw :as safe]
@@ -208,13 +212,14 @@
 ;; ---- the manifest bound --------------------------------------------------
 
 (defn- write-manifest!
-  "A file at `path` holding `n` bytes of EDN — a valid form when `n` is small, and a
-  valid one padded with a comment when it is large, so what refuses a big one is its
+  "A file at `path` holding `n` bytes of EDN — the form `head` (a dump's marker by
+  default), padded with a comment when `n` is large, so what refuses a big one is its
   size rather than its shape."
-  [^String path ^long n]
-  (let [head "{:format :vaelii/export :format-version 1} ;"
-        pad  (apply str (repeat (max 0 (- n (count head))) \x))]
-    (spit path (str head pad))))
+  ([path n] (write-manifest! path n "{:format :vaelii/export :format-version 1}"))
+  ([^String path ^long n ^String head]
+   (let [head (str head " ;")
+         pad  (apply str (repeat (max 0 (- n (count head))) \x))]
+     (spit path (str head pad)))))
 
 (deftest a-manifest-over-the-bound-is-refused-by-name
   (let [d (temp-dir "manifest")]
@@ -222,18 +227,47 @@
       (let [small (str (.getPath d) "/small.edn")
             big   (str (.getPath d) "/meta.edn")]
         (write-manifest! small 64)
-        (write-manifest! big (+ import/manifest-bytes 4096))
+        (write-manifest! big (+ dfiles/manifest-bytes 4096))
         (testing "an ordinary manifest reads"
           (is (= 1 (:format-version (import/read-edn-manifest small)))))
         (testing "one past the bound is refused, naming the file and the bound"
           (let [e (ex-data-of #(import/read-edn-manifest big))]
             (is (= :manifest-too-large (:type e)))
             (is (= big (:file e)))
-            (is (= import/manifest-bytes (:max e)))))
+            (is (= dfiles/manifest-bytes (:max e)))))
         (testing "and the dump reader is held to it, since meta.edn is read first"
           (is (= :manifest-too-large (:type (ex-data-of #(import/read-meta (.getPath d)))))))
         (testing "so is discovery, which reads the manifest of every directory it walks"
           (is (= :manifest-too-large (:type (ex-data-of #(catalog/classify d)))))))
+      (finally (rm-rf! d)))))
+
+(deftest a-store-sentinel-over-the-bound-is-refused-at-open-kb
+  ;; The padded form states a supported version, so the size is the only thing refused.
+  (let [d   (temp-dir "sentinel")
+        fmt (io/file d "records" "format.edn")]
+    (try
+      (.mkdirs (.getParentFile fmt))
+      (write-manifest! (.getPath fmt) (+ dfiles/manifest-bytes 4096) "{:format-version 1}")
+      (let [e (ex-data-of #(v/open-kb {:backend :disk-log :dir (.getPath d)}))]
+        (is (= :manifest-too-large (:type e)))
+        (is (str/ends-with? (str (:file e)) "records/format.edn")))
+      (finally (try (backend/close-dir! (.getPath d)) (catch Throwable _ nil))
+               (rm-rf! d)))))
+
+(deftest an-index-stamp-over-the-bound-is-read-under-the-bound
+  ;; Both stamps state a value the reader would accept, padded past the bound.  The
+  ;; layout stamp is a cache's, so past the bound it proves nothing and reads `:stale`
+  ;; (a rebuild), as a torn one does; the records stamp decides which store an index
+  ;; answers for, so it is refused by name.
+  (let [d (temp-dir "index-stamps")]
+    (try
+      (write-manifest! (.getPath (io/file d "layout.edn")) (+ dfiles/manifest-bytes 4096)
+                       "{:index-layout 7}")
+      (write-manifest! (.getPath (io/file d "records.edn")) (+ dfiles/manifest-bytes 4096)
+                       "{:records :a-store}")
+      (is (= :stale (dfiles/index-layout-decision (.getPath d) 7 true)))
+      (is (= :manifest-too-large
+             (:type (ex-data-of #(dfiles/records-identity (.getPath d))))))
       (finally (rm-rf! d)))))
 
 (deftest a-manifest-cut-mid-form-is-refused-by-name
@@ -256,3 +290,33 @@
       (is (nil? (catalog/classify d))
           "an unreadable manifest makes the directory not a KB, and says so by absence")
       (finally (rm-rf! d)))))
+
+(deftest a-text-kb-form-that-does-not-read-is-refused-by-file-and-line
+  ;; `kb-diff` sends a refusal's message over the wire, so the message names the file
+  ;; and the line and quotes nothing the file holds (`zzSecret` stands for that content).
+  (let [d (temp-dir "text")
+        f (io/file d "CxA.txt")]
+    (try
+      (doseq [[label line] [["an unknown tag" "(weighs Fido #zzSecret \"x\")"]
+                            ["read-eval" "(weighs Fido #=(zzSecret))"]
+                            ["an unbalanced form" "(dog zzSecret"]]]
+        (spit f (str ";; a comment\n(genl dog animal)\n\n" line "\n"))
+        (testing label
+          (let [e (try (v/load-text! (tu/fresh) (.getPath d)) nil
+                       (catch clojure.lang.ExceptionInfo e e))]
+            (is (= {:type :unreadable :file (.getPath f) :line 4} (ex-data e)))
+            (is (not (str/includes? (str (ex-message e)) "zzSecret"))))))
+      (finally (rm-rf! d)))))
+
+(deftest every-thaw-in-the-engine-goes-through-the-entry-point
+  ;; The reasoning image's two sections were thawed with bare nippy, so a class named
+  ;; in `state.nippy` was resolved on the next open.  `io/frames` thaws raw inside the
+  ;; `guarded` its caller opens; every other call goes through `vaelii.impl.io.thaw`.
+  (let [raw  #"nippy/(thaw|thaw-from-in!|fast-thaw)(?![\w-])"
+        held #{"src/vaelii/impl/io/thaw.clj" "src/vaelii/impl/io/frames.clj"}]
+    (is (= []
+           (for [^File f (file-seq (io/file "src"))
+                 :when (and (.isFile f) (.endsWith (.getName f) ".clj"))
+                 :let [path (.getPath f)]
+                 :when (and (not (held path)) (re-find raw (slurp f)))]
+             path)))))

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/test-matrix.sh — several configurations at once: the nine storage backends
-# and the six sweeps, concurrently, with one JVM each.
+# and the seven sweeps, concurrently, with one JVM each.
 #
 # Minutes where `test-backends.sh` and `test-sweeps.sh` in sequence take an hour.  Same
 # runs, same verdicts; what changes is that the box runs more than one of them at a
@@ -13,9 +13,9 @@
 # RUN WHAT THE CHANGE OWES, NOT EVERYTHING.  `--owed` reads the changed files and runs
 # the configurations that could disagree about them, printing the classification as it
 # goes; `scripts/lib/suite-configs.sh` carries the map and the reason each row is what
-# it is.  A bare run is the ROUTINE roster — thirteen of the fifteen, the two
+# it is.  A bare run is the ROUTINE roster — fourteen of the sixteen, the two
 # durable-records-with-a-derived-index pairs that are a third copy of one claim sitting
-# out — and `full` is the fifteen, which is what a release runs and what a change to
+# out — and `full` is the sixteen, which is what a release runs and what a change to
 # the record/index boundary itself owes.  Every run names what did not run, on the header
 # and again on the verdict.
 #
@@ -60,7 +60,7 @@
 # `failures.tsv` whatever the console prints, and the console shrinks its shape as the
 # count grows: blocks under nine, a line each under thirty, a count past that.
 #
-# THE TREE MOVING UNDER IT.  Several agents write this checkout, and a matrix is long
+# THE TREE MOVING UNDER IT.  Several writers work in this checkout, and a matrix is long
 # enough for two commits.  Every config records the revision it compiled, and the
 # report at the end says whether they all compiled the same one — and if not, lists the
 # commits that landed, marks the ones that touched `src/` or `test/`, and names which
@@ -85,11 +85,13 @@
 #   ./scripts/test-matrix.sh --owed           # only what the changed files owe
 #   ./scripts/test-matrix.sh --owed -n        # ...and print that set without running it
 #   ./scripts/test-matrix.sh --owed=<ref>     # ...measuring the change from <ref> instead
-#   ./scripts/test-matrix.sh full             # all fifteen — a release, or a protocol change
+#   ./scripts/test-matrix.sh --covered=<rev>  # has a matrix run what <rev> (or <a>..<b>) owes?
+#   ./scripts/test-matrix.sh full             # all sixteen — a release, or a protocol change
 #   ./scripts/test-matrix.sh full :all        # ...with the ^:slow half — before a tag
 #   ./scripts/test-matrix.sh backends         # one axis (also: sweeps, routine, full)
 #   ./scripts/test-matrix.sh memory disk-log rete   # only these
 #   ./scripts/test-matrix.sh --jobs 4         # fewer at a time, on a box you are using
+#   ./scripts/test-matrix.sh --set-jobs 6     # the RUNNING matrix: 6 at a time from now on
 #   ./scripts/test-matrix.sh --keep           # keep each durable run's scratch directory
 #   ./scripts/test-matrix.sh --fail-fast      # launch nothing new once one has failed
 #   ./scripts/test-matrix.sh --ordered        # longest first, not shuffled
@@ -101,6 +103,10 @@
 #   MATRIX_KEEP_RUNS  past run dirs to keep (default 20); a run touched in the last 24h is
 #                     never pruned regardless, so a parallel run is never a candidate
 #   MATRIX_JOBS       how many at a time (default: scripts/lib/slots.sh)
+#   MATRIX_OWED_MAX   the most configurations an `--owed` run starts (default 4; 0 for
+#                     no cap), taken off the front of the launch order
+#   MATRIX_RED_COOLDOWN  seconds after a red run during which no matrix starts or
+#                     queues (default 1800; 0 turns it off)
 #   TEST_MATRIX_SEED  the shuffle seed (default: a fresh one, reported per run), the
 #                     counterpart of `test-shuffle.sh`'s TEST_SHUFFLE_SEED.  A seed
 #                     replays an order within one script and not across the two: the
@@ -119,11 +125,34 @@
 #
 # ^C stops every running suite and then the script.
 #
+# ONE MATRIX AT A TIME, FROM THE PRIMARY.  A run in a linked worktree is refused
+# (`ALLOW_WORKTREE_RUN=1` overrides).  A run that finds another matrix going does not
+# start: `--owed` queues its baseline, and the running matrix starts one more over
+# every queued baseline as it ends, logging to `testbench/matrix-queue-<time>.log`
+# (scripts/lib/slots.sh).  `--covered` then answers whether a commit has been run, from
+# the primary's run directories, and runs from anywhere.
+#
+# NOTHING FOR 30 MINUTES AFTER A RED.  A run with a failing configuration drops the queue,
+# and for MATRIX_RED_COOLDOWN seconds no matrix starts or queues: the refusal (exit 75)
+# names the red run's directory, which tests failed under which configurations, and who
+# asked for the run (`requested-by` in the run directory), and tells the requester to report
+# that to the user and wait.  A green run lifts it.
+#
 # Exit: 0 when every configuration run passed (and 0 with nothing run when `--owed`
 # finds nothing owed, which it says), 1 when one failed, 130 when interrupted.  A tree
 # that moved does not change the exit status — it is a fact about the runs, not a
 # verdict on them, and a green matrix across two revisions is still that many green runs.
+# 75 when the run did not start because another matrix holds the lock (queued, for
+# `--owed`).  `--covered`: 0 covered, 1 an owed configuration's newest run failed, 75 not
+# yet run.
 
+# Under `sh` — not bash, or bash in POSIX mode — the libraries' `< <(…)` is a syntax
+# error, so run again under bash.  POSIX syntax up to here, so any `sh` parses it.
+if [ -z "${BASH_VERSION:-}" ] || shopt -qo posix 2>/dev/null; then
+  exec bash "$0" "$@"
+fi
+
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -200,15 +229,35 @@ FAIL_FAST=0
 OWED=0
 OWED_BASE=""
 DRY=0
+COVERED=""
 SHUFFLE=1
 HEARTBEAT="${MATRIX_HEARTBEAT:-60}"
 WANTED=()
+NAMED=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --jobs) [[ $# -ge 2 ]] || { echo "test-matrix: --jobs needs a value" >&2; exit 2; }
             JOBS="$2"; shift 2 ;;
     --jobs=*) JOBS="${1#*=}"; shift ;;
+    # the running matrix's slot count, from any shell or worktree: a raise launches more
+    # at once on its next pass, a lower launches nothing new until fewer are running
+    # (nothing running is stopped).  `jobs` in scripts/lib/slots.sh.
+    --set-jobs|--set-jobs=*)
+      if [[ "$1" == --set-jobs ]]; then
+        [[ $# -ge 2 ]] || { echo "test-matrix: --set-jobs needs a value" >&2; exit 2; }
+        live="$2"
+      else
+        live="${1#*=}"
+      fi
+      [[ "$live" =~ ^[1-9][0-9]*$ ]] \
+        || { echo "test-matrix: --set-jobs needs a positive integer, not '$live'" >&2; exit 2; }
+      holder=$(matrix_lock_holder)
+      [[ -n "$holder" ]] || { echo "test-matrix: no matrix is running" >&2; exit 1; }
+      jobs_file=$(matrix_jobs_file) || { echo "test-matrix: no .git/vaelii-matrix" >&2; exit 1; }
+      printf '%s\n' "$live" >|"$jobs_file"
+      echo "matrix pid ${holder%% *}: $live at a time from its next pass"
+      exit 0 ;;
     --keep) KEEP=1; shift ;;
     --fail-fast) FAIL_FAST=1; shift ;;
     # the launch order: shuffled by default, longest-first on request.  The block that
@@ -226,6 +275,8 @@ while [[ $# -gt 0 ]]; do
                 echo "test-matrix: --owed=$OWED_BASE is not a commit this repository has" >&2
                 exit 2; }
               shift ;;
+    --covered) COVERED="HEAD"; shift ;;
+    --covered=*) COVERED="${1#--covered=}"; shift ;;
     -n|--dry-run) DRY=1; shift ;;
     -h|--help) awk 'NR>1 && /^#/ {sub(/^# ?/, ""); print; next} NR>1 {exit}' "$0"; exit 0 ;;
     :all|:slow|:default) SELECTOR="$1"; shift ;;
@@ -245,6 +296,113 @@ while [[ $# -gt 0 ]]; do
        shift ;;
   esac
 done
+
+# ---- the cooldown after a red matrix (scripts/lib/slots.sh) --------------------
+#
+# red_notice <red line> says that the last matrix went red, where its results are, which
+# tests failed under which configurations, who asked for it, and when the next matrix
+# may start.  It is addressed to the requester that was refused, which is who reads it.
+red_notice() {
+  local epoch=${1%% *} run=${1#* } cool="${MATRIX_RED_COOLDOWN:-1800}" until who rev
+  until=$(date -r $((epoch + cool)) '+%H:%M' 2>/dev/null || date -d "@$((epoch + cool))" '+%H:%M')
+  who=$(paste -sd, - <"$run/requested-by" 2>/dev/null)
+  rev=$(awk -F'\t' 'NR > 1 && $3 != "" { print $3 }' "$run/summary.tsv" 2>/dev/null \
+          | sort -u | paste -sd, -)
+  echo "${RED}${BOLD}the last matrix went red $(( ($(date '+%s') - epoch) / 60 )) min ago${OFF}" \
+       "— no matrix starts or queues before $until"
+  echo "  run:        $run"
+  echo "  results:    failures.tsv (test, config), summary.tsv and <config>.log there"
+  echo "  revision:   ${rev:-unknown}"
+  echo "  in charge:  ${who:-unknown}"
+  if [[ -s "$run/queue-dropped" ]]; then
+    read -r q_base q_sel q_who <"$run/queue-dropped"
+    echo "  dropped:    the queued request of ${q_who//,/, } (--owed=${q_base:0:8} $q_sel), not run"
+  fi
+  echo "  failed:     each test with the command that re-runs it under one configuration"
+  if [[ -s "$run/failures.tsv" ]]; then
+    local t cfgs n=0
+    while IFS=$'\t' read -r t cfgs; do
+      n=$((n + 1))
+      if (( n > 12 )); then echo "    …and more tests in failures.tsv"; break; fi
+      echo "    $t — $cfgs"
+      echo "      ${DIM}env $(config_env "${cfgs%% *}") lein test :only $t${OFF}"
+    done < <(awk -F'\t' '{ if (!($1 in c)) { o[++n] = $1; c[$1] = $2 } else c[$1] = c[$1] " " $2 }
+                         END { for (i = 1; i <= n; i++) printf "%s\t%s\n", o[i], c[o[i]] }' \
+               "$run/failures.tsv")
+  fi
+  awk -F'\t' -v rows="$run/failures.tsv" -v run="$run" '
+    BEGIN { while ((getline l < rows) > 0) { split(l, f, "\t"); named[f[2]] = 1 } }
+    NR > 1 && $4 == "failed" && !($1 in named) {
+      printf "    %s — no failing test named, see %s/%s.log\n", $1, run, $1 }' \
+    "$run/summary.tsv" 2>/dev/null
+  echo
+  echo "Those results may already cover your change: read them before running again.  To"
+  echo "check a fix, run the command under a failing test: one test, one configuration."
+  echo "Tell the user which tests failed under which configurations, and whose run it was"
+  echo "(\"in charge\" above).  Then wait until $until, $((cool / 60)) minutes after the red, to try again."
+}
+
+# ---- --covered: has a matrix run what these commits owe? ----------------------
+#
+# The owed set of the commits (`<rev>` alone is `<rev>^..<rev>`), each configuration in
+# it matched against the newest run of it, in the primary's run directories, whose
+# compiled revision contains the tip.  A run started over a dirty src/ or test/ answers
+# for no commit and is passed over.  Read-only, so it runs from any worktree.
+covered_report() {
+  local from tip home c d row rev st dirty verdict pending=0 failed=0 want=() path got
+  case "$1" in
+    *..*) from=${1%%..*}; tip=${1##*..} ;;
+    *)    from="$1^"; tip=$1 ;;
+  esac
+  if ! tip=$(git rev-parse --verify --quiet "${tip:-HEAD}^{commit}") \
+     || ! from=$(git rev-parse --verify --quiet "${from}^{commit}"); then
+    echo "test-matrix: --covered=$1 does not name commits this repository has" >&2; exit 2
+  fi
+  while IFS= read -r path; do
+    got=$(config_owed_for_path "$path")
+    # shellcheck disable=SC2206  # a row is a space-separated list of names and groups
+    [[ -n "$got" ]] && want+=($got)
+  done < <(git diff --name-only "$from" "$tip")
+  if [[ ${#want[@]} -eq 0 ]]; then
+    echo "${GREEN}$(git rev-parse --short "$tip") owes the matrix no configuration${OFF}"
+    exit 0
+  fi
+  home=$(dirname "$(common_git_dir)")
+  echo "${BOLD}what $(git rev-parse --short "$from")..$(git rev-parse --short "$tip") owes," \
+       "against the matrices run in $home${OFF}"
+  while IFS= read -r c; do
+    verdict=""
+    while IFS= read -r d; do
+      row=$(awk -F'\t' -v c="$c" '$1 == c' "$d" 2>/dev/null | tail -1)
+      [[ -n "$row" ]] || continue
+      rev=$(cut -f3 <<<"$row"); st=$(cut -f4 <<<"$row")
+      git merge-base --is-ancestor "$tip" "$rev" 2>/dev/null || continue
+      d=${d%/summary.tsv}
+      dirty=$(awk -F'\t' -v l="logs/test-matrix/${d##*/}" '$4 == "matrix" && $11 == l { print $8 }' \
+                "$home/logs/runs.tsv" 2>/dev/null | tail -1)
+      [[ "${dirty:-0}" -gt 0 ]] && continue
+      verdict="$st at $rev  ${DIM}$d${OFF}"; break
+    done < <(ls -t "$home"/logs/test-matrix/run-*/summary.tsv 2>/dev/null)
+    case "$verdict" in
+      passed*) printf '  %s✔%s %-16s %s\n' "$GREEN" "$OFF" "$c" "$verdict" ;;
+      failed*) printf '  %s✘%s %-16s %s\n' "$RED" "$OFF" "$c" "$verdict"; failed=1 ;;
+      *)       printf '  %s·%s %-16s %snot yet run at a clean revision holding it%s\n' \
+                 "$DIM" "$OFF" "$c" "$DIM" "$OFF"; pending=1 ;;
+    esac
+  done < <(expand_configs "${want[@]}")
+  row=$(matrix_lock_holder)
+  [[ -n "$row" ]] && echo "${DIM}running now: pid ${row%% *}, at revision $(cut -d' ' -f2 <<<"$row"), $(cut -d' ' -f4 <<<"$row")${OFF}"
+  d=$(matrix_state_dir) && [[ -s "$d/queue" ]] \
+    && echo "${DIM}queued behind it: $(wc -l <"$d/queue" | tr -d ' ') request(s)${OFF}"
+  (( failed )) && exit 1
+  if (( pending )); then
+    row=$(matrix_red_recent)
+    [[ -n "$row" ]] && { echo; red_notice "$row"; }
+    exit 75
+  fi
+  exit 0
+}
+[[ -n "$COVERED" ]] && covered_report "$COVERED"
 
 # ---- --owed: the configurations THIS working tree's changes owe ---------------
 #
@@ -288,6 +446,8 @@ if (( OWED )); then
       # deliberately unquoted: a row is a space-separated list of names and groups
       # shellcheck disable=SC2206
       WANTED+=($got)
+      # the configurations a file names itself, which the cap below keeps first
+      for w in $got; do config_group "$w" >/dev/null 2>&1 || NAMED+=("$w"); done
     else
       quiet=$((quiet + 1))
     fi
@@ -312,41 +472,6 @@ if (( OWED )); then ROSTER_LABEL="owed"; else ROSTER_LABEL="${WANTED[*]}"; fi
 CONFIGS=()
 while IFS= read -r c; do CONFIGS+=("$c"); done < <(expand_configs "${WANTED[@]}")
 [[ ${#CONFIGS[@]} -gt 0 ]] || { echo "no configurations selected" >&2; exit 2; }
-
-# What is NOT running, in the full roster's order — read once here and printed with the
-# header and again with the verdict.  Uniform across every way of choosing: a bare run,
-# a group, `--owed` and a hand-named list all answer the same question the same way.
-SAT_OUT=()
-for c in "${ALL_BACKENDS[@]}" "${ALL_SWEEPS[@]}"; do
-  running=0
-  for r in "${CONFIGS[@]}"; do [[ "$c" == "$r" ]] && { running=1; break; }; done
-  (( running )) || SAT_OUT+=("$c")
-done
-ROSTER_TOTAL=$(( ${#ALL_BACKENDS[@]} + ${#ALL_SWEEPS[@]} ))
-# The routine roster's size, which is the floor a run has to reach to be filed as
-# the matrix rather than as a subset (see the ledger row at the end).
-ROUTINE_TOTAL=$(( ROSTER_TOTAL - ${#ROUTINE_SKIP[@]} ))
-
-# WHAT THIS ROSTER COVERS: `full` where nothing sits out, `routine` where the only
-# ones sitting out are the two the routine roster leaves out, empty otherwise.  A
-# subset that covers the routine roster answers the matrix column's question as
-# well as its own — `--owed` on a change that owes everything runs a wider roster
-# than a bare `lein test-matrix` does — so the ledger row below names it and the
-# tool reading the row files it under both columns.
-COVERS=""
-covered=1
-# `${SAT_OUT[@]+...}` because bash 3.2 — which is what macOS ships — treats an empty
-# array expanded as `"${a[@]}"` under `set -u` as an unbound variable.  SAT_OUT is empty
-# exactly when the roster leaves nothing out, so a `--owed` set covering all
-# $ROSTER_TOTAL configurations is the case that reaches it.
-for c in ${SAT_OUT[@]+"${SAT_OUT[@]}"}; do
-  optional=0
-  for s in "${ROUTINE_SKIP[@]}"; do [[ "$c" == "$s" ]] && { optional=1; break; }; done
-  (( optional )) || { covered=0; break; }
-done
-if (( covered )); then
-  if [[ ${#SAT_OUT[@]} -eq 0 ]]; then COVERS="full"; else COVERS="routine"; fi
-fi
 
 # THE LAUNCH ORDER, of which there are two: a SHUFFLE, which is the default, and
 # LONGEST FIRST under `--ordered`.
@@ -408,6 +533,67 @@ else
 fi
 CONFIGS=("${ORDERED[@]}")
 
+# AN OWED RUN IS CAPPED at MATRIX_OWED_MAX configurations (default 4; 0 lifts the cap),
+# taken off the front of the launch order.  An owed set reaches most of the roster once
+# a diff touches the engine, and the queue re-runs it after every matrix, so an uncapped
+# owed run repeated the same failures across a dozen JVMs.  A configuration a changed
+# file names itself (`disk-snapshot` for the reasoning image) goes ahead of the ones a
+# group word (`routine`) brought in, each half in launch order, so the cap never drops
+# the configuration that swaps the changed file for one that merely could disagree.
+# The shuffle picks a different four each run, so repeated runs still reach the rest;
+# the dropped ones are on the `not run:` line like any other.
+OWED_MAX="${MATRIX_OWED_MAX:-4}"
+[[ "$OWED_MAX" =~ ^[0-9]+$ ]] \
+  || { echo "test-matrix: MATRIX_OWED_MAX needs a whole number, not '$OWED_MAX'" >&2; exit 2; }
+if (( OWED && OWED_MAX > 0 && ${#CONFIGS[@]} > OWED_MAX )); then
+  first=(); rest=()
+  for c in "${CONFIGS[@]}"; do
+    named=0
+    for w in ${NAMED[@]+"${NAMED[@]}"}; do [[ "$c" == "$w" ]] && { named=1; break; }; done
+    if (( named )); then first+=("$c"); else rest+=("$c"); fi
+  done
+  CONFIGS=(${first[@]+"${first[@]}"} ${rest[@]+"${rest[@]}"})
+  echo "  ${DIM}owed ${#CONFIGS[@]}, running the first $OWED_MAX (MATRIX_OWED_MAX)," \
+       "${#first[@]} named by a changed file${OFF}"
+  CONFIGS=("${CONFIGS[@]:0:OWED_MAX}")
+fi
+
+# What is NOT running, in the full roster's order — read once here and printed with the
+# header and again with the verdict.  Uniform across every way of choosing: a bare run,
+# a group, `--owed` and a hand-named list all answer the same question the same way.
+SAT_OUT=()
+for c in "${ALL_BACKENDS[@]}" "${ALL_SWEEPS[@]}"; do
+  running=0
+  for r in "${CONFIGS[@]}"; do [[ "$c" == "$r" ]] && { running=1; break; }; done
+  (( running )) || SAT_OUT+=("$c")
+done
+ROSTER_TOTAL=$(( ${#ALL_BACKENDS[@]} + ${#ALL_SWEEPS[@]} ))
+# The routine roster's size, which is the floor a run has to reach to be filed as
+# the matrix rather than as a subset (see the ledger row at the end).
+ROUTINE_TOTAL=$(( ROSTER_TOTAL - ${#ROUTINE_SKIP[@]} ))
+
+# WHAT THIS ROSTER COVERS: `full` where nothing sits out, `routine` where the only
+# ones sitting out are the two the routine roster leaves out, empty otherwise.  A
+# subset that covers the routine roster answers the matrix column's question as
+# well as its own — `--owed` on a change that owes everything runs a wider roster
+# than a bare `lein test-matrix` does — so the ledger row below names it and the
+# tool reading the row files it under both columns.
+COVERS=""
+covered=1
+# `${SAT_OUT[@]+...}` because bash 3.2 — which is what macOS ships — treats an empty
+# array expanded as `"${a[@]}"` under `set -u` as an unbound variable.  SAT_OUT is empty
+# exactly when the roster leaves nothing out, so a `--owed` set covering all
+# $ROSTER_TOTAL configurations is the case that reaches it.
+for c in ${SAT_OUT[@]+"${SAT_OUT[@]}"}; do
+  optional=0
+  for s in "${ROUTINE_SKIP[@]}"; do [[ "$c" == "$s" ]] && { optional=1; break; }; done
+  (( optional )) || { covered=0; break; }
+done
+if (( covered )); then
+  if [[ ${#SAT_OUT[@]} -eq 0 ]]; then COVERS="full"; else COVERS="routine"; fi
+fi
+
+
 # Slots default from `scripts/lib/slots.sh` — the same rule `test-parallel.sh` shards by:
 # half the performance cores, less the vaelii JVMs already running on the box.  Each run is
 # about one core of test work, so a slot count near the core count keeps every core busy
@@ -429,6 +615,27 @@ if (( DRY )); then
     printf '  %-16s %s%s%s\n' "$c" "$DIM" "env $(config_env "$c") lein test $SELECTOR" "$OFF"
   done
   exit 0
+fi
+
+# ---- one matrix at a time, from the primary (scripts/lib/slots.sh) ------------
+require_primary "lein test-matrix"
+red=$(matrix_red_recent)
+if [[ -n "$red" ]]; then red_notice "$red"; exit 75; fi
+MATRIX_RUN_DIR="${TEST_MATRIX_OUT:-logs/test-matrix/run-$$}"
+if ! matrix_lock_take "$(revision_hash)" "$PWD/$MATRIX_RUN_DIR"; then
+  holder=$(matrix_lock_holder)
+  echo "${BOLD}a matrix is already running${OFF} ${DIM}(pid ${holder%% *}, at revision" \
+       "$(cut -d' ' -f2 <<<"$holder"), $(cut -d' ' -f4 <<<"$holder"))${OFF}"
+  if (( OWED )); then
+    base=${OWED_BASE:-$(git rev-parse --verify --quiet '@{upstream}' || git rev-parse HEAD)}
+    matrix_queue_add "$(git rev-parse "$base^{commit}")" "$SELECTOR" "$(matrix_requester)"
+    echo "queued --owed=$(git rev-parse --short "$base^{commit}") $SELECTOR: it runs, with every" \
+         "other queued request, when that one ends."
+    echo "${DIM}\`lein test-matrix --covered=<your first>..<your last>\` says when your commits have run.${OFF}"
+  else
+    echo "not started: run it again when that one ends, or queue it with --owed=<ref>."
+  fi
+  exit 75
 fi
 
 # Keep a generous tail of past run directories and never delete a recent one.  Nothing
@@ -462,6 +669,9 @@ fi
 # absolute, so the reproducer header's `# <dir>` pastes from any directory rather than
 # only from the checkout root.  The dir exists by now (mkdir above), so the `cd` holds.
 ABS_OUT_DIR=$(cd "$OUT_DIR" 2>/dev/null && pwd) || ABS_OUT_DIR="$OUT_DIR"
+# Who asked for this run, one per line: the requesters a queued run inherits from the
+# matrix that started it, or whoever ran this.
+printf '%s\n' "${MATRIX_REQUESTED_BY:-$(matrix_requester)}" | tr , '\n' >|"$OUT_DIR/requested-by"
 
 RUN_NS_COUNT=$(selected_ns_count "$SELECTOR")
 
@@ -511,7 +721,7 @@ n=${#CONFIGS[@]}
 # that configuration starts.  Nothing else can say which configuration a JVM is
 # running: a configuration is chosen by the environment variables `launch` passes
 # its subshell, and an environment never reaches a command line — so a process
-# table alone tells thirteen matrix JVMs apart by pid and by nothing else, and
+# table alone tells fourteen matrix JVMs apart by pid and by nothing else, and
 # vaelii-top's JVM tile (the vaelii-tools repository) had to repeat this run's progress on every one of
 # them.  `set -m` puts each configuration's subshell in a group of its own, and
 # the launcher JVM and the project JVM it trampolines into both carry it, so the
@@ -573,12 +783,67 @@ stop_all() {
   done
 }
 
+# One row per configuration into `summary.tsv`, so a later reader — or whoever ran
+# this — does not have to parse the console.  Defined up here because the INT/TERM trap
+# writes it too: a run stopped part-way still finished the configurations it finished.
+write_summary() {
+  local i
+  {
+    printf 'config\tkind\trevision\tstate\tseconds\tsummary\tcounts\n'
+    for ((i = 0; i < n; i++)); do
+      printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
+        "${CONFIGS[i]}" "$(config_kind "${CONFIGS[i]}")" "${rev[i]:-}" "${state[i]}" \
+        "${secs[i]}" \
+        "$([[ -n "${logf[i]:-}" ]] && run_summary "${logf[i]}")" \
+        "$([[ -n "${logf[i]:-}" ]] && run_counts "${logf[i]}")"
+    done
+  } > "$OUT_DIR/summary.tsv"
+}
+
+# ledger_variant <skipped> — the ledger row's `variant`; the ledger-row section at the
+# end of this script says why a subset files under its own.
+ledger_variant() {
+  local variant="$SELECTOR"
+  if (( OWED || n < ROUTINE_TOTAL )); then
+    variant="$SELECTOR owed"
+    if [[ -n "$COVERS" && ${1:-0} -eq 0 ]]; then variant="$SELECTOR owed covering"; fi
+  fi
+  printf '%s' "$variant"
+}
+
+# A stopped run files its row too.  Without one, the configurations it finished — a red
+# among them — are in no ledger, and a reader of the history sees a commit the matrix
+# never ran at, when it ran there and failed.  `failed` where a configuration failed
+# before the stop, since that verdict stands whatever came after; `interrupted`
+# otherwise.  Nothing is filed for a stop before the first launch (`runlog_start` has
+# not stamped the run), which ran nothing.
+# shellcheck disable=SC2317,SC2329  # invoked from the INT/TERM trap below
+record_interrupted() {
+  [[ -n "${RUNLOG_EPOCH:-}" ]] || return 0
+  local i finished=0 stopped_state=interrupted
+  for ((i = 0; i < n; i++)); do
+    case "${state[i]}" in
+      passed|failed) finished=$((finished + 1)) ;;
+      running)       state[i]=interrupted ;;
+      queued)        state[i]=skipped ;;
+    esac
+  done
+  write_summary 2>/dev/null
+  (( ${#FAILED[@]} > 0 )) && stopped_state=failed
+  runlog_record matrix "$(ledger_variant $((n - finished)))" "$stopped_state" \
+    "$(printf '%d of %d configurations, roster %s, %d failed, %d skipped, interrupted after %d finished' \
+         "$n" "$ROSTER_TOTAL" "$ROSTER_LABEL" "${#FAILED[@]}" $((n - finished)) "$finished")" \
+    "$OUT_DIR"
+}
+
 # shellcheck disable=SC2317,SC2329  # ditto — `trap on_interrupt INT TERM`
 on_interrupt() {
   trap - INT TERM
   echo; echo "  ${RED}^C${OFF} ${DIM}stopping every running suite${OFF}"
   { stop_all; } 2>/dev/null
+  record_interrupted
   echo "  ${DIM}partial logs in $OUT_DIR/${OFF}"
+  matrix_lock_release
   exit 130
 }
 trap on_interrupt INT TERM
@@ -702,7 +967,7 @@ reap() {                                           # reap <index> -> prints its 
 # multi-byte cells never have to line up with a byte-counted `printf` width — the colour
 # escapes it emits are zero-width bytes, so they do not disturb that either.  The reached
 # run and its head carry the verdict colour `col`; the unreached remainder is dim grey,
-# so the bar is indistinguishable from a filling gauge rather than a solid green (or red) block.
+# so the bar looks like a filling gauge rather than a solid green (or red) block.
 bar() {                                            # bar <reached> <total> <width> <col>
   local reached="$1" total="$2" w="$3" col="$4" fill i s=""
   (( total < 1 )) && total=1
@@ -869,8 +1134,8 @@ redraw() {
         fi ;;
     esac
   done
-  paint "$(printf '  %s%d running · %d done · %d queued        %s elapsed%s' \
-    "$DIM" "$run" "$donec" "$q" "$(hms $((SECONDS - T0)))" "$OFF")"
+  paint "$(printf '  %s%d running · %d done · %d queued · %d at a time        %s elapsed%s' \
+    "$DIM" "$run" "$donec" "$q" "$JOBS" "$(hms $((SECONDS - T0)))" "$OFF")"
 
   # A frame shrinks when a running row finishes and loses its bar line, leaving the
   # screen rows below this one still holding the previous frame's text.  Blank them, then
@@ -927,8 +1192,19 @@ echo
 # script ends — a clean finish, a failure, or the INT/TERM trap's `exit 130`
 if (( LIVE )); then printf '\033[?25l'; trap 'printf "\033[?25h"' EXIT; fi
 
+JOBS_FILE=$(matrix_jobs_file) || JOBS_FILE=""
 done_n=0; running=0; next=0; last_beat=$SECONDS
 while (( done_n < n )); do
+  # `--set-jobs` from another shell, capped at the configuration count as `--jobs` is
+  if [[ -n "$JOBS_FILE" && -s "$JOBS_FILE" ]] && read -r live <"$JOBS_FILE" \
+     && [[ "$live" =~ ^[1-9][0-9]*$ ]]; then
+    (( live > n )) && live=$n
+    if (( live != JOBS )); then
+      (( LIVE )) || echo "  ${DIM}now $live at a time (--set-jobs), was $JOBS${OFF}"
+      JOBS=$live
+    fi
+  fi
+
   while (( running < JOBS && next < n )); do
     if (( FAIL_FAST && ${#FAILED[@]} > 0 )); then break; fi
     launch "$next"; next=$((next + 1)); running=$((running + 1))
@@ -989,18 +1265,8 @@ END_DIRTY=$(revision_dirty)
 ELAPSED=$((SECONDS - T0))
 
 # ---- the machine-readable half ----------------------------------------------
-# One row per configuration, so a later reader — or the agent that ran this — does not
-# have to parse the console.  Written whatever the verdict.
-{
-  printf 'config\tkind\trevision\tstate\tseconds\tsummary\tcounts\n'
-  for ((i = 0; i < n; i++)); do
-    printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' \
-      "${CONFIGS[i]}" "$(config_kind "${CONFIGS[i]}")" "${rev[i]:-}" "${state[i]}" \
-      "${secs[i]}" \
-      "$([[ -n "${logf[i]:-}" ]] && run_summary "${logf[i]}")" \
-      "$([[ -n "${logf[i]:-}" ]] && run_counts "${logf[i]}")"
-  done
-} > "$OUT_DIR/summary.tsv"
+# Written whatever the verdict (`write_summary`).
+write_summary
 
 # What the NEXT run orders itself by.  Per checkout rather than per run — it is feedback
 # for the next matrix, not output of this one, so it sits above the run directories the
@@ -1126,7 +1392,7 @@ skipped=0
 for ((i = 0; i < n; i++)); do [[ "${state[i]}" == skipped ]] && skipped=$((skipped + 1)); done
 if [[ ${#FAILED[@]} -eq 0 && $skipped -eq 0 ]]; then
   # the roster is part of the verdict, not a footnote to it: "all green" over a subset
-  # is a different sentence from "all green" over the fifteen, and this is the line
+  # is a different sentence from "all green" over the sixteen, and this is the line
   # that gets quoted into a commit message
   if [[ ${#SAT_OUT[@]} -gt 0 ]]; then
     echo "${GREEN}${BOLD}all $n of $ROSTER_TOTAL configurations green${OFF}" \
@@ -1152,7 +1418,7 @@ fi
 (( SHUFFLE )) && echo "  ${DIM}shuffled, seed $SEED — TEST_MATRIX_SEED=$SEED runs this order again${OFF}"
 
 # ---- did every run run the same suite? ---------------------------------------
-# The question a GREEN matrix asks, and the one nothing used to answer.  Thirteen runs
+# The question a GREEN matrix asks, and the one nothing used to answer.  Fourteen runs
 # that all pass have still told you nothing if one of them ran four hundred fewer
 # assertions than the rest: a namespace that failed to load, a `deftest` that stood aside
 # without saying so, a gate that inherited a switch and measured nothing.  Every one of
@@ -1245,7 +1511,7 @@ matrix_summary=$(printf '%d of %d configurations, roster %s, %d failed, %d skipp
 # A SUBSET IS ITS OWN VERDICT, so it goes under its own variant rather than
 # overwriting the matrix's.  `lein test-matrix --owed` is the common way to run
 # one — it runs what the changed files owe — and "the matrix is green" off
-# thirteen configurations is a different sentence from the same words off three.
+# fourteen configurations is a different sentence from the same words off three.
 # Filed under one variant, the cheap run would keep hiding when the whole roster
 # last ran, which is the question the row exists to answer.
 #
@@ -1266,11 +1532,7 @@ matrix_summary=$(printf '%d of %d configurations, roster %s, %d failed, %d skipp
 # under, and the matrix column whose question it also settled.  Claimed only
 # where nothing was skipped — a run stopped by `--fail-fast` or by ^C planned a
 # roster it did not finish, and the plan's word for it is an intention.
-matrix_variant="$SELECTOR"
-if (( OWED || n < ROUTINE_TOTAL )); then
-  matrix_variant="$SELECTOR owed"
-  if [[ -n "$COVERS" && $skipped -eq 0 ]]; then matrix_variant="$SELECTOR owed covering"; fi
-fi
+matrix_variant=$(ledger_variant "$skipped")
 if [[ ${#FAILED[@]} -eq 0 && $skipped -eq 0 && $deltas_bad -eq 0 ]]; then
   matrix_state=passed
 elif (( skipped == n )); then
@@ -1281,5 +1543,41 @@ else
 fi
 runlog_record matrix "$matrix_variant" "$matrix_state" "$matrix_summary" "$OUT_DIR"
 
+# ---- the queued requests: one more matrix over all of them, detached ----------
+# From the primary at its HEAD, whichever checkout this ran in.  A request that arrives
+# between the release and the next run's lock starts its own run, and the one started
+# here queues behind it; either way one matrix runs at a time.
+#
+# NOT AFTER A RED.  A red run starts the cooldown (`matrix_red_mark`, scripts/lib/slots.sh)
+# before it releases the lock, so no request slips in between, and drops the queue
+# rather than re-running the same failures over it.  The dropped requests are in
+# `queue-dropped` in this run's directory; `--covered` shows each requester the red.
+if (( ${#FAILED[@]} > 0 || deltas_bad > 0 )); then
+  matrix_red_mark "$ABS_OUT_DIR"
+elif [[ "$matrix_state" == passed ]]; then
+  matrix_red_clear
+fi
+matrix_lock_release
+next_req=$(matrix_queue_take)
+if [[ -n "$next_req" ]] && [[ -n "$(matrix_red_recent)" ]]; then
+  printf '%s\n' "$next_req" >|"$OUT_DIR/queue-dropped"
+  echo "${BOLD}queued requests dropped:${OFF} $next_req" \
+       "${DIM}— this run is red, so no matrix starts for ${MATRIX_RED_COOLDOWN:-1800}s${OFF}"
+elif [[ -n "$next_req" ]]; then
+  read -r q_base q_sel q_who <<<"$next_req"
+  primary=$(dirname "$(common_git_dir)")
+  qlog="testbench/matrix-queue-$(date '+%Y%m%d-%H%M%S').log"
+  mkdir -p "$primary/testbench"
+  keepawake=(); command -v caffeinate >/dev/null 2>&1 && keepawake=(caffeinate -i)
+  ( cd "$primary" && unset TEST_MATRIX_OUT ALLOW_WORKTREE_RUN \
+      && MATRIX_REQUESTED_BY="$q_who" exec nohup ${keepawake[@]+"${keepawake[@]}"} \
+           bash scripts/test-matrix.sh --no-tty --owed="$q_base" "$q_sel" ) \
+    >"$primary/$qlog" 2>&1 </dev/null &
+  disown 2>/dev/null || true
+  echo "${BOLD}queued requests:${OFF} --owed=$q_base $q_sel for $q_who, running now" \
+       "${DIM}— tail -f $primary/$qlog${OFF}"
+fi
+
 [[ "$matrix_state" == passed ]] && exit 0
 exit 1
+}

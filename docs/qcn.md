@@ -254,8 +254,8 @@ re-deriving what did not move.
 **It applies to narrowing only.** A retraction or a withdrawn belief *widens*, and there
 is no such identity: a fixpoint cannot be run backwards, because its result does not
 record which of its narrowings the departing constraint was behind. `qcn/narrowing-of?` is
-the precondition, checked by the caller against the network the previous answer was
-computed from, and a widening pays the whole pass. That is the honest trade rather than a
+the precondition, checked by the caller against the network the previous answer was computed
+from, and a widening pays the whole pass. The cost of a widening is a trade rather than a
 gap — and retraction is rare where loading is not.
 
 Two things are deliberately outside it. The **support-carrying** pass is never warm-started:
@@ -426,29 +426,48 @@ Four goal shapes, on which arguments are bound:
 
 Stored facts of the calculus are one source of constraint on a pair, and they need not be
 the only one. A calculus may carry a **narrowing**: a function of the KB and the context
-answering the same `{:net … :support …}` a read produces, which `build-network` folds in
-by intersecting each pair's constraint and unioning each pair's support.
+(`:fn`), or of the network's node set alone (`:over-nodes`), answering the same `{:net …
+:support …}` a read produces, which `build-network` folds in by intersecting each pair's
+constraint and unioning each pair's support. A node-set narrowing is also run over the
+nodes a goal names and no fact does, so what it says about a node reaches a question about
+that node. A calculus whose nodes are not all symbols names its node test (`:node?`).
 
-One ships. The interval algebra takes its narrowing from the metric temporal layer
-([stp.md](stp.md)): an interval is bounded by two instants, so a numeric bound on the gap
-between two intervals' endpoints rules out Allen relations no stored fact mentions. Nothing
-about the pass, the entailment reading, the support or the delta join changes for it —
-what all four consume is one network value either way.
+Two calculi carry one. The interval algebra reads the metric temporal layer
+([stp.md](stp.md)) — an interval is bounded by two instants, so a numeric bound on the gap
+between two intervals' endpoints rules out Allen relations no stored fact mentions — and
+the point network, where instant facts over two things' start and end points do the same.
+The point algebra reads its own node terms: a thing's start before its end, and calendar
+moments in calendar order ([time.md](time.md), "The points of a temporal thing"). Nothing
+about the pass, the entailment reading or the support changes for either — what all three
+consume is one network value either way. The delta join changes for a node-set narrowing
+alone. A goal naming a node no fact states is answered over the network extended by that
+node, and `join-delta` measures the network without it, so no moved pair holds the node.
+`solve-goal` therefore enumerates such a goal in full on every re-join, and a rule on
+`(instantNotEqual ?x (InstantFn 2000 1 1 0 0 0))` fires for each dated fact in every
+arrival order.
 
 Three things make the fold sound rather than merely convenient:
 
 - **It only narrows.** Intersection is commutative and associative, so the network is a
   function of what both readers saw and never of which ran first. A pair the narrowing
-  leaves at the universe it does not record, which is the same claim as recording it.
+  leaves at the universe it does not record, which is the same claim as recording it. A
+  narrowing whose source is unsatisfiable empties a pair (`stp/unsatisfiable-narrowing`),
+  so the network reading it is unsatisfiable too and answers nothing. Answering nothing
+  from the source instead would widen the network when a fact arrives, and a firing
+  resting on an entailment the widening lost would stay believed, since
+  `chain/entailment-withdrawn?` withdraws on an unsatisfiable network only.
 - **It carries support.** A pair narrowed by a second reader names the facts *that* reader
   read, so a conclusion drawn through it is withdrawn by retracting one of them, exactly as
-  a conclusion drawn through a stored fact is.
+  a conclusion drawn through a stored fact is. A node-set narrowing reads no fact and names
+  none: the terms fix what it adds, and no retraction can move it.
 - **Its sources are declared.** What moves a network is wider than what the calculus
   answers, and a datum on one of the narrowing's `:sources` re-checks and re-joins the rules
   carrying an antecedent of the calculus — the same job `SupportingProver`'s
   `support-sources` does for a computed antecedent ([inference.md](inference.md)). Without
   it a constraint stated after the rule and the facts would never reach a join, and the same
-  three sentences would derive a conclusion or not depending on which arrived last. A
+  three sentences would derive a conclusion or not depending on which arrived last. One
+  predicate can move two networks — an instant fact is answered by the point network and
+  read by the Allen one — and a datum on such a predicate re-joins the rules of both. A
   narrowing also names the subset of those that puts a **node** into a network, which is
   what makes a context worth reading one at (`reader-contexts`).
 
@@ -531,10 +550,14 @@ because a wider predicate contributes its own larger complement when it is read 
 
 `path-consistent-with-support` carries `{[i j] → #{handle}}` alongside the constraints. An
 **asserted** constraint's support is the handles of the sentexes the reader intersected
-into it; a **tightened** one's is the union of the supports of the two constraints that
+into it, and for a fact read on a sub-predicate the `genl` edges of one path from its
+predicate, so a conclusion drawn over the pair goes when the edge does; a **tightened** one's is the union of the supports of the two constraints that
 composed to narrow it, plus its own prior support. `qcn-kb/support` asks it of the KB —
 "which stored sentexes support this entailed relation?" — and `qcn-kb/inconsistency-culprits`
-asks the same of the pair that emptied in an impossible network.
+asks the same of the pair that emptied in an impossible network. `qcn-kb/closure-with-support`
+answers the whole pass at once, for a caller reading many pairs: the interval network's
+point narrowing reads 4n² comparisons and their support off it for n things
+([time.md](time.md), "The points of a temporal thing").
 
 ```clojure
 (qkb/support space/rcc8 kb 'CxUniverse 'A 'D)   ; => #{h1 h2}, the chain behind A ⊏ D
@@ -592,7 +615,10 @@ seeing the same constraints, or two KBs holding them, run it once between them �
 report riding on it would fire for whichever asked first and leave the rest answering
 nothing with an empty ledger to explain it. So it hangs off `observe/newly-seen?`, which
 asks whether *this* KB has said *this* about *this* context yet. A query loop still reports
-once, and a change of belief yields a different network and reports again.
+once, and a change of belief yields a different network and reports again. The network
+reported is the one the believed facts give, never one a goal's nodes extended: a goal
+first tightens the network as read and stops there when it is unsatisfiable, so queries
+naming different goal-only nodes neither re-report nor list those nodes.
 
 **Cost, completeness, registration.** `cost` is **`:compute`** — a fixpoint over the
 stored facts before the first answer, a closure rather than a search. `completeness` is
@@ -653,10 +679,22 @@ exactly the stretch a settle pass, a query, or a prover loop spends reading. Mak
 finer would mean deciding, at each choke point, which caches a change is relevant to —
 the judgement that gets a cache wrong.
 
-Nothing here is content-keyed and it does not need to be. The expensive *derivations* over
-a resident value stay keyed on that value, so two KBs that reach the same network still
-share one pass; this layer is about not reading the KB again, and reading the KB again is
-a per-KB question.
+The clock is the only invalidation here. The expensive *derivations* over a resident value
+stay keyed on that value, so two KBs that reach the same network still share one pass; this
+layer is about not reading the KB again, and reading the KB again is a per-KB question.
+
+**A write reads the network again, and an equal read keeps the resident value.** Every
+write moves the clock, the arriving fact's own included, so on the write path each
+consultation reads the network again, linear in the calculus's stored extent. A read equal
+to the resident value in both the network and its support answers that value
+(`qcn-kb/read-network`), so a write that did not move a network leaves the same object
+resident. Each pass over it then answers by `identical?`, and `join-delta` reports no
+moved pair without comparing the n(n−1) pairs a chain of n regions closes to. `lein
+perf`'s `qcn-arrival-beside-an-unmoved-network` bounds an arrival in a sibling context of
+such a chain at 2.5× over 6× the regions; the pair-by-pair comparison reads 4.3×. The read
+itself stays. Invalidating finer than the clock would need every relabelled handle tested
+against the calculus's extent in both TMS representations, and the scoped defeats, the
+`except` roster and the merges besides.
 
 **One thing the clock cannot supply**, and it is the reason `observe/*pin*` exists.
 Forward chaining writes while it reads: a rule's join is a lazy seq, and each solution
@@ -735,7 +773,11 @@ Three things follow, and each needed its own wiring:
   rather than firing one at a trigger position, since the arriving fact need not unify
   with the antecedent it enabled. Bounded by the rules that mention the calculus at all,
   and narrowed to the pairs that moved
-  ([below](#the-re-join-is-semi-naive-over-the-pairs-that-moved)).
+  ([below](#the-re-join-is-semi-naive-over-the-pairs-that-moved)). A fact on a
+  sub-predicate of a calculus predicate is a fact of the calculus, since the network reads
+  it through the matcher's spec fan, and a `(genl sub super)` edge moves what a `super`
+  fact does: `qkb/calculi-triggered-by` reads a predicate's `genls` closure, and the
+  re-join and the re-check below both ask it, of an edge's supertype for an edge.
 - **Union, not replacement.** The ordinary matcher still runs; entailment is added to it.
   Entailment subsumes assertion, but the two disagree at the edges — a literal whose
   arguments are not network nodes is outside the calculus — so nothing that fired before
@@ -747,7 +789,11 @@ Three things follow, and each needed its own wiring:
   unsatisfiable: the supporting facts are all still believed, and some *other* fact made
   the theory impossible. So such a firing is **blocked**, exactly as an `exceptWhen`-excepted
   one is (`chain/entailment-withdrawn?`, queued by `special/recheck-on-qualitative`), which
-  means it is also *revived* by the same machinery when the clash is retracted.
+  means it is also *revived* by the same machinery when the clash is retracted. A settle
+  puts a standing firing in front of it only while some network is unsatisfiable, or when
+  the firing is blocked already
+  ([exceptions.md](exceptions.md#two-withdrawals-a-firing-carries)), so an arrival over a
+  satisfiable network re-decides none of them.
 
 Two things are deliberately left. The **diagonal** entails but supports nothing — the
 algebra's identity makes `(partOfRegion ?x ?x)` true of every region with no stored fact
@@ -871,6 +917,9 @@ nothing, which the numbers below confirm. Loading a containment chain of *n* reg
 
 The cost grows faster than the input and slower than *n*³: 40 → 80 regions is 2× the
 facts for 6.5× the time — super-quadratic (4× would be quadratic), sub-cubic.
+`lein perf`'s `qcn-chain-load` reads the prover + rule column per fact at 20 and 80
+regions, as a baseline it prints and does not judge. At 80 regions the network reads are
+about 3% of that load, and the two passes below most of the rest.
 Deferring the chaining is no penalty, because the one big datum it produces
 joins over a delta like any other.
 

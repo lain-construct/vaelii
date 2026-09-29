@@ -1,10 +1,11 @@
 # Consequence preview
 
 - **Covers:** what a batch of adds and removes would do to belief, computed then
-  rolled back at the same handles.
+  rolled back at the same handles; the same diff after a batch lands
+  (`edit-with-consequences!`).
 - **Not here:** how belief itself is computed and revised on a real write →
   [nmtms.md](nmtms.md); whether a batch would be admitted at all →
-  [api.md](api.md).
+  [api.md](api.md); the same diff delivered after every settle → [feed.md](feed.md).
 - **Assumes:** sentex, context, justification, settle → [glossary.md](glossary.md).
 
 `core/preview` — what a batch would do to the KB, without leaving it done.
@@ -22,101 +23,78 @@
 ```
 
 `check` ([api.md](api.md), "Validating without writing") answers whether a batch would
-be **admitted**. This answers what it would **mean**. They are different questions and
-an editor needs both: a line can be perfectly well-formed and still turn off half the
-KB's beliefs, and that is not a thing any check can see.
+be **admitted**. `preview` answers what the batch would **mean**: a well-formed line can
+still take half the KB's beliefs OUT, and no check reports that. Showing an author which
+entailments an edit adds and removes measured a 42% improvement in verification
+correctness (Inference Inspector, Matentzoglu et al.).
 
-The literature is unusually clear here. Showing which entailments an edit adds and
-removes measured a 42% improvement in verification correctness (Inference Inspector,
-Matentzoglu et al.), and studies of real authoring find people doing it by hand —
-running the reasoner after every axiom, because the tool will not say what they just
-did.
+## The mechanism
 
-## The mechanism, and why it is not `edit!` then `retract!`
+`preview` applies the batch, settles, reads the belief diff, and undoes the batch at the
+handles it wrote. `edit!` followed by `retract!` cannot do this: a `retract!` sweeps, and a
+swept datum comes back only by re-derivation, at a fresh handle, which breaks every handle
+a caller holds. Three arrangements keep every write undoable in place.
 
-Apply the batch, settle, read the belief diff, undo. The undo is the whole problem: a
-`retract!` **sweeps**, and what a sweep deletes can only be put back by *deriving it
-again*, which lands it on a fresh handle. A preview that moved a handle would be a
-preview that broke every reference the caller was holding.
+**An `:add` is asserted**, under a premise audit (`entry/*premise-audit*`) that records
+each datum's premise state before `assert` first marks it. The rollback reads the audit
+three ways: a handle that did not exist is retracted, one that existed as a derived datum
+is un-marked, and one that was already a premise gets its original strength back.
+Everything the batch derived rests on one of those premises, so retracting them collects
+it through the ordinary dependency-directed sweep. The un-mark arm exists because
+`assert` of a sentence the KB already derives marks the stored sentex a premise; a
+rollback that retracted only what it created would leave that conclusion standing as a
+premise.
 
-So `preview` writes nothing it cannot take back at the same handles. Three arrangements
-make that true, and the first of them is shared with `edit!` — see "The rollback is one
-implementation" below.
-
-**An `:add` is really asserted**, and rolled back through the premise marks it made. The
-dynamic `*premise-audit*` records each datum's prior premise state as `assert` marks it,
-so the rollback knows the three cases apart: a handle that did not exist is retracted
-outright, one that existed as a derived datum is un-marked, and one that was already a
-premise gets its original strength back. Everything the batch derived hangs off one of
-those premises — a derived datum whose rule and antecedents all pre-existed would have
-pre-existed too — so retracting them collects the lot through the ordinary
-dependency-directed sweep.
-
-That third case is the leak a rollback-by-handle misses. Assert a sentence the KB
-already derives and `assert` finds the existing sentex and marks it a premise; retract
-only what you *created* and you have quietly turned a conclusion into an assumption.
-
-**A `:remove` is not retracted.** It is `jtms/suspend-premise` — a retraction's effect
-on belief with the deletion left out. That is sound because the sweep never moves a
-label: it collects datums that are already OUT and ungroundable, so dropping them
-changes nothing anyone can observe about belief, which is the whole of what a preview is
-asked about. A suspended premise goes straight back with `add-premise` at the strength
-it had. The suspension queues the same `exceptWhen` re-check a real removal queues from
-the removal choke point — without it, an exception the datum was the only evidence for
-would never be re-asked, and the rule it blocks would never fire again.
+**A `:remove` is not retracted.** It is `jtms/suspend-premise`, a retraction's effect on
+belief without the sweep ([nmtms.md](nmtms.md) states why that is the whole effect on
+belief). The rollback puts the premise back with `add-premise`, then applies the audit to
+it as to any add: a handle the batch both adds and removes is suspended at the class the
+add raised, and only the audit holds the class the batch found. A real removal queues the
+`exceptWhen` re-check at the removal choke point, so a suspension queues it by hand, and
+the rollback queues it again when the premise returns.
 
 **`settle`'s own sweep is off for the duration** (`settle/*sweep?*`). An added
-`exceptWhen` — or a fact that triggers one — blocks a justification, and the ordinary
-settle deletes what it was supporting. Under a preview it blocks without deleting: the
-conclusion goes OUT and is reported, and its record and justification stay where they
-were.
+`exceptWhen`, or a fact that triggers one, blocks a justification without deleting what
+it supported: the conclusion goes OUT and is reported, and its record and justification
+stay.
 
-The **rollback** settles with the sweep back **on**, which is what collects a conclusion
-the preview's own *removals* brought into being. Removing a blocker releases an
-exception, `rechain-exception-rules` derives the conclusion again at a fresh handle, and
-restoring the premise blocks it again — at which point it is newly blocked, and the
-sweep takes it. Both directions therefore land back at baseline, and neither leaves the
-sweep able to reach anything that was there before.
+The **rollback** settles with the sweep back on. That settle collects a conclusion the
+preview's own removals brought into being: removing a blocker releases an exception,
+`rechain-exception-rules` derives the conclusion at a fresh handle, and restoring the
+premise blocks it again, so the sweep takes it.
 
 ## The answer
 
 `:believed-added` and `:believed-removed` are the two halves of the belief diff, each in
-**content** order — by sentence, then by context. Not by handle: a handle is allocated in
-assertion order, so ranking on one would make the reading a fact about how the KB was
-loaded rather than about what the batch means. `:max-results` caps both halves, which is
-what makes the order required rather than cosmetic — it decides *which* entries a
-caller is shown, so the same batch against the same knowledge must show the same ones.
+**content** order — by sentence, then by context — so the same batch against the same
+knowledge reads the same on any load order. `:max-results` caps both halves after that
+sort, so the order decides which entries a caller is shown
+([defenses.md](defenses.md#tie-breaks-and-orderings-key-on-content-not-the-handle)).
 
-The **removed** half is the interesting one, and the one a naive implementation misses.
-It is where defeat, supersession and the dependency-directed sweep show up, and its
+The removed half carries defeat, supersession and the dependency-directed sweep, and its
 `:reason` is `why-not`'s: `:defeated` (a stronger claim arrived), `:superseded` (an
 equality merge restated it), `:unsupported` (its last witness went). A batch that only
-adds can still empty this half or fill it.
+adds can still fill it.
 
-`:handle` is **nil** for content the batch created. After the rollback there is no such
-sentex, and a number naming nothing is worse than nothing — after enough churn it names
-something else. Content that was already stored keeps its handle either way, so a
-defeated default and a blocked conclusion are both still addressable, which is what a
-UI wants to link to.
+`:handle` is **nil** for content the batch created: after the rollback no such sentex
+exists, and the number would later name another one. Content that was already stored
+keeps its handle, so a defeated default and a blocked conclusion stay addressable.
 
 `:justification` is one level, not `why`'s tree: the informant, the strength it confers,
 the rule it names when that informant is a stored rule, and the antecedent sentences. A
-preview reports a whole batch's consequences, and a proof tree apiece would be a proof
-search apiece. A datum several derivations support names the **content-least**
-justification — the informant's sentence, then the antecedents — never whichever
-derivation happened to land first, so the same batch against the same knowledge names the
-same reason on any load order.
+tree apiece would be a proof search per entry. A datum several derivations support names
+the **content-least** justification (`supporting-justifications`), never whichever
+derivation landed first.
 
-`:rule` is present only where the informant is a **handle**. Half the engine's informants
-are symbols — `rewriteOf`, `functional`, `decontextualized_predicate`, `arg` — and
-those name no stored rule, so the key is absent rather than nil.
+`:rule` is present only where the informant is a **handle**. The engine's symbol
+informants — `rewriteOf`, `except`, `functional`, `decontextualized_predicate`, `arg` — name no
+stored rule, so the key is absent rather than nil.
 
-**`:antecedents` is every sentex the firing rests on, and that is more than the facts.**
-A placement names one witness per reachability it used: the `genl` edges the match
-subsumed through, and the `genlCx` edges the placement saw each ingredient context over
-([contexts.md](contexts.md), [nmtms.md](nmtms.md)). Those edges are antecedents of the
-stored justification, so they are antecedents here — a rule in `CxLow` firing on a fact
-in `CxMid` reports the edges that let it see across:
+**`:antecedents` is every sentex the firing rests on**, including one witness per
+reachability the placement used: the `genl` edges the match subsumed through, and the
+`genlCx` edges the placement saw each ingredient context over
+([contexts.md](contexts.md), [nmtms.md](nmtms.md)). A rule in `CxLow` firing on a fact in
+`CxMid` reports the edges that let it see across:
 
 ```clojure
 (preview kb {:add [['(puppy Muffet) 'CxMid]]})
@@ -130,79 +108,62 @@ in `CxMid` reports the edges that let it see across:
 ;;                                  (puppy Muffet)]}}
 ```
 
-That is what makes the list actionable. Belief reads the vector as a conjunction, so the
-justification holds only while all four do: previewing a `:remove` of the
+Belief reads the vector as a conjunction, so a preview of a `:remove` of the
 `(genlCx CxMid CxUniverse)` edge reports `(mortal Muffet)` gone, `:unsupported`, with
-that handle in the `:missing` list. An editor reading `:antecedents` is reading what it
-would have to take back. The rule handle is the one antecedent lifted out — it is in the
-stored vector too, and reporting it as `:rule` rather than as a fact is the only
-rearranging done. The order is the stored one, which is content (`kb/antecedent-order`),
-so it does not move with the load order.
+that handle in the `:missing` list. The rule is the justification's informant, not an
+antecedent, and is reported as `:rule`. The order is the stored one, which is content
+(`kb/antecedent-order`).
 
-`:refused` is `check-edit`'s verdict plus anything that threw on the way in. `check` is
-a fair account of `assert`'s refusals, not a proof of one: a batch whose second line is
-inadmissible *only because the first landed* passes the pre-flight and throws during
+`:refused` is `check-edit`'s verdict plus each `ex-info` an add threw. A batch whose second
+line is inadmissible only because the first landed passes `check-edit` and throws during
 application. A refused entry is skipped and the rest of the batch is previewed without
-it — an admissible batch minus its bad line is what the caller is about to ask for
-anyway.
+it. A throw that is not an `ex-info` propagates after the rollback.
 
 `:violations` is what the **derivation path** dropped: the definitional constraints
-(arg, disjointness, functionality) that hold of derived content as much as of
-asserted content, and that chaining reports rather than throws
+(arg, disjointness, functionality) that chaining reports rather than throws
 ([inference.md](inference.md)). The KB's own ledger is restored, so a preview never
 shows up in `(violations kb)`.
 
-`:contradictions` is the dilemmas the batch would **open**, and it is here because
-otherwise the most obvious thing a reviewer can do would report nothing at all. Asserting
-the negation of a believed default withdraws nothing: a defeasible tie is *represented*,
-not arbitrated ([nmtms.md](nmtms.md)), so both sides stay believed and both halves of the
-diff are silent about a clash the batch just created. Standing dilemmas are subtracted, so
-what is listed is what the batch is answerable for.
+`:contradictions` is the dilemmas the batch would **open**, with the standing ones
+subtracted. Asserting the negation of a believed default withdraws nothing — a defeasible
+tie is represented, not arbitrated ([nmtms.md](nmtms.md)) — so both halves of the diff are
+silent about that clash, and this key is where it shows.
 
-## The one KB it refuses
+`preview` refuses an **unrecovered** KB where `edit!` does (`:unrecovered-kb`);
+[storage.md](storage.md#and-until-it-is-rebuilt-the-kb-does-not-accept-writes) states why
+a dry run must refuse with it.
 
-`preview` refuses an **unrecovered** KB exactly where `edit!` does (`:unrecovered-kb`,
-[storage.md](storage.md)), and that is the point of it rather than an inherited
-restriction. It implements a `:remove` as a premise suspension gated on `jtms/premise?`,
-which is false for every stored handle when the network was never built — so without the
-refusal it would answer that nothing would change while `edit!` on the same batch deleted
-the record. A dry run
-silent about exactly the operation that cannot be taken back is worse than no dry run, so
-the two entry points refuse together.
+## What the rollback restores, and what it does not
 
-## What moves anyway
+The KB is left with the same live sentexes and justifications at the same handles, and the
+same premise classes. The derived state a batch can write is restored with them: the
+violations ledger, the program, and the **refusal record**, which a firing the batch's
+own content refused would otherwise leave holding handles the rollback took away
+([exceptions.md](exceptions.md), "A refused firing is remembered as bindings"). An entry
+the batch consumed comes back through the rollback's own re-chain.
 
-The KB is left byte-identical — same live sentexes, same justifications, at the same
-handles. The derived state a batch can *write* is restored with them: the violations
-ledger, the program, and the **refusal record**, which a firing the batch's own content
-refused would otherwise leave holding handles the rollback took away
-([exceptions.md](exceptions.md), "A refused firing is remembered as bindings"). The
-entries a batch *consumes* need no snapshot — the rollback's own re-chain re-records
-whatever the baseline refuses.
+The violations ledger keeps an entry filed on **another thread** while the batch ran. The
+qualitative, metric and sign calculi file an inconsistency from inside a read, so a
+`query` on a reader thread can file one during a preview. The batch records each entry
+its own thread files (`vaelii.impl.violations/*batch-entries*`), and both `:violations`
+and the rollback read that set.
 
-Two things are not restored, and neither can be:
+Not restored:
 
-- **the handle counter**. A preview mints handles and they are not reissued. Handles are
-  longs and this is one per created sentex; the alternative is reissuing a number a
-  caller might still be holding.
-- **the `chain-stats` / `settle-stats` counters**, which record work that genuinely ran.
+- **the handle counter**. A preview mints handles and they are not reissued, so a
+  number a caller holds never names a second sentex.
+- **the `chain-stats` / `settle-stats` counters**, which record work that ran.
 
-On the `:disk` backend the record log is append-only, so a preview writes frames and
-then deletes what they held: the live record set is back at baseline and the log is
-longer, which is exactly what an ordinary `assert`-then-`retract!` does there and what
-compaction is for ([storage.md](storage.md)).
+On the `:disk` backend the record log is append-only, so a preview writes frames and then
+deletes what they held: the live record set is back at baseline and the log is longer, as
+after any `assert`-then-`retract!` ([storage.md](storage.md)).
 
 ## The rollback is one implementation
 
-`edit!` is all-or-nothing ([api.md](api.md)), and what puts a refused batch back is this
-page's machinery rather than a second copy of it: one `rollback-batch!`, two callers. The
-audit, the three cases it tells apart, the retract-what-you-created / un-mark /
-restore-the-strength arms, the settle with the sweep back on, and the restoration of the
-violations ledger, the program and the refusal record are all the same code and the same
-claim — the KB is as it was found.
-
-The two entry points differ in **when** they roll back and in what they have to put back, not in
-how:
+`edit!` is all-or-nothing ([api.md](api.md)), and a refused batch is put back by the same
+`rollback-batch!`: the audit, its three arms, the settle with the sweep on, and the
+restored ledgers are one code path with two callers (three, counting a single `assert`
+that throws after writing). The two entry points differ in **when** they roll back:
 
 | | `preview` | `edit!` |
 |---|---|---|
@@ -212,71 +173,42 @@ how:
 | `settle`'s sweep | off for the batch | on, as for any write |
 | the change feed | off for the whole preview | off for the rollback; the batch's own event is never delivered |
 
-The `:remove` row is the asymmetry, and it is why `edit!` asks every removal for its
-refusal *before* the first one runs: a swept record can only come back as new content at
-a new handle, so a batch that has begun removing is a batch that is committed. The two
-refusals a teardown can raise — a stored premise with no TMS node, and a record with no
-node in a KB whose belief was never built — are one function (`teardown-refusal`) that
-`retract!` throws and `edit!` asks.
+A swept record comes back only as new content at a new handle, so `edit!` asks every
+removal for its refusal (`teardown-refusal`, the function `retract!` throws from) before
+the first one runs, and past that point the batch is committed.
 
-A preview is a write followed by its undo, so it holds the single writer for its
-duration ([storage.md](storage.md), "The single-writer contract"). It is not a read.
+A preview is a write followed by its undo, so it holds the single writer for its duration
+([storage.md](storage.md), "The single-writer contract"). For that reason `serve/ops`
+and `vaelii.browser.access` file it with the writes, and a remote client gets it through
+the daemon ([operations.md](operations.md)).
 
-That is also why it is filed with the writes in `serve/ops` and `vaelii.browser.access`,
-though it stores nothing: a remote client gets the same answer over the daemon
-([operations.md](operations.md)), because the daemon *is* the single writer.
-
-An **inert** sentex (`assert-inert`) in `:remove` reports nothing, because removing one
-moves no belief — it was never a TMS datum. That is the same answer `edit!` gives, in
-belief terms; what `edit!` additionally does is delete the record.
+An **inert** sentex (`assert-inert`) in `:remove` reports nothing, because it was never a
+TMS datum and removing it moves no belief. `edit!` deletes its record.
 
 ## Cost
 
-The batch's own cost — one settle over the affected region, exactly as `edit!` — plus the
-rollback, which is a second one. Nothing scans the KB: every relabel is region-local
-([nmtms.md](nmtms.md)), the rollback walks the premises the batch marked, and **the diff
-is taken over the relabelled region rather than over the believed set**.
+`preview` costs the batch's settle plus the rollback's, and scans nothing KB-wide: every
+relabel is region-local ([nmtms.md](nmtms.md)), the rollback walks the premises the batch
+marked, and the diff is taken over the **relabelled region**. `settle` hands a copy of
+that region to `settle/*touched-sink*`, a superset of every handle whose belief moved;
+diffing the believed set instead is O(KB)
+([defenses.md](defenses.md#the-touched-window-is-a-superset-not-the-flip-set)). The one
+belief change with no relabel behind it, a supersession flip, is folded into the region
+([nmtms.md](nmtms.md)).
 
-That last one is the whole difference between a usable preview and a toy. A set
-difference of the believed set before and after is the obvious implementation and it is
-O(KB): 4.4 ms at 2.7k sentexes, 41.6 ms at 23k, 401 ms at 224k — dead linear, and hopeless
-at the scale this engine is built for. The region is already computed and already
-discarded: `settle` accumulates the datums whose region it relabelled (to skip taxonomy
-caches no moved supporter touches) and clears them at the end. `settle/*touched-sink*`
-takes a copy first, and that set is a superset of every handle whose belief moved. The
-one belief change with no relabel behind it — a supersession flip — is folded in by hand,
-for the same reason `settle` folds it into its own reconcile.
+Belief **before** is read *after* the rollback, on the restored KB, so the two readings
+need no snapshot: a candidate believed now was believed before, and a handle the rollback
+took away reads as not believed.
 
-Belief **before** is then read *after* the rollback, on a KB that is back at baseline, so
-the two readings need no snapshot between them: a candidate believed then was believed
-all along, and a handle the rollback took away reads as not believed, which is exactly
-right since it did not exist.
+A batch whose conclusions cascade costs what the cascade costs; `:max-depth` and
+`:max-derivations` bound the chaining, and `:max-results` caps each half of the answer but
+not the walk, since every datum in the region gets an entry. `:bounded?` is true when any
+of the three cut the answer.
 
-Measured over generated corpora (`vaelii.host.io.generate`, 40 predicates / 200 types,
-one hand-added rule, a batch of one fact that fires it; median of fifteen after a
-warm-up):
+## The other direction: what a write did mean
 
-| facts | stored sentexes | `preview` | `edit!` + `retract!` |
-|---|---|---|---|
-| 2 000 | 2 761 | 0.72 ms | 0.68 ms |
-| 20 000 | 23 404 | 0.65 ms | 0.47 ms |
-| 200 000 | 223 559 | 0.63 ms | 0.46 ms |
-
-Flat in KB size, at 1.06–1.4× the destructive round trip — which is the second settle.
-
-A batch whose conclusions **cascade** is expensive because the cascade is, and that is
-exactly the answer being asked for; bound it with `:max-derivations` when that matters.
-The region also bounds the *reporting*: an entry is built for every datum in it, and
-`:max-results` caps the answer rather than the walk.
-
-`opts` bounds the run: `:max-depth` / `:max-derivations` reach chaining, `:max-results`
-caps each half of the diff. `:bounded?` says one of them bit, so a partial answer never
-is indistinguishable from a complete one.
-
-## The other direction: what a write *did* mean
-
-`preview` answers before. **`edit-with-consequences!`** answers after — the same two halves,
-about a batch that landed:
+`preview` answers before. **`edit-with-consequences!`** answers after — the same two
+halves, about a batch that landed:
 
 ```clojure
 (edit-with-consequences! kb {:add [['(dog Muffet) 'CxStory]]})
@@ -290,91 +222,63 @@ about a batch that landed:
 ;;     :bounded?         false}
 ```
 
-The rule, the fact and the conclusion are all in one context there, so the placement
-reaches its ingredients reflexively and there is no edge to name — which is why that
-`:antecedents` is the fact alone where the previous section's is four sentexes.
+The rule, the fact and the conclusion share one context there, so the placement names no
+edge and `:antecedents` is the fact alone. `edit!` reports only the handles it stored;
+`:premise?` separates those from what followed, so `(remove :premise? …)` is what the
+writer did not say.
 
-It exists because `edit!` reports the handles it stored, which is what the caller already
-said, and nothing about what followed. `:premise?` separates the two: a derived conclusion
-is not a premise, so `(remove :premise? …)` is exactly "what the writer did not say".
+**Where the diff comes from.** There is no rollback to read belief-before off, so the
+labels are captured on the way through. Alongside the relabelled region (`jtms/touched`),
+every relabel records which of the region was **already believed** when it first touched
+it (`jtms/touched-in`, first reading wins). The window runs from the end of the last
+settle, so for a batch it covers the whole deferred phase and its one settle.
+`settle/*touched-in-sink*` receives that set beside `*touched-sink*`, and
+`core/moved-handles` turns region, before-labels and belief now into the delta. A
+supersession flip is folded into the before-labels for the reason `preview` folds it into
+the region.
 
-**Where the diff comes from.** Not the rollback trick above — there is no rollback to read
-belief-before off. Instead the labels are captured on the way through: alongside the
-relabelled region (`jtms/touched`), every relabel records which of that region was
-**already believed** when it first touched it (`jtms/touched-in`), first-reading-wins so a
-datum relabelled twice keeps the earlier answer. The window runs from the end of the last
-settle, which for a batch covers the whole deferred phase *and* its one settle. Region,
-plus before-labels, plus belief now, is the delta — and it is proportional to what the
-batch moved, never to what is stored. A supersession flip, which changes reported belief
-without moving a label, is folded into the before-labels by hand for the same reason
-`preview` folds it into the region.
+**What the removed half cannot say.** A datum the dependency-directed sweep deleted has no
+record left to describe, so it is omitted: the half lists belief that went away and is
+**still stored**. Ask `preview` what a removal would take with it; it suspends instead of
+retracting. An add-only batch, which is what the browser's commit paths send, loses
+nothing this way.
 
-`settle/*touched-in-sink*` is the extension point, the companion of `*touched-sink*`. Both TMS
-representations implement `touched-in`, and since `jtms/snapshot` carries it, the
-randomized dense-vs-reference oracle (`jtms_dense_oracle_test`) compares it at every step
-of every run.
+**An equality merge** is the one batch `preview` and `edit-with-consequences!` answer
+differently. A merge supersedes the displaced spelling on the *assert* path, and the
+before-labels cover only what a `settle` supersedes, so `(sameAs Pref Dep)` over a stored
+`(dog Pref)` reports `(dog Dep)` added and nothing removed here, where `preview` reports
+`(dog Pref)` as `:superseded`. The change feed shares this gap ([feed.md](feed.md#what-does-not-arrive)),
+and `feed_test` pins that the two agree.
 
-**What the removed half cannot say.** A datum the dependency-directed sweep *deleted* has
-no record left to describe, so it is omitted rather than guessed at: what is listed is
-belief that went away and is **still stored** — defeated, superseded, unsupported. A
-`:remove` sweeps, so ask `preview` what a removal would take with it; it suspends instead
-of retracting and can still name every casualty. An add-only batch has no such gap, which
-is the case the browser's commit paths are.
+## The third caller: the change feed
 
-There is a second gap, and it is the one place `preview` and this answer differently on
-the same batch. An **equality merge** supersedes the displaced spelling on the *assert*
-path, and the before-labels hand-off covers only what a `settle` supersedes — so
-`(sameAs Pref Dep)` over a stored `(dog Pref)` reports `(dog Dep)` added and nothing
-removed here, where `preview` reports `(dog Pref)` as `:superseded`. `preview` reads
-belief-before off the restored KB and so needs no hand-off; this one has only what was
-captured on the way through. Closing it means the equality path posting the displaced
-handle where a settle can see it. `feed_test` pins the current answer, because the change
-feed shares this diff and the two must not drift apart by accident.
-
-Measured the same way as the table above (one fact firing one rule, 300 iterations after a
-200-iteration warm-up): 0.31 ms at 2 003 stored sentexes, 0.31 ms at 4 005, 0.28 ms at
-23 430 — against a plain `edit!` at 0.34 / 0.30 / 0.26 ms. The overhead is inside the noise
-and, more to the point, does not grow with the KB: what it tracks is the region.
-
-## The third caller: the same diff, continuously
-
-`core/watch` asks that same question of *every* settle rather than of one batch — a change
-feed an application drives instead of polling ([feed.md](feed.md)). The three share
-`core/moved-handles`, which is the one place region + before-labels + belief-now becomes a
-delta, so a promise, its outcome and a feed cannot disagree about what a batch meant; a
-test compares the last two on the same batch. `settle-finish` decides the region once and
-hands it to the caller's two sinks and the feed's accumulator together.
-
-A preview is the one caller the feed must **not** hear from: it stores, reads and takes
-every write back, so a listener would be sent a change and then its exact reverse.
-`feed/*enabled?*` is off for the whole preview, rollback included.
+`core/watch` asks the same question of every settle ([feed.md](feed.md)).
+`edit-with-consequences!` and the feed share `core/moved-handles`, and all three share the
+entry builders, so a promise, its outcome and a feed event cannot disagree about what a
+batch meant.
+`feed/*enabled?*` is off for the whole preview, rollback included
+([feed.md](feed.md#what-does-not-arrive)).
 
 ## Tests
 
 `test/vaelii/preview_test.clj`, and `test/vaelii/derived_callout_test.clj` for the *after*
-half — which checks the two against each other on the same batch. They share the entry
-shapes and nothing else, so agreement is evidence rather than tautology, and a
-disagreement would mean one of them is wrong about what a commit does.
+half, which checks the two against each other on the same batch. They share the entry
+shapes and nothing else, so agreement is evidence that both describe the commit.
 
-Every preview test pairs an assertion about the answer with a
-before/after comparison of the live sentex and justification sets, because a test that
-relied on the neutral fixture would pass on a preview that stored everything and let the
-teardown clean up.
+A preview test that stores or derives pairs its assertion about the answer with a
+before/after comparison of the live sentex and justification sets: a test that relied on
+the neutral fixture would pass on a preview that stored everything and let the teardown
+clean up.
 
-Five of them are the **oracle**: run the preview, then really run the batch with `edit!`,
-and compare the two belief diffs — derive, defeat, block a conclusion, remove a premise,
-release an exception. By sentence and not by handle, because content that a batch
-creates, and content that a released exception re-derives, lands on a fresh handle
-either way. That is the only test that asks the question the function is named after.
+Five of them are the **oracle**: run the preview, then run the batch with `edit!`, and
+compare the two belief diffs — derive, defeat, block a conclusion, remove a premise,
+release an exception. They compare by sentence, because content a batch creates, and
+content a released exception re-derives, lands on a fresh handle either way.
 
-`web_propose_test.clj` covers the panel over it (`POST /propose/preview`,
-[web.md](web.md)) — a rule firing, a withdrawal, a dilemma opened, two lines refused only
-together — each also asserting the KB did not move, because a panel that recomputes on
-every change of the accepted set has to be free to be wrong about.
+`web_test.clj` covers the editor's lookahead over it (`POST /edit/preview`,
+[web.md](web.md)).
 
-`suspend-premise` is covered where the rest of the network is: `jtms_dense_oracle_test`
-applies it in the randomized op streams and pins it by name, so the two representations
-are proved to agree about it op by op. The suite's two gates cover the rest —
-`VAELII_TEST_TMS=reference` runs these tests against the persistent-map baseline (the
-default network is the dense one) and `VAELII_TEST_BACKEND=disk-log` against the durable
-store.
+`jtms_dense_oracle_test` applies `suspend-premise` in its randomized op streams and pins
+it by name, so the two TMS representations agree about it op by op.
+`VAELII_TEST_TMS=reference` runs these tests against the persistent-map network and
+`VAELII_TEST_BACKEND=disk-log` against the durable store.

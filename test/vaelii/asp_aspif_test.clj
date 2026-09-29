@@ -83,7 +83,7 @@
     (testing "the same sentex re-interns to the same atom"
       (is (= a (atoms/intern-sentex! t 42))))
     (testing "and does not consume a fresh id"
-      (is (= 1 (atoms/count-atoms t))))))
+      (is (= 1 (:counter @t))))))
 
 (deftest the-two-namespaces-share-one-counter
   ;; Sentex and contradiction atoms live in one ASPIF atom space, so ids must not
@@ -93,7 +93,7 @@
         s (atoms/intern-sentex! t 1)
         c (atoms/intern-contradiction! t '(contradiction X))]
     (is (= 2 (count (distinct [s c]))))
-    (is (= 2 (atoms/count-atoms t)))))
+    (is (= 2 (:counter @t)))))
 
 (deftest labels-round-trip
   ;; Labels are the whole read-back channel: a solver echoes these strings, so
@@ -105,7 +105,7 @@
       (is (= "s42" (atoms/label-of-atom t s)))
       (is (= 42 (atoms/sentex-id-of-atom t s))))
     (testing "a contradiction atom carries its descriptor back"
-      (is (= '(contradiction Y) (atoms/contradiction-of-atom t c))))
+      (is (= '(contradiction Y) (get-in @t [:atom->contradiction c]))))
     (testing "and every label resolves to its atom"
       (is (= s (atoms/atom-of-label t (atoms/label-of-atom t s))))
       (is (= c (atoms/atom-of-label t (atoms/label-of-atom t c)))))))
@@ -211,15 +211,57 @@
 (deftest ^:slow a-solve-past-the-time-limit-is-interrupted-not-answered
   ;; The budget bounds the single writer's exposure to a hard program, on either
   ;; backend — clasp through its flag, clingo by cancelling the handle — and what comes
-  ;; back says so, rather than reading as an answer set with nothing in it.
+  ;; back says so, rather than reading as an answer set with nothing in it.  The solve
+  ;; limit is lifted, so the wall clock is what stops the search.
   (doseq [[nm solve] (backends)]
-    (with-redefs [config/asp-time-limit (constantly 1)]
+    (with-redefs [config/asp-time-limit  (constantly 1)
+                  config/asp-solve-limit (constantly 0)]
       (let [t0 (System/nanoTime)
             r  (solve (pigeonhole 13) :label)
             ms (/ (- (System/nanoTime) t0) 1e6)]
         (testing (str nm " stops at the budget and reports it")
           (is (= :interrupted (:status r)))
           (is (< ms 20000) "interrupted within a few seconds of the one-second limit"))))))
+
+(defn- weighted-cover
+  "A minimum-weight vertex cover of a fixed random graph on `n` vertices, as a statement
+  vector.  Models come at once; proving one optimal takes clasp about 9,000 conflicts at
+  `n` 60, so a limit of a few hundred stops the search with a model in hand."
+  [n]
+  (let [rnd     (java.util.Random. 7)
+        ids     (range 1 (inc n))
+        weights (vec (repeatedly n #(inc (.nextInt rnd 9))))
+        edges   (vec (for [i ids, j (range (inc i) (inc n)) :when (< (.nextDouble rnd) 0.12)]
+                       [i j]))]
+    (vec (concat (map aspif/choice ids)
+                 (for [[i j] edges] (aspif/constraint [(- i) (- j)]))
+                 [(aspif/minimize 0 (map (fn [i] [i (weights (dec i))]) ids))]
+                 (map #(aspif/show % (str "c" %)) ids)))))
+
+(deftest a-search-past-the-solve-limit-stops-at-the-same-point-on-every-run
+  ;; The solve limit counts conflicts, one thread under a fixed seed, so where it stops a
+  ;; search is a function of the program: runs alone and runs sharing the machine agree
+  ;; on the model, its cost and the status.  The time limit stops a search wherever the
+  ;; machine has got to.  A search the solve limit stops reads as stopped short — the
+  ;; best model unproven, or no answer — never as an answer.
+  (let [cover (weighted-cover 60)]
+    (doseq [[nm solve] (backends)]
+      (with-redefs [config/asp-solve-limit (constantly 500)]
+        (let [run  #(select-keys (solve cover :label) [:status :atoms :cost])
+              runs (into (vec (repeatedly 3 run))
+                         (mapv deref (doall (repeatedly 4 #(future (run))))))]
+          (testing (str nm ": seven runs, three alone and four at once, agree")
+            (is (= 1 (count (distinct runs)))))
+          (testing (str nm ": the cut search hands back its best model, unproven")
+            (is (= :best-effort (:status (first runs))))
+            (is (seq (:atoms (first runs)))))
+          (testing (str nm ": a cut enumeration, and a cut search with no model, are no answer")
+            (is (= :interrupted (:status (solve cover :all-optima))))
+            (is (= :interrupted (:status (solve (pigeonhole 9) :sat)))))))
+      (with-redefs [config/asp-solve-limit (constantly 100000)]
+        (testing (str nm ": under a limit the search fits in, the solve is answered")
+          (is (#{:optimum :sat} (:status (solve cover :label))))
+          (is (= :unsat (:status (solve (pigeonhole 6) :sat)))))))))
 
 (deftest both-backends-agree
   ;; The facade routes by program size and availability; a program must mean the

@@ -5,7 +5,7 @@
 
   nippy freezes a Clojure record by writing its **type tag and every field name** into
   the frame — so a store of 100M sentexes writes `vaelii.impl.types.sentex.LiteralSentex` and
-  `:sentence :context :id :strength` 100M times.  Measured on the real corpus,
+  `:sentence :context :id :strength` 100M times.  Measured on a large imported store,
   that scaffolding is **56% of the store** (87 of 155 B/record) and it says nothing a
   frame needs to carry: the field layout is a property of the code, identical in every
   frame.
@@ -50,8 +50,11 @@
 
 ;; Tags 0–3 hold a polarity field after the id, and their rule shapes hold the rule's
 ;; sentence first.  4–7 are the same four shapes without the polarity field.  8 and 9 are
-;; the rule shapes without the sentence.  This codec writes 4, 6, 8 and 9, and reads all
-;; ten.
+;; the rule shapes without the sentence.  10 and 11 are 8 and 9 with the rule's wrappers
+;; as the record's two fields — `engines` (as `engines-mask`) and `effect` — where every
+;; lower rule tag spells them as the three fields `direction`, `assumption` and
+;; `constraint` (`sx/fielded-rule-slots`).  This codec writes 4, 6, 10 and 11, and reads
+;; all twelve.
 (def ^:private polarity-literal-tag     0)
 (def ^:private polarity-rule-tag        1)
 (def ^:private polarity-literal-tok-tag 2)
@@ -62,10 +65,32 @@
 (def ^:private sentence-rule-tok-tag    7)
 (def ^:private rule-tag                 8)
 (def ^:private rule-tok-tag             9)
+(def ^:private effect-rule-tag          10)
+(def ^:private effect-rule-tok-tag      11)
 
 (def ^:private tok-tags
-  #{literal-tok-tag sentence-rule-tok-tag rule-tok-tag
+  #{literal-tok-tag sentence-rule-tok-tag rule-tok-tag effect-rule-tok-tag
     polarity-literal-tok-tag polarity-rule-tok-tag})
+
+;; A rule's `:engines` rides a frame as one small integer, a bit per engine, rather than
+;; as a set nippy would tag and count.
+(def ^:private engine-bits {:forward 1 :backward 2 :solve 4})
+
+(defn- engines-mask [engines]
+  (reduce (fn [m e] (bit-or (long m) (long (engine-bits e)))) 0 engines))
+
+(defn- mask-engines [mask]
+  (let [m (long mask)]
+    (sx/canonical-engines (into #{} (keep (fn [[e b]] (when (pos? (bit-and m (long b))) e)))
+                                engine-bits))))
+
+(defn- fielded-rule
+  "A `RuleSentex` from a frame that spells its wrappers as the three fields `direction` /
+  `assumption` / `constraint` (every rule tag below 10)."
+  [context id antecedent consequent strength varmap direction defeasible assumption constraint]
+  (let [[engines effect] (sx/fielded-rule-slots direction assumption constraint)]
+    (sentex-types/->RuleSentex context id antecedent consequent strength varmap
+                               engines defeasible effect)))
 
 ;; ---- sentexes -----------------------------------------------------------
 
@@ -77,8 +102,8 @@
     [literal-tag (:sentence sx) (:context sx) (:id sx) (:strength sx)]
 
     vaelii.impl.types.sentex.RuleSentex
-    [rule-tag (:context sx) (:id sx) (:antecedent sx) (:consequent sx) (:strength sx)
-     (:varmap sx) (:direction sx) (:defeasible sx) (:assumption sx) (:constraint sx)]
+    [effect-rule-tag (:context sx) (:id sx) (:antecedent sx) (:consequent sx) (:strength sx)
+     (:varmap sx) (engines-mask (:engines sx)) (:defeasible sx) (:effect sx)]
 
     sx))
 
@@ -91,8 +116,14 @@
     (instance? vaelii.impl.types.sentex.LiteralSentex v)
     (dissoc v :polarity)
 
+    ;; a record thawed whole under the three-field wrapper keys carries them as extra
+    ;; keys and nil `engines` / `effect`, so they are read into the two fields
     (instance? vaelii.impl.types.sentex.RuleSentex v)
-    (dissoc v :polarity :sentence)
+    (if (nil? (:effect v))
+      (let [[engines effect] (sx/fielded-rule-slots (:direction v) (:assumption v) (:constraint v))]
+        (assoc (dissoc v :polarity :sentence :direction :assumption :constraint)
+               :engines engines :effect effect))
+      (dissoc v :polarity :sentence))
 
     (not (vector? v))
     v
@@ -103,28 +134,32 @@
       (cond
         (= literal-tag tag)
         (sentex-types/->LiteralSentex (f 1) (f 2) (nth v 3) (nth v 4))
-        (= rule-tag tag)
+        (= effect-rule-tag tag)
         (sentex-types/->RuleSentex (f 1) (nth v 2) (f 3) (f 4) (nth v 5) (f 6)
-                                   (nth v 7) (nth v 8) (nth v 9) (nth v 10))
+                                   (mask-engines (nth v 7)) (nth v 8) (nth v 9))
+        (= rule-tag tag)
+        (fielded-rule (f 1) (nth v 2) (f 3) (f 4) (nth v 5) (f 6)
+                      (nth v 7) (nth v 8) (nth v 9) (nth v 10))
         ;; the rule's sentence sits at 1 and is read past
         (= sentence-rule-tag tag)
-        (sentex-types/->RuleSentex (f 2) (nth v 3) (f 4) (f 5) (nth v 6) (f 7)
-                                   (nth v 8) (nth v 9) (nth v 10) (nth v 11))
+        (fielded-rule (f 2) (nth v 3) (f 4) (f 5) (nth v 6) (f 7)
+                      (nth v 8) (nth v 9) (nth v 10) (nth v 11))
         ;; the polarity field sits at 4 and is read past, and a rule's sentence at 1
         (= polarity-literal-tag tag)
         (sentex-types/->LiteralSentex (f 1) (f 2) (nth v 3) (nth v 5))
         (= polarity-rule-tag tag)
-        (sentex-types/->RuleSentex (f 2) (nth v 3) (f 5) (f 6) (nth v 7) (f 8)
-                                   (nth v 9) (nth v 10) (nth v 11) (nth v 12))
+        (fielded-rule (f 2) (nth v 3) (f 5) (f 6) (nth v 7) (f 8)
+                      (nth v 9) (nth v 10) (nth v 11) (nth v 12))
         ;; a tag this build does not read is a frame from some other build — refused
         ;; by name, never misread as a literal record whose fields land in the wrong
         ;; slots (the tokenized tags decode on their own path, dictionary in hand)
         :else
         (throw (ex-info (str "unknown sentex frame tag " (pr-str tag) " — this path reads"
                              " tags " polarity-literal-tag ", " polarity-rule-tag ", "
-                             literal-tag ", " sentence-rule-tag " and " rule-tag ", and the"
-                             " five tokenized tags decode with the dictionary in hand; a"
-                             " tag outside those ten is a frame some other build wrote")
+                             literal-tag ", " sentence-rule-tag ", " rule-tag " and "
+                             effect-rule-tag ", and the six tokenized tags decode with the"
+                             " dictionary in hand; a tag outside those twelve is a frame"
+                             " some other build wrote")
                         {:type :unknown-frame :tag tag}))))))
 
 ;; ---- justifications ---------------------------------------------------------
@@ -283,9 +318,9 @@
     vaelii.impl.types.sentex.RuleSentex
     (let [[bs lits] (encode-body dict [(:context sx)
                                        (:antecedent sx) (:consequent sx) (:strength sx)
-                                       (:varmap sx) (:direction sx) (:defeasible sx)
-                                       (:assumption sx) (:constraint sx)])]
-      [rule-tok-tag bs lits (:id sx)])
+                                       (:varmap sx) (engines-mask (:engines sx))
+                                       (:defeasible sx) (:effect sx)])]
+      [effect-rule-tok-tag bs lits (:id sx)])
 
     (encode-sentex sx)))
 
@@ -304,31 +339,40 @@
         rule?     (or (== tag (long rule-tok-tag)) (== tag (long sentence-rule-tok-tag))
                       (== tag (long polarity-rule-tok-tag)))
         sentence? (not (== tag (long rule-tok-tag)))]
-    (if rule?
+    (cond
+      (== tag (long effect-rule-tok-tag))
+      (let [context (rd) antecedent (rd) consequent (rd) strength (rd) varmap (rd)
+            engines (mask-engines (rd)) defeasible (rd) effect (rd)]
+        (sentex-types/->RuleSentex context id antecedent consequent strength varmap
+                                   engines defeasible effect))
+
+      rule?
       (let [_sentence (when sentence? (rd)) context (rd) _polarity (sign)
             antecedent (rd) consequent (rd) strength (rd) varmap (rd) direction (rd)
             defeasible (rd) assumption (rd) constraint (rd)]
-        (sentex-types/->RuleSentex context id antecedent consequent strength varmap
-                                   direction defeasible assumption constraint))
+        (fielded-rule context id antecedent consequent strength varmap
+                      direction defeasible assumption constraint))
+
+      :else
       (let [sentence (rd) context (rd) _polarity (sign) strength (rd)]
         (sentex-types/->LiteralSentex sentence context id strength)))))
 
 ;; ---- the per-kind table -------------------------------------------------
-
-(defn- sentex-codec [dict tokenize?]
-  {:enc (if (and tokenize? dict) #(encode-sentex-tok dict %) encode-sentex)
-   ;; reading is never conditional: the frame's own tag says which shape it is, so a
-   ;; store holding plain, tokenized and pre-codec frames at once reads all three
-   :dec (fn [v]
-          (if (and (vector? v) (tok-tags (nth v 0)))
-            (decode-sentex-tok dict v)
-            (decode-sentex v)))})
 
 (defn tokenized-frame?
   "Whether a thawed frame spells its body as dictionary ids — what a store must have a
   dictionary to read."
   [v]
   (boolean (and (vector? v) (tok-tags (nth v 0)))))
+
+(defn- sentex-codec [dict tokenize?]
+  {:enc (if (and tokenize? dict) #(encode-sentex-tok dict %) encode-sentex)
+   ;; reading is never conditional: the frame's own tag says which shape it is, so a
+   ;; store holding plain, tokenized and pre-codec frames at once reads all three
+   :dec (fn [v]
+          (if (tokenized-frame? v)
+            (decode-sentex-tok dict v)
+            (decode-sentex v)))})
 
 (defn by-kind
   "`kind-name -> {:enc :dec}` for a store.  `dict` is its durable token dictionary, which

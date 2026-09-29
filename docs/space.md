@@ -59,7 +59,7 @@ Six **derived** predicates each name a disjunction of base relations:
 | `regionOverlaps`     | O  | PO, TPP, NTPP, TPPi, NTPPi, EQ |
 | `regionDiscreteFrom` | DR | DC, EC |
 
-`region-network` reads the KB in and the prover answers goals by entailment, both as
+`qcn-kb/network` reads the KB in and the prover answers goals by entailment, both as
 [qcn.md](qcn.md) describes. So `(nonTangentialProperPart A B)` and
 `(nonTangentialProperPart B C)` entail `(nonTangentialProperPart A C)` — the table pins
 the pair to `#{:ntpp}` — and with it the weaker `(partOfRegion A C)`,
@@ -215,7 +215,7 @@ composition table, so what the numbers fix is the ratio between neighbouring cla
 a length in metres. `:co` runs from `-∞` so that, distance being non-negative, it denotes
 exactly zero — which makes it the algebra's identity with no special case in the
 arithmetic. `:very-far` is unbounded above for the same kind of reason: the chain has to
-end, and the honest end is open.
+end, and no finite bound is known for its last band, so the end is open.
 
 **Composition is computed from the bounds by the triangle inequality**, not transcribed.
 If `d(A,B) ∈ (l1, h1]` and `d(B,C) ∈ (l2, h2]` then
@@ -255,12 +255,12 @@ inequality relates intervals loosely. Only a chain through the zero class pins a
 down: `(coLocatedWith A B)` with `(closeTo B D)` entails `(closeTo A D)` exactly, and
 nothing else does short of several facts about one pair intersecting.
 
-So the payoff is **refutation and consistency-checking** rather than pinpoint entailment.
-Two things very close to a third *cannot* be very far from each other, and asserting that
-they are makes the context's network unsatisfiable and reportable. A derived range is what
-usually survives: the same very-close chain entails `(withinNearDistanceOf A D)` while
-entailing no class at all. Sold as an entailment engine this would disappoint; sold as a
-way to rule arrangements out, it pays for itself.
+So the use of the calculus is **refutation and consistency-checking** rather than pinpoint
+entailment. Two things very close to a third *cannot* be very far from each other, and
+asserting that they are makes the context's network unsatisfiable and reportable. A
+derived range is what usually survives: the same very-close chain entails
+`(withinNearDistanceOf A D)` while entailing no class at all. Sold as an entailment engine
+this would disappoint; sold as a way to rule arrangements out, it pays for itself.
 
 Exactness is per **pair** of classes, and that is as far as it reaches: composing a
 *result* onward loses the correlation between the two legs that produced it, so this is

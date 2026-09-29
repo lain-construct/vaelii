@@ -15,19 +15,54 @@
    Select explicitly with -Dvaelii.asp.solver or VAELII_ASP_SOLVER = clingo|clasp.
    Default is auto: prefer in-process clingo when it loads, else clasp."
   (:require
+   [taoensso.trove :as trove]
    [vaelii.impl.asp.clasp :as clasp]
    [vaelii.impl.config :as config]))
 
 (defn- configured [] (config/asp-solver))
 
-(defonce ^:private clingo-backend
-  ;; {:solve <fn> :available? <fn>} when libclingo loads in this JVM, else nil.
-  (delay (try
-           (let [solve (requiring-resolve 'vaelii.impl.asp.clingo/solve)
-                 cboth (requiring-resolve 'vaelii.impl.asp.clingo/classify-both)
-                 avail (requiring-resolve 'vaelii.impl.asp.clingo/available?)]
-             (when (avail) {:solve solve :classify-both cboth :available? avail}))
-           (catch Throwable _ nil))))
+(defn- load-clingo
+  "`{:solve :classify-both :available?}` when libclingo loads and answers in this JVM,
+  else nil."
+  []
+  (let [solve (requiring-resolve 'vaelii.impl.asp.clingo/solve)
+        cboth (requiring-resolve 'vaelii.impl.asp.clingo/classify-both)
+        avail (requiring-resolve 'vaelii.impl.asp.clingo/available?)]
+    (when (avail) {:solve solve :classify-both cboth :available? avail})))
+
+;; `load-clingo`'s answer once one is reached, else ::unknown.
+(defonce ^:private clingo-verdict (atom ::unknown))
+
+;; Whether a `VirtualMachineError` from `load-clingo` has been logged.
+(defonce ^:private clingo-vm-error-logged? (atom false))
+
+(defn- clingo-backend
+  "`load-clingo`'s answer, memoized for the process.  A throw memoizes nil, logged at
+  `:warn`: a namespace, a class or a native library that failed to load fails the same way
+  for the life of the JVM.  A `VirtualMachineError` (out of memory, stack overflow) is a
+  state of the JVM and not of the install, so it answers nil for this call only, memoizes
+  nothing, and is logged the first time."
+  []
+  (let [v @clingo-verdict]
+    (if (not= ::unknown v)
+      v
+      (locking clingo-verdict
+        (let [v @clingo-verdict]
+          (if (not= ::unknown v)
+            v
+            (try (reset! clingo-verdict (load-clingo))
+                 (catch VirtualMachineError e
+                   (when (compare-and-set! clingo-vm-error-logged? false true)
+                     (trove/log! {:level :warn :id ::clingo-load-vm-error :error e
+                                  :msg (str "the in-process clingo backend did not load: "
+                                            (ex-message e) "; ASP solves go to clasp until"
+                                            " a later call loads it")}))
+                   nil)
+                 (catch Throwable e
+                   (trove/log! {:level :warn :id ::clingo-load-failed :error e
+                                :msg (str "the in-process clingo backend did not load: "
+                                          (ex-message e) "; ASP solves go to clasp")})
+                   (reset! clingo-verdict nil)))))))))
 
 ;; AUTO-mode size cutoff: a plain-ASP ASPIF program longer than this routes to clasp even
 ;; when clingo is loadable, because the in-process win is a fixed saved fork while the loss
@@ -44,8 +79,8 @@
   []
   (case (configured)
     :clasp  :clasp
-    :clingo (if @clingo-backend :clingo :clasp)   ; fall back if unavailable
-    (if @clingo-backend :clingo :clasp)))
+    :clingo (if (clingo-backend) :clingo :clasp)   ; fall back if unavailable
+    (if (clingo-backend) :clingo :clasp)))
 
 (defonce ^:private clasp-usable
   ;; probed once per JVM: the binary's presence does not flicker, and `clasp/available?`
@@ -80,7 +115,7 @@
    programs prefer clasp (clingo's per-solve slope regresses past the crossover —
    see `clingo-max-program-bytes`)."
   [nbytes]
-  (choose-backend (configured) (some? @clingo-backend) nbytes (clingo-max-program-bytes)
+  (choose-backend (configured) (some? (clingo-backend)) nbytes (clingo-max-program-bytes)
                   @clasp-usable))
 
 (defn solve
@@ -91,7 +126,7 @@
    through the backend accessors; clasp consumes the `:aspif` text."
   [program mode]
   (if (= :clingo (backend-for (count (:aspif program))))
-    ((:solve @clingo-backend) program mode)
+    ((:solve (clingo-backend)) program mode)
     (clasp/solve (:aspif program) mode)))
 
 (defn classify-both
@@ -102,7 +137,7 @@
    Lets `edge/classify-program` avoid a redundant second control_new + load."
   [aspif-text]
   (if (= :clingo (backend-for (count aspif-text)))
-    ((:classify-both @clingo-backend) aspif-text)
+    ((:classify-both (clingo-backend)) aspif-text)
     {:cautious (clasp/solve aspif-text :classify-true)
      :brave    (clasp/solve aspif-text :classify-supportable)}))
 

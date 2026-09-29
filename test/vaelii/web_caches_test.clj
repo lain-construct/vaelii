@@ -60,6 +60,13 @@
     (is (re-find #"rates: this process" body))
     (is (re-find #"this KB" body))))
 
+(deftest the-page-names-the-derived-state-it-does-not-list
+  ;; A reader who knows the refusal memory and the ledgers exist, and sees no mention of
+  ;; them, cannot tell an omission from a judgement — so the page names them as not caches.
+  (let [body (:body (GET "/caches"))]
+    (is (re-find #"none of it is a cache" body))
+    (is (re-find #"ledgers" body))))
+
 (deftest the-heap-strip-is-the-one-kbs-already-draws
   (let [body (:body (GET "/caches"))]
     (is (re-find #"id=\"kb-memory\"" body) "reused, not redrawn")))
@@ -209,8 +216,8 @@
 
 (deftest a-scale-that-is-not-a-number-changes-nothing
   (let [{:keys [status body]} (POST "/caches/scale" {"scale" "big"})]
-    (is (= 200 status))
-    (is (re-find #"must be a number 0 or more" body))
+    (is (= 400 status))
+    (is (re-find #"The <code>scale</code> parameter is not readable" body))
     (is (re-find #"nothing changed" body)))
   (is (= 1.0 (:scale (v/cache-profile))) "the scale is unmoved"))
 

@@ -241,7 +241,7 @@
       (v/assert kb (list 'rewriteOf Superman Clark) CxA)
       (testing "B keeps believing its fact"
         (is (v/in? kb h))
-        (is (some? (v/handle-of kb (list canFly10 Clark) CxB))))
+        (is (= h (v/handle-of kb (list canFly10 Clark) CxB))))
       (testing "...and can still retrieve it, under the only spelling B knows"
         (is (seq (v/sentexes-matching kb (list canFly10 Clark) CxB)))
         (is (seq (v/ask kb (list canFly10 Clark) CxB))))
@@ -261,8 +261,11 @@
       (is (not (v/in? kb h)) "the retired spelling stops being believed")
       (is (= [CxB] (vec (v/contexts-of kb (list canFly11 Superman))))
           "the twin is placed where the fact lives")
-      (is (seq (v/sentexes-matching kb (list canFly11 Clark) CxB)) "the old question still works")
-      (is (seq (v/sentexes-matching kb (list canFly11 Superman) CxB))))))
+      (is (= [(list canFly11 Superman)]
+             (map :sentence (v/sentexes-matching kb (list canFly11 Clark) CxB)))
+          "the old question still works, and answers with the representative's twin")
+      (is (= [(list canFly11 Superman)]
+             (map :sentence (v/sentexes-matching kb (list canFly11 Superman) CxB)))))))
 
 (tu/deftest-kb the-unique-name-assumption-survives-an-invisible-merge
   (tu/with-terms [Clark12 Superman12 CxA CxB]
@@ -427,7 +430,8 @@
         (is (= :superseded (:reason wn)) "the fact was restated under Mid's election")
         (is (= (list likes18 Tom18 (v/representative kb Charlie18 CxMid)) (:sentence sb))
             "the report names the spelling the fact's own context elected")
-        (is (some? (:handle sb))
+        (is (= (or (v/handle-of kb (list likes18 Tom18 Bravo18) CxMid) ::not-stored)
+               (:handle sb))
             "which is a spelling stored in that context, so the handle resolves")))))
 
 (tu/deftest-kb deprecated-scopes-like-the-three-class-reads-beside-it
@@ -460,10 +464,12 @@
       (is (empty? (v/sentexes-matching kb (list 'symmetric palOf13) 'CxCore))))
     (testing "the two ways of asking give one answer, from either vantage — the mark is
               both the property and the (binary_predicate) type membership"
-      (is (= (v/has-prop? kb :symmetric palOf13 CxA)
-             (v/isa? kb palOf13 'symmetric CxA)))
-      (is (= (v/has-prop? kb :symmetric palOf13 CxB)
-             (v/isa? kb palOf13 'symmetric CxB))))))
+      (is (= [true true] [(v/has-prop? kb :symmetric palOf13 CxA)
+                          (v/isa? kb palOf13 'symmetric CxA)])
+          "the declaring context holds the mark both ways")
+      (is (= [true true] [(v/has-prop? kb :symmetric palOf13 CxB)
+                          (v/isa? kb palOf13 'symmetric CxB)])
+          "and so does its sibling, which sees the CxUniverse copy"))))
 
 (tu/deftest-kb a-derived-declaration-installs-live-not-only-on-recover
   ;; `recover` replays every stored sentex of the functor, so a declaration that
@@ -556,7 +562,7 @@
     (let [goal [(list leftP17 '?x) (list rightP17 '?x)]]
       (is (empty? (v/prove kb goal '?ctx))
           "no context sees both, so the joint reading has no answer")
-      (is (seq (v/prove kb goal 'CxEverything))
+      (is (= #{Item} (set (map '?x (v/prove kb goal 'CxEverything))))
           "the union still joins them, under the name that means the union")
       (is (empty? (v/prove kb goal CxA))
           "asked from a context, it answers only what that context holds")

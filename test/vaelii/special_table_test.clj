@@ -206,6 +206,33 @@
                     (catch clojure.lang.ExceptionInfo e (ex-data e)))]
       (is (= :enumeration (:mismatch data)))
       (is (= '[strayArm] (:undeclared data)))))
+  (testing "a cache triple or a :wff arm the declaration disagrees with is refused, either way"
+    ;; the live table with one entry's spec changed, so the enumeration still agrees
+    (let [refusal (fn [pick change]
+                    (let [f (some (fn [[f spec]] (when (pick f spec) f)) special/entries)]
+                      (try (special/check-declarations
+                            (mapv (fn [[g spec]] [g (if (= g f) (change spec) spec)]) special/entries))
+                           nil
+                           (catch clojure.lang.ExceptionInfo e
+                             [(:mismatch (ex-data e)) (= f (:functor (ex-data e))) (ex-message e)]))))
+          arm     (fn [_ _ _])]
+      (doseq [[label pick change mismatch words]
+              [["cached, and the triple removed"
+                (fn [f _] (contains? pr/cached f)) #(dissoc % :integrate)
+                :cached #"declared cached but its arms have no cache triple"]
+               ["uncached, and a triple added"
+                (fn [f _] (not (contains? pr/cached f))) #(assoc % :integrate arm)
+                :cached #"declared uncached but its arms have a cache triple"]
+               ["checked, and the :wff arm removed"
+                (fn [f _] (contains? pr/checked f)) #(dissoc % :wff)
+                :checked #"declared checked but its arms have no :wff arm"]
+               ["unchecked, and a :wff arm added"
+                (fn [f _] (not (contains? pr/checked f))) #(assoc % :wff arm)
+                :checked #"declared unchecked but its arms have a :wff arm"]]]
+        (testing label
+          (let [[m named? msg] (refusal pick change)]
+            (is (= [mismatch true] [m named?]))
+            (is (re-find words (str msg))))))))
   (testing "the live table passes, which namespace load already proved"
     (is (= special/entries (special/check-declarations special/entries)))))
 

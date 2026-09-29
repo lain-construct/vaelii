@@ -83,7 +83,7 @@
   ;; does.  (What puts the edge in the reconcile's scope is `refresh-relation`'s `:dirty`;
   ;; it is not what makes *this* test pass, since the retraction's own region turns out to
   ;; name the surviving supporter anyway.  The synthetic driver in `taxonomy_test` is
-  ;; where `:dirty` is required, because it passes the honest flip set rather than
+  ;; where `:dirty` is required, because it passes the exact flip set rather than
   ;; `jtms/touched`'s superset.)
   (tu/with-terms [sub_t super_t Ind1 CxA CxB]
     (v/assert kb (list 'genl sub_t super_t) CxA)

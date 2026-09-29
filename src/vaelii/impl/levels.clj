@@ -105,9 +105,10 @@
 
 ;; ---- result maps --------------------------------------------------------
 ;; One shape across all eight levels; a field a level cannot supply is nil.  Levels
-;; 0-4 answer from a stored sentex, so they carry its :handle; levels 5-7 answer
-;; through provers that return bindings only, so :sentence is the goal under those
-;; bindings and :handle is nil — the answer is derived, not stored.
+;; 0-4 answer from a stored sentex, so they carry its :handle, and level 5 passes level
+;; 4's results through with theirs.  A closure answer at level 5 and every answer of
+;; levels 6-7 comes from provers that return bindings only, so :sentence is the goal
+;; under those bindings and :handle is nil — the answer is derived, not stored.
 
 (defn- stored-result
   "A result backed by a stored sentex.  `stored` is the record `match-one` already
@@ -129,22 +130,13 @@
      :context  context
      :bindings b}))
 
-(defn- distinct-by
-  "Lazy `distinct` on a key function, keeping the first of each key.  Used to fold a
-  derived answer into the stored one it duplicates: level 5 unions level 4's results
-  (which carry handles) with closure results (which do not), and the stored one comes
-  first, so the surviving result is the one with provenance."
-  [f coll]
-  (letfn [(step [xs seen]
-            (lazy-seq
-             (when-let [s (seq xs)]
-               (let [x (first s), k (f x)]
-                 (if (contains? seen k)
-                   (step (rest s) seen)
-                   (cons x (step (rest s) (conj seen k))))))))]
-    (step coll #{})))
-
-(defn- answer-key [r] [(:sentence r) (:context r) (:bindings r)])
+(defn- answer-key
+  "The key `nm/distinct-by` folds a derived answer into the stored one it duplicates on:
+  level 5 unions level 4's results (which carry handles) with closure results (which do
+  not), and the stored one comes first, so the surviving result is the one with
+  provenance."
+  [r]
+  [(:sentence r) (:context r) (:bindings r)])
 
 (defn- answered-goal
   "The goal seen through a result's bindings — what makes two results the *same
@@ -291,7 +283,7 @@
                   (->> (provers/solve-goal-with kb tp goal context)
                        (map #(derived-result 5 goal context %))
                        (remove #(contains? @already (:sentence %)))
-                       (distinct-by answer-key)))))))
+                       (nm/distinct-by answer-key)))))))
 
 (defn- engine-goal
   "The goal as the engine's own dispatch sees it: a ground reifiable NAT reified to the
@@ -312,9 +304,9 @@
   "Level 6: the real engine over a prover list, so dispatch, cost estimates and the
   complete-prover short-circuit are the ones `ask` uses."
   [level kb provers goal context]
-  (distinct-by answer-key
-               (map #(derived-result level goal context %)
-                    (provers/solve-goal-with kb provers goal context))))
+  (nm/distinct-by answer-key
+                  (map #(derived-result level goal context %)
+                       (provers/solve-goal-with kb provers goal context))))
 
 (defn- level-6
   "The whole prover registry: closures, disjointness, the predicate-metadata
@@ -345,12 +337,12 @@
   (let [goal     (engine-goal kb goal context)
         rules-fn (fn [g] (provers/candidate-rules kb g context))
         leaf     (fn [kb g context] (provers/solve-goal kb g context))]
-    (distinct-by answer-key
-                 (map #(derived-result 7 goal context %)
-                      (res/prove-seq kb rules-fn [goal] context
-                                     {:leaf-solver  leaf
-                                      :est-override (provers/registry-est-override
-                                                     kb context)})))))
+    (nm/distinct-by answer-key
+                    (map #(derived-result 7 goal context %)
+                         (res/prove-seq kb rules-fn [goal] context
+                                        {:leaf-solver  leaf
+                                         :est-override (provers/registry-est-override
+                                                        kb context)})))))
 
 (def ^:private level-fns
   [level-0 level-1 level-2 level-3 level-4 level-5 level-6 level-7])

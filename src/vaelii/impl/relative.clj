@@ -157,25 +157,6 @@
   code the other calculi run."
   (qkb/calculus :relative relative-algebra relative-denotation))
 
-(defn possible-relative-directions
-  "The base relations still possible from `a` to `b` in the frame `context` names, given
-  everything believed there — `#{}` when the network is inconsistent."
-  [kb context a b]
-  (qkb/possible relative kb context a b))
-
-(defn definite-relative-direction
-  "The single base relation from `a` to `b` when path consistency pins it down;
-  `:inconsistent` when the network contradicts itself, `:unknown` when two or more
-  relations remain possible."
-  [kb context a b]
-  (qkb/definite relative kb context a b))
-
-(defn inconsistent?
-  "Is the relative-direction network visible from `context` unsatisfiable?  A frame can be
-  incoherent on its own without saying anything about any other."
-  [kb context]
-  (qkb/inconsistent? relative kb context))
-
 (defn relative-prover
   "The relative-direction entailment prover, to register with `vaelii.core/add-prover`."
   []

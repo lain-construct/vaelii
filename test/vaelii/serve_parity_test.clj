@@ -13,9 +13,11 @@
 
   `wire-clean?` is therefore the assertion, not `:ok`."
   (:require [clojure.edn :as edn]
-            [clojure.test :refer [is testing use-fixtures]]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.host.serve :as serve]
+            [vaelii.regen-client :as rc]
             [vaelii.test-util :as tu])
   (:import [java.io ByteArrayInputStream]))
 
@@ -287,3 +289,100 @@
         (is (= 400 (:status r)) (str op))))
     (testing "and the refusal hands back the roster, so a caller discovers the surface"
       (is (some #{:assert} (:ops (post-op handler :recover [])))))))
+
+;; ---- a KB fn is an op, or docs/operations.md says why it is not ---------
+
+(tu/deftest-kb the-reads-the-rule-admits-cross-the-wire
+  ;; Seven reads the rule in docs/operations.md admits: data in and out, the KB and not
+  ;; the process, and a cost a request bounds or one that grows with the KB.
+  (tu/with-terms [dog cat animal pet Rex Tom CxRule]
+    (v/assert kb (list 'genlCx CxRule 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genl dog animal) CxRule)
+    (v/assert kb (list 'genl cat animal) CxRule)
+    (v/assert kb (list 'disjoint dog cat) CxRule)
+    (v/assert kb (list dog Rex) CxRule)
+    (v/assert kb (list pet Rex) CxRule)
+    (v/assert kb (list pet Tom) CxRule)
+    (v/assert-rule kb [(list dog '?x)] (list animal '?x) CxRule)
+    (let [handler (open-app kb)]
+      (testing "query-status: the answers, and whether the depth bound cut them"
+        (let [r (ok-result handler :query-status [(list animal '?x) CxRule {:max-depth 3}])]
+          (is (= [{'?x Rex}] (:answers r)))
+          (is (contains? #{:complete :truncated} (:status r)))
+          (is (= 3 (:depth r))))
+        (let [r (ok-result handler :query-status [(list animal '?x) CxRule])]
+          (is (= :complete (:status r)) "a facts-only read is never truncated")))
+      (testing "and it is held to the depth ceiling :query is held to"
+        (let [r (post-op handler :query-status [(list animal '?x) CxRule
+                                                {:max-depth 1000000}])]
+          (is (= :over-ceiling (:type r)))
+          (is (= 400 (:status r)))))
+      (testing "find-sentexes-all, beside find-sentexes"
+        (is (= #{(list dog Rex)}
+               (set (map :sentence (ok-result handler :find-sentexes-all [[dog Rex]])))))
+        (is (empty? (ok-result handler :find-sentexes-all [[dog Tom]]))))
+      (testing "the subsumption relationship of one pair of types"
+        (is (= :genl (ok-result handler :subsumption-status [dog animal CxRule])))
+        (is (= :disjoint (ok-result handler :subsumption-status [dog cat])))
+        (is (= :orthogonal (ok-result handler :subsumption-status [dog pet CxRule])))
+        (is (= #{:genl} (ok-result handler :subsumption-statuses [dog animal]))))
+      (testing "the per-instant functionality audit, the twin of the specified pair"
+        (is (= #{} (set (ok-result handler :functional-at-instant-violations
+                                   [(tu/tmp-pred "at") CxRule]))))
+        (is (= {} (ok-result handler :all-functional-at-instant-violations [CxRule]))))
+      (testing "the question the solver was last asked: nil before a tie, a map after"
+        (is (nil? (ok-result handler :last-program [])))
+        (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
+              nixon  (tu/tmp-ind)
+              dflt   (fn [a c] (list 'set/defaultRule (list 'set/forwardRule
+                                                            (list 'implies a c))))]
+          (v/assert kb (dflt (list quaker '?x) (list pacifist '?x)) 'CxUniverse)
+          (v/assert kb (dflt (list republican '?x) (list 'not (list pacifist '?x)))
+                    'CxUniverse)
+          (v/assert kb (list quaker nixon) 'CxUniverse)
+          (v/assert kb (list republican nixon) 'CxUniverse)
+          (v/assert kb (list 'do/labeling (tu/tmp-ctx "Labeling")) 'CxUniverse)
+          (let [p (ok-result handler :last-program [])]
+            (is (map? p) "a Program record crosses as a plain map")
+            (is (= 2 (count (:assumptions p))))))))))
+
+(def ^:private operations-md "docs/operations.md")
+
+(defn- not-served-in-docs
+  "Every `vaelii.core` fn a row of docs/operations.md's \"Not served\" tables names: the
+  backticked names in each row's first cell."
+  []
+  (->> (str/split-lines (slurp operations-md))
+       (map str/trim)
+       (reduce (fn [[in? acc] line]
+                 (cond
+                   (str/starts-with? line "| Not served") [true acc]
+                   (and in? (str/starts-with? line "|"))
+                   [true (into acc (map (comp symbol second)
+                                        (re-seq #"`([^`]+)`"
+                                                (second (str/split line #"\|")))))]
+                   :else [false acc]))
+               [false #{}])
+       second))
+
+(defn- kb-fns
+  "The public `vaelii.core` fns and macros whose first parameter is the KB."
+  []
+  (set (for [[nm vr] (ns-publics 'vaelii.core)
+             :let [al (:arglists (meta vr))]
+             :when (and (seq al) (= 'kb (ffirst al)))]
+         nm)))
+
+(deftest every-kb-fn-is-an-op-or-a-named-absence
+  ;; An absence with a reason is a decision, and one without is indistinguishable from an
+  ;; oversight.  A new `vaelii.core` fn that takes a KB fails here until it is a row of
+  ;; `serve/ops` or of the table, and docs/operations.md's rule says which.
+  (let [served (set (keep #(some-> (rc/core-var %) meta :name) (keys serve/ops)))
+        named  (not-served-in-docs)]
+    (is (seq named) "the table is found, so an empty set cannot pass the check below")
+    (is (empty? (remove #(or (served %) (named %)) (kb-fns)))
+        (str "a vaelii.core fn that takes a KB is neither an op nor a row of "
+             operations-md "'s table of fns that are not ops"))
+    (testing "and the table names only fns that exist and are not served"
+      (is (empty? (filter served named)))
+      (is (empty? (remove #(ns-resolve 'vaelii.core %) named))))))

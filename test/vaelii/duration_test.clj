@@ -7,7 +7,7 @@
 
   The prover never stores anything and never enumerates: both goals are a computation
   with at most one answer, bound into a variable or checked against a ground measure.
-  What the tests are really watching is that the answer stays *honest* — a sum of exact
+  The tests check that the answer claims no more precision than its inputs carry — a sum of exact
   lengths renders as a point, a bounded overlap renders as an interval, and a pair whose
   lengths are of different dimensions is refused rather than added up."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -213,7 +213,7 @@
       (is (not (v/ask? kb (list 'overlapDuration A B '(QuantityFn 1800 Second)) C)))
       (is (not (v/ask? kb (list 'overlapDuration A B '(QuantityFn 0 Second)) C))))))
 
-(tu/deftest-kb an-unconstrained-pair-gets-the-widest-honest-answer
+(tu/deftest-kb an-unconstrained-pair-gets-the-widest-answer
   (load-time-units kb)
   (tu/with-terms [A B]
     (v/assert kb (list 'length A '(QuantityFn 2 Hour)) C)
@@ -296,7 +296,7 @@
   (tu/with-terms [A B As Ae Bs Be]
     (v/assert kb (list 'length A '(QuantityFn 2 Hour)) C)
     (v/assert kb (list 'length B '(QuantityFn 30 Minute)) C)
-    (testing "nothing qualitative and nothing metric — the widest honest answer"
+    (testing "nothing qualitative and nothing metric — the widest answer"
       (is (= '(QuantityIntervalFn 0 1800 Second) (bound kb (list 'overlapDuration A B '?d)))))
     (bridge-interval kb A As Ae)
     (bridge-interval kb B Bs Be)

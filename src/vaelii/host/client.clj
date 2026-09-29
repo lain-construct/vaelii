@@ -80,8 +80,7 @@
   line ending — reaches the JDK, which **quotes a rejected header value verbatim** in the
   `IllegalArgumentException` it raises.  That exception travels: into the log of whatever
   process holds the `conn`, and out of every call this client makes.  So the throw is
-  replaced by one that names the variable and never the value, exactly as
-  `vaelii.host.llm.anthropic`'s `request-builder` does for its own credential.
+  replaced by one that names the variable and never the value.
 
   `:unknown-option` is the type, the same one `guard/max-body-bytes` throws for a
   `VAELII_*` variable holding a value this build cannot use — the token is a `conn`
@@ -217,6 +216,13 @@
   map."
   [conn handle m]
   (call conn :add-provenance [handle m]))
+
+(defn all-functional-at-instant-violations
+  "Audit every `(functional_at_instant f)` declaration visible in `context`, and return `{f
+  #{violation…} …}` — declarations that clash nowhere are omitted, so an empty map is a
+  clean sweep."
+  [conn context]
+  (call conn :all-functional-at-instant-violations [context]))
 
 (defn all-specified-violations
   "Audit every binary `predAllSpecified` and `predSpecifiedAll` declaration visible in
@@ -491,6 +497,11 @@
   [conn term]
   (call conn :find-sentexes [term]))
 
+(defn find-sentexes-all
+  "Every stored sentex that contains all of `terms`."
+  [conn terms]
+  (call conn :find-sentexes-all [terms]))
+
 (defn find-terms
   "The vocabulary terms whose name matches `q`, sorted by name."
   ([conn q] (call conn :find-terms [q]))
@@ -501,6 +512,14 @@
   (resolve contradictions)."
   ([conn] (call conn :forward-chain []))
   ([conn opts] (call conn :forward-chain [opts])))
+
+(defn functional-at-instant-violations
+  "The per-instant functionality clashes of one `(functional_at_instant f)` declaration in
+  `context`, as a set of maps `{:function f :subject s :instant t :values #{v…} :kind k}`
+  — one per moment `t` at which more than one distinct value of the fluent function `f`
+  holds for one subject `s`."
+  [conn f context]
+  (call conn :functional-at-instant-violations [f context]))
 
 (defn genl?
   "Is `sub` a (reflexive-transitive) subtype of `super`? Types, not individuals — for an
@@ -569,6 +588,12 @@
   than a number:"
   ([conn] (call conn :kb-quality []))
   ([conn opts] (call conn :kb-quality [opts])))
+
+(defn last-program
+  "The last edge `Program` handed to the solver — the contested assumptions and the nogoods
+  among them — or nil if no tie has ever been arbitrated."
+  [conn]
+  (call conn :last-program []))
 
 (defn levels
   "The stack as data: {:level :name :below :adds} per level."
@@ -673,8 +698,14 @@
   ([conn goal] (call conn :query-plan [goal]))
   ([conn goal context] (call conn :query-plan [goal context])))
 
+(defn query-status
+  "`query`'s answers, plus a **report** of the run — what a bare `query` cannot say."
+  ([conn goal context] (call conn :query-status [goal context]))
+  ([conn goal context opts] (call conn :query-status [goal context opts])))
+
 (defn query?
-  "Is `goal` answerable under `opts`? `query`, asked for one answer."
+  "Is `goal` answerable under `opts`? `query`, asked for one answer: the search stops at
+  the first."
   ([conn goal] (call conn :query? [goal]))
   ([conn goal context] (call conn :query? [goal context]))
   ([conn goal context opts] (call conn :query? [goal context opts])))
@@ -778,6 +809,23 @@
   `genl`."
   ([conn t] (call conn :specs [t]))
   ([conn t context] (call conn :specs [t context])))
+
+(defn subsumption-status
+  "The subsumption relationship of type `a` to type `b`, one of: `:coextensional` (each is
+  `genl` the other), `:genl` (`(genl a b)` holds — `a` is a subtype of `b`), `:spec`
+  (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint` (provably no shared
+  instance), `:orthogonal` (neither subsumes the other and not disjoint, but a shared
+  instance the registry answers without rule expansion exists), `:unknown` (none of the
+  above is provable), or `:inconsistent` (multiple contradictory relationships hold, e.g.
+  both genl-related and disjoint)."
+  ([conn a b] (call conn :subsumption-status [a b]))
+  ([conn a b context] (call conn :subsumption-status [a b context])))
+
+(defn subsumption-statuses
+  "The set of applicable subsumption relationships between types `a` and `b`: any subset of
+  `#{:coextensional :genl :spec :disjoint :orthogonal}`."
+  ([conn a b] (call conn :subsumption-statuses [a b]))
+  ([conn a b context] (call conn :subsumption-statuses [a b context])))
 
 (defn supporting-justifications
   "Justifications that conclude `handle` (its supporting justifications), in **content**

@@ -201,7 +201,7 @@ fan-out:
   widest node 200,000 children   18,193 ms
 ```
 
-So past `columnar/promote-at` (64) children a node's edges become one primitive
+So past `trie/promote-at` (64) children a node's edges become one primitive
 `Int2IntOpenHashMap` — O(1) insert, no splice — and drop back to the array pair below
 half of it, the hysteresis keeping a node on the boundary from rebuilding on every
 add/remove pair. Blanket maps are the wrong answer in the other direction: the bake-off
@@ -511,19 +511,19 @@ rule firing per fact) solve it:
   dense         18 B          166 B
 ```
 
-Applied to a real corpus — 11.5M stored sentexes, 13.0M justifications (j/n ≈ 1.1), the
-shape a common-sense KB actually takes — that is **~9.1 GB reference against ~2.35 GB
-dense, 3.8×**: the JTMS falls from ~30% of a whole-KB footprint to under 10%, a ~21%
-whole-KB RAM cut, on the largest stores the engine is built for. The single 467 B/node
-coefficient is a j/n ≈ 0.5 reading and undercounts a justification-heavy corpus (~730
-B/node at j/n ≈ 1); the node+just pair above is the honest model.
+Applied at j/n ≈ 1.1, the ratio a common-sense KB holds, that is **~769 B
+reference against ~201 B dense per node, 3.8×**: the JTMS falls from ~30% of a whole-KB
+footprint to under 10%, a ~21% whole-KB RAM cut, on the largest stores the engine is
+built for. The single 467 B/node coefficient is a j/n ≈ 0.5 reading and undercounts a
+justification-heavy corpus (~730 B/node at j/n ≈ 1); the node+just pair above models
+both readings.
 
 **The win is memory, not wall.** Across every cell dense loaded and recovered as fast as
-the reference or slightly faster, and at 10.19M the two walled identically because the
-open-time bottleneck is the `content-order` sort, above the network entirely — so dense
-makes a large KB *fit*, never *open faster*. Given an engine whose target is one large
-node holding 100M, the default is the network that scales, and this is it. `:reference`
-remains a one-keyword pin for the simpler baseline.
+the reference or slightly faster, and on a store of millions of sentexes the two walled
+identically because the open-time bottleneck is the `content-order` sort, above the
+network entirely — so dense makes a large KB *fit*, never *open faster*. Given an engine
+whose target is one large node holding 100M, the default is the network that scales, and
+this is it. `:reference` remains a one-keyword pin for the simpler baseline.
 
 **One ceiling the reference does not share.** The dense bitmaps and fastutil maps are
 `int`-keyed, so a handle or justification id must fit a 32-bit int — 2^31-1 ≈ 2.1B.
@@ -726,7 +726,7 @@ very small vocabulary. It measures flat here only inside the 0.25 tolerance — 
 the extent*, which is the finding, but it is not constant either. Sizing it wants a sweep
 that holds the facts fixed and grows the vocabulary, which no bench here runs.
 
-## Reading these numbers honestly
+## Caveats on these numbers
 
 Two caveats the measurements carry, both easy to drop and both required:
 

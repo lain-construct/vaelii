@@ -266,7 +266,7 @@
         (testing "an applicable direction passes both entry points and lands on the record"
           (is (empty? (v/check kb rule CxSpec {:direction :backward})))
           (let [h (v/assert kb rule CxSpec {:direction :backward})]
-            (is (= :backward (:direction (v/sentex kb h))))))))))
+            (is (= #{:backward} (:engines (v/sentex kb h))))))))))
 
 ;; ---- the connective frames --------------------------------------------------
 

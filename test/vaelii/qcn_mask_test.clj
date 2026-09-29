@@ -108,7 +108,7 @@
       (let [{:keys [decode] :as compiled} (compile-algebra algebra)
             set-compose (:compose algebra)
             k    (count (:universe algebra))
-            ;; exhaustive where 2^k squared is small enough to be honest work, and a
+            ;; exhaustive where 2^k squared is small (k <= 7), and a
             ;; deterministic sample where it is not — the base-pair test above already
             ;; covers every table entry the whole-mask one is built from.
             pairs (if (<= k 7)

@@ -485,6 +485,28 @@
         (kb/rebuild-excepted! kb)
         (is (= 0 @(reasoning/meta-except-count kb)))))))
 
+;; ---- an except names a stored handle ---------------------------------------
+
+(tu/deftest-kb an-except-naming-no-stored-handle-is-refused
+  ;; Handles are allocated in assertion order, so an except naming a handle not yet
+  ;; allocated hides whichever sentex arrives there: here the except itself.
+  (let [ctx (tu/tmp-ctx "Fwd") shiny (tu/tmp-pred) gold (tu/tmp-ind)]
+    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
+    (let [h    (v/assert kb (list shiny gold) ctx {:strength :monotonic})
+          gone (v/assert kb (list shiny (tu/tmp-ind)) ctx {:strength :monotonic})]
+      (v/retract! kb gone)
+      (doseq [[label target] [["the handle the except would receive" (inc gone)]
+                              ["a retracted handle" gone]]
+              :let [ex (list 'except (sx/sentex-handle target))]]
+        (testing label
+          (is (= [:unknown-handle] (mapv :type (v/check kb ex ctx))))
+          (is (= :unknown-handle
+                 (try (v/assert kb ex ctx {:strength :monotonic}) nil
+                      (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))))
+          (is (nil? (v/handle-of kb ex ctx)))))
+      (testing "an except naming a stored handle is admitted"
+        (is (= [] (v/check kb (list 'except (sx/sentex-handle h)) ctx)))))))
+
 ;; ---- ordering contract: except-target extraction before mutation ----------
 
 (tu/deftest-kb except-target-is-captured-before-storage-deletion

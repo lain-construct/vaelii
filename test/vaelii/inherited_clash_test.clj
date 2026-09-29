@@ -174,24 +174,36 @@
 
 ;; ---- context scoping -----------------------------------------------------
 
-(tu/deftest-kb a-claim-in-a-context-that-cannot-see-the-general-one-is-not-paired
-  ;; The pair is judged from the stored claim's own context, which is the vantage the
-  ;; inherited claim exists in at all: a claim reaches a context that can see it and no
-  ;; other.  So a general claim stated *below* the stored one denies nothing, and two
-  ;; contexts neither of which sees the other pair nothing.
+(tu/deftest-kb a-claim-is-paired-where-a-context-sees-the-general-one
+  ;; The pair is judged at every context that sees the stored claim, the general claim and
+  ;; the reading: the stored claim's own context when it sees them, and otherwise the most
+  ;; general context below it that does.  A general claim stated *below* the stored one
+  ;; is paired there and reported to the readers at and below it, and two contexts
+  ;; neither of which sees the other, with nothing seeing both, pair nothing.
+  ;;
+  ;;   CxUniverse
+  ;;     ├─ CxNarrow
+  ;;     ├─ CxLeft
+  ;;     └─ CxRight
   (tu/with-terms [CxNarrow CxLeft CxRight]
     (doseq [c [CxNarrow CxLeft CxRight]]
       (v/assert kb (list 'genlCx c U) U))
-    (doseq [[label src-ctx neg-ctx expected]
-            [["the general claim above the stored one" U CxNarrow 1]
-             ["the general claim below the stored one" CxNarrow U 0]
-             ["two contexts neither of which sees the other" CxLeft CxRight 0]]]
+    (doseq [[label src-ctx neg-ctx expected readers]
+            [["the general claim above the stored one" U CxNarrow 1 {CxNarrow 1 U 0}]
+             ["the general claim below the stored one" CxNarrow U 1 {CxNarrow 1 U 0}]
+             ["two contexts neither of which sees the other" CxLeft CxRight 0
+              {CxLeft 0 CxRight 0}]]]
       (tu/with-terms [carriesLoad hauler_kind cart_kind]
         (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}]
           (vocabulary! kb terms)
           (v/assert kb (list carriesLoad hauler_kind 'Bone1) src-ctx mono)
           (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) neg-ctx)
-          (is (= expected (count (inherited-reports kb carriesLoad))) label))))))
+          (is (= expected (count (inherited-reports kb carriesLoad))) label)
+          (doseq [[reader n] readers]
+            (is (= n (count (filter #(and (= :inherited (:kind %))
+                                          (= carriesLoad (first (:sentence (:inherited %)))))
+                                    (v/contradictions kb reader))))
+                (str label ", read from " reader))))))))
 
 ;; ---- what is not reported ------------------------------------------------
 
@@ -292,6 +304,46 @@
         (is (= (list 'not (list carriesLoad cart_kind 'Bone1)) (:sentence (:inherited r))))
         (is (= (v/handle-of kb (list 'not (list carriesLoad hauler_kind 'Bone1)) U)
                (:claim (:inherited r))))))))
+
+;; ---- a genl cycle -------------------------------------------------------
+
+(tu/deftest-kb a-claim-carried-round-a-genl-cycle-does-not-deny-itself
+  ;; The `:default` edge `(genl kind_a kind_b)` loses to the known-true nogood it closes,
+  ;; so the reverse edge passes the cycle check; the settle that places it re-decides that
+  ;; nogood with the old edge IN, and there `(asymmetric outranks)` reads the stored
+  ;; `(outranks kind_b kind_a)`'s converse back at its own tuple.  The last write is the
+  ;; reverse edge in every order, since any order placing it before the default edge's
+  ;; defeat refuses the default edge as a cycle instead.
+  (let [writes (fn [kb P a b]
+                 {:ab    #(v/assert kb (list 'genl a b) U)
+                  :decl2 #(v/assert kb (list 'transitiveInArg P 2 'genl) U mono)
+                  :decl1 #(v/assert kb (list 'transitiveInArg P 1 'genl) U)
+                  :neg   #(v/assert kb (list 'not (list P b b)) U mono)
+                  :claim #(v/assert kb (list P b a) U mono)
+                  :ba    #(v/assert kb (list 'genl b a) U mono)})
+        shapes
+        (vec
+         (for [order [[:ab :decl2 :decl1 :neg :claim] [:claim :neg :decl1 :decl2 :ab]
+                      [:neg :claim :ab :decl1 :decl2] [:decl1 :claim :decl2 :neg :ab]
+                      [:claim :ab :neg :decl2 :decl1] [:decl2 :neg :claim :ab :decl1]]]
+           (tu/with-terms [outranks kind_a kind_b]
+             (let [w   (writes kb outranks kind_a kind_b)
+                   in? #(boolean (when-let [h (v/handle-of kb % U)] (v/believed? kb h U)))]
+               (v/assert kb (list 'binary_predicate outranks) U)
+               (v/assert kb (list 'asymmetric outranks) U mono)
+               (doseq [t [kind_a kind_b]] (v/assert kb (list 'genl t 'thing) U mono))
+               (doseq [k (conj order :ba)] ((w k)))
+               (let [rs (inherited-reports kb outranks)]
+                 [(mapv (juxt :kind #(= (list outranks kind_b kind_b) (:sentence (:inherited %)))
+                              #(count (:nogood %)))
+                        rs)
+                  (every? (set (v/conflicts kb)) rs)
+                  (mapv in? [(list 'genl kind_a kind_b) (list 'genl kind_b kind_a)
+                             (list outranks kind_b kind_a)
+                             (list 'not (list outranks kind_b kind_b))])])))))]
+    (is (= 1 (count (distinct shapes))) (pr-str (vec (distinct shapes))))
+    (testing "the one clash is the claim, the edge and the declaration against the negation"
+      (is (= [[[:inherited true 4]] true [false true true true]] (first shapes))))))
 
 ;; ---- the roster survives a rebuild ---------------------------------------
 

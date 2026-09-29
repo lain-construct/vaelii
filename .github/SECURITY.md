@@ -33,13 +33,17 @@ it claims to, not about the absence of a login on a tool that never offered one.
 ### The browser (`vaelii.browser.web`, default port 3000)
 
 - **It binds loopback**, and reaching it from another machine is the deliberate
-  `--listen` flag on `-main`. Nothing else exposes it.
+  `--listen` flag on `-main`, or `:host` on `vaelii.web/start`. Either requires
+  `VAELII_API_TOKEN` (or `:token`), and nothing else exposes it.
 - **Seventeen routes write** (every `POST` in `web/app`), and **nothing authenticates
   them**. Each compares the request's `Origin` (falling back to `Referer`) against its
   own `Host` and answers 403 on a mismatch, so another site's tab cannot drive the
   editor and a sandboxed frame's `Origin: null` is refused. That is a cross-origin
   defence, **not** an access control: a request carrying neither header is a
   non-browser client with no ambient context to ride, and it passes.
+- **No other site can frame a page.** Every response carries `X-Frame-Options: DENY`
+  and `Content-Security-Policy: frame-ancestors 'none'`, because a POST from a framed
+  page carries this origin and would pass the check above.
 - **Write routes are serialized** on one process-wide monitor, as the daemon's ops are.
   Jetty serves them on a thread pool, and the storage layer beneath is single-writer.
 - **Bodies are capped** at the same `VAELII_MAX_BODY_BYTES` (16 MiB) the daemon reads,
@@ -57,8 +61,11 @@ it claims to, not about the absence of a login on a tool that never offered one.
   the destination directory from the request, and `POST /kbs/load` will create a
   durable store at a client-named path. Both are origin- and `Host`-checked like any
   other write, and both are as reachable as the operator's browser is.
-- **`POST /propose` reaches a language-model provider**, so it is the one route that
-  causes outbound network traffic. It is a read of the KB and a write of nothing.
+- **A registered extension adds routes under `/ext/<name>/`.** The browser applies the
+  origin check to each of its POSTs and the write guard to each `:write` route, and the
+  `Host` allowlist and token cover them like every other route; what a handler does
+  beyond that — any outbound network traffic included — is the extension's. The
+  browser registers none by itself.
 - **No destructive path is reachable by GET**, so a link, a prefetch or a crawler
   cannot change a KB.
 - **`lein browser` is a development command and pairs the browser with an nREPL**, both
@@ -73,7 +80,8 @@ it claims to, not about the absence of a login on a tool that never offered one.
 
 - **It binds loopback**, and `--listen` binds an address instead. A bind that names a
   non-loopback address **requires `VAELII_API_TOKEN`**: without one the daemon prints a
-  line and exits 2, before it opens the KB. The flag that publishes `POST /op` is also
+  line and exits 2, before it opens the KB. `vaelii.serve/start` holds a call from code
+  to the same rule. The flag that publishes `POST /op` is also
   the flag that drops the `Host` allowlist, so the exposed configuration must not be the
   least-defended one.
 - **A shared bearer token authenticates every request** when `VAELII_API_TOKEN` is set —
@@ -120,10 +128,6 @@ it claims to, not about the absence of a login on a tool that never offered one.
   reports belong to
   [`vaelii-foreign`](https://github.com/vaelii/vaelii-foreign/blob/main/.github/SECURITY.md),
   whose whole surface is untrusted input.
-- **Language-model credentials** are read from the environment and never stored in a
-  KB or a dump. `lein test` makes no model call: a test that could reach a provider
-  carries `^:llm`, which the `:all` selector excludes, *and* is gated on
-  `VAELII_LLM_LIVE=1`. A path that dials out without both is a bug.
 
 ## Dependencies
 

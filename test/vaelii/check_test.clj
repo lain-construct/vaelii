@@ -65,7 +65,46 @@
                ["a rule antecedent literal with a variable predicate"
                 (list 'implies (list 'and (list '?p '?x '?y) (list 'transitive '?p))
                       (list '?p '?x '?x)) CxThe                          :not-indexable]
-               ["a disjoint type membership" (list cat Muffet) CxThe      :disjoint]]]
+               ["a disjoint type membership" (list cat Muffet) CxThe      :disjoint]
+               ;; the operand of a wrapper or a `not` is a sentence, and a bare symbol
+               ;; there is refused as a bare antecedent or consequent literal is
+               ["a rule wrapper around a bare symbol"
+                (list 'set/defaultRule Muffet) CxThe                       :not-well-formed]
+               ["a negated bare symbol" (list 'not Muffet) CxThe          :not-well-formed]
+               ;; a conjunct is a formula and a variable is a term: stored, the rule
+               ;; fired forward as if the conjunct were absent and never fired backward
+               ["a bare variable as an antecedent conjunct"
+                (list 'implies (list 'and (list dog '?x) '?y) (list 'animal '?x))
+                CxThe                                                     :not-well-formed]
+               ["a bare variable under a negated antecedent"
+                (list 'implies (list 'and (list dog '?x) (list 'not '?y)) (list 'animal '?x))
+                CxThe                                                     :not-well-formed]
+               ["a generator whose generated rule has a bare variable conjunct"
+                (list 'set/forwardRule
+                      (list 'implies (list dog '?x)
+                            (list 'implies (list 'and (list cat '?z) '?y) (list dog '?z))))
+                CxThe                                                     :not-well-formed]
+               ["a bare variable as an exception conjunct"
+                (list 'exceptWhen '?y (list 'implies (list dog '?x) (list 'animal '?x)))
+                CxThe                                                     :not-well-formed]
+               ["a rule wrapper around a bare variable"
+                (list 'set/forwardRule '?y) CxThe                         :not-well-formed]
+               ;; a consequent is a formula too: the derived sentence whose predicate a
+               ;; firing binds is written (?pred . ?args)
+               ["a bare variable as a consequent"
+                (list 'implies (list dog '?s) '?s) CxThe                  :not-well-formed]
+               ["a bare variable in a conjunctive consequent"
+                (list 'implies (list dog '?s) (list 'and (list 'animal '?s) '?s))
+                CxThe                                                     :not-well-formed]
+               ["a bare variable under a head existential"
+                (list 'implies (list dog '?s) (list 'exists '?y '?s))
+                CxThe                                                     :not-well-formed]
+               ["a bare variable under a negated consequent"
+                (list 'implies (list dog '?s) (list 'not '?s)) CxThe      :not-well-formed]
+               ["a generator whose generated rule has a bare variable consequent"
+                (list 'set/forwardRule
+                      (list 'implies (list dog '?x) (list 'implies (list cat '?z) '?z)))
+                CxThe                                                     :not-well-formed]]]
         (testing label
           (is (= #{expected} (types-of-check kb sentence context)))
           (is (= expected (assert-type kb sentence context))
@@ -305,6 +344,87 @@
         (testing "an edge that closes no cycle still lands, so the refusal is the cycle"
           (is (some? (v/assert kb (list 'genl zSame unrelated) CxThe))))))))
 
+(deftest an-exceptWhen-naming-a-handle-is-checked-as-assert-checks-it
+  ;; `(exceptWhen Q (sentexHandle H))` amends a stored rule, so `check` answers from the
+  ;; stored record rather than from a rule form; each row is refused by `assert` with the
+  ;; type `check` reports
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [dog barks quiet base b_p a_p Rex CxThe]
+      (let [fact  (v/assert kb (list dog Rex) CxThe)
+            rule  (v/assert kb (list 'implies (list dog '?x) (list barks '?x)) CxThe)
+            r1    (v/assert kb (list 'implies (list base '?x) (list b_p '?x)) CxThe)
+            _     (v/assert kb (list 'implies (list b_p '?x) (list a_p '?x)) CxThe)
+            by    (fn [q h] (list 'exceptWhen q (list 'sentexHandle h)))
+            before (v/sentex-count kb)]
+        (doseq [[label sentence expected]
+                [["a handle naming a fact"         (by (list quiet '?x) fact)   :not-well-formed]
+                 ["a handle naming nothing stored" (by (list quiet '?x) 999999) :not-well-formed]
+                 ["a variable the rule never binds" (by (list quiet '?y) rule)  :exception-not-closed]
+                 ["a query literal misnamed"       (by (list 'Quiet '?x) rule)  :naming]
+                 ;; `a_p` follows from `b_p`, which the excepted rule concludes, so the
+                 ;; exception is a negative edge closing a cycle
+                 ["a cycle through the new negative edge" (by (list a_p '?x) r1) :not-stratified]]]
+          (testing label
+            (is (= #{expected} (types-of-check kb sentence CxThe)))
+            (is (= expected (assert-type kb sentence CxThe)))))
+        (is (= before (v/sentex-count kb)) "no refusal stored anything")
+        (testing "an exception the rule closes is admissible, and lands"
+          (is (= [] (v/check kb (by (list quiet '?x) rule) CxThe)))
+          (is (nat-int? (v/assert kb (by (list quiet '?x) rule) CxThe))))))))
+
+(deftest an-edit-batch-that-is-not-a-map-or-names-an-unknown-key-is-refused
+  ;; `check-edit` reports and `edit!` throws the one problem, so the dry run predicts it
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [dog Rex CxThe]
+      (doseq [[label batch mismatch unknown]
+              [["a vector of entries"   [[(list dog Rex) CxThe]]           :not-a-map   nil]
+               ["one misspelt key"      {:adds [[(list dog Rex) CxThe]]}   :unknown-key [:adds]]
+               ["two misspelt keys"     {:adds [] :removes []}             :unknown-key [:adds :removes]]]]
+        (testing label
+          (let [[p & more] (v/check-edit kb batch)
+                thrown     (try (v/edit! kb batch) nil
+                                (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+            (is (nil? more))
+            (is (= [:unknown-option mismatch unknown] ((juxt :type :mismatch :unknown) p)))
+            (is (= [:unknown-option mismatch] ((juxt :type :mismatch) thrown)))
+            (when unknown
+              (is (re-find (re-pattern (str "unknown edit batch key" (when (next unknown) "s")
+                                            " :adds"))
+                           (:message p)))))))
+      (is (nil? (v/handle-of kb (list dog Rex) CxThe)) "and nothing was written"))))
+
+(deftest a-malformed-connective-frame-is-refused-at-both-entry-points
+  ;; `sx/connective-problems` and the literal checks behind it: one row per refusal,
+  ;; each asked of `check` and `assert` alike
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [dog pet barks quiet owns Rex CxThe]
+      (let [rule   (list 'implies (list dog '?x) (list barks '?x))
+            before (v/sentex-count kb)]
+        (doseq [[label sentence expected]
+                [["an empty form"                        ()                                  :not-well-formed]
+                 ["a rule wrapper with no rule"          (list 'set/defaultRule)             :not-well-formed]
+                 ["a rule wrapper with two rules"        (list 'set/forwardRule rule rule)   :not-well-formed]
+                 ["a constraint wrapper with no rule"    (list 'set/hardConstraint)          :not-well-formed]
+                 ["a constraint wrapper with two levels" (list 'set/softConstraint 2 3 rule) :not-well-formed]
+                 ["an exceptWhen with no rule"           (list 'exceptWhen (list quiet '?x)) :not-well-formed]
+                 ["an exceptWhen with a third argument"  (list 'exceptWhen (list quiet '?x) rule Rex)
+                  :not-well-formed]
+                 ["a rule as an antecedent literal"
+                  (list 'implies (list 'and (list dog '?x) (list 'implies (list pet '?x) (list dog '?x)))
+                        (list barks '?x))                                                  :not-well-formed]
+                 ["a rule as an exception literal"
+                  (list 'exceptWhen (list 'implies (list pet '?x) (list quiet '?x)) rule)  :not-well-formed]
+                 ["a head existential in an antecedent"
+                  (list 'implies (list 'and (list dog '?x) (list 'exists '?y (list owns '?x '?y)))
+                        (list barks '?x))                                                  :not-well-formed]
+                 ["the anonymous variable in an exception"
+                  (list 'exceptWhen (list owns '?x '_) rule)                               :exception-not-closed]
+                 ["a definition at the wrong arity"      (list 'defnSufficient dog Rex Rex)  :not-well-formed]]]
+          (testing label
+            (is (= #{expected} (types-of-check kb sentence CxThe)))
+            (is (= expected (assert-type kb sentence CxThe)))))
+        (is (= before (v/sentex-count kb)) "no refusal stored anything")))))
+
 ;; ---- encodability: what a sentence's content may be ----------------------
 ;; A map or a set has no canonical form, so `sentex/canon` cannot normalize one and
 ;; `nm/form-rank` cannot order one — the entry point refuses it rather than storing a sentence
@@ -354,7 +474,7 @@
 
 (deftest check-edit-judges-each-add-against-the-kb-as-it-stands
   ;; Nothing is stored, so each add is judged against the KB *before the batch*, not
-  ;; against the KB the entries before it would have made.  That is the honest answer
+  ;; against the KB the entries before it would have made.  That is the correct answer
   ;; for a dry run, and it differs from the sequential reading in **both** directions —
   ;; so both are pinned, because an assertion true under either reading says nothing
   ;; about which one `check-edit` implements.
@@ -563,12 +683,45 @@
                                        (list 'agg/count '?n 'Ada (list kidOf '?x 'Ada)))
                         (list loner '?x))
                   :not-well-formed]
+                 ["a thereExists whose binder is a constant"
+                  (list 'implies (list 'and (list person '?x)
+                                       (list 'unknown (list 'thereExists 'Kid (list kidOf '?x 'Kid))))
+                        (list loner '?x))
+                  :not-well-formed]
+                 ["a thereExists whose binder list holds a constant"
+                  (list 'implies (list 'and (list person '?x)
+                                       (list 'unknown (list 'thereExists (list '?c 'Kid)
+                                                            (list 'and (list kidOf '?x '?c)
+                                                                  (list likes '?c 'Kid)))))
+                        (list loner '?x))
+                  :not-well-formed]
+                 ["a forall whose binder is a constant"
+                  (list 'implies (list 'and (list person '?x)
+                                       (list 'forall 'Kid (list 'implies (list kidOf '?x 'Kid)
+                                                                (list sick 'Kid))))
+                        (list loner '?x))
+                  :not-well-formed]
+                 ["a forall whose binder list holds a constant"
+                  (list 'implies (list 'and (list person '?x)
+                                       (list 'forall (list '?c 'Kid)
+                                             (list 'implies (list kidOf '?x '?c)
+                                                   (list likes '?c 'Kid))))
+                        (list loner '?x))
+                  :not-well-formed]
+                 ["a head exists whose binder is a constant"
+                  (list 'implies (list person '?x) (list 'exists 'Kid (list kidOf '?x 'Kid)))
+                  :not-well-formed]
+                 ["a matchesPattern whose pattern no antecedent binds"
+                  (list 'implies (list 'and (list likes '?x '?s) (list 'matchesPattern '?s '?p))
+                        (list loner '?x))
+                  :naf-not-closed]
                  ["an empty NAF conjunction, which nothing can make derivable"
                   (list 'implies (list 'and (list person '?x) (list 'unknown (list 'and)))
                         (list loner '?x))
                   :not-well-formed]]]
           (testing label
             (is (= #{expected} (types-of-check kb sentence 'CxUniverse)))
+            (is (= [expected] (map :type (v/check-edit kb {:add [[sentence 'CxUniverse]]}))))
             (is (= expected (assert-type kb sentence 'CxUniverse))
                 "and it is the type assert throws for the same sentence")))
         (testing "and the well-formed conjunctive rule is admissible at both entry points"

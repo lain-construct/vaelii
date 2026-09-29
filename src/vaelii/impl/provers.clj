@@ -72,7 +72,8 @@
   (`predicates/check-facets`).  That is the line the four functor rosters in this file sit
   on either side of, and it is the same line each time: a prover's **shape** table stays
   with the prover, and its **enrolment** is the declaration's."
-  (:require [vaelii.impl.caches :as caches]
+  (:require [vaelii.impl.budget :as budget]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.datetime :as datetime]
             [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
@@ -130,8 +131,7 @@
 (declare parse-rule solve-inverted solve-mirrored registry solve-goal-with est-goal)
 
 (defn- pvar? [x] (sx/variable? x))
-(defn- has-var? [form] (boolean (some pvar? (tree-seq sequential? seq form))))
-(defn- ground? [form] (not (has-var? form)))
+(def ^:private ground? sx/ground-term?)
 (defn- binary? [goal] (and (sequential? goal) (= 2 (count (rest goal)))))
 (defn- binary-pred? [goal p] (and (binary? goal) (= p (first goal))))
 
@@ -730,6 +730,19 @@
       (recur p (conj seen n) (into out hs))
       (when (seq out) out))))
 
+(defn- declared-transitive-by
+  "The believed `(transitive pred)` statements `context` sees, as a set of handles —
+  every one, for `support-chain`'s reason: naming one of two would decide a
+  justification by arrival order."
+  [kb pred context]
+  (let [tx  (reasoning/taxonomy kb)
+        tms (reasoning/tms kb)
+        up  (when (and (symbol? context) (not (sx/variable? context)))
+              (set (tax/context-up tx context)))]
+    (into #{}
+          (keep (fn [[h c]] (when (and (or (nil? up) (nil? c) (contains? up c)) (jtms/in? tms h)) h)))
+          (tax/prop-supporter-contexts tx :transitive pred))))
+
 (defrecord TransitivePredicateProver []          ; declared-transitive predicates (not genl/genlCx)
   Prover
   (applicable? [_ kb goal context]
@@ -830,12 +843,20 @@
   ;;
   ;; Both arguments open answers nothing here, exactly as `solve` does, so there is no
   ;; support to report for a closure nobody asked to enumerate.
+  ;;
+  ;; A chain of more than one stored handle rests on the **declaration** as well, since
+  ;; only `(transitive P)` makes two hops a pair, so the support names every believed
+  ;; statement of it that `context` sees (`declared-transitive-by`).  Placement reads the
+  ;; support's contexts, and a declaration stated apart from the hops licenses the pair
+  ;; only below both; the hops' own context, which does not see it, walks nothing.
   (solve-with-support [_ kb goal context]
     (let [[pred a b] goal
           fwd   #(succs kb pred % context)
           back  #(preds-of kb pred % context)
+          decls (delay (declared-transitive-by kb pred context))
+          with  (fn [sup] (when sup (if (next sup) (into sup @decls) sup)))
           chain (fn [dir root node]
-                  (support-chain (support-parents kb dir pred root context) node))]
+                  (with (support-chain (support-parents kb dir pred root context) node)))]
       (cond
         (and (ground? a) (ground? b))
         (if-let [sup (and (reaches? (fwd a) fwd b) (chain :succ a b))]
@@ -844,12 +865,12 @@
 
         (ground? a)
         (let [parents (support-parents kb :succ pred a context)]
-          (keep (fn [y] (when-let [sup (support-chain parents y)] [{b y} sup]))
+          (keep (fn [y] (when-let [sup (with (support-chain parents y))] [{b y} sup]))
                 (cached-reach kb :succ pred a context fwd)))
 
         (ground? b)
         (let [parents (support-parents kb :pred pred b context)]
-          (keep (fn [x] (when-let [sup (support-chain parents x)] [{a x} sup]))
+          (keep (fn [x] (when-let [sup (with (support-chain parents x))] [{a x} sup]))
                 (cached-reach kb :pred pred b context back)))
 
         (= a b)
@@ -882,7 +903,10 @@
       ;; `:ambiguous` yields nothing on purpose.  Claims that disagree at incomparable
       ;; specificity are a dilemma, and the engine's stance on those is to represent
       ;; rather than decide — answering either way here would be deciding one silently.
-      (if (= :for (inherit/verdict kb goal context)) [{}] []))))
+      ;; The claim walk stops at the deadline of the `ask` realizing this answer
+      ;; (`budget/*deadline*`), since the walk is one pull and `collect` checks between pulls.
+      (binding [inherit/*deadline* budget/*deadline*]
+        (if (= :for (inherit/verdict kb goal context)) [{}] [])))))
 
 (defrecord SymmetricProver []
   Prover
@@ -936,7 +960,7 @@
 (def evaluable-predicates
   "Predicates a prover computes from its ground arguments rather than looks up.
   `lessThan` / `greaterThan` are the **variable arity** arithmetic comparisons —
-  `(lessThan 1 2 3)` is indistinguishable from the chain 1 < 2 < 3; `greaterThan` is folded to `lessThan`
+  `(lessThan 1 2 3)` states the chain 1 < 2 < 3; `greaterThan` is folded to `lessThan`
   when *stored* (see `vaelii.impl.sentex`), but a caller may still ask it directly, so both
   are answered here.
 
@@ -945,8 +969,8 @@
   kind is always present — and it is what lets the four sign-refined integer collections in
   CxCore (`positive_integer` …) be defined by `defnSufficient` / `defnNecessary` conditions
   built on `(integer ?x)` and resolved **by evaluation** at query time, at zero storage
-  cost, rather than by a forward rule that never fires because the computed condition is
-  never a believed fact (docs/defns.md).
+  cost: a sufficient condition with no stored conjunct expands to no forward rule
+  (docs/defns.md).
 
   `matchesPattern` is the **binary** string-shape check: `(matchesPattern ?string ?pattern)`
   holds when the whole of `?string` matches the regular expression `?pattern`, both ground
@@ -979,7 +1003,7 @@
   `CharSequence` that throws `:pattern-too-costly` once the match reads past
   `match-step-budget` characters?  A `Matcher` reads a character per backtracking step, so a
   pathological pattern is refused on the step that exceeds the budget rather than running
-  unbounded — which is what keeps `EvaluableProver`'s completeness-100 promise honest for a
+  unbounded — which keeps `EvaluableProver`'s completeness-100 claim true for a
   ground goal.  An uncompilable pattern yields nil here; the assert entry point refuses one
   loudly (`checks/matches-pattern-problem`), so a compile failure reaching query time is a
   goal that never passed a check, answered as no match rather than as an error."
@@ -1192,7 +1216,7 @@
   ;; Y)` asks for every term in the KB outside Y's class — an enumeration of the whole
   ;; domain — so the prover *refuses* the goal instead of answering it explosively.
   ;; Refusing and answering-with-nothing are different claims, and only the first is
-  ;; honest: `plan` shows no prover, and a rule antecedent that reaches here unbound
+  ;; true: `plan` shows no prover, and a rule antecedent that reaches here unbound
   ;; is a planning bug the author can see rather than a silent empty join.
   (applicable? [_ _ goal _]
     (and (sequential? goal) (= 'different (first goal))
@@ -1207,6 +1231,76 @@
   (completeness [_ _ _ _] 100)
   (solve [_ kb goal context]
     (if (pairwise-distinct? kb context (rest goal)) [{}] [])))
+
+;; ---- sameAs / equals: the equality closure, read as a relation ----------
+
+(def ^:private closure-equations
+  "The equations the closure answers as a relation: reflexive, symmetric and transitive
+  over the partition.  `rewriteOf` is not here.  It is directional, and the goal
+  `(rewriteOf P D)` is answered by the stored edge as spelled (`res/goal-held-as-spelled?`)."
+  '#{sameAs equals})
+
+(defn- scoped-equiv-class
+  "`term`'s equivalence class as `visible?` sees the merges: the global class when the read
+  is unscoped or nothing merged `term`, else the scoped election (`tax/scoped-class`), since
+  an invisible edge can split a class."
+  [kb visible? term]
+  (let [tx (reasoning/taxonomy kb)]
+    (if (and visible? (tax/merged? tx term))
+      (first (tax/scoped-class tx term visible?))
+      (tax/equiv-class tx term))))
+
+(defn- terms-equal-in?
+  "Do ground terms `a` and `b` reach one normal form as `visible?` sees the merges and the
+  schematic equations?  Each side is a **term**, so it takes the congruence walk and then
+  `rewrite/normalize` at its own root; `res/normal-form` reads its argument as a sentence
+  and would leave the root of a term such as `(fatherOf (fatherOf Tom))` unrewritten.  A
+  denial of the instance that `visible?` sees blocks the step that would join them
+  (`res/rewrite-rules-in`), so the denied instance answers false."
+  [kb visible? a b]
+  (or (= a b)
+      (let [rules (res/rewrite-rules-in kb visible?)
+            nf    #(rewrite/normalize rules (res/representative-term kb visible? %))]
+        (= (nf a) (nf b)))))
+
+(defrecord EqualityProver []
+  Prover
+  ;; A ground goal, or one naming a symbol on one side and a variable on the other.  The
+  ;; closure holds symbols, so a bound symbol's answers are its class.  A compound bound
+  ;; beside a variable asks for every term that normalizes with it, which is
+  ;; E-unification (docs/equality.md, "What is not built"), and a goal open on both sides
+  ;; asks for every pair over the whole domain, reflexive ones included.  The prover is
+  ;; inapplicable to both, and the stored equations still answer them through
+  ;; `FactProver`.
+  (applicable? [_ _ goal _]
+    (and (binary? goal) (contains? closure-equations (first goal))
+         (let [[_ a b] goal]
+           (or (and (ground? a) (ground? b))
+               (and (symbol? a) (not (pvar? a)) (pvar? b))
+               (and (pvar? a) (symbol? b) (not (pvar? b)))))))
+  (est-bindings [_ kb goal context]
+    (let [[_ a b] goal]
+      (if (and (ground? a) (ground? b))
+        1
+        (count (scoped-equiv-class kb (res/visible-supporter-fn kb context)
+                                   (if (ground? a) a b))))))
+  (cost         [_ _ _ _] :lookup)
+  ;; Authoritative over its sources, the way `TransitivityProver` is over `genl`: the
+  ;; closure is built from every believed stored equation, a derived one reaches it
+  ;; through `special/integrate-equality-sentex`, and the scoped read drops what the
+  ;; asking context cannot see or has excepted, as `FactProver` does.  A backward rule
+  ;; concluding an equation is `sole-prover`'s question.
+  (completeness [_ _ _ _] 100)
+  (solve [_ kb goal context]
+    (let [[_ a b] goal
+          vis (res/visible-supporter-fn kb context)]
+      (cond
+        ;; Both sides to the normal form the asker sees: a compound normalizes by
+        ;; congruence and by the schematic equations, the way `different` compares.
+        (and (ground? a) (ground? b))
+        (if (terms-equal-in? kb vis a b) [{}] [])
+        (ground? a) (map (fn [t] {b t}) (sort (scoped-equiv-class kb vis a)))
+        :else       (map (fn [t] {a t}) (sort (scoped-equiv-class kb vis b)))))))
 
 ;; ---- evaluate: symbolic computation -------------------------------------
 ;; (evaluate ?result <expr>) binds ?result to the value of a symbolic expression,
@@ -1281,13 +1375,14 @@
     :last  (dec n)
     (long result)))
 
-(def ^:private deferred-est
-  "The `est-bindings` an evaluatable reports while its inputs are unbound.  It computes
-  from ground inputs and enumerates nothing, so on unbound inputs it can neither answer
-  nor prune — the most *unselective* a literal can be, and reported as such so the join
-  planner (`vaelii.impl.plan`, through `est-goal`) runs a generator that binds those
-  inputs first and the computation lands with everything ground.  Deliberately below
-  `Long/MAX_VALUE`, which the planner's fan-out sums."
+(def deferred-est
+  "The `est-bindings` an evaluatable reports while its inputs are unbound, and any prover
+  whose answer to an open argument is not complete.  An evaluatable computes from ground
+  inputs and enumerates nothing, so on unbound inputs it can neither answer nor prune — the
+  most *unselective* a literal can be, and reported as such so the join planner
+  (`vaelii.impl.plan`, through `est-goal`) runs a generator that binds those inputs first
+  and the computation lands with everything ground.  Deliberately below `Long/MAX_VALUE`,
+  which the planner's fan-out sums."
   1000000000)
 
 (defrecord EvaluatableFn [pred f arities result cost-tier complete]
@@ -1405,8 +1500,8 @@
   evaluatables on purpose: forward chaining's leaf is the stored facts (`*matcher*`),
   for which the index model is the right cost, so every other goal is left to it.
 
-  Nil when `preds` is empty, so `planned-join` passes no override and plans exactly as
-  before."
+  Nil when `preds` is empty, and `planned-join` then plans with `support-est-override`
+  alone."
   [preds]
   (when (seq preds)
     (fn [goal _bound]
@@ -1473,7 +1568,7 @@
   whichever was written first, and the same knowledge loaded in the other order would
   give a different number out of the same KB.  The unit table therefore takes the rule
   the rest of the engine takes for a reading stated twice over —
-  `duration/interval-length-with-support` on two lengths, `stp/endpoints-of` on two
+  `duration/interval-length-with-support` on two lengths, `stp/endpoints-with-support` on two
   starts: a disagreement is declined, not
   adjudicated.  Restating one declaration in several contexts of the ancestor set is not a
   disagreement; the matches carry the same bindings and collapse to one.
@@ -1625,7 +1720,7 @@
 
 (defn render-quantity
   "The measure the bounds `[lo hi]` in `unit` denote: a **point** when they coincide, an
-  **interval** when they do not.  That is what keeps a computed answer honest — an
+  **interval** when they do not.  A computed answer never claims a precision it lacks — an
   over-approximation renders as an interval and says so, rather than picking a figure
   out of a range it only bounded."
   [lo hi unit]
@@ -1635,7 +1730,13 @@
       (list 'QuantityFn lo* unit)
       (list 'QuantityIntervalFn lo* hi* unit))))
 
-(defn- q=  [a b] (<= (abs (- a b)) *quantity-tolerance*))
+(defn q=
+  "Are two base magnitudes equal within `*quantity-tolerance*`?  Normalization multiplies
+  by a stored (usually floating-point) conversion factor, so exact `=` would make one sum
+  unequal to itself written in another unit.  The measure comparisons here and
+  `duration`'s bound checks call it."
+  [a b]
+  (<= (abs (- a b)) *quantity-tolerance*))
 (defn- q<  [a b] (< a (- b *quantity-tolerance*)))
 (defn- q>  [a b] (> a (+ b *quantity-tolerance*)))
 (defn- q<= [a b] (<= a (+ b *quantity-tolerance*)))
@@ -1704,7 +1805,7 @@
 ;; and believed by the time the query runs) while something reachable only by backward
 ;; chaining does not.  Both are **ground/closed only** — applicability refuses a goal
 ;; with a free variable (`free-vars`, which excludes the quantified ones), the same
-;; honest refusal `different` makes: an open `(unknown (P ?x))` is not a test but a
+;; refusal `different` makes: an open `(unknown (P ?x))` is not a test but a
 ;; search of the whole domain's complement, and answering it explosively would be
 ;; wrong.  Nothing about either is stored — see docs/naf.md.
 
@@ -1730,7 +1831,7 @@
 
   A conjunct nothing can make ready is placed anyway rather than dropped: the assert-time
   check (`sentex/check-naf-closed`) is what refuses that rule, and a *goal* asked
-  directly deserves the honest empty answer rather than a silent reordering."
+  directly gets an empty answer rather than a silent reordering."
   [conjuncts bound]
   (loop [pending (vec conjuncts) bound (set bound) out []]
     (if (empty? pending)
@@ -1874,9 +1975,10 @@
 ;; ---- evaluative defnSufficient: prove membership by evaluating the condition ----
 ;; `(defnSufficient Coll C)` says the condition `C` on the member `?x` is enough for
 ;; membership.  Its forward materialization (`sentex/defn-companion-rules`) is a rule
-;; `(implies C (Coll ?x))` that fires only when `C` is a *believed* fact — so a `C` built
-;; from **computed** predicates (`integer`, `lessThan`, an `add-evaluatable` check) is
-;; never stored, the rule never fires, and the member is never derived.  This prover
+;; `(implies C (Coll ?x))` that fires only when a stored conjunct of `C` binds the member
+;; — so a `C` built from **computed** predicates alone (`integer`, `lessThan`, an
+;; `add-evaluatable` check) derives no member: a built-in one expands to no rule, and a
+;; registered evaluatable's rule has no conjunct to bind the member.  This prover
 ;; closes that at query time: on `(Coll a)` it finds `Coll`'s visible defnSufficient
 ;; conditions, substitutes the queried member `a` for `?x`, and asks whether the condition
 ;; holds through the registry — which *evaluates* the computed predicates against `a`.
@@ -1928,7 +2030,7 @@
 
 ;; ---- applicability gates: is a defn even in reach, without the per-node walk? ----
 ;; Both defn provers ship in the default registry, so their `applicable?` runs on EVERY
-;; ground unary goal — and the honest test, "does `coll`'s spec/genl ancestor set carry a
+;; ground unary goal — and the exact test, "does `coll`'s spec/genl ancestor set carry a
 ;; visible defn", is a `tax/specs`/`tax/genls` walk with a `matches-visible` per node.  On a
 ;; goal about a predicate that bears no defn (the overwhelming majority, even under a full
 ;; upper ontology where only a dozen collections are defined) that walk finds nothing at a
@@ -2156,72 +2258,25 @@
         []))))
 
 ;; ---- aggregation: a reduction over a query's solutions ------------------
-;; `(agg/count ?n ?v <body>)` and its four siblings are the third member of the
-;; `unknown` / `thereExists` family, and they are built out of the same three
-;; decisions.
-;;
-;; **The registry, and no rule expansion.**  The body runs through the registry for
-;; exactly the reason `unknown` does: a count that could launch an open-ended backward
-;; search is a count whose cost is unbounded, and it would be reached from inside a
-;; relabel loop.  That is less of a restriction than it sounds.
-;; A forward-derived fact *is* counted (it is stored and believed by the time the
-;; query runs), and so is a relation held in the cached closures — `genl`, a
-;; `(transitive ancestorOf)` walked by `TransitivePredicateProver` — which is what the
-;; per-node transitive-ancestor count is made of.  What a level-6 body cannot see is a
-;; relation reachable *only* by backward chaining: a `set/backwardRule`'s conclusions.
-;;
-;; **`?v` is projected out** (`sx/free-vars`), so `?n` is the only binding produced —
-;; `thereExists`'s rule applied to a variable that is counted rather than witnessed.
-;;
-;; **Bind or check.**  A variable `?n` takes the computed value; a bound one is
-;; compared against it, so an aggregate is indistinguishable from a test as readily as a computation
-;; (`EvaluateProver` makes the same pair).  The check arm is what lets a *firing* be
-;; re-verified against the count it rested on, which is how an aggregate antecedent is
-;; maintained (docs/aggregate.md).
-;;
-;; Nothing is stored and no JTMS node is created: a count is recomputed, never cached.
+;; `(agg/count ?n ?v <body>)` and its four siblings, answered over the registry.
+;; See docs/aggregate.md.
 
 (defn- aggregate-violation!
-  "File a numeric error in the violations ledger — **once per distinct error**.
-
-  Unlike a dropped conclusion, an aggregate error is not an event that happened once:
-  a count is recomputed, never cached, so the same bad extent is reduced again on every
-  query, every re-check and every settle pass.  `violations/report-once` is what keeps
-  the ledger from filling with copies of one defect, and it is shared with the other
-  refusal that is recomputed rather than remembered — a post-join literal declined for
-  disagreeing with itself."
+  "File a numeric error in the violations ledger, once per distinct error
+  (`violations/report-once`; docs/aggregate.md, \"Numbers, measures\")."
   [kb goal context message detail]
   (violations/report-once kb (merge {:violation :aggregate :sentence goal :context context
                                      :message message}
                                     detail)))
 
 (defn- aggregate-values
-  "The **distinct** values `?v` takes over the body's solutions, in solution order.
+  "The values `?v` takes over the body's joined solutions (`conjunction-solutions`), in
+  solution order, distinct by the equality closure's representative as `context` reads
+  it.  A solution that leaves `?v` unbound contributes nothing.
 
-  The body is a **joined** conjunction (`conjunction-solutions`), the same evaluator
-  `unknown` and `exceptWhen` read: a census over `(and (childOf Bob ?c) (asleep ?c))`
-  counts the children who are asleep, one witness satisfying both conjuncts, rather than
-  the children and the sleepers apart.  A one-literal body is the degenerate case and is
-  unchanged by the join — one conjunct, one registry call, the same solutions.
-
-  Distinct by the equality closure's representative, so a `sameAs`-merged pair counts
-  once: two names for one thing are one value, which is the whole point of holding the
-  closure.  A solution that binds `?v` to nothing contributes nothing — it witnessed
-  the body without reaching the variable being reduced over.
-
-  **Read from `context`**, the same scoping `all-different?` puts on the same partition
-  and for the same reason: a census is of what *this* context believes, and the unique
-  names it holds are the ones it has not been told to merge.  A `(sameAs A B)` stated in
-  a context would otherwise collapse two of them into one everywhere — including in
-  the general context that was never told, whose own solutions still name both.
-
-  The scoped read is asked per value, so it takes `merged-term-pred`'s one-snapshot
-  gate rather than `merged?`'s per-call deref: a KB that has merged nothing drops the
-  filter outright and a symbol that is in no class costs one set membership.  A
-  **compound** value takes the recursive `representative-term` — the closure is keyed
-  by symbol, so the flat lookup hands a compound back unchanged, and `(QuantityFn 5
-  Kilogram)` beside `(QuantityFn 5 Kg)` under a merged unit would count as two values
-  (`res/representative-term`'s own example)."
+  `merged-term-pred` is read once per call, so a KB that has merged nothing skips the
+  representative lookup.  A compound value takes the recursive `representative-term`,
+  since the closure is keyed by symbol and the flat lookup returns a compound unchanged."
   [kb goal v context]
   (let [merged (tax/merged-term-pred (reasoning/taxonomy kb))
         vis    (when merged (res/visible-supporter-fn kb context))]
@@ -2241,19 +2296,9 @@
 
 (defn- measure-bounds
   "The values as one dimension's `[unit [lo hi]...]`, or nil when they are not all
-  measures of a single dimension.  The unit answers are rendered in is the dimension's
-  base — read out of the same `conversionFactor` table the normalization multiplied
-  by, so nothing separate can disagree about the unit the arithmetic happened in.
-
-  **Whose base**, though, is a question a dimension can answer two ways.  The
-  direct-to-base contract says every unit of a dimension converts to a *single* base, and
-  a KB that breaks it — two units of one `dimensionOf` naming different bases — has
-  values whose magnitudes are already in incomparable scales.  Reading the base off
-  whichever measure the extent yielded first would render the same knowledge in different
-  units in different arrival orders, since the values reach here in solution order.  So
-  the unit is taken from the **content-least** of them (`nm/min-by-content-key`): still
-  arbitrary where the KB is inconsistent, but the same answer whatever the arrival order,
-  and on the conforming KB where every base agrees there is only one answer to give."
+  measures of a single dimension.  The unit is the base of the **content-least** value's
+  unit (`nm/min-by-content-key`), so a table naming two bases for one dimension renders
+  in one unit whatever the arrival order (docs/quantity.md)."
   [kb values context]
   (when (every? measure? values)
     (let [norms (mapv #(normalize-quantity kb % context) values)
@@ -2263,17 +2308,8 @@
          (mapv (fn [[_ lo hi]] [lo hi]) norms)]))))
 
 (defn- reduce-numbers
-  "The reduction of a non-empty numeric value list.  `:min` / `:max` / `:avg` have no
-  answer over nothing, which is why the empty case never reaches here.
-
-  **Summed in sorted order, because floating-point addition is not associative.**  The
-  values arrive in solution order, and solution order is a function of how the facts
-  were stored rather than of what they say — so `(+ 0.1 0.2 1e16 -1e16)` and the same
-  four values reached in another order give different answers, and asserting the same
-  KB in another order would change what the aggregate reports.  Order independence is
-  the engine's first invariant (docs/nmtms.md); sorting makes the summation order a
-  function of the values alone, which is what restores it.  Exactness is not on offer
-  and is not what is claimed — determinism is."
+  "The reduction of a non-empty numeric value list, over the values sorted so a float
+  sum does not depend on solution order (docs/aggregate.md, \"Numbers, measures\")."
   [op xs]
   (let [xs (sort xs)]
     (case op
@@ -2283,18 +2319,9 @@
       :avg (/ (double (reduce + xs)) (count xs)))))
 
 (defn- reduce-measures
-  "The reduction of a non-empty measure list, as a rendered measure.
-
-  `:sum` and `:avg` are linear in the `[lo hi]` bounds, so they carry an
-  over-approximation through honestly — an interval in gives an interval out, which
-  `render-quantity` says out loud rather than picking a figure out of it.  `:min` and
-  `:max` need a **total** order and measure bounds only give a partial one, so they
-  answer for point measures (where `lo = hi`) and refuse a genuine interval rather
-  than guessing which of two overlapping ranges is the smaller.
-
-  Each side is summed in sorted order, for the reason `reduce-numbers` gives: a
-  normalized bound is a double, and a sum whose value depended on solution order would
-  depend on the order the facts arrived in."
+  "The reduction of a non-empty measure list, as a rendered measure, each bound summed
+  in sorted order as `reduce-numbers` sums.  `:sum` and `:avg` carry an interval
+  through; `:min` and `:max` answer nil unless every value is a point (`lo = hi`)."
   [op unit bounds]
   (let [los (sort (map first bounds)), his (sort (map second bounds))
         n   (count bounds)]
@@ -2307,19 +2334,10 @@
           (render-quantity m m unit))))))
 
 (defn aggregate-value
-  "The value an aggregate reduces to over `values`, or nil when there is none.
-
-  The empty extent is where the five differ, and deliberately: **count is 0 and sum is
-  0** — the identity of each reduction, and a true answer about an empty group —
-  while **min, max and avg over nothing have no answer at all** and yield no binding.
-  A zero minimum would be a claim about a group that has no members, and an average
-  over nothing is a division by zero however it is dressed up.
-
-  A non-numeric value under `sum` / `min` / `max` / `avg` is an **error, not a silent
-  skip**: a count of names is meaningful, an average of them is not, and quietly
-  dropping the non-numbers would answer a different question than the one asked.  It
-  is recorded in the violations ledger and yields nothing — `count` is unaffected,
-  since counting is the one reduction that does not read the values."
+  "The value an aggregate reduces to over `values`, or nil when there is none: over an
+  empty extent `:count` and `:sum` give 0 and the others nil, and a value list that is
+  neither all numbers nor measures of one dimension files an `:aggregate` violation and
+  gives nil."
   [kb goal op values context]
   (cond
     (= op :count) (count values)
@@ -2339,27 +2357,16 @@
 
 (defrecord AggregateProver []
   Prover
-  ;; The goal is one of the five, its reduction variable is a variable, and every
-  ;; variable still free in it is one the census body **binds for itself**
-  ;; (`sx/census-bound-vars`) — the reduction variable, and the join variables of a
-  ;; conjunctive body.  A group variable an antecedent was meant to supply is substituted
-  ;; away before the goal reaches here, so what is left is the body's own scope; a
-  ;; variable the body cannot reach a witness for is a census of nothing, and this
-  ;; declines it the way `UnknownProver` declines an open NAF goal.
+  ;; one of the five, a variable in the reduction slot, and every variable still free in
+  ;; it one the census body binds for itself (`sx/census-bound-vars`)
   (applicable? [_ _ goal _]
     (and (sx/aggregate? goal)
          (some? (sx/aggregate-value-var goal))
          (let [bound (sx/census-bound-vars (sx/aggregate-body goal))]
            (every? bound (sx/free-vars goal)))))
   (est-bindings [_ _ _ _] 1)                    ; one answer or none, never a stream
-  ;; the body must be *exhausted* before the first answer — a reduction has no partial
-  ;; result — which is exactly what the `:compute` tier names.  Not `:lookup`: a
-  ;; `{:max-cost :lookup}` budget must drop this prover, and does.
-  (cost         [_ _ _ _] :compute)
-  ;; Authoritative: an aggregate is not assertible, so nothing else can hold a claim
-  ;; about one, and the answer is already a function of what the rest of the stack
-  ;; derives.  Nothing may be unioned in.
-  (completeness [_ _ _ _] 100)
+  (cost         [_ _ _ _] :compute)             ; the body is exhausted before any answer
+  (completeness [_ _ _ _] 100)                  ; not assertible, so nothing else answers
   (solve [_ kb goal context]
     (let [op     (sx/aggregate-functors (first goal))
           v      (sx/aggregate-value-var goal)
@@ -2369,8 +2376,7 @@
       (cond
         (nil? result)      []
         (sx/variable? n)   [{n result}]
-        ;; check mode: a bound `?n` is compared, numerically where both are numbers so
-        ;; a long and a double that name one value agree
+        ;; check mode: `==` where both are numbers, so a long and a double agree
         (and (number? n) (number? result)) (if (== n result) [{}] [])
         :else                              (if (= n result) [{}] [])))))
 
@@ -2699,7 +2705,7 @@
 (def default-provers
   [(->TransitivityProver) (->DisjointnessProver)
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
-   (->EvaluableProver) (->DifferentProver) (->EvaluateProver) (->QuantityProver)
+   (->EvaluableProver) (->DifferentProver) (->EqualityProver) (->EvaluateProver) (->QuantityProver)
    (->AdmitsArgnumProver)
    (->UnknownProver) (->ThereExistsProver) (->ForallProver) (->ClosedExtentProver)
    (->DefnSufficientProver) (->DefnNecessaryNegationProver) (->CoveringProver)
@@ -2764,8 +2770,8 @@
   (volatile! nil))
 
 (defn- support-summary
-  "The registered `SupportingProver`s' functors, as `{:answers … :sources …}`: what they
-  answer with support, and what they read to do it.
+  "The registered `SupportingProver`s' functors, as `{:answers … :sources … :provers …}`:
+  what they answer with support, what they read to do it, and the provers themselves.
 
   A miss is an `instance?`-free `satisfies?` scan of the registry plus two set unions; a
   hit is a deref and an identity compare.  Empty on both keys for the shipped registry
@@ -2778,7 +2784,8 @@
       answer
       (let [ps (filterv #(satisfies? SupportingProver %) pv)
             v  {:answers (into #{} (mapcat support-functors) ps)
-                :sources (into #{} (mapcat support-sources) ps)}]
+                :sources (into #{} (mapcat support-sources) ps)
+                :provers ps}]
         (vreset! registry-support [pv v])
         v))))
 
@@ -2788,6 +2795,25 @@
   on."
   [kb]
   (:answers (support-summary kb)))
+
+(defn support-est-override
+  "An `:est-override` for `vaelii.impl.plan/order` that costs a literal a registered
+  `SupportingProver` answers by that prover's `est-bindings`, the largest where several
+  apply, and returns nil for every other goal so the index model ranks it.
+
+  Forward chaining (`vaelii.impl.chain/planned-join`) plans with this beside
+  `evaluatable-est-override`.  The join answers such a literal by computation as well as
+  by matching, so its stored-row count is not its fan-out: `includesInstant` stores no rows
+  and reports `deferred-est` for an open argument, which pins it after its binders."
+  [kb]
+  (let [{:keys [answers provers]} (support-summary kb)]
+    (fn [goal _bound]
+      (when (and (sequential? goal) (contains? answers (first goal)))
+        (let [ests (keep #(when (and (contains? (support-functors %) (first goal))
+                                     (applicable? % kb goal '?ctx))
+                            (est-bindings % kb goal '?ctx))
+                         provers)]
+          (when (seq ests) (reduce max ests)))))))
 
 (defn support-source-preds
   "The functors a registered `SupportingProver` *reads*.  A datum on one of these moves an
@@ -2820,16 +2846,22 @@
   nothing, and answers nothing.
 
   **Resident** on the KB's `:qcn` atom, stamped with the change clock, since collecting
-  them is a record fetch per stored fact of every predicate named."
-  [kb preds]
-  (observe/cached
-   (reasoning/qcn kb) [::source-contexts preds]
-   (fn [_stale]
-     (let [held (into #{}
-                      (comp (mapcat (fn [pred] (reads/as-stored-with-functor (:index kb) pred)))
-                            (keep (fn [h] (:context (p/get-sentex (:records kb) h)))))
-                      preds)]
-       (tax/meet-closure (reasoning/taxonomy kb) held)))))
+  them is a record fetch per stored fact of every predicate named.
+
+  `also` names further handles whose contexts are parties to the meet: the declarations a
+  reading needs beside its facts, which a reader sees only where they meet the facts."
+  ([kb preds] (source-contexts kb preds nil))
+  ([kb preds also]
+   (observe/cached
+    (reasoning/qcn kb) [::source-contexts preds also]
+    (fn [_stale]
+      (let [recs (:records kb)
+            held (into #{}
+                       (keep (fn [h] (:context (p/get-sentex recs h))))
+                       (concat (mapcat (fn [pred] (reads/as-stored-with-functor (:index kb) pred))
+                                       preds)
+                               also))]
+        (tax/meet-closure (reasoning/taxonomy kb) held))))))
 
 (defn- goal-cost-rank [pr kb goal context] (cost-rank (cost pr kb goal context)))
 
@@ -2882,9 +2914,9 @@
   "One prover's answers as `[bindings support]` pairs: its own support when it implements
   `SupportingProver`, and an **empty** support otherwise.
 
-  Empty is the honest answer for a prover that reads nothing stored — `EvaluableProver`
+  Empty is the complete support for a prover that reads nothing stored — `EvaluableProver`
   compares two numbers, `EvaluateProver` computes one — and the `Prover` protocol's contract is what
-  makes it honest rather than merely convenient: a prover whose answer *does* move with
+  makes empty support complete: a prover whose answer *does* move with
   the store implements the protocol, so a prover that does not implement it is one whose
   answer no retraction can invalidate."
   [pr kb goal context]
@@ -3024,7 +3056,7 @@
   no longer answers under.  The conjunct's **own constants** are stored as the rule was
   written, and a rule is held back from an individual-only rewrite migration, so
   `(exceptWhen (mskip MOne) …)` keeps naming `MOne` after the merge.  Either way what
-  comes back is the honest empty that reads as *not excepted* and *not derivable* — the
+  comes back is an empty result that reads as *not excepted* and *not derivable* — the
   loudest way this can go wrong, since an unanswerable exception does not hold and the
   rule fires, and an `unknown` about a term with an answer under its representative
   reports absent.
@@ -3032,17 +3064,17 @@
   Scoped to `context`, the scoping every other class read takes: a merge that context
   cannot see must not rename what its own condition asks about.  One predicate for the
   whole conjunction, since deciding visibility costs a record fetch per equality
-  supporter.  `different` is exempt exactly as it is in `kb/rewrite-goal` — mapping its
-  arguments onto one representative is the question it exists to answer, and the prover
-  normalizes them itself."
+  supporter.  A goal `res/goal-held-as-spelled?` exempts — `different`, and a positive
+  equation — is exempt here exactly as it is in `kb/rewrite-goal`: mapping its arguments
+  onto one representative is the question it exists to answer, and its prover reads the
+  closure itself."
   [kb context]
   (let [tx (reasoning/taxonomy kb)]
     (when-not (and (nil? (tax/merged-term-pred tx)) (empty? (tax/rewrite-rules tx)))
       (let [visible? (res/visible-supporter-fn kb context)
-            rules    (cond->> (tax/rewrite-rules tx)
-                       visible? (filterv #(visible? (:handle %))))]
+            rules    (res/rewrite-rules-in kb visible?)]
         (fn [goal]
-          (if (and (sequential? goal) (= 'different (nm/functor goal)))
+          (if (res/goal-held-as-spelled? goal)
             goal
             (rewrite/normalize-sentence rules (res/representative-term kb visible? goal))))))))
 
@@ -3163,7 +3195,7 @@
    :guard       (rule-guard kb rule-sentex context)
    :handle      (:id rule-sentex)})
 
-(defn- goal-vars [goal] (set (filter pvar? (tree-seq sequential? seq goal))))
+(defn- goal-vars [goal] (sx/form-variables goal))
 
 (defn- project
   "Project raw solution bindings onto `goal`'s variables and dedup — the shape `ask`
@@ -3211,8 +3243,8 @@
 
 (defn ask-capped
   "`ask`, but only provers at or below the `max-cost` tier participate (nil = all).
-  A goal answerable only by a dropped tier yields nothing — the honest effect of the
-  qualitative bound.  Lazy, for `vaelii.core/ask-within` to `budget/collect`."
+  A goal answerable only by a dropped tier yields nothing — the effect the
+  qualitative bound asks for.  Lazy, for `vaelii.core/ask-within` to `budget/collect`."
   [kb goal context max-cost]
   (project goal (solve-goal-with kb (cost-capped-provers kb goal context max-cost) goal context)))
 
@@ -3222,7 +3254,7 @@
 
   Applicable is not the same as consulted.  When one prover may answer the goal alone
   every other applicable prover is *shadowed*: reported, never invoked, contributing
-  nothing.  A plan that listed them without saying so is indistinguishable from a union that is not
+  nothing.  A plan that listed them without saying so would describe a union that is not
   happening.  So each entry carries `:runs?`, and a shadowed one carries
   `:shadowed-by` naming the prover that displaced it.
 

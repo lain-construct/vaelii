@@ -27,14 +27,19 @@ analysis can never see a caller for, not individual awkward cases:
   - `declare`                       a forward declaration is not a definition
   - the six public namespaces       frozen by `public_api_test`; a different question
 
+ADDED BY CONSTRUCTION: `vaelii.browser.access/defreads` defines one public wrapper per
+name in its argument list, and kondo records none of them as a definition. The scan
+reads that list from the source and counts each name as a definition in
+`vaelii.browser.access`, so a wrapper nothing calls is a finding like any other defn.
+
 Anything else that turns out to be invisible goes in the **baseline with a reason**,
 never here. A category added to dodge one finding hides every future finding like it.
 
 NO SIBLING-CLAIMS MACHINERY. A scan of this shape usually needs a way to say "this
-var's only caller lives in a repo that is not checked out". This engine has no such
-caller: its one optional companion is a foreign-reader plugin whose whole contract is
-`requiring-resolve` from an edn manifest, and which calls nothing here. That half is
-deliberately absent rather than ported and left inert.
+var's only caller lives in a repo that is not checked out". Here that is one baseline
+line with the reason, not a mechanism: the SQL record stores (`vaelii-postgres`,
+`vaelii-sqlite`) build their roster with `roster/collector`, and the foreign-reader
+plugin's contract is `requiring-resolve` from an edn manifest, calling nothing here.
 """
 
 from __future__ import annotations
@@ -43,12 +48,14 @@ import argparse
 import collections
 import json
 import pathlib
+import re
 import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 BASELINE = ROOT / "scripts" / "unused-publics-baseline.txt"
 PATHS = ["src", "test", "bench"]
+ACCESS = ROOT / "src" / "vaelii" / "browser" / "access.clj"
 
 # The six the public-namespace test freezes.  Naming them here is not a second manifest:
 # the test decides what the set *is*, and a name that left it would fail there first.
@@ -86,12 +93,34 @@ def analysis() -> dict:
     return json.loads(proc.stdout)["analysis"]
 
 
+def defreads_names() -> list[str]:
+    """The op names in `access.clj`'s `(defreads …)` form, comments stripped."""
+    src = ACCESS.read_text()
+    start = src.index("(defreads\n")
+    depth = 0
+    for i, ch in enumerate(src[start:], start):
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                body = src[start + len("(defreads"):i]
+                return re.sub(r";[^\n]*", "", body).split()
+    raise SystemExit("check-unused-publics: unbalanced (defreads …) in access.clj")
+
+
 def scan() -> list[str]:
     """Every public var definition with zero var usages, as sorted `ns/name`."""
     a = analysis()
-    used = collections.Counter((u.get("to"), u.get("name")) for u in a["var-usages"])
+    # A var's call to itself is not a caller: a recursive fn nothing else names is as
+    # unreached as one with no body at all.
+    used = collections.Counter(
+        (u.get("to"), u.get("name")) for u in a["var-usages"]
+        if not (u.get("from") == u.get("to") and u.get("from-var") == u.get("name")))
     out = []
-    for v in a["var-definitions"]:
+    defs = a["var-definitions"] + [{"ns": "vaelii.browser.access", "name": n}
+                                   for n in defreads_names()]
+    for v in defs:
         name, ns = v["name"], v["ns"]
         if v.get("private") or v.get("defined-by") in DEFINED_BY_SKIP:
             continue

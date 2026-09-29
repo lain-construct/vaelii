@@ -77,9 +77,10 @@
     (let [r (GET "/inference" "q=anc&ctx=CxSmoke")]
       (is (= 200 (:status r)))
       (is (re-find #"Not a goal" (:body r)))))
-  (testing "an unparseable goal is rendered, not thrown"
+  (testing "an unparseable goal is a 400 page naming the parameter, not thrown"
     (let [r (GET "/inference" "q=%28%28%28")]
-      (is (= 200 (:status r))))))
+      (is (= 400 (:status r)))
+      (is (re-find #"The <code>q</code> parameter is not readable" (:body r))))))
 
 (deftest levels-cross-links-to-the-search-for-the-same-goal
   (testing "a single-goal levels page links across"

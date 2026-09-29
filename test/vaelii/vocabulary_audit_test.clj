@@ -36,7 +36,7 @@
     (is (empty? (:contradicted a))
         "a term the special-predicate table gives an arm to and the roster calls inert")
     (is (seq (:enforced a)))
-    (is (seq (:inert a)) "and the inert set is not empty — that is the honest answer")))
+    (is (seq (:inert a)) "and the inert set is not empty — the roster classifies some terms inert")))
 
 (tu/deftest-kb a-new-grammar-declaration-nobody-classified-is-reported
   ;; The test above only fails if this mechanism works, so drive it: a term added to the

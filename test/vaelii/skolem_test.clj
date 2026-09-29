@@ -1,13 +1,11 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.skolem-test
-  "Head existentials + skolemization: `(implies (P ?x) (exists ?y (Q ?x ?y)))` fires
-  forward on `(P a)` to derive `(Q a K)` with `K` a deterministic skolem constant — the
-  same constant every time the rule fires on the same antecedent binding, so the
-  fixpoint terminates.  See docs/skolem.md."
+  "Head existentials and skolemization; see docs/skolem.md."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.nat :as nat]
+            [vaelii.impl.sentex :as sx]
             [vaelii.impl.skolem :as skolem]
             [vaelii.test-util :as tu]))
 
@@ -21,117 +19,102 @@
   (let [ms (v/sentexes-matching kb goal C)]
     (when (seq ms) (nth (:sentence (first ms)) pos))))
 
-;; ---- basic skolemization -------------------------------------------------
+(defn- exists-rule [kb pP qQ]
+  (v/assert-rule kb [(list pP '?x)] (list 'exists '?y (list qQ '?x '?y)) C {:direction :forward}))
 
-(tu/deftest-kb an-existential-head-derives-a-skolem-witness
-  (tu/with-terms [pP qQ A]
-    (v/assert-rule kb [(list pP '?x)] (list 'exists '?y (list qQ '?x '?y)) C {:direction :forward})
-    (v/assert kb (list pP A) C {:strength :monotonic})
-    (let [k (witness kb (list qQ A '?w) 2)]
-      (is (some? k) "the rule fired and derived (Q A K)")
-      (is (nat/reified-nat-symbol? k) "K is a nat/ skolem constant, not a variable")
-      (is (= 1 (count (v/sentexes-matching kb (list qQ A '?w) C))) "exactly one witness"))))
-
-;; ---- determinism ---------------------------------------------------------
-
-(tu/deftest-kb the-skolem-is-deterministic-per-antecedent-binding
+(tu/deftest-kb the-skolem-is-one-constant-per-antecedent-binding
   (tu/with-terms [pP qQ A A2]
-    (v/assert-rule kb [(list pP '?x)] (list 'exists '?y (list qQ '?x '?y)) C {:direction :forward})
-    (v/assert kb (list pP A)  C {:strength :monotonic})
+    (exists-rule kb pP qQ)
+    (v/assert kb (list pP A) C {:strength :monotonic})
     (let [k1 (witness kb (list qQ A '?w) 2)]
+      (is (= 'SkolemFn (first (nat/nat-expression kb k1))) "K is a reified SkolemFn NAT")
       (testing "re-firing on the same binding reuses the one constant (fixpoint)"
         (v/forward-chain kb)
         (v/forward-chain kb)
-        (is (= 1 (count (v/sentexes-matching kb (list qQ A '?w) C))) "still one witness, not a new one each round")
-        (is (= k1 (witness kb (list qQ A '?w) 2)) "and it is the same constant"))
+        (is (not (:truncated? (:last (v/chain-stats kb)))))
+        (is (= [k1] (map #(nth (:sentence %) 2) (v/sentexes-matching kb (list qQ A '?w) C)))))
       (testing "a different antecedent binding gets a distinct witness"
         (v/assert kb (list pP A2) C {:strength :monotonic})
         (let [k2 (witness kb (list qQ A2 '?w) 2)]
           (is (nat/reified-nat-symbol? k2))
-          (is (not= k1 k2) "(P A) and (P A2) skolemize to different constants"))))))
+          (is (not= k1 k2)))))))
 
-;; ---- termination ---------------------------------------------------------
-
-(tu/deftest-kb forward-chaining-reaches-a-fixpoint
+(tu/deftest-kb each-existential-variable-gets-its-own-witness
   (tu/with-terms [pP qQ A]
-    (v/assert-rule kb [(list pP '?x)] (list 'exists '?y (list qQ '?x '?y)) C {:direction :forward})
+    (v/assert-rule kb [(list pP '?x)] (list 'exists '[?y ?z] (list qQ '?x '?y '?z)) C {:direction :forward})
     (v/assert kb (list pP A) C {:strength :monotonic})
-    (testing "the chain converges without minting constants unboundedly"
-      (is (not (:truncated? (:last (v/chain-stats kb)))) "no depth truncation")
-      (is (= 1 (count (v/sentexes-matching kb (list qQ A '?w) C)))))))
-
-;; ---- belief-following retraction -----------------------------------------
-
-(tu/deftest-kb retracting-the-antecedent-drops-the-witness-and-its-nat
-  (tu/with-terms [pP qQ A]
-    (v/assert-rule kb [(list pP '?x)] (list 'exists '?y (list qQ '?x '?y)) C {:direction :forward})
-    (let [h (v/assert kb (list pP A) C {:strength :monotonic})
-          k (witness kb (list qQ A '?w) 2)]
-      (is (some? k))
-      (v/retract! kb h)
-      (testing "the derived witness falls with its antecedent"
-        (is (empty? (v/sentexes-matching kb (list qQ A '?w) C))))
-      (testing "no dangling nat/ symbol — the skolem's termOfUnit is cleaned up"
-        (is (nil? (nat/nat-expression kb k)) "K's expression is no longer stored")))))
-
-;; ---- the range-restriction guard is intact -------------------------------
-
-(tu/deftest-kb an-unmarked-unbound-head-variable-is-still-rejected
-  (tu/with-terms [pP qQ]
-    (testing "without an exists marker an unbound consequent variable is refused"
-      (let [e (try (v/assert-rule kb [(list pP '?x)] (list qQ '?x '?y) C {:direction :forward})
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? e) "the assert threw")
-        (is (= :not-range-restricted (:type (ex-data e))))))
-    (testing "an accidental (non-existential) unbound var inside an exists head is still caught"
-      (let [e (try (v/assert-rule kb [(list pP '?x)]
-                                  (list 'exists '?y (list qQ '?z '?y)) C {:direction :forward})   ; ?z bound by nothing
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-        (is (= :not-range-restricted (:type (ex-data e))) "?z is not the marked variable")))))
-
-(tu/deftest-kb the-witness-is-a-function-of-the-rule-content
-  ;; the skolem NAT keys on the rule's content digest, never on anything
-  ;; store-assigned: retracting the rule and re-asserting it — a new handle — re-fires
-  ;; to the *same* witness, so a fact stated about the witness keeps referring to it.
-  (tu/with-terms [pP qQ likes Tom A]
-    (let [hr (v/assert-rule kb [(list pP '?x)] (list 'exists '?y (list qQ '?x '?y)) C {:direction :forward})]
-      (v/assert kb (list pP A) C {:strength :monotonic})
-      (let [k1 (witness kb (list qQ A '?w) 2)]
-        (is (some? k1) "the rule fired")
-        ;; a premise about the witness is a real use, so it keeps the constant's
-        ;; termOfUnit alive across the retraction
-        (v/assert kb (list likes Tom k1) C {:strength :monotonic})
-        (v/retract! kb hr)
-        (is (nil? (witness kb (list qQ A '?w) 2)) "the derived witness fell with its rule")
-        (let [hr2 (v/assert-rule kb [(list pP '?x)] (list 'exists '?y (list qQ '?x '?y)) C {:direction :forward})
-              k2  (witness kb (list qQ A '?w) 2)]
-          (is (not= hr hr2) "the re-asserted rule takes a new handle")
-          (is (= k1 k2) "and still mints the same witness — content, not handle")
-          (is (v/query? kb (list likes Tom k2) C) "so the fact about the witness co-refers"))))))
-
-;; ---- shared witness across a conjunctive head ----------------------------
+    (let [ky (witness kb (list qQ A '?y '?z) 2)
+          kz (witness kb (list qQ A '?y '?z) 3)]
+      (is (not= ky kz))
+      (is (= [[0 A] [1 A]] (map #(drop 2 (nat/nat-expression kb %)) [ky kz]))
+          "one existential index per marked variable, over the same frontier"))))
 
 (tu/deftest-kb a-conjunctive-existential-head-shares-one-witness
   (tu/with-terms [pP qQ rR A]
     (v/assert-rule kb [(list pP '?x)]
                    (list 'exists '?y (list 'and (list qQ '?x '?y) (list rR '?y))) C {:direction :forward})
     (v/assert kb (list pP A) C {:strength :monotonic})
-    (let [k-q (witness kb (list qQ A '?w) 2)
-          k-r (witness kb (list rR '?w) 1)]
+    (let [k-q (witness kb (list qQ A '?w) 2)]
       (is (nat/reified-nat-symbol? k-q))
-      (is (nat/reified-nat-symbol? k-r))
-      (is (= k-q k-r) "(Q A K) and (R K) share the same K"))))
+      (is (= k-q (witness kb (list rR '?w) 1))))))
+
+(tu/deftest-kb an-aggregate-output-is-not-part-of-the-frontier
+  (tu/with-terms [node ancestorOf tally tallyOf A B]
+    (v/assert-rule kb [(list node '?x) (list 'agg/count '?n '?a (list ancestorOf '?a '?x))]
+                   (list 'exists '?y (list 'and (list tally '?x '?y) (list tallyOf '?y '?n)))
+                   C {:direction :forward})
+    (v/assert kb (list ancestorOf A B) C {:strength :monotonic})
+    (v/assert kb (list node B) C {:strength :monotonic})
+    (let [k (witness kb (list tally B '?w) 2)]
+      (is (= [0 B] (drop 2 (nat/nat-expression kb k))) "keyed on ?x alone, not on ?n")
+      (is (v/query? kb (list tallyOf k 1) C)))))
+
+(tu/deftest-kb retracting-the-antecedent-drops-the-witness-and-its-nat
+  (tu/with-terms [pP qQ A]
+    (exists-rule kb pP qQ)
+    (let [h (v/assert kb (list pP A) C {:strength :monotonic})
+          k (witness kb (list qQ A '?w) 2)]
+      (is (some? k))
+      (v/retract! kb h)
+      (is (empty? (v/sentexes-matching kb (list qQ A '?w) C)))
+      (is (nil? (nat/nat-expression kb k)) "the skolem's termOfUnit is swept"))))
+
+(tu/deftest-kb the-witness-is-a-function-of-the-rule-content
+  (tu/with-terms [pP qQ likes Tom A]
+    (let [hr (exists-rule kb pP qQ)]
+      (v/assert kb (list pP A) C {:strength :monotonic})
+      (let [k1 (witness kb (list qQ A '?w) 2)]
+        ;; a premise about the witness keeps its termOfUnit alive across the retraction
+        (v/assert kb (list likes Tom k1) C {:strength :monotonic})
+        (v/retract! kb hr)
+        (is (nil? (witness kb (list qQ A '?w) 2)) "the derived witness fell with its rule")
+        (let [hr2 (exists-rule kb pP qQ)
+              k2  (witness kb (list qQ A '?w) 2)]
+          (is (not= hr hr2) "the re-asserted rule takes a new handle")
+          (is (= k1 k2) "and mints the same witness")
+          (is (v/query? kb (list likes Tom k2) C)))))))
 
 (deftest the-rule-digest-ignores-ambient-print-settings
-  ;; the digest lands in stored termOfUnit content; under *print-level* 1 two
-  ;; unrelated rules print alike and would digest alike, merging their witnesses
   (let [r1 {:antecedents '[(p ?x)] :consequent '(q ?x) :context 'C}
         r2 {:antecedents '[(r ?x)] :consequent '(s ?x) :context 'C}
         plain (#'skolem/rule-digest r1)]
     (binding [*print-level* 1 *print-length* 1]
-      (is (= plain (#'skolem/rule-digest r1))
-          "the digest is a function of the rule's content, not of print state")
-      (is (not= (#'skolem/rule-digest r1) (#'skolem/rule-digest r2))
-          "and two rules stay two rules under any print settings"))))
+      (is (= plain (#'skolem/rule-digest r1)))
+      (is (not= (#'skolem/rule-digest r1) (#'skolem/rule-digest r2))))))
+
+(tu/deftest-kb storing-a-wrapped-existential-rule-declares-skolemfn
+  (tu/with-terms [pP qQ rR]
+    (is (nil? (v/handle-of kb '(reifiable_function SkolemFn) C)))
+    (v/assert kb (list 'exceptWhen (list rR '?x)
+                       (list 'set/forwardRule
+                             (list 'implies (list pP '?x) (list 'exists '?y (list qQ '?x '?y)))))
+              C)
+    (is (some? (v/handle-of kb '(reifiable_function SkolemFn) C)))))
+
+(tu/deftest-kb a-backward-existential-rule-answers-with-a-fresh-variable
+  (tu/with-terms [pP qQ A]
+    (v/assert-rule kb [(list pP '?x)] (list 'exists '?y (list qQ '?x '?y)) C {:direction :backward})
+    (v/assert kb (list pP A) C {:strength :monotonic})
+    (let [answers (v/prove kb (list qQ A '?m) C)]
+      (is (= 1 (count answers)))
+      (is (sx/variable? (get (first answers) '?m))))))

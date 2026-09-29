@@ -133,6 +133,17 @@
     (let [t (sandbox/mint-token)]
       (is (some? (sandbox/context-for t))))))
 
+(deftest a-listed-sandbox-name-is-not-a-cookie
+  (testing "every reader sees every context's name (/find, CxWell's page, /op :contexts),
+            so the name must not carry the token the owner's cookie carries"
+    (let [t      (sandbox/mint-token)
+          cx     (sandbox/context-for t)
+          lifted (subs (str cx) (count "CxSandbox"))]
+      (is (not (str/includes? (str cx) t)))
+      (is (some? (sandbox/context-for lifted)) "the lifted suffix is a well-formed token")
+      (is (not= cx (sandbox/context-for lifted))
+          "and a cookie carrying it names another sandbox"))))
+
 ;; ---- the browser ---------------------------------------------------------
 
 (defn- cookie-of [resp]
@@ -157,7 +168,8 @@
       (let [c  (cookie-of r)
             r2 (app {:request-method :get :uri "/assert" :headers {"cookie" c}})]
         (is (nil? (get-in r2 [:headers "Set-Cookie"])) "no re-mint")
-        (is (str/includes? (:body r2) (str/replace c "vaelii-sandbox=" "Sandbox")))))))
+        (is (str/includes? (:body r2)
+                           (str (sandbox/context-for (str/replace c "vaelii-sandbox=" "")))))))))
 
 (tu/deftest-kb writing-through-the-form-creates-the-sandbox-and-reset-empties-it
   (let [app    (web/app kb)
@@ -188,6 +200,22 @@
       (is (= 403 (:status (app {:request-method :post :uri "/sandbox/reset" :params {}
                                 :headers {"cookie" cookie "host" "localhost:3000"
                                           "origin" "http://evil.example"}})))))))
+
+(tu/deftest-kb a-refused-form-leaves-no-sandbox-behind
+  ;; the form is refused for what it holds — unreadable, empty, not a sentence, a bad
+  ;; name — and the session's sandbox did not exist before it, so none exists after it
+  (let [app    (web/app kb)
+        before (tu/sentex-ids kb)
+        r      (app {:request-method :get :uri "/assert" :headers {}})
+        sbx    (second (re-find #"value=\"(CxSandbox[0-9a-f]+)\"" (:body r)))
+        hdrs   {"cookie" (cookie-of r) "host" "localhost:3000"}]
+    (doseq [text ["(living_thing SandboxRefused" "" ":oops" "(Bad_Pred SandboxRefused)"]]
+      (testing (pr-str text)
+        (let [b (:body (app {:request-method :post :uri "/assert"
+                             :params {"text" text "ctx" sbx} :headers hdrs}))]
+          (is (not (str/includes? b "Stored")))
+          (is (not (sandbox/live? kb (symbol sbx))))
+          (is (= before (tu/sentex-ids kb))))))))
 
 (tu/deftest-kb two-browser-sessions-write-to-different-sandboxes
   (let [app    (web/app kb)

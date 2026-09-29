@@ -42,7 +42,7 @@
   because a type gloss is \"X is a dog\" and the comment is the apposition after it.
 
   What the composition rate does **not** measure is whether a gloss is worth reading.  It
-  earns its place where the predicate name is opaque — `genl` glossed as \"Every dog is an
+  helps a reader where the predicate name is opaque — `genl` glossed as \"Every dog is an
   animal\" teaches a reader what `genl` means — and adds nothing where the predicate is
   already an English verb.
 
@@ -56,12 +56,10 @@
     :composed   every literal came from a comment
     :partial    some did; the rest are named
     :named      nothing to compose from — the terms, in a frame
-    :generated  a model wrote it (`gloss` never does this; see `with-model`)
 
   The formal sentence is never replaced by the gloss — that is the caller's contract, and
   `docs/web.md` states it for the browser."
   (:require [clojure.string :as str]
-            [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.naming :as nm]))
 
@@ -232,7 +230,7 @@
 (defn- type-literal
   "A unary literal whose predicate declares no signature is a type membership, and reads
   as one: *Muffet is a dog*, with the type's own comment as the apposition after it.  This
-  is where the signature-less comments earn their place — a noun phrase is exactly what
+  is where the comments of signature-less predicates are used — a noun phrase is exactly what
   belongs after \"is a\".
 
   `apposition?` is false wherever the gloss is nested — inside a rule or a negation —
@@ -327,7 +325,7 @@
     :else            (str (str/upper-case (subs s 0 1)) (subs s 1) ".")))
 
 (defn- rule
-  "A rule is indistinguishable from the conditional it is: *If x is a bird, then x flies.*  The antecedent
+  "A rule is glossed as the conditional it is: *If x is a bird, then x flies.*  The antecedent
   and consequent are glossed as literals, so a rule costs no machinery of its own — and
   they are glossed **without appositions**, since a conditional whose every term drags a
   dashed definition behind it is not a sentence."
@@ -381,35 +379,3 @@
   (let [g (gloss kb sentence)
         opens (some #(str/starts-with? (:text g) %) (terms-of sentence))]
     (update g :text sentence-case (boolean opens))))
-
-;; ---- the model, only where composition ran out ---------------------------
-
-(defn with-model
-  "`gloss`, falling back to `ask` for a sentence the KB documents nothing about.
-
-  Deliberately a separate entry point rather than a branch inside `gloss`: the guarantee
-  worth having is that the ordinary path cannot reach a model at all, and a guarantee
-  that depends on an argument being nil is not one.  The fallback fires only on `:named`
-  — a partially composed gloss keeps what the KB actually said rather than handing the
-  whole sentence to a model that would rewrite the documented half too.
-
-  The result is marked `:generated`, and a caller must render that distinctly: the reader
-  is entitled to know which they are reading."
-  [kb sentence ask]
-  (let [g (text kb sentence)]
-    (if (and ask (= :named (:source g)))
-      ;; A model failure logs before it degrades. Swallowing it made a bad key, a
-      ;; 429, a timeout and "the model returned whitespace" indistinguishable from
-      ;; each other and from "this sentence has a named gloss already" — so a reader
-      ;; who wires up a provider and sees no generated text has nothing to look at.
-      (if-let [said (try (some-> (ask sentence) str str/trim not-empty)
-                         ;; Throwable, like every other catch over a model's reply — a
-                         ;; StackOverflowError out of a deep answer is the reply's fault
-                         (catch Throwable e
-                           (trove/log! {:level :warn :id ::gloss-failed :error e
-                                        :msg "gloss generation failed; using the composed text"
-                                        :data {:sentence sentence}})
-                           nil))]
-        {:text (sentence-case (first-clause said) false) :source :generated}
-        g)
-      g)))

@@ -177,8 +177,8 @@
     (v/assert kb (list 'coLocatedWith A B) C)
     (v/assert kb (list 'closeTo B D) C)
     (testing "co-located is the identity, so A is exactly as far from D as B is"
-      (is (= #{:close} (dist/possible-distances kb C A D)))
-      (is (= :close (dist/definite-distance kb C A D)))
+      (is (= #{:close} (qkb/possible dist/qualitative-distance kb C A D)))
+      (is (= :close (qkb/definite dist/qualitative-distance kb C A D)))
       (is (v/ask? kb (list 'closeTo A D) C)))
     (testing "so a class the network excludes is not answered"
       (is (not (v/ask? kb (list 'nearTo A D) C)))
@@ -189,8 +189,8 @@
     (v/assert kb (list 'veryCloseTo A B) C)
     (v/assert kb (list 'veryCloseTo B D) C)
     (testing "two very short legs compose to a short one, however they are laid out"
-      (is (= #{:co :very-close :close} (dist/possible-distances kb C A D)))
-      (is (= :unknown (dist/definite-distance kb C A D))))
+      (is (= #{:co :very-close :close} (qkb/possible dist/qualitative-distance kb C A D)))
+      (is (= :unknown (qkb/definite dist/qualitative-distance kb C A D))))
     (testing "so nothing at the far end of the chain is possible, which is the refutation
               this calculus is for"
       (is (not (v/ask? kb (list 'veryFarFrom A D) C)))
@@ -206,14 +206,14 @@
     (v/assert kb (list 'veryCloseTo A B) C)
     (v/assert kb (list 'veryCloseTo B D) C)
     (v/assert kb (list 'veryFarFrom A D) C)
-    (is (dist/inconsistent? kb C))
-    (is (= :inconsistent (dist/definite-distance kb C A D)))
+    (is (qkb/inconsistent? dist/qualitative-distance kb C))
+    (is (= :inconsistent (qkb/definite dist/qualitative-distance kb C A D)))
     (testing "and an inconsistent theory is not mined for conclusions — anywhere"
       (is (not (v/ask? kb (list 'veryCloseTo A B) C)))
       (is (not (v/ask? kb (list 'coLocatedWith A A) C))))
     (testing "retracting the impossible claim gives the rest their answers back"
       (v/retract! kb (v/handle-of kb (list 'veryFarFrom A D) C))
-      (is (not (dist/inconsistent? kb C)))
+      (is (not (qkb/inconsistent? dist/qualitative-distance kb C)))
       (is (v/ask? kb (list 'veryCloseTo A B) C))
       (is (v/ask? kb (list 'withinNearDistanceOf A D) C)))))
 
@@ -222,9 +222,9 @@
     (v/assert kb (list 'closeTo A B) C)
     (v/assert kb (list 'farFrom A B) C)
     (testing "close and far are disjoint classes of one chain, so their pair empties"
-      (is (= #{} (dist/possible-distances kb C A B)))
-      (is (= :inconsistent (dist/definite-distance kb C A B)))
-      (is (dist/inconsistent? kb C)))
+      (is (= #{} (qkb/possible dist/qualitative-distance kb C A B)))
+      (is (= :inconsistent (qkb/definite dist/qualitative-distance kb C A B)))
+      (is (qkb/inconsistent? dist/qualitative-distance kb C)))
     (testing "retracting one of the two gives the other its answers back"
       (v/retract! kb (v/handle-of kb (list 'farFrom A B) C))
       (is (v/ask? kb (list 'closeTo A B) C))
@@ -236,7 +236,7 @@
     (testing "the converse of a distance is itself, so one fact answers both orders"
       (is (v/ask? kb (list 'farFrom A B) C))
       (is (v/ask? kb (list 'farFrom B A) C))
-      (is (= (dist/possible-distances kb C A B) (dist/possible-distances kb C B A))))
+      (is (= (qkb/possible dist/qualitative-distance kb C A B) (qkb/possible dist/qualitative-distance kb C B A))))
     (testing "and the derived ranges follow, in both directions"
       (is (v/ask? kb (list 'beyondFarDistanceFrom A B) C))
       (is (v/ask? kb (list 'beyondFarDistanceFrom B A) C))
@@ -246,7 +246,7 @@
 (tu/deftest-kb a-derived-range-constrains-without-pinning
   (tu/with-terms [A B]
     (v/assert kb (list 'withinNearDistanceOf A B) C)
-    (is (= #{:co :very-close :close :near} (dist/possible-distances kb C A B)))
+    (is (= #{:co :very-close :close :near} (qkb/possible dist/qualitative-distance kb C A B)))
     (testing "the predicate asserted is entailed"
       (is (v/ask? kb (list 'withinNearDistanceOf A B) C)))
     (testing "but none of the four classes it leaves open is, and neither is the range
@@ -260,7 +260,7 @@
   (tu/with-terms [A B]
     (v/assert kb (list 'withinNearDistanceOf A B) C)      ; #{:co :very-close :close :near}
     (v/assert kb (list 'atSomeDistanceFrom A B) C)        ; everything but :co
-    (is (= #{:very-close :close :near} (dist/possible-distances kb C A B))
+    (is (= #{:very-close :close :near} (qkb/possible dist/qualitative-distance kb C A B))
         "the constraint is the intersection, whichever order they were read in")
     (is (v/ask? kb (list 'withinNearDistanceOf A B) C))
     (is (v/ask? kb (list 'atSomeDistanceFrom A B) C))
@@ -271,8 +271,8 @@
     (v/assert kb (list 'closeTo A B) C)
     (v/assert kb (list 'closeTo B D) C)
     (testing "close∘close spans four classes — this chain composes weakly, and says so"
-      (is (= #{:co :very-close :close :near} (dist/possible-distances kb C A D)))
-      (is (= :unknown (dist/definite-distance kb C A D))))
+      (is (= #{:co :very-close :close :near} (qkb/possible dist/qualitative-distance kb C A D)))
+      (is (= :unknown (qkb/definite dist/qualitative-distance kb C A D))))
     (testing "which is still enough to entail the range covering them"
       (is (v/ask? kb (list 'withinNearDistanceOf A D) C))
       (is (not (v/ask? kb (list 'moderatelyFarFrom A D) C)))

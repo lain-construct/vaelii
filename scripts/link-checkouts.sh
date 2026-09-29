@@ -51,6 +51,7 @@
 # the project.clj it finds, not by the directory name):
 # `link-checkouts.sh "" -wip` points checkouts/vaelii-foreign at
 # ../../vaelii-foreign-wip.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 cd "$(dirname "$0")/.."   # repo root
 mkdir -p checkouts
@@ -83,3 +84,5 @@ link() {
 }
 
 link vaelii-foreign vaelii-foreign
+exit
+}

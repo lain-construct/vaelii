@@ -89,12 +89,17 @@
 ;; must be re-checked. `:all-rejoin` is the stronger form used when the move can create
 ;; a firing without changing any existing blocked justification; settle must then run
 ;; the rule join even if the ordinary exception pass otherwise looks unproductive.
+;; Beside the sentences the set may hold a **withdrawal marker**, for a withdrawal the
+;; rule's firings carry rather than its exception: `::entailment` (a calculus network
+;; moved) and `{::preserving s}` (`s` moved what a preserved predicate licenses).  Each
+;; is narrowed by its own test (`settle/exception-candidates`), never by the shape one.
 
 (defn- mark-recheck
   "Queue `rule-handles` for exception re-evaluation at the next `settle`, recording
-  `trigger` — the sentence whose arrival or departure could have flipped the exception
-  — `:all` when there is no such sentence and every firing must be re-checked, or
-  `:all-rejoin` when that unconditional check must also force a fresh join.
+  `trigger` — the sentence whose arrival or departure could have flipped the exception,
+  or a withdrawal marker — `:all` when there is no such sentence and every firing must
+  be re-checked, or `:all-rejoin` when that unconditional check must also force a fresh
+  join.
 
   The unconditional markers are absorbing, and `:all-rejoin` is the stronger one:
   once queued, adding a narrower trigger must not narrow it back."
@@ -277,6 +282,35 @@
               t' (tax/genls-global (reasoning/taxonomy kb) t)]
         (mark-recheck kb (reads/watched-rules-on idx t') :all)))))
 
+(defn- composed-exception-rules
+  "The watched rules a block literal of which a calculus moved by a predicate in `preds`
+  answers: a literal on a predicate the calculus claims or on a super-predicate of one,
+  `chain/answered-by-calculus?` read from the calculus's end.  `preds` are a fact's
+  predicates or an edge's supertype, each of which `qkb/calculi-triggered-by` reads over
+  its `genls` closure; empty when none moves a network.  The closure is the global one,
+  as in `recheck-on-predicate`: a super-predicate any context sees can be answered there,
+  and a rule over-selected costs a re-check that changes nothing.
+
+  A calculus answers such a literal by composition, so the answer moves with the whole
+  network: `(spatiallyDisconnected Canary Room)` follows from a `dc` fact on the cage and
+  an `ntpp` fact placing the canary in it, and neither names the canary and the room
+  together.  The predicate keying reaches the rule from neither fact's predicate but the
+  `dc` one, and that fact's arguments agree with the firing's literal on nothing.  So the
+  caller queues these rules with the `::entailment` marker, which keeps every firing of
+  a rule whose block literal a calculus answers (`settle/entailment-candidates`) and
+  re-asks every refusal (docs/exceptions.md, \"Five channels\")."
+  [kb preds]
+  (let [cs (into #{} (mapcat #(qkb/calculi-triggered-by kb %)) preds)]
+    (if (empty? cs)
+      #{}
+      (let [tx (reasoning/taxonomy kb) idx (:index kb)]
+        (into #{}
+              (comp (mapcat :predicates)
+                    (mapcat #(tax/genls-global tx %))
+                    (distinct)
+                    (mapcat #(reads/watched-rules-on idx %)))
+              cs)))))
+
 (defn- recheck-on-predicate
   "A fact with predicate `pred` arrived or left: queue every rule whose exception
   mentions `pred` **or any supertype of it**.  Both directions matter — an arriving
@@ -293,10 +327,12 @@
   can be narrowed to the firings that sentence could actually reach.
 
   A fact can also move an exception's answer without being on the exception's
-  predicate at all, and along two channels the genls walk cannot see: `pred` is the
+  predicate at all, and along three channels the genls walk cannot see: `pred` is the
   relation some `transitiveInArg` declaration inherits along
-  (`recheck-preserving-along`), or `pred` has an `arg`-declared argument type, which
-  makes the fact evidence of a membership nobody wrote (`recheck-arg-inferred`)."
+  (`recheck-preserving-along`), `pred` has an `arg`-declared argument type, which
+  makes the fact evidence of a membership nobody wrote (`recheck-arg-inferred`), or
+  the fact moves a calculus network that answers the exception by composition
+  (`composed-exception-rules`)."
   [kb pred trigger]
   (when (symbol? pred)
     ;; No excepted rule anywhere ⇒ nothing to re-check, and walking `genls(pred)` just
@@ -308,20 +344,25 @@
       (when (seq (reads/watched-rules idx))
         ;; the global closure on purpose: an over-selected re-check re-evaluates and
         ;; changes nothing, an under-selected one is a missed withdrawal
-        (doseq [p (tax/genls-global (reasoning/taxonomy kb) pred)]
-          (mark-recheck kb (reads/watched-rules-on idx p) trigger))
+        (let [ups (tax/genls-global (reasoning/taxonomy kb) pred)]
+          (doseq [p ups]
+            (mark-recheck kb (reads/watched-rules-on idx p) trigger))
+          (mark-recheck kb (composed-exception-rules kb [pred]) ::entailment))
         (recheck-preserving-along kb pred)
         (recheck-arg-inferred kb pred trigger)))))
 
 (defn- recheck-on-qualitative
-  "A fact of a registered calculus arrived or left, so the **whole network** moved:
-  queue every forward rule joining on any predicate of that calculus.
+  "A sentence on `pred` arrived or left and moved a registered calculus, so the **whole
+  network** moved: queue every forward rule joining on any predicate of that calculus.
+  `pred` is a fact's predicate, which moves the network from below a calculus predicate
+  too, or a `genl` edge's supertype (`qkb/calculi-triggered-by`).
 
-  Queued as `:all` rather than with the sentence as a narrowing trigger, and that is the
-  honest shape — a constraint anywhere can change what is entailed anywhere else, which
-  is what path consistency *is*.  Narrowing by the arriving sentence would keep only the
-  firings mentioning the very regions it named, and miss exactly the propagation the
-  calculus exists for.
+  Queued with the `::entailment` marker rather than with the sentence as a narrowing
+  trigger — a constraint anywhere can change what is entailed anywhere else, which is
+  what path consistency *is*, so narrowing by the arriving sentence would miss exactly
+  the propagation the calculus exists for.  What the marker narrows by is what
+  `entailment-withdrawn?` reads, the networks' satisfiability
+  (`chain/entailment-withdrawable?`).
 
   Why any of this is needed: a firing that joined on an entailed relation lists the facts
   behind it as antecedents, so the JTMS withdraws it when one of those goes.  What the
@@ -330,31 +371,34 @@
   decided per firing by `chain/entailment-withdrawn?`, and this is what puts the firing
   in front of it.
 
-  It takes the sentence's **underlying body**, so a believed `(not (ntpp A B))` arrives
-  at the calculus its own functor (`not`) names nothing about.  A negative fact is read
-  into the network as the complement of the predicate's denotation, so it moves the
-  network exactly as a positive one does and can make it impossible outright — and then
-  a firing the network licensed has to be put in front of `entailment-withdrawn?` on
-  precisely the same trigger.
+  A fact's caller passes its **underlying body**'s functor, so a believed `(not (ntpp A
+  B))` arrives at the calculus its own functor (`not`) names nothing about.  A negative
+  fact is read into the network as the complement of the predicate's denotation, so it
+  moves the network exactly as a positive one does and can make it impossible outright —
+  and then a firing the network licensed has to be put in front of
+  `entailment-withdrawn?` on precisely the same trigger.
 
-  `calculus-triggered-by` rather than `calculus-for`, because what moves a network is
+  `calculi-triggered-by` rather than `calculus-for`, because what moves a network is
   wider than what one answers: the interval algebra reads a metric **narrowing** beside
   its stored facts, so a `temporalDistance` or a `startOf` arriving changes what is
   entailed between two intervals while being a predicate no interval rule mentions.  The
-  rules queued are still keyed on the calculus's own predicates — those are the antecedents
-  a rule joins on.
+  rules queued are still keyed on each calculus's own predicates — those are the
+  antecedents a rule joins on.  Every calculus the predicate moves is queued, since an
+  instant fact moves both the point network and the Allen one read off it.
 
   Bounded by the rules mentioning the calculus at all, which is zero for every KB that
   registered no prover.  Nil is close to free there: `qkb/calculus-for` memoizes the
   registered-calculus list against the registry vector, so a KB that opted into nothing
   pays a registry deref, a volatile read and an identity compare per asserted sentence,
   and the per-prover `instance?` scan only when the registry itself changed."
-  [kb body]
-  (when-let [calc (qkb/calculus-triggered-by kb (nm/functor body))]
+  [kb pred]
+  (when-let [calcs (qkb/calculi-triggered-by kb pred)]
     (let [idx (:index kb)]
       (mark-recheck kb
-                    (into #{} (mapcat #(reads/as-stored-rules-by-antecedent idx %)) (:predicates calc))
-                    :all))))
+                    (into #{} (comp (mapcat :predicates)
+                                    (mapcat #(reads/as-stored-rules-by-antecedent idx %)))
+                          calcs)
+                    ::entailment))))
 
 (defn- recheck-preserving-firings
   "A sentence moved what a preserved predicate licenses: queue every forward rule
@@ -369,17 +413,18 @@
   what they licensed — a general default does not fire for a pair a specific claim
   speaks about (docs/inherit.md), and nothing about that is stored either.
 
-  Queued as `:all` rather than with the sentence as a narrowing trigger, for
-  `recheck-preserving-along`'s reason: the sentence that moved is on the relation, or
-  on a tuple below the one the firing joined at, so it agrees with the firing's
-  literals on nothing a shape comparison could use.
+  Queued with the `{::preserving sentence}` marker rather than with the sentence as a
+  narrowing trigger, for `recheck-preserving-along`'s reason: the sentence that moved is
+  on the relation, or on a tuple below the one the firing joined at, so it agrees with
+  the firing's literals on nothing a shape comparison could use.  The marker narrows by
+  the goals the sentence can move instead (`inherit/moved-goal-test`).
 
   `inherit/rejoin-rules` is the same read the chainer's own re-join makes, and behind
   the same gate — a KB that declares no preservation pays one `empty?` on the
   `:preserving` roster per sentence and no index read."
   [kb sentence]
   (when-let [rs (inherit/rejoin-rules kb sentence)]
-    (mark-recheck kb rs :all)))
+    (mark-recheck kb rs {::preserving sentence})))
 
 (defn recheck-on-sentence
   "The re-check trigger for a whole sentence: its functor, and — for a negation — the
@@ -405,16 +450,17 @@
     (when (and b (not= b sentence))
       (recheck-on-predicate kb (nm/functor b) sentence))
     (recheck-declaration kb (or b sentence))
-    (recheck-on-qualitative kb (or b sentence))
+    (recheck-on-qualitative kb (nm/functor (or b sentence)))
     (recheck-preserving-firings kb (or b sentence))))
 
 (defn rules-watching
   "The watched rules — an `unknown` antecedent or an `exceptWhen` exception among their
   re-check conditions — that a change to `sentence` could move, keyed as
   `recheck-on-sentence` keys an arrival: the sentence's functor and, for a negation, its
-  body's functor, each over its global supertype closure.  Empty for a KB with no watched
-  rule.  `settle/released-by-defeat` reads it for a datum a resolution defeated, which
-  moves belief without passing the store or removal chokepoints.
+  body's functor, each over its global supertype closure, with the rules a calculus that
+  closure moves answers by composition (`composed-exception-rules`).  Empty for a KB with
+  no watched rule.  `settle/released-by-defeat` reads it for a datum a resolution
+  defeated, which moves belief without passing the store or removal chokepoints.
 
   The closure is the **global** one, as in `recheck-on-predicate`, and not scoped to a
   context: the two select the same rules for the same datum, and a rule selected here
@@ -425,11 +471,10 @@
     (if-not (seq (reads/watched-rules idx))
       #{}
       (let [b     (sx/underlying-body sentence)
-            preds (cond-> [(nm/functor sentence)]
-                    (and b (not= b sentence)) (conj (nm/functor b)))]
-        (into #{}
-              (comp (filter symbol?)
-                    (mapcat #(tax/genls-global (reasoning/taxonomy kb) %))
+            preds (filterv symbol? (cond-> [(nm/functor sentence)]
+                                     (and b (not= b sentence)) (conj (nm/functor b))))]
+        (into (composed-exception-rules kb preds)
+              (comp (mapcat #(tax/genls-global (reasoning/taxonomy kb) %))
                     (mapcat #(reads/watched-rules-on idx %)))
               preds)))))
 
@@ -510,7 +555,7 @@
   negated re-check conditions?
 
   A ground negation is answered from stored negative sentexes with no genl fan-out, so
-  today no edge flips one at all and the honest answer is always false.  The wave-through
+  today no edge flips one at all and the answer is always false.  The wave-through
   is kept anyway, against contravariant negative matching: reading `(not (dog X))` off a
   stored `(not (animal X))` walks the **up**-closure of the conjunct's own predicate, and
   an edge `[sub super]` moves `genls(P)` for exactly the predicates `P` at or below
@@ -575,14 +620,19 @@
   put `sub` above `super` is a cycle, refused by wff on the assert path and dropped
   as a violation on the derivation path — so reading it after the mutation is safe.
 
-  Three channels the predicate keying cannot see are covered beside it: the two
+  Four channels the predicate keying cannot see are covered beside it: the two
   waved-through functors above, whose provers read the closure across arguments;
   `recheck-preserving-along`, for the declared preserved positions the code cannot name
-  in advance; and `recheck-negated-exceptions`, keyed at the edge's **subtype** because
-  a negation is the one condition read against its own predicate's up-closure.
+  in advance; `recheck-negated-exceptions`, keyed at the edge's **subtype** because
+  a negation is the one condition read against its own predicate's up-closure; and
+  `composed-exception-rules`, since an edge under a calculus predicate moves the
+  network, which reads the sub-predicate's facts through the matcher's fan.  The same
+  move puts the rules joining on the calculus in front of `chain/entailment-withdrawn?`
+  (`recheck-on-qualitative`), outside the watched-rule guard, since those rules need
+  carry no exception.
 
   Sound by construction: every channel a genl edge can reach a level-6 answer through is
-  either predicate-addressed here or covered by one of those three; where a channel is in
+  either predicate-addressed here or covered by one of those four; where a channel is in
   doubt, the answer is to queue, not to skip — queueing conservatively is the fallback,
   never queueing everything always."
   [kb sub super]
@@ -595,17 +645,17 @@
     (when (seq (reads/watched-rules idx))
       ;; the global closure on purpose, as in recheck-on-predicate: a re-check
       ;; trigger that under-selects is a missed withdrawal
-      (doseq [pe (into (tax/genls-global tx super) closure-answered-exception-functors)]
-        (mark-recheck kb (reads/watched-rules-on idx pe) :all))
+      (let [ups (tax/genls-global tx super)]
+        (doseq [pe (into ups closure-answered-exception-functors)]
+          (mark-recheck kb (reads/watched-rules-on idx pe) :all))
+        (mark-recheck kb (composed-exception-rules kb [super]) :all))
       (recheck-negated-exceptions kb sub)
-      (recheck-preserving-along kb 'genl))))
+      (recheck-preserving-along kb 'genl))
+    (recheck-on-qualitative kb super)))
 
-(defn- aggregate-rule?
-  "Can an arriving fact *release* one of the rule at `rh`'s re-check conditions
-  (`rules/arrival-releasable?`) — an aggregate whose census rises, or a nested NAF whose
-  witness leaves?  The two edge triggers below exempt one from their firing-side
-  narrowing, because such a condition licenses a firing there is no justification to
-  find."
+(defn- arrival-releasable-rule?
+  "`rules/arrival-releasable?` of the rule stored at `rh`: the two edge triggers below
+  exempt such a rule from their firing-side narrowing."
   [kb rh]
   (when-let [rsx (p/get-sentex (:records kb) rh)]
     (and (rules/rule? rsx) (rules/arrival-releasable? rsx))))
@@ -650,14 +700,9 @@
   that half, a rule blocked every time it fired has no context to read here and a
   widened ancestor set that releases it reaches nothing.
 
-  **An aggregate rule is exempt from that narrowing**, because for it the reasoning
-  above is false in one direction.  Every other re-check condition is a block, so the
-  thing a widened ancestor set can change always has a firing to be found; an aggregate binds a
-  **value**, and a census that rises licenses a firing that never existed.  There is no
-  placed conclusion to read a context off, so the ancestor set test finds nothing and the rule
-  is silently skipped — a count taken in `CxSub` before it inherited `CxUp`
-  stays taken.  The same asymmetry `settle/aggregate-recheck-rules` exists for, met the
-  same way: queue it and let the re-join decide.
+  A rule an arrival can release (`arrival-releasable-rule?`) is exempt from that
+  narrowing and queued outright (docs/exceptions.md, \"Taxonomy changes are keyed on
+  what the closure moved\").
 
   One record fetch per excepted rule for that exemption test, and then one per **firing**
   for the ancestor set test — `some` short-circuits on a hit, so a rule the edge does reach costs
@@ -674,7 +719,7 @@
                                  (when-let [csx (p/get-sentex (:records kb) (:consequence j))]
                                    (contains? affected (:context csx)))))]
         (doseq [rh excepted]
-          (when (or (aggregate-rule? kb rh)
+          (when (or (arrival-releasable-rule? kb rh)
                     (some in-ancestor-set? (jtms/dependents tms rh))
                     (refusals-reach? kb rh #(contains? affected (:pctx %))))
             (mark-recheck kb [rh] :all)))
@@ -723,11 +768,9 @@
   is a fact arriving on its own predicate; an `exceptWhen` meta-sentex naming a merged
   term migrates and re-registers itself.
 
-  **Except an aggregate**, which takes `:all` and no test.  It binds a *value*, so the
-  census can move with no term the firing names appearing in the merge at all — the
-  firing that counted `(childOf Ann C3)` binds `Ann`, and the class is `{C2 C3}` — and
-  a census that *rises* licenses a firing there is no justification for yet.  The same
-  exemption `recheck-genlCx-edge` makes, for the same reason.
+  **Except an aggregate or a nested NAF** (`arrival-releasable-rule?`), which takes
+  `:all` and no test: such a condition can move with no term the firing binds in the
+  merged class (docs/exceptions.md, \"Five channels\").
 
   A **schematic rewrite** takes `:all` too, and has no choice: it normalizes terms
   rather than merging symbols, so there is no class to test a binding against.  They
@@ -749,7 +792,7 @@
      (when-let [rules (seq (reads/watched-rules (:index kb)))]
        (doseq [rh rules]
          (when (or (nil? terms)
-                   (aggregate-rule? kb rh)
+                   (arrival-releasable-rule? kb rh)
                    (some #(binds-any? kb terms %) (jtms/dependents tms rh))
                    ;; ...and the same question of a firing that was refused before it
                    ;; could hold a justification: its bindings are recorded, so the
@@ -775,17 +818,24 @@
                              m ks)))))
 
 (defn note-rule!
-  "Add (`inc`) or drop (`dec`) a rule in the two rosters `visibility-seeds` reads: the
-  predicates it takes as antecedents, and the context it is stated in.
+  "Add (`inc`) or drop (`dec`) the rule at `handle` in the two rosters `visibility-seeds`
+  reads — the predicates it takes as antecedents, and the context it is stated in — and,
+  when a solve reads it (`rules/solve-sentex?`), in `:solve-rules` under its context.
 
   Both are kept here rather than derived on demand because both answer a question a
   `genlCx` edge asks and the index cannot: *which predicates could a seed usefully
   have*, and *does this ancestor set hold a rule at all*.  Maintained at the rule index/unindex
   choke points, beside `:opposed` at the store's, and rebuilt by `recover` because
   recovery replays rule indexing."
-  [kb rule-sentex preds f]
+  [kb handle rule-sentex preds f]
   (bump-roster! (reasoning/rule-antecedents kb) preds f)
-  (bump-roster! (reasoning/rule-contexts kb) [(:context rule-sentex)] f))
+  (bump-roster! (reasoning/rule-contexts kb) [(:context rule-sentex)] f)
+  (when (rules/solve-sentex? rule-sentex)
+    (let [ctx (:context rule-sentex)]
+      (swap! (reasoning/solve-rules kb)
+             (fn [m]
+               (let [hs ((if (= f inc) (fnil conj #{}) disj) (get m ctx) handle)]
+                 (if (seq hs) (assoc m ctx hs) (dissoc m ctx))))))))
 
 (defn index-rule-sentex
   "Index a rule handle by **all** of its predicates — both sets are complete, so
@@ -798,7 +848,7 @@
 
   Only the *predicates* are indexed.  The **record is the source of truth** for what
   a rule may do: a `set/*Rule` wrapper canonicalizes into the sentex (see
-  `vaelii.impl.sentex`), and `:direction` / `:defeasible` are read off it by every
+  `vaelii.impl.sentex`), and `:engines` / `:defeasible` are read off it by every
   consumer.  Nothing enumerates rules by defeasibility — defaults fire from the same
   agenda as strict rules — so there is no default-rule index to maintain.
 
@@ -810,7 +860,7 @@
     (p/index-rule (:index kb) handle
                   (rules/antecedent-keys antes)
                   (rules/consequent-index-pred rule-sentex))
-    (note-rule! kb rule-sentex (rules/antecedent-keys antes) inc)
+    (note-rule! kb handle rule-sentex (rules/antecedent-keys antes) inc)
     ;; ...and, if it carries an `(unknown S)` antecedent, by the predicates that NAF
     ;; query mentions (`recheck-predicates`).  It must not make the rule term-indexed,
     ;; or `find-sentexes` on `penguin` would return a rule merely because it reasons
@@ -920,6 +970,60 @@
 ;; the derivation-side twin of `recheck-on-sentence`, keyed on the *handle* the except
 ;; names rather than a predicate.
 
+(defn note-except-move!
+  "Queue handle `h` on `:except-moves`: an `except` of it stated in `context` arrived,
+  left or flipped, so what `h` restates or merges is visible to a different set of
+  readers there and below.  The settle drains the queue (`drain-except-moves!`,
+  `take-except-moves!`)."
+  [kb h context]
+  (swap! (reasoning/except-moves kb) update-in [:pending h] (fnil conj #{}) context))
+
+(defn instance-denial-terms
+  "The two terms a ground `(not (equals a b))` denies are equal, when at least one of
+  them is compound, else nil.  Only such a denial can name an instance of a schematic
+  equation, since a rewrite redex is compound (docs/equational.md, \"A denied ground
+  instance\")."
+  [sentence]
+  (when (and (sequential? sentence) (= 'not (first sentence)) (= 2 (count sentence)))
+    (let [body (second sentence)]
+      (when (and (sequential? body) (= 'equals (first body)) (= 3 (count body))
+                 (some sequential? (rest body))
+                 (not (sx/some-symbol? sx/variable? body)))
+        (vec (rest body))))))
+
+(defn note-denial-move!
+  "Queue the compound terms of `terms` on `:except-moves`: a denial of the equation between
+  them, stated in `context`, arrived, left, or changed belief or visibility, so the rewrites
+  it blocks changed for the readers there and below.  The settle drains the queue with the
+  `except` moves (`drain-except-moves!`)."
+  [kb terms context]
+  (swap! (reasoning/except-moves kb)
+         (fn [m] (reduce #(update-in %1 [:denied %2] (fnil conj #{}) context)
+                         m (filter sequential? terms)))))
+
+(defn note-denial-flips!
+  "`note-denial-move!` for each stored instance denial among `handles`, whose belief the
+  caller saw move."
+  [kb handles]
+  (let [ds (tax/instance-denials (reasoning/taxonomy kb))]
+    (doseq [h handles
+            :let [{:keys [terms context]} (get ds h)]
+            :when terms]
+      (note-denial-move! kb terms context))))
+
+(defn- note-denial-moves-above!
+  "`note-denial-move!` for every stored instance denial asserted in `super`'s ancestor
+  set: a `genlCx` edge under `super` arrived or left, so the readers below its sub gained
+  or lost sight of exactly those denials.  One map read on a KB storing none."
+  [kb super]
+  (let [tx (reasoning/taxonomy kb)
+        ds (tax/instance-denials tx)]
+    (when (seq ds)
+      (doseq [c (tax/context-up tx super)
+              h (tax/instance-denials-in tx c)
+              :let [{:keys [terms context]} (get ds h)]]
+        (note-denial-move! kb terms context)))))
+
 (defn recheck-except
   "An `(except (sentexHandle H))` fact arrived or left: queue every rule the visibility
   change touches, so `settle` (on arrival) sweeps a conclusion now resting on an
@@ -947,6 +1051,10 @@
   the safe direction — a spurious re-check costs one query, a missed one leaves a
   conclusion resting on an invisible fact or fails to bring one back.
 
+  H goes on `:except-moves` as well (`note-except-move!`), for the restatements the
+  visibility change moves: an equality or a merge mark H restates facts only where it is
+  visible, so the settle re-runs H's arrival sweep and reconciles every supersession.
+
   Returns the rule handles it marked — the settle loop re-chains them when the
   trigger was a belief flip, which moves no blocked justification for the drain to
   notice on its own."
@@ -969,6 +1077,7 @@
            marked   (vec (cond-> (into (set users) firers)
                            (and target (rules/rule? target)) (conj h)))]
        (mark-recheck kb marked trigger)
+       (note-except-move! kb h (:context except-sentex))
        marked))))
 
 (defn recheck-except-ancestors
@@ -1014,6 +1123,30 @@
                           kb/except-target)))
           moved)))
 
+(defn- permuting-marks
+  "What the store sorts arguments by: the `symmetric` predicates and the commuting-group
+  table.  Two persistent values, compared by identity first."
+  [tax]
+  [(tax/props tax :symmetric) (get @tax :commuting {})])
+
+(defn- note-permuting-moves!
+  "Queue on `:respell` every predicate whose permuting marks differ between `before`
+  (a `permuting-marks` reading) and now.  A mark that stops holding leaves rows spelled by
+  it, and one that starts holding again leaves rows it would have folded; neither is a
+  sentex arriving, so `chain/reconcile-spellings!` is told here, at the two places a mark
+  can stop or start holding without a declaration being written — its record leaving, and a
+  relabel.  Nearly always two `identical?` tests and nothing else."
+  [kb [sym0 com0]]
+  (let [[sym1 com1] (permuting-marks (reasoning/taxonomy kb))]
+    (when-not (and (identical? sym0 sym1) (identical? com0 com1))
+      (let [moved (-> #{}
+                      (into (remove #(contains? sym1 %)) sym0)
+                      (into (remove #(contains? sym0 %)) sym1)
+                      (into (filter #(not= (get com0 %) (get com1 %)))
+                            (concat (keys com0) (keys com1))))]
+        (when (seq moved)
+          (swap! (reasoning/respell kb) into moved))))))
+
 (defn reconcile-belief-change
   "Reconcile every belief-derived taxonomy cache after `moved` may have changed truth.
 
@@ -1050,10 +1183,12 @@
          tms    (reasoning/tms kb)]
      (when visibility-moved?
        (tax/note-supporter-visibility-change! (reasoning/taxonomy kb)))
-     (tax/refresh-beliefs
-      (reasoning/taxonomy kb)
-      #(jtms/in? tms %)
-      region))))
+     (let [before (permuting-marks (reasoning/taxonomy kb))]
+       (tax/refresh-beliefs
+        (reasoning/taxonomy kb)
+        #(jtms/in? tms %)
+        region)
+       (note-permuting-moves! kb before)))))
 
 ;; Genuine in-file cycle, threaded through the table.  Three derivation sites live
 ;; above the table and must reach the choke point below it: the lift's copy, the
@@ -1064,8 +1199,11 @@
 ;; values are the arm fns), so four declares close it.
 (declare derived-sentex-added integrate-twin wff-problems wff-violation)
 
-(defn- taxonomy-generations
-  "The `genl` and `genlCx` generations, the stamp a waiting entry is decided under."
+(defn taxonomy-generations
+  "The `genl` and `genlCx` generations, the stamp a waiting entry is decided under: a
+  refused mint, a refused lift, and (as `chain/constraint-generations`) an argument
+  conviction.  `settle` re-asks an entry only when this moves from its stamp, so the
+  stamp and the comparison are this one function."
   [kb]
   (let [tax (reasoning/taxonomy kb)]
     [(tax/relation-gen tax :genl) (tax/relation-gen tax :genlCx)]))
@@ -1107,24 +1245,41 @@
 ;; depends on which came first.  `deduce-arg-types` is fact-meets-declaration,
 ;; `entail-existing` is declaration-meets-facts.
 
+(defn naming-violation
+  "The `:naming` violation `sentence` in `context` carries under `kb`'s naming policy, or
+  nil: `nm/blocking-problems` as the value a caller that may not throw drops a sentence
+  for.  Nil under `:warn` and `:off`."
+  [kb sentence context]
+  (when-let [ps (nm/blocking-problems (:naming kb) sentence context)]
+    {:violation :naming
+     :detail    {:message (str "naming invariant: " (str/join "; " ps))}}))
+
 (defn inadmissible
   "The violation that stops `sentence` from being stored in `context`, or nil — naming,
   the definitional constraints, well-formedness, and edge stratification, as one value.
 
-  These are the four `place-conclusion` runs over a rule's conclusion, and they hold of
-  any content the engine mints on its own behalf: a `(T x)` can clash with a disjoint
-  membership, a `(genl X T)` edge can close a taxonomy cycle or a cycle through
-  negation, and a type used at the wrong arity is not a type membership at all.  Three
-  callers ask it — the argument-type entailment below, forward chaining, and abduction,
-  which asks it *before* minting a hypothesis so that a sentence no assertion could
-  legally make is never one the search assumes.
+  These hold of any content the engine mints on its own behalf: a `(T x)` can clash with
+  a disjoint membership, a `(genl X T)` edge can close a taxonomy cycle or a cycle
+  through negation, and a type used at the wrong arity is not a type membership at all.
+  Three callers ask it — the argument-type entailment below, the computed `genlCx` edge
+  of a context-valued function (`context-nat`), and abduction, which asks it *before*
+  minting a hypothesis so that a sentence no assertion could legally make is never one
+  the search assumes.  Forward chaining runs the same four over a rule's conclusion in
+  `chain/place-conclusion`, the naming arm only where a consequent literal's functor is
+  a variable.
 
   A **value**, never a throw.  Two of its callers run after their triggering sentex is
-  stored (that is what gives them a handle to be justified by) and inside a fixpoint,
-  neither of which may abort halfway; the third would rather refuse a hypothesis than
-  fail the query that wanted it.
+  stored (that is what gives them a handle to be justified by), and neither may abort
+  halfway; the third would rather refuse a hypothesis than fail the query that wanted
+  it.
 
-  `pre-checked?` omits `constraint-violation`, the definitional-constraint arm, for a
+  `constraint-arm` is the definitional-constraint check, `checks/constraint-violation`
+  by default, which refuses every violation.  The argument-type mint passes
+  `checks/derivation-violation` instead: a mint that clashes with a believed membership is
+  placed, and `settle` weighs the pair as it weighs a rule's conclusion that clashes
+  (docs/argtypes.md).
+
+  A nil `constraint-arm` omits the arm, for a
   caller that has already run it against this exact content.  The assert path's
   first-level argument-type mints are the one such caller: `checks/entailment-check`
   runs `constraint-problem` (and `cascade-clash`, which reads the source's own
@@ -1134,29 +1289,156 @@
   it only adds memberships, which cannot turn a passing `args`/`disjoint`/`arity` check
   into a failing one (each convicts on an absent type, never a present one).  Naming,
   well-formedness and edge stratification are **not** what `entailment-check` runs, so
-  they are asked here whichever way `pre-checked?` reads.  Every other caller — forward
+  they are asked here whether or not the arm is.  Every other caller — forward
   chaining, the retroactive sweeps, and the cascade's own deeper levels, none of which
   `entailment-check` pre-validates — leaves it false and pays the full check."
-  ([kb sentence context] (inadmissible kb sentence context false))
-  ([kb sentence context pre-checked?]
-   (or (when-let [ps (nm/blocking-problems (:naming kb) sentence context)]
-         {:violation :naming
-          :detail    {:message (str "naming invariant: " (str/join "; " ps))}})
-       (when-not pre-checked? (checks/constraint-violation kb sentence context))
+  ([kb sentence context] (inadmissible kb sentence context checks/constraint-violation))
+  ([kb sentence context constraint-arm]
+   (or (naming-violation kb sentence context)
+       (when constraint-arm (constraint-arm kb sentence context))
        (wff-violation kb sentence context)
        (checks/edge-stratification-violation kb sentence))))
 
-(def ^:private empty-entailment-result {:new [] :violations []})
+(def ^:private empty-entailment-result
+  "What an entailment step that minted nothing returns, and the seed of every reduce that
+  `merge-with into`s step results, so the accumulator and the steps have one shape."
+  {:new [] :violations []})
+
+(defn- route-edge?
+  "Is the sentex at `h` a `genl` or `genlCx` edge, the two relations a route names?"
+  [kb h]
+  (let [s (:sentence (p/get-sentex (:records kb) h))]
+    (and (sequential? s) (contains? '#{genl genlCx} (first s)))))
+
+(defn- firing-bindings
+  "A justification's bindings less the join's context variable `?ctx`, which one join
+  binds and a re-join under an arriving edge does not, for the same firing."
+  [j]
+  (dissoc (:bindings j) '?ctx))
+
+(defn drop-replaced-routes!
+  "Drop the justifications the one just added as `just` replaces: the same firing over a
+  route the witness rule no longer names.  Returns the merged `jtms/drop-justification!`
+  results, for the caller to apply to its stores; the dropped records are deleted here.
+
+  A justification is replaced when it has `just`'s informant, consequence and bindings,
+  holds every antecedent of `just` outside `route`, and differs from it only in `genl` /
+  `genlCx` edges that are all believed.  `route` is `just`'s own route handles; nil reads
+  them off the antecedents by shape.  The consequence keeps `just`, whose antecedents are
+  groundable, so the sweep collects nothing `just` does not hold up.
+
+  An edge of the older route that is OUT keeps its justification: a route a defeat took
+  away comes back when the defeat lifts, and the store then holds both
+  (docs/nmtms.md, \"Where the layer stops\")."
+  ([kb just] (drop-replaced-routes! kb just nil))
+  ([kb just route]
+   (let [tms  (reasoning/tms kb)
+         recs (:records kb)
+         h    (:consequence just)
+         sups (jtms/supports tms h)]
+     (when (< 1 (count sups))
+       (let [antes    (set (:antecedents just))
+             core     (reduce disj antes (or route (filter #(route-edge? kb %) antes)))
+             replaced (fn [jid]
+                        (let [j     (jtms/justification tms jid)
+                              a     (set (:antecedents j))
+                              extra (reduce disj a core)]
+                          (and (not= jid (:id just))
+                               (= (:informant just) (:informant j))
+                               (seq extra)
+                               (= (count core) (- (count a) (count extra)))
+                               (every? #(and (jtms/in? tms %) (route-edge? kb %)) extra)
+                               (= (firing-bindings just)
+                                  (firing-bindings (p/get-justification recs jid))))))
+             gone     (filterv replaced sups)]
+         (reduce (fn [acc jid]
+                   (let [r (jtms/drop-justification! tms jid)]
+                     (p/delete-justification! recs jid)
+                     (merge-with into acc r)))
+                 nil gone))))))
+
+;; ---- the mint roster (`:minted`, described beside the `Reasoning` record) ----------
+
+(def ^:private mint-informants
+  "The informants an argument declaration's mint is justified under — the three kinds,
+  which `entailing-declarations` names with their arities."
+  '#{arg genlArg interArg})
+
+(defn mint-informant?
+  "Is `informant` one an argument declaration's mint is justified under?"
+  [informant]
+  (contains? mint-informants informant))
+
+(defn- membership-shaped?
+  "Is `sentence` a membership `(t x)` of one symbol in another?  A membership subsumes a
+  mint of any supertype over the same term, and this test reads no index, so
+  `subsumed-mint-blocks` runs it on every sentex a settle moved."
+  [sentence]
+  (and (= 1 (nm/arity sentence)) (symbol? (nm/functor sentence))
+       (symbol? (first (nm/args sentence)))))
+
+(defn- edge-shaped?
+  "Is `sentence` a `genl` edge — the other shape that can subsume a mint, by giving the
+  terms under `sub` a route they did not have?"
+  [sentence]
+  (and (= 'genl (nm/functor sentence)) (= 3 (count sentence)) (symbol? (nth sentence 1))))
+
+(defn- context-edge-shaped?
+  "Is `sentence` a `genlCx` edge, which shows the contexts under `sub` memberships and
+  edges they could not see?"
+  [sentence]
+  (and (= 'genlCx (nm/functor sentence)) (= 3 (count sentence)) (symbol? (nth sentence 1))))
+
+(defn- roster-term
+  "The term the mint roster files `sentence` under — `x` of a membership `(t x)` or of an
+  edge `(genl x t)` — or nil for a shape no membership or edge can make redundant."
+  [sentence]
+  (when (or (membership-shaped? sentence) (edge-shaped? sentence))
+    (second sentence)))
+
+(defn- roster-add [m x context h]
+  (-> m
+      (update-in [:by-term x] (fnil conj #{}) h)
+      (update-in [:by-context context] (fnil conj #{}) h)))
+
+(defn- roster-drop [m k key h]
+  (let [hs (disj (get-in m [k key]) h)]
+    (if (empty? hs) (update m k dissoc key) (assoc-in m [k key] hs))))
+
+(defn- note-mint!
+  "File record `h`, holding `sentence` in `context`, in the mint roster."
+  [kb sentence context h]
+  (when-let [x (roster-term sentence)]
+    (swap! (reasoning/minted kb) roster-add x context h)))
+
+(defn drop-mint!
+  "Take the departing `sentex` out of the mint roster, when it is filed there."
+  [kb sentex]
+  (when-let [x (roster-term (sx/sentence-of sentex))]
+    (let [h (:id sentex)]
+      (when (contains? (get-in @(reasoning/minted kb) [:by-term x]) h)
+        (swap! (reasoning/minted kb)
+               #(-> % (roster-drop :by-term x h) (roster-drop :by-context (:context sentex) h)))))))
+
+(defn rebuild-minted!
+  "Refill the mint roster from `handles`, the consequences of the stored justifications
+  `mint-informant?` accepts.  `recover` collects them on the justification walk it
+  already makes, so this reads one record per minted handle."
+  [kb handles]
+  (let [recs (:records kb)]
+    (reset! (reasoning/minted kb)
+            (reduce (fn [m h]
+                      (let [sx (p/get-sentex recs h)
+                            x  (some-> sx sx/sentence-of roster-term)]
+                        (if x (roster-add m x (:context sx) h) m)))
+                    {:by-term {} :by-context {}}
+                    handles))))
 
 ;; Genuine in-file cycle: a minted type draws its own entailments, so `entail-arg-type`
 ;; calls back into `deduce-arg-types`, which is the fold over it.  Reordering cannot
 ;; break it — the recursion is the cascade, and its termination argument is in
 ;; `entail-arg-type`'s docstring.
 (declare deduce-arg-types)
-
-;; ...and the other half of the same cycle: the mint path records a withheld mint in the
-;; refusal record, and the release that puts it back materializes through the fold above.
-(declare note-subsumed-mint!)
 
 (defn- entail-arg-type
   "Materialize one entailment: store `(:assert ent)` in `context` and justify it by
@@ -1188,7 +1470,8 @@
   [kb ent src-handle context pre-checked?]
   (let [sentence (:assert ent)
         because  (vec (:because ent))]
-    (if-let [v (inadmissible kb sentence context pre-checked?)]
+    (if-let [v (inadmissible kb sentence context
+                             (when-not pre-checked? checks/derivation-violation))]
       {:new [] :violations [(assoc v :sentence sentence :context context
                                    :entailed-from src-handle)]}
       ;; A type the KB already holds more specifically is not written down: the record
@@ -1203,11 +1486,9 @@
       ;; `find-or-create-sentex` would look it up a second time: this runs per mint per
       ;; assert, and a mint that dedups to a record already stored is the common case on
       ;; a declared ontology (`assert_cost_test`'s `declared` workload counts the lookup).
-      (let [stored (kb/find-sentex-handle kb sentence context)
-            by     (when-not stored (checks/subsumed-mint kb sentence context))]
-        (if by
-          (do (note-subsumed-mint! kb sentence context (cons src-handle because) by)
-              empty-entailment-result)
+      (let [stored (kb/find-sentex-handle kb sentence context)]
+        (if (and (not stored) (checks/subsumed-mint kb sentence context))
+          empty-entailment-result
           (let [[h2 s2 new?] (if stored
                                [stored (p/get-sentex (:records kb) stored) false]
                                (let [[h sx] (kb/create-sentex kb sentence context nil)]
@@ -1231,7 +1512,11 @@
                     (let [jid  (p/next-id (:records kb))
                           just (jtms/->just jid (:kind ent) antes h2 {} :monotonic)]
                       (p/put-justification (:records kb) just)
-                      (jtms/add-justification (reasoning/tms kb) just)))
+                      (jtms/add-justification (reasoning/tms kb) just)
+                      (note-mint! kb sentence context h2)
+                      ;; the route this pair named before is replaced; `just` holds the
+                      ;; mint up, so the drop sweeps nothing and only the records go
+                      (when-not new? (drop-replaced-routes! kb just (rest because)))))
                   (merge-with into
                               {:new (if new? [h2] []) :violations []}
                               ;; A minted sentence materializes its own entailments when it first
@@ -1326,15 +1611,22 @@
 
   A vector, snapshotted before the caller's first write: a mint or a merge posts to the
   roots this walk reads, and no index backend promises whether a posting read is a
-  snapshot or a live view."
-  [kb pred]
-  (let [idx  (:index kb)
-        recs (:records kb)]
-    (into [] (comp (filter #(pos? (reads/stored-count-with-functor idx %)))
-                   (mapcat #(reads/as-stored-with-functor idx %))
-                   (distinct)
-                   (keep #(p/get-sentex recs %)))
-          (tax/specs-global (reasoning/taxonomy kb) pred))))
+  snapshot or a live view.
+
+  With `limit`, the walk stops after `limit` sentexes, visiting the predicates in content
+  order and each posting in the index's own order, so a budgeted caller reads a prefix
+  and no more of the extent."
+  ([kb pred] (subtree-sentexes kb pred nil))
+  ([kb pred limit]
+   (let [idx   (:index kb)
+         recs  (:records kb)
+         preds (filter #(pos? (reads/stored-count-with-functor idx %))
+                       (tax/specs-global (reasoning/taxonomy kb) pred))]
+     (into [] (cond-> (comp (mapcat #(reads/as-stored-with-functor idx %))
+                            (distinct)
+                            (keep #(p/get-sentex recs %)))
+                limit (comp (take limit)))
+           (cond->> preds limit (sort-by nm/name-key))))))
 
 (defn- any-stored?
   "Is any sentex stored under any of `functors`?  One index cardinality read each, which
@@ -1438,10 +1730,15 @@
           (or (entail-existing kb (:sentence sx) dh) empty-entailment-result)))))
 
 ;; ---- a mint the KB holds more specifically ---------------------------------
-;; `checks/subsumed-mint` reads whether a minted type is one a believed membership
-;; already says more precisely.  The mint path above withholds a record it answers for;
-;; this is the other arrival order, where the specific membership lands after the mint
-;; is stored — the record has to *leave*, and come back if the membership does.
+;; `checks/subsumed-mint` reads whether a minted type is one a believed record already
+;; says more precisely.  The mint path above withholds a record it answers for; the
+;; settle takes care of the other two directions, which are the functions below:
+;;
+;; - **withdrawal** — the specific membership, or the edge that makes it specific or
+;;   visible, lands after the mint is stored, so the record has to *leave*
+;;   (`subsumed-mint-blocks`);
+;; - **release** — a record that could have been what subsumed a mint leaves belief or
+;;   the store, so the mints about its term are drawn again (`withheld-releases`).
 ;;
 ;; A withdrawal is a **block**, not a retraction: the mint's supporters are all still
 ;; there and still entail it, so a dependency-directed retraction finds it groundable
@@ -1449,69 +1746,9 @@
 ;; does to a firing it excepts, and the sweep that follows collects the record exactly
 ;; as it collects an excepted conclusion (docs/exceptions.md).
 ;;
-;; The sweep deletes the justification with the record, so there is nothing left to
-;; unblock when the specific membership goes.  The way back is the refusal record, as
-;; it is for every other derivation an absence stopped: the withheld sentence is kept
-;; under each of the antecedents that entailed it, and re-materialized from them.
-
-(def ^:private mint-informants
-  "The informants an argument declaration's mint is justified under — the three kinds,
-  which `entailing-declarations` names with their arities."
-  '#{arg genlArg interArg})
-
-(defn- subsumed-of?
-  "Matches the refusal-record entry for `sentence` withheld in `context`."
-  [sentence context]
-  #(and (:subsumed %) (= sentence (:sentence %)) (= context (:context %))))
-
-(defn note-subsumed-mint!
-  "Remember `sentence`, withheld in `context`, under each handle in `antes` — the
-  antecedents that entail it, one entry each.
-
-  **Each of them, rather than the source alone.**  A mint's antecedent vector is content
-  ordered (`kb/antecedent-order`), and a source fact can be a `genl` edge itself, so
-  which handle is the fact and which the declaration cannot be read back off the vector
-  without asking each one what it entails.  Asking is what the release does anyway, so
-  the entry is kept under all of them and the ones that entail nothing retire on the
-  same pass as the one that does.
-
-  `by` is the record that subsumed it, kept so the settle can ask whether the withholding
-  still holds for the price of one belief read — the full question is `checks/subsumed-mint`,
-  and a KB with a thousand withheld mints may not pay it per settle."
-  [kb sentence context antes by]
-  (let [gens (taxonomy-generations kb)]
-    (doseq [h antes]
-      (note-pending! kb h {:subsumed true :sentence sentence :context context
-                           :by by :gens gens}
-                     (subsumed-of? sentence context)))))
-
-(defn- any-declaration?
-  "Does any predicate in the KB carry an entailing argument declaration?
-
-  The **taxonomy's** roster rather than the index's cardinality (`any-stored?`): this gate
-  is asked by every settle that moved a membership, where `entail-under-edge` asks its
-  twin once per `genl` edge, and three index reads per membership assert is a constant on
-  the write path that a ratio-based bench divides out (`assert_cost_test` counts it).  The
-  roster is the same field `res/constraining-predicates` filters against, so the gate and
-  the reader it guards cannot disagree."
-  [kb]
-  (let [tax (reasoning/taxonomy kb)]
-    (boolean (some #(seq (tax/props tax (tax/arg-declaration-props %)))
-                   (keys entailing-declarations)))))
-
-(defn- membership-shaped?
-  "Is `sentence` a membership `(t x)` of one symbol in another?  A membership subsumes a
-  mint of any supertype over the same term, and this test reads no index, so the gate
-  below runs on every sentex a settle moved."
-  [sentence]
-  (and (= 1 (nm/arity sentence)) (symbol? (nm/functor sentence))
-       (symbol? (first (nm/args sentence)))))
-
-(defn- edge-shaped?
-  "Is `sentence` a `genl` edge — the other shape that can subsume a mint, by giving the
-  terms under `sub` a route they did not have?"
-  [sentence]
-  (and (= 'genl (nm/functor sentence)) (= 3 (count sentence)) (symbol? (nth sentence 1))))
+;; Nothing remembers a withheld mint.  The release re-derives it from the facts about the
+;; departing record's term, which is what the store says, so a KB rebuilt from its store
+;; releases what the KB that withheld it releases (docs/argtypes.md).
 
 (defn- mint-only?
   "Is `h` a record the argument entailment alone holds up — no premise support, at least
@@ -1575,63 +1812,131 @@
                  (tax/genl? tax (nth s 2) (nth sentence 2) context)))))))
 
 (defn- withdrawable-mint
-  "Is the record at `h` a mint that the record at `by` has made redundant?
+  "The handle of the record that makes the mint at `h` redundant, or nil when the mint
+  stays.  `by` is the moved record the trigger holds when that record is the only one that
+  can be the subsumer (a membership, or an edge out of the mint's own term), and nil when
+  the subsumer is some other record the move made reach further, which
+  `checks/subsumed-mint` then finds.
 
   Four conditions, cheapest first: the candidate is not `by` itself; it is the
-  entailment's own record (`mint-only?`, network reads, and the test that rejects nearly
-  every candidate — a term's slot roster is mostly things somebody asserted); it is a
-  literal that `by` says more specifically in its own context (the taxonomy); and `by`
-  does not rest on it (a support walk, asked of the few that get this far)."
+  entailment's own record (`mint-only?`, network reads); a believed record says it more
+  specifically in its own context (the taxonomy, or the index behind `subsumed-mint`); and
+  that record does not rest on it (a support walk, asked of the few that get this far)."
   [kb h by]
-  (and (not= h (:id by))
-       ;; the network first, and `premise?` inside it first of all: nearly every candidate
-       ;; a term's slot roster turns up is a record somebody asserted, and one O(1) read
-       ;; rejects it before anything is fetched
-       (mint-only? kb h)
-       (let [sx (p/get-sentex (:records kb) h)]
-         (boolean
-          (and sx (nil? (:antecedent sx))
-               (says-more-than? kb (:sentence sx) (:context sx) by)
-               (not (rests-on? kb (:id by) h)))))))
+  (when (and (not= h (:id by)) (mint-only? kb h))
+    (let [sx (p/get-sentex (:records kb) h)]
+      (when (and sx (nil? (:antecedent sx)))
+        (when-let [s (if by
+                       (when (says-more-than? kb (:sentence sx) (:context sx) by) (:id by))
+                       (checks/subsumed-mint kb (:sentence sx) (:context sx)))]
+          (when-not (rests-on? kb s h) s))))))
 
-(defn- records-about
-  "Every stored record that names `x` — one inverted-index read, belief unread.
+(defn- roster-members-in
+  "The terms keying `by-term` that hold a stored membership `(z x)` with `z` in `below`,
+  a spec closure — the members `subtree-sentexes` would name, narrowed to the roster.
 
-  **One read rather than one per candidate predicate.**  The narrower question is which
-  of `x`'s memberships sit in a supertype of the arriving one, and asking the slot roster
-  that way costs a posting read per predicate it names; the mints being looked for are a
-  handful of derived records among them, and `mint-only?` rejects the rest for an O(1)
-  network read each.  So the index is asked once and the network does the filtering."
-  [kb x]
-  (reads/as-stored-with-term (:index kb) x))
+  Read from the smaller side.  The extent below a type the ontology states an edge out of
+  can be most of a corpus while the terms holding a mint are few, and walking the extent
+  pages one record per membership to learn its term; walking the roster pages only each
+  term's own unary facts (`unary-sentexes-with-arg`), so the choice is made by comparing
+  the two counts, both index cardinality reads.  Stored rather than believed, as
+  `subtree-sentexes` is."
+  [kb below by-term]
+  (let [idx    (:index kb)
+        recs   (:records kb)
+        specs  (into #{} (filter #(pos? (reads/stored-count-with-functor idx %))) below)
+        extent (transduce (map #(reads/stored-count-with-functor idx %)) + 0 specs)]
+    (if (< (count by-term) extent)
+      (filter (fn [x]
+                (some (fn [h]
+                        (when-let [sx (p/get-sentex recs h)]
+                          (let [sen (:sentence sx)]
+                            (and (membership-shaped? sen)
+                                 (= x (first (nm/args sen)))
+                                 (contains? specs (nm/functor sen))))))
+                      (p/unary-sentexes-with-arg idx x)))
+              (keys by-term))
+      (into [] (comp (mapcat #(reads/as-stored-with-functor idx %))
+                     (distinct)
+                     (keep #(p/get-sentex recs %))
+                     (map :sentence)
+                     (filter membership-shaped?)
+                     (map #(first (nm/args %)))
+                     (filter #(contains? by-term %))
+                     (distinct))
+            specs))))
 
 (defn- withdrawal-candidates
-  "The stored records that `sx` — a sentex this settle moved — can have made redundant.
+  "The minted records that `sx` — a sentex this settle moved — can have made redundant, as
+  `[handle by]` pairs for `withdrawable-mint`, read off the mint roster.
 
-  Only two shapes of content can: a **membership**, which subsumes a mint of any
-  supertype over the same term, and a **`genl` edge**, which gives every term under `sub`
-  a route it did not have and so subsumes both the mint edges out of `sub` and the
-  memberships of everything beneath it.  A fact of any other shape moves no subsumption
-  and reads nothing, which is what keeps the ordinary assert free of this."
+  - A **membership** `(T x)` subsumes the mints about `x`.
+  - A **`genl` edge** `(genl sub super)` subsumes the edges minted out of `sub` itself.
+    The route it gives the types and members under `sub` is `edge-route-candidates`',
+    asked once for every edge the settle moved.
+  - A **`genlCx` edge** shows every context under `sub` what `super` holds, so the mints
+    stated in those contexts are asked the whole question.
+
+  A fact of any other shape moves no subsumption and reads nothing."
   [kb sx]
-  (let [s (:sentence sx)]
+  (let [s      (:sentence sx)
+        roster @(reasoning/minted kb)
+        term   #(get-in roster [:by-term %])]
     (cond
       (membership-shaped? s)
-      (seq (records-about kb (first (nm/args s))))
+      (for [h (term (first (nm/args s)))] [h sx])
 
       (edge-shaped? s)
-      (let [sub (nth s 1)]
-        (concat (reads/as-stored-with-args (:index kb) 'genl {1 sub})
-                (for [m (subtree-sentexes kb sub)
-                      :let [ms (:sentence m)]
-                      :when (and (= 1 (nm/arity ms)) (symbol? (first (nm/args ms))))
-                      h (records-about kb (first (nm/args ms)))]
-                  h))))))
+      (for [h (term (nth s 1))] [h sx])
+
+      (context-edge-shaped? s)
+      (for [c (tax/context-down (reasoning/taxonomy kb) (nth s 1))
+            h (get-in roster [:by-context c])]
+        [h nil]))))
+
+(defn- edge-route-candidates
+  "The mints the `genl` edges in `edges` — the ones a settle moved — gave a route they
+  did not have, as `[handle nil]` pairs: the mints about every type strictly under an
+  edge's `sub`, and about every member of a type under one.  Each is asked the whole
+  question, since the record that subsumes it is the membership or edge below, not the
+  edge that moved.
+
+  **One walk for all the edges.**  Asked per edge, the types under each `sub` are a
+  closure of their own, and a settle that moves every edge at once — a `recover`, where
+  every record comes IN — pays the sum of those closures, which counts a subtree once per
+  edge above it rather than once.  The union is `tax/specs-of-all`, one traversal, and the
+  members below it one read from whichever of the roster and the extent is smaller.  A
+  single edge keeps `tax/specs-global` and its memo.
+
+  \"Strictly\" is per edge: a `sub` counts when it sits under another edge's `sub`, which
+  its own ancestors (`tax/genls-global`) answer, and only a `sub` holding a mint is asked.
+
+  Unscoped (E17) for `checks/subsumed-mint`'s reason: the mints sit in contexts other than
+  the edges', and each candidate is asked in its own context, so the unscoped walk only
+  asks more candidates than a scoped one."
+  [kb edges]
+  (let [by-term (:by-term @(reasoning/minted kb))
+        subs    (into #{} (map #(nth (:sentence %) 1)) edges)]
+    (when (and (seq subs) (seq by-term))
+      (let [tax     (reasoning/taxonomy kb)
+            below   (if (= 1 (count subs))
+                      (tax/specs-global tax (first subs))
+                      (tax/specs-of-all tax subs))
+            strict? (fn [z]
+                      (or (not (contains? subs z))
+                          (some #(and (not= z %) (contains? subs %)) (tax/genls-global tax z))))
+            types   (if (< (count by-term) (count below))
+                      (filter #(contains? below %) (keys by-term))
+                      (filter #(contains? by-term %) below))]
+        (distinct
+         (for [x (concat (filter strict? types) (roster-members-in kb below by-term))
+               h (get by-term x)]
+           [h nil]))))))
 
 (defn subsumed-mint-blocks
-  "The justifications to block because the records they hold up are redundant, and what
-  brings those records back — `{:blocked #{jid} :withdrawn [[sentence context antes
-  subsumer] …]}` over the records the sentexes in `moved` can have displaced.
+  "The justifications to block because the records they hold up are redundant, and the
+  records — `{:blocked #{jid} :withdrawn #{handle}}` over the records the sentexes in
+  `moved` can have displaced.
 
   Every justification of a withdrawn record, because a record survives on any one of
   them: two facts can entail the same type, and blocking one would leave the record
@@ -1640,11 +1945,12 @@
 
   `moved` is a **delay** over the region's records, and the gates in front of it decide
   whether it is ever forced: off unless the entailment is on, off unless the mint is
-  prunable, and off unless some predicate carries an argument declaration
-  (`any-declaration?`, a taxonomy read).  A KB that declares nothing therefore fetches no
-  record here however much it asserts, which is what `record_fetch_cost_test` counts.
-  Forced, the region is filtered by **shape** — only a membership or a `genl` edge can
-  subsume a mint — so the index is read only for the terms those name.
+  prunable, and off while the mint roster is empty.  A KB holding no mint therefore
+  fetches no record here however much it asserts, which is what `record_fetch_cost_test`
+  counts.  Forced, the region is filtered by **shape** — only a membership, a `genl` edge
+  or a `genlCx` edge can subsume a mint — and the candidates are the roster's
+  (`withdrawal-candidates` per record, `edge-route-candidates` once for all the `genl`
+  edges), so a membership about a term holding no mint reads nothing.
 
   Only a record that **became** believed is asked, which is what keeps this off the price
   of a settle that relabels a large region without moving much of it — a qualitative
@@ -1654,12 +1960,11 @@
   and a record is asked **once per settle** however many passes relabel it.  Nothing is
   missed by that: a mint stored *after* a pass examined its subsumer never reaches the
   store, since `entail-arg-type` asks the same question of every mint it is about to
-  write.  The saving is the whole cost of this on a KB whose settle runs many passes over
-  one region, which is what a qualitative network does."
+  write."
   [kb moved was-in asked]
   (let [tms   (reasoning/tms kb)
         moved (when (and checks/*assertive-arg-types?* checks/*prune-subsumed-mints?*
-                         (any-declaration? kb))
+                         (seq (:by-term @(reasoning/minted kb))))
                 (seq (filter #(let [s (:sentence %)
                                     h (:id %)]
                                 (and (nil? (:antecedent %))
@@ -1670,104 +1975,169 @@
                                      ;; region does not move (`jtms/touched-in`)
                                      (jtms/in? tms h)
                                      (not (contains? was-in h))
-                                     (or (membership-shaped? s) (edge-shaped? s))))
+                                     (or (membership-shaped? s) (edge-shaped? s)
+                                         (context-edge-shaped? s))))
                              @moved)))]
     (vswap! asked into (map :id) moved)
     (when moved
       (reduce
-       (fn [acc sx]
-         (reduce
-          (fn [acc h]
-            (if-not (withdrawable-mint kb h sx)
-              acc
-              (let [msx  (p/get-sentex (:records kb) h)
-                    js   (keep #(jtms/justification (reasoning/tms kb) %)
-                               (jtms/supports (reasoning/tms kb) h))
-                    ants (into #{} (mapcat :antecedents) js)]
-                (-> acc
-                    (update :blocked into (map :id) js)
-                    (update :withdrawn conj
-                            [(:sentence msx) (:context msx) (vec (sort ants)) (:id sx)])))))
-          acc
-          (distinct (withdrawal-candidates kb sx))))
-       {:blocked #{} :withdrawn []}
-       moved))))
+       ;; `:withdrawn` keeps a mint two moved records displace from being withdrawn twice;
+       ;; a mint one of them does not displace is still asked of the next
+       (fn [acc [h by]]
+         (if (or (contains? (:withdrawn acc) h) (not (withdrawable-mint kb h by)))
+           acc
+           (-> acc
+               (update :withdrawn conj h)
+               (update :blocked into
+                       (comp (keep #(jtms/justification tms %)) (map :id))
+                       (jtms/supports tms h)))))
+       {:blocked #{} :withdrawn #{}}
+       (concat (mapcat #(distinct (withdrawal-candidates kb %)) moved)
+               (edge-route-candidates kb (filter #(edge-shaped? (:sentence %)) moved)))))))
 
-(defn subsumed-refusals
-  "The mints withheld for a more specific membership, as `[handle entry]` pairs — one per
-  antecedent the withheld sentence is kept under, unordered.
+(defn note-departure!
+  "Queue `sentex`, leaving the store, for `withheld-releases` when it is a record that can
+  have subsumed a mint — a membership, a `genl` edge or a `genlCx` edge.  Called from
+  `integrate/sentex-removed!`, the one place a record leaves, and only with pruning on."
+  [kb sentex]
+  (when (and checks/*assertive-arg-types?* checks/*prune-subsumed-mints?*)
+    (let [s (sx/sentence-of sentex)]
+      (when (or (membership-shaped? s) (edge-shaped? s) (context-edge-shaped? s))
+        (swap! (reasoning/minted kb) update :departed (fnil conj [])
+               (assoc (select-keys sentex [:id :context]) :sentence s))))))
 
-  Raw pairs rather than groups, because the caller filters before it groups: every entry
-  is re-asked on each settle pass, and building the grouping first would pay a map per
-  pass for the entries no trigger lets through (`settle/released-subsumed`)."
+(defn drain-departures!
+  "The records `note-departure!` queued since the last drain, and the queue emptied."
   [kb]
-  (into []
-        (mapcat (fn [[h recs]]
-                  (when (set? recs)
-                    (for [e recs :when (:subsumed e)] [h e]))))
-        @(reasoning/refused kb)))
+  (let [[old] (swap-vals! (reasoning/minted kb) dissoc :departed)]
+    (:departed old)))
 
-(defn group-subsumed
-  "The `[handle entry]` pairs of `subsumed-refusals` grouped by what was withheld:
-  `[[sentence context] {:handles [h …]}]` in content order.
+(defn- any-declaring?
+  "Does any predicate carry an entailing argument declaration?  Read off the taxonomy's
+  global roster (`tax/arg-declaration-props`), so the gate every settle passes reads no
+  index."
+  [kb]
+  (let [tax (reasoning/taxonomy kb)]
+    (boolean (some #(seq (tax/props tax (tax/arg-declaration-props %)))
+                   (keys entailing-declarations)))))
 
-  **Grouped, because a withheld sentence is one question however many facts entail it.**
-  An entry is kept under each antecedent (`note-subsumed-mint!`), and releasing them one
-  at a time would put the record back on the first antecedent's justification and leave
-  the others to arrive whenever their own trigger fired — so how many supports the record
-  had would depend on what moved since, which is the arrival dependence this whole
-  mechanism exists to remove."
-  [pairs]
-  (->> pairs
-       (reduce (fn [acc [h e]]
-                 (update acc [(:sentence e) (:context e)]
-                         (fn [cur] (update (or cur {}) :handles (fnil conj []) h))))
-               {})
-       (sort-by (fn [[[sen ctx]]] [(nm/print-key sen) (nm/name-key ctx)]))
-       (mapv (fn [[k v]] [k (update v :handles #(vec (sort %)))]))))
+(defn- rederive-mints
+  "Draw again the mints of each stored fact in `facts` that `keep?` accepts, as
+  `deduce-arg-types` draws them for the fact arriving now: `{:new [handle …]}`.
+  `keep?` takes the minted sentence and the fact's context.
 
-(defn release-subsumed!
-  "Re-ask one withheld mint — the sentence `sen` withheld in `ctx` under the antecedent
-  `handles`: `{:new [handle …]}` with the record put back, or the entries restamped when
-  something still subsumes it.  Entries whose antecedent has left the store are retired.
+  A mint already stored with this justification adds nothing (`has-justification?`), one
+  a believed record still subsumes is withheld again, and the rest are written — so the
+  call is idempotent and decides on current belief alone.  The violations are dropped:
+  each was reported when the fact arrived, and a re-derivation exposes nothing new."
+  [kb facts keep?]
+  (reduce (fn [acc sx]
+            (if-not (and (nil? (:antecedent sx)) (not (sx/negative? sx)))
+              acc
+              (let [ctx (:context sx)
+                    es  (filter #(keep? (:assert %) ctx)
+                                (checks/constraint-entailments kb (:sentence sx) ctx))]
+                (if (seq es)
+                  (update acc :new into (:new (deduce-arg-types kb es (:id sx) ctx)))
+                  acc))))
+          {:new []}
+          facts))
 
-  Three ways out, and the first is not about subsumption at all: a record for the
-  sentence stored by another route takes the justification at once, because a record is
-  justified by everything that entails it or retraction depends on arrival order.
+(defn- facts-naming
+  "The stored facts holding the symbol `x` as an argument, snapshotted before any mint
+  is written."
+  [kb x]
+  (let [recs (:records kb)]
+    (into []
+          (comp (keep #(p/get-sentex recs %))
+                (filter #(some #{x} (rest (:sentence %)))))
+          (reads/as-stored-with-term (:index kb) x))))
 
-  The mint is re-derived rather than re-inserted — `checks/constraint-entailments` over
-  each antecedent's own sentence, narrowed to the sentence that was withheld — so the
-  record comes back with exactly the justifications the arrival order that never withheld
-  it gives it, `because` and all."
-  [kb [sen ctx] {:keys [handles]}]
-  (let [same? (subsumed-of? sen ctx)
-        live  (into [] (keep #(p/get-sentex (:records kb) %)) handles)
-        gone  (remove (set (map :id live)) handles)]
-    (doseq [h gone] (drop-pending! kb h same?))
+(defn- released-terms
+  "The terms whose withheld mints the departure of `sx` can release, for `mints-about`:
+  a membership `(T x)` or an edge `(genl x S)` subsumed the mints about `x`, and a
+  `genl` edge `(genl sub super)` was also a route from every type under `sub` and every
+  member of one — the terms `edge-route-candidates` asks about when the same edge
+  arrives."
+  [kb sx]
+  (let [s (:sentence sx)]
     (cond
-      (empty? live) empty-entailment-result
+      (membership-shaped? s) [(first (nm/args s))]
 
-      (or (kb/find-sentex-handle kb sen ctx)
-          (not (checks/subsumed-mint kb sen ctx)))
-      (do (doseq [sx live] (drop-pending! kb (:id sx) same?))
-          (reduce (fn [acc sx]
-                    (merge-with into acc
-                                (deduce-arg-types
-                                 kb
-                                 (filter #(= sen (:assert %))
-                                         (checks/constraint-entailments kb (:sentence sx) ctx))
-                                 (:id sx) ctx)))
-                  empty-entailment-result
-                  live))
+      (edge-shaped? s)
+      (let [sub (nth s 1)]
+        (into (vec (tax/specs-global (reasoning/taxonomy kb) sub))
+              (comp (map :sentence) (filter membership-shaped?) (map #(first (nm/args %))))
+              (subtree-sentexes kb sub))))))
 
-      :else
-      (let [by   (checks/subsumed-mint kb sen ctx)
-            gens (taxonomy-generations kb)]
-        (doseq [sx live]
-          (note-pending! kb (:id sx) {:subsumed true :sentence sen :context ctx
-                                      :by by :gens gens}
-                         same?))
-        empty-entailment-result))))
+(defn withheld-releases
+  "The mints no longer withheld because a record that subsumed them left, and the
+  justifications a withheld mint owes a record of its sentence that arrived: `{:new
+  [handle …]}`, drawn by `rederive-mints` (docs/argtypes.md, \"Nothing records a withheld
+  mint\").
+
+  The departures are the records `note-departure!` queued as they left the store, and the
+  records in `moved` (a delay over the settle's region) that went IN ⇒ OUT against
+  `was-in`; the arrivals are the ones that came IN.  `withdrawn` holds the mints this
+  settle withdrew, which release nothing.  `asked` holds what this settle has already
+  asked, so each record is asked once per settle however many passes relabel it.  The
+  queue is drained whether or not the gates pass."
+  [kb moved was-in asked withdrawn]
+  (let [queued (drain-departures! kb)]
+    (when (and checks/*assertive-arg-types?* checks/*prune-subsumed-mints?*
+               (any-declaring? kb))
+      (let [tms    (reasoning/tms kb)
+            roster @(reasoning/minted kb)
+            ;; the transition, not the region, as `subsumed-mint-blocks` reads it
+            moves  (into []
+                         (filter #(let [s (:sentence %) h (:id %)]
+                                    (and (nil? (:antecedent %))
+                                         (not (contains? @asked h))
+                                         (not (contains? withdrawn h))
+                                         (not= (contains? was-in h) (jtms/in? tms h))
+                                         (or (membership-shaped? s) (edge-shaped? s)
+                                             (context-edge-shaped? s)))))
+                         @moved)
+            out    (into (into [] (remove #(contains? withdrawn (:id %))) queued)
+                         (remove #(jtms/in? tms (:id %)))
+                         moves)
+            twins  (filter #(let [s (:sentence %)]
+                              (and (jtms/in? tms (:id %))
+                                   (not (context-edge-shaped? s))
+                                   (not (contains? (get-in roster [:by-term (roster-term s)])
+                                                   (:id %)))
+                                   (checks/subsumed-mint kb s (:context %))))
+                           moves)
+            terms  (->> (remove #(context-edge-shaped? (:sentence %)) out)
+                        (mapcat #(released-terms kb %))
+                        (filter symbol?)
+                        distinct
+                        (sort-by nm/name-key))
+            tax    (reasoning/taxonomy kb)]
+        (vswap! asked into (map :id) moves)
+        (merge-with
+         into
+         (reduce (fn [acc x]
+                   (merge-with into acc (rederive-mints kb (facts-naming kb x)
+                                                        (fn [s _] (= x (roster-term s))))))
+                 {:new []}
+                 terms)
+         (reduce (fn [acc sx]
+                   (let [s (:sentence sx) c (:context sx)]
+                     (merge-with into acc (rederive-mints kb (facts-naming kb (roster-term s))
+                                                          (fn [s' c'] (and (= s s') (= c c')))))))
+                 {:new []}
+                 twins)
+         (rederive-mints kb
+                         (into []
+                               (comp (filter #(context-edge-shaped? (:sentence %)))
+                                     (mapcat #(sort-by nm/name-key
+                                                       (tax/context-down tax (nth (:sentence %) 1))))
+                                     (distinct)
+                                     (mapcat #(reads/as-stored-in-context (:index kb) %))
+                                     (keep #(p/get-sentex (:records kb) %)))
+                               out)
+                         (fn [s _] (some? (roster-term s)))))))))
 
 (defn- super-reaches-declaration?
   "Does `super`, or a genl-ancestor of it, carry an entailing argument declaration?
@@ -1892,7 +2262,7 @@
                  (p/put-justification (:records kb) just)
                  (jtms/add-justification (reasoning/tms kb) just))))
            (if new? (update acc :new conj h) acc)))
-       {:new [] :violations []}
+       empty-entailment-result
        minted))))
 
 (defn materialize-defn-rules
@@ -1912,7 +2282,7 @@
       (reduce (fn [acc r]
                 (merge-with into acc
                             (materialize-defn-rule kb r defn-handle context informant)))
-              {:new [] :violations []}
+              empty-entailment-result
               (sx/defn-companion-rules sentence)))))
 
 (defn- negative-subsumption-seeds
@@ -1997,9 +2367,11 @@
   `genl`, not the rules the edge connected, so `(wolf Rex)` and a rule on `(animal ?x)`
   stored before a minted `(genl wolf animal)` would derive nothing in that order only."
   [kb handles]
-  (into (vec handles)
-        (mapcat #(some->> (p/get-sentex (:records kb) %) :sentence (subsumption-seeds kb)))
-        handles))
+  (if (empty? handles)
+    []
+    (into (vec handles)
+          (mapcat #(some->> (p/get-sentex (:records kb) %) :sentence (subsumption-seeds kb)))
+          handles)))
 
 (defn- transitive-left-ends
   "`a`, and every term that already reached it through believed stored `pred` links — the
@@ -2033,7 +2405,7 @@
         seen))))
 
 (defn- transitive-partner-functors
-  "The functors some rule is indistinguishable from an antecedent BESIDE a `pred` one — the triggers a
+  "The functors of the antecedents some rule has BESIDE a `pred` one — the triggers a
   grown `pred` closure could newly join to.  Empty when no rule takes a `pred`
   antecedent at all, which is the gate that keeps an ordinary assert free."
   [kb pred]
@@ -2190,6 +2562,90 @@
     (tax/genls-global tx (second k))
     (tax/specs-global tx k)))
 
+(defn- context-edge-reader-ancestors
+  "Every context a `(genlCx sub super)` edge's widened readers can see, once the edge
+  has integrated — `context-down(sub)`'s own members' ancestor sets, unioned.  The one
+  reachability rule for the three things an arriving edge re-joins: a rule and a fact
+  (`visibility-seeds`), a merge and the fact it restates (`migrate-under-context-edge`),
+  and a functional/anti_symmetric clash (`equate-under-context-edge`).  Each is a fact becoming
+  newly visible to a reader, so the three read one set.
+
+  `context-up(super)` alone would be a strict subset and not enough on its own: `sub`
+  is a member of `context-down(sub)` (that closure always includes its own root), so
+  `context-up(sub)` is one of the sets this unions — and after the edge integrates it
+  already reaches everything `context-up(super)` does, by transitivity.  What it adds
+  beyond that subset is every *other* reader whose ancestor set also runs through `sub` — a
+  context wired under `sub` before this edge arrived gained the same new visibility
+  the edge gives `sub` itself, and a candidate fact stored in *its* own pre-existing
+  ancestor set can newly clash with something in `super`'s ancestor set exactly as one stored in
+  `sub`'s own ancestor set can."
+  [tax sub]
+  (into #{} (mapcat #(tax/context-up tax %)) (tax/context-down tax sub)))
+
+(defn- licensing-functors
+  "The functors besides a rule antecedent's own whose facts move what that antecedent
+  answers, for the antecedent keys `preds` — each re-join family of `chain/fire-rules-for`
+  named by the facts it reacts to.
+
+  - The predicates a `SupportingProver` reads, when some antecedent is one such a prover
+    answers: a unit table decides a `quantityGreaterThan`.
+  - A registered calculus's trigger predicates, when some antecedent is on a predicate
+    the calculus answers: two `nonTangentialProperPart` facts entail a `partOfRegion`.
+  - `transitive`, and the partners an `inverse` records hops on, when some antecedent is
+    on a declared-transitive predicate: the declaration turns the walk on, and a
+    partner's fact is a hop of it.
+  - The declarations and relations a preservation reads (`inherit/licensing-functors`).
+
+  Each is empty off a set read or one `empty?` for a KB that uses none of them."
+  [kb tx preds]
+  (let [answered (provers/support-answered-preds kb)
+        ps       (set preds)
+        walked   (filter ps (tax/props tx :transitive))]
+    (-> #{}
+        (cond-> (some #(contains? answered %) preds)
+          (into (provers/support-source-preds kb)))
+        (into (comp (filter #(some ps (:predicates %))) (mapcat :trigger-predicates))
+              (qkb/registered-calculi kb))
+        (cond-> (seq walked)
+          (-> (conj 'transitive)
+              (into (mapcat #(tax/inverses-under tx %)) walked)))
+        (into (inherit/licensing-functors kb preds)))))
+
+(defn- seeds-in
+  "The believed fact handles stored in one of `ctxs` under one of `functors`, a negation
+  counted under its body's functor as the index roots it.
+
+  Read from whichever side holds fewer postings, which is one count per functor and one
+  per context to decide.  The functor extents are the smaller side when the contexts hold
+  the ontology, and the contexts are when they hold a context just wired in — empty, the
+  commonest edge there is — where reading the extents would cost every rule-relevant fact
+  in the KB to find none."
+  [kb ctxs functors]
+  (let [idx  (:index kb)
+        recs (:records kb)
+        tms  (reasoning/tms kb)
+        by-f (transduce (map #(reads/stored-count-with-functor idx %)) + functors)
+        by-c (transduce (map #(reads/stored-count-in-context idx %)) + ctxs)
+        root (fn [s] (let [f (nm/functor s)]
+                       (if (= sx/not-functor f) (nm/functor (second s)) f)))]
+    (if (< by-c by-f)
+      (into [] (comp (mapcat #(reads/as-stored-in-context idx %))
+                     (distinct)
+                     (filter #(jtms/in? tms %))
+                     (filter (fn [h]
+                               (when-let [s (p/get-sentex recs h)]
+                                 (and (nil? (:antecedent s))
+                                      (sequential? (:sentence s))
+                                      (contains? functors (root (:sentence s))))))))
+            ctxs)
+      (into [] (comp (mapcat #(reads/as-stored-with-functor idx %))
+                     (distinct)
+                     (filter #(jtms/in? tms %))
+                     (filter (fn [h]
+                               (when-let [s (p/get-sentex recs h)]
+                                 (contains? ctxs (:context s))))))
+            functors))))
+
 (defn visibility-seeds
   "The stored facts a new `(genlCx sub super)` edge newly makes matchable, as
   chaining seeds — the **context** twin of `subsumption-seeds`, and there for exactly
@@ -2204,17 +2660,36 @@
   a conclusion in the orders that put the edge first and nothing in the others, which is
   the one thing belief may not depend on (docs/nmtms.md).
 
-  **Both ancestor sets, because an edge pairs rules and facts in two directions.**  It is not
-  only that a rule below can now see facts above: a rule stated *above* applies in every
-  context that sees it, so the edge equally hands the general rule the specialized
-  context's own facts, and places its conclusion there.  Seeding is by fact, so the seeds
-  are the believed sentexes of `super`'s **up**-ancestor set — seeing `super` means seeing
-  everything `super` sees — together with those of `sub`'s **down**-ancestor set, the contexts a
-  rule above is now inherited into.  Taking one and not the other fixes half the orders
-  and leaves the rest, which is worse than either: the structure that still fails is the
-  narrower one, and so the easier to mistake for correct.
+  **The seed set is what the lower contexts see, not the edge's two ends.**  The edge
+  grows the view of every context `X` in `sub`'s descendant set `down` by `super`'s
+  ancestor set `up`, and a pairing it makes new takes one ingredient from that growth and
+  the other from anywhere in `X`'s view.  That view holds more than `down` and `up`: it
+  holds `sub`'s own other ancestors, and in a diamond the ancestors of `X`'s other
+  parents.  So the second set is `seen`, the union of `X`'s ancestor sets over `down`,
+  less `up` — every context some lower context sees that `super` does not.  It contains
+  `down` itself.  A pair both inside `up` met at `super` before the edge, so it is not
+  new, and a pair both inside `seen` met at the `X` that sees both.  The `up` half narrows
+  once more, to `fresh`: the contexts of `up` that `sub` did not already see through its
+  other parents (`tax/context-up-besides`).  Every lower context saw the rest of `up`
+  before the edge, together with everything else in its view.  That old ancestor set is
+  the placement's reading, which is stricter than the taxonomy's closure in two places,
+  and both are applied: an edge with a stored negation (`:opposed`) is not crossed, since
+  placement records `:no-placement` over an edge whose negation the reader believes, and
+  while `:scoped-defeats` holds anything `fresh` is all of `up`, since the closure does
+  not apply a scoped defeat of a `genlCx` edge and the chainer's reads do
+  (`res/hidden-fn`).  Either way an edge `sub` could not use counts as not seen, which
+  seeds more.  The new pairings are of three kinds: a rule in `seen` with a fact in
+  `fresh`; a rule in `fresh` with a fact in `seen`; and a rule stated in the rest of
+  `up`, which every lower context saw before the edge, with one fact in `fresh` and
+  another in `seen` — a two-antecedent rule above both parents of a diamond, whose two
+  facts only the context below both sees together.  Seeding is by fact, so the seeds are
+  the believed sentexes of the sets a pairing needs one fact from.  Reading
+  `down` alone in place of `seen` leaves a fact in `sub`'s other ancestor unpaired with a
+  rule the edge brings, and a rule in that ancestor unpaired with a fact the edge brings,
+  so the same five sentences derive the conclusion only in the orders that put the edge
+  first.
 
-  **Enumerated from the rules, not from the ancestor set**, and the difference is asymptotic
+  **Enumerated from the rules, not from the whole ancestor set**, and the difference is asymptotic
   rather than a constant.  Walking the ancestor set and keeping the facts some rule could match
   costs one record fetch per sentex *in the ancestor set* — so wiring N contexts under a
   `CxUniverse` holding K facts is O(N·K) where the KB without this is O(N+K), and
@@ -2231,18 +2706,42 @@
   rule antecedents name no type with subtypes pays one extent read each (a closure over a
   predicate outside the hierarchy is the predicate), and the upper ontology sitting in
   `CxUniverse` is not walked because almost none of it is a rule antecedent.  The ancestor set is
-  a set membership per candidate, so it adds no work to ask about both ancestor sets.
+  a set membership per candidate, so it adds no work to ask about both sets.  Where the
+  sets to seed hold fewer postings than those extents — a context just wired in, the
+  commonest edge there is, holds none — the sets' own contents are read instead
+  (`seeds-in`), one count per functor and per context deciding which.
 
-  **And each half is gated on the other holding a rule**, which is what makes the
-  ordinary case free rather than merely cheap.  Seeding `super`'s facts is worth nothing
-  unless some rule sits in `sub`'s descendant set to newly see them, and seeding `sub`'s facts
-  nothing unless a rule sits in `super`'s ancestor set to be inherited into it.  Wiring an
-  empty context under a full one — the commonest edge there is — holds no rule on the
-  new side, so it seeds nothing at all, where without the gate it re-seeds the whole
-  ontology above and re-joins rules that already fired on every fact of it.  That is the
-  difference between 3.9x on the shape and 1.0x, and it is not the enumeration but the
-  chaining the seeds provoke.  `:rule-contexts` answers it as a map read per context in
-  the ancestor set, and contexts are few.
+  **The extents read include the functors that move what an antecedent answers without
+  being on it** (`licensing-functors`): the predicates a `SupportingProver` reads, a
+  calculus's constraint predicates, a `(transitive P)` declaration, and the declarations
+  and relation a preservation reads.  Each is a re-join family of `chain/fire-rules-for`,
+  which re-joins in full the rules such a datum moves when it arrives.  A
+  `(conversionFactor Gram Kilogram 0.001)` decides whether `(quantityGreaterThan ?q
+  (QuantityFn 1 Kilogram))` holds of a mass in grams, and no rule names
+  `conversionFactor`, so an edge that shows a lower context the unit table pairs the
+  table with a rule and a fact that met before it; two `nonTangentialProperPart` facts
+  composed below the edge entail a `partOfRegion` no one stated.  A seeded datum of such
+  a functor queues the same re-join its arrival would have.  A KB whose rules read none
+  of these reads no extra extent.  The permuting marks are not among them: the engine
+  lifts each into `CxUniverse`, where every reader sees it before any edge does.
+
+  **And each half is gated on where a rule is stated**, which is what makes the ordinary
+  case free rather than merely cheap.  Seeding `fresh`'s facts is needed when some rule
+  is stated in `seen` to newly see them, and seeding `seen`'s facts when a rule is stated
+  in `fresh` to be inherited into it.  When neither holds but a rule is stated in the
+  rest of `up`, a pairing it makes has a fact on each side, and seeding either side
+  finds the other, so the side holding fewer sentexes is seeded.  The gate asks where
+  a rule is **stated**, and `seen` is the set that makes that the right question: a rule a
+  lower context sees is stated in that context's ancestor set, which `seen` holds.
+  Wiring an empty context under a full one — the commonest edge there is — makes `seen`
+  the new context alone, which holds no rule and no fact, so it seeds nothing at all,
+  where without the gate it re-seeds the whole ontology above and re-joins rules that
+  already fired on every fact of it.  Wiring a context already under `CxCore` to a second parent under
+  `CxCore` leaves `CxCore` out of `fresh`, so the rules stated there do not re-seed
+  the second parent's facts.  On the starter load, against the same load with no
+  visibility seeding: 1.03–1.04x gated over `fresh`, 2.5x gated over `up`, 4.7x ungated.  That is the difference between 3.9x on the shape and 1.0x, and it is
+  not the enumeration but the chaining the seeds provoke.  `:rule-contexts` answers it as
+  a map read per context in the two sets, and contexts are few.
 
   **Withdrawal needs no twin of this**, because dropping an edge *narrows* what a rule
   sees and a firing names the `genlCx` edges its placement saw its ingredients over
@@ -2253,14 +2752,14 @@
 
   **And on that path the gate does not apply**, which is the two-arity form.  The gate is
   sound for an arriving edge because an arriving edge is the *only* new reachability:
-  nothing can newly match except through it, so an ancestor set holding no rule newly matches
-  nothing.  A departing edge says nothing of the kind.  The firing being revived was
-  placed where it could see the rule and the facts by whatever route it liked, and the
-  route that went need not be the route either of them lay on — a placement seeing the
-  rule down one branch and the facts down another loses an edge whose two ancestor sets hold
-  neither.  Asking the gate there answers a question about the departed edge's own line
-  and calls it a question about the firing, which is `resubsumption-seeds`'s stated
-  reason for re-joining unconditionally: a missed revival is exactly the arrival-order
+  nothing can newly match except through it, so a new pairing has an ingredient in
+  `fresh`, or the lower context saw all of it, and one in `seen`, or `super` saw all of
+  it.  The three kinds are where its rule can sit.
+  The ungated arity seeds all of `up` beside `seen`.  A
+  departing edge says nothing of the kind.  Whether a surviving route still licenses the
+  firing being revived is `place-conseq`'s question, answered from the taxonomy after the
+  removal, and a gate here guesses that answer from the departed edge's two sets alone.
+  That is `resubsumption-seeds`'s stated reason for re-joining unconditionally: a missed revival is exactly the arrival-order
   dependence the witnesses exist to remove, and the KB that never held the edge derives
   the conclusion.  The cost is bounded by the same thing that bounds the pass around it
   — it runs only where a sweep already took a record the caller did not ask for."
@@ -2270,28 +2769,35 @@
      (let [[_ sub super] sentence
            preds (keys @(reasoning/rule-antecedents kb))]
        (when (seq preds)
-         (let [idx  (:index kb)
-               recs (:records kb)
-               tms  (reasoning/tms kb)
-               tx   (reasoning/taxonomy kb)
+         (let [idx    (:index kb)
+               tx     (reasoning/taxonomy kb)
                ruled? @(reasoning/rule-contexts kb)
-               up    (when (symbol? super) (tax/context-up tx super))
-               down  (when (symbol? sub)   (tax/context-down tx sub))
-               ancestor-set (if gated?
-                              (cond-> #{}
-                                (some ruled? down) (into up)
-                                (some ruled? up)   (into down))
-                              (into (set up) down))]
+               up     (if (symbol? super) (set (tax/context-up tx super)) #{})
+               seen   (if (symbol? sub)
+                        (into #{} (remove up) (context-edge-reader-ancestors tx sub))
+                        #{})
+               ancestor-set
+               (if gated?
+                 (let [opposed @(reasoning/opposed kb)
+                       usable? (fn [a b] (not (contains? opposed (list 'genlCx a b))))
+                       fresh   (if (and (symbol? sub)
+                                        (empty? @(reasoning/scoped-defeats kb)))
+                                 (into #{} (remove (tax/context-up-besides tx sub super usable?)) up)
+                                 up)
+                       sides   (cond-> []
+                                 (some ruled? seen)  (conj fresh)
+                                 (some ruled? fresh) (conj seen))]
+                   (cond
+                     (seq sides) (into #{} cat sides)
+                     (some ruled? (remove fresh up))
+                     (min-key #(transduce (map (fn [c] (reads/stored-count-in-context idx c))) + %)
+                              seen fresh)
+                     :else #{}))
+                 (into up seen))]
            (when (seq ancestor-set)
-             (into [] (comp (mapcat #(roster-antecedent-functors tx %))
-                            (distinct)
-                            (mapcat #(reads/as-stored-with-functor idx %))
-                            (distinct)
-                            (filter #(jtms/in? tms %))
-                            (filter (fn [h]
-                                      (when-let [s (p/get-sentex recs h)]
-                                        (contains? ancestor-set (:context s))))))
-                   preds))))))))
+             (seeds-in kb ancestor-set
+                       (into (into #{} (mapcat #(roster-antecedent-functors tx %)) preds)
+                             (licensing-functors kb tx preds))))))))))
 
 (def ^:private edge-functors
   "The two relations a firing can name a witness for, and so the two whose removal owes
@@ -2300,6 +2806,19 @@
   are: a firing rests on a *reachability* rather than on a stored link precisely because
   these two answer from a cached closure, so the two readings are one fact."
   tax/closure-relations)
+
+(defn- closure-reader-rules
+  "The rules carrying a positive antecedent on the closure relation `rel` (`genl` or
+  `genlCx`), as chaining seeds: the rules a forward join answers from that closure
+  (`chain/solve-closure`).  A firing of one names a single path between two terms, so
+  the edge that leaves took a conclusion a second path may still license, and the facts
+  under the edge are not what the rule joins over.  A rule handle on the agenda re-joins
+  that rule in full.
+
+  Nil off one map read on a KB whose rules read neither relation."
+  [kb rel]
+  (when (contains? @(reasoning/rule-antecedents kb) rel)
+    (reads/as-stored-rules-by-antecedent (:index kb) rel)))
 
 (defn resubsumption-seeds
   "The chaining seeds a teardown owes, given the `removed` sentexes its sweep collected
@@ -2313,7 +2832,11 @@
   of its supporters — the same edge asserted from a second context, or a second path
   around the one that went — and then the conclusion is still licensed and must come
   back.  So the facts the departed edge could have carried go back on the agenda and the
-  rules fire again over them: a `genl` edge's spec subtree, a `genlCx` edge's two ancestor sets.
+  rules fire again over them: a `genl` edge's spec subtree, and for a `genlCx` edge the
+  two sets `visibility-seeds` names — `super`'s ancestor set and what the lower contexts
+  see besides it.  The rules with an antecedent on the edge's own relation go back too
+  (`closure-reader-rules`), since what they join over is the closure rather than a fact
+  under the edge.
 
   Revival is a **re-derivation**, at a fresh handle, exactly as it is under
   `exceptWhen`: the sweep deleted the conclusion, so there is no label to flip back.
@@ -2327,10 +2850,11 @@
   edge: `specs` is what decides which facts could have subsumed through it, and reading
   it afterwards asks the shrunken hierarchy a question about the whole one — with
   `(genl dog mammal)` gone, `specs(mammal)` no longer names `dog`, whose facts are
-  exactly the ones that need re-joining.  The context ancestor sets are read at the same moment
-  and are not sensitive to it, since removing `(genlCx sub super)` changes neither who
-  reaches `sub` nor what `super` reaches; reading them early is the same answer, from
-  the one place that has the records in hand.
+  exactly the ones that need re-joining.  The two context sets are read at the same moment
+  and are not sensitive to it.  Removing `(genlCx sub super)` changes neither who reaches
+  `sub` nor what `super` reaches, and a lower context loses only contexts reached through
+  `super`, which are `super`'s ancestor set and are subtracted from the second set; reading
+  them early is the same answer, from the one place that has the records in hand.
 
   And it is gated on the sweep having taken **something besides the records asked
   for**: a justification naming the departing edge is deleted with it, so a conclusion
@@ -2355,8 +2879,9 @@
           (comp (map :sentence)
                 (filter #(contains? edge-functors (nm/functor %)))
                 (distinct)
-                (mapcat (fn [s] (into (vec (subsumption-seeds kb s))
-                                      (visibility-seeds kb s false))))
+                (mapcat (fn [s] (-> (vec (subsumption-seeds kb s))
+                                    (into (visibility-seeds kb s false))
+                                    (into (closure-reader-rules kb (nm/functor s))))))
                 (distinct))
           removed)))
 
@@ -2392,8 +2917,9 @@
                           (when (and (seq? s) (contains? edge-functors (nm/functor s)))
                             s))))
                 (distinct)
-                (mapcat (fn [s] (into (vec (subsumption-seeds kb s))
-                                      (visibility-seeds kb s false))))
+                (mapcat (fn [s] (-> (vec (subsumption-seeds kb s))
+                                    (into (visibility-seeds kb s false))
+                                    (into (closure-reader-rules kb (nm/functor s))))))
                 (distinct))
           handles)))
 
@@ -2429,22 +2955,24 @@
                  :message  (str "not well-formed: " (str/join "; " ps))}}))
 
 (defn- justify-twin!
-  "Justify a migrated twin `twin-handle` by `[orig-handle, equality]` for each equality
-  supporter in `eqs` — one independent witness per
-  incident edge, so dropping any single equality leaves the rest and the ordinary
-  sweep collects the twin when the last goes.  The restatement adds no defeasibility
-  of its own, so each justification confers `:monotonic` and `conferred-class` caps it at
-  the weaker of the original and the equality.  Idempotent (`has-justification?`)."
-  [kb orig-handle twin-handle eqs]
-  (doseq [eh (distinct eqs)]
-    (let [depth (inc (max (jtms/depth (reasoning/tms kb) orig-handle) (jtms/depth (reasoning/tms kb) eh)))
-          antes [orig-handle eh]]
-      (jtms/ensure-node (reasoning/tms kb) twin-handle depth)
-      (when-not (jtms/has-justification? (reasoning/tms kb) 'rewriteOf antes twin-handle)
-        (let [jid  (p/next-id (:records kb))
-              just (jtms/->just jid 'rewriteOf antes twin-handle {} :monotonic)]
-          (p/put-justification (:records kb) just)
-          (jtms/add-justification (reasoning/tms kb) just))))))
+  "Justify a migrated twin `twin-handle` by `[orig-handle & w]` under `informant` for each
+  witness `w` in `witnesses`: `[equality]` under `rewriteOf` for a twin, `[equality except]`
+  under `except` for a reader's copy (`migrate-into`).  One independent justification per
+  witness, so dropping any single one leaves the rest and the ordinary sweep collects the
+  twin when the last goes.  The restatement adds no defeasibility of its own, so each
+  justification confers `:monotonic` and `conferred-class` caps it at the weakest of its
+  antecedents.  Idempotent (`has-justification?`)."
+  [kb orig-handle twin-handle informant witnesses]
+  (let [tms (reasoning/tms kb)]
+    (doseq [w (distinct witnesses)]
+      (let [antes (into [orig-handle] w)
+            depth (inc (reduce max (map #(jtms/depth tms %) antes)))]
+        (jtms/ensure-node tms twin-handle depth)
+        (when-not (jtms/has-justification? tms informant antes twin-handle)
+          (let [jid  (p/next-id (:records kb))
+                just (jtms/->just jid informant antes twin-handle {} :monotonic)]
+            (p/put-justification (:records kb) just)
+            (jtms/add-justification tms just)))))))
 
 (defn- varmap-realign
   "The substitution mapping the *original* rule's canonical variables to the `twin`'s.
@@ -2457,17 +2985,6 @@
   different position and so renumbers the variables."
   [twin]
   (into {} (keep (fn [[tv ov]] (when (not= tv ov) [ov tv]))) (:varmap twin)))
-
-(defn- rename-vars
-  "Single-pass variable rename: replace each variable by its `m` mapping (identity when
-  absent), **without** chasing the result.  `res/substitute` recurses into the value
-  it substitutes (safe for the acyclic bindings unification produces), which loops on a
-  variable *permutation* like `varmap-realign` returns; this does not."
-  [m form]
-  (cond
-    (sx/variable? form) (get m form form)
-    (sequential? form)  (apply list (map #(rename-vars m %) form))
-    :else               form))
 
 (defn- retarget-handle
   "Replace every `(sentexHandle orig)` in `form` with `(sentexHandle twin)`, recursively —
@@ -2503,7 +3020,7 @@
   [kb s orig twin realign reader]
   (if (sx/exceptWhen-meta? s)
     (sx/exceptWhen-meta
-     (mapv #(sx/canon (rename-vars realign (kb/rewrite-term kb % reader)))
+     (mapv #(sx/canon (sx/rename-vars (kb/rewrite-term kb % reader) realign))
            (sx/exception-query-conjuncts s))
      twin)
     (sx/canon (retarget-handle (kb/rewrite-term kb s reader) orig twin))))
@@ -2527,43 +3044,56 @@
   sentex did, so it rests on the same merge.  Public because a `(symmetric P)` mark folding
   two mirrored rows into one owes its doomed row's metas the same carry, and hands the
   declaration itself as the single witness (`integrate/commute-existing`): what raises a
-  twin differs between the two callers, what a stranded meta costs does not.
+  twin differs between the two callers, what a stranded meta costs does not.  The 6-arity
+  takes `justify-twin!`'s `informant` and `witnesses`, for a reader's copy.
 
   Rewrites read from `reader`, the vantage the twin's own form was elected from
   (`migrate-into`), so a meta elects the spellings its target does; the unscoped rewrite
   used the global election, which a merge `reader` cannot see would diverge from — a twin
   mis-guarded, mis-hidden or mis-aimed."
-  [kb orig twin eqs reader]
-  (let [realign (varmap-realign (p/get-sentex (:records kb) twin))]
-    (doseq [mh   (reads/as-stored-with-term (:index kb) (sx/sentex-handle orig))
-            :let  [msx (p/get-sentex (:records kb) mh)
-                   s   (and msx (:sentence msx))]
-            :when (and msx (jtms/in? (reasoning/tms kb) mh) (= orig (meta-target kb s)))]
-      (let [m'  (rebuild-handle-meta kb s orig twin realign reader)
-            ctx (:context msx)
-            [h sx2 new?] (kb/find-or-create-sentex kb m' ctx)]
-        (when new? (integrate-twin kb sx2 h))
-        (justify-twin! kb mh h eqs)))))
+  ([kb orig twin eqs reader]
+   (migrate-handle-metas kb orig twin 'rewriteOf (map vector eqs) reader))
+  ([kb orig twin informant witnesses reader]
+   (let [realign (varmap-realign (p/get-sentex (:records kb) twin))]
+     (doseq [mh   (reads/as-stored-with-term (:index kb) (sx/sentex-handle orig))
+             :let  [msx (p/get-sentex (:records kb) mh)
+                    s   (and msx (:sentence msx))]
+             :when (and msx (jtms/in? (reasoning/tms kb) mh) (= orig (meta-target kb s)))]
+       (let [m'  (rebuild-handle-meta kb s orig twin realign reader)
+             ctx (:context msx)
+             [h sx2 new?] (kb/find-or-create-sentex kb m' ctx)]
+         (when new? (integrate-twin kb sx2 h))
+         (justify-twin! kb mh h informant witnesses))))))
 
 (defn- handle-twins
-  "The live twins a merge has already made of sentex `orig`: `[{:twin :eqs :reader}]`.  A
-  twin is the `:consequence` of a `rewriteOf`-informant justification whose antecedents are
-  `[orig, equality]` (`justify-twin!`); `jtms/dependents` names those from the original's
-  side.  Grouping by consequence recovers each twin, the equality supporters that raised it,
-  and its context — the same `reader` its form was elected from — exactly the arguments the
-  first migration took.  Empty when `orig` has no twin, the common path.  A forward-chaining
-  or defeat use of `orig` carries a different informant and is filtered out."
+  "The live twins a merge has already made of sentex `orig`, a reader's copies among them:
+  `[{:twin :informant :witnesses :reader}]`.  A twin is the `:consequence` of a
+  `rewriteOf`- or `except`-informant justification whose first antecedent is `orig`
+  (`justify-twin!`); `jtms/dependents` names those from the original's side.  Grouping by
+  consequence and informant recovers each twin, the witnesses that raised it, and its
+  context — the same `reader` its form was elected from — exactly the arguments the first
+  migration took.  Empty when `orig` has no twin, the common path.  A forward-chaining or
+  defeat use of `orig` carries a different informant and is filtered out.
+
+  Empty for an **equality sentence** too.  Migration never restates one
+  (`kb/rewritable-sentex?`), and an equality is the *other* antecedent of every twin it
+  raised, so reading its `rewriteOf` dependents as twins of its own would carry an
+  `except` of the equality onto every fact the equality restated, hiding a premise
+  stated in the representative's spelling along with it."
   [kb orig]
   (let [tms (reasoning/tms kb)]
-    (->> (jtms/dependents tms orig)
+    (->> (when-not (some-> (p/get-sentex (:records kb) orig) :sentence kb/equality-sentence?)
+           (jtms/dependents tms orig))
          (map #(jtms/justification tms %))
-         (filter #(and (= 'rewriteOf (:informant %)) (some #{orig} (:antecedents %))))
-         (group-by :consequence)
-         (keep (fn [[twin justs]]
+         (filter #(and (#{'rewriteOf 'except} (:informant %)) (= orig (first (:antecedents %)))))
+         (group-by (juxt :consequence :informant))
+         (keep (fn [[[twin informant] justs]]
                  (when-let [tsx (p/get-sentex (:records kb) twin)]
-                   {:twin   twin
-                    :eqs    (into [] (comp (mapcat :antecedents) (remove #{orig}) (distinct)) justs)
-                    :reader (:context tsx)}))))))
+                   {:twin      twin
+                    :informant informant
+                    :witnesses (into [] (comp (map #(subvec (vec (:antecedents %)) 1)) (distinct))
+                                     justs)
+                    :reader    (:context tsx)}))))))
 
 (defn migrate-meta-onto-twins
   "A handle-naming meta `s` was just asserted.  If the sentex it names already migrated to
@@ -2576,11 +3106,11 @@
   settle.  Takes the stored sentex (like `migrate-sentex`), not the bare sentence."
   [kb sentex]
   (when-let [target (meta-target kb (:sentence sentex))]
-    (doseq [{:keys [twin eqs reader]} (handle-twins kb target)]
-      (migrate-handle-metas kb target twin eqs reader))))
+    (doseq [{:keys [twin informant witnesses reader]} (handle-twins kb target)]
+      (migrate-handle-metas kb target twin informant witnesses reader))))
 
-(defn- equality-contexts
-  "The contexts of every equality edge and schematic rewrite rule that could bear on
+(defn- bearing-equalities
+  "The handles of every equality edge and schematic rewrite rule that could bear on
   `sentence` — the whole **class** of each symbol it names, not merely the edges
   incident on that symbol.
 
@@ -2607,14 +3137,23 @@
     (if (and (empty? terms) (empty? rules))
       #{}
       (into #{}
-            (keep (fn [h] (:context (p/get-sentex (:records kb) h))))
             (concat (for [t terms, m (tax/equiv-class tx t), eh (tax/equality-supporters tx m)]
                       eh)
                     (map :handle rules))))))
 
+(defn- except-contexts
+  "The contexts holding an `except` of one of the handles `ehs`: the keys of the
+  `:excepted` roster whose entry names one.  Empty on one deref for a KB storing no
+  `except`."
+  [kb ehs]
+  (let [ex @(reasoning/excepted kb)]
+    (if (empty? ex)
+      #{}
+      (into #{} (keep (fn [[c m]] (when (some #(contains? m %) ehs) c))) ex))))
+
 (defn- reader-contexts-for
   "The contexts whose election could restate `sentex` differently: its own, and every
-  context where it meets an equality that bears on it.
+  context where it meets an equality that bears on it or an `except` of one.
 
   **The reader is not the fact's own context.**  A merge holds where it is visible, and
   who reads the fact is any context below it — each electing a representative over a
@@ -2622,7 +3161,10 @@
   at the fact's context serves only that one reader; one computed globally serves none
   reliably, since it can be elected by an edge no reader of the fact inherits.  So the
   parties are `tax/meet-closure` of the fact's context with the equalities' — the same
-  enumeration a qualitative network takes (docs/qcn.md) and for the same reason.
+  enumeration a qualitative network takes (docs/qcn.md) and for the same reason.  The
+  contexts holding an `except` of one of those equalities are parties too: a reader
+  below the fact that reads the except sees less than the fact's context, and
+  `migrate-into` stores the fact's spelling there when the fact's context supersedes it.
 
   Filtered to contexts that **see** the fact: a context the fact is invisible from has
   no view of it to restate.  Ordered most-general first, by the size of the context's
@@ -2639,9 +3181,11 @@
   [kb sentex]
   (let [tx    (reasoning/taxonomy kb)
         pctx  (:context sentex)
-        ectxs (equality-contexts kb (sx/sentence-of sentex))]
-    (when (seq ectxs)
-      (->> (tax/meet-closure tx (conj ectxs pctx))
+        ehs   (bearing-equalities kb (sx/sentence-of sentex))]
+    (when (seq ehs)
+      (->> (tax/meet-closure tx (-> #{pctx}
+                                    (into (keep #(:context (p/get-sentex (:records kb) %))) ehs)
+                                    (into (except-contexts kb ehs))))
            (filter #(tax/sees? tx % pctx))
            ;; the middle key is a taxonomy-closure read — built once per context, not
            ;; ~2·n·log n times; the tuple is `[0/1 long string]`, ordered by `compare`
@@ -2649,76 +3193,119 @@
             (juxt #(if (= % pctx) 0 1) #(count (tax/context-up tx %)) nm/print-key)
             compare)))))
 
+(defn- copy-witnesses
+  "The `[equality except]` witnesses of a reader's copy of `sentex` in `reader`, sorted:
+  each equality among `cands` that is believed and stated where the sentex's own context
+  sees it, paired with each believed `except` of it stated in a context `reader` sees and
+  the sentex's own context does not.  Empty for the sentex's own context, and on one
+  deref for a KB storing no `except`.  An except of that `except` is not read here: it
+  withdraws the copy through the copy's third antecedent, so the copies stored do not
+  depend on whether it arrived first."
+  [kb sentex reader cands]
+  (let [ex   @(reasoning/excepted kb)
+        pctx (:context sentex)]
+    (when (and (seq ex) (not= reader pctx))
+      (let [tx    (reasoning/taxonomy kb)
+            tms   (reasoning/tms kb)
+            xctxs (filterv #(and (tax/sees? tx reader %) (not (tax/sees? tx pctx %))) (keys ex))]
+        (when (seq xctxs)
+          (sort (for [eh    (distinct cands)
+                      :let  [esx (p/get-sentex (:records kb) eh)]
+                      :when (and esx (jtms/in? tms eh) (tax/sees? tx pctx (:context esx)))
+                      c     xctxs
+                      xh    (get-in ex [c eh])
+                      :when (jtms/in? tms xh)]
+                  [eh xh])))))))
+
+(defn- store-restatement
+  "Store `form`, `sentex`'s restatement for `reader`, in `reader`, justified by `[sentex &
+  w]` under `informant` for each witness `w` (`justify-twin!`), and carry the sentex's
+  handle-naming metas onto it.  Returns `{:form :new}`, or `{:form :violations}` when a
+  definitional check refuses the form."
+  [kb sentex reader form informant witnesses]
+  (let [existing (kb/find-sentex-handle kb form reader)
+        v        (when-not existing
+                   (or (checks/constraint-violation kb form reader)
+                       (wff-violation* kb form reader)))]
+    (if v
+      {:form form :violations [(assoc v :sentence form :context reader :rule (:id sentex))]}
+      ;; A rule stores its wrappers on the record, not in the sentence, so the rewritten
+      ;; form is a *bare* implication — re-wrap it with the original's direction /
+      ;; defeasibility (`rules/rewrap-sentex`) before find-or-create, or a forward-only or
+      ;; defeasible rule's twin would default to a plain two-way `implies`.  The path drops
+      ;; the wrapper either way, so dedup and the `existing` probe above are unaffected.
+      (let [twin-sentence (if (rules/rule-sentence? form) (rules/rewrap-sentex form sentex) form)
+            [h s new?]    (kb/find-or-create-sentex kb twin-sentence reader)]
+        ;; `integrate-twin`, not `derived-sentex-added`: a twin is a restated
+        ;; **declaration** and must reach every cache/index arm an asserted one does (the
+        ;; disjoint / metadata caches, the rule index), not merely the genl closure edges
+        ;; the forward-chaining conclusion path narrows to.
+        (when new? (integrate-twin kb s h))
+        (justify-twin! kb (:id sentex) h informant witnesses)
+        ;; A migrated sentex's handle-naming meta-sentexes — `exceptWhen` exceptions, an
+        ;; `except` hiding it, a target-following reply naming it — ride separate sentexes
+        ;; keyed by its handle, so they must be re-pointed onto the twin or the twin fires
+        ;; unguarded / becomes visible / loses its reply (docs/equality.md, round two).
+        ;; Any sentex can bear one, not only a rule, so this is unconditional; a sentex
+        ;; with no meta enumerates nothing.
+        (migrate-handle-metas kb (:id sentex) h informant witnesses reader)
+        {:form form :new (if new? [h] []) :handle h}))))
+
 (defn- migrate-into
   "Restate `sentex` as `reader` sees it, and store the result there.  Returns
   `{:form <normal form> :new [h] :superseded [[datum reason]] :violations [v]}`, or nil
   when `reader`'s election leaves the sentence alone, rests on nothing it believes, or
   reproduces a form `placed` already holds somewhere `reader` can see — that twin is
-  already this reader's answer and a second copy would report the fact twice."
+  already this reader's answer and a second copy would report the fact twice.
+
+  A reader strictly below the sentex's context whose election leaves the sentence alone
+  because it reads an `except` of an equality the sentex's context rewrites under gets a
+  **copy**: the sentex's own spelling stored in `reader`, justified by `[sentex equality
+  except]` under informant `except` (`copy-witnesses`).  The sentex's context supersedes
+  the original and the twin rests on the equality `reader` cannot see, so without the copy
+  `reader` reads the fact under neither spelling.  The copy is handed to the reconcile as
+  a `:superseded` candidate, which retires it while the original is not superseded
+  (`displacement`)."
   [kb sentex reader placed]
-  (let [handle    (:id sentex)
-        sentence  (sx/sentence-of sentex)
+  (let [sentence  (sx/sentence-of sentex)
         tx        (reasoning/taxonomy kb)
+        tms       (reasoning/tms kb)
         rewritten (sx/canon (kb/rewrite-term kb sentence reader))]
-    (when-not (or (= rewritten (sx/canon sentence))
-                  (some (fn [[c f]] (and (= f rewritten) (tax/sees? tx reader c))) placed))
-      ;; every witness that justifies the twin, each an independent support so dropping
-      ;; any one leaves the rest.  Two kinds, both belief-following and both applying
-      ;; only where **visible** from the reader whose restatement this is:
-      (let [eqs (concat
-                 ;; symbol equalities incident on a term of the sentence
-                 (filter (fn [eh]
-                           (when-let [esx (p/get-sentex (:records kb) eh)]
-                             (and (jtms/in? (reasoning/tms kb) eh)
-                                  (tax/sees? tx reader (:context esx)))))
-                         (mapcat #(tax/equality-supporters tx %)
-                                 (filter symbol? (tree-seq sequential? seq sentence))))
-                 ;; schematic rewrite rules that normalize a subterm of the sentence —
-                 ;; the oriented equational rewriting of docs/equality.md.  A rule that
-                 ;; rewrites nothing here contributed nothing to the normal form and
-                 ;; must not appear as a support.
-                 (for [{:keys [handle context] :as rule} (tax/rewrite-rules tx)
-                       :when (and (rewrite/rule-applies? rule sentence)
-                                  (jtms/in? (reasoning/tms kb) handle)
-                                  (tax/sees? tx reader context))]
-                   handle))]
-        (when (seq eqs)
-          (let [existing (kb/find-sentex-handle kb rewritten reader)
-                v        (when-not existing
-                           (or (checks/constraint-violation kb rewritten reader)
-                               (wff-violation* kb rewritten reader)))]
-            (if v
-              {:form rewritten :violations [(assoc v :sentence rewritten :context reader
-                                                   :rule handle)]}
-              ;; A rule stores its wrappers on the record, not in the sentence, so the
-              ;; rewritten form is a *bare* implication — re-wrap it with the original's
-              ;; direction / defeasibility (`rules/rewrap`) before find-or-create, or a
-              ;; forward-only or defeasible rule's twin would default to a plain two-way
-              ;; `implies`.  The path drops the wrapper either way, so dedup and the
-              ;; `existing` probe above are unaffected.
-              (let [twin-sentence (if (rules/rule-sentence? rewritten)
-                                    (rules/rewrap rewritten (:direction sentex) (:defeasible sentex)
-                                                  (:assumption sentex) (:constraint sentex))
-                                    rewritten)
-                    [h s new?]    (kb/find-or-create-sentex kb twin-sentence reader)]
-                ;; `integrate-twin`, not `derived-sentex-added`: a twin is a restated
-                ;; **declaration** and must reach every cache/index arm an asserted one
-                ;; does (the disjoint / metadata caches, the rule index), not merely the
-                ;; genl closure edges the forward-chaining conclusion path narrows to.
-                (when new? (integrate-twin kb s h))
-                (justify-twin! kb handle h eqs)
-                ;; A migrated sentex's handle-naming meta-sentexes — `exceptWhen`
-                ;; exceptions, an `except` hiding it, a target-following reply naming it —
-                ;; ride separate sentexes keyed by its handle, so they must be re-pointed
-                ;; onto the twin or the twin fires unguarded / becomes visible / loses its
-                ;; reply (docs/equality.md, round two).  Any sentex can bear one, not only a
-                ;; rule, so this is unconditional; a sentex with no meta enumerates nothing.
-                (migrate-handle-metas kb handle h eqs reader)
-                (cond-> {:form rewritten :new (if new? [h] [])}
+    (when-not (some (fn [[c f]] (and (= f rewritten) (tax/sees? tx reader c))) placed)
+      ;; every equality that restates a subterm of the sentence, each an independent
+      ;; support so dropping any one leaves the rest.  Two kinds:
+      (let [cands (concat
+                   ;; symbol equalities incident on a term of the sentence
+                   (mapcat #(tax/equality-supporters tx %)
+                           (filter symbol? (tree-seq sequential? seq sentence)))
+                   ;; schematic rewrite rules that normalize a subterm of the sentence —
+                   ;; the oriented equational rewriting of docs/equality.md.  A rule that
+                   ;; rewrites nothing here contributed nothing to the normal form and
+                   ;; must not appear as a support, and neither does one whose only
+                   ;; redexes here a denial the reader sees blocks.
+                   (for [blocked? [(res/rewrite-block-fn kb (res/visible-supporter-fn kb reader))]
+                         {:keys [handle] :as rule} (tax/rewrite-rules tx)
+                         :when (rewrite/rule-applies? (cond-> rule blocked? (assoc :blocked? blocked?))
+                                                      sentence)]
+                     handle))]
+        (if (= rewritten (sx/canon sentence))
+          (when-let [ws (seq (copy-witnesses kb sentex reader cands))]
+            (let [r (store-restatement kb sentex reader rewritten 'except ws)]
+              (cond-> (dissoc r :handle)
+                (:handle r) (assoc :superseded [[(:handle r) {}]]))))
+          ;; the witnesses of a twin are belief-following and apply only where visible
+          ;; from the reader whose restatement this is
+          (let [eqs (filter (fn [eh]
+                              (when-let [esx (p/get-sentex (:records kb) eh)]
+                                (and (jtms/in? tms eh) (tax/sees? tx reader (:context esx)))))
+                            cands)]
+            (when (seq eqs)
+              (let [r (store-restatement kb sentex reader rewritten 'rewriteOf (map vector eqs))]
+                (cond-> (dissoc r :handle)
                   ;; only the fact's own context supersedes: a reader below it restates
                   ;; the fact for itself and leaves the original believed where it lives
-                  (= reader (:context sentex))
-                  (assoc :superseded [[handle (kb/displaced-terms kb sentence reader)]]))))))))))
+                  (and (:handle r) (= reader (:context sentex)))
+                  (assoc :superseded [[(:id sentex) (kb/displaced-terms kb sentence reader)]]))))))))))
 
 (defn migrate-sentex
   "Restate one stored sentex under its terms' representatives — **once per reader whose
@@ -2888,7 +3475,7 @@
 
   An equality edge contributes the whole **class** of its symbol arguments, minus the
   terms already standing for their class, which is `migrate-class`'s candidate set and
-  is the unit for `equality-contexts`' reason: chain composition means an edge touching
+  is the unit for `bearing-equalities`' reason: chain composition means an edge touching
   neither of a sentence's own terms still decides what they rewrite to.  A schematic
   rule contributes its LHS head, which is `migrate-matching`'s: the head is present in
   every occurrence of the redex, so the term index gives a superset in one lookup.
@@ -2984,8 +3571,8 @@
         (let [above   (set (tax/context-up tx super))
               ;; every context a newly-widened reader can see: the readers are
               ;; `context-down(sub)`, and each reads the merges and the facts of its own
-              ;; ancestor set.  Contexts are few, so this is a memoized closure read apiece.
-              readers (into #{} (mapcat #(tax/context-up tx %)) (tax/context-down tx sub))
+              ;; ancestor set
+              readers (context-edge-reader-ancestors tx sub)
               rs      (believed-restatements kb)
               near    (restated-terms-in rs above)
               far     (restated-terms-in rs readers)
@@ -2995,7 +3582,7 @@
                   {:new [] :superseded [] :violations []}
                   (vals cands)))))))
 
-(defn- displacement
+(defn- spelling-displacement
   "The supersession entry for datum `d` — `[d {displaced-term representative}]` — or nil
   when `d`'s spelling is not displaced, or `d` is no longer stored at all.
 
@@ -3025,6 +3612,41 @@
                  (kb/find-sentex-handle kb rewritten ctx))
         [d (kb/displaced-terms* kb sentence visible?)]))))
 
+(defn- reader-copies
+  "The reader's copies of datum `d` (`migrate-into`): the consequences of the `except`
+  justifications whose first antecedent is `d`."
+  [kb d]
+  (let [tms (reasoning/tms kb)]
+    (into []
+          (keep (fn [jid]
+                  (let [j (jtms/justification tms jid)]
+                    (when (and (= 'except (:informant j)) (= d (first (:antecedents j))))
+                      (:consequence j)))))
+          (jtms/dependents tms d))))
+
+(defn- retired-copy
+  "The supersession entry `[d {}]` for a reader's copy `d` whose reason is gone, or nil.
+  A copy (`migrate-into`) restates an original its own context supersedes, and it is
+  retired once one of its originals is no longer displaced: the reader then reads that
+  original, and the copy would report the fact a second time.  A datum that is a premise,
+  or holds any justification besides a copy's, is not retired.  Nil on one deref for a
+  KB storing no `except`."
+  [kb visible-for d]
+  (when (seq @(reasoning/excepted kb))
+    (let [tms (reasoning/tms kb)
+          js  (keep #(jtms/justification tms %) (jtms/supports tms d))]
+      (when (and (seq js)
+                 (not (jtms/premise? tms d))
+                 (every? #(= 'except (:informant %)) js)
+                 (some #(nil? (spelling-displacement kb visible-for (first (:antecedents %)))) js))
+        [d {}]))))
+
+(defn- displacement
+  "The supersession entry for datum `d`: `spelling-displacement`'s, or a retired reader's
+  copy's (`retired-copy`), or nil."
+  [kb visible-for d]
+  (or (spelling-displacement kb visible-for d) (retired-copy kb visible-for d)))
+
 (defn- supersession-stamp
   "Everything a supersession answer reads besides the datum's own record: the active
   equality edges and the `rewriteOf` preference claims they carry — which between them
@@ -3048,44 +3670,52 @@
      :ctx-gen  (tax/relation-gen tax :genlCx)}))
 
 (defn- region-suffices?
-  "Can this reconcile be narrowed to the moved region, or must every standing entry be
-  re-examined?
+  "Can this reconcile be narrowed to `extra`, the moved region and the stored sentexes
+  naming a `moved` term, or must every standing entry be re-examined?
 
   An entry's answer reads four things: the datum's own record, the class its terms
   belong to, the rewrite rules, and whether the restatement is still stored.  Hold the
-  last three still and the only entries that can have moved are the ones the region
-  names — so the question here is whether the stamp says they held.
+  class and the rewrite rules still and the entries that can have moved are the ones the
+  region names, so the question here is whether the stamp says those held.
 
   * **The rewrite rules and the `genlCx` generation must be unchanged.**  Neither
     leaves a trace on the entries: a schematic rule leaving re-normalizes every sentence
     it reached, and a context edge changes which merges a reader can see, and in both
     cases the entry that stops holding is one nothing relabelled.
 
-  * **The equality edges and preferences must be unchanged, *or* `extra` must be
-    non-empty.**  `extra` is migration's own output, and migration walks the whole class
-    a merge moved (`migrate-class`) — every stored sentex naming any member, superseded
-    ones included, and every entry already in the set is one `kb/rewritable-sentex?`
-    admits and goes on admitting while the merge that displaced it stands.  So a class
-    move that arrived with a migration is described by what the migration handed over,
-    and a class move that arrived without one (an equality retracted, defeated or
-    revived) is described by nothing and takes the full pass.
+  * **The equality edges and preferences must be unchanged, or the class move must be
+    named.**  `moved` is every term in a class an equality edge joined, left, or moved in
+    or out of belief on since the last reconcile (`tax/take-equality-moves!`), and an
+    entry whose class moved names one of those terms.  `extra` names a class move too:
+    it is migration's output, and migration walks the whole class a merge moved
+    (`migrate-class`).  An edge set that changed with neither is a partition installed
+    without notes, and takes the full pass.
 
-    The one thing that escape does not carry is a restatement migration **refused** —
-    a rewritten form the constraint or `wff` checks reject, which is filed as a violation
-    and leaves the sentex out of `extra`.  A spelling already displaced by an earlier
-    merge then keeps that supersession rather than being handed back, and the KB is one
-    with a reported violation in it either way.
+    Migration can **refuse** a restatement: a rewritten form the constraint or `wff`
+    checks reject is filed as a violation and leaves the sentex out of `extra`.  A
+    spelling an earlier merge displaced then keeps that supersession rather than being
+    handed back, and the KB holds a reported violation either way.
 
   Answers **no** when there is no previous stamp at all, which is a freshly opened KB, a
   recovered one, and anything that wiped the derived state: a stamp that cannot be
   compared costs one full reconcile and never a wrong answer."
-  [stamp prev extra]
+  [stamp prev extra moved]
   (and (some? prev)
        (= (:rewrites stamp) (:rewrites prev))
        (= (:ctx-gen stamp) (:ctx-gen prev))
        (or (and (= (:equality stamp) (:equality prev))
                 (= (:prefs stamp) (:prefs prev)))
-           (boolean (seq extra)))))
+           (boolean (seq extra))
+           (boolean (seq moved)))))
+
+(defn- with-copies
+  "`ds` followed by the reader's copies of each (`reader-copies`): a copy's retirement
+  reads its original's displacement (`retired-copy`), so a reconcile that examines the
+  original examines its copies.  `ds` alone on one deref for a KB storing no `except`."
+  [kb ds]
+  (if (empty? @(reasoning/excepted kb))
+    ds
+    (into (vec ds) (mapcat #(reader-copies kb %)) ds)))
 
 (defn- supersession-map
   "The `datum -> displaced-terms` map of spellings the equality closure currently
@@ -3095,51 +3725,83 @@
   accumulated, so a supersession cannot outlive the merge that caused it and a
   retracted equality gives the caller's premise back with no un-supersede path of its
   own.  Entries are only ever dropped or restated here — a spelling *starts* being
-  displaced when migration says so, and arrives as `extra`.
+  displaced when migration says so, and arrives as `extra` — except a reader's copy,
+  which starts being retired when its original is examined and found no longer displaced
+  (`with-copies`).
 
-  **Narrowed to the region, the way every other reconcile in `settle-finish` is.**  A
+  **Narrowed to what moved, the way every other reconcile in `settle-finish` is.**  A
   standing merge is not small: `sameAs` is one of three relations feeding the closure,
   `owl:sameAs` is what an RDF import emits in quantity, and re-examining every displaced
   datum on every settle would make loading n merges quadratic in n.  So the walk is over
-  `extra` plus the entries the moved region names, and `region-suffices?` decides
+  `extra`, the entries `region` names, and the entries naming a term of a class the
+  equality partition moved (`tax/take-equality-moves!`), and `region-suffices?` decides
   whether that is the whole answer.  Each examined entry costs a record fetch, a rewrite
   through the closure and a store probe; each carried one costs a set membership test.
 
-  `region` is `jtms/touched`, a superset of every datum whose belief moved — which is
-  also a superset of every datum *removed*, since a removal relabels what rested on it.
-  That is what covers the two ways an entry can stop holding while the closure stands
-  still: the displaced datum itself leaving, and its restatement leaving with it.  Pass
-  nil to force the full pass."
+  `region` is `jtms/touched` at `settle-finish`, a superset of every datum whose belief
+  moved, and of every datum *removed*, since a removal relabels what rested on it.  That
+  covers the two ways an entry can stop holding while the closure stands still: the
+  displaced datum itself leaving, and its restatement leaving with it.  The write path
+  passes `#{}` (`refresh-supersessions`' two-arity) and leaves the region to the finish.
+  Pass nil to force the full pass.
+
+  Returns `[map changed]`, `changed` being the datums whose entry differs from `held`'s:
+  on the narrowed walk a subset of what it examined, on the full pass a diff of the two
+  maps.  The stamp goes back into `(reasoning/supersessions kb)` with `changed` added to
+  its `::moved`, the delta `take-supersession-moves!` hands `settle-finish`."
   [kb extra region]
   (let [tms   (reasoning/tms kb)
         held  (jtms/superseded tms)
         stamp (supersession-stamp kb)
         prev  (some-> (reasoning/supersessions kb) deref)
-        vis   (memoize #(res/visible-supporter-fn kb %))]
-    (some-> (reasoning/supersessions kb) (reset! stamp))
-    (if (and (some? region) (region-suffices? stamp prev extra))
-      (reduce (fn [m d] (if-let [e (displacement kb vis d)] (conj m e) (dissoc m d)))
-              (into held extra)
-              (into (mapv first extra) (filter #(contains? held %)) region))
-      (into {} (keep #(displacement kb vis (first %))) (into held extra)))))
+        vis   (memoize #(res/visible-supporter-fn kb %))
+        moved (tax/take-equality-moves! (reasoning/taxonomy kb) :supersessions)
+        diff  (fn [m ds] (into #{} (filter #(not= (get held %) (get m %))) ds))
+        [m changed]
+        (if (and (some? region) (region-suffices? stamp prev extra moved))
+          (let [ds (with-copies kb (-> (mapv first extra)
+                                       (into (filter #(contains? held %)) region)
+                                       (into (comp (mapcat #(kb/find-sentexes kb %))
+                                                   (map :id)
+                                                   (filter #(contains? held %))
+                                                   (distinct))
+                                             moved)))
+                m  (reduce (fn [m d] (if-let [e (displacement kb vis d)] (conj m e) (dissoc m d)))
+                           (into held extra)
+                           ds)]
+            [m (diff m ds)])
+          (let [m (into {} (keep #(displacement kb vis %)) (with-copies kb (keys (into held extra))))]
+            [m (diff m (concat (keys held) (keys m)))]))]
+    (some-> (reasoning/supersessions kb)
+            (reset! (assoc stamp ::moved (into (or (::moved prev) #{}) changed))))
+    [m changed]))
+
+(defn take-supersession-moves!
+  "The datums whose supersession entry changed since the last call, emptied; nil when the
+  KB keeps no supersession stamp.  `settle-finish` reads it once per settle: a
+  supersession moves belief with no relabel, so `jtms/touched` does not name these."
+  [kb]
+  (when-let [a (reasoning/supersessions kb)]
+    (let [moved (::moved @a)]
+      (swap! a #(some-> % (dissoc ::moved)))
+      (or moved #{}))))
 
 (defn refresh-supersessions
   "Reconcile the superseded set with the equality closure — the equality analogue of
   `tax/refresh-beliefs`, and called from the same place for the same reason.
 
-  The window is the same for all three callers (an assert that merged, the end of a
-  settle, and `recover`): everything the TMS has relabelled since the last settle
-  finished.  Two of them let it read that window itself; **`settle-finish` hands over
-  the value it already holds**, because there the read is not free — the dense network
-  materializes the whole bitmap into a boxed set per read, which on a rebuild is the KB,
-  and the finish reads it once into a delay precisely so its consumers do not each pay
-  for it.  Taking the value rather than re-reading is safe for the same reason that
-  delay is: nothing between the finish's read and `reset-touched!` relabels, so the
-  region cannot grow underneath it."
+  `settle-finish` passes `region`, the window it holds: everything the TMS has relabelled
+  since the last settle finished.  The two-arity is the write path's form, called where a
+  migration hands over `extra`; it examines `extra` and the moved classes and passes
+  `#{}` for the region, since the settle that closes the window examines the whole
+  window's region once.  Reading the window per merge instead costs a materialization
+  of the whole window per call (on the dense network, a boxed set), and re-examines every
+  entry the window displaced: a deferred batch of n merges pays that n times.  `recover`
+  passes nil, the full pass."
   ([kb] (refresh-supersessions kb nil))
-  ([kb extra] (refresh-supersessions kb extra (jtms/touched (reasoning/tms kb))))
+  ([kb extra] (refresh-supersessions kb extra #{}))
   ([kb extra region]
-   (jtms/supersede (reasoning/tms kb) (supersession-map kb extra region))))
+   (jtms/supersede (reasoning/tms kb) (first (supersession-map kb extra region)))))
 
 (defn- derive-equality
   "Store `(equals x y)` in `context` as a **derivation** from `antes` and merge with
@@ -3421,7 +4083,7 @@
   * **Merges (this namespace):** fact-last → `derive-functional-equalities`;
     declaration-last → `equate-existing`, through this entry point; `genl`-edge-last →
     `equate-under-edge`; `genlCx`-edge-last → `equate-under-context-edge`.
-  * **Clash exposure (`settle.clj`):** `clash-declaration-functors`, the
+  * **Arbitration (`settle.clj`):** `clash-declaration-functors`, the
     discovery arms, the trigger case — reported via
     `checks/arbitrable-violations`.
 
@@ -3497,6 +4159,17 @@
   (when-let [pred (functional-family-declaration sentence)]
     (equate-declared-subtree kb pred derive-functional-equalities)))
 
+(defn- derive-over-premises
+  "Each premise among `sxs` (a fact, not a rule, not a negation) handed to the family's
+  `derive` in its own context, as one `{:new :superseded :violations}`."
+  [kb sxs derive]
+  (reduce (fn [acc sx]
+            (if-not (and (nil? (:antecedent sx)) (not (sx/negative? sx)))
+              acc
+              (merge-with into acc (derive kb (:sentence sx) (:context sx) (:id sx)))))
+          {:new [] :superseded [] :violations []}
+          sxs))
+
 (defn- equate-under-edge-via
   "The body `equate-under-edge` and `antisym-equate-under-edge` share: a `(genl sub
   super)` edge arriving over facts already stored, with every believed premise of `sub`'s
@@ -3517,13 +4190,7 @@
              (declares? (reasoning/taxonomy kb)))
     (let [[_ sub] sentence]
       (when (symbol? sub)
-        (reduce (fn [acc sx]
-                  (if-not (and (nil? (:antecedent sx)) (not (sx/negative? sx)))
-                    acc
-                    (merge-with into acc
-                                (derive kb (:sentence sx) (:context sx) (:id sx)))))
-                {:new [] :superseded [] :violations []}
-                (subtree-sentexes kb sub))))))
+        (derive-over-premises kb (subtree-sentexes kb sub) derive)))))
 
 (defn equate-under-edge
   "When a `(genl sub super)` edge arrives, derive the equalities a `(functional …)` mark
@@ -3690,9 +4357,150 @@
                          #(seq (tax/props % :anti-symmetric))
                          derive-antisymmetric-equalities))
 
+;; ---- a departing `genl` edge re-derives what descended through it ----------
+;; Three derivations descend the predicate hierarchy and name the `genl` edges they
+;; descended through (`checks/edge-support`): the argument-type entailment, and the
+;; equality a `functional` or `anti_symmetric` mark on a super-predicate licenses.  Each
+;; names **one** route, a shortest visible one, so removing an edge on that route
+;; deletes the justification even where a second route still reaches the declaration.
+;; The removal then re-derives from the taxonomy it left, as `resubsumption-seeds` does
+;; for a firing: the justification is a conjunction of supports, not a proof that no
+;; other route exists.
+
+(def ^:private edge-descended-informants
+  "The informants of the derivations that cite the `genl` edges they descended through,
+  mapped to how each is drawn again for the fact at the head of its antecedents."
+  {'arg            :entailment
+   'genlArg        :entailment
+   'interArg       :entailment
+   'functional     :functional
+   'anti_symmetric :anti-symmetric})
+
+(defn edge-descended-justifications
+  "The justifications among `removed-jids` that a departing `genl` edge invalidated
+  while every other ingredient survives, as records — the derivations a teardown owes a
+  re-derivation (`rederive-descended`).  `gone` is the sentexes the sweep removed.
+
+  Read **before** the teardown deletes the justification records, since the records are
+  what name the fact and the declaration to derive from again.  Gated on `gone` holding
+  a `genl` edge, so a removal that took none fetches no justification record.
+
+  A justification qualifies when its informant is an edge-descended derivation, one of
+  its antecedents is a removed `genl` edge, and no removed antecedent is anything else:
+  a removed fact or declaration withdraws the derivation, and re-deriving it would undo
+  the removal."
+  [kb gone removed-jids]
+  (let [edges (into #{}
+                    (comp (filter #(let [s (:sentence %)]
+                                     (and (seq? s) (= 'genl (nm/functor s)))))
+                          (map :id))
+                    gone)]
+    (when (seq edges)
+      (let [ids  (into #{} (map :id) gone)
+            recs (:records kb)]
+        (into []
+              (comp (keep #(p/get-justification recs %))
+                    (filter #(contains? edge-descended-informants (:informant %)))
+                    (filter #(some edges (:antecedents %)))
+                    (remove #(some (fn [a] (and (contains? ids a) (not (contains? edges a))))
+                                   (:antecedents %))))
+              removed-jids)))))
+
+(defn lost-descended-derivations
+  "The edge-descended derivations among the dependents of `handles` whose conclusion is
+  OUT, as justification records — `edge-descended-justifications` for an ingredient that
+  lost belief rather than its record.  `edges-only?` keeps only the handles that are
+  `genl` edges.
+
+  Two settle arms read it.  A `genl` edge that went **IN ⇒ OUT** takes the derivation
+  naming it OUT, where a second route to the declaration still licenses it; a defeat
+  deletes nothing, so the justification stays and nothing else draws the derivation
+  again.  And a spelling an un-merge gives back is a fact the derivation could not be
+  drawn from while the merge superseded it: an equality over two spellings of one merged
+  pair is found by matching both, so it is drawn only once both are believed again.
+
+  Only a justification whose conclusion is OUT qualifies: one that kept another support
+  owes nothing to belief, and asking it again every pass of the settle would re-read a
+  conclusion that cannot move.  The dependents are a network read and the record a
+  store fetch, so the gate that drops nearly every handle runs first."
+  [kb handles edges-only?]
+  (let [tms  (reasoning/tms kb)
+        recs (:records kb)
+        lost (fn [h]
+               (into []
+                     (comp (keep #(jtms/justification tms %))
+                           (filter #(contains? edge-descended-informants (:informant %)))
+                           (remove #(jtms/in? tms (:consequence %))))
+                     (jtms/dependents tms h)))]
+    (into []
+          (comp (map (juxt identity lost))
+                (filter (comp seq second))
+                (filter (fn [[h _]]
+                          (or (not edges-only?)
+                              (let [s (:sentence (p/get-sentex recs h))]
+                                (and (seq? s) (= 'genl (nm/functor s)))))))
+                (mapcat second)
+                (distinct))
+          handles)))
+
+(defn rederive-descended
+  "Draw each of `justs` (`edge-descended-justifications`) again from the taxonomy as it
+  now stands, and return the handles it created as chaining seeds.  The violations are
+  reported and the spellings a merge displaces are refreshed here, as the arrival path
+  does for the same derivations.
+
+  Each derivation is asked for through the function its arrival arms ask: the entailment
+  through `retroactive-mints`, narrowed to the declaration the removed justification
+  named; a descended equality through `derive-functional-equalities` or
+  `derive-antisymmetric-equalities` over the fact at the head of its antecedents.  So
+  where a second route survives, the derivation comes back resting on it, and where none
+  does, nothing is drawn.  A conclusion that kept another justification takes the
+  surviving route's as well, which is the justification the same content loaded without
+  the edge records.
+
+  An entailment's antecedents lead with the fact and the declaration, in that order
+  (`entail-arg-type`).  An equality's are in content order (`derive-equality`), so its
+  facts are read off by functor: every antecedent that is neither a `genl` edge nor a
+  mark declaration.  Each task is drawn once however many of the removed justifications
+  name it."
+  [kb justs]
+  (let [recs  (:records kb)
+        facts (fn [antes]
+                (filter (fn [h]
+                          (when-let [s (:sentence (p/get-sentex recs h))]
+                            (not (contains? '#{genl functional functionalInArg anti_symmetric}
+                                            (nm/functor s)))))
+                        antes))
+        tasks (into []
+                    (comp (mapcat (fn [j]
+                                    (let [kind  (edge-descended-informants (:informant j))
+                                          antes (:antecedents j)]
+                                      (if (= :entailment kind)
+                                        [[kind (nth antes 0) (nth antes 1)]]
+                                        (map (fn [src] [kind src nil]) (facts antes))))))
+                          (distinct))
+                    justs)
+        res   (reduce
+               (fn [acc [kind src dh]]
+                 (if-let [sx (p/get-sentex recs src)]
+                   (merge-with into acc
+                               (case kind
+                                 :entailment     (retroactive-mints kb sx dh)
+                                 :functional     (derive-functional-equalities
+                                                  kb (:sentence sx) (:context sx) src)
+                                 :anti-symmetric (derive-antisymmetric-equalities
+                                                  kb (:sentence sx) (:context sx) src)))
+                   acc))
+               {:new [] :superseded [] :violations []}
+               tasks)]
+    (when (seq (:superseded res))
+      (refresh-supersessions kb (:superseded res)))
+    (violations/report kb (:violations res))
+    (minted-seeds kb (:new res))))
+
 ;; ---- the decontextualized predicate ---------------------------------------
 ;; `(decontextualized_predicate P)` lifts every `(P ...)` out of the context it was
-;; stated in and into CxUniverse, which every context sees — so the fact
+;; stated in and into CxUniverse, which every context below the joint sees — so the fact
 ;; stops being a claim of one theory and becomes a claim of the KB.
 ;;
 ;; The lift is a *deduction*: the original stays where it was stated and a copy is
@@ -3707,10 +4515,10 @@
 ;; stating context cannot see moves the fact somewhere those checks never looked, so
 ;; two facts that are each admissible where they were stated can meet in the target as
 ;; a disjointness violation nothing reports.  CxUniverse is the one target every
-;; context sees, so the copy is visible to the next assert and the ordinary check
-;; catches the clash at its source.  `unchecked-target?` below covers the one case that
-;; leaves: a context wired outside the spindle, which does not see CxUniverse
-;; either.
+;; context below the joint sees, so the copy is visible to the next assert and the
+;; ordinary check catches the clash at its source.  `unchecked-target?` below covers
+;; the one case that leaves: a context wired outside the spindle, which does not see
+;; CxUniverse either.
 
 (def universal-context 'CxUniverse)
 
@@ -3763,7 +4571,7 @@
   inside `settle`, neither of which may abort halfway."
   [kb sentence src-handle src-context witnesses]
   (if (or (empty? witnesses) (= src-context universal-context))
-    {:new [] :violations []}
+    empty-entailment-result
     ;; the check the stating context could not run, run here — and only here, so a KB
     ;; whose contexts all see CxUniverse (the ordinary spindle) pays one `sees?`
     (if-let [v (and (unchecked-target? kb src-context)
@@ -3782,7 +4590,7 @@
                                   (assoc-in [:detail :lifted-from] src-context))]})
       (let [[h2 s2 new?] (kb/find-or-create-sentex kb sentence universal-context)]
         (if (= h2 src-handle)
-          {:new [] :violations []}
+          empty-entailment-result
           (do
             ;; the copy is a derived sentex in a context that did not have it: it
             ;; reaches the closures and posts its exception re-check trigger exactly as
@@ -3868,14 +4676,14 @@
         sx  (p/get-sentex rec src-handle)
         dh  (:dh entry)]
     (if-not (and sx (or (nil? dh) (p/get-sentex rec dh)))
-      (do (drop-pending! kb src-handle (lift-of? dh)) {:new [] :violations []})
+      (do (drop-pending! kb src-handle (lift-of? dh)) empty-entailment-result)
       (do (drop-pending! kb src-handle (lift-of? dh))
           (let [r (deduce-lift kb (:sentence sx) src-handle (:context sx) [(if dh [dh] [])])]
             (if-let [v (first (:violations r))]
               (do (note-pending! kb src-handle
                                  (merge entry {:gens gens} (checks/conviction-watch v))
                                  (lift-of? dh))
-                  {:new [] :violations []})
+                  empty-entailment-result)
               (do (violations/withdraw! kb (:sentence sx) universal-context nil)
                   r)))))))
 
@@ -3889,7 +4697,7 @@
                          (not= universal-context (:context s)))
               acc
               (merge-with into acc (deduce-lift kb (:sentence s) (:id s) (:context s) witnesses))))
-          {:new [] :violations []}
+          empty-entailment-result
           (vec (kb/find-sentexes kb pred))))
 
 (defn- lift-existing
@@ -3914,7 +4722,7 @@
   [kb pred dh]
   ;; a permuting mark's statements are lifted as they arrive, on nothing but themselves
   (if (inherit/permuting-mark? pred)
-    {:new [] :violations []}
+    empty-entailment-result
     (lift-statements kb pred [[dh]])))
 
 (defn rebuild-pending!
@@ -3939,24 +4747,334 @@
   (doseq [f inherit/permuting-marks]
     (lift-statements kb f [[]])))
 
-(defn- context-edge-reader-ancestors
-  "Every context a `(genlCx sub super)` edge's widened readers can see, once the edge
-  has integrated — `context-down(sub)`'s own members' ancestor sets, unioned.  The exact
-  reachability `migrate-under-context-edge` computes for the same trigger (above): a
-  merge's restatement and a functional/anti_symmetric clash are the same kind of event —
-  a fact becoming newly visible to a reader — so the two share the reachability rule.
+(defn- revived-edge-sweep
+  "The merges a revived `(genl sub super)` edge owes the facts of `sub`'s spec subtree:
+  `equate-under-edge` and `antisym-equate-under-edge` over one walk, bounded at
+  `tax/*exposure-instance-budget*` sentexes.  nil when `sentence` is not a `genl` edge or
+  no `functional`, `functionalInArg` or `anti_symmetric` mark stands at or above `super`.
 
-  `context-up(super)` alone would be a strict subset and not enough on its own: `sub`
-  is a member of `context-down(sub)` (that closure always includes its own root), so
-  `context-up(sub)` is one of the sets this unions — and after the edge integrates it
-  already reaches everything `context-up(super)` does, by transitivity.  What it adds
-  beyond that subset is every *other* reader whose ancestor set also runs through `sub` — a
-  context wired under `sub` before this edge arrived gained the same new visibility
-  the edge gives `sub` itself, and a candidate fact stored in *its* own pre-existing
-  ancestor set can newly clash with something in `super`'s ancestor set exactly as one stored in
-  `sub`'s own ancestor set can."
-  [tax sub]
-  (into #{} (mapcat #(tax/context-up tax %)) (tax/context-down tax sub)))
+  The walk reads the subtree's predicates in content order and each posting in the
+  index's order, so past the budget the prefix merged is in handle order within a
+  predicate.  A cut files one `:genl-edge-revival-truncated` entry naming the edge, and
+  the facts past it stay unmerged until something else re-derives them.  `context` is the
+  edge's."
+  [kb sentence context]
+  (when (and (= 'genl (nm/functor sentence)) (= 2 (nm/arity sentence)))
+    (let [tax           (reasoning/taxonomy kb)
+          [_ sub super] sentence
+          fun?  (and (symbol? super)
+                     (tax/functional-family-declared? tax)
+                     (boolean (or (seq (tax/props-over tax :functional super))
+                                  (seq (tax/functional-in-arg-over tax super)))))
+          anti? (and (symbol? super)
+                     (seq (tax/props tax :anti-symmetric))
+                     (boolean (seq (tax/props-over tax :anti-symmetric super))))]
+      (when (and (symbol? sub) (or fun? anti?))
+        (let [budget (max 0 (long tax/*exposure-instance-budget*))
+              walked (subtree-sentexes kb sub (inc budget))
+              cut?   (> (count walked) budget)
+              sxs    (cond-> walked cut? (subvec 0 budget))]
+          (cond-> (merge-with into
+                              (when fun? (derive-over-premises kb sxs derive-functional-equalities))
+                              (when anti? (derive-over-premises kb sxs derive-antisymmetric-equalities)))
+            cut? (update :violations (fnil conj [])
+                         {:violation :genl-edge-revival-truncated
+                          :detail    {:edge    sentence
+                                      :context context
+                                      :budget  budget
+                                      :message (str "revived " (pr-str sentence) " in " context
+                                                    " bounded its merge sweep over the "
+                                                    sub " subtree at " budget
+                                                    " facts; facts past the cut that arrived"
+                                                    " while the edge was OUT stay unmerged")}})))))))
+
+(defn revived-declaration-sweeps
+  "Run, for each sentex in `handles` the settle just brought back **OUT ⇒ IN**, the sweeps
+  its arrival runs over the facts already stored: `equate-existing` and
+  `antisym-equate-existing` for a merge mark, `revived-edge-sweep` for a `genl` edge under
+  one, and `lift-existing` for a `decontextualized_predicate`.  Returns one `{:new
+  :superseded :violations}`, or nil when the KB declares no merge or lift mark.
+
+  A fact arriving while its mark is OUT meets a taxonomy that does not hold the mark, so
+  its own arrival merges and lifts nothing, and nothing written later reaches it: the
+  mark's arrival is over and the revival is a relabel, not an arrival.  Without this, a
+  mark stated, defeated, handed two facts and revived leaves them unmerged where the mark
+  stated first or last merges them.  The other direction needs no sweep: a merge or copy
+  drawn while the mark held names the mark's sentex among its antecedents, so a defeat
+  takes it OUT and the revival brings it back through the JTMS.
+
+  The sweeps are the arrival ones, so they read what is **stored** and are idempotent:
+  a revival of a mark whose facts all arrived while it held re-derives nothing new.  The
+  handles are walked in content order.  The symmetric and commuting marks are not here;
+  a revived permuting mark re-spells its rows through `chain/reconcile-spellings!`.
+
+  A revived `genl` edge's sweep is budgeted where its arrival's is not: a settle revives
+  an edge far more often than one arrives, and `lein perf`'s `constraint-genl-mark-descent`
+  holds a revived edge flat in the subtree past the budget.
+
+  Gated on the taxonomy holding any functional-family, `anti_symmetric` or
+  `decontextualized_predicate` mark, so a KB declaring none pays three map reads."
+  [kb handles]
+  (let [tax (reasoning/taxonomy kb)]
+    (when (and (seq handles)
+               (or (tax/functional-family-declared? tax)
+                   (seq (tax/props tax :anti-symmetric))
+                   (seq (tax/props tax :decontextualized))))
+      (let [sxs (sort-by (juxt (comp nm/print-key :sentence) (comp nm/print-key :context))
+                         (keep #(p/get-sentex (:records kb) %) handles))]
+        (reduce (fn [acc {:keys [sentence context id]}]
+                  (merge-with into acc
+                              (equate-existing kb sentence)
+                              (antisym-equate-existing kb sentence)
+                              (revived-edge-sweep kb sentence context)
+                              (when (and (= 'decontextualized_predicate (nm/functor sentence))
+                                         (= 1 (nm/arity sentence))
+                                         (symbol? (second sentence)))
+                                (lift-existing kb (second sentence) id))))
+                {:new [] :superseded [] :violations []}
+                sxs)))))
+
+(defn- equality-arrival-sweep
+  "The migration an equality sentex's arrival runs, run again over what is stored now:
+  `migrate-matching` over a schematic equation's LHS head, `migrate-class` over a ground
+  merge's class.  nil for a NAT `rewriteOf`-to-compound, which restates nothing."
+  [kb sentence]
+  (let [[_ a b] sentence]
+    (cond
+      (rewrite/schematic-equation? sentence)
+      (migrate-matching kb (first (first (rewrite/orient a b))))
+
+      (and (symbol? a) (symbol? b))
+      (let [tx (reasoning/taxonomy kb)]
+        (migrate-class kb (into (set (tax/equiv-class tx a)) (tax/equiv-class tx b)))))))
+
+(defn except-move-sweeps
+  "Run, for each handle in `handles` whose visibility an `except` moved, the sweep its
+  arrival runs over the facts already stored: the equality migration for an equality
+  sentex (`equality-arrival-sweep`), and `revived-declaration-sweeps`' for a merge or lift
+  mark.  Returns one `{:new :superseded :violations}`, or nil when `handles` is empty.
+
+  An equality restates a fact for the readers that see it, and an `except` changes which
+  readers those are without the equality arriving, leaving or changing label.  A fact
+  stored while the except hid the equality from the fact's context was stored as spelled,
+  with no twin, and every goal from that context is normalized under the equality the
+  moment the except goes — so without this sweep the fact is believed and answered by no
+  read (docs/equational.md, \"An except of an equation\").  The sweeps are the arrival
+  ones and idempotent, so a twin already made gains nothing, and a handle that is no
+  longer stored, or restates nothing, costs a record fetch.  The handles are walked in
+  content order."
+  [kb handles]
+  (when (seq handles)
+    (let [sxs (sort-by (juxt (comp nm/print-key :sentence) (comp nm/print-key :context))
+                       (keep #(p/get-sentex (:records kb) %) handles))]
+      (reduce (fn [acc {:keys [sentence id]}]
+                (merge-with into acc
+                            (cond
+                              (kb/equality-sentence? sentence)
+                              (equality-arrival-sweep kb sentence)
+                              ;; an excepted denial moves its blocks, as its own
+                              ;; arrival does; the drain sweeps the terms
+                              (instance-denial-terms sentence)
+                              (do (note-denial-move! kb (instance-denial-terms sentence)
+                                                     (:context (p/get-sentex (:records kb) id)))
+                                  nil)
+                              :else
+                              (revived-declaration-sweeps kb [id]))))
+              {:new [] :superseded [] :violations []}
+              sxs))))
+
+(defn- except-move-terms
+  "The terms whose occurrences an `except` of one of `targets` can re-spell: for every
+  equality sentex in the targets' forward consequence closure, a ground merge's class and
+  a schematic equation's LHS head — `migrate-class`'s and `migrate-matching`'s candidate
+  keys.  The closure is walked because an equality can rest on the excepted handle (a
+  merge a `functional` mark derived), and a reader that cannot see the handle cannot see
+  what rests only on it.  A target that is itself an `except` adds its own target, since
+  the meta-exception cascade moves that one's visibility."
+  [kb targets]
+  (let [tms  (reasoning/tms kb)
+        recs (:records kb)
+        tx   (reasoning/taxonomy kb)
+        seen (loop [seen #{}, stack (vec targets)]
+               (if (empty? stack)
+                 seen
+                 (let [d (peek stack), stack (pop stack)]
+                   (if (contains? seen d)
+                     (recur seen stack)
+                     (let [meta (some-> (p/get-sentex recs d) :sentence kb/except-target)]
+                       (recur (conj seen d)
+                              (cond-> (into stack
+                                            (comp (keep #(jtms/justification tms %))
+                                                  (map :consequence))
+                                            (jtms/dependents tms d))
+                                meta (conj meta))))))))]
+    (into #{}
+          (comp (keep #(p/get-sentex recs %))
+                (map :sentence)
+                (mapcat (fn [[_ a b :as s]]
+                          (cond
+                            (not (kb/equality-sentence? s))
+                            (filter sequential? (instance-denial-terms s))
+                            (rewrite/schematic-equation? s) [(first (first (rewrite/orient a b)))]
+                            (and (symbol? a) (symbol? b))   (into (set (tax/equiv-class tx a))
+                                                                  (tax/equiv-class tx b))))))
+          seen)))
+
+(defn- denial-candidates
+  "The stored sentexes naming one of `terms` that migration may restate: rewritable, and
+  believed or superseded, the pair `migrate-matching` admits.  One term-index lookup per
+  term (`kb/find-sentexes`), keyed by handle so a sentex naming two is taken once, and
+  walked in content order."
+  [kb terms]
+  (let [tms (reasoning/tms kb)]
+    (->> terms
+         (mapcat #(kb/find-sentexes kb %))
+         (filter #(and (kb/rewritable-sentex? kb %)
+                       (or (jtms/in? tms (:id %)) (jtms/superseded? tms (:id %)))))
+         (reduce #(assoc %1 (:id %2) %2) {})
+         vals
+         (sort-by (juxt (comp nm/print-key :sentence) (comp nm/print-key :context))))))
+
+(defn- stale-twin-justifications
+  "The justification ids of the twins of stored sentex `sx` that no longer spell its
+  normal form for their reader: each `rewriteOf` justification `[sx, equality]` whose
+  twin is not the sentex `kb/rewrite-term` now gives `sx`'s sentence in the twin's
+  context.  A block that begins holding leaves such a twin behind, since the equation
+  that justified it stays believed."
+  [kb sx]
+  (let [tms      (reasoning/tms kb)
+        d        (:id sx)
+        sentence (sx/sentence-of sx)]
+    (into []
+          (mapcat (fn [{:keys [twin reader]}]
+                    (let [form (sx/canon (kb/rewrite-term kb sentence reader))]
+                      (when-not (= twin (kb/find-sentex-handle kb form reader))
+                        (filter (fn [jid]
+                                  (let [j (jtms/justification tms jid)]
+                                    (and (= 'rewriteOf (:informant j)) (= twin (:consequence j)))))
+                                (jtms/dependents tms d))))))
+          (handle-twins kb d))))
+
+(defn- denial-move-sweep
+  "The restatement a moved block owes the stored sentexes naming one of `terms`, the
+  compound terms of the denials that moved (docs/equational.md, \"A denied ground
+  instance\").  First every twin that no longer spells its original's normal form loses
+  the justifications resting on that original (`stale-twin-justifications`), each
+  dropped through `jtms/drop-justification!` and handed to `removed!` with what the drop
+  swept, for the caller to delete from the stores.  Then every candidate still stored is
+  migrated again under the blocks that now hold, as its arrival migrates it.  Returns
+  migration's `{:new :superseded :violations}`.  The cost is the term-index lookups and
+  the candidates they return, never a walk of the facts a rule's head reaches."
+  [kb terms removed!]
+  (let [tms  (reasoning/tms kb)
+        recs (:records kb)]
+    (doseq [sx  (denial-candidates kb terms)
+            jid (stale-twin-justifications kb sx)
+            :when (jtms/justification tms jid)]
+      (let [r (jtms/drop-justification! tms jid)]
+        (p/delete-justification! recs jid)
+        (removed! r)))
+    (reduce (fn [acc sx] (merge-with into acc (migrate-sentex kb sx)))
+            {:new [] :superseded [] :violations []}
+            (denial-candidates kb terms))))
+
+(defn- denial-move-region
+  "The superseded data a moved block can hand back or displace: those naming one of the
+  terms in `denied` (`{term #{denial-context}}`), stored in a context that sees one of
+  that term's denial contexts.  `except-move-region`'s shape, keyed by the denied terms."
+  [kb denied]
+  (let [held (jtms/superseded (reasoning/tms kb))]
+    (if (or (empty? held) (empty? denied))
+      #{}
+      (let [tx (reasoning/taxonomy kb)]
+        (into #{}
+              (mapcat (fn [[t ctxs]]
+                        (into [] (comp (filter #(contains? held (:id %)))
+                                       (filter (fn [sx] (some #(tax/sees? tx (:context sx) %) ctxs)))
+                                       (map :id))
+                              (kb/find-sentexes kb t))))
+              denied)))))
+
+(defn except-move-region
+  "The superseded data whose supersession an `except` that moved can change: the ones
+  naming a term an equality in the excepted handles' reach re-spells
+  (`except-move-terms`), stored in a context that sees one of the contexts the moving
+  `except`s are stated in.  `pending` is `{target #{except-context}}`.
+
+  A supersession is decided at the datum's own context from the equalities that context
+  sees (`displacement`), and an `except` changes that only for the contexts that read it
+  and only for the equalities it withdraws, so this set is the whole of what the
+  settle's reconcile re-examines for it.  Each candidate costs a term-index lookup per
+  term, the same lookups the arrival sweep makes, and a KB superseding nothing costs one
+  deref."
+  [kb pending]
+  (let [held (jtms/superseded (reasoning/tms kb))]
+    (if (or (empty? held) (empty? pending))
+      #{}
+      (let [tx   (reasoning/taxonomy kb)
+            ctxs (into #{} cat (vals pending))]
+        (into #{}
+              (comp (mapcat #(kb/find-sentexes kb %))
+                    (filter #(contains? held (:id %)))
+                    (filter (fn [sx] (some #(tax/sees? tx (:context sx) %) ctxs)))
+                    (map :id))
+              (except-move-terms kb (keys pending)))))))
+
+(defn take-except-moves!
+  "Empty `:except-moves` and return what the settle's supersession reconcile owes it:
+  `{:extra [[datum reason]] :region #{datum} :full? bool}` — the supersessions
+  `except-move-sweeps` found, the superseded data an `except` that moved can change
+  (`except-move-region`), and whether a move is still pending undrained, which leaves the
+  reconcile nothing narrower than a full pass.  nil when nothing moved."
+  [kb]
+  (let [a (reasoning/except-moves kb)
+        m @a]
+    (when (or (seq (:pending m)) (seq (:denied m)) (seq (:extra m)) (seq (:region m)))
+      (reset! a {})
+      {:extra (:extra m) :region (:region m)
+       :full? (boolean (or (seq (:pending m)) (seq (:denied m))))})))
+
+(defn drain-except-moves!
+  "Take the pending handles and denied terms off `:except-moves`, sweep them
+  (`except-move-sweeps`, `denial-move-sweep`), and keep the supersessions the sweeps
+  found and the region the moves can change (`except-move-region`, `denial-move-region`)
+  for `take-except-moves!`.  `removed!` takes each network removal a denial sweep makes,
+  for the caller to delete from the stores.  Returns the sweeps' result, or nil when
+  nothing was pending."
+  [kb removed!]
+  (let [a       (reasoning/except-moves kb)
+        pending (:pending @a)]
+    (when (seq pending)
+      (swap! a dissoc :pending))
+    ;; an except of a denial queues its terms here, so the handles go first
+    (let [mig    (except-move-sweeps kb (keys pending))
+          denied (:denied @a)]
+      (when (seq denied)
+        (swap! a dissoc :denied))
+      (when (or (seq pending) (seq denied))
+        (let [mig (merge-with into
+                              (or mig {:new [] :superseded [] :violations []})
+                              (when (seq denied) (denial-move-sweep kb (keys denied) removed!)))
+              reg (into (except-move-region kb pending) (denial-move-region kb denied))]
+          (swap! a #(-> %
+                        (update :extra (fnil into []) (:superseded mig))
+                        (update :region (fnil into #{}) reg)))
+          mig)))))
+
+(defn clear-except-moves!
+  "Empty `:except-moves` outright — a rebuild reconciles every supersession from scratch."
+  [kb]
+  (reset! (reasoning/except-moves kb) {}))
+
+(defn- marked-roots
+  "The predicates carrying `prop` — `:functional` or `:anti-symmetric` — whose specs are
+  every functor `functional-mark-relevant?` or `anti-symmetric-mark-relevant?` admits:
+  the `functional` roster and every `functionalInArg` predicate, or the
+  `anti_symmetric` roster."
+  [tax prop]
+  (case prop
+    :functional     (into (tax/props tax :functional) (keys (:functional-in-arg @tax)))
+    :anti-symmetric (tax/props tax :anti-symmetric)))
 
 (defn- stored-facts-in-ancestors
   "Stored, positive, non-rule sentexes across `contexts`, kept when `marked?` admits
@@ -3971,16 +5089,44 @@
   an equality derived off a defeated fact rests on that fact and is defeated with it,
   so skipping a defeated candidate here would leave a revival's merge missing —
   `derive-functional-equalities`/`-in` read the store, never the belief filter, and
-  this feeds them, so it has to agree."
-  [kb contexts marked?]
-  (let [tax (reasoning/taxonomy kb)]
-    (for [c     (filter symbol? contexts)
-          h     (reads/as-stored-in-context (:index kb) c)
-          :let  [s (p/get-sentex (:records kb) h)]
-          :when (and s (nil? (:antecedent s)) (not (sx/negative? s))
-                     (sequential? (:sentence s))
-                     (marked? tax (:sentence s)))]
-      s)))
+  this feeds them, so it has to agree.
+
+  **Read from the smaller side.**  `roots` are the predicates carrying the mark, and a
+  fact `marked?` admits is one of their specs', so the candidates are the facts of those
+  functors that sit in `contexts` as well as the facts in `contexts` that `marked?` admits
+  — one set read two ways.  The ancestor set of an edge into a corpus context holds
+  the corpus, where the marked predicates hold a few of its facts, and every handle
+  walked is a record paged; the side is chosen by the two stored counts, index
+  cardinality reads.  The functors are the roots' `tax/specs-global`, unscoped, because
+  `marked?` reads the mark unscoped (`tax/props-over` with no context) and this has to
+  enumerate every functor it admits.  The enumeration order, and so which prefix a cut budget takes,
+  follows the side read (`budgeted-context-edge-candidates` names that residual)."
+  [kb contexts marked? roots]
+  (let [tax   (reasoning/taxonomy kb)
+        idx   (:index kb)
+        cs    (filterv symbol? contexts)
+        ;; `marked?` reads the functor alone and admits a spec of a marked root, so these
+        ;; are every functor it can admit
+        fs    (into [] (comp (mapcat #(tax/specs-global tax %))
+                             (distinct)
+                             (filter #(pos? (reads/stored-count-with-functor idx %))))
+                    roots)
+        keep? (fn [s] (and s (nil? (:antecedent s)) (not (sx/negative? s))
+                           (sequential? (:sentence s))
+                           (marked? tax (:sentence s))))]
+    (if (< (transduce (map #(reads/stored-count-with-functor idx %)) + 0 fs)
+           (transduce (map #(reads/stored-count-in-context idx %)) + 0 cs))
+      (let [in-set? (set cs)]
+        (for [f     fs
+              h     (reads/as-stored-with-functor idx f)
+              :let  [s (p/get-sentex (:records kb) h)]
+              :when (and s (contains? in-set? (:context s)) (keep? s))]
+          s))
+      (for [c     cs
+            h     (reads/as-stored-in-context idx c)
+            :let  [s (p/get-sentex (:records kb) h)]
+            :when (keep? s)]
+        s))))
 
 (defn- budgeted-context-edge-candidates
   "Up to `tax/*exposure-instance-budget*` stored, positive, non-rule sentexes drawn from
@@ -4025,26 +5171,24 @@
   function now sweeps every reader below its context, a closure read per candidate.  `constraint-exposure-context-edge` measures exactly this — 8x the facts
   the ancestor set holds must cost the same past the cap.
 
-  Sharing `*exposure-instance-budget*` with `vaelii.impl.settle`'s exposure passes
+  Sharing `*exposure-instance-budget*` with `vaelii.impl.settle`'s bounded sweeps
   rather than inventing a second knob: both are 'how much work will one genlCx edge's
   cross-context sweep spend', and a KB operator wants one dial for that, not two that
   can drift apart.
 
   **The residual this leaves is narrower than `settle`'s own, and stated here
-  plainly.**  A pair `settle`'s exposure pass cuts short goes undecided *this settle*
-  and is remembered in `:clashes` for the next one to re-examine — this cap has a
-  narrower second chance than that, not none: because the candidate set is now scoped
-  to *this* edge's own ancestor set, a merge it misses is not automatically retried by an
-  unrelated later edge the way the unscoped draft accidentally allowed, but a *later*
-  `genlCx` edge widening the *same* ancestor set further would re-walk it and could still
-  reach the pair.  That is why the caller files a violation naming the cut rather than
-  treating it as routine — it is closer to `:exposure-truncated`'s honesty than to a
-  bound with a guaranteed safety net behind it."
-  [kb sub marked?]
+  plainly.**  A pair `settle`'s arbitration sweep cuts short goes undecided *this
+  settle*, and a later settle resumes the sweep past the cut.  This cap has a narrower
+  second chance than that, not none: the candidate set is scoped to *this* edge's own
+  ancestor set, so an unrelated later edge does not retry a merge it misses, and a
+  *later* `genlCx` edge widening the *same* ancestor set re-walks it and can still reach
+  the pair.  That is why the caller files a violation naming the cut."
+  [kb sub marked? roots]
   (let [tax    (reasoning/taxonomy kb)
         budget (max 0 (long tax/*exposure-instance-budget*))
         xs     (into [] (take (inc budget))
-                     (stored-facts-in-ancestors kb (context-edge-reader-ancestors tax sub) marked?))]
+                     (stored-facts-in-ancestors kb (context-edge-reader-ancestors tax sub)
+                                                marked? roots))]
     (if (> (count xs) budget)
       [(subvec xs 0 budget) budget]
       [xs nil])))
@@ -4088,7 +5232,8 @@
     (let [tax (reasoning/taxonomy kb)
           [_ sub super] sentence]
       (when (and (symbol? sub) (symbol? super) (declares? tax))
-        (let [[candidates cut] (budgeted-context-edge-candidates kb sub relevant?)
+        (let [[candidates cut] (budgeted-context-edge-candidates kb sub relevant?
+                                                                 (marked-roots tax prop))
               ;; the readers this edge actually changed the ancestor set of, computed once
               ;; and handed to every `derive` below rather than each one re-deriving the
               ;; whole reader fan of its candidate's own context
@@ -4141,7 +5286,7 @@
   edge into a context whose readers reach a genuinely huge, genuinely relevant store),
   so `budgeted-context-edge-candidates` still caps what reaches
   `derive-functional-equalities` at `tax/*exposure-instance-budget*` — the same knob
-  `vaelii.impl.settle`'s exposure passes spend, so a cut here and a cut there answer to
+  `vaelii.impl.settle`'s bounded sweeps spend, so a cut here and a cut there answer to
   one dial — and files a `:context-edge-exposure-truncated` violation when it cuts,
   since a pair past the cap is not derived by anything else afterward this same edge
   (docs/equality.md).
@@ -4197,7 +5342,7 @@
   empty result.
 
   **One function because a `genlCx` edge arrives by three entry points, and only two of them
-  remembered the list.**  An edge can be *asserted* (`core/assert-one`), *concluded* by
+  remembered the list.**  An edge can be *asserted* (`assert-entry/assert-one`), *concluded* by
   a rule (`chain/place-fact-conclusion`), or **computed** — materialized by the
   structural producer off a `contextArgSubrelation` declaration with nobody asserting
   anything (`context-nat/materialize-edge`).  The first two spelled the trio out
@@ -4547,12 +5692,14 @@
                                ;; derivations the same move may have released or newly
                                ;; blocked
                                (recheck-genlCx-edge kb a)
-                               (recheck-except-ancestors kb)))
+                               (recheck-except-ancestors kb)
+                               (note-denial-moves-above! kb b)))
              :disintegrate (fn [kb sx]
                              (let [[_ a b] (:sentence sx)]
                                (tax/del-genlCx! (reasoning/taxonomy kb) a b (:id sx))
                                (recheck-genlCx-edge kb a)
-                               (recheck-except-ancestors kb)))
+                               (recheck-except-ancestors kb)
+                               (note-denial-moves-above! kb b)))
              :rebuild      (fn [tax {sentence :sentence id :id ctx :context}]
                              (replay-edge tax/add-genlCx tax sentence 'genlCx id ctx))
              :wff          wff/genlCx-problems}
@@ -4624,8 +5771,8 @@
     ;; reconcile does not cover: if the exception was present ab initio, the pair it
     ;; exempted was admitted and never entered the clash set, so its departure has no
     ;; stored clash to re-derive.  The disintegrate arm posts the pair to
-    ;; `:sib-exc-dirty`, and the settle's re-arm sweep (`settle/clash-candidates` /
-    ;; `exposure-candidates`) drives `two-sided-reach` over it to convict the
+    ;; `:sib-exc-dirty`, and the settle's re-arm sweep (`settle/clash-candidates`)
+    ;; drives `two-sided-reach` over it to convict the
     ;; memberships it now separates.
     'siblingDisjointException
     {:integrate    (fn [kb sx h]
@@ -4640,8 +5787,7 @@
      :wff          wff/siblingDisjointException-problems}
     ;; `(arity P n)` is read by the per-assert arity check, so it is cached like the
     ;; other declarations the engine interprets rather than re-queried per assertion.
-    ;; No `:wff` arm: `wff/arity-problems` does not exist, because the arity of `arity`
-    ;; is what would check it.
+    ;; No `:wff` arm: the arity of `arity` is what would check it.
     'arity
     {:integrate    (fn [kb sx h]
                      (let [[_ pred n] (:sentence sx)]
@@ -5085,6 +6231,12 @@
        ;; so settle sweeps any conclusion now resting on an invisible antecedent
        (= sx/except-functor f)         (do (recheck-except kb sentex)
                                            (reconcile-belief-change kb #{handle}))
+       ;; a denial of an equation between two terms, one compound: file it where a
+       ;; rewrite of a redex with that head looks, and queue the restatement it owes
+       (instance-denial-terms sentence)
+       (let [terms (instance-denial-terms sentence)]
+         (tax/add-instance-denial (reasoning/taxonomy kb) handle terms (:context sentex))
+         (note-denial-move! kb terms (:context sentex)))
        ;; a rule reaching the general path (e.g. rebuilt by recover, or a migrated
        ;; twin) is indexed from its own record, so it keeps the direction its wrapper
        ;; gave it
@@ -5164,18 +6316,24 @@
         f        (nm/functor sentence)]
     (cond
       (contains? table f)
-      (when-let [g (:disintegrate (get table f))] (g kb sentex))
+      (when-let [g (:disintegrate (get table f))]
+        (let [before (permuting-marks (reasoning/taxonomy kb))]
+          (g kb sentex)
+          (note-permuting-moves! kb before)))
       (sx/exceptWhen-meta? sentence)
       (unindex-exceptWhen-meta kb sentex)
       ;; a visibility `except` leaving: queue the firings that use its target so settle
       ;; revives the conclusions it was hiding — the mirror of the integrate arm
       (= sx/except-functor f)
       (recheck-except kb sentex)
+      (instance-denial-terms sentence)
+      (do (tax/del-instance-denial! (reasoning/taxonomy kb) (:id sentex))
+          (note-denial-move! kb (instance-denial-terms sentence) (:context sentex)))
       (rules/rule-sentence? sentence)
       (do (p/unindex-rule! (:index kb) (:id sentex)
                            (rules/antecedent-predicates sentence)
                            (rules/consequent-index-pred sentex))
-          (note-rule! kb sentex (rules/antecedent-predicates sentence) dec)
+          (note-rule! kb (:id sentex) sentex (rules/antecedent-predicates sentence) dec)
           ;; Deregistration **recomputes** the re-check predicates from the stored
           ;; sentex rather than trusting anything a caller has in hand.  The index
           ;; holds no derived state, so a mismatched deregistration only leaks a stale
@@ -5296,6 +6454,13 @@
     (doseq [m (tax/stored-disjoint-metatypes tax)
             {[_ t] :sentence id :id ctx :context} (stored-declarations kb m)]
       (tax/add-metatype-member tax m t id ctx))
+    ;; The denials of an equation over a compound term, which no functor keys: every
+    ;; stored sentex naming `equals` is read, and the shape picks them out.
+    (doseq [h  (reads/as-stored-with-term (:index kb) 'equals)
+            :let [{:keys [sentence context]} (p/get-sentex (:records kb) h)
+                  terms (instance-denial-terms sentence)]
+            :when terms]
+      (tax/add-instance-denial tax h terms context))
     (when (pos? (long @skips))
       (trove/log! {:level :warn :id ::edges-malformed
                    :msg  (str @skips " stored genl/genlCx declarations are not well-formed"

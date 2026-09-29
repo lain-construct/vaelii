@@ -73,7 +73,7 @@
 
 (def ^:private abbreviations
   "Full stops that do not end a sentence.  Two, because two docstrings have one and a
-  first sentence cut at `e.g.` is indistinguishable from a truncation rather than from a summary."
+  first sentence cut at `e.g.` looks like a truncation rather than a summary."
   #{"e.g." "i.e."})
 
 (defn- first-sentence

@@ -238,7 +238,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
   first — so `(a)` precedes `(a b)`.  The last-resort `:else` is unreachable for
   well-formed sentence content and totalizes the order for an exotic value alone — a map,
   a set, a record.  It prints through `print-key` rather than `str`, so it totalizes
-  *honestly*: `str` on a collection honours the ambient print bounds, and two distinct
+  *without collisions*: `str` on a collection honours the ambient print bounds, and two distinct
   maps compared under a REPL's `*print-length*` come back **equal** — a comparator that
   reports 0 for values that are not, in the one branch whose whole job is to leave no
   pair uncompared.  One binding frame per comparison is what that costs, on the branch
@@ -308,8 +308,12 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
   ([keyfn coll] (sort-by-content-key keyfn compare-form coll))
   ([keyfn cmp coll]
    (let [v (vec coll)]
-     (if (< (count v) 2)
-       v
+     (case (count v)
+       (0 1) v
+       ;; two, the length of most justifications' antecedent lists: one comparison, and
+       ;; a tie keeps `coll`'s order as the stable sort below would
+       2 (let [a (nth v 0) b (nth v 1)]
+           (if (pos? (cmp (keyfn a) (keyfn b))) [b a] v))
        (->> v (mapv (fn [x] [(keyfn x) x])) (sort-by first cmp) (mapv second))))))
 
 (defn min-by-content-key
@@ -335,6 +339,20 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
   because a printed key's lexicographic order is the whole reason it was printed."
   [coll]
   (sort-by-content-key print-key compare coll))
+
+(defn distinct-by
+  "Lazy `distinct` on `(f x)`, keeping the first element of each key in `coll`'s order.
+  `levels` folds a derived answer into the stored one it duplicates with it, and
+  `checks/first-per-slot` keeps one filler per slot."
+  [f coll]
+  (letfn [(step [xs seen]
+            (lazy-seq
+             (when-let [s (seq xs)]
+               (let [x (first s), k (f x)]
+                 (if (contains? seen k)
+                   (step (rest s) seen)
+                   (cons x (step (rest s) (conj seen k))))))))]
+    (step coll #{})))
 
 ;; ---- the literals of a sentence ------------------------------------------
 ;; A naming invariant is about a **literal** — a predicate applied to arguments.
@@ -411,7 +429,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
            n (count form)]
        (cond
          ;; a `do/` imperative is an instruction; it is refused outright inside a rule
-         ;; (`core/check-no-imperative`) and dispatched at the top level, never named
+         ;; (`checks/check-no-imperative`) and dispatched at the top level, never named
          (sx/do-form? form) []
 
          ;; `(sentexHandle N)` names a stored sentex by integer id
@@ -706,7 +724,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
 (defn blocking-problems
   "The naming violations that **stop** something under `policy` — the messages, or nil.
   Empty under `:warn` and `:off` by construction, so a caller that has to yield a value
-  rather than throw (`special/definitional-violation`, the `assert` dry run) asks this
+  rather than throw (`special/naming-violation`, the `assert` dry run) asks this
   and needs no policy branch of its own."
   [policy sentence context]
   (when (= :strict policy) (seq (problems sentence context))))

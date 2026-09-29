@@ -15,7 +15,10 @@
            (res/unify '(?pred . ?args) '(flies Tweety)))))
   (testing "the empty tail binds to ()"
     (is (= '{?pred thing ?args ()}
-           (res/unify '(?pred . ?args) '(thing))))))
+           (res/unify '(?pred . ?args) '(thing)))))
+  (testing "the dotted pattern binds the same on the right of the unification"
+    (is (= '{?pred parentOf ?args (Tom Bob)}
+           (res/unify '(parentOf Tom Bob) '(?pred . ?args))))))
 
 (deftest dotted-substitute-splices
   (is (= '(parentOf Tom Bob)

@@ -23,6 +23,7 @@
 #
 # Exit: the harness's own status — 0 when every check passed, 1 on a regression,
 # 2 on a bad argument.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -30,6 +31,12 @@ cd "$ROOT" || exit 1
 
 # shellcheck source=scripts/lib/runlog.sh
 . "$ROOT/scripts/lib/runlog.sh"
+
+# A worktree runs `lein gate` and nothing heavier (scripts/lib/slots.sh says why);
+# `--list` measures nothing and runs anywhere.
+# shellcheck source=scripts/lib/slots.sh
+. "$ROOT/scripts/lib/slots.sh"
+case " $* " in *" --list "*) ;; *) require_primary "lein perf" ;; esac
 
 PERF_ROOT="logs/perf"
 LOG="$PERF_ROOT/run-$$.log"
@@ -61,3 +68,4 @@ if [[ -n "$verdict" ]]; then
   runlog_record perf - "$state" "$verdict" "$LOG"
 fi
 exit "$rc"
+}

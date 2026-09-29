@@ -161,7 +161,7 @@
   observed.  (Within one stream the order is the seq's own and is fixed.)
 
   The offsets are the SplitMix64 mixing constants, written as the signed longs they are
-  (a positive hex literal that wide is indistinguishable from a `BigInt`): distinct, odd and
+  (the reader parses a positive hex literal that wide as a `BigInt`): distinct, odd and
   high-entropy, so two streams of one plan and one stream of two adjacent seeds do not
   alias."
   {:memberships -7046029254386353131        ; 0x9E3779B97F4A7C15

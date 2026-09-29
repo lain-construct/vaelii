@@ -19,7 +19,7 @@ OpenCyc reader is in this repo. This page is the **sequence**, and what each ste
 |---|---|---|---|
 | Starter ontology | the classpath | seconds | 1,600+ asserted / 3,200+ stored |
 | Core vocabulary | the classpath | seconds | 850+ sentexes |
-| cyc-tiny | a test fixture in the plugin | one dependency, then seconds | 8,181 sentexes |
+| cyc-tiny | a test fixture in the plugin | one dependency, then seconds | 7,571 sentexes |
 | OpenCyc 4.0 | a distribution you supply | a conversion, then ~10 minutes | ~1.2M sentexes |
 
 ## The shipped pair needs nothing
@@ -66,7 +66,7 @@ loudly, it silently lacks whatever namespaces were added since. `scripts/with-fo
 wraps this command, defaulting the task to `browser` and reading `FOREIGN_VERSION` for the
 pin.
 
-## cyc-tiny, which is the small honest example
+## cyc-tiny, the Cyc fixture the plugin ships
 
 The plugin vendors 804 KB of real CFASL as a test fixture — 717 constants, 8,899
 assertions, taken from Cycorp's OpenCyc 4.0 distribution; the terms it travels under are
@@ -79,17 +79,32 @@ cd vaelii-foreign
 lein convert convert cyc test/resources/cyc-tiny ~/.vaelii/kbs/cyc-tiny
 ```
 
-About a second: 8,899 assertions become 8,248 sentences in 16 contexts, 740 dropped with
-a reason apiece. Then, back in the engine:
+The figures on this page come from one run with vaelii-foreign 0.19.1. The
+conversion takes about 7 s of `lein convert`, most of it Leiningen and the JVM starting:
+8,899 assertions become 8,313 sentences in 15 contexts, and 686 are dropped with a reason
+apiece. Then, back in the engine:
 
 ```sh
 cd ../vaelii
 scripts/link-checkouts.sh && lein browser
 ```
 
-`/kbs` → the **cyc-tiny** card → Load, at the default `ontology` profile. Ready in a few
-seconds: 8,181 sentexes, 765 terms, 364 types, 17 contexts, and 128 sentences the engine's
-own definitional checks refused.
+`/kbs` → the **cyc-tiny** card → Load, at the default `ontology` profile. The load takes
+about 8 s, CxCore included, and the KB holds 7,571 sentexes, 1,001 terms, 429 types and 17
+contexts. The engine's own checks refuse 1,390 of the translated sentences, by `:type`:
+
+| `:type` | refused | what |
+|---|---|---|
+| `:arg-type` | 680 | 640 `comment` and 39 `genFormat` sentences, whose string argument sits in a position the fixture declares a `character_string` and the argument-type check does not find a string literal to be one; and 1 `genlsSpecDenotesGenlInstances` |
+| `:naming` | 498 | a Cyc unary predicate the conversion leaves camelCase — `decontextualizedCollection` 162, `backchainForbidden` 134 — at arity 1, which [naming.md](naming.md#the-spelling-is-a-biconditional-on-arity) refuses |
+| `:arg-variable` | 103 | a rule whose variable two argument positions hold to disjoint types |
+| `:not-indexable` | 58 | a rule whose antecedent functor is a variable |
+| `:naf-not-closed` | 20 | a rule whose deferred antecedent reads a variable nothing else binds, among them `(integer ?INT)` with `?INT` bound by nothing else |
+| `:not-well-formed` | 13 | 11 `genlCx` and `genl` edges from a term to itself or closing a cycle, a rule whose consequent is a bare variable, and an `equals` relating a compound |
+| `:not-range-restricted` | 9 | a rule with a consequent variable no antecedent binds |
+| `:disjoint` | 6 | a membership in two types declared disjoint |
+| `:arg-genl` | 2 | a type argument that is not a subtype of the one its position declares |
+| `:not-stratified` | 1 | a rule that closes a cycle through negation |
 
 ## OpenCyc 4.0, which you supply
 
@@ -153,8 +168,8 @@ Heap is the other thing this corpus is sensitive to, and the numbers sit close t
 6 GB is not enough for the checked `:ontology` load, and the JVM default on a large
 machine is. Neither `lein browser` nor `lein run -m vaelii.web` sets `-Xmx`, so both
 get that default; a profile that pins a smaller heap wants the `:dir` instead. The
-three `scripts/start-vaelii*.sh` set `-Xmx` from `VAELII_HEAP`, default `40g`: a full
-recover of a 12.26M-sentex store filled a 24g heap.
+three `scripts/start-vaelii*.sh` set `-Xmx` from `VAELII_HEAP`, default `40g`, sized for
+a full recover of a store of millions of sentexes, whose TMS and taxonomy grow with it.
 
 ## Text you exported yourself
 
@@ -180,6 +195,12 @@ asserts *two* things — the rule, and the exception qualifying it — a wrapper
 **query**, `(exceptWhen (set/monotonic Q) R)`, states the exception's own class where it
 differs from the rule's. Both are peeled before anything is stored, so neither reaches a
 sentence as a functor ([exceptions.md](exceptions.md)).
+
+**A form the EDN reader refuses is refused by file and line.** An unbalanced form, an
+unknown `#tag` and a `#=` read-eval form are `:unreadable`, with `:file` and the `:line`
+the form opens on. The refusal names the kind of failure and never repeats the reader's
+own message, which can quote the file: `kb-diff` reads a path the same way and sends the
+refusal's message over the wire.
 
 **This is a round trip through content, not through state.** What is written is the
 *premises* — what somebody asserted — and a reload derives the rest again, so the KB that

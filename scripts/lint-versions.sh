@@ -34,6 +34,7 @@
 #
 # Exit 0 when every pair agrees; prints each disagreement and the fix, and
 # exits 1.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 export LC_ALL=C
 
@@ -149,3 +150,5 @@ if (( FAILS > 0 )); then
   exit 1
 fi
 echo "lint-versions: OK (vaelii $engine in $PROJECT, $README and $BADGE, lein-cloverage $declared)"
+exit
+}

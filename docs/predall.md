@@ -212,10 +212,11 @@ when the check runs, so the two cannot be separated there. No shipped rule reads
 
 A rule guarded by `(different ?x ?y)` is order-independent, and the mechanism is worth
 naming because the obvious one does not work. `SupportingProver` is how a prover-answered
-antecedent keeps a firing honest: the prover reports the handles its answer was read from,
-the join adds them to the firing's antecedents, and the ordinary relabel withdraws the
-conclusion when one goes. `different` can report nothing. It holds by the **absence** of a
-merge, it is not assertible, and so no handle for it exists anywhere in the KB.
+antecedent keeps a firing's support complete: the prover reports the handles its answer
+was read from, the join adds them to the firing's antecedents, and the ordinary relabel
+withdraws the conclusion when one goes. `different` can report nothing. It holds by the
+**absence** of a merge, it is not assertible, and so no handle for it exists anywhere in
+the KB.
 
 The re-check index answers it instead — the same index `unknown`, `exceptWhen`, aggregates
 and closed-extent negatives use. A rule reading `different` is registered under the

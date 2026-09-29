@@ -31,6 +31,7 @@
   antecedent joins with a leading-variable non-trigger antecedent (the case the
   network exists to speed up), recursion + the depth guard, unary subtype fan-out, a
   symmetric predicate matched as a non-trigger antecedent (the mirror probe), a
+  commutative predicate whose probe fans over its argument arrangements, a
   deferred `lessThan` antecedent, `exceptWhen` blocking, a `functional` predicate that
   derives an equality twin, sibling-context firings with no common placement, and
   retraction with re-derivation."
@@ -75,6 +76,10 @@
   (v/assert kb '(disjoint dog cat) 'CxBase {:strength :monotonic})
   ;; metadata
   (v/assert kb '(symmetric siblingOf) 'CxBase {:strength :monotonic})
+  ;; the commuting fan: arguments 2 onward of `covers` interchange, so a pattern naming
+  ;; the parts in an order the stored row does not hold them in reaches it only through
+  ;; `sx/commuting-arrangements`
+  (v/assert kb '(commutativeInArgAndRest covers 2) 'CxBase {:strength :monotonic})
   (v/assert kb '(transitive ancestorOf) 'CxBase {:strength :monotonic})
   (v/assert kb '(functional bestFriendOf) 'CxBase {:strength :monotonic})
   ;; rules (all in Base, so they see facts in Left / Right / Base)
@@ -285,7 +290,8 @@
                     ;; sub-predicate facts, so a super's pattern has something to fan to
                     ;; at arity 2 and arity 3
                     (fatherOf I0 I2) (motherOf I3 I4) (leasesFrom I5 I6)
-                    (strictlyBetweenIn I0 I1 I2) (betweenIn I3 I4 I5)]]
+                    (strictlyBetweenIn I0 I1 I2) (betweenIn I3 I4 I5)
+                    (covers I0 I1 I2 I3)]]
           (v/assert rete-kb f 'CxBase {:strength :monotonic}))
         ;; every probe pattern must give the same [handle bindings] set both ways
         (doseq [pat '[(parentOf ?x ?y)      ; fully open
@@ -309,6 +315,11 @@
                       (fatherOf ?x ?y)       ; the sub-predicate on its own
                       (betweenIn ?x ?y ?z)   ; ternary fan-out (strictlyBetweenIn satisfies)
                       (betweenIn I0 ?y ?z)   ; …with the leading value pinned
+                      ;; commutative from position 2: the pattern's order is not the
+                      ;; stored row's, so only the arrangement fan reaches it
+                      (covers I0 ?x I1 ?y)
+                      (covers I0 I3 ?x ?y)
+                      (covers ?w ?x ?y ?z)
                       (ageOf ?x ?a)
                       (grandparentOf ?x ?z)]]
           (is (= (proj (res/match-pattern rete-kb pat '?ctx))

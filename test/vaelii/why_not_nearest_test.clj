@@ -184,7 +184,7 @@
 
 (tu/deftest-kb a-rule-deeper-than-the-depth-bound-is-not-reported-and-the-answer-says-so
   ;; The node engine's termination *is* the depth bound, so a chain longer than it is not
-  ;; searched.  The honest thing is to report the bound that was in force rather than an
+  ;; searched.  The answer reports the bound that was in force rather than an
   ;; empty `:nearest` that reads like "no rule concludes this".
   (tu/with-terms [a b c goal A B CxDeep]
     (v/assert kb (list 'genlCx CxDeep 'CxUniverse) 'CxUniverse)
@@ -198,3 +198,18 @@
           "and a deeper bound reaches the chain behind it")
       (is (= 1 (:max-depth (:nearest-search shallow)))
           "the bound in force is part of the answer, so an empty list is readable"))))
+
+(tu/deftest-kb a-rule-the-search-proved-through-is-not-a-near-miss
+  ;; a backward rule answers the goal, so it is not stored and the search finds a
+  ;; productive branch beside the dead one; only the dead branch's rule is reported
+  (tu/with-terms [goal_t pe qe re Ann]
+    (v/assert-rule kb [(list pe '?x)] (list goal_t '?x) 'CxUniverse {:direction :backward})
+    (v/assert-rule kb [(list qe '?x) (list re '?x)] (list goal_t '?x) 'CxUniverse
+                   {:direction :backward})
+    (v/assert kb (list pe Ann) 'CxUniverse)
+    (v/assert kb (list qe Ann) 'CxUniverse)
+    (let [r (v/why-not kb (list goal_t Ann) 'CxUniverse {:nearest 3})]
+      (is (= :not-stored (:reason r)))
+      (is (= [[(list re Ann)]] (mapv :missing (:nearest r))))
+      (is (= [3 1] ((juxt :nodes :dead) (:nearest-search r)))
+          "the productive node and its parent are live, the other rule's node dead"))))

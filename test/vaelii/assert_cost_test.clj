@@ -91,6 +91,7 @@
             [vaelii.impl.kb :as kb]
             [vaelii.impl.profile :as prof]
             [vaelii.impl.rules :as rules]
+            [vaelii.impl.special :as special]
             [vaelii.test-util :as tu]))
 
 ;; The instrument is process-wide, so a test that threw while collecting would hand the
@@ -316,7 +317,7 @@
 ;; `:dead` is why: how many trie nodes a removal empties is decided by what else is still
 ;; stored under the same prefix, so the number below is a property of *this corpus torn
 ;; down in this order* and not of a fact of this shape.  Every other family is decided by
-;; the sentex and is indistinguishable from an assert budget.
+;; the sentex, so its count is a per-assert budget.
 
 (def ^:private nat-population
   "Reified NATs standing in the KB for the two NAT workloads.  Its own knob rather than
@@ -947,6 +948,31 @@
           "an unarmed run walks at least once per conclusion, exactly as it did pre-optimization")
       (is (> (:trie-lookup below) (:trie-lookup armed-large))
           "so the smaller unarmed run out-walks the larger armed one — the skip is what closes the gap"))))
+
+(deftest an-unchained-assert-computes-no-chaining-seeds
+  ;; The seeds feed `chain-all` alone, and `visibility-seeds` reads the whole
+  ;; rule-relevant corpus per `genlCx` edge, so on a large store one edge asserted under
+  ;; `:chain? false` read the corpus into heap to compute seeds it then discarded.
+  ;; The chained assert is the control — the same edge, and the seeds are computed.
+  (let [calls (atom 0)
+        edge  (fn [chain?]
+                (let [kb (fresh)]
+                  (v/assert kb '(implies (v_fact_p ?x) (v_seen_p ?x)) 'CxSeedLow
+                            {:direction :forward})
+                  (v/assert kb '(v_fact_p VA) 'CxSeedMid)
+                  (reset! calls 0)
+                  (with-redefs [special/visibility-seeds
+                                (let [f special/visibility-seeds]
+                                  (fn [& args] (swap! calls inc) (apply f args)))]
+                    (v/assert kb '(genlCx CxSeedLow CxSeedMid) 'CxUniverse {:chain? chain?}))
+                  {:seeds @calls
+                   :fired (boolean (seq (v/sentexes-matching kb '(v_seen_p VA) 'CxSeedLow)))}))]
+    (testing "chained, the edge computes its seeds and the rule fires over what it now sees"
+      (let [{:keys [seeds fired]} (edge true)]
+        (is (pos? seeds))
+        (is (true? fired))))
+    (testing "unchained, it computes none — and fires nothing, which `:chain? false` asks"
+      (is (= {:seeds 0 :fired false} (edge false))))))
 
 (deftest instrument-is-silent-when-off
   ;; The budgets above are only meaningful if the protocols added no work when nobody is

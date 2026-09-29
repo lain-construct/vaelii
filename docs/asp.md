@@ -61,17 +61,16 @@ lein with-profile +with-clingo test     # points JNA at /opt/homebrew/lib
 `solver.clj` picks per program size (`VAELII_CLINGO_MAX_BYTES`, default 3000 bytes:
 clingo below, clasp above) and loads the clingo namespace lazily via
 `requiring-resolve`, so JNA stays genuinely optional. Force one with
-`-Dvaelii.asp.solver=clingo|clasp` or `VAELII_ASP_SOLVER`.
+`-Dvaelii.asp.solver=clingo|clasp` or `VAELII_ASP_SOLVER`. Whether clingo loads is
+decided once per process, and a load that throws is logged at `:warn` and routes every
+solve to clasp. A `VirtualMachineError` during the load is the one exception: it answers
+clasp for that call only, and the next call loads again.
 
-The in-process solve writes no ASPIF text. `backend-batch!` interns each program atom as
+The in-process solve writes no ASPIF text. `backend-load!` interns each program atom as
 the symbol `a(<id>)` carrying its label and emits every rule into a live control through
 the `clingo_backend_*` accessors; a model's true atoms come back through
 `clingo_model_symbols` and map to labels through that symbol association. `clasp` still
-reads the rendered ASPIF text. `vaelii.impl.asp.clingo` also holds an incremental session
-API — `open-session`, `add-program!`, `declare-external!`, `assign-external!`,
-`solve-session`, `close-session!`. A session grows one live control a batch at a time and
-changes an external atom's truth between solves without re-grounding. No engine path opens
-a session.
+reads the rendered ASPIF text.
 
 ### Why size picks the backend
 
@@ -96,12 +95,65 @@ in-process too — a slower solve is a cost regression, where routing to a binar
 machine does not have would be a refusal `available?` had promised away. The clasp probe
 forks a process to answer, so it is made once per JVM.
 
+### The solve limit
+
+`VAELII_ASP_SOLVE_LIMIT` (default 100,000; 0 sets no limit) bounds **one solve** by the
+conflicts its search may spend, on both backends: clasp takes it as `--solve-limit`, and
+in-process clingo's control takes the same flag as a solver option. Every solve also runs
+on one thread under clasp's default seed, stated as `--parallel-mode=1 --seed=1` rather
+than assumed (`clasp/search-args`). A conflict count does not depend on the machine's
+speed or load, so the limit stops a program at the same point on every machine, with the
+same model in hand.
+
+Measured on clasp 3.4.0 and libclingo 5.8.0, on a 90-vertex weighted cover (optimum
+proved in 1.37 million conflicts) and an 11-pigeon pigeonhole: each clasp mode at two
+limits that stop the search, and a `:label` solve at one it finishes under, gave one
+output per case over ten runs alone and ten run at once beside ten busy processes (load
+average 49 on ten cores), identical but for clasp's timing fields. The four enumerating
+modes on clingo gave one result per case the same way.
+`asp_aspif_test/a-search-past-the-solve-limit-stops-at-the-same-point-on-every-run`
+repeats the check on every backend the machine has.
+
+The default of 100,000 conflicts keeps the limit, not the wall clock, the bound on every
+program of the sizes measured. On clasp 3.4.0 it costs 0.6 seconds on the 90-vertex
+cover (24 KB of ASPIF) and 2 seconds on a 600-vertex cover (173 KB), about 30 times under
+the time limit's 60 seconds, so a machine many times slower still meets the solve limit
+first. The default suite's largest solve spends 104 conflicts. A program that needs more
+search than the limit stops deciding on every machine: the 90-vertex cover proves its
+optimum in 1.37 million conflicts, so at the default the edge solver decides nothing on
+it and `do/label :one` returns its best model as best-effort. Raise the limit for such a
+program, and raise `VAELII_ASP_TIME_LIMIT` with it when the solve would then run near
+60 seconds on the slowest machine that runs it.
+
+A search the limit stops reads as one the time limit stops: `:interrupted`, or
+`:best-effort` for a `:label` solve holding a model. Neither backend flags it. clasp
+reports `More: yes`, a search that did not exhaust its space, and libclingo sets neither
+the exhausted bit nor the interrupted one. A `:sat` solve stops at its first model with
+its space unexhausted by design, so there only a search with no model has stopped short.
+
+The same program can stop at different points on the two backends, and on two clasp
+versions: the backends load a program differently (ASPIF text against the backend
+accessors), so their searches differ, and a program near the limit can finish on one and
+not the other. Which backend solves is configuration, not speed — `VAELII_ASP_SOLVER`,
+and in auto mode the program's size and whether libclingo loads — so two installations
+that must agree on such a program pin `VAELII_ASP_SOLVER`.
+
 ### The time limit
 
-`VAELII_ASP_TIME_LIMIT` (default 60 seconds; 0 lifts it) bounds **one solve**, on both
-backends: clasp takes it as `--time-limit`, and in-process clingo — whose control accepts
-solver options only and refuses that flag — runs the search asynchronously and cancels
-the handle when the budget is spent.
+`VAELII_ASP_TIME_LIMIT` (default 60 seconds; 0 lifts it) bounds **one solve** by the wall
+clock, on both backends, and is the backstop behind the solve limit: clasp takes it as
+`--time-limit`, and in-process clingo — whose control accepts solver options only and
+refuses that flag — runs the search asynchronously and cancels the handle when the budget
+is spent. Which solves it stops depends on the machine's speed and load, so a round it
+cuts short decides nothing on one machine that another machine decides. With
+`VAELII_ASP_SOLVE_LIMIT` at 0 it is the only limit
+([defenses.md](defenses.md#where-the-four-properties-stop)).
+
+A clasp process still running at twice the limit, or at the limit plus 10 seconds when
+that is later, is killed with every process it started, and the solve raises
+`:solver-unavailable`, the refusal a missing binary raises (`clasp/run-clasp`). clasp
+stops itself at `--time-limit`, so the kill reaches only a process that did not. A limit
+of 0 sets no deadline either.
 
 **One solve is not one operation, and the difference is a multiplier.** A solve runs on
 the single writer, so an operation that makes several holds every write behind the sum of
@@ -113,7 +165,6 @@ their budgets, not behind one:
 | `edge-solver` on one program | 1 | 1 × budget |
 | `classify` / `classify-program` | 2 (`classify-both` runs cautious then brave) | 2 × budget |
 | `do/labeling` (`label-dilemmas`) | 3 (classification's two, then the labeling) | 3 × budget |
-| one `settle` | one per defeat round | up to \|contested\| × budget |
 
 Measured at `VAELII_ASP_TIME_LIMIT=1` on a 78-atom program that finishes under neither:
 `classify-both` returns after **about two budgets**, a single `:label` or `:all-optima`
@@ -148,9 +199,8 @@ ASP   defeats {2}   -> labels {1,3}
 
 Pairing that stub labeling with an ASP classification is what `check-agrees` reports as
 `:labeling-inconsistent`, blaming the encoding for a disagreement the fallback
-introduced. Across a settle's defeat rounds it is worse: round 1 interrupted and round 2
-not gives a belief set neither solver would produce, differing run to run on identical
-knowledge — and the order-independence invariant in [nmtms.md](nmtms.md) is a claim about
+introduced. A labeling committed from such a pair would differ run to run on identical
+knowledge, and the order-independence invariant in [nmtms.md](nmtms.md) is a claim about
 *knowledge*, which a wall clock is not.
 
 So with a backend present an unanswered solve **decides nothing**: `{:defeat #{}
@@ -161,13 +211,13 @@ than return a world nobody computed — `label-dilemmas` by raising that same `:
 an empty defeat set is otherwise the perfectly good answer *keep everything*. `do/label` in
 `:one` or `:sat` mode is the one reader that does not refuse when a model was found first:
 it returns that model with `:best-effort? true`, a valid labeling whose optimality the
-interrupt left unproven. The belief path is unaffected — `edge-solver` treats
+interrupt left unproven. `label-dilemmas` is unaffected — `edge-solver` treats
 `:best-effort` as undecided, so no wall clock moves a belief.
 
 `:unsat` keeps its own reading and is not this case: a definite *no model*, the same
 answer in every run, so it costs the invariant nothing. The edge solver degrades on it,
-`kept-of` keeps nothing, and an enumeration is empty. It should not arrive from a settle
-at all — every contradiction the engine sends is soft.
+`kept-of` keeps nothing, and an enumeration is empty. It should not arrive from a dilemma
+program at all — every nogood in one is soft.
 
 ### A backend that throws
 
@@ -177,12 +227,14 @@ Same policy, same reason. The backends fail in several currencies — clingo's
 wrong-ABI libclingo — and `edge-solver` catches all of them at the boundary, because the
 the boundary is where a native failure crosses into the engine.
 
-Left to propagate, such a throw unwinds whatever arbitration is in progress.
-`settle`'s `resolve-contradictions` reaches the solver *after* an earlier round has
-already mutated the TMS, so the exception would escape with round 1's defeats landed,
-`:conflicts` stale, `settle-finish` never reached and `reset-touched!` never run — a KB
-half-way through an arbitration nobody can finish. Deciding nothing leaves it exactly as
-the round found it, and the failure comes back as `:error` for a caller to rank.
+Deciding nothing hands the failure back as `:error` for a caller to rank, and
+`label-dilemmas` raises it before the labeling asserts anything.
+
+Two throws are not caught this way. A `VirtualMachineError` (`OutOfMemoryError`,
+`StackOverflowError`) is rethrown, since the JVM is failing and not the backend. An
+`InterruptedException` decides nothing and sets the thread's interrupt flag again, so the
+interrupt that was meant to stop the caller still reaches the writing thread (what an
+interrupt does to a writing thread: [api.md](api.md)).
 
 The imperative readers are not mid-arbitration, so they still throw: a refusal there
 adds no work and says more than a result would.
@@ -205,6 +257,17 @@ v :- a_h1, a_h2, ...        # every contested member holds
 Weak rather than hard is the point: a contradiction that cannot be satisfied is
 *reported*, not thrown. That is the soft-and-prioritized contract from
 [nmtms.md](nmtms.md), expressed directly in the object language.
+
+A `do/label` program adds a solve's **normal rules** (`set/solveRule`,
+[solving.md](solving.md)), each ground instance rendered as written over the choice atoms
+and the **derived** atoms its heads name:
+
+```
+d :- a_1, ..., not a_k.     # a derived atom: no choice rule, no minimize term
+```
+
+A derived atom is decided by the rules, so the keep-belief and tiebreak levels below
+range over the choice atoms alone.
 
 ### The objective
 
@@ -280,7 +343,7 @@ labeling first with `do/labeling` ([labeling.md](labeling.md)), which is the mec
 that does build a program from a dilemma. `asp_edge_test`'s
 `the-asp-solver-does-not-decide-a-nixon-diamond` pins the absence.
 
-### Two things keep this honest
+### Two things keep `classify` from reporting a tie as forced
 
 **The tiebreak comes off.** The level-0 content-keyed objective exists to make an
 arbitrary choice *stable*, not to express anything about the world. Left in, it makes
@@ -359,17 +422,17 @@ correct if nogoods ever grow beyond today's `S` vs `(not S)` pairs.
 ## Where the ASP layer stops
 
 The engine encodes the contradiction edge and nothing above it: `edge.clj`
-translates one settle's nogoods into a program, and `label.clj` classifies and labels
+translates one program's nogoods into ASPIF, and `label.clj` classifies and labels
 what comes back. There is no multi-context classification and no multi-shot solving — a
 solve is one program, built from one region, answered once.
 
-A `do/label` program carries one thing a settle program does not: **cardinality bounds**.
+A `do/label` program carries one thing a dilemma program does not: **cardinality bounds**.
 A `asp/atMost` / `asp/atLeast` rule ([solving.md](solving.md)) grounds to a `Program`
 `:cardinalities` entry, and `edge/translate` renders each as one ASPIF weight-body
 statement (`aspif/weight-constraint` for a hard bound, `aspif/weight-rule` plus a minimize
 for a soft one) rather than the `C(n, k+1)` subset nogoods a hand-written bound needs.
-`settle` builds no cardinalities — they are a labeling-only construct — so `local-solver`,
-which only ever sees a settle program, never receives one.
+`label/dilemma-program` builds no cardinalities, so `local-solver`, which sees a dilemma
+program only, never receives one.
 
 There is also **no CSP layer**: a program carries no integer constraints, so nothing
 emits clingcon theory atoms and a numeric bound reaches the solver only as the handles a

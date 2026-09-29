@@ -2,8 +2,8 @@
 # scripts/test-shuffle.sh — the whole matrix in a random order, memory first,
 # stopping at the first configuration that fails.
 #
-# `test-backends.sh` runs the eight storage backends in a fixed order and
-# `test-sweeps.sh` the six engine sweeps in theirs; both run every configuration
+# `test-backends.sh` runs the nine storage backends in a fixed order and
+# `test-sweeps.sh` the seven sweeps in theirs; both run every configuration
 # and report a row each.  This runs BOTH lists as one, SHUFFLED, and stops the
 # moment one fails.  It is the smoke test the full matrix is not: a single walk
 # that starts where a break is likeliest to matter — a bare `lein test` on memory,
@@ -14,7 +14,7 @@
 # them: `config_expected_delta` expects no shortfall anywhere, so a run that counted
 # fewer assertions than the rest is a skip and fails the walk like a red run would.
 #
-# WHY SHUFFLE.  The matrix's promise is that all fourteen configurations agree, and
+# WHY SHUFFLE.  The matrix's promise is that all sixteen configurations agree, and
 # a fixed order tests that promise the same way every time.  A random order does
 # not find more bugs in one run, but across runs it reaches a different
 # configuration first, so an interrupted walk has still covered a random subset
@@ -59,6 +59,7 @@
 #
 # Exit: 0 when every configuration passed, 1 when one failed, 130 when interrupted.
 
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -110,8 +111,8 @@ RANDOM=$SEED
 
 SHUF=()
 if [[ ${#WANTED[@]} -gt 0 ]]; then
-  # groups expanded and repeats dropped first, so `full memory` is fourteen runs and
-  # not fifteen with one of them twice
+  # groups expanded and repeats dropped first, so `full memory` is sixteen runs and
+  # not seventeen with one of them twice
   while IFS= read -r c; do SHUF+=("$c"); done < <(expand_configs "${WANTED[@]}")
   shuffle_inplace
   CONFIGS=("${SHUF[@]}")
@@ -146,6 +147,11 @@ if [[ $DRY -eq 1 ]]; then
   done
   exit 0
 fi
+
+# A worktree runs `lein gate` and nothing heavier (scripts/lib/slots.sh says why).
+# shellcheck source=scripts/lib/slots.sh
+. scripts/lib/slots.sh
+require_primary "lein test-shuffle"
 
 mkdir -p "$OUT_DIR"
 echo "${DIM}logs in $OUT_DIR/${OFF}"
@@ -266,7 +272,7 @@ for cfg in "${CONFIGS[@]}"; do
   exit 1
 done
 
-# Thirteen green runs have still said nothing if one of them ran fewer assertions than
+# Sixteen green runs have still said nothing if one of them ran fewer assertions than
 # the rest — the same check the fixed-order runners make.  `config_expected_delta`
 # expects no shortfall anywhere; any shortfall is a skip and fails the walk.  Skipped
 # when the runs did not all compile one revision.
@@ -291,3 +297,4 @@ fi
 echo "${GREEN}${BOLD}all ${#CONFIGS[@]} configurations green${OFF}" \
      "${DIM}at $(revision_hash) — seed $SEED ($OUT_DIR/), assertion counts equal${OFF}"
 exit 0
+}

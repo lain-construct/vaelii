@@ -15,8 +15,10 @@
 ;; `clear-records!` sets `:aborted` — both under the kind lock, so the compactor's
 ;; delta reconcile sees a consistent view.  See `compact-kind!`.  `failed` holds the
 ;; failure of a compaction that could not install its result past the commit point,
-;; else nil; while set, every read and write refuses (`usable!`).
-(defrecord Kind [log idx lock live-ids log-path idx-path compacting failed cache enc dec])
+;; else nil; while set, every read and write refuses (`usable!`).  `fault` is the
+;; store's one fault latch (`files/latch-fault!`), the same atom in all three kinds: a
+;; closed channel or a failed write on any of them stops the whole store.
+(defrecord Kind [log idx lock live-ids log-path idx-path compacting failed cache enc dec fault])
 
 (defrecord TokenLog [log path fwd rev lock])                          ; vaelii.impl.disk.tokens
 

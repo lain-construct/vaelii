@@ -67,6 +67,7 @@
 #   bash scripts/check-breaking-siblings.sh --strict        # fail on an entry saying too little
 #
 # `lein check-siblings` runs it over the unreleased section.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -137,7 +138,7 @@ done
 
 # Where the siblings live, when nothing named a root: the directory holding the
 # MAIN checkout. `--git-common-dir` rather than the toplevel, so a run from a git
-# worktree (several agents share this tree) still resolves to the siblings beside
+# worktree (several writers share this tree) still resolves to the siblings beside
 # the repository rather than to the worktree's own parent, which holds none.
 if [[ ${#roots[@]} -eq 0 ]]; then
   common="$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)"
@@ -415,3 +416,4 @@ fi
 printf '%sa hit is a place to look; no hit is not proof — this greps names, and a\n'  "$DIM"
 printf 'sibling can depend on a behaviour without spelling one.%s\n' "$RST"
 exit 0
+}

@@ -10,6 +10,7 @@
   designed in, which is exactly why they need pinning: nothing else would notice if a
   change to the prover engine took them away."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.walk :as walk]
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
             [vaelii.host.seed :as seed]
@@ -84,6 +85,131 @@
       (v/retract! kb (v/handle-of kb (list 'nonTangentialProperPart Cage Room) C))
       (is (v/query? kb (list tmpFlies Canary) C {:max-depth 2})))))
 
+(tu/deftest-kb why-not-names-the-exception-over-a-firing-the-network-derives
+  ;; the antecedent is a composition no fact states, so `why-not` re-solves the rule
+  ;; against the network outside any chaining run to find the firing its exception blocks
+  (tu/with-terms [Cage Room Canary caged indoors]
+    (v/assert kb (list 'nonTangentialProperPart Canary Cage) C)
+    (v/assert kb (list 'nonTangentialProperPart Cage Room) C)
+    (v/assert kb (list caged Canary) C)
+    (v/assert kb (list 'exceptWhen (list caged '?x)
+                       (list 'set/forwardRule (list 'implies (list 'and (list 'properPartOfRegion '?x Room))
+                                                    (list indoors '?x))))
+              C)
+    (is (= [{'?x Cage}] (v/ask kb (list indoors '?x) C)))
+    (is (= [:excepted (list caged Canary)]
+           ((juxt :reason :exception) (v/why-not kb (list indoors Canary) C))))))
+
+(tu/deftest-kb a-composed-exception-withdraws-a-firing-on-the-network-it-composes-over
+  ;; the rule joins on the network and its exception is a relation only composition
+  ;; answers, so the fact completing the composition shares no argument with the
+  ;; exception's instance: the canary is disconnected from the room because its cage is
+  (tu/with-terms [Cage Room Canary indoors]
+    (v/assert kb (list 'exceptWhen (list 'spatiallyDisconnected '?x Room)
+                       (list 'set/forwardRule
+                             (list 'implies (list 'and (list 'properPartOfRegion '?x '?y))
+                                   (list indoors '?x))))
+              C)
+    (v/assert kb (list 'nonTangentialProperPart Canary Cage) C)
+    (is (seq (v/sentexes-matching kb (list indoors Canary) C)))
+    (v/assert kb (list 'spatiallyDisconnected Cage Room) C)
+    (is (v/ask? kb (list 'spatiallyDisconnected Canary Room) C))
+    (is (empty? (v/sentexes-matching kb (list indoors Canary) C)))))
+
+(tu/deftest-kb a-composed-exception-withdraws-a-firing-whatever-the-rule-joins-on
+  ;; the rule joins on an ordinary predicate, so only its exception is on the calculus:
+  ;; neither composing fact names the canary and the room together, and whichever arrives
+  ;; last must still put the firing in front of its exception
+  (doseq [order [[:dc :ntpp] [:ntpp :dc]]]
+    (tu/with-terms [Cage Room Canary bird flies]
+      (let [facts {:dc   (list 'spatiallyDisconnected Cage Room)
+                   :ntpp (list 'nonTangentialProperPart Canary Cage)}]
+        (v/assert kb (list 'exceptWhen (list 'spatiallyDisconnected '?x Room)
+                           (list 'set/defaultRule
+                                 (list 'set/forwardRule
+                                       (list 'implies (list 'and (list bird '?x))
+                                             (list flies '?x)))))
+                  C)
+        (v/assert kb (list bird Canary) C)
+        (is (seq (v/sentexes-matching kb (list flies Canary) C)))
+        (doseq [f order] (v/assert kb (facts f) C))
+        (is (v/ask? kb (list 'spatiallyDisconnected Canary Room) C) (str order))
+        (is (empty? (v/sentexes-matching kb (list flies Canary) C)) (str order))
+        (testing "and the composing fact leaving releases it"
+          (v/retract! kb (v/handle-of kb (facts :ntpp) C))
+          (is (seq (v/sentexes-matching kb (list flies Canary) C)) (str order)))))))
+
+(tu/deftest-kb a-composed-exception-sees-a-sub-predicate-fact-and-the-edge-under-it
+  ;; the network reads a sub-predicate's facts through the matcher's fan, so a fact on
+  ;; one, and the `genl` edge that makes it one, each move the composition
+  (doseq [order [[:edge :caged] [:caged :edge]]]
+    (tu/with-terms [Cage Room Canary bird flies caged]
+      (let [steps {:edge  (list 'genl caged 'nonTangentialProperPart)
+                   :caged (list caged Canary Cage)}]
+        (v/assert kb (list 'exceptWhen (list 'spatiallyDisconnected '?x Room)
+                           (list 'set/defaultRule
+                                 (list 'set/forwardRule
+                                       (list 'implies (list 'and (list bird '?x))
+                                             (list flies '?x)))))
+                  C)
+        (v/assert kb (list bird Canary) C)
+        (v/assert kb (list 'spatiallyDisconnected Cage Room) C)
+        (is (seq (v/sentexes-matching kb (list flies Canary) C)))
+        (doseq [s order] (v/assert kb (steps s) C))
+        (is (v/ask? kb (list 'spatiallyDisconnected Canary Room) C) (str order))
+        (is (empty? (v/sentexes-matching kb (list flies Canary) C)) (str order))))))
+
+(defn- permutations
+  [xs]
+  (if (empty? xs)
+    [[]]
+    (for [x xs p (permutations (remove #{x} xs))] (cons x p))))
+
+(tu/deftest-kb a-rule-joining-on-a-calculus-gains-a-firing-from-a-sub-predicate-fact
+  ;; the sub-predicate fact composes with the `ntpp` one into the rule's antecedent, and
+  ;; names the cage where the firing names the canary, so the trigger position misses it
+  (doseq [order (permutations [:rule :edge :sub :ntpp])]
+    (tu/with-terms [Cage Room Canary bird caged dc]
+      (let [steps {:rule #(v/assert kb (list 'set/forwardRule
+                                             (list 'implies
+                                                   (list 'and (list 'spatiallyDisconnected '?x '?y)
+                                                         (list bird '?x))
+                                                   (list caged '?x)))
+                                    C)
+                   :edge #(v/assert kb (list 'genl dc 'spatiallyDisconnected) C)
+                   :sub  #(v/assert kb (list dc Cage Room) C)
+                   :ntpp #(v/assert kb (list 'nonTangentialProperPart Canary Cage) C)}]
+        (v/assert kb (list bird Canary) C)
+        (doseq [s order] ((steps s)))
+        (is (v/ask? kb (list 'spatiallyDisconnected Canary Room) C) (str order))
+        (is (seq (v/sentexes-matching kb (list caged Canary) C)) (str order))
+        (testing "and the edge leaving withdraws it: the pair's support names the edge"
+          (v/retract! kb (v/handle-of kb (list 'genl dc 'spatiallyDisconnected) C))
+          (is (empty? (v/sentexes-matching kb (list caged Canary) C)) (str order)))))))
+
+(tu/deftest-kb a-rule-joining-on-a-calculus-loses-a-firing-a-sub-predicate-fact-contradicts
+  ;; `(dc Canary Cage)` read as `spatiallyDisconnected` makes the network unsatisfiable,
+  ;; with every fact behind the standing firing still believed
+  (doseq [order [[:edge :sub] [:sub :edge]]]
+    (tu/with-terms [Cage Room Canary bird caged dc]
+      (let [steps {:edge (list 'genl dc 'spatiallyDisconnected)
+                   :sub  (list dc Canary Cage)}]
+        (v/assert kb (list 'set/forwardRule
+                           (list 'implies
+                                 (list 'and (list 'spatiallyDisconnected '?x Room) (list bird '?x))
+                                 (list caged '?x)))
+                  C)
+        (v/assert kb (list bird Canary) C)
+        (v/assert kb (list 'nonTangentialProperPart Canary Cage) C)
+        (v/assert kb (list 'spatiallyDisconnected Cage Room) C)
+        (is (seq (v/sentexes-matching kb (list caged Canary) C)) (str order))
+        (doseq [s order] (v/assert kb (steps s) C))
+        (is (qkb/inconsistent? space/rcc8 kb C) (str order))
+        (is (empty? (v/sentexes-matching kb (list caged Canary) C)) (str order))
+        (testing "and the contradicting fact leaving restores it"
+          (v/retract! kb (v/handle-of kb (steps :sub) C))
+          (is (seq (v/sentexes-matching kb (list caged Canary) C)) (str order)))))))
+
 ;; ---- forward chaining ----------------------------------------------------
 
 (tu/deftest-kb forward-chaining-fires-on-an-asserted-qualitative-fact
@@ -110,7 +236,7 @@
     (v/assert kb (list 'nonTangentialProperPart A B) C)
     (v/assert kb (list 'nonTangentialProperPart B D) C)
     (testing "the network entails that A is strictly inside D"
-      (is (= #{:ntpp} (space/possible-relations kb C A D)))
+      (is (= #{:ntpp} (qkb/possible space/rcc8 kb C A D)))
       (is (nil? (v/handle-of kb (list 'nonTangentialProperPart A D) C))
           "and it is genuinely not stored"))
     (testing "the rule fires on it anyway, resting on the two facts that entailed it"
@@ -154,9 +280,9 @@
     (v/assert kb (list 'nonTangentialProperPart A B) CxA)
     (v/assert kb (list 'nonTangentialProperPart B D) CxB)
     (testing "neither sibling composes the chain, and the context below both does"
-      (is (= 8 (count (space/possible-relations kb CxA A D)))
+      (is (= 8 (count (qkb/possible space/rcc8 kb CxA A D)))
           "A's context cannot see B's half, so A to D is wide open there")
-      (is (= #{:ntpp} (space/possible-relations kb CxBoth A D)))
+      (is (= #{:ntpp} (qkb/possible space/rcc8 kb CxBoth A D)))
       (is (v/ask? kb (list 'nonTangentialProperPart A D) CxBoth))
       (is (nil? (v/handle-of kb (list 'nonTangentialProperPart A D) CxBoth))
           "and it is genuinely not stored anywhere"))
@@ -261,7 +387,7 @@
                    {:direction :forward})
     (v/assert kb (list 'not (list 'regionConnectedTo A D)) C)
     (testing "the negative fact alone pins the pair"
-      (is (= #{:dc} (space/possible-relations kb C A D)))
+      (is (= #{:dc} (qkb/possible space/rcc8 kb C A D)))
       (is (v/ask? kb (list 'spatiallyDisconnected A D) C))
       (is (nil? (v/handle-of kb (list 'spatiallyDisconnected A D) C))))
     (is (= #{C} (placements kb tmpApart A)))))
@@ -271,7 +397,7 @@
     (v/assert kb (list 'not (list 'regionConnectedTo A D)) C)
     (v/assert-rule kb [(list 'spatiallyDisconnected '?x D)] (list tmpApart '?x) C
                    {:direction :forward})
-    (is (= #{:dc} (space/possible-relations kb C A D)))
+    (is (= #{:dc} (qkb/possible space/rcc8 kb C A D)))
     (is (= #{C} (placements kb tmpApart A)))))
 
 (tu/deftest-kb a-network-a-negative-fact-makes-impossible-withdraws-what-it-licensed
@@ -287,7 +413,7 @@
     (is (= #{C} (placements kb tmpIn A)) "drawn from the composition")
     (v/assert kb (list 'not (list 'partOfRegion A D)) C)
     (testing "the network is now unsatisfiable and answers no goal of the calculus"
-      (is (space/inconsistent? kb C))
+      (is (qkb/inconsistent? space/rcc8 kb C))
       (is (not (v/ask? kb (list 'partOfRegion A D) C))))
     (testing "so what it licensed is withdrawn, and comes back when the clash goes"
       (is (empty? (placements kb tmpIn A)))
@@ -304,11 +430,59 @@
     (java.util.Collections/shuffle a r)
     (vec a)))
 
+(defn- qualitative-case
+  "A rule, four facts of mixed polarity, two contexts and the context below both, over
+  the terms `t` names: the `genlCx` setup, the six steps an order permutes, and the
+  derived set a KB holds afterwards, placement contexts included."
+  [{:syms [A B D P Q X Y CxA CxB CxBoth tmpIn tmpApart]}]
+  {:setup   [(list 'genlCx CxA 'CxUniverse)
+             (list 'genlCx CxB 'CxUniverse)
+             (list 'genlCx CxBoth CxA)
+             (list 'genlCx CxBoth CxB)]
+   :steps   [;; the containment chain, split so only CxBoth composes it
+             #(v/assert % (list 'nonTangentialProperPart A B) CxA)
+             #(v/assert % (list 'nonTangentialProperPart B D) CxB)
+             ;; a negative fact, which pins P/Q to DC by complement alone
+             #(v/assert % (list 'not (list 'regionConnectedTo P Q)) CxA)
+             ;; and one about two regions neither pair mentions
+             #(v/assert % (list 'nonTangentialProperPart X Y) CxB)
+             #(v/assert-rule % [(list 'partOfRegion '?x D)] (list tmpIn '?x)
+                             'CxUniverse {:direction :forward})
+             #(v/assert-rule % [(list 'spatiallyDisconnected '?x Q)] (list tmpApart '?x)
+                             'CxUniverse {:direction :forward})]
+   :derived (fn [k]
+              (set (for [pred [tmpIn tmpApart]
+                         s    (v/sentexes-matching k (list pred '?x) '?ctx)]
+                     [(:sentence s) (:context s)])))})
+
+(defn- agree-on-something
+  "Every order's derived set is one set, holding the two firings only the case's
+  contexts and negative fact make."
+  [answers {:syms [A P CxA CxBoth tmpIn tmpApart]}]
+  (testing "every order agrees, and on something rather than on nothing"
+    (is (apply = answers))
+    (is (contains? (first answers) [(list tmpIn A) CxBoth])
+        "the composition only CxBoth sees")
+    (is (contains? (first answers) [(list tmpApart P) CxA])
+        "and the relation only the negative fact pins")))
+
+(tu/deftest-kb the-same-qualitative-knowledge-derives-the-same-belief-in-sampled-orders
+  ;; Three of the orders the `^:slow` test below runs, into the namespace's KB, each on
+  ;; fresh terms that are read back to their base names before the sets are compared.
+  (let [names   '[A B D P Q X Y CxA CxB CxBoth tmpIn tmpApart]
+        answers (for [seed (range 3)]
+                  (let [t    (zipmap names (map #(tu/fresh-term (tu/term-role %) %) names))
+                        back (zipmap (vals t) (keys t))
+                        {:keys [setup steps derived]} (qualitative-case t)]
+                    (doseq [s setup] (v/assert kb s 'CxUniverse))
+                    (doseq [step (shuffled seed steps)] (step kb))
+                    (walk/postwalk-replace back (derived kb))))]
+    (agree-on-something (vec answers) (zipmap names names))))
+
 (tu/deftest-kb ^:slow the-same-qualitative-knowledge-derives-the-same-belief-in-any-order
   ;; The oracle for the whole protocol, and the property the two sections above are each one
-  ;; instance of: a rule, four facts of mixed polarity, two contexts and the context
-  ;; below both — asserted in eight orders, into a KB built from nothing each time, and
-  ;; every order must reach the identical derived set, placement contexts included.
+  ;; instance of: `qualitative-case` asserted in eight orders, into a KB built from nothing
+  ;; each time, and every order must reach the identical derived set.
   ;;
   ;; Orders rather than a fixed expectation because the failure this guards is never a
   ;; wrong answer, it is a *missing* one: a network read where no reader stands, or an
@@ -317,40 +491,46 @@
   ;; content.  The rules are permuted along with the facts, since "the rule arrived last"
   ;; is exactly the case a rule's own full join would otherwise paper over.
   (tu/with-terms [A B D P Q X Y CxA CxB CxBoth tmpIn tmpApart]
-    (let [setup  [(list 'genlCx CxA 'CxUniverse)
-                  (list 'genlCx CxB 'CxUniverse)
-                  (list 'genlCx CxBoth CxA)
-                  (list 'genlCx CxBoth CxB)]
-          steps  [;; the containment chain, split so only CxBoth composes it
-                  #(v/assert % (list 'nonTangentialProperPart A B) CxA)
-                  #(v/assert % (list 'nonTangentialProperPart B D) CxB)
-                  ;; a negative fact, which pins P/Q to DC by complement alone
-                  #(v/assert % (list 'not (list 'regionConnectedTo P Q)) CxA)
-                  ;; and one about two regions neither pair mentions
-                  #(v/assert % (list 'nonTangentialProperPart X Y) CxB)
-                  #(v/assert-rule % [(list 'partOfRegion '?x D)] (list tmpIn '?x)
-                                  'CxUniverse {:direction :forward})
-                  #(v/assert-rule % [(list 'spatiallyDisconnected '?x Q)] (list tmpApart '?x)
-                                  'CxUniverse {:direction :forward})]
-          derived (fn [k]
-                    (set (for [pred [tmpIn tmpApart]
-                               s    (v/sentexes-matching k (list pred '?x) '?ctx)]
-                           [(:sentence s) (:context s)])))
-          run    (fn [order]
-                   (let [k (doto (tu/isolated-fresh)
-                             (core-context/load-into)
-                             (seed/load-context 'CxSpace "upper")
-                             (v/add-prover (space/spatial-prover)))]
-                     (doseq [s setup] (v/assert k s 'CxUniverse))
-                     (doseq [step order] (step k))
-                     (derived k)))
-          answers (mapv #(run (shuffled % steps)) (range 8))]
-      (testing "every order agrees, and on something rather than on nothing"
-        (is (apply = answers))
-        (is (contains? (first answers) [(list tmpIn A) CxBoth])
-            "the composition only CxBoth sees")
-        (is (contains? (first answers) [(list tmpApart P) CxA])
-            "and the relation only the negative fact pins")))))
+    (let [t       (zipmap '[A B D P Q X Y CxA CxB CxBoth tmpIn tmpApart]
+                          [A B D P Q X Y CxA CxB CxBoth tmpIn tmpApart])
+          {:keys [setup steps derived]} (qualitative-case t)
+          run     (fn [order]
+                    (let [k (doto (tu/isolated-fresh)
+                              (core-context/load-into)
+                              (seed/load-context 'CxSpace "upper")
+                              (v/add-prover (space/spatial-prover)))]
+                      (doseq [s setup] (v/assert k s 'CxUniverse))
+                      (doseq [step order] (step k))
+                      (derived k)))]
+      (agree-on-something (mapv #(run (shuffled % steps)) (range 8)) t))))
+
+(deftest a-context-edge-arriving-last-composes-what-it-lets-a-reader-see
+  ;; The same composition with the wiring among the arrivals.  Each `genlCx` edge that
+  ;; puts `CxQlBoth` under a fact's context is the last thing the network below needs,
+  ;; and neither fact nor the rule arrives after it to re-join the rule.  One ordering per
+  ;; edge arriving last, both after a fact, and the edges-first ordering as the control.
+  (let [ops    {:e1 #(v/assert % '(genlCx CxQlBoth CxQlA) 'CxUniverse)
+                :e2 #(v/assert % '(genlCx CxQlBoth CxQlB) 'CxUniverse)
+                :f1 #(v/assert % '(nonTangentialProperPart QlA QlB) 'CxQlA)
+                :f2 #(v/assert % '(nonTangentialProperPart QlB QlD) 'CxQlB)
+                :r  #(v/assert % '(implies (partOfRegion ?x QlD) (ql_in ?x)) 'CxUniverse
+                               {:direction :forward})}
+        orders [[:e1 :e2 :f1 :f2 :r]
+                [:e2 :f1 :f2 :r :e1]
+                [:e1 :r :f2 :f1 :e2]
+                [:r :f1 :f2 :e2 :e1]]
+        run    (fn [order]
+                 (let [k (doto (tu/isolated-fresh)
+                           (tu/load-core-with! '[[CxSpace "upper"] [CxTime "upper"]])
+                           (v/add-prover (space/spatial-prover)))]
+                   (try
+                     (v/assert k '(genlCx CxQlA CxUniverse) 'CxUniverse)
+                     (v/assert k '(genlCx CxQlB CxUniverse) 'CxUniverse)
+                     (doseq [op order] ((ops op) k))
+                     (boolean (seq (v/sentexes-matching k '(ql_in QlA) 'CxQlBoth)))
+                     (finally (tu/clear-kb! k)))))]
+    (doseq [order orders]
+      (is (run order) (str "the composition only CxQlBoth sees, in the order " order)))))
 
 ;; ---- inconsistency is reported, not merely silent ------------------------
 
@@ -407,7 +587,7 @@
       (is (v/ask? kb (list 'partOfRegion A B) C))
       (is (v/ask? kb (list 'precedes A B) C)))
     (testing "and neither is disturbed by the other's facts"
-      (is (= #{:ntpp} (space/possible-relations kb C A B)))
+      (is (= #{:ntpp} (qkb/possible space/rcc8 kb C A B)))
       (is (= #{:before} (iv/possible-allen-relations kb C A B))))
     (testing "a spatially impossible network leaves the interval one answering"
       (v/assert kb (list 'spatiallyDisconnected A B) C)
@@ -438,13 +618,15 @@
     (testing "keyed by calculus and context, so neither collides"
       (qkb/network kb iv/allen C)
       ;; a calculus names its key with an unqualified keyword; every other resident read
-      ;; on this atom keys off its own namespace, which is what keeps them apart
-      (is (= #{[:rcc8 C] [:allen C]}
-             (into #{} (filter (comp simple-keyword? first)) (keys @(reasoning/qcn kb))))))
+      ;; on this atom keys off its own namespace, which is what keeps them apart.  The
+      ;; Allen read reads the point network too, so that one is resident beside them.
+      (is (= #{[:rcc8 C] [:allen C] [:point C]}
+             (into #{} (filter #(and (simple-keyword? (first %)) (= 2 (count %))))
+                   (keys @(reasoning/qcn kb))))))
     (testing "and the Allen read leaves its narrowing's own read resident beside them —
               the metric problem, under a key of `stp`'s namespace rather than a calculus
               name, so the two cannot collide either"
-      (is (contains? (set (keys @(reasoning/qcn kb))) [::stp/problem C])))
+      (is (some #(= [::stp/problem C] (take 2 %)) (filter vector? (keys @(reasoning/qcn kb))))))
     (testing "three top-level queries with nothing between them read once"
       ;; the clock is bumped by hand so the first of the three pays a build; without it
       ;; the count is zero, the KB already holding what the asserts above left resident
@@ -457,21 +639,21 @@
   ;; network moves the clock.  A store, a retraction and a defeat are the three routes.
   (tu/with-terms [A B D]
     (v/assert kb (list 'nonTangentialProperPart A B) C)
-    (is (= #{:ntpp} (space/possible-relations kb C A B)))
+    (is (= #{:ntpp} (qkb/possible space/rcc8 kb C A B)))
     (testing "a stored fact"
       (v/assert kb (list 'nonTangentialProperPart B D) C)
-      (is (= #{:ntpp} (space/possible-relations kb C A D))
+      (is (= #{:ntpp} (qkb/possible space/rcc8 kb C A D))
           "the composition the new fact licensed, off a network read after it landed"))
     (testing "a retraction"
       (v/retract! kb (v/handle-of kb (list 'nonTangentialProperPart B D) C))
-      (is (= (:universe space/rcc8-algebra) (space/possible-relations kb C A D))))
+      (is (= (:universe space/rcc8-algebra) (qkb/possible space/rcc8 kb C A D))))
     (testing "a defeat — the fact stays stored and stops being read"
       (v/assert kb (list 'nonTangentialProperPart B D) C {:strength :default})
-      (is (= #{:ntpp} (space/possible-relations kb C B D)))
+      (is (= #{:ntpp} (qkb/possible space/rcc8 kb C B D)))
       (v/assert kb (list 'not (list 'nonTangentialProperPart B D)) C {:strength :monotonic})
       (is (some? (v/handle-of kb (list 'nonTangentialProperPart B D) C))
           "the positive is still stored")
-      (is (not (contains? (space/possible-relations kb C B D) :ntpp))
+      (is (not (contains? (qkb/possible space/rcc8 kb C B D) :ntpp))
           "and out of the network, its believed negation narrowing by the complement"))))
 
 (tu/deftest-kb a-warm-started-pass-answers-what-a-cold-one-answers
@@ -679,15 +861,16 @@
              (core-context/load-into)
              (seed/load-context 'CxSpace "upper")
              (v/add-prover (space/spatial-prover)))]
-    (v/assert kb (list 'nonTangentialProperPart 'TmpWipedA 'TmpWipedB) C)
-    (qkb/note-joined kb space/rcc8 C (:baseline (qkb/join-delta kb space/rcc8 C)))
-    (is (seq @(reasoning/qcn-joined kb)) "a baseline is standing")
-    (v/clear! kb)
-    (is (= {} @(reasoning/qcn-joined kb))
-        "the wipe took it with the rest of the resident state")
-    (is (= :all (:moved (qkb/join-delta kb space/rcc8 C)))
-        "so the next re-join runs over everything, as it does on a KB never joined")
-    (tu/clear-kb! kb)))
+    (try
+      (v/assert kb (list 'nonTangentialProperPart 'TmpWipedA 'TmpWipedB) C)
+      (qkb/note-joined kb space/rcc8 C (:baseline (qkb/join-delta kb space/rcc8 C)))
+      (is (seq @(reasoning/qcn-joined kb)) "a baseline is standing")
+      (v/clear! kb)
+      (is (= {} @(reasoning/qcn-joined kb))
+          "the wipe took it with the rest of the resident state")
+      (is (= :all (:moved (qkb/join-delta kb space/rcc8 C)))
+          "so the next re-join runs over everything, as it does on a KB never joined")
+      (finally (tu/clear-kb! kb)))))
 
 (tu/deftest-kb a-lost-handle-makes-the-delta-all
   ;; a derived support is a union along whatever chain narrowed it, so a handle that goes
@@ -723,6 +906,24 @@
     (is (= #{} (:moved (qkb/join-delta kb space/rcc8 CxSibling2)))
         "its sibling cannot see the fact, so its network is where it was left")))
 
+(tu/deftest-kb a-write-that-leaves-a-network-unmoved-leaves-it-resident
+  ;; The write moves the change clock, so the sibling's network is read again; the read
+  ;; equals the resident value, which stays, and the delta compares no pair.
+  (tu/with-terms [A B D E CxSibling1 CxSibling2]
+    (doseq [c [CxSibling1 CxSibling2]]
+      (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+    (v/assert kb (list 'nonTangentialProperPart A B) CxSibling1)
+    (v/assert kb (list 'nonTangentialProperPart B D) CxSibling1)
+    (qkb/note-joined kb space/rcc8 CxSibling1 (:baseline (qkb/join-delta kb space/rcc8 CxSibling1)))
+    (let [before (qkb/network kb space/rcc8 CxSibling1)
+          diffs  (atom 0)
+          real   @#'qkb/differing-pairs]
+      (v/assert kb (list 'nonTangentialProperPart D E) CxSibling2)
+      (is (identical? before (qkb/network kb space/rcc8 CxSibling1)))
+      (with-redefs-fn {#'qkb/differing-pairs (fn [& args] (swap! diffs inc) (apply real args))}
+        #(is (= #{} (:moved (qkb/join-delta kb space/rcc8 CxSibling1)))))
+      (is (zero? @diffs)))))
+
 (tu/deftest-kb the-rejoin-enumerates-the-pairs-that-moved-not-every-pair
   ;; The structural claim a timing cannot make: an arriving fact answers the pairs it
   ;; moved, not the pairs the network entails.  In a containment chain those are n and
@@ -740,3 +941,4 @@
       (is (<= @calls 26)
           (str "the arrival moved 13 pairs and their converses; a full re-join would have "
                "answered 78, and it answered " @calls)))))
+

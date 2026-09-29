@@ -24,7 +24,7 @@
   predicates (`partOfRegion`, `regionOverlaps`, …) that each name a *disjunction* of
   base relations.  Regions are ordinary individuals; nothing about them is special.
 
-  `region-network` reads every asserted spatial relation visible from a context into a
+  `qcn-kb/network` reads every asserted spatial relation visible from a context into a
   qualitative constraint network — `{[r1 r2] → #{possible base relations}}`, an
   unrecorded pair meaning \"unknown\", i.e. all eight — and `qcn/path-consistent`
   tightens it to a fixpoint.  the prover then answers a goal `(P r1 r2)` by
@@ -189,29 +189,6 @@
   caches.  Everything below delegates to the shared glue, which is the same code the
   cardinal directions and the interval algebra run."
   (qkb/calculus :rcc8 rcc8-algebra spatial-denotation))
-
-(defn region-network
-  "Every asserted spatial relation visible from `context`, as a constraint network."
-  [kb context]
-  (qkb/network kb rcc8 context))
-
-(defn possible-relations
-  "The RCC-8 base relations still possible between regions `r1` and `r2` given everything
-  believed in `context` — `#{}` when the network is inconsistent."
-  [kb context r1 r2]
-  (qkb/possible rcc8 kb context r1 r2))
-
-(defn definite-relation
-  "The single base relation between `r1` and `r2` when path consistency pins it down;
-  `:inconsistent` when the network contradicts itself, `:unknown` when two or more
-  relations remain possible."
-  [kb context r1 r2]
-  (qkb/definite rcc8 kb context r1 r2))
-
-(defn inconsistent?
-  "Is the spatial network visible from `context` unsatisfiable?"
-  [kb context]
-  (qkb/inconsistent? rcc8 kb context))
 
 (defn spatial-prover
   "The RCC-8 entailment prover, to register with `vaelii.core/add-prover`."

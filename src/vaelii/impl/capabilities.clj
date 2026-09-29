@@ -139,11 +139,11 @@
     (doseq [[id prov] entries] (p/put-provenance store id prov)))
   nil)
 
-(defn- loop-sink
+(defn loop-sink
   "The sink every store has: `put` per record, and the premise mark the caller would have
   made itself.  It is the whole of what a store without `p/BulkLoading` does, kept in one
   place so a loader writes through a sink unconditionally and never branches on the
-  capability."
+  capability — and what the oplog's replay writes through, `put!` being its own."
   [store put! premises?]
   (reify
     p/RecordSink

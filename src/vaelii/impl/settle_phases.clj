@@ -2,68 +2,16 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns ^{:clojure.tools.namespace.repl/load false :clojure.tools.namespace.repl/unload false}
  vaelii.impl.settle-phases
-  "Where a settle spends its **wall clock**, attributed to the four cost centres —
-  one switch, off by default, free when off.
-
-  `vaelii.impl.profile` counts what the index is *asked*; this is its wall-clock twin
-  for belief.  The question a parallelism study asks is which phase of a bulk settle
-  owns the time, and the four centres a settle divides into are:
-
-  * **`:belief`** — the belief fixpoint: `clear-defeats!`, the revival reconcile, the
-    `defeat!`/`refresh-after-defeat` relabel inside `resolve-contradictions`, and the
-    `add-justification` replay `recovery/rebuild-tms` composes.  The relabel is the work
-    `settle-parallelism.md`'s partition-relabel candidate would divide.
-  * **`:discovery`** — the nogood scans `constraint-nogoods`, `negation-nogoods` and
-    `preserving-nogoods`, the read-only clash-finding a clash-discovery candidate would
-    run in parallel.
-  * **`:resolution`** — the decision `resolve-contradictions` takes over the nogoods it
-    was handed: `decide-nogood` and the edge solver, minus the discovery and the relabel
-    the decision drives (those are charged to their own centres).
-  * **`:chaining`** — the generative join `chain` / `chain-all` runs, the forward
-    inference a parallel-chaining candidate would divide.  A bulk load fires it per
-    assert; a `recover` does not fire it at all.
-
-  Two sentinels catch the time no centre names: **`:finish`** is `settle-finish`'s
-  cache reconcile and exposure sweeps, **`:glue`** is settle-loop bookkeeping between
-  the spans, and **`:outside`** is everything between one settle and the next — the
-  assert path's canonicalization, checks, index and minting.
-
-  ## Self-time, not inclusive time
-
-  The centres nest: `resolve-contradictions` calls the discovery scans and drives the
-  relabel, `chain` drives its own `add-justification`.  So a phase is charged only its
-  **self-time** — the interval while its span is on top of the stack.  Entering a nested
-  span charges the parent up to that instant and pauses it; leaving resumes it.  The six
-  buckets therefore partition the whole run and sum to it, which an inclusive reading
-  (parent time counting its children twice) does not.
-
-  ## Off by default, and free when off
-
-  The switch and the store are one atom, nil when off, so `with-phase` off a timing run
-  is a deref and a `nil?` check, which is what `vaelii.impl.profile` costs its call
-  sites.  `add-justification` is not wrapped — it is charged through the `:belief` span
-  its driver opens (`defeat!`, `rebuild-tms`) or the `:chaining` span its driver opens
-  (`chain`) — so the per-assert JTMS path carries no probe at all.
-
-  On, it is two `System/nanoTime` reads and two mutations of an unsynchronized
-  `ArrayDeque`/`HashMap` per span.  A settle is single-writer (docs/nmtms.md), so the
-  store is mutated in place with no lock, and a run under the instrument answers the
-  same belief as one without it, more slowly — the bargain `profile` already takes.
-
-  ## Reading it
-
-  `stop` returns plain data: the run totals per centre, and a per-settle record carrying
-  each centre's self-time, the settle's relabelled region size and its pass count.  The
-  region size is what a mean over settles hides — one root-edge retraction moves the
-  whole graph and a leaf edge moves nothing — so the record is per settle and the
-  percentiles are the caller's to take.  `vaelii.bench.settle-phases` is the caller that
-  has an opinion; nothing here formats.
+  "The wall-clock self-time of each settle, charged to the cost centre on top of a span
+  stack.  One atom, nil when off, so a span off a timing run is a deref and a `nil?`
+  check.  `vaelii.bench.settle-phases` reads it.  See docs/nmtms.md, \"Where the time
+  goes, measured\".
 
   A held namespace (`vaelii.impl.types.prover` states what that means): it defines the `Clock` type its instrument hints on, and requires no vaelii namespace, so the development browser's reloader never re-evaluates it, and an edit to it takes a restart."
   (:import [java.util ArrayDeque ArrayList HashMap]))
 
-;; nil when off.  One atom rather than a flag beside a store, so a call site cannot read
-;; the switch on and the store as nil — the `profile` arrangement.
+;; one atom rather than a flag beside a store, so no call site reads the switch on and
+;; the store nil
 (defonce ^:private clock (atom nil))
 
 ;; All fields are final refs whose contents are mutable, so the single writer mutates in

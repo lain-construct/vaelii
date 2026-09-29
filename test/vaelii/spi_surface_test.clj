@@ -7,10 +7,9 @@
 
   **Why these protocols and not the others.**  `boundaries.md` says `vaelii.impl.*` is
   free to change, and it is — that rule is about the *require* surface, and it stands.
-  But fourteen of the twenty protocols in the tree are named in a doc as an extension point somebody
+  But thirteen of the nineteen protocols in the tree are named in a doc as an extension point somebody
   else fills: `docs/storage.md` says a new backend *is* a new `KvBackend`,
-  `docs/asp.md` calls `Solver` an extension point, `docs/llm.md` calls `Provider` one,
-  `docs/qcn.md` says `add-prover` takes any `Prover`, and `docs/inference.md` invites a
+  `docs/asp.md` calls `Solver` an extension point, `docs/qcn.md` says `add-prover` takes any `Prover`, and `docs/inference.md` invites a
   prover that reads stored facts to implement `SupportingProver` beside it.  A doc that invites an
   implementation makes a promise about the structure of it, whatever the namespace is
   called.  This test is that promise written down.
@@ -18,7 +17,7 @@
   The other seven are one backend's internal shape — `PTrie` is how the columnar index
   spells its trie, `IPostings` how the dense one packs a set — and nothing outside this
   repo has a reason to implement them.  They are listed in `not-an-extension-point` with the reason
-  apiece, and `every-protocol-in-the-tree-is-classified` is what keeps that list honest:
+  apiece, and `every-protocol-in-the-tree-is-classified` is what keeps that list complete:
   a new protocol has to be put in one bucket or the other before the suite goes green,
   so the pinned set cannot quietly fall behind the tree.
 
@@ -52,7 +51,6 @@
             [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [vaelii.host.llm.protocol :as llm-protocol]
             [vaelii.impl.protocols :as protocols]
             [vaelii.impl.types.prover :as prover-types]
             [vaelii.impl.types.snapshot :as snapshot-types]
@@ -78,8 +76,7 @@
    [#'snapshot-types/SnapshotSource   "docs/storage.md"]
    [#'solve-types/Solver              "docs/asp.md"]
    [#'prover-types/Prover            "docs/qcn.md"]
-   [#'prover-types/SupportingProver  "docs/inference.md"]
-   [#'llm-protocol/Provider     "docs/llm.md"]])
+   [#'prover-types/SupportingProver  "docs/inference.md"]])
 
 (def ^:private not-an-extension-point
   "The protocols deliberately NOT pinned, each with why.  Every one is a single

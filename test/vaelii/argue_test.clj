@@ -115,6 +115,27 @@
     (v/assert kb (list hungry Muffet) 'CxUniverse {:strength :monotonic})
     (is (= :true (:verdict (v/argue kb (list hungry Muffet) 'CxUniverse))))))
 
+(tu/deftest-kb argue-weighs-the-two-classes-when-both-sides-still-stand
+  ;; settle defeats the default side, so both sides answer only between the writes and
+  ;; the settle, which a deferred settle holds open
+  (tu/with-terms [hungry Muffet]
+    (let [r (v/with-deferred-settle kb
+              (v/assert kb (list hungry Muffet) 'CxUniverse {:strength :monotonic})
+              (v/assert kb (list 'not (list hungry Muffet)) 'CxUniverse {:strength :default})
+              (v/argue kb (list hungry Muffet) 'CxUniverse))]
+      (is (= [:monotonic :default] [(:defeat-class (:for-why r)) (:defeat-class (:against-why r))])
+          "both sides answered, each with its class")
+      (is (= :true (:verdict r))))))
+
+(tu/deftest-kb argue-with-proofs-asked-reads-the-derivation-off-its-own-answers
+  (tu/with-terms [dog has_fur Muffet]
+    (v/assert kb (list dog Muffet) 'CxUniverse)
+    (v/assert-rule kb [(list dog '?x)] (list has_fur '?x) 'CxUniverse {:direction :backward})
+    (let [r (v/argue kb (list has_fur Muffet) 'CxUniverse {:max-depth 3 :proof? true})]
+      (is (= :true (:verdict r)))
+      (is (= (:proof (first (:for r))) (:for-derivation r)))
+      (is (= :rule (:via (first (:for-derivation r))))))))
+
 (tu/deftest-kb argue-refuses-an-option-it-does-not-read-at-its-own-entry-point
   ;; `argue` reaches `query` only when `:max-depth` is there and takes the
   ;; no-rule-expansion `ask` arm otherwise, so a roster checked downstream is not checked

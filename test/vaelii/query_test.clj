@@ -19,6 +19,8 @@
             [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.inference :as inference]
+            [vaelii.impl.plan :as plan]
+            [vaelii.impl.provers :as provers]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -73,6 +75,27 @@
       (is (= [{'?x Thing}]
              (vec (v/query kb [(list 'genl tag_a tag_c) (list tag_a '?x)] CxQ)))))))
 
+;; ---- an open functor ---------------------------------------------------
+
+(tu/deftest-kb an-open-functor-answers-every-type-the-term-holds
+  ;; `(animal Muffet)` holds through `(dog Muffet)`, so `(?c Muffet)` answers `animal` as
+  ;; well as `dog`, and a conjunction over it answers the same whichever literal runs first.
+  (tu/with-terms [animal dog cat Muffet CxQ]
+    (doseq [t [dog cat]] (v/assert kb (list 'genl t animal) CxQ))
+    (v/assert kb (list dog Muffet) CxQ)
+    (let [cs   #(set (map (fn [m] (get m '?c)) %))
+          open (list '?c Muffet)
+          hier (list 'genl '?c animal)]
+      (is (v/ask? kb (list animal Muffet) CxQ))
+      (is (set/subset? #{dog animal} (cs (v/ask kb open CxQ))))
+      (doseq [ranked? [true false]
+              goals   [[open hier] [hier open]]]
+        (binding [plan/*enabled* ranked?]
+          (is (= #{dog animal} (cs (doall (v/query kb goals CxQ))))
+              (str "query " goals (when-not ranked? ", unranked")))
+          (is (= #{dog animal} (cs (v/prove kb goals CxQ)))
+              (str "prove " goals (when-not ranked? ", unranked"))))))))
+
 ;; ---- the dial: no depth expands no rule ---------------------------------
 
 (tu/deftest-kb no-depth-anywhere-expands-no-rule
@@ -83,23 +106,21 @@
     (v/assert-rule kb [(list parentOf '?x '?y)] (list anc '?x '?y) CxQ
                    {:direction :backward})
     (let [goal (list anc Ann '?z)]
-      ;; The node engine refuses to start without a depth bound, so the cross-engine
-      ;; sweep (`VAELII_QUERY_ENGINE`) has `tu` supply one globally (`inference/*max-depth*`
-      ;; 8) for the whole suite — "no depth anywhere" is then not a state the suite can be
-      ;; in, and what a depthless `query` answers is what the depth in force admits: nothing
-      ;; by default, the one hop under the sweep.  Asserted either way, so every
-      ;; configuration runs the same assertions; `tu/query-engine-override` names the side.
-      (testing "with no depth the rule is not expanded — unless the harness set a depth"
-        (let [swept? (some? (tu/query-engine-override))]
-          (is (= (if swept? [{'?z Bob}] []) (vec (v/query kb goal CxQ))))
-          (is (= swept? (v/query? kb goal CxQ)))))
+      ;; The cross-engine sweep (`VAELII_QUERY_ENGINE`) sets `inference/*max-depth*` so
+      ;; `prove` can run on the node engine, and `query` does not read it: the answer here
+      ;; is the same in every configuration.
+      (testing "with no depth the rule is not expanded"
+        (is (= [] (vec (v/query kb goal CxQ))))
+        (is (false? (v/query? kb goal CxQ)))
+        (is (= [] (binding [inference/*max-depth* 3] (vec (v/query kb goal CxQ))))
+            "the node engine's own bound is not a depth `query` reads"))
       (testing "a depth reaches it"
         (is (= [{'?z Bob}] (vec (v/query kb goal CxQ {:max-depth 1})))))
       (testing "and `prove`, which needs no depth, reaches it too"
         (is (= [{'?z Bob}] (vec (v/prove kb goal CxQ))))))))
 
 (tu/deftest-kb a-depth-may-come-from-a-dynamic-binding
-  ;; The depth is a decision, and a caller makes it in one of three places.  Missing one
+  ;; The depth is a decision, and a caller makes it in one of two places.  Missing one
   ;; of them is invisible: the read just answers whatever needs no rule.
   (tu/with-terms [parentOf anc Ann Bob Cid CxQ]
     (v/assert kb (list parentOf Ann Bob) CxQ)
@@ -115,19 +136,13 @@
       (testing "`*query-options*` :max-depth — where `prove` reads a depth from too"
         (is (= #{Bob Cid} (binding [v/*query-options* {:max-depth 3}]
                             (zs (v/query kb goal CxQ))))))
-      (testing "`inference/*max-depth*`"
-        (is (= #{Bob Cid} (binding [inference/*max-depth* 3]
-                            (zs (v/query kb goal CxQ))))))
       (testing "`opts` wins over a dynamic one rather than being merged with it"
         (is (= #{Bob} (binding [v/*query-options* {:max-depth 3}]
                         (zs (v/query kb goal CxQ {:max-depth 1}))))
             "depth 1 admits one hop, so the two-hop ancestor is out of reach"))
       (testing "a *query-options* naming only a strategy leaves the depth unset"
-        ;; unset means the depth in force — none by default, the harness's global one under
-        ;; the sweep (`no-depth-anywhere-expands-no-rule` says why the sweep sets one)
-        (is (= (if (tu/query-engine-override) #{Bob Cid} #{})
-               (zs (binding [v/*query-options* :depth-first]
-                     (v/query kb goal CxQ)))))
+        (is (= #{} (zs (binding [v/*query-options* :depth-first]
+                         (v/query kb goal CxQ)))))
         (is (= #{Bob Cid} (binding [v/*query-options* :depth-first]
                             (zs (v/query kb goal CxQ {:max-depth 3})))))))))
 
@@ -162,8 +177,8 @@
       (testing "a non-map opts is refused the same way"
         (is (= :unknown-option (:type (refusal :oops))))
         (is (= :unknown-option (:type (refusal [:max-depth 2])))))
-      (testing "and nil opts is the no-rule-expansion read, as ever — at the depth in force"
-        (is (= (if (tu/query-engine-override) [{'?z Bob}] []) (vec (v/query kb goal CxQ nil))))))))
+      (testing "and nil opts is the no-rule-expansion read, as ever"
+        (is (= [] (vec (v/query kb goal CxQ nil))))))))
 
 (tu/deftest-kb a-non-map-opts-is-refused-by-name-at-the-existence-entry-points-too
   ;; `provable?` and `ask?` test `(seq opts)` to pick the bounded arm, and `(seq :oops)`
@@ -207,6 +222,32 @@
           (is (= proved (bounded 6))))
         (testing "while a shallow one is a strict subset"
           (is (< (count (bounded 1)) (count proved))))))))
+
+(defn- leaf-calls
+  "How many literals the registry leaf answers while `f` runs, and `f`'s value."
+  [f]
+  (let [n (atom 0) orig provers/solve-goal]
+    (with-redefs [provers/solve-goal (fn [& args] (swap! n inc) (apply orig args))]
+      [(f) @n])))
+
+(tu/deftest-kb an-existence-question-stops-at-its-first-derivation
+  ;; k backward rules each derive the one goal from a fact of its own, so the whole search
+  ;; answers the leaf k + 1 times.  An existence question stops at the first derivation:
+  ;; its leaf count is the same at every k, on either engine `provable?` routes to.
+  (let [cost (fn [k ask]
+               (tu/with-terms [qq Cee CxQ]
+                 (doseq [_ (range k)]
+                   (let [p (tu/tmp-type "pp")]
+                     (v/assert kb (list p Cee) CxQ)
+                     (v/assert-rule kb [(list p '?x)] (list qq '?x) CxQ
+                                    {:direction :backward})))
+                 (leaf-calls #(ask (list qq Cee) CxQ))))]
+    (doseq [[nm ask] [["provable?" #(v/provable? kb %1 %2)]
+                      ["query? at a depth" #(v/query? kb %1 %2 {:max-depth 2})]]]
+      (let [[a4 n4]   (cost 4 ask)
+            [a16 n16] (cost 16 ask)]
+        (is (= [true true] [a4 a16]) nm)
+        (is (= n4 n16) (str nm ": " n4 " leaf reads at 4 derivations, " n16 " at 16"))))))
 
 (tu/deftest-kb each-debugger-entry-point-rosters-what-it-actually-reads
   ;; A roster wider than its entry point is the silent default one level in: `search-tree` runs

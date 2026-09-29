@@ -112,7 +112,7 @@
 ;;
 ;; The fixpoint is the one phase of a bulk load that can run for minutes, so it reports
 ;; where it is and takes a throw as an abort.  Reporting is paced by wall-clock, which a
-;; test cannot wait out honestly — a run big enough to take seconds is a slow test, and one
+;; test cannot wait out quickly — a run big enough to take seconds is a slow test, and one
 ;; small enough to be quick reports once.  So the interval itself is a knob
 ;; (`:progress-every-ms 0`, report at every opportunity) and the runs stay small: a line
 ;; graph's transitive closure is quadratic in its edges, so 40 of them is hundreds of

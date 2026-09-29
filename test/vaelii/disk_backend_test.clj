@@ -7,7 +7,10 @@
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [taoensso.trove :as trove]
             [vaelii.core :as v]
+            [vaelii.impl.columnar :as columnar]
+            [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.disk.durability :as dur]
             [vaelii.impl.disk.lock :as lock]
@@ -75,6 +78,52 @@
     (is (re-find #"locked by another JVM" msg))
     (is (re-find #"4321@host" msg) "with the holder tag read off the lock file")))
 
+(defn- canon
+  "`f`'s canonical path — the spelling the open keys a directory by, and so the one its
+  refusals name (`/tmp` reads `/private/tmp` on macOS)."
+  [f] (.getCanonicalPath (io/file f)))
+
+(defn- open-refusal
+  "The `ex-info` opening a `:disk-log` KB over `dir` throws, or nil."
+  [dir]
+  (try (v/close! (v/open-kb {:backend :disk-log :dir dir :recover? false})) nil
+       (catch clojure.lang.ExceptionInfo e e)))
+
+(deftest a-directory-that-cannot-hold-the-lock-is-named-rather-than-its-lock-file
+  ;; The lock file is the first thing an open writes, and java.io's refusal names it:
+  ;; `/tmp/kb/.vaelii.lock (Permission denied)`, `(Not a directory)` — a file the caller
+  ;; never heard of, where the directory they named is what needs changing.
+  (with-tmp
+    (fn [root]
+      (let [file (io/file root "kb-is-a-file")]
+        (spit file "not a directory")
+        (testing "a --dir that is a regular file"
+          (let [e (open-refusal (str file))]
+            (is (= :not-a-directory (:type (ex-data e))))
+            (is (= (canon file) (:dir (ex-data e))) "naming the directory, not the lock file")
+            (is (str/includes? (ex-message e) (str (canon file) " is a file, not a directory"))
+                (ex-message e))
+            (is (not (str/includes? (ex-message e) ".vaelii.lock (")))))
+        (testing "a --dir under a regular file"
+          (let [e (open-refusal (str (io/file file "kb")))]
+            (is (= :not-a-directory (:type (ex-data e))))
+            (is (= (canon file) (:file (ex-data e))) "naming the file in the way"))))
+      (let [ro (io/file root "kb-readonly")]
+        (.mkdirs ro)
+        (.setWritable ro false)
+        (try
+          ;; a process that writes regardless of the mode (root) has nothing to refuse
+          (when-not (.canWrite ro)
+            (testing "a directory this process cannot write"
+              (let [e (open-refusal (str ro))]
+                (is (= :not-writable (:type (ex-data e))))
+                (is (= (canon ro) (:dir (ex-data e))))
+                (is (str/includes? (ex-message e) (str "Disk KB at " (canon ro) " cannot be opened"))
+                    (ex-message e))
+                (is (str/includes? (ex-message e) "reads included")
+                    "saying why a read needs write access too"))))
+          (finally (.setWritable ro true)))))))
+
 (deftest a-lock-toggled-off-after-the-acquire-is-still-released
   ;; `vaelii.disk.lock` can be flipped at runtime, and it is read at acquire time only.
   ;; A `release!` that consulted it instead would return without releasing while the map
@@ -98,7 +147,7 @@
   ;; The entry stays, and re-acquisition is refused by name.
   (with-tmp
     (fn [dir]
-      (let [path (#'lock/canonical dir)]
+      (let [path (lock/canonical-dir dir)]
         (is (= :acquired (lock/acquire! dir)))
         ;; close the channel out from under the entry, so `.release` throws
         (.close ^java.nio.channels.FileChannel (:channel (get @@#'lock/held path)))
@@ -112,6 +161,31 @@
                        (ex-message e))
               "naming this JVM as the holder rather than the file's tag"))
         ;; the directory is this test's, and nothing else may inherit its stuck entry
+        (swap! @#'lock/held dissoc path)))))
+
+(deftest a-holder-tag-write-that-throws-releases-the-lock-it-took-or-says-why-not
+  ;; The holder tag is written after the OS lock is taken.  Unwinding that lock inside two
+  ;; empty catches dropped a failed release on the floor: the map said the directory was
+  ;; free while this JVM could still hold its OS lock, and the next open's refusal blamed a
+  ;; channel "this namespace does not hold".  The staged failure closes the channel, so
+  ;; the release throws, as in the test above.
+  (with-tmp
+    (fn [dir]
+      (let [path   (lock/canonical-dir dir)
+            logged (atom [])
+            thrown (with-redefs [lock/write-holder!
+                                 (fn [^java.nio.channels.FileChannel ch _]
+                                   (.close ch)
+                                   (throw (java.io.IOException. "injected: disk full")))]
+                     (binding [trove/*log-fn* (fn [_ns _coords level id _payload]
+                                                (when (= :error level) (swap! logged conj id)))]
+                       (try (lock/acquire! dir) nil
+                            (catch java.io.IOException e (ex-message e)))))
+            again  (try (lock/acquire! dir) (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+        (is (= "injected: disk full" thrown) "the write's own failure reaches the caller")
+        (is (some #{::lock/unreleased} @logged) "the failed release is logged")
+        (is (= :unreleased (:type again))
+            "and the directory is refused by name, not handed out or blamed on another channel")
         (swap! @#'lock/held dissoc path)))))
 
 ;; ---- the durability daemon's process-wide lifecycle ---------------------
@@ -238,6 +312,27 @@
           (is (some? (v/handle-of kb2 '(dog Muffet) 'CxUniverse)) "the record survived")
           (v/recover kb2)
           (is (v/isa? kb2 'Muffet 'animal) "and its taxonomy edge"))))))
+
+(defn- derived-index-held?
+  "Does one of the three RAM index backends hold a derived index under `space`?"
+  [space]
+  (boolean (some #(contains? @@% space)
+                 [#'mem/index-spaces #'dense/index-spaces #'columnar/state-spaces])))
+
+(deftest close-releases-the-derived-index-a-directory-held
+  ;; A disk-backed KB with a RAM index keeps that index in a process-wide registry keyed
+  ;; by its directory, so a process opening KBs in a loop keeps one per directory that
+  ;; `close!` does not drop.
+  (doseq [backend [:disk-memory :disk-dense :disk-columnar]]
+    (with-tmp
+      (fn [dir]
+        (let [kb (v/open-kb {:backend backend :dir dir :recover? false})]
+          (v/assert kb '(tmp_derived_p TmpDerived) 'CxUniverse)
+          (let [space (:index-space kb)
+                held? (derived-index-held? space)]
+            (v/close! kb)
+            (is (= [true false] [held? (derived-index-held? space)])
+                (str backend ": the open holds a derived index, and close! drops it"))))))))
 
 (deftest public-close-releases-the-directory-and-a-reopen-recovers-by-default
   ;; the public pair end-to-end: `open-kb` threads the directory onto the KB's `:dir`,
@@ -398,6 +493,7 @@
           (testing "and another database over that index is refused by name"
             (let [d (opened dir "jdbc:postgresql://localhost/two")]
               (is (= :stale-index-records (:type d)))
+              (is (not (lock/held? dir)) "and the refused open released the lock it took")
               (is (= ["localhost" 5432 "one" nil] (:stamped d))
                   "naming the store the index was built against")
               (is (= ["localhost" 5432 "two" nil] (:records d))

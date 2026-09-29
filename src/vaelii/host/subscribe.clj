@@ -169,22 +169,48 @@
                        (get-in r [:subs token]) (update-in [:subs token] push event))))
   (wake! sig))
 
+(defn- unregister!
+  "Take `sub`'s listener off the KB it was registered on.  That KB is on the entry and
+  not an argument: one registry can hold subscriptions over several KBs (the browser's
+  serves whichever is active), and listener tokens are numbered per KB, so unregistering
+  a token from another KB would take that KB's listener of the same number."
+  [sub]
+  (when-let [wt (:watch-token sub)]
+    (core/unwatch (:watch-kb sub) wt)))
+
+(defn- drop-where!
+  "Drop every subscription `dead?` answers true for, unregistering each listener and waking
+  a poll parked on it, and answer how many went.  The test and the removal are one swap,
+  so a subscription is dropped, unregistered and woken by one caller only."
+  [reg dead?]
+  (let [[old new] (swap-vals! reg update :subs
+                              #(into {} (remove (comp dead? val)) %))
+        gone      (remove (:subs new) (keys (:subs old)))]
+    (doseq [t gone
+            :let [sub (get (:subs old) t)]]
+      (unregister! sub)
+      (wake! (:signal sub)))
+    (count gone)))
+
 (defn- reap
   "Drop the subscriptions nobody has polled inside `idle-ms`, unregistering each
   listener, and answer how many went.  Called at the head of `watch` and `poll`, which
   is every path that creates or renews one — so the cost is bounded by the traffic that
   causes it, and a daemon nobody talks to reaps nothing because there is nothing to
   reap."
-  [reg kb at]
-  (let [dead?     (fn [sub] (> (- at (:polled-at sub)) idle-ms))
-        [old new] (swap-vals! reg update :subs
-                              #(into {} (remove (comp dead? val)) %))
-        gone      (remove (:subs new) (keys (:subs old)))]
-    (doseq [t gone
-            :let [sub (get (:subs old) t)]]
-      (some->> (:watch-token sub) (core/unwatch kb))
-      (wake! (:signal sub)))
-    (count gone)))
+  [reg at]
+  (drop-where! reg (fn [sub] (> (- at (:polled-at sub)) idle-ms))))
+
+(defn unwatch-kb
+  "Drop every subscription over `kb` — the KB each was registered on, by identity — and
+  answer how many went.  Each listener comes off `kb`, and a poll parked on one is woken
+  and answers `:unknown-subscription`, as `unwatch` does.
+
+  For a registry that serves several KBs when one of them is released: the browser calls
+  this when `/kbs/unload` clears or closes a KB, so a client's feed over that KB is
+  refused at its next poll rather than answering empty until the idle reap."
+  [reg kb]
+  (drop-where! reg (fn [sub] (identical? kb (:watch-kb sub)))))
 
 (defn watch
   "Register a subscription over `kb` and answer `{:token :cursor :max-events}`.
@@ -214,7 +240,7 @@
                     {:type :not-watchable :context context
                      :reason "a context scopes a goal, and this subscription has none"})))
   (let [at (now)
-        _  (reap reg kb at)
+        _  (reap reg at)
         [old new]
         (swap-vals! reg
                     (fn [r]
@@ -251,7 +277,8 @@
       ;; straight back off the KB.
       (let [[old] (swap-vals! reg (fn [r] (cond-> r
                                             (get-in r [:subs token])
-                                            (assoc-in [:subs token :watch-token] wt))))]
+                                            (update-in [:subs token] assoc
+                                                       :watch-token wt :watch-kb kb))))]
         (when-not (get-in old [:subs token])
           (core/unwatch kb wt)
           (throw (ex-info (str "feed subscription " (pr-str token)
@@ -293,7 +320,7 @@
   **An interrupt ends the park the way the deadline does**, and puts itself back.  A
   parked poll holds a server thread, so it is exactly what a shutting-down container
   interrupts — and `.wait` clears the flag on its way out, so letting the exception
-  travel would answer a 500 for a request the caller is indistinguishable from a feed stopping, and would
+  travel would answer a 500, which the caller takes for the feed stopping, and would
   lose the interrupt for whoever owns the thread.  Returning instead answers the events
   it has, which is what a wait that ran out answers too."
   [reg token cursor ^Object sig deadline]
@@ -313,8 +340,8 @@
   "Read a subscription forward: the events past `cursor`, the cursor to send next time,
   and the number the ring dropped before this call could see them.
 
-    (poll reg kb 3 17)                  => {:events [{…}] :cursor 19 :lagged 0}
-    (poll reg kb 3 17 {:wait-ms 20000}) => the same, waiting for the first one
+    (poll reg 3 17)                  => {:events [{…}] :cursor 19 :lagged 0}
+    (poll reg 3 17 {:wait-ms 20000}) => the same, waiting for the first one
 
   `:wait-ms` is the long poll: park until an event arrives or the wait runs out, capped
   at `max-wait-ms`.  It buys the latency a feed is for while keeping one wire format and
@@ -326,11 +353,11 @@
   that is not a whole number or that runs ahead of what the subscription has delivered
   (`:bad-cursor`).  Either of those answered `{:events []}` would be a feed that has
   stopped without saying so."
-  ([reg kb token cursor] (poll reg kb token cursor nil))
-  ([reg kb token cursor opts]
+  ([reg token cursor] (poll reg token cursor nil))
+  ([reg token cursor opts]
    (check-poll-opts! opts)
    (let [at  (now)
-         _   (reap reg kb at)
+         _   (reap reg at)
          sub (or (get-in @reg [:subs token])
                  (throw (ex-info (str "no feed subscription " (pr-str token)
                                       " — it was dropped, it timed out, or it belongs"
@@ -384,10 +411,10 @@
   A poll parked on it is woken rather than left to time out: it finds the subscription
   gone and answers `:unknown-subscription`, which is the true thing to tell a reader
   whose feed no longer exists."
-  [reg kb token]
+  [reg token]
   (let [[old] (swap-vals! reg update :subs dissoc token)]
     (if-let [sub (get-in old [:subs token])]
-      (do (some->> (:watch-token sub) (core/unwatch kb))
+      (do (unregister! sub)
           (wake! (:signal sub))
           true)
       false)))
@@ -407,8 +434,8 @@
   Reaps first, like the other three, so it answers what the daemon is holding rather
   than what it has not got round to letting go of — a listing naming a subscription the
   very next call would drop is a listing nobody can act on."
-  [reg kb]
-  (reap reg kb (now))
+  [reg]
+  (reap reg (now))
   (->> (vals (:subs @reg))
        (sort-by :token)
        (mapv (fn [s] (cond-> {:token     (:token s)

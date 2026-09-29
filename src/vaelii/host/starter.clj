@@ -76,27 +76,40 @@
 
 (defn load-into
   "Populate `kb` with the starter schema — every context under resources/kb/, loaded
-  on kb start by default. Returns kb."
-  [kb]
-  ;; The whole starter is one batch: belief settles once at the end, not once per
-  ;; sentence (`v/with-deferred-settle`, belief computed from current state, so the
-  ;; single closing reconciliation reaches the same beliefs as N per-assert ones).  The
-  ;; nested `core-context/load-into` defers into this batch — its own wrapper is a no-op
-  ;; and this one's settle reconciles both.
-  (v/with-deferred-settle kb
-    (core-context/load-into kb)                                     ; CxCore.txt: the vocabulary head
-    (seed/load-layer kb "upper"  (seed/layer-contexts "upper"))  ; every definitional context
-    (seed/load-layer kb "middle" (seed/layer-contexts "middle"))  ; every theory context
-    ;; The spindle collector files sit at the kb/ root, not in a layer sub-directory.
-    ;; A collector's cross-member axiom names terms from more than one member, so the
-    ;; file loads above every member where both terms are visible.  `seed/root-contexts`
-    ;; discovers these files from the classpath and omits CxCore, the head loaded above.
-    ;; Today the one such file is CxUniverse.txt, holding `(disjoint organization animal)`.
-    (seed/load-layer kb nil (seed/root-contexts)))               ; top-level collector files
-  ;; The subtypes of thing are unary types. Other genl components may relate
-  ;; predicates of any arity and do not imply unary membership.  `specs` is read after the
-  ;; batch above settles, so its extent is the believed one; a second batch stores the marks.
-  (v/with-deferred-settle kb
-    (doseq [t (nm/by-print-key (v/specs kb 'thing))]
-      (v/assert kb (list 'unary_predicate t) 'CxCore)))
-  kb)
+  on kb start by default. Returns kb.
+
+  `loaded`, when given, is called with each KB file's context right after that file is
+  asserted — `CxCore` first, then the upper, middle and collector files in load order —
+  and with `:unary-predicates` after the closing batch, which no file states.
+  `vaelii.host.spindle` reads it to learn which file each premise came from."
+  ([kb] (load-into kb nil))
+  ([kb loaded]
+   (let [loaded (or loaded (fn [_]))
+         layer! (fn [dir contexts]
+                  (doseq [c contexts]
+                    (seed/load-context kb c dir)
+                    (loaded c)))]
+     ;; The whole starter is one batch: belief settles once at the end, not once per
+     ;; sentence (`v/with-deferred-settle`, belief computed from current state, so the
+     ;; single closing reconciliation reaches the same beliefs as N per-assert ones).  The
+     ;; nested `core-context/load-into` defers into this batch — its own wrapper is a no-op
+     ;; and this one's settle reconciles both.
+     (v/with-deferred-settle kb
+       (core-context/load-into kb)                    ; CxCore.txt: the vocabulary head
+       (loaded 'CxCore)
+       (layer! "upper"  (seed/layer-contexts "upper"))  ; every definitional context
+       (layer! "middle" (seed/layer-contexts "middle"))  ; every theory context
+       ;; The spindle collector files sit at the kb/ root, not in a layer sub-directory.
+       ;; A collector's cross-member axiom names terms from more than one member, so the
+       ;; file loads above every member where both terms are visible.  `seed/root-contexts`
+       ;; discovers these files from the classpath and omits CxCore, the head loaded above.
+       ;; Today the one such file is CxUniverse.txt, holding `(disjoint organization animal)`.
+       (layer! nil (seed/root-contexts)))              ; top-level collector files
+     ;; The subtypes of thing are unary types. Other genl components may relate
+     ;; predicates of any arity and do not imply unary membership.  `specs` is read after the
+     ;; batch above settles, so its extent is the believed one; a second batch stores the marks.
+     (v/with-deferred-settle kb
+       (doseq [t (nm/by-print-key (v/specs kb 'thing))]
+         (v/assert kb (list 'unary_predicate t) 'CxCore)))
+     (loaded :unary-predicates)
+     kb)))

@@ -68,7 +68,7 @@
 # at `<vaelii.disk.dir>/space-<n>`, and every run below already gets its own
 # `vaelii.disk.dir`, so the single-writer lock is never contended and the
 # six-block `VAELII_TEST_SPACE` limit is about a case this does not create.
-# **`scripts/test-matrix.sh` is the concurrent one** — these nine and the six
+# **`scripts/test-matrix.sh` is the concurrent one** — these nine and the seven
 # sweeps at once, ~13 minutes against the ~60 the two scripts take in sequence,
 # and what to run when a change owes the matrix.  Reach for this script for one
 # axis, one backend, or a wall time that means something.
@@ -102,6 +102,7 @@
 #
 # Exit: 0 when every run passed, 1 when one failed, 130 when interrupted.
 
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
@@ -148,6 +149,11 @@ while [[ $# -gt 0 ]]; do
     *) WANTED+=("$1"); shift ;;
   esac
 done
+
+# A worktree runs `lein gate` and nothing heavier (scripts/lib/slots.sh says why).
+# shellcheck source=scripts/lib/slots.sh
+. scripts/lib/slots.sh
+require_primary "lein test-backends"
 
 if [[ ${#WANTED[@]} -gt 0 ]]; then
   BACKENDS=("${WANTED[@]}")
@@ -274,7 +280,7 @@ for backend in "${BACKENDS[@]}"; do
   [[ -n "$TMS" ]] && envv+=(VAELII_TEST_TMS="$TMS")
 
   # The revision THIS run is about to be taken at, read per run rather than once:
-  # nine runs are ~40 minutes and another agent landing a test in the middle of
+  # nine runs are ~40 minutes and another writer landing a test in the middle of
   # them moves the counts under the runs still to come.  Said out loud when it
   # happens, because the symptom — counts that differ between backends — is the
   # symptom of a run that skipped something, and telling them apart afterwards
@@ -417,3 +423,4 @@ for b in "${FAILED[@]}"; do
   fi
 done
 exit 1
+}

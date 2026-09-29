@@ -32,7 +32,7 @@
   filing site and the reverse direction stops catching anything.
 
   `src/vaelii/core.clj` is the one source file the scan skips: it files no entry, and the
-  kinds it names are the table this test is indistinguishable from the roster.
+  kinds it names are the table this test treats as the roster.
 
   ## On failure
 
@@ -197,20 +197,29 @@
   "The filing sites whose kind is a keyword computed at run time, each with the kinds it
   can produce and why the scan cannot see them.
 
-  Three of the five relabel a *problem* map's `:type` into a ledger entry, so the kinds
-  are the check vocabulary rather than anything written at the filing site.  The other two
-  are shared builders: one takes an arm per declared property, and one takes the kind as
-  an argument, so its callers hold the keywords and the site holds none.  Listing them
-  is a claim this test takes on trust — but which sites exist is not: the scanned set of
-  computed sites is checked against these keys, so a sixth one is a failing test, and its
-  kinds have to be named here before the roster means anything again."
+  Four of the five relabel a *problem* map's `:type` into a ledger entry, so the kinds
+  are the check vocabulary rather than anything written at the filing site.  The fifth is
+  a shared builder that takes the kind as an argument, so its callers hold the keywords
+  and the site holds none.  Listing them is a claim this test takes on trust — but which
+  sites exist is not: the scanned set of computed sites is checked against these keys, so
+  a sixth one is a failing test, and its kinds have to be named here before the roster
+  means anything again."
   {"checks/constraint-admission"
    {:kinds #{:arity :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
-             :irreflexive :anti-symmetric}
+             :irreflexive :anti-symmetric :disjoint}
     :why   (str "relabels `(:type p)` off `constraint-problem`, minus the arbitrable "
                 "kinds — a firing places one of those and lets `settle` weigh the pair. "
                 "`:irreflexive` and `:anti-symmetric` are non-arbitrable refusals (a lone "
-                "self tuple, or a converse no merge reconciles), so a firing drops them")}
+                "self tuple, or a converse no merge reconciles), so a firing drops them. "
+                "`:disjoint` is the application a firing has not minted yet, read under "
+                "`*entry-mints?*`: its result type clashes with a demanded type, and no "
+                "second sentex stands for the pair to weigh")}
+
+   "checks/derivation-violation"
+   {:kinds #{:arity :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
+             :irreflexive :anti-symmetric :disjoint}
+    :why   (str "`constraint-admission`'s relabel for the argument-type mint, which "
+                "places an arbitrable clash as a firing does")}
 
    "checks/constraint-violation"
    {:kinds #{:arity :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
@@ -228,7 +237,7 @@
                 "vocabulary, minted across `checks`, `rules`, `sentex` and `naming`")}
 
    "settle/cut-notice"
-   {:kinds #{:exposure-truncated :arbitration-truncated}
+   {:kinds #{:arbitration-truncated}
     :why   (str "the one entry a bounded sweep owes when it stopped short, built once "
                 "and called with the kind — so the keywords sit at the callers and the "
                 "site itself holds none")

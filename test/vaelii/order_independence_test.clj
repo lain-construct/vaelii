@@ -33,8 +33,13 @@
   or that double-counted a pair, is precisely the order-dependence this file exists to
   catch, and it would be invisible to a belief-only reading."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
             [vaelii.core :as v]
+            [vaelii.impl.protocols :as p]
+            [vaelii.impl.resolution :as res]
+            [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
+            [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
 (defn- interleavings
@@ -480,7 +485,7 @@
   ;; A block condition is decided three times over — at derive time from the firing's
   ;; raw bindings, again from a trigger, and again off a refusal record — and a merge
   ;; can retire the spelling either the *binding* or the *conjunct's own constant* is
-  ;; written in.  A goal asked under a retired spelling comes back honestly empty, and
+  ;; written in.  A goal asked under a retired spelling comes back empty, and
   ;; an empty block condition reads as **not excepted**, so the same four sentences
   ;; believed the conclusion or not depending on where the merge landed: 6 of these 24
   ;; orderings for a retired binding, 12 of 24 for a retired conjunct constant.
@@ -657,10 +662,9 @@
 ;; owes them the same answer.  The engine has two entry points for that answer and the arrival
 ;; order picks which: a fact written *after* the declaration is refused at the entry point (or
 ;; weighed into `contradictions` where the opposing claim is defeasible), and a
-;; declaration written after the facts is reported by the settle's exposure pass, with
-;; belief untouched.  Both declarations take the second entry point by the same route: a
-;; declaration in the settle's moved region says what it puts back in question, and the
-;; pass sweeps that.
+;; declaration written after the facts is weighed by the settle's arbitration sweep.  Both
+;; declarations take the second entry point by the same route: a declaration in the
+;; settle's moved region says what it puts back in question, and the sweep reads that.
 ;;
 ;; **So what a single outcome means here is that the clash is *accounted for*, not that
 ;; every ordering picks the same entry point.** Which entry point is the constraint policy's business
@@ -1095,6 +1099,208 @@
         "a spelling an un-merge gives back must derive what its twin could not"))
   (tu/clear-kb! (tu/test-kb)))
 
+(def ^:private revived-declarations
+  "Per merge or lift mark: the declaration, the facts it reaches, what else the scenario
+  states first, the reading, and the reading every ordering must give — the one a KB
+  gives with the declaration stated before the facts."
+  (let [U 'CxUniverse
+        rows (fn [kb pat ctx] (set (map :sentence (v/sentexes-matching kb pat ctx))))]
+    [{:label   "functional"
+      :decl    '(functional rvFun)
+      :facts   '[(rvFun Aa Bb) (rvFun Aa Cc)]
+      :observe (fn [kb] [(rows kb '(rvFun ?x ?y) U) (v/ask? kb '(equals Bb Cc) U)])
+      :expect  ['#{(rvFun Aa Bb)} true]}
+     {:label   "functionalInArg"
+      :decl    '(functionalInArg rvFia 2)
+      :facts   '[(rvFia Aa Bb) (rvFia Aa Cc)]
+      :observe (fn [kb] [(rows kb '(rvFia ?x ?y) U) (v/ask? kb '(equals Bb Cc) U)])
+      :expect  ['#{(rvFia Aa Bb)} true]}
+     {:label   "anti_symmetric"
+      :decl    '(anti_symmetric rvAnti)
+      :facts   '[(rvAnti Aa Bb) (rvAnti Bb Aa)]
+      :observe (fn [kb] [(rows kb '(rvAnti ?x ?y) U) (v/ask? kb '(equals Aa Bb) U)])
+      :expect  ['#{(rvAnti Aa Aa)} true]}
+     {:label   "decontextualized_predicate"
+      :decl    '(decontextualized_predicate rv_lift)
+      :setup   ['(genlCx CxRvLift CxUniverse)]
+      :facts   '[(rv_lift Aa)]
+      :in      'CxRvLift
+      :observe (fn [kb] [(rows kb '(rv_lift ?x) U) (v/ask? kb '(rv_lift Aa) U)])
+      :expect  ['#{(rv_lift Aa)} true]}
+     {:label   "genl edge under functional"
+      :decl    '(genl rvFunSub rvFunSup)
+      :setup   ['(functional rvFunSup)]
+      :facts   '[(rvFunSub Aa Bb) (rvFunSub Aa Cc)]
+      :observe (fn [kb] [(rows kb '(rvFunSub ?x ?y) U) (v/ask? kb '(equals Bb Cc) U)])
+      :expect  ['#{(rvFunSub Aa Bb)} true]}
+     {:label   "genl edge under functionalInArg"
+      :decl    '(genl rvFiaSub rvFiaSup)
+      :setup   ['(functionalInArg rvFiaSup 2)]
+      :facts   '[(rvFiaSub Aa Bb) (rvFiaSub Aa Cc)]
+      :observe (fn [kb] [(rows kb '(rvFiaSub ?x ?y) U) (v/ask? kb '(equals Bb Cc) U)])
+      :expect  ['#{(rvFiaSub Aa Bb)} true]}
+     {:label   "genl edge under anti_symmetric"
+      :decl    '(genl rvAntiSub rvAntiSup)
+      :setup   ['(anti_symmetric rvAntiSup)]
+      :facts   '[(rvAntiSub Aa Bb) (rvAntiSub Bb Aa)]
+      :observe (fn [kb] [(rows kb '(rvAntiSub ?x ?y) U) (v/ask? kb '(equals Aa Bb) U)])
+      :expect  ['#{(rvAntiSub Aa Aa)} true]}]))
+
+(deftest a-revived-mark-reaches-the-facts-that-arrived-while-it-was-out
+  ;; A merge or lift mark reaches a fact at the fact's arrival or at its own.  A fact
+  ;; arriving while a known-true denial holds the mark OUT meets neither: the taxonomy
+  ;; does not hold the mark, and the mark's arrival is already over.  Retracting the
+  ;; denial revives the mark by a relabel, and the settle runs the mark's arrival sweeps
+  ;; for it (`special/revived-declaration-sweeps`).  The mark, its denial and the
+  ;; denial's retraction are one chain, since the retraction names the denial's handle;
+  ;; each fact is a chain of one, so the orderings that put a fact inside the denial's
+  ;; window are among the thirty (five, with one fact).
+  (doseq [{:keys [label decl setup facts in observe expect]} revived-declarations]
+    (testing label
+      (let [denial (atom nil)
+            stated (fn [s] #(v/assert % s 'CxUniverse))
+            mark   [#(doseq [s setup] (v/assert % s 'CxUniverse))
+                    (stated decl)
+                    #(reset! denial (v/assert % (list 'not decl) 'CxUniverse
+                                              {:strength :monotonic}))
+                    #(v/retract! % @denial)]
+            chains (into [mark] (map (fn [f] [#(v/assert % f (or in 'CxUniverse))])) facts)]
+        (is (= expect (one-outcome-under! (str "a revived " label) chains observe))
+            "every ordering reads what the declaration stated first reads"))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-revived-genl-edge-merges-up-to-the-budget-and-names-the-cut
+  ;; Each kid holds one filler under the marked `sup` and one under `sub`, so every `sub`
+  ;; fact the revival walks merges exactly one pair: the merge count is the number of
+  ;; facts the budget let through.
+  (let [kids 6]
+    (doseq [[budget merges notices] [[4 4 1] [kids kids 0]]]
+      (tu/with-neutral-kb [kb tu/fresh]
+        (tu/with-terms [sup sub]
+          (binding [tax/*exposure-instance-budget* budget]
+            (let [U    'CxUniverse
+                  edge (list 'genl sub sup)
+                  pairs (vec (repeatedly kids #(vector (tu/fresh-term :individual "Kid")
+                                                       (tu/fresh-term :individual "MumA")
+                                                       (tu/fresh-term :individual "MumB"))))]
+              (v/assert kb (list 'functional sup) U)
+              (v/assert kb edge U)
+              (let [denial (v/assert kb (list 'not edge) U {:strength :monotonic})]
+                (doseq [[k a b] pairs]
+                  (v/assert kb (list sup k a) U)
+                  (v/assert kb (list sub k b) U))
+                (v/retract! kb denial))
+              (testing (str "budget " budget)
+                (is (= merges (count (filter (fn [[_ a b]] (v/ask? kb (list 'equals a b) U))
+                                             pairs))))
+                (is (= notices
+                       (count (filter #(= :genl-edge-revival-truncated (:violation %))
+                                      (v/violations kb)))))))))))))
+
+(defn- except-chain
+  "The ops that state `sentence`, except it, and — with `retract?` — retract the except:
+  one chain, since the except names the handle the assertion allocated and the retraction
+  the except's.  `setup` is stated first, in the same chain."
+  [setup sentence retract?]
+  (let [h (atom nil) x (atom nil)]
+    (cond-> [#(doseq [s setup] (v/assert % s 'CxUniverse))
+             #(reset! h (v/assert % sentence 'CxUniverse))
+             #(reset! x (v/assert % (list 'except (list 'sentexHandle @h)) 'CxUniverse
+                                  {:strength :monotonic}))]
+      retract? (conj #(v/retract! % @x)))))
+
+(deftest an-except-that-moves-reaches-what-an-equality-or-a-mark-restates
+  ;; An equality or a merge mark restates a fact where it is visible, and an `except`
+  ;; moves that without the equality or the mark changing label.  While the except stands
+  ;; every fact reads as spelled, whether it arrived before the except or after; once the
+  ;; except is retracted every fact reads under the normal form, whether it arrived before
+  ;; the equality, inside the except's window or after (`special/except-move-sweeps`).
+  ;; The equality, its except and the except's retraction are one chain, each fact a chain
+  ;; of one.
+  (let [U 'CxUniverse
+        eqn '(equals (oxFatherOf (oxFatherOf ?x)) (oxGrandfatherOf ?x))
+        ff  (fn [n] (list 'oxchain (list 'oxFatherOf (list 'oxFatherOf n))))
+        g   (fn [n] (list 'oxchain (list 'oxGrandfatherOf n)))
+        facts (fn [ss] (mapv (fn [s] [#(v/assert % s U {:strength :monotonic})]) ss))
+        reads (fn [kb ss] (into {} (map (fn [s] [s [(v/ask? kb s U)
+                                                    (count (v/sentexes-matching kb s U))]]))
+                                ss))]
+    (testing "a schematic equation"
+      (let [observe #(reads % [(ff 'Ann) (g 'Ann) (ff 'Bob) (g 'Bob)])]
+        (is (= {(ff 'Ann) [true 1] (g 'Ann) [false 0] (ff 'Bob) [true 1] (g 'Bob) [false 0]}
+               (one-outcome-under! "an excepted schematic equation"
+                                   (into [(except-chain [] eqn false)]
+                                         (facts [(ff 'Ann) (ff 'Bob)]))
+                                   observe)))
+        (is (= {(ff 'Ann) [true 1] (g 'Ann) [true 1] (ff 'Bob) [true 1] (g 'Bob) [true 1]}
+               (one-outcome-under! "a schematic equation whose except is retracted"
+                                   (into [(except-chain [] eqn true)]
+                                         (facts [(ff 'Ann) (ff 'Bob)]))
+                                   observe)))))
+    (doseq [eq '[equals sameAs rewriteOf]]
+      (testing (str "a ground " eq)
+        ;; `OxAlpha` is the representative under all three.  While the except stands, the
+        ;; premise stated in the representative's spelling stays readable beside the
+        ;; one the merge displaced; once it goes, a fact that arrived under it is merged.
+        (is (= '{(oxq OxAlpha) [true 1] (oxq OxBeta) [true 1]}
+               (one-outcome-under! (str "an excepted " eq)
+                                   (into [(except-chain [] (list eq 'OxAlpha 'OxBeta) false)]
+                                         (facts '[(oxq OxAlpha) (oxq OxBeta)]))
+                                   #(reads % '[(oxq OxAlpha) (oxq OxBeta)]))))
+        (is (= '{(oxr OxAlpha) [true 1] (oxr OxBeta) [true 1]}
+               (one-outcome-under! (str "a " eq " whose except is retracted")
+                                   (into [(except-chain [] (list eq 'OxAlpha 'OxBeta) true)]
+                                         (facts '[(oxr OxBeta)]))
+                                   #(reads % '[(oxr OxAlpha) (oxr OxBeta)]))))))
+    (doseq [{:keys [label decl setup facts in observe expect]} revived-declarations]
+      (testing (str "a " label " mark whose except is retracted")
+        (is (= expect
+               (one-outcome-under! (str "a " label " mark whose except is retracted")
+                                   (into [(except-chain setup decl true)]
+                                         (map (fn [f] [#(v/assert % f (or in U))]))
+                                         facts)
+                                   observe))
+            "every ordering reads what the mark stated first and never excepted reads"))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest an-except-below-the-fact-reads-one-copy-in-every-order
+  ;; The facts and the equation are in `CxOxUp`, an except of the equation in `CxOxLow`
+  ;; below it, and optionally a second except in `CxOxUp`.  `CxOxLow` reads each fact
+  ;; under its stated spelling from one stored copy, and the second except retires the
+  ;; copy, whether it arrives before the except below or after it (`special/migrate-into`,
+  ;; `special/retired-copy`).
+  (let [U     'CxUniverse
+        eqn   '(equals (oxFatherOf (oxFatherOf ?x)) (oxGrandfatherOf ?x))
+        ff    (fn [n] (list 'oxchain (list 'oxFatherOf (list 'oxFatherOf n))))
+        g     (fn [n] (list 'oxchain (list 'oxGrandfatherOf n)))
+        chain (fn [excepts retract?]
+                (let [h (atom nil) xs (atom {})]
+                  (cond-> [#(v/assert % '(genlCx CxOxUp CxUniverse) U {:strength :monotonic})
+                           #(v/assert % '(genlCx CxOxLow CxOxUp) U {:strength :monotonic})
+                           #(reset! h (v/assert % eqn 'CxOxUp))]
+                    true     (into (map (fn [c] #(swap! xs assoc c (v/assert % (list 'except (list 'sentexHandle @h))
+                                                                             c {:strength :monotonic}))))
+                                   excepts)
+                    retract? (conj #(v/retract! % (get @xs 'CxOxLow))))))
+        facts [[#(v/assert % (ff 'Ann) 'CxOxUp {:strength :monotonic})]
+               [#(v/assert % (ff 'Bob) 'CxOxUp {:strength :monotonic})]]
+        observe (fn [kb]
+                  (into {} (for [n '[Ann Bob]]
+                             [n [(v/ask? kb (ff n) 'CxOxLow) (v/ask? kb (g n) 'CxOxLow)
+                                 (count (v/sentexes-matching kb (ff n) 'CxOxLow))
+                                 (count (filter #(= (ff n) (v/sentence-of %))
+                                                (v/sentexes-in-context kb 'CxOxLow)))]])))
+        under (fn [label excepts retract?]
+                (one-outcome-under! label (into [(chain excepts retract?)] facts) observe))]
+    (is (= '{Ann [true false 1 1] Bob [true false 1 1]}
+           (under "an except below the facts" '[CxOxLow] false)))
+    (let [retired '{Ann [true false 0 1] Bob [true false 0 1]}]
+      (is (= retired (under "an except below, then one in the facts' context" '[CxOxLow CxOxUp] false)))
+      (is (= retired (under "an except in the facts' context, then one below" '[CxOxUp CxOxLow] false))))
+    (is (= '{Ann [true true 0 0] Bob [true true 0 0]}
+           (under "an except below the facts, retracted" '[CxOxLow] true))))
+  (tu/clear-kb! (tu/test-kb)))
+
 ;; ---- two traces, one KB -------------------------------------------------
 ;;
 ;; Everything above permutes ONE set of assertions, which can only ask whether the order
@@ -1377,6 +1583,206 @@
     (is (= {:derived true} (one-outcome-necessarily! "inherited-rule firing" ops observe))
         "a rule above is inherited into a context wired under it, whenever that happened"))
   (tu/clear-kb! (tu/test-kb)))
+
+;; ---- a context edge pairs with what the lower context already saw -------
+;;
+;; The tests above wire two contexts and put the rule and the fact at the edge's two ends.
+;; An edge `(genlCx sub super)` also grows the view of a context that already sees more
+;; than `sub`: its other ancestors, through a second edge of `sub`'s own or through a
+;; second parent of a context below `sub`.  A pairing the edge makes new can take one
+;; ingredient from `super`'s ancestor set and the other from one of those, so the wiring
+;; edges go among the permuted ops here, and each is last in some ordering.
+
+(defn- a-late-edge-pairs-with-the-rest-of-the-view!
+  "Walk every ordering of `wiring`, `fact` asserted in `fact-cx` and `(implies ante
+  (ve_flies_p ?x))` asserted forward in `rule-cx`, and assert that `(ve_flies_p VeTweety)`
+  is visible from `reader` in every one, with every op necessary."
+  [label wiring [fact fact-cx] [ante rule-cx] reader]
+  (let [ops (into (mapv (fn [[sub super]]
+                          #(v/assert % (list 'genlCx sub super) 'CxUniverse))
+                        wiring)
+                  [#(v/assert % fact fact-cx {:strength :monotonic})
+                   #(v/assert % (list 'implies ante '(ve_flies_p ?x)) rule-cx {:direction :forward})])
+        observe (fn [kb]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(ve_flies_p VeTweety) reader)))})]
+    (is (= {:derived true} (one-outcome-necessarily! label ops observe))
+        "the conclusion is visible from the lower context whichever edge arrived last"))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-late-edge-hands-a-rule-a-fact-the-sub-sees-through-another-edge
+  ;; `CxVeA` sees `CxVeP`, then `(genlCx CxVeA CxVeB)` hands it the rule in `CxVeB`.  The
+  ;; fact sits in `CxVeP`, in neither the edge's ancestor set nor its descendant set.
+  (a-late-edge-pairs-with-the-rest-of-the-view!
+   "chain, rule above the new edge"
+   '[[CxVeA CxVeP] [CxVeA CxVeB]]
+   '[(ve_bird_t VeTweety) CxVeP]
+   '[(ve_bird_t ?x) CxVeB]
+   'CxVeA))
+
+(deftest a-late-edge-hands-a-fact-to-a-rule-the-sub-sees-through-another-edge
+  ;; The other assignment: the rule in `CxVeP` is visible from `CxVeA` without being
+  ;; stated anywhere below `CxVeA`, and the new edge hands it the fact in `CxVeB`.
+  (a-late-edge-pairs-with-the-rest-of-the-view!
+   "chain, fact above the new edge"
+   '[[CxVeA CxVeP] [CxVeA CxVeB]]
+   '[(ve_bird_t VeTweety) CxVeB]
+   '[(ve_bird_t ?x) CxVeP]
+   'CxVeA))
+
+(deftest a-late-edge-hands-a-rule-a-fact-a-lower-context-sees-through-another-parent
+  ;; The diamond: `CxVeC` sees `CxVeA` and `CxVeD`, and `(genlCx CxVeA CxVeB)` hands
+  ;; `CxVeC` the rule in `CxVeB`.  The fact in `CxVeD` is visible from `CxVeC` only, and
+  ;; `CxVeC` is the one context where the two meet.
+  (a-late-edge-pairs-with-the-rest-of-the-view!
+   "diamond, rule above the new edge"
+   '[[CxVeC CxVeA] [CxVeC CxVeD] [CxVeA CxVeB]]
+   '[(ve_bird_t VeTweety) CxVeD]
+   '[(ve_bird_t ?x) CxVeB]
+   'CxVeC))
+
+(deftest a-late-edge-hands-a-fact-to-a-rule-a-lower-context-sees-through-another-parent
+  (a-late-edge-pairs-with-the-rest-of-the-view!
+   "diamond, fact above the new edge"
+   '[[CxVeC CxVeA] [CxVeC CxVeD] [CxVeA CxVeB]]
+   '[(ve_bird_t VeTweety) CxVeB]
+   '[(ve_bird_t ?x) CxVeD]
+   'CxVeC))
+
+(deftest a-late-edge-hands-a-rule-a-subtype-fact-the-sub-sees-through-another-edge
+  ;; The chain again, with the fact one type below the antecedent the rule names, so the
+  ;; seed is found down `roster-antecedent-functors`' spec fan and not under the
+  ;; antecedent's own functor.
+  (let [ops [#(v/assert % '(genlCx CxVtA CxVtP) 'CxUniverse)
+             #(v/assert % '(genlCx CxVtA CxVtB) 'CxUniverse)
+             #(v/assert % '(genl vt_penguin_t vt_bird_t) 'CxVtP {:strength :monotonic})
+             #(v/assert % '(vt_penguin_t VtPingu) 'CxVtP {:strength :monotonic})
+             #(v/assert % '(implies (vt_bird_t ?x) (vt_feathered_p ?x)) 'CxVtB {:direction :forward})]
+        observe (fn [kb]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(vt_feathered_p VtPingu) 'CxVtA)))})]
+    (is (= {:derived true} (one-outcome-necessarily! "chain through a type" ops observe))
+        "a rule fires off a subtype fact the lower context saw first, whichever edge came last"))
+  (tu/clear-kb! (tu/test-kb)))
+
+;; ---- a context edge hands a rule a datum that licenses it ----------------
+;;
+;; The same wiring, with the ingredient the edge hands over being one the rule's
+;; antecedent is not stated on: a permuting mark, a hop of a transitive walk or the
+;; declaration that turns the walk on, a preservation declaration or the `genl` edge it
+;; inherits across, a unit table a computed comparison reads.  Each of these re-joins the
+;; rule in full when it arrives (`chain/fire-rules-for`), and here it arrives before the
+;; edge that lets the rule's reader see it.
+
+(defn- a-late-edge-reaches-what-the-view-licenses!
+  "Walk every ordering of `wiring`, each `[sub super]` or a vector of them asserted as one
+  op, and `content`, each `[sentence context]` with a rule asserted forward and a vector
+  of sentences asserted as one op, and assert that `goal` is visible from `reader` in
+  every one, with every op necessary."
+  [label wiring content goal reader]
+  (let [put (fn [kb s cx]
+              (if (= 'implies (first s))
+                (v/assert kb s cx {:direction :forward})
+                (v/assert kb s cx {:strength :monotonic})))
+        edge (fn [kb [sub super]] (v/assert kb (list 'genlCx sub super) 'CxUniverse))
+        ops (into (mapv (fn [w]
+                          (if (vector? (first w))
+                            (fn [kb] (doseq [e w] (edge kb e)))
+                            #(edge % w)))
+                        wiring)
+                  (map (fn [[s cx]]
+                         (if (vector? s)
+                           (fn [kb] (doseq [x s] (put kb x cx)))
+                           #(put % s cx))))
+                  content)
+        observe (fn [kb]
+                  {:derived (boolean (seq (v/sentexes-matching kb goal reader)))})]
+    (is (= {:derived true} (one-outcome-necessarily! label ops observe))
+        "the conclusion is visible from the lower context whichever edge arrived last"))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-late-edge-pairs-two-facts-under-a-rule-both-parents-saw
+  ;; The rule sits above both parents of the diamond, so the edge hands it nothing: what
+  ;; is new is the pair of facts, one on each side, that only `CxRjBoth` sees together.
+  ;; Both parents sit under `CxRjTop`, wired as one op since either edge alone shows
+  ;; `CxRjBoth` the rule.
+  (a-late-edge-reaches-what-the-view-licenses!
+   "diamond, two facts under a common rule"
+   '[[CxRjBoth CxRjP] [CxRjBoth CxRjQ] [[CxRjP CxRjTop] [CxRjQ CxRjTop]]]
+   '[[(rj_left RjX) CxRjP]
+     [(rj_right RjX) CxRjQ]
+     [(implies (and (rj_left ?x) (rj_right ?x)) (rj_both ?x)) CxRjTop]]
+   '(rj_both RjX)
+   'CxRjBoth))
+
+(deftest a-late-edge-hands-a-rule-a-fact-a-symmetric-mark-rearranges
+  ;; The mark is global, so the edge hands over the fact the mark reads in the other order.
+  (a-late-edge-reaches-what-the-view-licenses!
+   "symmetric mark"
+   '[[CxRjA CxRjQ] [CxRjA CxRjR]]
+   '[[(symmetric rjSib) CxUniverse]
+     [(rjSib RjB RjA) CxRjQ]
+     [(implies (rjSib RjA ?y) (rj_kin_p ?y)) CxRjR]]
+   '(rj_kin_p RjB)
+   'CxRjA))
+
+(deftest a-late-edge-hands-a-rule-a-hop-of-a-transitive-walk
+  (a-late-edge-reaches-what-the-view-licenses!
+   "transitive hop"
+   '[[CxRjA CxRjQ] [CxRjA CxRjR]]
+   '[[(transitive rjCauses) CxRjR]
+     [(rjCauses RjA RjB) CxRjR]
+     [(rjCauses RjB RjC) CxRjQ]
+     [(implies (rjCauses RjA ?c) (rj_traced_p ?c)) CxRjR]]
+   '(rj_traced_p RjC)
+   'CxRjA))
+
+(deftest a-late-edge-hands-a-rule-the-declaration-that-turns-a-walk-on
+  (a-late-edge-reaches-what-the-view-licenses!
+   "transitive declaration"
+   '[[CxRjA CxRjM] [CxRjA CxRjR]]
+   '[[(transitive rjCauses) CxRjM]
+     [(rjCauses RjA RjB) CxRjR]
+     [(rjCauses RjB RjC) CxRjR]
+     [(implies (rjCauses RjA ?c) (rj_traced_p ?c)) CxRjR]]
+   '(rj_traced_p RjC)
+   'CxRjA))
+
+(deftest a-late-edge-hands-a-rule-the-genl-edge-a-preserved-claim-inherits-across
+  (a-late-edge-reaches-what-the-view-licenses!
+   "preserved claim, genl edge"
+   '[[CxRjA CxRjP] [CxRjA CxRjR]]
+   '[[(genl rj_chi_t rj_dog_t) CxRjP]
+     [(transitiveInArg rjLarger 1 genl) CxRjR]
+     [(rjLarger rj_dog_t rj_cat_t) CxRjR]
+     [(implies (rjLarger rj_chi_t ?y) (rj_outw_p ?y)) CxRjR]]
+   '(rj_outw_p rj_cat_t)
+   'CxRjA))
+
+(deftest a-late-edge-hands-a-rule-the-declaration-a-preserved-claim-inherits-by
+  (a-late-edge-reaches-what-the-view-licenses!
+   "preserved claim, declaration"
+   '[[CxRjA CxRjM] [CxRjA CxRjR]]
+   '[[(transitiveInArg rjLarger 1 genl) CxRjM]
+     [(genl rj_chi_t rj_dog_t) CxRjR]
+     [(rjLarger rj_dog_t rj_cat_t) CxRjR]
+     [(implies (rjLarger rj_chi_t ?y) (rj_outw_p ?y)) CxRjR]]
+   '(rj_outw_p rj_cat_t)
+   'CxRjA))
+
+(deftest a-late-edge-hands-a-rule-the-unit-table-a-comparison-reads
+  (a-late-edge-reaches-what-the-view-licenses!
+   "unit table"
+   '[[CxRjA CxRjT] [CxRjA CxRjU]]
+   '[[[(dimensionOf RjGramme RjHeft)
+       (dimensionOf RjKilo RjHeft)
+       (conversionFactor RjGramme RjKilo 0.001)
+       (conversionFactor RjKilo RjKilo 1)]
+      CxRjT]
+     [(rjMass RjWhale (QuantityFn 5000 RjGramme)) CxRjU]
+     [(implies (and (rjMass ?x ?q) (quantityGreaterThan ?q (QuantityFn 1 RjKilo)))
+               (rj_heavy_p ?x))
+      CxRjU]]
+   '(rj_heavy_p RjWhale)
+   'CxRjA))
 
 ;; ---- a context edge widens what a merge reaches -------------------------
 
@@ -1877,6 +2283,255 @@
 (deftest ^:slow every-ordering-of-a-firing-two-permuting-marks-license-survives-either-one
   (two-permuting-marks-license nil))
 
+;; The same firings with the rules and the facts in a context that sees no statement of
+;; the mark: `CxPI`, which no `genlCx` edge names, and `CxPH`, which sees CxCore and not
+;; CxUniverse, where the lifted copy sits.  The store sorts the fact for every context, so
+;; the matcher reads the mirror there too, and the firing is placed by the rule and the
+;; fact while naming the mark (`chain/placement-antecedents`).  Placed by the mark's context
+;; as well, it would find no placement when the mark comes first, and would keep the firing
+;; it made before the mark when the mark comes last.
+
+(defn- unseen-mark-ops
+  "`permuted-ops`' rules and facts stated in `home`, with each of `marks` — `{k [[mark &
+  args] context]}` — stated of `umRel`, its handle into `h` under `k`."
+  [home marks h]
+  (into [#(do (v/assert % '(genlCx CxPA CxUniverse) 'CxUniverse)
+              (v/assert % '(genlCx CxPH CxCore) 'CxUniverse)
+              (v/assert % '(implies (umRel ?x ?y) (umNoted ?x ?y)) home {:direction :forward}))
+         #(v/assert % '(implies (and (umRel ?x ?y) (um_tagged ?x)) (umJoined ?x ?y))
+                    home {:direction :forward})
+         #(v/assert % '(um_tagged Bea) home)
+         #(v/assert % '(umRel Ada Bea) home)]
+        (for [[k [mark cx]] marks]
+          #(swap! h assoc k (v/assert % (list* (first mark) 'umRel (rest mark)) cx)))))
+
+(defn- unseen-mark-reading
+  "The two mirrored conclusions, the stored one, and whether `home` reads the fact's mirror
+  and the mark's property, with how many firings found no placement."
+  [home]
+  (fn [kb]
+    (-> (into {} (for [g '[(umNoted Bea Ada) (umJoined Bea Ada) (umNoted Ada Bea) (umRel Bea Ada)]]
+                   [g (v/ask? kb g home)]))
+        (assoc :symmetric (v/has-prop? kb :symmetric 'umRel home)
+               :no-placement (count (filter #(= :no-placement (:violation %)) (v/violations kb)))))))
+
+(defn- a-mark-no-statement-of-reaches
+  "In a context that sees no statement of each permuting mark, the mark licenses both
+  mirrored firings in every order, and retracting it leaves what a KB that never held it
+  holds — over `cap` orderings of each scenario, or all of them."
+  [cap]
+  (doseq [home '[CxPI CxPH]
+          mark '[[symmetric] [commutative] [commutativeInArgs 1 2] [commutativeInArgAndRest 1]]]
+    (testing (str (first mark) " read from " home)
+      (let [h       (atom {})
+            reading (unseen-mark-reading home)
+            label   (str (first mark) " from " home)
+            never   (one-outcome! (str label ", never stated")
+                                  (unseen-mark-ops home nil h) reading cap)
+            held    (one-outcome! (str label ", held")
+                                  (unseen-mark-ops home {:m [mark 'CxPA]} h) reading cap)
+            retract (one-outcome! (str label ", retracted")
+                                  (unseen-mark-ops home {:m [mark 'CxPA]} h)
+                                  (fn [kb] (v/retract! kb (:m @h)) (reading kb))
+                                  cap)]
+        (is (= [true true true true 0]
+               (mapv held '[(umNoted Bea Ada) (umJoined Bea Ada) (umNoted Ada Bea) (umRel Bea Ada)
+                            :no-placement]))
+            "the mark licenses both mirrored firings, and each is placed")
+        (is (= (= 'symmetric (first mark)) (:symmetric held))
+            "the property is read where the store reads it")
+        (is (= [false false true false]
+               (mapv never '[(umNoted Bea Ada) (umJoined Bea Ada) (umNoted Ada Bea) (umRel Bea Ada)]))
+            "without it only the stored order fires")
+        (is (= never retract) "and retracting it leaves what a KB that never held it holds"))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-firing-a-mark-no-statement-of-reaches-is-placed-in-every-order
+  ;; a sample of each scenario's 120 orderings; the ^:slow twin walks every one
+  (a-mark-no-statement-of-reaches ordering-sample))
+
+(deftest ^:slow every-ordering-of-a-firing-a-mark-no-statement-of-reaches-is-placed
+  (a-mark-no-statement-of-reaches nil))
+
+(defn- two-statements-one-unseen
+  "`(symmetric umRel)` stated in the unwired `CxPI` that holds the rules and the fact, and
+  in the sibling CxPA, which CxPI does not see: the store sorts the fact while either
+  stands, so the firing names both and goes with the second withdrawn — over `cap` of the
+  720 orderings, or all of them."
+  [cap]
+  (doseq [order [[:i :a] [:a :i]]]
+    (testing (str "withdrawing " order)
+      (let [h      (atom {})
+            result (one-outcome! (str "a statement in CxPI and one in CxPA, withdrawing " order)
+                                 (unseen-mark-ops 'CxPI {:i ['[symmetric] 'CxPI]
+                                                         :a ['[symmetric] 'CxPA]} h)
+                                 (fn [kb]
+                                   (vec (for [k (cons nil order)]
+                                          (do (when k (v/retract! kb (get @h k)))
+                                              (mapv #(v/ask? kb % 'CxPI)
+                                                    '[(umNoted Bea Ada) (umJoined Bea Ada)
+                                                      (umRel Bea Ada)])))))
+                                 cap)]
+        (is (= [[true true true] [true true true] [false false false]] (vec result))))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-firing-a-mark-stated-twice-licenses-survives-the-statement-its-context-sees
+  ;; a sample of the 720 orderings; the ^:slow twin walks every one
+  (two-statements-one-unseen ordering-sample))
+
+(deftest ^:slow every-ordering-of-a-firing-a-mark-stated-twice-licenses-survives-either-one
+  (two-statements-one-unseen nil))
+
+;; A permuting mark sorts a fact's arguments as it is stored, so `(swRel Bea Ada)` under
+;; one is stored as `(swRel Ada Bea)`, its mirror dedups to that row, and a mark arriving
+;; late re-spells or folds what is already there.  Retracting the mark has to hand back
+;; what was written: each spelling its own row, at its own class, and a firing's
+;; conclusion as the rule wrote it (`chain/reconcile-spellings!`).
+
+(def ^:private spelled-shapes
+  "The shapes a mark folds: one spelling written against the mark's order — the
+  probe when the mark comes first, a stored fact re-spelled when it comes last; both
+  spellings, at two classes, folded into one row, with the known-true one kept in its
+  row and then moved out of it, so the split also lowers the row's class; and a rule
+  firing whose conclusion the sort moved."
+  {:one-spelling     [#(v/assert % '(swRel Bea Ada) 'CxUniverse)]
+   :two-spellings    [#(v/assert % '(swRel Bea Ada) 'CxUniverse)
+                      #(v/assert % '(swRel Ada Bea) 'CxUniverse {:strength :monotonic})]
+   :moved-known-true [#(v/assert % '(swRel Bea Ada) 'CxUniverse {:strength :monotonic})
+                      #(v/assert % '(swRel Ada Bea) 'CxUniverse)]
+   :a-firing         [#(v/assert % '(swClaim Ada Bea) 'CxUniverse)]})
+
+(defn- spelled-ops
+  "A rule reading `swRel`, a rule concluding it against its arguments' order, `facts`,
+  and `mark` of `swRel` when one is given, its handle into `h`."
+  [facts mark h]
+  (cond-> (into [#(do (v/assert % '(implies (swRel ?x ?y) (swNoted ?x ?y)) 'CxUniverse
+                                {:direction :forward})
+                      (v/assert % '(implies (swClaim ?x ?y) (swRel ?y ?x)) 'CxUniverse
+                                {:direction :forward}))]
+                facts)
+    mark (conj #(reset! h (v/assert % (list* (first mark) 'swRel (rest mark)) 'CxUniverse)))))
+
+(defn- spelled-reading
+  "The rows stored, and per spelling whether it is believed, a premise, and at what class
+  — then the conclusions drawn from each."
+  [kb]
+  {:rows    (set (map :sentence (v/sentexes-matching kb '(swRel ?x ?y) 'CxUniverse)))
+   :written (vec (for [g '[(swRel Bea Ada) (swRel Ada Bea)]
+                       :let [h (v/handle-of kb g 'CxUniverse)]]
+                   [(v/ask? kb g 'CxUniverse) (boolean (and h (v/premise? kb h)))
+                    (when h (v/defeat-class kb h))]))
+   :drawn   (mapv #(v/ask? kb % 'CxUniverse) '[(swNoted Bea Ada) (swNoted Ada Bea)])})
+
+(defn- a-retracted-permuting-mark-hands-back-the-spellings
+  "Per permuting mark and per shape: the mark held reads both spellings, and retracted
+  it reads what a KB that never held it reads — over `cap` orderings, or all of them."
+  [cap]
+  (doseq [mark '[[symmetric] [commutative] [commutativeInArgs 1 2] [commutativeInArgAndRest 1]]
+          [shape facts] spelled-shapes]
+    (testing (str (first mark) " " shape)
+      (let [h       (atom nil)
+            label   (str (first mark) " " shape)
+            never   (one-outcome! (str label ", never stated")
+                                  (spelled-ops facts nil h) spelled-reading cap)
+            held    (one-outcome! (str label ", held")
+                                  (spelled-ops facts mark h) spelled-reading cap)
+            retract (one-outcome! (str label ", retracted")
+                                  (spelled-ops facts mark h)
+                                  (fn [kb] (v/retract! kb @h) (spelled-reading kb))
+                                  cap)]
+        (is (= 1 (count (:rows held))) "the mark holds the pair as one row")
+        (is (every? true? (:drawn held)) "and both spellings of it are drawn from")
+        (is (= never retract) "retracting it leaves what a KB that never held it holds"))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-retracted-permuting-mark-leaves-each-spelling-as-written
+  ;; a sample of each scenario's orderings; the ^:slow twin walks every one
+  (a-retracted-permuting-mark-hands-back-the-spellings ordering-sample))
+
+(deftest ^:slow every-ordering-of-a-retracted-permuting-mark-leaves-each-spelling-as-written
+  (a-retracted-permuting-mark-hands-back-the-spellings nil))
+
+(deftest a-defeated-permuting-mark-leaves-each-spelling-as-written
+  ;; The mark's other way of going: a known-true denial defeats it, which relabels
+  ;; rather than removes, and the store answers as though it were never stated — then
+  ;; lifting the denial folds the pair back into one row.
+  (let [h      (atom nil)
+        denial (atom nil)
+        facts  (:two-spellings spelled-shapes)
+        never  (one-outcome! "never stated" (spelled-ops facts nil h) spelled-reading)
+        denied (conj (spelled-ops facts '[symmetric] h)
+                     #(reset! denial (v/assert % '(not (symmetric swRel)) 'CxUniverse
+                                               {:strength :monotonic})))
+        result (one-outcome! "a defeated mark" denied
+                             (fn [kb]
+                               (let [defeated (spelled-reading kb)]
+                                 (v/retract! kb @denial)
+                                 [defeated (spelled-reading kb)]))
+                             ordering-sample)]
+    (is (= never (first result)) "defeated, the mark leaves what a KB never told it holds")
+    (is (= 1 (count (:rows (second result)))) "and revived, it folds the pair again"))
+  (tu/clear-kb! (tu/test-kb)))
+
+;; ---- the forward chaining depth bound -------------------------------------
+;;
+;; A run's `:max-depth` refuses a firing whose conclusion would sit deeper than it, and
+;; the depth it compares is read off the conclusion's antecedents.  Those depths are the
+;; network's, so a premise mark that came and went, or one that landed after the chain
+;; below it, must leave the depth the KB built without that history would hold.  The
+;; bounded assert runs last in every ordering, inside `observe`: which assert carries a
+;; bound is the caller's choice and not part of the knowledge.
+
+(deftest a-premise-mark-that-came-and-went-leaves-the-depth-bound-order-independent
+  ;; `(dbB DbX DbY)` is derived at depth 1 from `(dbA DbX DbY)`, asserted as a premise and
+  ;; retracted.  The retraction keeps it on its justification, so a firing over it and
+  ;; `(dbD DbX DbY)` sits at depth 2 and a run bounded at 1 refuses it — as it does in the
+  ;; orderings where the premise mark came and went before the derivation.
+  (let [rule-ab  #(v/assert-rule % '[(dbA ?x ?y)] '(dbB ?x ?y) 'CxUniverse {:direction :forward})
+        rule-bdc #(v/assert-rule % '[(dbB ?x ?y) (dbD ?x ?y)] '(dbC ?x ?y) 'CxUniverse
+                                 {:direction :forward})
+        fact-a   #(v/assert % '(dbA DbX DbY) 'CxUniverse)
+        mark-b   #(v/assert % '(dbB DbX DbY) 'CxUniverse)
+        unmark-b #(v/retract! % (v/handle-of % '(dbB DbX DbY) 'CxUniverse))
+        observe  (fn [kb]
+                   (v/assert kb '(dbD DbX DbY) 'CxUniverse {:max-depth 1})
+                   {:concluded (boolean (seq (v/sentexes-matching kb '(dbC DbX DbY) 'CxUniverse)))
+                    :derived   (boolean (seq (v/sentexes-matching kb '(dbB DbX DbY) 'CxUniverse)))})]
+    (is (= {:concluded false :derived true}
+           (one-outcome-under! "a premise mark that came and went"
+                               [[mark-b unmark-b] [fact-a] [rule-ab] [rule-bdc]] observe))
+        "the bound refuses the depth-2 firing in every ordering"))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-premise-mark-landing-on-a-derived-sentex-leaves-the-depth-bound-order-independent
+  ;; The mirror image: `(dbB DbX DbY)` held as a premise sits at depth 0, so `(dbC DbX DbY)`
+  ;; sits at 1 and `(dbG DbX DbY)` at 2, whether the mark arrived before the chain or
+  ;; after it.  A mark arriving after re-fires the rules over `(dbB DbX DbY)` and so
+  ;; re-derives `(dbC DbX DbY)`, but nothing re-derives `(dbG DbX DbY)`: its depth falls
+  ;; only as the network pushes the fall down.  A firing over it and `(dbE DbX DbY)` sits
+  ;; at depth 3 and passes a run bounded at 3.
+  (let [rule-ab  #(v/assert-rule % '[(dbA ?x ?y)] '(dbB ?x ?y) 'CxUniverse
+                                 {:direction :forward})
+        rule-bdc #(v/assert-rule % '[(dbB ?x ?y) (dbD ?x ?y)] '(dbC ?x ?y) 'CxUniverse
+                                 {:direction :forward})
+        rule-cg  #(v/assert-rule % '[(dbC ?x ?y)] '(dbG ?x ?y) 'CxUniverse
+                                 {:direction :forward})
+        fact-a   #(v/assert % '(dbA DbX DbY) 'CxUniverse)
+        fact-d   #(v/assert % '(dbD DbX DbY) 'CxUniverse)
+        mark-b   #(v/assert % '(dbB DbX DbY) 'CxUniverse)
+        observe  (fn [kb]
+                   (v/assert-rule kb '[(dbG ?x ?y) (dbE ?x ?y)] '(dbF ?x ?y) 'CxUniverse
+                                  {:direction :forward})
+                   (v/assert kb '(dbE DbX DbY) 'CxUniverse {:max-depth 3})
+                   (boolean (seq (v/sentexes-matching kb '(dbF DbX DbY) 'CxUniverse))))]
+    ;; the three rules keep one order, which the depths do not read: 120 orderings
+    ;; rather than 720
+    (is (true? (one-outcome-under! "a premise mark landing on a derived sentex"
+                                   [[rule-ab rule-bdc rule-cg] [fact-a] [fact-d] [mark-b]]
+                                   observe))
+        "the bound admits the depth-3 firing in every ordering"))
+  (tu/clear-kb! (tu/test-kb)))
+
 ;; ---- a bounded backward search ------------------------------------------
 
 (deftest a-capped-proof-answers-the-same-whichever-rule-arrived-first
@@ -1914,6 +2569,58 @@
               "and the answer it chose is one of the answers")
           (is (= '#{PrA PrB PrC} (:whole result))
               "while the uncapped run still reaches every witness")))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(defn- capped-reading
+  "What a capped read of `goal` is held to across orderings: whether every answer of the
+  first bounded step is an answer of the uncapped read, that step's `:status` and `:count`,
+  and how many times each answer appears across every step `resume` returns until the
+  search is exhausted.  Which answer the first step holds is left out: `docs/anytime.md`
+  states that a stored literal's matches arrive in index order, so the choice follows
+  arrival order."
+  [run goal]
+  (let [answers (fn [r] (mapv #(get % '?x) (:results r)))
+        whole   (set (answers (run goal {})))
+        capped  (run goal {:max-results 1})
+        steps   (take-while some? (iterate #(when (:resume %) (v/resume % {:max-results 1}))
+                                           capped))]
+    {:whole   whole
+     :member? (every? whole (answers capped))
+     :status  (:status capped)
+     :count   (:count capped)
+     :resumed (frequencies (mapcat answers steps))}))
+
+(deftest a-capped-answer-is-one-of-the-answers-whichever-fact-arrived-first
+  ;; Three stored facts answer one goal, so a cap of one is a choice among them, and the
+  ;; choice is the index's: a literal's matches stream in the order the index holds their
+  ;; handles, and handles follow arrival order.  Sorting the matches first would realize
+  ;; the literal's whole extent, which is the cost `:max-results` bounds.  So this pins the contract `docs/anytime.md` states
+  ;; for a capped read ("Which node it stops *on*") on `ask-within` and on `prove-within`
+  ;; under both executors: the capped answer is one of the answers, the step reports
+  ;; `:capped` with a count of one, and the steps `resume` returns hold every answer
+  ;; exactly once — each of those the same in every ordering.  The rule half of the same
+  ;; choice is content-first and pinned above.
+  (doseq [engine [:dfs :inference]]
+    (binding [v/*query-engine* engine]
+      (let [ops     [#(v/assert % '(awp AwA) 'CxUniverse)
+                     #(v/assert % '(awp AwB) 'CxUniverse)
+                     #(v/assert % '(awp AwC) 'CxUniverse)]
+            observe (fn [kb]
+                      {:ask   (capped-reading (fn [g b] (v/ask-within kb g 'CxUniverse b))
+                                              '(awp ?x))
+                       :prove (capped-reading (fn [g b] (v/prove-within kb g 'CxUniverse
+                                                                        (assoc b :max-depth 3)))
+                                              '(awp ?x))})
+            result  (one-outcome-necessarily! (str "capped read under " engine) ops observe)]
+        (testing (str "and the reading is the sensible one under " engine)
+          (doseq [k [:ask :prove]]
+            (is (= '#{AwA AwB AwC} (get-in result [k :whole])) (str k " reaches every fact"))
+            (is (true? (get-in result [k :member?]))
+                (str k ": the capped answer is one of the answers"))
+            (is (= [:capped 1] ((juxt :status :count) (get result k)))
+                (str k ": a cap of one is a choice among three"))
+            (is (= '{AwA 1 AwB 1 AwC 1} (get-in result [k :resumed]))
+                (str k ": resuming hands back each answer once")))))))
   (tu/clear-kb! (tu/test-kb)))
 
 ;; ---- a generator's stamped rules -----------------------------------------
@@ -2002,13 +2709,9 @@
 (defn- lattice-kb
   "A KB under an explicit constraint policy, for the lattice below.  The policy has to be
   the KB's own rather than the process default, because the two answers being compared
-  are what each policy does with the same three sentences.
-
-  Cleared on open, as `tu/fresh` is: the namespace has no fixture, so the scratch space
-  holds whatever the namespace before it left there, and a KB opened over records it
-  never settled refuses every write as `:unrecovered-kb`."
+  are what each policy does with the same three sentences."
   [policy]
-  (fn [] (doto (v/open-kb (assoc tu/scratch-space :constraints policy)) (tu/clear-kb!))))
+  (fn [] (tu/fresh {:constraints policy})))
 
 (defn- lattice-cell!
   "Write the three sentences of CxB in `order` into a fresh lattice, catching the entry
@@ -2099,3 +2802,98 @@
                  (mapv first (filterv (fn [[_ r]] (pos? (:refused r)))
                                       (mapv vector lattice-orders readings))))))))
     (tu/clear-kb! (tu/test-kb))))
+
+;; ---- the withdrawal cache is a memo of current state ----------------------
+
+(def ^:private wd-readers '[CxUniverse CxWdTop CxWdMid CxWdLow CxWdSide])
+
+(defn- wd-setup!
+  "The lattice and the rules every ordering starts from: `CxWdMid`, `CxWdLow` and
+  `CxWdSide` under `CxWdTop`, and `drvp` concluded from `srcp` or `altp`, `drv2p` from
+  `drvp`."
+  [kb]
+  (doseq [[sub super] '[[CxWdTop CxUniverse] [CxWdMid CxWdTop] [CxWdLow CxWdTop]
+                        [CxWdSide CxWdTop]]]
+    (v/assert kb (list 'genlCx sub super) 'CxUniverse))
+  (doseq [r '[(set/forwardRule (implies (srcp ?x) (drvp ?x)))
+              (set/forwardRule (implies (altp ?x) (drvp ?x)))
+              (set/forwardRule (implies (drvp ?x) (drv2p ?x)))]]
+    (v/assert kb r 'CxWdTop {:strength :monotonic})))
+
+(defn- wd-reading
+  "Every reader's `res/withdrawal` and the taxonomy's roster, as `kb` answers them."
+  [kb]
+  {:readers (into {} (map (juxt identity #(res/withdrawal kb %))) wd-readers)
+   :roster  (res/supporter-filter-roster kb)})
+
+(defn- wd-fresh-view
+  "`kb` reading through an empty `:withdrawn` cache, so every answer is recomputed."
+  [kb]
+  (assoc kb :reasoning (volatile! (assoc @(:reasoning kb) :withdrawn (atom {})))))
+
+(defn- wd-except
+  "Assert, in `ctx`, an `except` of the sentex `sentence` holds in `in`."
+  [kb sentence in ctx]
+  (v/assert kb (list 'except (sx/sentex-handle (v/handle-of kb sentence in))) ctx
+            {:strength :monotonic}))
+
+(deftest the-withdrawal-cache-answers-what-a-fresh-recompute-answers-in-every-order
+  ;; After each op's settle, every reader's cached withdrawal and the cached roster are
+  ;; read (each an entry the settle kept, or a fill) and compared with the same reading
+  ;; through an empty cache.  The ops move what the cache reads in each way it can: a
+  ;; second route into a withdrawn conclusion arriving and leaving (`altp`), a rule
+  ;; concluding from a withdrawn conclusion (`drv3p`), an `except` and a meta-except
+  ;; arriving, a `genlCx` edge bringing an `except` into a reader's ancestor set, and an
+  ;; unrelated fact that reaches no entry.
+  (let [bad    (atom [])
+        kept   (atom 0)
+        check  (fn [op]
+                 (fn [kb]
+                   (op kb)
+                   (let [m @(reasoning/withdrawn kb)]
+                     (swap! kept + (count (filter #(contains? m %) wd-readers))))
+                   (let [memo  (wd-reading kb)
+                         fresh (wd-reading (wd-fresh-view kb))]
+                     (when (not= memo fresh) (swap! bad conj {:memo memo :fresh fresh})))))
+        chains (mapv #(mapv check %)
+                     [[#(v/assert % '(srcp Ann) 'CxWdTop {:strength :monotonic})
+                       #(wd-except % '(srcp Ann) 'CxWdTop 'CxWdMid)
+                       #(wd-except % (list 'except (sx/sentex-handle
+                                                    (v/handle-of % '(srcp Ann) 'CxWdTop)))
+                                   'CxWdMid 'CxWdLow)]
+                      [#(v/assert % '(srcp Bob) 'CxWdTop {:strength :monotonic})
+                       #(wd-except % '(srcp Bob) 'CxWdTop 'CxWdSide)
+                       #(v/assert % '(set/forwardRule (implies (drv2p ?x) (drv3p ?x))) 'CxWdTop
+                                  {:strength :monotonic})]
+                      [#(v/assert % '(altp Ann) 'CxWdTop {:strength :monotonic})
+                       #(v/retract! % (v/handle-of % '(altp Ann) 'CxWdTop))]
+                      [#(v/assert % '(genlCx CxWdLow CxWdMid) 'CxUniverse)
+                       #(v/assert % '(otherp Cal) 'CxWdTop)]])
+        ;; a handle is allocated in arrival order, so a `sentexHandle` reads as its sentence
+        content   (fn content [kb h]
+                    (walk/postwalk #(if (and (seq? %) (= 'sentexHandle (first %)))
+                                      (content kb (second %))
+                                      %)
+                                   (:sentence (p/get-sentex (:records kb) h))))
+        sentences (fn [kb hs] (into #{} (map #(content kb %)) hs))
+        observe (fn [kb]
+                  (let [mismatches @bad]
+                    (reset! bad [])
+                    {:mismatches (count mismatches)
+                     :withdrawn  (into {} (keep (fn [r]
+                                                  (when-let [w (res/withdrawal kb r)]
+                                                    [r (sentences kb (:out w))])))
+                                       wd-readers)}))
+        walked  (map #(cons wd-setup! %)
+                     (sampled-orderings ordering-sample (interleavings chains)))
+        census  (outcome-census walked observe)
+        [reading] (keys census)]
+    (is (= 1 (count census)) (str "one reading in every order —" (census-report census)))
+    (is (zero? (:mismatches reading)) "no cached answer differs from a fresh recompute")
+    (is (= '{CxWdMid  #{(srcp Ann) (drvp Ann) (drv2p Ann) (drv3p Ann)}
+             CxWdLow  #{(except (srcp Ann))}
+             CxWdSide #{(srcp Bob) (drvp Bob) (drv2p Bob) (drv3p Bob)}}
+           (:withdrawn reading))
+        "the meta-except in CxWdLow hides CxWdMid's except there, and so nothing it targets")
+    (is (pos? @kept) "a settle kept a cached entry, so the memo was read and not only filled"))
+  (tu/clear-kb! (tu/test-kb)))

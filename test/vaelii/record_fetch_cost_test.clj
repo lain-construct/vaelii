@@ -40,6 +40,7 @@
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.checks :as checks]
             [vaelii.impl.profile :as prof]
             [vaelii.impl.rules :as rules]
             [vaelii.test-util :as tu]))
@@ -161,9 +162,10 @@
 
    {:name :rule-fired
     :build rule-fired
-    ;; eight per assert, for two stored sentexes — the datum, the candidate rule, the
-    ;; matched facts and the placement's re-reads
-    :fetches {:sentex 800 :provenance 100}}])
+    ;; six per assert, for two stored sentexes — the datum, the candidate rule, the
+    ;; matched facts and the placement's re-reads.  The justification's content sort
+    ;; reads the antecedent facts alone, not the rule it drops from the stored vector.
+    :fetches {:sentex 600 :provenance 100}}])
 
 ;; ---- measuring -----------------------------------------------------------
 
@@ -225,6 +227,140 @@
       (is (= (:fetches narrow) (:fetches wide))
           (str "the fetch count must be flat in the extent of the pattern's shape — a "
                "wildcard read is back (" (:fetches narrow) " -> " (:fetches wide) ")")))))
+
+(deftest a-declaration-pages-no-instance-it-does-not-believe
+  ;; A dump imported `{:belief? :stored}` holds its records with the network empty until
+  ;; a `recover`, and an install asserts its ontology into that state.  The clash pass
+  ;; reads what a `genl` edge puts in question as the *believed* members below it, and it
+  ;; paged each member's record before asking belief — every member of the type, since
+  ;; none passes and so none spends the instance budget, so an install into a large
+  ;; store paged the store.  Asked of the handle first, it pages none.
+  (tu/with-shipped-config
+    (let [probe (fn [population]
+                  (let [dir (str (java.nio.file.Files/createTempDirectory
+                                  "rf-stored" (make-array java.nio.file.attribute.FileAttribute 0)))
+                        src (fresh)]
+                    (dotimes [i population]
+                      (v/assert src (list 'rf_dog (ind "RfD" i)) 'CxPerf {:strength :monotonic}))
+                    (v/export! src dir {})
+                    (let [kb (fresh)]
+                      (v/import! kb dir {:belief? :stored})
+                      (binding [v/*write-unrecovered?* true]
+                        (v/assert kb '(disjoint rf_animal rf_plant) 'CxPerf {:strength :monotonic})
+                        (prof/start)
+                        (v/assert kb '(genl rf_dog rf_animal) 'CxPerf {:strength :monotonic})
+                        (let [snap (prof/stop)]
+                          {:fetches  (reduce + 0 (vals (:fetches snap)))
+                           :believed (v/query? kb '(rf_dog RfD0) 'CxPerf)})))))
+          narrow (probe 20)
+          wide   (probe 200)]
+      (is (false? (:believed wide)) "the imported members are stored and not believed")
+      (is (= (:fetches narrow) (:fetches wide))
+          (str "the edge's fetches must be flat in how many unbelieved members sit below "
+               "it — a record is paged before its belief is asked again ("
+               (:fetches narrow) " -> " (:fetches wide) ")")))))
+
+(deftest a-genl-edge-pages-the-mint-roster-not-the-extent-below-it
+  ;; A `genl` edge asks whether it made a minted membership redundant, and a member below
+  ;; its sub-type can only be asked about a mint it holds.  It paged every membership below
+  ;; the sub-type to learn its term and then looked the term up in the roster — during an
+  ;; ontology install into a large store, half of a settle.  The edge's other reads page the
+  ;; members too, for reasons of their own, so what is priced is the difference pruning
+  ;; makes: with one mint in the roster, it must not grow with the members.
+  (tu/with-shipped-config
+    (let [probe (fn [population prune?]
+                  (binding [checks/*assertive-arg-types?* true
+                            checks/*prune-subsumed-mints?* prune?]
+                    (let [kb (fresh)]
+                      (v/assert kb '(genlCx CxPerf CxUniverse) 'CxUniverse)
+                      (v/assert kb '(genl rf_owner thing) 'CxPerf {:strength :monotonic})
+                      (v/assert kb '(arg rfOwns 1 rf_owner) 'CxPerf {:strength :monotonic})
+                      (v/assert kb '(rfOwns RfA RfThing) 'CxPerf {})
+                      (dotimes [i population]
+                        (v/assert kb (list 'rf_sub (ind "RfM" i)) 'CxPerf {}))
+                      (prof/start)
+                      (v/assert kb '(genl rf_sub rf_super) 'CxPerf {:strength :monotonic})
+                      (let [snap (prof/stop)]
+                        {:fetches (reduce + 0 (vals (:fetches snap)))
+                         :minted  (some? (v/handle-of kb '(rf_owner RfA) 'CxPerf))}))))
+          pruning (fn [population]
+                    (- (long (:fetches (probe population true)))
+                       (long (:fetches (probe population false)))))]
+      (is (:minted (probe 20 true)) "the declaration minted its membership, so the roster holds one")
+      (is (= (pruning 20) (pruning 200))
+          (str "what pruning pages on a genl edge must be flat in the members below it that "
+               "hold no mint (" (pruning 20) " -> " (pruning 200) ")")))))
+
+(deftest a-context-edge-pages-the-marked-facts-not-the-context
+  ;; A `genlCx` edge equates what a functional predicate's facts force across the contexts
+  ;; it joins, so its candidates are the facts of marked predicates in the widened
+  ;; ancestor set.  It paged every fact in those contexts and then asked each for a mark:
+  ;; an edge into a large store's context paged every fact of it, once per edge of an
+  ;; ontology install.  The edge's other reads page the believed facts for reasons of
+  ;; their own, so what is priced is the difference the declaration makes: with one
+  ;; marked fact, it must not grow with the unmarked ones.
+  (tu/with-shipped-config
+    (let [probe (fn [population functional?]
+                  (let [kb (fresh)]
+                    (v/assert kb '(genlCx CxRfBig CxUniverse) 'CxUniverse)
+                    (when functional?
+                      (v/assert kb '(functional rfMotherOf) 'CxUniverse {:strength :monotonic}))
+                    (v/assert kb '(rfMotherOf RfKid RfMum) 'CxRfBig {})
+                    (dotimes [i population]
+                      (v/assert kb (list 'rfLikes (ind "RfX" i) 'RfY) 'CxRfBig {}))
+                    (prof/start)
+                    (v/assert kb '(genlCx CxRfSmall CxRfBig) 'CxUniverse {:strength :monotonic})
+                    (let [snap (prof/stop)]
+                      (reduce + 0 (vals (:fetches snap))))))
+          marking (fn [population] (- (long (probe population true)) (long (probe population false))))]
+      (is (= (marking 20) (marking 200))
+          (str "what the functional mark pages on a genlCx edge must be flat in the unmarked "
+               "facts of the contexts it widens (" (marking 20) " -> " (marking 200) ")")))))
+
+(deftest a-recover-walks-the-types-under-its-edges-once
+  ;; A `recover` brings every record IN in one settle, so every `genl` edge asks at once
+  ;; which mints it gave a new route, and each asked for the types under its own sub: a
+  ;; closure walk and a count read per type, per edge.  Over a subtree many edges leave
+  ;; from, that is the subtree once per edge, so a recover grows with edges times subtree
+  ;; rather than with the taxonomy.  Each edge moved still costs pruning a read or so of
+  ;; its own, so what is priced is what one more edge adds, and it must not grow with the
+  ;; subtree under it.  The walk reads index counts, not records, so both are summed.
+  (tu/with-shipped-config
+    (let [probe (fn [depth edges prune?]
+                  (binding [checks/*assertive-arg-types?* true
+                            checks/*prune-subsumed-mints?* prune?]
+                    (let [dir (str (java.nio.file.Files/createTempDirectory
+                                    "rf-recover" (make-array java.nio.file.attribute.FileAttribute 0)))
+                          src (fresh)]
+                      (v/assert src '(genlCx CxPerf CxUniverse) 'CxUniverse)
+                      (v/assert src '(genl rf_owner thing) 'CxPerf {:strength :monotonic})
+                      (v/assert src '(arg rfOwns 1 rf_owner) 'CxPerf {:strength :monotonic})
+                      (v/assert src '(rfOwns RfA RfThing) 'CxPerf {})
+                      (dotimes [i depth]
+                        (v/assert src (list 'genl (ind "rf_chain" i) (ind "rf_chain" (inc i)))
+                                  'CxPerf {:strength :monotonic}))
+                      (dotimes [i edges]
+                        (v/assert src (list 'genl (ind "rf_chain" depth) (ind "rf_up" i))
+                                  'CxPerf {:strength :monotonic}))
+                      (v/export! src dir {})
+                      ;; stored, not believed: the recover brings every record IN, as a
+                      ;; build's finish stage does
+                      (let [kb (fresh)]
+                        (v/import! kb dir {:belief? :stored})
+                        (prof/start)
+                        (v/recover kb)
+                        (let [snap (prof/stop)]
+                          {:cost   (+ (reduce + 0 (vals (:fetches snap)))
+                                      (reduce + 0 (vals (:reads snap))))
+                           :minted (some? (v/handle-of kb '(rf_owner RfA) 'CxPerf))})))))
+          pruning (fn [depth edges]
+                    (- (long (:cost (probe depth edges true)))
+                       (long (:cost (probe depth edges false)))))
+          per-30  (fn [depth] (- (pruning depth 40) (pruning depth 10)))]
+      (is (:minted (probe 5 10 true)) "the declaration minted its membership, so the roster holds one")
+      (is (= (per-30 5) (per-30 20))
+          (str "what thirty more edges add to pruning in a recover must not grow with the "
+               "subtree under them (" (per-30 5) " -> " (per-30 20) ")")))))
 
 (deftest the-instrument-counts-nothing-when-off
   ;; The budgets are only meaningful if the call sites add no work when nobody is collecting.

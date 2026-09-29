@@ -13,6 +13,7 @@
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
+            [vaelii.impl.context-nat :as cn]
             [vaelii.impl.nat :as nat]
             [vaelii.test-util :as tu]))
 
@@ -21,8 +22,7 @@
 
 (def ^:private ctr (atom 0))
 (defn- fresh-cxfn
-  "A gensym'd context-function name — `Cx*Fn`-shaped so `naming/context-function?` reads it,
-  unique per call so the net-neutral fixture's retraction leaves nothing behind."
+  "A gensym'd context-function name in the `Cx*Fn` spelling, unique per call so the net-neutral fixture's retraction leaves nothing behind."
   [base] (symbol (str "CxTmp" base (swap! ctr inc) "Fn")))
 
 (defn- declare-datetime-dimension!
@@ -107,7 +107,9 @@
     (testing "a fact in the year is visible from the month (inheritance up the ancestor set)"
       (is (= [{'?h 'NewYear}] (v/ask kb '(holiday ?h) month))))
     (testing "a fact in the month is NOT visible from the year"
-      (is (empty? (v/ask kb '(weather ?w) year))))))
+      (is (empty? (v/ask kb '(weather ?w) year))))
+    (testing "describe names the year as what the month is a computed spec of"
+      (is (= [ky] (:terms (:computed-spec-of (v/describe kb km 'CxUniverse))))))))
 
 (tu/deftest-kb the-computed-edge-belief-follows-its-reasons
   (let [{:keys [cxfn km ky]} (year-and-month kb)]
@@ -130,6 +132,23 @@
       (is (not (v/sees? kb km ky)) "no edge before the declaration")
       (v/assert kb (list 'contextArgSubrelation cxfn 2 'subintervalOf) 'CxUniverse)
       (is (v/sees? kb km ky) "the declaration arriving last sweeps the existing contexts"))))
+
+(tu/deftest-kb a-fact-into-an-existing-context-orders-no-sibling-pair
+  ;; The producer runs on every assert into a context NAT, so it examines only the pairs
+  ;; an assert can create: a mint pairs the new context with each sibling, both ways, and
+  ;; a fact into a context already minted pairs nothing.  `lein perf`'s
+  ;; `context-nat-existing-context` times the second.
+  (let [cxfn  (declare-datetime-dimension! kb)
+        _     (v/assert kb (list 'contextArgSubrelation cxfn 2 'subintervalOf) 'CxUniverse)
+        day   (fn [d] (list cxfn 'CxMonad (list 'DatetimeFn (format "2000-01-%02d" d))))
+        calls (atom 0)
+        oracle @#'cn/r-evidence]
+    (doseq [d (range 1 9)] (v/assert kb '(weather Cold) (day d)))
+    (with-redefs [cn/r-evidence (fn [& args] (swap! calls inc) (apply oracle args))]
+      (v/assert kb '(weather Warm) (day 1))
+      (is (zero? @calls) "a fact into an existing context")
+      (v/assert kb '(weather Cold) (day 9))
+      (is (= 16 @calls) "a mint beside eight siblings"))))
 
 ;; ---- Finding #1: the producer reacts to belief REVIVAL, not only to assert ----
 

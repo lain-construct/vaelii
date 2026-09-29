@@ -25,9 +25,9 @@ prefer `lein browser` while you are editing.
 
 ### 1.1 Static analysis (`lein lint`) setup
 
-Building, running and testing Vaelii needs only a JDK and Leiningen. `lein lint` is a
-separate gate that shells out to three more binaries, none of which Leiningen
-installs:
+Building, running and testing Vaelii needs only a JDK (21 or later; CI runs Temurin 25)
+and Leiningen. `lein lint` is a separate gate that shells out to three more binaries,
+none of which Leiningen installs:
 
 - [`clj-kondo`](https://github.com/clj-kondo/clj-kondo) — `brew install
   borkdude/brew/clj-kondo` (macOS), or the [install
@@ -51,10 +51,14 @@ deliberately **not** fail-fast, because the suite takes minutes and learning abo
 failures once beats learning about them one cycle at a time. Each stage streams
 to its own log under `target/gate/run-<pid>/`, which `target/gate/latest` points at — a
 run owns its directory, because two gates share a working tree here and neither may read
-the other's verdict. A failing stage prints its tail inline.
+the other's verdict. A failing stage prints its tail inline. Two checks then read the
+stage logs: `reflect`, for reflection warnings in the test tree, and `jvm`, for a JDK
+warning (a restricted native call, a `sun.misc.Unsafe` caller, a deprecated `-XX:` flag)
+or lein's leaked `$CLASSPATH` — so a dependency or a JDK that brings one in goes red here.
 **Perf is opt-in**: `lein release-gate` adds the scaling claims before a tag or a
 perf-sensitive land, `--perf` adds them without the release framing, and a fast gate
-that lands a hot-path change without them prints "perf owed".
+that lands a hot-path change without them prints "perf owed". A gate at `:default` that
+lands an index, TMS or inference change prints "slow owed" (§5).
 `--fail-fast`, `--only <stage>`, `--skip <stage>`, `--quick`, `--all`, and
 `PERF_TOLERANCE` on a loaded machine.
 
@@ -83,19 +87,23 @@ What the pull-request path leaves out, the `deep` workflow picks up: the `^:slow
 tests, which carry more than half the suite's assertions; the `^:multi-jvm` and `^:fuzz`
 ones, which neither `:default` nor `:all` selects; the five record×index pairs
 the two-backend gate skips, plus `overlay` (the fork decorator, not a seventh pair); and
-the five **sweeps** — the whole suite re-run through the persistent-map JTMS, the
-incremental matcher, the node query engine, one of its tacticians, and the reference
-retrieval fan-out. Each of those replaces something the engine
-otherwise picks for itself, and each must be failing-set-identical with the default it
-replaces, since every one is a cost decision rather than a semantic one.
+the seven **sweeps** — the whole suite re-run through the persistent-map JTMS, the
+incremental matcher, the node query engine, one of its tacticians, the reference
+retrieval fan-out, the planner turned off, and the argument declarations read as
+constraints only. The first six replace something the engine otherwise picks for itself,
+and each must be failing-set-identical with the default it replaces, since every one is
+a cost decision rather than a semantic one. The seventh is the supported opt-out reading
+(`VAELII_ASSERTIVE_ARG_TYPES=0`, [docs/argtypes.md](docs/argtypes.md)), and it is held to
+the same identity: a test whose answer depends on the reading pins one with
+`tu/with-entailing` or `tu/without-entailing`.
 
 It blocks nothing and nobody waits on it, which is why a change touching storage, the
 index, records or recovery still owes those runs locally — a bug that shows up only under
 `disk-columnar` should reach you in the pull request, not the next morning. A change
 touching inference, matching or retrieval owes the sweep for the same reason: the
 retrieval paths disagreeing is exactly the kind of thing only that run can see.
-`./scripts/test-matrix.sh` (`lein test-matrix`) is how to pay both at once — the eight
-backends and the five sweeps concurrently, one JVM each, ~13 minutes rather than the ~55
+`./scripts/test-matrix.sh` (`lein test-matrix`) is how to pay both at once — the nine
+backends and the seven sweeps concurrently, one JVM each, ~13 minutes rather than the ~55
 the two single-axis scripts take in sequence.
 
 ## 2. Project layout, and the one rule that matters
@@ -103,7 +111,7 @@ the two single-axis scripts take in sequence.
 ```
 src/vaelii/            the six public namespaces: core.clj (the whole API) plus five thin entry points (§2.1)
 src/vaelii/impl/       the engine internals and the ontology content
-src/vaelii/host/       the tooling above the API: the daemon, the CLI, the loaders, the LLM stack
+src/vaelii/host/       the tooling above the API: the daemon, the CLI, the loaders
 src/vaelii/browser/    the KB browser, an app on the public API (koinii/ is the other app)
 test/vaelii/           the suite, plus the test-world fixtures (world*.clj)
 bench/                 the load/scale harnesses (:bench profile, its own source path)
@@ -315,10 +323,12 @@ Adding one is Additive and owes the same golden and the same row.
 
 **The published API and the extension points are pinned the same way.** Every public var
 of the six public namespaces is frozen with its arglists in
-`test/golden/api-surface.edn`, and the protocols a doc invites an out-of-tree
-implementation of — the storage contracts, `KvBackend`, `Solver`, `Prover`, `Provider` —
-in `test/golden/spi-protocols.edn`. Removing a var, or changing an arglist, is class 1
-and takes the label with a migration line. Adding one is Additive. **Both move the
+`test/golden/api-surface.edn`, and a roster var (an option-key set such as
+`assert-opt-keys`, or `vaelii.serve/ops`) with its members; the protocols a doc invites
+an out-of-tree implementation of — the storage contracts, `KvBackend`, `Solver`,
+`Prover`, `Provider` — are frozen in `test/golden/spi-protocols.edn`. Removing a var or a
+roster member, or changing an arglist, is class 1 and takes the label with a migration
+line. Adding one is Additive. **Both move the
 golden**, which is the point: a golden that only moved on a break would be regenerated
 by whoever hit the break, and the additions — the way a surface actually grows — would
 never be read by anyone. `lein regen-goldens` rewrites all three, and the diff belongs
@@ -546,12 +556,17 @@ lein test :all                   # ...plus the ^:slow half
 lein test :slow                  # only the marked ones
 lein test-multi-jvm              # the cross-process tests — opt-in, in neither of the above
 lein test-fuzz                   # the exhaustive truncation sweep — likewise opt-in
+lein test-full-kb [KB-DIR]       # the probes of a full-size KB on disk — likewise opt-in
 lein test-backends               # the whole suite once per backend (all eight)
-lein test-sweeps                 # ...and once per alternative implementation (all five)
+lein test-sweeps                 # ...and once per sweep (all seven)
 lein test-matrix                 # both at once, concurrently — ~13 min, not ~55.
                                  # Shuffled launch order, seed printed; `--ordered`
                                  # schedules the longest first instead
-lein test-shuffle                # the thirteen in a seeded random order, memory first,
+lein test-matrix --covered=<a>..<b>
+                                 # has a matrix run what those commits owe? One matrix
+                                 # runs at a time, from the primary checkout; an `--owed`
+                                 # request that finds one running queues behind it
+lein test-shuffle                # all sixteen in a seeded random order, memory first,
                                  # stopping at the first red — the fresh-angle smoke walk
 ```
 
@@ -583,24 +598,28 @@ mocks — the in-memory stores by default, with no external dependency.
   before it lands. A durable-store bug is invisible to the one backend the gate
   exercises, which is the whole reason there are eight.
 - **`./scripts/test-sweeps.sh` is the other axis**, and a change touching inference,
-  the TMS or context retrieval owes it the same run. Five switches re-run the suite
+  the TMS or context retrieval owes it the same run. Six switches re-run the suite
   through an alternative implementation of something the engine otherwise picks for
   itself — the persistent-map JTMS, the sweep chainer, the node engine, one of its
-  tacticians, the reference nested context retrieval — and each is a cost decision rather than a
-  semantic one, so the five must be failing-set-identical with each other and with a
-  plain `lein test`, and their assertion counts are identical too: where an assertion
+  tacticians, the reference nested context retrieval, the planner turned off — and each
+  is a cost decision rather than a semantic one. A seventh runs the argument
+  declarations as constraints only. All seven must be failing-set-identical with each
+  other and with a plain `lein test`, and their assertion counts are identical too: where an assertion
   pins an artifact of one implementation (`prove`'s multiplicity, a depthless `query`),
   the test asserts the expectation of the engine in force, read off
   `tu/query-engine-override`, rather than standing aside — so `config_expected_delta`
   expects no shortfall anywhere, and any shortfall is a skip.
 - **Run both locally rather than asking CI for them.** The `deep` workflow runs the
-  same thirteen configurations, and one run of it is 209 job-minutes — the local
+  same sixteen configurations, and one run of it is 209 job-minutes — the local
   scripts cost wall time and nothing else, so they are the gate and CI is the
   confirmation.
 - **`^:slow` marks a test costing about a second or more on its own**, and `lein test`
-  skips those by default. Thirty-eight of them carry 80k of the suite's 283k assertions,
-  so `:all` is a habit rather than a hook: run it when a change touches inference,
-  indexing or the TMS, and occasionally regardless. Mark a *new* test only when it is
+  skips those by default. They carry over a quarter of the suite's assertions, and a
+  change to the files they drive owes them: when the diff about to land touches the
+  index, the TMS or inference (`SLOW_OWED_RE` in `scripts/gate.sh`), a gate at
+  `:default` prints "slow owed", names the files and `lein gate --all`, and blocks
+  nothing. The run answers for every commit it contains, so one green `:all` at the
+  newest commit of a batch covers the batch. Mark a *new* test only when it is
   measurably over the line — a mark guessed at is a fast test nobody runs. Not one of
   them is a unit assertion. Most are exhaustive cross-products or randomized oracles —
   every query pattern against every context, 1200-op index streams compared
@@ -610,13 +629,8 @@ mocks — the in-memory stores by default, with no external dependency.
   2026-09-22: `:default` is 5,063 tests / 202,812 assertions, `:all` 5,097 / 282,911.
   Wall-clock depends on the machine, so read the difference as a ratio rather than a
   target.)
-- **`^:llm` marks a test that can reach a language-model provider**, and it is one of
-  the three marks `:all` does not select. `lein test` makes no model call, and two
-  independent things hold that: the mark picks which tests run, and `VAELII_LLM_LIVE=1`
-  grants permission to dial out. A reachable Ollama on your machine is not consent.
-  Never write the inverted gate — default-off is the invariant.
-- **`^:multi-jvm` marks a test that forks a second JVM**, and it is the second one `:all`
-  passes over. These are the cross-process tests — not "integration tests", which is
+- **`^:multi-jvm` marks a test that forks a second JVM**, and it is one of the two marks
+  `:all` passes over. These are the cross-process tests — not "integration tests", which is
   what the whole suite already is, and not end-to-end either, since most of them observe
   a single contract from the only vantage that can see it. What they cover is what a
   process boundary makes visible and nothing else does: the single-writer lock refusing
@@ -626,8 +640,8 @@ mocks — the in-memory stores by default, with no external dependency.
   gate`. `lein test-multi-jvm` does, and so does `deep`. Fork `java -cp` rather than
   `lein`, give each child its own temp directory, and handshake on a marker rather than
   a sleep.
-- **`^:fuzz` marks an exhaustive sweep no configuration varies**, and it is the third
-  `:all` passes over — for a different reason than the two above. `^:slow` means
+- **`^:fuzz` marks an exhaustive sweep no configuration varies**, and it is the other
+  one `:all` passes over — for a different reason than the two above. `^:slow` means
   *deferred until something eventually runs it*; `^:multi-jvm` means *one JVM cannot
   stage this*. `^:fuzz` means *once, not once per configuration*: the truncation sweep
   names its own four durable backends and never asks for the one the row is testing, so
@@ -648,6 +662,27 @@ mocks — the in-memory stores by default, with no external dependency.
   `durability.clj` closes the window a close under a queued auto-compaction opens, and
   nothing is written — but it is reported beside real failures, so sweeps stay serial
   until it is classified apart from them.
+- **`^:full-kb` marks a probe of a full-size KB**, the third mark `:all` passes over,
+  because what it needs is not in the checkout: a store of millions of sentexes and a
+  heap that holds it. Every other test runs on a KB of a few thousand sentexes, where a
+  write that walks the corpus costs what one that does not costs, so a guard or a check
+  whose cost follows what the KB holds passes everywhere else. `full_kb_test` opens the
+  store once and holds each probe (reads, a fact, a rule, their retraction, a corpus
+  premise out and back, the spindle sync, a `genl` edge, a new context wired under a
+  corpus one) to a ceiling of counted index operations and a looser one of milliseconds,
+  each about three times its cost on the legacy KB: a baseline a change may not grow past.
+  A write probe already past any ceiling is `known-unbounded`: it runs last, is reported,
+  and fails nothing. A read past any ceiling is in `known-slow-reads`, and is asked and
+  reported outside both read ceilings.
+  `lein test-full-kb [KB-DIR]` runs it (`scripts/test-full-kb.sh`): KB-DIR, default
+  `checkouts/kb`, is upgraded in place to the checkout's engine (`scripts/upgrade-kb.sh`:
+  its images are rewritten, its records never), which is one full recover after the
+  engine's belief-deriving source moved (about 100 minutes on the 11.9M-sentex legacy KB)
+  and a minute otherwise, and the probes write into a clone of it that is deleted after. `VAELII_HEAP` defaults to 44g, so nothing else
+  large runs beside it. Owed by a change to a write path's guards, the taxonomy, the
+  settle, or anything whose cost could scale with the KB rather than the write.
+  The unmarked twin runs the same probes on the starter plus a few facts without the
+  ceilings, so the harness runs on every commit.
 - **The suite logs at `:error` and no lower.** Trove's default backend prints from
   `:info` up, and the suite provokes `:warn` on purpose — `::dropped-conclusion`,
   `:no-placement` and the aggregate refusals are what the assertions are *checking
@@ -754,7 +789,7 @@ remote shell. See [`.github/SECURITY.md`](.github/SECURITY.md).
 - **One change per commit** where feasible. Bundle related cleanups.
 - **Run `lein gate` before pushing** (§1.1), plus `lein test-matrix` if you touched
   storage, the index, records, recovery, overlay, inference, the TMS or retrieval, and
-  `lein test :all` if you touched inference, indexing or the TMS.
+  `lein gate --all` when the gate prints "slow owed".
 - **Don't `--no-verify`**: fix the hook failure rather than bypassing it.
 - **Don't amend pushed commits**: make a new one.
 - **Merges may be rewritten.** Vaelii may squash, reword or amend your commits when

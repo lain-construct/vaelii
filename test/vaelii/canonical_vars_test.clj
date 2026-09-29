@@ -76,4 +76,4 @@
     (is (= '{?var3 ?var0, ?var4 ?var1} vm))
     (testing "so nothing it mentions collides with ?var0 ?var1 ?var2"
       (is (empty? (set/intersection
-                   (res/form-variables canon) '#{?var0 ?var1 ?var2}))))))
+                   (sx/form-variables canon) '#{?var0 ?var1 ?var2}))))))

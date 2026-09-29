@@ -8,6 +8,7 @@
 # finishes. KB-DIR defaults to checkouts/kb beside this checkout, and a first
 # argument that starts with `--` is a flag, not a KB-DIR. The heap is VAELII_HEAP,
 # default 40g (scripts/lib/start.sh).
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -28,3 +29,4 @@ export JVM_OPTS
 
 echo "vaelii: browser, loading $KB" >&2
 exec lein run -m vaelii.web "$@"
+}

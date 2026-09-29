@@ -19,7 +19,6 @@
             [vaelii.core :as v]
             [vaelii.impl.inference :as inf]
             [vaelii.impl.provers :as provers]
-            [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
@@ -62,7 +61,7 @@
                 (str "a node is not in canonical form: " (pr-str lits)))))
         (testing "so no node mentions a decorated or primed name"
           (is (not-any? (fn [n] (some #(re-find #"'" (name %))
-                                      (res/form-variables (mapv :sentence (:literals n)))))
+                                      (sx/form-variables (mapv :sentence (:literals n)))))
                         ns')))))))
 
 (tu/deftest-kb alpha-variant-queries-build-the-same-nodes
@@ -100,13 +99,13 @@
         (is (< 2 (count all)) "too few nodes for the chain to mean anything")
         (doseq [n all]
           (let [terms (:answer-terms n)
-                own   (res/form-variables (mapv :sentence (:literals n)))]
+                own   (sx/form-variables (mapv :sentence (:literals n)))]
             (testing "the asker's variables are never lost, however deep the rewriting goes"
               (is (= '#{?x ?z} (set (keys terms)))
                   (str "node " (:id n) " forgot what it was asked")))
             (testing "and each stands for something this node can actually resolve"
               (doseq [[q t] terms]
-                (is (every? own (res/form-variables t))
+                (is (every? own (sx/form-variables t))
                     (str "node " (:id n) "'s term for " q
                          " mentions a variable it does not name: " (pr-str t)))))))
         (testing "at the root each is simply the canonical variable that replaced it"
@@ -281,15 +280,15 @@
 ;; ---- the leaf-solver extension point ------------------------------------------------
 
 (tu/deftest-kb a-leaf-solver-answers-what-the-search-will-not-rewrite
-  ;; The extension point that lets one engine serve two leaf semantics.  Correctness only: routing
-  ;; `ask` through here is measured and rejected (see `inf/backchain`'s docstring), so
-  ;; what this pins is that the mechanism is right, not that it is a good idea.
+  ;; The extension point that lets one engine serve two leaf semantics: `core/query` hands
+  ;; the node engine `provers/solve-goal` as its `:leaf-solver`, and a leaf that itself
+  ;; backchained would nest a search per binding (docs/defenses.md).
   (tu/with-terms [edgeOf anc CxLeaf]
     (tu/with-terms [LfA LfB LfC]
       (chain-kb! kb edgeOf anc CxLeaf [LfA LfB LfC])
       (let [facts-only (set (inf/solutions kb [(list anc '?x '?z)] CxLeaf {:max-depth 4}))
-            registry   (set (inf/backchain kb (list anc '?x '?z) CxLeaf
-                                           provers/solve-goal {:max-depth 4}))]
+            registry   (set (inf/solutions kb [(list anc '?x '?z)] CxLeaf
+                                           {:max-depth 4 :leaf-solver provers/solve-goal}))]
         (is (seq facts-only))
         (is (= facts-only registry)
             "the registry as leaf must answer what the index does, on a fact-only KB"))
@@ -301,5 +300,5 @@
           (v/assert-rule kb [(list pairOf '?x '?y) (list 'different '?x '?y)]
                          (list distinctOf '?x '?y) CxLeaf {:direction :backward})
           (is (= #{{'?m LfA '?n LfB}}
-                 (set (inf/backchain kb (list distinctOf '?m '?n) CxLeaf
-                                     provers/solve-goal {:max-depth 2})))))))))
+                 (set (inf/solutions kb [(list distinctOf '?m '?n)] CxLeaf
+                                     {:max-depth 2 :leaf-solver provers/solve-goal})))))))))

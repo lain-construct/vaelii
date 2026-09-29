@@ -12,6 +12,7 @@
             [vaelii.core :as v]
             [vaelii.host.starter :as starter]
             [vaelii.impl.chain :as chain]
+            [vaelii.impl.checks :as checks]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.settle :as settle]
@@ -288,7 +289,7 @@
 (tu/deftest-kb recover-skips-the-retroactive-sweep-and-decides-the-same-clash
   ;; `recover`'s first settle holds every stored sentex, so the retroactive sweeps can add
   ;; no candidate to it (`settle/*whole-store-region?*`).  Two claims: recover reaches no
-  ;; declaration through `declaration-implicates`, and the clash a late declaration makes
+  ;; declaration through `declaration-parts`, and the clash a late declaration makes
   ;; is decided the same way live and after a restart.
   (let [dog (tu/tmp-type) cat (tu/tmp-type) rex (tu/tmp-ind "Rex")]
     (v/assert kb (list dog rex) 'CxUniverse {:strength :monotonic})
@@ -298,9 +299,9 @@
           before (v/in? kb cat-h)
           kb2    (restart)
           calls  (atom 0)
-          real   @#'settle/declaration-implicates]
+          real   @#'settle/declaration-parts]
       (is (not before) "the late declaration defeats the default member live")
-      (with-redefs-fn {#'settle/declaration-implicates
+      (with-redefs-fn {#'settle/declaration-parts
                        (fn [& args] (swap! calls inc) (apply real args))}
         #(v/recover kb2))
       (is (zero? @calls) "recover's first settle runs no retroactive sweep")
@@ -388,17 +389,17 @@
       (let [kb2 (restart)]                       ; tu/test-kb pins :recover? false
         (is (empty? (v/sentexes-matching kb2 (list dog Muffet) 'CxUniverse)))))
     (testing "{:recover? :warn} likewise — it logs instead of rebuilding"
-      (let [kbw (v/open-kb (assoc tu/scratch-space :recover? :warn))]
+      (let [kbw (v/open-kb (assoc (tu/scratch-space) :recover? :warn))]
         (is (empty? (v/sentexes-matching kbw (list dog Muffet) 'CxUniverse)))
         (is (not (v/isa? kbw Muffet animal)))))
     (testing "{:recover? :auto} answers immediately"
-      (let [kb3 (v/open-kb (assoc tu/scratch-space :recover? :auto))]
+      (let [kb3 (v/open-kb (assoc (tu/scratch-space) :recover? :auto))]
         (is (seq (v/sentexes-matching kb3 (list dog Muffet) 'CxUniverse)))
         (is (v/isa? kb3 Muffet animal))))))
 
 (tu/deftest-kb recover-defaults-to-auto-when-unstated
   ;; The pin for the default itself.  The suite states `:recover?` on every KB it
-  ;; builds (`tu/space-opts` pins false, the tests above spell :warn / :auto out), so
+  ;; builds (`tu/scratch-space` pins false, the tests above spell :warn / :auto out), so
   ;; only this open does what a user's does — a non-empty durable store, no
   ;; `:recover?` at all.  The contract: an unstated policy behaves as `:auto`, so the
   ;; KB answers at construction rather than handing back one whose queries silently
@@ -406,7 +407,7 @@
   (tu/with-terms [dog animal Muffet]
     (v/assert kb (list 'genl dog animal) 'CxUniverse)
     (v/assert kb (list dog Muffet) 'CxUniverse)
-    (let [kb2 (v/open-kb (dissoc tu/scratch-space :recover?))]
+    (let [kb2 (v/open-kb (dissoc (tu/scratch-space) :recover?))]
       (is (seq (v/sentexes-matching kb2 (list dog Muffet) 'CxUniverse))
           "believed at construction — the unstated default recovered")
       (is (v/isa? kb2 Muffet animal)))))
@@ -431,6 +432,26 @@
           (is (v/in? kb2 twin))
           (is (not (v/in? kb2 orig)))
           (is (seq (v/sentexes-matching kb2 (list chainR (list gpp Nn)) 'CxUniverse))))))))
+
+(tu/deftest-kb recover-keeps-a-denied-instance-carved-out
+  ;; The denials a rewrite blocks on are rebuilt into the taxonomy with the rules, so a
+  ;; denied instance answers false after a restart, its fact is read as stated rather
+  ;; than superseded, and the equation still rewrites the other instance.
+  (tu/with-terms [pp gpp chainR Nn Mm]
+    (v/assert kb (list 'equals (list pp (list pp '?x)) (list gpp '?x)) 'CxUniverse)
+    (v/assert kb (list chainR (list pp (list pp Nn))) 'CxUniverse)
+    (v/assert kb (list chainR (list pp (list pp Mm))) 'CxUniverse)
+    (v/assert kb (list 'not (list 'equals (list pp (list pp Nn)) (list gpp Nn))) 'CxUniverse
+              {:strength :monotonic})
+    (let [orig  (v/handle-of kb (list chainR (list pp (list pp Nn))) 'CxUniverse)
+          reads (fn [k] [(v/ask? k (list 'equals (list pp (list pp Nn)) (list gpp Nn)) 'CxUniverse)
+                         (v/in? k orig)
+                         (v/ask? k (list chainR (list gpp Mm)) 'CxUniverse)
+                         (v/ask? k (list chainR (list gpp Nn)) 'CxUniverse)])]
+      (is (= [false true true false] (reads kb)) "before the restart")
+      (let [kb2 (restart)]
+        (v/recover kb2)
+        (is (= [false true true false] (reads kb2)) "after recover")))))
 
 (tu/deftest-kb recover-survives-a-predicate-and-type-merge
   ;; Round-two rewriteOf merges a predicate / type by moving its functor uses onto the
@@ -542,8 +563,9 @@
           (is (not (v/in? kb2 h))))))))
 
 (tu/deftest-kb recover-rebuilds-the-rule-rosters
-  ;; The two rosters `special/visibility-seeds` reads are derived from storage and no
-  ;; store holds them, so a restart starts with neither.  Nothing above the rebuild puts
+  ;; The two rosters `special/visibility-seeds` reads, and the solve-rule roster `do/label`
+  ;; reads, are derived from storage and no store holds them, so a restart starts with
+  ;; none.  Nothing above the rebuild puts
   ;; them back: recovery replays justifications and the stored special-predicate sentexes,
   ;; never rule *indexing*, which is where they are bumped.  Without the rebuild a
   ;; recovered KB reports no rules at all and seeds a post-restart `genlCx` edge with
@@ -553,17 +575,23 @@
     (v/assert-rule kb [(list bird '?x)] (list flies '?x) CxAviary {:direction :forward})
     (v/assert-rule kb [(list 'not (list departed '?x)) (list bird '?x)]
                    (list alive '?x) CxAviary {:direction :forward})
-    (let [live-antes @(reasoning/rule-antecedents kb)
-          live-ctxs  @(reasoning/rule-contexts kb)]
+    (let [choice     (v/assert kb (list 'set/assumptionRule
+                                        (list 'implies (list bird '?x) (list flies '?x)))
+                               CxAviary)
+          live-antes @(reasoning/rule-antecedents kb)
+          live-ctxs  @(reasoning/rule-contexts kb)
+          live-solve @(reasoning/solve-rules kb)]
       (testing "the live roster counts what arrived, negated antecedents by [:not pred]"
-        (is (= 2 (get live-antes bird)))
+        (is (= 3 (get live-antes bird)))
         (is (= 1 (get live-antes [:not departed])))
-        (is (= 2 (get live-ctxs CxAviary))))
+        (is (= 3 (get live-ctxs CxAviary)))
+        (is (= #{choice} (get live-solve CxAviary))))
       (let [kb2 (restart)]
         (v/recover kb2)
         (testing "a reopened KB's rosters are the live ones, entry for entry"
           (is (= live-antes @(reasoning/rule-antecedents kb2)))
-          (is (= live-ctxs @(reasoning/rule-contexts kb2))))
+          (is (= live-ctxs @(reasoning/rule-contexts kb2)))
+          (is (= live-solve @(reasoning/solve-rules kb2))))
         (testing "so the reads off them answer as they did before the restart"
           (is (= 2 (count (chain/rule-firing-report kb2))))
           (is (= (count (chain/rule-firing-report kb))
@@ -606,3 +634,58 @@
         (is (v/in? kb2 h) "the conclusion is believed again after the restart")
         (is (seq (v/why kb2 h))
             "and it is supported by the justification the rebuild rooted")))))
+
+(defn- stored-records
+  "Every stored record as content — sentence, context, belief — so a KB that allocated
+  its handles in another order reads the same."
+  [kb]
+  (into #{}
+        (map #(let [s (p/get-sentex (:records kb) %)]
+                [(sx/sentence-of s) (:context s) (v/in? kb %)]))
+        (tu/sentex-ids kb)))
+
+(tu/deftest-kb a-recovered-kb-releases-a-withheld-mint-as-the-live-one-does
+  ;; `(animal Fred)` is withheld while `(dog Fred)`, stated in a context the mint's context
+  ;; sees, says it more specifically.  Nothing records the withholding, so each way the
+  ;; subsumption can end — the membership, the edge or the `genlCx` edge leaving, the
+  ;; membership defeated, and a record of the mint's sentence written by an author and then
+  ;; left alone with it — has to draw the mint on a KB rebuilt from the store exactly as on
+  ;; the KB that withheld it.
+  (tu/with-terms [animal dog parentOf Fred Mary CxWorld CxDogs]
+    (binding [checks/*assertive-arg-types?* true
+              checks/*prune-subsumed-mints?* true]
+      (let [build (fn [kb]
+                    (doseq [c [CxWorld CxDogs]]
+                      (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+                    (v/assert kb (list 'genlCx CxWorld CxDogs) 'CxUniverse)
+                    (v/assert kb (list 'genl animal 'thing) 'CxUniverse)
+                    (v/assert kb (list 'genl dog animal) 'CxUniverse)
+                    (v/assert kb (list 'arg parentOf 1 animal) CxWorld)
+                    (v/assert kb (list dog Fred) CxDogs)
+                    (v/assert kb (list parentOf Fred Mary) CxWorld))
+            drop!  (fn [kb s c] (v/retract! kb (v/handle-of kb s c)))
+            steps  {:membership   #(drop! % (list dog Fred) CxDogs)
+                    :edge         #(drop! % (list 'genl dog animal) 'CxUniverse)
+                    :context-edge #(drop! % (list 'genlCx CxWorld CxDogs) 'CxUniverse)
+                    :defeat       #(v/assert % (list 'not (list dog Fred)) CxDogs
+                                             {:strength :monotonic})
+                    :twin         #(do (v/assert % (list animal Fred) CxWorld)
+                                       (drop! % (list dog Fred) CxDogs)
+                                       (drop! % (list animal Fred) CxWorld))}]
+        (doseq [[row step] steps]
+          (let [live (let [kb (doto (tu/fresh) build)]
+                       (is (nil? (v/handle-of kb (list animal Fred) CxWorld))
+                           (str row ": withheld before the step"))
+                       (step kb)
+                       (stored-records kb))
+                back (do (build (tu/fresh))
+                         (let [kb2 (doto (restart) (v/recover))]
+                           (step kb2)
+                           (stored-records kb2)))]
+            (is (contains? live [(list animal Fred) CxWorld true])
+                (str row ": the live KB draws the mint"))
+            (is (= live back)
+                (str row ": the recovered KB holds other records — live only "
+                     (pr-str (remove back live)) ", recovered only "
+                     (pr-str (remove live back))))))))))
+

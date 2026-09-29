@@ -59,8 +59,9 @@
 ;; interned — its own dense id space, in its own dictionary — and rides those 24 bits.
 ;;
 ;; The pair space is bounded by (distinct predicates × their arities), never by facts, so
-;; a 24-bit field is the right size rather than a lucky one: the audited corpus holds ~86k
-;; predicates against 16.7M pairs.  `argfam-ceiling` asserts that instead of assuming it.
+;; a 24-bit field is the right size rather than a lucky one: a vocabulary of tens of
+;; thousands of predicates of small arity sits well under 16.7M pairs.  `argfam-ceiling`
+;; asserts that instead of assuming it.
 
 (def ^:private ^:const argfam-bits 24)
 ;; a var rather than a `^:const`, so the refusal can be driven in a test by lowering it

@@ -48,6 +48,18 @@
 ;; instant prefix because before and after already belong to the intervals, and a moment
 ;; ordered against a moment is a different claim from a stretch ordered against a stretch.
 ;;
+;; Every temporal thing also has six named points. StartFn and EndFn are its start and
+;; end; EarliestStartFn, LatestStartFn, EarliestEndFn and LatestEndFn bound them, for a
+;; start or an end known only to lie in a range, or for a period with no sharp boundary.
+;; Instant relations over those terms are ordinary facts. The instant network adds the
+;; order among one thing's points and the calendar order among the calendar moments it
+;; mentions, so a story's own order and a dated claim compose, and includesInstant asks
+;; whether a moment falls within a thing: yes, no, or unknown where the moment falls
+;; inside an uncertain range. A moment spelled as a term, an (InstantFn …) term or
+;; another point, is its own six points. A symbol argument has extent even when it is a
+;; time_point, so a moment named by a symbol has no points of its own, and stating that
+;; its start and end are the moment itself is an inconsistency the network reports.
+;;
 ;; startOf and endOf join the two: they name an interval's two bounding instants, so an
 ;; Allen relation between two intervals and an ordering between their endpoints are claims
 ;; about the same thing. That is also where the metric layer attaches. temporalDistance
@@ -132,6 +144,27 @@
 (arg during 1 temporal)
 (arg during 2 temporal)
 
+(comment EarliestEndFn
+         "(EarliestEndFn ?thing) means the earliest moment ?thing can have ended: (EndFn ?thing) falls at or after it. One of the four bound points of a temporal thing, with EarliestStartFn, LatestStartFn and LatestEndFn. Stated when an end is known only to lie in a range, or when the thing has no sharp boundary there, as with a period like the Renaissance. The instant network orders it at or before (EndFn ?thing) and at or after (EarliestStartFn ?thing). A structural unreifiable_function application, so a fact about the point names the thing it bounds. See docs/time.md.")
+(unreifiable_function EarliestEndFn)
+(unary_function EarliestEndFn)
+(arg EarliestEndFn 1 temporal)
+(result EarliestEndFn time_point)
+
+(comment EarliestStartFn
+         "(EarliestStartFn ?thing) means the earliest moment ?thing can have begun: (StartFn ?thing) falls at or after it. One of the four bound points of a temporal thing, with LatestStartFn, EarliestEndFn and LatestEndFn. Stated when a start is known only to lie in a range, or when the thing has no sharp boundary there, as with a period like the Renaissance. The instant network orders it at or before (StartFn ?thing) and at or before (EarliestEndFn ?thing). A structural unreifiable_function application, so a fact about the point names the thing it bounds. See docs/time.md.")
+(unreifiable_function EarliestStartFn)
+(unary_function EarliestStartFn)
+(arg EarliestStartFn 1 temporal)
+(result EarliestStartFn time_point)
+
+(comment EndFn
+         "(EndFn ?thing) means the moment ?thing ends, the second of its two sharp points with StartFn. Instant relations over it order ?thing against other things and against calendar moments, and an Allen relation between two things is read off their StartFn and EndFn points. The instant network orders it after (StartFn ?thing). For a calendar term it is the first moment of the next term at the same precision, so (EndFn (YearFn 1999)) and (StartFn (YearFn 2000)) are the same moment. For a moment spelled as a term, an (InstantFn …) term or another point, it is that moment. A symbol ?thing has extent even when it is a time_point, so (EndFn Noon) of a symbol moment Noon is not Noon. See docs/time.md.")
+(unreifiable_function EndFn)
+(unary_function EndFn)
+(arg EndFn 1 temporal)
+(result EndFn time_point)
+
 (comment endOf
          "(endOf ?interval ?instant) means that ?instant is the moment ?interval ends. One of the interval's two bounding instants, the other being its startOf. What joins the interval algebra to the point algebra and to the metric constraints stated over instants: one interval before another is exactly its end instant before the other's start. Stated of an ordinary interval; computed for a calendar term, where it is the first moment of the next term at the same precision — the end of (YearFn 2000) is (InstantFn 2001 1 1 0 0 0). See docs/time.md.")
 (binary_predicate endOf)
@@ -173,6 +206,13 @@
 (instance_relation_predicate holdsAt)
 (arg holdsAt 1 fluent)
 (arg holdsAt 2 time_point)
+
+(comment includesInstant
+         "(includesInstant ?thing ?instant) means that ?instant falls within ?thing: at or after (StartFn ?thing) and before (EndFn ?thing), the half-open convention of the calendar terms. Answered from the instant network, and from a stored fact where one states it. A point outside the thing's bounds refutes it, and a point inside a range where a bound is uncertain leaves it unknown either way. See docs/time.md.")
+(binary_predicate includesInstant)
+(instance_relation_predicate includesInstant)
+(arg includesInstant 1 temporal)
+(arg includesInstant 2 time_point)
 
 (comment initially
          "(initially ?fluent) means that ?fluent is the case before the narrative starts — true at the outset, with no event named as having started it. It gives inertia something to run from where no initiates fact does; a fluent that is neither initially true nor ever initiated holds nowhere. See docs/time.md.")
@@ -253,6 +293,20 @@
 (instance_relation_predicate intervalEqual)
 (arg intervalEqual 1 temporal)
 (arg intervalEqual 2 temporal)
+
+(comment LatestEndFn
+         "(LatestEndFn ?thing) means the latest moment ?thing can have ended: (EndFn ?thing) falls at or before it. One of the four bound points of a temporal thing, with EarliestStartFn, LatestStartFn and EarliestEndFn. Stated when an end is known only to lie in a range, or when the thing has no sharp boundary there, as with a period like the Renaissance. The instant network orders it at or after (EndFn ?thing) and at or after (LatestStartFn ?thing). A structural unreifiable_function application, so a fact about the point names the thing it bounds. See docs/time.md.")
+(unreifiable_function LatestEndFn)
+(unary_function LatestEndFn)
+(arg LatestEndFn 1 temporal)
+(result LatestEndFn time_point)
+
+(comment LatestStartFn
+         "(LatestStartFn ?thing) means the latest moment ?thing can have begun: (StartFn ?thing) falls at or before it. One of the four bound points of a temporal thing, with EarliestStartFn, EarliestEndFn and LatestEndFn. Stated when a start is known only to lie in a range, or when the thing has no sharp boundary there, as with a period like the Renaissance. The instant network orders it at or after (StartFn ?thing) and at or before (LatestEndFn ?thing). A structural unreifiable_function application, so a fact about the point names the thing it bounds. See docs/time.md.")
+(unreifiable_function LatestStartFn)
+(unary_function LatestStartFn)
+(arg LatestStartFn 1 temporal)
+(result LatestStartFn time_point)
 
 (comment length
          "(length ?interval ?measure) means that ?interval lasts ?measure. Exact as (QuantityFn 2 Hour), and bounded as (QuantityIntervalFn 1 2 Hour) when only bounds are known. An interval's one primitive duration and the only quantitative fact stated about it, since totalDuration and overlapDuration are both computed from these. A duration, not a spatial extent.")
@@ -336,6 +390,13 @@
 (instance_relation_predicate startedBy)
 (arg startedBy 1 temporal)
 (arg startedBy 2 temporal)
+
+(comment StartFn
+         "(StartFn ?thing) means the moment ?thing begins, the first of its two sharp points with EndFn. Instant relations over it order ?thing against other things and against calendar moments, and an Allen relation between two things is read off their StartFn and EndFn points. The instant network orders it before (EndFn ?thing). For a calendar term it is that term's first moment, so (StartFn (YearFn 2000)) is (InstantFn 2000 1 1 0 0 0). For a moment spelled as a term, an (InstantFn …) term or another point, it is that moment. A symbol ?thing has extent even when it is a time_point, so (StartFn Noon) of a symbol moment Noon is not Noon. See docs/time.md.")
+(unreifiable_function StartFn)
+(unary_function StartFn)
+(arg StartFn 1 temporal)
+(result StartFn time_point)
 
 (comment startOf
          "(startOf ?interval ?instant) means that ?instant is the moment ?interval begins. One of the interval's two bounding instants, the other being its endOf. What joins the interval algebra to the point algebra and to the metric constraints stated over instants. Stated of an ordinary interval; computed for a calendar term, where it is that term's first moment — the start of (YearFn 2000) is (InstantFn 2000 1 1 0 0 0). See docs/time.md.")

@@ -22,6 +22,7 @@
             [vaelii.browser.catalog :as catalog]
             [vaelii.core :as v]
             [vaelii.impl.disk.backend :as backend]
+            [vaelii.impl.foreign :as foreign]
             [vaelii.impl.io.export :as export]
             [vaelii.impl.io.frames :as frames]
             [vaelii.impl.io.import :as imp]
@@ -353,7 +354,8 @@
                 (is (false? (:belief? summary)))
                 (is (= (v/sentex-count source) (:sentexes summary) (v/sentex-count target)))
                 (is (zero? (:justifications summary)) "no belief, so nothing rests on anything")
-                (is (seq (v/find-sentexes target (:Tweety t)))
+                (is (= (set (map :id (v/find-sentexes source (:Tweety t))))
+                       (set (map :id (v/find-sentexes target (:Tweety t)))))
                     "and the corpus is indexed — findable by any term it mentions"))
               (finally (backend/close-dir! (.getPath store)) (rm-rf! store))))))
       (finally (rm-rf! dump)))))
@@ -377,7 +379,7 @@
               (let [target (disk-kb store)]
                 (imp/import-dump target dump {:belief? false})
                 (testing "the corpus arrives with its premises and their strengths"
-                  (is (seq (tu/premise-ids target)))
+                  (is (= (set (tu/premise-ids source)) (set (tu/premise-ids target))))
                   (is (every? #(some? (:strength (v/sentex target %))) (tu/premise-ids target))
                       "a premise the roster names carries the strength the dump held"))
                 (testing "and nothing is believed yet — there is no TMS behind it"
@@ -413,8 +415,9 @@
                     _        (imp/import-dump eager dump {:belief? true})]
                 (testing "the summary says which load ran"
                   (is (= :stored (:belief? s-def)))
-                  (is (pos? (:justifications s-def)) "belief is stored, not skipped")
-                  (is (pos? (:premises s-def))))
+                  (is (= (count (p/justification-ids (:records source))) (:justifications s-def))
+                      "belief is stored, not skipped")
+                  (is (= (count (tu/premise-ids source)) (:premises s-def))))
                 (testing "and nothing is believed yet — the network was never built"
                   (is (empty? (v/sentexes-matching deferred (list (:bird t) (:Tweety t))
                                                    (:ctx t))))
@@ -422,7 +425,7 @@
                       "the taxonomy is built by the same pass and is likewise absent"))
                 (testing "the store holds everything the eager load's store holds"
                   (is (= (v/sentex-count eager) (v/sentex-count deferred)))
-                  (is (= (count (tu/premise-ids eager)) (count (tu/premise-ids deferred)))))
+                  (is (= (set (tu/premise-ids eager)) (set (tu/premise-ids deferred)))))
                 (v/recover deferred)
                 (testing "so recovering it later lands where loading it eagerly landed"
                   (compare-kbs! eager deferred)))
@@ -447,14 +450,16 @@
   "Append a frame carrying `sentence` to `dir`'s sentex stream and tell `meta.edn` about
   it, so the dump states a count the stream can still meet.  The frame carries no
   `:antecedent`, so the reader hands the sentence to the constructor as written — which
-  is the whole point: the refusal has to happen on the reading side."
-  [^File dir sentence context]
+  is the whole point: the refusal has to happen on the reading side.  `fields` is merged
+  into the frame — a `:strength`, for a frame that is to land as a premise."
+  [^File dir sentence context & [fields]]
   (let [meta*  (read-string (slurp (io/file dir "meta.edn")))
         stream (io/file dir "sentexes.nippy.stream")
         frames (vec (frames/read-chunked-seq stream (:compression meta* :none)))
-        added  {:id (inc (long (apply max 0 (keep :id frames))))
-                :sentence sentence
-                :context context}]
+        added  (merge {:id (inc (long (apply max 0 (keep :id frames))))
+                       :sentence sentence
+                       :context context}
+                      fields)]
     (frames/write-frames! stream (conj frames added)
                           {:compression (:compression meta* :none) :chunk-size 64})
     (spit (io/file dir "meta.edn")
@@ -491,9 +496,169 @@
                 (let [s (imp/import-dump target dump {:belief? true})]
                   (is (= 1 (get-in s [:refused :skipped])))
                   (is (= good (:sentexes s)))
-                  (is (pos? (:justifications s))
+                  (is (= (count (p/justification-ids (:records source))) (:justifications s))
                       "and the rest of the dump landed, belief included")))))))
       (finally (rm-rf! dump)))))
+
+(deftest a-row-assert-refuses-is-skipped-or-counted-on-both-import-paths
+  ;; An import builds records without `assert`'s checks, so every sentence `assert` refuses
+  ;; is answered one of two ways here, and the summary counts both.  A record that would
+  ;; answer wrongly — an open literal matches every goal of its shape, a rule with a
+  ;; variable antecedent functor fires by arrival order, a sentex in a query context is in
+  ;; no context a read reaches — is skipped and counted in `:refused`.  A name `assert`
+  ;; refuses is stored and counted in `:naming`.  An `(ist Ctx S)` frame is stored the way
+  ;; `assert` stores it, as S in Ctx, so there is nothing to count.  A frame whose content
+  ;; the dump already holds is the one row where the paths differ: the belief paths
+  ;; collapse it onto the first handle at the stronger strength, and `{:belief? false}`
+  ;; stores one record per frame (docs/naming.md).
+  (tu/with-terms [dog cat Fido Tom Rex physical_object CxStory]
+    (let [rows [{:row "an open literal" :sentence (list dog '?x) :context CxStory
+                 :refused :not-ground}
+                {:row "a rule whose antecedent functor is a variable"
+                 :sentence (list 'implies (list '?p Fido) (list dog Fido)) :context CxStory
+                 :refused :not-indexable}
+                {:row "the same rule, inert, which assert stores"
+                 :sentence (list 'set/inertRule (list 'implies (list '?p Fido) (list dog Fido)))
+                 :context CxStory :stored true}
+                {:row "a sentex in a query context" :sentence (list dog Fido) :context 'CxNothing
+                 :refused :shape}
+                {:row "a negated rule, which has no record"
+                 :sentence (list 'not (list 'implies (list dog '?x) (list cat '?x))) :context CxStory
+                 :refused :not-well-formed}
+                {:row "a rule whose thereExists binder is a constant"
+                 :sentence (list 'implies (list 'and (list dog '?x)
+                                                (list 'unknown (list 'thereExists Rex (list cat Rex))))
+                                 (list cat '?x))
+                 :context CxStory :refused :not-well-formed}
+                {:row "a rule with a bare variable as an antecedent conjunct"
+                 :sentence (list 'implies (list 'and (list dog '?x) '?y) (list cat '?x))
+                 :context CxStory :refused :not-well-formed}
+                {:row "a generator whose generated rule has one"
+                 :sentence (list 'set/forwardRule
+                                 (list 'implies (list dog '?x)
+                                       (list 'implies (list 'and (list cat '?z) '?y)
+                                             (list dog '?z))))
+                 :context CxStory :refused :not-well-formed}
+                {:row "a rule with a bare variable as its consequent"
+                 :sentence (list 'implies (list dog '?x) '?x)
+                 :context CxStory :refused :not-well-formed}
+                {:row "a rule with a bare variable in a conjunctive consequent"
+                 :sentence (list 'implies (list dog '?x) (list 'and (list cat '?x) '?x))
+                 :context CxStory :refused :not-well-formed}
+                {:row "a rule with an ist antecedent"
+                 :sentence (list 'implies (list 'ist CxStory (list dog '?x)) (list cat '?x))
+                 :context CxStory :refused :not-well-formed}
+                {:row "a rule with an ist consequent"
+                 :sentence (list 'implies (list dog '?x) (list 'ist CxStory (list cat '?x)))
+                 :context CxStory :refused :not-well-formed}
+                {:row "a rule whose consequent variable no antecedent binds"
+                 :sentence (list 'implies (list dog '?x) (list cat '?y))
+                 :context CxStory :refused :not-range-restricted}
+                {:row "a rule with a do/ imperative in its consequent"
+                 :sentence (list 'implies (list dog '?x) (list 'do/label 'A 'B))
+                 :context CxStory :refused :not-assertible}
+                {:row "a rule with an or in its consequent"
+                 :sentence (list 'implies (list dog '?x) (list 'or (list cat '?x) (list dog '?x)))
+                 :context CxStory :refused :not-well-formed}
+                {:row "a not at arity 2" :sentence (list 'not (list dog Fido) (list cat Tom))
+                 :context CxStory :refused :not-well-formed}
+                {:row "a top-level and" :sentence (list 'and (list dog Fido) (list cat Tom))
+                 :context CxStory :refused :not-well-formed}
+                {:row "an ist wrapper" :sentence (list 'ist CxStory (list cat Tom))
+                 :context 'CxUniverse :stored [(list cat Tom) CxStory]}
+                {:row "a frame repeating a stored frame's content, stronger"
+                 :sentence (list dog Fido) :context CxStory :strength :monotonic
+                 :duplicate :monotonic}
+                {:row "an ist frame beside the sentex it wraps"
+                 :sentence (list 'ist CxStory (list dog Fido)) :context 'CxUniverse
+                 :duplicate :default}
+                {:row "a camelCase functor at arity 1" :sentence (list 'parentOf Tom)
+                 :context CxStory :naming true}
+                {:row "a type at arity 2" :sentence (list physical_object Fido Rex)
+                 :context CxStory :naming true}
+                {:row "a string functor" :sentence (list "dog" Fido) :context CxStory
+                 :naming true}]]
+      (doseq [{:keys [row sentence context refused stored naming duplicate strength]} rows
+              belief (if duplicate [true :stored false] [true false])]
+        (testing (str row ", :belief? " belief)
+          (let [dump (temp-dir "assert-refuses")]
+            (rm-rf! dump)
+            (try
+              (tu/with-cleared-kb [source memory-kb]
+                (v/assert source (list dog Fido) CxStory)
+                (export/export! source dump {:compression :none})
+                (let [{:keys [id]} (splice-refused-frame! dump sentence context
+                                                          {:strength (or strength :default)})]
+                  (tu/with-cleared-kb [target memory-kb]
+                    (let [s  (imp/import-dump target dump {:belief? belief})
+                          sx (v/sentex target id)]
+                      (is (= (if refused {refused 1} {}) (get-in s [:refused :by-type])))
+                      (is (= (if naming 1 0) (get-in s [:naming :refused])))
+                      (cond
+                        refused (is (nil? sx) "a skipped frame stores no record")
+                        (and duplicate belief) (is (nil? sx) "a collapsed frame keeps no handle")
+                        :else (is (some? sx) "a stored frame keeps the handle the dump gave it"))
+                      (when duplicate
+                        (let [held (filter #(= [(list dog Fido) CxStory]
+                                               [(v/sentence-of %) (:context %)])
+                                           (map #(v/sentex target %)
+                                                (p/sentex-ids (:records target))))]
+                          (if belief
+                            (do (is (= 1 (:collapsed s)))
+                                (is (= [duplicate] (map :strength held))))
+                            (is (= (sort [:default duplicate]) (sort (map :strength held)))
+                                "records-only stores one record per frame"))
+                          (is (= (if belief 1 2) (count held)))))
+                      (when (vector? stored)
+                        (is (= stored [(v/sentence-of sx) (:context sx)])))
+                      (when (and (true? belief) (not refused) (not duplicate))
+                        (is (v/believed? target id (:context sx))))
+                      (when (and belief (= :not-ground refused))
+                        (is (= [(list dog Fido)]
+                               (map v/sentence-of
+                                    (v/sentexes-matching target (list dog '?y) CxStory)))
+                            "no open literal answers a goal of its shape"))))))
+              (finally (rm-rf! dump)))))))))
+
+(deftest a-rule-frame-assert-expands-imports-as-the-rules-assert-stores
+  ;; The fact spliced after the rule takes the next dump id, which is the handle a form
+  ;; minted in the middle of the stream would have taken.
+  (tu/with-terms [dog cat animal pet Rex Fido Tom CxStory]
+    (doseq [{:keys [row rule fires]}
+            [{:row   "an or antecedent"
+              :rule  (list 'set/forwardRule
+                           (list 'implies (list 'or (list dog '?x) (list cat '?x)) (list animal '?x)))
+              :fires [[(list dog Rex) (list animal Rex)] [(list cat Fido) (list animal Fido)]]}
+             {:row   "an and consequent"
+              :rule  (list 'set/forwardRule
+                           (list 'implies (list dog '?x) (list 'and (list animal '?x) (list pet '?x))))
+              :fires [[(list dog Rex) (list animal Rex)] [(list dog Rex) (list pet Rex)]]}]
+            belief [true false]]
+      (testing (str row ", :belief? " belief)
+        (let [asserted (tu/with-cleared-kb [kb memory-kb]
+                         (let [hs (v/assert kb rule CxStory)]
+                           (is (= 2 (count hs)))
+                           (set (map #(content-of kb %) hs))))
+              dump     (temp-dir "expanded-rule")]
+          (rm-rf! dump)
+          (try
+            (tu/with-cleared-kb [source memory-kb]
+              (export/export! source dump {:compression :none})
+              (splice-refused-frame! dump rule CxStory {:strength :default})
+              (let [{:keys [id]} (splice-refused-frame! dump (list cat Tom) CxStory
+                                                        {:strength :default})]
+                (tu/with-cleared-kb [target memory-kb]
+                  (let [s    (imp/import-dump target dump {:belief? belief})
+                        fact (content-of target id)]
+                    (is (= (list cat Tom) (:sentence fact)))
+                    (is (= asserted (disj (set (sentex-contents target)) fact)))
+                    (is (= {:frames 1 :records 2} (:expanded s)))
+                    (is (= 3 (:sentexes s)))
+                    (when belief
+                      (doseq [[fact _] fires] (v/assert target fact CxStory))
+                      (is (every? #(seq (v/sentexes-matching target (second %) CxStory)) fires)
+                          "every imported form fires forward"))))))
+            (finally (rm-rf! dump))))))))
 
 (deftest a-torn-stream-is-still-torn
   ;; The counterpart, and the reason the truncation check reads the frame count from the
@@ -518,7 +683,7 @@
 (deftest a-torn-justification-stream-is-torn-too
   ;; The sentex stream is not the only one `meta.edn` counts, and it is not the one with
   ;; the most to lose: a truncated `justifications.nippy.stream` is indistinguishable from a clean EOF
-  ;; exactly as a truncated sentex stream does, and what it costs is *belief* — every
+  ;; exactly as a truncated sentex stream is, and what it costs is *belief* — every
   ;; conclusion whose justification was in the lost tail comes back unsupported, on a KB
   ;; that reports a clean import.  The count is the only witness either stream leaves.
   (let [dump (temp-dir "torn-just")]
@@ -582,7 +747,8 @@
               frames (vec (frames/read-chunked-seq f :none))
               victim (first frames)
               stored (fn [] [(count (p/sentex-ids (:records kb)))
-                             (count (p/justification-ids (:records kb)))])]
+                             (count (p/justification-ids (:records kb)))])
+              before (stored)]
           (is (seq frames) "the fixture derived something, so there is a frame to fill")
           (is (not (contains? victim :out)) "and the writer writes no :out key")
           (frames/write-frames! f
@@ -603,8 +769,7 @@
           (testing "so the retry needs no clear! — the empty-destination gate still passes"
             (frames/write-frames! f frames {:compression :none :chunk-size 10000})
             (let [summary (imp/import-dump kb dump)]
-              (is (pos? (:sentexes summary)))
-              (is (pos? (:justifications summary))
+              (is (= before [(:sentexes summary) (:justifications summary)])
                   "the repaired dump imports into the same KB the refusal left behind")))))
       (finally (rm-rf! dump)))))
 
@@ -878,7 +1043,9 @@
               (testing "and each is findable by the name that broke the convention"
                 (doseq [t '[mining' game-theory choriocarcinoma'
                             psychological_profiling-profiling]]
-                  (is (seq (v/find-sentexes target t)) (str "not findable by " t))))
+                  (is (= (set (filter #(some #{t} (tree-seq seq? seq %)) foreign-dialect))
+                         (set (map :sentence (v/find-sentexes target t))))
+                      (str "not findable by " t))))
               (testing "the load reports the disagreement it did not enforce"
                 ;; the whole point of counting rather than checking: the operator who
                 ;; chose the bulk path learns the number while the records go past
@@ -894,7 +1061,8 @@
                 (let [strict (v/open-kb {:backend :disk-log :dir (.getPath store)
                                          :recover? false :naming :strict})]
                   (is (= :strict (:naming strict)))
-                  (is (seq (v/find-sentexes strict 'game-theory))))))
+                  (is (= ['(sense game_theory' game-theory)]
+                         (map :sentence (v/find-sentexes strict 'game-theory)))))))
             (finally (backend/close-dir! (.getPath store)) (rm-rf! store)))))
       (finally (rm-rf! dump)))))
 
@@ -968,6 +1136,167 @@
                            (catch clojure.lang.ExceptionInfo e (ex-data e)))]
                 (is (= :duplicate-handle (:type d)))
                 (is (= clashing (:handle d)) "naming the handle the dump claimed twice"))))))
+      (finally (rm-rf! dump)))))
+
+;;; ── a refusal met after the first write ───────────────────────────────
+;;; Four refusals of a dump's content are decided by a frame in the middle of the sentex
+;;; stream, after the frames before it are stored: a handle claimed twice, a frame that is
+;;; not ours with no foreign reader to decode it, a foreign manifest that does not read,
+;;; and a frame naming a class.  Each leaves the destination as empty as it was found, so
+;;; the retry into the same KB needs no `clear!`.
+
+(defrecord PlantedFrame [sentence])
+
+(def dump-reader-without-replay
+  "An `:engine-dump` reader map with no `:replay-belief!`: it gates the version and decodes
+  a frame, and the belief path has nothing to read the dump's justifications with."
+  {:name "round-trip-test" :versions #{1} :decode-frame identity})
+
+(def ^:private opened-by-replay
+  "The frame seq `dump-reader-that-stops-mid-stream` opened, kept so the test can read it
+  after the import."
+  (atom nil))
+
+(def dump-reader-that-stops-mid-stream
+  "An `:engine-dump` reader map whose `:replay-belief!` opens a stream through the
+  `:read-fn` it is handed, reads one frame of it and throws."
+  {:name "round-trip-test" :versions #{1} :decode-frame identity
+   :replay-belief! (fn [_kb {:keys [dir compression read-fn]}]
+                     (let [s (read-fn (io/file dir frames/sentex-file) compression)]
+                       (reset! opened-by-replay s)
+                       (dorun (take 1 s))
+                       (throw (ex-info "the foreign reader stops" {:type ::stops}))))})
+
+(defn- stored-state
+  "What a refused import is compared against: the records, the justifications, the
+  premise marks and the index entries `kb` holds."
+  [kb]
+  {:sentexes       (count (p/sentex-ids (:records kb)))
+   :justifications (count (p/justification-ids (:records kb)))
+   :premises       (count (tu/premise-ids kb))
+   :indexed        (v/sentex-count kb)
+   :terms          (count (v/terms kb))})
+
+(def ^:private empty-state
+  {:sentexes 0 :justifications 0 :premises 0 :indexed 0 :terms 0})
+
+(defn- refusal-of
+  "The `ex-data` `import-dump` throws, or nil when it returns."
+  [kb dump opts]
+  (try (imp/import-dump kb dump opts)
+       nil
+       (catch clojure.lang.ExceptionInfo e (ex-data e))))
+
+(deftest a-dump-refused-for-its-own-content-mid-stream-leaves-the-destination-empty
+  (let [good (temp-dir "mid-good")
+        bad  (temp-dir "mid-bad")]
+    (rm-rf! good)
+    (try
+      (tu/with-cleared-kb [source memory-kb]
+        (tu/with-terms [dog animal Ace Bea Cal Dot CxMid]
+          (v/assert source (list 'set/forwardRule (vr/rule-sentence [(list dog '?d)]
+                                                                    (list animal '?d)))
+                    CxMid)
+          (doseq [ind [Ace Bea Cal Dot]]
+            (v/assert source (list dog ind) CxMid {:strength :monotonic})))
+        (export/export! source good {:compression :none}))
+      (let [fs      (vec (frames/read-chunked-seq (io/file good frames/sentex-file) :none))
+            total   (count fs)
+            ;; `bad` is `good` with its sentex stream rewritten: `plant` lands after three
+            ;; stored frames, two frames to a chunk, so the refusal is met mid-stream
+            plant!  (fn [planted]
+                      (rm-rf! bad)
+                      (.mkdirs bad)
+                      (doseq [^File f (.listFiles good) :when (.isFile f)]
+                        (io/copy f (io/file bad (.getName f))))
+                      (frames/write-frames! (io/file bad frames/sentex-file)
+                                            (concat (take 3 fs) [planted] (drop 4 fs))
+                                            {:compression :none :chunk-size 2}))
+            ;; the refusal, the destination after it, and a retry of `good` into the
+            ;; same KB, which the empty-destination gate refuses when anything is left
+            check  (fn [kb ty opts]
+                     (is (= empty-state (stored-state kb)) "the destination starts empty")
+                     (is (= ty (:type (refusal-of kb bad opts))))
+                     (is (= empty-state (stored-state kb))
+                         "and holds nothing the refused import wrote")
+                     (is (= total (:sentexes (imp/import-dump kb good opts)))
+                         "so the retry lands every record with no clear! between"))]
+        (is (< 4 total) "the planted frame has records stored before it")
+        (testing "a handle the dump names twice"
+          (plant! (assoc (nth fs 3) :id (:id (first fs))))
+          (doseq [mode [true :stored false]]
+            (testing (str ":belief? " (pr-str mode))
+              (tu/with-cleared-kb [kb memory-kb]
+                (check kb :duplicate-handle {:belief? mode})))))
+        (testing "a frame that is not ours, with no foreign reader present"
+          (plant! [:not-a-field-map 1])
+          (with-redefs [foreign/reader (constantly nil)]
+            (doseq [mode [true false]]
+              (testing (str ":belief? " (pr-str mode))
+                (tu/with-cleared-kb [kb memory-kb]
+                  (check kb :no-foreign-reader {:belief? mode}))))))
+        (testing "a foreign manifest that does not read, met at the first frame that is not ours"
+          (plant! [:not-a-field-map 1])
+          (with-redefs [foreign/formats
+                        (fn [] (throw (ex-info "a foreign manifest does not read"
+                                               {:type :bad-foreign-manifest})))]
+            (tu/with-cleared-kb [kb memory-kb]
+              (check kb :bad-foreign-manifest {}))))
+        (testing "a frame that names a class"
+          (plant! (->PlantedFrame (list 'dog 'Eve)))
+          (doseq [mode [true false]]
+            (testing (str ":belief? " (pr-str mode))
+              (tu/with-cleared-kb [kb memory-kb]
+                (check kb :disallowed-class {:belief? mode})))))
+        (testing "a foreign dump whose reader cannot replay belief"
+          (plant! (nth fs 3))
+          (spit (io/file bad frames/meta-file)
+                (pr-str (assoc (imp/read-meta good) :format :round-trip-test/dump)))
+          (try
+            (foreign/register :engine-dump (symbol #'dump-reader-without-replay))
+            (tu/with-cleared-kb [kb memory-kb]
+              (is (= :no-foreign-reader (:type (refusal-of kb bad {}))))
+              (is (= empty-state (stored-state kb))))
+            (finally (foreign/unregister :engine-dump))))
+        (testing "on :disk-log, where a reopen reads what the refusal left"
+          (plant! (assoc (nth fs 3) :id (:id (first fs))))
+          (let [dir (temp-dir "mid-disk")]
+            (try
+              (let [kb (disk-kb dir)]
+                (try
+                  (is (= :duplicate-handle (:type (refusal-of kb bad {}))))
+                  (finally (v/close! kb))))
+              (let [kb (v/open-kb {:backend :disk-log :dir (.getPath dir)})]
+                (try
+                  (is (= empty-state (stored-state kb))
+                      "the reopened store holds no record, so it believes none")
+                  (is (= total (:sentexes (imp/import-dump kb good))))
+                  (finally (v/close! kb))))
+              (finally (rm-rf! dir))))))
+      (finally (rm-rf! good) (rm-rf! bad)))))
+
+(deftest a-stream-a-foreign-replay-opens-is-closed-when-the-replay-throws
+  ;; A frame seq closes its file when it is read to the end or fails inside itself, and a
+  ;; foreign reader that throws between frames does neither.  The importer closes every
+  ;; stream the `:read-fn` it hands the reader opened.
+  (let [dump (temp-dir "replay-stream")]
+    (rm-rf! dump)
+    (try
+      (tu/with-cleared-kb [source memory-kb]
+        (tu/with-terms [dog Ace CxReplay]
+          (v/assert source (list dog Ace) CxReplay)
+          (export/export! source dump {:compression :none})))
+      (spit (io/file dump frames/meta-file)
+            (pr-str (assoc (imp/read-meta dump) :format :round-trip-test/dump)))
+      (try
+        (foreign/register :engine-dump (symbol #'dump-reader-that-stops-mid-stream))
+        (tu/with-cleared-kb [kb memory-kb]
+          (is (= ::stops (:type (refusal-of kb dump {}))))
+          (is (thrown? java.io.IOException (dorun @opened-by-replay))
+              "the stream the replay opened is closed, so the rest of it is not read"))
+        (finally
+          (foreign/unregister :engine-dump)
+          (reset! opened-by-replay nil)))
       (finally (rm-rf! dump)))))
 
 (deftest a-dump-this-build-cannot-read-is-refused-before-the-first-write

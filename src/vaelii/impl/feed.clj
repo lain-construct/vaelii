@@ -53,7 +53,9 @@
   settle would report both halves of that flicker.  So those two hold the feed for
   their duration; the regions union, and one event is delivered with the batch's net
   answer, which is the same answer `core/edit-with-consequences!` gives for the same
-  batch.
+  batch.  `core/assert` holds it too while a listener is installed: a mint settles before
+  the sentence it serves is checked, and a refusal after it takes the mint back, so the
+  held region then names only handles that are gone and nothing is delivered.
 
   Nests: an inner hold is a no-op wrapper (`remove-orphaned-nats!` retracts inside a
   retraction), and the outermost one delivers."
@@ -126,6 +128,16 @@
                                 #(into [] (remove (fn [l] (= token (:token l)))) %))]
       (not= (count (:listeners old)) (count (:listeners new))))
     false))
+
+(defn unregister-all!
+  "Drop every listener and whatever has accumulated for them — `core/close!`'s step.  A
+  closed store refuses every later write, so a listener left registered would never be
+  called again while `watchers` still listed it.  The token counter is kept, so a token
+  issued before the close is never reissued to a listener registered after it."
+  [kb]
+  (when-let [a (:feed kb)]
+    (swap! a assoc :listeners [] :region #{} :was-in #{})
+    nil))
 
 (defn listeners
   "The registered listeners, in registration order."

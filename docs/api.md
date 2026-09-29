@@ -11,7 +11,7 @@
 `vaelii.client`, `vaelii.starter`, `vaelii.web`, `vaelii.serve`, `vaelii.cli` — and
 those six namespaces are the compatibility boundary. Everything else is private and free
 to change: the engine internals and the ontology content under `vaelii.impl.*`, the
-servers, CLI, loaders and LLM stack under `vaelii.host.*`, and the two applications over
+servers, CLI and loaders under `vaelii.host.*`, and the two applications over
 this API, `vaelii.koinii.*` and the browser (`vaelii.browser.*`). Tests
 reach into `impl` freely, which is what unit tests are for; nothing outside this repo
 should. The file map is [namespaces.md](namespaces.md). Entry points are `lein run` (→
@@ -179,7 +179,8 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; goal = a sentence, or a VECTOR of them, at any depth
                                                ; opts: {:max-depth n :proof? true} + the node engine's
                                                ; :strategy :portfolio? :auto? :racers — the whole
-                                               ; roster is `query-opt-keys`; a key off it is refused
+                                               ; roster is `query-opt-keys`; a key off it is refused.
+                                               ; query? stops the search at the first answer
 (query-status kb goal context opts)            ; query's answers PLUS a report -> {:answers :count :status
                                                ; :truncated? :depth :time-to-first-answer-ms :total-time-ms
                                                ; :stats}.  :truncated? tells a too-shallow :max-depth (the
@@ -282,6 +283,11 @@ default-chain-opts                              ; the bounds a chain run takes w
 (write-hazards kb)                             ; what makes a write wrong: {:no-belief true},
                                                ; {:no-index true}, both, or {}.  The write entry
                                                ; points refuse on a non-empty answer
+(rebuild-progress kb)                          ; while belief is rebuilt behind an installed image
+                                               ; ({:stale-belief true}): the step running, of how
+                                               ; many, elapsed ms, the image's and this build's
+                                               ; source digests, and :fraction against the recover
+                                               ; the image records; nil when no rebuild runs
 (store-state kb [ks])                          ; {:readable? :network? :believes? :recoverable?} —
                                                ; records read back as sentexes (else :thawed-keys),
                                                ; a belief network exists, something is IN, and
@@ -478,6 +484,9 @@ assertable-strengths                            ; #{:monotonic :default}, the se
                                                 ; taking a sentence and a context takes one, Ctx
                                                 ; winning over the argument (query family, above)
 (handle-of kb sentence context)                 ; find WITHOUT creating -> handle or nil (ist's counterpart)
+                                                ; nil is "not stored": a sentence that is not a
+                                                ; list, or a context that is nil, a number or a
+                                                ; variable, is refused (:shape) rather than nil
 (contexts-of kb sentence)                       ; contexts a sentence is stored AND believed in —
                                                 ; a defeated sentex's context is not listed
 (handles kb)                                     ; every live sentex handle — the whole-KB
@@ -608,7 +617,7 @@ expansion each will do**.  Pick by what you are asking, not by habit:
 | `query-status` | to tell a **too-shallow `:max-depth`** from an unprovable goal — the answers plus whether the bound cut the search, and the run's timings | the same search `query` runs, driven with truncation tracking on (`inference/search-report`); one concrete context | a report map — `:answers` `:truncated?` `:status` `:time-to-first-answer-ms` `:total-time-ms` `:stats` |
 | `ask` / `ask?` | an answer from what the KB stores or has cached, at a cost that does not depend on the rule graph | the prover registry (facts, transitivity, disjointness, inverse/symmetric metadata, evaluable arithmetic, NAF, arg) — **no rule expansion** | binding maps `{?x v}` |
 | `sentexes-matching` | *stored, believed* literals matching a pattern — retrieval, not reasoning | belief-filtered index read; no inference, no subtype expansion | **sentex maps** |
-| `prove` / `provable?` | backward chaining with **no depth to pick**: it terminates on the data | the recursive chainer, facts + rules only; a **conjunctive** join (vector goal) | a vector of binding maps, **one per derivation** — equal maps repeat, so `distinct` for an answer set |
+| `prove` / `provable?` | backward chaining with **no depth to pick**: it terminates on the data | the recursive chainer, with the registry answering each literal it does not rewrite, so it finds at least what `ask` finds; a **conjunctive** join (vector goal) | a vector of binding maps, **one per derivation** — equal maps repeat, so `distinct` for an answer set |
 | `lookup` / `escalate` / `explain-levels` | *diagnostics* — which level of machinery reaches this, and how dear | one explicit level of the 8-level stack | level maps |
 
 **Result shapes differ by family.** `sentexes-matching` and the extent/term readers
@@ -626,8 +635,9 @@ their bindings, so there is no per-literal context to honor; ask the whole conju
 `Ctx`.  A rule is refused an `ist` in any position (docs/contexts.md).
 
 A **sentex map** has the stable keys `:id` (the handle) and `:context`; a literal adds
-`:sentence`, and a rule `:antecedent` / `:consequent` / `:direction` / `:defeasible` in its
-place. A rule map carries no `:sentence` — `sentence-of` builds its `implies` form, and
+`:sentence`, and a rule `:antecedent` / `:consequent` / `:engines` / `:defeasible` /
+`:effect` in its place ([storage.md](storage.md#the-sentex-records--literalsentex-and-rulesentex)).
+A rule map carries no `:sentence` — `sentence-of` builds its `implies` form, and
 `readable-sentence` the same form in the author's variable names. A negative literal's
 `:sentence` is `(not S)`; no separate key carries the sign.
 Key into it.
@@ -639,8 +649,11 @@ extent readers fetch records as their seq is walked, which is what lets a consum
 an open read — the browser shows fifty of an imported ontology's hundred thousand
 `comment`s a page by taking fifty, not by fetching them all — and it means a seq held
 across a write yields what is stored when it is walked, not when it was asked for.
-`vec` one for a snapshot.  Over the daemon wire every answer is realized before it is
-sent (`wire-safe`), so a remote caller always holds a snapshot.
+`vec` one to fix the answer.  Over the daemon wire every answer is realized before it is
+sent (`wire-safe`), so a remote caller always holds a fixed answer.  Beside a writer
+thread in the same process the answer is still not one state's: a read takes the index
+postings and then belief per candidate. `query` reads the same way, and the engine makes
+neither read one state's ([storage.md](storage.md#the-single-writer-contract)).
 
 ## Batched assertion
 
@@ -673,6 +686,25 @@ for existing is that it is the fast one.  The depth potential is repaired on the
 even so, since nothing else would ever repair it and every later reachability read would
 pay for that.  **Where a batch must be all-or-nothing, use `edit!`** — the all-or-nothing entry point,
 and the one with a `:remove` half.
+
+**Interrupting a thread that writes a KB.**  The engine reads no interrupt flag, so
+`future-cancel` on a running `assert-many`, or `Thread.interrupt` on any writer, does not
+stop a write between two steps:
+
+- **A memory KB** runs the write to completion.  `future-cancel` returns true and the
+  batch goes on storing, chaining and settling to its end.
+- **A KB with a store on disk** (`:disk-log`, the other `:disk-*` backends, and the index
+  of `:pg-disk-log`) loses a file channel.  A `FileChannel` closes when the thread
+  blocked in it is interrupted, so the write that was in the channel fails, and the
+  store stops: that write and every later
+  call on the store, from any thread, throw `:store-unusable` with `:reason
+  :interrupted`, until the directory is opened again.  `close!` releases the stopped
+  store without throwing, and the next open recovers what reached the log.  A batch
+  interrupted this way leaves what it stored before the interrupt, as a throw part-way
+  through leaves it above.
+  [storage.md](storage.md#a-store-that-stops).
+
+Stop a batch by giving it less to do, and interrupt only a thread that does not write.
 
 **`bulk-assert-facts!`** is `assert-many` with the machinery a *trusted* corpus does not
 need turned off as well: the per-fact definitional checks (the `arg` store query
@@ -731,6 +763,13 @@ author who edits an ontology wants, and what a dump deliberately is not. The shi
 ontology (`resources/kb/`) *is* a text KB, so `export-text!` is the writer for a format
 the engine already reads.
 
+`import!` reads a dump into an **empty** KB and refuses a KB that holds a sentex. A dump
+refused for its own content leaves the KB empty, so the retry needs no `clear!`. Three
+such refusals are met in the middle of the stream: a handle named twice, a frame naming
+a class, and a frame no reader decodes. The import empties the store before it throws.
+A callback that throws, a torn stream or a store failure leaves the KB holding what had
+already landed.
+
 `export-text!` writes one `<Context>.txt` per context: **the file name is the context**,
 and a sentence for another one says so with `(ist Cx S)` as it would anywhere else. Each
 premise keeps its `:strength` — `:monotonic` as a `(set/monotonic S)` wrapper, `:default`
@@ -764,7 +803,20 @@ path, so the KB it lands in need not be empty. `lein cli load` is this entry poi
 ## Validating without writing
 
 `assert` answers "would this store?" by *doing* it: the first failing check throws and
-nothing lands.  A caller that wants the answer rather than the effect — an editor
+nothing lands.  Some of what `assert` writes comes before a check that can still refuse
+it — the constant a ground reifiable NAT is minted to, with its `termOfUnit` and result
+types; the `SkolemFn` declaration a head existential makes; the sentence itself, stored
+and chained before an `exceptWhen` query evaluated as a rule fires raises
+`:pattern-too-costly`.  A throw out of `assert` therefore takes back what the call wrote,
+at the handles it wrote, with the undo `edit!` runs for a batch that refused: every premise
+the call created is retracted with what it derived, every mark it raised is put back, and
+the diagnostic ledgers `edit!` restores are restored.  The throw is the one `assert` raised,
+unchanged.  **The handle counter is the one thing that moves**, as it does for `edit!`.  A
+change-feed listener hears nothing of the refused call, since `assert` holds the feed for
+its duration.  Under `*bulk-load?*` nothing is taken back: that mode skips the checks that
+refuse after a mint, for a corpus its caller has guaranteed.
+
+A caller that wants the answer rather than the effect — an editor
 validating a line, a critic grading a proposed batch, an importer triaging a corpus —
 asks **`check`** instead.
 
@@ -785,7 +837,7 @@ spelling — `functor lives_in in rule consequent (lives_in ?x cold_place) is sn
 
 It returns a **vector of problems**, empty when the sentence is admissible.  Each is a
 map with the `:type` keyword `assert` would have thrown — `:naming`, `:not-ground`,
-`:not-well-formed`, `:not-range-restricted`, `:not-indexable`, `:disjunction-too-wide`, `:not-stratified`,
+`:not-well-formed`, `:unknown-handle` (an `except` naming no stored sentex), `:not-range-restricted`, `:not-indexable`, `:disjunction-too-wide`, `:not-stratified`,
 `:not-assertible`, `:exception-not-closed`, `:arg-type`, `:arg-genl`, `:arg-position`, `:inter-arg-type`,
 `:arg-constraint-kind`, `:arg-variable`, `:arity`, `:disjoint`, `:functional`, `:asymmetric`,
 `:anti-transitive`, `:irreflexive`, `:anti-symmetric` — a readable
@@ -810,11 +862,17 @@ ones held.
 `check-edit` is the same over an `edit!` batch, and each problem additionally carries
 `:in` (`:add` / `:remove`), `:index` and `:entry`, so a caller can point at the line
 rather than at the batch.  An `:add` is judged against the KB **as it stands**, and a
-`:remove` for naming an actually stored handle (`:unknown-handle`).
+`:remove` for naming an actually stored handle (`:unknown-handle`) and for the teardown
+`edit!` refuses over a KB whose belief was never built (`:unrecovered-kb`).
 
-Two things `assert` does that `check` deliberately does not: it does not reify a ground
-reifiable NAT (that mints a constant, which is a write), and it does not evaluate an
-imperative.
+Three things `assert` does that `check` deliberately does not.  It does not mint a
+constant for a ground reifiable NAT, which is a write: an application that already has a
+term is checked as that term, and one that has none is read as the constant `assert` would
+mint, holding its function's result types ([nat.md](nat.md#typing-an-application-that-is-never-minted)).
+The checks do not read what a rule would conclude of the new constant.  It does not evaluate an
+imperative.  And it does not chain, so a refusal raised while the sentence's rules fire —
+`:pattern-too-costly` from an `exceptWhen` query — is reported by `assert` alone, which
+then takes back what the call wrote (above).
 
 ## Previewing the consequences
 
@@ -842,7 +900,8 @@ entries `goal` answers and carrying the `:bindings` that answered.  Both return 
 `unwatch`; `watchers` lists what is registered.
 
 A batch settles once, so a batch is one call, and its halves are what
-`edit-with-consequences!` reports for the same batch.  A `preview` and a `recover` are
+`edit-with-consequences!` reports for the same batch.  A single `assert` is one call too,
+including one that mints a constant and so settles twice, and a refused one is none.  A `preview` and a `recover` are
 silent, a mutation that moved no belief is silent, and a goal whose truth is not a function
 of the moved region — a conjunction, an aggregate, `unknown`, `thereExists`, an evaluable,
 an `ist` — is **refused** (`:not-watchable`) rather than watched for nothing, and so is
@@ -1087,8 +1146,8 @@ callers write `v/assert`. A `set-` that installs a value is bare for the same re
 Assert known-true facts with `{:strength :monotonic}`; the default is `:default`
 (most of a common-sense KB), and a default is defeasible at the edges.
 
-`opts` on assert: `{:chain? false}` skips forward chaining, `{:max-depth n}`
-bounds it. `vaelii.host.core-context/load-into` asserts the CxCore vocabulary — every special
+`opts` on assert: `{:chain? false}` skips forward chaining, and computes none of the
+seeds it would chain from, `{:max-depth n}` bounds it. `vaelii.host.core-context/load-into` asserts the CxCore vocabulary — every special
 predicate the engine interprets (types/contexts, arg/genlArg/interArg,
 disjoint/disjoint_metatype,
 implies + the `set/*Rule` wrappers, the transitive/symmetric/reflexive/functional/

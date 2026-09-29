@@ -4,7 +4,7 @@ name: deep
 #
 # Named for what it does rather than when it runs, so a change of cadence is not
 # a rename. It runs weekly: nine backends at `:all` is ~130 billed minutes and
-# the six sweeps add ~95 more, so a run is a few billed hours — and a tree that
+# the seven sweeps add ~110 more, so a run is a few billed hours — and a tree that
 # changes a few times a week does not have a fresh answer every day. Running it
 # daily would buy six identical verdicts and turn one real failure into six lines
 # of noise. Wall clock is ~20 minutes either way, since the legs are parallel;
@@ -23,12 +23,12 @@ name: deep
 #     overlay decorator, and the suite is expected to be failing-set-identical
 #     across all nine — a backend that answers differently is a bug in the
 #     backend. The pull-request gate exercises two of the nine.
-#   - **The six alternative implementations.** The persistent-map JTMS, the incremental
-#     matcher, the node query engine, its tacticians, the reference retrieval
-#     fan-out and the planner turned off. Each is selected by an env var
-#     `test_util.clj` reads, each must be
-#     failing-set-identical with the default it replaces, and nothing ran any of
-#     them until the `sweeps` job below — see its own comment.
+#   - **The seven sweeps.** The persistent-map JTMS, the incremental matcher,
+#     the node query engine, its tacticians, the reference retrieval fan-out,
+#     the planner turned off, and the argument declarations read as constraints
+#     only. Each is selected by an env var, each must be failing-set-identical
+#     with the default it replaces, and nothing ran any of them until the
+#     `sweeps` job below — see its own comment.
 #   - **The cross-process tests.** `^:multi-jvm` is opt-in rather than deferred:
 #     no selector reaches it, not even `:all`, so this job is not a second
 #     opinion the way the three above are — it is the only thing that runs them.
@@ -43,6 +43,9 @@ name: deep
 #     question. Once, not once per row, and here is the once. Nothing else runs
 #     it at all: no gate, no script, no other alias — so this job is what stands
 #     between the sweep and never running.
+#
+# The `coverage` job is a measurement rather than a sixth gap: it runs the
+# `:default` suite under cloverage and fails below a floor.
 #
 # **Informational, never a required check.** Nothing here blocks a merge: these
 # jobs are long, the perf one is a timing measurement on a shared runner, and a
@@ -74,7 +77,7 @@ on:
 # copy spends the allowance the same way the cron would, and the ask is nearly
 # always for an answer the free copy can give. Dispatch this workflow in the
 # public repository; the two matrices it runs are `lein test-backends` and
-# `lein test-sweeps` locally, which is where .claude/rules/workflow.md puts the
+# `lein test-sweeps` locally, which is where CONTRIBUTING.md puts the
 # gate anyway — this job is the confirmation, and a confirmation is not worth a
 # month of minutes.
 #
@@ -93,7 +96,7 @@ concurrency:
 
 jobs:
   backends:
-    name: ${{ matrix.backend }} (:all)
+    name: ${{ matrix.backend }} (:all, JDK ${{ matrix.jdk }})
     # this workflow does work only where the minutes are free (see above `jobs:`)
     if: github.repository_owner == 'vaelii'
     runs-on: ubuntu-latest
@@ -118,6 +121,13 @@ jobs:
           - disk-snapshot
           - disk-log
           - overlay
+        # Every other job runs 25; README.md promises 21+, and this one leg is
+        # what checks the floor. `jdk` is an axis of one so the `include` below
+        # adds a tenth leg rather than moving `memory` itself to 21.
+        jdk: ['25']
+        include:
+          - backend: memory
+            jdk: '21'
     steps:
       # No credentials left in .git/config: nothing here pushes, and a token
       # sitting in the workspace is reachable by anything the build runs.
@@ -125,11 +135,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up JDK 21
+      - name: Set up JDK ${{ matrix.jdk }}
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: ${{ matrix.jdk }}
 
       - name: Set up Leiningen
         uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74  # 13.7.0
@@ -143,9 +153,9 @@ jobs:
           # runner OS and JDK in the key: the same project.clj resolves different
           # artifacts on a different platform or Java version, and a bare `m2-`
           # key would serve one leg's ~/.m2 to another the moment a matrix grows.
-          key: m2-${{ runner.os }}-jdk21-${{ hashFiles('project.clj') }}
+          key: m2-${{ runner.os }}-jdk${{ matrix.jdk }}-${{ hashFiles('project.clj') }}
           restore-keys: |
-            m2-${{ runner.os }}-jdk21-
+            m2-${{ runner.os }}-jdk${{ matrix.jdk }}-
 
       # One backend per runner, so the script's own reason for running its nine
       # sequentially does not apply: two durable suites collide on the
@@ -160,19 +170,22 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
         with:
-          name: deep-${{ matrix.backend }}
+          name: deep-${{ matrix.backend }}-jdk${{ matrix.jdk }}
           path: target/test-backends/
           if-no-files-found: ignore
           retention-days: 14
 
   # The other axis the suite can be run on, and until now the one nothing ran.
   #
-  # `VAELII_TEST_BACKEND` is not the only switch `test_util.clj` reads. Six more
+  # `VAELII_TEST_BACKEND` is not the only switch the suite reads. Six more
   # re-run the whole suite through an *alternative implementation* of something
   # the engine otherwise picks for itself, and each is the same claim the backend
   # matrix makes: these must be failing-set-identical, because every one of them
   # is a cost decision rather than a semantic one. A tactician orders goals; it
-  # does not choose answers.
+  # does not choose answers. The seventh, `assertive-off`, is the supported
+  # opt-out reading of the argument declarations (docs/argtypes.md): a test whose
+  # answer depends on the reading pins one, and every other test answers alike
+  # under both.
   #
   # One bounded exception, and the suite carries it rather than this comment
   # waving at it: the node engine agrees with the DFS on the answer *set* and not
@@ -182,7 +195,7 @@ jobs:
   # `tu/query-engine-override`, and everything about the answer set runs under
   # both. An assertion standing aside says why, every time.
   #
-  # The backends job crosses none of them — it varies storage and leaves all six
+  # The backends job crosses none of them — it varies storage and leaves all seven
   # at their defaults — so before this job existed the reference implementations
   # were never run anywhere. That is not a hypothetical gap: running them by hand
   # found two real defects, one of them a genuine engine bug (a clash reported
@@ -191,8 +204,8 @@ jobs:
   # reading the first element of it).
   #
   # On the DEFAULT backend only, and deliberately not crossed with the nine: the
-  # dimensions are independent by construction, so the product buys 54 runs to
-  # re-answer what 6 and 9 already answer separately.
+  # dimensions are independent by construction, so the product buys 63 runs to
+  # re-answer what 7 and 9 already answer separately.
   sweeps:
     name: ${{ matrix.name }} (:all)
     # this workflow does work only where the minutes are free (see above `jobs:`)
@@ -219,16 +232,18 @@ jobs:
             env: VAELII_HIER=0
           - name: plan-off
             env: VAELII_PLAN=0
+          - name: assertive-off
+            env: VAELII_ASSERTIVE_ARG_TYPES=0
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
 
-      - name: Set up JDK 21
+      - name: Set up JDK 25
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
 
       - name: Set up Leiningen
         uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74  # 13.7.0
@@ -239,9 +254,9 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
         with:
           path: ~/.m2
-          key: m2-${{ runner.os }}-jdk21-${{ hashFiles('project.clj') }}
+          key: m2-${{ runner.os }}-jdk25-${{ hashFiles('project.clj') }}
           restore-keys: |
-            m2-${{ runner.os }}-jdk21-
+            m2-${{ runner.os }}-jdk25-
 
       # Plain `lein test`, not `test-backends.sh`: that script's whole job is to
       # loop the backend axis and reduce each run to a ✔/✘, which is why a failure
@@ -266,11 +281,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up JDK 21
+      - name: Set up JDK 25
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
 
       - name: Set up Leiningen
         uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74  # 13.7.0
@@ -284,9 +299,9 @@ jobs:
           # runner OS and JDK in the key: the same project.clj resolves different
           # artifacts on a different platform or Java version, and a bare `m2-`
           # key would serve one leg's ~/.m2 to another the moment a matrix grows.
-          key: m2-${{ runner.os }}-jdk21-${{ hashFiles('project.clj') }}
+          key: m2-${{ runner.os }}-jdk25-${{ hashFiles('project.clj') }}
           restore-keys: |
-            m2-${{ runner.os }}-jdk21-
+            m2-${{ runner.os }}-jdk25-
 
       # The cross-process tests. `:multi-jvm` is opt-in — no other selector
       # reaches them, so unlike every other job here this one is not a second
@@ -312,11 +327,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up JDK 21
+      - name: Set up JDK 25
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
 
       - name: Set up Leiningen
         uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74  # 13.7.0
@@ -330,9 +345,9 @@ jobs:
           # runner OS and JDK in the key: the same project.clj resolves different
           # artifacts on a different platform or Java version, and a bare `m2-`
           # key would serve one leg's ~/.m2 to another the moment a matrix grows.
-          key: m2-${{ runner.os }}-jdk21-${{ hashFiles('project.clj') }}
+          key: m2-${{ runner.os }}-jdk25-${{ hashFiles('project.clj') }}
           restore-keys: |
-            m2-${{ runner.os }}-jdk21-
+            m2-${{ runner.os }}-jdk25-
 
       # The exhaustive truncation sweep. `:fuzz` is opt-in like `:multi-jvm`, so
       # this job is the only thing that runs it — but for a different reason: it
@@ -362,11 +377,11 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Set up JDK 21
+      - name: Set up JDK 25
         uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '25'
 
       - name: Set up Leiningen
         uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74  # 13.7.0
@@ -380,9 +395,9 @@ jobs:
           # runner OS and JDK in the key: the same project.clj resolves different
           # artifacts on a different platform or Java version, and a bare `m2-`
           # key would serve one leg's ~/.m2 to another the moment a matrix grows.
-          key: m2-${{ runner.os }}-jdk21-${{ hashFiles('project.clj') }}
+          key: m2-${{ runner.os }}-jdk25-${{ hashFiles('project.clj') }}
           restore-keys: |
-            m2-${{ runner.os }}-jdk21-
+            m2-${{ runner.os }}-jdk25-
 
       # `lein perf` measures GROWTH RATIOS, not milliseconds, which is what
       # makes it runnable on a shared runner at all: a noisy neighbour slows
@@ -396,3 +411,59 @@ jobs:
       # two-core runner is the noisy box the flag was written for.
       - name: Scaling claims
         run: lein perf --tolerance 1.5
+
+  coverage:
+    name: coverage (:default)
+    # this workflow does work only where the minutes are free (see above `jobs:`)
+    if: github.repository_owner == 'vaelii'
+    runs-on: ubuntu-latest
+    # an instrumented `:default` run is 75–105 minutes of wall time on a 10-core laptop,
+    # and a two-core runner is slower
+    timeout-minutes: 180
+    steps:
+      # No credentials left in .git/config: nothing here pushes, and a token
+      # sitting in the workspace is reachable by anything the build runs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up JDK 25
+        uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6  # v6.0.1
+        with:
+          distribution: temurin
+          java-version: '25'
+
+      - name: Set up Leiningen
+        uses: DeLaGuardo/setup-clojure@6d46099eae24853c33c0482f2bb54edf4f1a4c74  # 13.7.0
+        with:
+          lein: 2.12.0  # 2.13.0's launcher self-installs an unpublished snapshot jar
+
+      - name: Cache Maven deps
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: ~/.m2
+          # runner OS and JDK in the key: the same project.clj resolves different
+          # artifacts on a different platform or Java version, and a bare `m2-`
+          # key would serve one leg's ~/.m2 to another the moment a matrix grows.
+          key: m2-${{ runner.os }}-jdk25-${{ hashFiles('project.clj') }}
+          restore-keys: |
+            m2-${{ runner.os }}-jdk25-
+
+      # `:default` only: `:all` adds 0.21 points of forms for the whole `^:slow`
+      # half again. The floor of 78 is ten points under the 88% of forms the tree
+      # measures, so it fails on a collapse (a test namespace that stopped
+      # running, an instrumentation that stopped taking) and not on drift.
+      # `--raw` writes cloverage's per-form hit data beside the HTML report.
+      - name: Instrumented suite
+        run: ./scripts/coverage.sh :default --fail-under 78 -- --raw
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a  # v7.0.1
+        with:
+          name: coverage
+          path: |
+            target/coverage/
+            testbench/coverage/run.log
+          if-no-files-found: ignore
+          retention-days: 14

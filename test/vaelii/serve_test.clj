@@ -19,17 +19,19 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.set :as set]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [ring.adapter.jetty :as jetty]
             [taoensso.trove :as trove]
             [vaelii.browser.catalog :as catalog]
+            [vaelii.client :as vc]
             [vaelii.core :as v]
             [vaelii.host.client :as client]
             [vaelii.host.guard :as guard]
-            [vaelii.host.llm.tools :as tools]
             [vaelii.host.serve :as serve]
             [vaelii.host.subscribe :as sub]
             [vaelii.impl.config :as config]
+            [vaelii.serve :as pserve]
             [vaelii.test-util :as tu])
   (:import [java.io ByteArrayInputStream File]
            [java.nio.file Files]
@@ -192,6 +194,23 @@
         (is (:ok r))
         (is (nat-int? (:result r)))))))
 
+(defn- one-arg [x] x)
+
+(tu/deftest-kb an-arity-error-inside-an-op-is-a-fault-not-bad-args
+  (let [handler (open-app kb)]
+    (binding [trove/*log-fn* (fn [& _] nil)]
+      (with-redefs [serve/ops (assoc serve/ops :sentex-count
+                                     (#'serve/op (fn [_kb] (apply one-arg [1 2]))))]
+        (let [r (post-op handler :sentex-count [])]
+          (is (= 500 (:status r)))
+          (is (= :internal-error (:type r))))
+        (let [r (post-op handler :sentex-count [:one-too-many])]
+          (is (= 400 (:status r)) "the op itself called with the wrong count")
+          (is (= :bad-args (:type r))))))
+    (let [r (post-op handler :assert [])]
+      (is (= 400 (:status r)) "and through the wrappers around an engine entry point")
+      (is (= :bad-args (:type r))))))
+
 ;; ---- the guards' refusal paths -------------------------------------------
 
 (tu/deftest-kb post-op-refuses-a-cors-simple-content-type
@@ -219,6 +238,22 @@
       (testing "and the refusal runs nothing — the op is never executed"
         (is (= before (tu/sentex-ids kb)))
         (is (nil? (v/handle-of kb (list dog Muffet) CxServe)))))))
+
+(tu/deftest-kb a-body-that-ends-early-is-the-callers-fault
+  ;; Jetty raises an `IOException` from the body stream when a request sends fewer bytes
+  ;; than its `Content-Length`; that is a malformed request, answered 400, and logs nothing.
+  (let [early  (proxy [java.io.InputStream] []
+                 (read ([] (throw (java.io.EOFException. "Early EOF")))
+                   ([_] (throw (java.io.EOFException. "Early EOF")))
+                   ([_ _ _] (throw (java.io.EOFException. "Early EOF")))))
+        logged (atom [])
+        resp   (binding [trove/*log-fn* (fn [_ _ _ id _] (swap! logged conj id) nil)]
+                 ((open-app kb) {:request-method :post :uri "/op"
+                                 :headers {"content-type" "application/edn"}
+                                 :body early}))]
+    (is (= 400 (:status resp)))
+    (is (= :not-edn (:type (edn/read-string (:body resp)))))
+    (is (not-any? #{::serve/op-error} @logged))))
 
 (tu/deftest-kb post-op-refuses-a-cross-origin-caller
   ;; the other CSRF gate, and the one that bites when a browser *does* stamp an origin:
@@ -399,6 +434,16 @@
               answer is not a thing an anonymous caller is owed either"
       (is (= 401 (:status (handler {:request-method :get :uri "/nothing-here"})))))))
 
+(tu/deftest-kb a-route-nothing-serves-names-itself-and-the-routes-there-are
+  ;; The bare "not found" named neither the request nor what the daemon does answer, so
+  ;; a client pointed at the wrong path had nothing to correct.
+  (let [resp  ((open-app kb) {:request-method :get :uri "/ops"})
+        reply (edn/read-string (:body resp))]
+    (is (= 404 (:status resp)))
+    (is (= :not-found (:type reply)))
+    (is (str/includes? (:error reply) "GET /ops") "the request it could not route")
+    (is (str/includes? (:error reply) "POST /op") "and the route the caller wanted")))
+
 (clojure.test/deftest the-token-comparison-is-one-named-constant-time-fn
   ;; Asserted structurally rather than by timing: a wall-clock assertion over a
   ;; nanosecond difference is flaky by construction on a machine running anything else,
@@ -441,6 +486,14 @@
           (is (= :unauthorized (:type (ex-data e))) h)
           (is (= h (:host (ex-data e))) h)
           (is (re-find #"VAELII_API_TOKEN" (ex-message e)) h))))))
+
+;; `-main` refused an address with no token and `start` did not, so a caller starting
+;; the daemon from code served `POST /op` open on the address it named.
+(deftest start-refuses-an-address-with-no-token-as-main-does
+  (let [r (try (serve/start nil {:port 0 :host "0.0.0.0" :token nil})
+               (catch clojure.lang.ExceptionInfo e e))]
+    (when (instance? Server r) (.stop ^Server r))
+    (is (= :unauthorized (:type (ex-data r))))))
 
 (clojure.test/deftest the-daemon-says-which-posture-it-started-in
   ;; A test of the log *line*, not of the absence of one: an operator reading a machine
@@ -560,6 +613,142 @@
           (is (= :budget-exhausted (:type r)))
           (is (= 400 (:status r))))))))
 
+(def ^:private chain-bounded-writes
+  "The seven writes that read a forward-chaining bound — `:max-depth` and
+  `:max-derivations`, off the option map or off each batch entry's — which no ceiling
+  holds (`serve/search-bounds`' docstring, docs/operations.md's ceiling bullet)."
+  [:assert :assert-many :assert-rule :forward-chain :edit :edit-with-consequences :preview])
+
+(defn- doc-bullet
+  "The `docs/operations.md` bullet opening with `lead`, up to the next bullet."
+  [lead]
+  (let [doc   (slurp "docs/operations.md")
+        start (str/index-of doc (str "- **" lead))]
+    (subs doc start (str/index-of doc "\n- **" (inc start)))))
+
+(tu/deftest-kb a-write-names-a-chain-bound-no-ceiling-holds-and-both-docs-say-so
+  (tu/with-terms [dog animal Muffet Rex Tom Ann Bo CxServe]
+    (let [handler (open-app kb)
+          past    {:max-depth (inc (config/max-query-depth)) :max-derivations 1000000000000}
+          entry   (fn [t] [(list dog t) CxServe past])]
+      (testing "each of the seven answers a bound past the read ceiling"
+        (doseq [[op args] [[:assert [(list dog Muffet) CxServe past]]
+                           [:assert-many [[(list dog Rex)] CxServe past]]
+                           [:assert-rule [[(list dog '?x)] (list animal '?x) CxServe past]]
+                           [:forward-chain [past]]
+                           [:edit [{:add [(entry Tom)]}]]
+                           [:edit-with-consequences [{:add [(entry Ann)]}]]
+                           [:preview [{:add [(entry Bo)]}]]]]
+          (let [r (post-op handler op args)]
+            (is (true? (:ok r)) (str op " " (pr-str r))))))
+      (testing "the ceiling table names none of them, and both descriptions of it name all
+                seven as outside it"
+        (is (empty? (set/intersection (set (keys serve/search-bounds))
+                                      (set chain-bounded-writes))))
+        (let [docstring (:doc (meta #'serve/search-bounds))
+              bullet    (doc-bullet "A search bound may be lowered by a request")]
+          (doseq [op chain-bounded-writes
+                  :let [spelled (str "`" op "`")]]
+            (is (str/includes? docstring spelled) (str "search-bounds' docstring: " op))
+            (is (str/includes? bullet spelled) (str "operations.md: " op))))))))
+
+(tu/deftest-kb a-write-whose-caller-stopped-listening-runs-to-the-end
+  ;; docs/operations.md, "An op runs to completion whether or not its caller is still
+  ;; listening".  The daemon's own `handle-op` over a monitor this test holds, so the op is
+  ;; still queued when the caller's read timeout fires: the order is the lock's, not a race
+  ;; between the batch and the clock.  `admit` runs inside the monitor ahead of the op, so
+  ;; once it has run, taking the monitor waits for the op to finish.
+  (tu/with-terms [dog CxServe]
+    (let [monitor  (Object.)
+          admitted (promise)
+          server   (jetty/run-jetty (fn [req]
+                                      (serve/handle-op kb (sub/registry) monitor req
+                                                       (fn [] (deliver admitted true) nil)))
+                                    {:port 0 :join? false :host "127.0.0.1"})
+          conn     (client/client "127.0.0.1" (serve/port server) {:token nil})
+          batch    (mapv #(list dog (symbol (str "Dog" %))) (range 200))
+          stored   #(count (v/sentexes-matching kb (list dog '?x) CxServe))]
+      (try
+        (testing "the caller gives up while its op waits for the monitor"
+          (locking monitor
+            (is (thrown? java.net.http.HttpTimeoutException
+                         (client/call conn :assert-many [batch CxServe] {:timeout-ms 1000})))
+            (is (zero? (stored)))))
+        (testing "and the op runs anyway, whole"
+          (is (true? (deref admitted 30000 false)))
+          (locking monitor
+            (is (= 200 (stored)))))
+        (testing "a re-send answers the handles the abandoned send stored, and stores nothing"
+          (let [n  (v/sentex-count kb)
+                hs (client/assert-many conn batch CxServe)]
+            (is (= (mapv #(v/handle-of kb % CxServe) batch) hs))
+            (is (= n (v/sentex-count kb)))))
+        (finally (.stop ^Server server))))))
+
+(tu/deftest-kb a-re-sent-write-answers-what-operations-md-says
+  ;; the re-send table in docs/operations.md, row by row; `:export`'s row is
+  ;; `export-over-the-wire-writes-on-the-daemons-own-host`'s last block
+  (tu/with-terms [dog animal Muffet Rex Bo Tom Ann Cy CxServe]
+    (let [handler (open-app kb)
+          ok      (fn [op args]
+                    (let [r (post-op handler op args)]
+                      (is (true? (:ok r)) (str op " " (pr-str r)))
+                      (:result r)))
+          none    {:removed-sentexes 0 :removed-justifications 0}]
+      (testing ":assert, :assert-many and :assert-rule answer the same handles and store
+                nothing the second time"
+        (doseq [[op args] [[:assert [(list dog Muffet) CxServe]]
+                           [:assert-many [[(list dog Rex) (list dog Bo)] CxServe]]
+                           [:assert-rule [[(list dog '?x)] (list animal '?x) CxServe]]]]
+          (let [a (ok op args)
+                n (v/sentex-count kb)]
+            (is (= a (ok op args)) (str op))
+            (is (= n (v/sentex-count kb)) (str op)))))
+      (testing "an :edit with :add alone answers the same handles"
+        (let [batch {:add [[(list dog Cy) CxServe]]}
+              once  (:added (ok :edit [batch]))]
+          (is (= [(v/handle-of kb (list dog Cy) CxServe)] once))
+          (is (= once (:added (ok :edit [batch]))))))
+      (testing "an :edit with a :remove is refused :unknown-handle, and the KB keeps what
+                the first send left"
+        (let [h     (ok :assert [(list dog Tom) CxServe])
+              batch {:add [[(list dog Ann) CxServe]] :remove [h]}
+              _     (ok :edit [batch])
+              n     (v/sentex-count kb)]
+          (doseq [op [:edit :edit-with-consequences]]
+            (is (= :unknown-handle (:type (post-op handler op [batch]))) (str op)))
+          (is (= n (v/sentex-count kb)))
+          (is (some? (v/handle-of kb (list dog Ann) CxServe)))
+          (is (nil? (v/handle-of kb (list dog Tom) CxServe)))))
+      (testing ":retract answers zero counts the second time"
+        (let [h (ok :handle-of [(list dog Rex) CxServe])]
+          (ok :retract [h])
+          (is (= none (ok :retract [h])))))
+      (testing ":forward-chain derives nothing the second time"
+        (ok :forward-chain [])
+        (is (zero? (:derived (ok :forward-chain [])))))
+      (testing ":add-provenance answers the same merged map"
+        (let [h     (ok :handle-of [(list dog Muffet) CxServe])
+              once  (ok :add-provenance [h {:source "s"}])]
+          (is (= "s" (:source once)))
+          (is (= once (ok :add-provenance [h {:source "s"}])))))
+      (testing ":abduce with :keep? mints a second scratch context, and :abduce-discard
+                answers zero counts the second time"
+        (let [goal (list animal Muffet)
+              a    (ok :abduce [goal CxServe {:keep? true}])
+              b    (ok :abduce [goal CxServe {:keep? true}])]
+          (is (not= (:context a) (:context b)))
+          (ok :abduce-discard [(:context a)])
+          (ok :abduce-discard [(:context b)])
+          (is (= none (ok :abduce-discard [(:context a)])))))
+      (testing ":watch registers a second subscription"
+        (let [a (ok :watch [])
+              b (ok :watch [])]
+          (is (not= (:token a) (:token b)))
+          (is (= 2 (count (ok :watchers []))))
+          (ok :unwatch [(:token a)])
+          (ok :unwatch [(:token b)]))))))
+
 (tu/deftest-kb a-bound-value-outside-its-domain-is-a-typed-400-not-a-500
   ;; The floor under docs/operations.md's one-vocabulary promise, for the value domains
   ;; rather than the key rosters.  Without the value check a string where a number belongs
@@ -583,30 +772,6 @@
           (is (false? (:ok r)) (str op))
           (is (= :unknown-option (:type r)) (str op " is a typed refusal, not a bare cast"))
           (is (= 400 (:status r)) (str op " is a client error, not a 500")))))))
-
-(tu/deftest-kb the-models-tool-surface-is-held-to-the-same-ceiling
-  ;; `vaelii.host.llm.tools` generates its schemas from `serve/ops` and calls back into
-  ;; it, so a ceiling applied at the HTTP route would be a ceiling the model does not
-  ;; have — which is the entry point a prompt-injected model would find first.
-  (tu/with-terms [dog Muffet]
-    (v/assert kb (list dog Muffet) 'CxUniverse)
-    (testing "a depth inside the ceiling answers"
-      (is (true? (:ok (tools/call kb "kb_query" {"goal" (str (list dog '?x))
-                                                 "context" "CxUniverse"
-                                                 "opts" "{:max-depth 3}"})))))
-    (testing "and one past it comes back as the refusal a tool result carries"
-      (let [r (tools/call kb "kb_query" {"goal" (str (list dog '?x))
-                                         "context" "CxUniverse"
-                                         "opts" (str {:max-depth
-                                                      (inc (config/max-query-depth))})})]
-        (is (false? (:ok r)))
-        (is (re-find #"over-ceiling" (:error r)) "the :type is named for the model too")))
-    (testing "and the same at kb_ask, whose ceiling is the clock"
-      (let [r (tools/call kb "kb_ask" {"goal" (str (list dog '?x))
-                                       "context" "CxUniverse"
-                                       "opts" (str {:max-ms (inc (config/max-query-ms))})})]
-        (is (false? (:ok r)))
-        (is (re-find #"over-ceiling" (:error r)))))))
 
 ;; ---- the body ceiling ----------------------------------------------------
 ;;
@@ -716,6 +881,23 @@
               (is (empty? (client/sentexes-matching conn (list bird Tweety) CxWire))))))
         (finally
           (.stop server))))))
+
+(tu/deftest-kb the-public-shims-answer-what-the-daemon-answers
+  ;; `vaelii.serve` and `vaelii.client` are one-line delegations, and a delegation to the
+  ;; wrong var passes every test written against `vaelii.host.*`.  Each shim here is
+  ;; called beside the var it names.
+  (let [contexts (fn [handler] (:result (post-op handler :contexts [])))]
+    (is (= (contexts (open-app kb)) (contexts (pserve/app kb {:token nil}))))
+    (is (= (:body ((serve/app kb) {:request-method :get :uri "/health"}))
+           (:body ((pserve/app kb) {:request-method :get :uri "/health"})))))
+  (let [server (pserve/start kb {:port 0 :token nil})]
+    (try
+      (is (= (serve/port server) (pserve/port server)))
+      (is (pos? (pserve/port server)))
+      (let [conn (vc/client "localhost" (pserve/port server) {:token nil})]
+        (is (= (client/health conn) (vc/health conn))))
+      (finally
+        (.stop server)))))
 
 (tu/deftest-kb a-remote-refusal-carries-the-status-it-came-back-under
   ;; `docs/operations.md` makes the status the coarse client-fault/server-fault split

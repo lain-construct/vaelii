@@ -23,8 +23,10 @@
 #     end and names the command — the ask the split leans on (non-blocking).
 #
 # The `:default` selector on the test stage — the `^:slow` half is yours to run:
-#   - `lein test :all` — the deferred tests, more than half the assertions
-#     (project.clj). `lein gate --all` / `lein release-gate --all` runs it here.
+#   - `lein test :all` — the deferred tests, over a quarter of the assertions (project.clj).
+#     `lein gate --all` / `lein release-gate --all` runs it here.  When the pending
+#     diff touches the index, TMS or inference files the slow tests drive and this
+#     gate ran `:default`, it prints "slow owed" beside "perf owed" (non-blocking).
 #   - `./scripts/test-backends.sh` — the eight record×index pairs plus the overlay
 #     decorator.  **Anything touching storage, the index, records, or recovery must
 #     run this**; the suite must be failing-set-identical across all nine, and the
@@ -76,7 +78,7 @@
 #
 # Each stage streams to its own log, tailable while it goes.  On the console a
 # stage is ONE chunk — its command, then its verdict, then its detail, printed
-# together when it finishes and set off by a blank line — so a stage is indistinguishable from a
+# together when it finishes and set off by a blank line — so a stage appears as one
 # block with its context attached rather than a header at the top and a result
 # far below.  A failing stage prints the tail of its log inline; the whole log is
 # always on disk.
@@ -84,10 +86,10 @@
 # Every one of those says which REVISION it is a verdict about — the banner, each
 # stage log's first line, and the closing pass/fail line — and the closing line says
 # so when the tree moved during the run.  A gate is minutes long on a checkout
-# several agents write to, so "which tree was this green for" is a real question,
+# several writers work in, so "which tree was this green for" is a real question,
 # and a green quoted without an answer to it is not evidence of anything.
 #
-# **A run owns its log directory**, and must: several agents share one working tree here,
+# **A run owns its log directory**, and must: several writers share one working tree here,
 # so two gates run in it at once.  Sharing one `test.log`, `perf.log` or shard log hands
 # the reader the other run's verdict with nothing to say so, and a gate whose verdict may
 # belong to someone else is not a gate.  Do not collapse these back to a single
@@ -106,6 +108,7 @@
 # from pointing at a half-run nobody can tell from a verdict.
 #
 # Exit: 0 when every stage passed, 1 when one failed, 130 when interrupted.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail   # NOT -e: every stage must run even after one fails.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -245,7 +248,7 @@ stamp_interrupted () {         # stamp_interrupted <signal-name>
     echo "they stood, so a log whose last line passes is a stage that had not yet"
     echo "reached whatever would have failed.  Nothing in this directory is a verdict."
   } >"$OUT/INTERRUPTED" 2>/dev/null || true
-  for s in lint test perf reflect; do
+  for s in lint test perf reflect jvm; do
     if [[ -f "$OUT/$s.log" ]]; then
       printf '\n# %s — killed, not finished\n' "$note" >>"$OUT/$s.log" 2>/dev/null || true
     fi
@@ -295,7 +298,7 @@ trap 'interrupted TERM' TERM
 
 # The banner, in `announce`'s shape: what this gate is a verdict about, and where
 # its logs are.  Read once here and again at the end, because a gate is minutes
-# long on a checkout several agents write to.
+# long on a checkout several writers work in.
 gate_rev=$(revision_hash)
 # Each banner leads with the command that reproduces that section, so the whole
 # line copy-pastes to re-run it and the `#` turns the blurb and log path into a
@@ -363,7 +366,7 @@ stage_detail () {              # stage_detail <name>
         | head -1 | sed 's/^/        /'
       grep -hoE 'Ran [0-9]+ tests containing [0-9]+ assertions' "$log" \
         | tail -1 | sed 's/^/        /' ;;
-    reflect)
+    reflect|jvm)
       grep -vE '^#|^\s*$' "$log" | head -3 | sed 's/^/        /' ;;
   esac
 }
@@ -486,6 +489,30 @@ check_test_reflection () {
   report_stage reflect "$rc" "$((SECONDS - t0))"
 }
 
+# The JVM warnings in the lint and test logs, every shard's included.  Each names a
+# permission a JVM wanted and was not given, or an option it no longer takes: a
+# restricted native call (JNA), a `sun.misc.Unsafe` caller (aircompressor, under nippy),
+# a dynamically loaded agent, a deprecated `-XX:` flag, and the launcher's CLASSPATH
+# leaking into a nested `lein`.  project.clj's `:jvm-opts` and `:shell` answer the ones
+# known today; this is what goes red when a dependency or a new JDK adds one.
+# shellcheck disable=SC2016  # the $ is a literal in the pattern
+JVM_WARNING='^WARNING: (A restricted method|A terminally deprecated method|A Java agent has been loaded dynamically|You have \$CLASSPATH set)|VM warning:'
+check_jvm_warnings () {
+  local t0=$SECONDS rc=0 logs=() f hits
+  for f in "$OUT/lint.log" "$OUT/test.log" "$OUT"/test.shard-*.log; do
+    [[ -r "$f" ]] && logs+=("$f")
+  done
+  [[ ${#logs[@]} -gt 0 ]] || return 0
+  revision_stamp jvm >"$OUT/jvm.log"
+  hits=$(grep -hE "$JVM_WARNING" "${logs[@]}" | sort | uniq -c | sort -rn)
+  if [[ -n "$hits" ]]; then
+    printf '%s\n' "$hits" >>"$OUT/jvm.log"; rc=1
+  else
+    echo "no JVM warnings in ${#logs[@]} stage log(s)" >>"$OUT/jvm.log"
+  fi
+  report_stage jvm "$rc" "$((SECONDS - t0))"
+}
+
 # One test JVM under `--sequential`, and under `--fail-fast` too: stopping at the
 # first failure is a claim about *order*, and there is no order among stages that
 # started together.
@@ -518,6 +545,7 @@ if [[ $sequential -eq 1 ]]; then
   run_stage lint "static analysis" lein lint || true
   [[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage test "$test_blurb" "${test_cmd[@]}" || true
   check_test_reflection
+  check_jvm_warnings
   [[ $perf_opted -eq 1 ]] && { [[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage perf "the scaling claims" lein "${perf_args[@]}" || true; }
 else
   # lint ‖ test, then perf alone — see SHAPE at the top.  Both start silently; each
@@ -560,6 +588,7 @@ else
     report_stage test "$test_rc" "$((SECONDS - test_t0))"
   fi
   check_test_reflection
+  check_jvm_warnings
 
   [[ $perf_opted -eq 1 ]] && { run_stage perf "the scaling claims" lein "${perf_args[@]}" || true; }
 fi
@@ -569,44 +598,70 @@ if [[ ${#skipped[@]} -gt 0 ]]; then
   printf '%sskipped: %s%s\n' "$DIM" "${skipped[*]}" "$RST"
 fi
 
-# ---- perf advisory: name it when a hot-path change lands without a perf run ----
+# ---- owed advisories: what this gate left out that the pending diff owes ----------
 #
-# The fast gate drops perf, and two things buy that back (see PERF in the header):
-# `assert_cost_test` pins the CONSTANT-cost class in the test stage, and CI runs the
-# ratios.  What neither the fast gate nor a glance catches is a change to the
-# retrieval / inference / index / TMS core that turns a cost SUPER-LINEAR.  So when
-# this gate did not run perf and the diff about to land touches one of those files,
-# say so, with the command that checks it.  Non-blocking: a reminder, not a refusal —
-# a gate you run ten times while developing must not fail on every hot-path edit.
+# The fast gate drops perf and the `^:slow` half, and each has a changed-file regex that
+# names it when the diff about to land touches its files.  Both are non-blocking: a
+# reminder, not a refusal — a gate you run ten times while developing must not fail on
+# every hot-path edit.  An owed run answers for every commit it contains, so one green run
+# at the newest commit of a batch covers the batch; the advisory asks for a run at a
+# revision holding these files, not a run per commit.
 #
-# The set is the hot core `perf.clj` + `assert_cost_test` actually measure, not every
-# source (the public API, io, and domain-reasoner namespaces are left out on purpose).
-# Edit it here when the hot surface moves.
-PERF_SENSITIVE_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(provers|resolution|inherit|chain|settle|jtms|dense_jtms|caches|taxonomy|nat|context_nat|solve|plan|tactics|rules|rete|strength|levels|special|wiring|checks|violations|abduce|sentex|wff|kb|memory|observe|reindex|literal_cache|tokens|columnar|kv|dense_kv|dense_roots|rewrite)\.clj$|^src/vaelii/impl/disk/'
+# PERF_SENSITIVE_RE.  The fast gate drops perf, and two things buy that back (see PERF in
+# the header): `assert_cost_test` pins the CONSTANT-cost class in the test stage, and CI
+# runs the ratios.  What neither the fast gate nor a glance catches is a change to the
+# retrieval / inference / index / TMS core that turns a cost SUPER-LINEAR.  The set is the
+# files whose code runs inside a `perf.clj` claim's timed body or a cost test's measured
+# region, plus the backward-chaining and matcher files (`levels`, `tactics`, `rete`,
+# `abduce`) that sit on a read path no claim times yet.  A file a claim times belongs here
+# even when it was split out of one that is (`assert_entry`, `settle_phases`,
+# `nat_maintenance`, the `types/` records); a file no claim or cost test executes does not
+# (the public API's shims, io, and the domain reasoners without a claim).  Edit it here
+# when a claim starts timing a file or the hot surface moves.
+PERF_SENSITIVE_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(provers|resolution|inherit|chain|settle|settle_phases|assert_entry|jtms|dense_jtms|caches|taxonomy|nat|nat_maintenance|context_nat|plan|tactics|rules|rete|strength|levels|special|wiring|checks|violations|abduce|sentex|wff|naming|kb|memory|observe|reindex|literal_cache|tokens|columnar|kv|dense_kv|dense_roots|rewrite|reads|feed|integrate|quasiquote|skolem|capabilities|profile|qcn|qcn_kb|stp|quality|roster|overlay/kv|sign|asp/label|asp/prover)\.clj$|^src/vaelii/impl/(disk|types)/'
+#
+# SLOW_OWED_RE.  The engine files the `^:slow` tests drive, in three groups: the index
+# (the retrieval, record and posting stores the index oracles compare), the TMS (the
+# belief network, settle and the checks the order and concurrency sweeps exercise) and
+# inference (the chainers, provers, taxonomy and the qualitative reasoners the scenario
+# and whole-KB round trips run).  The slow tests outside all three (the aspif solver, the
+# catalog load, the feed socket, the koinii wire scenarios) name no file here.  Edit it
+# when a slow test starts driving a file, or a file's slow tests lose their marks.
+SLOW_OWED_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(resolution|literal_cache|memory|columnar|dense_kv|dense_roots|reindex|tokens|kv|jtms|dense_jtms|settle|checks|violations|strength|levels|observe|chain|rete|provers|inference|tactics|plan|rules|inherit|taxonomy|special|sentex|wff|nat|context_nat|abduce|qcn|qcn_kb|stp)\.clj$|^src/vaelii/impl/types/(trie|postings|snapshot|dense_roots)\.clj$|^src/vaelii/impl/disk/index_snapshot\.clj$'
 
-perf_advisory () {
+# What is about to land: committed-since-upstream ∪ staged ∪ unstaged.  Fall back to
+# origin/main, then to the uncommitted diff alone, when no upstream is tracked.
+pending_files () {
   command -v git >/dev/null 2>&1 || return 0
   git rev-parse --git-dir >/dev/null 2>&1 || return 0
-  # What is about to land: committed-since-upstream ∪ staged ∪ unstaged.  Fall back
-  # to origin/main, then to the uncommitted diff alone, when no upstream is tracked.
-  local base changed hot n
+  local base
   base=$(git merge-base '@{upstream}' HEAD 2>/dev/null) \
     || base=$(git merge-base origin/main HEAD 2>/dev/null) || base=""
-  changed=$( { [[ -n "$base" ]] && git diff --name-only "$base" HEAD
-               git diff --name-only HEAD
-               git diff --cached --name-only; } 2>/dev/null | sort -u )
-  hot=$(printf '%s\n' "$changed" | grep -E "$PERF_SENSITIVE_RE" || true)
+  { [[ -n "$base" ]] && git diff --name-only "$base" HEAD
+    git diff --name-only HEAD
+    git diff --cached --name-only; } 2>/dev/null | sort -u
+}
+
+owed_advisory () {                 # owed_advisory <label> <regex> <what> <why> <command>
+  local hot n
+  hot=$(printf '%s\n' "$pending" | grep -E "$2" || true)
   [[ -n "$hot" ]] || return 0
   n=$(printf '%s\n' "$hot" | grep -c .)
-  printf '%s⚠ perf owed%s — %d hot-path file(s) about to land, and this gate did not run perf:\n' \
-    "$BOLD" "$RST" "$n"
+  printf '%s⚠ %s owed%s — %d %s file(s) about to land, and this gate did not run it:\n' \
+    "$BOLD" "$1" "$RST" "$n" "$3"
   printf '%s\n' "$hot" | head -8 | sed 's/^/    /'
   [[ $n -gt 8 ]] && printf '    … and %d more\n' "$((n - 8))"
-  printf '  a change here can turn a cost super-linear — the test stage cannot see that.\n'
-  printf '  run %slein release-gate%s (lint + test + perf), or %slein perf%s alone, before landing.\n\n' \
-    "$BOLD" "$RST" "$BOLD" "$RST"
+  printf '  %s\n' "$4"
+  printf '  run %s at a revision holding them; one green run at the newest commit answers for every earlier one.\n\n' \
+    "$5"
 }
-[[ $perf_opted -eq 0 ]] && perf_advisory
+pending=$(pending_files)
+[[ $perf_opted -eq 0 ]] && owed_advisory perf "$PERF_SENSITIVE_RE" hot-path \
+  "a change here can turn a cost super-linear — the test stage cannot see that." \
+  "${BOLD}lein release-gate${RST} (lint + test + perf), or ${BOLD}lein perf${RST} alone,"
+{ [[ $all -eq 0 ]] || ! wanted test; } && owed_advisory slow "$SLOW_OWED_RE" "index / TMS / inference" \
+  "the ^:slow half holds the order sweeps and oracles over these files — :default skips it." \
+  "${BOLD}lein gate --all${RST} (or ${BOLD}lein test :slow${RST} alone)"
 
 # The revision on the verdict line, since that is the line that gets reported.  A
 # gate is minutes long and this tree has several writers, so a commit landing
@@ -626,3 +681,4 @@ fi
 printf '%s✗ %s failed%s %s — %s (%d of %d) — full output in %s\n' \
   "$RED" "$gate_label" "$RST" "$at" "${failed[*]}" "$fail" "$((pass + fail))" "$OUT"
 exit 1
+}

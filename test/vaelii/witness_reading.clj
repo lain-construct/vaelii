@@ -29,9 +29,11 @@
     silent    those of `lost` whose sentence the reader then believes through no other
               sentex: the readings a caller sees change
 
-  The two corpora here are the shape the counts are about: two routes between the same
+  The corpora here are the shapes the counts are about: two routes between the same
   ends, a long one stated in the general context and a short one in a specific context,
-  optionally with a long-route edge per chain scoped-defeated in the specific one.
+  optionally with a long-route edge per chain scoped-defeated in the specific one; and
+  `generated-siblings`, a route split across two sibling contexts beside one that covers
+  it at every reader, which is the surplus the covering test keeps.
   Each takes `term`, a `(fn [role base] symbol)`, so the bench can spell the literal names
   and a test can mint net-neutral temporaries."
   (:require [vaelii.core :as v]
@@ -371,3 +373,40 @@
                     'CxUniverse)))
       opts)
      (defeat-long-routes kb n short (fn [i] (list (pts i) ((ts i) 2) ((ts i) 1))) opts))))
+
+(defn generated-siblings
+  "Two routes the covering test keeps apart although every reader of one reads the other:
+  a one-edge route stated in `CxX`, and a two-edge route whose edges are stated one each in
+  the siblings `CxSA` and `CxSB`, whose only common descendant `CxSD` also sees `CxX`.  The
+  route stated in `CxX` covers the split one at every reader, and no single context of the
+  split route sees `CxX` — the case `tax/floor-covers?` answers no to — so the split route
+  places a firing in `CxSD` below the `CxX` firing.  `n` chains of three types each."
+  ([kb term n] (generated-siblings kb term n {}))
+  ([kb term n opts]
+   (let [[sa sb x d] (mapv #(term :context %) ["CxSA" "CxSB" "CxX" "CxSD"])
+         noted (term :predicate "wSNoted")
+         ts    (vec (for [i (range n)] (mapv #(term :type (str "ws" i "_" %)) (range 3))))
+         prs   (mapv #(term :predicate (str "wSRel" %)) (range n))]
+     (doseq [c [sa sb x]] (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+     (doseq [c [sa sb x]] (v/assert kb (list 'genlCx d c) 'CxUniverse))
+     (two-routes
+      kb n
+      (fn [i]
+        (let [t (ts i)]
+          (doseq [k (range 3)] (v/assert kb (list 'genl (t k) 'thing) 'CxUniverse))))
+      ;; the split route: t2 → t1 in one sibling, t1 → t0 in the other
+      (fn [i]
+        (let [t (ts i)]
+          (v/assert kb (list 'genl (t 2) (t 1)) sa)
+          (v/assert kb (list 'genl (t 1) (t 0)) sb)))
+      (fn [i]
+        (let [t (ts i), pr (prs i)]
+          ;; the covering route: t2 → t0 in one edge, in CxX
+          (v/assert kb (list 'genl (t 2) (t 0)) x)
+          (v/assert kb (list 'transitiveInArg pr 1 'genl) 'CxUniverse)
+          (v/assert kb (list pr (t 0) 'thing) 'CxUniverse)
+          (v/assert kb (list 'set/forwardRule
+                             (list 'implies (list pr '?x '?y) (list noted '?x '?y)))
+                    'CxUniverse)))
+      opts)
+     kb)))

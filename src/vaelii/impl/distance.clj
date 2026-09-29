@@ -30,12 +30,12 @@
   that meet it.  A different chain of bounds gives a different, still-correct table, which
   is what a transcribed table could never promise.
 
-  **This composes weakly, and that is the honest reading of it.**  Composing two mid-range
-  classes usually leaves several classes possible — close-then-close spans everything from
-  co-located to near — because a class is an interval and the triangle inequality relates
-  intervals loosely.  So the payoff is **refutation and consistency-checking** rather than
-  pinpoint entailment: it will tell you that two things very close to a third cannot be
-  very far from each other, and it will catch a set of distance claims that no arrangement
+  **This composes weakly.**  Composing two mid-range classes usually leaves several
+  classes possible — close-then-close spans everything from co-located to near — because a
+  class is an interval and the triangle inequality relates intervals loosely.  So the use
+  of the calculus is **refutation and consistency-checking** rather than pinpoint
+  entailment: it will tell you that two things very close to a third cannot be very far
+  from each other, and it will catch a set of distance claims that no arrangement
   satisfies.  Pinning a pair down takes either a chain through the co-located class, which
   is the identity, or several facts about the same pair intersecting.
 
@@ -89,7 +89,7 @@
   `:co` runs from -∞ so that, distance being non-negative, it denotes exactly zero — which
   is what makes it the identity of the algebra without an arm in the arithmetic to say so.
   `:very-far` runs to +∞ for the same kind of reason: the chain has to end somewhere, and
-  the honest end is unbounded.
+  no finite distance bounds the last class.
 
   This table is the only transcribed thing in the namespace, and it is a *scale*: scaling
   every finite bound by one factor changes no entry of the composition table."
@@ -207,24 +207,6 @@
   and the two caches.  Everything below delegates to the shared glue, which is the same
   code the other calculi run."
   (qkb/calculus :distance distance-algebra distance-denotation))
-
-(defn possible-distances
-  "The distance classes still possible between `a` and `b` given everything believed in
-  `context` — `#{}` when the network is inconsistent."
-  [kb context a b]
-  (qkb/possible qualitative-distance kb context a b))
-
-(defn definite-distance
-  "The single distance class between `a` and `b` when path consistency pins it down;
-  `:inconsistent` when the network contradicts itself, `:unknown` when two or more classes
-  remain possible — which, on a chain this coarse, is the usual answer."
-  [kb context a b]
-  (qkb/definite qualitative-distance kb context a b))
-
-(defn inconsistent?
-  "Is the distance network visible from `context` unsatisfiable?"
-  [kb context]
-  (qkb/inconsistent? qualitative-distance kb context))
 
 (defn distance-prover
   "The qualitative-distance entailment prover, to register with `vaelii.core/add-prover`."

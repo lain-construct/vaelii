@@ -112,15 +112,16 @@
 
 (defn- scripted-medium
   "A `Medium` whose feed answers from `script` — `{:open (fn [] …) :query (fn [] …) :poll
-  (fn [token cursor] …)}` — so a test says exactly what the far end does and when.  Only
-  the three methods catch-up calls are implemented; the rest of the protocol is not this
+  (fn [token cursor] …) :close (fn [token] …)}`, `:close` optional — so a test says exactly
+  what the far end does and when.  Only the four methods catch-up calls are implemented; the rest of the protocol is not this
   medium's business and reaching one is the test's own bug."
   [script]
   #_{:clj-kondo/ignore [:missing-protocol-method]}
   (reify koinii-types/Medium
     (-feed-open [_ _goal _ctx] ((:open script)))
     (-query [_ _goal _ctx] ((:query script)))
-    (-feed-poll [_ token cursor _opts] ((:poll script) token cursor))))
+    (-feed-poll [_ token cursor _opts] ((:poll script) token cursor))
+    (-feed-close [_ token] ((:close script (fn [_])) token))))
 
 (defn- recording-store
   "A `CursorStore` over an atom, with `on-read` called at every `read-position` — the extension poinace
@@ -313,6 +314,32 @@
           "and says how much of it went"))
     (testing "the cursor is left where it was — never advanced past a stream that stopped"
       (is (= {:token "T" :cursor 7} (koinii-types/read-position store))))))
+
+(deftest a-pass-that-throws-closes-the-subscription-it-opened
+  (let [opens  (atom 0)
+        closed (atom [])
+        medium (scripted-medium
+                {:open  (fn [] {:token (str "T" (swap! opens inc)) :cursor 0})
+                 :query (fn [] [])
+                 :poll  (fn [_ _] (throw (java.net.SocketTimeoutException. "read timed out")))
+                 :close (fn [token] (swap! closed conj token))})
+        c      (cu/open {:medium medium} goal 'CxDeploy (recording-store))]
+    (dotimes [_ 3]
+      (is (= :koinii/feed-error
+             (:type (ex-data (try (cu/sync! c) nil (catch clojure.lang.ExceptionInfo e e)))))))
+    (is (= ["T1" "T2" "T3"] @closed) "each failed bootstrap closes its own subscription"))
+  (testing "a subscription the stored position names stays open"
+    (let [closed (atom [])
+          store  (recording-store)
+          medium (scripted-medium
+                  {:open  (fn [] {:token "T" :cursor 0})
+                   :query (fn [] [])
+                   :poll  (fn [_ _] (throw (ex-info "gone" {})))
+                   :close (fn [token] (swap! closed conj token))})
+          c      (cu/open {:medium medium} goal 'CxDeploy store)]
+      (koinii-types/write-position! store {:token "T" :cursor 7})
+      (is (thrown? clojure.lang.ExceptionInfo (cu/sync! c)))
+      (is (= [] @closed)))))
 
 (deftest a-poll-that-answers-without-a-cursor-is-refused-not-stored
   ;; The other half of `a-poll-that-throws-without-a-type-is-still-a-failure`: a poll that

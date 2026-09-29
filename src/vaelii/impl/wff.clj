@@ -286,6 +286,16 @@
                " fixpoint — declare (transitive " rel ") before the preservation, or"
                " name one of " (str/join " / " (sort inherit/virtual-relations))))))
 
+(defn- position-mark-problems
+  "The problems of a `(Mark P n)` declaration naming a predicate and one argument
+  position, the refusal saying the mark marks a `noun`."
+  [noun [f pred n :as s]]
+  (cond-> []
+    (not= 3 (count s))    (conj (str f " takes two arguments"))
+    (nm/individual? pred) (conj (str pred " is an individual; " f " marks a " noun))
+    (not (and (integer? n) (pos? n)))
+    (conj (str f " position must be a positive integer"))))
+
 (defn functional-in-arg-problems
   "`functionalInArg` — a predicate and a positive-integer position, and nothing else.
 
@@ -307,12 +317,8 @@
   The predicate is held to what `prop-problems` holds its subject to rather than to
   `arg-preserving-problems`' looser symbol-or-compound test: this mark is read off a
   sentence's functor, and a functor is a symbol."
-  [_ [f pred n :as s] _context]
-  (cond-> []
-    (not= 3 (count s))    (conj (str f " takes two arguments"))
-    (nm/individual? pred) (conj (str pred " is an individual; " f " marks a predicate"))
-    (not (and (integer? n) (pos? n)))
-    (conj (str f " position must be a positive integer"))))
+  [_ s _context]
+  (position-mark-problems "predicate" s))
 
 (defn commutative-in-arg-and-rest-problems
   "`commutativeInArgAndRest` — a predicate and a positive-integer position, and nothing
@@ -324,24 +330,20 @@
   `functionalInArg`'s is not.  The declaration may legitimately arrive before the arity
   does, so refusing it against a visible arity would make the KB depend on which of the
   two was written first — and a tail starting past the end simply forms no component, so
-  a literal at that arity is left alone (`sentex/commuting-components`).  The issue this
-  closes asks for the refusal; the order dependence is why it is not here."
-  [_ [f pred n :as s] _context]
-  (cond-> []
-    (not= 3 (count s))    (conj (str f " takes two arguments"))
-    (nm/individual? pred) (conj (str pred " is an individual; " f " marks a relation"))
-    (not (and (integer? n) (pos? n)))
-    (conj (str f " position must be a positive integer"))))
+  a literal at that arity is left alone (`sentex/commuting-components`).  The refusal
+  says the mark marks a relation, since a commuting mark may name a function."
+  [_ s _context]
+  (position-mark-problems "relation" s))
 
 (defn commutative-in-args-problems
   "`commutativeInArgs` — a predicate and at least two distinct positive-integer
   positions.
 
   **Two positions, not one.**  A component of one position licences no permutation, so a
-  one-position declaration would be stored, believed and inert — the shape
-  `settle/definitional-mark` refuses elsewhere, and the reason the arity is checked here
-  where `commutativeInArgAndRest`'s is not: a tail is open-ended and may reach two
-  positions at a higher arity, where a named set is everything it will ever name.
+  one-position declaration would be stored, believed and inert.  That is also why the
+  arity is checked here and `commutativeInArgAndRest`'s is not: a tail is open-ended and
+  may reach two positions at a higher arity, where a named set is everything it will
+  ever name.
 
   **Distinct positions**, for the same reason read the other way: `(commutativeInArgs P 1
   1)` names one slot twice and so names one position, which is the case above wearing a
@@ -560,16 +562,10 @@
         " reasoner, not stored — ask it, e.g. (ask? kb '(" f " " (str/join " " args) "))")])
 
 (defn naf-problems
-  "`unknown`, `thereExists`, `forall` and the five **aggregates** are **not assertible**.
-  They are query operators — closed-world negation, existential closure, the universal
-  that is two of the first around the second, and a reduction over a query's solutions —
-  answered by a prover and never stored (docs/naf.md, docs/aggregate.md).  `(unknown S)` states no fact: it is a *test* on what the KB
-  derives, so stored as a premise it would be a fact with a made-up predicate that
-  nothing consults.  `(agg/count 3 ?v S)` states no fact for the sharper reason
-  that it states a *stale* one: a count is a function of what is believed now, so
-  storing one would put a computed value under truth maintenance with no way to
-  invalidate it (docs/aggregate.md, \"Query-only\").  Belongs in a rule antecedent or
-  a query goal, not an assertion."
+  "`unknown`, `thereExists`, `forall` and the five **aggregates** are **not assertible**:
+  they are query operators, answered by a prover and never stored.  A stored `(unknown
+  S)` would be a fact nothing consults, since the prover answers it; a stored count
+  would be stale (docs/aggregate.md, \"Not assertible, and nothing is stored\")."
   [_ [f & _args] _context]
   [(str f " is not assertible: it is a query operator answered by a prover, not a fact"
         " to store — use it in a rule antecedent or ask it, e.g. (ask? kb '(" f " ...))")])
@@ -631,10 +627,15 @@
   Over-approximation is the safe side here: rejecting a stratified program is
   annoying, accepting an order-dependent one is a correctness hole.  The spec
   closure is the **global** one for the same reason — a context-narrowed fan would
-  under-approximate the graph and admit an unstratified rule set."
+  under-approximate the graph and admit an unstratified rule set.
+
+  The node's predicates are walked in content order, since a stored rule's exception
+  predicates come off the index in arrival order.  A spec closure is a set of symbols,
+  whose iteration order is a function of the symbols alone."
   [tax {:keys [antecedent-preds exception-preds]}]
-  (concat (for [p antecedent-preds, s (tax/specs-global tax p)] [:depends-on s])
-          (for [p exception-preds,  s (tax/specs-global tax p)] [:excepts-on s])))
+  (let [ordered #(nm/sort-by-content-key identity (distinct %))]
+    (concat (for [p (ordered antecedent-preds), s (tax/specs-global tax p)] [:depends-on s])
+            (for [p (ordered exception-preds),  s (tax/specs-global tax p)] [:excepts-on s]))))
 
 (defn negation-cycle
   "Search the rule dependency graph for a cycle through negation created by adding
@@ -658,25 +659,47 @@
   The search state is `[rule negative?]` rather than the rule alone: a node reached
   with and without a negative edge behind it are different states, since only the
   negative one closes a bad cycle — that is what keeps positive recursion (which
-  reaches the start with `negative?` false, and stops there) accepted.  Rules are
-  few, so a plain DFS with no cleverness is right."
+  reaches the start with `negative?` false, and stops there) accepted.  The search is
+  a DFS that pushes each state once; building a rule's node is the caller's cost, and
+  `checks/stratification-concluders` bounds it to once per check.
+
+  Which cycle is returned, when several pass through `rule`, is decided by content:
+  `rule-edges` orders a node's predicates, and `concluders` must answer each
+  predicate's rules in content order (`checks/stratification-concluders` does)."
   [tax concluders rule]
-  (let [start (:id rule)
-        step  (fn [[node negative? path]]
-                (for [[edge pred] (rule-edges tax node)
-                      next-rule   (concluders pred)]
-                  [next-rule
-                   (or negative? (= :excepts-on edge))
-                   (conj path (str (name edge) " " pred) (:label next-rule))]))]
+  (let [start  (:id rule)
+        ;; A successor is `[rule negative? edge pred]`, and its path is written only for
+        ;; a successor that is pushed or closes the cycle.  Most successors are neither —
+        ;; the state was seen already — and on cyc-tiny's load a walk yields about 27
+        ;; thousand of them, so writing each one's path strings would dominate the check.
+        extend (fn [path edge pred next-rule]
+                 (conj path (str (name edge) " " pred) (:label next-rule)))
+        step   (fn [[node negative? _]]
+                 (for [[edge pred] (rule-edges tax node)
+                       next-rule   (concluders pred)]
+                   [next-rule (or negative? (= :excepts-on edge)) edge pred]))]
     (loop [frontier [[rule false [(:label rule)]]]
            seen     #{[start false]}]
-      (when-let [state (peek frontier)]
+      (when-let [[_ _ path :as state] (peek frontier)]
         (let [nexts (step state)]
-          (if-let [hit (first (filter (fn [[r neg? _]] (and neg? (= start (:id r)))) nexts))]
-            (nth hit 2)
-            (let [fresh (remove (fn [[r neg? _]] (seen [(:id r) neg?])) nexts)]
-              (recur (into (pop frontier) fresh)
-                     (into seen (map (fn [[r neg? _]] [(:id r) neg?])) fresh)))))))))
+          (if-let [[r _ edge pred] (first (filter (fn [[r neg? _ _]] (and neg? (= start (:id r))))
+                                                  nexts))]
+            (extend path edge pred r)
+            (let [unseen (into [] (remove (fn [[r neg? _ _]] (seen [(:id r) neg?]))) nexts)
+                  ;; one successor per state, the last one: the stack pops it first,
+                  ;; and an earlier copy of the same state would be expanded after it
+                  ;; with the same successors, all of them seen by then and none of
+                  ;; them the start, so dropping it changes neither the answer nor the
+                  ;; path returned
+                  last-at (into {} (map-indexed (fn [i [r neg? _ _]] [[(:id r) neg?] i]))
+                                unseen)
+                  fresh   (keep-indexed (fn [i [r neg? :as s]]
+                                          (when (= i (last-at [(:id r) neg?])) s))
+                                        unseen)]
+              (recur (into (pop frontier)
+                           (map (fn [[r neg? edge pred]] [r neg? (extend path edge pred r)]))
+                           fresh)
+                     (into seen (map (fn [[r neg? _ _]] [(:id r) neg?])) fresh)))))))))
 
 (defn cycle-description
   "Render a `negation-cycle` path as one line, for an error message."

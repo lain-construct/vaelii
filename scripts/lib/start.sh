@@ -20,9 +20,9 @@ start_kb_dir() {
 
 # start_jvm_opts prints the JVM options every start script adds to JVM_OPTS: the heap
 # ceiling VAELII_HEAP (default 40g), and an exit on OutOfMemoryError, so a process that
-# ran out of heap stops instead of serving a KB it did not finish building. A full recover
-# of the 12.26M-sentex vaelii-columnar store filled a 24g heap and spent 10 of 16 minutes
-# in full collections.
+# ran out of heap stops instead of serving a KB it did not finish building. A recover
+# short of heap spends most of its time in full collections rather than failing, and the
+# exit turns that into an error.
 start_jvm_opts() {
   echo "-Xmx${VAELII_HEAP:-40g} -XX:+ExitOnOutOfMemoryError"
 }

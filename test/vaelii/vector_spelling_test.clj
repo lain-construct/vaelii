@@ -130,3 +130,31 @@
           (is (= :shape (:type (refusal #(v/query kb goal CxStory)))) nm))
         (is (seq (v/prove kb [(list birdY '?x)] CxStory))
             "and the same goal without the nil still answers")))))
+
+(deftest handle-of-refuses-a-sentence-or-a-context-that-is-not-one
+  ;; `handle-of`'s nil means "not stored", and a caller reads it as a fact about the KB —
+  ;; `koinii.deref` reads it as a peer that is out of sync.  A number, a map or a string as
+  ;; the sentence, or a nil, a number or a variable as the context, asks nothing a store
+  ;; could hold, so each is refused by `:shape` rather than answered as an absence.
+  (tu/with-terms [usesDb ProdY PostgresY CxAva]
+    (tu/with-cleared-kb [kb tu/fresh]
+      (let [s (list usesDb ProdY PostgresY)
+            h (v/assert kb s CxAva)]
+        (testing "control: the stored sentence is found, and an absent one is nil"
+          (is (= h (v/handle-of kb s CxAva)))
+          (is (nil? (v/handle-of kb (list usesDb PostgresY ProdY) CxAva))))
+        (testing "a sentence that is not a list is refused"
+          (doseq [[nm bad] {"a number" 42, "a map" {:a 1}, "a string" "x", "nil" nil}]
+            (let [d (refusal #(v/handle-of kb bad CxAva))]
+              (is (= :shape (:type d)) nm)
+              (is (= bad (:sentence d)) nm))))
+        (testing "a context that is not a symbol, or is a variable, is refused"
+          (doseq [[nm bad] {"nil" nil, "a number" 42, "the wildcard" '?ctx, "a variable" '?c}]
+            (let [d (refusal #(v/handle-of kb s bad))]
+              (is (= :shape (:type d)) nm)
+              (is (= bad (:context d)) nm))))
+        (testing "the context an (ist Ctx S) sentence names is the one held to it"
+          (is (= h (v/handle-of kb (list 'ist CxAva s) nil))
+              "ist wins over the argument, so a nil argument is not the context read")
+          (is (= :shape (:type (refusal #(v/handle-of kb (list 'ist '?c s) CxAva)))))
+          (is (= :shape (:type (refusal #(v/handle-of kb (list 'ist CxAva 42) CxAva))))))))))

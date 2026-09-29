@@ -203,7 +203,8 @@
   ;; The register fills lazily, so an id nothing has registered *yet* is a warning and a
   ;; recorded pin — a not-yet-loaded cache picks it up — not a refusal that would reject
   ;; the configuration a bulk load sets up before touching a lazily-loaded calculus.
-  (let [known (:cache (first (v/caches (tu/fresh))))]
+  ;; a cache a pin moves, which not every registered one is (`caches/pin-problem`)
+  (let [known :literal-matches]
     (try
       (testing "a bad id or a bad limit is still refused by name"
         (is (= :unknown-option (:type (refusal #(v/set-cache-limit "not-a-keyword" 5)))))
@@ -219,12 +220,12 @@
           (v/set-cache-limit :no-such-cache nil)
           (is (nil? (get-in (v/cache-profile) [:overrides :no-such-cache])))))
       (testing "a registered id is pinned outright"
-        (is (some? known))
+        (is (caches/registered? known))
         (v/set-cache-limit known 4096)
         (is (= 4096 (get-in (v/cache-profile) [:overrides known]))))
       (finally
         (v/set-cache-limit :no-such-cache nil)
-        (when known (v/set-cache-limit known nil))))))
+        (v/set-cache-limit known nil)))))
 
 ;; ---- the ordering gap -----------------------------------------------------
 

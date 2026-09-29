@@ -70,9 +70,14 @@
             :let [t (.toFile (.resolve dst (.relativize src (.toPath f))))]]
       (if (.isDirectory f)
         (.mkdirs t)
-        (Files/copy (.toPath f) (.toPath t)
-                    ^"[Ljava.nio.file.CopyOption;"
-                    (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))))))
+        ;; A store still open on `from` renames a temp file away between the listing and
+        ;; the copy (the durability daemon's `counters.nippy` write), and a file gone by
+        ;; then is one the directory no longer holds.
+        (try
+          (Files/copy (.toPath f) (.toPath t)
+                      ^"[Ljava.nio.file.CopyOption;"
+                      (into-array CopyOption [StandardCopyOption/REPLACE_EXISTING]))
+          (catch java.nio.file.NoSuchFileException _ nil))))))
 
 (defn- lengths
   "Relative path -> length, for every file under `dir` a crash can cut."

@@ -70,13 +70,15 @@
     (v/assert kb (except-rule (list penguin '?b)
                               [(list bird '?b)] (list flies '?b))
               CxBird)
-    (v/assert kb (list bird Tweety) CxBird)
-    (let [h (v/handle-of kb (list flies Tweety) CxBird)]
+    (let [bh (v/assert kb (list bird Tweety) CxBird)
+          rh (v/handle-of kb (default-rule [(list bird '?b)] (list flies '?b)) CxBird)
+          h  (v/handle-of kb (list flies Tweety) CxBird)]
       (testing "the conclusion is stored, believed, and derived (not a premise)"
         (is (some? h))
         (is (true? (v/in? kb h)))
         (is (false? (v/premise? kb h)))
-        (is (seq (v/supporting-justifications kb h))))
+        (is (= [[[bh] rh]] (map (juxt :antecedents :informant) (v/supporting-justifications kb h)))
+            "one justification: the bird fact, through the rule"))
       (testing "a defeasible rule confers :default"
         (is (= :default (v/defeat-class kb h)))))))
 
@@ -118,8 +120,9 @@
     (v/assert kb (except-rule (list penguin '?b)
                               [(list bird '?b)] (list flies '?b))
               CxBird)
-    (v/assert kb (list bird Opus) CxBird)
-    (let [ph (v/assert kb (list penguin Opus) CxBird)]
+    (let [bh (v/assert kb (list bird Opus) CxBird)
+          rh (v/handle-of kb (default-rule [(list bird '?b)] (list flies '?b)) CxBird)
+          ph (v/assert kb (list penguin Opus) CxBird)]
       (testing "while the exception holds there is no conclusion"
         (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
       (v/retract! kb ph)
@@ -128,7 +131,8 @@
         (let [h (v/handle-of kb (list flies Opus) CxBird)]
           (is (some? h))
           (is (true? (v/in? kb h)))
-          (is (seq (v/supporting-justifications kb h))
+          (is (= [[[bh] rh]]
+                 (map (juxt :antecedents :informant) (v/supporting-justifications kb h)))
               "revived by re-derivation, so it carries a fresh justification"))))))
 
 ;; ---- 5. the sweep cascades ----------------------------------------------

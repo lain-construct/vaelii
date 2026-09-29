@@ -165,8 +165,13 @@
       ;; and the one retroactive arm that writes records rather than deriving content.
       ;; `commutative` reaches at one remove the way `arg1` does, the CxCore rule's
       ;; `(commutativeInArgAndRest P 1)` conclusion being what the sweep fires on.
+      ;;
+      ;; `irreflexive` and `anti_symmetric` reach through arity's mechanism, a report:
+      ;; `settle/report-unarbitrable-reach!` names the stored self tuples and unmergeable
+      ;; converses a late mark convicts, since neither names a pair a nogood could weigh.
       (is (= (into '#{arity arg genlArg interArg arg1 arg2 arg3
-                      commutative commutativeInArgs commutativeInArgAndRest}
+                      commutative commutativeInArgs commutativeInArgAndRest
+                      irreflexive anti_symmetric}
                    (keys checks/exact-arity-classes))
              (set/difference (pr/by-facet :reach) clash))))))
 
@@ -175,7 +180,7 @@
   ;; rather than reconstructing it: the vars are derived now, so rebuilding one from the
   ;; declaration would prove the wiring and nothing about what it holds, and a roster that
   ;; comes out one functor short is a pair that stops being reported in one arrival order
-  ;; with no other test necessarily seeing it (`declaration-implicates`: the sweep is the
+  ;; with no other test necessarily seeing it (`declaration-parts`: the sweep is the
   ;; only route in).
   (testing "which prop keyword each definitional mark stores under"
     (is (= '#{[asymmetric :asymmetric] [functional :functional]
@@ -195,10 +200,6 @@
               covering separating partition
               functional asymmetric anti_transitive functionalInArg}
            @#'settle/clash-declaration-functors))
-    (is (= '#{genl genlCx disjoint disjoint_metatype sibling_disjoint
-              covering separating partition}
-           @#'settle/type-reach-functors)
-        "the reach over terms, which is :type-separating and :both and not the marks")
     (is (= '{genl :both, genlCx :type-separating, disjoint :type-separating,
              disjoint_metatype :type-separating, sibling_disjoint :type-separating,
              covering :type-separating, separating :type-separating,

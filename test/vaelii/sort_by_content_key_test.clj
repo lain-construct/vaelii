@@ -223,7 +223,7 @@
   A key is not \"the rest of the line\".  Written below its call — a `juxt` broken over two
   lines, a `pr-str` on the continuation — it is invisible to a scan that cuts the line
   after the call, and that one-line window is how every site this file has ever missed was
-  missed: PR #46's `quality.clj` one, and the four `llm/inventory.clj` ones.  Reading to
+  missed.  Reading to
   the key's own closing paren sees all of it, however far down the page it runs, **and
   stops there** — so the collection argument, which may legitimately print what the sort
   answered (`(map pr-str (sort-by …))` renders an answer and never keys on it), is no part
@@ -353,9 +353,7 @@
 (deftest a-key-written-below-its-call-is-read
   ;; The hole every one of these scans had, as a fixture rather than as a source file: cut
   ;; the line after `(sort-by` and there is nothing left to judge, so a key one line down
-  ;; passed a green guard.  That is how PR #46's `quality.clj` site and #50's four
-  ;; `llm/inventory.clj` ones were all written under a scan that was watching for exactly
-  ;; them.
+  ;; passed a green guard.
   (let [text (str "(defn- ranked [kb xs]\n"
                   "  (sort-by\n"
                   "   (juxt first (comp (partial specificity kb) second)\n"

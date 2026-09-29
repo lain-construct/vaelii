@@ -408,12 +408,24 @@
             tail (interleavings (update chains i rest))]
         (cons (first (nth chains i)) tail)))))
 
+(defn- spread
+  "`n` of `orderings`, deterministically: every k-th from the first, and the last.
+  `interleavings` returns the ops in their given order first and reversed last, so both
+  extremes are always walked."
+  [n orderings]
+  (let [v (vec orderings)]
+    (if (<= (count v) n)
+      v
+      (conj (into [] (comp (take-nth (quot (count v) (dec n))) (take (dec n))) (pop v))
+            (peek v)))))
+
 (defn- one-reading!
   "Run every linear extension of `chains` — `build` returns `[ops observe]` over fresh
-  terms — and demand a single distinct reading.  Reports the split, with the index of
-  the first ordering that produced each side, so a failure reproduces."
-  [label build]
-  (let [orderings (interleavings (build :shape))
+  terms — and demand a single distinct reading; with `n`, a `spread` of `n` of them.
+  Reports the split, with the index of the first ordering that produced each side, so a
+  failure reproduces."
+  [label build & [n]]
+  (let [orderings (cond->> (interleavings (build :shape)) n (spread n))
         census (reduce (fn [acc [i ops]]
                          (let [[run observe] (build :run)
                                _ (doseq [k ops] ((get run k)))
@@ -429,9 +441,12 @@
              (pr-str (sort-by (comp :at val) census))))
     (key (first (sort-by (comp :at val) census)))))
 
-(tu/deftest-kb the-arity-generator-is-order-independent
-  ;; Four free ops, 24 orderings.  The generator may be handed its mapping fact before
-  ;; or after the class exists, and the membership before or after either.
+(defn- arity-generator-reads-once
+  "The arity generator's four free ops, over `n` of their 24 orderings (all when nil).
+  The generator may be handed its mapping fact before or after the class exists, and the
+  membership before or after either.  The whole walk costs over a second, so `:default`
+  walks a `spread` of it."
+  [kb n]
   (let [result
         (one-reading!
          "arity generator"
@@ -453,7 +468,8 @@
                    :no-variable   (v/isa? kb chainOf 'variable_arity)
                    :unrelated-fixed (v/isa? kb pairOf 'fixed_arity)
                    :converse      (v/ask? kb (list wide_arity pairOf) 'CxCore)
-                   :conflicts     (count (v/conflicts kb))})]))))]
+                   :conflicts     (count (v/conflicts kb))})])))
+         n)]
     (testing "and the one reading is the intended one"
       (is (true? (:derived-arity result)) "the class derives the arity")
       (is (true? (:derived-fixed result)))
@@ -462,6 +478,13 @@
       (is (true? (:converse result))
           "and the converse classifies it under the mapped type, in any order")
       (is (zero? (:conflicts result))))))
+
+(tu/deftest-kb the-arity-generator-is-order-independent
+  ;; 6 of the 24 orderings, both extremes among them; `…-in-every-ordering` walks all
+  (arity-generator-reads-once kb 6))
+
+(tu/deftest-kb ^:slow the-arity-generator-is-order-independent-in-every-ordering
+  (arity-generator-reads-once kb nil))
 
 (tu/deftest-kb withdrawing-a-mapping-fact-is-order-independent
   ;; The mapping fact's `retract!` may not precede its own `assert`, so the two are one
@@ -731,12 +754,9 @@
     (is (v/assert kb (list freeRel a) 'CxCore)
         "a one-argument application of an unfloored variable-arity relation is admitted")))
 
-(tu/deftest-kb a-late-minimum-does-not-yet-refile-the-facts-stored-before-it
-  ;; The retroactive half is owed, recorded on arityMin's :stops-short: the assert-time
-  ;; floor refuses a too-short application arriving after the minimum, but a fact stored
-  ;; before the minimum is not re-filed.  arity's exact length reaches back through
-  ;; settle/report-arity-reach!; the minimum does not yet, and this pins the current
-  ;; behaviour so the follow-up that closes it turns a red assertion rather than adds one.
+(tu/deftest-kb a-late-minimum-leaves-the-facts-stored-before-it-standing
+  ;; arityMin's :stops-short: the floor refuses a later short application, and nothing
+  ;; reaches back over a stored one as `settle/report-arity-reach!` does for `arity`
   (tu/with-terms [lateRel a]
     (v/assert kb (list 'variable_arity_predicate lateRel) 'CxCore)
     (let [h (v/assert kb (list lateRel a) 'CxCore)]      ; one argument, no minimum yet

@@ -61,6 +61,15 @@
 
 ;; ---- what a partition separates, and what a bare cover does not ----------
 
+(tu/deftest-kb a-recovered-kb-holds-the-roster-and-the-edges-a-partition-stated
+  (tu/with-terms [animal dog cat Rex]
+    (v/assert kb (list 'partition animal dog cat) 'CxUniverse)
+    (v/assert kb (list dog Rex) 'CxUniverse)
+    (v/recover kb)
+    (is (v/ask? kb (list animal Rex) 'CxUniverse) "the part edge was replayed")
+    (is (= [:disjoint] (mapv :type (v/check kb (list cat Rex) 'CxUniverse)))
+        "and so was the roster that separates the parts")))
+
 (tu/deftest-kb a-bare-cover-leaves-its-parts-free-to-overlap
   (tu/with-terms [animal dog cat Rex]
     (v/assert kb (list 'covering animal dog cat) 'CxUniverse)
@@ -187,6 +196,27 @@
     (is (= #{:covering :partition} (set (filter tax/covering-kind? tax/cover-kinds))))
     (is (= #{:separating :partition} (set (filter tax/separating-kind? tax/cover-kinds))))))
 
+(deftest covers-over-answers-alike-from-either-side
+  ;; `covers-over` walks the covered wholes when they are fewer than the closure, and the
+  ;; closure when it is smaller: both walks must name the same declarations
+  (let [t     (tax/create-taxonomy)
+        over  #(set (tax/covers-over t 'poodle nil))
+        want  #{['animal ['cat 'dog]] ['dog ['poodle 'terrier]]}]
+    (tax/add-genl t 'poodle 'dog 1)
+    (tax/add-genl t 'dog 'mammal 2)
+    (tax/add-genl t 'mammal 'animal 3)
+    (tax/add-cover t 'animal ['dog 'cat] :covering 10)
+    (tax/add-cover t 'dog ['poodle 'terrier] :partition 11)
+    (testing "fewer covers than supertypes"
+      (is (= want (over))))
+    (testing "more covers than supertypes, most over wholes it does not reach"
+      (doseq [i (range 8)]
+        (tax/add-cover t (symbol (str "w" i)) ['a 'b] :covering (+ 20 i)))
+      (is (= want (over))))
+    (testing "a separating roster claims no coverage"
+      (tax/add-cover t 'mammal ['cat 'dog] :separating 30)
+      (is (= want (over))))))
+
 (tu/deftest-kb the-three-spellings-are-three-declarations-over-one-roster
   (tu/with-terms [animal dog cat]
     (let [c (v/assert kb (list 'covering animal dog cat) 'CxUniverse)]
@@ -223,6 +253,24 @@
           (v/assert kb (list cat Rex) 'CxUniverse)
           (is (v/ask? kb (list dog Rex) 'CxUniverse))
           (is (not (v/ask? kb (list cat Rex) 'CxUniverse))))))))
+
+(tu/deftest-kb a-cover-arriving-last-exposes-the-clash-its-edges-put-under-a-separation
+  ;; the covering's part edge puts a stored member under a whole that a disjointness
+  ;; separates from its other type; the dilemma is the one the other order opens
+  (binding [checks/*arbitrate-constraints?* true]
+    (doseq [cover-last? [true false]]
+      (tu/with-kb [kb]
+        (tu/with-terms [animal rock dog cat Rex]
+          (let [cover! #(v/assert kb (list 'covering animal dog cat) 'CxUniverse)]
+            (v/assert kb (list 'disjoint animal rock) 'CxUniverse)
+            (when-not cover-last? (cover!))
+            (let [d (v/assert kb (list dog Rex) 'CxUniverse)
+                  r (v/assert kb (list rock Rex) 'CxUniverse)]
+              (when cover-last? (cover!))
+              (is (= [#{d r}] (filterv #(contains? % d) (map :nogood (v/contradictions kb))))
+                  (str "cover last: " cover-last?))
+              (is (v/ask? kb (list dog Rex) 'CxUniverse))
+              (is (v/ask? kb (list rock Rex) 'CxUniverse)))))))))
 
 (tu/deftest-kb a-cover-separated-clash-has-a-witness-and-so-a-standing-reading
   ;; `exposed-clashes` answers about every jointly-visible pair, decided or not, and it

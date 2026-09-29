@@ -32,12 +32,14 @@
   forks nothing, and it runs in `:default` — where it has to run, since what it checks is
   that nobody added a forking test *without* the mark and dropped a JVM fork into the
   fast gate."
-  (:require [clojure.java.io :as io]
+  (:require [clojure.edn :as edn]
+            [clojure.java.io :as io]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [vaelii.cli :as cli]
             [vaelii.client :as vc]
             [vaelii.core :as v]
+            [vaelii.host.cli :as host-cli]
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.disk.lock :as lock]
             [vaelii.impl.protocols :as p]
@@ -220,7 +222,23 @@
               (is (some? e) "`lein cli --dir` is refused while the daemon holds it")
               (is (= :disk-locked (:type (ex-data e))))
               (is (str/includes? (str (:holder (ex-data e))) (str (mj/pid child)))
-                  "naming the daemon as the holder"))))))))
+                  "naming the daemon as the holder")))
+          (testing "and `diff`, which reads no KB of the run's, answers beside it"
+            ;; docs/operations.md: `diff` compares two text KBs on disk.  It opened the
+            ;; `--dir` KB first all the same, so an operator comparing two exports on the
+            ;; daemon's host was told the live KB was busy.
+            (let [a   (io/file dir "text-a")
+                  b   (io/file dir "text-b")
+                  out (java.io.StringWriter.)
+                  err (java.io.StringWriter.)]
+              (.mkdirs a) (.mkdirs b)
+              (spit (io/file a "CxWell.txt") "(mj_dog MjFido)\n")
+              (spit (io/file b "CxWell.txt") "(mj_dog MjFido)\n")
+              (let [status (binding [*out* out *err* err]
+                             (host-cli/run ["diff" (str a) (str b) "--dir" dir]))]
+                (is (= 0 status) (str err))
+                (is (= [] (:added (edn/read-string (str out))))
+                    "with the comparison of the two text KBs")))))))))
 
 ;; ---- a logged writer, killed -----------------------------------------------
 
@@ -321,9 +339,8 @@
 
 ;; ---- the mark, checked over the sources ----------------------------------
 ;;
-;; `llm_test` holds the same shape for `^:llm`, and for the same reason: a mark is a
-;; promise, and a promise nothing checks is kept until the first time it is not.  Here
-;; the promise is required twice over — an unmarked test forks JVMs inside `lein
+;; A mark is a promise, and a promise nothing checks is kept until the first time it is
+;; not.  Here the promise is required twice over — an unmarked test forks JVMs inside `lein
 ;; gate`, and a marked one nothing names never runs at all — so both directions are
 ;; checked: every forking test carries the mark, and the marked set is a roster.
 ;;

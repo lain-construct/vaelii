@@ -78,7 +78,7 @@
   instead: unify the goal with each candidate consequent and cost that rule's
   antecedents, recursively.
 
-  `:aggregate` is the choice between two honest readings of several candidate rules.
+  `:aggregate` is the choice between two readings of several candidate rules.
   `:first` takes the **min** — any one rule suffices, so the cheapest route is what the
   goal costs.  `:all` takes the **sum** — a complete search runs every candidate, so
   they all get paid for.

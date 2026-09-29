@@ -85,7 +85,7 @@
   "One KB touching every index family: a ragged trie (a numeric token, a negative fact),
   all three roots, both halves of the rule index, both halves of the exception index, the
   term index and the roster.  A family the fixture never writes cannot be checked, so the
-  completeness assertion below is what keeps this honest."
+  completeness assertion below fails when the fixture misses a family."
   [kb]
   (tu/with-terms [bird penguin animal flies feathered parentOf grandparentOf
                   Tweety Opus Ann Bob Cid CxRouting]

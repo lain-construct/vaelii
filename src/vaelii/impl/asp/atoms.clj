@@ -106,11 +106,6 @@
   [table atom-id]
   (get-in @table [:atom->sentex atom-id]))
 
-(defn contradiction-of-atom
-  "Contradiction descriptor backing `atom-id`, or nil."
-  [table atom-id]
-  (get-in @table [:atom->contradiction atom-id]))
-
 (defn label-of-atom
   "Label string for `atom-id`, or nil."
   [table atom-id]
@@ -121,8 +116,3 @@
    atom id, or nil if the label is unknown."
   [table label]
   (get-in @table [:label->atom label]))
-
-(defn count-atoms
-  "Number of atoms allocated so far."
-  [table]
-  (:counter @table))

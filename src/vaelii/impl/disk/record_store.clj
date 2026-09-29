@@ -50,7 +50,7 @@
   Crash-safety rests on the write ordering (append the frame, then point the slot at it)
   and on `files`' crash-safe compaction.  Where it stops is the slot itself: 24 bytes do
   not divide a page, so a crash can leave one spliced from two writes, and a splice still
-  pointing inside the log is indistinguishable from a thaw failure on that handle rather than being caught
+  pointing inside the log is reported as a thaw failure on that handle rather than caught
   here (`f/validate-idx-tail!` says what it does and does not cover).
 
   The tail is located from the frame *lengths*
@@ -149,7 +149,8 @@
 ;; one through a single monitor.  Every mutating site takes the **write** lock, which
 ;; excludes readers and writers alike — identical exclusion to the old monitor.  Read
 ;; while holding write is fine (a writer may fetch); write while holding read is an
-;; upgrade and deadlocks, so `fetch`'s body never writes.
+;; upgrade and deadlocks, so `fetch`'s body never takes the write lock.  Its one write, the
+;; hot-cache put, goes to a synchronized map under that map's own monitor.
 (defmacro ^:private with-write [lockexpr & body]
   `(let [^java.util.concurrent.locks.ReentrantReadWriteLock l# ~lockexpr
          ^java.util.concurrent.locks.Lock w# (.writeLock l#)]
@@ -188,15 +189,22 @@
   - `sentex-ids` / `justification-ids` / `premise-ids` answer from the in-memory live-id
     sets, which the file state cannot corrupt.  A caller that then fetches one of those
     handles is refused there, which is where the refusal belongs — the enumeration is
-    honest about what the store holds, and only the bytes are in doubt.
+    exact about what the store holds, and only the bytes are in doubt.
   - `fsync` forces bytes already written.  Nothing is read and nothing decided, the
     commit marker and the fsynced temps are what the next open repairs from either way,
     and `close!` runs it — so refusing would leave file handles open on the directory
     `backend/close-dir!` is trying to release, trading a harmless flush for a leak.
   - `clear-records!` is the one path that must proceed *because* the kind failed: a wipe
     supersedes the pending install, drops the marker and the temps under the same lock,
-    and clears `failed`.  Consulting this would leave a store no call could repair."
+    and clears `failed`.  Consulting this would leave a store no call could repair.
+
+  **The store's fault latch is read first, and it has no exemptions.**  A channel that
+  closed under the store or a write that failed (`files/with-io-guard`), a failed fsync, or
+  a `close!` latches `:fault`, and from then on every call refuses with
+  `:store-unusable` — the enumerations, `fsync` and `clear-records!` included, since the
+  files are what every one of them rests on and a reopen is the only repair."
   [k]
+  (f/check-fault! (:fault k))
   (when-let [t @(:failed k)]
     (throw (ex-info (str "disk record store: a compaction of " (:log-path k)
                          " failed after its commit point — the live files are unusable"
@@ -214,7 +222,7 @@
 
   `slot-tap` (optional) is called with `[id flags]` for every live slot, so a caller
   that wants what the slots say rides this walk rather than making a second one."
-  [dir name cache-cap codecs clean-length slot-tap]
+  [dir name cache-cap codecs clean-length slot-tap fault]
   (let [log-path (str dir "/" name ".log")
         idx-path (str dir "/" name ".idx")]
     (f/recover-compaction! log-path idx-path)
@@ -239,7 +247,7 @@
                              (when slot-tap (slot-tap id flags))))
           (roster/live-optimize! live)
           (store-types/->Kind log idx (java.util.concurrent.locks.ReentrantReadWriteLock.) live log-path idx-path (atom nil) (atom nil)
-                              (when (pos? cache-cap) (lru cache-cap)) enc dec))
+                              (when (pos? cache-cap) (lru cache-cap)) enc dec fault))
         (catch Throwable t
           (f/close! log)
           (f/close! idx)
@@ -271,14 +279,15 @@
   ([k id rec premise?]
    (with-write (:lock k)
      (usable! k)
-     (let [[off plen] (f/append-record-sized! (:log k) ((:enc k) rec))]
-       ;; the premise's strength rides the slot too (bits 2..3), so `premise-strength`
-       ;; reads it off the idx the open walk already makes rather than paging the record
-       (f/write-slot! (:idx k) id off plen
-                      (f/premise-flags premise? (strength/rank-of (:strength rec))) 0))
+     (f/with-io-guard (:fault k) (:log-path k) true
+       (let [[off plen] (f/append-record-sized! (:log k) ((:enc k) rec))]
+         ;; the premise's strength rides the slot too (bits 2..3), so `premise-strength`
+         ;; reads it off the idx the open walk already makes rather than paging the record
+         (f/write-slot! (:idx k) id off plen
+                        (f/premise-flags premise? (strength/rank-of (:strength rec))) 0)))
      (track-touched k id)
      (roster/live-add! (:live-ids k) id)
-     ;; a just-written record is hot, and this is also what keeps the cache honest when a
+     ;; a just-written record is hot, and this is also what keeps the cache current when a
      ;; re-store (mark-premise) replaces an id's record with a different value
      (when-let [^java.util.Map c (:cache k)] (.put c id rec)))
    id))
@@ -290,9 +299,10 @@
   premise?]` triples; the lock is taken once for the whole batch.
 
   The written records are **evicted** from the hot cache rather than installed in it.
-  A bulk load is a stream nobody is reading back, so filling the LRU with its tail
-  evicts what a later query wants; and the eviction is what keeps a re-store honest,
-  which is the half of `store!`'s cache put that is about correctness rather than speed.
+  A bulk load is a stream nobody is reading back, so filling the LRU with its tail evicts
+  what a later query wants; and the eviction is what keeps a re-store from serving a stale
+  cached record, which is the half of `store!`'s cache put that is about correctness
+  rather than speed.
 
   All-or-nothing on the log (`f/append-records-sized!`), so a batch is never half a frame
   on disk.  It is **not** a transaction across the two files: the write ordering is the
@@ -303,13 +313,14 @@
   (when (seq batch)
     (with-write (:lock k)
       (usable! k)
-      (let [offs (f/append-records-sized! (:log k) (map (fn [[_ rec _]] ((:enc k) rec)) batch))]
-        (f/write-slots! (:idx k)
-                        (map (fn [[id rec premise?] [off plen]]
-                               [id off plen
-                                (f/premise-flags premise? (strength/rank-of (:strength rec)))
-                                0])
-                             batch offs)))
+      (f/with-io-guard (:fault k) (:log-path k) true
+        (let [offs (f/append-records-sized! (:log k) (map (fn [[_ rec _]] ((:enc k) rec)) batch))]
+          (f/write-slots! (:idx k)
+                          (map (fn [[id rec premise?] [off plen]]
+                                 [id off plen
+                                  (f/premise-flags premise? (strength/rank-of (:strength rec)))
+                                  0])
+                               batch offs))))
       (doseq [[id] batch] (track-touched k id))
       ;; the resident half under the same acquisition, for `store!`'s reason
       (roster/live-add-all! (:live-ids k) (map first batch))
@@ -339,13 +350,20 @@
           ;; other, so this is the read lock rather than the write one — concurrent fetches
           ;; (a bulk `export!`/`reindex`/`recover` sweep across cores) run in parallel, and
           ;; only a writer (`store!`/`kill!`/compaction, all on the write lock) excludes them.
-          (let [rec (with-read (:lock k)
-                      (when-let [slot (f/read-slot (:idx k) id)]
-                        (when-not (:tombstone? slot)
-                          (some-> (f/read-record-sized (:log k) (:offset slot) (:length slot))
-                                  ((:dec k))))))]
-            (when (and c rec) (.put c id rec))
-            rec)))))
+          ;;
+          ;; The cache put is inside the read lock too.  `kill!` and `store!` drop or
+          ;; replace the cached value under the write lock, so a put made after the unlock
+          ;; could land after a writer's drop and reinstate a tombstoned record, or its
+          ;; value before a re-store, for every later reader until eviction.  Under the
+          ;; read lock the put happens before any writer's change to the id.
+          (with-read (:lock k)
+            (let [rec (f/with-io-guard (:fault k) (:log-path k) false
+                        (when-let [slot (f/read-slot (:idx k) id)]
+                          (when-not (:tombstone? slot)
+                            (some-> (f/read-record-sized (:log k) (:offset slot) (:length slot))
+                                    ((:dec k))))))]
+              (when (and c rec) (.put c id rec))
+              rec))))))
 
 (defn- kill!
   "Tombstone handle `id` in kind `k` and drop it from the live set (a no-op when it
@@ -361,7 +379,7 @@
   (with-write (:lock k)
     (when (roster/live-has? (:live-ids k) id)
       (usable! k)
-      (f/tombstone-slot! (:idx k) id)
+      (f/with-io-guard (:fault k) (:log-path k) true (f/tombstone-slot! (:idx k) id))
       (track-touched k id)
       (roster/live-remove! (:live-ids k) id)
       (when-let [^java.util.Map c (:cache k)] (.remove c id)))))
@@ -445,7 +463,7 @@
 ;; `epoch` holds the store's clear epoch: nil for a store no `clear-records!` has emptied,
 ;; else the random long the latest wipe minted.  The counters blob carries it, and both
 ;; slot fingerprints fold it in (`slot-fingerprint`, `reasoning-fingerprint`).
-(defrecord DiskRecordStore [dir kinds counter synced-seq premises dict counters-lock epoch]
+(defrecord DiskRecordStore [dir kinds counter synced-seq premises dict counters-lock epoch fault]
   p/RecordStore
   (next-id [_] (long (dec (swap! counter inc))))
 
@@ -486,10 +504,16 @@
   ;; the lock.  The snapshot is a bitmap copy and costs the roster's size, not the extent.
   ;; The protocol promises a `java.util.Set` answering membership, iteration, cardinality
   ;; and ordering, which the roster answers; a caller wanting `conj` converts with `set`.
-  (sentex-ids    [_] (with-write (:lock (:sentexes kinds))
-                       (roster/live-snapshot (:live-ids (:sentexes kinds)))))
-  (justification-ids [_] (with-write (:lock (:justifications kinds))
-                           (roster/live-snapshot (:live-ids (:justifications kinds)))))
+  (sentex-ids [_]
+    (prof/record-fetch :sentex-ids)
+    (f/check-fault! fault)
+    (with-write (:lock (:sentexes kinds))
+      (roster/live-snapshot (:live-ids (:sentexes kinds)))))
+  (justification-ids [_]
+    (prof/record-fetch :justification-ids)
+    (f/check-fault! fault)
+    (with-write (:lock (:justifications kinds))
+      (roster/live-snapshot (:live-ids (:justifications kinds)))))
 
   (mark-premise [_ id strength]
     ;; the strength lives on the sentex record: re-store it with :strength set (a new
@@ -520,8 +544,11 @@
       (with-write (:lock k) (roster/live-remove! premises id)))
     nil)
   ;; the snapshot under the lock, answered as it is, as `sentex-ids` does
-  (premise-ids      [_] (with-write (:lock (:sentexes kinds))
-                          (roster/live-snapshot premises)))
+  (premise-ids [_]
+    (prof/record-fetch :premise-ids)
+    (f/check-fault! fault)
+    (with-write (:lock (:sentexes kinds))
+      (roster/live-snapshot premises)))
   (premise-strength [_ id]
     ;; read the rank off the slot (bits 2..3) — one positional 24-byte read, no frame and
     ;; no thaw.  A rank-0 slot carries no strength (a non-premise, or a slot older than the
@@ -536,9 +563,12 @@
     ;; Guard the id as `fetch` does — a non-integer informant or a negative id is the nil the
     ;; memory store answers, not a `read-slot` coercion throw; `premise-strength` must not
     ;; depend on the backend for a key it does not hold.
+    (prof/record-fetch :premise-strength)
     (let [k (:sentexes kinds)]
       (if (and (integer? id) (not (neg? (long id))))
-        (if-let [slot (with-write (:lock k) (usable! k) (f/read-slot (:idx k) id))]
+        (if-let [slot (with-write (:lock k)
+                        (usable! k)
+                        (f/with-io-guard (:fault k) (:log-path k) false (f/read-slot (:idx k) id)))]
           (let [rank (f/slot-strength (:flags slot))]
             (if (pos? rank)
               (strength/class-of-rank rank)
@@ -560,6 +590,7 @@
     ;; old records under the new epoch, which declines an image, and never the new records
     ;; under the old one.  A counter of 1 beside the old records reissues no handle, because
     ;; `recover-next-id` starts past the highest slot.
+    (f/check-fault! fault)
     (let [e (.nextLong (java.util.concurrent.ThreadLocalRandom/current))]
       (locking counters-lock
         (reset! epoch e)
@@ -595,16 +626,26 @@
   ;; lowest set bit — neither walks the roster, so all four are O(1) under a lock the
   ;; writer holds only for two file writes.
   p/Tallying
-  (sentex-tally        [_] (with-write (:lock (:sentexes kinds))
-                             (roster/live-tally (:live-ids (:sentexes kinds)))))
-  (justification-tally [_] (with-write (:lock (:justifications kinds))
-                             (roster/live-tally (:live-ids (:justifications kinds)))))
-  (a-sentex-id         [_] (with-write (:lock (:sentexes kinds))
-                             (roster/live-least (:live-ids (:sentexes kinds)))))
-  (a-justification-id  [_] (with-write (:lock (:justifications kinds))
-                             (roster/live-least (:live-ids (:justifications kinds)))))
-  (a-premise-id        [_] (with-write (:lock (:sentexes kinds))
-                             (roster/live-least premises)))
+  (sentex-tally [_]
+    (f/check-fault! fault)
+    (with-write (:lock (:sentexes kinds))
+      (roster/live-tally (:live-ids (:sentexes kinds)))))
+  (justification-tally [_]
+    (f/check-fault! fault)
+    (with-write (:lock (:justifications kinds))
+      (roster/live-tally (:live-ids (:justifications kinds)))))
+  (a-sentex-id [_]
+    (f/check-fault! fault)
+    (with-write (:lock (:sentexes kinds))
+      (roster/live-least (:live-ids (:sentexes kinds)))))
+  (a-justification-id [_]
+    (f/check-fault! fault)
+    (with-write (:lock (:justifications kinds))
+      (roster/live-least (:live-ids (:justifications kinds)))))
+  (a-premise-id [_]
+    (f/check-fault! fault)
+    (with-write (:lock (:sentexes kinds))
+      (roster/live-least premises)))
 
   ;; A record at a time here is two syscalls on an unbuffered `RandomAccessFile` — the log
   ;; append and the 24-byte slot write — plus a lock, and a bulk load pays both per record
@@ -654,7 +695,8 @@
   (let [acc (fp/slot-accumulator)]
     (with-write (:lock k)
       (usable! k)
-      (f/scan-idx! (:idx k) (fn [id offset length _flags] (acc id offset length))))
+      (f/with-io-guard (:fault k) (:log-path k) false
+        (f/scan-idx! (:idx k) (fn [id offset length _flags] (acc id offset length)))))
     (cond-> (acc) epoch (assoc :epoch epoch))))
 
 (defn slot-fingerprint
@@ -710,21 +752,31 @@
   landing there costs the wipe: the blob would be stamped with the pre-wipe high-water
   mark and `synced-seq` would agree with it.  So the three that move together move under
   `counters-lock`, which the wipe takes for the same three; the counter is read inside
-  it rather than before it, which is what makes the read part of the same step."
-  [{:keys [dir kinds counter synced-seq dict counters-lock epoch]}]
-  (with-write (:lock (:sentexes kinds))
-    (when dict (dtok/fsync dict))
-    (f/force! (:log (:sentexes kinds)) false)
-    (f/force! (:idx (:sentexes kinds)) true))
-  (doseq [[kind k] kinds :when (not= kind :sentexes)]
-    (with-write (:lock k)
-      (f/force! (:log k) false)
-      (f/force! (:idx k) true)))
-  (locking counters-lock
-    (let [want @counter]
-      (when-not (= want @synced-seq)
-        (f/write-nippy-atomic! (counters-path dir) (counters-blob want @epoch))
-        (reset! synced-seq want))))
+  it rather than before it, which is what makes the read part of the same step.
+
+  **A failed fsync stops the store** (`:fsync-failed`, `files/with-io-guard`).  The kernel
+  may already have dropped the dirty pages the fsync was flushing, so a retry on the next
+  tick can succeed over bytes that never reached the disk; the writer is told instead,
+  by the refusal every later call throws.  A faulted store's tick is a no-op: the fault
+  was logged once when it latched, and nothing written since is there to flush."
+  [{:keys [dir kinds counter synced-seq dict counters-lock epoch fault]}]
+  (when-not @fault
+    (with-write (:lock (:sentexes kinds))
+      (f/with-io-guard fault dir :fsync
+        (when dict (dtok/fsync dict))
+        (f/force! (:log (:sentexes kinds)) false)
+        (f/force! (:idx (:sentexes kinds)) true)))
+    (doseq [[kind k] kinds :when (not= kind :sentexes)]
+      (with-write (:lock k)
+        (f/with-io-guard fault (:log-path k) :fsync
+          (f/force! (:log k) false)
+          (f/force! (:idx k) true))))
+    (locking counters-lock
+      (let [want @counter]
+        (when-not (= want @synced-seq)
+          (f/with-io-guard fault dir :fsync
+            (f/write-nippy-atomic! (counters-path dir) (counters-blob want @epoch)))
+          (reset! synced-seq want)))))
   nil)
 
 (defn- close-quietly!
@@ -740,6 +792,16 @@
                       :msg (str "disk record store: closing " what " failed: "
                                 (.getMessage t))}))))
 
+(defn- release-handles!
+  "Close every kind's log and idx and the token dictionary, each under its own guard
+  (`close-quietly!`), so one handle that will not close leaves none of the others open."
+  [kinds dict]
+  (doseq [[kind k] kinds]
+    (with-write (:lock k)
+      (close-quietly! (str (clojure.core/name kind) ".log") #(f/close! (:log k)))
+      (close-quietly! (str (clojure.core/name kind) ".idx") #(f/close! (:idx k)))))
+  (when dict (close-quietly! "the token dictionary" #(dtok/close! dict))))
+
 (defn close!
   "Flush durably, record the log lengths this session closed at, close every RAF, then
   remove the dirty marker (a clean shutdown).
@@ -753,21 +815,35 @@
   as on a clean one, so a throw that skipped the closes would hand the directory over
   with every `RandomAccessFile` still held.  The dirty marker is the one step that stays
   conditional: it says the store closed cleanly, and an unclean close is what it exists
-  to record."
-  [{:keys [dir kinds dict] :as store}]
-  (try
-    (fsync store)
-    (f/write-clean-marker! dir (into {} (map (fn [[kind k]]
-                                               [(clojure.core/name kind)
-                                                (with-write (:lock k) (f/log-length (:log k)))]))
-                                     kinds))
-    (finally
-      (doseq [[kind k] kinds]
-        (with-write (:lock k)
-          (close-quietly! (str (clojure.core/name kind) ".log") #(f/close! (:log k)))
-          (close-quietly! (str (clojure.core/name kind) ".idx") #(f/close! (:idx k)))))
-      (when dict (close-quietly! "the token dictionary" #(dtok/close! dict)))))
-  (f/remove-dirty-marker! dir))
+  to record.
+
+  **A store whose fault latch is already set closes without throwing.**  Its channels
+  may be closed and its files are the next open's to repair, so it writes no clean
+  marker, leaves the dirty one, releases every handle and logs at `:warn`: the fault
+  was reported when it latched, and the calls after it were refused by name.  A flush
+  that fails *here* is a fault first found by the close, and it throws, as any failed
+  close does.  Either way the latch ends `:closed` or faulted, so a call on the store
+  after the close is refused by name rather than by a closed channel."
+  [{:keys [dir kinds dict fault] :as store}]
+  (if-let [prior @fault]
+    (do (trove/log! {:level :warn :id ::closed-faulted
+                     :msg (str "disk record store: closing " dir " after it stopped ("
+                               (name (:reason prior)) ") — no clean marker, so the next"
+                               " open walks it as an unclean shutdown")})
+        (release-handles! kinds dict))
+    (do
+      (try
+        (fsync store)
+        (f/write-clean-marker! dir (into {} (map (fn [[kind k]]
+                                                   [(clojure.core/name kind)
+                                                    (with-write (:lock k)
+                                                      (f/with-io-guard fault (:log-path k) false
+                                                        (f/log-length (:log k))))]))
+                                         kinds))
+        (finally
+          (f/latch-closed! fault dir)
+          (release-handles! kinds dict)))
+      (f/remove-dirty-marker! dir))))
 
 (defn- recover-next-id
   "The counter to start `next-id` from: the max of the persisted `counters` blob and one
@@ -814,7 +890,7 @@
         walk    (if (or dict dirty?)
                   (with-write (:lock k) (roster/live-snapshot (:live-ids k)))
                   unsaid)
-        damaged (volatile! 0)
+        damaged (volatile! {})
         fixed   (volatile! 0)]
     (doseq [id walk]
       ;; only crash damage is repaired by tombstoning: a token the dictionary does not
@@ -824,10 +900,10 @@
       ;; log must not delete it.
       (let [sx (try (fetch k id)
                     (catch clojure.lang.ExceptionInfo t
-                      (when-not (#{:damaged-dictionary :malformed-record}
-                                 (:type (ex-data t)))
-                        (throw t))
-                      (vswap! damaged inc)
+                      (let [why (:type (ex-data t))]
+                        (when-not (#{:damaged-dictionary :malformed-record} why)
+                          (throw t))
+                        (vswap! damaged update why (fnil inc 0)))
                       (kill! k id)
                       nil))]
         (with-write (:lock k)
@@ -839,10 +915,14 @@
                 rank     (if premise? (strength/rank-of (:strength sx)) 0)]
             (when (f/reconcile-slot-flags! (:idx k) id premise? rank)
               (vswap! fixed inc))))))
-    (when (pos? @damaged)
-      (trove/log! {:level :warn
-                   :msg (str "disk records: " @damaged " record(s) at " root
-                             " cite tokens the dictionary does not hold — tombstoned")}))
+    (when-let [n (:damaged-dictionary @damaged)]
+      (trove/log! {:level :warn :id ::damaged-dictionary
+                   :msg (str "disk records: " n " record(s) at " root " cite tokens the"
+                             " dictionary does not hold — tombstoned")}))
+    (when-let [n (:malformed-record @damaged)]
+      (trove/log! {:level :warn :id ::malformed-record
+                   :msg (str "disk records: " n " record(s) at " root " hold a tokenized"
+                             " body the codec cannot parse — tombstoned")}))
     (when (pos? @fixed)
       (trove/log! {:level :warn :id ::flags-reconciled
                    :msg (str "disk records: reconciled " @fixed " slot flag(s) at " root
@@ -861,9 +941,10 @@
 
   `:cache-capacity` sizes the per-kind hot-record LRU, defaulting to the
   `vaelii.disk.cache` property; 0 runs with no cache (what the fetch benchmark measures
-  against, and the honest per-fetch cost).  `:tokenize?` writes sentex bodies as ids from
-  a durable token dictionary rather than in full, defaulting to the `vaelii.disk.tokens`
-  property; it is a *write* choice only — frames written either way always read."
+  against, and the per-fetch cost with no cache hits).  `:tokenize?` writes sentex bodies
+  as ids from a durable token dictionary rather than in full, defaulting to the
+  `vaelii.disk.tokens` property; it is a *write* choice only — frames written either way
+  always read."
   ([dir] (open-record-store dir nil))
   ([dir {:keys [cache-capacity tokenize?]
          :or   {cache-capacity (config/disk-cache-capacity)
@@ -891,7 +972,9 @@
            ;; `backend/store-for` releases the directory's lock on its way out — which
            ;; would hand the directory to another process with these logs still held.
            ;; So each open registers its own undo, and a failure runs them.
-           closers (java.util.ArrayList.)]
+           closers (java.util.ArrayList.)
+           ;; the store's one fault latch, shared by the three kinds (`usable!`)
+           fault   (atom nil)]
        (try
          (let [dict   (when (or tokenize? (f/token-log-present? root))
                         (let [d (dtok/open-token-log root)]
@@ -912,7 +995,8 @@
                kinds  (into {} (map (fn [n]
                                       (let [k (open-kind root n cache-capacity codecs
                                                          (get clean n)
-                                                         (when (= n "sentexes") tap))]
+                                                         (when (= n "sentexes") tap)
+                                                         fault)]
                                         (.add closers #(f/close! (:log k)))
                                         (.add closers #(f/close! (:idx k)))
                                         [(keyword n) k])))
@@ -922,7 +1006,7 @@
                prem     (rebuild-premises! (:sentexes kinds) root dict marked unsaid dirty?)]
            (f/create-dirty-marker! root)
            (->DiskRecordStore root kinds counter (atom nil) prem dict (Object.)
-                              (atom (:epoch counters))))
+                              (atom (:epoch counters)) fault))
          (catch Throwable t
            (doseq [c closers] (close-quietly! "a half-opened record store" c))
            (throw t)))))))

@@ -52,7 +52,7 @@
         (is (v/in? kb h))
         (is (= :default (:strength (v/sentex kb h))))
         (is (= :default (v/defeat-class kb h)))
-        (is (= :inert (:direction (v/sentex kb h)))))
+        (is (= #{} (:engines (v/sentex kb h)))))
       (testing "and it is indexed both ways, which is what makes it browsable"
         (is (contains? (set (p/rules-by-consequent (:index kb) ancestorOf)) h))
         (is (contains? (set (p/rules-by-antecedent (:index kb) parentOf)) h))))))
@@ -98,7 +98,9 @@
           h (v/assert-rule kb [(list p '?x)] (list q '?x) 'CxFam {:direction d})]
       (v/assert kb (list p a) 'CxFam)
       (testing (str d)
-        (is (= (if (= :both d) :forward d) (:direction (v/sentex kb h))))
+        (is (= ({:forward #{:forward :backward} :both #{:forward :backward}
+                 :backward #{:backward} :inert #{}} d)
+               (:engines (v/sentex kb h))))
         (is (= (contains? #{:forward :both} d)
                (some? (v/handle-of kb (list q a) 'CxFam))))))))
 
@@ -110,7 +112,7 @@
     (v/assert kb (list parentOf tom bob) 'CxFam)
     (testing "a bare rule is backward by default — it does not forward-materialize"
       (is (empty? (v/sentexes-matching kb (list ancestorOf tom bob) 'CxFam)))
-      (is (= :backward (:direction (v/sentex kb (v/handle-of kb rule 'CxFam))))))
+      (is (= #{:backward} (:engines (v/sentex kb (v/handle-of kb rule 'CxFam))))))
     (testing "but it still answers backward queries"
       (is (v/provable? kb (list ancestorOf tom bob) 'CxFam)))))
 
@@ -124,10 +126,35 @@
     (v/assert kb (list 'set/forwardOnlyRule rule) 'CxFam)
     (v/assert kb (list parentOf tom bob) 'CxFam)
     (let [sx (v/sentex kb (v/handle-of kb (list 'set/forwardOnlyRule rule) 'CxFam))]
-      (testing "the record carries :forward-only"
-        (is (= :forward-only (:direction sx))))
+      (testing "the record carries #{:forward}"
+        (is (= #{:forward} (:engines sx))))
       (testing "it forward-chains its consequent, like a forward rule"
         (is (seq (v/sentexes-matching kb (list ancestorOf tom bob) 'CxFam))))
       (testing "the chainers read it forward-capable but not backward-capable"
         (is (vr/forward-sentex? sx))
         (is (not (vr/backward-sentex? sx)))))))
+
+(tu/deftest-kb a-wrapper-combination-the-record-cannot-hold-is-refused
+  ;; The wrappers say how a rule runs (a direction, `set/defaultRule`) and what its head is
+  ;; (a choice, a hard or a soft constraint).  A second answer to either, or a run mode on a
+  ;; head a solve decides, has nowhere on the record to go; `check` predicts each refusal.
+  (let [p (tu/tmp-pred) q (tu/tmp-pred)
+        r (vr/rule-sentence [(list p '?x)] (list q '?x))]
+    (doseq [[label s opts] [["two directions" (list 'set/forwardRule (list 'set/inertRule r)) nil]
+                            ["a choice under a direction" (list 'set/forwardRule (list 'set/assumptionRule r)) nil]
+                            ["a choice under a default" (list 'set/assumptionRule (list 'set/defaultRule r)) nil]
+                            ["a constraint under a direction" (list 'set/hardConstraint (list 'set/backwardRule r)) nil]
+                            ["a choice that is also a constraint" (list 'set/assumptionRule (list 'set/hardConstraint r)) nil]
+                            ["a hard and a soft constraint" (list 'set/hardConstraint (list 'set/softConstraint r)) nil]
+                            ["a :direction opt on a choice" (list 'set/assumptionRule r) {:direction :forward}]
+                            ["behind an exceptWhen" (list 'exceptWhen (list p 'Nobody)
+                                                          (list 'set/forwardRule (list 'set/assumptionRule r))) nil]]]
+      (testing label
+        (let [e (try (v/assert kb s 'CxFam opts) nil (catch clojure.lang.ExceptionInfo e e))]
+          (is (some? e) "refused")
+          (is (contains? #{:not-well-formed :unknown-option} (:type (ex-data e))))
+          (is (seq (v/check kb s 'CxFam opts)) "and check predicts it"))))
+    (testing "each wrapper alone still stores"
+      (doseq [s [(list 'set/forwardRule r) (list 'set/assumptionRule r)
+                 (list 'set/hardConstraint r) (list 'set/defaultRule (list 'set/forwardRule r))]]
+        (is (some? (v/assert kb s 'CxFam)) (pr-str s))))))

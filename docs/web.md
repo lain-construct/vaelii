@@ -1,11 +1,10 @@
 # Web browser
 
 - **Covers:** what each browser route shows — terms, sentexes, justifications, proof
-  trees, the constraint network — and how the editor, assert form and proposal panel
-  write through `edit!`.
+  trees, the constraint network — how the editor and the assert form write through
+  `edit!`, and the registry a library adds routes and panels through.
 - **Not here:** which KB sources exist and how one loads or switches →
-  [catalog.md](catalog.md); the model that proposes lines for the panel to render →
-  [llm.md](llm.md).
+  [catalog.md](catalog.md).
 - **Assumes:** sentex, context, handle, justification → [glossary.md](glossary.md).
 
 `vaelii.browser.web`. A small [reitit](https://github.com/metosin/reitit)-ring browser for
@@ -39,15 +38,17 @@ an image") — a development prompt is browsable in seconds rather than after a 
 served browser opens with `:auto` and waits for the recover, so the KB it makes active holds
 belief this build derived and refuses no write.
 The directory is classified as discovery classifies one, so a store, a dump and a corpus
-all load. A path holding no KB is logged and the browser stays on the starter. The three
-start scripts set it to their `KB-DIR` argument, default `checkouts/kb` beside the
-checkout, and set the heap from `VAELII_HEAP` (default `40g`).
+all load. A path holding no KB is logged and the browser stays on the starter.
+`start-vaelii.sh` and `start-vaelii-dev.sh` set it to their `KB-DIR` argument;
+`start-vaelii-server.sh` passes its `KB-DIR` to `vaelii.serve` as a command-line argument
+and sets no variable. All three default `KB-DIR` to `checkouts/kb` beside the checkout,
+and set the heap from `VAELII_HEAP` (default `40g`).
 
 `VAELII_WEB_PORT` is the default rather than an override: an explicit `--port` wins. Three
 sources are read in order — the variable, the `vaelii.web.port` system property (what a
 test sets, a JVM being unable to change its own environment), then 3000 — and a value that
-does not parse falls through to the next one rather than refusing to start
-([operations.md](operations.md) tabulates both).
+does not parse is logged at `:warn` and falls through to the next one rather than refusing
+to start ([operations.md](operations.md) tabulates both).
 
 `--listen` and `--attach` are independent axes: `--listen` says who may reach the
 browser, `--attach` says whose KB it shows. The startup log names the network interface it
@@ -104,7 +105,7 @@ through its var. An edit inside a record's definition is not loaded, and every p
 it (`ns/Name`) until the process restarts. The protocols and the method-less records sit in
 **held namespaces** — `vaelii.impl.types.*`, `vaelii.impl.protocols`,
 `vaelii.impl.jtms-protocol`, `vaelii.impl.tokens`, `vaelii.impl.roster`,
-`vaelii.impl.settle-phases`, `vaelii.koinii.types` and `vaelii.host.llm.protocol` — whose ns
+`vaelii.impl.settle-phases` and `vaelii.koinii.types` — whose ns
 symbol carries `:clojure.tools.namespace.repl/load false`, which require only held
 namespaces, and which the reloader never re-evaluates; an edit to one is named the same way.
 The state a watched namespace keeps is in `defonce`. `the-engine-survives-a-reload`
@@ -154,9 +155,9 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | Route | Shows |
 |-------|-------|
 | `/` | the **upper ontology**: what the KB is in four numbers, then the genlCx context lattice, the genl type tree (from `thing`), the documented terms (the `comment` sentexes), and its disjointness. Every one of them is **bounded**, and where the whole is too long to read the page shows the top of a ranking rather than the first fifty of an order nobody chose — this is the first page opened against a KB whose size the reader did not choose (below) |
-| `/stats` (`?clashes=1`) | **statistics**: headline counts (contexts, types, stored sentexes, and the contradiction / conflict / violation tallies), a contexts-by-size table ranked largest-first, and the actual dilemmas / conflicts / dropped-derivation violations when non-empty — each violation naming the run that dropped it. Every list on it is one screen and continues on scroll. `?clashes=1` additionally asks the **standing disjointness question** (below), which is computed on demand rather than filed |
-| `/find?q=<pattern>` | **term search** over the KB's vocabulary: every term whose name matches (`re-find` semantics — a bare `dog` is a substring match, `^parent` anchors), each linked to its term page — the header search box points here. A pattern resolving to a single term (the only match, or an exact-name match) **jumps straight to that term's page** (`HX-Push-Url`) |
-| `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), its supertypes/subtypes/disjoint-with (if a type), then every sentex containing it grouped by the **index root** that reaches it — functor `[:functor-root]`, argument-position `[:argument-slot pos]` (the roster the predicate-agnostic read unions the scoped roots over), context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its cheap count (O(1) for the roots; one O(1) read per predicate at the slot for the argument groups) |
+| `/stats` (`?clashes=1`) | **statistics**: headline counts (contexts, types, stored sentexes, and the contradiction / conflict / violation tallies), a contexts-by-size table ranked largest-first, and the actual dilemmas / conflicts / dropped-derivation violations when non-empty — each violation naming the run that dropped it. The contexts table and the three ledgers are one screen each and continue on scroll. `?clashes=1` additionally asks the **standing disjointness question** (below), which is computed on demand rather than filed; its clash list stops at 50 with a `showing 50 of N` line and does not continue |
+| `/find?q=<pattern>` | **term search** over the KB's vocabulary: every term whose name matches (a query with no regex metacharacter is a case-insensitive substring match, so `DOG` finds `dog`; a query carrying one is a regular expression under `re-find`, so `^parent` anchors), each linked to its term page — the header search box points here. A pattern resolving to a single term (the only match, or an exact-name match) **jumps straight to that term's page** (`HX-Push-Url`) |
+| `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), then every sentex containing it grouped by the **index root** that reaches it — functor `[:functor-root]`, argument-position `[:argument-slot pos]` (the roster the predicate-agnostic read unions the scoped roots over), context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its cheap count (O(1) for the roots; one O(1) read per predicate at the slot for the argument groups) |
 | `/sentex/:id` | a **sentex** (atomic or rule): its **belief state** (IN, or the `why-not` reason — superseded / defeated / unsupported — with the restatement, contradictors, or missing antecedents that explain it), its supporting justifications (justifications concluding it), its dependents (justifications using it as an argument), and its terms |
 | `/why/:id` | the **proof tree**: `vaelii.core/why` rendered whole — every justification down to the premises it rests on, collapsible, cycle-guarded, with rule sentences in the author's variable names |
 | `/justification/:id` | a **justification**: its supports/arguments (antecedent sentexes) and its dependent sentex (the conclusion) |
@@ -169,11 +170,6 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/edit` (GET/POST) | the **sentex editor**: GET seeds it for a set of handles (`?handles=1,2`) or for a term's most direct index group (`?q=<term>`), POST checks and applies the save. htmx fragments swapped into the editor panel, not standalone pages. |
 | `/edit/preview` (POST) | what the open edit would do, through `vaelii.core/preview` — the same diff the save computes, and a read: the KB comes back at the same handles. Fills the lookahead under the editor's controls |
 | `/complete` (GET) | the terms a prefix could become, as the list the editor drops under the caret. `find-terms`' prefix match over the term roster, twelve at a time |
-| `/propose` (GET/POST) | the **proposal panel** at the foot of a term page: GET renders the instruction box (asking no model), POST runs one page-scoped turn through `vaelii.host.llm.session/propose-page` and swaps the lines it proposed into `#propose-result`. The turn writes nothing (below) |
-| `/propose/level` (POST) | the **same proposal at another density** — the list's own originals reposted, every verdict re-derived, no second model turn. Writes nothing |
-| `/propose/line` (POST) | one reviewed line, **re-rendered on the form the reader picked** — the numbered alternative is re-derived from `correct` and re-checked, so the chips are of the sentence that would actually be stored. Writes nothing |
-| `/propose/preview` (POST) | what accepting the accepted lines would **mean** — the belief added, the belief withdrawn, the dilemmas opened, the refusals — through `vaelii.core/preview`. Writes nothing; the KB comes back at the same handles |
-| `/propose/apply` (POST) | the accepted lines, checked whole and stored through `vaelii.core/edit!` in **one settle**. The panel's one write |
 | `/retract` (GET/POST) | the **retract confirmation**: GET previews the teardown (the named handles and what the sweep would take with them) and writes nothing; POST performs it |
 | `/chain` (POST) | run **forward chaining** as a job, up to the derivation bound the form names, and answer with the `/stats` page it changed — or, when the run outlasts 250 ms, with `/jobs` (below). POST-only: it derives and places conclusions |
 | `/funnel` (GET/POST) | the **chaining funnel**: every forward rule and what chaining did with it — how many firings it **placed**, how many it **refused** and why (`exception` / `naf` / `post-join` / `hidden`), or whether it stayed **silent** (no antecedent set ever completed). Ranked by what is wrong: no-placement rules first, refusals descending, firing rules last; each rule links to its sentex and carries the `violations` it filed. The per-rule breakdown behind `/stats`' headline, read `O(rules)` off the standing refusal ledger and the justification graph — no per-run instrumentation. GET reads the current state; POST runs the same chaining job as `/chain` but lands back here so the funnel fills in front of the reader |
@@ -190,9 +186,13 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/caches` | what this **process** is holding beside the stores: every cache the engine keeps, its bound, its unit and — where anything counts them — its hit rate, plus the heap strip below reused rather than redrawn, and the profiler. A read of the process, so its numbers are O(1) apiece and it can be left open (below) |
 | `/caches/rows` | the cache table, on the same self-terminating poll as the KB panels — it asks only while a job is running, which is when these numbers move |
 | `/caches/clear` (POST) | **drop the derived caches** and say what went. Origin-checked like every write and deliberately not behind `writing`: it moves no belief, holds no writer, and is the one control here meant to be used *while* a load runs |
+| `/caches/scale` (POST) | **rescale the caches**: every count-bounded cache's shipped limit times the number the form sends (`v/set-cache-scale`, the dial `VAELII_CACHE_SCALE` sets at start). A write to the **whole process** — every KB loaded in it reads the one scale ([caches.md](caches.md#tuning-the-bounds)) — so a value that is not a finite number 0 or more, or no value, is a 400 (below) and changes nothing. Origin-checked and not behind `writing`, for `/caches/clear`'s reason |
 | `/kbs/memory` | the **memory strip** heading that panel, collapsed or (`?detail=1`) expanded into the per-KB breakdown. A read of the *process*, not of a KB, so it takes no view. Two requests reach it and they are different requests: the header line **toggles** (it asks for the state the panel is not in), while the panel **refreshes** at the state it is in, and only while a load is running — one element carrying both would poll the toggle and flip the breakdown open and shut every tick |
 | `/tree/rows?rel=<genl\|genlCx>&node=<term>` | one **level of a hierarchy**: that node's direct children, fetched the first time its disclosure is opened, and paged like any other list. `rel` reaches the index as a functor, so it is checked against the two transitivity relations rather than trusted |
-| `/term/rows`, `/find/rows`, `/levels/rows`, `/front/rows`, `/stats/rows` | **continuations**: one more page of rows for a capped list. Not pages — bare `<li>`s a list's sentinel fetches for itself (below). The last two take a `?section=` naming which list on the page is continuing |
+| `/term/rows`, `/find/rows`, `/levels/rows`, `/front/rows`, `/stats/rows`, `/funnel/rows` | **continuations**: one more page of rows for a capped list. Not pages — bare `<li>`s (the funnel's `<div>` cards) a list's sentinel fetches for itself (below). `/front/rows` and `/stats/rows` take a `?section=` naming which list on the page is continuing |
+| `/health`, `/op` (POST) | the **daemon protocol** over the active KB (above): a native client connects here as it would to `vaelii.serve` |
+| `/vaelii.css` | the stylesheet, re-read per request under the dev script and cached otherwise ([Chrome & typography](#chrome--typography)) |
+| `/ext/<name>/…` | a registered **extension**'s routes, stylesheet and script ([Extensions](#extensions)); a path no extension serves falls through to the static assets |
 
 Everything is cross-linked: terms → sentexes → justifications → terms, any sentex can
 be traced through the stack, and any believed one has its whole proof a click away.
@@ -218,9 +218,11 @@ Being live is also what obliges the budget. **A picture nobody asked for may nev
 reason a term page is slow**, so the bound is part of the work and not a follow-up:
 
 - **The graph adds at most 24 facade reads**, ever — twelve expansions, six per side, plus
-  one O(1) count per row that actually elided. The radial view spends six. Every expansion
-  is `(take (inc cap))` over a lazy pattern that pins an argument, so it costs the node's
-  own fan-out and nothing more.
+  one O(1) count per row that actually elided. The radial view spends at most twelve:
+  it expands three neighbours, and each costs two O(1) argument counts and two pattern
+  reads. A taxonomy expansion is `(take (inc cap))` over a lazy pattern that pins an
+  argument, so it costs the node's own fan-out and nothing more. A radial expansion reads
+  at most `ego-scan` (500) matches and orders them by handle before the cap cuts.
 - **Measured** twice. Over the shipped schema plus the test-world cast: **2–10 reads** and
   **0.7–2.9 ms** a page (`dog` +3 reads / +0.7 ms, `animal` +10, a synthetic 5,000-subtype
   hub +9 / +2.9 ms). Over a generated 148k-sentex corpus — 44k terms, 4k types — a type
@@ -316,10 +318,18 @@ can discard, with nothing arranging for it.
 - **The context is created on the first write, not the first page.** A session token is
   minted into a cookie by `wrap-session` on the first request, but it only *names* a
   sandbox; `sandbox/open` is what creates it, and only a write calls it. A reader who
-  merely looks costs the KB nothing.
-- **The token is validated on the way in.** It is interpolated into a symbol, so a
-  crafted cookie naming a shipped context would write straight into the ontology. Only
-  the hex `mint-token` produces is accepted.
+  merely looks costs the KB nothing. The assert form opens it once its lines read
+  cleanly and before they are checked, since the checks read the vocabulary the sandbox
+  sees through its `genlCx` edge; a form the check then refuses has the edge taken out
+  again, so a refused form leaves no sandbox behind.
+- **The token is validated on the way in.** A name is built from it, so a crafted
+  cookie naming a shipped context would write straight into the ontology. Only 8 to 32
+  lowercase hex characters are accepted (`token-pattern`); `mint-token` produces 32.
+- **The context is named from a digest of the token, not the token.** Every reader sees
+  every context's name — `/find`, `CxWell`'s term page, `/op :contexts` — so a name that
+  carried the token would hand any reader a cookie that resets or writes another
+  session's sandbox. `CxSandbox` is followed by the first 128 bits of the token's
+  SHA-256.
 - **The assert form defaults its context to the sandbox**, so writing somewhere safe is
   what happens when the reader changes nothing. It is a default, not a lock: the field is
   editable, and anyone who knows they want `CxNaturalWorld` can type it.
@@ -419,22 +429,23 @@ then asks, which is the order the page actually creates.
 
 ### What followed from a commit
 
-Both commit paths — the assert form and the proposal panel — write through
-`v/edit-with-consequences!` rather than `v/edit!`, so each can end with the thing a commit
-otherwise leaves unsaid:
+The assert form writes through `v/edit-with-consequences!` rather than `v/edit!`, so it
+can end with the thing a commit otherwise leaves unsaid — and an extension that writes
+renders the same ending through `stored-sentexes` ([Extensions](#extensions)):
 
 > **You didn't say this, but it follows**
-> `(mortal Muffet)` — because `(dog Muffet)` and the rule `(implies (living_thing ?x) (mortal ?x))` · _proof_
+> `(mortal Muffet)` — because `(dog Muffet)`, `(genl animal living_thing)`, `(genl dog mammal)`, `(genl mammal animal)`, the `genlCx` edges from the sandbox up to the rule's context, and the rule `(implies (living_thing ?x) (mortal ?x))` · _proof_
 > `(mammal Muffet)` — because `(dog Muffet)`, and every `dog` is a `mammal`
 
 Those two lines come from **different mechanisms**, and the callout keeps them apart rather
 than blurring them into one list of "conclusions":
 
 - a **rule fired**. There is a derived sentex with a justification, so it is believed in
-  the JTMS sense, has a handle, and its whole proof is one click away. The `because` names
-  the antecedent that actually matched and the rule — which is why the example above reads
-  `(dog Muffet)` against a rule about `living_thing`: the match fanned out over the genl spec
-  closure, and showing the matched antecedent is showing what happened.
+  the JTMS sense, has a handle, and its whole proof is one click away. The `because` lists
+  every antecedent of the justification, then the rule. The antecedents are the fact that
+  matched plus the `genl` and `genlCx` edges the match went through, which is why the
+  example above reads `(dog Muffet)` against a rule about `living_thing`: the match fanned
+  out over the genl spec closure, and the edges it crossed are listed beside the fact.
 - a **type subsumes**. `(genl dog animal)` plus `(dog Muffet)` makes Muffet an animal, and the
   engine deliberately never materializes `(animal Muffet)` — matching fans the functor out
   over the spec closure instead, which is what lets a hundred million facts avoid a hundred
@@ -454,7 +465,8 @@ as the interesting one.
 Any entry holding a KB can be the active one, a load still running included
 ([catalog.md](catalog.md)) — a corpus is browsable from its first thousand sentexes, and
 a store that opens in seconds is browsable while `recover` rebuilds belief behind it. The
-catalog's job is to allow that; the browser's is to make it honest, which is one element:
+catalog's job is to allow that; the browser's is to say on every page that the KB is not
+finished, which is one element:
 
 **`caveat-banner`**, at the top of `#main` on **every** page. Not in the header, because
 `#main` is what every navigation and search swaps — put it in the chrome and it would
@@ -479,7 +491,12 @@ the one that lasts:
 - **Belief from an earlier build.** A store opened with belief installs the image an
   earlier engine build wrote and rebuilds belief behind it. The banner says so while the
   rebuild runs, polls, and leaves the page when the rebuilt belief lands; a write in that
-  window renders the "rebuilding belief" refusal instead of the "not recovered" one.
+  window renders the "rebuilding belief" refusal instead of the "not recovered" one. The
+  banner reads `core/rebuild-progress`: a bar filled against the recover the image records
+  (striped when it records none), the step and the time spent, when the image was written
+  and under which engine source beside this build's, and how the rebuild is avoided on the
+  next open. A rebuild that threw stops the polling, and the banner names the step it was
+  in, the exception, and `recover` as the repair.
 
   The bullet ends with the repair, and **which repair depends on the store rather than on
   how it got here**. A KB holding justifications or premise marks needs a `recover` and
@@ -495,7 +512,7 @@ store keeps cannot be taken back. Every definitional check the assert entry poin
 arg, genlArg, interArg, declaration consistency, disjointness, functionality,
 asymmetry — reads `jtms/in?`, so over an empty network all of them match nothing and pass
 vacuously, and nothing re-runs them afterwards: `recover` does not, and its closing settle
-binds `settle/*rebuilding?*`, which turns the exposure pass off. So a KB in this state
+binds `settle/*rebuilding?*`, which turns the settle's reports off. So a KB in this state
 **refuses writes by name** (`:unrecovered-kb`), naming the same repair the banner does —
 `recover`, or `reindex` when the index is derived and so opened empty, which is also the
 state in which every assert mints a second handle for a sentence already stored.
@@ -518,16 +535,23 @@ was never built is refused too, because the engine's entry points throw `:unreco
 one and a route that let the exception out would answer an error status — which is the
 silent no-op the whole page shape exists to avoid. So every route that changes a KB's
 content goes through **`writing`**: `/assert`,
-`/edit`, `/retract`, `/demo`, `/reasoning`, `/sandbox/reset`, `/propose/apply` — and
-`/propose/preview`, which reads by really asserting and rolling back, and is therefore a
-writer for the duration. `/chain` and POST `/funnel` go through **`writing-job`**, the same
+`/edit`, `/retract`, `/demo`, `/reasoning`, `/sandbox/reset`, every extension's `:write`
+route — and `/edit/preview`, which reads by really asserting and rolling back, and is
+therefore a writer for the duration. `/chain` and POST `/funnel` go through **`writing-job`**, the same
 guard for a write that *is* a job (below); the two submit the same chaining run and differ
 only in the page it lands on. `/kbs/load`, `/kbs/unload`, `/kbs/activate` and
 `/jobs/cancel` are **not** guarded: they write this process's registry rather than a KB,
 and cancelling a job has to stay reachable precisely *because* one is running. `/kbs/unload`
 still hands `catalog/unload!` the write monitor, because *releasing* an entry is the end of
-a KB's stores: a synchronous write already past the write entry points has to drain before they go
-rather than interleave with the clear, exactly as the export route's does.
+a KB's stores: a synchronous write already inside the monitor has to finish before they go
+rather than interleave with the clear, exactly as the export route's does. A write still
+waiting for the monitor enters after the release, so `writing`, `writing-job` and `POST /op`
+ask again once they hold it (`late-refusal`): a KB the unload released
+(`catalog/released?`) refuses the write, and so does a KB an export started walking while
+the write waited. A chain holds that
+monitor for its whole run, so `unload!` asks the job registry before it takes the monitor
+and refuses `:still-writing` for the KB a job writes, naming the job, rather than waiting
+for the chain to end ([catalog.md](catalog.md#unloading-never-deletes-an-on-disk-kb)).
 
 `/kbs/load` is the one KB write that runs outside this monitor altogether, and that is
 deliberate: a loader opens brand-new stores nothing else can name yet, so there is no KB on
@@ -554,12 +578,14 @@ both ways: `catalog/export-entry!` refuses to start while a loader writes the KB
 while the walk runs `write-refusal` refuses the write routes for that KB
 (`catalog/exporting-kb?`, asked by identity — the job claims no writer, so the claim
 registry cannot answer for it). The export job also takes the write monitor before it
-walks, so a synchronous write already past the refusal drains first rather than
-interleaving ([catalog.md](catalog.md)).
+walks, so a synchronous write already inside the monitor finishes first rather than
+interleaving, and one still waiting for the monitor is refused by the check it makes once
+it holds it ([catalog.md](catalog.md)).
 
 It takes it as a **barrier** and not as a hold, which is where it parts company with a
 chaining job. A chain writes the KB, so it keeps the monitor for its whole run and every
-synchronous write waits. An export writes no KB, and both `write-refusal` and `unload!`
+synchronous write waits — a write to **any** KB, since the monitor is process-wide, so a
+chain on one KB parks a write to the one on screen until the chain ends or is cancelled. An export writes no KB, and both `write-refusal` and `unload!`
 already refuse for the walk's whole duration — so the only thing left to wait for is the
 write that slipped past an entry point in the moment before the job was submitted. Holding it
 across the walk instead parks every later `/kbs/unload` on a Jetty worker for the length
@@ -578,7 +604,55 @@ assert form's `strength` was tested for presence alone, so any value at all — 
 
 So each is validated and each refusal is `bad-parameter`: **400**, rendered as a page (the
 chrome is how a reader who hand-edited a URL gets back), naming the parameter, quoting the
-value and saying what would have been legal. `?d=` is held to the range its own form
+value and saying what would have been legal. The rule holds for every parameter a route
+reads, one reading per parameter: **absent keeps its default, and a value that does not
+read is the 400**.
+
+- A **goal** (`q` on `/levels` and `/inference`) or a **term** (`q` on `/term`, `/assert`
+  and `/edit`) that does not read as EDN. A goal that reads and is not a sentence — a bare
+  symbol — still gets the page's own guidance, since the value was read.
+- A **context** (`ctx` on `/levels`, `/inference` and `/network`) that does not read, or
+  reads as something other than a symbol: `42` names no context, and read as absent it
+  would ask every context at once.
+- A **handle list** (`handles` on `/edit`, `/edit/preview` and `/retract`) with any element
+  that is not a whole number, and a **path id** (`/sentex/:id`, `/why/:id`,
+  `/justification/:id`) that is not one. Dropping the element would leave `/edit` a save
+  against fewer handles than the reader selected, and a save against none asserts the text
+  as new.
+  A handle that reads and names nothing stored is `check-edit`'s `:unknown-handle`, shown
+  in the editor with nothing written (below); an id that names nothing is the page's own
+  "No sentex #n", quoting the number.
+- A **choice** outside what the page offers: `do` on `/demo`, `id` on `POST /reasoning`,
+  `variant` and `compression` on `/kbs/export` (the form is rendered from the same table
+  the route checks), and `scale` on `/caches/scale` when it is not a finite number 0 or
+  more.
+- A parameter a route exists to act on has **no default**, so its absence is the same 400:
+  `handles` on `POST /retract`, `id` on `/jobs/cancel`, `/kbs/load` and `POST /reasoning`,
+  `key` on `/kbs/unload` and `/kbs/activate`, `do` on `POST /demo`, `scale` on
+  `/caches/scale`.
+- A value that reads and names nothing the catalog holds is said on the page, not refused:
+  `/kbs/load` with an unknown `id` shows `load-source`'s `:unknown-source` message, which
+  names the ids there are, and `/kbs/unload` and `/kbs/activate` with an unknown `key` say
+  that no loaded KB has it.
+
+A form's own fields are the one exception, and a deliberate one: the assert form's
+context and sentences, and the editor's text, are checked by the form and answered in it —
+the problem beside the line, the reader's text intact, nothing written — because a 400
+page in place of the form would discard what the reader typed.
+
+A write route reads its parameters **before** it takes the write monitor, so a refused
+request holds no writer and writes nothing. `/find` answers a pattern it cannot use with its
+own 400 page in the search's words: a pattern holding regex syntax longer than
+`pattern-cap` (128) says it is too long and names the cap, and one that does not compile,
+or whose match overflows the stack, says it is not a valid regular expression. Any other
+failure of the read (a store fault, an attached daemon that does not answer) is logged and
+shown as "Search failed" with its message, on a 200 page.
+
+A 400 is a page, and a page's own form can send a value its route refuses — an unbalanced
+paren in the goal box. htmx swaps only a 2xx unless told otherwise, so `vaelii.js` swaps a
+400 whose target is `#main`, the page region every page-level form and boosted link
+targets. A continuation sentinel and the editor panel target themselves, and keep what they
+hold. `?d=` is held to the range its own form
 declares — `debug-depth-max`, the number the `<input max>` is written from — because a form
 offering 12 beside a route accepting any depth is a control that describes nothing. An
 *empty* control is the control not being submitted, and still takes the default: what is
@@ -593,12 +667,22 @@ is the same 400 page, naming the context and the three that are not places. The 
 route answers it too rather than an empty list: htmx swaps only a 2xx, so a reader
 scrolling keeps the rows they had.
 
-`&offset=` is the other one, and it is capped rather than refused. A continuation cursor is
+`&offset=` is capped rather than refused when it is too large. A continuation cursor is
 *arithmetic* — `/find/rows` asks the term roster for `offset + find-cap + 1` names — so an
 unbounded one overflows that addition into an `ArithmeticException` and the same 500. One
-ceiling in `->offset` covers all six continuation routes, a billion rows past anything a
+ceiling in `->offset` covers all seven continuation routes, a billion rows past anything a
 sentinel writes. An offset past the end is not a bad request but a cursor pointing past the
-last row, and the honest answer to that is the empty page it already gives.
+last row, and the answer to that is the empty page it already gives.
+
+**A continuation route answers the empty fragment where a page answers 400**, for an
+`&offset=` that is not a whole number 0 or more and for a goal, context or level it cannot
+read. htmx swaps only a 2xx into a sentinel, so a 400 would leave the sentinel in place to
+fetch the same request on the next scroll; the empty fragment ends the list there. Read as
+the start, an unreadable offset would append the first page again to the list being
+scrolled.
+The query context above is the one refusal a continuation answers with the 400 itself,
+since it is a value the page's own context box sends and the rows already on screen are
+the answer the reader keeps.
 
 ## Long work as jobs
 
@@ -611,10 +695,11 @@ of anything.
 
     :running → :cancelling → :done | :cancelled | :failed
 
-`:cancelling` is the honest middle. `jobs/cancel!` sets a flag and returns; the work stops
-at its next progress report, which for a phase that reports none (opening a large store
-scans its whole record log before it says anything) can be a while. An entry on `/kbs`
-wears its load's status, so the two never disagree about what a load is doing.
+`:cancelling` is the state between the request and the stop. `jobs/cancel!` sets a flag
+and returns; the work stops at its next progress report, which for a phase that reports
+none (opening a large store scans its whole record log before it says anything) can be a
+while. An entry on `/kbs` wears its load's status, so the two never disagree about what a
+load is doing.
 
 It answers **whether there was a run to stop**, which is not the same question as whether
 the registry still holds the id: a settled job keeps its report there for an hour, so the
@@ -658,7 +743,13 @@ pool, and an interrupt sent then would land on whatever ran next — a task nobo
 unwinding on somebody else's request. The other end is the caller's: the bounded wait for a
 job to publish its thread is itself interruptible, and clears the *canceller's* flag on the
 way out, so `cancel!` restores it and answers rather than letting an
-`InterruptedException` out into the handler that asked.
+`InterruptedException` out into the handler that asked. An interrupt is filed `:cancelled`
+only when `cancel!` set the job's flag; one from anywhere else is `:failed`.
+
+**Every job settles.** When the arm that files a job's status throws (a second
+`OutOfMemoryError` while it builds the status map), the job's `finally` files it `:failed`
+and logs it, so the job does not stay `:running` holding the writer claim.
+
 What a stopped run leaves is stated where the run is started: a cancelled chaining run
 leaves the conclusions it had already placed, a cancelled load leaves the sentexes that
 had already landed, and neither is a corrupt KB — it is the ordinary open-world prefix.
@@ -711,7 +802,7 @@ absence would mislead:
   them. They are listed with the reason rather than left off, because a list that quietly
   omits them says the engine holds nothing else.
 - **A cache in a namespace this process never loaded has no row at all.** No metric-time
-  reasoner, no metric-closure row — which is the honest answer, where a row of zeroes
+  reasoner, no metric-closure row — where a row of zeroes
   would claim a cache exists that does not.
 
 A KB also carries derived state that is deliberately **not** on the page, because it is
@@ -719,8 +810,8 @@ not a cache: the memory of a firing the chainer refused, the set awaiting a re-c
 disjointness and negation ledgers, the reference counts that keep the rule index O(1).
 The test is whether the engine could recompute an entry from what is stored — a cache
 could, and each of those could not, so dropping one would change an answer rather than
-cost a recomputation. The page says so, since a reader who knows they exist and sees no
-mention of them cannot tell an omission from a judgement.
+cost a recomputation. The page names them under the cache table, since a reader who
+knows they exist and sees no mention of them cannot tell an omission from a judgement.
 
 Every limit on the page is a **wholesale clear** rather than an eviction: past it the
 cache is emptied and refilled by demand, because evicting exactly the right entry costs
@@ -755,8 +846,8 @@ indistinguishable, and a page whose worth is highest while something is already 
 not be the next thing to fail. A clear behaves the same way, entry by entry.
 
 **A bound that is a dynamic var is read where it is read.** `:limit` accepts a thunk, and
-the two rebindable bounds — the symbol pool's and the taxonomy's scoped memo budget — use
-one. A descriptor is built once, at namespace load, so a constant captured into it is that
+the rebindable bounds — the symbol pool's, and every bound read through `limit-thunk` —
+use one. A descriptor is built once, at namespace load, so a constant captured into it is that
 constant forever; that is right for a `def` and wrong for a var whose only reason to be
 dynamic is that something rebinds it. Reporting the root bound while the engine enforced
 another would misstate the one field a reader consults to ask whether a cache is about to
@@ -867,7 +958,7 @@ round-trip under `--attach`.
   `(exceptWhen <query> (sentexHandle 41))` guards a rule — and a reader shown the integer
   has been told a sentex is hidden and not which one. `render-form` expands it through
   `handle-ref`, so one branch covers every surface that prints a meta-sentex: a term-page
-  row, the sentex page, a proposal's `excepts` line. The expansion carries the ids
+  row, the sentex page, a preview's `excepts` line. The expansion carries the ids
   already on the path, because the browser reads what is **stored** and a stored sentence
   naming a handle that reaches back to it is a stack overflow rather than a page.
 - **A term page shows its taxonomy rather than restating it in prose.** There are no
@@ -878,8 +969,8 @@ round-trip under `--attach`.
   110,128 subtypes there and one NAT collection is disjoint from 79,638 types.
   `vaelii.core/describe` answers all six readings — the three closures and the three
   declarations, `:genls-direct` / `:specs-direct` / `:disjoint-maximal` — for a caller that
-  wants them ([api.md](api.md)); the page reads one, and only to decide which picture to
-  draw.
+  wants them ([api.md](api.md)); the page reads two, `:genls` and `:specs`, and only to
+  decide which picture to draw.
 - **Disjointness is one pass, off the index.** `disjoint?` holds when some supertype of
   x and some different supertype of y are separated. `tax/separating-partners` is the
   enumeration `disjoint?` is the membership test of, so the two cannot disagree, and it
@@ -894,24 +985,22 @@ round-trip under `--attach`.
   went from 7.75 ms to 2.10 ms.
 - **A large root extent is counted, not read.** Every group on a term page comes off an
   index read bounded by its answer — except the two extents. Reading a root materializes
-  every handle under it before a single record can be taken off it: 0.9 s for the
-  2,381,749 of `genl` on the audited 12.26M-sentex corpus, 4.6 s for the 9,040,392 of its
-  largest context, to render sixty rows. So past `extent-defer-cap` (20,000) the group
-  renders its O(1) stored count and **nothing else**, and its first page of rows arrives on
+  every handle under it before a single record can be taken off it, so on a large store
+  the page pays for millions of handles at `genl` or at a large context to render sixty
+  rows. So past `extent-defer-cap` (20,000) the group renders its O(1) stored count and
+  **nothing else**, and its first page of rows arrives on
   the same `revealed` trigger every later page of it already used — which the largest-last
   extent order had put at the bottom of the page anyway. Under the cap the extent is read
   with the page, as every other group is: a term whose whole extent is six rows shows six
-  rows. `/term?q=genl` went from 1.04 s to 0.09 s.
+  rows.
 - **The remainder walk is bounded on counts, and a context belongs in them.** Only a walk
   can say what the roots did *not* claim, so the term index is walked for at most
   `remainder-scan` (50,000) records — guarded by a lower bound on that index built from
   counts already in hand, since a walk that is going to be truncated is a walk not worth
   taking. The term index is keyed on `kv/sentex-terms`, which is a sentex's indexable terms
   **plus its context**, so a context's own extent bounds its term index below exactly as a
-  predicate's functor root does. Left out of the bound, `CxWell` spent 4.2 s a page reading
-  50,000 records of a 9,040,399-entry index and discarded them as truncated;
-  `/term?q=CxWell` went from 4.2 s to 0.07 s. Every term page of that corpus now renders
-  under 100 ms.
+  predicate's functor root does. Left out of the bound, a large context's page read
+  50,000 records of its term index on every request and discarded them as truncated.
 - **The concept graph is bounded before its first read, not after.** Its relation flank is
   read off the index groups the term page built anyway, its taxonomy is probed only where
   the closures the page already read say there is something, and every expansion is spent
@@ -932,14 +1021,16 @@ round-trip under `--attach`.
   needs, and two adjacent nodes read as one capsule.
 - **Search reads the vocabulary, never the sentexes.** `/find` filters the index's term
   roster through `vaelii.core/find-terms`, so it costs the number of distinct terms.
-  A query carrying no regex metacharacter is matched as a **substring** — exactly what
-  `re-find` of a literal means — so the type-ahead path compiles no pattern at all;
+  A query carrying no regex metacharacter is matched as a **case-insensitive substring**,
+  so `transitiveinarg` finds `transitiveInArg` and the type-ahead path compiles no
+  pattern at all;
   only a query that is actually a pattern reaches `re-pattern`, and only up to a
   **128-character cap**, since the route is reachable per keystroke and, through the
   daemon, by whoever can reach it.
 
-The result, over the starter plus the test-world cast: `/term?q=genl` renders in 11 KB
-reads, `/find?q=do` in 2, and the `/find` fragment is 373 bytes against a 2.7K document.
+The result, over the starter plus the test-world cast: `/term?q=genl` renders in 22 KB
+reads plus one `readable-sentence` call per row it glosses, `/find?q=do` in 2, and the
+`/find` fragment is 1,373 bytes against a 3,450-byte document.
 
 ## A sentex row
 
@@ -1017,12 +1108,21 @@ renders first.
   is checked first and the form is all-or-nothing: one bad line stores none of it, so
   the page is safe to retry.
 - **Retract…** opens a confirmation that says what will go *before* it goes. Retraction
-  is dependency-directed, so the panel lists the named handles **and** the believed sentexes
+  is dependency-directed, so the panel lists the named handles **and** the stored sentexes
   that would lose their last witness — computed to a fixpoint from the justification
   graph, the same criterion the sweep applies (a datum goes when it is not a premise in
   its own right and every justification concluding it has an argument that is going).
-  The walk stops at 200 and says so. Its GET writes nothing; only its POST retracts, and
-  the answer deletes every row that is actually gone out of band.
+  The list is what the sweep deletes, not what the reader stops believing: a derived
+  sentex that is stored and OUT, defeated by a negation, is deleted by the sweep and
+  listed with a dimmed badge. The walk stops at 200 and says so. A named handle derived from something that stays
+  is listed under **Stays** with why and a `/why` link: `retract!` takes a premise mark,
+  so a derived sentex has nothing to take and an asserted-and-derived one loses its mark
+  and stays believed on its derivation (`retraction-plan`). The button counts what the
+  write changes, and a selection in which nothing would change has none. Its GET writes
+  nothing; only its POST retracts. The answer is read off the store after the settle —
+  "Retracted" only when a named handle is gone, "Nothing retracted" otherwise, a named
+  handle still stored listed with why — and it deletes every row that is actually gone
+  out of band.
 - **Forward chaining** is a POST form on `/stats`, beside the run counter, the last
   run's derived count, and the violations ledger it fills — so what a load did and what
   it dropped read together.
@@ -1035,9 +1135,13 @@ renders first.
   them): the textarea is seeded one sentence per named
   handle, so a line rewritten in place retracts at that position and asserts at it. Only
   that exact coincidence pairs — a line you appended has no row to replace, so it is
-  listed in the result panel instead of pretending to be one.
+  listed in the result panel instead of pretending to be one. The tally and the swaps
+  follow what the store holds after the settle: a changed handle that is derived is still
+  stored, so it is not counted as retracted, keeps its row (re-rendered when it lost a
+  premise mark), and is listed with why it stays, while its line is a new sentence beside
+  it in the result panel. The lookahead counts it the same way.
 - The writes go through the access facade — `access/edit!` (Save, Retract),
-  `access/edit-with-consequences!` (the assert form, an accepted proposal),
+  `access/edit-with-consequences!` (the assert form),
   `access/forward-chain`, and `access/preview`, which stores nothing but holds the
   single writer while it applies a batch and rolls it back. So they work both
   in-process and when the browser is **attached to a daemon** — the daemon is the
@@ -1054,11 +1158,12 @@ renders first.
   name — a reverse proxy preserving the original `Host`, a local alias. A request
   with **no** `Host` header passes: every browser sends one, so its absence marks a
   non-browser client with no ambient browser context to ride.
-  The second layer is the write guard. Ten routes go through it: eight through
-  `writing` above — `/edit`, `/assert`, `/retract`, `/demo`, `/reasoning`,
-  `/sandbox/reset`, `/propose/apply` and `/propose/preview` (a writer for the length of
-  the rollback it does) — and `/chain` and POST `/funnel` through `writing-job`, which
-  submits the same run from either page. Nothing authenticates them, so each compares the request's
+  The second layer is the write guard. Nine routes go through it, and every
+  extension's `:write` route besides: seven through `writing` above — `/edit`,
+  `/assert`, `/retract`, `/demo`, `/reasoning`, `/sandbox/reset`, and `/edit/preview`
+  (a writer for the length of the rollback it does) — and `/chain` and POST `/funnel`
+  through `writing-job`, which submits the same run from either page. An extension's
+  `:post` route gets the origin check alone. Nothing authenticates them, so each compares the request's
   `Origin` (falling back to `Referer`) to its own `Host` and answers 403 on a mismatch.
   A browser stamps that header on a form or fetch
   POST and a page on another site cannot forge it, so another tab cannot drive the
@@ -1079,249 +1184,65 @@ renders first.
 `vaelii.core/check` is `assert`'s own check chain run for its answer instead of its
 effect — the same functions in the same order, reporting each failure under the `:type`
 keyword `assert` would have thrown, storing nothing. The browser is its first caller:
-every write form — the editor's Save, the assert form, the accepted-proposal commit
-and the retract POST — runs `check-edit` over the batch it is about to apply and
+every write form — the editor's Save, the assert form and the retract POST — runs `check-edit` over the batch it is about to apply and
 renders the problems against the lines that produced them, so the reader sees
 `line 2 · not-ground · not ground: (parentOf Tom ?x) contains a variable` instead of a
 stack trace. It adds no work when the content is fine, and the alternative — attempt
 the write and catch — writes the good half of a batch before failing on the bad half.
 
-## Proposing knowledge
+## Extensions
 
-A term page says what the KB knows about a term. The panel at its foot is where a reader
-asks a model what it is *missing* — `vaelii.host.llm.session/propose-page`, which is
-shown the page's own sentexes and the vocabulary the term's `genl` neighbourhood
-licenses, and answers with type-level assertions in that vocabulary. See
-[docs/llm.md](llm.md) for the path itself.
-
-The browser adds the bounds:
-
-- **The turn writes nothing.** A model proposes; the lines come back as a list to read.
-  What reaches the KB is what a reader **accepted**, through the same `edit!` every other
-  write here goes through — so the model adds no write path and no trust boundary, and
-  the last thing to touch a sentence before it is stored is a person.
-- **A runaway generation cannot hang the page.** Every turn carries `:max-tokens`
-  (Ollama's `num_predict`), because two of eight models measured degenerate into runaway
-  generation — one wrote 8138 lines over 474 seconds. A wall-clock timeout is no answer
-  to that: the host goes on generating and the GPU time is spent either way. The cap's
-  *size* is per backend: a local turn spends its tokens writing and 2048 is room to
-  spare for 24 assertions, where an API turn reasons against the same ceiling before its
-  first line, so that one is capped at the provider's non-streaming default instead of
-  truncated at a writing budget. The transport deadline is a *backstop under* the cap,
-  for a host that has stopped answering rather than one answering too much.
-- **The panel costs a page nothing.** Rendering it reads the configured backend's name
-  and probes no host; resolving a provider — the part that opens a socket — happens on
-  the POST that runs a turn.
-- **No model configured is a first-class state.** With nothing set, `provider/provider`
-  hands back the offline stub, which proposes nothing, and the panel says so rather than
-  reporting a parse failure. `-main` warms a configured backend on a daemon thread at
-  start (`warm-model`), because the latency of a local turn is model *load*: ~11 s, then
-  ~0.4 s, then ~0.3 s for three identical turns ([llm.md](llm.md)).
-- **POST, and origin-checked.** The turn writes nothing but it *spends* something — a
-  model, and on a local host a GPU — so a page on another site must not be able to make
-  this browser run one.
-- **`--attach` cannot serve it.** A proposal reads the term's neighbourhood, its
-  vocabulary and its checks through dozens of KB calls, which is not a thing to run a
-  round-trip at a time against a daemon; `access/local-kb` answers nil there and the
-  panel says so instead of degrading silently.
-
-### The chip gutter
-
-A proposed line has **four independent things** worth knowing, and prose buries all of
-them. `vaelii.host.llm.verdict` gathers them per entry and the panel renders each as a
-**chip** — a glyph and one word — in a gutter the eye reads down:
-
-```
-✓  (genl penguin aquatic_bird)
-✓  (mortal penguin)      → (set/defaultRule (implies (penguin ?x) (mortal ?x)))  → shape  [genl]
-!  (partOf penguin wing) → (partOfType penguin wing)                → lift  ! direction
-+  (implies (penguin ?x) (swims ?x))                                + property
-✗  (genl penguin Muffet)                                              ✗ malformed
-```
-
-- **What the KB says** — `check-edit`'s typed problems, each as its *reason* (`open`,
-  `arity`, `disjoint`, `malformed`) and never as the checker's sentence. A message in
-  the gutter is the one thing that cannot be scanned. A type nobody has written yet
-  still renders as a chip: the fallback is the keyword's own name.
-- **What shape it should have been in** — `vaelii.host.llm.correct`. The original is
-  struck through and the rewrite follows it: **superseded, not replaced**, because
-  hiding what the model wrote would hide the error class the correction pass exists to
-  catch, and the choice between the two shapes is the author's. `[genl]` is the other
-  defensible shape, named by its functor.
-- **What vocabulary it invents** — `inventory/coined`, split into a one-place
-  `property` and an n-place `relation`, which are different risks triaged differently.
-  The measured failure mode of this whole path is a batch accepted without being read.
-- **What the engine could not decide** — a `:confidence :low` correction is a judgement
-  handed back, so it says which one (`direction` when both argument positions want the
-  same type, `ambiguous` when no rule says which argument is surplus).
-
-The verdict glyph is the **worst** of the four (refused ▸ uncertain ▸ coins ▸ ok), and
-only the glyph is ranked — every axis is still reported beside it. A rewrite the engine
-is *sure* of leaves the verdict alone: the line is admissible and the chip says the rest.
-Explanations live under one `?` per row, never inline.
-
-### Choosing a shape, and accepting
-
-`correct` deliberately refuses to pick between `(genl penguin mortal)` and
-`(set/defaultRule (implies (penguin ?x) (mortal ?x)))`, because the choice is
-definitional versus defeasible and no engine can make it for the author. It is the
-commonest decision in a review pass, so it costs **one key**.
-
-Every shape a line could take is numbered — the sentence as the model wrote it is `1`,
-the rewrite is `2`, its alternatives follow — and the **rewrite leads**, so the common
-case needs no keystroke and getting back to the original costs one. The review list is a
-second ARIA grid with its own keys: `j`/`k` move, `a`/`x` decide and step on, `1`–`9`
-pick a shape.
-
-- **A choice is re-derived, never trusted.** The numbered button posts back the
-  *original* sentence and a number; the server re-runs `correct/apply-correction` and
-  re-renders the row. A correction is a pure function of the KB and what the model wrote,
-  so nothing can be smuggled into a row by editing the request.
-- **The chosen shape is re-checked.** `correct` does not re-check its own output by
-  contract, so the chips a reviewer commits against are computed from the structure that
-  would actually be stored — while the correction chip stays, since it is *why* the line
-  was restated and dropping it would erase the reason to change your mind.
-- **Accepting is a disabled field flipped on.** The whole list is one form; a row's
-  `[sentence context]` field is submitted only when accepted, so the browser assembles
-  the payload and no script builds one. A line with nothing storable has no field at all
-  — the two ways that happens are a correction that could only *report* (an arity surplus
-  no rule can pick: `correct/apply-correction` answers nil) and a shape the KB refuses.
-- **The server refuses a report-only line too.** The row renders no field for one, but
-  the field is what the browser sends, and a check that only runs in the browser is not a
-  check. Storing it would store the sentence the correction was warning about.
-- **Applied whole or not at all.** `check-edit` runs over the batch first and one problem
-  stores nothing — a half-applied review is an outcome nobody chose — and the adds go
-  through `v/edit!` once, so they land in a single settle.
-
-### One row, three densities
-
-"Show the bad result and the fix", "show only the fix" and "let them edit" were never
-three flows. They are one row at three **disclosure levels**, and the level belongs to
-the view rather than to a preferences panel — a reader working through fifty lines wants
-a gutter, a reader meeting their first refusal wants the sentence spelled out, and the
-same reader is both within a session. So the switch sits above the list.
-
-| Level | The row shows |
-|---|---|
-| `guided` | the fix, the reason **in words**, and what the line would mean — no context name, no handle, no engine vocabulary |
-| `working` | the fix, the chip gutter, the reason folded behind `?` |
-| `dense` | the gutter alone. The explanation is **absent, not folded** |
-
-The default is a property of the entry point: a panel opened against the reader's own
-sandbox opens `guided` (somewhere safe to be wrong), a term page opens `working`
-(vocabulary being worked through). An explicit choice overrides both and rides the
-request — a density that followed a reader from the sandbox onto a term page would be
-the preferences panel this exists instead of.
-
-**Changing the level asks no model.** `/propose/level` reposts the list's own hidden
-originals and re-derives every verdict from the KB, which is what they were in the first
-place — `verdict` is a pure function of the KB and the sentences. So a reader who opens
-`guided`, works out what a refusal meant and drops to `dense` has asked the model exactly
-once. It is three configurations of one renderer rather than three renderers, because
-three renderers drift: the day the gutter learns a fifth axis, two of them forget.
-
-### The gloss is composed, never generated
-
-At `guided` a row says what the line would **mean**, and that sentence is built by
-`vaelii.host.gloss` out of the KB's own `comment` sentexes — it reaches no model at all.
-
-This is the one place in the panel where nothing verifies the output. Every other axis is
-checked: `check-edit` says what the KB refuses, `correct` proposes a shape and the shape
-is re-checked, `coined` counts vocabulary against the inventory. Nothing in the engine
-can say that an English sentence describing `(genl penguin bird)` is wrong — so a fluent
-gloss is a way to teach the reader most likely to believe it something false, through
-their only window onto the formal content. Reading is the more dangerous direction here,
-not the safer one.
-
-The defence is to not write prose where the KB has already written it. The shipped
-comments open with a template:
+A library adds pages to the browser without the browser naming it. `vaelii.web/register-extension`
+files a map under a name — a lower-case keyword, which becomes a URL segment — and every
+request reads the registry, so an extension registered after `start` is served from the
+next request, and `unregister-extension` takes it out the same way. The browser registers
+none by itself.
 
 ```clojure
-(comment genl "(genl ?subtype ?supertype) means that every ?subtype is a ?supertype. …")
+(require '[vaelii.web :as web])
+
+(web/register-extension
+ :notes
+ {:routes     [["/ext/notes/count" {:get (fn [view _req]
+                                           [:p (vaelii.core/sentex-count (web/local-kb view))])}]]
+  :term-panel (fn [view term] [:div [:h3 "Notes on " (web/term-link view term)]])
+  :on-start   (fn [] (println "notes ready"))
+  :stylesheet "notes/notes.css"     ; classpath resources
+  :script     "notes/notes.js"})
 ```
 
-a **signature** naming the argument positions with variables, then a clause saying what
-the predicate means *in those names*. Glossing `(genl penguin bird)` is a lookup and a
-substitution — "Every penguin is a bird." — and everything past that first clause is
-documentation for a reader rather than template. 210 of the 328 comments the starter
-ships carry such a signature; the 118 that do not are read as descriptions instead. 111 of
-those are types, units and dimensions, whose comments are noun phrases — which is what a
-type gloss wants, since it reads "X is a dog" and the comment is the apposition after it.
-The other seven declare a compound or variable-arity argument (`(implies (and ?antecedent
-…) ?consequent)`, `(lessThan ?number1 ?number2 …)`), which cannot be substituted into
-position by position. Measured over every believed sentex in the shipped schema, 1,839 of
-1,843 gloss with zero model calls — **99.8%**. `gloss_test` holds the composition rate to
-a **95% floor**, so the percentage is a reading of the schema as it stands and the floor
-is what is guaranteed.
+| Key | What the browser does with it |
+|---|---|
+| `:routes` | serves each `[path methods]`; every path sits under `/ext/<name>/`, so two extensions, or an extension and a page of the browser's own, never claim one path |
+| `:term-panel` | `(fn [view term] hiccup)`, drawn last on every term page, in name order |
+| `:on-start` | `(fn [])`, run when `-main` or `dev-repl` starts the server; a hook that throws is logged and the others still run. Work that must not delay the bind starts its own thread |
+| `:stylesheet`, `:script` | classpath resources, served at `/ext/<name>.css` and `/ext/<name>.js` and linked from every page's `<head>` (the script deferred) |
 
-The variables are required twice over. A parameter spelled `?place` cannot be
-mistaken for an individual the way `Place` can, so the comment is a better comment; and
-because the name carries the sort, the clause needs no sortal noun leaning on it, so what
-substitutes is "Paris lies due north of Lyon" rather than "place Paris lies due north of
-place Lyon". A signature spelled the other way — `(eats Animal Food): Animal eats Food` —
-still reads, since an imported vocabulary writes its own comments and they are not ours
-to rewrite.
+**The guard is the method's, not the handler's.** A route's methods are `:get`, `:post`
+and `:write`, each `(fn [view req] …)`. `:get` runs as written. `:post` gets the origin
+check every POST here gets, and a cross-origin one is answered 403 before the handler
+runs. `:write` is a POST that runs under `writing` — the origin check, the refusal states
+(a KB still loading, being exported, or never recovered) and the write monitor — with
+`view` over the KB the guard judged. So an extension cannot forget either check, and a
+handler that previews (`v/preview` asserts and rolls back) is a `:write` like one that
+stores. A route naming both `:post` and `:write` is refused, since both are a POST.
 
-What the measurement does **not** say is that every gloss is worth reading. It counts
-composition, not information: the gloss earns its place where the predicate name is opaque
-(`genl` → "Every dog is an animal" teaches a reader what `genl` means) and adds nothing
-where the predicate is already an English verb.
+A handler answers hiccup, which the browser sends as a fragment, or a ring response map.
+`view` is the value every page renders from — opaque but for `:kb`, the KB it reads, and
+`:sandbox`, this session's scratch context. The shim publishes the helpers an extension
+renders with, each the one the browser's own pages call:
 
-What it will not do is invent. A term the KB documents nothing about is **named, not
-described** — `:source` comes back `:named` and the row says "no description on record"
-rather than guessing. Two smaller refusals fall out of the same rule: a clause that never
-names its own parameters (`(disjoint TypeA TypeB): the two types have no common
-instance`) would substitute into a fluent sentence that has silently lost its arguments,
-so the arguments are said and the clause follows as a description (`:partial`); and a
-comment's own grammar is *finished* rather than rewritten — the article in "every SubType
-is a SuperType" agrees with what lands after it, and the one in "the animal can fly" goes
-when the animal becomes `Pingu`. The formal sentence is on the row above the gloss in
-every case. `gloss/with-model` exists for a KB that documents nothing, is a separate
-entry point so the ordinary path *cannot* reach a model, and marks its answer
-`:generated` — the reader is entitled to know which they are reading.
+| Helper | |
+|---|---|
+| `local-kb` | the in-process KB behind `view`, or nil under `--attach` — the check before work that needs the KB in this process |
+| `read-form` | a request parameter read as EDN, nil when it does not read |
+| `render-form`, `term-link` | a sentence or term as every page draws it |
+| `consequences` | the panel the editor's lookahead renders, for any batch ([Editing sentexes](#editing-sentexes)) — from a `:write` route |
+| `stored-sentexes` | what a write stored and what followed from it ([What followed from a commit](#what-followed-from-a-commit)) |
 
-### What accepting would do
-
-The chips say whether a line would be **admitted**. Between the list and the commit
-button sits the other question: what the accepted set would **mean**. It is
-`vaelii.core/preview` ([preview.md](preview.md)), posted to `/propose/preview`.
-
-```
-  Consequences of accepting 6 lines
-    ⚠ 1 refused        disjoint — Willy cannot be both fish and mammal · line 2
-    ⚡ 1 now contested  (flies Tweety) ⟷ (not (flies Tweety))
-    + 11 newly believed   (collapsed)
-    − 2 no longer believed (collapsed)
-```
-
-- **The same payload the button posts.** `hx-include` names the commit form, so what is
-  previewed is exactly the enabled `line` fields — one payload, assembled by the browser,
-  read twice. A reconstruction could disagree with what lands; this cannot.
-- **The refused group leads and opens itself.** It is the one a reader must not miss, and
-  it is what catches a stratification cycle or a disjointness clash before anything is
-  stored — including the case a per-line chip cannot see, where two lines are each
-  admissible alone and refused together.
-- **"Now contested" is its own group**, because a default against a default withdraws
-  nothing: both sides stay believed and the pair is a represented dilemma
-  ([nmtms.md](nmtms.md)). Reporting only the two diff halves would tell a reader the line
-  simply arrived, which is the one thing that did not happen — so `preview` returns the
-  dilemmas the batch would open, standing ones subtracted.
-- **A created line has no handle to link.** `preview` reports nil rather than the number
-  it briefly held, so what explains a derived line is the rule that would conclude it. A
-  line that *already exists* — a withdrawal, a revival — keeps its handle and links to
-  `/why/:id`.
-- **Recomputed on the accepted set, debounced.** `vaelii.js` fires one
-  `accepted-changed` event on `<body>` when the accepted *lines* change (re-choosing a
-  shape on an accepted row counts; moving the cursor does not), and the panel's own
-  `hx-trigger` carries `delay:400ms`. Holding `a` down the list costs one preview.
-- **Report-only lines are held back**, since the commit refuses them: previewing one
-  would promise a consequence the button will not deliver.
-- **Bounded, and it says so.** Each half is capped at 50 rendered lines; `preview` sets
-  `:bounded?` when the cap bit and the panel prints where it stopped.
-
-Nothing here is stored — `preview` hands the KB back at the same handles — which is what
-makes it affordable to run on every change of the accepted set rather than once, behind a
-confirmation, at the end.
+A malformed map is refused at registration with `:unknown-option` naming what is wrong —
+a bad name, an unknown key, a path outside the prefix, an unknown method — rather than
+surfacing later as a page that never appears.
 
 ## The proof tree
 
@@ -1337,8 +1258,8 @@ again — or at a node that is not believed, which links back to the sentex page
 
 ## The levels page
 
-`/levels` is the one page with an input box — a goal is a sentence, not a term, so
-there is nothing to click your way to. With no goal it documents the stack; with
+`/levels` takes its goal from a text input, as `/inference` does — a goal is a sentence,
+not a term, so there is nothing to click your way to. With no goal it documents the stack; with
 one it runs all eight levels and shows what each returns, headed by the `escalate`
 verdict ("Answered at level 4 `typed`").
 
@@ -1350,8 +1271,9 @@ against the starter and you see the whole argument at once:
 - levels 2–4 return nothing — the edge is not stored, only entailed;
 - level 5 derives it from the cached `genl` closure.
 
-Results that come from the store link to their sentex; levels 5–7 derive, so their
-answers render inline with a `derived` tag and no handle.
+Results that come from the store link to their sentex: every result of levels 0–4, and
+the level-4 matches level 5 includes. A closure answer at level 5 and every answer of
+levels 6–7 is derived, so it renders inline with a `derived` tag and no handle.
 
 The page shows 25 results per level at a time and takes only 26 from each — it relies
 on [level laziness](levels.md#laziness) to stay bounded, which is why it calls
@@ -1369,10 +1291,13 @@ For a **single sentence** it is `query-plan`'s prover table — each applicable 
 with its `est-bindings`, its `cost` tier (`:lookup` < `:compute` < `:search`, a
 qualitative first-answer tier and not a predicted duration) and its `completeness` *for
 this goal*, and whether it actually runs. Applicable is not consulted: when one prover
-is complete the engine runs it alone and every other row reads `shadowed by …`. Ask it
-`(genl dog thing)` and `TransitivityProver` is the sole complete method, with
-`FactProver` shadowed beneath it — which is the same argument the levels make from the
-other side.
+is complete and no source outside the provers bears on the goal, the engine runs it
+alone and every other row reads `shadowed by …`. When such a source bears on the goal
+(`provers/shadowing-channels`: a rule concluding the predicate, for one), every
+applicable prover runs in the union, and the complete one's row names the channels
+it is `guarded by`. Ask it `(genl dog thing)` against the starter and
+`TransitivityProver` is the sole complete method, guarded by `rules`, so `FactProver`
+runs beside it.
 
 For a **vector** — the conjunctive goal `prove` takes — it is the join order `plan/order`
 chose, each literal with the variables already bound when it starts and the three numbers
@@ -1382,7 +1307,7 @@ expected size of the relation it denotes on its own; **plan rows** is the expect
 the whole plan up to and including it, which is what a join was actually costed in. Read
 them together and a surprising order is diagnosable: a literal placed early on a small
 *est. matches* whose *plan rows* then jumps is the cost model wrong about a join rather
-than about a literal. None of the three is indistinguishable from a sorted column, and the first two
+than about a literal. None of the three columns is in sorted order, and the first two
 differ for a reason — an upper bound and an expectation answer different questions
 ([inference.md](inference.md)) — while *est. matches* is made *under the bindings the rows
 above it produce*, which is sideways information passing and is the thing worth seeing.
@@ -1428,10 +1353,15 @@ reachable rather than reported as "N more not shown". `click` is the same reques
 reader who would rather ask, and for a viewport too tall to produce a scroll event;
 Enter is that reader's keyboard, and the sentinel is focusable so they can reach it.
 
-Every list caps, and every one of them continues: an index group on the term page (60
+These lists cap and continue: an index group on the term page (60
 rows), the `/find` results (200), each level on `/levels` (25), one level of either
-hierarchy (50), the documented-terms list (50), the disjointness pairs (50), the
-contexts-by-size table (25), and each of the three reasoning ledgers (12). The
+hierarchy (50), the documented-terms list (50), the contexts-by-size table (25), each of
+the three reasoning ledgers (12), and the `/funnel` rules (200, in the funnel's rank
+order, which keys on each rule's sentence and so is the same order on every request).
+Two lists cap without a continuation. The front page lists the disjointness pairs only
+when there are 50 or fewer; above that it shows the 12 types separated from the most,
+ranked, and each type's page carries its own separations. The standing-clash list on
+`/stats?clashes=1` stops at 50 with a `showing 50 of N` line. The
 continuation routes answer bare rows, not pages — `<li>`s, or `<tr>`s where the list is a
 real table, since a `<tbody>` may hold nothing else. `hx-target`/`hx-select` are set on the body so every boosted
 link swaps `#main`, and both are inherited — so a sentinel says explicitly that it
@@ -1557,9 +1487,10 @@ beside a group's heading is its stored total rather than the page's.
 **Past `group-sort-cap` (20,000) a group is not ordered at all** — it pages in the order
 the index read it in, which is reproducible for an unchanged store and is therefore the
 one property paging needs. Ordering means realizing the whole group and printing a context
-per member to show sixty rows: at `genl`, whose functor root holds 2,381,749 sentexes,
-that was 129 s, paid twice per page. The same cap governs the graph's flank window
-(`flank-scan`), where the alternative was sorting millions of records to pick forty.
+per member to show sixty rows: at `genl`, whose functor root on a large store holds
+millions of sentexes, that cost grows with the root and was paid twice per page. The same
+cap governs the graph's flank window (`flank-scan`), where the alternative was sorting
+millions of records to pick forty.
 
 ### A term page reads from what the term IS to what uses it
 
@@ -1579,8 +1510,8 @@ about them — not a ranking recomputed per term:
    listed under the conclusion;
 3. **the deeper nestings** — the term index minus what a root or a rule half claimed;
 4. **the extents, last**. `[:functor-root]` is every fact written with the term as
-   predicate (2,381,749 of them at `genl`) and `[:context-root]` is everything asserted
-   in a context, each a list whose first sixty rows say nothing about the term itself.
+   predicate and `[:context-root]` is everything asserted in a context, each a list
+   whose first sixty rows say nothing about the term itself.
 
 **The extents are ordered largest-last**, the one place size decides rather than
 directness. The bottom of the page is where a list goes on loading as a reader scrolls,
@@ -1606,10 +1537,8 @@ other and with what the page drew.
 
 It is one query parameter (`?derived=hide|show`), one cookie and a re-render: no script,
 no per-row state, and a page that is the same page when its URL is shared. The cookie is
-**persistent** (one year), unlike the sandbox's session cookie and unlike the proposal
-panel's density switch, which deliberately rides the request: a sandbox is scoped to the
-sitting, a density belongs to the entry point, and how much of a term page someone wants
-to read is neither.
+**persistent** (one year), unlike the sandbox's session cookie: a sandbox is scoped to
+the sitting, and how much of a term page someone wants to read is not.
 
 Two things it does not do. It does not make the page cheaper — the filter is over records
 the group was going to read anyway. And it does not turn a page into a scan: the walk is
@@ -1622,8 +1551,10 @@ records, and how many of them are premises is not known until they are read.
 
 ### A term page reads what it can count, and says when it did not look
 
-Four of a term's groups come off roots with an **O(1) stored count** — the functor root,
-the argument-position roots, the context root. The three remainder groups ("Rule
+The root groups carry an **O(1) stored count**: one group per argument position the term
+sits at (positions 1 to `arg-position-cap`, 12), the functor root when a stored sentence
+has the term as its predicate, and the context root when the term is a context holding
+something. The three remainder groups ("Rule
 conclusion", "Rule condition", "Nested elsewhere") are the term index **minus**
 what a root claimed, and no count answers
 that: the only way to know a sentex is not in a root is to look at it. So:
@@ -1643,9 +1574,8 @@ that: the only way to know a sentex is not in a root is to look at it. So:
   and offers no remainder groups, rather than showing an empty one and implying there is
   nothing there.
 
-Measured on a 12.26M-sentex import: `/term?q=genl` went from 207 s to ~0.75 s, `isa` from
-2.9 s to 25 ms, and no other term page measured above 135 ms. What is left at `genl` is
-the store's own first read of a 2.4M posting set.
+At a term as wide as `genl`, the remaining cost is the store's own first read of its
+posting set, which grows with the root and not with the page.
 
 ## Rendering sentences
 
@@ -1653,10 +1583,12 @@ A sentence is rendered structurally, not as one opaque string:
 
 - a **handle badge** stands before the sentence in place of the bare `#id` — one small
   circle that links to the sentex page. Colour is the whole of what it says, on a scale a
-  reader learns once: **red** a negation, **white** a monotonic fact, **yellow** a default
+  reader learns once: **red** a negation, the page's title ink a monotonic fact (white on
+  the dark theme, near-black on the light one), **yellow** a default
   fact, **green** one the engine derived rather than was told, **blue** a forward rule,
   **purple** a backward rule, both halves for a rule running both ways, and **black** an
-  inert rule — stored, and chaining in neither direction. A **filled** circle is asserted
+  inert rule — stored, and chaining in neither direction; its muted border is what
+  separates it from a monotonic badge on the light theme. A **filled** circle is asserted
   and a **ring** is derived, which is what keeps a derived negation distinguishable from
   an asserted one; a **dimmed** one is stored and not believed. Negation outranks every other case, because a reader who misses
   a `not` has the sentex backwards and no other confusion costs that. Its `title` carries
@@ -1701,12 +1633,12 @@ displays, and the **assert form's textarea** — which matters most, since a tex
 content on its way back *in* and `assert` reifies a ground NAT to the constant already
 minted, where a hand-typed constant would be a reader writing about an opaque
 identity. The constant is held by what a machine reads back: the `href` of
-the link to its own page, and the hidden field the proposal panel posts.
+the link to its own page, and a hidden field a form posts back.
 
 Two things the display cannot assume, both tested by injecting at the access facade.
 A constant whose `termOfUnit` map is **not believed** renders `(…)` rather than falling
 back to the raw symbol — the map can be defeated while a use of the constant survives,
-and the honest answer is that the page cannot say what it denotes. And the expansion
+and the page cannot say what it denotes. And the expansion
 **carries the constants already on its path**: the write path cannot build a term that
 reaches itself (inner NATs mint first), but a restored dump can, and an unguarded walk
 over `(termOfUnit K (F K))` is a stack overflow rather than a page.
@@ -1720,8 +1652,11 @@ symbol's namespace.
 ## Chrome & typography
 
 The page is a **terminal**: a dark ground, square frames, one monospace face, and no
-rounded corner anywhere (`* { border-radius: 0 }`, one reset rather than a zero per
-rule). Light mode inverts the ground and the accent pair and changes nothing else.
+rounded corner on any HTML element (`* { border-radius: 0 }`, one reset rather than a zero
+per rule). Two shapes are round on purpose: the handle badge is a circle, and a graph
+node is an SVG rect with a 3px corner. Light mode swaps the ground and ink colours, the
+accent pair, the term-role colours (`--t-*`) and the nine-step spectrum (`--rb1` …
+`--rb9`).
 
 - **A region is a framed box, titled in its own top border.** `panel` renders one — a
   `<section class="panel">` whose `<h2 class="panel-title">` is absolutely positioned
@@ -1755,13 +1690,16 @@ rule). Light mode inverts the ground and the accent pair and changes nothing els
   left, then — pushed to the right — a **menubar** to the top-level tools (Ontology
   `/`, Reasoning `/reasoning`, Query `/levels`, Assert `/assert`, Sandbox `/assert` —
   the sandbox is reached as a place to write, never as a context to choose — Network
-  `/network`, Stats `/stats`, and KB `/kbs` carrying the active KB's name; vaelii.js
+  `/network`, Stats `/stats`, Jobs `/jobs` carrying the running-job count, and KB `/kbs`
+  carrying the active KB's name; vaelii.js
   marks the one matching the current path active), a **search box**, the request
   indicator, and the colour controls. The search is an htmx *active search*: a debounced
   `hx-get` to `/find` swaps just the
-  `#main` region, so it stays focused and no full reload happens. What you type reads as
-  a **regular expression over term names** (`re-find`, so `dog` is a substring match and
-  `^parentOf$` an exact one); the results link to each term's page. A pattern that
+  `#main` region, so it stays focused and no full reload happens. What you type is
+  matched against **term names**: a query with no regex metacharacter is a
+  case-insensitive substring match (`DOG` finds `dog`), and one carrying a metacharacter
+  is a regular expression under `re-find` (`^parentOf$` an exact match); the results link
+  to each term's page. A pattern that
   resolves to a **single term** — the only match, or one it names exactly — jumps
   straight to that term's page (so `parentOf` lands on it even though it is a substring
   of `grandparentOf`), setting `HX-Push-Url` so the address bar follows.
@@ -1773,7 +1711,7 @@ rule). Light mode inverts the ground and the accent pair and changes nothing els
 - **Two typefaces, one weight each, one job each.**
   [Hasklig](https://github.com/i-tu/Hasklig) (monospace, `--mono`) sets everything the KB
   stores or the terminal draws — sentences, terms, handles, index keys, frame titles,
-  tables, buttons, the editor — so a KB is indistinguishable from the code it resembles.
+  tables, buttons, the editor — so a KB is set in the same typeface as the code it resembles.
   [Atkinson Hyperlegible Next](https://www.brailleinstitute.org/freefont/) (proportional,
   `--prose`) sets English written for a reader: a paragraph, a hint, a `comment` string
   off the KB. Body copy is the only place the two meet, and the sheet names what keeps
@@ -1824,12 +1762,8 @@ rule). Light mode inverts the ground and the accent pair and changes nothing els
 - **One hand-written script**, `resources/public/vaelii.js` (vanilla, no build step, no
   dependency), for what htmx cannot express: the palette and theme dots below, marking
   the menubar link for the current path active, **folding a framed region** by its
-  number, the `/kbs` sliders, and the proposal review's keys (`j`/`k`, `a`/`x`,
-  `1`–`9`). The review holds a decision per row *index*
-  rather than per element, because choosing a shape swaps the row out from under it;
-  picking a shape only clicks the numbered button, and a change in the accepted set
-  dispatches one `accepted-changed` event the consequence panel's own `hx-trigger`
-  debounces — so both round-trips stay declarative like every other one. The header sits
+  number, and the `/kbs` sliders. An extension's own script is its own
+  ([Extensions](#extensions)). The header sits
   outside the swapped region, so the active menubar link is re-marked after every htmx
   swap; nothing else has state to re-sync.
 - **Palette and theme.** Two header controls, both dots painted in what they control,
@@ -1837,16 +1771,19 @@ rule). Light mode inverts the ground and the accent pair and changes nothing els
   the page never flashes the wrong colours. They are vaelii.com's two controls, values
   included, so the browser and the site read as one system:
   - a **theme dot** — half the page's ink, half its ground — flipping **light against
-    dark**. Every colour is a CSS variable; a `@media (prefers-color-scheme: dark)`
-    block is the default and needs no JS, so a page that has never been clicked
-    **follows the OS**. Clicking sets `:root[data-theme="dark"|"light"]`, which
-    **overrides** the media query — so a pinned theme outranks the OS, and only a
-    stored value counts as pinned. The click flips whatever is on screen, OS-chosen or
-    not. A stored value the script does not **recognise** is ignored rather than written
-    through: the media query is scoped by `:not([data-theme])`, so *any* attribute value
-    switches it off, and one no rule matches would leave the page on the light base and
-    deaf to the OS. `color-scheme: light dark` pulls scrollbars and native widgets along;
-    the logo and favicon flip on the same signal.
+    dark**. Every colour is a CSS variable, and the base `:root` block holds the dark
+    palette. A `@media (prefers-color-scheme: light)` block scoped by
+    `:root:not([data-theme])` switches to the light palette and needs no JS, so a page
+    that has never been clicked **follows the OS**. Clicking sets
+    `:root[data-theme="dark"|"light"]`, which **overrides** the media query — so a
+    pinned theme outranks the OS, and only a stored value counts as pinned. The click
+    flips whatever is on screen, OS-chosen or not. A stored value the script does not
+    **recognise** is ignored rather than written through: *any* attribute value switches
+    the media query off, so one no rule matches would leave the page on the dark base and
+    deaf to the OS. `color-scheme: dark light` pulls scrollbars and native widgets along.
+    The logo and favicon each carry their own `prefers-color-scheme: light` rule and read
+    no `data-theme`, so they follow the OS and a theme pinned with the dot does not reach
+    them.
   - a **palette dot** cycling **violet → red → green → rainbow** through
     `:root[data-palette]`, and painted in the pair it selects. A palette is an accent
     **pair**: `--accent` (the fill and emphasis hue), `--accent-2` (its deeper partner),
@@ -1911,8 +1848,7 @@ would do — the same diff `edit-post` computes, read through `v/preview` instea
 on a 600 ms pause in the typing rather than behind a confirmation. A form that does not
 read is reported there too: the reader is told while the caret is still in the form that
 caused it, instead of on the far side of a save that did not go through. It posts through
-`writing` because a preview holds the single writer for its duration, exactly as the
-proposal panel's consequence preview does.
+`writing` because a preview holds the single writer for its duration.
 
 ## Untrusted input
 
@@ -1949,8 +1885,9 @@ enforces:
   the *checked* `RT.set` and throws `Duplicate key` when they are equal. Pairs are
   name-ordered vectors.
 - **No bare `sort` over KB terms.** `compare` throws on a `PersistentList`, and a type
-  node need not be a symbol. Every list is `sort-by str` — the ordering the list is read
-  in, and the only one that exists for every term a KB can hold.
+  node need not be a symbol. Every list is ordered by `print-key` / `by-print-key`, the
+  `pr-str` form with the print bounds released — the ordering the list is read in, and
+  the only one that exists for every term a KB can hold.
 - **No assumption that a fact is binary, positive, or symbol-argumented** where an arrow
   or a pair is being drawn from it; the concept graph states each of those as a filter
   rather than discovering it.
@@ -1992,6 +1929,7 @@ there is no `assert` that would produce the content.
   JTMS for the set its sweep would take, so it is a second implementation of that walk
   rather than a reading of the first.
 - **Editing covers atomic facts and simple rules.** A rule's `exceptWhen` guard is
-  dropped on re-assert, and the assert form cannot write one, so a guarded rule is not
-  editable through the browser without losing its guard. (`unknown` is not affected —
+  dropped on re-assert, so a guarded rule is not editable through the browser without
+  losing its guard. The assert form writes a guard afresh, as
+  `(exceptWhen <query> (sentexHandle N))` naming the re-asserted rule's handle. (`unknown` is not affected —
   it is a literal in the body, not a meta-sentex.)

@@ -103,7 +103,7 @@
         "an expected non-answer is the finding, not a failure")))
 
 (tu/deftest-kb a-card-whose-sentexes-this-kb-lacks-does-not-answer
-  ;; the honest failure mode, driven through the page rather than the table: retract
+  ;; the intended failure mode, driven through the page rather than the table: retract
   ;; what a card reasons from and the card stops claiming
   (tu/with-terms [nowhere Zork]
     (with-redefs [ex/examples (conj (vec ex/examples)

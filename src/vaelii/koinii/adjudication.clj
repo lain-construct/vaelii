@@ -7,7 +7,7 @@
   wrapper over the dispute reads (`vaelii.koinii.dispute`) — it touches no
   engine internals and changes belief only through ordinary asserts / retracts.
 
-  koinii's honest first answer to a disagreement is NOT to pick a winner.  When two agents
+  koinii's first answer to a disagreement is NOT to pick a winner.  When two agents
   assert P and ¬P at `:default`, the KB stays **paraconsistent** — both coexist, `argue`
   reports `:contradiction` (Priest's LP) — and this layer just records the dispute open,
   pushes it to whoever is watching, and manages its life.  Automatic resolution by source
@@ -221,7 +221,7 @@
 
   **Reversible.**  Retract the returned handle and the losing side is no longer defeated —
   the dispute reopens, cascading through the JTMS.  A ruling koinii could not undo would be
-  a worse store than one that stays honestly disputed.  The dispute's open/notified/stale
+  a worse store than one that leaves the dispute open.  The dispute's open/notified/stale
   marks are cleared once the ruling has LANDED and the episode is over, so a reopen starts
   fresh at `:open` (and re-notifies) — and a REFUSED ruling clears nothing, leaving the
   episode exactly as it found it.  Returns the ruling handle.
@@ -254,7 +254,8 @@
       (throw (ex-info (str "koinii: " arbiter " is a party to dispute " (pr-str k)
                            " — an arbiter's ruling lands in the arbiter's own context, so"
                            " ruling a dispute they hold a side of would restamp or retract"
-                           " their own claim rather than settle the clash")
+                           " their own claim rather than settle the clash.  Name an arbiter who holds no"
+                           " side of it")
                       {:type :arbiter-is-party :arbiter arbiter :dispute-id k})))
     (v/assert kb (list 'genlCx channel actx) 'CxUniverse {:strength :monotonic})
     (let [same    (v/handle-of kb upheld actx)
@@ -279,7 +280,7 @@
 ;; ---- a second resolution policy: majority vote ---------------------------
 ;;
 ;; Arbiter escalation upholds whatever ONE authority decrees; this upholds whatever a
-;; MAJORITY of cast ballots does — and, the honest part, upholds NOTHING on a tie, so an
+;; MAJORITY of cast ballots does — and upholds NOTHING on a tie, so an
 ;; evenly-split house stays open rather than being decided by fiat.  A ballot is a
 ;; meta-sentex on the disputed claim (`channel/vote` casts it — `(votesFor voter
 ;; (sentexHandle claim))` / `(votesAgainst …)`, knowledge like every other move), so `why`
@@ -288,10 +289,9 @@
 ;; exactly as an arbiter ruling does; the only differences are who is recorded as deciding
 ;; (`majority-arbiter`) and that a tie decides nobody.
 ;;
-;; The count only becomes a ruling under the `:proof-tier` identity policy.  A defeating
-;; verdict tallied by claimed voter name is spoofable under `:cooperative` (one operator,
-;; many names), so `resolve-by-majority` refuses there — trust-weighting needs verified
-;; identity (`identity/*policy*`).  Counting (`tally`) stays open for transparency.
+;; The count only becomes a ruling under the `:proof-tier` identity policy, and only over
+;; ballots an in-process `identity/ingest` attested (`cast-ballot`).  Counting (`tally`)
+;; stays open for transparency.
 
 (def majority-arbiter
   "The principal recorded as ruler of a majority-vote resolution — not a real agent but
@@ -299,23 +299,43 @@
   arbiter's decree."
   'AgentMajority)
 
+(def ^:private ballot-predicates {:for 'votesFor :against 'votesAgainst})
+
+(defn cast-ballot
+  "Cast `principal`'s `stance` (`:for` / `:against`) ballot on the claim at
+  `claim-handle` through `identity/ingest`: `(votesFor id (sentexHandle claim))` in the
+  principal's own context, attested when `principal` is a `:proof-tier` one
+  `authenticate` minted.  The in-process ballot `resolve-by-majority` counts;
+  `channel/vote` writes the same sentence unattested.  An unknown stance is refused
+  (`:koinii/no-such-stance`).  Returns the ballot's handle."
+  [kb principal stance claim-handle]
+  (let [pred (or (ballot-predicates stance)
+                 (throw (ex-info (str "koinii: no such ballot stance " (pr-str stance)
+                                      " — a vote is cast :for or :against")
+                                 {:type :koinii/no-such-stance :stance stance
+                                  :known [:for :against]})))]
+    (id/ingest kb principal (list pred (:id principal) (v/sentex-handle claim-handle)))))
+
+(defn- ballots
+  "The believed ballot sentexes on the claim at `claim-handle` for `stance`, matched in any
+  context (`?ctx`): a ballot names the globally-unique claim handle, and a channel read
+  would miss ballots in the voters' own contexts."
+  [kb claim-handle stance]
+  (v/sentexes-matching kb (list (ballot-predicates stance) '?a (v/sentex-handle claim-handle))
+                       '?ctx))
+
 (defn tally
   "Count the ballots cast on the claim at `claim-handle`: `{:for n :against n}`, each a
-  count of DISTINCT voters.  Matched anywhere (`?ctx`) because a ballot names the
-  globally-unique claim handle — the same reason the dispute and channel recovery reads do; a channel
-  read would miss ballots sitting in the voters' own contexts (`sentexes-matching` scopes
-  to a context's own sentexes, not the genlCx ancestor set).
+  count of DISTINCT voters (`ballots`).
 
   A voter who cast BOTH stances (without retracting the first, against `vote`'s contract)
   has SPOILED their ballot — counted on neither side — so one self-contradicting voter can
   neither manufacture a tie nor swing a majority; their confusion abstains rather than
   double-voting."
   [kb claim-handle]
-  (letfn [(who [pred]
-            (into #{} (map (comp second :sentence))
-                  (v/sentexes-matching kb (list pred '?a (v/sentex-handle claim-handle)) '?ctx)))]
-    (let [yes (who 'votesFor) no (who 'votesAgainst)]
-      {:for (count (remove no yes)) :against (count (remove yes no))})))
+  (let [who (fn [stance] (into #{} (map (comp second :sentence)) (ballots kb claim-handle stance)))
+        yes (who :for) no (who :against)]
+    {:for (count (remove no yes)) :against (count (remove yes no))}))
 
 (defn resolve-by-majority
   "Resolve dispute `id` over the claim at `claim-handle` by MAJORITY VOTE, within
@@ -323,7 +343,7 @@
   reversible ruling (`rule`, arbiter `majority-arbiter`) — the claim for a `:for` majority,
   its negation for an `:against` majority — so the clash clears and retracting the ruling
   reopens it.  **A tie upholds nothing**: an evenly-split house (or one nobody has voted in)
-  stays honestly disputed, the leave-open default holding rather than a winner picked by
+  stays disputed, the leave-open default holding rather than a winner picked by
   fiat — which is the whole reason to count instead of decree.
 
   **The count is the authority, every time.**  The house can change its mind — ballots
@@ -339,18 +359,14 @@
   Idempotent: re-running on an unchanged count re-rules the same side (a belief no-op
   returning the standing handle) and withdraws nothing, so a driver may poll it.
 
-  **Requires the `:proof-tier` identity policy.**  A majority ruling is a
-  trust-weighting mechanism — it lands a `:monotonic` verdict that *defeats* the losing
-  side — and `tally` counts by claimed voter name.  Under `:cooperative`, identity is
-  unverified by design (`identity/*policy*`), so one operator can cast ballots under many
-  names and manufacture a defeating ruling from spoofable input, which is exactly what
-  the identity layer forbids (\"trust-weighting a spoofable identity is worse than no
-  trust\").  So this refuses (`:koinii/identity-unverified`) unless the policy is
-  `:proof-tier`.  The gate reads that binding, in the process this runs in, and not the
-  ballots: a ballot cast through `channel/vote` never passes `identity/authenticate`, so
-  the names counted are the names claimed under either policy.  `tally` itself is ungated —
-  a cooperative house may still *count* and display its ballots for transparency; it just
-  cannot turn that count into a ruling."
+  **Requires the `:proof-tier` identity policy, and an attestation on every ballot.**
+  A majority ruling defeats the losing side, and a count by claimed voter name is
+  spoofable, so this refuses (`:koinii/identity-unverified`) under any other policy, and
+  refuses when any ballot on the claim — spoiled ones included — carries no attestation
+  naming its voter (`identity/attested-by`), naming those ballots in `:unattested`.  Only
+  `cast-ballot` under a minted `:proof-tier` principal attests one; a ballot from
+  `channel/vote` or from the wire carries none (docs/koinii.md, *Identity and the write
+  boundary*).  `tally` is ungated."
   [kb id claim-handle channel]
   (when-not (= :proof-tier id/*policy*)
     (throw (ex-info (str "koinii: majority resolution requires the :proof-tier identity "
@@ -358,6 +374,19 @@
                          "spoofable and must not produce a defeating ruling")
                     {:type :koinii/identity-unverified :policy id/*policy*
                      :resolution :majority :dispute id})))
+  (let [unattested (into #{}
+                         (comp (mapcat #(ballots kb claim-handle %))
+                               (remove #(= (second (:sentence %)) (id/attested-by kb (:id %))))
+                               (map :id))
+                         [:for :against])]
+    (when (seq unattested)
+      (throw (ex-info (str "koinii: majority resolution refused — " (count unattested)
+                           " ballot(s) on the claim carry no attestation naming their"
+                           " voter, so the count includes names nobody proved.  Cast"
+                           " ballots with cast-ballot under a :proof-tier principal, and"
+                           " retract the ones in :unattested")
+                      {:type :koinii/identity-unverified :policy :proof-tier
+                       :resolution :majority :dispute id :unattested unattested}))))
   (let [{yes :for no :against :as counts} (tally kb claim-handle)
         claim    (v/sentence-of (v/sentex kb claim-handle))
         standing (standing-rulings kb majority-arbiter id)
@@ -378,11 +407,11 @@
   closure that are a side of an open dispute `ctx` observes.  Empty if S rests on nothing
   contested.
 
-  This is the paraconsistent default made HONEST.  An open dispute does NOT block dependent
-  reasoning — the KB keeps deriving and both sides stay believed at `:default` — but a
-  conclusion resting on a contested premise should be *visible as such* so a reader is never
-  silently misled.  A pure read: it changes no belief, unlike `quarantine`.  Returns the
-  contested premise handles.
+  This marks what the paraconsistent default leaves unmarked.  An open dispute does NOT
+  block dependent reasoning — the KB keeps deriving and both sides stay believed at
+  `:default` — but a conclusion resting on a contested premise should be *visible as such*
+  so a reader is never silently misled.  A pure read: it changes no belief, unlike
+  `quarantine`.  Returns the contested premise handles.
 
   **Scoped to the ANCESTOR SET, on both sides.**  `S` is resolved the way `ctx` actually sees it —
   every believed sentex of `S` in a context `ctx` sees (`v/sees?`) — which is the scoping

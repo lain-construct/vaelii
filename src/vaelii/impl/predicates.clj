@@ -43,7 +43,7 @@
               constraints are another.  `mark-families` below.
     :sweeps   what a declaration arriving *after* the content it constrains puts back
               in question — `sweep-kinds` below — or absent for a term whose retroactive
-              half is not `settle`'s clash-exposure pass.  The `:reach` facet says that a
+              half is not `settle`'s clash arbitration sweep.  The `:reach` facet says that a
               term sweeps; this says *what*, for the one lane whose reaches have names.
     :stops-short  facet -> prose: an implication of `facet-contract` this term does not
               satisfy, and the reason.  Checked against the set that is actually owed, in
@@ -63,7 +63,7 @@
     :enforced prose naming the code path that reads the term — what a KB author is told
               by `core/interpreted` when they ask whether a declaration does anything.
               Carried by the terms CxCore comments and by no others, which is why an
-              entry without it is not a defect: the seven grammar terms CxCore does not
+              entry without it is not a defect: the six grammar terms CxCore does not
               comment are outside the question rather than unanswered.
     :inert    prose recording that nothing reads the term **and that this is a
               decision**.  Written by the `inert` constructor, which sets the facet with
@@ -110,7 +110,7 @@
   subject to a symbol that is not an individual — a functor is a symbol.  An argument
   *constraint* (`arg-constraint-problems`, `arg-preserving-problems`) is looser on
   purpose: a function has argument positions exactly as a predicate does, a function is
-  CapitalCamelCase and so is indistinguishable from an individual, and a relation may be denoted by a NAT
+  CapitalCamelCase and so is indistinguishable from an individual by spelling, and a relation may be denoted by a NAT
   rather than named.  Collapsing the two refuses the conventional spelling and waves the
   exotic one through."
   #{:predicate                ; a symbol that is not an individual — refused by nm/individual?
@@ -201,7 +201,7 @@
 
 (def sweep-kinds
   "What a declaration arriving **after** the content it constrains puts back in question
-  — the reach `settle`'s clash-exposure pass runs for it, and so the structure of the split
+  — the reach `settle`'s clash arbitration sweep runs for it, and so the structure of the split
   `settle/clash-declaration-kinds` is written as.
 
   A declaration is not its own candidate the way a fact is.  `(disjoint dog cat)` arriving
@@ -236,9 +236,9 @@
   `tax/arg-declaration-props` are this field read back.
 
   **`:functional`** is acted on by the *merge* lane (`special`'s `equate-*` entry points, where
-  two fillers of a functional slot are equated) and by the *clash exposure* lane
-  (`settle`'s declaration reach and trigger rosters, where two unmergeable fillers are
-  reported).  Both lanes have to recognize the same spellings, and neither fails loudly
+  two fillers of a functional slot are equated) and by the *arbitration* lane
+  (`settle`'s declaration reach and trigger rosters, where two unmergeable fillers form a
+  nogood).  Both lanes have to recognize the same spellings, and neither fails loudly
   when it does not — the merge simply does not happen, or the clash simply is not
   reported, in the one arrival order that route was the only way into.  Enrolling
   `functionalInArg` by name in each place is what left #52 (the declaration-last merge
@@ -379,8 +379,8 @@
   called inert by writing different prose beside it.
 
   Nil-tolerant, because the question is only asked about terms CxCore comments: the
-  seven grammar terms it does not comment (`equals`, `sameAs`, `functionalInArg` and the
-  four query operators) pass through unchanged, and `vocabulary/audit` is what notices a
+  six grammar terms it does not comment (`equals`, `sameAs` and the four query
+  operators) pass through unchanged, and `vocabulary/audit` is what notices a
   term the *ontology* names and this file answers for with nothing."
   [spec where]
   (cond-> spec where (assoc :enforced where)))
@@ -563,29 +563,38 @@
                                     :notes (str "acted on by two lanes that must recognize the"
                                                 " same spellings and neither of which fails"
                                                 " loudly: the *merge* entry point, where two fillers of"
-                                                " a functional slot are equated, and the *clash"
-                                                " exposure* pass, where two unmergeable fillers"
-                                                " are reported. Deriving an equality is not"
+                                                " a functional slot are equated, and the"
+                                                " *arbitration* sweep, where two unmergeable"
+                                                " fillers form a nogood. Deriving an equality is not"
                                                 " :migrates — that facet is for a relation whose"
                                                 " own assertion is the merge."))
                              (str "checks/functional-problems, and special/derive-functional-equalities"
                                   " on two symbols; also a binary_predicate type"))]
-     ['irreflexive (enforced (prop :irreflexive
+     ['irreflexive (enforced (prop :irreflexive :facets #{:reach :convicts}
                                    :notes (str "convicts a *self* tuple (P a a), which names no other"
-                                               " believed sentex — so it is neither :arbitrable nor"
-                                               " swept: there is nothing for a late declaration to"
-                                               " weigh the fact against. An entry point refusal with no"
-                                               " retroactive half."))
+                                               " believed sentex — so it is not :arbitrable and"
+                                               " carries no :sweeps kind: there is nothing for a late"
+                                               " declaration to weigh the fact against. Its"
+                                               " retroactive half is"
+                                               " settle/report-unarbitrable-reach! — a report that"
+                                               " moves no belief, arity's reading."))
                              (str "checks/irreflexivity-problem — a self tuple (P a a) is refused at the"
-                                  " entry point; also a binary_predicate type"))]
-     ['anti_symmetric (enforced (prop :anti-symmetric
+                                  " entry point, and settle/report-unarbitrable-reach! reports one stored"
+                                  " before the mark reached it; also a binary_predicate type"))]
+     ['anti_symmetric (enforced (prop :anti-symmetric :facets #{:reach :convicts}
                                       :notes (str "derives (equals a b) from a believed converse"
                                                   " rather than convicting either — so it merges"
                                                   " where the other pairwise marks separate, and"
-                                                  " no facet names deriving."))
+                                                  " no facet names deriving. A converse no merge"
+                                                  " can reconcile is convicted and not arbitrable;"
+                                                  " a pair stored before the mark reached it is"
+                                                  " reported by settle/report-unarbitrable-reach!,"
+                                                  " irreflexive's reading."))
                                 (str "checks/antisymmetry-problems, and"
                                      " special/derive-antisymmetric-equalities merging two symbols a believed"
-                                     " converse forces equal; also a binary_predicate type"))]
+                                     " converse forces equal, and settle/report-unarbitrable-reach!"
+                                     " reporting a stored converse no merge reconciles; also a"
+                                     " binary_predicate type"))]
      ['anti_transitive (enforced (assoc
                                   (prop :anti-transitive :facets #{:reach :convicts :arbitrable}
                                         :sweeps :predicate-marked
@@ -680,21 +689,24 @@
                       " provers/admits-position?, the one decision checks/arg-position-problem"
                       " refuses against, so the query and the refusal cannot disagree.")}
                 "provers/AdmitsArgnumProver — the position query over a relation's arity")]
-     ['functionalInArg {:shape   {:args [:predicate :position]}
-                        :storage [:pred-position :functional-in-arg]
-                        :checked true
-                        :facets  #{:cached :derived :reach :convicts :arbitrable}
-                        :family  :functional
-                        :sweeps  :predicate-marked
-                        :opposing-read
-                        (str "the same as functional's, read at the declared position: the nogood"
-                             " pairs the two fillers of [P n] and the (functionalInArg P n) mark is"
-                             " not a member of it.")
-                        :notes   (str "read UP the predicate hierarchy and refuses tuples,"
-                                      " where transitiveInArg — the same name shape — is"
-                                      " read for the goal's own predicate and licenses"
-                                      " them. The two sit on opposite sides of the"
-                                      " prover/checker divide.")}]
+     ['functionalInArg (enforced
+                        {:shape   {:args [:predicate :position]}
+                         :storage [:pred-position :functional-in-arg]
+                         :checked true
+                         :facets  #{:cached :derived :reach :convicts :arbitrable}
+                         :family  :functional
+                         :sweeps  :predicate-marked
+                         :opposing-read
+                         (str "the same as functional's, read at the declared position: the nogood"
+                              " pairs the two fillers of [P n] and the (functionalInArg P n) mark is"
+                              " not a member of it.")
+                         :notes   (str "read UP the predicate hierarchy and refuses tuples,"
+                                       " where transitiveInArg — the same name shape — is"
+                                       " read for the goal's own predicate and licenses"
+                                       " them. The two sit on opposite sides of the"
+                                       " prover/checker divide.")}
+                        (str "checks/functional-problems at the declared position, and"
+                             " special/derive-functional-equalities on two symbols"))]
      ;; ---- the commutativity marks ----------------------------------------
      ;;
      ;; `symmetric` above commutes the two arguments of a binary predicate.  These two
@@ -1334,7 +1346,7 @@
     [['lessThan    (enforced {:shape   {:args [] :variadic :term}
                               :storage [:none] :checked false :family nil
                               :facets  #{:answers}
-                              :notes   (str "variable arity: (lessThan 1 2 3) is indistinguishable from the chain."
+                              :notes   (str "variable arity: (lessThan 1 2 3) states the chain."
                                             " Computed by a prover, and merged out of a rule body"
                                             " by the chain collapse — but assertible, unlike the"
                                             " query operators, so not :query-only.")}
@@ -1609,7 +1621,7 @@
 
   Two rules, and both are #54 stated as a load failure rather than as a review item.
   Every spelling of one family carries the **same** `:sweeps`: a family joined to the
-  clash-exposure sweep in one spelling and not another convicts in one arrival order and
+  clash arbitration sweep in one spelling and not another convicts in one arrival order and
   not the other, in whichever lane the spelling was left out of, and neither lane says so.
   And a term that sweeps carries a `:shape`, because the lane that recognizes a
   declaration has to recognize it at the arity it is written in — the second half of #54,
@@ -1724,7 +1736,7 @@
     the reach; a kind without the facet says the sweep runs and nothing sweeps.
   * an `:arbitrable` term with no `:opposing-read` prose.  The third conjunct of
     arbitrability — that the read the conviction is made through does not depend on the
-    belief the nogood moves — is not decidable from data, so the honest encoding is a
+    belief the nogood moves — is not decidable from data, so the encoding is a
     required claim.  `arity` carries the same field with the negative answer, which is
     why it names a second sentex and is still not arbitrable.
   * an `:inert` term carrying another facet or a storage.  The `inert` constructor makes

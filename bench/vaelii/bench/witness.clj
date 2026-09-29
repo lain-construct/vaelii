@@ -7,7 +7,7 @@
   `witness_shortfall_test` also reads, so the bench and the test cannot report different
   numbers; what each count means is that namespace's docstring.
 
-  Run: `lein bench-witness [starter|world|generated|generated-fact|generated-short-first|generated-fact-short-first|generated-defeated|generated-fact-defeated|lattice|lattice-short-first|all]`"
+  Run: `lein bench-witness [starter|world|generated|generated-fact|generated-short-first|generated-fact-short-first|generated-defeated|generated-fact-defeated|generated-siblings|generated-siblings-short-first|lattice|lattice-short-first|all]`"
   (:require [vaelii.core :as v]
             [vaelii.host.starter :as starter]
             [vaelii.impl.jtms :as jtms]
@@ -86,15 +86,18 @@
    "generated-defeated" #(wr/generated (fresh 7109) literal 12 5 {:defeated? true})
    "generated-fact-defeated" #(wr/generated-fact (fresh 7110) literal 12 5 {:defeated? true})
    "generated-fact-short-first" #(wr/generated-fact (fresh 7108) literal 12 5 {:short-first? true})
+   "generated-siblings" #(wr/generated-siblings (fresh 7111) literal 12)
+   "generated-siblings-short-first" #(wr/generated-siblings (fresh 7112) literal 12 {:short-first? true})
    "lattice"   #(lattice (fresh 7104) :long-first)
    "lattice-short-first" #(lattice (fresh 7105) :short-first)})
 
 (defn -main [& args]
   (let [which (or (first args) "all")
         names (if (= "all" which) ["starter" "world" "generated" "generated-fact" "generated-short-first"
-                                    "generated-fact-short-first" "generated-defeated"
-                                    "generated-fact-defeated" "lattice"
-                                    "lattice-short-first"] [which])]
+                                   "generated-fact-short-first" "generated-defeated"
+                                   "generated-fact-defeated" "generated-siblings"
+                                   "generated-siblings-short-first" "lattice"
+                                   "lattice-short-first"] [which])]
     (doseq [n names]
       (if-let [build (get corpora n)]
         (run-corpus n build)

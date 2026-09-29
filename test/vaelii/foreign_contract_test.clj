@@ -25,7 +25,8 @@
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [vaelii.impl.foreign :as foreign]
-            [vaelii.impl.io.import :as io-import])
+            [vaelii.impl.io.import :as io-import]
+            [vaelii.impl.sentex :as sx])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
 
@@ -35,6 +36,10 @@
 ;; not `^:private`: it is referenced only through a quoted symbol by `foreign/register`
 ;; below (`requiring-resolve`), which a static unused-var check cannot see.
 (def versionless-dump-reader {:decode-frame identity})
+
+;; A dump reader that marks what it decoded, for the frame-discrimination test below.
+;; Public for the same reason as the one above.
+(def marking-dump-reader {:decode-frame #(assoc % :decoded-by :foreign)})
 
 (def ^:private plugin-file "src/vaelii/impl/foreign.clj")
 
@@ -140,6 +145,31 @@
             (is (= missing (:missing (ex-data e)))))))
       (testing "a field the map does declare is returned"
         (is (= identity (field :decode-frame))))
+      (finally (foreign/unregister :engine-dump)))))
+
+(deftest an-engine-dialect-frame-goes-to-the-foreign-reader-and-ours-does-not
+  ;; The engine dialect's field map carries `:antecedent` on every frame — nil on a fact —
+  ;; and no `:varmap`.  Taken for ours, each fact decoded to a nil sentence, and a 12.5M
+  ;; frame legacy dump collapsed onto one sentex per context.
+  (let [decode ((var io-import/frame-decoder))
+        ours   #(dissoc (into {} (sx/sentex % 'CxTest)) :sentence)]
+    (try
+      (foreign/register :engine-dump 'vaelii.foreign-contract-test/marking-dump-reader)
+      (testing "a fact and a rule in the engine dialect are the reader's"
+        (doseq [frame [{:id 1 :antecedent nil :consequent '((bird Tweety)) :context 'CxTest
+                        :truth :true :strength :default :direction nil :variables nil}
+                       {:id 2 :antecedent '((bird ?0)) :consequent '((flies ?0))
+                        :context 'CxTest :truth nil :strength :monotonic
+                        :direction :forward :variables '[?x]}]]
+          (is (= :foreign (:decoded-by (decode frame))) (pr-str frame))))
+      (testing "a literal frame of ours is decoded here, with its sentence"
+        (let [frame (into {} (sx/sentex '(bird Tweety) 'CxTest))]
+          (is (nil? (:decoded-by (decode frame))))
+          (is (= '(bird Tweety) (:sentence (decode frame))))))
+      (testing "and so is a rule frame of ours carrying no :sentence"
+        (let [frame (ours '(implies (bird ?x) (flies ?x)))]
+          (is (nil? (:decoded-by (decode frame))))
+          (is (= 'implies (first (:sentence (decode frame)))))))
       (finally (foreign/unregister :engine-dump)))))
 
 ;;; ── discovery ─────────────────────────────────────────────────────────

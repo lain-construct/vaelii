@@ -24,6 +24,7 @@
   vocabulary (`genl`, `genlCx`, `set/defaultRule`, `exceptWhen`) literal, and the
   neutral fixture asserts the KB is restored."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.feed :as feed]
             [vaelii.impl.rules :as vr]
@@ -148,15 +149,21 @@
             "and not a duplicate of the defeat — the second event is the other direction")))))
 
 (tu/deftest-kb a-preview-fires-nothing
-  ;; A preview stores, settles, reads the diff and takes every write back.  A feed
-  ;; through one would send a change and then its exact reverse.
-  (tu/with-terms [dog barks Muffet]
-    (let [[seen f] (recorder)]
+  ;; The rollback of a removal restores a premise, a change of its own, so the next write's
+  ;; event is where a region the rollback accumulated would surface.
+  (tu/with-terms [dog barks Muffet Rex]
+    (let [[seen f] (recorder)
+          rex      (v/assert kb (list dog Rex) 'CxUniverse)]
       (v/assert kb (vr/rule-sentence [(list dog '?x)] (list barks '?x)) 'CxUniverse {:direction :forward})
       (v/watch kb f)
       (let [pv (v/preview kb {:add [[(list dog Muffet) 'CxUniverse]]})]
-        (is (= 2 (count (:believed-added pv))) "the preview itself still answers")
-        (is (empty? @seen) "and the listener heard none of it")))))
+        (is (= 2 (count (:believed-added pv))) "the preview itself still answers"))
+      (is (= 2 (count (:believed-removed (v/preview kb {:remove [rex]})))))
+      (is (empty? @seen) "and the listener heard none of it")
+      (let [h (v/assert kb (list barks Muffet) 'CxUniverse)]
+        (is (= [(list barks Muffet)] (added @seen)) "the next write's event carries its own news")
+        (is (empty? (removed @seen)))
+        (v/retract! kb h)))))
 
 (tu/deftest-kb a-rebuild-fires-nothing
   ;; `recover` relabels everything, so a feed through one would hand a reconnecting
@@ -287,13 +294,72 @@
 
 (tu/deftest-kb a-listener-that-throws-loses-its-own-event-and-nothing-else
   (tu/with-terms [dog Muffet]
-    (let [[seen f] (recorder)]
-      (v/watch kb (fn [_] (throw (ex-info "a listener's bug" {}))))
+    (let [[seen f] (recorder)
+          bug      (ex-info "a listener's bug" {})
+          logged   (atom [])]
+      (v/watch kb (fn [_] (throw bug)))
       (v/watch kb f)
-      (let [h (v/assert kb (list dog Muffet) 'CxUniverse)]
+      (let [h (binding [trove/*log-fn* (fn [_ns _coords _level id payload]
+                                         (swap! logged conj [id (force payload)]))]
+                (v/assert kb (list dog Muffet) 'CxUniverse))]
         (is (v/in? kb h) "the settle was already committed; the write stands")
         (is (= [(list dog Muffet)] (added @seen))
-            "and the listener registered after the thrower still ran")))))
+            "and the listener registered after the thrower still ran")
+        (is (some (fn [[id p]] (and (= ::v/listener-threw id) (identical? bug (:error p))))
+                  @logged)
+            "and the log line carries what the listener threw, not its message alone")))))
+
+(tu/deftest-kb a-listener-jvm-error-propagates-and-an-interrupt-keeps-its-flag
+  (tu/with-terms [dog Muffet Rex]
+    (let [token (v/watch kb (fn [_] (throw (OutOfMemoryError. "heap"))))]
+      (is (thrown? OutOfMemoryError (v/assert kb (list dog Muffet) 'CxUniverse)))
+      (is (some->> (v/handle-of kb (list dog Muffet) 'CxUniverse) (v/in? kb))
+          "the settle was committed before delivery; the write stands")
+      (v/unwatch kb token))
+    (let [[seen f] (recorder)
+          token    (v/watch kb (fn [_] (throw (InterruptedException. "stop the writer"))))]
+      (v/watch kb f)
+      (let [h     (v/assert kb (list dog Rex) 'CxUniverse)
+            flag? (Thread/interrupted)]
+        (is (v/in? kb h))
+        (is flag? "the writing thread's interrupt flag is set again")
+        (is (= [(list dog Rex)] (added @seen)) "and the next listener still ran"))
+      (v/unwatch kb token))))
+
+(tu/deftest-kb a-retraction-arrives-as-nothing-with-what-its-sweep-deleted
+  ;; docs/feed.md, "What does not arrive": the premise and the conclusion that rested only
+  ;; on it are both deleted, so neither has a record left for an entry to describe.
+  (tu/with-terms [dog pet Muffet]
+    (v/assert kb (vr/rule-sentence [(list dog '?x)] (list pet '?x)) 'CxUniverse
+              {:direction :forward})
+    (let [h        (v/assert kb (list dog Muffet) 'CxUniverse)
+          [seen f] (recorder)]
+      (is (v/ask? kb (list pet Muffet) 'CxUniverse))
+      (v/watch kb f)
+      (v/retract! kb h)
+      (is (not (v/ask? kb (list pet Muffet) 'CxUniverse)) "the conclusion went with it")
+      (is (= [] @seen) "and the feed said nothing about either"))))
+
+(tu/deftest-kb an-unwatch-off-the-writers-thread-can-see-one-more-event
+  ;; docs/feed.md: delivery reads the registry once per event, so an event whose delivery
+  ;; read it before the `unwatch` still reaches the listener, once, after `unwatch` returns.
+  (tu/with-terms [dog Muffet Rex]
+    (let [entered  (promise)
+          release  (promise)
+          [seen f] (recorder)
+          first?   (atom true)]
+      (v/watch kb (fn [_] (when (compare-and-set! first? true false)
+                            (deliver entered true)
+                            @release)))
+      (let [t (v/watch kb f)
+            w (future (v/assert kb (list dog Muffet) 'CxUniverse))]
+        (is (true? (deref entered 10000 false)) "the writer is delivering")
+        (is (true? (v/unwatch kb t)))
+        (deliver release true)
+        @w
+        (is (= [(list dog Muffet)] (added @seen)) "the event in flight still arrived")
+        (v/assert kb (list dog Rex) 'CxUniverse)
+        (is (= 1 (count @seen)) "and nothing after it")))))
 
 (tu/deftest-kb a-listener-that-asserts-is-delivered-its-own-event
   ;; Listeners run *after* the settle, so a write from one is an ordinary write: it

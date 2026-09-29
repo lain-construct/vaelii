@@ -42,7 +42,8 @@
   Additive, like the sibling koinii modules: only the public core API (`argue`,
   `canonical-sentex`, `sentex-handle`) — nothing under `vaelii.impl`, and nothing in core
   loads it."
-  (:require [vaelii.core :as v]))
+  (:require [vaelii.core :as v]
+            [vaelii.koinii.identity :as id]))
 
 ;; ---- the dispute id: a stable name for one clash -------------------------
 
@@ -156,6 +157,21 @@
   from the channels' own reasoning."
   'CxDisputes)
 
+(def ^:private state-declaration
+  "The one sentence of koinii's `CxDisputes` seed that `ensure-state-context!` reads to
+  decide whether the seed is stored in a KB."
+  '(ternary_predicate disputeStale))
+
+(defn- ensure-state-context!
+  "Load koinii's `CxDisputes` seed (`resources/kb/koinii/CxDisputes.txt`) into `kb` unless it
+  is already stored there.  The seed places `CxDisputes` under `CxCore` and declares the two
+  marks and the `dispute` term they carry, so the arity check reads a declaration where
+  every mark is stored.  Called by the two writes, which is the first time a KB needs the
+  context: a deployment that never marks a dispute never loads it."
+  [kb]
+  (when-not (v/handle-of kb state-declaration state-context)
+    (id/load-seed-context kb state-context)))
+
 (defn- marks-of
   "The stored lifecycle mark sentexes for `id` under `pred` (arity per pred), in
   `state-context`."
@@ -179,6 +195,7 @@
   retract (`reopen!`) un-notifies.  The mark is what stops the driver re-notifying a clash it
   has already announced.  Returns the mark's handle."
   [kb id at]
+  (ensure-state-context! kb)
   (v/assert kb (list 'disputeNotified (dispute-term id) at) state-context))
 
 (defn mark-stale
@@ -188,6 +205,7 @@
   up unmarked and `why` can explain the sweep.  Staleness does not resolve the clash — the
   dispute is still live — it only flags it.  Returns the mark's handle."
   [kb id at reason]
+  (ensure-state-context! kb)
   (v/assert kb (list 'disputeStale (dispute-term id) at reason) state-context))
 
 (defn reopen!

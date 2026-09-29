@@ -335,7 +335,7 @@
 ;; ---- the lexical last resort actually resolves something ----------------
 
 (tu/deftest-kb constants-break-a-tie-lexically
-  ;; `cmp-term` / `cmp-blind` end with (compare (str a) (str b)).  It is indistinguishable from a
+  ;; `cmp-term` / `cmp-blind` end with (compare (str a) (str b)).  The tie-break looks like a
   ;; defensive default, and reducing it to 0 compiles, passes every structural test,
   ;; and turns two literals differing only in a ground constant into a *tie group* —
   ;; handing their order back to the author and breaking dedup.

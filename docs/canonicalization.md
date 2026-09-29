@@ -57,9 +57,9 @@ Two kinds of literal are **held back** in the author's order, because their
 position is operational rather than logical:
 
 - **Deferred (evaluable)** literals — which consume bindings rather than produce them.
-  `sentex/deferred-predicates` names fifteen: `evaluate`, `lessThan`, `greaterThan`,
-  `different`, `unknown`, the five quantity comparisons, and the five aggregation
-  operators.
+  `sentex/deferred-predicates` names seventeen: `evaluate`, `lessThan`, `greaterThan`,
+  `integer`, `matchesPattern`, `different`, `unknown`, the five quantity comparisons,
+  and the five aggregation operators.
 - The **recursive** literal of a recursive rule. Reordering it could turn a
   right-recursive rule left-recursive, which the backward chainers cannot execute.
 
@@ -113,13 +113,64 @@ separate — both bare premises, or both a rule's conclusion — the **lower han
 survives: it is the row the KB would be holding had the declaration come first, which is
 the claim being restored.
 
-The migration is a **write**, so retracting the mark does not undo it: `P`'s facts stay
-spelled the way the declaration had them spelled. That is a spelling and not a belief. The
-alternative — an alias recording that two records mean one — would have to be rebuilt on
-every `recover` from records that still spell the fact two ways, and consulted for ever
-after by matching, retraction, the TMS and every handle entry point. Migrating leaves the records
-themselves canonical, so `recover` reads a store that needs no reconciling
+The migration is a **write**, so it leaves the records themselves canonical and `recover`
+reads a store that needs no reconciling (`recover_independence_test`). The alternative — an
+alias recording that two records mean one — would have to be rebuilt on every `recover`
+from records that still spell the fact two ways, and consulted for ever after by matching,
+retraction, the TMS and every handle entry point.
+
+### A mark leaving hands the spellings back
+
+The kept spelling is a belief. After `(symmetric bRel)`, `(bRel Zed Amy)` and the mark's
+retraction, a store left holding `(bRel Amy Zed)` answers `false` to the fact as the caller
+wrote it and `true` to its mirror, which a KB never told the mark answers the other way
+round. The same holds for a row the late mark re-spelled, and a folded pair is worse: one
+row stands where that KB holds two, each asserted at its own class and each retractable
+alone.
+
+So each row records the spellings its pieces were written in, under the provenance entry
+`integrate/spellings-key`: `{:premise {written strength} :derived {jid written}}`.
+
+- **Premises:** one entry per premise assertion, at the class it was asserted at.
+- **Rule firings:** one entry per firing whose conclusion the sort moved.
+- **Only what differs is written.** A predicate nothing permutes writes no record. The
+  premise map is the one exception: once it exists it lists the stored spelling's
+  assertions too, because one premise class on one row cannot say which spelling brought
+  it.
+- **Written at four points:**
+  - the assert entry point (`note-premise-spelling!`);
+  - a rule placing a conclusion (`chain/place-fact-conclusion`);
+  - a late mark re-spelling a row, which writes out what the row's own spelling had held
+    implicitly;
+  - a fold, which hands the doomed row's pieces to the survivor.
+- **Why provenance:** it is the per-handle record every store already keeps durably, so a
+  restart reads the spellings back with no new store method. `core/provenance` does not
+  return the entry, and `add-provenance` cannot overwrite it.
+
+A mark stops holding when its last statement is retracted or defeated. Both reach the
+taxonomy at one of two choke points, the removal arm and the belief refresh, and each
+queues the predicate whose permuting marks moved. The settle that follows drains the queue
+through `chain/reconcile-spellings!`. That call puts every piece at the row its spelling
+canonicalizes to now:
+
+- a premise assertion is re-asserted there at its own class;
+- a firing is re-placed there with its own antecedents and bindings, and dropped from the
+  old row (`jtms/drop-justification!`).
+
+A row no piece stays on is swept, with what was drawn from it: those conclusions read a
+spelling nobody wrote. A mark that starts holding again by a relabel has no declaration
+arriving to fold what it covers, so the same call folds it (`integrate/commute-predicate`).
+Both directions are checked per permuting mark, shape and arrival order against a KB never
+told the mark (`order_independence_test`), and across a restart
 (`recover_independence_test`).
+
+A handle the caller holds keeps naming its row while the mark holds. Once the mark leaves,
+a spelling that moved answers at a new handle, as it would in a KB that stored it apart
+from the start.
+
+`core/preview` does not show the split. It runs its settle with the sweep off and must hand
+the KB back at the same handles, so a preview of retracting a mark reads the rows as still
+folded.
 
 ## Commuting arguments sorted — the same sort at any arity
 
@@ -152,7 +203,7 @@ this vocabulary costs a backward search if they are written any other way.
 ### A bridge between two marks is a cycle backward
 
 `set/forwardRule` adds forward chaining **without taking the backward use away**
-(`rules/backward?` accepts `:forward`), so a rule written with it answers goals too. Three
+(its engines are `#{:forward :backward}`), so a rule written with it answers goals too. Three
 rules here conclude a mark that another of them needs:
 
 - `(commutative ?p)` → `(commutativeInArgAndRest ?p 1)` and back, the two directions of
@@ -223,21 +274,40 @@ alone.
 ## Rule wrappers become fields
 
 `(set/forwardRule (implies …))` is not data *about* a rule — it is how the rule's
-direction is written, so like `not`/`implies` it canonicalizes **into the record**:
-`:direction` (`:forward`/`:backward`/`:both`/`:forward-only`/`:inert`, `:backward` for a
-bare `implies` — the tractable default, since forward chaining materializes a conclusion
-per match; `:forward-only` from `set/forwardOnlyRule` forward-chains and never backchains) and
-`:defeasible` (from `set/defaultRule`). Wrappers may nest — a
-defeasible forward rule — and never reach the stored sentence. The `:direction`
-opt on `assert` and `assert-rule` is just the programmatic spelling: it wraps, and
-the wrapper becomes the field.
+direction is written, so like `not`/`implies` it canonicalizes **into the record**. The
+wrappers state two things, and the record holds them as two fields plus `:defeasible`:
 
-Neither slot is in the identity key, so re-asserting with a different wrapper
-resolves to the **one** sentex. Where the two spellings disagree, the slot is then
-resolved from **content**: the least restrictive direction (`:inert` is the bottom,
-`:backward` is above it, and `:forward` / `:both` are the top — both mean forward +
-backward, so a bare spelling joined with `set/forwardRule` comes to `:both`), and
-strict over defeasible — a rule somebody also stated without `set/defaultRule` is one
+- `:engines` — which engines run the rule, a subset of `#{:forward :backward :solve}`.
+  `#{:backward}` for a bare `implies` (the tractable default, since forward chaining
+  materializes a conclusion per match), `#{:forward :backward}` for `set/forwardRule`,
+  `#{:forward}` for `set/forwardOnlyRule` (forward-chains and never backchains), `#{}` for
+  `set/inertRule`; `set/solveRule` adds `:solve` to whichever of these the rule has, so a
+  solve runs it as a normal rule ([solving.md](solving.md)).
+- `:effect` — what the head is: `:derive` for a truth, `:choose` for a
+  `set/assumptionRule`'s choice, `:forbid` / `:penalize` for a hard / soft constraint's
+  marker ([solving.md](solving.md)). Only a `:derive` rule has a choice of engines; the
+  other three hold `#{:solve}`.
+- `:defeasible` — from `set/defaultRule`.
+
+Wrappers may nest — a defeasible forward rule — and never reach the stored sentence. The
+`:direction` opt on `assert` and `assert-rule` is just the programmatic spelling: it
+wraps, and the wrapper becomes the field.
+
+A combination the record cannot hold is refused `:not-well-formed` rather than resolved
+(`sentex/wrapper-stack-problems`): two different direction wrappers around one rule,
+two different head wrappers (`set/assumptionRule`, `set/hardConstraint`,
+`set/softConstraint`), or a head wrapper under a direction wrapper or `set/defaultRule`.
+A choice or constraint head is decided by a solve and never chained, so a direction or a
+default on one says nothing ([solving.md](solving.md)); a `:direction` opt on one is
+refused `:unknown-option` for the same reason. A wrapper repeated says one thing twice
+and is accepted.
+
+`:effect` is in the identity key, so a choice or constraint rule and its bare twin are
+two sentexes. Neither `:engines` nor `:defeasible` is, so re-asserting with a different
+direction or default wrapper resolves to the **one** sentex. Where the two spellings
+disagree, the slot is then resolved from **content**: the union of the engines (`#{}` is
+the bottom, and a backward-only spelling joined with a forward-only one comes to
+`#{:forward :backward}`), and strict over defeasible — a rule somebody also stated without `set/defaultRule` is one
 they stated as holding outright. Both resolutions are commutative and idempotent, which is what the pair
 has to be: keying the slot on which assertion arrived first would let the same two
 assertions in the two orders reach two sets of beliefs, and order independence is
@@ -350,9 +420,9 @@ it covers.
 
 ### Where `or` cannot go
 
-The connective earns its place by disappearing, so the positions it cannot disappear
-from are refused at the shape entry point — before the KB is read at all, by `assert`,
-`assert-inert` and `check` alike:
+The connective is accepted only where canonicalization removes it, so the positions it
+cannot disappear from are refused at the shape entry point — before the KB is read at all,
+by `assert`, `assert-inert` and `check` alike:
 
 | position | refused | because, and instead |
 |---|---|---|

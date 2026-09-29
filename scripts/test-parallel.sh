@@ -30,6 +30,7 @@
 #   scripts/test-parallel.sh :all            # the ^:slow tests too
 #   scripts/test-parallel.sh --jobs 4        # a fixed shard count
 #   scripts/test-parallel.sh :all --jobs 6
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail
 
 cd "$(dirname "$0")/.." || exit 1
@@ -82,7 +83,7 @@ esac
 
 mkdir -p "$OUT" || exit 1
 # The revision the shards are about, read BEFORE the first JVM boots: a sharded
-# suite is minutes long on a checkout several agents write to, and a verdict
+# suite is minutes long on a checkout several writers work in, and a verdict
 # credited to whatever landed while it ran is a verdict about no tree at all.
 runlog_start
 # the timings sit above `$OUT` when the gate hands us a per-run directory, so their own
@@ -243,3 +244,4 @@ if [[ $bad -ne 0 || $failures -ne 0 || $errors -ne 0 ]]; then
   exit 1
 fi
 exit 0
+}

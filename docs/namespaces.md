@@ -12,15 +12,15 @@ What lives where, one line per file. The public surface is **six namespaces** �
 `vaelii.web`, `vaelii.serve`, `vaelii.cli`). Everything else is private and free to
 change, in two strata that `vaelii.core` divides: `vaelii.impl.*` is the **engine** below
 core, which never requires `vaelii.core`; `vaelii.host.*` is the **tooling** above core —
-the two servers, the CLI, the loaders and the LLM stack — which requires `vaelii.core`
+the two servers, the CLI and the loaders — which requires `vaelii.core`
 and the engine, and which four of the five thin entry points front (`vaelii.web` fronts
 the browser). Tests reach into both freely;
 nothing outside this repo should ([api.md](api.md)). `vaelii.koinii.*` and
 `vaelii.browser.*` are **applications** shipped in this tree, consumers of those six as
 an outside caller is, which is why they sit beside `impl/` and `host/`. Koinii requires
 neither ([koinii.md](koinii.md)); the browser requires no `impl/` namespace and reaches
-`host/` peers for the guard, the LLM stack, `gloss`, the loaders, and the daemon's op table
-and client ([web.md](web.md)). The per-subsystem notes are indexed in [README.md](README.md);
+`host/` peers for the guard, the editor's line format, the loaders, and the daemon's op
+table and client ([web.md](web.md)). The per-subsystem notes are indexed in [README.md](README.md);
 this is the file map that sits under them.
 
 ```
@@ -114,9 +114,9 @@ src/vaelii/impl/
   oplog.clj         the operation log: each outermost public write recorded as the call that made it, with the clock, creator and dynamic bindings the call reads beyond its arguments; the logged record store, which fsyncs an operation's frame before the operation writes a record older than the log and, in replay mode, checks each write against the record stored at its handle; and `replay!`, which runs a generation's frames through the write entry points
   seal.clj          seals and restores for a `:disk-snapshot` KB recording an operation log: a seal writes both images, `seal.nippy` and a new log generation; a restore installs the images against the seal's fingerprints and replays the log, or declines for the caller to rebuild from the records
   source_identity.clj  the digest of the engine definitions that derive belief: the top-level forms reachable from `open-kb`, `recover` and the `wiring` targets, within the closure of `recovery` and `vaelii.core` over `ns` requires, imports and quoted symbols, read as forms with comments, docstrings and reader positions removed, plus the jar names of the libraries that closure loads.  A reasoning image installs only under an equal digest ([storage.md](storage.md))
-  jtms_protocol.clj    the Tms protocol alone (the representation boundary both networks sit behind) and `roles`, which assigns each of its 35 methods one of seven roles; in its own file so the rest of jtms.clj stays instrumentable under cloverage
+  jtms_protocol.clj    the Tms protocol alone (the representation boundary both networks sit behind) and `roles`, which assigns each of its 39 methods one of eight roles; in its own file so the rest of jtms.clj stays instrumentable under cloverage
   jtms.clj          the reference network (one atom, one persistent map) behind Tms: Justification (+strength; a rule informant is an implicit antecedent, `rests-on`); non-monotonic relabel; defeat; block; supersede; retract; sweep; and the public façade over the protocol
-  resolution.clj    unify / type-aware match / matches-visible (belief-filtered) / prove (+ prove-from: bounded, resumable, and the *dead-end* sink abduction listens on)
+  resolution.clj    unify (occurs-checked) / type-aware match / matches-visible (belief-filtered) / prove (+ prove-from: bounded, resumable, and the *dead-end* sink abduction listens on)
   inference.clj     the second backward chainer: a frontier of whole conjunctions ordered by cost, rewritten one literal at a time into a rule's residual; every node a *canonicalized* conjunction with a namespace of its own (a rule is numbered past it, so the two are disjoint by construction and nothing needs renaming apart), `:answer-terms` pushed forward per rewrite so an answer reads out in the asker's names, the rewrite each node records in its parent's namespace so a walk up `:parent-id` replays the derivation, per-literal depth (which is also the termination condition), globally claimed keys, guards lifted into the node that asks them, the search tree left behind as a value.  `core/*query-engine*` routes to it; the default is :dfs
   tactics.clj       the node engine's search policy: one additive estimate (the plan's own per-literal cost, a size penalty, the rewriting allowance, the tree level) whose signs name a tactician; the child bias a productive node's children carry; the opt-in backchain estimate and the shape probe that picks a tactician without a caller.  Every tactician returns the same answer set — ordering is a cost decision
   abduce.clj        abduction: the scratch-context lifecycle, the gate on what may be assumed, and the mint/re-prove loop over the dead ends `prove` reports
@@ -129,7 +129,7 @@ src/vaelii/impl/
   literal_cache.clj per-KB cache of matches-visible answers, keyed by the α-renamed (repetition-preserving) literal + context + retrieval strategy, stamped with the change clock; stores only what ran dry, so a bounded run leaves no prefix behind
   observe.clj       leaf extension point (no require cycle): store add/remove hooks an incremental matcher installs into, and the coarse change clock a resident derived structure stamps itself with — plus the pin that holds one fixpoint step's reads still
   opts.clj          a third leaf with no requires but `clojure.string`: the option-map entry point every public entry point that takes trailing options runs through — a key outside the roster and a non-map `opts` both refused as `:unknown-option`, with the per-entry-point sentence saying what taking the default in silence would have cost *there*.  One shape at every such entry point, because an option nothing reads is not a missing option but a run at a setting nobody chose
-  caches.clj        the other leaf with no requires at all: the register every cache-holding namespace declares itself in at load, and the one read over it — entries, bound, unit, hit rate, and separately what the entries are about and what the counters are.  A cache in a namespace this process never loaded has no row, which is the honest answer rather than a zero
+  caches.clj        the other leaf with no requires at all: the register every cache-holding namespace declares itself in at load, and the one read over it — entries, bound, unit, hit rate, and separately what the entries are about and what the counters are.  A cache in a namespace this process never loaded has no row rather than a row of zeroes
   feed.clj          the same extension point one altitude up, for **belief** rather than storage: the KB's listener registry, the region a settle accumulates for them, the reentrancy claim that keeps listeners from nesting, and the two dynamics a preview and a teardown suppress it with.  `core` installs the renderer; a KB nobody watches pays one deref (docs/feed.md)
   wiring.clj        the other leaf extension point, and the whole inventory of it: the three calls that run *up* the layering — two genuine mutual recursion (the assert path for `nat` and `skolem`, the prover registry for `resolution`) and the teardown entry point `retract-sentex` (for `asp.solve-context`, while the teardown orchestration stays core-private) — and the `*defer-settle?*` flag both sides of the assert recursion read.  A namespace that merely sits above `vaelii.core` calls back down to it directly instead (`io.import` through `recovery`, `predall` through `provers`), so no layering inversion is written here.  Each entry, and why the set is collected here instead of left at the call sites, is "The layering" at the foot of this file
   vantage.clj       CxInference: which readers can answer a goal, and the two ways of working that out — the reader fan (reference) and post-hoc placement, which must agree
@@ -137,7 +137,7 @@ src/vaelii/impl/
   quality.clj       the seven readings about the **knowledge** rather than the engine — unfired rules (off the JTMS adjacency that already exists for retraction, never a scan of the justifications), extent skew, SCC-condensed chain depth over the rule graph, taxonomy coverage, the argument-constraint census, and the two rule-hygiene readings that pair the rules against each other (which rules another already covers, which pairs would contradict each other if both fired) — plus the Markdown emitter over the map it returns.  Nothing here is a gate ([quality.md](quality.md))
   profile.clj       the workload instrument: seven tallies behind one atom that is nil when off — the structure of every retrieval decision and the access path it took, every index read by family, every trie walk's node probes, the three widths of a set-algebra sift, every record fetch by kind, and what one assert wrote and one retraction unwrote per family.  Off, each interface is a deref and a `nil?` check ([profile.md](profile.md))
   settle_phases.clj the belief instrument beside `profile.clj`, its wall-clock twin: one atom that is nil when off, charging each settle's self-time to the four cost centres — the belief fixpoint (`relabel`/`add-justification`), nogood discovery, resolution, and generative chaining — so a bulk settle's split can be read off.  A self-time model, so a nested centre carves out of its parent and the centres sum to the whole.  Off, `with-phase` is a deref and a `nil?` check ([nmtms.md](nmtms.md))
-  skolem.clj        head existentials: the deterministic `(SkolemFn <rule-handle> <i> <frontier…>)` witness a rule head `(exists ?y C)` fires to, reified through `nat` so re-firing on one binding resolves to one constant.  Its own namespace because two layers call it — the assert path declares the reifiable function when such a rule is stored, the forward chainer mints at each firing ([skolem.md](skolem.md))
+  skolem.clj        head existentials: the deterministic `(SkolemFn <rule-digest> <i> <frontier…>)` witness a rule head `(exists ?y C)` fires to, reified through `nat`, called from the assert path and the forward chainer ([skolem.md](skolem.md))
   rete.clj          opt-in TREAT alpha network: RAM alpha memories indexed by arg value; the `chain/*matcher*` swap
   levels.clj        the lookup-to-query stack: 8 levels raw-index → backchaining (`level-table`); lookup / escalate / explain, which `core/explain-levels` fronts
   qcn.clj           generic qualitative-constraint-network path consistency: the relation algebra is a parameter, the network is a value (no KB, no belief); PC-2 arc queue + the naive sweep it is proven against, the warm start that closes a narrowing off the previous answer, support-carrying derivation, bitmask relation sets over a flat long array
@@ -147,8 +147,9 @@ src/vaelii/impl/
   orientation.clj   cardinal direction over it: the 9 base + 4 derived direction predicates, composition COMPUTED by `projection` from an east-west and a north-south axis, same opt-in prover shape
   relative.clj      relative direction over it: 9 base + 4 derived, the same `projection` algebra over a left-right and a front-back axis; ternary in the literature, binary here because a CONTEXT is the frame of reference
   distance.clj      qualitative distance over it: 7 ordered classes tiling [0,∞), composition computed by the triangle inequality over the class bounds (exact, not merely sound); converse is identity, distance being symmetric
-  interval.clj      Allen's interval algebra over it: the 13 base + 7 derived interval predicates, the transcribed 13×13 table (re-derived from endpoint inequalities by its test), same opt-in prover shape — and the one calculus with a NARROWING, `stp`'s metric closure read back as interval constraints, which is why this namespace requires `stp` and not the reverse
-  point.clj         the point algebra over it: 3 base + 3 derived relations between instants, prefixed (`instantBefore`) because before/after are Allen's
+  interval.clj      Allen's interval algebra over it: the 13 base + 7 derived interval predicates, the transcribed 13×13 table (re-derived from endpoint inequalities by its test), same opt-in prover shape — and the one calculus with a KB NARROWING, `stp`'s metric closure and the point network's endpoint orderings read back as interval constraints, which is why this namespace requires `stp` and `point` and not the reverse
+  point.clj         the point algebra over it: 3 base + 3 derived relations between instants, prefixed (`instantBefore`) because before/after are Allen's; its nodes include a thing's six point terms and calendar moments, and `includesInstant` is read off it
+  timepoint.clj     the six point terms of a temporal thing (StartFn … LatestEndFn), and the order the terms fix among themselves — a thing's points around its start and end, calendar moments by their fields — as the point network's node-set narrowing
   scenario.clj      one consistent base relation per pair, by fewest-possibilities-first backtracking — generic over every calculus, lazy (the count is exponential), deterministic (every tie breaks on content)
   duration.clj      the quantitative half: totalDuration / overlapDuration computed over stored (length I M) facts, on [lo hi] bounds, rendered as a point or an interval measure
   stp.clj           metric time, and NOT a relation algebra: bounds lo ≤ t(j)−t(i) ≤ hi closed by all-pairs shortest paths, unsatisfiable on a negative cycle; startOf/endOf bridge the numbers onto Allen's intervals — the narrowing `interval` reads, carrying the constraints behind each pair — and sharpen an overlap into a figure
@@ -176,8 +177,8 @@ src/vaelii/impl/
 src/vaelii/browser/
                       AN APP, not the engine: the KB browser behind vaelii.web, built on
                       vaelii.core and requiring nothing under impl/; it requires host/ peers
-                      (the guard, the LLM stack, gloss, the loaders, and the daemon's op
-                      table and client) ([web.md](web.md))
+                      (the guard, the editor's line format, the loaders, and the daemon's
+                      op table and client) ([web.md](web.md))
   reload.clj        the development source reloader: the changed files under `src` and their
                     loaded dependents, before each request, skipping a held namespace ([web.md](web.md))
   web.clj           reitit-ring browser: ontology / term / sentex / justification / knowledge-base pages
@@ -191,7 +192,7 @@ src/vaelii/browser/
   svg.clj           the concept graph's drawing layer: a node, an edge, an arrowhead, and the arithmetic for a row / column / ring — pure, no KB, no graph library
 
 src/vaelii/host/
-                      ABOVE core: the daemon, CLI, loaders, guard and LLM stack that drive a KB
+                      ABOVE core: the daemon, CLI, loaders and guard that drive a KB
                       through vaelii.core and reach into the engine; private, fronted by
                       four of the five thin entry points, reached by no engine namespace
   serve.clj         headless EDN-over-HTTP daemon over vaelii.core: {:op :args}, allowlisted ops, single writer, sentex→map on the wire ([operations.md](operations.md))
@@ -199,8 +200,10 @@ src/vaelii/host/
   client.clj        thin java.net.http client for the daemon (zero-dep), conn threaded explicitly — the network mirror of the explicit-kb API
   subscribe.clj     the change feed with a cursor where the in-process one has a callback: the daemon's per-handler subscription registry, one bounded ring apiece, the lag count a reader that fell off it is told, and the park a long poll waits in — outside the write monitor, which is the whole constraint (docs/feed.md)
   starter.clj       schema-only common-sense KB: loads every kb/ context on start (Core, then upper, then middle), then the type→unary_predicate batch
+  spindle.clj       sync-spindle!: bring a loaded KB's shipped contexts (CxCore, kb/upper, kb/middle) to what this engine's starter produces, retracting what it no longer ships; the collectors are only added to ([catalog.md](catalog.md#a-loaded-kb-states-this-engines-spindle))
   seed.clj          the shipped ontology's classpath side: read-sentences / load-context / layer-contexts (discovery of kb/*.txt); the format itself, reader and writer both, is io/text.clj
   core_context.clj  CxCore: the vocabulary head (loads kb/CxCore.txt), documented via comment sentexes; read back with comment-of
+  lines.clj         the browser editor's line format: a stored sentex as the sentence its author would type back in, a rule's `set/*` wrappers spelled off its record ([web.md](web.md))
   guard.clj         the HTTP guards both servers hold to: the Host allowlist that closes DNS rebinding (the bind interface decides; VAELII_ALLOWED_HOSTS overrides), the Origin/Referer same-origin check on writes and the EDN content-type preflight it leans on, the daemon's bearer token (VAELII_API_TOKEN) read in one place for both ends, and the request-body ceiling (VAELII_MAX_BODY_BYTES, 16 MiB) both servers share
   io/generate.clj   synthesize a KB from numbers (types/individuals/rules, a fwd/backward mix, a seed): deterministic, stratified, Zipf-skewed — the form a measurement needs
 ```
@@ -217,13 +220,13 @@ CxWell — contingent data, not shipped schema.
 ```
 resources/
   kb/CxCore.txt     the vocabulary head; kb/upper/*.txt (definitional), kb/middle/*.txt (theories) — the shipped schema, term-centric text (vaelii.host.seed)
-  kb/koinii/*.txt   CxRegistry + CxSpeechActs, the app's own seed contexts — vaelii.koinii.identity loads them; the starter does not
+  kb/koinii/*.txt   CxRegistry + CxSpeechActs + CxDisputes, the app's own seed contexts — vaelii.koinii.identity loads them (CxDisputes on vaelii.koinii.dispute's first mark); the starter does not
   public/          the browser's static assets: vaelii.css (served at /vaelii.css), htmx.min.js, vaelii.js, the favicons, logo.svg, and font/ with Hasklig, Atkinson Hyperlegible Next and their licenses
 ```
 
 ## Not glossed above
 
-The map covers 135 of the 176 namespaces under `src/`. The other 41 are listed here by
+The map covers 138 of the 162 namespaces under `src/`. The other 24 are listed here by
 name rather than left out, and the two lists together are every one of them — `lein
 lint`'s **E18** fails on a file in neither and on a count that disagrees with them, so
 the number above stays a measurement. Named here: the engine's write path (`integrate`,
@@ -244,9 +247,7 @@ the roster
 saying which of the engine's own vocabulary anything reads (`vocabulary`), the two
 process-wide dials — `config` (every environment variable and system property, read once
 and refused by name at `open-kb`, [operations.md](operations.md)) and `logging` (the
-level dial, which installs no backend unless asked) — the LLM stack
-([llm.md](llm.md), with the reading path in [reading.md](reading.md) and the judge in
-[commonsense.md](commonsense.md)):
+level dial, which installs no backend unless asked):
 
 ```
 impl/assert_entry.clj  impl/chain.clj  impl/checks.clj  impl/config.clj
@@ -258,8 +259,6 @@ impl/reindex.clj
 impl/rewrite.clj  impl/roster.clj  impl/settle.clj  impl/spec.clj  impl/special.clj
 impl/vocabulary.clj
 impl/asp/solve_context.clj
-host/llm/{anthropic,correct,http,inventory,ollama,oracle,page,prompt,protocol,
-          provider,score,selection,session,stub,text,tools,verdict}.clj
 ```
 
 ## The layering

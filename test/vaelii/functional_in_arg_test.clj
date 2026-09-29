@@ -75,7 +75,7 @@
   vaelii#54 then closed what all of that had missed, and the structure of the miss is the
   lesson.  Every row above turns on a pair of **symbol** fillers, so every one of them
   exercises the *merge* lane — `special/equate-existing` and the `derive-*` family.  The
-  unmergeable pair takes an entirely different lane, `settle`'s clash exposure, and
+  unmergeable pair takes an entirely different lane, `settle`'s arbitration sweep, and
   `functionalInArg` had joined neither of that lane's two rosters: a declaration arriving
   after two numbers convicted nothing, where `(functional P)` in the same order convicts.
   A generalization weaker than the special case it generalizes, on an axis no row here
@@ -249,7 +249,7 @@
 ;; `settle/partner-contexts` had not: its binary arm filtered the mark to position 2 and
 ;; derived one partner source, argument 1.  So a position-1 pair whose halves sat in two
 ;; contexts was enforced wherever one context saw both and reported from nowhere — the
-;; arrival-order asymmetry the exposure pass exists to remove, surviving for one spelling
+;; arrival-order asymmetry the arbitration sweep exists to remove, surviving for one spelling
 ;; of one mark.  `marked-at-final-arg?` names the rest of that shape and now says so:
 ;; arity 2 is reached here, through the mirrored determinant read, and only a composite
 ;; determinant above arity 2 is still undiscovered at settle time.
@@ -598,7 +598,7 @@
 ;; The declaration-last rows above test the *merge* lane: two symbol fillers, reconciled
 ;; by `special/equate-existing`, which learned the `functionalInArg` entry point in #52.  The
 ;; other half of the same arrival order is the pair no merge can reconcile, and it takes
-;; an entirely different lane — `settle`'s clash exposure, which `functionalInArg` had
+;; an entirely different lane — `settle`'s arbitration sweep, which `functionalInArg` had
 ;; not joined (#54).  The generalization enforced at the entry point and went unswept behind it:
 ;; a mark arriving after two numbers convicted nothing, where `(functional P)` in the
 ;; same order convicts.

@@ -68,7 +68,6 @@
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning])
   (:import [java.lang.ref ReferenceQueue WeakReference]))
 
@@ -277,44 +276,6 @@
                   [(:id stored) b]))))
           (candidates by-functor pat))))
 
-(defn- raw-match-via-alpha
-  "The RAM twin of `res/raw-match`: one literal context, every argument arrangement the
-  pattern's predicate licences — the mirror for a symmetric one, the commuting
-  component's arrangements for a commutative one — **deduped by handle *and bindings***.
-  Keying on the handle alone drops the second answer an all-variable pattern gets from
-  one stored fact — `(sibOf ?a ?b)` binds `(sibOf Rex Tib)` directly and again,
-  differently, through the mirror — and a join led by such a literal then sees one
-  orientation.  See `res/raw-match` for the whole of that reasoning, and for why the fan
-  is pruned to the arrangements a stored fact can hold; this must key it identically and
-  fan it identically, or a rule fires under one retrieval path and not the other.
-
-  Lazy through the fan, as the reference is: each probe filters against what the earlier
-  ones emitted and the set handed to the next is not built until a consumer walks past
-  its own hits, so a consumer answered by the direct hits pays for neither."
-  [kb by-functor sentence context]
-  (let [hits (match-one-via-alpha kb by-functor sentence context)
-        tax  (reasoning/taxonomy kb)
-        others (if (sx/symmetric-literal? sentence #(tax/has-prop? tax :symmetric %))
-                 [(sx/mirror-literal sentence)]
-                 ;; the declaration read stands in front of the fan, as it does in
-                 ;; `res/raw-match`: an unmarked predicate pays one map lookup
-                 (let [f (when (sequential? sentence) (first sentence))]
-                   (when (and (symbol? f) (seq (tax/commuting-groups tax f)))
-                     (rest (sx/commuting-arrangements
-                            sentence (fn [g _] (tax/commuting-groups tax g)))))))]
-    (if (seq others)
-      (letfn [(step [forms seen]
-                (when-let [form (first forms)]
-                  (let [hs (remove (fn [[h b]] (contains? seen [h b]))
-                                   (match-one-via-alpha kb by-functor form context))]
-                    (if (next forms)
-                      (concat hs (lazy-seq
-                                  (step (rest forms)
-                                        (into seen (map (fn [[h b]] [h b])) hs))))
-                      hs))))]
-        (lazy-cat hits (step others (into #{} (map (fn [[h b]] [h b])) hits))))
-      hits)))
-
 (defn- match-pattern-via-alpha
   "The RAM twin of `res/match-pattern`: the functor fans out over its sub-predicate
   (genl spec) closure at **every arity** — a unary type literal over its subtypes, an
@@ -324,13 +285,15 @@
   functor over the genl closure instead, the direction a `genl` edge carries through a
   negation, and rebuilds the `not` around each member."
   [kb by-functor sentence context]
-  ;; the fan itself is the reference matcher's, not a copy of it — `res/fanned-match`
+  ;; both fans are the reference matcher's, not copies of them — `res/fanned-match`
   ;; decides the decomposition, the direction a negation fans and the singleton
-  ;; short-circuit, and this twin supplies only what is actually its own: the alpha-index
-  ;; retrieval, and an eager `mapcat` where `match-pattern` wants a lazy one.  `chain`
-  ;; only ever joins at `'?ctx`, so the closure here is the global one.
+  ;; short-circuit, `res/raw-match-with` the argument arrangements and their dedup, and
+  ;; this twin supplies only what is its own: the alpha-index probe, and an eager
+  ;; `mapcat` where `match-pattern` wants a lazy one.  `chain` only ever joins at
+  ;; `'?ctx`, so the closure here is the global one.
   (res/fanned-match kb sentence context
-                    (fn [s] (raw-match-via-alpha kb by-functor s context))
+                    (fn [s] (res/raw-match-with
+                             kb #(match-one-via-alpha kb by-functor % context) s))
                     mapcat))
 
 (defn rete-match-pattern

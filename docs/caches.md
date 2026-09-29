@@ -29,7 +29,7 @@ still has no require edge down to a namespace that holds one. Every such namespa
 *it* and calls `register-cache` once at load, so there is no list here for a new cache to
 be added to twice. The one `config` edge reads `VAELII_CACHE_SCALE`. The register is
 open: a cache in a namespace this process never loaded — a qualitative calculus nobody
-touched — is simply absent from the read, which is the honest answer rather than a row of
+touched — is absent from the read rather than present as a row of
 zeroes.
 
 Each descriptor carries what a reader needs to compare rows that count different things:
@@ -96,11 +96,18 @@ On a running process the same dial is `vaelii.core`:
 - `(cache-profile)` — the scale and any per-cache overrides in force.
 - `(set-cache-scale x)` — multiply every counted bound by `x`, process-wide; `1.0` restores
   the shipped bounds. Refused when `x` is not a number 0 or more.
+  The browser's caches page sets the same scale through `POST /caches/scale`
+  ([web.md](web.md#pages)): a write to the whole process, reaching every KB loaded in it,
+  and origin-checked like every browser write. The route answers 400 to a value that is not
+  a finite number 0 or more, and to no value at all, and changes nothing.
 - `(set-cache-limit id n)` — pin one cache's bound to `n`, or clear the pin with `nil`. `id`
   is a `:cache` keyword from `caches`. The scale leaves a pinned bound alone, for a cache
   measured on its own. The memory-pressure guard does not: a pinned cache shrinks under a
   filling heap like every other counted cache, because the guard's relief has to reach every
   counted cache or a pin holds the heap short of the reclaim the guard exists to force.
+  A pin on a registered cache no pin moves is **refused** (`:unknown-option`): the three
+  bounds outside the scale below, and the nil-bound caches. An `id` no cache has registered
+  yet is warned and recorded, since its namespace may load later and take the pin.
 
 ## The memory-pressure guard
 
@@ -121,7 +128,8 @@ wholesale clear
 (`trim-map!`, or a cache's own shape-aware `:trim`): past the lowered bound a cache keeps that
 many entries rather than none, so the reads the survivors serve are not all recomputed the
 moment pressure passes. The pressure floor (0.125) keeps a heap under sustained pressure
-holding a fraction of each cache rather than running every read cold.
+holding a fraction of each cache rather than running every read cold. A trim that throws is
+logged at `:warn` naming its cache and costs that cache alone.
 
 The guard is the **servers'** — attached at startup (`caches/install-memory-guard!`, fed the
 live KBs by the host's catalog) and by nothing at engine load, so a library embedding pays
@@ -132,12 +140,12 @@ guarantee. The pure-heap caches are its charge — the disk hot-record cache sta
 store open.
 
 `caches` reports the effective bound each cache enforces, so the scale and the row never
-disagree. Three bounds stand outside the scale: the **symbol pool**
+disagree. Two bounds stand outside the scale: the **symbol pool**
 (`*symbol-pool-limit*`), because its check runs per symbol interned — the hottest path on a
-load — and scaling it risks the sharing it exists for; the **scoped-closure pass budget**
-(`*scoped-memo-budget*`), a per-pass budget rather than a resident cache; and **hot
-records**, whose per-kind LRU has its own knob (`vaelii.disk.cache`). The nil-bound caches
-have no count to scale.
+load — and scaling it risks the sharing it exists for; and **hot records**, whose per-kind
+LRU has its own knob (`vaelii.disk.cache`). The nil-bound caches
+have no count to scale. A pin does not move any of these, so `set-cache-limit` refuses one
+rather than recording an override nothing reads.
 
 ## Reading them
 
@@ -164,8 +172,7 @@ need the QCN/temporal reasoners, `hot-records` needs a disk-backed store.
 | Cache | Unit | Bound | Retired by |
 |---|---|---|---|
 | Literal matches `:literal-matches` | literals | 4096 | wholesale clear; each entry clock-stamped, so any state change drops it |
-| Taxonomy closures `:taxonomy-closures` | reach sets | — | taxonomy generation bump |
-| Taxonomy closures, scoped `:taxonomy-scoped-closures` | visibility sets | 128 / relation | flush past budget, or generation bump |
+| Taxonomy closures `:taxonomy-closures` | closure terms | 50 000 000 | least recently used past the bound (weighed by the terms each closure holds; global and scoped in one LRU); a taxonomy generation bump leaves the old keys unasked |
 | Taxonomy visibility sets `:taxonomy-visibility` | relation/context pairs | — | generation bump |
 | Closure answers `:closure-answers` | closures | 100 000 members | wholesale drop; a single reach past the bound is never stored |
 | Resident derived values `:resident` | networks & passes | 256 | wholesale clear |

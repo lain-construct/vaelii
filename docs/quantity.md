@@ -42,12 +42,16 @@ Two ordinary stored facts drive normalization, both read through
 ```
 
 Put them in a context every querent sees (e.g. `CxUniverse`) so the prover finds
-them from any asking context. That is not only convenience: a quantity comparison in a
-**rule antecedent** is a deferred literal, and the forward join asks the registry at the
-wildcard `'?ctx` where a backward search asks at its goal's context
-([inference.md](inference.md)). So a unit table split across contexts reads whole
-forward and per-ancestor-set backward, and one stated where every reader sees it is the one
-arrangement under which the two agree.
+them from any asking context. A quantity comparison in a **rule antecedent** is a
+deferred literal, and the forward join asks the registry at the wildcard `'?ctx` where a
+backward search asks at its goal's context ([inference.md](inference.md)). The forward
+read does not reach past scoping: the firing's justification names the table rows the
+comparison converted through ([below](#what-a-comparison-rests-on)), so placement puts the
+conclusion only in a context that sees those rows as well as the rule and the fact, and a
+rule and a fact in a sibling of the table derive nothing
+(`computed_support_test/a-unit-table-the-rule-cannot-see-compares-nothing`). A table
+split across contexts therefore derives only where one context sees every row a
+comparison used.
 
 **Three dimensions ship filled in.** `resources/kb/upper/CxMeasure.txt` states Length in
 `Meter`, Mass in `Kilogram` and Duration in `Second`, with the ordinary units of each,
@@ -85,7 +89,7 @@ Reading the first match instead would answer whichever the index yields, and tha
 handle order — the same knowledge loaded in the other order would convert by the other
 factor and give a different number out of the same KB, which is the one thing the engine
 does not allow. So a doubly-stated reading is declined rather than adjudicated, the rule
-`duration/interval-length-with-support` follows for two lengths and `stp/endpoints-of` for
+`duration/interval-length-with-support` follows for two lengths and `stp/endpoints-with-support` for
 two starts.
 
 The base and the factor are **one** reading, taken together: a base from one declaration

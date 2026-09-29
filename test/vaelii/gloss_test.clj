@@ -159,16 +159,4 @@
 (tu/deftest-kb the-ordinary-path-cannot-reach-a-model
   ;; structural, not behavioural: `gloss` takes no provider, so a sentence over
   ;; documented vocabulary costs zero model calls by construction rather than by luck
-  (is (= 2 (count (first (:arglists (meta #'gloss/gloss))))))
-  (testing "the fallback is a separate entry point, fires only on :named, and marks itself"
-    (let [asked (atom 0)
-          ask   (fn [_] (swap! asked inc) "a wobbling thing.")]
-      (tu/with-terms [wobbles Zork]
-        (is (= :generated (:source (gloss/with-model kb (list wobbles Zork) ask))))
-        (is (= 1 @asked)))
-      (gloss/with-model kb '(genl dog animal) ask)
-      (is (= 1 @asked) "a composed sentence never reaches the model")))
-  (testing "a model that throws leaves the composed answer standing"
-    (tu/with-terms [wobbles Zork]
-      (let [boom (fn [_] (throw (ex-info "no model" {})))]
-        (is (= :named (:source (gloss/with-model kb (list wobbles Zork) boom))))))))
+  (is (= 2 (count (first (:arglists (meta #'gloss/gloss)))))))

@@ -45,6 +45,7 @@
     'vaelii.labeling-test
     'vaelii.minimize-solve-test
     'vaelii.solve-context-test
+    'vaelii.solve-rule-test
     'vaelii.sudoku-solve-test
     'vaelii.tsp-solve-test})
 

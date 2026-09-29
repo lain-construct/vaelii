@@ -100,6 +100,18 @@ axis**: the index is a function of the records, so the two are shared or separat
 thing, and each backend keys a registry of its own, so no KB can be given a private
 index over records it shares.
 
+**The space is a whole number 0 or more, or a keyword, a symbol or a vector**, and
+`open-kb` refuses any other value (`:unknown-option`, `:mismatch :bad-value`). A keyword,
+a symbol or a vector names a private space no number can name: `fork` takes `[::fork n]`,
+and a test takes a `gensym`.
+The refused values are the ones that name a store the caller did not spell. A string keys a
+RAM store of its own but derives the directory of the number or symbol it prints as
+(`"3"` and `3` are both `space-3`); a present `nil` is what `(:space cfg)` answers for a
+missing key, and opens neither space 0 nor anything else anyone named. `:dir` is a
+non-blank path string or a `java.io.File`: a blank path resolves against the JVM's working
+directory. `:base-stores` is the `{:records :index}` pair of open stores `fork` hands over
+from a live KB, and anything else is refused before a protocol call throws on it.
+
 **A second in-RAM KB defaulting onto space 0 warns**, because both readings are
 legitimate and nothing else could tell them apart. `(open-kb {})` twice in one process is
 one set of records behind two KB values: the second recovers the first's facts, and from
@@ -412,12 +424,12 @@ lifecycle, and `:disk-log` is the name for that. So `:records` /
 and `VAELII_TEST_BACKEND` takes a name. `./scripts/test-backends.sh` (`lein
 test-backends`) runs the whole suite on all eight, one log and one ✔/✘ per run, plus a
 ninth over the `overlay` decorator; `./scripts/test-matrix.sh` runs those nine and the
-six sweeps concurrently, which is the same coverage in a fraction of the wall
+seven sweeps concurrently, which is the same coverage in a fraction of the wall
 clock, since a durable run's store is `<vaelii.disk.dir>/space-<n>` and each gets its
 own directory. A bare matrix run is the **routine** roster, which stands two of the
 three durable-records-with-a-derived-index pairs down — one claim written three times,
 and `mixed_backend_test` holds the protocol in an ordinary `lein test` — and `full` is all
-fifteen. `./scripts/test-matrix.sh --owed` runs what the changed files owe and prints
+sixteen. `./scripts/test-matrix.sh --owed` runs what the changed files owe and prints
 why, from the map in `scripts/lib/suite-configs.sh`. `backend_parity_test` also runs one scripted KB
 session across every pair in an ordinary `lein test`, so a divergence fails without
 anyone remembering to.
@@ -693,11 +705,43 @@ pending, every public read entry point in `vaelii.core` runs against `kb/read-vi
 of the KB holding the belief the read began with. A read that begins before the install
 reads the installed belief to its end, and a lazy sequence it returns reads that belief
 when realized; no public read sees the network of one belief beside the taxonomy of the
-other. A KB with no install pending is passed through unchanged after one atom read. The rebuild stops at a check that precedes every record write,
-when `close!` closes the directory or `recover` is called; `recover` then runs the rebuild
-on the calling thread. An image declined for its records, its layout or its policies is not
+other. A KB with no install pending is passed through unchanged after one atom read.
+
+**The rebuild writes no record.** The rebuild KB reads the open KB's record store through
+`overlay.frozen/frozen-records`, which refuses every write with `:unrecovered-kb`, so no
+record and no index posting is written from the rebuild's thread. The index
+`:disk-snapshot` reads is the columnar one, whose fields are unsynchronized (see "The
+single-writer contract"), and a caller's read walks it while the rebuild runs. A rebuild
+whose closing settle, or whose re-fire of the rules that can refuse, places a conclusion
+the image's records lack ends at that write as a rebuild that throws does (below), with a
+message naming `recover`. The KB keeps answering from the image with writes refused, and
+does not become writable until a caller runs `recover`, which rebuilds on the calling
+thread and writes the conclusion there. `background_rebuild_test` pins both. The rebuild
+stops when `close!` closes the directory or `recover` is called; `recover` then runs the
+rebuild on the calling thread. The rebuild reads a stop request during the network
+replay, after it, before the closing settle and before the install. It reads none inside
+the taxonomy replay or the settle, so a `close!` can wait out a whole step. `close-dir!`
+waits before it takes the process-wide store registry's monitor, so the wait delays that
+close alone and no other directory's open or close. An image declined for its records, its layout or its policies is not
 installed, and the open recovers as `:auto` does. The browser opens a store with belief this
 way under `VAELII_DEV`, and with `:auto` otherwise (docs/web.md).
+
+`core/rebuild-progress` reports where a rebuild has got to: the step running, of eight (the
+six steps of a recover from the records, the install, and the image write), the time since
+the rebuild began, and the source digests of the image and of the running build. Each step
+is logged at `:info` as it begins. A recover from the records records its step timings in
+the KB, and the stamp carries them as `:recover`, which `decision` does not read; an
+installed image hands them on to the next image the KB writes. Against an image's
+`:recover`, `rebuild-progress` answers `:fraction`, the share of that recover the steps
+done so far took. A recover with no rebuild around it logs its six steps at `:info` over a
+store of a million sentexes or more, and at `:debug` below that.
+
+**A rebuild that throws** is logged at `:error`, and the KB keeps answering from the image
+and refusing writes, since `:stale-belief` still holds. `rebuild-progress` keeps reporting
+it with `:failed` added — `{:at :class :message}` — the step it was in, and its time
+stopped at the throw, so a caller polling progress can tell a failure from a rebuild that
+is not running. A `recover` clears the record and rebuilds belief on the calling thread;
+`background_rebuild_test` injects the throw.
 
 Measured on a large `:disk-snapshot` store by `lein bench-recoverphase beliefimage <dir>`:
 the open that installed the image took under a tenth of the time of the open that ran a
@@ -710,7 +754,9 @@ them in place of the recover it would otherwise run. The records half of a dump 
 stamp is content rather than slots, because a dump lands in a different store: the export
 folds `fingerprint/record-hash` over the sentex frames and `fingerprint/justification-hash`
 over the justification frames it writes, and the import folds the same two over the
-records it lands. The import tries the image only when it kept every handle the dump
+records it lands. The network is read after both walks, so the export writes no image when
+the change clock moved during it: a write between the walks and the network would stamp
+labels the streamed records never had with those records' fingerprints. The import tries the image only when it kept every handle the dump
 gave, since the network names its nodes by handle; the summary's `:reasoning-image` reports
 `{:reasoning :installed}` or `{:reasoning :recovered :reason r}`.
 
@@ -793,7 +839,7 @@ KBs and an operator drops one with `DROP SCHEMA`.
   STDIN BINARY` loads at **95.8k records/s** where the per-record entry point manages **4.1k/s**,
   and where the `:disk` store's own per-record path manages 52.7k/s. It is a *load*
   rather than an upsert — `COPY` has no `ON CONFLICT`, so a handle the store already holds
-  raises — which is the honest shape for a bulk path.
+  raises, so a bulk path never overwrites a record without saying so.
 - **An operator's existing everything** — backup, PITR, replication, monitoring, access
   control, a query surface. None of it is ours to write and all of it is what someone
   running a large KB asks for on day one.
@@ -969,8 +1015,11 @@ frames plus fixed-width 24-byte `.idx` slots keyed by integer id.
   **positionally** — [why positional, not
   tagged](defenses.md#frames-are-positional-not-tagged).  A literal frame is
   `[tag sentence context id strength]` and a rule frame `[tag context id antecedent
-  consequent strength …]`, with no sentence (tags 0–3, which also carry a polarity field
-  after the id, still decode), a justification frame a bare vector (one
+  consequent strength varmap engines defeasible effect]`, with no sentence and the
+  engines as one bit per engine (tags 0–3, which also carry a polarity field after the
+  id, still decode, and so do the rule tags that spell the wrappers as the three fields
+  `direction` / `assumption` / `constraint`, read through `sentex/fielded-rule-slots`),
+  a justification frame a bare vector (one
   shape needs no tag), and provenance — an open application map — passes through as it
   comes.  Each decoder dispatches on the thawed frame's shape, so **frames written before
   the codec still read** and no store needs rewriting.  Decoding interns the symbols it
@@ -989,7 +1038,11 @@ frames plus fixed-width 24-byte `.idx` slots keyed by integer id.
   records/s.)  Between ticks the two logs can still skew on a machine crash, the
   same cross-file skew a log and its idx have; `open-record-store` repairs it as
   `validate-idx-tail!` does, by tombstoning a record whose ids the dictionary lacks.
-  Only symbols and
+  The same walk tombstones a record whose tokenized body holds a code this codec does
+  not write (`:malformed-record`), and logs each count at `:warn` under its own
+  message.  Both are read as crash damage.  A frame tag this build does not read
+  (`:unknown-frame`) is not: the open rethrows it, because a build that cannot read a
+  log must not delete it.  Only symbols and
   keywords are interned — numbers and strings ride beside the id stream as literals, so
   a KB of measurements cannot mint an entry per value.  It is two more frame *tags*, not
   a format change: a store reads plain, tokenized and pre-codec frames side by side, so
@@ -1003,9 +1056,11 @@ frames plus fixed-width 24-byte `.idx` slots keyed by integer id.
   member — O(1) — and a bulk load of N members into one root writes O(N) WAL bytes,
   rather than logging the resulting value — [why the op, not the
   value](defenses.md#the-index-wal-logs-the-operation-not-the-value).  An index batch —
-  one `index-sentex`'s ops — is packed into one buffer and lands in **one write**, so
-  the batch is on disk whole or not at all, and the RAM map, published after the write,
-  never disagrees with the log about which ops happened.
+  one `index-sentex`'s ops — is packed into one buffer and lands in **one write**, and
+  the RAM map, published after the write, never disagrees with the log about which ops
+  happened in the running process. One write is not an atomic one: a crash during it can
+  leave a prefix of the batch's frames on disk, which replay applies. The batch-seal
+  counter (below) is what detects that prefix.
   Replay folds each frame through the same `apply-op` that applies a live op; `compact!`
   rewrites the log as one `[:put k v]` op per live key, so every frame is a uniform op
   and the reader needs no snapshot-vs-delta discrimination.  Compaction is this store's
@@ -1059,6 +1114,29 @@ slot that points at it, so a torn tail frame is one nothing references, and
 never written, and a filesystem that zero-fills past a tear would otherwise be walked to
 EOF four bytes at a time and pronounced intact.
 
+Three logs are read whole on open rather than through an idx: `tokens.log`, the index's
+`kv.log` and the operation log.  Their decoding scan (`files/scan-log`) follows the
+same length chain and stops where it ends.  A frame inside the chain whose payload does
+not thaw is read by what follows it.  As the chain's **last** frame it is a torn tail:
+its length landed and its payload did not, and the open truncates it with the rest of
+the tail.  With frames **after** it, it is damage inside the log, and the scan throws
+`:damaged-frame` naming the file, the byte offset and the frame.  Reading it as a tail
+would drop every frame after it.  In the token dictionary that ended the dictionary
+early, and the premise walk then tombstoned on disk every record citing a later token.
+Each log answers the refusal by what it holds:
+
+- `tokens.log` — the open refuses.  Frame *i* is id *i*, so no later frame can be read
+  past the damaged one, and the records citing them are not crash skew.
+- `kv.log` — the replay keeps the ops before the frame and flags the store
+  `:damaged-frame`, and the coverage gate below rebuilds the index from the records.
+  The log is left as it is until that rebuild empties it.
+- the operation log — truncated at the frame and marked unusable (`[:damaged-frame
+  offset]`), so a restore declines and the open recovers from the records.
+
+A `VirtualMachineError` inside a thaw, an `OutOfMemoryError` above all, is rethrown as
+itself and fails the open: it says the JVM could not finish the thaw, not that the frame
+is bad, and the next open reads the log whole.
+
 A clean `close!` records each log's length in `clean.nippy` and the next open skips the
 walk while the length still agrees; the marker is *consumed* on open, so it only ever
 describes a store nobody holds, and any disagreement — stale, absent, unreadable, past
@@ -1077,7 +1155,8 @@ the seal first.  The **length check** compares the file against the clean marker
 before the marker is consumed: a compacted log is one flat `[:put]` per key in hash
 order, so a tail lost at rest — a short restore, a partial copy — is arbitrary keys,
 the seal possibly among the survivors, and only the length says the file is not the
-one that was closed.  Either sign, and the gate rebuilds the index from the records.
+one that was closed.  A frame inside `kv.log` that does not decode sets the same flag.
+Any of these signs, and the gate rebuilds the index from the records.
 A store whose seal reads zero — one written before the counter, or an index installed
 whole by `import-dump`'s replay — is checked by the root count alone, as before.
 
@@ -1178,10 +1257,20 @@ fact wearing the same shape:
   `disk.lock`, or code in this process holding the file locked itself; the tag in the file
   is then ours, so the refusal names this JVM from `ProcessHandle` rather than reading it
   back. `:type :disk-locked` with `:same-jvm? true`.
-- **This JVM, unable to let go** is a `.release` or `.close` that threw. The directory
-  stays marked held rather than being reported free while the descriptor and the OS lock
-  are still ours, and re-acquiring it is refused with `:type :unreleased`. Only the process
-  exiting drops what is still held.
+- **This JVM, unable to let go** is a `.release` or `.close` that threw, at a close or
+  while unwinding an acquire whose holder-tag write threw after the OS lock was taken.
+  The directory stays marked held rather than being reported free while the descriptor
+  and the OS lock are still ours, and re-acquiring it is refused with `:type
+  :unreleased`. Only the process exiting drops what is still held.
+
+Two refusals come **before** the lock is tried, because creating `.vaelii.lock` is the
+first thing an open writes and java.io's refusal names that file rather than the
+directory. `acquire!` catches it and names the directory, by the canonical path every
+lock refusal uses:
+`:type :not-a-directory` (with `:file`) when the directory, or the nearest part of its
+path that exists, is a regular file, and `:type :not-writable` (with `:user` and the OS's
+`:reason`) when the process cannot create files there. A read-only open is refused the
+same way, since it takes the lock too.
 
 The switch is read **at acquire time and by `held?`**: it decides whether an entry is
 made, `release!` follows the entry alone, and `held?` answers true for an entry or for the
@@ -1208,10 +1297,71 @@ two KBs over one directory share the durable store — the restart contract the 
 tests rely on — and the lock, file handles, and durability registration are taken once;
 closing either KB closes both.
 
+### A store that stops
+
+**A sentex write is two stores, and a refusal from the second takes back the first.**
+`kb/create-sentex` appends the record, which allocates the handle, and then writes the
+index batch keyed on that handle.  An index that refuses the batch — `:compaction-failed`,
+or any other throw — would otherwise leave a record no index names, reported to the
+caller as a failed write.  The next open's coverage gate indexes such a record, and
+recovery then believes it as a premise whose forward rules never fired for it, since
+`recover` rebuilds belief from the stored justifications and does not chain.  An index
+can also refuse part-way through its write: the columnar index writes the trie posting
+before the argument roots, and a (predicate, position) pair past the argument-scope
+ceiling refuses in the second step, so the posting would name a handle with no record.
+So the postings the write landed are taken out (`unindex-sentex!`) and the record is
+deleted before the throw travels, and the store holds what it held before the call.  A justification is one record and no index write, so the justification writers
+have no second store to fall out of step with.  A crash between the two writes is the
+coverage gate's to repair, as above.
+
+**A disk store stops at its first fault, and says so on every call after it.**  Each
+store — the record store, the index's `kv.log`, an overlay's metadata log — holds one
+fault latch, and five things set it, named by the refusal's `:reason`:
+
+- `:interrupted` — a thread interrupt closed a channel the store was reading or writing.
+  A `FileChannel` closes itself when the thread blocked in it is interrupted, and the
+  closed channel closes the `RandomAccessFile` it belongs to, so the channel is gone for
+  every later call on every thread, not only for the interrupted one.
+- `:channel-closed` — a channel was found closed without the interrupt that closed it.
+- `:write-failed` — an append, a slot write, a tombstone or a truncation threw an
+  `IOException`: a full disk, an I/O error.
+- `:fsync-failed` — the durability daemon's fsync, or the one `close!` runs, threw.  The
+  kernel may already have dropped the dirty pages it was flushing, so a retry on the next
+  tick could succeed over bytes that never reached the disk.  The fsync is not retried;
+  the writer is told instead.
+- `:closed` — `close!` released the store.
+
+From then on every call on that store — reads, writes, enumerations, `clear!` — throws
+`:store-unusable` with the first fault's `:reason`, its `:path`, and the exception that
+latched it as the cause, where each call would otherwise have thrown whichever
+`ClosedChannelException` or `IOException: Stream Closed` its own channel produced, with
+no `:type`.  The first fault is logged once, at `:error`.  Only opening the directory
+again clears the latch: the open walks a log that did not close cleanly and the
+coverage gate checks the index, which is the repair.  A read that fails with an
+`IOException` on an open channel leaves nothing on disk changed and does not stop the
+store.  `:compaction-failed`, a compaction that failed past its commit marker, is a
+separate latch with its own refusal.
+
+`close!` of a store that has already stopped releases every handle, logs at `:warn` and
+does not throw.  It writes no clean marker, so the next open treats the directory as an
+unclean shutdown.  A close whose own flush fails still throws, since that fault is the
+close's to report.
+
+**The steps `assert` takes after the write landed do not fail it.**  `assert` stores,
+chains and settles the sentence, then stamps its provenance, re-homes a forced extent and
+reconciles NATs.  A store that stops during those three steps is logged at `:error`
+naming the handle, and `assert` returns the handle: the write took effect and a reopen
+holds it with its consequences, and the store refuses the next call.  What a stop leaves
+undone is the stamp or the maintenance, never the write.  A store that stops earlier,
+while the sentence is being stored or chained, throws `:store-unusable` out of `assert`.
+A premise stored before a fault inside the chaining keeps its record, and a reopen
+believes it with only the consequences written before the fault: `recover` rebuilds
+belief from stored justifications and does not chain.
+
 ## The sentex records — `LiteralSentex` and `RuleSentex`
 
 A sentex is stored as one of **two records**, split so a literal sentex does not carry
-the seven rule-only slots — there are 100M+ facts, and each dropped reference field is
+the six rule-only slots — there are 100M+ facts, and each dropped reference field is
 ~4 bytes across all of them (measured: the record shell falls from ~80 to ~48
 bytes/instance, ~3.2 GB at 100M). Both share a scalar **core**; `RuleSentex` adds the rule
 decomposition. The `sentex/sentex` constructor canonicalizes the structural connectives
@@ -1253,22 +1403,24 @@ is its one representation — the form the chainers, the indexers and the checks
 - `:consequent` — the consequent pattern.
 - `:varmap` — `{?var0 ?x, …}` mapping each **canonical variable** back to the name the
   author wrote, so `sentex/originalize` can restore the original form for display.
-- `:direction` — the inference direction, set by the rule's `set/*Rule` wrapper:
-  `:forward` / `:backward` / `:inert`, and `:backward` for a bare `implies` (`:forward` for a
-  bare generator). The wrapper
-  canonicalizes into the record exactly like the connectives do, so a rule carries its
-  own direction rather than it living in a side index.
+- `:engines` — which engines run the rule, a subset of `#{:forward :backward :solve}`,
+  set by the rule's `set/*Rule` wrapper: `#{:backward}` for a bare `implies`,
+  `#{:forward :backward}` for `set/forwardRule` (and a bare generator), `#{:forward}` for
+  `set/forwardOnlyRule`, `#{}` for `set/inertRule`, and `#{:solve}` for a choice or
+  constraint rule. The wrapper canonicalizes into the record exactly like the connectives
+  do, so a rule carries its own engines rather than them living in a side index. Not part
+  of the rule's identity: a re-assert joins two spellings by union
+  ([canonicalization.md](canonicalization.md#rule-wrappers-become-fields)).
 - `:defeasible` — `true` for a `set/defaultRule` rule (its conclusions fire at
   `:default` strength and can be defeated); `nil` otherwise. Wrappers may nest, so a
   defeasible forward rule sets both fields.
-- `:assumption` — `true` for a `set/assumptionRule` whose head is a *choice* for a
-  solve rather than a derived truth; `nil` otherwise. Part of the rule's **identity**
-  (it is a constant slot in the trie key), so a choice rule and its bare twin are
-  distinct sentexes — see [solving.md](solving.md).
-- `:constraint` — `:hard` for a `set/hardConstraint` rule and `:soft` for a
-  `set/softConstraint` one, `nil` otherwise: the head is a contradiction the solver must
-  avoid rather than a truth to derive. In the trie key on the same footing as
-  `:assumption` — see [solving.md](solving.md).
+- `:effect` — what the head is. `:derive` for a truth the rule concludes; `:choose` for a
+  `set/assumptionRule`, whose head is a *choice* for a solve; `:forbid` for a
+  `set/hardConstraint` and `:penalize` for a `set/softConstraint`, whose head is a
+  contradiction the solver must avoid (excluded outright, or minimized). Part of the
+  rule's **identity** — the trie key's two constant trailing slots spell it — so a choice
+  or constraint rule and its bare twin are distinct sentexes; see
+  [solving.md](solving.md).
 
 An `exceptWhen` exception is **not** among these. It is a separate meta-sentex naming the
 rule's handle, so it is not in the trie key and a rule and its excepted twin are the same
@@ -1357,7 +1509,8 @@ unaffected.
 
 ### A file names no class
 
-Every thaw the engine runs over a file goes through one entry point, and its allowlist of class
+Every thaw the engine runs over a file — a record stream, a log, a dump, the reasoning
+image's `network.bin` and `state.nippy` — goes through one entry point, and its allowlist of class
 names is **empty**: a frame naming a class is refused `:disallowed-class` before the name
 is resolved.
 
@@ -1380,6 +1533,11 @@ pre-sentinel directory is by definition today's layout — but a **damaged** one
 being written at the same moment. A damaged `layout.edn` reads as `:stale` instead and
 the index is rebuilt from the records: it answers whether the entries can be *proved* to
 match this build's key shape, and a torn stamp proves nothing.
+
+Both are read under the manifest byte bound (`dfiles/read-edn-manifest`), as are an
+index directory's `records.edn` and a belief image's `manifest.edn`. A `format.edn` past
+the bound is `:manifest-too-large` at `open-kb`, as it is at the catalog; a `layout.edn`
+past it reads as `:stale`, the answer a torn one gets.
 
 ## The canon gotcha
 
@@ -1405,11 +1563,11 @@ pooled `?var0` still matches a fresh one as a binding key.
 
 What bounds the pool is **not** the vocabulary. A KB that only names things holds one
 entry per distinct name, but three writers mint a fresh symbol per *fact* — NAT
-reification (`nat/fresh-constant`), head-existential skolemization
+reification (`nat/constant-for`), head-existential skolemization
 (`skolem/skolemize-conclusion`) and abduction's scratch contexts — and the pool is
 static, process-wide and shared by every KB, so nothing hands an entry back. A disk
 store's index snapshot also interns every token of its dictionary at open, which on a
-12M-sentex store is several million names. So the pool is capped at
+large store is millions of names. So the pool is capped at
 `sentex/*symbol-pool-limit*` (1M, several times the shipped ontology plus the whole of
 OpenCyc, ~188k constants) and held in two generations. A lookup reads the current
 generation, then the previous one, and a name found in the previous one moves into the
@@ -1617,7 +1775,7 @@ opposed at neither end is written and dropped unread.
 **A-B-B-A order** — so the drift a JVM accumulates over a dozen loads lands on both arms
 instead of on whichever runs second — measures **0.994× at 250,000 facts, five pairs
 spread 0.95–1.04**: the guard does not move the wall clock at this size, and the spread
-is the honest width of the answer. A fixed A-then-B order reports the same comparison as
+is the width of the answer. A fixed A-then-B order reports the same comparison as
 a 20% win, which is the drift and not the guard, and is why the harness alternates. What
 is really removed is a structure proportional to the corpus — a claim about a ten-million-
 fact load's heap rather than about a quarter-million-fact one's seconds. `lein
@@ -1635,12 +1793,61 @@ writes:
   `StampedLock` write stamp — so concurrent operations **compose** and none is silently
   lost. That is a liveness floor, not a semantics: interleaved `assert`/`retract!`
   sequences are not serializable (find-or-create and the settle pipeline are
-  check-then-act), so concurrent *writing* still needs a single writer. A reader thread
+  check-then-act), so concurrent *writing* still needs a single writer: two threads
+  asserting one sentence can store it at two handles, both believed, and the store keeps
+  both across `recover`. A reader thread
   beside a writer thread (the web browser over a REPL's KB) is the supported shape, and
   **both** TMS representations give that reader a consistent view — the reference out of
   its persistent-map snapshot, the dense one out of an optimistic read stamp validated
   against the writer's, so neither ever shows a partially-applied relabel
   (`jtms_concurrency_test`).
+
+  **A settle is published once.** A settle is a run of TMS calls: it lifts every standing
+  defeat and empties both scoped rosters before it re-decides any of them, so between its
+  first call and its last the network believes the loser of every standing contradiction,
+  on every settle, including one for an unrelated fact. While a settle runs it **holds**
+  the belief it began from (`vaelii.impl.settle/settle`): the network records each label
+  a relabel moves as it was when the settle began, the two scoped rosters keep their
+  values, and a thread other than the writer reads those — belief, a defeat class, the
+  defeated, blocked and superseded sets, and a scoped defeat at its vantage. When the
+  settle ends it publishes what it decided in one step, which is one swap of the open
+  holds (`vaelii.impl.observe`). A reader beside the writer therefore reads, for every
+  settle, the belief before it and then the belief after it, and never one in between
+  (`kb_concurrency_test`). Three things keep that exact:
+  - **The caches.** A thread reading a hold's belief reads the change clock as
+    `-1 - clock` (`observe/change-clock`), so no clock-stamped cache hands it an entry the
+    writer derived from the network it is deciding, and none hands the writer one derived
+    from the belief the reader holds. The per-reader withdrawal cache is neither read nor
+    filled under a hold (`jtms/through-cache`).
+  - **The taxonomy is read live.** Its closures are memoized where the writer reads them,
+    so the two visibility callbacks read what the writer holds now (`observe/live`), and
+    `genl?`, `isa?` and the scoped closures answer a reader beside a settle from the
+    closures as the settle moves them. The hold covers belief, not the closures.
+  - **The reasoning image.** Its stamp covers the records, and a settle moves belief
+    without writing one, so `reasoning-image/save!` declines while a settle holds the
+    network, or when the change clock moved while it wrote.
+
+  **A read is not one state's, and the engine does not make it one.** `sentexes-matching`
+  and `query` read the index postings and then belief per candidate, and nothing ties the
+  two reads to one state. A match stored after the postings are read is missing from the
+  answer, and so is a match that leaves belief before its check. A writer that moves a
+  counter with `assert (cnt N+1)` and then `retract! (cnt N)` holds one or two believed
+  counters in every state, and a reader's one `sentexes-matching` for `(cnt ?n)` can
+  still answer none. Both reads are lazy over live state, so a caller bounds an open read
+  by taking from its seq and pays for the records it takes
+  ([api.md](api.md#choosing-a-query-function)). One state per read would need every answer
+  realized whole and re-run whenever a write lands inside it, or a versioned store, and
+  the engine has neither. A caller that needs one state per read reads on the writer's
+  thread, or between writes it orders itself. An assert or a retraction publishes the TMS
+  calls it makes before its settle one at a time, and an `edit!` is visible to that reader
+  add by add; its effect as one change is its one `watch` event.
+
+  **A cache entry is one state's.** Every TMS entry point moves the change clock before
+  and after its mutation (`vaelii.impl.jtms`, `moving`). The literal-match cache and the
+  closure cache install an entry only when the clock reads the same before and after
+  computing it (`literal-cache/lookup`, `provers/cached-reach`). A reader thread that
+  computes across a TMS call therefore installs nothing in either, and neither the writer
+  nor a later read is served an answer about the network before the call.
 
   **Two selectable index backends are narrower than that**, and it is the one place the
   floor does not reach. `:columnar` (`vaelii.impl.columnar`, and the `vaelii.impl.dense-roots`
@@ -1651,7 +1858,8 @@ writes:
   a compaction or a snapshot install, with no happens-before edge to stop it. The atom-
   and lock-based backends give the incidental reader a consistent view; these two do
   not, and keeping such a read on the writer's thread or behind a synchronizer is the
-  caller's. The walk reads these fields at every frontier node, the index's hottest
+  caller's. Two writer threads on them do worse than tear: they can leave an
+  open-addressing map with no empty slot, and both threads then probe it without end. The walk reads these fields at every frontier node, the index's hottest
   loop — [why unsynchronized
   there](defenses.md#the-columnar-and-dense-backends-use-unsynchronized-fields).
 - *Two processes, one store:* not supported, and worse than stale — process B's

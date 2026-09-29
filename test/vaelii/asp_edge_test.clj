@@ -64,7 +64,7 @@
   ;; emitted: settle hands them in arrival order, and every emission — violation
   ;; atoms, constraints, minimize, show — walks that seq, so an unsorted one
   ;; rendered two logically identical programs as different ASPIF text
-  (when asp?
+  (tu/with-requirement asp? "no ASP solver on this box"
     (let [content {1 {:sentence '(a X) :context 'C} 2 {:sentence '(not (a X)) :context 'C}
                    3 {:sentence '(b X) :context 'C} 4 {:sentence '(not (b X)) :context 'C}}
           n1      {:nogood #{1 2} :priority 0 :sentence '(contradicts A)}
@@ -109,7 +109,7 @@
   ;; order, so if the outcome tracked handles the Nixon diamond would elect
   ;; whichever side was typed first.  Same two claims, handles swapped — the same
   ;; *claim* must lose both times.
-  (when asp?
+  (tu/with-requirement asp? "no ASP solver on this box"
     (let [ng [{:nogood #{1 2} :priority 0 :sentence '(contradicts X)}]
           c1 {1 {:sentence '(a) :context 'C} 2 {:sentence '(b) :context 'C}}
           c2 {1 {:sentence '(b) :context 'C} 2 {:sentence '(a) :context 'C}}
@@ -220,7 +220,7 @@
             (is (= :default (v/defeat-class kb neg)))))
         (testing "the backend was never handed a program"
           (is (nil? (v/last-program kb))))
-        (testing "and the pair is indistinguishable from a dilemma, not an unsatisfiable conflict"
+        (testing "and the pair is reported as a dilemma, not an unsatisfiable conflict"
           (is (= 1 (count (v/contradictions kb))))
           (is (empty? (v/conflicts kb))))))))
 
@@ -268,7 +268,7 @@
   ;; The strength of the assertion matters as much as before.  Comparing whole
   ;; readings rather than a per-ordering boolean is what makes a one-off flip visible;
   ;; "some outcome is stable" would pass while the engine was order-dependent.
-  (when asp?
+  (tu/with-requirement asp? "no ASP solver on this box"
     (let [ops [#(v/assert % (default-rule '[(quaker ?x)]     '(pacifist ?x))       'CxUniverse)
                #(v/assert % (default-rule '[(republican ?x)] '(not (pacifist ?x))) 'CxUniverse)
                #(v/assert % '(quaker Nixon)     'CxUniverse)
@@ -311,7 +311,7 @@
   ;;
   ;; This is also what catches an unsorted rule body: `:nogood` is a set, so a body
   ;; built by plain iteration renders in hash order rather than content order.
-  (when asp?
+  (tu/with-requirement asp? "no ASP solver on this box"
     (let [mk (fn [content]
                (edge/translate
                 (solve/program #{1 2} [{:nogood #{1 2} :priority 0 :sentence 'X}] content)))
@@ -446,6 +446,18 @@
           (is (= expected-type (:type (ex-data (:error r)))))
           (is (identical? thrown (ex-cause (:error r))) "the original failure is the cause"))))))
 
+(deftest a-jvm-error-escapes-the-solve-and-an-interrupt-keeps-its-flag
+  (with-redefs [solver/available? (constantly true)
+                solver/solve      (fn [_ _] (throw (OutOfMemoryError. "heap")))]
+    (is (thrown? OutOfMemoryError (solve-types/solve edge/edge-solver two-choices))))
+  (with-redefs [solver/available? (constantly true)
+                solver/solve      (fn [_ _] (throw (InterruptedException. "stop the settle")))]
+    (let [r     (solve-types/solve edge/edge-solver two-choices)
+          flag? (Thread/interrupted)]
+      (is (empty? (:defeat r)) "nothing was decided")
+      (is (instance? InterruptedException (ex-cause (:error r))))
+      (is flag? "the interrupt flag is set again on the solving thread"))))
+
 (deftest an-unsat-result-keeps-its-documented-reading
   ;; `:unsat` is a definite answer — no model — and each reader has its own word for
   ;; it: the edge solver degrades, a labeling keeps nothing, an enumeration is empty.
@@ -474,7 +486,7 @@
         prog (fn [ngs] (solve/program #{1} (conj (vec ngs) force)
                                       {1 {:sentence '(live) :context 'Cx}}))
         seen (fn [ngs] (mapv :sentence (:violated (solve-types/solve edge/edge-solver (prog ngs)))))]
-    (when asp?
+    (tu/with-requirement asp? "no ASP solver on this box"
       (testing "the same three nogoods in either order read identically"
         (is (= (seen [ng1 ng2 hi]) (seen [hi ng2 ng1]))))
       (testing "highest caller priority first, then content — the Solver contract"
@@ -505,7 +517,7 @@
   ;; finishes under neither: one solve returns after ~1015 ms and `classify-both` after
   ;; 2049 ms, both of them correctly cancelled on time.
   ;;
-  ;; docs/asp.md tabulates the multipliers.  This is what keeps the table honest: a
+  ;; docs/asp.md tabulates the multipliers.  This test checks the table: a
   ;; second solve added to an operation is a doubling of the writer's exposure, and it
   ;; should not be possible to add one without saying so.
   (when asp?

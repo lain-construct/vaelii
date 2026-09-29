@@ -53,7 +53,7 @@ hms() { printf '%dm%02ds' $(($1 / 60)) $(($1 % 60)); }
 #
 # A terminal gets the mark rows below, because a row of ticks is readable while it
 # is being *watched* and three lines a backend beats 165.  Everything else — a
-# redirect, a pipe, a `nohup … | tail -f`, CI, an agent's shell — gets one line per
+# redirect, a pipe, a `nohup … | tail -f`, CI, a scripted shell — gets one line per
 # namespace, because a mark row written to a file is the worst of both: a partial
 # row is one unterminated line whose count arrives sixty namespaces later, and no
 # part of it says which namespace was slow or which one was running when the run
@@ -113,7 +113,7 @@ selected_ns_count() {
 # by 24, rather than the terminal's size.  `/dev/tty` is the controlling terminal
 # whatever stdout has been redirected to, so `stty` on it answers where `tput` cannot.
 # Where there is no controlling terminal either — CI, a cron, a container — both fail
-# and the defaults are the honest answer.  `SUITE_TTY` already carries the tty question
+# and the defaults are the answer.  `SUITE_TTY` already carries the tty question
 # across the same boundary for the same reason; this carries the size.
 term_size() {                                      # -> "<rows> <cols>"
   local s
@@ -252,7 +252,7 @@ failing_tests() {
 }
 
 # The assertion count alone, for `assertion_deltas_ok` — empty for a run that never
-# printed one, which that function skips rather than is indistinguishable from a zero.
+# printed one, which that function skips rather than counting as a zero.
 run_assertions() {
   run_summary "$1" | sed -nE 's/^[0-9]+ tests, ([0-9]+) assertions$/\1/p'
 }

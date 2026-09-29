@@ -21,6 +21,7 @@
 #      is where the question gets asked.
 #
 # Exit 0 when clean; prints each violation and exits 1 otherwise.
+{ # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -euo pipefail
 export LC_ALL=C
 
@@ -129,3 +130,5 @@ if (( FAILS > 0 )); then
 fi
 entries=$(grep -c '^\*\*' "$GLOSS")
 echo "lint-glossary: OK ($entries entries)"
+exit
+}
