@@ -6,7 +6,7 @@
   (Integer/parseInt
    (second (re-find #"^(?:1\.)?(\d+)" (System/getProperty "java.specification.version")))))
 
-(defproject com.vaelii/vaelii "0.22.0"
+(defproject com.vaelii/vaelii "0.22.1-SNAPSHOT"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
