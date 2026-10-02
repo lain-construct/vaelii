@@ -78,14 +78,16 @@
 (tu/deftest-kb arity-is-declared-functional
   ;; a relation has one arity, and the arity and its relation-wide exact class derive
   ;; each other — so a second, different (arity R N) is a clash rather than a second
-  ;; belief.  Two numbers can never merge into one thing, so this is the hard rejection,
-  ;; not an equality.  Two convictions reach it: (functional arity) on the table, and
+  ;; belief.  Two numbers can never merge into one thing, so this is a nogood, not an
+  ;; equality.  Two convictions reach it: (functional arity) on the table, and
   ;; (disjoint binary ternary) on the classes the two numbers derive.
   (is (v/has-prop? kb :functional 'arity))
   (let [rel (tu/tmp-pred)]
     (v/assert kb (list 'binary_predicate rel) 'CxCore)
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list 'arity rel 7) 'CxCore)))))
+    (is (integer? (v/assert kb (list 'arity rel 7) 'CxCore)))
+    (is (not (and (v/ask? kb (list 'arity rel 2) 'CxCore)
+                  (v/ask? kb (list 'arity rel 7) 'CxCore)))
+        "the two values are one nogood, and not both believed")))
 
 (tu/deftest-kb exact-arity-derives-fixed-policy-without-argument-entailment
   (binding [checks/*assertive-arg-types?* false]

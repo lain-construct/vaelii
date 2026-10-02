@@ -38,7 +38,7 @@
   `write-fully-at!` and `append-bytes!` are private, which is the right side of the boundare
   to be on — they are the two functions whose whole content is the syscall — and
   `with-redefs` reaches a private var the same way `settle_region_cost_test` reaches
-  `settle/body-nogoods`.  Both carry primitive argument or return hints, so each stand-in
+  `negation/polarity-handles`.  Both carry primitive argument or return hints, so each stand-in
   repeats the signature; a varargs one cannot satisfy the `IFn$OOL` the call site
   compiled to.
 

@@ -95,12 +95,24 @@
   (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
   (v/assert kb (list 'set/forwardRule (list 'implies (list fruit '?x) (list edible '?x))) 'CxUniverse))
 
+(defn- stone-schema!
+  "`(arg tintOf 2 color)` over a `Stone` held by a type disjoint from `color`, so a
+  `tintOf` fact naming `Stone` is refused as `:arg-type` under the constraint reading."
+  [kb tintOf color rock Stone]
+  (v/assert kb (list 'genl color 'thing) 'CxUniverse)
+  (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
+  (v/assert kb (list 'disjoint color rock) 'CxUniverse)
+  (v/assert kb (list rock Stone) 'CxUniverse)
+  (v/assert kb (list 'arg tintOf 2 color) 'CxUniverse))
+
 (tu/deftest-kb a-sentence-refused-after-its-nat-was-minted-leaves-no-mint
-  (tu/with-terms [FruitFn fruit edible hueOf AppleTree Red Extra]
+  (tu/with-terms [FruitFn fruit edible hueOf tintOf color rock AppleTree Red Stone]
     (fruit-schema! kb FruitFn fruit edible)
-    (v/assert kb (list 'arity hueOf 2) 'CxUniverse)
-    (testing "an arity refusal"
-      (refused-leaves-nothing kb (list hueOf (list FruitFn AppleTree) Red Extra) 'CxUniverse :arity))
+    (stone-schema! kb tintOf color rock Stone)
+    (testing "an argument-type refusal"
+      (tu/without-entailing
+       (refused-leaves-nothing kb (list tintOf (list FruitFn AppleTree) Stone) 'CxUniverse
+                               :arg-type)))
     (testing "a non-ground fact"
       (refused-leaves-nothing kb (list hueOf (list FruitFn AppleTree) '?c) 'CxUniverse :not-ground))
     (testing "an option refused after the mint"
@@ -115,17 +127,19 @@
     (v/assert kb (list 'context_denoting_function CxTimeFn) 'CxUniverse)
     (refused-leaves-nothing kb (list 'Bad_Pred Rex) (list CxTimeFn CxMonad Day) :naming)))
 
-(tu/deftest-kb a-nat-whose-result-type-is-disjoint-from-the-demand-is-refused-alike
+(tu/deftest-kb a-nat-whose-result-type-misses-the-demand-is-refused-alike
+  ;; the constraint reading, where the declaration convicts the constant for its result
+  ;; type; the entailing one mints `(dog …)` beside `(fruit …)` and stores the clash
   (tu/with-terms [FruitFn fruit dog ownsDog AppleTree Bob]
     (doseq [s [(list 'genl fruit 'thing) (list 'genl dog 'thing) (list 'disjoint fruit dog)
                (list 'reifiable_function FruitFn) (list 'result FruitFn fruit)
                (list 'arg ownsDog 2 dog)]]
       (v/assert kb s 'CxUniverse))
     (let [s (list ownsDog Bob (list FruitFn AppleTree))]
-      (tu/with-entailing
-        (testing "check names the type assert throws"
-          (is (= #{:disjoint} (checked-types kb s 'CxUniverse))))
-        (refused-leaves-nothing kb s 'CxUniverse :disjoint)))))
+      (tu/without-entailing
+       (testing "check names the type assert throws"
+         (is (= #{:arg-type} (checked-types kb s 'CxUniverse))))
+       (refused-leaves-nothing kb s 'CxUniverse :arg-type)))))
 
 (tu/deftest-kb a-nat-whose-result-type-the-entailment-extends-is-admitted-by-both
   ;; `fruit` does not reach `food` and is not disjoint from it, so the mint's constant
@@ -142,13 +156,14 @@
       (is (= [] (v/check kb (list ownsFood Ann (list FruitFn AppleTree)) 'CxUniverse))))))
 
 (tu/deftest-kb a-listener-hears-nothing-of-a-refused-mint
-  (tu/with-terms [FruitFn fruit edible hueOf AppleTree Red Extra]
+  (tu/with-terms [FruitFn fruit edible tintOf color rock AppleTree Stone]
     (fruit-schema! kb FruitFn fruit edible)
-    (v/assert kb (list 'arity hueOf 2) 'CxUniverse)
+    (stone-schema! kb tintOf color rock Stone)
     (let [events (atom [])
           token  (v/watch kb #(swap! events conj %))]
       (try
-        (is (= :arity (refusal-type kb (list hueOf (list FruitFn AppleTree) Red Extra) 'CxUniverse)))
+        (is (= :arg-type (tu/without-entailing
+                          (refusal-type kb (list tintOf (list FruitFn AppleTree) Stone) 'CxUniverse))))
         (is (= [] @events) "the mint's settle is held and its handles are gone")
         (finally (v/unwatch kb token))))))
 

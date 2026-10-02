@@ -140,11 +140,13 @@
 
 (defn limit-thunk
   "`#(limit-of id default)`, for a descriptor's `:limit`, so its `rows` entry reports the
-  effective bound rather than the shipped default.  See `register-cache`."
+  effective bound rather than the shipped default.  A `default` that is a var, such as
+  `#'*a-dynamic-limit*`, is dereferenced on each call, so the row reads the current
+  binding.  See `register-cache`."
   [id default]
   ;; the metadata is what `pin-problem` reads: a descriptor whose bound comes through here
   ;; is one a pin moves, and no other is
-  (with-meta (fn [] (limit-of id default)) {::profile-id id}))
+  (with-meta (fn [] (limit-of id (if (var? default) @default default))) {::profile-id id}))
 
 (defn set-scale
   "Multiply every count-bounded cache's shipped limit by `x`, and return the profile.

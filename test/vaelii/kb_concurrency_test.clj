@@ -40,6 +40,7 @@
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.literal-cache :as literal-cache]
             [vaelii.impl.observe :as observe]
+            [vaelii.impl.readings :as readings]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.settle :as settle]
             [vaelii.impl.types.reasoning :as reasoning]
@@ -171,6 +172,9 @@
                             {:strength :monotonic})
           alt     (v/assert kb '(altp Anne) 'CxUniverse {:strength :monotonic})
           drv     (v/handle-of kb '(drvp Anne) 'CxUniverse)
+          ;; the settles above keep the entry they computed for `CxSubA`; emptied so the
+          ;; reader thread computes one
+          _       (res/clear-withdrawn! kb)
           reader  (promise)
           parked  (promise)
           release (promise)
@@ -236,10 +240,8 @@
 
 ;; ---- a settle publishes once ------------------------------------------------------
 ;;
-;; A settle lifts every standing defeat and empties both scoped rosters before it
-;; re-decides any of them, so the network it is deciding holds the loser of every standing
-;; contradiction believed, rounds at a time.  A reader beside it reads the belief the
-;; settle began from, and then the belief it reached; never one in between.
+;; A reader beside a settle reads the belief the settle began from, and then the belief it
+;; reached; never one in between.
 
 (defn- standing-contradiction!
   "A KB on `tms` holding a standing contradiction whose `:default` member loses: globally
@@ -268,15 +270,12 @@
                                 (v/sentexes-matching kb '(flies Tweety) vantage)))})
 
 (deftest a-reader-beside-a-settle-reads-the-belief-the-settle-began-from
-  ;; The writer asserts an unrelated fact, and its settle is parked at one of two points
-  ;; after it has lifted the standing defeat: before the discovery pass re-reads the
-  ;; contradiction, and before the resolution re-decides it.  A reader on this thread reads
-  ;; the loser there, and must read what it read before the settle.  Parked before the
-  ;; discovery, the reader's reads come first, and the loser still defeated afterwards
-  ;; says the writer decided on its own network rather than on what the reader read.
+  ;; The writer asserts an unrelated fact, and its settle is parked at one of two points:
+  ;; inside a pass, and before it publishes the readers' readings.  A reader on this thread
+  ;; reads the loser there, and must read what it read before the settle.
   (doseq [tms   [:dense :reference]
           scoped? [false true]
-          park  [#'settle/constraint-nogoods #'settle/resolve-contradictions]]
+          park  [#'settle/drain-recheck! #'readings/reader-moves]]
     (let [[kb loser vantage home] (standing-contradiction! tms scoped?)
           label   (str (name tms) (if scoped? " scoped" " global") " at " (:name (meta park)))
           before  (loser-reading kb loser vantage home)

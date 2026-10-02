@@ -230,7 +230,8 @@
               js   (into [] (comp (keep #(jtms/justification tms %))
                                   (filter #(= h (:informant %))))
                          (jtms/dependents tms h))
-              live (count (filter #(jtms/in? tms (:consequence %)) js))]
+              ;; a conclusion as its own context believes it
+              live (count (filter #(res/believed-own? kb (:consequence %)) js))]
           (when (and (pos? i) (zero? (mod i progress-every)))
             (progress! {:phase :rules :done i :total total}))
           (recur (inc i)
@@ -400,7 +401,7 @@
         ;; taxonomy atom and allocates, and the answer cannot move inside one reading.
         type-candidate? (memoize
                          (fn [name]
-                           (let [arity (tax/declared-arity taxo name)]
+                           (let [arity (kb/relation-arity kb name nil)]
                              (or (nil? arity) (= 1 arity)))))
         nodes (into #{} (filter type-candidate?) (tax/types taxo))
         named (into #{} (filter type-candidate?) (:type-names pass))]
@@ -428,10 +429,8 @@
 ;; arity upward, so a position past that length is one its tuples really do reach.  Nothing
 ;; of its is listed here, however high the position, because nothing of its is stranded.
 ;;
-;; **Here rather than in the settle ledger**, and the asymmetry with `arity` is the whole
-;; argument.  A wrong-length *fact* is content an `assert` admitted because it could not
-;; have known, so `settle/report-arity-reach!` says *newly* — only the settle knows that.
-;; A stranded declaration is inert: it constrains nothing, refuses nothing and mints
+;; **Here rather than in the settle ledger.**  A wrong-length *fact* is a claim each reader
+;; believes or withdraws (`vaelii.impl.decide`).  A stranded declaration is inert: it constrains nothing, refuses nothing and mints
 ;; nothing, and it reads the same an hour later as at the moment it went stale.  There is
 ;; no newly to report, so paying per write buys nothing a census does not give for free —
 ;; and a per-declaration ledger entry would compete for the 1,000 slots `violations` keeps
@@ -478,7 +477,7 @@
                            (distinct)
                            (keep #(p/get-sentex (:records kb) %))
                            (filter #(not (sx/negative? %)))
-                           (filter #(jtms/in? (reasoning/tms kb) (:id %))))
+                           (filter #(res/believed-own? kb (:id %))))
                      declaration-functors)]
     (progress! {:phase :declarations :done 0 :total (count stored)})
     (let [found   (into []
@@ -978,7 +977,7 @@
   `(arity ?p n)` says it outright.  A unary `(T ?p)` says it whenever `T` reaches one of
   the exact-arity classes up `genl`, which is what makes `(symmetric ?p)` a claim of arity
   2: `symmetric` is a kind of `binary_predicate`.  The roster is
-  `checks/exact-arity-classes`, read here rather than copied, since a roster read twice
+  `tax/exact-arity-classes`, read here rather than copied, since a roster read twice
   is a roster that drifts, and read in key order so a term reaching two that disagree —
   itself incoherent — reports the same one every run."
   [tax lit context]
@@ -991,7 +990,7 @@
         (= 1 (nm/arity lit))
         (let [supers (tax/genls tax f context)]
           (some (fn [[t n]] (when (contains? supers t) n))
-                (sort-by key checks/exact-arity-classes)))))))
+                (sort-by key tax/exact-arity-classes)))))))
 
 (defn- arity-conflicted?
   "Do two of these literals bind one term to two arities?  A predicate takes one number of
@@ -1493,10 +1492,10 @@
   it over halves that disagree.  A validator called only by its own namespace's load has
   run every branch it will ever run against a table that passes, and nothing then says it
   would refuse: a `remove` written the wrong way round reads exactly like a roster with
-  nothing wrong.  Returns the roster, as `predicates/check-families` does.
+  nothing wrong.  Returns the roster, as `predicates/check-facets` does.
 
   Refuses under `:bad-table-entry` discriminated by `:mismatch`, as
-  `predicates/check-families`, `config/check-switches!` and `kb/check-backends!` do."
+  `predicates/check-facets`, `config/check-switches!` and `kb/check-backends!` do."
   [readings render-arms]
   (let [keys-of (into #{} (map :key) readings)]
     (doseq [k (sort (remove render-arms keys-of))]

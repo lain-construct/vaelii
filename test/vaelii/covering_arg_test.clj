@@ -173,8 +173,8 @@
     (v/assert kb (list 'args rel animal) 'CxUniverse)
     (v/assert kb (list dog A) 'CxUniverse)
     (v/assert kb (list dog B) 'CxUniverse)
-    (testing "the declared arity still binds — a third argument is an arity refusal"
-      (is (= :arity (ex-type #(v/assert kb (list rel A B (tu/tmp-ind)) 'CxUniverse)))))
+    (testing "the declared arity still binds — a third argument is stored and read OUT"
+      (is (tu/stored-in-clash? kb (list rel A B (tu/tmp-ind)) 'CxUniverse)))
     (testing "and within the arity the covering constraint still types the positions"
       (is (v/assert kb (list rel A B) 'CxUniverse))
       (is (= :arg-type (ex-type #(v/assert kb (list rel A "bad") 'CxUniverse)))))))

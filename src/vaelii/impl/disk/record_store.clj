@@ -70,10 +70,11 @@
   mutated outside a monitor is one a reader can catch mid-pair.
 
   - The **kind lock** covers that kind's log, its idx, and the resident state derived
-    from them: `live-ids`, the hot-record cache, `compacting` and `failed`.  A store, a
-    kill, a batch and the compactor's reconcile each take it once and do both halves
-    inside it, so an id is never live to a reader while its slot says tombstone, and the
-    compaction delta set is never cleared under a writer folding an id into it.
+    from them: `live-ids`, `live-bytes`, the hot-record cache, `compacting` and
+    `failed`.  A store, a kill, a batch and the compactor's reconcile each take it once
+    and do both halves inside it, so an id is never live to a reader while its slot says
+    tombstone, and the compaction delta set is never cleared under a writer folding an id
+    into it.
 
     It covers `live-ids` on the **read** side too, which the other three do not need: the
     roster is a bitmap mutated in place, so a tally or an enumeration taken beside a
@@ -177,12 +178,12 @@
   than answering.
 
   **Who consults it, and who deliberately does not.**  Every access to the *files* does —
-  `store!`, `fetch`, `kill!`, `premise-strength`'s slot read — and so do the two that
-  read the idx and act on what it says: `slot-fingerprint`, whose answer is a claim about
-  the record set that a derived image is then validated against, and `kind-dead-ratio` /
-  `compact-kind!`, which would otherwise rewrite a log from a half-copied idx and lose
-  every record the copy had not reached.  A refusal from the dead-ratio read is what the
-  durability daemon already treats as *do not compact* (it scores a throwing read 0.0).
+  `store!`, `fetch`, `kill!`, `premise-strength`'s slot read — and so do the ones that
+  decide something from the files: `slot-fingerprint`, whose answer is a claim about the
+  record set that a derived image is then validated against, and `kind-dead-ratio` /
+  `compact-kind!`, whose rewrite from a half-copied idx would lose every record the copy
+  had not reached.  A refusal from the dead-ratio read is what the durability daemon
+  already treats as *do not compact* (it scores a throwing read 0.0).
 
   The rest do not, and each is fail-safe for its own reason rather than by oversight:
 
@@ -213,6 +214,36 @@
                     {:type :compaction-failed :log (:log-path k)}
                     t))))
 
+;; ---- live frame bytes ---------------------------------------------------
+;; `dead-ratio` is `1 - live-bytes / log-length` per kind, and `live-bytes` is the sum of
+;; `frame-bytes` over the slots `f/scan-idx!` yields.  The open seeds it from the walk it
+;; already makes, and every write to a live idx moves it by what it adds and what it
+;; supersedes, under the kind lock, so the probe reads a counter and a file length.
+
+(defn- frame-bytes
+  "The log bytes a frame of `length` payload bytes occupies: the 4-byte prefix and the
+  payload."
+  ^long [^long length]
+  (+ 4 length))
+
+(defn- idx-live-bytes
+  "`live-bytes` for `idx`, summed over a walk of every slot.  Only a compaction install
+  calls it, since the install replaces the whole idx."
+  ^long [idx]
+  (let [n (volatile! 0)]
+    (f/scan-idx! idx (fn [_ _ length _] (vswap! n + (frame-bytes length))))
+    @n))
+
+(defn- superseded-bytes
+  "The frame bytes a write to slot `id` of kind `k` takes out of `live-bytes`: its
+  current frame's when the id is live, else 0.  A write to an id not in the roster reads
+  no slot.  Caller holds the kind write lock and the io guard."
+  ^long [k id]
+  (if (roster/live-has? (:live-ids k) id)
+    (let [slot (f/read-slot (:idx k) id)]
+      (if (and slot (not (:tombstone? slot))) (frame-bytes (:length slot)) 0))
+    0))
+
 (defn- open-kind
   "Open (recovering) the log/idx pair `dir/<name>.{log,idx}` and build its live-id set.
 
@@ -241,13 +272,16 @@
         ;; want, and `live-optimize!` folds the runs once the walk is done.  Nothing
         ;; intermediate is built, so an open's peak is the roster itself.
         (let [live  (roster/live-roster)
+              bytes (volatile! 0)
               {:keys [enc dec]} (codecs name)]
-          (f/scan-idx! idx (fn [id _ _ flags]
+          (f/scan-idx! idx (fn [id _ length flags]
                              (roster/live-add! live id)
+                             (vswap! bytes + (frame-bytes length))
                              (when slot-tap (slot-tap id flags))))
           (roster/live-optimize! live)
           (store-types/->Kind log idx (java.util.concurrent.locks.ReentrantReadWriteLock.) live log-path idx-path (atom nil) (atom nil)
-                              (when (pos? cache-cap) (lru cache-cap)) enc dec fault))
+                              (when (pos? cache-cap) (lru cache-cap)) enc dec fault
+                              (atom @bytes)))
         (catch Throwable t
           (f/close! log)
           (f/close! idx)
@@ -280,11 +314,13 @@
    (with-write (:lock k)
      (usable! k)
      (f/with-io-guard (:fault k) (:log-path k) true
-       (let [[off plen] (f/append-record-sized! (:log k) ((:enc k) rec))]
+       (let [was        (superseded-bytes k id)
+             [off plen] (f/append-record-sized! (:log k) ((:enc k) rec))]
          ;; the premise's strength rides the slot too (bits 2..3), so `premise-strength`
          ;; reads it off the idx the open walk already makes rather than paging the record
          (f/write-slot! (:idx k) id off plen
-                        (f/premise-flags premise? (strength/rank-of (:strength rec))) 0)))
+                        (f/premise-flags premise? (strength/rank-of (:strength rec))) 0)
+         (swap! (:live-bytes k) + (- (frame-bytes plen) was))))
      (track-touched k id)
      (roster/live-add! (:live-ids k) id)
      ;; a just-written record is hot, and this is also what keeps the cache current when a
@@ -314,13 +350,20 @@
     (with-write (:lock k)
       (usable! k)
       (f/with-io-guard (:fault k) (:log-path k) true
-        (let [offs (f/append-records-sized! (:log k) (map (fn [[_ rec _]] ((:enc k) rec)) batch))]
+        (let [offs (f/append-records-sized! (:log k) (map (fn [[_ rec _]] ((:enc k) rec)) batch))
+              ;; id → the frame bytes its slot will point at; a later entry for the same
+              ;; id replaces an earlier one, as its slot write does in `write-slots!`
+              now  (java.util.HashMap.)
+              _    (doseq [[[id] [_ plen]] (map vector batch offs)]
+                     (.put now id (frame-bytes plen)))
+              was  (reduce (fn [^long acc id] (+ acc (superseded-bytes k id))) 0 (.keySet now))]
           (f/write-slots! (:idx k)
                           (map (fn [[id rec premise?] [off plen]]
                                  [id off plen
                                   (f/premise-flags premise? (strength/rank-of (:strength rec)))
                                   0])
-                               batch offs))))
+                               batch offs))
+          (swap! (:live-bytes k) + (- (reduce + 0 (.values now)) was))))
       (doseq [[id] batch] (track-touched k id))
       ;; the resident half under the same acquisition, for `store!`'s reason
       (roster/live-add-all! (:live-ids k) (map first batch))
@@ -379,7 +422,10 @@
   (with-write (:lock k)
     (when (roster/live-has? (:live-ids k) id)
       (usable! k)
-      (f/with-io-guard (:fault k) (:log-path k) true (f/tombstone-slot! (:idx k) id))
+      (f/with-io-guard (:fault k) (:log-path k) true
+        (let [was (superseded-bytes k id)]
+          (f/tombstone-slot! (:idx k) id)
+          (swap! (:live-bytes k) - was)))
       (track-touched k id)
       (roster/live-remove! (:live-ids k) id)
       (when-let [^java.util.Map c (:cache k)] (.remove c id)))))
@@ -602,6 +648,7 @@
         (f/truncate! (:log k))
         (f/truncate! (:idx k))
         (roster/live-clear! (:live-ids k))
+        (reset! (:live-bytes k) 0)
         (when-let [^java.util.Map c (:cache k)] (.clear c))
         ;; an in-flight compaction snapshotted the pre-wipe state — tell it to abort
         ;; (discard its temps) rather than replay them over the now-empty files.
@@ -1014,18 +1061,18 @@
 ;; ---- compaction ---------------------------------------------------------
 
 (defn- kind-dead-ratio
-  "Dead-byte fraction of kind `k`: 1 - live-frame-bytes / log-length.  Live-frame
-  bytes are summed from the live slots (offset + 4 + length)."
+  "Dead-byte fraction of kind `k`: `1 - live-bytes / log-length`.  Reads the maintained
+  counter and the log's length under the kind read lock, and no idx byte."
   ^double [k]
-  (with-write (:lock k)
+  (with-read (:lock k)
     (usable! k)
     (let [total (f/log-length (:log k))
-          live  (volatile! 0)]
-      (f/scan-idx! (:idx k) (fn [_ _ length _] (vswap! live + (+ 4 (long length)))))
-      (if (pos? total) (- 1.0 (/ (double @live) (double total))) 0.0))))
+          live  (long @(:live-bytes k))]
+      (if (pos? total) (- 1.0 (/ (double live) (double total))) 0.0))))
 
 (defn dead-ratio
-  "Max dead-byte ratio across the kinds — the durability daemon's compaction trigger."
+  "Max dead-byte ratio across the kinds — the durability daemon's compaction trigger.
+  O(kinds): each kind answers off its maintained `live-bytes` and its log's length."
   ^double [{:keys [kinds]}]
   (reduce max 0.0 (map kind-dead-ratio (vals kinds))))
 
@@ -1249,6 +1296,7 @@
               (vreset! committed? true)
               (f/replay-temp-onto-raf! (:log k) log-tmp)
               (f/replay-temp-onto-raf! (:idx k) idx-tmp)
+              (reset! (:live-bytes k) (idx-live-bytes (:idx k)))
               (f/delete-compact-temps! marker temps)
               (drop-lost!)))
           (reset! (:compacting k) nil)))
@@ -1280,6 +1328,7 @@
           (let [again (try (with-write (:lock k)
                              (f/replay-temp-onto-raf! (:log k) log-tmp)
                              (f/replay-temp-onto-raf! (:idx k) idx-tmp)
+                             (reset! (:live-bytes k) (idx-live-bytes (:idx k)))
                              (f/delete-compact-temps! marker temps))
                            nil
                            (catch Throwable t2 (.addSuppressed t2 t) t2))]

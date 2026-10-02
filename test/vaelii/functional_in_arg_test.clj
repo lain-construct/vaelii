@@ -20,11 +20,12 @@
     other, so it is the sharpest available probe of the merge/reject rule and it is what
     Pace's matrix uses.
 
-  The merge/reject rule itself is not new and is not ours to invent.  `CxCore.txt:259`:
+  The merge-or-nogood rule itself is not new and is not ours to invent.  CxCore's
+  comment on `functional`:
 
-      two symbols derive (equals V1 V2) and merge, so retracting either fact or the
-      declaration un-merges them, while two non-symbols such as 1980 and 1990 are
-      refused outright, no merge being able to make two numbers one thing
+      two symbols both known true (monotonic) derive (equals V1 V2) and merge, so
+      retracting either fact or the declaration un-merges them. Any other collision is
+      a nogood each context reading the pair decides
 
   and `mergeable-values?` (checks.clj) is the code half.  So the matrix below is one
   question asked five ways: *does the generalized determinant reach the same verdict the
@@ -65,12 +66,10 @@
   side alone concludes anything\" used the unscoped whole-KB `same-class?` where a
   scoped, per-context read was the question actually being asked.
 
-  Row 3 (`an-asserted-difference-ties-the-merge-into-a-represented-dilemma`) settled
-  its open question (vaelii#43/#44): the clash it sets up settles as a represented
-  dilemma at `:default` strength — belief order-independent, contradiction reported
-  once, exactly `nixon-diamond-is-the-same-dilemma-every-time`'s shape — and the row
-  now asserts exactly that, because a represented dilemma is what \"the clash is not
-  lost\" means, and it is stronger than the storage-checks the old expectations used.
+  Row 3 (`an-asserted-difference-leaves-two-default-fillers-a-represented-dilemma`)
+  asserts a represented dilemma at `:default` strength — belief order-independent,
+  contradiction reported once, exactly `nixon-diamond-is-the-same-dilemma-every-time`'s
+  shape — because a represented dilemma is what \"the clash is not lost\" means.
 
   vaelii#54 then closed what all of that had missed, and the structure of the miss is the
   lesson.  Every row above turns on a pair of **symbol** fillers, so every one of them
@@ -178,15 +177,15 @@
   (tu/with-terms [parentOf Tom]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
       (v/assert kb (list 'functionalInArg parentOf 2) U)
-      (v/assert kb (list parentOf Tom lo) U)
-      (v/assert kb (list parentOf Tom hi) U)
+      (v/assert kb (list parentOf Tom lo) U {:strength :monotonic})
+      (v/assert kb (list parentOf Tom hi) U {:strength :monotonic})
       (is (merged? kb lo hi)
           "arg 1 determines arg 2, two symbol fillers, merged — as (functional parentOf)")))
-  (testing "and the numeric side still refuses outright"
+  (testing "and the numeric side is a clash, not a merge"
     (tu/with-terms [birthYearOf Tom]
       (v/assert kb (list 'functionalInArg birthYearOf 2) U)
       (v/assert kb (list birthYearOf Tom 1980) U)
-      (is (some? (ex-type #(v/assert kb (list birthYearOf Tom 1990) U)))
+      (is (tu/stored-in-clash? kb (list birthYearOf Tom 1990) U)
           "no merge can make 1980 and 1990 one thing"))))
 
 ;; The third arrival order of the same three ingredients, and the one the arity-2
@@ -220,8 +219,8 @@
       ;; the mark on the super-predicate, and the facts on the sub — with no edge
       ;; between them yet, so nothing is under the mark and nothing may merge
       (v/assert kb (decl parentOf) U)
-      (v/assert kb (list fatherOf Tom lo) U)
-      (v/assert kb (list fatherOf Tom hi) U)
+      (v/assert kb (list fatherOf Tom lo) U {:strength :monotonic})
+      (v/assert kb (list fatherOf Tom hi) U {:strength :monotonic})
       (check (not (merged? kb lo hi))
              "no edge yet, so the fillers are not under the mark")
       ;; ...and the edge last, which is what puts them there
@@ -263,7 +262,7 @@
               Tom     (tu/tmp-ind "Tom")
               subst   {'PTom Tom 'PMaryA lo 'PMaryB hi}]
           (v/assert kb (list 'functionalInArg pRel n) U)
-          (doseq [f facts] (v/assert kb (cons pRel (map subst f)) U))
+          (doseq [f facts] (v/assert kb (cons pRel (map subst f)) U {:strength :monotonic}))
           (check (merged? kb lo hi)
                  (str label ": the determinant is shared, so the fillers are one")))))))
 
@@ -344,8 +343,8 @@
   (tu/with-terms [p ThingOne ThingTwo CxLeft CxRight CxBottom]
     (contexts! kb {:left CxLeft :right CxRight :bottoms [CxBottom]})
     (v/assert kb (list 'functionalInArg p 1) U)
-    (v/assert kb (list p ThingOne) CxLeft)
-    (v/assert kb (list p ThingTwo) CxRight)
+    (v/assert kb (list p ThingOne) CxLeft {:strength :monotonic})
+    (v/assert kb (list p ThingTwo) CxRight {:strength :monotonic})
     (testing "neither side alone concludes anything about the pair"
       ;; `merged?` reads the unscoped, whole-KB partition — true the moment ANY context
       ;; derives the equality, CxBottom included, so it cannot be the check for "this
@@ -364,32 +363,19 @@
 
 ;; ---- row 3: the explicit different ---------------------------------------
 
-;; DECIDED (vaelii#43 discussion -> #44): the row expects the dilemma.  The
-;; cross-context clash exists (`(not (equals ThingOne ThingTwo))` and the functional
-;; derivation do meet), and empirically, in both orderings, a `:default` denial does
-;; not "deny exactly that" — it ties.  `derive-equality` always labels its own
-;; justification `:monotonic`, but a derivation's effective class is the weakest of
-;; its antecedents (docs/nmtms.md), and `(p ThingOne)` / `(p ThingTwo)` are asserted
-;; `:default` too, so the derived equality caps at `:default` — the same class as the
-;; negation.  Two `:default` claims at equal class do not pick a loser in this
-;; engine; they are a represented dilemma, exactly `nixon-diamond-is-the-same-
-;; dilemma-every-time`'s shape (order_independence_test.clj).
-;;
-;; Why dilemma-expectation over marking the denial `:monotonic` (the road not
-;; taken, from the #43 finding): `:monotonic` defeats the derived equality without
-;; unmaking it — its sentex stays stored in CxBottom, so the row's storage-checks
-;; would still need replacing with belief-checks *and* the strength change, and the
-;; row would then pin an arbitration rather than the thing it exists for.  What the
-;; row is for is "the clash is not lost": both sides believed, neither defeated,
-;; the pair reported exactly once, in both orders.  A represented dilemma in
-;; `contradictions` is that claim — stronger than the old expectations, which only
-;; said the negation wins and nothing about how the tie is reported.
-(tu/deftest-kb an-asserted-difference-ties-the-merge-into-a-represented-dilemma
-  ;; Row 3, and the row most likely to expose a real defect: two resolution paths meet
-  ;; here.  The functional constraint wants to derive `(equals ThingOne ThingTwo)`; the
-  ;; asserted `(not (equals ThingOne ThingTwo))` commits to distinctness at the same
-  ;; `:default` class.  Whichever runs first must not decide the answer, so this is
-  ;; asserted in both orders, and the reading must not vary between them.
+;; The row expects a dilemma.  `(p ThingOne)` and `(p ThingTwo)` are asserted `:default`,
+;; and a merge needs every member `:monotonic` (docs/reference.md, decision 6), so no
+;; equality is derived: the two fillers are a `functionalInArg` nogood at CxBottom, and
+;; two `:default` members tied at the weakest class are a represented dilemma, the shape
+;; of `nixon-diamond-is-the-same-dilemma-every-time` (order_independence_test.clj).  The
+;; asserted `(not (equals ThingOne ThingTwo))` is a denial of a roster literal, held OUT.
+;; The row pins that the clash is not lost: both fillers believed, neither
+;; defeated, the pair reported exactly once, in both orders.
+(tu/deftest-kb an-asserted-difference-leaves-two-default-fillers-a-represented-dilemma
+  ;; Row 3.  Two paths meet here: the functional constraint over two `:default` symbol
+  ;; fillers, and the asserted `(not (equals ThingOne ThingTwo))`.  Whichever runs first
+  ;; must not decide the answer, so this is asserted in both orders, and the reading
+  ;; must not vary between them.
   ;; NOTE: spelled `(not (equals …))`, not `(different …)`.  `different` is **not
   ;; assertible** — it is negation as failure over the equality closure, answered by a
   ;; prover and never stored (`wff.clj` `different-problems`, `docs/equality.md:83`), and
@@ -403,31 +389,31 @@
         (v/assert kb (list 'functionalInArg p 1) U)
         (when difference-first?
           (v/assert kb (list 'not (list 'equals ThingOne ThingTwo)) U))
-        (v/assert kb (list p ThingOne) CxLeft)
-        (v/assert kb (list p ThingTwo) CxRight)
-        (when-not difference-first?
-          (v/assert kb (list 'not (list 'equals ThingOne ThingTwo)) U))
-        (testing label
-          (let [pos (v/handle-of kb (list 'equals ThingOne ThingTwo) CxBottom)
-                neg (v/handle-of kb (list 'not (list 'equals ThingOne ThingTwo)) U)
-                dilemmas (v/contradictions kb)]
-            (is (true? (v/in? kb pos))
-                "the derived equality remains believed — the merge is not undone")
-            (is (merged? kb ThingOne ThingTwo)
-                "and the believed equality still joins the two fillers")
-            (is (true? (v/in? kb neg))
-                "the asserted difference remains believed — neither side wins")
-            (is (= [:default :default]
-                   [(v/defeat-class kb pos) (v/defeat-class kb neg)])
-                "neither side was defeated — the dilemma is represented, not decided")
-            (is (= 1 (count dilemmas))
-                "the pair is reported exactly once")
-            (is (= #{pos neg} (:nogood (first dilemmas)))
-                "the reported dilemma is this exact positive/negative pair")
-            (is (= 'contradicts (first (:sentence (first dilemmas))))
-                "and it is reported as a contradiction"))
-          (is (zero? (count (v/conflicts kb)))
-              "as a dilemma, not a conflict"))))))
+        (let [one (v/assert kb (list p ThingOne) CxLeft)
+              two (v/assert kb (list p ThingTwo) CxRight)]
+          (when-not difference-first?
+            (v/assert kb (list 'not (list 'equals ThingOne ThingTwo)) U))
+          (testing label
+            (let [pos (v/handle-of kb (list 'equals ThingOne ThingTwo) CxBottom)
+                  neg (v/handle-of kb (list 'not (list 'equals ThingOne ThingTwo)) U)
+                  dilemmas (v/contradictions kb)]
+              (is (nil? pos)
+                  "no equality is derived from two :default fillers")
+              (is (not (merged? kb ThingOne ThingTwo))
+                  "so the two fillers stay apart")
+              (is (false? (v/in? kb neg))
+                  "the asserted difference is held OUT")
+              (is (= [:default :default]
+                     [(v/defeat-class kb one) (v/defeat-class kb two)])
+                  "neither filler was defeated — the dilemma is represented, not decided")
+              (is (= 1 (count dilemmas))
+                  "the pair is reported exactly once")
+              (is (= #{one two} (:nogood (first dilemmas)))
+                  "the reported dilemma is this exact pair of fillers")
+              (is (= 'contradicts (first (:sentence (first dilemmas))))
+                  "and it is reported as a contradiction"))
+            (is (zero? (count (v/conflicts kb)))
+                "as a dilemma, not a conflict")))))))
 
 ;; ---- row 4: two bottoms, same verdict ------------------------------------
 
@@ -445,8 +431,8 @@
       (contexts! kb {:left CxLeft :right CxRight
                      :bottoms [CxBottomOne CxBottomTwo]})
       (v/assert kb (list 'functionalInArg p 1) U)
-      (v/assert kb (list p ThingOne) CxLeft)
-      (v/assert kb (list p ThingTwo) CxRight)
+      (v/assert kb (list p ThingOne) CxLeft {:strength :monotonic})
+      (v/assert kb (list p ThingTwo) CxRight {:strength :monotonic})
       (doseq [b [CxBottomOne CxBottomTwo]]
         (is (equality-in? kb ThingOne ThingTwo b)
             (str "equality derived in " b)))))
@@ -474,8 +460,8 @@
   ;; `functional` cannot say it, because the determinant is two arguments wide.
   (tu/with-terms [namesObject NsA PathA ObjOne ObjTwo]
     (v/assert kb (list 'functionalInArg namesObject 3) U)
-    (v/assert kb (list namesObject NsA PathA ObjOne) U)
-    (v/assert kb (list namesObject NsA PathA ObjTwo) U)
+    (v/assert kb (list namesObject NsA PathA ObjOne) U {:strength :monotonic})
+    (v/assert kb (list namesObject NsA PathA ObjTwo) U {:strength :monotonic})
     (is (merged? kb ObjOne ObjTwo)
         "one namespace and one path name one object, so the two names merge"))
   (testing "and a different path is a different slot, so nothing merges"
@@ -512,8 +498,8 @@
       (v/assert kb s U)
       (check (v/ask? kb s U) "a 212-argument sentence asserts and answers")
       (check (= wide-arity (count (rest s))) "and reads back at its stated width")
-      (testing "a sentence of the wrong width is refused against the declared arity"
-        (check (some? (ex-type #(v/assert kb (apply list wideP (pop args)) U)))
+      (testing "a sentence of the wrong width is read OUT against the declared arity"
+        (check (tu/stored-in-clash? kb (apply list wideP (pop args)) U)
                "211 arguments where 212 were declared")))))
 
 (tu/deftest-kb functional-in-arg-at-position-212
@@ -526,8 +512,8 @@
           [lo hi] (sort [(tu/tmp-ind "Filler") (tu/tmp-ind "Filler")])]
       (v/assert kb (list 'arity wideP wide-arity) U)
       (v/assert kb (list 'functionalInArg wideP wide-arity) U)
-      (v/assert kb (wide-sentence wideP prefix lo) U)
-      (v/assert kb (wide-sentence wideP prefix hi) U)
+      (v/assert kb (wide-sentence wideP prefix lo) U {:strength :monotonic})
+      (v/assert kb (wide-sentence wideP prefix hi) U {:strength :monotonic})
       (check (merged? kb lo hi)
              "211 positions agree, so position 212 is determined and the fillers merge")))
   (testing "and a determinant differing anywhere in those 211 is a different slot"
@@ -564,8 +550,8 @@
   ;; case never engaged the machinery it was aimed at.
   (tu/with-terms [parentOf Tom]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (v/assert kb (list parentOf Tom lo) U)
-      (v/assert kb (list parentOf Tom hi) U)
+      (v/assert kb (list parentOf Tom lo) U {:strength :monotonic})
+      (v/assert kb (list parentOf Tom hi) U {:strength :monotonic})
       (v/assert kb (list 'functional parentOf) U)          ; declaration LAST
       (is (merged? kb lo hi)
           "today's functional convicts a pair already stored when the mark arrives"))))
@@ -576,8 +562,8 @@
   ;; order as much as to verdict.
   (tu/with-terms [parentOf Tom]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (v/assert kb (list parentOf Tom lo) U)
-      (v/assert kb (list parentOf Tom hi) U)
+      (v/assert kb (list parentOf Tom lo) U {:strength :monotonic})
+      (v/assert kb (list parentOf Tom hi) U {:strength :monotonic})
       (v/assert kb (list 'functionalInArg parentOf 2) U)   ; declaration LAST
       (is (merged? kb lo hi)
           "(functionalInArg P 2) must convict retroactively exactly as (functional P) does"))))
@@ -588,8 +574,8 @@
   (tu/with-terms [parentOf Tom]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
       (v/assert kb (list 'functionalInArg parentOf 2) U)   ; declaration FIRST
-      (v/assert kb (list parentOf Tom lo) U)
-      (v/assert kb (list parentOf Tom hi) U)
+      (v/assert kb (list parentOf Tom lo) U {:strength :monotonic})
+      (v/assert kb (list parentOf Tom hi) U {:strength :monotonic})
       (is (merged? kb lo hi)
           "declaration-first was never broken and must stay unbroken"))))
 
@@ -665,3 +651,16 @@
            "a non-integer position is refused outright")
     (check (not (any-functional-violation? kb))
            "and nothing is swept on its behalf")))
+
+(tu/deftest-kb a-middle-position-pair-across-two-contexts-is-decided-at-the-joint-reader
+  ;; `(functionalInArg P 2)` on a ternary: the determinant is arguments 1 and 3, a pair
+  ;; split across two contexts, and the reader that sees both takes the default OUT.
+  (tu/with-terms [scoreOf Team Match CxL CxR CxJ]
+    (doseq [[c up] [[CxL U] [CxR U] [CxJ CxL] [CxJ CxR]]]
+      (v/assert kb (list 'genlCx c up) U))
+    (v/assert kb (list 'functionalInArg scoreOf 2) U)
+    (let [low  (v/assert kb (list scoreOf Team 1 Match) CxL)
+          high (v/assert kb (list scoreOf Team 2 Match) CxR {:strength :monotonic})]
+      (check (v/believed? kb low CxL) "each context believes its own tuple")
+      (check (and (not (v/believed? kb low CxJ)) (v/believed? kb high CxJ))
+             "and the reader seeing both takes the default OUT"))))

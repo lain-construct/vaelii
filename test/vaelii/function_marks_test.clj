@@ -95,21 +95,21 @@
       (is (v/ask? kb (list 'functional pRel) U))
       (is (v/ask? kb (list 'functionalInArg pRel 1) U)))))
 
-(tu/deftest-kb a-bijection-refuses-two-unmergeable-fillers-in-either-direction
+(tu/deftest-kb a-bijection-clashes-over-two-unmergeable-fillers-in-either-direction
   (tu/with-terms [pRel Ruritania]
     (v/assert kb (list 'bijection pRel) U)
-    (testing "a second number at argument 2 for one argument 1 is refused"
+    (testing "a second number at argument 2 for one argument 1 is a clash"
       (v/assert kb (list pRel Ruritania 1980) U)
-      (is (= :functional (ex-type #(v/assert kb (list pRel Ruritania 1990) U)))
+      (is (tu/stored-in-clash? kb (list pRel Ruritania 1990) U)
           "no merge can make 1980 and 1990 one thing"))
-    (testing "and a second number at argument 1 for one argument 2 is refused the same"
+    (testing "and a second number at argument 1 for one argument 2 is a clash the same"
       (tu/with-terms [Zenda]
         (v/assert kb (list pRel 7 Zenda) U)
-        (is (= :functional (ex-type #(v/assert kb (list pRel 8 Zenda) U)))
-            "the mirrored refusal, via the derived (functionalInArg P 1)")))))
+        (is (tu/stored-in-clash? kb (list pRel 8 Zenda) U)
+            "the mirrored clash, via the derived (functionalInArg P 1)")))))
 
-(tu/deftest-kb a-surjection-admits-the-pair-an-injection-refuses
-  ;; The one behavioural difference between the two marks, at the entry point: a
+(tu/deftest-kb a-surjection-admits-the-pair-an-injection-convicts
+  ;; The one behavioural difference between the two marks: a
   ;; surjection is not one-to-one, so two domain members sharing a range member stand.
   (tu/with-terms [pSur pInj Fredopolis]
     (v/assert kb (list 'surjection pSur) U)
@@ -118,8 +118,8 @@
         "two first arguments for one second are what a surjection permits")
     (v/assert kb (list 'injection pInj) U)
     (v/assert kb (list pInj 7 Fredopolis) U)
-    (is (= :functional (ex-type #(v/assert kb (list pInj 8 Fredopolis) U)))
-        "and what an injection refuses")))
+    (is (tu/stored-in-clash? kb (list pInj 8 Fredopolis) U)
+        "and what an injection convicts")))
 
 (tu/deftest-kb a-bijection-merges-two-symbol-fillers-in-either-direction
   (tu/with-terms [capitalCityOf]
@@ -127,15 +127,15 @@
     (testing "a shared first argument merges its two symbol fillers — the functional half"
       (tu/with-terms [Freedonia]
         (let [[lo hi] (sort [(tu/tmp-ind "Fredville") (tu/tmp-ind "Fredville")])]
-          (v/assert kb (list capitalCityOf Freedonia lo) U)
-          (v/assert kb (list capitalCityOf Freedonia hi) U)
+          (v/assert kb (list capitalCityOf Freedonia lo) U {:strength :monotonic})
+          (v/assert kb (list capitalCityOf Freedonia hi) U {:strength :monotonic})
           (is (v/same-class? kb lo hi)
               "two names for one capital are one thing, as under (functional P)"))))
     (testing "a shared second argument merges its two — the functionalInArg 1 half"
       (tu/with-terms [Fredopolis]
         (let [[lo hi] (sort [(tu/tmp-ind "Sylvania") (tu/tmp-ind "Sylvania")])]
-          (v/assert kb (list capitalCityOf lo Fredopolis) U)
-          (v/assert kb (list capitalCityOf hi Fredopolis) U)
+          (v/assert kb (list capitalCityOf lo Fredopolis) U {:strength :monotonic})
+          (v/assert kb (list capitalCityOf hi Fredopolis) U {:strength :monotonic})
           (is (v/same-class? kb lo hi)
               "two names for one country are one thing, via (functionalInArg P 1)"))))))
 
@@ -275,15 +275,15 @@
   (testing "a stored pair sharing argument 1"
     (tu/with-terms [pRel Freedonia]
       (let [[lo hi] (sort [(tu/tmp-ind "Fredville") (tu/tmp-ind "Fredville")])]
-        (v/assert kb (list pRel Freedonia lo) U)
-        (v/assert kb (list pRel Freedonia hi) U)
+        (v/assert kb (list pRel Freedonia lo) U {:strength :monotonic})
+        (v/assert kb (list pRel Freedonia hi) U {:strength :monotonic})
         (v/assert kb (list 'bijection pRel) U)
         (is (v/same-class? kb lo hi)))))
   (testing "and a stored pair sharing argument 2"
     (tu/with-terms [pRev Fredopolis]
       (let [[lo hi] (sort [(tu/tmp-ind "Sylvania") (tu/tmp-ind "Sylvania")])]
-        (v/assert kb (list pRev lo Fredopolis) U)
-        (v/assert kb (list pRev hi Fredopolis) U)
+        (v/assert kb (list pRev lo Fredopolis) U {:strength :monotonic})
+        (v/assert kb (list pRev hi Fredopolis) U {:strength :monotonic})
         (v/assert kb (list 'bijection pRev) U)
         (is (v/same-class? kb lo hi))))))
 
@@ -310,10 +310,10 @@
     (is (not (v/ask? kb (list 'functional fatherOf) U))
         "the sub-predicate is not itself classified functional")
     (v/assert kb (list fatherOf Ann 1980) U)
-    (is (= :functional (ex-type #(v/assert kb (list fatherOf Ann 1990) U)))
+    (is (tu/stored-in-clash? kb (list fatherOf Ann 1990) U)
         "and is enforced anyway, at argument 2")
     (v/assert kb (list fatherOf 7 Bob) U)
-    (is (= :functional (ex-type #(v/assert kb (list fatherOf 8 Bob) U)))
+    (is (tu/stored-in-clash? kb (list fatherOf 8 Bob) U)
         "and at argument 1")))
 
 (tu/deftest-kb a-composite-mark-a-genl-edge-and-two-facts-agree-in-every-order
@@ -333,8 +333,8 @@
           (case step
             :mark (v/assert kb (list 'bijection parentOf) U)
             :edge (v/assert kb (list 'genl fatherOf parentOf) U)
-            :f1   (v/assert kb (list fatherOf Ann lo) U)
-            :f2   (v/assert kb (list fatherOf Ann hi) U)))
+            :f1   (v/assert kb (list fatherOf Ann lo) U {:strength :monotonic})
+            :f2   (v/assert kb (list fatherOf Ann hi) U {:strength :monotonic})))
         (is (v/same-class? kb lo hi)
             (str "order " (pr-str order) ": the two fillers of the functional slot merge"))
         (is (empty? (v/violations kb))

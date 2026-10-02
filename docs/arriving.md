@@ -1,7 +1,7 @@
 # Arriving from another system
 
 - **Covers:** which orientation page to read if you already think in Cyc, answer set
-  programming, Prolog or Datalog, or a production rule engine — and the handful of facts
+  programming, defeasible logic, Prolog or Datalog, or a production rule engine — and the handful of facts
   that hold whatever you arrived from.
 - **Not here:** the engine. Every line below routes to the page that owns it, and the map
   for a reader with no prior is [README.md](README.md).
@@ -14,6 +14,7 @@
 |---|---|---|
 | OpenCyc or ResearchCyc | [from-cyc.md](from-cyc.md) | there is no everything-context to assert into; scope is a property of the read |
 | answer set programming | [from-asp.md](from-asp.md) | there is no grounding step, and belief is a single labeling rather than a set of models |
+| defeasible logic (SPINdle, Deimos) | [from-defeasible-logic.md](from-defeasible-logic.md) | a tie between two defaults is believed on both sides, and superiority is written as an `exceptWhen` |
 | Prolog or Datalog | [from-prolog.md](from-prolog.md) | `Foo` is an individual and `?x` is the variable — capitalization means nearly the opposite |
 | CLIPS, Jess or Drools | [from-production-rules.md](from-production-rules.md) | a rule concludes a sentence; there is no right-hand side to act in |
 

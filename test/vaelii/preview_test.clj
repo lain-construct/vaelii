@@ -5,6 +5,7 @@
   stores or derives compares `content` before and after (docs/preview.md, \"Tests\")."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.clashes :as clashes]
             [vaelii.impl.integrate :as integrate]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p]
@@ -123,6 +124,19 @@
         (is (true? (v/in? kb h))))
       (is (= before (content kb))))))
 
+(tu/deftest-kb a-batch-whose-mark-a-reader-decides-reports-the-removal
+  ;; A late `irreflexive` mark takes the `:default` self tuple OUT at its own context with
+  ;; no label moving: the reader decides the nogood (docs/nmtms.md, "Nogoods decided at
+  ;; the reader"), and the settle's window names the tuple.
+  (tu/with-terms [near Dora CxStory]
+    (let [h      (v/assert kb (list near Dora Dora) CxStory)
+          before (content kb)
+          r      (v/preview kb {:add [[(list 'irreflexive near) CxStory]]})]
+      (is (= [(list near Dora Dora)] (sentences (:believed-removed r))))
+      (is (= h (:handle (first (:believed-removed r)))))
+      (is (v/believed? kb h CxStory) "the mark was hypothetical")
+      (is (= before (content kb))))))
+
 (tu/deftest-kb previewing-a-removal-reports-what-loses-its-support
   (tu/with-terms [dog friendly Rex CxStory]
     (v/assert kb (vr/rule-sentence [(list dog '?x)] (list friendly '?x)) CxStory {:direction :forward})
@@ -166,14 +180,13 @@
     (let [edge   (v/assert kb (list 'genl puppy dog) 'CxUniverse)
           cxe    (v/assert kb (list 'genlCx CxLow 'CxUniverse) 'CxUniverse)
           before (content kb)
-          orig   @#'settle/constraint-nogoods
+          orig   @#'settle/drain-recheck!
           seen   (atom [])
           read   #(vector (v/in? kb edge) (v/genl? kb puppy dog)
                           (v/in? kb cxe) (v/sees? kb CxLow 'CxUniverse))]
-      ;; read at each pass's discovery, where the passes' re-chains read the closures too
-      (with-redefs [settle/constraint-nogoods (fn [k region] (swap! seen conj (read))
-                                                (orig k region))]
-        (v/preview kb {:remove [edge cxe]}))
+      ;; read in each pass, where the passes' re-chains read the closures too
+      (with-redefs-fn {#'settle/drain-recheck! (fn [k] (swap! seen conj (read)) (orig k))}
+        #(v/preview kb {:remove [edge cxe]}))
       (testing "inside the window the closures answer without the OUT edges"
         (is (= [false false false false] (first @seen))))
       (testing "and through them again once the rollback puts them back"
@@ -255,8 +268,8 @@
      (let [entry  {:violation :qualitative-inconsistency :calculus :rcc8
                    :context CxStory :sentence nil}
            filed? (atom false)
-           orig   settle/contradictions-of
-           r      (with-redefs [settle/contradictions-of
+           orig   clashes/contradictions-of
+           r      (with-redefs [clashes/contradictions-of
                                 (fn [& args]
                                   ;; a plain Thread, which conveys no binding, as a
                                   ;; reader's own thread does not
@@ -446,10 +459,10 @@
 ;; Compared by sentence: created and re-derived content lands on a fresh handle.
 
 (defn- believed-sentences
-  "Every believed datum as `{handle sentence}`, read off the whole network rather than
-  a region, so the oracle shares no code with `preview`."
+  "Every datum its own context believes as `{handle sentence}`, read off the whole network
+  rather than a region, so the oracle shares no code with `preview`."
   [kb]
-  (into {} (map (fn [h] [h (v/readable-sentence (v/sentex kb h))]))
+  (into {} (comp (filter #(v/in? kb %)) (map (fn [h] [h (v/readable-sentence (v/sentex kb h))])))
         (jtms/in-datums (reasoning/tms kb))))
 
 (defn- edit-diff
@@ -551,15 +564,15 @@
 ;; ---- 14. a throw during application ------------------------------------
 
 (tu/deftest-kb a-line-that-throws-only-once-an-earlier-line-lands-is-reported-not-thrown
-  (tu/with-terms [fish mammal Willy CxStory]
-    (v/assert kb (list 'disjoint fish mammal) CxStory)
+  ;; the second line closes a `genl` cycle with the first, which is refused
+  (tu/with-terms [fish mammal CxStory]
     (let [before (content kb)
-          r      (v/preview kb {:add [[(list fish Willy) CxStory]
-                                      [(list mammal Willy) CxStory]]})]
+          r      (v/preview kb {:add [[(list 'genl fish mammal) CxStory]
+                                      [(list 'genl mammal fish) CxStory]]})]
       (testing "the pre-flight passed it — the KB it was checked against had neither"
-        (is (= [(list fish Willy)] (sentences (:believed-added r)))))
+        (is (= [(list 'genl fish mammal)] (sentences (:believed-added r)))))
       (testing "so the refusal comes from the application, at its own index"
-        (is (= [[:add 1 :disjoint]] (mapv (juxt :in :index :type) (:refused r)))))
+        (is (= [[:add 1 :not-well-formed]] (mapv (juxt :in :index :type) (:refused r)))))
       (is (= before (content kb))))))
 
 ;; ---- the opts roster ------------------------------------------------------

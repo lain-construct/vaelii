@@ -51,8 +51,7 @@
   (let [birthYearOf (tu/tmp-pred) tom (tu/tmp-ind)]
     (v/assert kb (list 'functional birthYearOf) 'CxNaturalWorld)
     (v/assert kb (list birthYearOf tom 1980) 'CxNaturalWorld)
-    (testing "a second, different value is rejected"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list birthYearOf tom 1990) 'CxNaturalWorld))))
+    (testing "a second, different value is a clash"
+      (is (tu/stored-in-clash? kb (list birthYearOf tom 1990) 'CxNaturalWorld)))
     (testing "re-asserting the same value is fine"
       (is (v/assert kb (list birthYearOf tom 1980) 'CxNaturalWorld)))))

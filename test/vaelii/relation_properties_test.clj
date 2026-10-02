@@ -3,11 +3,12 @@
 (ns vaelii.relation-properties-test
   "The four relation properties added in #14, enforced rather than declared:
 
-  * **`irreflexive`** — a self tuple `(P a a)` is refused at the entry point, the strict
-    counterpart of `reflexive` and stronger than `asymmetric` (which admits it).
-  * **`anti_symmetric`** — a believed converse `(P b a)` merges the two arguments,
-    deriving `(equals a b)`, the antisymmetric twin of what `functional` does with two
-    symbol values.
+  * **`irreflexive`** — a self tuple `(P a a)` is a one-member nogood each reader
+    decides: a `:default` one is OUT where the mark is read, a `:monotonic` one is a
+    hard clash in `conflicts`.
+  * **`anti_symmetric`** — a believed converse `(P b a)` of two symbols merges the two
+    arguments, deriving `(equals a b)`; a converse of two arguments no merge reconciles
+    is a two-member nogood each reader decides.
   * **`anti_transitive`** — the two-step chain and the direct step are convicted
     **together**, as the one nogood whose members are three rather than two
     (docs/nmtms.md).  Its classification and `(disjoint transitive anti_transitive)` are
@@ -21,16 +22,9 @@
   are what is tested, not a hand-built fixture that could drift from the file."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.checks :as checks]
-            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
-
-(defn- ex-type
-  "The `:type` on the ex-info a thunk throws, or nil if it does not throw."
-  [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
 
 (def U 'CxUniverse)
 
@@ -43,186 +37,87 @@
     (for [x xs, tail (orderings (remove #{x} xs))]
       (into [x] tail))))
 
-(defn- reach-entries
-  "The `:detail` of each entry of kind `kind` that the late-mark report
-  (`settle/report-unarbitrable-reach!`) filed through marked predicate `via`."
-  [kb kind via]
-  (into [] (comp (filter #(and (= kind (:violation %)) (= via (get-in % [:detail :via]))))
-                 (map :detail))
-        (v/violations kb)))
+(defn- believed-at?
+  "Is `s`, stored in `ctx`, believed as `reader` reads it?"
+  ([kb s ctx] (believed-at? kb s ctx ctx))
+  ([kb s ctx reader]
+   (boolean (some-> (v/handle-of kb s ctx) (as-> h (v/believed? kb h reader))))))
 
-(defn- refused-or-reported
-  "Run `steps` (a map of thunks) in `order`, then say whether the fact `ask` reads was
-  refused, or is stored and named by a `kind` entry through `via` — the property a
-  late mark owes in every arrival order."
-  [kb order steps ask kind via]
-  (let [refused (atom false)]
-    (doseq [s order]
-      (when (#{:irreflexive :anti-symmetric} (ex-type (steps s)))
-        (reset! refused true)))
-    (let [stored? (ask)]
-      {:refused? @refused
-       :stored?  stored?
-       :ok?      (if stored?
-                   (= 1 (count (reach-entries kb kind via)))
-                   @refused)})))
+(defn- clash-kinds
+  "`{:conflicts #{[kind sentence]} :contradictions #{[kind sentence]}}` of every report."
+  [kb]
+  {:conflicts      (into #{} (map (juxt :kind :sentence)) (v/conflicts kb))
+   :contradictions (into #{} (map (juxt :kind :sentence)) (v/contradictions kb))})
 
-;;; ── irreflexive: a self tuple is refused at the entry point ──────────────────
+(defn- readings
+  "Run the thunks of `steps` in each order of their keys, and answer the distinct
+  `[belief reports]` readings: `read` gives the belief, `clash-kinds` the reports.  One
+  reading means every order agrees."
+  [kb steps read]
+  (into #{}
+        (for [order (orderings (sort (keys steps)))]
+          (let [hs (mapv #((steps %)) order)
+                r  [(read) (clash-kinds kb)]]
+            (run! #(v/retract! kb %) (rseq hs))
+            r))))
 
-(tu/deftest-kb an-irreflexive-self-tuple-is-refused
+;;; ── irreflexive: a self tuple is a one-member nogood the reader decides ───────
+
+(tu/deftest-kb an-irreflexive-mark-takes-a-default-self-tuple-out-in-either-order
+  (tu/with-terms [before Alice Bob]
+    (let [self (list before Alice Alice)
+          rs   (readings kb {:mark  #(v/assert kb (list 'irreflexive before) U)
+                             :tuple #(v/assert kb self U)}
+                         #(believed-at? kb self U))]
+      (is (= #{[false {:conflicts #{} :contradictions #{}}]} rs)
+          "stored in both orders, OUT at the reader that reads the mark, and reported nowhere"))
+    (testing "check reports nothing, since nothing is refused"
+      (v/assert kb (list 'irreflexive before) U)
+      (is (empty? (v/check kb (list before Alice Alice) U))))
+    (testing "an ordinary non-self tuple of the same predicate is believed"
+      (v/assert kb (list before Alice Bob) U)
+      (is (believed-at? kb (list before Alice Bob) U)))))
+
+(tu/deftest-kb a-monotonic-self-tuple-under-an-irreflexive-mark-is-a-conflict-in-either-order
   (tu/with-terms [before Alice]
-    (v/assert kb (list 'irreflexive before) U)
-    (testing "check predicts the refusal, and assert throws it"
-      (is (= [:irreflexive] (mapv :type (v/check kb (list before Alice Alice) U))))
-      (is (= :irreflexive (ex-type #(v/assert kb (list before Alice Alice) U)))))
-    (testing "nothing was stored"
-      (is (nil? (v/handle-of kb (list before Alice Alice) U)))
-      (is (not (v/ask? kb (list before Alice Alice) U))))
-    (testing "an ordinary non-self tuple of the same predicate is admitted"
-      (tu/with-terms [Bob]
-        (is (v/assert kb (list before Alice Bob) U))))))
+    (let [self (list before Alice Alice)
+          rs   (readings kb {:mark  #(v/assert kb (list 'irreflexive before) U)
+                             :tuple #(v/assert kb self U {:strength :monotonic})}
+                         #(believed-at? kb self U))]
+      (is (= #{[true {:conflicts #{[:irreflexive (list 'contradicts self)]}
+                      :contradictions #{}}]}
+             rs)
+          "believed, and reported as a hard clash, in both orders"))))
 
-(tu/deftest-kb an-irreflexive-refusal-holds-in-both-declaration-orders
-  ;; The declaration-then-tuple order refuses at the entry point; the tuple-then-declaration
-  ;; order is the arity case, not the asymmetric one — a lone self tuple names no second
-  ;; sentex to defeat, so the stored tuple stands and the late mark reports rather than
-  ;; retracts (docs/nmtms.md).  Both orders agree that a *new* self tuple is refused.
-  (tu/with-terms [before Alice]
-    (v/assert kb (list 'irreflexive before) U)
-    (is (= :irreflexive (ex-type #(v/assert kb (list before Alice Alice) U))))
-    (testing "and a fresh predicate declared the other way round refuses the same"
-      (tu/with-terms [ahead Carol]
-        (v/assert kb (list ahead Carol Carol) U)      ; tuple first — admitted
-        (v/assert kb (list 'irreflexive ahead) U)      ; late mark
-        (testing "a NEW self tuple is refused once the mark is present"
-          (is (= :irreflexive (ex-type #(v/assert kb (list ahead 'CarolTwin 'CarolTwin) U)))))))))
-
-(tu/deftest-kb retracting-the-irreflexive-declaration-lifts-the-refusal
+(tu/deftest-kb retracting-the-irreflexive-declaration-restores-the-self-tuple
   (tu/with-terms [before Alice]
     (let [decl (v/assert kb (list 'irreflexive before) U)]
-      (is (= :irreflexive (ex-type #(v/assert kb (list before Alice Alice) U))))
+      (v/assert kb (list before Alice Alice) U)
+      (is (not (believed-at? kb (list before Alice Alice) U)))
       (v/retract! kb decl)
-      (testing "with the mark gone the self tuple is admitted"
-        (is (v/assert kb (list before Alice Alice) U))
-        (is (v/ask? kb (list before Alice Alice) U))))))
+      (is (believed-at? kb (list before Alice Alice) U)))))
 
-(tu/deftest-kb irreflexive-refuses-under-both-constraint-policies
-  ;; A lone self tuple is not arbitrable — there is no pair — so it refuses whatever the
-  ;; policy says, exactly as a clash against known-true content does.  This is the
-  ;; `asymmetric-is-not-policy-dependent-at-all` shape one property over.
-  (tu/with-terms [before Alice]
-    (v/assert kb (list 'irreflexive before) U)
-    (doseq [arbitrate? [false true]]
-      (binding [checks/*arbitrate-constraints?* arbitrate?]
-        (testing (str "arbitrate=" arbitrate?)
-          (is (= :irreflexive (ex-type #(v/assert kb (list before Alice Alice) U))))
-          (is (empty? (v/contradictions kb))))))))
-
-;;; ── a late irreflexive mark reports the self tuple it reaches ──────────
-;;
-;; A self tuple names no second sentex, so the conviction is not arbitrable: the entry
-;; point refuses it under either policy, and a tuple stored before the mark reached it
-;; stands.  The late mark then files a report rather than a nogood — the `arity` reading
-;; (docs/nmtms.md) — so no arrival order leaves a convicted tuple nobody was told about.
-
-(tu/deftest-kb a-late-irreflexive-mark-reports-the-self-tuple-it-arrives-over
-  (testing "the mark first: the tuple is refused, and nothing is stored to report"
-    (tu/with-terms [near Dora]
-      (v/assert kb (list 'irreflexive near) U)
-      (is (= :irreflexive (ex-type #(v/assert kb (list near Dora Dora) U))))
-      (is (empty? (reach-entries kb :irreflexive near)))))
-  (testing "the tuple first: it stands, and the late mark reports it"
-    (tu/with-terms [near Dora]
-      (v/assert kb (list near Dora Dora) U)
-      (is (empty? (reach-entries kb :irreflexive near)) "no mark yet, nothing is wrong")
-      (v/assert kb (list 'irreflexive near) U)
-      (is (v/ask? kb (list near Dora Dora) U) "reported, not withdrawn")
-      (let [[e & more] (reach-entries kb :irreflexive near)]
-        (is (some? e) "the late mark files the report")
-        (is (nil? more) "one entry for the mark")
-        (is (= 1 (:count e)))
-        (is (= [(list near Dora Dora)] (:sample e)))))))
-
-(tu/deftest-kb a-self-tuple-under-a-descended-irreflexive-mark-is-refused-or-reported
+(tu/deftest-kb a-self-tuple-under-a-descended-irreflexive-mark-is-out-in-every-order
   ;; The mark on `near`, the tuple of `nearish` beneath it, and the edge between them:
-  ;; any of the three can arrive last, and the edge arriving last is a trigger of its own.
-  (doseq [order (orderings [:mark :edge :tuple])]
-    (tu/with-terms [near nearish Dora]
-      (let [r (refused-or-reported
-               kb order
-               {:mark  #(v/assert kb (list 'irreflexive near) U)
-                :edge  #(v/assert kb (list 'genl nearish near) U)
-                :tuple #(v/assert kb (list nearish Dora Dora) U)}
-               #(v/ask? kb (list nearish Dora Dora) U)
-               :irreflexive near)]
-        (is (:ok? r) (str "refused, or stored and reported once, under " (pr-str order)
-                          ": " (pr-str r)))
-        (is (= (:refused? r) (= :tuple (last order)))
-            (str "refused exactly when the tuple arrives last, under " (pr-str order)))))))
+  ;; any of the three can arrive last.
+  (tu/with-terms [near nearish Dora]
+    (let [self (list nearish Dora Dora)]
+      (is (= #{[false {:conflicts #{} :contradictions #{}}]}
+             (readings kb {:mark  #(v/assert kb (list 'irreflexive near) U)
+                           :edge  #(v/assert kb (list 'genl nearish near) U)
+                           :tuple #(v/assert kb self U)}
+                       #(believed-at? kb self U)))))))
 
-(tu/deftest-kb a-self-tuple-across-a-context-edge-is-refused-or-reported
-  ;; The fourth ingredient names no predicate: the mark in `CxUp`, the tuple in `CxDown`,
-  ;; and the `genlCx` edge that lets the tuple's context see the mark.
-  (doseq [order (orderings [:mark :ctx-edge :tuple])]
-    (tu/with-terms [CxUp CxDown near Dora]
-      (v/assert kb (list 'genlCx CxUp U) U)
-      (let [r (refused-or-reported
-               kb order
-               {:mark     #(v/assert kb (list 'irreflexive near) CxUp)
-                :ctx-edge #(v/assert kb (list 'genlCx CxDown CxUp) U)
-                :tuple    #(v/assert kb (list near Dora Dora) CxDown)}
-               #(v/ask? kb (list near Dora Dora) CxDown)
-               :irreflexive near)]
-        (is (:ok? r) (str "refused, or stored and reported once, under " (pr-str order)
-                          ": " (pr-str r)))
-        (is (= (:refused? r) (= :tuple (last order)))
-            (str "refused exactly when the tuple arrives last, under " (pr-str order)))))))
-
-(tu/deftest-kb a-budget-spent-on-innocent-facts-still-says-the-reach-was-cut
-  ;; `aaa…` spends the budget and convicts nothing; `zzz…` sorts after it, holds the self
-  ;; tuple, and is swept zero facts deep.  With no finding for a flag to ride on, the
-  ;; truncation entry is the only thing that says a predicate went unswept.
-  (binding [tax/*exposure-instance-budget* 4]
-    (tu/with-terms [near Dora]
-      (let [aaa (symbol (str "aaa" (name near)))
-            zzz (symbol (str "zzz" (name near)))]
-        (dotimes [i 5]
-          (v/assert kb (list aaa Dora (symbol (str "TmpBud" i))) U))
-        (v/assert kb (list zzz Dora Dora) U)
-        (v/assert kb (list 'genl aaa near) U)
-        (v/assert kb (list 'genl zzz near) U)
-        (v/assert kb (list 'irreflexive near) U)
-        (is (v/ask? kb (list zzz Dora Dora) U) "the self tuple stands, as it did before")
-        (is (empty? (reach-entries kb :irreflexive near))
-            "the premise: the budget ran out before the tuple was examined")
-        (let [t (last (filter #(= :unarbitrable-reach-truncated (:violation %))
-                              (v/violations kb)))]
-          (is (some? t) "and the pass says a predicate went unswept rather than nothing")
-          (is (= [aaa zzz] (get-in t [:detail :sample]))
-              "naming the one that spent the budget and the one that got none")
-          (is (= 4 (get-in t [:detail :budget])))
-          (is (re-find #"went unswept" (get-in t [:detail :message]))))))))
-
-(tu/deftest-kb a-revived-mark-reports-again-and-a-revived-tuple-does-not
-  ;; the ledger is cleared before each revival, so an entry after it is filed by it
-  (testing "the mark revives: it is in the moved region and reports as an arriving one"
-    (tu/with-terms [near Dora]
-      (v/assert kb (list near Dora Dora) U)
-      (v/assert kb (list 'irreflexive near) U)
-      (let [d (v/assert kb (list 'not (list 'irreflexive near)) U {:strength :monotonic})]
-        (v/clear-violations! kb)
-        (v/retract! kb d)
-        (is (v/ask? kb (list 'irreflexive near) U))
-        (is (= 1 (count (reach-entries kb :irreflexive near)))))))
-  (testing "the tuple revives under the standing mark: the pass reads no plain fact"
-    (tu/with-terms [near Dora]
-      (v/assert kb (list near Dora Dora) U)
-      (v/assert kb (list 'irreflexive near) U)
-      (let [d (v/assert kb (list 'not (list near Dora Dora)) U {:strength :monotonic})]
-        (v/clear-violations! kb)
-        (v/retract! kb d)
-        (is (v/ask? kb (list near Dora Dora) U))
-        (is (empty? (reach-entries kb :irreflexive near)))))))
+(tu/deftest-kb a-conclusion-resting-on-an-irreflexive-loser-is-withdrawn-with-it
+  (tu/with-terms [near warm_blooded Dora]
+    (v/assert kb (list 'set/forwardRule (list 'implies (list near '?x '?x) (list warm_blooded '?x)))
+              U {:strength :monotonic})
+    (v/assert kb (list near Dora Dora) U)
+    (is (believed-at? kb (list warm_blooded Dora) U))
+    (v/assert kb (list 'irreflexive near) U)
+    (is (not (believed-at? kb (list near Dora Dora) U)))
+    (is (not (believed-at? kb (list warm_blooded Dora) U))
+        "the conclusion rests only on the loser")))
 
 ;;; ── anti_symmetric: a believed converse merges the two arguments ───────
 
@@ -239,10 +134,10 @@
 (tu/deftest-kb an-antisymmetric-converse-derives-an-equality
   (tu/with-terms [atOrAbove Alice Bob]
     (v/assert kb (list 'anti_symmetric atOrAbove) U)
-    (v/assert kb (list atOrAbove Alice Bob) U)
+    (v/assert kb (list atOrAbove Alice Bob) U {:strength :monotonic})
     (testing "no merge from one direction alone"
       (is (not (merged? kb Alice Bob U))))
-    (v/assert kb (list atOrAbove Bob Alice) U)
+    (v/assert kb (list atOrAbove Bob Alice) U {:strength :monotonic})
     (testing "the converse forces the equality"
       (is (merged? kb Alice Bob U)))
     (testing "and it is a derivation, not a premise, justified by both facts and the mark"
@@ -258,18 +153,18 @@
       (tu/with-terms [atOrAbove Alice Bob]
         (v/assert kb (list 'anti_symmetric atOrAbove) U)
         (if (= order :fact-then-converse)
-          (do (v/assert kb (list atOrAbove Alice Bob) U)
-              (v/assert kb (list atOrAbove Bob Alice) U))
-          (do (v/assert kb (list atOrAbove Bob Alice) U)
-              (v/assert kb (list atOrAbove Alice Bob) U)))
+          (do (v/assert kb (list atOrAbove Alice Bob) U {:strength :monotonic})
+              (v/assert kb (list atOrAbove Bob Alice) U {:strength :monotonic}))
+          (do (v/assert kb (list atOrAbove Bob Alice) U {:strength :monotonic})
+              (v/assert kb (list atOrAbove Alice Bob) U {:strength :monotonic})))
         (is (merged? kb Alice Bob U))))))
 
 (tu/deftest-kb a-converse-stated-through-a-sub-predicate-merges-and-rests-on-the-edge
   (tu/with-terms [atOrAbove strictlyAbove Alice Bob]
     (v/assert kb (list 'anti_symmetric atOrAbove) U)
     (let [edge (v/assert kb (list 'genl strictlyAbove atOrAbove) U)]
-      (v/assert kb (list atOrAbove Alice Bob) U)
-      (v/assert kb (list strictlyAbove Bob Alice) U)
+      (v/assert kb (list atOrAbove Alice Bob) U {:strength :monotonic})
+      (v/assert kb (list strictlyAbove Bob Alice) U {:strength :monotonic})
       (is (merged? kb Alice Bob U) "the sub-predicate's fact is a converse of the marked one")
       (v/retract! kb edge)
       (is (not (merged? kb Alice Bob U))
@@ -279,8 +174,8 @@
   ;; The retroactive direction — `special/antisym-equate-existing` — so the answer does
   ;; not depend on whether the mark or the facts were written first.
   (tu/with-terms [atOrAbove Alice Bob]
-    (v/assert kb (list atOrAbove Alice Bob) U)
-    (v/assert kb (list atOrAbove Bob Alice) U)
+    (v/assert kb (list atOrAbove Alice Bob) U {:strength :monotonic})
+    (v/assert kb (list atOrAbove Bob Alice) U {:strength :monotonic})
     (is (not (merged? kb Alice Bob U)) "no mark yet, no merge")
     (v/assert kb (list 'anti_symmetric atOrAbove) U)
     (is (merged? kb Alice Bob U) "the declaration reaches the stored pair")))
@@ -288,8 +183,8 @@
 (tu/deftest-kb retracting-a-supporting-fact-un-merges-the-antisymmetric-equality
   (tu/with-terms [atOrAbove Alice Bob]
     (v/assert kb (list 'anti_symmetric atOrAbove) U)
-    (v/assert kb (list atOrAbove Alice Bob) U)
-    (let [converse (v/assert kb (list atOrAbove Bob Alice) U)]
+    (v/assert kb (list atOrAbove Alice Bob) U {:strength :monotonic})
+    (let [converse (v/assert kb (list atOrAbove Bob Alice) U {:strength :monotonic})]
       (is (merged? kb Alice Bob U))
       (v/retract! kb converse)
       (testing "one direction gone, the equality goes with it"
@@ -298,8 +193,8 @@
 (tu/deftest-kb retracting-the-antisymmetric-declaration-un-merges
   (tu/with-terms [atOrAbove Alice Bob]
     (let [decl (v/assert kb (list 'anti_symmetric atOrAbove) U)]
-      (v/assert kb (list atOrAbove Alice Bob) U)
-      (v/assert kb (list atOrAbove Bob Alice) U)
+      (v/assert kb (list atOrAbove Alice Bob) U {:strength :monotonic})
+      (v/assert kb (list atOrAbove Bob Alice) U {:strength :monotonic})
       (is (merged? kb Alice Bob U))
       (v/retract! kb decl)
       (testing "the merge rested on the mark, and un-does when it goes"
@@ -313,59 +208,65 @@
     (is (v/assert kb (list atOrAbove Alice Alice) U))
     (is (v/ask? kb (list atOrAbove Alice Alice) U))))
 
-(tu/deftest-kb an-antisymmetric-converse-no-merge-can-reconcile-is-refused
-  ;; Two numbers a converse forces equal, which no merge can make one thing — the hard
-  ;; contradiction, refused at the entry point like a numeric functional clash.
-  (tu/with-terms [atOrAbove]
-    (v/assert kb (list 'anti_symmetric atOrAbove) U)
-    (v/assert kb (list atOrAbove 1 2) U)
-    (testing "check predicts it and assert throws it"
-      (is (= [:anti-symmetric] (mapv :type (v/check kb (list atOrAbove 2 1) U))))
-      (is (= :anti-symmetric (ex-type #(v/assert kb (list atOrAbove 2 1) U)))))
-    (testing "under either policy — a non-mergeable clash is not arbitrable"
-      (doseq [arbitrate? [false true]]
-        (binding [checks/*arbitrate-constraints?* arbitrate?]
-          (is (= :anti-symmetric (ex-type #(v/assert kb (list atOrAbove 2 1) U)))))))))
+(tu/deftest-kb an-antisymmetric-converse-no-merge-can-reconcile-is-a-nogood-in-every-order
+  ;; Two numbers a converse forces equal, which no merge can make one thing: a two-member
+  ;; nogood each reader decides from the members' classes.
+  (doseq [[label [c12 c21] want] [["the :default member loses" [:default :monotonic]
+                                   [[false true] {:conflicts #{} :contradictions #{}}]]
+                                  ["two :default members are a dilemma" [:default :default]
+                                   [[true true] {:conflicts #{} :contradictions #{:pair}}]]
+                                  ["two :monotonic members are a conflict" [:monotonic :monotonic]
+                                   [[true true] {:conflicts #{:pair} :contradictions #{}}]]]]
+    (testing label
+      (tu/with-terms [atOrAbove]
+        (let [pair  [:anti-symmetric (list 'contradicts (list atOrAbove 1 2) (list atOrAbove 2 1))]
+              [b r] want
+              want  [b (update-vals r #(if (seq %) #{pair} #{}))]]
+          (is (= #{want}
+                 (readings kb {:mark #(v/assert kb (list 'anti_symmetric atOrAbove) U)
+                               :a    #(v/assert kb (list atOrAbove 1 2) U {:strength c12})
+                               :b    #(v/assert kb (list atOrAbove 2 1) U {:strength c21})}
+                           #(vector (believed-at? kb (list atOrAbove 1 2) U)
+                                    (believed-at? kb (list atOrAbove 2 1) U))))))))))
 
-(tu/deftest-kb a-late-antisymmetric-mark-reports-a-converse-no-merge-can-reconcile
-  ;; The pair the entry point refuses above, in the other order: both facts stand, since
-  ;; a converse of two numbers carries no arbitrable class, and the late mark reports
-  ;; them — the same reading as a late `irreflexive` mark over a self tuple.
-  (tu/with-terms [atOrAbove]
-    (v/assert kb (list atOrAbove 1 2) U)
-    (v/assert kb (list atOrAbove 2 1) U)
-    (is (empty? (reach-entries kb :anti-symmetric atOrAbove)) "no mark yet")
+(tu/deftest-kb a-converse-pair-is-decided-at-the-joint-reader-and-nowhere-above-it
+  ;; One direction in `CxA`, the other in `CxB`, and `CxJ` below both: `CxJ` reads the
+  ;; nogood and takes the `:default` member OUT, and `CxA` reads no converse, whatever
+  ;; the order the facts and the reader's edges arrive in.  CxCore lifts the mark to
+  ;; CxUniverse, so every context reads it.
+  (tu/with-terms [atOrAbove CxA CxB CxJ]
+    (v/assert kb (list 'genlCx CxA U) U)
+    (v/assert kb (list 'genlCx CxB U) U)
     (v/assert kb (list 'anti_symmetric atOrAbove) U)
-    (is (and (v/ask? kb (list atOrAbove 1 2) U) (v/ask? kb (list atOrAbove 2 1) U))
-        "both directions stand")
-    (let [[e & more] (reach-entries kb :anti-symmetric atOrAbove)]
-      (is (some? e) "the late mark files the report")
-      (is (nil? more) "one entry for the mark")
-      (is (= 2 (:count e)) "each direction is convicted by the other")
-      (is (= [(list atOrAbove 1 2) (list atOrAbove 2 1)] (:sample e))))))
+    (is (= #{[[true false true] {:conflicts #{} :contradictions #{}}]}
+           (readings kb {:a    #(v/assert kb (list atOrAbove 1 2) CxA)
+                         :b    #(v/assert kb (list atOrAbove 2 1) CxB {:strength :monotonic})
+                         :to-a #(v/assert kb (list 'genlCx CxJ CxA) U)
+                         :to-b #(v/assert kb (list 'genlCx CxJ CxB) U)}
+                     #(vector (believed-at? kb (list atOrAbove 1 2) CxA)
+                              (believed-at? kb (list atOrAbove 1 2) CxA CxJ)
+                              (believed-at? kb (list atOrAbove 2 1) CxB CxJ)))))))
 
-(tu/deftest-kb an-unmergeable-converse-under-a-descended-mark-is-refused-or-reported
-  (doseq [order (orderings [:mark :edge :fact :converse])]
-    (tu/with-terms [atOrAbove atOrAboveStrict]
-      (let [r (refused-or-reported
-               kb order
-               {:mark     #(v/assert kb (list 'anti_symmetric atOrAbove) U)
-                :edge     #(v/assert kb (list 'genl atOrAboveStrict atOrAbove) U)
-                :fact     #(v/assert kb (list atOrAboveStrict 1 2) U)
-                :converse #(v/assert kb (list atOrAbove 2 1) U)}
-               #(and (v/ask? kb (list atOrAboveStrict 1 2) U)
-                     (v/ask? kb (list atOrAbove 2 1) U))
-               :anti-symmetric atOrAbove)]
-        (is (:ok? r) (str "refused, or both stored and reported once, under "
-                          (pr-str order) ": " (pr-str r)))))))
+(tu/deftest-kb an-unmergeable-converse-under-a-descended-mark-is-decided-in-every-order
+  ;; A converse of two numbers is found under the tuple's own functor
+  ;; (`tuple/converse-handles`), so both directions are spelled with the sub-predicate.
+  (tu/with-terms [atOrAbove atOrAboveStrict]
+    (is (= #{[[false true] {:conflicts #{} :contradictions #{}}]}
+           (readings kb {:mark     #(v/assert kb (list 'anti_symmetric atOrAbove) U)
+                         :edge     #(v/assert kb (list 'genl atOrAboveStrict atOrAbove) U)
+                         :fact     #(v/assert kb (list atOrAboveStrict 1 2) U)
+                         :converse #(v/assert kb (list atOrAboveStrict 2 1) U
+                                              {:strength :monotonic})}
+                     #(vector (believed-at? kb (list atOrAboveStrict 1 2) U)
+                              (believed-at? kb (list atOrAboveStrict 2 1) U)))))))
 
 (tu/deftest-kb an-antisymmetric-mark-on-a-super-predicate-merges-a-sub-pair
   ;; The mark descends the predicate hierarchy, exactly as functional's does.
   (tu/with-terms [atOrAbove atOrAboveStrict Alice Bob]
     (v/assert kb (list 'genl atOrAboveStrict atOrAbove) U)
     (v/assert kb (list 'anti_symmetric atOrAbove) U)
-    (v/assert kb (list atOrAboveStrict Alice Bob) U)
-    (v/assert kb (list atOrAboveStrict Bob Alice) U)
+    (v/assert kb (list atOrAboveStrict Alice Bob) U {:strength :monotonic})
+    (v/assert kb (list atOrAboveStrict Bob Alice) U {:strength :monotonic})
     (is (merged? kb Alice Bob U)
         "two sub-predicate tuples are convicted by the super's mark")))
 
@@ -399,8 +300,8 @@
             bob       (tu/tmp-ind "Bob")
             h1        (v/assert kb (list 'anti_symmetric atOrAbove) CxFam)
             h2        (v/assert kb (list 'anti_symmetric atOrAbove) CxStory)]
-        (v/assert kb (list atOrAbove alice bob) CxFam)
-        (v/assert kb (list atOrAbove bob alice) CxFam)
+        (v/assert kb (list atOrAbove alice bob) CxFam {:strength :monotonic})
+        (v/assert kb (list atOrAbove bob alice) CxFam {:strength :monotonic})
         (is (merged? kb alice bob CxFam) "the merge is derived while both declarations stand")
         (testing (str "retiring the " (name retire) " declaration leaves the merge")
           (v/retract! kb (if (= retire :first) h1 h2))
@@ -414,8 +315,8 @@
           alice     (tu/tmp-ind "Alice")
           bob       (tu/tmp-ind "Bob")
           decl      (v/assert kb (list 'anti_symmetric atOrAbove) CxStory)]
-      (v/assert kb (list atOrAbove alice bob) CxFam)
-      (v/assert kb (list atOrAbove bob alice) CxFam)
+      (v/assert kb (list atOrAbove alice bob) CxFam {:strength :monotonic})
+      (v/assert kb (list atOrAbove bob alice) CxFam {:strength :monotonic})
       (testing "the declaration stated in CxStory merges the pair in CxFam"
         (is (not (v/sees? kb CxFam CxStory)))
         (is (merged? kb alice bob CxFam)))
@@ -448,7 +349,7 @@
                              CxStory)]
         (v/assert kb (list 'arity rel 2) U)
         (when decl-first? (decl!))
-        (doseq [f facts] (v/assert kb f U))
+        (doseq [f facts] (v/assert kb f U {:strength :monotonic}))
         (when-not decl-first? (decl!))
         (testing (str mark (if decl-first? " stated before" " stated after") " the facts")
           (is (= [true true true]
@@ -478,7 +379,7 @@
                              mark-cx)]
         (v/assert kb (list 'arity rel 2) U)
         (when decl-first? (decl!))
-        (doseq [f facts] (v/assert kb f fact-cx))
+        (doseq [f facts] (v/assert kb f fact-cx {:strength :monotonic}))
         (when-not decl-first? (decl!))
         (testing (str mark " in " mark-cx ", facts in " fact-cx
                       (if decl-first? ", stated before" ", stated after"))
@@ -491,32 +392,30 @@
 (tu/deftest-kb antitransitive-classifies-and-clashes-with-transitive
   ;; The enforced half.  The bare mark carries its classification — (anti_transitive P)
   ;; makes P a binary_predicate — and declaring the same predicate transitive too is a
-  ;; direct disjoint membership clash refused at the entry point under :refuse.
+  ;; direct disjoint membership clash, which the forced-monotonic mark wins.
   (tu/with-terms [flowsInto]
     (v/assert kb (list 'anti_transitive flowsInto) U)
     (testing "the mark classifies it as a binary_predicate"
       (is (v/ask? kb (list 'binary_predicate flowsInto) U)))
-    (testing "and declaring it transitive too is refused — no predicate is both"
-      (is (= [:disjoint] (mapv :type (v/check kb (list 'transitive flowsInto) U))))
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'transitive flowsInto) U))))))
+    (testing "and declaring it transitive too is stored and loses — no predicate is both"
+      (is (tu/stored-in-clash? kb (list 'transitive flowsInto) U))
+      (is (v/ask? kb (list 'anti_transitive flowsInto) U)))))
 
-(tu/deftest-kb a-known-true-chain-refuses-the-direct-step
-  ;; The conviction, read the way `asymmetric` reads its converse: what refuses at the
-  ;; entry point is a chain the arbitration could never break.
+(tu/deftest-kb a-known-true-chain-and-its-known-true-direct-step-are-one-conflict
+  ;; The conviction, read the way `asymmetric` reads its converse: a chain no member of
+  ;; which can be defeated is stored whole and stands in `conflicts`.
   (tu/with-terms [parentOf Alice Bob Carol]
     (v/assert kb (list 'anti_transitive parentOf) U)
     (v/assert kb (list parentOf Alice Bob) U {:strength :monotonic})
     (v/assert kb (list parentOf Bob Carol) U {:strength :monotonic})
-    (testing "the check predicts the refusal, and the assert makes it"
-      (is (= [:anti-transitive] (mapv :type (v/check kb (list parentOf Alice Carol) U))))
-      (is (= :anti-transitive (ex-type #(v/assert kb (list parentOf Alice Carol) U)))))
-    (testing "and the violation names both steps, not one"
-      (let [v (first (v/check kb (list parentOf Alice Carol) U))]
-        (is (= 2 (count (:opposing-handles v))))
-        (is (= #{(v/handle-of kb (list parentOf Alice Bob) U)
-                 (v/handle-of kb (list parentOf Bob Carol) U)}
-               (set (:opposing-handles v))))))))
+    (testing "the check finds nothing to refuse, and the assert stores the direct step"
+      (is (empty? (v/check kb (list parentOf Alice Carol) U {:strength :monotonic})))
+      (is (v/assert kb (list parentOf Alice Carol) U {:strength :monotonic})))
+    (testing "and the conflict names all three members, not two"
+      (is (= [#{(v/handle-of kb (list parentOf Alice Bob) U)
+                (v/handle-of kb (list parentOf Bob Carol) U)
+                (v/handle-of kb (list parentOf Alice Carol) U)}]
+             (mapv :nogood (v/conflicts kb)))))))
 
 (tu/deftest-kb the-chain-is-convicted-from-whichever-member-arrives-last
   ;; Conviction has to be symmetric or the discovery would find the triple by arrival
@@ -526,9 +425,9 @@
     (v/assert kb (list 'anti_transitive parentOf) U)
     (v/assert kb (list parentOf Alice Carol) U {:strength :monotonic})
     (v/assert kb (list parentOf Alice Bob) U {:strength :monotonic})
-    (testing "the second step closes the same triple and is refused in its turn"
-      (is (= [:anti-transitive] (mapv :type (v/check kb (list parentOf Bob Carol) U))))
-      (is (= :anti-transitive (ex-type #(v/assert kb (list parentOf Bob Carol) U)))))))
+    (testing "the second step closes the same triple, and as the one default member it loses"
+      (is (tu/stored-in-clash? kb (list parentOf Bob Carol) U))
+      (is (= :defeated (:reason (v/why-not kb (v/handle-of kb (list parentOf Bob Carol) U))))))))
 
 (tu/deftest-kb three-defaults-are-one-dilemma-of-three-members
   ;; The `:default` reading, and the one that says this is a nogood rather than a
@@ -557,7 +456,7 @@
 
 (tu/deftest-kb the-one-defeasible-member-of-a-chain-is-the-one-defeated
   ;; The mixed case: a unique weakest member is what a nogood of any width is decided on
-  ;; (`settle/decide-nogood`), so the defeasible step loses to the two known-true claims
+  ;; (`decide/verdict`), so the defeasible step loses to the two known-true claims
   ;; and keeps a `why-not` while it does.
   (tu/with-terms [parentOf Alice Bob Carol]
     (v/assert kb (list 'anti_transitive parentOf) U)
@@ -581,8 +480,8 @@
     (v/assert kb (list 'genl fatherOf parentOf) U)
     (v/assert kb (list fatherOf Alice Bob) U {:strength :monotonic})
     (v/assert kb (list fatherOf Bob Carol) U {:strength :monotonic})
-    (is (= [:anti-transitive] (mapv :type (v/check kb (list fatherOf Alice Carol) U))))
-    (is (= :anti-transitive (ex-type #(v/assert kb (list fatherOf Alice Carol) U))))))
+    (is (tu/stored-in-clash? kb (list fatherOf Alice Carol) U))
+    (is (= :defeated (:reason (v/why-not kb (v/handle-of kb (list fatherOf Alice Carol) U)))))))
 
 (tu/deftest-kb an-antitransitive-self-tuple-is-admitted
   ;; The stated absence: `(P a a)` is its own two-step chain, so the triple collapses onto
@@ -658,20 +557,24 @@
 
 (tu/deftest-kb symmetric-and-asymmetric-are-disjoint
   ;; `(disjoint symmetric asymmetric)` on the bare marks: a direct membership in the second
-  ;; clashes with the first and is refused at the entry point under :refuse.
+  ;; clashes with the first.  `asymmetric` is forced monotonic, so it defeats the
+  ;; `:default` `symmetric` mark whichever arrived first.
   (tu/with-terms [nextTo]
     (v/assert kb (list 'symmetric nextTo) U)
-    (testing "so declaring the same predicate asymmetric is refused"
-      (is (= [:disjoint] (mapv :type (v/check kb (list 'asymmetric nextTo) U))))
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'asymmetric nextTo) U))))))
+    (testing "so declaring the same predicate asymmetric is stored, and the pair is weighed"
+      (is (empty? (v/check kb (list 'asymmetric nextTo) U)))
+      (is (v/assert kb (list 'asymmetric nextTo) U))
+      (is (v/ask? kb (list 'asymmetric nextTo) U))
+      (is (not (v/ask? kb (list 'symmetric nextTo) U))))))
 
 (tu/deftest-kb reflexive-and-irreflexive-are-disjoint
+  ;; `irreflexive` is forced monotonic, so it defeats the `:default` `reflexive` mark
   (tu/with-terms [sameSizeAs]
     (v/assert kb (list 'reflexive sameSizeAs) U)
-    (testing "so declaring the same predicate irreflexive is refused"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'irreflexive sameSizeAs) U))))))
+    (testing "so declaring the same predicate irreflexive is stored, and the pair is weighed"
+      (is (v/assert kb (list 'irreflexive sameSizeAs) U))
+      (is (v/ask? kb (list 'irreflexive sameSizeAs) U))
+      (is (not (v/ask? kb (list 'reflexive sameSizeAs) U))))))
 
 (tu/deftest-kb an-equivalence-relation-is-classified-as-a-binarypredicate
   (tu/with-terms [sameAgeAs]

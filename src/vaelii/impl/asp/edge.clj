@@ -58,7 +58,7 @@
   and at-least-`k` is the mirror over the default-negated members (`card-encoding`).
 
   In practice `:violated` comes back empty, and that is correct rather than a gap.
-  An irreducible known-true clash never reaches a solver: `settle/decide-nogood`
+  An irreducible known-true clash never reaches a solver: `decide/verdict`
   classifies it as *hard* and reports it directly, and `solve/program` drops any nogood
   with no contested member.  What does arrive always has a contested member, and
   defeating that member always satisfies it.

@@ -147,14 +147,15 @@
   (tu/with-terms [mortal]
     (is (= :not-ground (ex-type #(v/assert kb (list mortal '?x) 'CxUniverse))))))
 
-(tu/deftest-kb a-disjointness-violation-is-typed-disjoint
+(tu/deftest-kb a-disjointness-clash-is-a-disjoint-nogood
   ;; Everything in one context, like the arg test below: the constraint checks
   ;; are context-scoped — disjointness included — and this KB is fresh, so a
   ;; declaration in an unwired CxUniverse would simply be invisible here.
   (tu/with-terms [dog cat Felix]
     (v/assert kb (list 'disjoint dog cat) 'CxNaturalWorld)
     (v/assert kb (list cat Felix) 'CxNaturalWorld)
-    (is (= :disjoint (ex-type #(v/assert kb (list dog Felix) 'CxNaturalWorld))))))
+    (v/assert kb (list dog Felix) 'CxNaturalWorld)
+    (is (= [:disjoint] (mapv :kind (v/contradictions kb))))))
 
 (tu/deftest-kb an-arg-violation-is-typed-arg-type
   ;; Everything in one context on purpose: the constraint checks are context-scoped,
@@ -174,16 +175,16 @@
 ;; The values are **numbers**, and that is the point rather than an incidental
 ;; choice.  A functional clash between two *symbols* is not an error (docs/equality.md):
 ;; two spellings may denote one thing, so the KB derives `(equals V1 V2)` and merges
-;; them instead of refusing the second fact.  A clash the equality closure cannot
-;; express is a hard rejection, and numbers are exactly that case: the closure is a
+;; them instead of weighing the second fact.  A clash the equality closure cannot
+;; express is a nogood, and numbers are exactly that case: the closure is a
 ;; partition over symbols, and no merge can make 1980 and 1990 one thing.
 ;; `equality_test` owns the other half.
-(tu/deftest-kb a-functional-violation-is-typed-functional
+(tu/deftest-kb a-functional-clash-is-a-functional-nogood
   (tu/with-terms [birthYearOf Ann]
     (v/assert kb (list 'functional birthYearOf) 'CxNaturalWorld)
     (v/assert kb (list birthYearOf Ann 1980) 'CxNaturalWorld)
-    (is (= :functional
-           (ex-type #(v/assert kb (list birthYearOf Ann 1990) 'CxNaturalWorld)))
+    (v/assert kb (list birthYearOf Ann 1990) 'CxNaturalWorld)
+    (is (= [:functional] (mapv :kind (v/contradictions kb)))
         "a second, different value for the same first argument")))
 
 (tu/deftest-kb a-malformed-special-predicate-is-typed-not-well-formed

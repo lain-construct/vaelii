@@ -197,12 +197,16 @@
   (`vaelii.impl.types.sentex/variable?`, which the columnar trie calls)."
   sentex-types/variable?)
 
+(defn plain-symbol?
+  "A symbol that is not a variable."
+  [x]
+  (and (symbol? x) (not (variable? x))))
+
 (defn form-vars
   "Every variable anywhere in `form`, in order of occurrence and with duplicates, so a
   variable used twice counts twice (locality reads occurrence counts).  Lazy.  The one
-  walk for a variable sequence: `rules`, `skolem`, `rewrite`, `assert-entry`,
-  `asp.solve-context` and `vaelii.core`'s exception check call it; `form-variables` is
-  the set form."
+  walk for a variable sequence: `rules`, `skolem`, `rewrite`, `asp.solve-context` and
+  the exception closure check call it; `form-variables` is the set form."
   [form]
   (filter variable? (tree-seq sequential? seq form)))
 
@@ -486,37 +490,6 @@
   `core/prove` spells one; a single literal may be written bare."
   [form]
   (if (vector? form) (mapv canon form) [(canon form)]))
-
-(defn check-exception-closed
-  "Throw unless the `exceptWhen` exception is **closed** over `antecedents`: every
-  variable it mentions is bound before it runs, so it is a ground existence check
-  rather than a search for bindings.  The mirror of
-  `rules/check-range-restricted`, pointed at the exception instead of the
-  consequent.
-
-  This forbids an *existential* exception — \"birds fly unless they have a sick
-  child\" is not expressible, because `?child` would be unbound.  docs/exceptions.md
-  records that as a deliberate limit and the price of the ground check; the
-  workaround is an antecedent that binds the witness."
-  [antecedents exception]
-  ;; `_` is an anonymous wildcard: two occurrences are two *different* variables, so
-  ;; an antecedent can never bind one for the exception to read.
-  (when-let [w (seq (filter #(= '_ %) (mapcat form-vars exception)))]
-    (throw (ex-info (str "exception " (pr-str (vec exception)) " uses the anonymous"
-                         " wildcard _, which binds nothing — two occurrences of _ are two"
-                         " different variables, so no antecedent can bind one for the"
-                         " exception to read.  Name the variable and bind it in an"
-                         " antecedent")
-                    {:type :exception-not-closed :unbound (vec w)
-                     :exception (vec exception) :antecedents (vec antecedents)})))
-  (let [bound (into #{} (mapcat form-vars) antecedents)
-        loose (distinct (remove bound (mapcat form-vars exception)))]
-    (when (seq loose)
-      (throw (ex-info (str "exception is not closed: " (pr-str (vec loose))
-                           " unbound by the rule's antecedents — bind each one in an antecedent,"
-                           " or take it out of the exception")
-                      {:type :exception-not-closed :unbound (vec loose)
-                       :exception (vec exception) :antecedents (vec antecedents)})))))
 
 (defn peel-rule-wrapper
   "Strip the virtual rule wrappers, returning
@@ -1202,6 +1175,46 @@
       (rule-sentence (mapv #(if (forall? %) (desugar-forall-literal %) %) antes)
                      (rule-consequent rule-form)))))
 
+(defn check-exception-closed
+  "Throw unless the `exceptWhen` exception is **closed** over `antecedents`: every
+  free variable it reads is bound before it runs, so the rule's bindings never wait on
+  the exception.  The mirror of `rules/check-range-restricted`, pointed at the
+  exception instead of the consequent.
+
+  Free as `free-vars` counts it, so a `thereExists` the exception carries binds its own
+  witness — \"birds fly unless they have a sick child\" is
+  `(thereExists ?c (and (childOf ?b ?c) (sick ?c)))`.  That binder must be **local**
+  (`:quantifier-not-local`): one the antecedents also name would be substituted with
+  the rule's binding before the query runs, leaving a quantifier over a constant."
+  [antecedents exception]
+  ;; `_` is an anonymous wildcard: two occurrences are two *different* variables, so
+  ;; an antecedent can never bind one for the exception to read.
+  (when-let [w (seq (filter #(= '_ %) (mapcat form-vars exception)))]
+    (throw (ex-info (str "exception " (pr-str (vec exception)) " uses the anonymous"
+                         " wildcard _, which binds nothing — two occurrences of _ are two"
+                         " different variables, so no antecedent can bind one for the"
+                         " exception to read.  Name the variable and bind it in an"
+                         " antecedent")
+                    {:type :exception-not-closed :unbound (vec w)
+                     :exception (vec exception) :antecedents (vec antecedents)})))
+  (let [bound  (into #{} (mapcat form-vars) antecedents)
+        leaked (distinct (filter bound (mapcat quantified-vars
+                                               (forms-where #(or (there-exists? %) (forall? %))
+                                                            exception))))
+        loose  (distinct (remove bound (mapcat free-vars exception)))]
+    (when (seq leaked)
+      (throw (ex-info (str "exception quantifier variable " (pr-str (vec leaked))
+                           " is also a rule variable — a bound existential variable must"
+                           " appear only inside its own quantifier")
+                      {:type :quantifier-not-local :leaked (vec leaked)
+                       :exception (vec exception) :antecedents (vec antecedents)})))
+    (when (seq loose)
+      (throw (ex-info (str "exception is not closed: " (pr-str (vec loose))
+                           " unbound by the rule's antecedents — bind each one in an antecedent,"
+                           " or take it out of the exception")
+                      {:type :exception-not-closed :unbound (vec loose)
+                       :exception (vec exception) :antecedents (vec antecedents)})))))
+
 (defn check-naf-closed
   "Throw unless a rule's negation-as-failure antecedents are usable — the mirror of
   `check-exception-closed`, pointed at `unknown` / `thereExists`:
@@ -1838,6 +1851,23 @@
   [st forms]
   (reduce (fn [[acc s] f] (let [[r s'] (number-form s f)] [(conj acc r) s']))
           [[] st] forms))
+
+(defn canonical-exception
+  "An `exceptWhen` exception's conjuncts, already in the rule's canonical variables
+  `rule-vars`, in their stored form: sorted (`sort-conjuncts`), with every variable a
+  quantifier inside them binds numbered past the rule's own.  Two exceptions that differ
+  only in a binder's name are then one meta-sentex, as two rules that differ only in a
+  variable's name are one rule.
+
+  Each conjunct is numbered alone first, so the sort reads structure rather than the
+  author's binder names, and then once more across the sorted conjuncts, so two
+  conjuncts' binders stay distinct names."
+  [conjuncts rule-vars]
+  (let [base   {:n (count rule-vars) :m (zipmap rule-vars rule-vars) :vm {}}
+        number (fn [n c] (number-form (assoc base :n n) c))]
+    (first (reduce (fn [[acc n] c] (let [[r st] (number n c)] [(conj acc r) (:n st)]))
+                   [[] (:n base)]
+                   (sort-conjuncts (map #(first (number (:n base) %)) conjuncts))))))
 
 (defn- tie-groups
   "Split a `cmp-blind`-sorted literal vector into maximal runs of mutually tied

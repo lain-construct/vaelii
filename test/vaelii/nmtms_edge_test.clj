@@ -58,28 +58,28 @@
         (is (empty? (v/sentexes-matching kb2 (list 'not (list happy tom)) 'CxUniverse)))
         (is (empty? (v/conflicts kb2)))))))
 
-;; ---- 3. disjoint / functional stayed HARD after negation went soft ------
+;; ---- 3. disjoint / functional are arbitrated as negation is -------------
 
-(tu/deftest-kb disjoint-and-functional-remain-hard-throws
-  ;; Negation is now a soft, arbitrated contradiction — but disjointness and
-  ;; functionality are still hard constraints that throw and store nothing.
-  (let [dog (tu/tmp-type) cat (tu/tmp-type) muffet (tu/tmp-ind)
+(tu/deftest-kb disjoint-and-functional-clashes-are-arbitrated-as-negation-is
+  ;; Disjointness and functionality are stored and weighed exactly as `S` against
+  ;; `(not S)` is: an equal `:default` pair is a dilemma, and an equal `:monotonic`
+  ;; pair is a conflict, whichever arrived last.
+  (let [dog (tu/tmp-type) cat (tu/tmp-type) muffet (tu/tmp-ind) felix (tu/tmp-ind)
         birthYearOf (tu/tmp-pred) tom (tu/tmp-ind)]
-    (testing "a disjoint type membership still throws (not softened to a contradiction)"
+    (testing "a disjoint type membership is a dilemma at :default"
       (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
       (v/assert kb (list dog muffet) 'CxUniverse)
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list cat muffet) 'CxUniverse)))
-      (is (empty? (v/sentexes-matching kb (list cat muffet) 'CxUniverse)))            ; the reject wrote nothing
-      (is (empty? (v/conflicts kb))))                              ; and reported no soft conflict
-    (testing "even :monotonic strength does not make disjointness a soft contradiction"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list cat muffet) 'CxUniverse {:strength :monotonic}))))
-    (testing "a functional clash still throws"
+      (is (tu/stored-in-clash? kb (list cat muffet) 'CxUniverse))
+      (is (= [:disjoint] (mapv :kind (v/contradictions kb))))
+      (is (empty? (v/conflicts kb))))
+    (testing "and a conflict at :monotonic"
+      (v/assert kb (list dog felix) 'CxUniverse {:strength :monotonic})
+      (is (tu/stored-in-clash? kb (list cat felix) 'CxUniverse {:strength :monotonic}))
+      (is (= [:disjoint] (mapv :kind (v/conflicts kb)))))
+    (testing "a functional clash between two numbers is a dilemma too"
       (v/assert kb (list 'functional birthYearOf) 'CxNaturalWorld)
       (v/assert kb (list birthYearOf tom 1980) 'CxNaturalWorld)
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list birthYearOf tom 1990) 'CxNaturalWorld))))))
+      (is (tu/stored-in-clash? kb (list birthYearOf tom 1990) 'CxNaturalWorld)))))
 
 ;; ---- 4. two independent contradictions resolve independently ------------
 

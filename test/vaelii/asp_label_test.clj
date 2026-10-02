@@ -16,7 +16,7 @@
 
   Classification reads `core/last-program`, the tie the engine hands to the solver.
   For a rebuttal there is none: a coexisting `P`/`¬P` pair at `:default` is a
-  **represented dilemma**, not a tie to be broken, so `decide-nogood` reports it
+  **represented dilemma**, not a tie to be broken, so `decide/verdict` reports it
   through `contradictions` and never builds a Program (docs/exceptions.md, \"What
   surfaces where\").
 
@@ -189,7 +189,7 @@
           (check-tms kb c))))))
 
 (deftest a-contradiction-settled-by-strength-never-reaches-the-solver
-  ;; A monotonic negation beats a default outright: `decide-nogood` defeats the
+  ;; A monotonic negation beats a default outright: `decide/verdict` defeats the
   ;; weaker side directly, so no Program is ever built. Classification must report
   ;; nothing arbitrary rather than inventing a tie.
   (when asp?
@@ -336,7 +336,7 @@
             (is (nil? (atoms/atom-of-sentex t mono)))))))))
 
 (deftest a-strength-decided-clash-never-builds-a-program
-  ;; The other half: when classes differ, `decide-nogood` defeats the weaker side
+  ;; The other half: when classes differ, `decide/verdict` defeats the weaker side
   ;; directly. Nothing is contested, so nothing is sent — a monotonic belief is
   ;; never an atom, not even a fixed one.
   (when asp?

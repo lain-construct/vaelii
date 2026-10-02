@@ -154,14 +154,14 @@
     (is (= '#{(dog Rex) (barks Rex) (dog Fido) (barks Fido)}
            (disj (believed-at after 'CxC) '(genlCx CxC CxA))))))
 
-(deftest a-genlCx-edge-is-monotonic-and-undeniable
-  ;; D1: a :default genlCx write is stored :monotonic, and a denial of one is outside
-  ;; the fragment
-  (is (= [[:monotonic] true false]
+(deftest a-genlCx-edge-is-monotonic-and-its-denial-inert
+  ;; D1: a :default genlCx write is stored :monotonic, and a denial of one is set aside
+  ;; as inert
+  (is (= [[:monotonic] [[] 1] false]
          [(mapv :strength (:writes (w/check-world (world ['(genlCx CxC CxA) 'CxUniverse
                                                           :default]))))
-          (unsupported? #(w/check-world (world ['(not (genlCx CxC CxA)) 'CxUniverse
-                                                :monotonic])))
+          (let [c (w/check-world (world ['(not (genlCx CxC CxA)) 'CxUniverse :monotonic]))]
+            [(:writes c) (count (:inert c))])
           (unsupported? #(w/check-world (world ['(genlCx CxC CxA) 'CxUniverse
                                                 :monotonic])))])))
 
@@ -425,24 +425,26 @@
 
 ;; ---- the forced-monotonic roster (D7) ---------------------------------------
 
-(deftest a-roster-member-is-written-monotonic-and-never-denied
+(deftest a-roster-member-is-written-monotonic-and-its-denial-inert
   ;; D7, D10, D11: each mark, declaration and predicate genl edge written :default is
-  ;; stored :monotonic, and denied is outside the fragment; a genl edge between types
-  ;; may be :default and may be denied
+  ;; stored :monotonic, and a denial of one is set aside as inert; a genl edge between
+  ;; types may be :default and may be denied
   (let [roster  '[(irreflexive likes) (anti_symmetric likes) (asymmetric likes)
                   (functional likes) (functionalInArg likes 2) (anti_transitive likes)
                   (transitiveInArg likes 1 genl) (disjoint dog cat)
                   (covering vehicle car boat) (genl partOf nearTo)]
         n       (count roster)
         refused (fn [triple] (unsupported? #(w/check-world (world triple))))
-        stored  (fn [triple] (mapv :strength (:writes (w/check-world (world triple)))))]
-    (is (= [(vec (repeat n [:monotonic])) (vec (repeat n true)) (vec (repeat n false))]
+        stored  (fn [triple] (mapv :strength (:writes (w/check-world (world triple)))))
+        inert   (fn [triple] (count (:inert (w/check-world (world triple)))))]
+    (is (= [(vec (repeat n [:monotonic])) (vec (repeat n 1)) (vec (repeat n false))]
            [(mapv #(stored [% 'CxA :default]) roster)
-            (mapv #(refused [(list 'not %) 'CxA :monotonic]) roster)
+            (mapv #(inert [(list 'not %) 'CxA :monotonic]) roster)
             (mapv #(refused [% 'CxA :monotonic]) roster)]))
-    (is (= [[:default] false]
+    (is (= [[:default] [:default] 0]
            [(stored ['(genl dog animal) 'CxA :default])
-            (refused ['(not (genl dog animal)) 'CxA :default])]))
+            (stored ['(not (genl dog animal)) 'CxA :default])
+            (inert ['(not (genl dog animal)) 'CxA :default])]))
     (is (refused ['(transitiveInArg likes 1 partOf) 'CxA :monotonic])
         "a transitiveInArg over a relation other than genl")))
 
@@ -450,7 +452,7 @@
   ;; D7, D10. CxA: (functional ageOf) (ageAtDeath Bob 5) :monotonic; (genl ageAtDeath
   ;; ageOf) and (ageOf Bob 6) written :default. The edge is stored :monotonic and carries
   ;; the mark, so (ageOf Bob 6) is the unique weakest member. A denial of the edge is
-  ;; outside the fragment.
+  ;; inert and leaves the verdict as it is.
   (tu/with-requirement @reference-families "vaelii.ref.nogoods/families is not loadable"
     (let [base  [['(functional ageOf) 'CxA :monotonic]
                  ['(ageAtDeath Bob 5) 'CxA :monotonic]
@@ -460,9 +462,10 @@
       (is (= [:monotonic :monotonic #{'(ageOf Bob 6)} true]
              [((:class reach) '(functional ageOf)) ((:class reach) '(genl ageAtDeath ageOf))
               (:out reach) (contains? (:believed reach) '(ageAtDeath Bob 5))]))
-      (is (unsupported? #(w/check-world
-                          (apply world (conj base ['(not (genl ageAtDeath ageOf)) 'CxA
-                                                   :monotonic]))))))))
+      (is (= [(:out reach) (:believed reach)]
+             ((juxt :out :believed)
+              (b/view (apply world (conj base ['(not (genl ageAtDeath ageOf)) 'CxA :monotonic]))
+                      'CxA @reference-families)))))))
 
 ;; ---- inherited claims (D5) --------------------------------------------------
 
@@ -579,22 +582,25 @@
           :antecedents '[(bird ?b)]
           :unknowns    '[[(sick ?b) (old ?b)]]
           :consequent  '(flies ?b)
-          :exceptions  '[[(penguin ?b)]]}
+          :exceptions  '[[(penguin ?b)]]
+          :inert?      false}
          (w/parse-rule '(exceptWhen (penguin ?b)
                                     (set/defaultRule
                                      (set/forwardRule
                                       (implies (and (bird ?b) (unknown (and (sick ?b) (old ?b))))
                                                (flies ?b)))))))))
 
-(deftest a-rule-concluding-a-roster-predicate-is-refused-on-the-sentence-alone
-  ;; D17: a declaration, a mark and a predicate genl edge as a consequent
-  (let [reason (fn [form] (try (w/parse-rule form) nil
-                               (catch clojure.lang.ExceptionInfo e (:reason (ex-data e)))))]
-    (is (= [:forced-conclusion :forced-conclusion :forced-conclusion :forced-conclusion]
-           (mapv reason '[(set/forwardRule (implies (dog ?x) (disjoint ?x cat)))
-                          (set/forwardRule (implies (dog ?x) (not (disjoint ?x cat))))
-                          (set/forwardRule (implies (likes ?x ?y) (functional likes)))
-                          (set/forwardRule (implies (dog ?x) (genl partOf nearTo)))])))))
+(deftest a-rule-concluding-a-roster-predicate-is-inert
+  ;; D17: a declaration, a mark and a predicate genl edge as a consequent parse as
+  ;; inert, and the world check sets such a rule aside rather than refusing it
+  (let [forms '[(set/forwardRule (implies (dog ?x) (disjoint ?x cat)))
+                (set/forwardRule (implies (dog ?x) (not (disjoint ?x cat))))
+                (set/forwardRule (implies (likes ?x ?y) (functional likes)))
+                (set/forwardRule (implies (dog ?x) (genl partOf nearTo)))]]
+    (is (= [true true true true] (mapv #(:inert? (w/parse-rule %)) forms)))
+    (is (= [[] 4] (let [c (w/check-world (apply world (map #(vector % 'CxA) forms)))]
+                    [(:writes c) (count (:inert c))])))
+    (is (not (:inert? (w/parse-rule '(set/forwardRule (implies (dog ?x) (barks ?x)))))))))
 
 (deftest the-world-check-refuses-every-shape-outside-v1
   (let [refused
@@ -609,7 +615,6 @@
          :partition       '(partition animal dog cat)
          :except          '(except Foo)
          :equality        '(sameAs Fido Rex)
-         :genlCx-denial   '(not (genlCx CxB CxA))
          :open-fact       '(dog ?x)
          :nat-argument    '(likes Tom (fatherFn Tom))}
         results (into {} (for [[k s] refused]
@@ -638,7 +643,7 @@
 ;; ---- extraction from a KB ---------------------------------------------------
 
 (deftest world-of-reads-the-premises-and-no-derivation
-  (tu/with-neutral-kb [kb #(tu/fresh {:constraints :arbitrate})]
+  (tu/with-neutral-kb [kb #(tu/fresh)]
     (tu/with-terms [dog barks sick Fido CxA CxB]
       (let [rule (list 'set/forwardRule (list 'implies (list dog '?x) (list barks '?x)))]
         (v/assert kb (list 'genlCx CxB CxA) CxB {:strength :monotonic})
@@ -658,7 +663,7 @@
           (is (= #{CxA CxB} (set (:contexts wd)))))))))
 
 (deftest world-of-refuses-a-kb-holding-content-outside-v1
-  (tu/with-neutral-kb [kb #(tu/fresh {:constraints :arbitrate})]
+  (tu/with-neutral-kb [kb #(tu/fresh)]
     (tu/with-terms [marriedTo CxA]
       (v/assert kb (list 'symmetric marriedTo) CxA)
       (is (unsupported? #(w/world-of kb))))))

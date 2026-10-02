@@ -146,7 +146,7 @@
   defeasible→strict resolution must reach them or belief keeps the arrival order this
   fn exists to remove — facts asserted *between* the two spellings would hold
   conclusions at `:default` that the same assertions in the other order hold at
-  `:monotonic`.  `jtms/restrength-informant` updates that slot and relabels the
+  `:monotonic`.  `special/restrength-firings!` updates that slot and relabels the
   affected region.  The engines join needs no such reach-back: it only ever *adds*
   capability (`join-engines` is a join, never a meet), backward capability is read
   off the record at query time, and new forward capability is the `chain-all` below.
@@ -162,17 +162,9 @@
       (let [s' (assoc stored :engines engines :defeasible def?)]
         (p/put-sentex (:records kb) s')
         (when (not= (boolean def?) (boolean (:defeasible stored)))
-          ;; Both copies of the conferred strength, together — the record store's
-          ;; justification records (what `supporting-justifications` shows and what
-          ;; `recover` rebuilds the network from) and the network's graph copy (what
-          ;; labelling reads), the same both-halves rule `mark-premise` states.
-          (let [strength (if def? :default :monotonic)
-                tms      (reasoning/tms kb)]
-            (doseq [jid (jtms/dependents tms h)
-                    :let [j (p/get-justification (:records kb) jid)]
-                    :when (and j (= h (:informant j)) (not= strength (:strength j)))]
-              (p/put-justification (:records kb) (assoc j :strength strength)))
-            (jtms/restrength-informant tms h strength)))
+          (special/restrength-firings! kb h)
+          ;; a rule's defeasibility decides whether it is a roster rule
+          (checks/force-sentexes! kb [s']))
         ;; newly forward-capable: it has never been joined over the facts already stored
         (when (and (:chain? opts true)
                    (rules/forward-sentex? s')
@@ -217,6 +209,7 @@
         [h s new?] (kb/find-or-create-sentex kb sentence context strength)]
     (if new?
       (do
+        (checks/force-sentex! kb s)
         (mark-premise kb h strength)
         (special/index-rule-sentex kb h s)
         ;; A rule naming a predicate or type the closure has **already** merged is
@@ -265,6 +258,7 @@
         ;; incoming class.
         (let [resolved (strength/max (:strength s) strength)]
           (when (not= resolved (:strength s))
+            (checks/force-sentex! kb s)
             (mark-premise kb h resolved)
             ;; the mark relabels, and an entry point that moves a label settles before it
             ;; returns.  A class move alone moves none, nothing in the engine defeating
@@ -287,7 +281,8 @@
   names the rule was *first* asserted with, so a re-reference under new variable names
   would misalign.  The query is mapped to the rule's canonical variables through it, so
   a firing's bindings substitute straight in; an exception variable no antecedent binds
-  is refused (`:exception-not-closed`), as is one that would close a cycle through
+  is refused (`:exception-not-closed`), as is a quantifier binder the rule also names
+  (`:quantifier-not-local`) and one that would close a cycle through
   negation (`check-exceptWhen-stratified`).  Storing it posts the re-check index
   (`index-exceptWhen-meta`) and settles, so any conclusion the new exception now blocks
   is swept before this returns."
@@ -296,17 +291,11 @@
     (when-not (and rsx (rules/rule? rsx))
       (throw (ex-info (str "exceptWhen names handle " rule-handle ", which is not a rule")
                       {:type :not-well-formed :handle rule-handle :exception (vec exc)})))
-    (let [author  (into #{} (vals author-vm))                       ; the rule's author variables
-          inv     (set/map-invert author-vm)                        ; {?x ?var0}
-          exc-vars (distinct (mapcat sx/form-vars exc))
-          loose   (remove author exc-vars)]
-      (when (seq loose)
-        (throw (ex-info (str "exception is not closed: " (pr-str (vec loose))
-                             " unbound by the rule's antecedents — bind each one in an antecedent,"
-                             " or take it out of the exception")
-                        {:type :exception-not-closed :unbound (vec loose)
-                         :exception (vec exc) :rule rule-handle})))
-      (let [aligned (sx/sort-conjuncts (map #(sx/canon (res/substitute % inv)) exc))
+    (let [inv (set/map-invert author-vm)]                           ; {?x ?var0}
+      ;; the rule's author variables stand in for its antecedents: they are what binds
+      (sx/check-exception-closed (vec (vals author-vm)) exc)
+      (let [aligned (sx/canonical-exception (map #(sx/canon (res/substitute % inv)) exc)
+                                            (keys author-vm))
             meta-s  (sx/exceptWhen-meta aligned rule-handle)]
         ;; Each conjunct is held to the naming invariants, like every other literal a
         ;; rule carries.  `check-rule-sentence` runs `nm/check!` on `rules/inner-rule`,
@@ -318,7 +307,7 @@
         ;; entry point refuses is the structure of corruption these checks exist to stop.
         (run! #(nm/check! (:naming kb) % context) aligned)
         (checks/check-no-imperative meta-s)
-        (checks/check-exceptWhen-stratified kb rule-handle (keep nm/functor aligned) context)
+        (checks/check-exceptWhen-stratified kb rule-handle (rules/watched-predicates aligned) context)
         (let [strength   (get opts :strength :default)
               [h s new?] (kb/find-or-create-sentex kb meta-s context strength)]
           (when new?
@@ -415,8 +404,9 @@
     ;; A *forced* universal predicate (e.g. genlCx) has its extent placed in
     ;; CxUniverse by force — no justification, the fact simply lives there.
     (let [sentence (rules/inner-rule sentence)
-          pred    (nm/functor sentence)
-          context (storage-context kb pred context)]
+          pred     (nm/functor sentence)
+          context  (storage-context kb pred context)
+          strength (get opts :strength :default)]
       ;; Bulk load skips every check below: each only *validates* (none writes), and
       ;; the caller has guaranteed the corpus is well-formed — including the arg
       ;; store query in `constraint-checks`, the dominant per-fact cost (`:bulk?`).
@@ -442,8 +432,7 @@
                    ;; arriving underneath rules that read the predicate negatively, which
                    ;; is what turns those reads into negation as failure (docs/naf.md)
                    (checks/check-closed-extent-stratified kb sentence context)
-                   (checks/constraint-checks kb sentence context (get opts :strength :default)))
-            strength (get opts :strength :default)
+                   (checks/constraint-checks kb sentence context))
             ;; Bulk load skips the dedup trie-walk: a distinct corpus never hits an
             ;; existing sentex, so `create-sentex` directly is the same result the
             ;; `find-or-create` miss branch would take.
@@ -476,6 +465,9 @@
             ;; below moves the class the record starts from
             permuted? (integrate/permuting? kb (integrate/permuted-functor sentence))
             prior    (when permuted? (jtms/premise-strength (reasoning/tms kb) h))]
+        ;; the labeller's forced memberships go in before the mark, so a denial of a
+        ;; roster literal is never IN (docs/nmtms.md, "The forced-monotonic roster")
+        (checks/force-sentex! kb s)
         (mark-premise kb h strength)
         (when permuted?
           (integrate/note-premise-spelling! kb h (:sentence s) sentence strength prior))
@@ -513,6 +505,11 @@
               asym (special/derive-antisymmetric-equalities kb sentence context h)
               axe  (special/antisym-equate-existing kb sentence)
               axd  (special/antisym-equate-under-edge kb sentence)
+              ;; ...and the nogoods a reader decides under a tuple mark, in the two
+              ;; arrival orders a fact's own store does not read: the mark meeting the
+              ;; facts, and the edge bringing them under a mark above
+              _    (special/offer-marked-existing kb sentence)
+              _    (special/offer-marked-under-edge kb sentence)
               ;; ...and the same three ingredients once more, through the *other*
               ;; closure, which takes all three of them in one call.  A `genlCx` edge
               ;; widens which merges a context can see, so it restates the sentexes the

@@ -229,15 +229,10 @@
   4096)
 
 (defn- reduct
-  "The term `rule` rewrites `term` to at its root, or nil when its LHS does not match or
-  its `:blocked?` predicate, called with `term` and the reduct, refuses the step.  A
-  rule carries `:blocked?` when a denial of one of its ground instances is visible to
-  the reader (`res/rewrite-rules-in`); the predicate is the only part of a block this
-  namespace sees."
-  [{:keys [lhs rhs blocked?]} term]
+  "The term `rule` rewrites `term` to at its root, or nil when its LHS does not match."
+  [{:keys [lhs rhs]} term]
   (when-let [sigma (match lhs term)]
-    (let [r (subst rhs sigma)]
-      (when-not (and blocked? (blocked? term r)) r))))
+    (subst rhs sigma)))
 
 (defn- rewrite-root
   "Rewrite `term` at its root with the first applicable rule, or nil when none
@@ -349,8 +344,7 @@
   (`rewritable-subterms`), so the two agree: a wider read here would justify a twin by a
   rule that never touched it, and retracting that rule would then withdraw a twin it
   never made.  The same holds of the argument terms: an equality relation's arguments
-  are not among them (`equality-relations`), and neither is a redex the rule's
-  `:blocked?` predicate refuses."
+  are not among them (`equality-relations`)."
   [rule sentence]
   (boolean (some #(some (fn [st] (reduct rule st)) (rewritable-subterms %))
                  (argument-terms sentence))))

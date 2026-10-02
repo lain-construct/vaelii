@@ -569,6 +569,164 @@
                 (drs/close! s2))))
           (finally nil))))))
 
+;; ---- the dead ratio ------------------------------------------------------
+;; The durability daemon probes `dead-ratio` on its fsync tick.  Each kind answers off a
+;; `live-bytes` counter its writes maintain, so these pin the counter to the walk of the
+;; idx it stands in for, and pin that a probe makes no such walk.
+
+(defn- scanned-live-bytes
+  "The live frame bytes of kind `k`, summed over a walk of its idx."
+  [k]
+  (let [n (volatile! 0)]
+    (f/scan-idx! (:idx k) (fn [_ _ length _] (vswap! n + 4 length)))
+    @n))
+
+(defn- scanned-dead-ratio
+  "`dead-ratio` measured from the files: per kind `1 - scanned live bytes / log length`,
+  the largest across the kinds."
+  [s]
+  (reduce max 0.0 (for [k (vals (:kinds s))
+                        :let [total (f/log-length (:log k))]]
+                    (if (pos? total)
+                      (- 1.0 (/ (double (scanned-live-bytes k)) (double total)))
+                      0.0))))
+
+(defn- ratio-disagreement
+  "nil when `s`'s maintained counters and ratio equal the scanned ones, else what differs."
+  [s]
+  (let [kinds      (:kinds s)
+        maintained (update-vals kinds (comp deref :live-bytes))
+        scanned    (update-vals kinds scanned-live-bytes)
+        ratio      (drs/dead-ratio s)
+        want       (scanned-dead-ratio s)]
+    (when-not (and (= scanned maintained) (== want ratio))
+      {:maintained maintained :scanned scanned :ratio ratio :scanned-ratio want})))
+
+(defn- random-step!
+  "Apply one write drawn from `rnd` to the store in `*s` (a volatile, replaced on a
+  reopen), and return the step's name."
+  [*s ^java.util.Random rnd dir]
+  (let [s    @*s
+        pick (fn [ids] (when (seq ids) (nth (vec ids) (.nextInt rnd (count ids)))))
+        sx   (pick (p/sentex-ids s))
+        jx   (pick (p/justification-ids s))
+        str* #([nil :default :monotonic] (.nextInt rnd 3))
+        roll (.nextInt rnd 100)]
+    (cond
+      (< roll 25) (do (p/put-sentex s (cond-> {:sentence (list 'p roll) :context 'C}
+                                        (even? roll) (assoc :strength (str*))))
+                      :put-sentex)
+      (< roll 35) (do (p/put-justification s {:informant :rule :antecedents (if sx [sx] [])})
+                      :put-justification)
+      (< roll 43) (do (when sx (p/put-provenance s sx {:n roll})) :put-provenance)
+      (< roll 53) (do (when sx (p/delete-sentex! s sx)) :delete-sentex)
+      (< roll 58) (do (when jx (p/delete-justification! s jx)) :delete-justification)
+      (< roll 66) (do (when sx (p/mark-premise s sx (str*))) :mark-premise)
+      (< roll 71) (do (when sx (p/unmark-premise! s sx)) :unmark-premise)
+      ;; a sink batch that writes a live handle twice and mints fresh ones, so one batch
+      ;; supersedes both a frame already on disk and a frame of its own
+      (< roll 78) (do (with-open [^java.io.Closeable snk (cap/sentex-sink s {:batch 4})]
+                        (when sx
+                          (p/write-record! snk {:id sx :sentence '(q 1) :context 'C})
+                          (p/write-record! snk {:id sx :sentence '(q 2 2) :context 'C
+                                                :strength (str*)}))
+                        (dotimes [i 3] (p/write-record! snk {:sentence (list 'q i) :context 'C})))
+                      :sink-batch)
+      (< roll 83) (do (p/mark-premise-batch s (into {} (map (fn [id] [id (str*)]))
+                                                    (take 5 (p/sentex-ids s))))
+                      :mark-premise-batch)
+      (< roll 88) (do (when sx (p/put-provenance-batch s [[sx {:a 1}] [sx {:a 22}]]))
+                      :put-provenance-batch)
+      (< roll 92) (do (drs/compact! s) :compact)
+      (< roll 97) (do (drs/close! s) (vreset! *s (drs/open-record-store dir)) :reopen)
+      :else       (do (p/clear-records! s) :clear))))
+
+(defn- check-dead-ratio-oracle
+  "Run `steps` random writes per seed, comparing the counters to the walk after every
+  step.  Every write path is drawn — a store, a re-store, a tombstone, a sink batch with
+  a handle repeated inside it, the two annotating batches, a compaction, a reopen and a
+  wipe — so one seed of enough steps reaches them all."
+  [seeds steps]
+  (doseq [seed seeds]
+    (with-tmp
+      (fn [dir]
+        (let [rnd (java.util.Random. seed)
+              *s  (volatile! (drs/open-record-store dir))
+              bad (volatile! [])
+              ops (volatile! #{})]
+          (try
+            (dotimes [i steps]
+              (let [op (random-step! *s rnd dir)]
+                (vswap! ops conj op)
+                (when-let [d (ratio-disagreement @*s)]
+                  (vswap! bad conj (assoc d :step i :op op)))))
+            (is (= [] @bad) (str "seed " seed))
+            (is (<= 12 (count @ops)) (str "seed " seed " reached " (sort @ops)))
+            (finally (drs/close! @*s))))))))
+
+(deftest the-maintained-dead-ratio-equals-a-scan-of-the-idx
+  (check-dead-ratio-oracle [1] 100))
+
+(deftest ^:slow the-maintained-dead-ratio-equals-a-scan-of-the-idx-across-seeds
+  (check-dead-ratio-oracle (range 2 6) 200))
+
+(deftest a-probe-of-an-unchanged-store-reads-no-idx-bytes
+  (with-tmp
+    (fn [dir]
+      (let [s (drs/open-record-store dir)]
+        (try
+          (dotimes [i 40] (p/put-sentex s {:sentence (list 'p i) :context 'C}))
+          (doseq [id (range 2 41 3)] (p/delete-sentex! s id))
+          (let [before  (drs/dead-ratio s)
+                reads   (atom [])
+                scan    f/scan-idx!
+                slot    f/read-slot
+                answers (with-redefs [f/scan-idx! (fn [raf on] (swap! reads conj :scan) (scan raf on))
+                                      f/read-slot (fn [raf id] (swap! reads conj :slot) (slot raf id))]
+                          (vec (repeatedly 3 #(drs/dead-ratio s))))]
+            (is (pos? before))
+            (is (= [] @reads) "a probe walked or read the idx")
+            (is (= [before before before] answers))
+            (is (== (scanned-dead-ratio s) before)))
+          (finally (drs/close! s)))))))
+
+(deftest a-crashed-store-reopens-with-the-scanned-dead-ratio
+  ;; A crash leaves four kinds of damage the open repairs or tolerates before it seeds
+  ;; the counter: a torn tail, an orphan frame no slot names, a slot past the log's end,
+  ;; and a slot whose frame the log cannot give back.  The seeded counter must match the
+  ;; walk after the open, and after the compaction that drops the lost frame's handle.
+  (with-tmp
+    (fn [dir]
+      (let [s (drs/open-record-store dir)]
+        (dotimes [i 12] (p/put-sentex s {:sentence (list 'p i) :context 'C}))
+        (doseq [id [3 6 9]] (p/delete-sentex! s id))
+        (p/mark-premise s 2 :monotonic)
+        (drs/close! s))
+      (let [log-path (str dir "/records/sentexes.log")
+            idx-path (str dir "/records/sentexes.idx")]
+        (let [log (f/open-log log-path)]
+          (f/append-record! log {:orphan true})
+          (f/close! log))
+        (with-open [idx (RandomAccessFile. idx-path "rw")]
+          (let [end  (.length (java.io.File. log-path))
+                lost (f/read-slot idx 5)]
+            (f/write-slot! idx 40 (+ end 100) 50 0 0)
+            (f/write-slot! idx 5 (:offset lost) 0 (:flags lost) 0)))
+        (with-open [raf (RandomAccessFile. log-path "rw")]
+          (.seek raf (.length raf))
+          (.writeInt raf 999999)
+          (.write raf (byte-array 8)))
+        (simulate-crash! dir))
+      (let [s (drs/open-record-store dir)]
+        (try
+          (is (nil? (ratio-disagreement s)) "after the open's repairs")
+          (is (not (contains? (p/sentex-ids s) 40)) "the slot past the log was tombstoned")
+          (is (contains? (p/sentex-ids s) 5) "the lost-frame slot is live until a compaction")
+          (drs/compact! s)
+          (is (nil? (ratio-disagreement s)) "after the compaction drops the lost frame")
+          (is (not (contains? (p/sentex-ids s) 5)))
+          (finally (drs/close! s)))))))
+
 (deftest compaction-folds-in-concurrent-writes
   ;; The copy-on-write compactor does its O(live) rewrite without the kind lock, so
   ;; stores/kills can land in the middle.  `append-record-sized!` is called (lock-free)
@@ -597,6 +755,7 @@
                      now-stale snapshot copies (id 1's, id 3's) remain as a small
                      residual a follow-up compaction sweeps"
               (is (< (drs/dead-ratio s) before))
+              (is (nil? (ratio-disagreement s)) "the counter matches the installed idx")
               (drs/compact! s)                                     ; no concurrency now
               (is (< (drs/dead-ratio s) 1.0e-9) "a clean follow-up reaches zero"))
             (testing "the mid-rewrite store/kill/re-store all folded into the result"

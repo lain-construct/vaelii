@@ -162,7 +162,10 @@
 
 (defn note-region!
   "A settle relabelled `region`, of which `was-in` was believed when first touched.
-  Union both into the accumulator, for the next delivery.
+  Union both into the accumulator, for the next delivery.  A handle the accumulator
+  already holds keeps the reading an earlier settle filed it with, which predates this
+  settle's moves, so a firing the first of one write's settles placed is reported as
+  added.
 
   Accumulates rather than queues, and that is what makes an event the *net* answer:
   two regions unioned and diffed once against belief-now reports what changed, where
@@ -176,9 +179,10 @@
   not the gate that makes it free."
   [kb region was-in]
   (when (and (wants-region? kb) (seq region))
-    (swap! (:feed kb) (fn [s] (-> s
-                                  (update :region into region)
-                                  (update :was-in into was-in))))))
+    (swap! (:feed kb) (fn [s] (let [filed (:region s)]
+                                (-> s
+                                    (update :region into region)
+                                    (update :was-in into (remove #(contains? filed %)) was-in)))))))
 
 (defn- claim!
   "Take what has accumulated and mark this caller as the one delivering it, or nil —

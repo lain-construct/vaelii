@@ -123,6 +123,7 @@ makes its own choice and never consults `candidate-handles`:
 
 | path | taken when |
 |---|---|
+| `:hier-trie-prefix` | a left prefix of ground atoms, two of them indexable, then only variables, and no permuting spec — the trie under the prefix, per spec |
 | `:hier-scoped-roots` | something indexable to lead with, and a spec closure to scope by |
 | `:hier-agnostic-roots` | something indexable to lead with and no predicate — a variable functor |
 | `:hier-functor-extent` | nothing indexable to lead with, so the sub-predicates' extents |

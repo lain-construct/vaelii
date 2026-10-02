@@ -10,7 +10,7 @@
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(tu/deftest-kb disjoint-blocks-conflicting-membership
+(tu/deftest-kb disjoint-makes-a-conflicting-membership-a-dilemma
   (let [dog (tu/tmp-type) cat (tu/tmp-type)
         muffet (tu/tmp-ind) whiskers (tu/tmp-ind)]
     ;; the declaration constrains where it is visible, so the asserting context is
@@ -18,9 +18,9 @@
     (v/assert kb (list 'genlCx 'CxNaturalWorld 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
     (v/assert kb (list dog muffet) 'CxNaturalWorld)
-    (testing "the same individual can't take a disjoint type"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list cat muffet) 'CxNaturalWorld))))
+    (testing "a disjoint type of the same individual is stored, and the pair is a dilemma"
+      (is (v/assert kb (list cat muffet) 'CxNaturalWorld))
+      (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))
     (testing "a compatible individual is unaffected"
       (is (v/assert kb (list cat whiskers) 'CxNaturalWorld)))))
 
@@ -34,8 +34,8 @@
     (v/assert kb (list dog muffet) 'CxNaturalWorld)
     (testing "subtypes of disjoint types are disjoint"
       (is (v/disjoint? kb dog trout))
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list trout muffet) 'CxNaturalWorld))))))
+      (is (v/assert kb (list trout muffet) 'CxNaturalWorld))
+      (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))))
 
 (tu/deftest-kb disjoint-type-makes-members-disjoint
   (let [animal_species (tu/tmp-pred)
@@ -47,8 +47,8 @@
     (v/assert kb (list dog muffet) 'CxNaturalWorld)
     (testing "members of a disjoint metatype are disjoint"
       (is (v/disjoint? kb dog cat))
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list cat muffet) 'CxNaturalWorld))))
+      (is (v/assert kb (list cat muffet) 'CxNaturalWorld))
+      (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))
     (testing "a member added after the declaration is also disjoint"
       (v/assert kb (list animal_species fish) 'CxUniverse)
       (is (v/disjoint? kb dog fish)))))
@@ -131,9 +131,9 @@
       (is (= #{dog cat} live) "and recorded, as a stated membership is")
       (is (v/disjoint? kb dog cat) "so the two are separated at once")
       (v/assert kb (list dog Kim) 'CxNaturalWorld)
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list cat Kim) 'CxNaturalWorld))
-          "and the separation constrains, having reached the same cache")
+      (v/assert kb (list cat Kim) 'CxNaturalWorld)
+      (is (= [:disjoint] (mapv :kind (v/contradictions kb)))
+          "and the separation convicts, having reached the same cache")
       (testing "the restarted KB records exactly the same members"
         (v/recover kb)
         (is (= live (tax/metatype-members t species)))
@@ -152,8 +152,8 @@
     (v/assert kb (list instanceKind rel) 'CxUniverse)
     (testing "one predicate cannot take both kinds"
       (is (v/disjoint? kb instanceKind typeKind))
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list typeKind rel) 'CxUniverse))))
+      (is (v/assert kb (list typeKind rel) 'CxUniverse))
+      (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))
     (testing "a different predicate is unaffected"
       (is (v/assert kb (list typeKind other) 'CxUniverse)))))
 
@@ -217,14 +217,15 @@
       (is (v/assert kb (list an_agent Delhi) CxGeography)
           "Delhi is a city here; the separation was stated elsewhere, out of sight"))
 
-    (testing "while the declaring context still refuses its own"
+    (testing "while the declaring context weighs its own pair"
       (v/assert kb (list a_city Cairo) CxPhysicalGeography)
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list an_agent Cairo) CxPhysicalGeography))))
+      (is (v/assert kb (list an_agent Cairo) CxPhysicalGeography))
+      (is (= [#{(list a_city Cairo) (list an_agent Cairo)}]
+             (mapv #(set (map :sentence (:sides %))) (v/contradictions kb)))))
 
     (testing "retracting the one supporter releases the declaring context too"
       ;; refcounting is orthogonal to scoping: one supporter, so retraction tears
-      ;; the cache entry down and the declaring context stops refusing
+      ;; the cache entry down and the declaring context stops convicting
       (v/retract! kb (v/handle-of kb (list 'disjoint a_place an_agent) CxPhysicalGeography))
       (is (not (v/disjoint? kb a_place an_agent)))
       (v/assert kb (list a_city Rome) CxPhysicalGeography)
@@ -247,16 +248,16 @@
 ;;   - **does X already hold the other type?** — `types-of`, filtered by the same
 ;;     genlCx up-closure.
 ;; So the declaration's context and the membership's context are both decisive: a
-;; context is only ever refused on grounds it can see.
+;; context reads a clash only on grounds it can see.
 
-(defn- assert-outcome
-  "`:ok`, or the `:type` of the refusal — so a case is a value rather than
-  the presence or absence of a throw."
-  [kb sentence context]
-  (try (v/assert kb sentence context) :ok
-       (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+(defn- clash-readers
+  "Which of `readers` read a dilemma after `sentence` is stored in each of them — a map
+  from reader to whether `contradictions` answers that reader with a pair."
+  [kb sentence readers]
+  (doseq [c readers] (v/assert kb sentence c))
+  (into {} (for [c readers] [c (boolean (seq (v/contradictions kb c)))])))
 
-(tu/deftest-kb which-of-three-contexts-admits-the-conflicting-membership
+(tu/deftest-kb which-of-three-contexts-reads-the-conflicting-membership
   (tu/with-terms [CxA CxB CxC t1 t2 Pip Quo]
     (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
     (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
@@ -272,33 +273,26 @@
       (is (v/sees? kb CxA CxC))
       (is (v/sees? kb CxC 'CxUniverse)))
 
-    (testing "the membership up in CxUniverse: only A refuses"
+    (testing "the membership up in CxUniverse: only A reads the clash"
       ;; every context in the lattice sees CxUniverse, so every one of them reads
       ;; the (t1 Pip) that could make (t2 Pip) a violation — but only A can see the
-      ;; disjointness, stated in A itself, so B and C are no longer refused on a
-      ;; declaration made below C in a sibling of B
+      ;; disjointness, stated in A itself
       (v/assert kb (list t1 Pip) 'CxUniverse)
-      (is (= {CxA :disjoint, CxB :ok, CxC :ok}
-             (into {} (for [c [CxA CxB CxC]]
-                        [c (assert-outcome kb (list t2 Pip) c)])))))
+      (is (= {CxA true, CxB false, CxC false}
+             (clash-readers kb (list t2 Pip) [CxA CxB CxC]))))
 
-    (testing "the membership down in A: only A is refused"
+    (testing "the membership down in A: only A reads the clash"
       ;; the same disjointness, the same three contexts — only the membership moved,
       ;; and it moved out of B's and C's sight
       (v/assert kb (list t1 Quo) CxA)
-      (is (= {CxA :disjoint, CxB :ok, CxC :ok}
-             (into {} (for [c [CxA CxB CxC]]
-                        [c (assert-outcome kb (list t2 Quo) c)])))))))
+      (is (= {CxA true, CxB false, CxC false}
+             (clash-readers kb (list t2 Quo) [CxA CxB CxC]))))))
 
 (tu/deftest-kb a-general-context-may-be-given-what-a-specific-one-forbids
-  ;; The corollary, and the sharp edge: the writer's check runs once, where the sentence
-  ;; is written, against what *that* context can see.  Writing the conflicting membership
-  ;; into the more general context is admitted — C cannot see A — and the clash that
-  ;; creates *for A* is weighed at A, which is the only context holding both halves.
-  ;; Seeing a clash and being blamed for one are different questions: the writer is
-  ;; refused only on grounds it can see, and the pair is decided at the vantage under
-  ;; either constraint policy.  Both halves are `:default` here, so the vantage cannot
-  ;; rank them and reports a dilemma rather than defeating one.
+  ;; The corollary: writing the conflicting membership into the more general context
+  ;; stores it — C cannot see A — and the clash that creates *for A* is weighed at A,
+  ;; which is the only context holding both halves.  Both halves are `:default` here, so
+  ;; the vantage cannot rank them and reports a dilemma rather than defeating one.
   ;;
   ;;   CxUniverse
   ;;     └─ CxC        (t2 Pip) default, written second
@@ -311,13 +305,11 @@
     (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
     (v/assert kb (list t1 Pip) CxA)
 
-    (testing "admitted in the general context, which cannot see the specific one"
-      (is (= :ok (assert-outcome kb (list t2 Pip) CxC))))
+    (testing "stored in the general context, which cannot see the specific one"
+      (is (v/assert kb (list t2 Pip) CxC)))
 
-    (testing "and A now reads both halves of a pair it is the only context to refuse"
-      (is (= #{t1 t2} (set (v/types-of kb Pip CxA))))
-      (is (= :disjoint (assert-outcome kb (list t2 Pip) CxA))
-          "stating it in A directly is still refused — only the route through C is open"))
+    (testing "and A now reads both halves of the pair"
+      (is (= #{t1 t2} (set (v/types-of kb Pip CxA)))))
 
     (testing "the vantage decides the pair, so it is a contradiction and not a report"
       (is (empty? (v/violations kb)))

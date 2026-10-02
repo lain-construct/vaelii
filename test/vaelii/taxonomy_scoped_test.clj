@@ -124,6 +124,22 @@
     (testing "reflexive from anywhere"
       (is (tax/genl? t 'dog 'dog 'CxO)))))
 
+(deftest a-pass-walks-each-genl?-pair-once-per-reader
+  (let [t (lattice)]
+    (tax/add-genl t 'dog 'animal 1 'CxA)
+    (testing "off a pass it is `genl?`"
+      (is (tax/genl?-per-pass t 'dog 'animal 'CxA))
+      (is (not (tax/genl?-per-pass t 'dog 'animal 'CxO))))
+    (binding [tax/*closure-pass-cache* (atom {})]
+      (testing "on a pass the answer is kept per reader, a false one too"
+        (is (tax/genl?-per-pass t 'dog 'animal 'CxA))
+        (is (not (tax/genl?-per-pass t 'dog 'animal 'CxO)))
+        (is (= {[:genl? 'dog 'animal 'CxA] true, [:genl? 'dog 'animal 'CxO] false}
+               @tax/*closure-pass-cache*)))
+      (testing "a kept answer is the one read back"
+        (swap! tax/*closure-pass-cache* assoc [:genl? 'dog 'animal 'CxO] true)
+        (is (tax/genl?-per-pass t 'dog 'animal 'CxO))))))
+
 (deftest a-scoped-read-answers-a-cycle-the-way-the-closure-it-walks-does
   ;; `wff` refuses a cyclic `genl` edge, and belief assembles one anyway: defeat an edge,
   ;; assert its reverse — the check reads the *active* adjacency, which no longer holds
@@ -379,7 +395,11 @@
               (let [x (nth nodes (.nextInt rnd (count nodes)))
                     y (nth nodes (.nextInt rnd (count nodes)))]
                 (is (= (contains? (get (:up ref) x #{x}) y)
-                       (tax/genl? t x y reader))
+                       (tax/genl? t x y reader)
+                       (tax/genl?-per-pass t x y reader)
+                       (binding [tax/*closure-pass-cache* (atom {})]
+                         (tax/genl?-per-pass t x y reader)
+                         (tax/genl?-per-pass t x y reader)))
                     (str "genl? " x " " y " from " reader))))))))))
 
 (deftest scoped-reads-agree-with-the-filtered-reference-over-cyclic-relations
@@ -417,19 +437,22 @@
           ;; prunings engage, without it the relation is loose and they are dropped —
           ;; the reads must agree either way
           :else (tax/restore-depths t)))
-      (doseq [reader readers]
-        (let [ref (reference-scoped t reader)
-              up  #(get (:up ref) % #{%})]
-          (doseq [x nodes]
-            (is (= (up x) (tax/genls t x reader)) (str "genls of " x " from " reader))
-            (is (= (get (:down ref) x #{x}) (tax/specs t x reader))
-                (str "specs of " x " from " reader))
-            (doseq [y nodes]
-              (is (= (contains? (up x) y) (tax/genl? t x y reader))
-                  (str "genl? " x " " y " from " reader))
-              (is (= (contains? (up x) y)
-                     (some? (tax/reach-support t :genl x y reader)))
-                  (str "reach-support " x " " y " from " reader)))))))))
+      ;; one pass per round, held over every reader: its memo is keyed on the reader
+      (binding [tax/*closure-pass-cache* (atom {})]
+        (doseq [reader readers, _ (range 2)]
+          (let [ref (reference-scoped t reader)
+                up  #(get (:up ref) % #{%})]
+            (doseq [x nodes]
+              (is (= (up x) (tax/genls t x reader)) (str "genls of " x " from " reader))
+              (is (= (get (:down ref) x #{x}) (tax/specs t x reader))
+                  (str "specs of " x " from " reader))
+              (doseq [y nodes]
+                (is (= (contains? (up x) y) (tax/genl? t x y reader)
+                       (tax/genl?-per-pass t x y reader))
+                    (str "genl? " x " " y " from " reader))
+                (is (= (contains? (up x) y)
+                       (some? (tax/reach-support t :genl x y reader)))
+                    (str "reach-support " x " " y " from " reader))))))))))
 
 ;; ---- the scoped equality partition ------------------------------------------
 ;; `scoped-class` is the equality analogue, and it is not a filter of the global
@@ -494,7 +517,7 @@
 ;; ---- the disjointness witnesses ---------------------------------------------
 ;; `disjointness-witnesses` answers a *scoped* question from unscoped state: each yield
 ;; is one complete derivation's supporting contexts, and the claim is that a reader sees
-;; the clash iff it sees every context in some one of them.  `settle/exposed-clashes`
+;; the clash iff it sees every context in some one of them.  `clashes/exposed-clashes`
 ;; reads `:visible-from` off that claim, which holds only if it agrees with the verdict
 ;; `disjoint?` reaches by walking the same declarations under the same visibility.
 
@@ -535,8 +558,7 @@
                   (tax/add-genlCx 'CxAll 'CxD 907)
                   (tax/add-genlCx 'CxAll 'CxO 908))
         readers '[CxU CxA CxB CxW CxD CxE CxO]
-        types   '[a1 b1 m1 m2 s1 s2 p1 p2 w0]
-        class   (fn [h] (if (odd? h) :monotonic :default))]
+        types   '[a1 b1 m1 m2 s1 s2 p1 p2 w0]]
     ;; one separation of each kind, its ingredients spread over the two branches
     (tax/add-genl t 'a1 'aa 1 'CxA)
     (tax/add-genl t 'b1 'bb 2 'CxB)
@@ -553,16 +575,7 @@
     (let [reads {:disjoint?    (fn [c] (set (for [a types b types :when (tax/disjoint? t a b c)] [a b])))
                  :partners     (fn [c] (set (for [a types, y (tax/separating-partners t a c)] [a y])))
                  :pairs        (fn [c] (set (tax/separating-pairs t c)))
-                 :covers-over  (fn [c] (set (for [a types, cv (tax/covers-over t a c)] [a cv])))
-                 :class        (fn [c] (set (for [a types b types
-                                                  :let [k (tax/disjointness-class t a b c class)]
-                                                  :when k]
-                                              [a b k])))
-                 :key-class    (fn [c] (set (for [k [[:disjoint '#{aa bb}] [:metatype 'meta_kind]
-                                                     [:sib-disjoint 'cc]]
-                                                  :let [kc (tax/key-class t k c class)]
-                                                  :when kc]
-                                              [k kc])))}
+                 :covers-over  (fn [c] (set (for [a types, cv (tax/covers-over t a c)] [a cv])))}
           rows  (for [[r f] reads]
                   (let [whole (f nil)]
                     {:read          r

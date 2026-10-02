@@ -380,8 +380,13 @@ so `res/match-one` consults them for exactly that case, gated by
   reads — so an existence check touches one bucket and short-circuits like the
   fan-out; this is the **default** (`res/*hierarchical-retrieval*`), with the var
   bound false giving the reference fan-out `matches_hierarchical_test` proves it
-  equal to. A candidate answers **once** unless the literal has a mirror to probe at all
-  — a concrete functor, exactly two arguments, and some sub-predicate declared
+  equal to. A literal whose arguments are ground atoms, two or more of them indexable,
+  followed only by variables — `(scoreOf Team Year ?v)` — reads the trie under that
+  prefix per sub-predicate instead of intersecting two argument roots: the walk costs
+  the stored tuples extending the prefix, and the intersection costs the smaller root,
+  which grows with the KB when both terms are widely used (`lein perf`'s
+  `tuple-mark-determinant-write`). A candidate answers **once** unless the literal has
+  a mirror to probe at all — a concrete functor, exactly two arguments, and some sub-predicate declared
   `symmetric`. Without one the handle is the whole dedup key and the walk is a `keep`
   over the candidates. Only where a mirror can bind one stored fact twice — an all-variable
   pattern over a stored `(sibOf Rex Tib)`, which binds both ways round — does the key

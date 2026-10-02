@@ -34,8 +34,9 @@
   that finds no placement is re-joined when the edge arrives, so the KB is the same
   either way, and asserting the edge first is what spares the load that second pass.
 
-  The `(forced_decontextualized_predicate genlCx)` declaration goes in ahead of the edge,
-  so the edge is stored in CxUniverse, where the file's own edges are."
+  The `(forced_decontextualized_predicate genlCx)` and `(forced_monotonic_predicate
+  genlCx)` declarations go in ahead of the edge, so the edge is stored in CxUniverse and
+  at `:monotonic`, as the file's own edges are."
   [kb]
   ;; One settle at the end, not one per sentence: the whole vocabulary is a batch, and
   ;; `settle` computes belief from current state, so N per-assert reconciliations reach
@@ -43,9 +44,10 @@
   ;; `genlCx` edge is still asserted first — edges live on store, ahead of the deferred
   ;; settle — so its ordering role (below) is unchanged.
   (v/with-deferred-settle kb
-    ;; the declaration that stores every `genlCx` edge in CxUniverse goes first, so the
-    ;; bootstrap edge lands where the file's own edges and a later re-assert of it do
+    ;; the declarations that store every `genlCx` edge in CxUniverse and at `:monotonic`
+    ;; go first, so the bootstrap edge lands where and as the file's own edges do
     (v/assert kb '(forced_decontextualized_predicate genlCx) 'CxCore)
+    (v/assert kb '(forced_monotonic_predicate genlCx) 'CxCore)
     (v/assert kb '(genlCx CxUniverse CxCore) 'CxCore)
     (seed/load-context kb 'CxCore)))
 

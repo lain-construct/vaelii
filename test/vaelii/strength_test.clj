@@ -98,10 +98,10 @@
       (is (= [:monotonic :monotonic :monotonic :monotonic]
              (mapv #(jtms/defeat-class tms %) [1 2 3 4]))))
 
-    (testing "and after defeat + clear-defeats, whose region is also the whole chain"
-      (jtms/defeat tms [1])
+    (testing "and after suspending the premise and restoring it, a region of the whole chain"
+      (jtms/suspend-premise tms 1)
       (is (not-any? #(jtms/in? tms %) [1 2 3 4]))
-      (jtms/clear-defeats! tms)
+      (jtms/add-premise tms 1 :monotonic)
       (is (every? #(jtms/in? tms %) [1 2 3 4]))
       (is (= :monotonic (jtms/defeat-class tms 4))))))
 
@@ -191,14 +191,13 @@
     (justify tms 103 [10 11] 12)
     (justify tms 104 [3] 12)                      ; a second, independent witness for 12
     (justify tms 105 [12] 13)
-    (jtms/defeat tms [11])
+    (jtms/suspend-premise tms 2)
     (jtms/retract! tms 3)
-    (let [snapshot (select-keys @tms [:in :groundable :classes])]
+    (let [snapshot (select-keys @tms [:in :classes])]
       (jtms/relabel tms)
-      (let [rebuilt (select-keys @tms [:in :groundable :classes])]
+      (let [rebuilt (select-keys @tms [:in :classes])]
         (is (= (:in snapshot) (:in rebuilt))
             "belief computed region-locally matches belief computed globally")
-        (is (= (:groundable snapshot) (:groundable rebuilt)))
         (is (= (:classes snapshot) (:classes rebuilt))
             "and so do the defeat-classes — the class fixpoint is region-independent")))))
 
@@ -218,10 +217,8 @@
 
     (let [{:keys [removed-sentexes]} (jtms/retract! tms 1)]
       (testing "pulling the ground collapses the cycle rather than letting it self-support"
-        (is (not-any? #(jtms/in? tms %) [11 12]))
-        (is (not-any? #(contains? (:groundable @tms) %) [11 12])
-            "neither is structurally derivable any more"))
-      (testing "and the sweep collects both — they are orphans, not defeated datums"
+        (is (not-any? #(jtms/in? tms %) [11 12])))
+      (testing "and the sweep collects both — they are orphans"
         (is (= #{1 11 12} (set removed-sentexes)))))))
 
 (deftest a-cycle-with-a-second-ground-survives-losing-the-first

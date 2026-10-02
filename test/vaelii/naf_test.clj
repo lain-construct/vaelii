@@ -143,6 +143,34 @@
       (testing "retracting it revives the conclusion by re-derivation"
         (is (v/ask? kb (list 'rr Aa) 'CxWell))))))
 
+(tu/deftest-kb a-guarded-firing-over-monotonic-facts-confers-default
+  ;; docs/reference.md D14.  Every write is :monotonic and nothing blocks the guard; the
+  ;; rows run the fact before the rule and the rule before the fact.
+  (tu/with-terms [pp qq rr Aa]
+    (let [M      {:strength :monotonic}
+          bare   (list 'set/forwardRule (list 'implies (list pp '?x) (list rr '?x)))
+          class  #(v/defeat-class kb (v/handle-of kb (list rr Aa) 'CxWell))]
+      (doseq [[rule want] [[bare :monotonic]
+                           [(list 'set/forwardRule
+                                  (list 'implies (list 'and (list pp '?x) (list 'unknown (list qq '?x)))
+                                        (list rr '?x)))
+                            :default]
+                           [(list 'exceptWhen (list qq '?x) bare) :default]]
+              fact-first? [true false]]
+        (let [hs (if fact-first?
+                   [(v/assert kb (list pp Aa) 'CxWell M) (v/assert kb rule 'CxWell M)]
+                   [(v/assert kb rule 'CxWell M) (v/assert kb (list pp Aa) 'CxWell M)])]
+          (is (= want (class)) (pr-str rule (if fact-first? :fact-first :rule-first)))
+          (run! #(v/retract! kb %) (reverse hs))))
+      (testing "an exceptWhen stated after the firing lowers it, and its retraction restores it"
+        (let [hr (v/assert kb bare 'CxWell M)
+              hf (v/assert kb (list pp Aa) 'CxWell M)
+              he (v/assert kb (list 'exceptWhen (list qq '?x) bare) 'CxWell M)]
+          (is (= :default (class)))
+          (v/retract! kb he)
+          (is (= :monotonic (class)))
+          (run! #(v/retract! kb %) [hf hr]))))))
+
 (tu/deftest-kb unknown-is-order-independent-when-a-merge-is-what-arrives
   ;; A merge is the other way `S` becomes derivable, and it is not a fact arriving: the
   ;; inner query is answered under the term's **representative**, so `(unknown (qq Kept))`
@@ -1077,6 +1105,77 @@
       (testing "a fact in the placement context does block"
         (is (not (v/ask? kb (list 'rr Aa) CxSubA))))
       (v/retract! kb h))))
+
+;; ---- asked again at every reader below the placement --------------------
+;; A reader below the placement context asks the question again against what it sees,
+;; and reads the firing as withdrawn where the query holds (docs/naf.md, "Evaluated in
+;; the placement context, not the join").  The placement keeps its firing.
+
+(tu/deftest-kb an-unknown-is-asked-again-at-a-reader-below-the-placement
+  ;; CxA: pp & unknown(qq) => rr, (pp Aa).  CxB sees CxA: (ss Aa) and rr & ss => tt.
+  (tu/with-terms [pp qq rr ss tt Aa CxA CxB]
+    (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'implies (list 'and (list pp '?x) (list 'unknown (list qq '?x)))
+                       (list rr '?x))
+              CxA {:direction :forward})
+    (v/assert kb (list 'implies (list 'and (list rr '?x) (list ss '?x)) (list tt '?x))
+              CxB {:direction :forward})
+    (v/assert kb (list pp Aa) CxA)
+    (v/assert kb (list ss Aa) CxB)
+    (let [rr-h  (v/handle-of kb (list rr Aa) CxA)
+          tt-h  (v/handle-of kb (list tt Aa) CxB)
+          reads (fn [] [(v/believed? kb rr-h CxA) (v/believed? kb rr-h CxB)
+                        (v/ask? kb (list rr Aa) CxB) (v/believed? kb tt-h CxB)])]
+      (is (= [true true true true] (reads)))
+      (let [h (v/assert kb (list qq Aa) CxB)]
+        (is (= [true false false false] (reads))
+            "CxB reads (qq Aa), so the firing and what rests on it are withdrawn there")
+        (v/retract! kb h))
+      (is (= [true true true true] (reads))))))
+
+(tu/deftest-kb an-exceptWhen-is-asked-again-at-a-reader-below-the-placement
+  (tu/with-terms [bird penguin flies Opus CxA CxB]
+    (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'exceptWhen (list penguin '?x)
+                       (list 'set/forwardRule (list 'implies (list bird '?x) (list flies '?x))))
+              CxA)
+    (v/assert kb (list bird Opus) CxA)
+    (v/assert kb (list penguin Opus) CxB)
+    (let [h (v/handle-of kb (list flies Opus) CxA)]
+      (is (= [true false] [(v/believed? kb h CxA) (v/believed? kb h CxB)])))))
+
+(tu/deftest-kb a-blocker-seen-through-a-second-parent-withdraws-the-firing-below-both
+  ;; CxJ sees CxA, which places the firing, and CxC, which holds the blocker
+  (tu/with-terms [pp qq rr Aa CxA CxC CxJ]
+    (doseq [[lo hi] [[CxJ CxA] [CxJ CxC]]]
+      (v/assert kb (list 'genlCx lo hi) 'CxUniverse {:strength :monotonic}))
+    (v/assert kb (list 'implies (list 'and (list pp '?x) (list 'unknown (list qq '?x)))
+                       (list rr '?x))
+              CxA {:direction :forward})
+    (v/assert kb (list pp Aa) CxA)
+    (v/assert kb (list qq Aa) CxC)
+    (let [h (v/handle-of kb (list rr Aa) CxA)]
+      (is (= [true false] [(v/believed? kb h CxA) (v/believed? kb h CxJ)])))))
+
+(tu/deftest-kb an-except-and-an-unknown-withdraw-one-firing-at-one-reader-independently
+  (tu/with-terms [pp qq rr Aa CxA CxB]
+    (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'implies (list 'and (list pp '?x) (list 'unknown (list qq '?x)))
+                       (list rr '?x))
+              CxA {:direction :forward})
+    (v/assert kb (list pp Aa) CxA)
+    (let [h   (v/handle-of kb (list rr Aa) CxA)
+          blk (v/assert kb (list qq Aa) CxB)
+          ex  (v/assert kb (list 'except (sx/sentex-handle h)) CxB)
+          at  (fn [] [(v/believed? kb h CxA) (v/believed? kb h CxB)])]
+      (is (= [true false] (at)))
+      (v/retract! kb blk)
+      (is (= [true false] (at)) "the except alone still hides it at CxB")
+      (let [blk (v/assert kb (list qq Aa) CxB)]
+        (v/retract! kb ex)
+        (is (= [true false] (at)) "the blocker alone still withdraws it at CxB")
+        (v/retract! kb blk))
+      (is (= [true true] (at))))))
 
 ;; ---- thereExists with a vector of quantified variables ------------------
 

@@ -8,7 +8,6 @@
   negations proving the nth part — is in `covering_inference_test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.checks :as checks]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
@@ -67,8 +66,7 @@
     (v/assert kb (list dog Rex) 'CxUniverse)
     (v/recover kb)
     (is (v/ask? kb (list animal Rex) 'CxUniverse) "the part edge was replayed")
-    (is (= [:disjoint] (mapv :type (v/check kb (list cat Rex) 'CxUniverse)))
-        "and so was the roster that separates the parts")))
+    (is (v/disjoint? kb dog cat) "and so was the roster that separates the parts")))
 
 (tu/deftest-kb a-bare-cover-leaves-its-parts-free-to-overlap
   (tu/with-terms [animal dog cat Rex]
@@ -86,9 +84,9 @@
       (is (v/disjoint? kb cat dog)))
     (testing "and no (disjoint …) sentex was written to say so"
       (is (empty? (v/find-sentexes kb {:pattern (list 'disjoint dog cat)}))))
-    (testing "the second membership is refused where it is written"
+    (testing "the second membership is stored, and the pair is a dilemma where it is written"
       (v/assert kb (list dog Rex) 'CxUniverse)
-      (is (not= :ok (outcome kb (list cat Rex) 'CxUniverse))))))
+      (is (tu/stored-in-clash? kb (list cat Rex) 'CxUniverse)))))
 
 (tu/deftest-kb a-partition-separates-the-subtypes-of-its-parts
   (tu/with-terms [animal dog cat poodle Rex]
@@ -150,10 +148,12 @@
       (is (= :not-well-formed (outcome kb (list 'covering animal plant dog) left)))
       (is (not (v/genl? kb plant animal)) "and nothing closed the cycle"))))
 
-(tu/deftest-kb a-part-disjoint-from-the-whole-is-refused
+(tu/deftest-kb a-part-disjoint-from-the-whole-is-stored
+  ;; decision 8 of docs/reference.md: the refusal would read the stored `disjoint`, so
+  ;; the cover is stored whichever of the two arrived first
   (tu/with-terms [animal dog plant]
     (v/assert kb (list 'disjoint animal plant) 'CxUniverse)
-    (is (= :not-well-formed (outcome kb (list 'covering animal plant dog) 'CxUniverse)))))
+    (is (= :ok (outcome kb (list 'covering animal plant dog) 'CxUniverse)))))
 
 ;; ---- the roster is one key, whatever order it is written in -------------
 
@@ -234,43 +234,41 @@
   ;; declaring no other is the case that says whether every reader knows about it.  The
   ;; settle's gate takes four set-emptiness reads for this reason: shutting on a cover
   ;; leaves the pair stored and never weighed, while `disjoint?` goes on answering true.
-  (binding [checks/*arbitrate-constraints?* true]
-    (testing "two defeasible memberships are a dilemma, as they are under (disjoint A B)"
-      (tu/with-kb [kb]
-        (tu/with-terms [animal dog cat Rex]
-          (v/assert kb (list 'partition animal dog cat) 'CxUniverse)
-          (v/assert kb (list dog Rex) 'CxUniverse)
-          (v/assert kb (list cat Rex) 'CxUniverse)
-          (is (v/disjoint? kb dog cat))
-          (is (= 1 (count (v/contradictions kb))))
-          (is (v/ask? kb (list dog Rex) 'CxUniverse))
-          (is (v/ask? kb (list cat Rex) 'CxUniverse)))))
-    (testing "and the known-true side wins where one of them is known-true"
-      (tu/with-kb [kb]
-        (tu/with-terms [animal dog cat Rex]
-          (v/assert kb (list 'partition animal dog cat) 'CxUniverse)
-          (v/assert kb (list dog Rex) 'CxUniverse {:strength :monotonic})
-          (v/assert kb (list cat Rex) 'CxUniverse)
-          (is (v/ask? kb (list dog Rex) 'CxUniverse))
-          (is (not (v/ask? kb (list cat Rex) 'CxUniverse))))))))
+  (testing "two defeasible memberships are a dilemma, as they are under (disjoint A B)"
+    (tu/with-kb [kb]
+      (tu/with-terms [animal dog cat Rex]
+        (v/assert kb (list 'partition animal dog cat) 'CxUniverse)
+        (v/assert kb (list dog Rex) 'CxUniverse)
+        (v/assert kb (list cat Rex) 'CxUniverse)
+        (is (v/disjoint? kb dog cat))
+        (is (= 1 (count (v/contradictions kb))))
+        (is (v/ask? kb (list dog Rex) 'CxUniverse))
+        (is (v/ask? kb (list cat Rex) 'CxUniverse)))))
+  (testing "and the known-true side wins where one of them is known-true"
+    (tu/with-kb [kb]
+      (tu/with-terms [animal dog cat Rex]
+        (v/assert kb (list 'partition animal dog cat) 'CxUniverse)
+        (v/assert kb (list dog Rex) 'CxUniverse {:strength :monotonic})
+        (v/assert kb (list cat Rex) 'CxUniverse)
+        (is (v/ask? kb (list dog Rex) 'CxUniverse))
+        (is (not (v/ask? kb (list cat Rex) 'CxUniverse)))))))
 
 (tu/deftest-kb a-cover-arriving-last-exposes-the-clash-its-edges-put-under-a-separation
   ;; the covering's part edge puts a stored member under a whole that a disjointness
   ;; separates from its other type; the dilemma is the one the other order opens
-  (binding [checks/*arbitrate-constraints?* true]
-    (doseq [cover-last? [true false]]
-      (tu/with-kb [kb]
-        (tu/with-terms [animal rock dog cat Rex]
-          (let [cover! #(v/assert kb (list 'covering animal dog cat) 'CxUniverse)]
-            (v/assert kb (list 'disjoint animal rock) 'CxUniverse)
-            (when-not cover-last? (cover!))
-            (let [d (v/assert kb (list dog Rex) 'CxUniverse)
-                  r (v/assert kb (list rock Rex) 'CxUniverse)]
-              (when cover-last? (cover!))
-              (is (= [#{d r}] (filterv #(contains? % d) (map :nogood (v/contradictions kb))))
-                  (str "cover last: " cover-last?))
-              (is (v/ask? kb (list dog Rex) 'CxUniverse))
-              (is (v/ask? kb (list rock Rex) 'CxUniverse)))))))))
+  (doseq [cover-last? [true false]]
+    (tu/with-kb [kb]
+      (tu/with-terms [animal rock dog cat Rex]
+        (let [cover! #(v/assert kb (list 'covering animal dog cat) 'CxUniverse)]
+          (v/assert kb (list 'disjoint animal rock) 'CxUniverse)
+          (when-not cover-last? (cover!))
+          (let [d (v/assert kb (list dog Rex) 'CxUniverse)
+                r (v/assert kb (list rock Rex) 'CxUniverse)]
+            (when cover-last? (cover!))
+            (is (= [#{d r}] (filterv #(contains? % d) (map :nogood (v/contradictions kb))))
+                (str "cover last: " cover-last?))
+            (is (v/ask? kb (list dog Rex) 'CxUniverse))
+            (is (v/ask? kb (list rock Rex) 'CxUniverse))))))))
 
 (tu/deftest-kb a-cover-separated-clash-has-a-witness-and-so-a-standing-reading
   ;; `exposed-clashes` answers about every jointly-visible pair, decided or not, and it
@@ -281,7 +279,112 @@
     (v/assert kb (list 'partition animal dog cat) 'CxUniverse)
     (is (seq (tax/disjointness-witnesses (reasoning/taxonomy kb) dog cat))
         "the pair has at least one complete derivation")
-    (binding [checks/*arbitrate-constraints?* true]
-      (v/assert kb (list dog Rex) 'CxUniverse)
-      (v/assert kb (list cat Rex) 'CxUniverse)
-      (is (= 1 (count (v/exposed-clashes kb)))))))
+    (v/assert kb (list dog Rex) 'CxUniverse)
+    (v/assert kb (list cat Rex) 'CxUniverse)
+    (is (= 1 (count (v/exposed-clashes kb))))))
+
+;; ---- a cover's edges bring stored facts under a rule on the whole ---------
+
+(defn- permutations [coll]
+  (if (empty? coll)
+    [[]]
+    (mapcat (fn [x] (map #(vec (cons x %)) (permutations (remove #{x} coll)))) coll)))
+
+(defn- believed? [kb sentence]
+  (let [h (v/handle-of kb sentence 'CxUniverse)]
+    (boolean (and h (v/in? kb h)))))
+
+(defn- every-order [n] (permutations (range n)))
+
+(defn- cover-at-each-position
+  "The orders of `n` writes, the last of them the cover, that keep the others in their
+  written order and put the cover at each position."
+  [n]
+  (let [others (vec (range (dec n)))]
+    (for [i (range n)]
+      (-> (subvec others 0 i) (conj (dec n)) (into (subvec others i))))))
+
+(defn- misread-orders
+  "`[spelling order sentence]` for each cover spelling, each order of the writes `world`
+  returns and each sentence of its `:expect` (`{sentence believed?}`) that reads otherwise
+  once the writes are asserted in CxUniverse in that order and each of `:retract` is
+  retracted.  `world` takes the spelling and returns `{:writes :retract :expect}` over
+  fresh terms, so each order runs on terms of its own; `orders` takes the count of writes
+  and returns index vectors.  A rule is asserted forward, and a cover or `genl` edge
+  monotonic."
+  [kb world orders]
+  (let [misread (volatile! [])]
+    (doseq [spelling '[covering separating partition]
+            idxs     (orders (count (:writes (world spelling))))]
+      (let [{:keys [writes retract expect]} (world spelling)
+            order (mapv writes idxs)]
+        (doseq [s order]
+          (case (first s)
+            implies (v/assert kb (list 'set/forwardRule s) 'CxUniverse)
+            (genl covering separating partition)
+            (v/assert kb s 'CxUniverse {:strength :monotonic})
+            (v/assert kb s 'CxUniverse)))
+        (doseq [s retract] (v/retract! kb (v/handle-of kb s 'CxUniverse)))
+        (doseq [[s want] expect
+                :when (not= want (believed? kb s))]
+          (vswap! misread conj [spelling order s]))))
+    @misread))
+
+(defn- rule-on-the-whole
+  "A rule matching the whole alone and one joining it, over a part's facts, with the
+  cover written last."
+  [spelling]
+  (tu/with-terms [a b c z q rel Kit Rex]
+    {:writes [(list 'implies (list a '?x) (list z '?x))
+              (list 'implies (list 'and (list a '?x) (list rel '?x '?y)) (list q '?y))
+              (list c Kit)
+              (list rel Kit Rex)
+              (list spelling a b c)]
+     :expect {(list z Kit) true (list q Rex) true}}))
+
+(tu/deftest-kb a-rule-on-the-whole-fires-on-a-part-fact-wherever-the-cover-arrives
+  (is (empty? (misread-orders kb rule-on-the-whole cover-at-each-position)))
+  (testing "and a rule joining over the genl closure the cover adds to"
+    (is (empty? (misread-orders
+                 kb (fn [spelling]
+                      (tu/with-terms [a b c under]
+                        {:writes [(list 'implies (list 'genl '?t a) (list under '?t))
+                                  (list spelling a b c)]
+                         :expect {(list under c) true}}))
+                 every-order)))))
+
+(tu/deftest-kb ^:slow a-rule-on-the-whole-fires-on-a-part-fact-in-every-order
+  (is (empty? (misread-orders kb rule-on-the-whole every-order))))
+
+(tu/deftest-kb retracting-a-cover-withdraws-a-firing-only-its-edge-licensed-in-every-order
+  (testing "the cover's edge was the only route"
+    (is (empty? (misread-orders
+                 kb (fn [spelling]
+                      (tu/with-terms [a b c z Kit]
+                        {:writes  [(list 'implies (list a '?x) (list z '?x))
+                                   (list c Kit)
+                                   (list spelling a b c)]
+                         :retract [(list spelling a b c)]
+                         :expect  {(list z Kit) false}}))
+                 every-order))))
+  (testing "a stated edge is a second route, and the firing comes back over it"
+    (is (empty? (misread-orders
+                 kb (fn [spelling]
+                      (tu/with-terms [a b c z Kit]
+                        {:writes  [(list 'implies (list a '?x) (list z '?x))
+                                   (list c Kit)
+                                   (list 'genl c a)
+                                   (list spelling a b c)]
+                         :retract [(list spelling a b c)]
+                         :expect  {(list z Kit) true}}))
+                 every-order))))
+  (testing "the same for a rule joining over the genl closure"
+    (is (empty? (misread-orders
+                 kb (fn [spelling]
+                      (tu/with-terms [a b c under]
+                        {:writes  [(list 'implies (list 'genl '?t a) (list under '?t))
+                                   (list 'genl c a)
+                                   (list spelling a b c)]
+                         :retract [(list spelling a b c)]
+                         :expect  {(list under c) true (list under b) false}}))
+                 every-order)))))

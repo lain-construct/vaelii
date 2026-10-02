@@ -177,6 +177,7 @@ need the QCN/temporal reasoners, `hot-records` needs a disk-backed store.
 | Closure answers `:closure-answers` | closures | 100 000 members | wholesale drop; a single reach past the bound is never stored |
 | Resident derived values `:resident` | networks & passes | 256 | wholesale clear |
 | Hot records `:hot-records` | records | 65 536 / kind | per-kind LRU (`vaelii.disk.cache`, 0 disables); disk stores only |
+| Rete alpha memories `:rete-alpha` | facts | — | dropped whole on a clear or a trim, and at `core/close!`; the registry holds the KB by a weak key, so a collected KB's entry goes too. Present only with `VAELII_RETE=1` or `rete/track!` |
 
 **Process-scoped** — shared by every KB in the JVM:
 

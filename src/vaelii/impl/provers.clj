@@ -438,7 +438,7 @@
   would put a `^:dynamic` deref in the walk's innermost loop — once per node — which is the
   cost `res/belief-blind?` exists to keep out of exactly that loop."
   [dir pred node context]
-  [dir pred node context (res/belief-blind?)])
+  [dir pred node context (res/belief-blind?) res/*unscoped-own*])
 
 (defn- memo-neighbours
   "The neighbours of `node` under `pred` as `{neighbour #{handle}}` — the terms one hop
@@ -1058,25 +1058,6 @@
                  false)]
       (if ok [{}] []))))
 
-(defn arity-min
-  "The minimum arity `(arityMin R n)` declares for relation `R`, visible from `context`,
-  or nil.
-
-  Read by retrieval, not from the taxonomy's arity cache: `arityMin` is not one of the
-  declarations kept there beside `arity` and `inverse`, so a caller reaches this only with
-  a variable-arity relation already in hand — never on the exact-arity path every assert
-  runs.  Nil when the KB has been told two different minima one reader can see, the stance
-  `taxonomy/declared-arity` takes for the exact arity: two contradictory declarations
-  leave the minimum genuinely unsettled, and flooring on whichever was found first would
-  be arbitrary."
-  [kb pred context]
-  (let [vals (into #{}
-                   (keep (fn [m]
-                           (let [v (get (second m) '?n)]
-                             (when (and (integer? v) (pos? v)) v))))
-                   (res/matches-visible kb (list 'arityMin pred '?n) context))]
-    (when (= 1 (count vals)) (first vals))))
-
 (defn admits-position?
   "Does positive position `n` exist in a well-formed application of a relation with this
   arity shape?  `true` when it certainly does, `false` when it certainly does not, `nil`
@@ -1107,6 +1088,18 @@
   [kb pred context]
   (boolean (seq (res/matches-visible kb (list 'variable_arity pred) context))))
 
+(defn- relation-arity
+  "The exact arity `pred` itself is declared with, visible from `context`: its `(arity P
+  n)` declaration (`tax/declared-arity`), else its exact-arity class membership
+  (`tax/exact-arity-classes`, read by the type-aware retrieval), or nil.  The prover's
+  twin of `kb/relation-arity`, which sits above this namespace."
+  [kb pred context]
+  (or (let [n (tax/declared-arity (reasoning/taxonomy kb) pred context)]
+        (when (and (integer? n) (pos? n)) n))
+      (first (for [[t n] (sort-by key tax/exact-arity-classes)
+                   :when (seq (res/matches-visible kb (list t pred) context))]
+               n))))
+
 (defrecord AdmitsArgnumProver []                 ; the position query over a relation's arity
   Prover
   (applicable? [_ _ goal _]
@@ -1121,7 +1114,7 @@
   (solve [_ kb goal context]
     (let [[p n] (rest goal)]
       (if (true? (admits-position? (relation-variable-arity? kb p context)
-                                   (tax/declared-arity (reasoning/taxonomy kb) p context)
+                                   (relation-arity kb p context)
                                    n))
         [{}] []))))
 
@@ -1254,9 +1247,7 @@
   "Do ground terms `a` and `b` reach one normal form as `visible?` sees the merges and the
   schematic equations?  Each side is a **term**, so it takes the congruence walk and then
   `rewrite/normalize` at its own root; `res/normal-form` reads its argument as a sentence
-  and would leave the root of a term such as `(fatherOf (fatherOf Tom))` unrewritten.  A
-  denial of the instance that `visible?` sees blocks the step that would join them
-  (`res/rewrite-rules-in`), so the denied instance answers false."
+  and would leave the root of a term such as `(fatherOf (fatherOf Tom))` unrewritten."
   [kb visible? a b]
   (or (= a b)
       (let [rules (res/rewrite-rules-in kb visible?)
@@ -3104,6 +3095,13 @@
   [kb except bindings context]
   (conjunction-derivable? kb except bindings context (condition-normalizer kb context)))
 
+(defn condition-solutions
+  "Lazy solutions of the block condition `conjuncts` with its rule variables left open,
+  in `context`: the bindings under which it holds there, each conjunct put in the normal
+  form `exception-holds?` puts a closed one in."
+  [kb conjuncts context]
+  (conjunction-solutions kb conjuncts {} context (condition-normalizer kb context)))
+
 (defn exception-visible-from?
   "Does `context` see the exception `entry` (a `rule-exception-entries` element)?
 
@@ -3142,6 +3140,30 @@
               (map (fn [msx] {:context (:context msx)
                               :query   (sx/exception-query-conjuncts (:sentence msx))})))
         (reads/as-stored-with-term (:index kb) (sx/sentex-handle handle))))
+
+(defn firing-strength
+  "The class a firing of the rule `rsx` at `handle` confers on its conclusion, before its
+  antecedents cap it: `:default` for a `set/defaultRule`, and for a **guarded** rule, one
+  with an `(unknown S)` antecedent or an `exceptWhen` stored against it; `:monotonic`
+  otherwise.  A guarded conclusion goes OUT when a blocker arrives, so it is never
+  `:monotonic` (docs/nmtms.md, \"Strength propagates from the antecedents\").
+
+  The exceptions are read as stored, belief unread, so the class is a function of the
+  stored content.  `watched?` is `reads/watched-rule?`'s answer for `handle`, which the
+  chainer has already read for the rule view; `dropping-id` is an exception meta-sentex
+  on its way out, which the read leaves out."
+  [kb handle rsx watched? dropping-id]
+  (if (or (:defeasible rsx)
+          (rules/has-naf? rsx)
+          (and watched?
+               (some (fn [mh]
+                       (and (not= dropping-id mh)
+                            (when-let [m (p/get-sentex (:records kb) mh)]
+                              (and (sx/exceptWhen-meta? (:sentence m))
+                                   (= handle (sx/exceptWhen-rule-handle (:sentence m)))))))
+                     (reads/as-stored-with-term (:index kb) (sx/sentex-handle handle)))))
+    :default
+    :monotonic))
 
 (defn rule-exceptions
   "The conjunctions of `rule-exception-entries`, evaluated block-if-**any**-holds.
@@ -3317,7 +3339,7 @@
   :label    "Closure answers"
   :scope    :kb
   :unit     "closures"
-  :limit    (caches/limit-thunk :closure-answers *closure-answer-limit*)
+  :limit    (caches/limit-thunk :closure-answers #'*closure-answer-limit*)
   :counters nil
   :note     (str "One declared-transitive predicate's reach from one node, in one "
                  "direction, seen from one context — the answer an open-argument ask "

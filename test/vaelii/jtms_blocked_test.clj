@@ -85,23 +85,6 @@
     (testing "and the whole chain comes back"
       (is (every? #(jtms/in? tms %) [2 3 4])))))
 
-;; ---- blocking is not defeat ---------------------------------------------
-
-(deftest a-blocked-conclusion-is-not-groundable
-  ;; A *defeated* datum keeps its support and stays groundable, so it can revive.  A
-  ;; *blocked* one has lost a derivation, not a belief: it is ungroundable, which is
-  ;; what lets the ordinary retraction sweep collect it (docs/exceptions.md, "Garbage
-  ;; collection, not defeat").
-  (let [tms (jtms/create-tms)]
-    (premise tms 1)
-    (justify tms 101 [1] 2)
-    (is (contains? (:groundable @tms) 2))
-    (jtms/defeat tms [2])
-    (is (contains? (:groundable @tms) 2) "a defeated datum stays derivable")
-    (jtms/clear-defeats! tms)
-    (jtms/set-blocked tms #{101})
-    (is (not (contains? (:groundable @tms) 2)) "a blocked one does not")))
-
 (deftest retracting-through-a-block-sweeps-the-conclusion
   (let [tms (jtms/create-tms)]
     (premise tms 1)
@@ -150,7 +133,7 @@
                   (justify tms 103 [3] 4)
                   (justify tms 104 [1 2] 5)
                   tms))
-        observe (fn [tms] (select-keys @tms [:in :groundable :classes :blocked]))
+        observe (fn [tms] (select-keys @tms [:in :classes :blocked]))
         routes [(fn [tms] (jtms/set-blocked tms #{101 104}))
                 (fn [tms] (jtms/set-blocked tms #{104}) (jtms/set-blocked tms #{101 104}))
                 (fn [tms] (jtms/set-blocked tms #{101}) (jtms/set-blocked tms #{101 104}))
@@ -239,7 +222,7 @@
 (defn- sweepable-fan
   "`n` independent premise ⇒ conclusion pairs as background, plus a separate two-link
   chain 900000 ⇒ 900001 ⇒ 900002 whose first justification (990001) is blocked — so
-  900001 and 900002 are ungroundable and a sweep collects exactly them.  The swept
+  900001 and 900002 are OUT and a sweep collects exactly them.  The swept
   region is two nodes at every `n`; only the background grows."
   [n]
   (let [tms (jtms/create-tms)]

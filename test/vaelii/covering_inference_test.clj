@@ -126,8 +126,9 @@
     (v/assert kb (list 'covering animal dog cat) 'CxUniverse)
     (v/assert kb (list animal Rex) 'CxUniverse)
     (v/assert kb (list 'not (list dog Rex)) 'CxUniverse)
-    (testing "the negation that leaves no part standing is refused where it is written"
-      (is (= :cover (outcome kb (list 'not (list cat Rex)) 'CxUniverse))))))
+    (testing "the negation that leaves no part standing is stored, and the refutation is a nogood"
+      (is (tu/stored-in-clash? kb (list 'not (list cat Rex)) 'CxUniverse))
+      (is (= [:cover] (mapv :kind (v/contradictions kb)))))))
 
 (tu/deftest-kb a-partly-denied-cover-is-no-violation
   (tu/with-terms [animal dog cat bird Rex]
@@ -144,24 +145,24 @@
     (is (= :ok (outcome kb (list 'not (list cat Tweety)) 'CxUniverse))
         "the cover obliges instances of the whole and nobody else")))
 
-(tu/deftest-kb the-membership-arriving-last-is-refused-too
+(tu/deftest-kb the-membership-arriving-last-is-a-refutation-too
   (tu/with-terms [animal dog cat Rex]
     (v/assert kb (list 'covering animal dog cat) 'CxUniverse)
     (v/assert kb (list 'not (list dog Rex)) 'CxUniverse)
     (v/assert kb (list 'not (list cat Rex)) 'CxUniverse)
     (testing "the same contradiction, reached in the other order"
-      (is (= :cover (outcome kb (list animal Rex) 'CxUniverse))))))
+      (is (tu/stored-in-clash? kb (list animal Rex) 'CxUniverse))
+      (is (= [:cover] (mapv :kind (v/contradictions kb)))))))
 
 (tu/deftest-kb a-refuted-cover-names-the-evidence-it-is-against
   (tu/with-terms [animal dog cat Rex]
     (let [c (v/assert kb (list 'covering animal dog cat) 'CxUniverse)
           m (v/assert kb (list animal Rex) 'CxUniverse)
           n (v/assert kb (list 'not (list dog Rex)) 'CxUniverse)
-          d (try (v/assert kb (list 'not (list cat Rex)) 'CxUniverse) nil
-                 (catch clojure.lang.ExceptionInfo e (ex-data e)))]
-      (is (= :cover (:type d)))
-      (testing "the membership and the other negation, so arbitration can weigh them"
-        (is (contains? (set (:opposing-handles d)) m))
-        (is (contains? (set (:opposing-handles d)) n)))
+          h (v/assert kb (list 'not (list cat Rex)) 'CxUniverse)
+          r (first (v/contradictions kb))]
+      (is (= :cover (:kind r)))
+      (testing "the membership and both negations, so arbitration can weigh them"
+        (is (= #{m n h} (:nogood r))))
       (testing "and not the declaration the refutation is read through"
-        (is (not (contains? (set (:opposing-handles d)) c)))))))
+        (is (not (contains? (:nogood r) c)))))))

@@ -208,7 +208,7 @@
       ;; to acquire, so requiring a reader for it would drop it for want of a witness rather
       ;; than for want of support.  Answered unscoped and with no witness, there being no
       ;; context to name.
-      (vec (run-at '?ctx))
+      (binding [res/*unscoped-own* true] (vec (run-at '?ctx)))
       (witnessed kb witness
                  (reduce (fn [acc reader]
                            (reduce (fn [m b] (update m b (fnil conj #{}) reader))
@@ -229,7 +229,7 @@
   (let [rs (readers kb goals)]
     (if (empty? rs)
       ;; the lattice is empty, so there is no vantage to require — see `fan`
-      (vec (distinct (run-at '?ctx)))
+      (binding [res/*unscoped-own* true] (vec (distinct (run-at '?ctx))))
       ;; **Lazy over the readers**, since `sentexes-matching` promises a seq that fetches
       ;; what it is asked for.  There is no witness to maximize here, so unlike `fan` there
       ;; is nothing that has to see every reader before it can answer at all: `distinct` is
@@ -458,7 +458,9 @@
   [kb supporters ctxs]
   (let [tax     (reasoning/taxonomy kb)
         merged? (tax/merged-term-pred tax)
-        base    (if (some #(res/excepted-anywhere? kb %) supporters)
+        ;; ...and a supporter some reader withdraws (`res/withdrawable-closure`)
+        wc      (res/withdrawable-closure kb)
+        base    (if (some #(or (contains? wc %) (res/excepted-anywhere? kb %)) supporters)
                   (tax/maximal-contexts
                    tax (filterv (fn [c] (every? #(res/supporter-visible? kb % c) supporters))
                                 (tax/common-descendants tax ctxs)))
@@ -544,7 +546,8 @@
   (let [witness (or witness 'CxInference)]
     (cond
       (nothing-to-witness? goals)
-      {:answers (vec (run-at '?ctx)) :strategy :unscoped}
+      ;; asked of the KB, each handle as its own context believes it
+      {:answers (binding [res/*unscoped-own* true] (vec (run-at '?ctx))) :strategy :unscoped}
 
       (and (= :post-hoc *strategy*) (not expands-rules?) (placeable? kb goals))
       ;; post-hoc first, and the fan if it proves to be in the blowup regime.  A cost

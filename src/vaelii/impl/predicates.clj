@@ -41,10 +41,6 @@
     :family   the family whose spellings must move together, or nil.  `functional` and
               `functionalInArg` are one family written two ways; the four argument
               constraints are another.  `mark-families` below.
-    :sweeps   what a declaration arriving *after* the content it constrains puts back
-              in question — `sweep-kinds` below — or absent for a term whose retroactive
-              half is not `settle`'s clash arbitration sweep.  The `:reach` facet says that a
-              term sweeps; this says *what*, for the one lane whose reaches have names.
     :stops-short  facet -> prose: an implication of `facet-contract` this term does not
               satisfy, and the reason.  Checked against the set that is actually owed, in
               both directions, so the record can neither be missing nor go stale once the
@@ -79,14 +75,13 @@
 
   **What reads this.**  `special/entries` joins the declarations to `special`'s arms;
   `taxonomy`'s three rosters (`closure-relations`, `arg-declaration-props`,
-  `functional-family-marks`), `settle`'s clash-declaration and trigger rosters,
-  `spec/::prop-kind` and `vocabulary/roster` are field reads.
+  `functional-family-marks`), `settle`'s trigger rosters, `spec/::prop-kind` and
+  `vocabulary/roster` are field reads.
 
-  **Two validators, two layers.**  `check-families` runs *here*, at this namespace's
-  load, over what one entry can say about another.  `check-facets` runs at `settle`'s,
-  because two of its rules read an arm that lives four layers up and a bottom namespace
-  cannot see whether an arm exists — it takes those facts as arguments rather than
-  requiring the layer that holds them.
+  **The validator runs a layer up.**  `check-facets` runs at `settle`'s load, because two
+  of its rules read an arm that lives four layers up and a bottom namespace cannot see
+  whether an arm exists — it takes those facts as arguments rather than requiring the
+  layer that holds them.
   The rosters that have not moved yet are reconstructed from here by `predicates_test`
   and asserted equal to the live one, which is the only defensible proof that the population
   is right before a consumer switches over.  A roster that *has* moved is proved
@@ -181,7 +176,7 @@
    :derived    {:implies #{:cached}         :lane? true}    ; …and that triple runs on the derivation path too (:derived?)
    :migrates   {:implies #{:cached}         :lane? true}    ; asserting it merges terms — kb/equality-predicates
    :arbitrable {:implies #{:convicts}       :lane? true}    ; its violation names other believed sentexes, so settle arbitrates it
-   :reach      {:implies #{}                :lane? true}    ; arriving after the facts, it sweeps what it now convicts
+   :reach      {:implies #{}                :lane? true}    ; arriving after the facts, it convicts what is stored
    :convicts   {:implies #{:reach}          :lane? true}    ; a definitional check reads it and can convict stored content
    :query-only {:implies #{:answers}        :lane? false}   ; never stored: the wff arm is the refusal, a prover is the answer
    :answers    {:implies #{}                :lane? true}    ; a prover answers goals of this functor
@@ -199,36 +194,6 @@
   ones that go wrong quietly."
   (set (keys facet-contract)))
 
-(def sweep-kinds
-  "What a declaration arriving **after** the content it constrains puts back in question
-  — the reach `settle`'s clash arbitration sweep runs for it, and so the structure of the split
-  `settle/clash-declaration-kinds` is written as.
-
-  A declaration is not its own candidate the way a fact is.  `(disjoint dog cat)` arriving
-  after both memberships has to reach them, or whether the pair is reported depends on
-  which was written first.  The kind says where that reach goes: over the **terms** the
-  declaration separates, or over the **facts beneath the predicate** a descending mark now
-  stands over, or both.
-
-  **A term is a clash declaration by carrying one of these**, so enrolling one and leaving
-  `declaration-reach` with no arm for it is not a state that roster can be in.  Absent is
-  the answer for a term whose retroactive half is a different mechanism: `arity`'s is a
-  *report* that moves no belief, the argument constraints' is `special/entail-existing`,
-  which mints rather than convicting, and `siblingDisjointException`'s runs in the removal
-  direction.
-
-  **Carrying a sweep is not being in `settle/definitional-marks`**, and reading one roster
-  as though it were the other is what #54 filed.  That roster pairs a functor with the
-  taxonomy prop key it stores under, which `functionalInArg` has none of — it stores
-  `[pred n]` pairs — so the generalized mark is correctly absent from it, and must still
-  carry `:predicate-marked` here and a shape for the lane that recognizes it at its own
-  arity.  Derive a reach from the pairing table and the generalized mark silently loses
-  the one arrival order — declaration-last over an unmergeable pair — that `functional`
-  itself handles."
-  #{:type-separating         ; the memberships of the terms the declaration separates
-    :predicate-marked        ; the facts beneath the predicate a descending mark stands over
-    :both})                  ; genl alone: the sub gains ancestors *and* a mark descends
-
 (def mark-families
   "The families whose spellings must move together.  A family lives in more than one
   lane and has twice been joined to only one (#52, #54), so the family is named once and
@@ -236,9 +201,9 @@
   `tax/arg-declaration-props` are this field read back.
 
   **`:functional`** is acted on by the *merge* lane (`special`'s `equate-*` entry points, where
-  two fillers of a functional slot are equated) and by the *arbitration* lane
-  (`settle`'s declaration reach and trigger rosters, where two unmergeable fillers form a
-  nogood).  Both lanes have to recognize the same spellings, and neither fails loudly
+  two fillers of a functional slot are equated) and by the *candidate* lane
+  (`decide`'s candidate index and `special/offer-marked-existing`, where two unmergeable
+  fillers form a nogood a reader decides).  Both lanes have to recognize the same spellings, and neither fails loudly
   when it does not — the merge simply does not happen, or the clash simply is not
   reported, in the one arrival order that route was the only way into.  Enrolling
   `functionalInArg` by name in each place is what left #52 (the declaration-last merge
@@ -278,38 +243,35 @@
 
   Every mark but `decontextualized_predicate` carries it; that one's reason for
   withholding it is on its own entry."
-  [kind & {:keys [facets arg derived? checked? notes sweeps]
+  [kind & {:keys [facets arg derived? checked? notes]
            :or   {facets #{} arg :predicate derived? true checked? true}}]
   (cond-> {:shape   {:args [arg]}
            :storage [:prop kind]
            :checked checked?
            :facets  (cond-> (conj facets :cached) derived? (conj :derived))
            :family  nil}
-    sweeps (assoc :sweeps sweeps)
     notes  (assoc :notes notes)))
 
 (defn- mark
   "A one-term mark into a table of its own — `(F T)` — cached, but not a `tax/props`
   entry and so not a `spec/::prop-kind` keyword."
-  [target & {:keys [facets arg notes sweeps] :or {facets #{} arg :type}}]
+  [target & {:keys [facets arg notes] :or {facets #{} arg :type}}]
   (cond-> {:shape   {:args [arg]}
            :storage [:mark target]
            :checked true
            :facets  (conj facets :cached :derived)
            :family  nil}
-    sweeps (assoc :sweeps sweeps)
     notes  (assoc :notes notes)))
 
 (defn- pair
   "A two-argument declaration cached in a table keyed on the pair — `(F a b)`."
-  [target arg-kind & {:keys [facets derived? notes sweeps]
+  [target arg-kind & {:keys [facets derived? notes]
                       :or   {facets #{} derived? true}}]
   (cond-> {:shape   {:args [arg-kind arg-kind]}
            :storage [:keyed-pair target]
            :checked true
            :facets  (cond-> (conj facets :cached) derived? (conj :derived))
            :family  nil}
-    sweeps (assoc :sweeps sweeps)
     notes  (assoc :notes notes)))
 
 (defn- roster
@@ -319,13 +281,12 @@
   Variable-arity, and the arity is content: two parts and three parts are two claims
   about one whole, so the roster is part of the key rather than something accumulated
   under the whole."
-  [target & {:keys [facets notes sweeps opposing-read] :or {facets #{}}}]
+  [target & {:keys [facets notes opposing-read] :or {facets #{}}}]
   (cond-> {:shape   {:args [:type] :variadic :type}
            :storage [:roster target]
            :checked true
            :facets  (conj facets :cached :derived)
            :family  nil}
-    sweeps        (assoc :sweeps sweeps)
     opposing-read (assoc :opposing-read opposing-read)
     notes         (assoc :notes notes)))
 
@@ -399,9 +360,9 @@
 (def ^:private arity-note
   "The clause every exact-arity class's note ends with — nine classes say one thing, and
   a sentence written nine times is a sentence that drifts in eight of them."
-  (str " — checks/exact-arity-classes — plus the disjointness that separates the"
+  (str " — tax/exact-arity-classes — plus the disjointness that separates the"
        " relation-wide three, which the kind specializations inherit through their genl"
-       " edges. Reaches through settle's arity report, not through the clash rosters."))
+       " edges. Read as storage by the arity nogoods a reader decides."))
 
 ;; ---- the entries ---------------------------------------------------------
 
@@ -426,63 +387,51 @@
     ;; disagree about one store.  Each records the context the declaration was stated
     ;; in besides, which is what a scoped read (`has-prop?`, `disjoint?`) answers from.
     [['genl (enforced (assoc (pair :genl :type
-                                   :facets #{:reach :convicts :answers :retriggers}
-                                   :sweeps :both)
+                                   :facets #{:reach :convicts :answers :retriggers})
                              :storage [:edge :genl])
                       "taxonomy/add-genl — the cached closure every membership, match and placement reads")]
      ['genlCx (enforced (assoc (pair :genlCx :context
-                                     :facets #{:reach :convicts :answers :retriggers}
-                                     :sweeps :type-separating)
+                                     :facets #{:reach :convicts :answers :retriggers})
                                :storage [:edge :genlCx])
                         "taxonomy/add-genlCx — the visibility closure a context read walks")]
 
      ;; ---- the separations ------------------------------------------------
-     ['disjoint (enforced (assoc (pair :disjoint :type :facets #{:reach :convicts :arbitrable}
-                                       :sweeps :type-separating)
+     ['disjoint (enforced (assoc (pair :disjoint :type :facets #{:reach :convicts :arbitrable})
                                  :opposing-read
                                  (str "the nogood pairs the two memberships, and the (disjoint A B)"
                                       " declaration the conviction is read through is not a member of"
                                       " it — so whichever membership is defeated, the disjointness"
                                       " table the next pass reads is the one that convicted."))
-                          "taxonomy/add-disjoint, read by checks/disjoint-problems and arbitrated by settle")]
+                          "taxonomy/add-disjoint, read by decide/nogoods-at and checks/disjoint-problems")]
      ['disjoint_metatype
       (enforced (mark :disjoint-metatype :facets #{:reach :convicts}
-                      :sweeps :type-separating
                       :notes (str "the members already asserted are recorded by the integrate arm"
                                   " as stored rather than believed — a belief-filtered sweep here"
                                   " would leave a defeated membership out of the cache keys"
                                   " permanently. No facet covers a retroactive record of"
                                   " supporters."))
                 "taxonomy/mark-disjoint-metatype — the clique consulted, never stored")]
-     ['sibling_disjoint (enforced (mark :sibling-disjoint :facets #{:reach :convicts}
-                                        :sweeps :type-separating)
+     ['sibling_disjoint (enforced (mark :sibling-disjoint :facets #{:reach :convicts})
                                   (str "taxonomy/mark-sibling-disjoint — the specialization clique keyed off"
-                                       " the genl closure, consulted like disjoint_metatype and arbitrated by"
-                                       " settle"))]
+                                       " the genl closure, consulted like disjoint_metatype"))]
      ['siblingDisjointException
       (enforced (assoc (pair :sib-exception :type)
-                       :notes (str "its *retract* is the one move the generic belief reconcile does"
-                                   " not cover — an exception present ab initio kept its pair out"
-                                   " of the clash set entirely — so the disintegrate arm posts to"
-                                   " :sib-exc-dirty and settle re-arms. That is a reach in the"
-                                   " removal direction, which :reach (an arriving declaration)"
-                                   " does not name."))
+                       :notes (str "its retract moves the separations a reader reads, which the"
+                                   " membership candidates read again (membership/sync-memberships);"
+                                   " that is a reach in the removal direction, which :reach (an"
+                                   " arriving declaration) does not name."))
                 (str "taxonomy/add-sib-exception — exempts one pair the sibling clique or a"
-                     " disjoint_metatype would separate; read globally in disjointness-test,"
-                     " and a retract re-arms through settle's :sib-exc-dirty sweep"))]
+                     " disjoint_metatype would separate; read at the reader in disjointness-test"))]
 
      ;; ---- exhaustion: the parts that cover a whole ------------------------
      ;;
      ;; :derived, like the separations above and for the same argument — a rule may
      ;; conclude a cover, and a `decontextualized_predicate` lift copies one into
-     ;; CxUniverse, and neither may wait for a restart to reach the taxonomy.  The
-     ;; sweep is `:type-separating` for all three spellings: `separating` and
-     ;; `partition` separate their parts from each other, and every one of them installs
-     ;; a `genl` edge per part, so any of them arriving after the memberships implicates
-     ;; the terms it names.
+     ;; CxUniverse, and neither may wait for a restart to reach the taxonomy.
+     ;; `separating` and `partition` separate their parts from each other, and every one
+     ;; of them installs a `genl` edge per part.
      ['covering
       (enforced (roster :cover :facets #{:reach :convicts :arbitrable}
-                        :sweeps :type-separating
                         :opposing-read
                         (str "the nogood holds the whole's membership and the negations,"
                              " and the declaration the conviction is read through is not a"
@@ -497,7 +446,6 @@
                      " sentex per part, plus one taxonomy/add-genl per part"))]
      ['separating
       (enforced (roster :cover :facets #{:reach :convicts}
-                        :sweeps :type-separating
                         :notes (str "the separation half alone: the roster reaches"
                                     " disjointness-test and no coverage inference, so no"
                                     " nogood of its own and no :arbitrable facet. The genl"
@@ -507,7 +455,6 @@
                      " members, plus one taxonomy/add-genl per part"))]
      ['partition
       (enforced (roster :cover :facets #{:reach :convicts :arbitrable}
-                        :sweeps :type-separating
                         :opposing-read
                         (str "the nogood holds the whole's membership and the negations,"
                              " and the declaration the conviction is read through is not a"
@@ -543,8 +490,7 @@
                                   " arm installs alongside; also a binary_predicate-free"
                                   " relation mark, since it holds at any arity"))]
      ['asymmetric  (enforced (assoc (prop :asymmetric :facets #{:reach :convicts :arbitrable
-                                                                :answers}
-                                          :sweeps :predicate-marked)
+                                                                :answers})
                                     :opposing-read
                                     (str "the nogood pairs the tuple with its converse; the"
                                          " (asymmetric P) mark is not a member of it, so defeating"
@@ -553,8 +499,7 @@
                              "checks/asymmetry-problem — a nogood against the converse; also a binary_predicate type")]
      ['reflexive   (enforced (prop :reflexive :facets #{:answers})
                              "taxonomy prop :reflexive — the reflexive prover; also a binary_predicate type")]
-     ['functional  (enforced (assoc (prop :functional :facets #{:reach :convicts :arbitrable}
-                                          :sweeps :predicate-marked)
+     ['functional  (enforced (assoc (prop :functional :facets #{:reach :convicts :arbitrable})
                                     :family :functional
                                     :opposing-read
                                     (str "the nogood pairs the two fillers of the slot; the"
@@ -564,40 +509,34 @@
                                                 " same spellings and neither of which fails"
                                                 " loudly: the *merge* entry point, where two fillers of"
                                                 " a functional slot are equated, and the"
-                                                " *arbitration* sweep, where two unmergeable"
-                                                " fillers form a nogood. Deriving an equality is not"
+                                                " *candidate* offer, where two unmergeable"
+                                                " fillers form a nogood a reader decides. Deriving"
+                                                " an equality is not"
                                                 " :migrates — that facet is for a relation whose"
                                                 " own assertion is the merge."))
                              (str "checks/functional-problems, and special/derive-functional-equalities"
                                   " on two symbols; also a binary_predicate type"))]
      ['irreflexive (enforced (prop :irreflexive :facets #{:reach :convicts}
-                                   :notes (str "convicts a *self* tuple (P a a), which names no other"
-                                               " believed sentex — so it is not :arbitrable and"
-                                               " carries no :sweeps kind: there is nothing for a late"
-                                               " declaration to weigh the fact against. Its"
-                                               " retroactive half is"
-                                               " settle/report-unarbitrable-reach! — a report that"
-                                               " moves no belief, arity's reading."))
-                             (str "checks/irreflexivity-problem — a self tuple (P a a) is refused at the"
-                                  " entry point, and settle/report-unarbitrable-reach! reports one stored"
-                                  " before the mark reached it; also a binary_predicate type"))]
+                                   :notes (str "convicts a *self* tuple (P a a), a one-member nogood"
+                                               " no settle weighs, so it is not :arbitrable:"
+                                               " each reader decides it"
+                                               " from the candidate index, whichever of the mark"
+                                               " and the tuple arrived first."))
+                             (str "decide/nogoods-at and decide/losers — a reader that reads the mark"
+                                  " decides a stored self tuple; also a binary_predicate type"))]
      ['anti_symmetric (enforced (prop :anti-symmetric :facets #{:reach :convicts}
-                                      :notes (str "derives (equals a b) from a believed converse"
-                                                  " rather than convicting either — so it merges"
-                                                  " where the other pairwise marks separate, and"
-                                                  " no facet names deriving. A converse no merge"
-                                                  " can reconcile is convicted and not arbitrable;"
-                                                  " a pair stored before the mark reached it is"
-                                                  " reported by settle/report-unarbitrable-reach!,"
-                                                  " irreflexive's reading."))
-                                (str "checks/antisymmetry-problems, and"
-                                     " special/derive-antisymmetric-equalities merging two symbols a believed"
-                                     " converse forces equal, and settle/report-unarbitrable-reach!"
-                                     " reporting a stored converse no merge reconciles; also a"
+                                      :notes (str "derives (equals a b) from a believed converse of"
+                                                  " two symbols rather than convicting either — so it"
+                                                  " merges where the other pairwise marks separate,"
+                                                  " and no facet names deriving. A converse no merge"
+                                                  " can reconcile is a nogood each reader decides,"
+                                                  " irreflexive's reading, and not :arbitrable."))
+                                (str "special/derive-antisymmetric-equalities merging two symbols a"
+                                     " believed converse forces equal, and decide/nogoods-at and"
+                                     " decide/losers deciding a converse no merge reconciles; also a"
                                      " binary_predicate type"))]
      ['anti_transitive (enforced (assoc
                                   (prop :anti-transitive :facets #{:reach :convicts :arbitrable}
-                                        :sweeps :predicate-marked
                                         :notes (str "the one nogood whose members are three rather"
                                                     " than two: it convicts the two-step chain and"
                                                     " the direct step together."))
@@ -607,7 +546,7 @@
                                        " so whichever step is defeated the mark still reads."))
                                  (str "taxonomy prop :anti-transitive — checks/antitransitivity-problems"
                                       " convicts the two-step chain and the direct step together, as the one"
-                                      " nogood whose members are three rather than two (settle/decide-nogood"
+                                      " nogood whose members are three rather than two (decide/verdict"
                                       " reads the whole set); plus its disjointness with transitive — no"
                                       " predicate is both — and a binary_predicate type"))]
 
@@ -621,37 +560,20 @@
                         :checked false
                         :facets  #{:cached :derived :reach :convicts}
                         :family  nil
-                        :opposing-read
-                        (str "the negative answer, and the reason this term names a second sentex"
-                             " exactly as the four arbitrable marks do and is still not one of"
-                             " them: the sentex it names is the vocabulary entry the conviction is"
-                             " READ THROUGH — declared-arity answers from the taxonomy's arity"
-                             " table, which follows belief — so a nogood defeating the declaration"
-                             " would destroy its own premise. Measured: the declaration is defeated"
-                             " in the settle that admits the pair, revived by the next settle's"
-                             " clear-defeats! while the table it was uninstalled from is still"
-                             " empty, and with the table empty the clash is never re-derived. The"
-                             " comment above checks/arbitrable-kinds is the long form.")
-                        :notes   (str "convicts and reaches, but is deliberately NOT :arbitrable:"
-                                      " the arity table follows belief, so a nogood that defeated"
-                                      " the declaration would destroy its own premise. Its"
-                                      " retroactive half is settle/report-arity-reach! — a report"
-                                      " that moves no belief — and :reach does not distinguish a"
-                                      " sweep that decides from one that only names.")}
-                       (str "checks/arity-problem at the entry point, settle/report-arity-reach! over"
-                            " content stored before it"))]
+                        :notes   (str "binds a relation's length, read as storage beside the"
+                                      " exact-arity classes: a tuple breaking it is a one-member"
+                                      " nogood each reader decides, and two related predicates"
+                                      " whose bindings differ are a nogood of the bindings.  Not"
+                                      " :arbitrable: no settle weighs it.")}
+                       (str "decide/nogoods-at and decide/losers — a reader decides a stored tuple"
+                            " whose length breaks the binding"))]
      ['arityMin
       (enforced {:shape {:args [:relation :integer]} :storage [:none] :checked false
-                 :family nil :facets #{:convicts}
-                 :stops-short {:reach (str "the assert-time floor is landed;"
-                                           " a late arityMin does not yet re-file the"
-                                           " too-short applications stored before it, the"
-                                           " retroactive half report-arity-reach! supplies"
-                                           " for the exact length.")}
-                 :notes (str "checks/arity-problem refuses a variable-arity application"
-                             " shorter than the declared minimum. Ordinary CxCore rules"
+                 :family nil :facets #{:reach :convicts}
+                 :notes (str "floors a variable_arity relation: a shorter tuple is a one-member"
+                             " nogood each reader decides. Ordinary CxCore rules"
                              " also derive the at_least_*_relation classifications.")}
-                "checks/arity-problem floors a variable-arity application at the minimum")]
+                "decide/nogoods-at floors a variable-arity tuple at the minimum")]
      ['relationTypeByArity
       (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
                  :family nil :facets #{}
@@ -695,7 +617,6 @@
                          :checked true
                          :facets  #{:cached :derived :reach :convicts :arbitrable}
                          :family  :functional
-                         :sweeps  :predicate-marked
                          :opposing-read
                          (str "the same as functional's, read at the declared position: the nogood"
                               " pairs the two fillers of [P n] and the (functionalInArg P n) mark is"
@@ -751,6 +672,15 @@
                 "special — the CxUniverse lift, retroactive over the extent")]
      ['forced_decontextualized_predicate (enforced (prop :forced-decontextualized)
                                                    "special — storage straight into CxUniverse")]
+     ['forced_monotonic_predicate (enforced (prop :forced-monotonic)
+                                            (str "checks/force-sentex! and the labeller's forced sets —"
+                                                 " a premise held :monotonic, a denial held OUT and a"
+                                                 " firing concluding one from a non-roster ground held"
+                                                 " void"))]
+     ['forced_monotonic_between_predicates
+      (enforced (prop :forced-between-predicates)
+                (str "checks/forced-monotonic? — a literal of the predicate whose arguments are all"
+                     " spelled as predicates is on the forced-monotonic roster"))]
      ['target_following_predicate
       (enforced (prop :target-following
                       :notes (str "makes a (P … (sentexHandle H) …) meta-sentex not outlive H."
@@ -1194,41 +1124,41 @@
                                      :notes (str "the relation-wide exact-one-argument type, and"
                                                  " the membership spelling of an arity"
                                                  arity-note))
-                         "checks/exact-arity-classes — the relation-wide membership spelling of an arity")]
+                         "tax/exact-arity-classes — the relation-wide membership spelling of an arity")]
      ['binary  (enforced (collection :facets #{:convicts :reach}
                                      :notes (str "the same, at two" arity-note))
-                         "checks/exact-arity-classes — the relation-wide membership spelling of an arity")]
+                         "tax/exact-arity-classes — the relation-wide membership spelling of an arity")]
      ['ternary (enforced (collection :facets #{:convicts :reach}
                                      :notes (str "the same, at three" arity-note))
-                         "checks/exact-arity-classes — the relation-wide membership spelling of an arity")]
+                         "tax/exact-arity-classes — the relation-wide membership spelling of an arity")]
 
      ;; ---- the predicate types --------------------------------------------
      ['unary_predicate   (enforced (collection :facets #{:convicts :reach}
                                                :notes (str "a predicate's membership spelling of an"
                                                            " arity" arity-note))
-                                   (str "checks/exact-arity-classes — a predicate's membership spelling of"
+                                   (str "tax/exact-arity-classes — a predicate's membership spelling of"
                                         " an arity"))]
      ['binary_predicate  (enforced (collection :facets #{:convicts :reach}
                                                :notes (str "the same, at two" arity-note))
-                                   (str "checks/exact-arity-classes — a predicate's membership spelling of"
+                                   (str "tax/exact-arity-classes — a predicate's membership spelling of"
                                         " an arity"))]
      ['ternary_predicate (enforced (collection :facets #{:convicts :reach}
                                                :notes (str "the same, at three" arity-note))
-                                   (str "checks/exact-arity-classes — a predicate's membership spelling of"
+                                   (str "tax/exact-arity-classes — a predicate's membership spelling of"
                                         " an arity"))]
      ['unary_function
       (enforced (collection :facets #{:convicts :reach}
                             :notes (str "the function specialization of unary, and a"
                                         " function's spelling of an arity" arity-note))
-                "checks/exact-arity-classes — a function's membership spelling of an arity")]
+                "tax/exact-arity-classes — a function's membership spelling of an arity")]
      ['binary_function
       (enforced (collection :facets #{:convicts :reach}
                             :notes (str "the same, at two" arity-note))
-                "checks/exact-arity-classes — a function's membership spelling of an arity")]
+                "tax/exact-arity-classes — a function's membership spelling of an arity")]
      ['ternary_function
       (enforced (collection :facets #{:convicts :reach}
                             :notes (str "the same, at three" arity-note))
-                "checks/exact-arity-classes — a function's membership spelling of an arity")]
+                "tax/exact-arity-classes — a function's membership spelling of an arity")]
      ['fixed_arity       (enforced (collection
                                     :notes (str "classifies one exact argument policy; exact"
                                                 " arity declarations and the unary/binary/ternary"
@@ -1241,17 +1171,17 @@
       (enforced (collection :notes "the function specialization of fixed_arity.")
                 "generic taxonomy classification under fixed_arity and function")]
      ['variable_arity    (enforced (collection
-                                    :notes (str "the one *exemption* from the arity check — it"
+                                    :notes (str "the one *exemption* from the arity nogoods — it"
                                                 " un-convicts, which is why it carries no facet at"
                                                 " all: every lane in this vocabulary names something"
                                                 " a term causes, and none names something it"
                                                 " prevents."))
-                                   "checks/arity-problem — the one exemption from the arity check")]
+                                   "decide/nogoods-at — the one exemption from the arity nogoods")]
      ['variable_arity_predicate
       (enforced (collection
                  :notes (str "the predicate specialization of variable_arity; the arity"
-                             " check reads the generic superclass through taxonomy closure."))
-                "checks/arity-problem through inherited variable_arity membership")]
+                             " nogoods read it as a variable_arity membership."))
+                "decide/nogoods-at — the variable_arity exemption, spelled for a predicate")]
      ['variable_arity_function
       (enforced (collection
                  :notes (str "the function specialization of variable_arity; it shares the"
@@ -1615,47 +1545,6 @@
                      " different prover's identity exemption — a filler that is a member"
                      " is not determinate and is exempt from the unique-name assumption"))]])))
 
-(defn- check-families
-  "Refuse at load a declaration whose family or whose sweep is half-written, which is the
-  whole reason a family is named at all.
-
-  Two rules, and both are #54 stated as a load failure rather than as a review item.
-  Every spelling of one family carries the **same** `:sweeps`: a family joined to the
-  clash arbitration sweep in one spelling and not another convicts in one arrival order and
-  not the other, in whichever lane the spelling was left out of, and neither lane says so.
-  And a term that sweeps carries a `:shape`, because the lane that recognizes a
-  declaration has to recognize it at the arity it is written in — the second half of #54,
-  where the mark was enrolled for the reach and not for the trigger.
-
-  Narrow on purpose.  The general implications between facets — `:sweeps` needing the
-  `:reach` facet, a value being one of `sweep-kinds` — are the facet validator's, which is
-  a commit of its own; this is the pair the repo has already paid for twice.  Returns
-  `entries` unchanged so it can wrap a def, as `special/check-entries` does — and refuses
-  under that validator's `:type`, `:bad-table-entry` discriminated by `:mismatch`, for the
-  reason it gives itself two shapes under one word: whichever way the table is bad, the
-  caller catching it is the namespace load, and there is nothing a keyword of its own
-  would let that caller do."
-  [entries]
-  (doseq [[fam specs] (group-by (comp :family second) entries)
-          :when       fam
-          :let        [kinds (set (map (comp :sweeps second) specs))]]
-    (when (< 1 (count kinds))
-      (throw (ex-info (str "mark family " fam " does not agree about what its spellings"
-                           " sweep: "
-                           (pr-str (into (sorted-map) (map (fn [[t sp]] [t (:sweeps sp)])) specs))
-                           " — a spelling left out of the sweep convicts in one arrival"
-                           " order and not the other, which is #54")
-                      {:type :bad-table-entry :mismatch :family
-                       :family fam :sweeps kinds}))))
-  (doseq [[term spec] entries
-          :when       (:sweeps spec)]
-    (when-not (:shape spec)
-      (throw (ex-info (str term " sweeps " (:sweeps spec) " and declares no shape — the"
-                           " lane that recognizes a declaration recognizes it at the arity"
-                           " it is written in, and there is none to read")
-                      {:type :bad-table-entry :mismatch :sweeps :functor term}))))
-  entries)
-
 (def ^:private lane-facets
   "The facets `facet-contract` marks as lanes a mark family moves through together."
   (into #{} (comp (filter (comp :lane? val)) (map key)) facet-contract))
@@ -1709,31 +1598,26 @@
                             " predate it keep a conclusion the firings after it drop")]))))
 
 (defn check-facets
-  "Refuse at load a declaration whose facets do not add up — the **cross-layer** half of
-  `check-families`, and the one that turns wiring a new predicate into both lanes of a
-  family from a review item into a build failure.
+  "Refuse at load a declaration whose facets do not add up — the check that turns wiring a
+  new predicate into both lanes of a family from a review item into a build failure.
 
 `above` carries what the layers above this one enumerate, because this namespace is the
   bottom one: a namespace holding both the declarations and the arms could only sit at the
   *top* of the stack, where `taxonomy` and `wff` could not read it.  So the facts that live
   above arrive as arguments, and the validator is **called** from `settle`'s namespace
-  load, which is the first place every facet's arm is visible.  `check-families` stays at
-  this namespace's load, where what it checks is one entry against another and nothing
-  above is needed.
+  load, which is the first place every facet's arm is visible.
 
   * `:recheck-subjects` — the functors that post exception re-checks through the shared
     path (`special/declaration-subjects`) rather than from an arm of their own.
   * `:family-rosters` — `family -> {roster-name functors}`, the rosters that read a mark
     family **as a family**.  Each must enumerate exactly that family.
 
-  Seven rules, ten `:mismatch` values:
+  Six rules, nine `:mismatch` values:
 
-  * a field value outside its closed vocabulary — a facet, a storage kind, a family, a
-    sweep kind, an argument kind.
+  * a field value outside its closed vocabulary — a facet, a storage kind, a family, an
+    argument kind.
   * `:cached` and a `:none` storage, or a storage and no `:cached`.  The two say the same
     thing and cannot disagree.
-  * a `:sweeps` without the `:reach` facet.  What a declaration puts back in question is
-    the reach; a kind without the facet says the sweep runs and nothing sweeps.
   * an `:arbitrable` term with no `:opposing-read` prose.  The third conjunct of
     arbitrability — that the read the conviction is made through does not depend on the
     belief the nogood moves — is not decidable from data, so the encoding is a
@@ -1794,7 +1678,6 @@
         (doseq [[field bad] [[:facets (vec (sort (remove facets fs)))]
                              [:storage (vec (remove storage-kinds [skind]))]
                              [:family (vec (remove mark-families (keep identity [(:family spec)])))]
-                             [:sweeps (vec (remove sweep-kinds (keep identity [(:sweeps spec)])))]
                              [:shape (vec (sort (remove argument-kinds
                                                         (concat args optional
                                                                 (when variadic [variadic])))))]]
@@ -1812,13 +1695,6 @@
                        " — the facet and the storage kind say the same thing and cannot"
                        " disagree")
                   {:functor term :facets fs :storage (:storage spec)}))
-
-        (when (and (:sweeps spec) (not (contains? fs :reach)))
-          (refuse :sweep-reach
-                  (str term " sweeps " (:sweeps spec) " and does not carry :reach — the"
-                       " kind says where the reach goes and the facet says there is one,"
-                       " so a kind without the facet claims a sweep that reaches nothing")
-                  {:functor term :sweeps (:sweeps spec)}))
 
         (when (and (contains? fs :arbitrable) (not (:opposing-read spec)))
           (refuse :arbitrable
@@ -1864,10 +1740,8 @@
   entries)
 
 (def table
-  "`entries` as the lookup map every reader below dispatches through — and where
-  `check-families` runs, so a half-wired family fails at namespace load rather than in the
-  one lane it was left out of."
-  (into {} (check-families entries)))
+  "`entries` as the lookup map every reader below dispatches through."
+  (into {} entries))
 
 ;; ---- the readers ---------------------------------------------------------
 
@@ -1900,13 +1774,6 @@
   [facet]
   (into #{} (comp (filter #(contains? (:facets (second %)) facet)) (map first)) entries))
 
-(defn sweeps
-  "`term -> sweep kind` over every term that sweeps at all, in `entries` order — what
-  `settle/clash-declaration-kinds` groups by kind and `clash-declaration-kind` reads
-  back flat."
-  []
-  (into {} (keep (fn [[t spec]] (when-let [k (:sweeps spec)] [t k]))) entries))
-
 (defn family
   "Every spelling in family `fam`, as a set — the family read as the thing it is, which
   is what a reader that acts on all of them wants.  `by-family` adds the written shape,
@@ -1932,22 +1799,6 @@
   [kind]
   (into {}
         (comp (filter #(= kind (first (:storage (second %)))))
-              (map (fn [[term spec]] [term (second (:storage spec))])))
-        entries))
-
-(defn prop-marks
-  "The `[term prop-keyword]` pairs of every term carrying `facet` and stored as a
-  `tax/props` mark, in `entries` order — a facet read and a storage read at once, because
-  the two spellings of a mark are what a caller comparing a *sentence's* functor against a
-  *stored* key needs together.
-
-  Case conversion is not an alternative to the pairing and never was: `anti_transitive`
-  stores under `:anti-transitive`.  The declaration states the keyword; this reads it
-  back."
-  [facet]
-  (into []
-        (comp (filter (fn [[_ spec]] (and (contains? (:facets spec) facet)
-                                          (= :prop (first (:storage spec))))))
               (map (fn [[term spec]] [term (second (:storage spec))])))
         entries))
 

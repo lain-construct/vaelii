@@ -203,7 +203,8 @@
     (v/assert kb (list 'disjoint dog cat) 'CxU)
     (v/assert kb (list cat felix) 'CxU)
     (testing "(not (not (dog Felix))) canonicalizes to (dog Felix) and hits the disjoint check"
-      (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list 'not (list 'not (list dog felix))) 'CxU))))
+      (is (tu/stored-in-clash? kb (list 'not (list 'not (list dog felix))) 'CxU))
+      (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))
     (testing "a genuine single negation is not arg/disjoint-checked"
       (is (some? (v/assert kb (list 'not (list dog rex)) 'CxU))))))
 
@@ -785,9 +786,8 @@
         (is (= 2 (count (provers/rule-exceptions kb plain))))))))
 
 (tu/deftest-kb an-exception-variable-no-antecedent-binds-is-rejected
-  ;; closure is what makes the exception a ground existence check instead of a
-  ;; search, and it is why an *existential* exception ("unless it has a sick child")
-  ;; is not expressible.
+  ;; closure is what keeps the exception from searching for the rule's bindings; a
+  ;; witness the exception owns is written under `thereExists` (except-test).
   (let [bird (tu/tmp-type) sick (tu/tmp-pred) flies (tu/tmp-pred)
         rule (list 'exceptWhen (list sick '?child)
                    (list 'set/defaultRule (list 'set/forwardRule (list 'implies (list bird '?b) (list flies '?b)))))]
@@ -798,7 +798,7 @@
         (is (= '[?child] (:unbound (ex-data e))))))
     (testing "and stores nothing about the conclusion"
       (is (empty? (v/find-sentexes kb flies))))
-    (testing "an antecedent that binds the witness is the workaround, and is accepted"
+    (testing "an antecedent that binds the variable closes it"
       (is (some? (v/assert kb (list 'exceptWhen (list sick '?child)
                                     (list 'set/defaultRule
                                           (list 'set/forwardRule (list 'implies

@@ -57,7 +57,7 @@
   of them read: `VAELII_API_TOKEN` and `VAELII_ALLOWED_HOSTS` are a secret and a host
   list, neither of which has a domain to hold them to, and the ceiling
   `VAELII_MAX_BODY_BYTES` refuses at `guard/max-body-bytes` for the reason
-  `arbitrate-constraints?` refuses at load — it is the root value of a var."
+  `assertive-arg-types?` refuses at load — it is the root value of a var."
   (:require [clojure.string :as str]))
 
 (def truthy
@@ -267,9 +267,8 @@
 
   Drift is measured in **indexed roots**: the count now, against the count the image
   holds, over the count the image holds.  Roots rather than trie nodes because a node
-  count is a measurement the store has to take and a root count is one it already has —
-  the same lesson `disk/durability.clj` learned when it found the record store scanning
-  every `.idx` to answer a dead ratio on a three-second tick."
+  count is a measurement the store has to take by walking the trie, and a root count is
+  one it already holds."
   []
   (prop-double "vaelii.index.snapshot-drift" 0.5 0 1))
 
@@ -294,11 +293,19 @@
   nil)
 
 (defn arbitrate-constraints?
-  "Does the process default to arbitrating a definitional clash rather than refusing it
-  (`VAELII_ARBITRATE_CONSTRAINTS`, default off)?  A KB naming a `:constraints` policy
-  overrides it."
+  "Refuse `VAELII_ARBITRATE_CONSTRAINTS`, naming the reading that replaces it.  No switch
+  chooses whether a definitional clash is refused: the KB stores the clash, `settle`
+  decides it, and `conflicts` reports one whose members are all `:monotonic`.  Refused
+  rather than ignored, on `belief-snapshot?`'s argument."
   []
-  (prop-bool "VAELII_ARBITRATE_CONSTRAINTS" false))
+  (when-let [v (raw "VAELII_ARBITRATE_CONSTRAINTS")]
+    (throw (ex-info (str "VAELII_ARBITRATE_CONSTRAINTS=" v " is not a switch this build"
+                         " reads — a definitional clash is stored, decided and reported,"
+                         " and never refused.  Unset the variable, and read (conflicts kb)"
+                         " for a clash whose members are all :monotonic.")
+                    {:type :unknown-option :mismatch :unknown-key
+                     :switch "VAELII_ARBITRATE_CONSTRAINTS" :value v})))
+  nil)
 
 (defn assertive-arg-types?
   "Do the argument constraints entail as well as constrain (`VAELII_ASSERTIVE_ARG_TYPES`,
@@ -513,7 +520,7 @@
    {:names ["vaelii.index.snapshot"]                :reader #'index-snapshot?              :read-at :open}
    {:names ["vaelii.index.snapshot-drift"]          :reader #'index-snapshot-drift         :read-at :worker}
    {:names ["vaelii.belief.snapshot"]               :reader #'belief-snapshot?             :read-at :open}
-   {:names ["VAELII_ARBITRATE_CONSTRAINTS"]         :reader #'arbitrate-constraints?       :read-at :load}
+   {:names ["VAELII_ARBITRATE_CONSTRAINTS"]         :reader #'arbitrate-constraints?       :read-at :open}
    {:names ["VAELII_ASSERTIVE_ARG_TYPES"]           :reader #'assertive-arg-types?         :read-at :load}
    {:names ["VAELII_CACHE_SCALE"]                   :reader #'cache-scale                  :read-at :load}
    {:names ["VAELII_PRUNE_SUBSUMED_MINTS"]          :reader #'prune-subsumed-mints?        :read-at :load}
@@ -599,7 +606,7 @@
   — this namespace's, since the call is the last form in the file.
 
   Refuses under `:bad-table-entry`, discriminated by `:mismatch`, as
-  `predicates/check-families` does and for its reason: whichever way the table is bad, the
+  `predicates/check-facets` does and for its reason: whichever way the table is bad, the
   caller catching it is the namespace load, and there is nothing a keyword of its own
   would let that caller do."
   [switches not-a-switch-reader publics]
@@ -649,7 +656,7 @@
                     {:type :bad-table-entry :mismatch :duplicate-name :switch nm :property nm})))
   switches)
 
-;; At load, as `predicates/check-families` runs at its own: a reader added without a row
+;; At load, as `predicates/check-facets` runs at `settle`'s: a reader added without a row
 ;; is a build failure rather than a switch discovered to be unchecked by the crash it was
 ;; set to prevent.  The last form in the file, because `ns-publics` answers what has been
 ;; defined so far and a reader defined below this line would not be in it.

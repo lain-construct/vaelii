@@ -316,7 +316,7 @@
   ([conn goal context budget] (c/ask-within conn goal context budget)))
 
 (defn believed
-  "The subset of `handles` raw structural JTMS IN, as a set — `in?` asked of many handles
+  "The subset of `handles` `in?` answers true for, as a set — `in?` asked of many handles
   at once."
   [conn handles]
   (c/believed conn handles))
@@ -534,9 +534,9 @@
   docs/api.md lists them: the relation algebra (`:transitive`, `:symmetric`,
   `:asymmetric`, `:reflexive`, `:functional`, `:irreflexive`, `:anti-symmetric`,
   `:anti-transitive`), the grants (`:decontextualized`, `:forced-decontextualized`,
-  `:abducible`, `:closed-extent`, `:modal`, `:target-following`), the function kinds
-  (`:reifiable`, `:unreifiable`, `:quoting`, `:context-denoting`) and the `:declares-*`
-  kinds naming a predicate as the subject of an argument constraint."
+  `:forced-monotonic`, `:abducible`, `:closed-extent`, `:modal`, `:target-following`), the
+  function kinds (`:reifiable`, `:unreifiable`, `:quoting`, `:context-denoting`) and the
+  `:declares-*` kinds naming a predicate as the subject of an argument constraint."
   ([conn kind pred] (c/has-prop? conn kind pred))
   ([conn kind pred context] (c/has-prop? conn kind pred context)))
 

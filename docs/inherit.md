@@ -208,13 +208,13 @@ asserted, with no second declaration:
 (transitiveInArg largerThan 1 genl)  (transitiveInArg largerThan 2 genl)
 
 (largerThan dog cat)                        {:strength :monotonic}
-(largerThan maine_coon chihuahua)           ; => throws :asymmetric
-;   "largerThan cannot hold both ways, and (largerThan dog cat) is known true
-;    (which reaches (largerThan chihuahua maine_coon) by argument preservation)"
+(largerThan maine_coon chihuahua)           ; => stored, and not believed
+;   (largerThan dog cat) is known true and reaches (largerThan chihuahua maine_coon)
+;   by argument preservation, so the contrary claim is the weaker member
 ```
 
-The refusal reads the claim and its reading together: with a `:default` declaration or
-edge the converse is admitted, and the pair is the dilemma of the next section.
+The nogood reads the claim and its reading together: with a `:default` declaration or
+edge the reading is capped at `:default`, and the pair is the dilemma of the next section.
 
 ```clojure
 (asymmetric typicallyLargerThan)
@@ -250,7 +250,7 @@ undercut, does not fire for that tuple, and there is no pair. A `:monotonic` one
 undercut, which is exactly the case its docstring calls **a contradiction to report
 rather than a refinement to defer to**.
 
-`settle/preserving-nogoods` forms that pair. It cannot form it the way every other
+`discovery/preserving-nogoods` forms that pair. It cannot form it the way every other
 rebuttal is formed, because the `:opposed` set holds bodies stored in *both* polarities
 and here the body is stored in one — the other side is a claim with no handle, read out
 of somebody else's tuple. So the nogood's members are the stored claim **and everything
@@ -269,18 +269,28 @@ rather than exclude: defeating a reason dissolves the detection, and that is the
 resolution rather than a bug, because this claim has no sentex of its own for a defeat
 to reach instead.
 
-**The entry point reads the same floor.** `checks/asymmetry-problems` names a converse
-reached by preservation together with its reading (`inherit/claim-reading`), and refuses
-only when every one of them is known-true. Otherwise the converse is stored and this
-section's pair forms, whichever of the two claims arrived first. The settle leaves that
-pair to `preserving-nogoods` and forms no `:asymmetric` pair over the general claim
-alone.
+**The converse of an inherited claim.** Under an `asymmetric` mark on `P` or on a
+super-predicate of `P` (`tax/props-over`), a known-true claim that reaches `(P b a)` by
+preservation denies a stored `(P a b)`. `inherit/converse-claim` names that claim and its
+reading, and `preserving-nogoods` forms the pair with the members listed above. A claim
+stated at `(P b a)` itself is a stored converse, which the `asymmetric` family pairs
+([nmtms.md](nmtms.md), "Nogoods decided at the reader").
+
+```clojure
+(asymmetric touchesX)  (genl nudgesX touchesX)  (transitiveInArg nudgesX 1 genl)
+(genl chix dogx)
+(nudgesX dogx Fido)    {:strength :monotonic}  ; reaches (nudgesX chix Fido)
+(nudgesX Fido chix)                            ; => stored, and not believed
+```
+
+`reference_test/a-converse-an-inherited-claim-reaches-under-a-super-predicate-s-mark-is-out`
+holds this in every arrival order, with the mark on `touchesX` and on `nudgesX`.
 
 **A claim read over several routes opposes at its strongest reading.** A reading's class
 is its weakest member's, and `claim-reading` and `clashing-claim` take the reading whose
 class is highest, the first in content order among equals. A `:default` shortcut edge
 beside a known-true route of any length therefore leaves the reading known-true, and the
-converse is refused, or defeated, whichever edge arrived first.
+converse is defeated, whichever edge arrived first.
 
 The same list `supports-for` hands a justification, and for the same reason: those
 sentexes are what the claim *is*, so a set that must not hold in full is that set and not
@@ -290,7 +300,7 @@ claim nobody wrote, the handle it was read off and the handles it travelled — 
 ([nmtms.md](nmtms.md) has the entry shape).
 
 **The belief consequence falls straight out of that, and no rule is invented for it.**
-`decide-nogood` defeats the strictly-weakest member of any nogood, and this one is
+`decide/verdict` defeats the strictly-weakest member of any nogood, and this one is
 weighed the same way, so the answer is the strength ordering the rest of the engine
 already runs on:
 
@@ -320,10 +330,12 @@ context, and the most general contexts that see the stored claim, the general cl
 everything the reading rests on. An inherited claim exists only where a reader sees the
 claim and each edge the reach travels, so the vantages are found before any reader is
 asked: `inherit/denial-contexts` reads, from the whole KB, the claims that would deny the
-stored one and the contexts each reading rests on, and `settle/group-vantages` takes the
+stored one and the contexts each reading rests on, and `discovery/group-vantages` takes the
 most general common descendants of those contexts and the stored claim's
-([nmtms.md](nmtms.md), "A defeat is scoped to its vantage"). Each vantage then asks
-`clashing-claim` on what it sees.
+([nmtms.md](nmtms.md), "A defeat is scoped to its vantage"). The own context and each
+vantage then ask `clashing-claim` on what they see, and the own context's answer does not
+stand in for a vantage's: a vantage that sees a known-true route the own context does not
+see reads a stronger reading, and decides from it.
 
 ```
 CxA  (bigP mammal insect) :monotonic     CxB  (bigP ant dog) :default
@@ -340,8 +352,8 @@ context is the vantage.
 
 **The diagonal is excluded**, as it is for `supports-for`: `witness-terms` is reflexive, so
 the claim stated at the very tuple the stored negation is about comes back through the
-reach too — and that pair is an ordinary `P` beside an ordinary `(not P)`, which
-`negation-nogoods` already forms. Reporting it here as well would report one pair twice.
+reach too — and that pair is an ordinary `P` beside an ordinary `(not P)`, which the
+negation family already forms. Reporting it here as well would report one pair twice.
 
 **A claim never denies the sentence it states.** Under `(asymmetric P)` with both
 arguments preserved, a `genl` cycle between `a` and `b` carries the converse of a stored
@@ -371,8 +383,8 @@ And it makes a strict order **detectable**. Without it, `(largerThan dog cat)` a
 `(transitive largerThan)` on top you get `(largerThan dog dog)` and nothing objects.
 With it, the second claim is judged against the first's **defeat class**, and a first
 claim reached by preservation against the weakest class of the claim and its reading:
-known-true, and it is refused; merely believed, and the two are admitted as a represented
-dilemma. Either way the KB
+known-true, and a default second claim is defeated; merely believed, and the two are a
+represented dilemma. Either way the KB
 stops holding both directions in silence, which is the whole point of the
 declaration.
 
@@ -516,15 +528,17 @@ another member of its region. A settle whose region is the whole store, recover'
 first, reads no moved predicates at all, since every extent they would add is already in
 the region.
 
-**A defeat inside arbitration moves the same joins with no sentence arriving at all.**
-Belief flips where arbitration defeats a member, nothing is stored or removed, and so
-nothing queues the re-join an arrival would. `settle`'s `preserved-rejoins-for` reads the
-rules each defeated sentence licensed and re-chains them like any blanket mark, so a
-firing whose named witness went OUT either re-derives through a route that witness did not
-travel or is withdrawn by its own re-check. The closures are refreshed at the same point
-(`refresh-after-defeat`, the mirror of the revival refresh `settle*` opens with, scoped by
-`jtms/touched` the same way) — otherwise the rest of the settle walks a closure still
-holding the defeated edge, and the next defeat round's nogoods read belief as it was.
+**A verdict moves the same joins with no sentence arriving at all.** A reader's verdict
+takes a member OUT at that reader, nothing is stored or removed, and so nothing queues the
+re-join an arrival would. `settle`'s `released-by-own` reads the handles whose belief at
+their own context a verdict moved (`special/reconcile-own-withdrawals!`), and
+`preserved-rejoins-for` reads the rules each such sentence licensed and re-chains them
+like any blanket mark. A firing whose named witness went OUT therefore either re-derives
+through a route that witness did not travel or is withdrawn by its own re-check. The same
+reconcile takes each moved handle out of the unscoped closures, or gives it back, before
+the rest of the settle reads them. A scoped closure read applies its reader's withdrawal
+through `res/supporter-believed?`
+([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)).
 
 **A mirrored antecedent licenses the forward entry point too, and the firing says so.** A claim
 whose stored orientation is not the tuple it was read at came through the symmetric
@@ -564,7 +578,7 @@ leave the same belief as the reverse order. The two orders differ in what is **s
 since a firing placed before the general route arrived stays where it was placed and the
 general route adds a second firing above it. The lower firing is kept
 ([defenses.md](defenses.md#a-firing-placed-over-a-lower-route-is-not-retired)): it is the
-firing a scoped defeat of the general route at its context would have the settle re-derive
+firing a reader's verdict against the general route at its context would have the settle re-derive
 in the long-first order ([nmtms.md](nmtms.md#where-the-layer-stops)).
 `lein bench-witness` counts the lower firings that differ from a higher one only in their
 route: 0 in the starter and the test world, one per chain in its short-first corpora.
@@ -663,6 +677,41 @@ Both paths go through `matches-visible`, so subsumption through a sub-predicate,
 symmetric mirror, context visibility and belief are the same set either way — the
 choice is retrieval, never semantics, and `inherit_oracle_test` holds the two against
 each other on randomized taxonomies (`inherit/*retrieval*` forces one or the other).
+
+The extent is read once per memo, not once per question. The memo holds the open probe's
+rows grouped by the term at each preserved position (`extent-index`), one index per probe
+and reader. A question reads the rows under the reach of one preserved position, a reach
+held whole within 65,536 terms, from whichever of the reach and the index's terms is
+smaller, and tests the rest of each tuple for membership. A discovery pass asks every
+stored claim of a predicate under one memo, so each question costs its reach and the rows
+the reach names, and not the predicate's whole extent (`lein perf`'s
+`recover-inherited-discovery`). A reader under a deadline reads the extent row by row,
+since the index reads it whole before its first row.
+
+`clashing-claim` and `converse-claim` read the known-true claims alone (`claims` with
+`strong?`): `undercut?` drops no known-true claim, so the survivors they keep are the
+known-true statements the reach names. Their index holds the known-true rows alone, and
+once a question of the memo has built it, a later question reads it before the two paths
+are weighed, so a predicate with no known-true claim costs each later question one map
+read.
+
+Only enumerating the product reads a reach whole. Reading the extent tests each stored
+tuple's terms for membership, and the extent is counted first, with the product counted
+only up to it. A `genl` reach — the settle's discovery pass reads every one, at `'?ctx`
+and from the contexts it re-reads a claim at — is walked only up to a bound, through the
+edges the reader sees, and held in the question's memo as a set; past the bound, each
+membership is a reachability walk (`genl?`) and the size a count that stops at its limit,
+so the pass builds no closure through the closure cache (`inherit_membership_test`). A
+walk from a context asks of each edge whether a supporter is believed there, so the
+question keeps the neighbours each edge filters to (`tax/with-neighbours`), and belief
+does not move while it asks. A term asked more than a few memberships past the bound has
+its reach walked whole once, through the same edges, and held in the question's memo: a
+discovery pass tests every stored claim's argument against one goal term's reach. A whole
+reach is held only up to 65,536 terms; past it the walk stops, holds nothing, and the
+memberships stay a walk each. The memo's whole reaches come to at most 1,048,576 terms
+together, and past that the least recently read is dropped, since a discovery pass moves
+from goal term to goal term. The memo lives for one question or one discovery pass, and
+is dropped with it.
 
 The cheaper of two growing costs still grows, and neither path has a ceiling of its own.
 The caller's deadline bounds them instead: under `ask`, `ask?`, `ask-within`, `prove`,

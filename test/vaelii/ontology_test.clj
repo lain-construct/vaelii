@@ -276,7 +276,7 @@
     (doseq [p '[alive dead awake asleep mortal warm_blooded breathes_air]]
       (is (empty? (v/sentexes-matching kb (list 'genl p '?super) '?ctx))
           (str p " is a property, not a type — it must carry no genl edge"))
-      (is (seq (v/sentexes-matching kb (list 'arity p 1) '?ctx))
+      (is (v/isa? kb p 'unary_predicate)
           (str p " is still a one-place predicate"))))
   (testing "while the kinds they are said of are types, and reach the root"
     (doseq [t '[animal bird penguin dog person physical_object capability flying]]
@@ -516,41 +516,34 @@
         (str "nor do the classes: " (pr-str (mapv :sentences (about 'unary_predicate)))))))
 
 (tu/deftest-kb a-predicate-is-at-most-one-of-the-three-arity-classifications
-  ;; The declaration that empties the reading above, read as the refusal it is.  A
-  ;; predicate takes one number of arguments, so the second classification is refused
-  ;; where it is written rather than stored and convicted a step later as two values in
-  ;; the `functional` `(arity P n)` table.
+  ;; The declaration that empties the reading above.  A predicate takes one number of
+  ;; arguments, so a second classification is stored as a disjoint clash with the first,
+  ;; which the settle weighs.
   (testing "the three pairs are separated, and pairwise — not by a mark on predicate"
     (is (v/disjoint? kb 'unary_predicate 'binary_predicate))
     (is (v/disjoint? kb 'unary_predicate 'ternary_predicate))
     (is (v/disjoint? kb 'binary_predicate 'ternary_predicate))
     (is (not (v/disjoint? kb 'binary_predicate 'instance_relation_predicate))
         "arity is both, so a sibling_disjoint mark on predicate would be too wide"))
-  (testing "and the second classification is refused, in either order"
+  (testing "and the second classification is a clash, in either order"
     (tu/with-terms [zebraOf yakOf]
       (v/assert kb (list 'unary_predicate zebraOf) 'CxUniverse)
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'binary_predicate zebraOf) 'CxUniverse)))
+      (is (tu/stored-in-clash? kb (list 'binary_predicate zebraOf) 'CxUniverse))
       (v/assert kb (list 'binary_predicate yakOf) 'CxUniverse)
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'unary_predicate yakOf) 'CxUniverse)))
-      (testing "so the arity table holds one value for each"
-        (is (= [1] (mapv #(last (:sentence %))
-                         (v/sentexes-matching kb (list 'arity zebraOf '?n) '?ctx))))
-        (is (= [2] (mapv #(last (:sentence %))
-                         (v/sentexes-matching kb (list 'arity yakOf '?n) '?ctx)))))))
+      (is (tu/stored-in-clash? kb (list 'unary_predicate yakOf) 'CxUniverse))))
   (testing "a mark below binary_predicate carries the separation with it"
     (tu/with-terms [emuOf]
       (v/assert kb (list 'functional emuOf) 'CxUniverse)
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'ternary_predicate emuOf) 'CxUniverse)))))
+      (is (tu/stored-in-clash? kb (list 'ternary_predicate emuOf) 'CxUniverse))))
   (testing "belief-filtered: retracting the first frees the second"
     (tu/with-terms [oxOf]
       (let [h (v/assert kb (list 'unary_predicate oxOf) 'CxUniverse)]
-        (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list 'ternary_predicate oxOf) 'CxUniverse)))
+        (is (tu/stored-in-clash? kb (list 'ternary_predicate oxOf) 'CxUniverse))
         (v/retract! kb h)
-        (is (v/assert kb (list 'ternary_predicate oxOf) 'CxUniverse)))))
+        (is (v/ask? kb (list 'ternary_predicate oxOf) 'CxUniverse))
+        (is (not-any? #(some #{(v/handle-of kb (list 'ternary_predicate oxOf) 'CxUniverse)}
+                             (:nogood %))
+                      (concat (v/contradictions kb) (v/conflicts kb)))))))
   (testing "and scoped: two contexts neither of which sees the other keep both"
     (tu/with-terms [ibisOf CxLeft CxRight CxBelowLeft]
       (v/assert kb (list 'genlCx CxLeft 'CxUniverse) 'CxUniverse)
@@ -559,9 +552,8 @@
       (v/assert kb (list 'unary_predicate ibisOf) CxLeft)
       (is (v/assert kb (list 'binary_predicate ibisOf) CxRight)
           "neither context sees the other, so both classifications stand")
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'ternary_predicate ibisOf) CxBelowLeft))
-          "the descendant sees the first classification, so it refuses the third"))))
+      (is (tu/stored-in-clash? kb (list 'ternary_predicate ibisOf) CxBelowLeft)
+          "the descendant sees the first classification, so the third clashes with it"))))
 
 (tu/deftest-kb a-social-agent-is-a-person-but-not-a-mammal
   ;; The person/human split (#11): `human` is the biological type — a mammal — while
@@ -649,5 +641,4 @@
 (tu/deftest-kb a-term-cannot-be-both-a-string-and-a-relation
   (tu/with-terms [Thing1]
     (v/assert kb (list 'string Thing1) 'CxUniverse)
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list 'predicate Thing1) 'CxUniverse)))))
+    (is (tu/stored-in-clash? kb (list 'predicate Thing1) 'CxUniverse))))

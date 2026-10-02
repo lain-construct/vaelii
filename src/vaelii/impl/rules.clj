@@ -104,7 +104,7 @@
   Coarser than the index key, deliberately: every negated antecedent depends on every
   negated conclusion here.  Over-approximating is the safe direction for the one caller
   — refusing a stratified rule set is annoying, accepting an order-dependent one is a
-  correctness hole (`wff/rule-edges`)."
+  correctness hole (`checks/stratification-readers`)."
   [sentence]
   (map #(if (vector? %) sx/not-functor %) (antecedent-predicates sentence)))
 

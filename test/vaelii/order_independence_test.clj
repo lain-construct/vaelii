@@ -593,7 +593,7 @@
 (deftest the-reported-lists-are-content-ordered-not-arrival-ordered
   ;; The count being stable is not enough, and the two tests above only check counts.
   ;; `settle` stores both readings in arrival order — they come off a hash set of
-  ;; handle-keyed nogoods — and `settle/ranked`, called by `conflicts` and by
+  ;; handle-keyed nogoods — and `clashes/ranked`, called by `conflicts` and by
   ;; `contradictions`, is the whole of what makes the *list* an answer about the
   ;; knowledge.  A reader that stops calling it puts `(first (contradictions kb))` at
   ;; the mercy of which pair was typed first, which no count would notice.  So these
@@ -659,39 +659,23 @@
 ;;
 ;; A constraint declaration is an ingredient of the clash exactly as the two facts are,
 ;; so all three orderings of "declaration, fact, fact" are the same knowledge and the KB
-;; owes them the same answer.  The engine has two entry points for that answer and the arrival
-;; order picks which: a fact written *after* the declaration is refused at the entry point (or
-;; weighed into `contradictions` where the opposing claim is defeasible), and a
-;; declaration written after the facts is weighed by the settle's arbitration sweep.  Both
-;; declarations take the second entry point by the same route: a declaration in the
-;; settle's moved region says what it puts back in question, and the sweep reads that.
+;; owes them the same answer.  The entry point stores every write of the clash, and the
+;; settle decides the pair whichever arrived last: a fact written after the declaration
+;; is weighed in the settle that follows it, and a declaration written after the facts
+;; is weighed by the settle's arbitration sweep, which reads what a declaration in the
+;; moved region puts back in question.
 ;;
-;; **So what a single outcome means here is that the clash is *accounted for*, not that
-;; every ordering picks the same entry point.** Which entry point is the constraint policy's business
-;; (`checks/arbitrating?`), and under `:refuse` the two answers are deliberately
-;; different things: a refusal turns a write away, a report leaves belief alone and names
-;; what it found.  What may not vary is whether the KB says anything at all — and the
-;; failure these tests are the net for is silence: a mark arriving last, and the pair it
-;; forbids standing, believed, and mentioned by nothing.
-;;
-;; The reading `one-outcome!` compares is therefore the account and the believed extent
-;; — never the entry point, which is what the orderings are entitled to differ on.  Two things
-;; keep that from being a weakened boolean.  The **count** is compared, not its
-;; positivity, so an engine that refused a write *and* reported the pair, or reported one
-;; pair twice, fails exactly as one that did neither does.  And every ordering's full
-;; reading is kept, so the tests below can go on to check that the entry points actually used
-;; are the two that exist and that each ordering used exactly one — a claim about the
+;; The reading `one-outcome!` compares is the account of the clash and the believed
+;; extent.  The **count** is compared, not its positivity, so an engine that refused a
+;; write *and* reported the pair, or reported one pair twice, fails exactly as one that
+;; did neither does.  And every ordering's full reading is kept, so the tests below can
+;; check that every ordering answered by the same one entry point — a claim about the
 ;; whole set that no single outcome can carry.
-;;
-;; At `:default` the extent is identical across every ordering too, so the map there is
-;; the strongest reading available: the same beliefs, and one account of the clash in
-;; them.
 
 (defn- refusing-assert
   "An `assert` op at `strength` that survives the entry point turning it away, recording the
-  refusal in `refusals` instead.  The refusal is one of the two entry points these tests read: a
-  KB that refuses the write and a KB that reports the pair have both answered, and one
-  that does neither has not."
+  refusal in `refusals` instead, so a refusal is counted in the account rather than
+  aborting the ordering walk."
   [refusals strength sentence]
   (fn [kb]
     (try (v/assert kb sentence 'CxUniverse {:strength strength})
@@ -719,8 +703,8 @@
   "Every ordering of `sentences` at `strength`, as `{:invariant … :readings […]}`.
 
   `:invariant` is `one-outcome!`'s verdict over the part that may not vary — the account
-  and, at `:default`, the extent; `:readings` is every ordering's full reading, for the
-  claims about the *set* of entry points used that a single outcome cannot make."
+  and the extent; `:readings` is every ordering's full reading, for the claims about the
+  *set* of entry points used that a single outcome cannot make."
   [label strength sentences pattern]
   (let [refusals (atom 0)
         seen     (atom [])
@@ -732,19 +716,13 @@
            (let [full (constraint-reading kb @refusals pattern)]
              (reset! refusals 0)
              (swap! seen conj full)
-             ;; the extent joins the invariant only where nothing is refused — at
-             ;; `:monotonic` the refused write is a fact the KB legitimately does not
-             ;; hold, and which fact that is depends on which of the two was written
-             ;; first, exactly as two known-true claims about one slot always have
-             (cond-> (select-keys full [:accounted])
-               (= :default strength) (assoc :believed (:believed full))))))]
+             (select-keys full [:accounted :believed]))))]
     {:invariant invariant :readings @seen}))
 
-(defn- one-entry-point-each!
-  "Assert that every ordering used exactly one of the two entry points, and that both entry points are
-  used across the set — a scenario where one entry point answers every ordering is one that
-  never exercised the other."
-  [readings]
+(defn- one-entry-point-for-all!
+  "Assert that every ordering answered by exactly one entry point, and every ordering by
+  `entry-point` (`:weighed` or `:stuck`)."
+  [readings entry-point]
   (let [entry-points (mapv (fn [r]
                              (cond-> #{}
                                (pos? (:refused r))        (conj :refused)
@@ -754,8 +732,8 @@
                            readings)]
     (is (every? #(= 1 (count %)) entry-points)
         (str "every ordering answers by exactly one entry point — " (pr-str (frequencies entry-points))))
-    (is (< 1 (count (distinct entry-points)))
-        (str "and the scenario reaches more than one of them — " (pr-str (frequencies entry-points))))))
+    (is (every? #{#{entry-point}} entry-points)
+        (str "and every ordering by " entry-point " — " (pr-str (frequencies entry-points))))))
 
 (deftest a-late-symmetric-mark-leaves-one-row-for-one-proposition
   ;; `(symmetric P)` is the one mark whose effect is **canonicalization** rather than
@@ -893,8 +871,8 @@
         ops [(calendar-op #(v/assert % '(contextArgSubrelation CxCalFn 2 subintervalOf)
                                      'CxUniverse))
              (calendar-op #(v/assert % '(functionalInArg the_best 1) year))
-             (calendar-op #(v/assert % '(the_best LaMulanaTwo) year))
-             (calendar-op #(v/assert % '(the_best Silksong) month))]
+             (calendar-op #(v/assert % '(the_best LaMulanaTwo) year {:strength :monotonic}))
+             (calendar-op #(v/assert % '(the_best Silksong) month {:strength :monotonic}))]
         observe
         (fn [kb]
           {:from-january (sort (map (comp str '?x) (v/ask kb '(the_best ?x) month)))
@@ -910,30 +888,24 @@
     (tu/clear-kb! (tu/test-kb))))
 
 (deftest a-late-asymmetric-mark-is-accounted-for-in-every-ordering
-  ;; `(asymmetric asBelow)` with both directions of one pair: 6 orderings, and the two
-  ;; that put the declaration last are the ones with no entry point left to refuse at — both
-  ;; facts are already stored and believed when the mark lands, and the mark reaches back:
-  ;; two known-true facts cannot be weighed, so the pair stands in `conflicts`, the answer
-  ;; a recover of the same records gives.
+  ;; `(asymmetric asBelow)` with both directions of one pair: 6 orderings.  Two
+  ;; known-true facts cannot be weighed, so in every ordering both are stored and the pair
+  ;; stands in `conflicts`, the answer a recover of the same records gives.
   (let [{:keys [invariant readings]}
         (constraint-outcome! "late asymmetric mark" :monotonic
                              ['(asymmetric asBelow) '(asBelow Aa Bb) '(asBelow Bb Aa)]
                              '(asBelow ?x ?y))]
     (testing "the clash is answered exactly once, whichever of the three arrived last"
       (is (= 1 (:accounted invariant))))
-    (one-entry-point-each! readings)
-    (testing "and the entry point the late mark takes is `conflicts`, with both facts standing"
-      (let [late (filterv #(= 2 (count (:believed %))) readings)]
-        (is (= 2 (count late)) "two of the six put the mark last")
-        (is (every? #(= 1 (:stuck %)) late))))
+    (one-entry-point-for-all! readings :stuck)
+    (testing "with both facts standing"
+      (is (every? #(= 2 (count (:believed %))) readings)))
     (tu/clear-kb! (tu/test-kb))))
 
 (deftest a-late-asymmetric-mark-leaves-the-same-beliefs-in-every-ordering
-  ;; The same three sentences at `:default`, where the entry point refuses nothing — an
-  ;; `asymmetric` violation refuses only against a known-true converse — so the whole
-  ;; believed extent is identical across all 6 and joins the reading, and so is the entry
-  ;; point: a represented dilemma, whether a fact or the mark arrived last, since a late
-  ;; mark reaches back as a late fact does.
+  ;; The same three sentences at `:default`: the believed extent is identical across all
+  ;; 6, and so is the entry point — a represented dilemma, whether a fact or the mark
+  ;; arrived last, since a late mark reaches back as a late fact does.
   (let [{:keys [invariant readings]}
         (constraint-outcome! "late asymmetric mark at :default" :default
                              ['(asymmetric asAside) '(asAside Aa Bb) '(asAside Bb Aa)]
@@ -943,7 +915,7 @@
       (is (= 1 (:accounted invariant))))
     (is (every? #(= 1 (:weighed %)) readings)
         "every ordering weighs the pair into contradictions")
-    (testing "nothing is refused — a default converse is weighed or reported, not turned away"
+    (testing "nothing is refused"
       (is (every? #(zero? (:refused %)) readings)))
     (tu/clear-kb! (tu/test-kb))))
 
@@ -960,7 +932,7 @@
                              '(asAbove ?x ?y))]
     (testing "the clash is answered exactly once, whichever of the four arrived last"
       (is (= 1 (:accounted invariant))))
-    (one-entry-point-each! readings)
+    (one-entry-point-for-all! readings :stuck)
     (tu/clear-kb! (tu/test-kb))))
 
 (deftest a-late-anti-transitive-mark-is-accounted-for-in-every-ordering
@@ -974,11 +946,9 @@
                              '(parOfx ?x ?y))]
     (testing "the chain is answered exactly once, whichever of the four arrived last"
       (is (= 1 (:accounted invariant))))
-    (one-entry-point-each! readings)
-    (testing "the six orderings that put the mark last leave the chain standing in conflicts"
-      (let [late (filterv #(= 3 (count (:believed %))) readings)]
-        (is (= 6 (count late)))
-        (is (every? #(= 1 (:stuck %)) late))))
+    (one-entry-point-for-all! readings :stuck)
+    (testing "every ordering leaves the whole chain standing"
+      (is (every? #(= 3 (count (:believed %))) readings)))
     (tu/clear-kb! (tu/test-kb))))
 
 (deftest a-late-functional-mark-is-accounted-for-in-every-ordering
@@ -991,7 +961,7 @@
                              '(ageOfx ?x ?y))]
     (testing "the slot is answered exactly once, whichever of the three arrived last"
       (is (= 1 (:accounted invariant))))
-    (one-entry-point-each! readings)
+    (one-entry-point-for-all! readings :stuck)
     (tu/clear-kb! (tu/test-kb))))
 
 (deftest a-late-mark-answers-the-way-a-late-disjointness-does
@@ -1011,8 +981,9 @@
                        (frequencies (mapv #(-> % (select-keys [:refused :weighed :stuck])
                                                (assoc :reported (count (:reported %))))
                                           readings)))]
-    (is (= (:invariant marked) (:invariant separated))
-        "one account of the clash, whichever declaration arrived last")
+    (is (= (update (:invariant marked) :believed count)
+           (update (:invariant separated) :believed count))
+        "one account of the clash and both members believed, whichever declaration arrived last")
     (is (= (entry-points marked) (entry-points separated))
         "and the same entry points in the same proportions — only the entry kind differs")
     (tu/clear-kb! (tu/test-kb))))
@@ -1100,73 +1071,157 @@
   (tu/clear-kb! (tu/test-kb)))
 
 (def ^:private revived-declarations
-  "Per merge or lift mark: the declaration, the facts it reaches, what else the scenario
-  states first, the reading, and the reading every ordering must give — the one a KB
-  gives with the declaration stated before the facts."
+  "Per merge or lift mark: the declaration, how it revives (`:release` or `:denial`), the
+  facts it reaches, the pair a merge mark merges, what else the scenario states first,
+  the reading, and the reading every ordering must give — the one a KB gives with the
+  declaration stated before the facts."
   (let [U 'CxUniverse
         rows (fn [kb pat ctx] (set (map :sentence (v/sentexes-matching kb pat ctx))))]
     [{:label   "functional"
       :decl    '(functional rvFun)
+      :revive  :release
       :facts   '[(rvFun Aa Bb) (rvFun Aa Cc)]
+      :pair    '[Bb Cc]
       :observe (fn [kb] [(rows kb '(rvFun ?x ?y) U) (v/ask? kb '(equals Bb Cc) U)])
       :expect  ['#{(rvFun Aa Bb)} true]}
      {:label   "functionalInArg"
       :decl    '(functionalInArg rvFia 2)
+      :revive  :release
       :facts   '[(rvFia Aa Bb) (rvFia Aa Cc)]
+      :pair    '[Bb Cc]
       :observe (fn [kb] [(rows kb '(rvFia ?x ?y) U) (v/ask? kb '(equals Bb Cc) U)])
       :expect  ['#{(rvFia Aa Bb)} true]}
      {:label   "anti_symmetric"
       :decl    '(anti_symmetric rvAnti)
+      :revive  :release
       :facts   '[(rvAnti Aa Bb) (rvAnti Bb Aa)]
+      :pair    '[Aa Bb]
       :observe (fn [kb] [(rows kb '(rvAnti ?x ?y) U) (v/ask? kb '(equals Aa Bb) U)])
       :expect  ['#{(rvAnti Aa Aa)} true]}
      {:label   "decontextualized_predicate"
       :decl    '(decontextualized_predicate rv_lift)
+      :revive  :denial
       :setup   ['(genlCx CxRvLift CxUniverse)]
       :facts   '[(rv_lift Aa)]
       :in      'CxRvLift
       :observe (fn [kb] [(rows kb '(rv_lift ?x) U) (v/ask? kb '(rv_lift Aa) U)])
-      :expect  ['#{(rv_lift Aa)} true]}
-     {:label   "genl edge under functional"
-      :decl    '(genl rvFunSub rvFunSup)
-      :setup   ['(functional rvFunSup)]
-      :facts   '[(rvFunSub Aa Bb) (rvFunSub Aa Cc)]
-      :observe (fn [kb] [(rows kb '(rvFunSub ?x ?y) U) (v/ask? kb '(equals Bb Cc) U)])
-      :expect  ['#{(rvFunSub Aa Bb)} true]}
-     {:label   "genl edge under functionalInArg"
-      :decl    '(genl rvFiaSub rvFiaSup)
-      :setup   ['(functionalInArg rvFiaSup 2)]
-      :facts   '[(rvFiaSub Aa Bb) (rvFiaSub Aa Cc)]
-      :observe (fn [kb] [(rows kb '(rvFiaSub ?x ?y) U) (v/ask? kb '(equals Bb Cc) U)])
-      :expect  ['#{(rvFiaSub Aa Bb)} true]}
-     {:label   "genl edge under anti_symmetric"
-      :decl    '(genl rvAntiSub rvAntiSup)
-      :setup   ['(anti_symmetric rvAntiSup)]
-      :facts   '[(rvAntiSub Aa Bb) (rvAntiSub Bb Aa)]
-      :observe (fn [kb] [(rows kb '(rvAntiSub ?x ?y) U) (v/ask? kb '(equals Aa Bb) U)])
-      :expect  ['#{(rvAntiSub Aa Aa)} true]}]))
+      :expect  ['#{(rv_lift Aa)} true]}]))
+
+(defn- void-mark
+  "The op storing the rule that concludes `decl` from `(rv_src P)`, and `(rv_src P)`:
+  `rv_src` is off the roster, so the firing is held void and the mark OUT."
+  [decl]
+  #(do (v/assert-rule % '[(rv_src ?p)] (list* (first decl) '?p (nnext decl)) 'CxUniverse
+                      {:direction :forward})
+       (v/assert % (list 'rv_src (second decl)) 'CxUniverse)))
+
+(defn- release-mark
+  "The op declaring `rv_src` on the roster, which releases `void-mark`'s firing."
+  [kb]
+  (v/assert kb '(forced_monotonic_predicate rv_src) 'CxUniverse))
 
 (deftest a-revived-mark-reaches-the-facts-that-arrived-while-it-was-out
   ;; A merge or lift mark reaches a fact at the fact's arrival or at its own.  A fact
-  ;; arriving while a known-true denial holds the mark OUT meets neither: the taxonomy
-  ;; does not hold the mark, and the mark's arrival is already over.  Retracting the
-  ;; denial revives the mark by a relabel, and the settle runs the mark's arrival sweeps
-  ;; for it (`special/revived-declaration-sweeps`).  The mark, its denial and the
-  ;; denial's retraction are one chain, since the retraction names the denial's handle;
-  ;; each fact is a chain of one, so the orderings that put a fact inside the denial's
-  ;; window are among the thirty (five, with one fact).
-  (doseq [{:keys [label decl setup facts in observe expect]} revived-declarations]
+  ;; arriving while the mark is OUT meets neither: the taxonomy does not hold the mark,
+  ;; and the mark's arrival is already over.  The settle that revives the mark runs the
+  ;; mark's arrival sweeps for it (`special/revived-declaration-sweeps`).  Each row's KB
+  ;; declares no other merge or lift mark, so the sweeps' gate on the taxonomy's marks
+  ;; passes only when the taxonomy holds the revived mark.
+  ;;
+  ;; A denial of a roster mark is inert, so a `:release` row's mark revives through a
+  ;; void firing.  `rv_src` is off the roster, so the rule's firing on `(rv_src P)`
+  ;; concludes the mark held void, and the roster declaration of `rv_src` releases the
+  ;; firing inside that write's settle.  The void mark's arrival derives no equality, so
+  ;; an ordering that stores both converse facts first restates them at the release as
+  ;; one that stores a fact later does.  The rule with its source fact, the declaration
+  ;; and each fact are four chains of one: twenty-four orderings.  The
+  ;; `decontextualized_predicate` mark is off the roster, so its row revives by a
+  ;; known-true denial and the denial's retraction.  The mark, its denial and the
+  ;; retraction are one chain, since the retraction names the denial's handle, and the
+  ;; fact is a chain of one: five orderings.
+  (doseq [{:keys [label decl revive setup facts in observe expect]} revived-declarations]
     (testing label
-      (let [denial (atom nil)
-            stated (fn [s] #(v/assert % s 'CxUniverse))
-            mark   [#(doseq [s setup] (v/assert % s 'CxUniverse))
-                    (stated decl)
-                    #(reset! denial (v/assert % (list 'not decl) 'CxUniverse
-                                              {:strength :monotonic}))
-                    #(v/retract! % @denial)]
-            chains (into [mark] (map (fn [f] [#(v/assert % f (or in 'CxUniverse))])) facts)]
+      (let [U      'CxUniverse
+            denial (atom nil)
+            setup  #(doseq [s setup] (v/assert % s U))
+            marks  (case revive
+                     :release [[(void-mark decl)] [release-mark]]
+                     :denial  [[setup
+                                #(v/assert % decl U)
+                                #(reset! denial (v/assert % (list 'not decl) U
+                                                          {:strength :monotonic}))
+                                #(v/retract! % @denial)]])
+            chains (into marks (map (fn [f] [#(v/assert % f (or in U) {:strength :monotonic})]))
+                         facts)]
         (is (= expect (one-outcome-under! (str "a revived " label) chains observe))
             "every ordering reads what the declaration stated first reads"))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-mark-a-void-firing-concludes-merges-nothing-until-the-release
+  ;; The void mark arrives after the facts it would merge.  Its arrival stores no
+  ;; equality and leaves the pair unmerged; the release merges the pair.
+  (doseq [{:keys [label decl revive facts pair]} revived-declarations
+          :when (= :release revive)]
+    (testing label
+      (let [kb (tu/fresh)
+            [a b] pair
+            eq (fn [] [(set (v/equiv-class kb a)) (some? (v/handle-of kb (list 'equals a b) 'CxUniverse))])]
+        (doseq [f facts] (v/assert kb f 'CxUniverse {:strength :monotonic}))
+        ((void-mark decl) kb)
+        (is (= [#{a} false] (eq)) "the void mark merges nothing")
+        (release-mark kb)
+        (is (= [#{a b} true] (eq)) "the release merges the pair"))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest an-equality-believed-after-its-firing-was-held-void-restates-in-every-order
+  ;; `eqAlias` is off the roster, so a firing of the alias rule concludes the equality
+  ;; from a non-roster ground and is held void: the conclusion is stored OUT.  An
+  ;; ordering with the void firing first makes the equality believed by a relabel, not
+  ;; by its arrival, through one of three routes, one row each: a roster declaration of
+  ;; `eqAlias` releases the void firing; a valid firing of the same conclusion, from the
+  ;; roster predicate `eqTwin`, comes in a later write; or it comes in the write that
+  ;; made the void firing, when `eqTwin` also concludes `eqAlias`.  `sameAs` elects
+  ;; `EqHi` and `rewriteOf` elects `EqLo`; `equals` merges as `sameAs` does.  The third
+  ;; row samples its 120 orderings.  Each ordering's reading is also the one `recover`
+  ;; gives over its store.
+  (let [U       'CxUniverse
+        rows    (fn [kb pat] (set (map :sentence (v/sentexes-matching kb pat U))))
+        fact    (fn [s] #(v/assert % s U))
+        observe (fn [rel]
+                  (fn [kb]
+                    (let [read (fn [kb] {:cares (rows kb '(eqCares ?x ?y))
+                                         :alias (rows kb '(eqAlias ?x ?y))
+                                         :eq    (rows kb (list rel '?x '?y))
+                                         :class (set (v/equiv-class kb 'EqHi))})
+                          live (read kb)
+                          kb2  (tu/test-kb)]
+                      (v/recover kb2)
+                      (assoc live :recovered (= live (read kb2))))))
+        alias   (fn [rel] #(v/assert-rule % '[(eqAlias ?x ?y)] (list rel '?x '?y) U
+                                          {:direction :forward}))
+        twin    (fn [rel] #(do (v/assert % '(forced_monotonic_predicate eqTwin) U)
+                               (v/assert-rule % '[(eqTwin ?x ?y)] (list rel '?x '?y) U
+                                              {:direction :forward})))
+        facts   #(do (v/assert % '(eqCares EqHi EqTom) U)
+                     (v/assert % '(eqCares EqLo EqAnn) U))]
+    (doseq [[label rels ops cap]
+            [["a roster declaration releasing the void firing" '[sameAs rewriteOf]
+              (fn [rel] [(alias rel) facts (fact '(eqAlias EqLo EqHi))
+                         (fact '(forced_monotonic_predicate eqAlias))])]
+             ["a valid firing in a later write" '[sameAs rewriteOf]
+              (fn [rel] [#(do ((alias rel) %) ((twin rel) %))
+                         facts (fact '(eqAlias EqLo EqHi)) (fact '(eqTwin EqLo EqHi))])]
+             ["a valid firing in the write that made the void firing" '[sameAs]
+              (fn [rel] [(alias rel) (twin rel)
+                         #(v/assert-rule % '[(eqTwin ?x ?y)] '(eqAlias ?x ?y) U
+                                         {:direction :forward})
+                         facts (fact '(eqTwin EqLo EqHi))])
+              ordering-sample]]
+            rel rels]
+      (testing (str label ", concluding " rel)
+        (is (= ['#{EqHi EqLo} true]
+               ((juxt :class :recovered)
+                (one-outcome! (str label ", concluding " rel) (ops rel) (observe rel) cap)))))))
   (tu/clear-kb! (tu/test-kb)))
 
 (deftest a-revived-genl-edge-merges-up-to-the-budget-and-names-the-cut
@@ -1187,8 +1242,8 @@
               (v/assert kb edge U)
               (let [denial (v/assert kb (list 'not edge) U {:strength :monotonic})]
                 (doseq [[k a b] pairs]
-                  (v/assert kb (list sup k a) U)
-                  (v/assert kb (list sub k b) U))
+                  (v/assert kb (list sup k a) U {:strength :monotonic})
+                  (v/assert kb (list sub k b) U {:strength :monotonic}))
                 (v/retract! kb denial))
               (testing (str "budget " budget)
                 (is (= merges (count (filter (fn [[_ a b]] (v/ask? kb (list 'equals a b) U))
@@ -1196,6 +1251,53 @@
                 (is (= notices
                        (count (filter #(= :genl-edge-revival-truncated (:violation %))
                                       (v/violations kb)))))))))))))
+
+(deftest a-revived-genl-edge-offers-its-subtree-to-the-converse-candidates
+  ;; A converse pair under the `anti_symmetric` mark on `aoSup`, its `:default` member
+  ;; OUT at the reader.  `aoLink` is off the roster, so the rule's firing on `(aoLink
+  ;; aoSub aoSup)` concludes `(genl aoSub aoSup)` held void, and the roster declaration
+  ;; of `aoLink` releases it: the edge comes IN by a relabel, not by its arrival.  An
+  ;; ordering that stores the pair before the mark and the mark while the edge is void
+  ;; finds the pair at neither arrival: the first row's tuples meet no converse mark, the
+  ;; second row's tuple of `aoSub` meets none over `aoSub`, and the mark's arrival offers
+  ;; `aoSup`'s subtree, which `aoSub` is then outside.  The revived edge's sweep re-offers
+  ;; the subtree as the edge's arrival does.
+  (let [U        'CxUniverse
+        believed (fn [kb s] (boolean (some-> (v/handle-of kb s U) (as-> h (v/believed? kb h U)))))]
+    (doseq [[label setup lo hi]
+            [["one predicate over two symbols" []
+              '(aoSub AoA AoB) '(aoSub AoB AoA)]
+             ["two predicates over two numbers" ['(genl aoSubB aoSup)]
+              '(aoSub 1 2) '(aoSubB 2 1)]]]
+      (testing label
+        (let [ops     [#(doseq [s (cons '(anti_symmetric aoSup) setup)] (v/assert % s U))
+                       #(do (v/assert-rule % '[(aoLink ?x ?y)] '(genl ?x ?y) U {:direction :forward})
+                            (v/assert % '(aoLink aoSub aoSup) U))
+                       #(v/assert % '(forced_monotonic_predicate aoLink) U)
+                       #(do (v/assert % lo U)
+                            (v/assert % hi U {:strength :monotonic}))]
+              observe (fn [kb] [(believed kb '(genl aoSub aoSup)) (believed kb lo) (believed kb hi)
+                                (count (v/conflicts kb)) (count (v/contradictions kb))])]
+          (is (= [true false true 0 0] (one-outcome! label ops observe))
+              "the :default member is OUT in every ordering")))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-genl-edge-a-released-firing-concludes-merges-what-its-arrival-merges
+  ;; `aoLink` is off the roster, so the firing concluding `(genl aoSub aoSup)` is held
+  ;; void until the roster declaration of `aoLink` releases it, inside that write's
+  ;; settle.  An ordering with the facts and the mark stored first merges `FoA` and `FoB`
+  ;; only if the revived edge's sweep reads a taxonomy holding the edge.
+  (let [U 'CxUniverse]
+    (is (= true
+           (one-outcome! "a released genl edge under a functional mark"
+                         [#(v/assert % '(functional aoSup) U)
+                          #(do (v/assert-rule % '[(aoLink ?x ?y)] '(genl ?x ?y) U {:direction :forward})
+                               (v/assert % '(aoLink aoSub aoSup) U))
+                          #(v/assert % '(forced_monotonic_predicate aoLink) U)
+                          #(do (v/assert % '(aoSup FoK FoA) U {:strength :monotonic})
+                               (v/assert % '(aoSub FoK FoB) U {:strength :monotonic}))]
+                         #(v/ask? % '(equals FoA FoB) U)))))
+  (tu/clear-kb! (tu/test-kb)))
 
 (defn- except-chain
   "The ops that state `sentence`, except it, and — with `retract?` — retract the except:
@@ -1257,7 +1359,8 @@
         (is (= expect
                (one-outcome-under! (str "a " label " mark whose except is retracted")
                                    (into [(except-chain setup decl true)]
-                                         (map (fn [f] [#(v/assert % f (or in U))]))
+                                         (map (fn [f] [#(v/assert % f (or in U)
+                                                                  {:strength :monotonic})]))
                                          facts)
                                    observe))
             "every ordering reads what the mark stated first and never excepted reads"))))
@@ -1882,8 +1985,8 @@
 
 (deftest a-functional-mark-derives-when-a-context-edge-arrives-last
   (let [mark    #(v/assert % '(functional fuP) 'CxFuUp)
-        fact-up #(v/assert % '(fuP FuTom FuV1) 'CxFuUp)
-        fact-lo #(v/assert % '(fuP FuTom FuV2) 'CxFuLow)
+        fact-up #(v/assert % '(fuP FuTom FuV1) 'CxFuUp {:strength :monotonic})
+        fact-lo #(v/assert % '(fuP FuTom FuV2) 'CxFuLow {:strength :monotonic})
         edge    #(v/assert % '(genlCx CxFuLow CxFuUp) 'CxUniverse {:strength :monotonic})
         observe (fn [kb]
                   {:merged (boolean (v/same-class? kb 'FuV1 'FuV2 'CxFuLow))
@@ -1905,8 +2008,8 @@
   ;; the wider context (`CxAuUp`) arriving dead last hits the same pre-existing
   ;; fact-arrival gap, unrelated to this arm's own trigger.
   (let [mark     #(v/assert % '(anti_symmetric auP) 'CxAuUp)
-        conv-up  #(v/assert % '(auP AuAlice AuBob) 'CxAuUp)
-        conv-low #(v/assert % '(auP AuBob AuAlice) 'CxAuLow)
+        conv-up  #(v/assert % '(auP AuAlice AuBob) 'CxAuUp {:strength :monotonic})
+        conv-low #(v/assert % '(auP AuBob AuAlice) 'CxAuLow {:strength :monotonic})
         edge     #(v/assert % '(genlCx CxAuLow CxAuUp) 'CxUniverse {:strength :monotonic})
         observe  (fn [kb]
                    {:merged (boolean (v/same-class? kb 'AuAlice 'AuBob 'CxAuLow))
@@ -1933,8 +2036,8 @@
   ;; would have spent it entirely on the noise before ever reaching this scenario's own
   ;; three facts.
   (let [mark    #(v/assert % '(functional nzP) 'CxNzUp)
-        fact-up #(v/assert % '(nzP NzTom NzV1) 'CxNzUp)
-        fact-lo #(v/assert % '(nzP NzTom NzV2) 'CxNzLow)
+        fact-up #(v/assert % '(nzP NzTom NzV1) 'CxNzUp {:strength :monotonic})
+        fact-lo #(v/assert % '(nzP NzTom NzV2) 'CxNzLow {:strength :monotonic})
         edge    #(v/assert % '(genlCx CxNzLow CxNzUp) 'CxUniverse {:strength :monotonic})
         noise   #(do (v/assert % '(functional nzNoiseP) 'CxNzNoise)
                      (dotimes [i 12]
@@ -1990,12 +2093,14 @@
 ;; and the `wWireP` fact both sit in CxUniverse and fire there, and a `genlCx` edge is
 ;; read globally (`taxonomy/relation-scope`), so neither CxWMid nor CxWLow reads anything
 ;; out of CxUniverse.  That edge therefore moves no reading, and the necessity check in
-;; `one-outcome-necessarily!` refuses it.
+;; `one-outcome-necessarily!` refuses it.  A firing concludes a `genlCx` only from roster
+;; antecedents, so the edge rule's op declares `wWireP` on the roster first.
 (def ^:private derived-edge-ops
   [#(v/assert % '(w_fact_p WA) 'CxWMid)
    #(v/assert % '(implies (w_fact_p ?x) (w_seen_p ?x)) 'CxWLow {:direction :forward})
    #(v/assert % '(wWireP CxWLow CxWMid) 'CxUniverse)
-   #(v/assert % '(implies (wWireP ?a ?b) (genlCx ?a ?b)) 'CxUniverse {:direction :forward})])
+   #(do (v/assert % '(forced_monotonic_predicate wWireP) 'CxUniverse)
+        (v/assert % '(implies (wWireP ?a ?b) (genlCx ?a ?b)) 'CxUniverse {:direction :forward}))])
 
 (defn- derived-edge-observe [kb]
   {:derived (boolean (seq (v/sentexes-matching kb '(w_seen_p WA) 'CxWLow)))})
@@ -2625,21 +2730,28 @@
 
 ;; ---- a generator's stamped rules -----------------------------------------
 
-(deftest an-arity-declared-after-the-facts-names-the-same-facts-in-every-order
-  ;; The declaration arrives in the reading, after every fact, so each ordering meets
-  ;; the retroactive sweep rather than the entry-point refusal.  The entry names one
-  ;; convicted fact and a sample of three out of four: a choice among them.
+(deftest an-arity-declared-after-the-facts-reads-the-same-in-every-order
+  ;; The declaration arrives in the reading, after every fact, so each ordering meets a
+  ;; binding arriving over stored tuples.  The monotonic ones are hard clashes, reported
+  ;; the same in every order.
   (let [facts   '[(oiarity Aa Bb Cc) (oiarity Dd Ee Ff) (oiarity Gg Hh Ii) (oiarity Jj Kk Ll)]
-        ops     (mapv (fn [f] #(v/assert % f 'CxUniverse)) facts)
+        ops     (mapv (fn [f] #(v/assert % f 'CxUniverse {:strength :monotonic})) facts)
         observe (fn [kb]
-                  (v/clear-violations! kb)
                   (v/assert kb '(binary_predicate oiarity) 'CxUniverse)
-                  (into [] (comp (filter #(= :arity (:violation %)))
-                                 (map (juxt :sentence #(get-in % [:detail :sample]))))
-                        (v/violations kb)))]
-    (is (= [['(oiarity Aa Bb Cc) (vec (take 3 facts))]]
-           (one-outcome! "the arity report" ops observe))))
+                  (into #{} (comp (filter #(= :arity (:kind %))) (map :sentence))
+                        (v/conflicts kb)))]
+    (is (= (into #{} (map #(list 'contradicts %)) facts)
+           (one-outcome! "the arity nogoods" ops observe))))
   (tu/clear-kb! (tu/test-kb)))
+
+(defn- generator!
+  "The miniature generator: the two member types on the roster, and the rule stamping an
+  arity rule per `typeArity` mapping fact."
+  [kb]
+  (doseq [t '[binary_thing ternary_thing]]
+    (v/assert kb (list 'forced_monotonic_predicate t) 'CxUniverse))
+  (v/assert kb '(implies (typeArity ?type ?n) (implies (?type ?relation) (arity ?relation ?n)))
+            'CxUniverse {:direction :forward}))
 
 (deftest a-generator-and-its-stamped-rules-are-order-independent
   ;; The shape CxCore's arity vocabulary uses (docs/generators.md), stated over a
@@ -2647,10 +2759,10 @@
   ;; consequent is itself a rule, a mapping fact that fills the hole, and members of the
   ;; type the hole names.  A stamped rule is minted when its mapping fact arrives and
   ;; may therefore arrive after the members it fires on, before them, or between two of
-  ;; them.  120 orderings.
-  (let [ops [#(v/assert % '(implies (typeArity ?type ?n)
-                                    (implies (?type ?relation) (arity ?relation ?n)))
-                        'CxUniverse {:direction :forward})
+  ;; them.  120 orderings.  A stamped rule concludes an arity binding, a roster literal,
+  ;; only from roster antecedents, so the generator's op declares the two types on the
+  ;; roster, as the engine's baseline holds CxCore's exact-arity classes.
+  (let [ops [#(generator! %)
              #(v/assert % '(typeArity binary_thing 2) 'CxUniverse)
              #(v/assert % '(typeArity ternary_thing 3) 'CxUniverse)
              #(v/assert % '(binary_thing pairOf) 'CxUniverse)
@@ -2678,9 +2790,7 @@
   ;; type's alone — whenever in the sequence the retraction lands.  The retract names the
   ;; handle its own assert allocated, so the two are one chain; 5!/2! = 60 orderings.
   (let [handle (volatile! nil)
-        chains [[#(v/assert % '(implies (typeArity ?type ?n)
-                                        (implies (?type ?relation) (arity ?relation ?n)))
-                            'CxUniverse {:direction :forward})]
+        chains [[#(generator! %)]
                 [#(vreset! handle (v/assert % '(typeArity binary_thing 2) 'CxUniverse))
                  #(v/retract! % @handle)]
                 [#(v/assert % '(typeArity ternary_thing 3) 'CxUniverse)]
@@ -2704,14 +2814,7 @@
       (is (zero? (:conflicts result))))
     (tu/clear-kb! (tu/test-kb))))
 
-;; ---- the entry point's refusal ------------------------------------------
-
-(defn- lattice-kb
-  "A KB under an explicit constraint policy, for the lattice below.  The policy has to be
-  the KB's own rather than the process default, because the two answers being compared
-  are what each policy does with the same three sentences."
-  [policy]
-  (fn [] (tu/fresh {:constraints policy})))
+;; ---- the entry point stores the clash in every order ---------------------
 
 (defn- lattice-cell!
   "Write the three sentences of CxB in `order` into a fresh lattice, catching the entry
@@ -2727,8 +2830,8 @@
   CxB disbelieves the edge, so from CxB `chi` is not a `dog` and the two memberships of
   `Kit` clash with nothing.  Everything above CxA is known-true; the one defeasible
   ingredient is the edge, which is what the denial withdraws."
-  [policy cat-strength order]
-  (tu/with-neutral-kb [kb (lattice-kb policy)]
+  [cat-strength order]
+  (tu/with-neutral-kb [kb tu/fresh]
     (tu/with-terms [CxA CxB chi_t dog_t cat_t Kit]
       (doseq [t [chi_t dog_t cat_t]]
         (v/assert kb (list 'genl t 'thing) 'CxUniverse {:strength :monotonic}))
@@ -2755,22 +2858,19 @@
 (def ^:private lattice-orders
   (into [] (permutations [:chi :cat :denial])))
 
-(deftest a-definitional-refusal-does-not-follow-the-write-order
-  ;; Six write orders, both strengths of `(cat Kit)`, under `:arbitrate`.  At the moment
-  ;; `(chi Kit)` is offered in two of them, CxB still reads the separation and
-  ;; `(cat Kit)` may be known-true — so the entry point once threw the sentence away, and
-  ;; the other four orders stored and believed it.  A refusal that turns on which
-  ;; sentence arrived first is a refusal the writer cannot predict and the reader cannot
-  ;; explain.
+(deftest a-definitional-clash-is-stored-whatever-the-write-order
+  ;; Six write orders, both strengths of `(cat Kit)`.  At the moment `(chi Kit)` is
+  ;; offered in two of them, CxB still reads the separation and `(cat Kit)` may be
+  ;; known-true.  A refusal that turned on which sentence arrived first would be one the
+  ;; writer cannot predict and the reader cannot explain, so the entry point stores the
+  ;; sentence in every order.
   ;;
   ;; The separation is **derived**: it reaches `chi` over the `:default` `(genl chi dog)`
-  ;; edge in CxA, and the denial in CxB takes that edge out of CxB's view.  So the pair
-  ;; is one the KB can be told otherwise about, `checks/grounds-class` reads it as
-  ;; `:default`, and the sentence is admitted and weighed instead of refused.  One
-  ;; outcome, all six orders, both strengths.
+  ;; edge in CxA, and the denial in CxB takes that edge out of CxB's view.  One outcome,
+  ;; all six orders, both strengths.
   (doseq [cat-strength [:monotonic :default]]
     (testing (str "(cat Kit) " cat-strength)
-      (let [readings (mapv #(lattice-cell! :arbitrate cat-strength %) lattice-orders)]
+      (let [readings (mapv #(lattice-cell! cat-strength %) lattice-orders)]
         (is (= 1 (count (distinct readings)))
             (str "one reading over six orders — " (pr-str (frequencies readings))))
         (let [r (first readings)]
@@ -2780,28 +2880,6 @@
           (is (true? (:cat? r))    "both memberships stand at CxB")
           (is (zero? (:contra r))  "and no pair is reported to a reader that reads none")))))
   (tu/clear-kb! (tu/test-kb)))
-
-(deftest under-refuse-the-writer-is-told-no-and-that-does-follow-the-order
-  ;; The case the invariant does **not** cover, stated rather than left to be discovered.
-  ;; `:refuse` is a policy about whether a *writer* is told no (`checks/arbitrating?`),
-  ;; and a writer is answered from the KB in front of it — so the two orders that offer a
-  ;; membership while CxB still reads the separation are refused, and the four that do
-  ;; not are stored.  The engine-wide invariant is over **beliefs** (docs/nmtms.md,
-  ;; "1. Order independence"), and every order that stores agrees about those.
-  (doseq [cat-strength [:monotonic :default]]
-    (testing (str "(cat Kit) " cat-strength)
-      (let [readings (mapv #(lattice-cell! :refuse cat-strength %) lattice-orders)
-            stored   (filterv #(zero? (:refused %)) readings)]
-        (is (= 4 (count stored)) "four of six orders store the three sentences")
-        (is (= 1 (count (distinct stored)))
-            (str "and they agree about everything — " (pr-str (frequencies stored))))
-        (is (every? #(and (true? (:chi? %)) (true? (:cat? %)) (zero? (:contra %))) stored)
-            "both memberships stand at CxB, and nothing is reported")
-        (testing "the two that refuse are the ones offering a membership before the denial"
-          (is (= [[:chi :cat :denial] [:cat :chi :denial]]
-                 (mapv first (filterv (fn [[_ r]] (pos? (:refused r)))
-                                      (mapv vector lattice-orders readings))))))))
-    (tu/clear-kb! (tu/test-kb))))
 
 ;; ---- the withdrawal cache is a memo of current state ----------------------
 

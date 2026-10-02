@@ -21,6 +21,9 @@
             [vaelii.impl.io.text :as text]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.special :as special]
+            [vaelii.impl.taxonomy :as tax]
+            [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
 (defn- held
@@ -116,6 +119,194 @@
                                     :held   (held kb)}))]
             (is (:minted (first readings)) "the type first: the declaration mints")
             (is (apply = readings) "and the type last reaches the same KB")))))))
+
+;; ---- the rebuild after recover ---------------------------------------------------
+
+(tu/deftest-kb a-rebuild-asks-each-declared-type-once
+  ;; twelve declarations over four types, one with no path to `thing`: the rebuild walks
+  ;; up from no type more than once, and notes the unmintable type's three declarations
+  ;; again after their entries are dropped
+  (tu/with-entailing
+    (tu/with-terms [toolKind partKind gadgetKind floatingKind CxWorld]
+      (tu/with-neutral-kb [kb tu/fresh]
+        (a-context kb CxWorld 'CxUniverse)
+        (doseq [t [toolKind partKind gadgetKind]] (a-type kb t CxWorld))
+        (let [types (vector toolKind partKind gadgetKind floatingKind)
+              _     (doseq [i (range 12)]
+                      (v/assert kb (list 'arg (tu/fresh-term :predicate 'usesKind) 1
+                                         (types (mod i 4)))
+                                CxWorld))
+              noted (set (map first (special/mint-refusals kb)))
+              walks (atom [])
+              global tax/genl?-global]
+          (doseq [h noted] (#'special/drop-pending! kb h :mint))
+          (with-redefs [tax/genl?-global (fn [tx sub super]
+                                           (when (and (= 'thing super) (some #{sub} types))
+                                             (swap! walks conj sub))
+                                           (global tx sub super))]
+            (special/rebuild-pending! kb))
+          (is (= 3 (count noted)) "the floating type's declarations wait")
+          (is (every? #(<= % 1) (vals (frequencies @walks)))
+              (str "walks per declared type: " (frequencies @walks)))
+          (is (= noted (set (map first (special/mint-refusals kb))))
+              "the rebuild notes them again"))))))
+
+(tu/deftest-kb a-rebuild-asks-each-stating-context-once-whether-it-sees-the-universe
+  ;; six facts of a decontextualized predicate over two contexts: the lift walk asks
+  ;; `sees?` from each stating context once, not once per fact
+  (tu/with-terms [liftedRel Alpha CxWorld CxOther]
+    (tu/with-neutral-kb [kb tu/fresh]
+      (a-context kb CxWorld 'CxUniverse)
+      (a-context kb CxOther 'CxUniverse)
+      (v/assert kb (list 'decontextualized_predicate liftedRel) 'CxUniverse
+                {:strength :monotonic})
+      (doseq [i (range 6)]
+        (v/assert kb (list liftedRel Alpha (tu/fresh-term :individual 'Beta))
+                  (if (even? i) CxWorld CxOther)))
+      (let [asks (atom [])
+            sees tax/sees?]
+        (with-redefs [tax/sees? (fn [tx k y]
+                                  (when (and (= 'CxUniverse y) (#{CxWorld CxOther} k))
+                                    (swap! asks conj k))
+                                  (sees tx k y))]
+          (special/rebuild-pending! kb))
+        (is (= {CxWorld 1 CxOther 1} (frequencies @asks)))))))
+
+;; ---- the settle's re-ask ---------------------------------------------------------
+
+(tu/deftest-kb a-settle-after-a-genl-move-walks-up-from-no-waiting-type
+  ;; eight declarations over two types with no path to `thing`, then a `genl` edge
+  ;; between two other types: the settle re-asks every entry, and answers each from one
+  ;; walk down from `thing`
+  (tu/with-entailing
+    (tu/with-terms [floatKind driftKind toolKind partKind CxWorld]
+      (tu/with-neutral-kb [kb tu/fresh]
+        (a-context kb CxWorld 'CxUniverse)
+        (a-type kb toolKind CxWorld)
+        (let [types  [floatKind driftKind]
+              _      (doseq [i (range 8)]
+                       (v/assert kb (list 'arg (tu/fresh-term :predicate 'usesKind) 1
+                                          (types (mod i 2)))
+                                 CxWorld))
+              walks  (atom 0)
+              global tax/genl?-global]
+          (with-redefs [tax/genl?-global (fn [tx sub super]
+                                           (when (and (= 'thing super) (some #{sub} types))
+                                             (swap! walks inc))
+                                           (global tx sub super))]
+            (v/assert kb (list 'genl partKind toolKind) CxWorld))
+          (is (= 8 (count (special/mint-refusals kb))) "the declarations still wait")
+          (is (zero? @walks) "no walk up from a waiting type"))))))
+
+(tu/deftest-kb a-genlArg-release-that-makes-the-next-type-mintable-mints-in-either-order
+  ;; `holdsKind`'s declaration mints `(genl partKind toolKind)` once `toolKind` reaches
+  ;; `thing`, and that edge is what makes `partKind`, the second declaration's type,
+  ;; mintable.  A settle pass answers every entry from one walk taken before its first
+  ;; release, extended by the edge, so the second is released in the first's pass
+  ;; whichever of the two is stored first.
+  (tu/with-entailing
+    (tu/with-terms [toolKind partKind boltKind holdsKind fitsKind Ann Bob CxWorld]
+      (let [readings (in-both-orders
+                      #(do (a-context % CxWorld 'CxUniverse)
+                           (v/assert % (list holdsKind Ann partKind) CxWorld)
+                           (v/assert % (list fitsKind Bob boltKind) CxWorld))
+                      {:first  #(v/assert % (list 'genlArg holdsKind 2 toolKind) CxWorld)
+                       :second #(v/assert % (list 'genlArg fitsKind 2 partKind) CxWorld)}
+                      [:first :second]
+                      (fn [kb]
+                        (a-type kb toolKind CxWorld)
+                        {:minted (mapv #(some? (v/handle-of kb % CxWorld))
+                                       [(list 'genl partKind toolKind)
+                                        (list 'genl boltKind partKind)])
+                         :held   (held kb)}))]
+        (is (= [true true] (:minted (first readings))) "both declarations mint")
+        (is (apply = readings) "in either order")))))
+
+(tu/deftest-kb a-chain-of-genlArg-releases-mints-every-link-in-one-settle
+  ;; twenty `genlArg` declarations, the k-th minting `(genl T_k+1 T_k)` once T_k reaches
+  ;; `thing`, so each link's type is mintable only through the edge the link before it
+  ;; mints.  T_0 reaches `thing` last, and the settle after that edge mints every link
+  ;; in the passes a one-link chain takes, with the declarations stored in chain order
+  ;; and in its reverse.
+  (tu/with-entailing
+    (tu/with-terms [Ann CxWorld]
+      (let [chain (fn [n order]
+                    (tu/with-neutral-kb [kb tu/fresh]
+                      (a-context kb CxWorld 'CxUniverse)
+                      (let [ts (vec (repeatedly (inc n) #(tu/fresh-term :type 'link)))
+                            ps (vec (repeatedly n #(tu/fresh-term :predicate 'holdsLink)))]
+                        (doseq [k (order (range n))]
+                          (v/assert kb (list (ps k) Ann (ts (inc k))) CxWorld)
+                          (v/assert kb (list 'genlArg (ps k) 2 (ts k)) CxWorld))
+                        (v/reset-settle-stats! kb)
+                        (a-type kb (ts 0) CxWorld)
+                        {:passes (:passes (v/settle-stats kb))
+                         :minted (count (for [k (range n)
+                                              :let [h (v/handle-of kb (list 'genl (ts (inc k)) (ts k))
+                                                                   CxWorld)]
+                                              :when (and h (v/in? kb h))]
+                                          k))})))
+            one   (:passes (chain 1 identity))]
+        (is (= [{:passes one :minted 20} {:passes one :minted 20}]
+               [(chain 20 identity) (chain 20 reverse)]))))))
+
+;; ---- the kind roster ------------------------------------------------------------
+
+(defn- kinds-by-walk
+  "The kind roster a walk of every entry in `kb`'s refusal record builds: per kind, the
+  handles holding an entry of it, nil when none does."
+  [kb]
+  (let [m @(reasoning/refused kb)]
+    (not-empty
+     (reduce (fn [acc [k recs]]
+               (reduce (fn [acc kind]
+                         (if (and (set? recs) (some kind recs))
+                           (update acc kind (fnil conj #{}) k)
+                           acc))
+                       acc
+                       [:constraint :lift :mint]))
+             {}
+             (dissoc m :kinds)))))
+
+(tu/deftest-kb the-kind-roster-names-the-handles-a-walk-of-the-record-finds
+  ;; A settle pass reads the constraint and mint entries off the roster alone, so an
+  ;; entry of a kind under a handle the roster does not name is never re-asked.  Each
+  ;; step records, releases or orphans one entry, and the roster is compared with a walk
+  ;; of the whole record after it.
+  (tu/with-entailing
+    (tu/with-terms [animal poodleKind petOf ownsPet Rex Ann gadgetKind usesTool Bob Widget
+                    CxTheory CxWorld]
+      (tu/with-neutral-kb [kb tu/fresh]
+        (let [seen (volatile! [])
+              step (fn [label]
+                     (vswap! seen conj [label (:kinds @(reasoning/refused kb))
+                                        (= (kinds-by-walk kb) (:kinds @(reasoning/refused kb)))]))
+              rule (list 'set/forwardRule
+                         (list 'implies (list petOf '?x '?y) (list ownsPet '?y '?x)))]
+          (a-context kb CxTheory 'CxUniverse)
+          (a-context kb CxWorld CxTheory)
+          (a-type kb animal CxTheory)
+          (a-type kb poodleKind CxTheory)
+          (v/assert kb (list 'arg ownsPet 2 animal) CxTheory)
+          (let [rh (v/assert kb rule CxWorld)]
+            (v/assert kb (list poodleKind Rex) CxWorld)
+            (v/assert kb (list petOf Rex Ann) CxWorld)
+            (step :conviction-recorded)
+            (v/assert kb (list usesTool Bob Widget) CxWorld)
+            (let [dh (v/assert kb (list 'arg usesTool 2 gadgetKind) CxWorld)]
+              (step :mint-recorded)
+              (v/retract! kb rh)
+              (step :rule-retracted)
+              (v/assert kb (list 'genl poodleKind animal) CxTheory)
+              (a-type kb gadgetKind CxWorld)
+              (step :mint-released)
+              (v/retract! kb dh)
+              (step :declaration-retracted)))
+          (let [[[_ k1] [_ k2] [_ k3] [_ k4]] @seen]
+            (is (every? last @seen) (str "the roster and the walk differ: " (pr-str @seen)))
+            (is (= [#{:constraint} #{:constraint :mint} #{:mint} nil]
+                   [(set (keys k1)) (set (keys k2)) (set (keys k3)) k4])
+                "each step moved the kind it names")))))))
 
 ;; ---- the whole shipped ontology -----------------------------------------------
 

@@ -101,17 +101,10 @@
 
   A rule is named when a *derivation* was refused, which is what the chainer files.  Three
   families name none: an aggregate's numeric refusal and the post-join literal declined
-  for answering two ways, both of which are about a *literal* and not a firing; the five
-  notices that a pass stopped short of what it might have said —
-  `:arbitration-truncated`, `:arity-truncated`,
-  `:unarbitrable-reach-truncated` and `:partner-sweep-truncated`, where a budget ran out
-  before the work was done, and
-  `:arity-report-truncated`, where the work *was* done and a cap on entries kept the rest
-  of it unnamed — all of which are about a bound rather than about a firing; and what the
-  settle reports about content that was already stored, the `:arity` reach over facts a later arity binding convicts, and the
-  `:irreflexive` / `:anti-symmetric` reach over facts a later mark convicts.  Those last kinds also arrive *with* a
-  rule when the chainer drops a conclusion under one of them, so the discriminant is the
-  key rather than the kind — which is why this reads `(:rule entry)` and not a roster."
+  for answering two ways, both of which are about a *literal* and not a firing; and the
+  notice that a sweep stopped short of what it might have said, which is about a bound
+  rather than about a firing.
+  This reads `(:rule entry)` rather than a roster of kinds."
   [kb entry]
   (when-let [h (:rule entry)]
     (let [rsx (p/get-sentex (:records kb) h)]

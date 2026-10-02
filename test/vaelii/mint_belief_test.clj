@@ -4,21 +4,18 @@
   "A rule a **generator** stamps out is *derived* content: it is justified by the
   firing that minted it, never marked a premise, so the ordinary relabel un-believes
   it the moment what licensed it goes (`chain/mint-rule`, docs/generators.md).  These
-  pin that invariant against **defeat** — the case retraction tests do not reach.
+  pin that invariant against **defeat** — the case retraction tests do not reach.  A
+  defeat is a reader's verdict: the mark stays IN in the network and its own context
+  withdraws it, and with it the mint and everything the mint concludes
+  (docs/nmtms.md, \"A defeat is scoped to its vantage\").
 
   `generator_test`'s `retracting-the-fill-retracts-the-rule` and
   `rejoin_belief_test` cover the *retraction* of a fill (which SWEEPS the mint's node
   outright) and the two *re-join* firing paths.  Neither pins what happens when the
-  mark that licensed the mint is **defeated** rather than retracted: a defeated
-  default's mint stays stored, indexed and node-bearing while OUT, so its *belief* is
-  the only thing that keeps it from firing.  The claim under test is that its belief
-  does move — the mint's sole justification names the mark handle as an antecedent, so
-  forcing the mark OUT makes the justification invalid and the relabel takes the mint
-  OUT with it.
-
-  The **oracle is the trigger path**, exactly as `rejoin_belief_test` states it:
-  `res/rule-believed?` is what `fire-rules-for` asks before a trigger match fires, and
-  a defeated mint that reads un-believed there draws nothing.
+  mark that licensed the mint is **defeated** rather than retracted.  The claim under
+  test is that its belief moves: the mint's sole justification names the mark handle as
+  an antecedent, so a reader that withdraws the mark withdraws the mint, and every
+  conclusion the mint draws rests on it and is withdrawn there too.
 
   A NOTE on measuring a mint, because it is the trap this file exists to close.  The
   marker rule — the `set/defaultRule (implies (trig ?p) (mark ?p))` that hands the
@@ -31,7 +28,6 @@
   the marker is a premise, the mint is derived, and only the mint's belief moves."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
@@ -78,36 +74,32 @@
         (is (seq (v/supporting-justifications kb mh))
             "and it rests on the generator's firing")
         (is (v/in? kb mh))
-        (is (res/rule-believed? kb mh)))
-      (testing "defeating the mark that licensed it takes the mint OUT"
+        (is (v/believed? kb mh CxMB)))
+      (testing "defeating the mark that licensed it withdraws the mint"
         (v/assert kb (list 'not (list pmark pbigger)) CxMB {:strength :monotonic})
         (is (empty? (v/sentexes-matching kb (list pmark pbigger) CxMB))
             "the mark is defeated")
         (is (not (v/in? kb mh))
-            "the mint's sole justification names the mark, now OUT — so the mint is OUT")
-        (is (not (res/rule-believed? kb mh))
-            "and the belief gate the chainers read agrees")))))
+            "the mint's sole justification names the mark, withdrawn — so the mint is")
+        (is (false? (v/believed? kb mh CxMB)) "and its context reads it so")))))
 
 ;; ---- soundness: an un-licensed mint fires nothing ------------------------
 
-(tu/deftest-kb a-defeated-mint-does-not-fire-on-the-trigger-path
+(tu/deftest-kb a-defeated-mint-concludes-nothing-believed-on-the-trigger-path
   ;; the oracle path: a fact matching the mint's antecedent arrives *after* the defeat,
-  ;; so `fire-rules-for` reaches the mint through the antecedent index (which posts on
-  ;; storage) and must refuse it on `res/rule-believed?`.  A refused rule draws no
-  ;; conclusion at all — not even one that would only label OUT — so the conclusion is
-  ;; neither believed nor stored.
+  ;; so `fire-rules-for` reaches the mint through the antecedent index.  A verdict blocks
+  ;; no firing: the conclusion rests on the mint, and the reader that withdraws the mint
+  ;; withdraws it.
   (tu/with-terms [pmark pseen trig pbigger dog cat CxMB]
     (let [mint (build-mint! kb pmark pseen trig pbigger CxMB)]
       (is (some? mint) "a rule was stamped")
       (v/assert kb (list 'not (list pmark pbigger)) CxMB {:strength :monotonic})
-      (is (not (res/rule-believed? kb (:id mint))) "the mint is un-believed")
-      (testing "a tuple the mint would range over arrives, and draws nothing"
+      (is (not (v/in? kb (:id mint))) "the mint is withdrawn")
+      (testing "a tuple the mint would range over arrives, and draws nothing believed"
         (v/assert kb (list pbigger dog cat) CxMB)
         (v/forward-chain kb)
         (is (empty? (v/sentexes-matching kb (list pseen dog) CxMB))
-            "the disbelieved mint concluded nothing believed")
-        (is (nil? (v/handle-of kb (list pseen dog) CxMB))
-            "and the trigger path refused it outright — no OUT-labelled sentex either")))))
+            "the withdrawn mint concluded nothing believed")))))
 
 ;; ---- the measurement trap this file closes -------------------------------
 
@@ -133,7 +125,7 @@
       (is (not (v/premise? kb (:id mint))) "the mint is derived")
       (testing "after the defeat the premise marker stays IN; only the mint moves"
         (v/assert kb (list 'not (list pmark pbigger)) CxMB {:strength :monotonic})
-        (is (res/rule-believed? kb (:id naive))
+        (is (v/in? kb (:id naive))
             "the marker rule is a premise — nothing defeats a rule, only its conclusion")
-        (is (not (res/rule-believed? kb (:id mint)))
-            "the mint is un-believed the moment its licensing mark is defeated")))))
+        (is (not (v/in? kb (:id mint)))
+            "the mint is withdrawn the moment its licensing mark is defeated")))))

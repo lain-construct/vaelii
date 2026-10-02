@@ -642,7 +642,7 @@ The index image is one half of a `:disk-snapshot` cold open; `recover` is the ot
 and the next open installs it in place of the recover (`vaelii.impl.reasoning-image`):
 
 - `network.bin` — the dense network: every node, justification column, label,
-  defeat-class, defeat, block and supersession (`dense-jtms/write-image`), keys in sorted
+  defeat-class, block, forced set and supersession (`dense-jtms/write-image`), keys in sorted
   order so two images of one network are equal bytes;
 - `state.nippy` — the taxonomy's relations and caches, and the KB atoms recovery fills or
   the closing settle leaves (`reasoning-image/state-atoms`);
@@ -650,8 +650,9 @@ and the next open installs it in place of the recover (`vaelii.impl.reasoning-im
 
 **The stamp** holds the two layout numbers, the records' `record-store/reasoning-fingerprint`,
 the **source identity** of the engine code that derived the belief
-([glossary.md](glossary.md)), and the two policies that move belief (`checks/arbitrating?`
-and `VAELII_ASSERTIVE_ARG_TYPES`). The records fingerprint reads the justifications kind's
+([glossary.md](glossary.md)), and the two policies that move belief:
+`VAELII_ASSERTIVE_ARG_TYPES`, and the forced-monotonic roster the stored declarations give
+(`reasoning-image/declared-roster`, [nmtms.md](nmtms.md#the-forced-monotonic-roster)). The records fingerprint reads the justifications kind's
 slots beside the sentexes kind's, where the index image's `slot-fingerprint` reads the
 sentexes alone: a justification stored over sentexes that did not change moves belief and
 not the index. A premise mark re-stores its sentex, so the sentex slots cover it. Both
@@ -1167,6 +1168,22 @@ live-key count.  Measured at 300k facts, that compaction is worth 4.5× on reope
 uncompacted against 8.0s), and the index's own share of the open is where nearly all of
 it sits (32.9s against 6.5s).
 
+**The background trigger reads counters, not files.**  After each fsync tick the
+durability daemon probes every registrant's dead ratio, at most once per
+`vaelii.disk.compact-min-interval-ms`, and queues a rewrite of one that has reached
+`vaelii.disk.compact-dead-ratio`.  The index WAL's ratio is `1 − live keys / frames
+written`, and both numbers are resident.  The record store's is the largest across its
+kinds of `1 − live frame bytes / log length`, where a live slot's frame is its 4-byte
+prefix and its payload.  Each kind holds its live frame bytes as a counter under the kind
+lock.  The open seeds the counter from the idx walk it already makes, and a store, a
+batch and a kill move it by the frame each adds and the frame each supersedes, which
+costs one 24-byte slot read when the handle was live.  A wipe zeroes the counter, and a
+compaction install recounts it from the new idx.  A probe therefore reads the counter and
+the log's length, and no idx byte
+(`disk_record_store_test/a-probe-of-an-unchanged-store-reads-no-idx-bytes`), and the
+counter equals a walk of the idx after every write path
+(`the-maintained-dead-ratio-equals-a-scan-of-the-idx`).
+
 Compaction never edits in place — it rewrites to a temp, fsyncs, drops a commit
 marker, then replaces the original, so a crash mid-compaction recovers to the last
 durable state.  The record store's compaction is **copy-on-write**: the O(live) record
@@ -1194,8 +1211,8 @@ since it is something an operator has to be told rather than shown by a later co
 
 **Two monitors, because three threads touch this store.**  The writer is one; the
 durability daemon is another (`fsync`, every `vaelii.disk.sync-ms`); a compaction runs on
-a third.  So the store's *resident* state — the live-id set, the hot-record cache, the
-compaction delta set, the failure flag, the handle counter and what the counters blob was
+a third.  So the store's *resident* state — the live-id set, the live frame bytes, the
+hot-record cache, the compaction delta set, the failure flag, the handle counter and what the counters blob was
 last left holding — is not the writer's alone, and a field written outside a monitor is
 one another thread can catch mid-pair.
 
@@ -1613,15 +1630,15 @@ way recovery is these two steps:
   reference. `recover` rebuilds the JTMS
   *before* the taxonomy (`rebuild-taxonomy` reads **stored**, not believed,
   sentexes, so `:support` / `:cache-support` record every asserting sentex —
-  belief-filtering the replay would drop a disbelieved supporter, and clearing
-  its defeat could never revive the entry), then narrows the replayed caches to
+  belief-filtering the replay would drop a disbelieved supporter, and its return
+  could never revive the entry), then narrows the replayed caches to
   belief with its own unconditional `refresh-beliefs` — inside the same depth
   deferral, and *before* the settle, so everything the settle reads answers
   through a taxonomy that already agrees with belief. The replay reads stored,
   the reconcile narrows to believed, and the contract is the composition: an edge
   supported by nothing was never in a region for the settle to reach, having been
   OUT from the moment its node was made, while the replay had already made it
-  answer `genls`. Strengths, defeats, and reported conflicts are re-derived on
+  answer `genls`. Strengths, verdicts, and reported conflicts are re-derived on
   restart and match either side of it.
 
 Derivation depths reset to 0 on recovery (they only bound future chaining).
@@ -1681,7 +1698,7 @@ already off — the definitional checks (the `arg` store query above all), the d
 trie-walk, provenance, forward chaining, and N−1 settles. What remains is storing,
 indexing and believing, and this is where that time goes.
 
-`lein bench-loadphase [n] [repeats] [full|guard]` (`bench/vaelii/bench/loadphase.clj`) is
+`lein bench-loadphase [n] [repeats]` (`bench/vaelii/bench/loadphase.clj`) is
 the instrument. It loads one corpus repeatedly through the same entry point, each run with one more
 phase stubbed out from the outside in, so the difference between two consecutive runs is
 that phase's cost and the deltas **sum to the baseline by construction** — there is no
@@ -1759,29 +1776,6 @@ single-writer contract below it has to be. So a rate is only comparable against 
 rate taken at the same writer count, and a wall-clock load comparison between two engines
 is a comparison of thread counts until both are pinned to one.
 
-### Why the coincidence post is guarded
-
-One thing on the path is not a per-fact constant at all, and it is guarded rather than
-paid. A store posts its sentence's body to the negation memo's `:dirty` set so the next
-settle knows the body's pairing may have moved — but an unguarded post is one `conj` per
-fact into a set that ends a load holding **one entry per fact of the corpus**, and on a
-corpus with no negations the first settle then drops the whole thing. So `kb/note-opposed!`
-writes the memo only for a body opposed before the store or after it, which is the only
-case whose pairing can have changed. Both readers of `:dirty` filter it by `:opposed`
-(`settle/moved-bodies` and `settle/note-supersession-flips!`), so a post for a body
-opposed at neither end is written and dropped unread.
-
-**What that buys is the set, not the clock.** Alternating the two arms inside one JVM in
-**A-B-B-A order** — so the drift a JVM accumulates over a dozen loads lands on both arms
-instead of on whichever runs second — measures **0.994× at 250,000 facts, five pairs
-spread 0.95–1.04**: the guard does not move the wall clock at this size, and the spread
-is the width of the answer. A fixed A-then-B order reports the same comparison as
-a 20% win, which is the drift and not the guard, and is why the harness alternates. What
-is really removed is a structure proportional to the corpus — a claim about a ten-million-
-fact load's heap rather than about a quarter-million-fact one's seconds. `lein
-bench-loadphase <n> <pairs> guard` re-checks it and prints every pair, because the spread
-is what decides whether a median means anything.
-
 ## The single-writer contract
 
 **One process, one writer.** The engine pairs a durable store with in-memory state
@@ -1802,14 +1796,14 @@ writes:
   against the writer's, so neither ever shows a partially-applied relabel
   (`jtms_concurrency_test`).
 
-  **A settle is published once.** A settle is a run of TMS calls: it lifts every standing
-  defeat and empties both scoped rosters before it re-decides any of them, so between its
-  first call and its last the network believes the loser of every standing contradiction,
-  on every settle, including one for an unrelated fact. While a settle runs it **holds**
+  **A settle is published once.** A settle is a run of TMS calls: it empties the standing
+  nogoods before it finds them again, so between its first call and its last a reader
+  could read a standing loser believed, on every settle, including one for an unrelated
+  fact. While a settle runs it **holds**
   the belief it began from (`vaelii.impl.settle/settle`): the network records each label
-  a relabel moves as it was when the settle began, the two scoped rosters keep their
-  values, and a thread other than the writer reads those — belief, a defeat class, the
-  defeated, blocked and superseded sets, and a scoped defeat at its vantage. When the
+  a relabel moves as it was when the settle began, the standing nogoods keep their
+  value, and a thread other than the writer reads those — belief, a defeat class, the
+  blocked and superseded sets, and the nogoods each reader decides. When the
   settle ends it publishes what it decided in one step, which is one swap of the open
   holds (`vaelii.impl.observe`). A reader beside the writer therefore reads, for every
   settle, the belief before it and then the belief after it, and never one in between

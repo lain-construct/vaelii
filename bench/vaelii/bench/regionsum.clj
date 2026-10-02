@@ -15,7 +15,7 @@
   `reset-touched!` before each add and `(count (touched tms))` after is exactly that add's
   relabelled region — `relabel-region*` records the region as `:touched`, and the fast
   path records only the lone consequence.  Resetting touched between adds moves no belief
-  and no region: `:in`, `:groundable` and `:classes` never read it, so the replay measures
+  and no region: `:in` and `:classes` never read it, so the replay measures
   the real rebuild and only the touched bookkeeping (which this does not report) differs.
 
   Two orders, per item 2: hash order (`p/justification-ids` returns a `set`) against

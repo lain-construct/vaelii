@@ -8,15 +8,15 @@
   Bottom of the engine stack (kb <- checks <- special <- integrate <- chain <-
   settle <- vaelii.core): everything here reads the storage protocols, the taxonomy, the
   JTMS and the matchers — never assertion, chaining, or settling.  `sentexes-matching`
-  lives here rather than in core because the layers above it (`integrate-sentex`,
-  `negation-nogoods`) need *querying*, not asserting — moving it down is what
-  unties the old `declare assert query settle` knot."
+  lives here rather than in core because the layers above it (`integrate-sentex`) need
+  *querying*, not asserting."
   (:refer-clojure :exclude [isa?])
   (:require [clojure.string :as str]
             [taoensso.trove :as trove]
             [vaelii.impl.capabilities :as cap]
             [vaelii.impl.columnar :as columnar]
             [vaelii.impl.config :as config]
+            [vaelii.impl.decide :as decide]
             [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.disk.files :as dfiles]
@@ -630,7 +630,7 @@
   off the vars, so a driven table is checked against itself and not against the live one.
 
   Refuses under `:bad-table-entry` discriminated by `:mismatch`, as
-  `predicates/check-families` and `config/check-switches!` do."
+  `predicates/check-facets` and `config/check-switches!` do."
   [{:keys [record-axes index-axes record-arms record-space-arms index-arms
            backend-modes reserved-backend-names]}]
   (check-arms! "record" record-axes record-arms "record-arms")
@@ -694,7 +694,7 @@
                        {:pairs (vec unnamed)})))
     nil))
 
-;; At load, as `predicates/check-families` and `config/check-switches!` run at theirs: a
+;; At load, as `predicates/check-facets` and `config/check-switches!` run at theirs: a
 ;; half-declared backend is a build failure rather than a name that refuses at the first
 ;; open somebody tries.
 (def ^:private backend-tables
@@ -812,7 +812,21 @@
   "Every key `open-kb` reads.  Public because it is the answer to \"is this a real
   option?\", and a caller that can ask does not have to find out from a wrong answer."
   #{:backend :records :index :space :dir :pg :tms :recover?
-    :naming :constraints :base :base-stores :overlay})
+    :naming :base :base-stores :overlay})
+
+(defn- check-constraints-opt!
+  "Refuse `:constraints` with the reading that replaces it.  No `open-kb` option chooses
+  whether a definitional clash is refused: the KB stores the clash, `settle` decides it,
+  and `conflicts` reports one whose members are all `:monotonic` (docs/nmtms.md, \"What
+  a refusal may rest on\").  The ex-data is `check-opts!`'s for an unknown key."
+  [opts]
+  (when (and (map? opts) (contains? opts :constraints))
+    (throw (ex-info (str ":constraints is not an open-kb option: a definitional clash is"
+                         " stored, decided and reported, and never refused.  Drop the"
+                         " option, and read (conflicts kb) for a clash whose members are"
+                         " all :monotonic")
+                    {:type :unknown-option :mismatch :unknown-key :unknown [:constraints]
+                     :options (vec (sort opt-keys))}))))
 
 (defn- check-opts!
   "Refuse a key `open-kb` does not read.  **An option that is not read is not an option**:
@@ -1028,50 +1042,6 @@
                          (str/join ", " (map pr-str (sort (keys nm/policies)))))
                     {:type :unknown-option :mismatch :bad-value :naming policy
                      :options (vec (sort (keys nm/policies)))}))))
-
-(def constraint-policies
-  "The constraint policies a KB's public entry point may hold, as `open-kb`'s `:constraints`.
-
-    :refuse     `assert` refuses a disjoint / functional / cover clash
-    :arbitrate  refuse only against `:monotonic` content; against a `:default` claim
-                admit the sentence and let `settle` arbitrate the pair
-
-  Under either policy a declaration arriving after the content it convicts reaches back
-  over what is stored and `settle` decides the pair (docs/nmtms.md, \"Which entry point
-  the content came through\").
-
-  This is **this KB's** policy, not the build's, for `:naming`'s reason: whether a writer
-  is told no is an application question, and one process can hold a KB curating a
-  hand-written ontology beside one ingesting a corpus whose schema arrives last.
-  `checks/arbitrating?` is what reads it, and an unstated policy reads the process
-  default there rather than one of these.
-
-  **The policy is not persisted, and a `recover` decides more than `:refuse` does.**  It
-  belongs to the KB handle, not to the store, so reopening the same records under the
-  other policy is legitimate and changes what belief settles to.  Sharper than that: a
-  rebuild's region is *every* stored sentex, so `settle/clash-nogoods` finds a standing
-  clash from the region alone — no declaration sweep needed — and decides it under either
-  policy.  A `:refuse` KB therefore believes both sides of a clash it was built
-  incrementally into, and one side of the same clash after a restart.  That is the
-  `:refuse` half being the loose one: `clash-nogoods` is deliberately not gated on
-  `*rebuilding?*` because a nogood is *state* that belief depends on, and a rebuild that
-  skipped it would revive the loser of a decided clash.  A KB that wants the two to agree
-  wants `:arbitrate`."
-  #{:refuse :arbitrate})
-
-(defn- check-constraints!
-  "Refuse a `:constraints` policy `constraint-policies` does not name, returning it.
-  Beside `check-naming!` because it is the same kind of setting — this KB's entry-point
-  policy, not the build's — and the same failure when it is misspelt: a KB that silently
-  took `:refuse` when it was told `:arbitrate` refuses content the caller expected to
-  land and arbitrate."
-  [policy]
-  (if (contains? constraint-policies policy)
-    policy
-    (throw (ex-info (str "unknown :constraints policy " (pr-str policy) " — open-kb reads "
-                         (str/join ", " (map pr-str (sort constraint-policies))))
-                    {:type :unknown-option :mismatch :bad-value :constraints policy
-                     :options (vec (sort constraint-policies))}))))
 
 (def recover-modes
   "What `:recover?` may say, and the setting each one means.
@@ -1296,17 +1266,6 @@
   (reasoning/map->Reasoning
    {:tms     (create-tms tms)
     :taxonomy (tax/create-taxonomy)
-    ;; The settle's two readings and the memo it rebuilds them from,
-    ;; in **one** atom because they are one publication: `record-clashes!`
-    ;; derives all three from a single pass and installs them together,
-    ;; and `core/conflicts` / `core/contradictions` are read entry points a
-    ;; thread beside the writer may call at any moment.  Three atoms
-    ;; would let such a reader land between two of the resets and take
-    ;; one settle's conflicts beside another's contradictions — a reading
-    ;; of no state the KB was ever in (`settle/record-clashes!`).  Not
-    ;; `:clashes` below, which is the definitional-pair memo rather than
-    ;; a reading of one.
-    :clash-readings (atom {:reports {} :conflicts [] :contradictions []})
     :program   (atom nil)
     :violations (atom [])
     :recheck   (atom {})
@@ -1318,13 +1277,26 @@
     ;; memory one level earlier (docs/exceptions.md, "A refused firing
     ;; is remembered as bindings").  Derived state, in memory beside
     ;; `jtms/blocked` rather than in it: these are not justifications
-    ;; and must never be labelled.
+    ;; and must never be labelled.  `:kinds` names the handles holding
+    ;; a `:constraint`, `:lift` or `:mint` entry (`special/kind-entries`).
     :refused   (atom {})
     :settle-stats (atom {:iterations 0 :passes 0 :histogram {}})
     :chain-stats  (atom {:runs 0 :last nil})
     :opposed   (atom #{})
+    ;; the read-decided families' candidates (`decide/note-candidate!`), kept at the
+    ;; same two choke points as `:opposed` and rebuilt by `recover`, and the inherited
+    ;; clashes each settle re-finds (`inherited/install-inherited!`).  A held atom: while a
+    ;; settle re-finds them, the other threads read the index it began from
+    ;; (`observe/hold-atom!`).
+    :nogood-candidates (observe/held-atom {})
+    ;; what the last settle read at each context holding a handle of their consequence
+    ;; closure (`readings/reader-moves`)
+    :own-readings (atom nil)
+    ;; the last reading's reports of the families a reader decides, reused where
+    ;; nothing a report reads moved (`clashes/read-clashes`)
+    :read-reports (atom {})
     ;; `{[P R] -> how many sentexes declare it}` — the argument-preservation
-    ;; declarations, as storage.  `settle/preserving-nogoods` reads it as
+    ;; declarations, as storage.  `discovery/preserving-nogoods` reads it as
     ;; its gate and as its vocabulary, `inherit/moved-predicates` reads its
     ;; pairs for every sentence the chainer, the re-check triggers and the
     ;; settle ask about, and `inherit/positions-along` keys its cache on the
@@ -1339,11 +1311,10 @@
     ;; contexts is two sentexes, and the first retraction must not retire
     ;; what the second still says.
     :preserving (atom {})
-    ;; The inherited clashes `settle/preserving-nogoods` found, keyed on
+    ;; The inherited clashes `discovery/preserving-nogoods` found, keyed on
     ;; the stored claim, with what each was read under
-    ;; (`settle/preserving-entries`), so a standing report survives an
-    ;; unrelated assert without being asked again.  `:clashes` beside it
-    ;; does the same job for the definitional pairs; this is keyed on one
+    ;; (`discovery/preserving-entries`), so a standing report survives an
+    ;; unrelated assert without being asked again.  It is keyed on one
     ;; handle rather than a pair, since the other side of an inherited
     ;; clash is not a sentex.
     :preserved-clashes (atom {})
@@ -1359,21 +1330,9 @@
     ;; and `excepted-handles` can skip the cascade entirely.  Maintained
     ;; at the same choke points as `:excepted` and rebuilt by `recover`.
     :meta-except-count (atom 0)
-    ;; `{vantage -> #{handle}}` — the losers the settle disbelieved at a
-    ;; vantage strictly below their own context.  Derived, cleared and
-    ;; re-decided each settle like the network's defeated set, so neither
-    ;; `recover` nor a store has anything to replay.  A held atom: while a
-    ;; settle re-decides it, the other threads read the roster it began
-    ;; from (`observe/hold-atom!`).
-    :scoped-defeats (observe/held-atom {})
-    ;; `[{vantage -> handle} …]` — one entry per nogood whose live vantages
-    ;; defeated different members.  A reader seeing two of an entry's
-    ;; vantages reads every member as believed (`res/withdrawal`).  Derived
-    ;; and re-decided each settle, and held while it is, like `:scoped-defeats`.
-    :vantage-disagreements (observe/held-atom [])
     ;; `{reader -> #{handle}}` — what each reader reads as withdrawn:
-    ;; hidden by an except, scoped-defeated at a vantage it sees, or
-    ;; resting only on those (`res/withdrawn-set`).  A cache: a network move
+    ;; hidden by an except, a loser of a nogood it decides, or resting
+    ;; only on those (`res/withdrawn-set`).  A cache: a network move
     ;; drops the entries it reaches (`res/reconcile-withdrawn!`), a roster
     ;; move empties it, and a generation stamps each install
     ;; (`res/install-withdrawn!`).
@@ -1398,29 +1357,12 @@
     ;; `{context -> #{handle}}` — the rules a solve reads, kept and rebuilt with
     ;; the two rosters above.  A set, not a count: a handle is posted once.
     :solve-rules (atom {})
-    :negations (atom {})
-    :clashes   (atom {})
-    ;; `#{#{x y} …}` — the sibling-disjointness exception pairs a retract
-    ;; just removed, posted at the disintegrate choke point.  Retracting
-    ;; an exception that was present ab initio re-arms a clash the pair
-    ;; never entered the clash set as, so the settle's re-arm sweep reads
-    ;; this to drive `two-sided-reach` over each departed pair, then
-    ;; `settle-finish` clears it.  Belief-quiet asserts never post to it.
-    :sib-exc-dirty (atom #{})
-    ;; `{key [part …]}` — the unread tails of the arbitration sweeps a
-    ;; settle's budget cut, keyed as `:clashes`' `:pending` names them, for
-    ;; the next settle to resume (`settle/carry-arbitration-sweeps!`).  A
-    ;; key with no tail here resumes from the start of its reach
-    :arbitration-cursors (atom {})
     ;; the argument-declaration mints by term and by context, described
     ;; beside the `Reasoning` record
     :minted    (atom {:by-term {} :by-context {}})
-    ;; the equality state `special/refresh-supersessions` last
-    ;; reconciled the superseded set against (`special/supersession-stamp`).
-    ;; nil means "not reconciled yet", which reads as *reconcile
-    ;; everything* — the same shape `:closures` uses, and the same
-    ;; direction: a stamp that cannot be compared costs a full pass and
-    ;; never a wrong answer
+    ;; the datums whose supersession entry the write path's reconciles
+    ;; moved since the last settle, each with its entry before the first
+    ;; move, for the settle to publish (`special/take-supersession-moves!`)
     :supersessions (atom nil)
     ;; `#{pred}` — the predicates whose permuting marks moved by a
     ;; removal or a relabel since the last settle (`special/note-permuting-moves!`),
@@ -1469,7 +1411,7 @@
   stores, and the configuration the stores are read under.  Every KB field other than
   `:reasoning` is in exactly one of `rebuild-shared` and `rebuild-own`, `:reasoning` holds a
   new `empty-reasoning`, and `background_rebuild_test` fails on a field in none of them."
-  [:records :index :provers :solver :naming :constraints])
+  [:records :index :provers :solver :naming])
 
 (def rebuild-own
   "The KB fields a rebuild KB holds for itself.  `:dir`, `:snapshot-dir` and
@@ -1524,7 +1466,7 @@
   ;; where it matters most.  The mirror case below (a derived index describing records
   ;; that are gone) repairs first and logs after, and this branch agrees with it.
   ;; `:warn` and `false` are there for a caller that wants one of them, spelled out.
-  [{:keys [space recover? tms naming constraints]
+  [{:keys [space recover? tms naming]
     :or   {space 0 recover? :auto tms :dense naming :strict}
     :as   opts}
    recover-fn reindex-fn]
@@ -1533,14 +1475,9 @@
   ;; still be reported as the typo it is rather than as a fsync tick that logs a class
   ;; name (`config/check!`).
   (config/check!)
+  (check-constraints-opt! opts)
   (check-opts! opts "open-kb")
   (check-naming! naming)
-  ;; **No default here, and nil is not one.**  An unstated policy means the caller said
-  ;; nothing, which `checks/arbitrating?` answers from the process default — so a
-  ;; `binding` and `VAELII_ARBITRATE_CONSTRAINTS=1` still move a KB that did not ask.
-  ;; Defaulting to `:refuse` here would make every KB state a policy and silently take
-  ;; the var out of the picture.
-  (when (some? constraints) (check-constraints! constraints))
   (doseq [half [:base :overlay]]
     (when-let [sub (get opts half)]
       (check-opts! sub (str half))
@@ -1617,7 +1554,8 @@
         rstore  (if (= :overlay rkind)
                   (mount/mount-records own-rstore
                                        (:records base)
-                                       (mount/meta-kv ovr ov-opts))
+                                       (mount/meta-kv ovr ov-opts)
+                                       own-istore)
                   (record-store-for rkind opts))
         [istore index-durable?]
         (if (= :overlay ikind)
@@ -1680,9 +1618,6 @@
               ;; whose policy moved under it would hold two vocabularies with
               ;; nothing recording which sentence arrived under which
               :naming    naming
-              ;; likewise, and nil on purpose — the caller said nothing, so
-              ;; `checks/arbitrating?` reads the process default
-              :constraints constraints
               ;; empty rather than `{:no-belief false :no-index false}`: a key
               ;; absent means *nobody has asked yet*, which is not the same
               ;; answer as "no".  The store is not populated until the branch
@@ -2032,7 +1967,8 @@
   The same three filters `matches-visible` applies, since this *is* the retrieval
   `isa?` and the disjointness check are built on and the two must not disagree about
   what the KB holds: believed, asserted in a context `context` sees, and not hidden
-  from it by an `except`.  A negative membership is excluded by the argument test
+  from it by an `except`.  With no context, a membership is believed as its own context
+  reads it (`res/own-hidden-fn`).  A negative membership is excluded by the argument test
   rather than by a truth filter — a `(not (T x))` sentex has `not` for its functor and
   `(T x)` for its lone argument, so it is not a unary sentence *about* `x` at all."
   ([kb x] (types-of kb x '?ctx))
@@ -2042,7 +1978,9 @@
          visible? (if (sx/variable? context)
                     (constantly true)
                     (let [up (tax/context-up (reasoning/taxonomy kb) context)] #(contains? up %)))
-         hidden?  (or (res/hidden-fn kb context) (constantly false))]
+         ;; a read with no reader reads each membership at its own context
+         hidden?  (or (if (sx/variable? context) (res/own-hidden-fn kb) (res/hidden-fn kb context))
+                      (constantly false))]
      ;; the unary roster goes straight to the sentexes holding x as their LONE
      ;; argument, instead of every sentex mentioning x anywhere (any position, any
      ;; nesting) or even every one holding it at argument 1 — this runs on every unary
@@ -2097,6 +2035,20 @@
       (let [a (boolean (some #(tax/genl? tax % t context) types))]
         (vswap! isa assoc t a)
         a))))
+
+(defn relation-arity
+  "The exact arity `pred` itself is declared with, visible from `context` (nil: every
+  believed declaration), or nil: its `(arity P n)` declaration (`tax/declared-arity`, a
+  map read), else its exact-arity class membership (`tax/exact-arity-classes`).  The reader
+  for a caller outside the arity check (the provers, `describe`, the quality pass); the
+  check reads the same two spellings through its per-assert membership reader."
+  [kb pred context]
+  (or (let [n (tax/declared-arity (reasoning/taxonomy kb) pred context)]
+        (when (and (integer? n) (pos? n)) n))
+      (let [ms (memberships kb pred (or context '?ctx))]
+        (first (for [[t n] tax/exact-arity-classes
+                     :when (isa-among? ms t)]
+                 n)))))
 
 (defn isa?
   "Is individual `x` (transitively) of type `t`?  Considers only type memberships
@@ -2336,23 +2288,17 @@
                   direct))))))))
 
 ;; ---- the P/¬P coincidence set --------------------------------------------
-;; A negation nogood (`settle/negation-nogoods`) needs a body stored in *both*
-;; polarities, and most negative facts have no positive twin.  Enumerating every
-;; stored negation on every settle to find the few that clash is quadratic in the
-;; negation count (a settle runs after every mutation).  `:opposed` instead holds
-;; exactly the bodies stored both ways, maintained O(1) from two `count-at` probes at
-;; the store primitive below and the removal choke point (`integrate/sentex-removed!`),
-;; so settle iterates it directly rather than scanning the `:false` trie node.
+;; A negation nogood needs a body stored in *both* polarities, and most negative facts
+;; have no positive twin.  `:opposed` holds exactly the bodies stored both ways,
+;; maintained O(1) from two `count-at` probes at the store primitive below and the
+;; removal choke point (`integrate/sentex-removed!`), and `decide/note-candidate!` reads
+;; a body's pairs only when the body is in it.
 
 (defn body-under-not
   "A fact's body with a single leading `not` stripped — the form both polarities key
   on (`(not (flies Opus))` and `(flies Opus)` share the body `(flies Opus)`).  Double
   negation is eliminated at store time, so one strip suffices; a non-fact sentence (a
-  rule, a metadata declaration) is returned unchanged and simply never opposes.
-
-  Public because `settle` reads it the other way round: given a handle whose belief just
-  moved, this is which opposed body's pairing that handle could have changed, and so
-  which memo entry the settle owes a re-derivation."
+  rule, a metadata declaration) is returned unchanged and simply never opposes."
   [sentence]
   (if (and (sequential? sentence) (= 'not (first sentence)) (= 2 (count sentence)))
     (second sentence)
@@ -2360,8 +2306,7 @@
 
 (defn- opposed?
   "Is `body` stored in **both** polarities — some positive fact under it and some
-  `(not body)` under `[:false body]`?  Storage only (belief-blind), the same gate
-  `negation-nogoods` applies before its belief-filtered pairing.  The `:false` probe
+  `(not body)` under `[:false body]`?  Storage only (belief-blind).  The `:false` probe
   runs first: it is 0 for the overwhelmingly common body with no negative twin, so the
   positive `key-stream` walk is never built."
   [idx body]
@@ -2374,55 +2319,28 @@
   left: add its body when both polarities are now stored, drop it otherwise.  Runs at
   the store primitive (`create-sentex`, every add) and the removal choke point
   (`integrate/sentex-removed!`, every remove), so no store path can bypass it; recover
-  rebuilds the set with `rebuild-opposed!`.
-
-  The same call posts the body to `:negations` as **dirty** and drops whatever the last
-  settle derived for it.  A store or a removal is the one way a body's pairing can change
-  with no belief moving to record it — a second `(not S)` arriving in another context adds
-  a pair between two sentexes that were both already believed — so the settle's other
-  input, the relabelled region, cannot see it.  Posting it here means the two inputs
-  together cover every way the answer moves, and it costs one `dissoc` and one `conj` at a
-  choke point that was already being paid for.
-
-  **Both writes are skipped for a body that is opposed neither before this store nor
-  after it**, which on a positive corpus is every fact of it.  Such a body's pairing has
-  not moved: it had none and it has none.  Nothing can read the post either — the two
-  readers of `:dirty` (`settle/moved-bodies` and `settle/note-supersession-flips!`)
-  filter it by `:opposed` — and `:by-body` cannot hold an entry for it, since entries are
-  only ever derived for bodies that were opposed at some settle and the arm below drops
-  one the moment a body stops being opposed.  Without the guard a bulk load conj's every
-  fact's body into a `:dirty` set that grows to the size of the corpus and is then
-  dropped whole by the first settle, which is the one phase of a load whose per-fact cost
-  **grows** with the corpus (docs/storage.md, \"What a bulk load costs\")."
+  rebuilds the set with `rebuild-opposed!`.  The write is skipped for a body that is
+  opposed neither before this store nor after it, which on a positive corpus is every
+  fact of it."
   [kb sentence]
   (let [b   (sx/canon (body-under-not sentence))
         now (opposed? (:index kb) b)]
     (when (or now (contains? @(reasoning/opposed kb) b))
-      (swap! (reasoning/opposed kb) (if now conj disj) b)
-      (swap! (reasoning/negations kb) (fn [m] (-> m
-                                                  (update :by-body dissoc b)
-                                                  (update :dirty (fnil conj #{}) b)))))))
+      (swap! (reasoning/opposed kb) (if now conj disj) b))))
 
 (defn rebuild-opposed!
   "Recompute `:opposed` from storage — the scan `recover` needs, since the set is
   derived state no store holds.  Enumerates the stored negated bodies (the `:false`
   node's children, deduped across contexts) and keeps those with a stored positive
-  twin.
-
-  The `:negations` memo over that set goes with it, for the reason every derived cache
-  here is cleared rather than merged into on a rebuild: a merge can only ever *add*, so an
-  entry for a body the rebuilt set no longer holds would outlive the sentexes it was
-  derived from.  The `relabel` in the same `recover` touches every node, so the next
-  settle repopulates it whole."
+  twin."
   [kb]
   (let [idx (:index kb)]
-    (reset! (reasoning/negations kb) {})
     (reset! (reasoning/opposed kb)
             (into #{} (comp (filter #(opposed? idx %)) (map sx/canon))
                   (p/children idx [:false])))))
 
 ;; ---- the argument-preservation roster --------------------------------------
-;; `settle/preserving-nogoods` has to decide, once per settle, whether this KB declares
+;; `discovery/preserving-nogoods` has to decide, once per settle, whether this KB declares
 ;; any argument preservation at all — and the exact read of that (`inherit/declarations-
 ;; exist?`) is a set-cardinality read per declaration functor, on the path every assert
 ;; runs.  `assert_cost_test` prices exactly that kind of constant.  So the declarations
@@ -2736,6 +2654,8 @@
      ;; ...and the argument-preservation roster, third of the same kind: settle's gate on
      ;; whether preservation can clash with anything is an `empty?` on it
      (note-preserving! kb (sx/sentence-of s) true)
+     ;; ...and the candidates of the nogood families a reader decides
+     (decide/note-candidate! kb s true)
      [h s])))
 
 (defn canonical-sentence
@@ -2787,6 +2707,7 @@
     (note-opposed! kb (:sentence sx))
     (note-excepted! kb sx false)
     (note-preserving! kb (:sentence sx) false)
+    (decide/note-candidate! kb sx false)
     ;; ...and the new spelling in — `create-sentex`'s half, with the handle it already has
     (p/put-sentex (:records kb) s')
     (p/index-sentex idx s' h)
@@ -2798,6 +2719,7 @@
     (note-opposed! kb (:sentence s'))
     (note-excepted! kb s' true)
     (note-preserving! kb (:sentence s') true)
+    (decide/note-candidate! kb s' true)
     s'))
 
 (defn find-or-create-sentex
@@ -2864,7 +2786,7 @@
 
   Three readings share it and must not drift: `core/supporting-justifications`,
   `core/dependent-justifications`, and a clash report's `:justifications`
-  (`settle/clash-report`).  All three start from a **set** of allocation-ordered ids
+  (`clashes/clash-report`).  All three start from a **set** of allocation-ordered ids
   (`jtms/supports`, `jtms/dependents`), so an unsorted listing would say which
   derivation happened to land first.
 

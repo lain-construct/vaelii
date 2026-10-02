@@ -34,7 +34,7 @@
 
 (defn- built [seed n] (first (build seed n)))
 
-(defn- without-window [snap] (dissoc snap :touched :touched-in :touched-new))
+(defn- without-window [snap] (dissoc snap :touched :touched-in :touched-new :touched-out))
 
 (defn- result= [a b]
   (if (map? a)

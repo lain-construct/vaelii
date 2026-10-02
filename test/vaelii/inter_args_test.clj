@@ -129,8 +129,8 @@
     (testing "within the arity the homogeneity constraint binds"
       (is (v/assert kb (list rel A B) 'CxUniverse))
       (is (= :inter-arg-type (ex-type #(v/assert kb (list rel A P) 'CxUniverse)))))
-    (testing "and a third argument is still an arity refusal"
-      (is (= :arity (ex-type #(v/assert kb (list rel A B A) 'CxUniverse)))))))
+    (testing "and a third argument is still an arity nogood, stored and read OUT"
+      (is (tu/stored-in-clash? kb (list rel A B A) 'CxUniverse)))))
 
 ;; ---- the sugar -------------------------------------------------------------
 

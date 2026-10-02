@@ -164,7 +164,7 @@ their budgets, not behind one:
 | `do/label` (`:all`, `:one`, `:sat`) | 1 | 1 × budget |
 | `edge-solver` on one program | 1 | 1 × budget |
 | `classify` / `classify-program` | 2 (`classify-both` runs cautious then brave) | 2 × budget |
-| `do/labeling` (`label-dilemmas`) | 3 (classification's two, then the labeling) | 3 × budget |
+| `do/labeling` (`label-dilemmas`) | 0 where the solve-free bracket enumerates; 3 past its caps (classification's two, then the labeling) | 3 × budget |
 
 Measured at `VAELII_ASP_TIME_LIMIT=1` on a 78-atom program that finishes under neither:
 `classify-both` returns after **about two budgets**, a single `:label` or `:all-optima`
@@ -367,7 +367,7 @@ Two invariants, held by construction and pinned in `asp_label_test`:
 ```
 
 A contradiction settled by *strength* rather than arbitration never builds a program
-at all (`decide-nogood` defeats the weaker side directly), so `classify` correctly
+at all (`decide/verdict` defeats the weaker side directly), so `classify` correctly
 reports nothing arbitrary.
 
 Without a backend, `classify` reports every contested assumption `:supportable`. Each
@@ -412,7 +412,7 @@ before you label.** Retracting the returned handles reopens the tie.
 ## Why `:violated` comes back empty
 
 It looks like a gap and is not. An irreducible known-true clash never reaches a
-solver: `settle/settle`'s `decide-nogood` classifies it as *hard* and reports it
+solver: `decide/verdict` classifies it as *hard* and reports it
 directly, and `solve/program` drops any nogood with no contested member. What does
 arrive always has a contested member, and defeating that member always satisfies it.
 

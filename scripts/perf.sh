@@ -32,11 +32,15 @@ cd "$ROOT" || exit 1
 # shellcheck source=scripts/lib/runlog.sh
 . "$ROOT/scripts/lib/runlog.sh"
 
-# A worktree runs `lein gate` and nothing heavier (scripts/lib/slots.sh says why);
-# `--list` measures nothing and runs anywhere.
+# `--list` prints the checks' names and claims, measures nothing, runs anywhere and
+# writes no log or ledger row.  A worktree runs `lein gate` and nothing heavier
+# (scripts/lib/slots.sh says why).
+case " $* " in
+  *" --list "*) exec lein with-profile +bench run -m vaelii.bench.perf "$@" ;;
+esac
 # shellcheck source=scripts/lib/slots.sh
 . "$ROOT/scripts/lib/slots.sh"
-case " $* " in *" --list "*) ;; *) require_primary "lein perf" ;; esac
+require_primary "lein perf"
 
 PERF_ROOT="logs/perf"
 LOG="$PERF_ROOT/run-$$.log"

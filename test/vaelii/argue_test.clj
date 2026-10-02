@@ -115,16 +115,16 @@
     (v/assert kb (list hungry Muffet) 'CxUniverse {:strength :monotonic})
     (is (= :true (:verdict (v/argue kb (list hungry Muffet) 'CxUniverse))))))
 
-(tu/deftest-kb argue-weighs-the-two-classes-when-both-sides-still-stand
-  ;; settle defeats the default side, so both sides answer only between the writes and
-  ;; the settle, which a deferred settle holds open
+(tu/deftest-kb argue-reads-the-default-side-withdrawn-inside-a-deferred-batch
+  ;; the reader decides the pair when it reads it, so a deferred settle holds no moment
+  ;; where both sides stand
   (tu/with-terms [hungry Muffet]
     (let [r (v/with-deferred-settle kb
               (v/assert kb (list hungry Muffet) 'CxUniverse {:strength :monotonic})
               (v/assert kb (list 'not (list hungry Muffet)) 'CxUniverse {:strength :default})
               (v/argue kb (list hungry Muffet) 'CxUniverse))]
-      (is (= [:monotonic :default] [(:defeat-class (:for-why r)) (:defeat-class (:against-why r))])
-          "both sides answered, each with its class")
+      (is (= [:monotonic nil] [(:defeat-class (:for-why r)) (:defeat-class (:against-why r))])
+          "the known-true side answers with its class, and the default side is withdrawn")
       (is (= :true (:verdict r))))))
 
 (tu/deftest-kb argue-with-proofs-asked-reads-the-derivation-off-its-own-answers

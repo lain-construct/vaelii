@@ -35,6 +35,7 @@
             [vaelii.host.starter :as starter]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.config :as config]
+            [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.memory :as mem]
             [vaelii.impl.observe :as observe]
@@ -566,7 +567,7 @@
           (spit out (str (pr-str {:test test :audit-error (str e)}) "\n") :append true))))))
 
 (defn fresh
-  "An empty KB on the shared scratch space, with `opts` (`:constraints`, `:naming`, …)
+  "An empty KB on the shared scratch space, with `opts` (`:naming`, `:tms`, …)
   merged into its opts."
   ([] (fresh {}))
   ([opts] (fresh-slot block-top opts)))
@@ -877,6 +878,21 @@
   [kb sentence context]
   (first-if-singleton (v/sentexes-matching kb sentence context)))
 
+(defn stored-in-clash?
+  "Assert `sentence` in `context` and answer whether the entry point stored it as a member
+  of a definitional clash the settle decided: its handle is a member of a standing
+  `contradictions` or `conflicts` nogood, or it was stored and is not believed.  A
+  refusal answers false, as does a sentence stored and believed with no clash."
+  ([kb sentence context] (stored-in-clash? kb sentence context {}))
+  ([kb sentence context opts]
+   (let [h (try (v/assert kb sentence context opts)
+                (catch clojure.lang.ExceptionInfo _ nil))]
+     (boolean
+      (and (integer? h)
+           (or (some #(contains? (:nogood %) h)
+                     (concat (v/contradictions kb) (v/conflicts kb)))
+               (not (v/ask? kb sentence context))))))))
+
 ;; ---- content snapshots + auto-teardown ----------------------------------
 
 (defn sentex-ids    [kb] (set (p/sentex-ids    (:records kb))))
@@ -903,17 +919,22 @@
    :justifications (count (p/justification-ids (:records kb)))})
 
 (defn- retract-added!
-  "Retract every premise the test added since `before` (a set of sentex ids).
+  "Retract every premise the test added since `before` (a set of sentex ids), and every
+  record it added that is not a network datum at all.  A roster declaration whose
+  retraction `retract!` refuses an author (`checks/forcing-retraction-problem`) is
+  retracted too, since a test that loads CxCore into a scratch KB owes the baseline.
   Dependency-directed retraction sweeps the derived consequences, so the KB
   returns to its baseline.  Loops to a fixpoint in case teardown order matters."
   [kb before]
-  (loop [guard 0]
-    (let [prems (premise-ids kb)
-          added (filter #(and (prems %) (not (contains? before %)))
-                        (p/sentex-ids (:records kb)))]
-      (when (and (seq added) (< guard 50))
-        (doseq [h added] (try (v/retract! kb h) (catch Throwable _)))
-        (recur (inc guard))))))
+  (with-redefs [checks/forcing-retraction-problem (constantly nil)]
+    (loop [guard 0]
+      (let [prems (premise-ids kb)
+            added (filter #(and (not (contains? before %))
+                                (or (prems %) (not (jtms/known-datum? (reasoning/tms kb) %))))
+                          (p/sentex-ids (:records kb)))]
+        (when (and (seq added) (< guard 50))
+          (doseq [h added] (try (v/retract! kb h) (catch Throwable _)))
+          (recur (inc guard)))))))
 
 (defn stored-terms
   "Every symbol term the *records* mention — the term roster's oracle, computed the

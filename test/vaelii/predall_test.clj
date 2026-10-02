@@ -287,11 +287,10 @@
       (is (not (contains? vs Carol))
           "a stored filler is typed by the slot contract itself — no second type system"))))
 
-(tu/deftest-kb a-ternary-pred-all-specified-is-refused
+(tu/deftest-kb a-ternary-pred-all-specified-is-read-out
   ;; the old three-place spellings are gone, not tolerated: both functors are
-  ;; binary_predicates and the arity classifications are pairwise disjoint, so the
-  ;; ternary forms fail WFF at assert instead of quietly storing a second type system —
-  ;; and the refusal is pinned by its typed reason, not by any exception happening.
+  ;; binary_predicates, so a ternary form is stored as an arity nogood and every reader
+  ;; that sees the binding takes it OUT instead of quietly believing a second type system.
   (tu/with-terms [hasPet person pet managedBy manager report]
     (v/assert kb (list 'binary_predicate hasPet) 'CxUniverse)
     (v/assert kb (list 'unary_predicate person) 'CxUniverse)
@@ -301,11 +300,8 @@
     (v/assert kb (list 'unary_predicate report) 'CxUniverse)
     (doseq [[functor a b c] [['predAllSpecified hasPet person pet]
                              ['predSpecifiedAll managedBy manager report]]]
-      (try (v/assert kb (list functor a b c) 'CxUniverse)
-           (is false (str "the retired ternary " functor " spelling must refuse"))
-           (catch clojure.lang.ExceptionInfo e
-             (is (= :arity (:type (ex-data e)))
-                 (str functor ": refused for its arity, not incidentally")))))))
+      (is (tu/stored-in-clash? kb (list functor a b c) 'CxUniverse)
+          (str "the retired ternary " functor " spelling is read OUT")))))
 
 (tu/deftest-kb argn-spellings-share-args-declaration-checks
   ;; the binary projections run arg's own declaration

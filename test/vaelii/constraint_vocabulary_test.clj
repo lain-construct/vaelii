@@ -8,12 +8,9 @@
   enforced and one that was never implemented, and each of these closes one way that
   happened:
 
-  * **`arity` reaches back.**  It was enforced going forward and silent in the other
-    order: `(arity P 2)` arriving after `(P A B C)` left the fact stored, believed and
-    unmentioned, while an identical fact one line later was refused.  It now reports.  It
-    deliberately does **not** arbitrate, and that is tested here too — the sentex it would
-    pair with is the vocabulary entry the conviction is read through, so a nogood over the
-    pair would defeat its own premise.
+  * **`arity` reaches back.**  A tuple of a length its predicate's binding breaks is a
+    one-member nogood each reader decides, whichever of the two arrived first.  The
+    binding is on the forced-monotonic roster, so the nogood never takes it OUT.
 
   * **`interArg` exists.**  It was a plausible-looking declaration that stored fine and
     did nothing.  The conditional argument constraint reads open-world *twice, in opposite
@@ -24,85 +21,40 @@
   declaration nobody classified fails a test rather than landing in silence — needs a
   CxCore baseline where these need a cleared one, and lives in
   `vocabulary-audit-test`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.rules :as vr]
-            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
-(defn- arity-entries
-  "The retroactive arity reports in the ledger, by the predicate each is about — one entry
-  per declaration, so the predicate is the key."
-  [kb]
-  (into {} (for [e (v/violations kb) :when (= :arity (:violation e))]
-             [(:predicate (:detail e)) (:detail e)])))
-
 ;;; ── arity: the declaration that arrives after the facts ────────────────
 
-(tu/deftest-kb a-declaration-arriving-last-reports-the-facts-it-convicts
-  ;; The measured gap.  Before this, `violations` came back empty and the wrong-arity
-  ;; fact was indistinguishable from a right one — while the very next assert of the
-  ;; same shape was refused.
-  (tu/with-terms [parentOf A B C D E F]
+(tu/deftest-kb a-declaration-arriving-last-takes-the-facts-it-convicts-out
+  (tu/with-terms [parentOf A B C D E F G H]
     (v/assert kb (list parentOf A B C) 'CxUniverse)
     (v/assert kb (list parentOf D E F) 'CxUniverse)
-    (v/assert kb (list 'arity parentOf 2) 'CxUniverse)
-    (let [e  (get (arity-entries kb) parentOf)
-          dh (v/handle-of kb (list 'arity parentOf 2) 'CxUniverse)]
-      (is (some? e) "the declaration files a finding")
-      (is (= 2 (:count e)) "both stored facts are counted")
-      (is (= #{(list parentOf A B C) (list parentOf D E F)} (set (:sample e))))
-      (is (= 2 (:expected e)))
-      (is (= dh (:declared-after e))
-          "the entry points at the declaration that convicted")
-      (is (not (:truncated e)))
-      (is (v/ask? kb (list parentOf A B C) 'CxUniverse)
-          "reported, not withdrawn — nothing here moves belief"))))
-
-(tu/deftest-kb one-entry-per-declaration-and-not-one-per-fact
-  ;; The ledger keeps the newest 1000 entries, so a per-fact entry would let one
-  ;; predicate's extent evict every other violation in it.  Nothing is
-  ;; lost by counting: the facts are all still stored, so anybody who wants the list can
-  ;; re-derive it.
-  (tu/with-terms [wideOf X]
-    (doseq [i (range 30)]
-      (v/assert kb (list wideOf X (symbol (str "TmpW" i)) 'Extra) 'CxUniverse))
-    (v/assert kb (list 'arity wideOf 2) 'CxUniverse)
-    (let [es (arity-entries kb)]
-      (is (= 1 (count es)) "thirty convicted facts, one entry")
-      (is (= 30 (:count (get es wideOf))))
-      (is (= 3 (count (:sample (get es wideOf)))) "a sample, not the extent"))))
-
-(tu/deftest-kb the-conforming-facts-of-the-same-predicate-are-not-counted
-  (tu/with-terms [parentOf A B C G H]
-    (v/assert kb (list parentOf A B C) 'CxUniverse)
     (v/assert kb (list parentOf G H) 'CxUniverse)
     (v/assert kb (list 'arity parentOf 2) 'CxUniverse)
-    (is (= [(list parentOf A B C)] (:sample (get (arity-entries kb) parentOf)))
-        "the sweep is over the predicate's extent; only the offender is in the finding")))
+    (is (not (v/ask? kb (list parentOf A B C) 'CxUniverse)))
+    (is (not (v/ask? kb (list parentOf D E F) 'CxUniverse)))
+    (is (v/ask? kb (list parentOf G H) 'CxUniverse) "the conforming fact stays believed")
+    (is (empty? (v/violations kb)) "and nothing is filed in the ledger")))
 
 (tu/deftest-kb the-membership-spelling-of-an-arity-reaches-back-too
-  ;; `(binary_predicate P)` says the same thing as `(arity P 2)`, and `declared-arity`
-  ;; reads both — so the trigger set and the O(1) gate have to know both, or the reach
-  ;; works for a KB carrying CxCore's derivation rules and silently not for one
-  ;; loaded without them.
+  ;; `(binary_predicate P)` says the same thing as `(arity P 2)`, and a reader reads both.
   (tu/with-terms [relOf A B C]
     (v/assert kb (list relOf A B C) 'CxUniverse)
     (v/assert kb (list 'binary_predicate relOf) 'CxUniverse)
-    (is (= [(list relOf A B C)] (:sample (get (arity-entries kb) relOf))))))
+    (is (not (v/ask? kb (list relOf A B C) 'CxUniverse)))))
 
 (tu/deftest-kb a-variableArity-predicate-is-exempt-on-the-retroactive-path-too
-  ;; The exemption is the declaration's whole point (`lessThan` has a binary floor and
-  ;; reads a chain), and it is read by one `arity-problem` — so it must hold whichever
-  ;; direction the check is asked from.
   (tu/with-terms [chainOf A B C]
     (v/assert kb (list chainOf A B C) 'CxUniverse)
     (v/assert kb (list 'variable_arity chainOf) 'CxUniverse)
     (v/assert kb (list 'arity chainOf 2) 'CxUniverse)
-    (is (empty? (arity-entries kb)))))
+    (is (v/ask? kb (list chainOf A B C) 'CxUniverse))))
 
 (tu/deftest-kb a-kb-that-declares-no-arity-reports-nothing
   (tu/with-terms [otherOf A B C D E]
@@ -110,86 +62,39 @@
     (v/assert kb (list otherOf D E) 'CxUniverse)
     (is (empty? (v/violations kb)))))
 
-(tu/deftest-kb the-reach-is-an-event-and-an-unrelated-settle-does-not-re-file-it
-  ;; The entry says a declaration *newly* convicted stored content.  A settle whose region holds neither the
-  ;; declaration nor the facts has nothing new to say.
-  (tu/with-terms [stableOf A B C X]
-    (v/assert kb (list stableOf A B C) 'CxUniverse)
-    (v/assert kb (list 'arity stableOf 2) 'CxUniverse)
-    (is (= 1 (count (arity-entries kb))))
-    (v/assert kb (list 'thing X) 'CxUniverse)
-    (is (= 1 (count (arity-entries kb))) "not re-filed")))
-
-(tu/deftest-kb a-rebuild-files-no-arity-reach-entry
-  ;; The entry says a declaration *newly* convicted stored content, and on a rebuild
-  ;; everything arrives at once, so there is no newly — the same reason the cut notices sit
-  ;; out `*rebuilding?*`.  Without the gate, every `recover` would re-file
-  ;; the whole corpus's worth of findings.
-  ;;
-  ;; This is the opposite of `constraint-nogoods`' answer, and the difference is the kind:
-  ;; a nogood is *state* belief depends on, so it must be re-derived on a rebuild or the
-  ;; KB answers differently after a restart.  A report is an event, and re-filing it says
-  ;; nothing new.
+(tu/deftest-kb a-rebuild-reads-the-arity-nogood-the-same
+  ;; The candidate index is rebuilt by `recover`, so the reading after a restart is the
+  ;; reading before it.
   (tu/with-terms [rebuiltOf A B C]
     (v/assert kb (list rebuiltOf A B C) 'CxUniverse)
     (v/assert kb (list 'arity rebuiltOf 2) 'CxUniverse)
-    (is (= 1 (count (arity-entries kb))) "filed once when the declaration arrived")
-    (v/clear-violations! kb)
+    (is (not (v/ask? kb (list rebuiltOf A B C) 'CxUniverse)))
     (v/recover kb)
-    (is (empty? (arity-entries kb)) "and not again by the rebuild")
-    (is (v/ask? kb (list rebuiltOf A B C) 'CxUniverse)
-        "the fact survives the rebuild — nothing here withdrew it")))
+    (is (not (v/ask? kb (list rebuiltOf A B C) 'CxUniverse)) "and the same after the rebuild")))
 
-(tu/deftest-kb a-reach-cut-short-by-the-budget-says-so
-  ;; A bounded sweep that read as full coverage would be worse than no sweep: a reader
-  ;; would take an entry's `:count` for the whole answer.  Budget bound low rather than
-  ;; asserting 4096 facts, which is what the var is dynamic for.
-  (binding [tax/*exposure-instance-budget* 2]
-    (tu/with-terms [manyOf X]
-      (doseq [i (range 6)]
-        (v/assert kb (list manyOf X (symbol (str "TmpM" i)) 'Extra) 'CxUniverse))
-      (v/assert kb (list 'arity manyOf 2) 'CxUniverse)
-      (let [e (get (arity-entries kb) manyOf)]
-        (is (:truncated e) "the entry admits the sweep was bounded")
-        (is (= 2 (:budget e)))
-        (is (<= (:count e) 2) "and counts only what it looked at")))))
+(tu/deftest-kb a-wrong-arity-fact-is-stored-and-read-out-at-the-entry-point
+  ;; No refusal reads a binding, so the stored set is the same in either arrival order.
+  (tu/with-terms [firstOf A B C]
+    (v/assert kb (list 'arity firstOf 2) 'CxUniverse)
+    (is (some? (v/assert kb (list firstOf A B C) 'CxUniverse)))
+    (is (not (v/ask? kb (list firstOf A B C) 'CxUniverse)))))
 
-(tu/deftest-kb a-wrong-arity-fact-is-refused-at-the-entry-point-under-either-policy
-  ;; The forward entry point has a caller to refuse and the conviction is not a weighable pair,
-  ;; so unlike disjointness and functionality the constraint policy does not move it.
-  (doseq [policy [:refuse :arbitrate]]
-    (testing (str policy)
-      (tu/with-neutral-kb [kb #(v/open-kb (assoc (tu/scratch-space) :constraints policy))]
-        (tu/with-terms [firstOf A B C]
-          (v/assert kb (list 'arity firstOf 2) 'CxUniverse)
-          (is (thrown? clojure.lang.ExceptionInfo
-                       (v/assert kb (list firstOf A B C) 'CxUniverse)))
-          (is (nil? (v/handle-of kb (list firstOf A B C) 'CxUniverse))))))))
-
-(deftest an-arity-clash-is-not-a-nogood
-  ;; The decision, pinned rather than argued.  `arity` names a second believed sentex, so
-  ;; it looks exactly like the three arbitrable kinds — and the sentex it names is the
-  ;; vocabulary entry `declared-arity` answers from, which follows belief.  Arbitrating
-  ;; the pair defeats the declaration, the taxonomy's arity table drops it at
-  ;; settle-finish, and the next settle re-derives no clash because the table it would
-  ;; read is empty: the dilemma is decided once and then reported by nobody, and while
-  ;; the declaration is out it constrains no *other* use of the predicate either.
-  ;;
-  ;; So the pair stays out of `arbitrable-kinds`, and this is the test that fails if it
-  ;; is ever put back without first making the vocabulary read independent of the belief
-  ;; the nogood moves.
-  (is (not (contains? checks/arbitrable-kinds :arity))
-      "arity is not arbitrable; the comment above arbitrable-kinds has the measurement")
-  (tu/with-neutral-kb [kb #(v/open-kb (assoc (tu/scratch-space) :constraints :arbitrate))]
+(deftest an-arity-nogood-never-takes-the-binding-out
+  ;; The binding is the ground of the nogood and not a member, and it is on the
+  ;; forced-monotonic roster: written at `:default`, it is stored `:monotonic`.  A
+  ;; `:monotonic` tuple against it is a hard clash, so both stay believed and `conflicts`
+  ;; reports the pair; no dilemma opens.
+  (is (not (contains? checks/arbitrable-kinds :arity)))
+  (tu/with-neutral-kb [kb #(v/open-kb (tu/scratch-space))]
     (tu/with-terms [relOf A B C]
       (v/assert kb (list relOf A B C) 'CxUniverse {:strength :monotonic})
-      (v/assert kb (list 'arity relOf 2) 'CxUniverse)
-      (is (empty? (v/contradictions kb)) "no dilemma is opened")
-      (is (empty? (v/conflicts kb))      "and no irreducible clash")
-      (is (v/ask? kb (list 'arity relOf 2) 'CxUniverse)
-          "the declaration is not defeated, so it still constrains everything else")
-      (is (v/ask? kb (list relOf A B C) 'CxUniverse))
-      (is (seq (arity-entries kb)) "the finding is reported instead"))))
+      (let [decl (v/assert kb (list 'arity relOf 2) 'CxUniverse)]
+        (is (empty? (v/contradictions kb)) "no dilemma is opened")
+        (is (= [[:arity [decl]]] (mapv (juxt :kind #(mapv :handle (:grounds %))) (v/conflicts kb)))
+            "a hard clash grounded on the declaration")
+        (is (v/ask? kb (list 'arity relOf 2) 'CxUniverse)
+            "the declaration is not defeated, so it still constrains everything else")
+        (is (v/ask? kb (list relOf A B C) 'CxUniverse))))))
 
 ;;; ── interArg: the conditional argument constraint ───────────────────
 

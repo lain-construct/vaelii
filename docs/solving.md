@@ -345,8 +345,8 @@ fully-dense ~12×12+ region stays degenerate, so its candidate graph is kept spa
 `recover` — but it is **not a JTMS premise**, so it is never IN.
 
 This is what makes labelings coexist, and it needs no ATMS. Every belief-filtered read —
-`sentexes-matching`, `in?`, and the `settle` nogood scan (`negation-nogoods`) — sees only IN
-sentexes. So an inert `(not head)` sitting in a context that sees a believed `head` forms
+`sentexes-matching`, `in?`, and the nogood decisions (`decide/losers`, the settle's
+rounds) — sees only IN sentexes. So an inert `(not head)` sitting in a context that sees a believed `head` forms
 **no** nogood and moves **no** belief. Coexistence falls out of *not premising*.
 
 ```clojure

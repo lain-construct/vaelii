@@ -48,14 +48,15 @@
 
 (defn- two-branch-kb
   "A KB with a functional mark and two mutually blind branches under CxUniverse, one
-  holding each half of a clash — the shape every case below joins with one edge.
+  holding each half of a clash at `:monotonic`, the class a merge needs of both members —
+  the shape every case below joins with one edge.
   Returns the KB; the caller wires whatever sits under `left` and asserts the edge."
   [kb left right pred a v1 v2]
   (v/assert kb (list 'functional pred) 'CxUniverse)
   (v/assert kb (list 'genlCx left 'CxUniverse) 'CxCore)
   (v/assert kb (list 'genlCx right 'CxUniverse) 'CxCore)
-  (v/assert kb (list pred a v1) left)
-  (v/assert kb (list pred a v2) right)
+  (v/assert kb (list pred a v1) left {:strength :monotonic})
+  (v/assert kb (list pred a v2) right {:strength :monotonic})
   kb)
 
 (deftest a-reader-wired-under-sub-before-the-edge-still-gains-the-merge
@@ -89,8 +90,8 @@
       (doseq [[lo hi] [[CxExtra 'CxUniverse] [CxRight 'CxUniverse] [CxSub 'CxUniverse]
                        [CxRead CxSub] [CxRead CxExtra]]]
         (v/assert kb (list 'genlCx lo hi) 'CxCore))
-      (v/assert kb (list parentOf Tom MumA) CxExtra)
-      (v/assert kb (list parentOf Tom MumB) CxRight)
+      (v/assert kb (list parentOf Tom MumA) CxExtra {:strength :monotonic})
+      (v/assert kb (list parentOf Tom MumB) CxRight {:strength :monotonic})
       (is (not (merged-at? kb MumA MumB CxRead)) "no context sees both halves yet")
       (v/assert kb (list 'genlCx CxSub CxRight) 'CxCore)
       (testing "the reader below sub derives it, being the only context that sees the pair"
@@ -150,8 +151,8 @@
                                (tu/fresh-term :individual "MumA")
                                (tu/fresh-term :individual "MumB")]))]
               (doseq [[k a b] kids]
-                (v/assert kb (list parentOf k a) CxLeft)
-                (v/assert kb (list parentOf k b) CxRight))
+                (v/assert kb (list parentOf k a) CxLeft {:strength :monotonic})
+                (v/assert kb (list parentOf k b) CxRight {:strength :monotonic}))
               (v/assert kb (list 'genlCx CxSub CxRight) 'CxCore)
               (testing (str "budget " budget ": merges the candidates it kept")
                 (is (= expected-merges

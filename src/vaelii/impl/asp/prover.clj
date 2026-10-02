@@ -16,23 +16,23 @@
   This is the read-path delivery of the forced/arbitrary signal.  The only prior route to
   it, `do/labeling`, **commits** — it re-asserts the kept side at `:monotonic` and defeats
   the loser everywhere (docs/labeling.md).  This prover commits nothing: it reads
-  `label/classify-datum` — `classify-program` over the asked datum's component with a
-  backend, the solve-free `label/classify-local` without one — all pure reads over settled
-  belief, so a query answers and leaves belief, `contradictions` and `last-program` exactly
-  as they were.
+  `label/classify-datum` — the solve-free `label/classify-local`, refined by a backend's
+  `classify-program` only past its caps — all pure reads over settled belief, so a query
+  answers and leaves belief, `contradictions` and `last-program` exactly as they were.
 
   ## Opting in
 
   Registered like the other optional reasoners — `(add-reasoner kb :brave-cautious)` — so
-  the ASP stack stays off a KB's load path until a caller asks (docs/asp.md).  With a
-  backend it enumerates optima and classifies exactly; **with none it reads the solve-free
-  JTMS bracket** (`label/classify-local`), which enumerates the dilemmas' optimal
-  resolutions from the dependency graph and classifies each datum by which resolutions keep
-  it — `:true` in every, `:supportable` in some, `:false` in none.  Exact for a datum whose
+  the ASP stack stays off a KB's load path until a caller asks (docs/asp.md).  **It reads
+  the solve-free JTMS bracket** (`label/classify-local`) with or without a backend, which
+  enumerates the dilemmas' optimal resolutions from the dependency graph and classifies
+  each datum by which resolutions keep it — `:true` in every, `:supportable` in some,
+  `:false` in none.  Exact for a datum whose
   clusters it enumerates: the one cluster its support touches, or several whose product of
   resolutions stays within `VAELII_CLASSIFY_MAX_JOINT_OPTIMA`.  A datum past that cap, or
-  one touching a cluster too large to enumerate, degrades to `:supportable`
-  (docs/labeling.md).
+  one touching a cluster too large to enumerate, degrades to `:supportable`; a backend
+  refines a member of such a cluster when no member of it derives from another, where a
+  `Program` is exact (docs/labeling.md).
 
   ## Where it stops
 
@@ -62,7 +62,7 @@
 
 (defn- believed?
   "Is the stored sentex for `s` believed as `context` reads it (`res/believed-at?`)?  The
-  brave/cautious answer for a datum in no dilemma — every optimum agrees with belief
+  brave/cautious answer for a datum no dilemma moves — every optimum agrees with belief
   there — read at `ask`'s level (what is stored or cached, no rule expansion)."
   [kb s context]
   (boolean (when-let [h (kb/find-sentex-handle kb s context)]
@@ -71,7 +71,7 @@
 (defn- holds?
   "Does `(<modal> s)` hold in `context`?  `label/classify-datum` places the stored `s`
   among the current dilemmas' optimal labelings — in every, in some, in none — and is nil
-  for a datum no dilemma classifies, where the answer is ordinary belief."
+  for a datum no dilemma moves, where the answer is ordinary belief."
   [kb modal s context]
   (when-let [h (kb/find-sentex-handle kb s context)]
     (case (label/classify-datum kb h)

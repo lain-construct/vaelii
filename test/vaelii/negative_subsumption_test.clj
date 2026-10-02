@@ -257,7 +257,7 @@
   ;; The exception path's half of the contravariant fan.  An `exceptWhen` conjunct
   ;; `(not (winged ?x))` is answered by a stored `(not (appendaged X))` once
   ;; `winged ⊑ appendaged`, so the arrival of that negation has to reach the firing whose
-  ;; exception it now blocks.  The narrowing filter (`settle/reachable-predicates`) takes
+  ;; exception it now blocks.  The narrowing filter (`recheck/reachable-predicates`) takes
   ;; both closures under a negation for exactly this: `genls` for the negative trigger
   ;; that answers the conjunct directly, `specs` for the positive one that moves it by
   ;; contradicting what the conjunct reads.
@@ -278,7 +278,7 @@
 (tu/deftest-kb a-contravariant-exception-is-released-when-the-negation-goes
   ;; The withdrawal direction of the same channel, and a separate claim from the arrival:
   ;; blocking and releasing are two passes of the settle loop, and the narrowing
-  ;; (`settle/reachable-predicates`) is asked once per direction.  A trigger that reaches
+  ;; (`recheck/reachable-predicates`) is asked once per direction.  A trigger that reaches
   ;; the firing on the way in but not on the way out leaves the conclusion swept with
   ;; nothing to derive it again, which is what `released-rules` re-chains.
   (tu/with-terms [winged_t appendaged_t bird_t flies Opus]

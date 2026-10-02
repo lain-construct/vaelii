@@ -335,6 +335,60 @@
                              (if delete? "deleting " "adding ") [a b]))))))))
         (finally (caches/set-limit :taxonomy-closures nil))))))
 
+;; ---- genls-global-among ---------------------------------------------------
+
+(deftest a-closure-cut-to-marked-terms-agrees-with-the-cut-reference
+  ;; `genls-global-among` and `genls-global-union` build each answer from its parents' cuts, never the closure,
+  ;; so it is checked against the reference closure cut to the marks: over the same
+  ;; random edits as the up-closure build, diamonds and cycles, with cycles `:scc` has
+  ;; not recorded under `*defer-cycle-scc?*` (the build falls back to cutting the
+  ;; closure).  One memo shared across every node's read, in a seeded order so a cut is
+  ;; built before the ancestors it is built from, and a fresh memo per read; the marks
+  ;; are none, a few, or all.
+  (let [nodes (mapv #(symbol (str "c_" %)) (range 14))
+        rnd   (java.util.Random. 161803)]
+    (doseq [defer? [false true]]
+      (binding [tax/*defer-depths?*    defer?
+                tax/*defer-cycle-scc?* defer?]
+        (dotimes [trial 12]
+          (let [t (tax/create-taxonomy), live (atom #{})]
+            (dotimes [_ 40]
+              (let [delete? (and (seq @live) (< (.nextInt rnd 10) 3))
+                    i       (.nextInt rnd (count nodes))
+                    j       (if (< (.nextInt rnd 10) 2)
+                              (.nextInt rnd (count nodes))
+                              (+ i (.nextInt rnd (- (count nodes) i))))
+                    [a b]   (if delete?
+                              (nth (sort @live) (.nextInt rnd (count @live)))
+                              (when (not= i j) [(nodes i) (nodes j)]))]
+                (when a
+                  (if delete?
+                    (do (tax/del-genl! t a b 1) (swap! live disj [a b]))
+                    (do (tax/add-genl t a b 1) (swap! live conj [a b])))
+                  (let [up (:up (oracle t :genl))]
+                    (doseq [among [#{} (into #{} (filter (fn [_] (< (.nextInt rnd 4) 1))) nodes)
+                                   (set nodes)]]
+                      (let [memo (volatile! {})
+                            cut  #(into #{} (filter among) (get up % #{%}))]
+                        (doseq [n (sort-by (fn [_] (.nextInt rnd)) nodes)]
+                          (is (= (cut n) (tax/genls-global-among t n among memo))
+                              (str "shared memo, defer " defer? " trial " trial " node " n
+                                   " marks " (sort among)))
+                          (is (= (cut n) (tax/genls-global-among t n among (volatile! {})))
+                              (str "fresh memo, defer " defer? " trial " trial " node " n
+                                   " marks " (sort among))))))
+                    ;; and a union of what a mapping makes of each term: labels of a few
+                    ;; values each, as the arity index asks for the lengths bound above
+                    (let [labels (into {} (keep (fn [n] (when (< (.nextInt rnd 3) 1)
+                                                          [n (into #{} (filter (fn [_] (< (.nextInt rnd 2) 1))) [1 2 3])])))
+                                       nodes)
+                          memo   (volatile! {})]
+                      (doseq [n (sort-by (fn [_] (.nextInt rnd)) nodes)]
+                        (is (= (into #{} (mapcat labels) (get up n #{n}))
+                               (tax/genls-global-union t n (mapcat labels) memo))
+                            (str "union, defer " defer? " trial " trial " node " n
+                                 " labels " (into (sorted-map) labels)))))))))))))))
+
 (deftest genl?-agrees-with-reference-under-loose-depths
   ;; `genl?` / `sees?` answer reachability with a depth-pruned early-exit walk, *not*
   ;; by building the full closure `agrees?` compares.  The prune is sound only while
@@ -1301,3 +1355,93 @@
       (testing "the live memo still answers its own rule set after the probe read"
         (tax/add-rewrite-rule t 3 '(jj (jj ?x)) '(kk ?x) 'CxA)
         (is (= '[(ff (ff ?x)) (jj (jj ?x))] (rewrite-lhss t)))))))
+
+(deftest a-held-asserted-in-reach-answers-what-the-scoped-closure-holds
+  ;; `genl-asserted-in?` is held in the closure cache under the relation's `:gen` and the
+  ;; context set: every answer, asked twice and again after an edge moves, is membership
+  ;; in the closure over the edges stated in the set
+  (let [rnd  (java.util.Random. 5039)
+        ns   (mapv #(symbol (str "n" %)) (range 10))
+        sets [#{:a} #{:a :b} #{:b :c} #{:a :b :c}]
+        seen (atom 0)]
+    (dotimes [trial 8]
+      (let [t     (tax/create-taxonomy)
+            edges (atom [])
+            h     (atom 0)
+            add!  (fn [] (let [i (.nextInt rnd 9) j (+ i 1 (.nextInt rnd (- 9 i)))
+                               c ([:a :b :c] (.nextInt rnd 3))
+                               e [(ns i) (ns j) (swap! h inc)]]
+                           (tax/add-genl t (ns i) (ns j) (peek e) c)
+                           (swap! edges conj e)))
+            check (fn [phase]
+                    (doseq [ctxs sets, a ns, b ns]
+                      (let [want (contains? (tax/genls-asserted-in t a ctxs) b)]
+                        (when want (swap! seen inc))
+                        (dotimes [_ 2]
+                          (is (= want (tax/genl-asserted-in? t a b (set (seq ctxs))))
+                              (str "trial " trial " " phase " " a " " b " " ctxs))))))]
+        (dotimes [_ 14] (add!))
+        (check :before)
+        (let [[a b hd] (@edges (.nextInt rnd (count @edges)))]
+          (tax/del-genl! t a b hd))
+        (add!)
+        (check :after)))
+    (is (pos? @seen) "the taxonomies reach some pairs")))
+
+(deftest an-asserted-among-reach-answers-what-the-scoped-closure-holds
+  ;; `genls-asserted-among` is the scoped closure over the edges stated in the set, cut to
+  ;; `among`: random taxonomies, some edges closing a cycle, every node against random
+  ;; subsets and against every node, before and after an edge moves
+  (let [rnd  (java.util.Random. 7211)
+        ns   (mapv #(symbol (str "n" %)) (range 10))
+        sets [#{:a} #{:a :b} #{:b :c} #{:a :b :c}]
+        seen (atom 0)]
+    (dotimes [trial 8]
+      (let [t     (tax/create-taxonomy)
+            edges (atom [])
+            h     (atom 0)
+            add!  (fn [] (let [i (.nextInt rnd 10)
+                               j (if (< (.nextInt rnd 6) 1)
+                                   (.nextInt rnd 10)
+                                   (min 9 (+ i 1 (.nextInt rnd (max 1 (- 9 i))))))
+                               c ([:a :b :c] (.nextInt rnd 3))]
+                           (when (not= i j)
+                             (let [e [(ns i) (ns j) (swap! h inc)]]
+                               (tax/add-genl t (ns i) (ns j) (peek e) c)
+                               (swap! edges conj e)))))
+            check (fn [phase]
+                    (doseq [ctxs sets, a ns
+                            among (cons (set ns)
+                                        (repeatedly 3 #(into #{} (filter (fn [_] (.nextBoolean rnd))) ns)))]
+                      (let [want (into #{} (filter among) (tax/genls-asserted-in t a ctxs))]
+                        (swap! seen + (count (disj want a)))
+                        (is (= want (tax/genls-asserted-among t a among (set (seq ctxs))))
+                            (str "trial " trial " " phase " " a " " among " " ctxs)))))]
+        (dotimes [_ 16] (add!))
+        (check :before)
+        (when (seq @edges)
+          (let [[a b hd] (@edges (.nextInt rnd (count @edges)))]
+            (tax/del-genl! t a b hd)))
+        (add!)
+        (check :after)))
+    (is (pos? @seen) "the taxonomies reach some terms")))
+
+(deftest an-asserted-in-reach-walks-only-where-its-witness-path-cannot-answer
+  ;; one path x → y → z, its edges stated in :a and :b
+  (let [t     (tax/create-taxonomy)
+        walks (atom 0)
+        real  @#'tax/reachable-filtered?]
+    (tax/add-genl t 'x 'y 1 :a)
+    (tax/add-genl t 'y 'z 2 :b)
+    (with-redefs [tax/reachable-filtered? (fn [& args] (swap! walks inc) (apply real args))]
+      (is (tax/genl-asserted-in? t 'x 'z #{:a :b}))
+      (is (zero? @walks) "a set stating the whole path is answered off it")
+      (is (not (tax/genl-asserted-in? t 'z 'x #{:a :b})))
+      (is (zero? @walks) "and a pair with no path through any edge walks nothing")
+      (is (not (tax/genl-asserted-in? t 'x 'z #{:a :c})))
+      (is (= 1 @walks) "a set stating part of the path walks")
+      (is (not (tax/genl-asserted-in? t 'x 'z (set [:c :a]))))
+      (is (= 1 @walks) "once for every reader asserting those contexts")
+      (tax/add-genl t 'x 'z 3 :c)
+      (is (tax/genl-asserted-in? t 'x 'z #{:a :c}))
+      (is (= 1 @walks) "and an edge change reads the new path"))))

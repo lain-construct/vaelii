@@ -40,7 +40,7 @@ causal / temporal / goal reasoning via predicate metadata and a goal-achievement
 | coordinate several agents over one KB | [koinii.md](koinii.md) | [feed.md](feed.md), [belief.md](belief.md) |
 | judge whether a KB's knowledge is any good | [quality.md](quality.md) | [taxonomy.md](taxonomy.md), [inference.md](inference.md) |
 | read another system's KB in | [foreign.md](foreign.md) | [kbs.md](kbs.md) |
-| write for this engine when I already think in another one | [arriving.md](arriving.md) | [from-cyc.md](from-cyc.md), [from-asp.md](from-asp.md), [from-prolog.md](from-prolog.md), [from-production-rules.md](from-production-rules.md) |
+| write for this engine when I already think in another one | [arriving.md](arriving.md) | [from-cyc.md](from-cyc.md), [from-asp.md](from-asp.md), [from-defeasible-logic.md](from-defeasible-logic.md), [from-prolog.md](from-prolog.md), [from-production-rules.md](from-production-rules.md) |
 | find the code behind a subsystem | [namespaces.md](namespaces.md) | [dependencies.md](dependencies.md) |
 | add a predicate the engine itself reads | [predicates.md](predicates.md) | [namespaces.md](namespaces.md), [naming.md](naming.md) |
 | understand what a query costs | [indexing.md](indexing.md) | [density.md](density.md), [anytime.md](anytime.md) |
@@ -68,6 +68,7 @@ rather than a compatibility claim.
 
 - [from-cyc.md](from-cyc.md) — the OpenCyc and ResearchCyc vocabulary: `Mt` to context, collections as unary predicates, the four privileged contexts you already have names for, and the argument-type check that gates on the way in.
 - [from-asp.md](from-asp.md) — answer set programming: choice rules, integrity and weak constraints, the three negations, and the two structural differences — no grounding step, and belief is one labeling rather than a set of models.
+- [from-defeasible-logic.md](from-defeasible-logic.md) — defeasible logic as SPINdle implements it: facts, strict and defeasible rules, defeaters, superiority compiled into `exceptWhen`, and the tie between two defaults that is believed on both sides rather than withheld.
 - [from-prolog.md](from-prolog.md) — Prolog and Datalog: the capitalization that means nearly the opposite here, clause order that is not control, the cut that does not exist, and retraction that reaches what rested on the premise.
 - [from-production-rules.md](from-production-rules.md) — CLIPS, Jess and Drools: a consequent that concludes rather than acts, the conflict resolution that is absent on purpose, and the alpha network that is opt-in with no beta network behind it.
 

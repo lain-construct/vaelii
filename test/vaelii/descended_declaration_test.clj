@@ -103,8 +103,8 @@
   (tu/with-terms [parentOf fatherOf relates Tom]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
       (v/assert kb (list 'functional parentOf) 'CxUniverse)
-      (v/assert kb (list fatherOf Tom lo) 'CxUniverse)
-      (v/assert kb (list fatherOf Tom hi) 'CxUniverse)
+      (v/assert kb (list fatherOf Tom lo) 'CxUniverse {:strength :monotonic})
+      (v/assert kb (list fatherOf Tom hi) 'CxUniverse {:strength :monotonic})
       (is (false? (same-class? kb lo hi)) "nothing above fatherOf carries the mark yet")
       (v/assert kb (edge-deriving-rule relates) 'CxUniverse)
       (v/assert kb (list relates fatherOf parentOf) 'CxUniverse)
@@ -173,7 +173,7 @@
       (v/assert kb (list 'genl fatherYearOf parentYearOf) 'CxUniverse)
       (v/assert kb (list 'genl parentYearOf ancestorYearOf) 'CxUniverse))
     (v/assert kb (list fatherYearOf Tom 1980) 'CxUniverse)
-    (let [vs (checks/arbitrable-violations kb (list fatherYearOf Tom 1990) 'CxUniverse)]
+    (let [vs (#'checks/functional-problems kb (list fatherYearOf Tom 1990) 'CxUniverse)]
       (is (= 1 (count vs))
           (str "two marks above one filler is one clash, not one per mark: "
                (pr-str (mapv (juxt :type :pred :existing) vs))))
@@ -189,7 +189,8 @@
       (is (not= fatherYearOf (:pred (first vs)))
           "and not the sentence's own functor, which is unmarked"))
     (testing "and both marks really are above the sentence's predicate"
-      (is (= :functional (ex-type #(v/assert kb (list fatherYearOf Tom 1990) 'CxUniverse)))))))
+      (is (tu/stored-in-clash? kb (list fatherYearOf Tom 1990) 'CxUniverse))
+      (is (= [:functional] (mapv :kind (v/contradictions kb)))))))
 
 ;; ---- a clash names the predicate the mark is on ------------------------
 ;;
@@ -203,7 +204,7 @@
     (v/assert kb (list 'functional parentYearOf) 'CxUniverse)
     (v/assert kb (list 'genl fatherYearOf parentYearOf) 'CxUniverse)
     (v/assert kb (list fatherYearOf Tom 1980) 'CxUniverse)
-    (let [p (first (v/check kb (list fatherYearOf Tom 1990) 'CxUniverse))]
+    (let [p (first (#'checks/functional-problems kb (list fatherYearOf Tom 1990) 'CxUniverse))]
       (is (= :functional (:type p)))
       (is (= parentYearOf (:pred p))
           "the slot that is already filled is the marked predicate's, not the functor's"))))
@@ -213,7 +214,7 @@
     (v/assert kb (list 'asymmetric zzOver) 'CxUniverse)
     (v/assert kb (list 'genl zzWayOver zzOver) 'CxUniverse)
     (v/assert kb (list zzWayOver A B) 'CxUniverse {:strength :monotonic})
-    (let [p (first (v/check kb (list zzWayOver B A) 'CxUniverse))]
+    (let [p (first (#'checks/asymmetry-problems kb (list zzWayOver B A) 'CxUniverse))]
       (is (= :asymmetric (:type p)))
       (is (= zzOver (:pred p))
           "the predicate that cannot hold both ways is the marked one"))))

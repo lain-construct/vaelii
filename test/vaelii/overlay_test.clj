@@ -519,6 +519,157 @@
         (rm-rf! dir)
         (v/clear! base)))))
 
+(deftest a-durable-fork-remounted-over-a-grown-base-is-refused
+  ;; A fork keys its records, and its excepts' targets, by handle.  Remounted over a base
+  ;; that has since grown into the handles the fork minted, the fork's record at each
+  ;; shared handle would win the read and hide the base sentence there — so the remount
+  ;; is refused, naming the handles, and the fork's directory is left free.
+  (let [n     (gensym)
+        base  (fresh-base n)
+        grown (populate! (doto (v/open-kb {:backend :memory :space [::grown n] :recover? false})
+                           (v/clear!)))
+        dir   (tmpdir)]
+    (try
+      (let [f  (v/fork base {:backend :disk-log :dir dir})
+            _  (v/assert f '(dog Rex) 'CxOverlay {:strength :monotonic})
+            h2 (v/assert f '(dog Fido) 'CxOverlay {:strength :monotonic})]
+        (v/assert f (list 'except (list 'sentexHandle h2)) 'CxOverlay)
+        (v/retract! f h2)
+        (v/close! f))
+      (doseq [s '[(dog Ace) (dog Bo) (dog Cy) (dog Di) (dog Ed) (dog Flo)]]
+        (v/assert grown s 'CxOverlay {:strength :monotonic}))
+      (testing "over the grown base, the remount is refused and names the shared handles"
+        (let [e (try (v/fork grown {:backend :disk-log :dir dir}) nil
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (= :fork-base-overlap (:type (ex-data e))))
+          (is (seq (:handles (ex-data e))))
+          (is (every? #(or (p/get-sentex (:records grown) %) (p/get-justification (:records grown) %))
+                      (:handles (ex-data e)))
+              "each named handle is one the grown base holds")
+          (is (empty? (disk/opened dir)) "and the refused mount holds no lock on the fork's directory")))
+      (testing "the refusal releases the fork's directory, and the fork is intact over its own base"
+        (let [f2 (v/fork base {:backend :disk-log :dir dir})]
+          (is (= '#{(dog Muffet) (dog Rex)}
+                 (sentences (v/sentexes-matching f2 '(dog ?x) 'CxOverlay))))
+          (v/close! f2)))
+      (testing "a fork that minted nothing remounts over a grown base"
+        (let [dir2 (tmpdir)]
+          (try
+            (v/close! (v/fork base {:backend :disk-log :dir dir2}))
+            (let [f3 (v/fork grown {:backend :disk-log :dir dir2})]
+              (is (contains? (sentences (v/sentexes-matching f3 '(dog ?x) 'CxOverlay)) '(dog Flo)))
+              (v/close! f3))
+            (finally (disk/close-dir! dir2) (rm-rf! dir2)))))
+      (finally
+        (disk/close-dir! dir)
+        (rm-rf! dir)
+        (v/clear! grown)
+        (v/clear! base)))))
+
+(deftest a-fork-that-only-removed-is-refused-over-a-grown-base
+  ;; A fork that retracts an inherited premise mints no handle, so nothing it holds can
+  ;; share one with the base.  But retracting the only `ownerOf` empties that key, and the
+  ;; deletion is sticky: over a base that has since added `(ownerOf Bob Fido)`, the fork
+  ;; would not match it.  So any growth refuses a fork that has written anything.
+  (let [n     (gensym)
+        base  (fresh-base n)
+        grown (populate! (doto (v/open-kb {:backend :memory :space [::grown n] :recover? false})
+                           (v/clear!)))
+        dir   (tmpdir)]
+    (try
+      (let [f (v/fork base {:backend :disk-log :dir dir})]
+        (v/retract! f (v/handle-of f '(ownerOf Ann Muffet) 'CxOverlay))
+        (v/close! f))
+      (v/assert grown '(ownerOf Bob Fido) 'CxOverlay {:strength :monotonic})
+      (let [e (try (v/fork grown {:backend :disk-log :dir dir}) nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :fork-base-overlap (:type (ex-data e))))
+        (is (= [] (:handles (ex-data e))) "no handle is shared; the base grew under a removal"))
+      (testing "over the base it was taken against, the removal stands"
+        (let [f2 (v/fork base {:backend :disk-log :dir dir})]
+          (is (empty? (v/sentexes-matching f2 '(ownerOf ?x ?y) 'CxOverlay)))
+          (v/close! f2)))
+      (finally
+        (disk/close-dir! dir)
+        (rm-rf! dir)
+        (v/clear! grown)
+        (v/clear! base)))))
+
+(deftest a-reindexed-fork-is-refused-over-a-grown-base
+  ;; `reindex` clears the fork's index and rebuilds it from the merged records, so the
+  ;; index is wholly the fork's own afterwards and holds nothing the base adds later —
+  ;; state the fork wrote against its base, with no record, tombstone or mark to show it.
+  (let [n     (gensym)
+        base  (fresh-base n)
+        grown (populate! (doto (v/open-kb {:backend :memory :space [::grown n] :recover? false})
+                           (v/clear!)))
+        dir   (tmpdir)]
+    (try
+      (let [f (v/fork base {:backend :disk-log :dir dir})]
+        (v/reindex f)
+        (v/close! f))
+      (v/assert grown '(dog Ace) 'CxOverlay {:strength :monotonic})
+      (is (= :fork-base-overlap
+             (:type (ex-data (try (v/fork grown {:backend :disk-log :dir dir}) nil
+                                  (catch clojure.lang.ExceptionInfo e e))))))
+      (finally
+        (disk/close-dir! dir)
+        (rm-rf! dir)
+        (v/clear! grown)
+        (v/clear! base)))))
+
+(deftest a-fork-is-refused-over-a-base-rebuilt-in-another-order
+  ;; The base did not grow, so no watermark sees it — but the handle the fork's tombstone
+  ;; names now holds another sentence, which the tombstone would hide.  The fork pinned
+  ;; the base record it removed, and the mount compares.
+  (let [n      (gensym)
+        mk     (fn [tag ss]
+                 (let [kb (doto (v/open-kb {:backend :memory :space [tag n] :recover? false})
+                            (v/clear!))]
+                   (doseq [s ss] (v/assert kb s 'CxOverlay {:strength :monotonic}))
+                   kb))
+        base   (mk ::order-a '[(dog Ace) (dog Bo)])
+        same   (mk ::order-same '[(dog Ace) (dog Bo)])
+        turned (mk ::order-turned '[(dog Bo) (dog Ace)])
+        dir    (tmpdir)
+        h      (v/handle-of base '(dog Ace) 'CxOverlay)]
+    (try
+      (let [f (v/fork base {:backend :disk-log :dir dir})]
+        (v/retract! f h)
+        (v/close! f))
+      (testing "over a base rebuilt in the same order the removal stands"
+        (let [f2 (v/fork same {:backend :disk-log :dir dir})]
+          (is (= '#{(dog Bo)} (sentences (v/sentexes-matching f2 '(dog ?x) 'CxOverlay))))
+          (v/close! f2)))
+      (testing "over one rebuilt in another order the mount is refused, naming the handle"
+        (let [e (try (v/fork turned {:backend :disk-log :dir dir}) nil
+                     (catch clojure.lang.ExceptionInfo e e))]
+          (is (= :fork-base-overlap (:type (ex-data e))))
+          (is (= [h] (:handles (ex-data e))))))
+      (finally
+        (disk/close-dir! dir)
+        (rm-rf! dir)
+        (doseq [kb [base same turned]] (v/clear! kb))))))
+
+(deftest a-fork-with-no-recorded-watermark-is-checked-by-content
+  ;; A fork mounted before the watermark was recorded has no range to probe, so its own
+  ;; records at base handles are compared with the base's: an override is a copy of the
+  ;; base record and passes, a record of its own at a handle the base now holds does not.
+  (let [n     (gensym)
+        base  (doto (mem/memory-record-store {:space [::legacy-base n]}) p/clear-records!)
+        own   (doto (mem/memory-record-store {:space [::legacy-fork n]}) p/clear-records!)
+        meta  #(doto (mem/memory-kv-backend {:space [::legacy-meta n %]}) p/kv-clear!)
+        h     (p/put-sentex base {:sentence '(dog Muffet) :context 'CxOverlay})]
+    (testing "an override that differs only in strength mounts"
+      (p/put-sentex own {:id h :sentence '(dog Muffet) :context 'CxOverlay :strength :monotonic})
+      (is (some? (ostore/overlay-record-store own base (meta 1)))))
+    (testing "a different record at a base handle is refused"
+      (p/put-sentex own {:id h :sentence '(dog Rex) :context 'CxOverlay})
+      (let [e (try (ostore/overlay-record-store own base (meta 2)) nil
+                   (catch clojure.lang.ExceptionInfo e e))]
+        (is (= :fork-base-overlap (:type (ex-data e))))
+        (is (= [h] (:handles (ex-data e))))))))
+
 (deftest close-releases-a-durable-forks-own-directory-and-never-the-bases
   ;; `v/close!` on the fork, not `disk/close-dir!` on the path — the fork's writable half
   ;; takes the same exclusive lock and holds the same handles as any durable KB, so
@@ -567,30 +718,20 @@
     (is (zero? (v/sentex-count base)) "the empty base stayed empty")
     (v/clear! f)))
 
-(deftest a-fork-inherits-the-entry-point-policies
+(deftest a-fork-inherits-the-naming-policy
   ;; A fork is a hypothesis over the base's own content, so it has to hold that content
-  ;; to the base's conventions.  A fork that quietly refused a clash the base would have
-  ;; arbitrated — or held a lenient corpus to `:strict` — answers a different question
-  ;; from the one the caller asked, and nothing in the call says so.
-  (let [base (doto (v/open-kb (assoc (base-opts 10) :naming :warn :constraints :arbitrate
-                                     :recover? false))
+  ;; to the base's conventions.  A fork that quietly held a lenient corpus to `:strict`
+  ;; answers a different question from the one the caller asked, and nothing in the call
+  ;; says so.
+  (let [base (doto (v/open-kb (assoc (base-opts 10) :naming :warn :recover? false))
                (v/clear!))]
     (try
       (let [f (v/fork base)]
         (is (= :warn (:naming f)))
-        (is (= :arbitrate (:constraints f)))
-        (testing "and the inherited policy is the one that acts"
-          (tu/with-terms [dog_t cat_t Muffet CxThis]
-            (v/assert f (list 'disjoint dog_t cat_t) CxThis)
-            (v/assert f (list dog_t Muffet) CxThis)
-            (is (v/assert f (list cat_t Muffet) CxThis)
-                "the base arbitrates, so the fork admits the clash rather than refusing")
-            (is (= 1 (count (v/contradictions f))))))
         (v/clear! f))
       (testing "and the fork's own opts still win"
-        (let [g (v/fork base {:naming :strict :constraints :refuse})]
+        (let [g (v/fork base {:naming :strict})]
           (is (= :strict (:naming g)))
-          (is (= :refuse (:constraints g)))
           (v/clear! g)))
       (finally (v/clear! base)))))
 
@@ -999,6 +1140,8 @@
     (next-id [_] (p/next-id inner))
     (put-sentex [_ sx] (p/put-sentex inner sx))
     (get-sentex [_ id] (p/get-sentex inner id))
+    (sentex-ids [_] (p/sentex-ids inner))
+    (justification-ids [_] (p/justification-ids inner))
     (delete-sentex! [_ id] (p/delete-sentex! inner id) (deliver parked true) @release nil)
     (get-provenance [_ id] (p/get-provenance inner id))
     (delete-provenance! [_ id] (p/delete-provenance! inner id))

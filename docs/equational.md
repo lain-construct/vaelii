@@ -113,8 +113,9 @@ integrate arm):
    schematic equation out of belief. Its denial is refused `:not-ground`, a rule
    concluding it is refused `:not-range-restricted`, a monotonic denial of a rewritten
    twin defeats the twin and leaves the equation IN, and a denial of a ground instance
-   leaves it IN and blocks the rewrite of that instance ("A denied ground instance"
-   below).
+   is held OUT, since `equals` is on the forced-monotonic roster: it is never
+   believed, and the equation rewrites that instance as it rewrites every other
+   ([nmtms.md](nmtms.md#the-forced-monotonic-roster)).
 2. **Migrate.** Every stored sentex the rule's LHS head reaches (`kb/find-sentexes`,
    one term-index lookup — a superset the per-sentex check narrows) gets a **rewritten
    twin** under the normal form, placed in the original's context, **derived and
@@ -147,55 +148,6 @@ migration, so a subgoal a rule expansion generates needs no further rewriting, t
 same reliance `ask` makes. `different` is exempt from goal rewriting: its arguments
 must stay un-rewritten to read class membership. An equality relation inside a goal keeps
 its arguments as written, so a negated equation goal meets the stored denial as spelled.
-
-## A denied ground instance
-
-A believed denial of a ground instance of a schematic equation — `(not (equals (fatherOf
-(fatherOf Tom)) (grandfather_of Tom)))` beside the equation above — carves that instance
-out of the equation for every reader that sees the denial. The denial is stored as stated,
-and it blocks the one rewrite step between the two terms it names. The equation stays
-believed and keeps rewriting every other instance. Where the denial is visible:
-
-- `ask?` answers the instance `(equals (fatherOf (fatherOf Tom)) (grandfather_of Tom))`
-  false and the denial true.
-- `(fatherOf (fatherOf Tom))` stays its own term. A fact naming it is stored and read as
-  stated, with no twin, and a goal naming `(grandfather_of Tom)` does not reach it.
-- `Ann`'s instance still rewrites and answers true. A fact naming both terms takes the
-  normal form that rewrites `Ann` alone: `(pairChain (fatherOf (fatherOf Tom))
-  (grandfather_of Ann))`.
-
-`special` files each stored denial of an `equals` over a compound term in the taxonomy,
-under the head of each compound term it names (`tax/add-instance-denial`).
-`res/rewrite-rules-in` gives the reader's rules a `:blocked?` predicate, and
-`rewrite/normalize` asks it before each root rewrite. A rewrite of a redex headed
-`fatherOf` reads the denials filed under `fatherOf` and no others, and a KB storing no such
-denial skips the predicate. The predicate compares the redex and its reduct with the
-denial's two terms, each read under the reader's symbol congruence with its arguments
-normalized under the reader's rules. It asks belief and visibility of each denial as the
-read runs, so the block follows current belief and holds in every arrival order.
-Migration, every goal and `provers/EqualityProver` read the same rules.
-
-A block that starts or stops holding restates the facts it reaches. The denial arriving,
-leaving, changing belief, or changing visibility through an `except` of it or a `genlCx`
-edge queues its terms with the `except` moves, and the settle migrates again the stored
-sentexes that name one of them (`special/denial-move-sweep`, one term-index lookup per
-term). A twin made before the denial arrived no longer spells its original's normal form,
-so it loses the justification resting on that original (`jtms/drop-justification!`), the
-sweep collects it, and the original stops being superseded. Retracting the denial runs the
-same sweep, which makes the twin again and supersedes the original.
-
-**The block compares no strengths.** A denial of an instance is an exception to the
-equation at that instance, not a contradiction with it. The equation and the denial both
-stay IN and no nogood forms, as an `exceptWhen` that holds blocks a rule's firing
-whatever the rule's strength ([exceptions.md](exceptions.md)). So a `:default` denial carves its
-instance out of a `:default` equation exactly as a `:monotonic` denial does: the denial
-names the two terms, and the equation reaches them only through a variable. A `:default`
-denial carves an instance out of a `:monotonic` equation the same way.
-
-A denial strictly below the fact's context is not reconciled per reader. The fact's own
-context does not see the denial, so the twin stands there and supersedes the original. A
-reader below that sees the denial answers the instance false and reads the fact under the
-twin's spelling.
 
 ## An except of an equation
 
@@ -315,15 +267,13 @@ non-confluent set confluent), and AC-rewriting for permutative equations. See
   `vaelii.impl.sentex`.
 - `vaelii.impl.taxonomy` — the belief-following rewrite-rule cache
   (`add-rewrite-rule`, `del-rewrite-rule!`, `rewrite-rules`, refreshed by
-  `refresh-beliefs`, cleared by `clear-relations!`) and the instance denials filed by
-  head (`add-instance-denial`, `instance-denials-at`).
-- `vaelii.impl.resolution` — `rewrite-rules-in`, the rules a reader normalizes under,
-  with the `:blocked?` predicate its visible denials give them.
+  `refresh-beliefs`, cleared by `clear-relations!`).
+- `vaelii.impl.resolution` — `rewrite-rules-in`, the rules a reader normalizes under.
 - `vaelii.impl.kb` — `rewrite-term` threads normalization into congruence.
 - `vaelii.impl.special` — the equality table's schematic arm:
   `integrate-rewrite-rule`, `migrate-matching`, and the schematic contributor
   collection in `migrate-sentex`; `except-move-sweeps`, which the settle runs for an
-  `except` that moved, and `denial-move-sweep`, for a block that moved.
+  `except` that moved.
 - `vaelii.impl.wff` — `equality-problems` waves the schematic shape through and
   refuses an unorientable one.
 - `vaelii.impl.checks` — `check-ground` exempts a schematic equation from the
@@ -332,6 +282,6 @@ non-confluent set confluent), and AC-rewriting for permutative equations. See
   `recovered-supersessions` (the recover entry point).
 - Tests: `rewrite_test` (the pure algebra), `equational_test` (the integration:
   Part A, Part B, belief-following, termination, order-independence, KBO orientation,
-  the four-path parity, an except of the equation, a denied ground instance),
+  the four-path parity, an except of the equation, a denial of an instance held OUT),
   `recovery_test` (durability),
   `order_independence_test` (an except arriving and leaving around the facts).

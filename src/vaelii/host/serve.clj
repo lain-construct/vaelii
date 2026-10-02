@@ -605,12 +605,12 @@
     :disjunction-too-wide
     :shape :not-encodable
     :arg-type :inter-arg-type :arg-genl :quoted-arg-type :arg-position :arg-constraint-kind
-    :arg-variable :arity
-    ;; the six relation-property refusals, which `check` reports and `assert` throws as
+    :arg-variable
+    ;; the four relation-property refusals, which `check` reports and `assert` throws as
     ;; one family — a caller that asserts content a declared property forbids has made
-    ;; one kind of mistake, so the six answer alike rather than splitting on which
+    ;; one kind of mistake, so the four answer alike rather than splitting on which
     ;; property caught it
-    :disjoint :functional :asymmetric :anti-transitive :irreflexive :anti-symmetric
+    :disjoint :functional :asymmetric :anti-transitive
     :unknown-option :bad-handle
     :unknown-handle :bad-level :exception-not-closed :not-stratified :naf-not-closed
     :quantifier-not-local

@@ -960,7 +960,7 @@ representation nobody chose.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_ARBITRATE_CONSTRAINTS` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `false` | Whether the process arbitrates a definitional clash rather than refusing it. A KB naming a `:constraints` policy overrides it. |
+| `VAELII_ARBITRATE_CONSTRAINTS` | `src/vaelii/impl/config.clj:290+` | none — the domain is empty and every value is refused | unset | **Refused, not read.** No switch chooses whether a definitional clash is refused: the KB stores it, decides it and reports it ([nmtms.md](nmtms.md#1-order-independence)). `config/check!` reads it at every `open-kb`, so a variable left set fails the open with `:unknown-option`. |
 | `VAELII_ASSERTIVE_ARG_TYPES` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `true` | Whether the argument constraints entail types as well as constrain them; `=0` opts out to the constraint-only reading ([argtypes.md](argtypes.md)). |
 | `VAELII_PRUNE_SUBSUMED_MINTS` | `src/vaelii/impl/config.clj:230+` | the boolean vocabulary | `true` | Whether a minted argument type gives way to a membership the KB believes more specifically, storing about a tenth fewer sentexes for the same answers; `=0` opts out and stores every mint ([argtypes.md](argtypes.md)). |
 | `VAELII_ASP_SOLVER` | `src/vaelii/impl/config.clj:270+` | `clingo` `clasp` | unset | Which ASP backend solves. Unset is auto: in-process clingo when it loads, else clasp. A name outside the roster is refused rather than read as auto. |

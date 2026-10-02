@@ -2,33 +2,25 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.exposure-test
   "Two memberships each admissible where stated, whose types some context can jointly
-  see as disjoint, are a real contradiction.  A **vantage** — the maximal common
-  descendant of the two memberships' contexts — decides the pair under either constraint
-  policy, and refuses no writer on grounds it cannot see.
+  see as disjoint, are a real contradiction.  Every reader that sees the pair whole
+  decides it, and no writer is refused on grounds it cannot see.
 
   Three routes bring one clash into joint sight — the membership arriving last, the
-  separating declaration arriving last, the `genlCx` edge arriving last — and the passes
-  run at settle exactly so the answer is route-agnostic.  Each route gets a test; the
-  shared lattice is two siblings under CxUniverse, with the joint viewer (when one
-  exists) below both.  The membership-last route's acceptance test is
+  separating declaration arriving last, the `genlCx` edge arriving last — and the answer
+  is route-agnostic.  Each route gets a test; the shared lattice is two siblings under
+  CxUniverse, with the joint viewer (when one exists) below both.  The membership-last
+  route's acceptance test is
   `disjoint_test/a-general-context-may-be-given-what-a-specific-one-forbids`.
 
   **A separation derivable only below the members' maximal common descendant is decided
-  too**: the context under it that reads the whole clash is a vantage
-  (`settle/clash-vantages`), so `deep-separation!`'s lattice is decided where the
-  separation comes into view.  The settle files no `:disjoint` ledger entry: a pair the
-  arbitration's budgeted sweep has not reached is counted by `:arbitration-truncated`,
-  and `exposed-clashes` answers the standing question of every jointly-visible pair,
-  decided or not."
-  (:require [clojure.set :as set]
-            [clojure.test :refer [deftest is testing use-fixtures]]
+  too**: the context under it that reads the whole clash decides it
+  (`decide/nogoods-at`), so `deep-separation!`'s lattice is decided where the separation
+  comes into view.  The settle files no `:disjoint` ledger entry, and `exposed-clashes`
+  answers the standing question of every jointly-visible pair, decided or not."
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.checks :as checks]
-            [vaelii.impl.rules :as vr]
-            [vaelii.impl.settle :as settle]
             [vaelii.impl.taxonomy :as tax]
-            [vaelii.test-util :as tu]
-            [vaelii.violation-roster-test :as roster]))
+            [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
 
@@ -159,7 +151,7 @@
   ;; the separation route: two memberships in sibling contexts, jointly visible only from
   ;; a context below both, and the disjointness arriving is what makes them a clash.
   ;; Neither member's own context sees the pair; CxD does, so CxD is the vantage and
-  ;; weighs it, under `:refuse` as under `:arbitrate`.  Two defaults are a dilemma.
+  ;; weighs it.  Two defaults are a dilemma.
   (tu/with-terms [CxA CxB CxD t1 t2 Pip]
     (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
     (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
@@ -242,66 +234,30 @@
            pair it forms with the standing types is not disjoint")
       (is (empty? (v/violations kb))))))
 
-(tu/deftest-kb many-cut-sweeps-file-one-entry-between-them
-  ;; The corpus-load shape: one settle whose region holds several extent-sweeping
-  ;; triggers, all but the first cut by arithmetic (docs/defenses.md, "A bounded sweep
-  ;; reports its cut once, read one past the budget").
-  (binding [tax/*exposure-instance-budget* 1]
-    (tu/with-terms [CxC t1 t2 Pip Quo]
-      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list t1 Pip) CxC)
-      (v/assert kb (list t2 Quo) CxC)
-      (v/assert kb (list 'disjoint t1 t2) CxC)
-      (v/clear-violations! kb)
-      ;; one settle, several sweeping triggers: two genl edges and a metatype
-      (tu/with-terms [t3 t4]
-        (v/with-deferred-settle kb
-          (v/assert kb (list 'genl t3 t1) 'CxUniverse)
-          (v/assert kb (list 'genl t4 t2) 'CxUniverse)
-          (v/assert kb (list t3 Pip) CxC)
-          (v/assert kb (list t4 Quo) CxC)))
-      (let [cut (filter #(= :arbitration-truncated (:violation %)) (v/violations kb))]
-        (is (>= (count cut) 1) "the bound is still reported")
-        (is (= 1 (count cut)) "once per settle, however many triggers it cut short")
-        (is (<= (count (get-in (first cut) [:detail :sample])) 3)
-            "with a sample rather than the whole list")))))
-
-;;; ── what a declaration implicates ─────────────────────────────────────
+;;; ── a declaration arriving over many memberships ───────────────────────
 ;;
-;; The budget above bounds the sweep; what the sweep spends it *on* is the candidate
-;; rule, and the two together decide whether a bounded pass buys real coverage or
-;; merely a bounded quantity of terms that were never going to convict.
+;; A reader finds a membership clash from the term its memberships name
+;; (`membership/term-nogoods`), so the terms holding one side only are no candidates and a
+;; declaration arriving reads none of them.
 
-(tu/deftest-kb a-separation-implicates-the-terms-below-both-sides-not-below-either
-  ;; The extent below one side is not the candidate set: a clash needs a membership
-  ;; from *each*, so `(disjoint t1 t2)` implicates the terms below t1 **and** t2.
-  ;; Forty terms sit below t1 alone and one below both, against a budget of four —
-  ;; so a sweep of everything below either side spends the budget ten times over on
-  ;; the fillers and never reaches the clash, while the cheaper side is one term.  The two
-  ;; memberships sit in sibling contexts, so only the context below both sees the pair
-  ;; and decides it.
-  (binding [tax/*exposure-instance-budget* 4]
-    (tu/with-terms [CxA CxB CxD t1 t2 Pip]
-      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxD CxA) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxD CxB) 'CxUniverse)
-      (dotimes [_ 40]
-        (v/assert kb (list t1 (tu/tmp-ind "Filler")) CxA))
-      (v/assert kb (list t1 Pip) CxA)
-      (v/assert kb (list t2 Pip) CxB)
-      (v/clear-violations! kb)
-      (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
-      (let [vs (v/violations kb)]
-        (is (= #{(list t1 Pip) (list t2 Pip)}
-               (into #{} (mapcat #(map :sentence (:sides %))) (v/contradictions kb)))
-            "the one term holding both is found, though t1's extent is ten times the budget")
-        (is (empty? (filter #{:arbitration-truncated} (map :violation vs)))
-            "and nothing was cut short — the cheaper side is one term, not forty")))))
+(tu/deftest-kb a-separation-decides-the-one-term-holding-both-sides
+  ;; Forty terms sit below t1 alone and one below both.  The two memberships sit in
+  ;; sibling contexts, so only the context below both sees the pair and decides it.
+  (tu/with-terms [CxA CxB CxD t1 t2 Pip]
+    (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxD CxA) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxD CxB) 'CxUniverse)
+    (dotimes [_ 40]
+      (v/assert kb (list t1 (tu/tmp-ind "Filler")) CxA))
+    (v/assert kb (list t1 Pip) CxA)
+    (v/assert kb (list t2 Pip) CxB)
+    (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
+    (is (= #{(list t1 Pip) (list t2 Pip)}
+           (into #{} (mapcat #(map :sentence (:sides %))) (v/contradictions kb)))
+        "the one term holding both is decided")))
 
 (tu/deftest-kb a-metatype-declaration-arriving-last-decides-the-clash
   ;; `(disjoint_metatype M)` is a *unary* sentence whose argument is a symbol — the
@@ -330,18 +286,12 @@
              (into #{} (map :sentence) (:sides (first cs))))))
     (is (empty? (v/violations kb)) "decided at CxD, not reported")))
 
-(tu/deftest-kb the-narrowed-sweep-finds-what-the-complete-question-finds
-  ;; The candidate rule is a *narrowing*, so the claim that matters is that it narrows
-  ;; to nothing real.  `exposed-clashes` uses no candidate rule and no budget — a term
-  ;; is a candidate iff it holds two believed memberships — so it is the independent
-  ;; oracle, and the two must agree clash for clash.
-  ;;
-  ;; The shape is the one that separates the rules: three separated pairs over terms
-  ;; that mostly hold one side only, so a sweep below either side collects fillers while
-  ;; the intersection collects the two that convict.  On OpenCyc the same comparison
-  ;; over every declaration is 638 against 638, with both differences empty.
-  ;; The memberships sit in sibling contexts, so only the context below both sees a pair
-  ;; and decides it.
+(tu/deftest-kb the-decided-pairs-are-the-jointly-visible-pairs
+  ;; `exposed-clashes` walks every stored sentex and names each term holding two
+  ;; believed memberships a context sees as separated, so it is an independent oracle for
+  ;; the candidate index, and the two must agree clash for clash.  Three separated pairs
+  ;; over terms that mostly hold one side only.  The memberships sit in sibling contexts,
+  ;; so only the context below both sees a pair and decides it.
   (tu/with-terms [CxA CxB CxD a1_t a2_t b1_t b2_t Pip Quo]
     (doseq [t [a1_t a2_t b1_t b2_t]]
       (v/assert kb (list 'genl t 'thing) 'CxUniverse))
@@ -368,483 +318,109 @@
       (is (= #{Pip Quo} (into #{} (map (comp :term :detail)) (v/exposed-clashes kb)))
           "two terms hold a separated pair; the 24 fillers hold one side only")
       (is (= truth decided)
-          "and the sweep that narrowed to them decides exactly what the complete question finds")
+          "and the readers decide exactly what the complete question finds")
       (is (empty? (v/violations kb))
           "every pair the oracle names has a vantage, so none is left to report"))))
 
-(tu/deftest-kb a-separation-naming-a-non-symbol-implicates-nobody
+(tu/deftest-kb a-separation-naming-a-non-symbol-convicts-nobody
   ;; A reified NAT argument — OpenCyc declares thousands of separations against terms like
   ;; `(AbnormalFn chromosome)` — has an empty spec closure, so no membership sits below
-  ;; it and no clash sits above it.  The reach is empty outright rather than falling out
-  ;; of the sizing arithmetic, and in particular the *symbol* side's extent is not swept
-  ;; on the strength of a side that can convict nobody.
-  (binding [tax/*exposure-instance-budget* 3]
-    (tu/with-terms [CxC real_t Pip]
-      (v/assert kb (list 'genl real_t 'thing) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
-      (dotimes [_ 20] (v/assert kb (list real_t (tu/tmp-ind "Filler")) CxC))
-      (v/assert kb (list real_t Pip) CxC)
-      (v/clear-violations! kb)
-      (v/assert kb (list 'disjoint (list 'SomeFn real_t) real_t) 'CxUniverse)
-      (let [vs (v/violations kb)]
-        (is (empty? (filter #(= :disjoint (:violation %)) vs))
-            "a compound can head no stored membership, so it is nobody's clash")
-        (is (empty? (filter #(= :arbitration-truncated (:violation %)) vs))
-            "and the 20 instances below the symbol side are not swept for its sake")))))
+  ;; it and no clash sits above it.
+  (tu/with-terms [CxC real_t Pip]
+    (v/assert kb (list 'genl real_t 'thing) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
+    (dotimes [_ 20] (v/assert kb (list real_t (tu/tmp-ind "Filler")) CxC))
+    (v/assert kb (list real_t Pip) CxC)
+    (v/assert kb (list 'disjoint (list 'SomeFn real_t) real_t) 'CxUniverse)
+    (is (empty? (v/contradictions kb))
+        "a compound can head no stored membership, so it is nobody's clash")))
 
-(tu/deftest-kb the-nogood-path-narrows-through-declaration-reach
-  ;; `declaration-parts` narrows through `declaration-reach`, so the budget is spent on
-  ;; enumeration rather than on terms that convict nobody.
-  (binding [checks/*arbitrate-constraints?* true
-            tax/*exposure-instance-budget* 4]
-    (tu/with-kb [kb]
-      (tu/with-terms [dog_t cat_t Rex]
-        (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
-        (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
-        (dotimes [_ 40] (v/assert kb (list dog_t (tu/tmp-ind "Pup")) 'CxUniverse))
-        (v/assert kb (list dog_t Rex) 'CxUniverse)
-        (v/assert kb (list cat_t Rex) 'CxUniverse)
-        (is (empty? (v/contradictions kb)) "nothing separates them yet")
-        (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
-        (is (= [:disjoint] (mapv :kind (v/contradictions kb)))
-            "the one term holding both is arbitrated, though dog_t's extent is ten times
-             the budget — the cheaper side is cat_t's single instance")))))
-
-(tu/deftest-kb a-metatype-member-implicates-only-the-holders-of-another-member
+(tu/deftest-kb a-metatype-member-arriving-last-decides-the-holder-of-two-members
   ;; The member route, `(M T)` arriving: T's instances can now clash with instances of
-  ;; M's *other* members, so a term below T holding nothing else of M is not a
-  ;; candidate.  Twenty such terms sit below dog_t against a budget of three.
-  (binding [tax/*exposure-instance-budget* 3]
-    (tu/with-terms [CxA CxB CxD animal_species dog_t cat_t Rex]
-      (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxD CxA) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxD CxB) 'CxUniverse)
-      (v/assert kb (list 'disjoint_metatype animal_species) 'CxUniverse)
-      (v/assert kb (list animal_species cat_t) 'CxUniverse)
-      (dotimes [_ 20] (v/assert kb (list dog_t (tu/tmp-ind "Pup")) CxA))
-      (v/assert kb (list dog_t Rex) CxA)
-      (v/assert kb (list cat_t Rex) CxB)
-      (v/clear-violations! kb)
-      (v/assert kb (list animal_species dog_t) 'CxUniverse)
-      (let [vs (v/violations kb)]
-        (is (= #{(list dog_t Rex) (list cat_t Rex)}
-               (into #{} (mapcat #(map :sentence (:sides %))) (v/contradictions kb)))
-            "only the term that also holds a second member is a candidate")
-        (is (empty? (filter #{:arbitration-truncated} (map :violation vs)))
-            "and the cheaper side is walked — cat_t's one instance, not dog_t's 21")))))
+  ;; M's *other* members, and twenty terms below dog_t hold nothing else of M.
+  (tu/with-terms [CxA CxB CxD animal_species dog_t cat_t Rex]
+    (v/assert kb (list 'genl dog_t 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl cat_t 'thing) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxB 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxD CxA) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxD CxB) 'CxUniverse)
+    (v/assert kb (list 'disjoint_metatype animal_species) 'CxUniverse)
+    (v/assert kb (list animal_species cat_t) 'CxUniverse)
+    (dotimes [_ 20] (v/assert kb (list dog_t (tu/tmp-ind "Pup")) CxA))
+    (v/assert kb (list dog_t Rex) CxA)
+    (v/assert kb (list cat_t Rex) CxB)
+    (v/assert kb (list animal_species dog_t) 'CxUniverse)
+    (is (= #{(list dog_t Rex) (list cat_t Rex)}
+           (into #{} (mapcat #(map :sentence (:sides %))) (v/contradictions kb)))
+        "only the term that also holds a second member clashes")))
 
-(tu/deftest-kb a-budgeted-sweep-decides-the-same-pair-in-either-arrival-order
-  ;; **Two** separations in one moved region, because one cannot show this: each `v/assert`
-  ;; settles, so a single declaration makes the region one element and `content-order` over
-  ;; it is a no-op.  Deferred into one settle with a budget covering one reach and not the
-  ;; other, the trigger order decides which pair is arbitrated at all — and reversing the
-  ;; write order must not move it.
-  ;;
-  ;; The budget is exactly one reach, so the second trigger arrives with nothing left: this
-  ;; is also what covers the spent-budget branch, which files on the probe rather than on
-  ;; the arithmetic.  Asserted on *which* separation was decided rather than on the `:kind`,
-  ;; since every disjointness clash has the same kind and a different pair would read
-  ;; identically.
-  ;;
-  ;; **Each arm invents its own terms**, and that is what makes the two comparable.  The
-  ;; arms share one KB — `with-kb` binds the fixture's, and a `fresh` mid-test would clear
-  ;; the store the net-neutrality check recorded its baseline against — so an arm reusing
-  ;; the other's vocabulary would sweep a reach the first arm had already doubled, and read
-  ;; as an arrival-order effect when it was a leftover.  Its own terms make the second
-  ;; arm's reach the same size as the first's, whatever is still standing beside it.
-  (binding [checks/*arbitrate-constraints?* true
-            tax/*exposure-instance-budget* 11]
-    (let [run (fn [backwards?]
-                (tu/with-kb [k]
-                  (tu/with-terms [aa_t bb_t cc_t dd_t Pip Quo]
-                    (doseq [t [aa_t bb_t cc_t dd_t]]
-                      (v/assert k (list 'genl t 'thing) 'CxUniverse))
-                    (doseq [t [aa_t bb_t cc_t dd_t]]
-                      (dotimes [_ 10] (v/assert k (list t (tu/tmp-ind "Pad")) 'CxUniverse)))
-                    (v/assert k (list aa_t Pip) 'CxUniverse)
-                    (v/assert k (list bb_t Pip) 'CxUniverse)
-                    (v/assert k (list cc_t Quo) 'CxUniverse)
-                    (v/assert k (list dd_t Quo) 'CxUniverse)
-                    (v/clear-violations! k)
-                    (v/with-deferred-settle k
-                      (doseq [d (cond-> [(list 'disjoint aa_t bb_t) (list 'disjoint cc_t dd_t)]
-                                  backwards? reverse)]
-                        (v/assert k d 'CxUniverse)))
-                    ;; normalized to *which* separation, since the two arms name different
-                    ;; terms and the sentences are therefore never `=`
-                    {:decided (into #{}
-                                    (keep (fn [s]
-                                            (let [ts (set (flatten s))]
-                                              (cond (contains? ts aa_t) :head
-                                                    (contains? ts cc_t) :tail))))
-                                    (map :sentence (v/contradictions k)))
-                     :cut     (->> (v/violations k)
-                                   (filter #(= :arbitration-truncated (:violation %)))
-                                   (mapv #(get-in % [:detail :triggers])))})))
-          fwd (run false)
-          rev (run true)]
-      (testing "the content-first trigger gets the budget, whichever was written first"
-        (is (contains? (:decided fwd) :head))
-        (is (contains? (:decided rev) :head)
-            "written second, and still the one the budget was spent on"))
-      (testing "and the one trigger it could not reach is reported rather than passed over"
-        (is (= [1] (:cut fwd)))
-        (is (= [1] (:cut rev))))
-      ;; And the **tail** agrees too, which is the half a weaker reading misses.  The
-      ;; budget is one reach, so exactly one of the two separations can be swept and the
-      ;; other is cut — and *which* must be decided by `content-order` over the triggers
-      ;; rather than by which was written first.  A reading that only checked the head
-      ;; pair would pass while the tail moved with arrival order, which is the shape this
-      ;; whole file is about (docs/nmtms.md).
-      (is (= (:decided fwd) (:decided rev))
-          "the same pairs decided, not merely the same head pair")
-      (is (= (:cut fwd) (:cut rev))
-          "and the same triggers reported unswept"))))
+(tu/deftest-kb a-functional-declaration-arriving-last-decides-its-pair-among-many-tuples
+  ;; A tuple mark offers its predicate's stored tuples to the candidates a reader decides
+  ;; (`special/offer-marked-existing`), so the pair written after twenty unrelated tuples
+  ;; is decided.
+  (tu/with-terms [ownerOf Last]
+    (v/assert kb (list 'binary_predicate ownerOf) 'CxUniverse)
+    (dotimes [_ 20]
+      (v/assert kb (list ownerOf (tu/tmp-ind "Thing") (tu/tmp-ind "Who")) 'CxUniverse))
+    (v/assert kb (list ownerOf Last 1) 'CxUniverse)
+    (v/assert kb (list ownerOf Last 2) 'CxUniverse)
+    (v/assert kb (list 'functional ownerOf) 'CxUniverse)
+    (is (= [:functional] (mapv :kind (v/contradictions kb))))))
 
-(tu/deftest-kb an-enumeration-that-exactly-fills-the-budget-is-not-a-cut
-  ;; `take-budgeted` reads one past the budget, so a reach of exactly the budget is swept
-  ;; in full and files nothing (docs/defenses.md, "A bounded sweep reports its cut once,
-  ;; read one past the budget").
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-terms [t1 t2 Pip]
-      ;; built per run and nowhere else: `tu/fresh` clears the scratch space these share,
-      ;; so a second copy in the enclosing KB is a second copy in *this* one
-      (let [cut-at (fn [budget]
-                     (tu/with-kb [k]
-                       (doseq [t [t1 t2]] (v/assert k (list 'genl t 'thing) 'CxUniverse))
-                       ;; t1's extent is exactly five and is the cheaper side, so it is
-                       ;; what `two-sided-reach` enumerates
-                       (dotimes [_ 4] (v/assert k (list t1 (tu/tmp-ind "Pad")) 'CxUniverse))
-                       (v/assert k (list t1 Pip) 'CxUniverse)
-                       (dotimes [_ 9] (v/assert k (list t2 (tu/tmp-ind "Other")) 'CxUniverse))
-                       (v/assert k (list t2 Pip) 'CxUniverse)
-                       (v/clear-violations! k)
-                       (binding [tax/*exposure-instance-budget* budget]
-                         (v/assert k (list 'disjoint t1 t2) 'CxUniverse))
-                       {:cut     (seq (filter #(= :arbitration-truncated (:violation %))
-                                              (v/violations k)))
-                        :decided (seq (v/contradictions k))}))]
-        (testing "exactly the extent: swept in full, so nothing is filed"
-          (let [{:keys [cut decided]} (cut-at 5)]
-            (is (nil? cut) "a reach of exactly the budget is not a cut")
-            (is (= [[:disjoint #{(list t1 Pip) (list t2 Pip)}]]
-                   (map (juxt :kind #(set (map :sentence (:sides %)))) decided))
-                "and the pair inside it is decided")))
-        (testing "one short: the same reach is a cut, which is what makes the line a line"
-          (is (seq (:cut (cut-at 4)))))))))
+(deftest a-declaration-first-or-last-leaves-the-same-belief-under-retraction
+  ;; Six terms with a known-true and a default membership each.  Declared first, each
+  ;; membership's arrival meets the separation; declared last, the separation meets the
+  ;; six terms.  In the second row two terms' known-true membership is retracted after,
+  ;; which gives their default membership back.
+  (let [run (fn [order retract]
+              (tu/with-kb [k]
+                (tu/with-terms [one_t two_t A0 A1 A2 A3 A4 A5]
+                  (let [xs     [A0 A1 A2 A3 A4 A5]
+                        ts     {1 one_t 2 two_t}
+                        handle #(v/handle-of k (list (ts %2) (xs %1)) 'CxUniverse)]
+                    (v/assert k (list 'genl one_t 'thing) 'CxUniverse)
+                    (v/assert k (list 'genl two_t 'thing) 'CxUniverse)
+                    (when (= :declaration-first order)
+                      (v/assert k (list 'disjoint one_t two_t) 'CxUniverse))
+                    (doseq [x xs]
+                      (v/assert k (list one_t x) 'CxUniverse {:strength :monotonic})
+                      (v/assert k (list two_t x) 'CxUniverse))
+                    (when (= :declaration-last order)
+                      (v/assert k (list 'disjoint one_t two_t) 'CxUniverse))
+                    (doseq [i retract] (v/retract! k (handle i 1)))
+                    (into (sorted-set)
+                          (for [[n t] ts
+                                {[_ x] :sentence} (v/sentexes-matching
+                                                   k (list t '?x) 'CxUniverse)]
+                            [(.indexOf ^java.util.List xs x) n]))))))]
+    (doseq [retract [[] [1 4]]]
+      (testing (str "retracting " retract)
+        (is (= (run :declaration-first retract) (run :declaration-last retract)))))))
 
-;;; ── the deciding pass says when it was cut short too ──────────────────
-;;
-;; The arbitration sweep spends `*exposure-instance-budget*` before anything is
-;; *decided*, and files `:arbitration-truncated` when the budget stops it, so bounded
-;; work never reads as full coverage.
-
-(tu/deftest-kb an-arbitration-sweep-cut-short-says-so
-  (binding [checks/*arbitrate-constraints?* true
-            tax/*exposure-instance-budget* 2]
-    (tu/with-terms [t1 t2 Pip]
-      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
-      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Filler")) 'CxUniverse))
-      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Other")) 'CxUniverse))
-      (v/assert kb (list t1 Pip) 'CxUniverse)
-      (v/assert kb (list t2 Pip) 'CxUniverse)
-      (v/clear-violations! kb)
-      (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
-      (let [cut (filter #(= :arbitration-truncated (:violation %)) (v/violations kb))]
-        ;; One entry, and this settle takes one pass — so what the entry's `:triggers`
-        ;; counts is not separated here from what the passes counted.  That is the test
-        ;; below, over a settle that iterates.
-        (is (= 1 (count cut))
-            "one entry for the settle")
-        (is (= 2 (get-in (first cut) [:detail :budget])))
-        (is (<= (count (get-in (first cut) [:detail :sample])) 3)
-            "a sample rather than the whole list")
-        (is (re-find #"undecided" (get-in (first cut) [:detail :message]))
-            "and it says what was left undone, not merely that a bound was hit")))))
-
-(tu/deftest-kb an-arbitration-sweep-that-decides-nothing-still-says-it-was-cut
-  ;; **The zero-findings cut**, this sweep's entry in `truncation-kind-tests`.  The
-  ;; separation implicates forty memberships and convicts none of them — nobody holds
-  ;; both types — so the settle decides nothing and `contradictions` stays empty.  A
-  ;; notice hung on what the sweep found would then have nothing to ride on, and the
-  ;; instances past the bound would read as instances this settle weighed and let stand.
-  (binding [checks/*arbitrate-constraints?* true
-            tax/*exposure-instance-budget* 2]
-    (tu/with-terms [t1 t2]
-      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
-      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Left")) 'CxUniverse))
-      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Right")) 'CxUniverse))
-      (v/clear-violations! kb)
-      (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
-      (let [cut (filter #(= :arbitration-truncated (:violation %)) (v/violations kb))]
-        (is (empty? (v/contradictions kb))
-            "the premise: the sweep convicts nobody, so nothing carries a flag")
-        (is (= 1 (count cut)) "and the cut is filed all the same")
-        (is (= 1 (get-in (first cut) [:detail :triggers])))
-        (is (= [(list 'disjoint t1 t2)] (get-in (first cut) [:detail :sample]))
-            "naming the declaration whose reach it did not finish")
-        (is (= 2 (get-in (first cut) [:detail :budget])))
-        (is (re-find #"undecided" (get-in (first cut) [:detail :message]))
-            "and saying what was left undone rather than merely unreported")))))
-
-(tu/deftest-kb a-settle-of-several-passes-files-one-trigger-per-declaration
-  ;; What `report-arbitration-cut!`'s `distinct` is for, over a settle that can show it.
-  ;;
-  ;; The sweep runs once per settle **pass** — `constraint-nogoods` re-derives the
-  ;; definitional clashes per pass, over a region that accumulates until `settle-finish`
-  ;; clears it — so a declaration the budget cut short is noted again on every pass that
-  ;; re-reaches it.  `:triggers` is a count a reader acts on ("how many declarations went
-  ;; unswept"), so counting the notes instead of the declarations would report two
-  ;; unswept declarations where there is one, and the number would move with a fixpoint
-  ;; the reader has no way to see.
-  ;;
-  ;; A one-pass settle cannot separate the two, which is why the test above does not: it
-  ;; files one note and reads one trigger whether or not anything dedups.  The
-  ;; `exceptWhen` is what makes this settle iterate, and the **write order inside the
-  ;; batch** is what makes the exception block rather than refuse: each assertion still
-  ;; forward-chains as it lands, so the rule fires on a bird nothing yet excepts, and the
-  ;; membership that excepts it arrives after the conclusion is believed.  The first pass
-  ;; then moves the blocked set and a second runs to confirm.  (Both facts written before
-  ;; the batch, or the excepting one written first, and the firing is refused at derive
-  ;; time instead — nothing is blocked, the queue drains empty, and the settle converges
-  ;; in a single pass.)  The whole batch is one `with-deferred-settle`, since the cut
-  ;; sweep and the extra pass have to be the same settle.
-  (binding [checks/*arbitrate-constraints?* true
-            tax/*exposure-instance-budget* 2]
-    (tu/with-terms [t1 t2 Pip bird penguin flies Opus]
-      ;; the separation, with a reach the budget cannot finish
-      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
-      (dotimes [_ 20] (v/assert kb (list t1 (tu/tmp-ind "Filler")) 'CxUniverse))
-      (dotimes [_ 20] (v/assert kb (list t2 (tu/tmp-ind "Other")) 'CxUniverse))
-      (v/assert kb (list t1 Pip) 'CxUniverse)
-      (v/assert kb (list t2 Pip) 'CxUniverse)
-      ;; ...and the excepted rule, over vocabulary the separation does not reach
-      (v/assert kb (list 'exceptWhen (list penguin '?x)
-                         (list 'set/defaultRule
-                               (list 'set/forwardRule (vr/rule-sentence [(list bird '?x)] (list flies '?x)))))
-                'CxUniverse)
-      (v/clear-violations! kb)
-      (v/with-deferred-settle kb
-        (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
-        (v/assert kb (list bird Opus) 'CxUniverse)
-        (v/assert kb (list penguin Opus) 'CxUniverse))
-      (let [cut (filter #(= :arbitration-truncated (:violation %)) (v/violations kb))]
-        (is (<= 2 (:passes (v/settle-stats kb)))
-            "the premise of the test: a settle of one pass sweeps once and dedups nothing")
-        (is (= 1 (count cut)) "one entry for the settle")
-        (is (= 1 (get-in (first cut) [:detail :triggers]))
-            "one declaration went unswept — not one per pass that swept it short")
-        (is (= 1 (count (get-in (first cut) [:detail :sample])))
-            "and the sample names it once")
-        (testing "the exception that made the settle iterate did its own job"
-          (is (empty? (v/sentexes-matching kb (list flies Opus) 'CxUniverse))))))))
-
-(tu/deftest-kb a-functional-declaration-swept-short-files-the-arbitration-cut
-  (binding [checks/*arbitrate-constraints?* true
-            tax/*exposure-instance-budget* 2]
-    (tu/with-terms [ownerOf]
-      (v/assert kb (list 'binary_predicate ownerOf) 'CxUniverse)
-      (dotimes [_ 20]
-        (v/assert kb (list ownerOf (tu/tmp-ind "Thing") (tu/tmp-ind "Who")) 'CxUniverse))
-      (v/clear-violations! kb)
-      (v/assert kb (list 'functional ownerOf) 'CxUniverse)
-      (let [vs (v/violations kb)]
-        (is (seq (filter #(= :arbitration-truncated (:violation %)) vs)))))))
-
-(tu/deftest-kb a-sweep-that-finished-reports-nothing
-  (binding [checks/*arbitrate-constraints?* true
-            tax/*exposure-instance-budget* 4096]
-    (tu/with-terms [t1 t2 Pip]
-      (v/assert kb (list 'genl t1 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl t2 'thing) 'CxUniverse)
-      (v/assert kb (list t1 Pip) 'CxUniverse)
-      (v/assert kb (list t2 Pip) 'CxUniverse)
-      (v/clear-violations! kb)
-      (v/assert kb (list 'disjoint t1 t2) 'CxUniverse)
-      (is (empty? (filter #(= :arbitration-truncated (:violation %)) (v/violations kb)))
-          "a bound nothing reached is not a truncation")
-      (is (= [[:disjoint #{(list t1 Pip) (list t2 Pip)}]]
-             (map (juxt :kind #(set (map :sentence (:sides %)))) (v/contradictions kb)))
-          "and the pair it did reach is decided"))))
-
-(deftest a-cut-arbitration-sweep-resumes-until-every-arrival-order-believes-the-same
-  ;; Six slots with a known-true and a default filler each, and a budget of three facts
-  ;; per settle.  Declared first, each filler's arrival decides its own slot; declared
-  ;; last, the sweep reads three facts per settle, so four settles read the twelve facts.
-  ;; The unrelated asserts are the later settles.  In the second row the first later
-  ;; settles retract the known-true filler of two slots the sweep has not reached, read
-  ;; off the default filler still believed there, so the retracted facts lie in the
-  ;; unread tail, and the early arm retracts the same slots.
-  (binding [checks/*arbitrate-constraints?* true
-            tax/*exposure-instance-budget* 3]
-    (let [run (fn [order retract]
-                (tu/with-kb [k]
-                  (tu/with-terms [ageP A0 A1 A2 A3 A4 A5]
-                    (let [xs     [A0 A1 A2 A3 A4 A5]
-                          handle #(v/handle-of k (list ageP (xs %1) %2) 'CxUniverse)
-                          cut?   #(boolean (some (comp #{:arbitration-truncated} :violation)
-                                                 (v/violations k)))
-                          later  #(v/assert k (list 'thing (tu/tmp-ind "Unrelated")) 'CxUniverse)]
-                      (when (= :declaration-first order)
-                        (v/assert k (list 'functional ageP) 'CxUniverse))
-                      (doseq [x xs]
-                        (v/assert k (list ageP x 1) 'CxUniverse {:strength :monotonic})
-                        (v/assert k (list ageP x 2) 'CxUniverse))
-                      (when (= :declaration-last order)
-                        (v/assert k (list 'functional ageP) 'CxUniverse))
-                      (v/clear-violations! k)
-                      (let [slots   (if (= :unreached retract)
-                                      (into [] (comp (filter #(v/believed? k (handle % 2) 'CxUniverse))
-                                                     (take 2))
-                                            (range 6))
-                                      retract)
-                            _       (doseq [i slots] (v/retract! k (handle i 1)))
-                            _       (when (empty? slots) (later))
-                            cut-mid (cut?)]
-                        (dotimes [_ 3] (later))
-                        (v/clear-violations! k)
-                        (later)
-                        {:retracted slots
-                         :cut-mid   cut-mid
-                         :cut-last  (cut?)
-                         :believed  (into (sorted-set)
-                                          (map (fn [{[_ x n] :sentence}] [(.indexOf ^java.util.List xs x) n]))
-                                          (v/sentexes-matching k (list ageP '?x '?n)
-                                                               'CxUniverse))})))))]
-      (doseq [retract [[] :unreached]]
-        (testing (str "retracting " retract " while the sweep is unfinished")
-          (let [late  (run :declaration-last retract)
-                early (run :declaration-first (:retracted late))]
-            (when (= :unreached retract)
-              (is (= 2 (count (:retracted late))) "the premise: two slots are unreached"))
-            (is (:cut-mid late) "the notice is filed while the sweep is unfinished")
-            (is (not (:cut-last late)) "and stops once the sweep reaches its end")
-            (is (= (:believed early) (:believed late)))))))))
-
-(deftest a-cut-cover-refutation-sweep-resumes-until-every-refuted-term-is-decided
-  ;; A cover separates nothing, so its sweep is the refuted terms alone, one per settle
-  ;; at this budget.  Four terms each hold the whole and deny both parts.
-  (binding [checks/*arbitrate-constraints?* true
-            tax/*exposure-instance-budget* 1]
-    (let [run (fn [order]
-                (tu/with-kb [k]
-                  (tu/with-terms [animal dog cat R0 R1 R2 R3]
-                    (let [decl #(v/assert k (list 'covering animal dog cat) 'CxUniverse)]
-                      (when (= :declaration-first order) (decl))
-                      (doseq [r [R0 R1 R2 R3]]
-                        (v/assert k (list animal r) 'CxUniverse)
-                        (v/assert k (list 'not (list dog r)) 'CxUniverse)
-                        (v/assert k (list 'not (list cat r)) 'CxUniverse))
-                      (when (= :declaration-last order) (decl))
-                      (dotimes [_ 4] (v/assert k (list 'thing (tu/tmp-ind "Unrelated")) 'CxUniverse))
-                      (count (filter #(and (= :cover (:kind %))
-                                           (some #{animal} (flatten (:sentence %))))
-                                     (v/contradictions k)))))))]
-      (is (= 4 (run :declaration-first) (run :declaration-last))))))
-
-(tu/deftest-kb a-rebuild-still-sweeps-but-files-no-cut
-  ;; Two claims at two budgets, because one budget cannot show both.  The *report* is off
-  ;; on a rebuild: that settle's region is the whole KB,
-  ;; so every declaration in it is cut the moment the budget is spent, and a notice per
-  ;; recover would say nothing about the KB and everything about its size.
-  ;;
-  ;; The *sweep* is not gated the same way.  `recover` binds the flag around two settles
-  ;; and the second one's region is only what re-recording the refusals moved — so a
-  ;; declaration there still needs its sweep, and a KB that came up without it would
-  ;; disagree with one that never restarted.
-  (binding [checks/*arbitrate-constraints?* true]
-    (let [build (fn [k t1 t2 Pip]
-                  (v/assert k (list 'genl t1 'thing) 'CxUniverse)
-                  (v/assert k (list 'genl t2 'thing) 'CxUniverse)
-                  (dotimes [_ 20] (v/assert k (list t1 (tu/tmp-ind "Filler")) 'CxUniverse))
-                  (dotimes [_ 20] (v/assert k (list t2 (tu/tmp-ind "Other")) 'CxUniverse))
-                  (v/assert k (list t1 Pip) 'CxUniverse)
-                  (v/assert k (list t2 Pip) 'CxUniverse)
-                  (v/clear-violations! k))]
-      (testing "a budget too small to finish files no notice, because it is a rebuild"
-        (tu/with-terms [t1 t2 Pip]
-          (tu/with-kb [k]
-            (build k t1 t2 Pip)
-            (binding [tax/*exposure-instance-budget* 2
-                      settle/*rebuilding?* true]
-              (v/assert k (list 'disjoint t1 t2) 'CxUniverse))
-            (is (empty? (filter #(= :arbitration-truncated (:violation %)) (v/violations k)))
-                "the notice is off on a rebuild"))))
-      (testing "and a budget that can finish still decides the pair, rebuilding or not —
-                the sweep itself is not gated on the flag"
-        (tu/with-terms [t1 t2 Pip]
-          (tu/with-kb [k]
-            (build k t1 t2 Pip)
-            (binding [tax/*exposure-instance-budget* 4096
-                      settle/*rebuilding?* true]
-              (v/assert k (list 'disjoint t1 t2) 'CxUniverse))
-            ;; this arm's own pair: the first arm's cut sweep resumes in these settles
-            (is (= [:disjoint] (mapv :kind (filter #(some #{t1} (flatten (:sentence %)))
-                                                   (v/contradictions k)))))))))))
-
-(deftest a-settle-over-the-whole-store-sweeps-nothing-and-files-no-cut
-  ;; A load into an empty KB leaves the settle a region holding every stored sentex, so
-  ;; the sweep returns no sentex the candidate set does not already hold, and the budget
-  ;; it spends there buys nothing.  A cut filed off that settle says content a declaration
-  ;; implicates went undecided, in the one settle that decided all of it.  The region
-  ;; decides the pair without the sweep, which is the second claim here.
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-terms [t1 t2 Pip]
-      (let [build (fn [k]
-                    (v/assert k (list 'genl t1 'thing) 'CxUniverse)
-                    (v/assert k (list 'genl t2 'thing) 'CxUniverse)
-                    (dotimes [_ 20] (v/assert k (list t1 (tu/tmp-ind "Filler")) 'CxUniverse))
-                    (dotimes [_ 20] (v/assert k (list t2 (tu/tmp-ind "Other")) 'CxUniverse))
-                    (v/assert k (list t1 Pip) 'CxUniverse)
-                    (v/assert k (list t2 Pip) 'CxUniverse))]
-        (testing "one settle over the whole store files no cut, and decides the pair"
-          (tu/with-cleared-kb [k tu/fresh]
-            (binding [tax/*exposure-instance-budget* 2]
-              (v/with-deferred-settle k
-                (build k)
-                (v/assert k (list 'disjoint t1 t2) 'CxUniverse)))
-            (is (empty? (filter #(= :arbitration-truncated (:violation %)) (v/violations k)))
-                "the region holds every sentex the sweep would have returned")
-            (is (= [:disjoint] (mapv :kind (v/contradictions k)))
-                "and the pair is decided off the region")))
-        (testing "a stored denial leaves the believed region one short of the store, and
-                  neither pass sweeps: the handles name every stored sentex"
-          ;; The starter's closing settle is this shape — every sentex it stores moves,
-          ;; one of them `(not (capabilityType penguin flying))`, which the believed
-          ;; region leaves out.  A skip that counted that region instead of the handles
-          ;; would run both sweeps over the whole store and file both cuts.
-          (tu/with-cleared-kb [k tu/fresh]
-            (binding [tax/*exposure-instance-budget* 2]
-              (v/with-deferred-settle k
-                (build k)
-                (v/assert k (list 'not (list t1 (tu/tmp-ind "Nobody"))) 'CxUniverse)
-                (v/assert k (list 'disjoint t1 t2) 'CxUniverse)))
-            (is (empty? (filter #{:arbitration-truncated} (map :violation (v/violations k))))
-                "no cut is filed off a region holding the store")
-            (is (= [:disjoint] (mapv :kind (v/contradictions k)))
-                "and the pair is decided off the region")))
-        (testing "a declaration whose settle moves less than the store is swept, and a
-                  budget too small to finish that sweep files the cut"
-          (tu/with-cleared-kb [k tu/fresh]
-            (v/with-deferred-settle k (build k))
-            (v/clear-violations! k)
-            (binding [tax/*exposure-instance-budget* 2]
-              (v/assert k (list 'disjoint t1 t2) 'CxUniverse))
-            (is (seq (filter #(= :arbitration-truncated (:violation %)) (v/violations k)))
-                "the sweep runs whenever the region is smaller than the store")))))))
+(deftest a-cover-declared-first-or-last-refutes-every-term
+  ;; Four terms each hold the whole and deny both parts.
+  (let [run (fn [order]
+              (tu/with-kb [k]
+                (tu/with-terms [animal dog cat R0 R1 R2 R3]
+                  (let [decl #(v/assert k (list 'covering animal dog cat) 'CxUniverse)]
+                    (when (= :declaration-first order) (decl))
+                    (doseq [r [R0 R1 R2 R3]]
+                      (v/assert k (list animal r) 'CxUniverse)
+                      (v/assert k (list 'not (list dog r)) 'CxUniverse)
+                      (v/assert k (list 'not (list cat r)) 'CxUniverse))
+                    (when (= :declaration-last order) (decl))
+                    (dotimes [_ 4] (v/assert k (list 'thing (tu/tmp-ind "Unrelated")) 'CxUniverse))
+                    (count (filter #(and (= :cover (:kind %))
+                                         (some #{animal} (flatten (:sentence %))))
+                                   (v/contradictions k)))))))]
+    (is (= 4 (run :declaration-first) (run :declaration-last)))))
 
 ;; ---- the other two kinds, across the same edge ---------------------------
 ;;
 ;; A `functional` slot filled either side of a `genlCx` edge, and an `asymmetric` claim
-;; written across one, are weighed at the vantage exactly as a disjointness clash is —
-;; under `:refuse` as under `:arbitrate`, since neither writer could see the far half
-;; and so neither is being told no.  Same lattice as the disjointness cases above: two
+;; written across one, are weighed at the vantage exactly as a disjointness clash is.
+;; Same lattice as the disjointness cases above: two
 ;; siblings neither of which sees the other, and a joint viewer below both that sees the
 ;; whole pair and decides it.
 ;;
@@ -951,37 +527,31 @@
       (testing "and stands in its own context, which sees no pair"
         (is (v/ask? kb two CxB))))))
 
-(deftest either-policy-weighs-the-pair-and-neither-files-it
-  ;; The test that catches a policy gate applied in the wrong place.  The vantages are
-  ;; asked under both policies, so the pair is decided rather than reported either way —
-  ;; and no pass may add a ledger entry there, or the ledger and `contradictions` both
-  ;; claim one clash.
-  (doseq [policy [:refuse :arbitrate]]
-    (testing (str policy)
-      (tu/with-neutral-kb [k #(v/open-kb (assoc (tu/scratch-space) :constraints policy))]
-        (tu/with-terms [CxA CxB CxW birthYear Tom]
-          (split-pair! k {:a CxA :b CxB :w CxW :decl 'functional
-                          :pred birthYear
-                          :one (list birthYear Tom 1970) :two (list birthYear Tom 1980)})
-          (is (= [:functional] (mapv :kind (v/contradictions k))) "the vantage decides it")
-          (is (empty? (filter (comp #{:functional :asymmetric} :violation) (v/violations k)))
-              "and the ledger does not also claim it"))))))
+(tu/deftest-kb the-vantage-weighs-the-pair-and-the-ledger-does-not-file-it
+  ;; No pass may add a ledger entry for a pair a vantage decides, or the ledger and
+  ;; `contradictions` both claim one clash.
+  (tu/with-terms [CxA CxB CxW birthYear Tom]
+    (split-pair! kb {:a CxA :b CxB :w CxW :decl 'functional
+                     :pred birthYear
+                     :one (list birthYear Tom 1970) :two (list birthYear Tom 1980)})
+    (is (= [:functional] (mapv :kind (v/contradictions kb))) "the vantage decides it")
+    (is (empty? (filter (comp #{:functional :asymmetric} :violation) (v/violations kb)))
+        "and the ledger does not also claim it")))
 
-(tu/deftest-kb a-pair-both-writers-could-see-is-refused-not-reported
-  ;; The gap is cross-context only.  Written in one context the assert entry point sees the
-  ;; whole pair and refuses, which is what `:refuse` means — nothing reaches the ledger.
+(tu/deftest-kb a-pair-both-writers-could-see-is-stored-and-weighed-not-filed
+  ;; Written in one context, the entry point stores the second fact and the settle weighs
+  ;; the pair where it was written — nothing reaches the ledger.
   (tu/with-terms [birthYear Tom]
     (v/assert kb (list 'functional birthYear) 'CxUniverse)
     (v/assert kb (list birthYear Tom 1970) 'CxUniverse)
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list birthYear Tom 1980) 'CxUniverse)))
+    (is (some? (v/assert kb (list birthYear Tom 1980) 'CxUniverse)))
+    (is (= [:functional] (mapv :kind (v/contradictions kb))))
     (is (empty? (filter (comp #{:functional} :violation) (v/violations kb))))))
 
-(deftest a-self-tuple-in-two-contexts-is-one-pair-in-either-arrival-order
-  ;; The converse of `(P a a)` is itself, so both halves are the same sentence in two
-  ;; contexts — the case a keying that stops at the sentence gets wrong, by collapsing
-  ;; the two sides or by ordering them as the walk supplied.  Two cleared KBs over one
-  ;; term set, so the dilemmas compare as values.
+(deftest a-self-tuple-in-two-contexts-forms-no-pair-in-either-arrival-order
+  ;; The converse of `(P a a)` is itself, so the two copies state one sentence, and an
+  ;; `asymmetric` mark convicts no self tuple (docs/reference.md, the `asymmetric`
+  ;; family).  Two cleared KBs over one term set, so the readings compare as values.
   (tu/with-terms [CxA CxB CxW beats Rex]
     (let [claim (list beats Rex Rex)
           run   (fn [c1 c2]
@@ -991,16 +561,13 @@
                     (v/assert k claim c1)
                     (v/assert k claim c2)
                     [(mapv :kind (v/contradictions k)) (decided-pairs k)]))]
-      (is (= [[:asymmetric] #{#{[claim CxA] [claim CxB]}}] (run CxA CxB))
-          "one dilemma naming both contexts, not one side twice")
-      (is (= (run CxA CxB) (run CxB CxA))
-          "and the identical reading whichever context was written first"))))
+      (is (= [[] #{}] (run CxA CxB)))
+      (is (= (run CxA CxB) (run CxB CxA))))))
 
 (tu/deftest-kb a-predicate-carrying-both-properties-reads-both-postings
-  ;; The vantage search reads the argument-1 posting a partner could be in and no other:
-  ;; a functional partner shares argument 1, an asymmetric one holds it in argument 2.
-  ;; A predicate declared both needs both reads, and dropping either loses a pair rather
-  ;; than costing a scan — which a narrowing done for cost is exactly how to get wrong.
+  ;; A functional partner shares argument 1 and an asymmetric one holds it in argument 2,
+  ;; so a predicate declared both keeps a determinant and a converse candidate, and
+  ;; dropping either loses a pair.
   (tu/with-terms [CxA CxB CxW ranks Tom Pip Vic]
     (split-lattice! kb {:a CxA :b CxB :w CxW
                         :decl 'functional :pred ranks})
@@ -1020,8 +587,8 @@
   ;; The arrival order the region alone cannot see: visibility itself moves, so a pair
   ;; whose halves are already stored and already believed becomes jointly visible without
   ;; either half being relabelled. Neither is in the moved region, so the `genlCx`
-  ;; edge has to reach out to them — the same trigger `declaration-parts` answers for
-  ;; disjointness, over the binary-fact parallel of `members-in-ancestors`.
+  ;; edge moves the reader's view, and the reader reads the pair off the candidate index
+  ;; (`decide/nogoods-at`).
   (tu/with-terms [CxA CxB CxW birthYear Tom]
     (let [one (list birthYear Tom 1970)
           two (list birthYear Tom 1980)]
@@ -1070,14 +637,11 @@
 ;; The cases above split the clashing pair across two siblings and bring the two halves
 ;; into one sight.  The other shape is a pair already **together** in one context `w` and
 ;; a `(genlCx w c)` edge that reveals the tuple mark standing in `c`: `w` gains sight of
-;; the declaration, not of a second fact, so `constraint-facts-in-ancestors` has to read
-;; the facts off the edge's **sub** (`w`, the newly-seeing context), not its super.
-;; Without that the clash is found only when the mark or a fact arrives last, and the same
-;; KB believes differently by arrival order — the invariant `docs/nmtms.md` forbids.
-;; Each of the four `:predicate-marked` marks has a witness of this shape below:
-;; `functional` and `asymmetric` at arity 2, `anti_transitive` as a three-member triple,
-;; and `functionalInArg` at its final position, which is the one `marked-at-final-arg?`
-;; branch the arity-2 marks never take.
+;; the declaration, not of a second fact.  The candidate index holds the tuples whatever
+;; their contexts, so the reader `w` decides the pair once it reads the mark.  Each of
+;; the four tuple marks has a witness of this shape below: `functional` and `asymmetric`
+;; at arity 2, `anti_transitive` as a three-member triple, and `functionalInArg` at the
+;; final position of a ternary.
 
 (tu/deftest-kb a-genlCx-edge-revealing-a-functional-mark-decides-a-co-located-pair
   (tu/with-terms [CxU CxD birthYear Tom]
@@ -1117,7 +681,7 @@
       (is (empty? (filter (comp #{:anti-transitive} :violation) (v/violations kb)))))))
 
 (tu/deftest-kb a-genlCx-edge-revealing-an-asymmetric-mark-decides-a-co-located-pair
-  ;; the second arity-2 predicate-marked mark, beside `functional`: the reversed-argument
+  ;; the second arity-2 tuple mark, beside `functional`: the reversed-argument
   ;; clash, both halves together in CxU, the mark in CxD, the edge last
   (tu/with-terms [CxU CxD beats Ann Bob]
     (let [one (list beats Ann Bob) two (list beats Bob Ann)]
@@ -1136,9 +700,7 @@
         (is (empty? (filter (comp #{:asymmetric} :violation) (v/violations kb))))))))
 
 (tu/deftest-kb a-genlCx-edge-revealing-a-functional-in-arg-mark-decides-a-co-located-composite
-  ;; `functionalInArg` at its final position, the `marked-at-final-arg?` branch of
-  ;; `constraint-facts-in-ancestors` the two arity-2 marks never take: `(functionalInArg P
-  ;; 3)` on a ternary, two rows sharing the (arg1,arg2) determinant with unmergeable
+  ;; `functionalInArg` at its final position: `(functionalInArg P 3)` on a ternary, two rows sharing the (arg1,arg2) determinant with unmergeable
   ;; fillers at the constrained position, together in CxU with the mark in CxD.  An
   ;; unmergeable pair at the determined slot reports a `:functional` clash instead of
   ;; merging, so this reads the same violation `functional` does.
@@ -1159,10 +721,10 @@
         (is (seq (v/sentexes-matching kb two CxU)))
         (is (empty? (filter (comp #{:functional} :violation) (v/violations kb))))))))
 
-(deftest under-arbitrate-a-revealed-mark-defeats-the-co-located-loser-in-every-order
-  ;; The belief witness: under `:arbitrate` the deciding path weighs the pair, so the revealed mark must defeat the
-  ;; :default loser against a :monotonic rival — and the answer may not turn on which of
-  ;; {mark, facts, edge} arrived last.  `:arbitrate`, since that is where belief moves.
+(deftest a-revealed-mark-defeats-the-co-located-loser-in-every-order
+  ;; The belief witness: the deciding path weighs the pair, so the revealed mark must
+  ;; defeat the :default loser against a :monotonic rival — and the answer may not turn on
+  ;; which of {mark, facts, edge} arrived last.
   ;; `functional` and `asymmetric` both decide the clash by defeat and run here together;
   ;; `functionalInArg` decides by merging the fillers, a different outcome, so it is pinned
   ;; by its own witness above rather than folded into this defeat test.
@@ -1174,15 +736,10 @@
             edge! #(v/assert % (list 'genlCx CxU CxD) 'CxUniverse)
             m!    #(v/assert % mono CxU {:strength :monotonic})  ; known-true, stands
             l!    #(v/assert % loser CxU {:strength :default})   ; defeasible, must lose
-            ;; the loser reaches "not believed" two legitimate ways under :arbitrate —
-            ;; stored then defeated (edge/mark last), or refused at the entry point when the
-            ;; visible known-true rival is already there (facts last, where admitting it
-            ;; would store what can never be believed).  Either is order-independent belief;
-            ;; the catch tolerates the entry refusal so the final believed set is compared.
+            ;; the loser is stored in every order and defeated by the settle
             belief (fn [order]
-                     (tu/with-neutral-kb [k #(v/open-kb (assoc (tu/scratch-space) :constraints :arbitrate))]
-                       (doseq [step order]
-                         (try (step k) (catch clojure.lang.ExceptionInfo _ nil)))
+                     (tu/with-neutral-kb [k #(v/open-kb (tu/scratch-space))]
+                       (doseq [step order] (step k))
                        [(boolean (seq (v/sentexes-matching k mono CxU)))
                         (boolean (seq (v/sentexes-matching k loser CxU)))]))]
         (doseq [[label order] [[:edge-last  [mark! m! l! edge!]]
@@ -1191,36 +748,6 @@
           (is (= [true false] (belief order))
               (str mark " / " (name label)
                    ": the monotonic fact stands and the default loser does not")))))))
-
-(tu/deftest-kb an-edge-whose-ancestor-set-is-cut-short-says-so
-  ;; The trigger reaches out of the region, so it is budgeted like every other sweep —
-  ;; and a bounded sweep that reads as full coverage is the failure all of them guard
-  ;; against.  The edge reveals a mark to the facts in the ancestor set it opens, and the
-  ;; deciding sweep is what walks them, so the notice is `:arbitration-truncated`:
-  ;; content the edge implicates went **undecided**.
-  ;; Distinct subjects, so the ancestor set is full of candidates and *none* of them
-  ;; pairs — nothing but the cut itself can say four of the six facts were never looked
-  ;; at.
-  (tu/with-terms [CxSrc CxW birthYear]
-    (v/assert kb (list 'functional birthYear) 'CxUniverse)
-    (v/assert kb (list 'genlCx CxSrc 'CxUniverse) 'CxUniverse)
-    (doseq [i (range 6)]
-      (v/assert kb (list birthYear (tu/tmp-ind "Subj") (+ 1900 i)) CxSrc))
-    (v/clear-violations! kb)
-    (binding [tax/*exposure-instance-budget* 2]
-      (v/assert kb (list 'genlCx CxW CxSrc) 'CxUniverse))
-    (let [vs  (v/violations kb)
-          cut (filter (comp #{:arbitration-truncated} :violation) vs)]
-      (is (empty? (v/contradictions kb))
-          "no pair is decided — the subjects are distinct")
-      (is (= 1 (count cut)) "and the cut is still never silent")
-      (is (= 1 (get-in (first cut) [:detail :triggers]))
-          "it names how many declarations went unswept")
-      (is (= [(list 'genlCx CxW CxSrc)] (get-in (first cut) [:detail :sample]))
-          "and which edge that was")
-      (is (= 2 (get-in (first cut) [:detail :budget])))
-      (is (re-find #"undecided" (get-in (first cut) [:detail :message]))
-          "the reader is told what it costs: content nobody weighed"))))
 
 (tu/deftest-kb siblings-with-no-joint-viewer-report-nothing
   ;; The ∃-vantage reading, for these two kinds: the claims coexist and no single
@@ -1327,28 +854,6 @@
     (is (empty? (v/violations kb))
         "nothing marked above either end, so nothing was enumerated and nothing was cut")))
 
-(tu/deftest-kb an-edge-whose-subtree-is-cut-short-says-so
-  ;; The `genlCx` twin one screen up, for the other edge: the trigger reaches out of the
-  ;; region, so it is budgeted like every other sweep, and a bounded sweep that read as
-  ;; full coverage is the failure all of them guard against.
-  ;; Distinct subjects, so the subtree is full of candidates and *none* of them pairs —
-  ;; the entry filed can then only be the sweep's, not the cap's.
-  (tu/with-terms [CxSrc CxW birthYear measureOf]
-    (v/assert kb (list 'functional measureOf) 'CxUniverse)
-    (v/assert kb (list 'genlCx CxSrc 'CxUniverse) 'CxUniverse)
-    (v/assert kb (list 'genlCx CxW CxSrc) 'CxUniverse)
-    (doseq [i (range 6)]
-      (v/assert kb (list birthYear (tu/tmp-ind "Subj") (+ 1900 i)) CxSrc))
-    (v/clear-violations! kb)
-    (binding [tax/*exposure-instance-budget* 2]
-      (v/assert kb (list 'genl birthYear measureOf) 'CxUniverse))
-    (let [cut (filter (comp #{:arbitration-truncated} :violation) (v/violations kb))]
-      (is (empty? (v/contradictions kb))
-          "no pair is decided — the subjects are distinct")
-      (is (seq cut) "and the cut is still never silent")
-      (is (= 1 (get-in (first cut) [:detail :triggers]))
-          "it names how many declarations went unswept: the one genl edge"))))
-
 (defn- orderings
   "Every arrival order of `xs`.  The case below runs over all of them rather than over a
   hand-picked few: which sentence is last is exactly what decides whether this policy
@@ -1369,8 +874,8 @@
   ;; out of six and let the mark decide the sixth.
   ;;
   ;; **Once**, not once per member and not once per route.  Both facts and the edge can
-  ;; be reached in one settle, and the nogood is keyed on the handle set to collapse them
-  ;; (`settle/clash-nogoods`), so a count above one is a reading that depends on how the
+  ;; be reached in one settle, and the nogood is keyed on the handle set to collapse them,
+  ;; so a count above one is a reading that depends on how the
   ;; clash was found rather than on what it is.
   (tu/with-terms [CxA CxB CxW birthYear measureOf Tom]
     (doseq [order (orderings [:declaration :edge :facts])]
@@ -1389,80 +894,10 @@
           (is (empty? (filter (comp #{:functional} :violation) (v/violations k)))
               (str "and not also reported under " (pr-str order))))))))
 
-;;; ── every bounded pass owes a test of what fires its notice ───────────
-;;
-;; A truncation notice is filed off the **bound** and never off what the pass found, and
-;; the failure when one is not is silent: a passing suite, an empty ledger, and a KB
-;; that reads as clean while a sweep looked at nothing.  So each bounded pass owes a
-;; test that arranges the bound firing with *nothing* found and demands the notice
-;; anyway — and this roster is what stops a further one arriving without it.
-
-(def ^:private truncation-kind-tests
-  "Every truncation kind `vaelii.impl.settle` files, against the test that pins what
-  fires it — the bound, and never what the pass happened to find.
-
-  Two classes of bound, and what a test can demand differs between them.  A **budget
-  cut** is independent of the findings — a sweep spends the budget convicting nobody,
-  and every unit after it is bounded to zero and examined — so its test arranges exactly
-  that and is the case a notice riding on a finding gets wrong.  A **ledger cap** counts
-  what was found, examined and left unnamed, so it cannot fire with nothing found at
-  all; its test is the one holding it apart from a cut, since confusing the two tells a
-  reader content went unlooked-at when it was looked at and summarized.
-  The kinds are read out of the source rather than listed here: a roster with both
-  halves hand-written checks only that somebody typed the same thing twice.  A
-  whole-file keyword scan rather than the call sites, because which function files a
-  kind — and through which helper — is what a refactor moves, and a roster keyed on the
-  call shape would go quiet on the change most likely to drop a notice."
-  '{:arbitration-truncated
-    vaelii.exposure-test/an-arbitration-sweep-that-decides-nothing-still-says-it-was-cut
-    :arity-truncated
-    vaelii.constraint-descension-test/the-budget-running-out-on-an-innocent-predicate-is-still-said-out-loud
-    :arity-report-truncated
-    vaelii.constraint-descension-test/a-wide-subtree-cannot-file-its-way-through-the-ledger
-    :unarbitrable-reach-truncated
-    vaelii.relation-properties-test/a-budget-spent-on-innocent-facts-still-says-the-reach-was-cut
-    :partner-sweep-truncated
-    vaelii.exposure-test/an-unnarrowed-partner-sweep-that-finds-nobody-still-says-it-was-cut})
-
-(deftest every-truncation-kind-has-a-test-of-what-fires-it
-  ;; `code-only` and not a bare `slurp`: every one of the six kinds is *named in prose*
-  ;; in `settle.clj` — each has between one and three docstring mentions beside its one
-  ;; filing site — so a raw scan reads the documentation as a filing and the
-  ;; `kinds`-minus-tests direction below stays green with every real filing deleted.
-  ;; `violation_roster_test` ships the blanker for exactly this reason and says so.
-  (let [src   (roster/code-only (slurp "src/vaelii/impl/settle.clj"))
-        kinds (into #{}
-                    (map (comp keyword second))
-                    (re-seq #":([a-z][a-z-]*-truncated)\b" src))
-        ;; The other way in, and the one a further bounded sweep is most likely to take
-        ;; now that the helper exists: a kind spelled anything at all, handed to
-        ;; `cut-notice`.  The scan above would miss it; this one cannot, and neither
-        ;; needs a second hand-written list to stay true.
-        filed (into #{} (map (comp keyword second))
-                    (re-seq #"\(cut-notice\s+:([\w-]+)" src))]
-    (is (<= 5 (count kinds))
-        "the scan reads the kinds at all — an empty set would pass every check below")
-    (is (empty? (set/difference filed (set (keys truncation-kind-tests))))
-        (str "a kind filed through `cut-notice` with no test of what fires it: "
-             (set/difference filed (set (keys truncation-kind-tests)))))
-    (is (empty? (set/difference kinds (set (keys truncation-kind-tests))))
-        (str "a truncation kind with no test that its bound is what files it: "
-             (set/difference kinds (set (keys truncation-kind-tests)))))
-    (is (empty? (set/difference (set (keys truncation-kind-tests)) kinds))
-        (str "a rostered kind settle no longer files: "
-             (set/difference (set (keys truncation-kind-tests)) kinds)))
-    ;; The var, not its `:test` metadata: a selector **strips** `:test` from every test
-    ;; it does not select, so reading it would make this fail under `lein test :only`
-    ;; while saying the tests had been deleted.  A renamed or deleted one is what the
-    ;; roster is for, and resolving catches both.
-    (doseq [[kind sym] truncation-kind-tests]
-      (is (some? (requiring-resolve sym))
-          (str kind " names a test that does not exist: " sym)))))
-
 (tu/deftest-kb a-negative-exposure-budget-is-a-cut-not-a-crash
   ;; `*exposure-instance-budget*` is a public dynamic var; a negative value means
   ;; "nothing more", which is a cut of everything — not a `(subvec … 0 -1)` thrown out
-  ;; of the settle that reads it.
+  ;; of the merge sweep a `genlCx` edge runs.
   (tu/with-terms [CxA CxB CxW left_t right_t Pip]
     (v/assert kb (list 'disjoint left_t right_t) 'CxUniverse)
     (siblings! kb {:a CxA :b CxB :t1 left_t :t2 right_t :x Pip})
@@ -1472,58 +907,3 @@
       (is (nat-int? h)
           "the settle reading a negative budget completes and the edge gets a handle"))))
 
-;;; ── the partner sweep's own bound ─────────────────────────────────────
-;;
-;; `partner-contexts` is the one bounded read in `settle` with no settle-wide budget to
-;; debit: it runs at the assert entry point as well as inside a settle, so there is no
-;; `left` volatile to thread through it.  Its unnarrowed arm — a `functionalInArg` mark
-;; whose declared position is the whole tuple, leaving no single argument root to narrow
-;; by — is a real extent sweep.  A cut there costs a
-;; *vantage*, so the pairs it loses appear in `:arbitration-truncated`'s trigger count
-;; not at all rather than as content swept short, which is why it is its own kind.
-
-(tu/deftest-kb an-unnarrowed-partner-sweep-that-finds-nobody-still-says-it-was-cut
-  ;; **The zero-findings cut**, this read's entry in `truncation-kind-tests`.  Every
-  ;; fact sits in its own leaf context and no context is below two of them, so no
-  ;; vantage sees a pair and the settle decides no clash at all — an entry riding on a
-  ;; finding would have nowhere to go, and the six instances past the bound would read
-  ;; as six that were cleared.
-  (binding [tax/*exposure-instance-budget* 2]
-    (tu/with-terms [p]
-      (v/assert kb (list 'unary_predicate p) 'CxUniverse)
-      (v/assert kb (list 'functionalInArg p 1) 'CxUniverse)
-      (let [ctxs (vec (repeatedly 6 #(tu/tmp-ctx "Leaf")))]
-        (doseq [c ctxs]
-          (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
-        (doseq [[i c] (map-indexed vector (butlast ctxs))]
-          (v/assert kb (list p (inc i)) c))
-        (v/clear-violations! kb)
-        (v/assert kb (list p 99) (last ctxs))
-        (let [vs  (v/violations kb)
-              cut (filter #(= :partner-sweep-truncated (:violation %)) vs)]
-          (is (empty? (filter #(= :functional (:violation %)) vs))
-              "no context is below two leaves, so there is no clash to expose")
-          (is (= 1 (count cut))
-              "and the pass says the partner sweep stopped early rather than claiming it looked")
-          (is (= 2 (get-in (first cut) [:detail :budget])))
-          (is (= [{:pred p :arity 1 :budget 2}] (get-in (first cut) [:detail :sweeps]))
-              "naming the predicate and the arity whose determinant left no root to narrow by")
-          (is (re-find #"not asked" (get-in (first cut) [:detail :message]))
-              "the reader is told what it costs: a vantage that is never consulted"))))))
-
-(tu/deftest-kb a-partner-sweep-inside-its-bound-files-nothing
-  ;; The gate on the notice is the cap, not the mark: an ordinary KB using
-  ;; `functionalInArg` at an unnarrowed position must not start carrying one.
-  (binding [tax/*exposure-instance-budget* 64]
-    (tu/with-terms [p]
-      (v/assert kb (list 'unary_predicate p) 'CxUniverse)
-      (v/assert kb (list 'functionalInArg p 1) 'CxUniverse)
-      (let [ctxs (vec (repeatedly 4 #(tu/tmp-ctx "Leaf")))]
-        (doseq [c ctxs]
-          (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
-        (doseq [[i c] (map-indexed vector (butlast ctxs))]
-          (v/assert kb (list p (inc i)) c))
-        (v/clear-violations! kb)
-        (v/assert kb (list p 99) (last ctxs))
-        (is (empty? (filter #(= :partner-sweep-truncated (:violation %)) (v/violations kb)))
-            "four instances against a budget of sixty-four is not a cut")))))

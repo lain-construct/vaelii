@@ -88,10 +88,11 @@
     (v/assert kb (list 'genlCx CxStatus 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list flies Tweety) CxStatus {:strength :default})]
       (v/assert kb (list 'not (list flies Tweety)) CxStatus {:strength :monotonic})
-      (testing "a defeated sentex is stored but OUT"
+      (testing "a defeated sentex is stored, IN in the network and withdrawn at its reader"
         (let [status (v/belief-status kb h CxStatus)]
           (is (:stored? status))
-          (is (false? (:in? status)))
+          (is (true? (:in? status)))
+          (is (true? (:withdrawn? status)))
           (is (false? (:believed? status)))
           (is (false? (:visible? status)))))
       (testing "nil and an unknown integer without dangling exceptions are all false"

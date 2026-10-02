@@ -51,6 +51,10 @@ genuine dilemma (the Nixon diamond), and the engine represents it rather than
 deciding it. Coexisting `P`/`¬P` at `:default` is therefore the signature of a real
 dilemma, not of a badly-written exception.
 
+A conclusion the exception does not block is `:default`, whatever the rule's
+defeasibility and its antecedents' classes, because a later fact can block it
+([nmtms.md](nmtms.md#strength-propagates-from-the-antecedents)).
+
 An `(unknown S)` **antecedent** is the same mechanism inlined per-literal — the rule
 does not conclude for a binding under which `S` is derivable — and it reuses
 everything below (the level-6 evaluation, the re-check index, block / sweep / revive,
@@ -70,8 +74,9 @@ metadata, disjointness, and evaluable arithmetic.
 
 Two properties make this affordable:
 
-- **Closed.** Every variable is bound by the rule's antecedents before the
-  exception runs, so it is a ground question, never a search for bindings.
+- **Closed.** Every free variable is bound by the rule's antecedents before the
+  exception runs, so it never searches for the rule's bindings. A `thereExists` inside
+  it searches for its own witness, and stops at the first.
 - **One answer suffices.** It is an existence check. The levels stack is lazy
   throughout, so the query stops at the first result.
 
@@ -81,20 +86,29 @@ Two properties make this affordable:
 (exceptWhen [(flightless_bird ?b) (adult ?b)] (implies (bird ?b) …))
 ```
 
-Closure is what makes this cheap: with every variable already bound, the conjuncts
-share nothing, so each is an independent ground existence check and *all* must
+Closure is what makes this cheap: with every free variable already bound, the
+conjuncts share nothing, so each is an independent existence check and *all* must
 hold. Level 6 needs no conjunctive goal form: the conjuncts go through
 `provers/conjunction-solutions`, the joined evaluator `unknown` and `thereExists` share
 ([naf.md](naf.md)), of which a ground conjunction is the degenerate case — each conjunct
 contributes one solution or none, and the join *is* the independent existence check. A
 single literal may be written bare.
 
-**Closure is enforced, not assumed.** A variable in the exception that no
-antecedent binds is rejected at assert time, like a range-restriction failure on a
-consequent. That forbids an existential exception — "birds fly unless they have a
-sick child" is not expressible, because `?child` would be unbound. This is a real
-limit and the price of the exception being a ground check rather than a search;
-the workaround is an antecedent that binds the witness.
+**Closure is enforced, not assumed.** A free variable in the exception that no
+antecedent binds is rejected at assert time (`:exception-not-closed`), like a
+range-restriction failure on a consequent. A variable a `thereExists` binds is not
+free, so an existential exception is written with one:
+
+```clojure
+(exceptWhen (thereExists ?c (and (childOf ?b ?c) (sick ?c)))   ; "unless it has a sick child"
+            (implies (bird ?b) (flies ?b)))
+```
+
+The `(and …)` under the quantifier is joined, so one `?c` must satisfy both conjuncts
+([naf.md](naf.md)). The binder must be **local**: one the antecedents also name is
+refused `:quantifier-not-local`, because the rule's binding would replace it before the
+query runs. Binders are numbered past the rule's variables when the exception is
+stored, so two exceptions that differ only in a binder's name are one meta-sentex.
 
 **No backchaining.** An exception that is only derivable by running rules (level 7)
 does not hold. This bounds the cost and keeps an exception from silently invoking
@@ -107,7 +121,10 @@ missing fact silently suppress knowledge.
 
 **The exception is evaluated in the conclusion's placement context**, not the
 rule's. The conclusion is what the exception is about, and an exception invisible
-from where the conclusion would live has no business blocking it. Backward chaining
+from where the conclusion would live has no business blocking it. A reader below the
+placement asks it again against what it sees, and reads the firing as withdrawn where it
+holds, as an `unknown` antecedent is read
+([naf.md](naf.md#evaluated-in-the-placement-context-not-the-join)). Backward chaining
 places nothing, so it has no placement context; there the exception is evaluated in
 the query's context instead, the backward analogue of the same rule.
 
@@ -115,7 +132,8 @@ the query's context instead, the backward analogue of the same rule.
 a sentex, so a context reads the exceptions its `genlCx` ancestor set holds and no
 others, as it reads the rules (`provers/exception-visible-from?`). An exception stated
 in a context below the conclusion's blocks nothing in the conclusion's context, even
-when its query holds there. A `genlCx` edge that brings the exception into the ancestor
+when its query holds there; a reader that sees it asks it, and withdraws the firing
+where its query holds. A `genlCx` edge that brings the exception into the ancestor
 set re-checks the firings placed below the edge, the same re-check any `genlCx` edge
 queues (the re-check index, below).
 
@@ -242,7 +260,7 @@ firings are filtered before a single query is paid for:
 - Arguments are compared as a **multiset**, so a symmetric predicate's mirrored fact
   still matches — level 6 probes both orders, and so must this.
 - Both sides are read under the **equality-class representative** when the KB has merged
-  anything (`settle/merge-normalizer`). A justification records what matched when it
+  anything (`recheck/merge-normalizer`). A justification records what matched when it
   fired and a merge does not go back and edit it, while a rule's condition keeps the
   constants it was written with — so the same content reaches the test under two
   spellings and agrees on no argument at all. Collapsing both sides puts one class under
@@ -296,7 +314,7 @@ rule with an antecedent on a preserved predicate the sentence moves,
 moves entailments network-wide, and a claim or a reach edge shares no argument with the
 goals it moves, and `:all` would re-decide every firing the rule has made on every
 arrival, quadratic over a load. Each posts a **marker** instead, with its own test
-(`settle/exception-candidates`):
+(`recheck/exception-candidates`):
 
 - **`::entailment`.** A firing is withdrawn only while a network its rule joins on is
   unsatisfiable at the firing's placement context. The *governing* contexts are those
@@ -349,7 +367,10 @@ things are re-chained: those released rules, the rules queued with `:all` or a
 withdrawal marker (no sentence to say whether the move blocked or released), and whatever
 the sweep itself queued —
 deleting a fact can release some other rule's exception at derive time, where no block
-ever existed to lift.
+ever existed to lift. The queue is read right after the sweep, so a rule the pass's own
+re-chains queue is left to the next pass, which re-decides its firings against the queued
+sentences; `lein perf`'s `released-refusal-beside-guarded-firings` bounds a retraction
+whose released firing queues a rule beside that rule's firings.
 
 A pass is **productive** when the blocked set moved. Three things force one that did not.
 An **aggregate** antecedent binds a *value*, so a count going 1 ⇒ 2 licenses a firing no
@@ -419,10 +440,34 @@ A mint withheld because the KB says it more specifically is the opposite case, a
 derivation withheld for something the KB has, and it has no entry: the settle re-derives
 it when that something leaves (docs/argtypes.md).
 
+A pass finds the three kinds through the record's **kind roster**: its `:kinds` key names,
+per kind, the handles holding at least one entry of that kind, and every writer of such an
+entry keeps it (`special/note-kind`, `drop-kinds`, `forget-kinds`). The pass reads only
+those handles' sets (`special/kind-entries`), so the rules' own refusals, up to 4096 per
+rule, are read only when a trigger queues their rule. The roster sits in the record's own
+map, so the batch rollback's snapshot, the reasoning image and a wipe carry it with the
+entries. `lein perf`'s `assert-beside-naf-refusals` bounds an unrelated assert beside
+32,000 `unknown` refusals.
+
 `recover` rebuilds the `:mint` and `:lift` entries (`special/rebuild-pending!`); the
 `:constraint` ones are not rebuilt, since that would mean re-firing every forward rule
 over the store, so a KB restarted with a standing constraint drop re-derives it only when
-its rule next fires.
+its rule next fires. The `:mint` rebuild walks `thing`'s subtypes once
+(`checks/mintable-types`) and answers each declaration with a set lookup. A walk up from
+a type with no path to `thing` reads the type's whole ancestor set, and `lein perf`'s
+`declaration-rebuild` bounds the rebuild per declaration over a hierarchy that grows with
+the declarations.
+
+A settle pass answers its `:mint` entries the same way: it compares each entry's stamp
+with the current generations before it sorts anything, and when some entry is stale it
+walks `thing`'s subtypes once, before the first release. A `genlArg` declaration released
+in that pass mints a `genl` edge the walk does not hold. When the edge's upper end is
+mintable and its lower end is not, the lower end and its subtypes join the walk's answer,
+and the entries the pass already restamped waiting on one of those types are released in
+the same pass. A chain of `genlArg` declarations, each waiting on the type the one before
+it mints, is therefore released in one pass in either handle order. `lein perf`'s
+`mint-release-after-genl-move` bounds the settle after a `genl` edge per waiting
+declaration.
 
 Both unrecorded reasons are covered by a **coarse re-join** rather than by nothing, and
 that is what makes the record an efficiency structure rather than a completeness one.
@@ -826,47 +871,53 @@ when `(genl penguin flightless)` — so both kinds of outgoing edge fan out over
 genl **spec** closure, which is the fan-out matching does and the one
 `special/recheck-on-predicate` keys the exception trigger on, read in the same
 direction. A cycle that exists only through a subtype is caught. Expanding the
-*consuming* side downwards is equivalent to expanding the producing side upwards, so
-the consequent is looked up literally and the fan-out is paid once. Where the two
+*consuming* side downwards is equivalent to expanding the producing side upwards, and
+the walk expands upwards: a type's ancestors are bounded by the hierarchy's depth, and
+its descendants are most of a broad ontology. Where the two
 readings differ, **over-approximate**: refusing a stratified program is annoying,
 accepting an order-dependent one is a correctness hole.
 
 ### The search
 
-`wff/negation-cycle` is a plain DFS from the rule being asserted, and looks only for
-cycles **through that rule**. Every rule assert runs the check, so the stored graph
-is already free of them and adding one rule can only close a cycle passing through
-it. The search state is `[rule negative?]` rather than the rule alone: a node reached
-with and without a negative edge behind it are different states, and only the
-negative one closes a bad cycle — which is exactly what lets positive recursion
-reach the start node, find the flag false, and stop.
+`wff/negation-cycle` is a breadth-first walk from the rule being asserted, and looks
+only for cycles **through that rule**: adding one rule can only close a cycle passing
+through it. The walk runs against the graph's edges (`wff/negation-walk`): from a rule it
+steps to every rule reading a predicate in the upward closure of the rule's consequent,
+and closes on reaching the start again with a negative edge on the way. A cycle reversed
+is a cycle, so this finds what a walk along the edges finds, and a step reads an upward
+closure where a step along the edges reads every spec of each predicate a rule reads. A store written by the import path, which skips the rule checks that read the KB,
+can hold a cycle already; a walk finds it only when the rule or edge being added is on
+it. The search state is the consequent and a `negative?` flag: two rules concluding one
+predicate have the same edges into them, and a node reached with and without a negative
+edge behind it are different states, since only the negative one closes a bad cycle —
+which is exactly what lets positive recursion reach the start node, find the flag false,
+and stop. A rule concluding `(?p …)` concludes every predicate, so every rule reads it.
 
-The rule being asserted **is not stored yet**, so `checks/stratification-concluders`
-adds it to the graph by hand under its own consequent predicate. Without that, a
-rule whose exception mentions what it concludes — a one-rule cycle, and the easiest
-one to write by accident — would look stratified. Everything else is reached through
-the rule index (`rules-by-consequent`, complete whatever a rule's direction), so
-nothing scans.
+The rule being asserted **is not stored yet**, so `checks/stratification-readers` adds it
+to the graph by hand under each predicate it reads. Without that, a rule whose exception
+mentions what it concludes — a one-rule cycle, and the easiest one to write by accident —
+would look stratified. Everything else is reached through the rule index: a predicate's
+readers are the rules posted under it in the antecedent index (every `[:not f]` key for
+`not`) and in the re-check index, plus the `different` readers for an equality relation
+and the `[:not P]` readers for a closed extent, each kept when its node reads the
+predicate. Nothing scans, except that a rule concluding `(?p …)` reads every stored rule
+when the walk reaches it.
 
-A check builds each stored rule's node once. `checks/stratification-concluders` returns a
-fn that memoizes the rule-index lookup per predicate and the node per rule handle; each
-check builds one and drops it when it returns, so the store cannot change under it. The
-walk pushes one copy of each state an expansion reaches and writes a state's path only
-when it pushes the state. The graph is dense where an antecedent reads a type with many specs: loading cyc-tiny at
-`:ontology`, the argument-type entailment derives 334 `genl` edges, each walked from up to
-six excepted rules, and a walk yields about 27,000 successors over a hundred rules. With a
-node built per edge reached and a path written per successor, the edge checks took 187 s
-of a 195 s load; with both bounded as above, the whole load takes 7 s
-([kbs.md](kbs.md#cyc-tiny-the-cyc-fixture-the-plugin-ships)). `lein perf`'s
-`edge-stratification-walk` holds the shape: an excepted rule and a variable-consequent rule
-both read a type with n specs, and a `genl` edge's check at 16x the specs reads under 30x.
+A check builds each stored rule's node once. `checks/stratification-readers` returns a fn
+that memoizes the readers per predicate and the node per rule handle; each check builds
+one and drops it when it returns, so the store cannot change under it. The walk expands
+each predicate's readers once per flag and pushes each state once, so it costs the rules
+it reaches and the upward closures of their consequents, not the spec closures of what
+they read. `lein perf`'s `edge-stratification-walk` holds the shape: a `genl` edge's check
+over a chain of eight rules, each reading a type with n specs, reads under 2x at 16x the
+specs.
 
 The check runs **before anything is written**, so a refused rule leaves no partial
 state: no sentex, no justification, and no posting in the rule or exception indexes. It
 throws `ex-info` with `:type :not-stratified` and a `:cycle` naming the nodes and
-edges around the loop. Where several cycles pass through the start, the walk takes each
-node's predicates and each predicate's concluding rules in content order, so the cycle
-named is the same in every arrival order
+edges around the loop, in the graph's direction. Where several cycles pass through the
+start, the walk takes each upward closure and each predicate's readers in content order,
+so the cycle named is the same in every arrival order
 (`stratification_test/two-cycles-through-one-rule-name-the-same-cycle-in-either-arrival-order`).
 A stored rule's node is labelled `rule#<handle>`, so the label's number is not.
 
@@ -887,18 +938,28 @@ concluding `penguin` the moment `(genl penguin flightless)` holds, and it does n
 matter which of the three arrived last. Walking on rule assert alone would accept an
 unstratified program silently whenever the **edge** is the newcomer.
 
-So the walk runs on `genl` / `genlCx` assert as well. `checks/edge-negation-cycle`
-takes the same coarse route the re-check trigger takes on an edge, and for the same
-reason — an edge change has no rule and no fact to narrow by:
+So the walk runs on `genl` assert as well, once per edge, from the edge
+(`wff/genl-negation-cycle`, called by `checks/edge-negation-cycle`):
 
-- Every cycle through negation crosses a negative edge, and negative edges leave
-  **excepted rules only**. So starting the walk at each excepted rule is complete,
-  and `exception-rules` — the `[:exception-index :rules]` roster, which exists for the re-check
-  trigger — is that set in one lookup.
+- `(genl a b)` puts every spec of `a` into the spec closure of every predicate at or
+  above `b`. The graph edges it adds therefore run from each rule reading a predicate
+  at or above `b` to each rule concluding a spec of `a`, and a cycle the edge closes uses
+  one of them.
+- The walk starts at the rules reading a predicate at or above `b`, in content order, and
+  goes against the edges to a rule concluding a spec of `a`, which closes the cycle when
+  the path or the edge from the start is negative. It reads only the rules those starts
+  reach, so its cost does not grow with the excepted rules the edge does not reach
+  (`lein perf`'s `edge-stratification-unreached`: 16x the excepted rules, under 2x). A
+  cycle already stored, which the import path can write, refuses only an edge on it.
 - The edge is added to a **detached copy** of the taxonomy, so the question is asked
   of the graph-as-it-would-be without the real closures learning anything.
 - Only *additions* need checking. `specs` grows monotonically with the edge set, so
   removing an edge only removes graph edges; a retraction can never close a cycle.
+
+`stratification_edge_test` compares the walk with the probe's whole graph, built along
+the edges over the spec closures, on the reference generator's random worlds: the same
+verdict on every candidate edge, a cycle through the edge, and the same cycle content in
+two arrival orders.
 
 **The edge is refused.** The `genl` assert is the operation at fault, so refusing it
 is the consistent answer: it is what `wff` already does to an edge that would make
@@ -908,16 +969,14 @@ rule being added. As on the rule path, the check runs before anything is written
 before the taxonomy is touched, so a refusal leaves no sentex, no justification, and no
 closure that learned the edge.
 
-**Fast path, again:** no stored rule carries an exception, so the graph has no
-negative edge and nothing is walked. An ordinary `genl` assert pays one set read
-and stops — which is every `genl` assert in the bundled starter.
-`stratification_edge_test` pins that by *counting* the walks rather than timing them.
+**Fast path, again:** no stored rule carries a negative edge
+(`checks/negative-edge-rules`), so the graph has none and nothing is walked. An
+ordinary `genl` assert pays two set reads and stops — which is every `genl` assert in
+the bundled starter. `stratification_edge_test` pins that by *counting* the walks
+rather than timing them.
 
-The trigger sits on both transitive relations, so the two edge kinds cannot drift
-apart. Today only `genl` can actually move the graph: the dependency graph is over
-**predicates** and mentions no context at all, so a `genlCx` edge adds no graph
-edge and the walk finds nothing. That is a fact about the current graph rather than a
-missing hook, and the test asserts both halves of it — the check runs, and it accepts.
+A `genlCx` edge is not walked. The dependency graph is over **predicates**, and its
+edges read the `genl` closure alone, so a `genlCx` edge adds no graph edge.
 
 ### A derived edge is dropped, not thrown
 
@@ -1007,8 +1066,8 @@ compound the term index keeps — which is how `provers/rule-exceptions` reads a
 exceptions.
 
 **Closure is checked at the assert layer** (`sentex/check-exception-closed`, run atomically
-on the wrapped form before the bare rule is stored): a variable no antecedent binds has
-no canonical number to align to. It throws `ex-info` with `:type :exception-not-closed`.
+on the wrapped form before the bare rule is stored): a free variable no antecedent binds
+has no canonical number to align to. It throws `ex-info` with `:type :exception-not-closed`.
 The anonymous wildcard `_` is refused for the same reason range restriction refuses it —
 two occurrences are two different variables, so no antecedent can ever bind one.
 
@@ -1053,7 +1112,7 @@ concludes nothing. Two `exceptWhen`s written together conjoin into one meta-sent
   rule it touched. Both quadratics above, gone.
 - **The refusal record.** A firing refused before it could become a justification is
   remembered as `[rule handle, bindings]` in `(reasoning/refused kb)`, so a release reaches it
-  too; `settle/released-refusals` re-evaluates the queued rules' entries under the same
+  too; `recheck/released-refusals` re-evaluates the queued rules' entries under the same
   narrowing, and `chain/release-refusal!` re-derives the ones that no longer block from
   the bindings they recorded. Capped per rule, `recover` rebuilds it by re-firing.
 - **Sweeping.** `jtms/sweep!` is `retract!`'s sweep without the retraction, and
@@ -1069,9 +1128,9 @@ concludes nothing. Two `exceptWhen`s written together conjoin into one meta-sent
   place of it. `stratification_test` covers the two-, three- and one-rule cycles, the
   cycle that closes only through a genl subtype (with the no-genl control), direct
   and mutual positive recursion staying accepted, and the empty teardown.
-- **Stratification on a taxonomy edge.** The same walk runs on `genl` / `genlCx`
-  assert, started at each excepted rule, because the edge is as capable of closing a
-  cycle as the rule is. An asserted edge that closes one is **refused** like a cyclic
+- **Stratification on a taxonomy edge.** A walk runs on `genl` assert, started at the
+  rules the edge's added graph edges point to, because the edge is as capable of closing
+  a cycle as the rule is. An asserted edge that closes one is **refused** like a cyclic
   `genl`; a *derived* one is dropped and reported in `violations`, since chaining
   cannot throw. `stratification_edge_test` covers both, the two controls that make the
   refusal attributable to the cycle, the empty teardown of store *and* closures, and

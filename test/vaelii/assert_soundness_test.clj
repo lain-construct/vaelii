@@ -40,17 +40,17 @@
 (tu/deftest-kb a-wrapper-around-a-fact-does-not-smuggle-it-past-the-disjointness-check
   ;; one context throughout: the disjointness check is context-scoped and this KB
   ;; is fresh, so a declaration in an unwired CxUniverse would be invisible
-  (tu/with-terms [dog cat Felix]
+  (tu/with-terms [dog cat Felix Tom]
     (v/assert kb (list 'disjoint dog cat) 'CxNaturalWorld)
     (v/assert kb (list cat Felix) 'CxNaturalWorld)
-    (testing "asserted directly, the conflicting type is refused"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list dog Felix) 'CxNaturalWorld))))
+    (v/assert kb (list cat Tom) 'CxNaturalWorld)
+    (testing "asserted directly, the conflicting type is a clash"
+      (is (tu/stored-in-clash? kb (list dog Felix) 'CxNaturalWorld)))
     (testing "and wrapping it in set/defaultRule must not buy a way around that"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list 'set/defaultRule (list 'set/forwardRule (list dog Felix))) 'CxNaturalWorld))))
-    (testing "nothing was stored either way"
-      (is (empty? (v/sentexes-matching kb (list dog Felix) 'CxNaturalWorld))))))
+      (is (tu/stored-in-clash? kb (list 'set/defaultRule (list 'set/forwardRule (list dog Tom)))
+                               'CxNaturalWorld)))
+    (testing "the two clashes are the same kind"
+      (is (= [:disjoint :disjoint] (mapv :kind (v/contradictions kb)))))))
 
 (tu/deftest-kb a-wrapper-around-a-fact-does-not-smuggle-it-past-the-context-check
   ;; A context name must start with `Cx`.  Asserting into a non-context is refused;

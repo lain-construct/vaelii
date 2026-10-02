@@ -16,7 +16,10 @@
   (:require [taoensso.trove :as trove]
             [vaelii.impl.capabilities :as cap]
             [vaelii.impl.chain :as chain]
+            [vaelii.impl.checks :as checks]
+            [vaelii.impl.decide :as decide]
             [vaelii.impl.dense-jtms :as dense]
+            [vaelii.impl.discovery :as discovery]
             [vaelii.impl.feed :as feed]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
@@ -329,7 +332,7 @@
   of it rather than either half.  The JTMS is rebuilt first, so there is belief to read.
   The taxonomy then replays every **stored** special-predicate sentex rather than the
   believed ones — `:support` must record every asserting sentex, or a disbelieved
-  supporter would be lost and clearing its defeat could never revive the entry
+  supporter would be lost and its coming back IN could never revive the entry
   (docs/taxonomy.md) — so that replay over-reads by construction, and the reconcile
   against belief immediately after it is what narrows the caches to what the KB entails.
   Belief is settled last."
@@ -356,13 +359,18 @@
               tax/*defer-cycle-scc?* true]
       (step! :taxonomy)
       (special/rebuild-taxonomy kb)
+      ;; The replay rebuilt the roster properties, and the network replayed above holds
+      ;; every premise at the strength it was written at: the forced memberships the
+      ;; roster gives the stored content go in now, before anything reads belief
+      ;; (docs/nmtms.md, "The forced-monotonic roster").
+      (checks/force-roster! kb)
       ;; Now narrow the replayed caches to belief, and **unconditionally**.  The
       ;; region-scoped arm of `refresh-beliefs` reconciles what a settle moved, and the
       ;; unsupported edge moves nothing: a record carrying no premise mark and no
-      ;; justification is OUT from the moment `rebuild-tms` makes its node, so no defeat,
-      ;; block or supersession ever names it and no region ever reaches it — while the
-      ;; replay has already made it answer `genls`.  (The *defeated* edge is narrowed
-      ;; either way, since its opposition is an event the settle reacts to.)  Recovery is
+      ;; justification is OUT from the moment `rebuild-tms` makes its node, so no block
+      ;; or supersession ever names it and no region ever reaches it — while the replay
+      ;; has already made it answer `genls`.  (An edge a verdict withdraws at its own
+      ;; context leaves the caches in the settle's own-context reconcile.)  Recovery is
       ;; exactly the caller holding no region that the `nil` arm exists for, and it costs
       ;; one belief lookup per stored declaration — what the replay above just paid.
       ;; Before the settle rather than after it, so everything the settle reads — nogoods,
@@ -384,7 +392,7 @@
     ;; `refresh-supersessions` only re-examines the entries it already holds.
     (special/refresh-supersessions kb (recovered-supersessions kb) nil)
     ;; the P/¬P coincidence set is derived from storage and no store holds it, so rebuild
-    ;; it before the settle below reads it (`settle/negation-nogoods`)
+    ;; it before the candidate index below reads it (`decide/rebuild-candidates!`)
     (kb/rebuild-opposed! kb)
     ;; ...and the visibility roster, for the same reason and one more: a **fork** rebuilds
     ;; its belief over the merged view rather than inheriting it (`fork`), so without this
@@ -397,9 +405,12 @@
     ;; visibility seeds.
     (kb/rebuild-rule-roster! kb)
     ;; ...and the argument-preservation roster, fourth of the same kind: it is what
-    ;; `settle/preserving-nogoods` reads instead of the index, and a KB that came up
+    ;; `discovery/preserving-nogoods` reads instead of the index, and a KB that came up
     ;; without it would report no inherited clash until a declaration next moved.
     (kb/rebuild-preserving! kb)
+    ;; ...and the candidates of the nogood families a reader decides, which no store
+    ;; holds either (`vaelii.impl.decide`)
+    (decide/rebuild-candidates! kb)
     ;; The first cache reconcile ran before the visibility roster existed, so it
     ;; could narrow only against JTMS belief. Re-run through the common transition
     ;; boundary now that recovery can also answer which declarations are excepted.
@@ -413,10 +424,10 @@
     (binding [settle/*rebuilding?* true]
       ;; `rebuild-tms` made a node for every stored sentex and nothing has cleared the
       ;; touched set since, so this settle's region is the whole store and its retroactive
-      ;; sweeps add no candidate (`settle/*whole-store-region?*`).  The re-fire's settle
+      ;; sweeps add no candidate (`discovery/*whole-store-region?*`).  The re-fire's settle
       ;; below is not bound: its region is only what the re-fire moved.
       (step! :settle)
-      (binding [settle/*whole-store-region?* true]
+      (binding [discovery/*whole-store-region?* true]
         (settle/settle kb))
       ;; The **refusal** record is the other in-memory state no store holds: a firing
       ;; refused at derive time left no justification, so replaying the stored ones cannot

@@ -62,9 +62,11 @@ sentex that retracts like any conclusion. See [argtypes.md](argtypes.md).
 **Undeclared is unconstrained — which is not the same as unchecked.** No predicate has to
 be declared before use, so `(fghgwgads 212)` stores and a typo is the same bug class as a
 predicate nobody has gotten to yet. But as soon as declarations exist they bind: `assert`
-refuses on arity, `arg`, `genlArg`, `interArg`, disjointness, asymmetry and
-functionality, on top of the naming, groundness, structural and stratification checks it
-always runs. `check` reports the lot without storing → [api.md](api.md).
+refuses on `arg`, `genlArg` and `interArg`, on top of the naming, groundness, structural
+and stratification checks it always runs. A tuple that breaks an arity binding, or that
+completes a disjointness, asymmetry or functionality clash, is stored, and the settle or
+each reader decides it ([nmtms.md](nmtms.md#1-order-independence)). `check` reports the
+lot without storing → [api.md](api.md).
 
 **A contradictory pair coexists.** Two `:default` claims that rebut each other both stay
 believed and are reported as a represented dilemma by `contradictions`; the engine
@@ -80,7 +82,7 @@ be decided → [solving.md](solving.md).
 | `negationPreds`, binary and up | a pair of implication rules | no declarative form — see below |
 | `disjoint` | `disjoint` | same reading, and `(disjoint_metatype M)` makes every member pairwise disjoint without writing the pairs |
 | `SiblingDisjointCollectionType` | `sibling_disjoint` | a mark on the collection; its `genl`-specializations are pairwise disjoint unless one genls the other, the clique keyed off the genl closure rather than written |
-| `siblingDisjointExceptions` (plural) | `siblingDisjointException` (**singular**, house style) | exempts one pair the sibling mark or a `disjoint_metatype` would force disjoint; read over the whole KB (no scoped variant, unlike Cyc's per-Mt exceptions), pair-local, and it does not leak to subtypes |
+| `siblingDisjointExceptions` (plural) | `siblingDisjointException` (**singular**, house style) | exempts one pair the sibling mark or a `disjoint_metatype` would force disjoint; read at the reader, so a context that does not see it reads the pair separated, pair-local, and it does not leak to subtypes |
 | `SymmetricBinaryPredicate` | `(symmetric P)` | |
 | `AsymmetricBinaryPredicate` | `(asymmetric P)` | convicts a claim whose **converse** is believed; it does not make `P` irreflexive, and `(P a a)` is admitted |
 | `genlInverse` | an inert `genlInverse` declaration, or a forward rule | vaelii declares `genlInverse` as an inert predicate with no inference path; a working inverse is a forward rule, and `(inverse P Q)` is the stronger biconditional |

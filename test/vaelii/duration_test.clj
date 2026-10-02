@@ -383,10 +383,9 @@
     (v/assert kb (list 'length B '(QuantityFn 30 Minute)) C)
     (testing "a sentence in the form the prover answers passes the arity check"
       (is (v/assert kb (list 'totalDuration (list 'list A B) '(QuantityFn 9000 Second)) C)))
-    (testing "and spreading the components out does not — that would be arity three"
-      (is (= :arity (try (v/assert kb (list 'totalDuration A B '(QuantityFn 9000 Second)) C)
-                         nil
-                         (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))))
+    (testing "and spreading the components out does not — that would be arity three, an
+              arity nogood the reader takes OUT"
+      (is (tu/stored-in-clash? kb (list 'totalDuration A B '(QuantityFn 9000 Second)) C)))
     (testing "overlapDuration is the ternary one"
       (is (v/assert kb (list 'overlapDuration A B '(QuantityFn 0 Second)) C)))))
 

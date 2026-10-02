@@ -81,6 +81,5 @@
   (tu/with-terms [Thing]
     (v/assert kb (list 'causal 'Thing) 'CxUniverse)
     (is (some? (v/handle-of kb (list 'causal 'Thing) 'CxUniverse)) "the first membership holds")
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list 'acausal 'Thing) 'CxUniverse))
-        "asserting the disjoint membership is refused as a contradiction")))
+    (is (tu/stored-in-clash? kb (list 'acausal 'Thing) 'CxUniverse)
+        "the disjoint membership is stored as a contradiction the settle weighs")))

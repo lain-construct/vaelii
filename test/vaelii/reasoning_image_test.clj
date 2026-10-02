@@ -15,12 +15,14 @@
             [clojure.test :refer [deftest is testing]]
             [taoensso.nippy :as nippy]
             [vaelii.core :as v]
+            [vaelii.impl.decide :as decide]
+            [vaelii.impl.discovery :as discovery]
             [vaelii.impl.disk.record-store :as drs]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reasoning-image :as ri]
-            [vaelii.impl.settle :as settle]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning])
   (:import [java.io DataInputStream DataOutputStream File RandomAccessFile]
            [java.nio.file CopyOption Files StandardCopyOption]
@@ -86,7 +88,7 @@
                               [[(v/sentence-of s) (:context s)] (jtms/in? tms id)])))
           (p/sentex-ids recs))))
 
-(defn- network [kb] (dissoc (jtms/snapshot (reasoning/tms kb)) :touched :touched-in :touched-new))
+(defn- network [kb] (dissoc (jtms/snapshot (reasoning/tms kb)) :touched :touched-in :touched-new :touched-out))
 
 (defn- state [kb] (#'ri/state-of kb))
 
@@ -192,6 +194,57 @@
           (finally (v/close! a) (v/close! b) (rm-rf! ref))))
       (finally (rm-rf! dir)))))
 
+(defn- inherited-reports [kb]
+  (into #{} (comp (filter #(= :inherited (:kind %))) (map (juxt :sentence :priority)))
+        (concat (v/conflicts kb) (v/contradictions kb))))
+
+(deftest an-installed-kb-s-first-settle-asks-the-claims-its-own-writes-store
+  ;; The second session installs the first's image and settles once, so its discovery
+  ;; memo, imaged at the close, holds a mark taken in its network's first settle.  The
+  ;; third session's network is a fresh one, and its first settle is the denial's.
+  (let [dir (tmpdir)
+        U   'CxUniverse
+        mono {:strength :monotonic}]
+    (try
+      (let [kb (open dir)]
+        (v/assert kb '(binary_predicate carriesLoad) U)
+        (v/assert kb '(transitiveInArg carriesLoad 1 genl) U)
+        (v/assert kb '(genl hauler_kind animal) U)
+        (v/assert kb '(genl cart_kind hauler_kind) U)
+        (v/assert kb '(carriesLoad hauler_kind Bone1) U mono)
+        (v/close! kb))
+      (let [kb (open dir)]
+        (is (installed? kb))
+        (v/assert kb '(carriesLoad hauler_kind Bone2) U mono)
+        (v/close! kb))
+      (let [a       (open dir)
+            [b ref] (recovered-copy dir)]
+        (try
+          (is (installed? a))
+          (doseq [k [a b]] (v/assert k '(not (carriesLoad cart_kind Bone1)) U))
+          (is (seq (inherited-reports b)) "the denial clashes with the inherited claim")
+          (is (= (inherited-reports b) (inherited-reports a)))
+          (finally (v/close! a) (v/close! b) (rm-rf! ref))))
+      (finally (rm-rf! dir)))))
+
+(deftest an-installed-kb-s-first-read-takes-the-taxonomy-s-own-separation-rosters
+  ;; The image holds the membership candidates' separation stamp and the taxonomy's
+  ;; rosters as two read-back copies, equal and not identical.  The first read takes the
+  ;; taxonomy's, so a later read compares the two by identity, not entry by entry.
+  (let [dir (tmpdir)]
+    (try
+      (let [kb (open dir)] (content! kb) (v/close! kb))
+      (let [a (open dir)]
+        (try
+          (is (installed? a))
+          (decide/synced a)
+          (is (every? true? (map identical?
+                                 (tax/separation-stamp (reasoning/taxonomy a))
+                                 (:vaelii.impl.decide.membership/sep-stamp
+                                  @(reasoning/nogood-candidates a)))))
+          (finally (v/close! a))))
+      (finally (rm-rf! dir)))))
+
 (deftest a-write-then-a-close-refreshes-the-image
   (let [dir (tmpdir)]
     (try
@@ -249,7 +302,10 @@
    ["another source digest"
     (fn [dir] (rewrite-manifest! dir #(assoc % :source "0")))]
    ["another policy"
-    (fn [dir] (rewrite-manifest! dir #(update-in % [:policy :arbitrate] not)))]
+    (fn [dir] (rewrite-manifest! dir #(update-in % [:policy :assertive-arg-types] not)))]
+   ["another forced-monotonic roster"
+    (fn [dir] (rewrite-manifest! dir #(update-in % [:policy :forced-monotonic] conj
+                                                 '[forced_monotonic_predicate likes])))]
    ["a truncated network section"
     (fn [dir] (truncate! (io/file dir "reasoning" "network.bin")))]
    ["a truncated state section"
@@ -260,6 +316,20 @@
             st (with-open [i (DataInputStream. (io/input-stream f))] (nippy/thaw-from-in! i))]
         (with-open [o (DataOutputStream. (io/output-stream f))]
           (nippy/freeze-to-out! o (assoc-in st [:taxonomy ::planted] (->Planted 1))))))]])
+
+(deftest the-stamp-names-the-declared-roster
+  ;; the forced sets an image carries were computed under the roster the declarations
+  ;; give, so the stamp carries that roster and an image under another one is declined
+  (let [dir (tmpdir)]
+    (try
+      (let [kb     (open dir)
+            roster #(:forced-monotonic (:policy (ri/stamp kb nil)))]
+        (try
+          (is (= [] (roster)))
+          (v/assert kb '(forced_monotonic_predicate likes) 'CxUniverse)
+          (is (= '[[forced_monotonic_predicate likes]] (roster)))
+          (finally (v/close! kb))))
+      (finally (rm-rf! dir)))))
 
 (deftest a-stale-or-torn-image-is-declined-and-the-open-recovers
   (doseq [[label spoil!] spoilers]
@@ -289,7 +359,7 @@
       (finally (rm-rf! dir)))))
 
 (deftest no-image-is-written-while-a-settle-decides-the-belief
-  ;; The writer's settle is parked before its resolution, and the image write on this
+  ;; The writer's settle is parked before its discovery, and the image write on this
   ;; thread declines: the stamp covers the records, and a settle moves belief without
   ;; writing one, so an image of a network a settle is deciding would pass the next open's
   ;; check and install belief no settled KB held.
@@ -299,9 +369,9 @@
             _       (content! kb)
             parked  (promise)
             release (promise)
-            orig    @#'settle/resolve-contradictions
+            orig    @#'discovery/discover-inherited!
             armed   (atom true)]
-        (with-redefs [settle/resolve-contradictions
+        (with-redefs [discovery/discover-inherited!
                       (fn [& args]
                         (when (compare-and-set! armed true false)
                           (deliver parked true)
@@ -309,7 +379,7 @@
                         (apply orig args))]
           (let [w (future (v/assert kb '(dog Spot) 'CxUniverse))]
             (try
-              (is (true? (deref parked 10000 false)) "the settle never reached its resolution")
+              (is (true? (deref parked 10000 false)) "the settle never reached its discovery")
               (is (nil? (ri/save! kb)) "an image was written while a settle held the network")
               (finally (deliver release true) (deref w 10000 nil)))))
         (is (some? (ri/save! kb)) "the settle has published, and the image is written")

@@ -768,7 +768,7 @@
   while the network keeps it IN, so the search keeps naming the withdrawn path and a
   reader that still reaches over a second route reads the firing as withdrawn.  The
   settle re-derives such a firing with this bound to that reader
-  (`settle/lost-firing-seeds`): every search then walks the edges the reader sees and
+  (`reroute/lost-firing-seeds`): every search then walks the edges the reader sees and
   believes — the `genl` path a match climbs, the `genlCx` path a placement is seen over
   and the path a preserved claim moves along — and placement is decided from the
   contexts of what it finds, as for any firing.  A search that finds the path already
@@ -1188,6 +1188,119 @@
         (and (seq preds)
              (sequential? ante) (seq ante)
              (contains? preds (first ante))))))
+
+;; ---- a guard re-asked at a reader below the placement ----------------------
+;; A firing's `unknown` and `exceptWhen` are asked at the placement context when it is
+;; made; a reader below asks them again against what it sees, and reads the firing as
+;; withdrawn where one holds (docs/naf.md, "Evaluated in the placement context, not the
+;; join").  `res/withdrawal` reads the answer through `res/*guard-withdrawals*`.
+
+(defn- open-literals
+  "The literals of the conjunctions `conds`, each `thereExists` unwrapped to its body, as
+  one vector per conjunction, or nil when a literal is one an open query cannot enumerate:
+  a nested `unknown`, `forall` or aggregate, or a computed literal."
+  [kb conds]
+  (letfn [(lits [c]
+            (reduce (fn [acc l]
+                      (cond
+                        (sx/there-exists? l) (if-let [b (lits (sx/conjuncts (nth l 2)))]
+                                               (into acc b)
+                                               (reduced nil))
+                        (and (sequential? l)
+                             (let [b (if (sx/negation? l) (second l) l)]
+                               (and (sequential? b) (symbol? (first b))
+                                    (not (sx/unknown? b)) (not (sx/forall? b))
+                                    (not (sx/aggregate? b))
+                                    (not (deferred-antecedent? kb b)))))
+                        (conj acc l)
+                        :else (reduced nil)))
+                    [] c))]
+    (reduce (fn [acc c] (if-let [ls (lits c)] (conj acc ls) (reduced nil))) [] conds)))
+
+(defn- guard-conditions
+  "The block conditions of the rule `rsx` at `rh` a firing is asked at `reader`: each
+  `exceptWhen` conjunction `reader` sees and each `unknown` antecedent's query."
+  [kb rh rsx reader]
+  (-> (provers/rule-exceptions kb rh reader)
+      (into (map sx/naf-query-conjuncts) (rules/naf-antecedents rsx))))
+
+(defn- plain-consequent?
+  "Is `c` a literal whose firings are stored under its own spelling, so a binding of its
+  variables names them by a match?"
+  [c]
+  (let [b (if (sx/negation? c) (second c) c)]
+    (and (sequential? b) (symbol? (first b)) (nil? (namespace (first b)))
+         (not (contains? #{'ist 'implies 'and 'exceptWhen} (first b))))))
+
+(defn- placed-above?
+  "Is the conclusion of justification `j` stored in a context of `up` other than `reader`?"
+  [kb up reader j]
+  (when-let [c (some-> (p/get-sentex (:records kb) (:consequence j)) :context)]
+    (and (not= c reader) (contains? up c))))
+
+(defn- guard-candidates
+  "The firings of the rule at `rh` placed above `reader` whose guard can hold at `reader`
+  and not at their placement.  A binding of `conds` at `reader` names the firings it can
+  block through the consequent it instantiates; a condition an open query cannot
+  enumerate, or a consequent a match cannot name, takes every firing placed above."
+  [kb rh rsx conds reader up]
+  (let [tms   (reasoning/tms kb)
+        mine? (fn [jid] (when-let [j (jtms/justification tms jid)]
+                          (and (= rh (:informant j)) (placed-above? kb up reader j))))
+        opens (open-literals kb conds)
+        cq    (:consequent rsx)]
+    (if (or (nil? opens) (not (plain-consequent? cq)))
+      (into #{} (filter mine?) (jtms/dependents tms rh))
+      (let [places (into [] (remove #{reader}) up)]
+        (into #{}
+              (comp (mapcat #(provers/condition-solutions kb % reader))
+                    (map #(res/substitute cq %))
+                    (distinct)
+                    (mapcat (fn [pat] (mapcat #(res/raw-match kb pat %) places)))
+                    (mapcat #(jtms/supports tms (first %)))
+                    (filter mine?))
+              opens)))))
+
+(defn- guard-holds-at?
+  "Does a guard of the firing `jid` of the rule `rsx` at `rh` hold at `reader`: an
+  `exceptWhen` `reader` sees, or an `unknown` antecedent's query, under the firing's
+  bindings settled at `reader`?"
+  [kb rh rsx jid reader]
+  (when-let [j (p/get-justification (:records kb) jid)]
+    (let [b (settled-bindings kb (:bindings j) reader)]
+      (or (provers/exceptions-block? kb rh b reader)
+          (naf-blocks? kb (rules/naf-antecedents rsx) b reader)))))
+
+(defn guard-withdrawals
+  "`res/*guard-withdrawals*`: the firings placed in a context of `up` above `reader` whose
+  `unknown` or `exceptWhen` holds at `reader`, and the guarded rules re-asked.  A rule
+  stored at `reader` places nothing above it, and a firing the network blocks is
+  withdrawn everywhere already."
+  [kb reader up]
+  (let [tms     (reasoning/tms kb)
+        blocked (jtms/blocked tms)]
+    (reduce
+     (fn [acc rh]
+       (let [rsx (p/get-sentex (:records kb) rh)]
+         (if-not (and rsx (rules/rule? rsx) (res/rule-believed? kb rh)
+                      (not= reader (:context rsx)) (contains? up (:context rsx)))
+           acc
+           (let [conds (guard-conditions kb rh rsx reader)]
+             (if (empty? conds)
+               acc
+               ;; a rule with no firing yet is read too: a firing arriving later moves
+               ;; the answer
+               (let [held (into #{}
+                                (filter #(and (not (contains? blocked %))
+                                              (guard-holds-at? kb rh rsx % reader)))
+                                (guard-candidates kb rh rsx conds reader up))]
+                 (-> acc
+                     (update :justs into held)
+                     (update :rules conj rh))))))))
+     {:justs #{} :rules #{}}
+     (reads/watched-rules (:index kb)))))
+
+(alter-var-root #'res/*guard-withdrawals* (constantly guard-withdrawals))
 
 (defn- fanning-functor?
   "Does `g`'s functor have a fan for the argument lead to collapse — a sub-predicate
@@ -1705,11 +1818,14 @@
             (fn [m]
               (let [cur (get m rh)]
                 (cond
-                  (= :overflow cur)                        m
-                  (nil? cur)                               (assoc m rh #{entry})
-                  (contains? cur entry)                    m
-                  (>= (count cur) max-refusals-per-rule)   (assoc m rh :overflow)
-                  :else                                    (assoc m rh (conj cur entry)))))))))
+                  (= :overflow cur)
+                  m
+                  (contains? cur entry)
+                  m
+                  (and cur (>= (count cur) max-refusals-per-rule))
+                  (special/forget-kinds (assoc m rh :overflow) rh)
+                  :else
+                  (special/note-kind (assoc m rh (conj (or cur #{}) entry)) rh entry))))))))
 
 (def ^:private constraint-drop-kinds
   "The violations a firing is dropped for that content arriving later can lift: each
@@ -1829,7 +1945,11 @@
         ;; constraints entail about its arguments, materialized below once it has a
         ;; handle to be justified against
         adm      (when-not existing (checks/constraint-admission kb conseq pctx))
-        v        (when-not existing (fact-violation kb rule conseq pctx adm))]
+        v        (when-not existing (fact-violation kb rule conseq pctx adm))
+        ;; ...and the roster check, which a stored conclusion owes as well: a firing it
+        ;; convicts is stored, held void and reported, so it supports nothing while the
+        ;; roster rules it out and supports its conclusion once the roster stops
+        forced   (when-not v (checks/forced-conclusion-violation kb (:rule-handle rule) conseq))]
     (if v
       (drop-fact-conclusion! kb rule conseq pctx all-antes bindings v)
       (let [[h s new?] (if existing
@@ -1837,6 +1957,11 @@
                          (let [[h s] (kb/create-sentex kb conseq pctx)] [h s true]))
             ;; the dedup key, built once for the question and the add that follows it
             jkey       (jtms/justification-key (:name rule) all-antes)]
+        (when forced
+          (violations/report kb [(assoc forced :sentence conseq :context pctx
+                                        :rule (:rule-handle rule))]))
+        ;; a new conclusion takes its forced memberships before anything can label it
+        (when new? (checks/force-sentex! kb s))
         ;; the derivation-path choke point: a derived genl edge reaches the closure,
         ;; and a derived fact is a re-check trigger like an asserted one
         (when new? (special/derived-sentex-added kb s h))
@@ -1858,6 +1983,7 @@
                 inf  (:name rule)
                 just (jtms/->just jid inf (kb/antecedent-order kb (remove #(= inf %) all-antes))
                                   h bindings strength)]
+            (when forced (jtms/set-forced (reasoning/tms kb) :void [jid] true))
             (p/put-justification (:records kb) just)
             (jtms/add-justification (reasoning/tms kb) just jkey)
             ;; a firing over a route the witness rule now names replaces the same firing
@@ -1900,8 +2026,13 @@
               ;; ...and the declaration's own side of the same inference: a rule
               ;; concluding `(functional P)` reaches P's stored facts exactly as an
               ;; asserted one does, or which values a slot reconciles would depend on
-              ;; whether the declaration was written or derived
-              fex  (when new? (special/equate-existing kb conseq))
+              ;; whether the declaration was written or derived.  A declaration the
+              ;; labeller holds OUT, such as one a void firing concludes, derives no
+              ;; equality here: the settle that brings it IN runs the same sweep
+              ;; (`special/revived-declaration-sweeps`), so the equality arrives with the
+              ;; mark's belief and migrates then
+              in   (and new? (jtms/in? (reasoning/tms kb) h))
+              fex  (when in (special/equate-existing kb conseq))
               ;; ...and the edge's side of it: a derived `genl` edge between predicates
               ;; brings stored sub-predicate facts under a `functional` mark above them,
               ;; as an asserted one does
@@ -1909,8 +2040,12 @@
               ;; ...and the antisymmetric merge, in the same three arrival orders a rule
               ;; can reach it by — a derived converse, a derived declaration, a derived edge
               asym (when new? (special/derive-antisymmetric-equalities kb conseq pctx h))
-              axe  (when new? (special/antisym-equate-existing kb conseq))
+              axe  (when in (special/antisym-equate-existing kb conseq))
               axd  (when new? (special/antisym-equate-under-edge kb conseq))
+              ;; ...and a derived tuple mark or edge offers the stored tuples to the
+              ;; candidates a reader decides, as an asserted one does
+              _    (when new? (special/offer-marked-existing kb conseq))
+              _    (when new? (special/offer-marked-under-edge kb conseq))
               ;; ...and a derived `genlCx` edge restates the sentexes its widened ancestor set
               ;; newly exposes to a merge, as an asserted one does — or which spelling a
               ;; context reads a fact under would depend on whether the spindle was
@@ -1975,6 +2110,11 @@
             (violations/report kb (concat (:violations mig) (:violations lift)
                                           (:violations args) (:violations back)
                                           (:violations down))))
+          ;; The arms above install the conclusion in its cache unconditionally, and a
+          ;; valid firing makes that right.  A void one leaves the node OUT from its
+          ;; creation, so no settle's region names it: reconcile its caches here, as
+          ;; `recover` does for every stored declaration.
+          (when (and forced new?) (special/reconcile-belief-change kb [h]))
           (-> (if new? [h] [])
               (into-some (:new mig))
               (into-some (:new lift))
@@ -2542,8 +2682,7 @@
 
 (defn- derive-conclusion
   "Record one rule firing at the rule's own justification strength (`:strength` on the
-  rule view — a bare rule confers :monotonic and so caps the conclusion at its
-  weakest antecedent, a `set/defaultRule` confers :default).  The justification is placed
+  rule view, `provers/firing-strength`).  The justification is placed
   in the *maximal* contexts that see the rule and all antecedent facts (via
   genlCx); returns {:new [handles]} for any newly created sentexes.  The rule
   handle is part of the justification, so retracting the rule retracts its
@@ -2605,23 +2744,19 @@
 
 (defn rule-view-of
   "The chainer's view of a rule sentex.  `:strength` is the justification class its
-  firings confer, read off the record's `:defeasible` — the same authority the
-  direction is read from, so a rule needs no separate index to know how it fires."
+  firings confer (`provers/firing-strength`)."
   [kb handle rsx]
-  (let [antes (:antecedent rsx)]
+  (let [antes    (:antecedent rsx)
+        watched? (reads/watched-rule? (:index kb) handle)]
     {:name handle :rule-handle handle :context (:context rsx)
      :antecedents antes :consequent (:consequent rsx)
-     ;; A bare rule adds no defeasibility of its own, so it confers :monotonic and
-     ;; the conclusion is capped by its weakest antecedent; a `set/defaultRule`
-     ;; introduces defeasibility, so its conclusions are always :default.
-     :strength (if (:defeasible rsx) :default :monotonic)
+     :strength (provers/firing-strength kb handle rsx watched? nil)
      ;; the `exceptWhen` exceptions — `{:context :query}` per believed meta-sentex
      ;; naming this rule, block-if-any (`provers/rule-exception-entries`).  The context
      ;; stays with each query because a placement context reads only the exceptions it
      ;; sees.  Fetched only when the cheap roster gate says the rule is watched, so an
      ;; ordinary firing pays nothing (docs/exceptions.md).
-     :excepts (when (reads/watched-rule? (:index kb) handle)
-                (provers/rule-exception-entries kb handle))
+     :excepts (when watched? (provers/rule-exception-entries kb handle))
      ;; the negation-as-failure antecedents — `(unknown S)` literals, blocked the same
      ;; way an exception is, per placement context (docs/naf.md)
      :naf (rules/naf-antecedents rsx)
@@ -2654,7 +2789,8 @@
            (let [cur (get m rh)]
              (if (set? cur)
                (let [cur' (disj cur entry)]
-                 (if (empty? cur') (dissoc m rh) (assoc m rh cur')))
+                 (-> (if (empty? cur') (dissoc m rh) (assoc m rh cur'))
+                     (special/drop-kinds rh [entry])))
                m)))))
 
 (defn- refusal-live?
@@ -2732,14 +2868,12 @@
         :free))))
 
 (defn constraint-refusals
-  "Every `:constraint` entry in the refusal record, as `[rule-handle entry]` pairs, in
-  content order — empty on a KB where no firing was dropped on an argument constraint,
-  which is nearly every settle, so the caller's re-ask costs one walk of the record."
+  "Every `:constraint` entry in the refusal record, as `[rule-handle entry]` pairs, sorted
+  on the rule handle and then on the conclusion and its context, read off the rules the
+  kind roster names (`special/kind-entries`).  Each entry is re-asked on its own, so
+  the order decides no placement."
   [kb]
-  (->> @(reasoning/refused kb)
-       (mapcat (fn [[rh recs]]
-                 (when (set? recs)
-                   (for [e recs :when (:constraint e)] [rh e]))))
+  (->> (special/kind-entries @(reasoning/refused kb) :constraint)
        (sort-by (fn [[rh e]] [rh (nm/print-key (:conseq e)) (nm/name-key (:pctx e))]))
        vec))
 
@@ -3155,14 +3289,15 @@
   c)` below `b` and the ones above `c`, are reached by joining, and no trigger enumerates
   them — `transitive-rejoin-rules`' reason, for a cached closure.
 
+  A cover adds `genl` edges without being one (`special/closure-edge-relation`), so it
+  re-joins the rules reading `genl`.
+
   Gated on the in-memory antecedent roster, so an edge on a KB with no rule reading the
   relation costs a symbol compare and a map read, and no index read."
   [kb fact]
-  (when (and (sequential? fact) (= 3 (count fact)))
-    (let [f (nm/functor fact)]
-      (when (and (contains? provers/transitive-predicates f)
-                 (contains? @(reasoning/rule-antecedents kb) f))
-        (not-empty (into #{} (reads/as-stored-rules-by-antecedent (:index kb) f)))))))
+  (when-let [f (special/closure-edge-relation fact)]
+    (when (contains? @(reasoning/rule-antecedents kb) f)
+      (not-empty (into #{} (reads/as-stored-rules-by-antecedent (:index kb) f))))))
 
 (defn- rejoin-in-full
   "Re-join in full every forward rule the arriving datum moved a preserved predicate
@@ -3203,9 +3338,8 @@
 (defn- fire-rules-for
   "Fire every forward rule a newly asserted fact can trigger — **strict and
   defeasible alike**.  Candidate rules are keyed by the fact's predicate and its
-  supertypes (specificity), and each fires at its own strength (`rule-view-of`
-  reads `:defeasible` off the record): a bare rule confers :monotonic and is capped
-  by its weakest antecedent, a `set/defaultRule` confers :default.
+  supertypes (specificity), and each fires at its own strength
+  (`provers/firing-strength`).
 
   A default conclusion is placed **unconditionally**, with defeat decided afterwards
   by `settle` from the recomputed belief state, so firing order affects only how

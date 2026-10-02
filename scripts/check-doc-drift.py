@@ -1216,7 +1216,9 @@ for path in clj_files():
 # `vaelii.impl.taxonomy` itself is not on the roster and needs no entry: it calls its
 # own readers unqualified, and this rule is about reaching one through the alias.
 E17_GLOBAL = ("genls-global", "specs-global", "genl?-global", "context-up-global",
-              "genlCx?-global", "genls-global-within", "specs-global-within")
+              "context-down-global",
+              "genlCx?-global", "genls-global-within", "specs-global-within",
+              "genls-global-among", "genls-global-union", "specs-global-while")
 E17_ROSTER = {
     # The public API offers both readings, and its shorter arity IS the global one —
     # `vaelii.core/genls` documents the pair (docs/taxonomy.md).
@@ -1239,7 +1241,8 @@ E17_ROSTER = {
     # cover installs would close a `genl` cycle, the refusal `genl-problems` makes, so
     # its cycle arm reads globally too; its disjointness arm stays scoped.
     ("src/vaelii/impl/wff.clj", "covering-problems"),
-    ("src/vaelii/impl/wff.clj", "rule-edges"),
+    ("src/vaelii/impl/wff.clj", "negation-walk"),
+    ("src/vaelii/impl/wff.clj", "genl-negation-cycle"),
     ("src/vaelii/impl/checks.clj", "genls-problem"),
     ("src/vaelii/impl/checks.clj", "covering-genls-problem"),
     ("src/vaelii/impl/checks.clj", "mintable-type?"),
@@ -1254,6 +1257,7 @@ E17_ROSTER = {
     ("src/vaelii/impl/chain.clj", "walks-its-own-conclusion?"),
     ("src/vaelii/impl/chain.clj", "solve-closure"),
     ("src/vaelii/impl/inherit.clj", "moved-in"),
+    ("src/vaelii/impl/inherit.clj", "witness?"),
     ("src/vaelii/impl/inherit.clj", "licensing-functors"),
     ("src/vaelii/impl/inherit.clj", "crossings"),
     ("src/vaelii/impl/vantage.clj", "subsumption-support"),
@@ -1272,6 +1276,9 @@ E17_ROSTER = {
     ("src/vaelii/impl/special.clj", "subtree-sentexes"),
     ("src/vaelii/impl/special.clj", "stored-facts-in-ancestors"),
     ("src/vaelii/impl/special.clj", "edge-route-candidates"),
+    # Sizes the unscoped descendants only to pick the cheaper of two scoped reads; the
+    # contexts it answers are `sees?`'s or `context-down`'s either way.
+    ("src/vaelii/impl/special.clj", "withdrawal-candidates"),
     ("src/vaelii/impl/special.clj", "released-terms"),
     ("src/vaelii/impl/special.clj", "super-reaches-declaration?"),
     ("src/vaelii/impl/special.clj", "negative-subsumption-seeds"),
@@ -1280,42 +1287,57 @@ E17_ROSTER = {
     ("src/vaelii/impl/qcn_kb.clj", "calculi-triggered-by"),
     ("src/vaelii/impl/chain.clj", "answered-by-calculus?"),
     ("src/vaelii/impl/special.clj", "subsumption-seeds"),
+    ("src/vaelii/impl/special.clj", "rule-reads-above?"),
     ("src/vaelii/impl/special.clj", "roster-antecedent-functors"),
     # Settle's candidate discovery. An over-approximated candidate merely checks and
-    # yields nothing, and the arbitration that follows is context-scoped anyway —
-    # `instances-below` carries the reasoning and the measurement.
-    ("src/vaelii/impl/settle.clj", "reachable-predicates"),
-    ("src/vaelii/impl/settle.clj", "exposed-clashes-for-term"),
-    ("src/vaelii/impl/settle.clj", "instances-below"),
-    ("src/vaelii/impl/settle.clj", "spec-closure"),
-    ("src/vaelii/impl/settle.clj", "member-owners"),
-    ("src/vaelii/impl/settle.clj", "declaration-reach"),
-    ("src/vaelii/impl/settle.clj", "predicate-subtree"),
-    ("src/vaelii/impl/settle.clj", "partner-contexts"),
-    ("src/vaelii/impl/settle.clj", "chain-contexts"),
-    ("src/vaelii/impl/settle.clj", "any-arity-declared?"),
-    ("src/vaelii/impl/settle.clj", "preserving-moves"),
-    # The one that reads BOTH and compares them: `genl-view` is a cheap marker for
-    # "every asker inside this sandwich reads the same set".
-    ("src/vaelii/impl/settle.clj", "genl-view"),
+    # yields nothing, and the arbitration that follows is context-scoped anyway.
+    ("src/vaelii/impl/recheck.clj", "reachable-predicates"),
+    ("src/vaelii/impl/clashes.clj", "exposed-clashes-for-term"),
+    # The nogoods a reader decides are found over the unfiltered ancestor set, the one
+    # `res/withdrawal` reads, since a scoped read re-enters the reader's own withdrawal
+    # through the supporter callback; the reports read the same set so they agree.
+    ("src/vaelii/impl/clashes.clj", "read-clashes*"),
+    ("src/vaelii/impl/clashes.clj", "clash-grounds"),
+    # The published window reads again the readers whose ancestor set, the unfiltered one
+    # `res/withdrawal` decides over, holds a moved candidate's context.
+    ("src/vaelii/impl/readings.clj", "readers-seeing"),
+    # A nogood family keeps its candidate rows, a superset over every reader, where no
+    # reader exists: at the store and removal choke points, at a replay's end and in a
+    # sync.  It reads the unscoped closures there through the one view this builds, and
+    # its reader half is handed none.
+    ("src/vaelii/impl/decide.clj", "write-view"),
+    # Three reader-side reads: a reader's binding above a functor reads the unscoped
+    # closure cut to the bound predicates, one cut for every reader, and scopes each member
+    # it keeps; a reader reads a tuple's converses under the unscoped functors and keeps
+    # each it sees under a mark it sees; a membership nogood's vantages are the maximal
+    # contexts over the unscoped ancestor sets the readers decide over.
+    ("src/vaelii/impl/decide/arity.clj", "bound-above"),
+    ("src/vaelii/impl/decide/tuple.clj", "converse-nogoods"),
+    ("src/vaelii/impl/decide/membership.clj", "membership-vantages"),
+    ("src/vaelii/impl/discovery.clj", "preserving-moves"),
     # The visibility filter cannot be scoped by the filter it derives — asking
     # `context-up` here would make except evaluation recursive on itself.
     ("src/vaelii/impl/resolution.clj", "visible-exception-index"),
     ("src/vaelii/impl/resolution.clj", "except-hidden-fn"),
     # The per-reader withdrawal reads the same raw ancestor set for the same reason: it
-    # takes the except targets and the scoped defeats a reader sees, and the scoped
+    # takes the except targets and the standing nogoods a reader sees, and the scoped
     # `context-up` is itself filtered by what the except targets hide.
     ("src/vaelii/impl/resolution.clj", "withdrawal*"),
-    # The two diagnostics that report that withdrawal read the same raw ancestor set as
+    # The diagnostic that reports that withdrawal reads the same raw ancestor set as
     # `withdrawal*`: a scoped read would name no vantage for a handle belief withdraws
     # through the unscoped one, so `belief-status` would answer `:withdrawn? true` with an
     # empty `:scoped-vantages` and `why-not` an empty `:withdrawn-by`.
-    # The reader's own ancestor set again, for the same reason: it names the vantages
-    # whose verdicts `withdrawal*` applies, and the two must read one relation or a
-    # reader would take a verdict the withdrawal does not.
-    ("src/vaelii/impl/resolution.clj", "undecided-pairs"),
-    ("src/vaelii/impl/resolution.clj", "scoped-vantages"),
-    ("src/vaelii/impl/resolution.clj", "scoped-defeats-seen"),
+    ("src/vaelii/impl/resolution.clj", "losers-seen"),
+    # The guard reading reads the same raw ancestor set as `withdrawal*`, before a reader's
+    # withdrawal and at each entry it may drop, and the readers below a guarded rule's
+    # context, since `genlCx` is universal.  A rule's watched predicates are read through
+    # the unscoped genls, as `special/recheck-on-fact` reads an arrival's: an entry dropped
+    # for a rule that could not move is recomputed, and one kept for a rule that moved is
+    # stale.
+    ("src/vaelii/impl/resolution.clj", "withdrawal"),
+    ("src/vaelii/impl/resolution.clj", "guard-moves"),
+    ("src/vaelii/impl/resolution.clj", "newly-guarded"),
+    ("src/vaelii/impl/resolution.clj", "guard-closure"),
     # A report on the whole taxonomy, which has no vantage to read from.
     ("src/vaelii/impl/quality.clj", "taxonomy-coverage"),
     # The clash reading's candidate fan. A rule pair is decided from a common descendant

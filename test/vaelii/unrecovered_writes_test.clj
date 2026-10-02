@@ -294,8 +294,9 @@
       (let [kb     (v/open-kb {:backend :disk-log :dir dir :space 28 :recover? false})
             before (count (p/sentex-ids (:records kb)))]
         (binding [v/*write-unrecovered?* true]
-          (testing "the definitional checks pass vacuously — a disjointness violation lands"
-            (is (integer? (v/assert kb '(cat Muffet) 'CxNaturalWorld))))
+          (testing "a disjointness violation lands and nothing weighs it"
+            (is (integer? (v/assert kb '(cat Muffet) 'CxNaturalWorld)))
+            (is (empty? (v/contradictions kb))))
           (testing "a symmetric predicate is stored unsorted, so the duplicate never merges"
             (v/assert kb '(siblingOf Bob Ann) 'CxUniverse)
             (is (= (+ before 2) (count (p/sentex-ids (:records kb))))
@@ -303,11 +304,10 @@
           (testing "retract! is refused even here — its sweep cannot be computed"
             (let [h (first (sort (p/premise-ids (:records kb))))]
               (is (= :unrecovered-premise (ex-type #(v/retract! kb h)))))))
-        (testing "and the same KB, recovered, refuses what it just accepted"
+        (testing "and the same KB, recovered, weighs what it just accepted"
           (v/recover kb)
-          (v/assert kb '(dog Fido) 'CxNaturalWorld)
-          (is (= :disjoint (ex-type #(v/assert kb '(cat Fido) 'CxNaturalWorld)))
-              "with belief built, disjointness is enforced again"))
+          (is (= [:disjoint] (mapv :kind (v/contradictions kb)))
+              "with belief built, the disjoint pair is a dilemma"))
         (v/close! kb)))))
 
 (deftest an-inert-sentex-is-still-torn-down-directly

@@ -1,7 +1,7 @@
 # Labeling: `do/` imperatives and brave/cautious solve
 
-- **Covers:** how `do/labeling` reaches the ASP backend to commit one reversible
-  resolution of a represented dilemma, and how the `(bravely S)` / `(cautiously S)` prover
+- **Covers:** how `do/labeling` commits one reversible resolution of a represented
+  dilemma, and how the `(bravely S)` / `(cautiously S)` prover
   reads the same brave/cautious classification at query time without committing.
 - **Not here:** the assumption-rule vocabulary and its persistent, inert labeling path →
   [solving.md](solving.md); the ASPIF encoding and solver backends →
@@ -76,11 +76,12 @@ Four steps, in an order the imperative fixes so a caller cannot get it wrong:
    (the settle path has a private helper of its own for the same job).
    Known-true content is never contested, so it enters as `:fixed` background exactly
    as it would have from `settle`.
-2. **Classify** brave/cautious over the optimal answer sets.
-3. **Record** the `Program` in the KB's `:program` slot, so `last-program` and
-   `label/classify` answer about this labeling afterwards. `settle` never writes that
+2. **Classify** brave/cautious over the optimal resolutions, read from the dependency
+   graph (the solve-free bracket below).
+3. **Record** the `Program`, carrying that classification, in the KB's `:program` slot,
+   so `last-program` and `label/classify` answer about this labeling afterwards. `settle` never writes that
    slot for a dilemma — it builds no Program for one — so nothing is overwritten.
-4. **Materialize** one optimal labeling into `Ctx` and return the handles.
+4. **Materialize** one optimal resolution into `Ctx` and return the handles.
 
 Classification runs *before* materialization because materializing entrenches:
 what it writes are ordinary assertions, and an assertion is evidence, so the recorded
@@ -96,24 +97,25 @@ being a thing a caller has to remember.
 docstring is emphatic about refusing to re-solve: *"A re-solve would usually agree, and
 'usually' is not a property worth building on."*
 
-`do/labeling` on a dilemma reads it from the **solve**. That is not a reversal. Both
+`do/labeling` on a dilemma reads it from a **resolution** computed for the purpose. That
+is not a reversal. Both
 follow the same rule — *report what actually decided it* — applied to two different
 situations:
 
 | situation | who decided | so read from |
 |---|---|---|
 | a tie `settle` arbitrated | the engine committed to one side | the TMS |
-| a dilemma `settle` declined | nobody; **both sides are IN** | the solve |
+| a dilemma `settle` declined | nobody; **both sides are IN** | a resolution |
 
 Reading current belief for a dilemma would copy *both* sides of the contradiction
 into the labeling context, which just recreates the dilemma one level down. There is
-no committed answer to be faithful to, so the solve is the only thing that decides.
+no committed answer to be faithful to, so the resolution is the only thing that decides.
 
 ### `Ctx` inherits, and the labeling is recorded by strengthening
 
 `Ctx` is a `genlCx` specialization of the base, and each kept assumption is
 re-asserted inside it at `:monotonic`. Nothing needs to be said about the side that
-lost: the strengthened copy out-ranks it and `decide-nogood` defeats the strictly
+lost: the strengthened copy out-ranks it and `decide/verdict` defeats the strictly
 weaker member. So `Ctx` is a **world** — the uncontested background is inherited, and
 the contested atoms are decided within it.
 
@@ -136,8 +138,8 @@ duplicated.
 ### The commitment is scoped to `Ctx`
 
 The strengthened copy and the losing side form a nogood whose vantage is `Ctx`, since
-`Ctx` sees the base and the base does not see `Ctx`. The losing side is defeated at `Ctx`
-and below, and nowhere else ([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)): a
+`Ctx` sees the base and the base does not see `Ctx`. `Ctx` and the readers below it decide
+the nogood, and no reader above it does ([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)): a
 read from `Ctx` finds one side, and a read from the base finds both.
 
 This is the one place where "the KB represents dilemmas, it does not solve them"
@@ -152,14 +154,21 @@ Rival labelings stand **side by side**: two `do/labeling` calls naming two conte
 two sibling contexts, each deciding the dilemma its own way, while the base reports the
 one dilemma throughout.
 
-### The labeling solve and the classification solves must agree
+### The labeling and its classification must agree
 
-`do/labeling` runs **three** solves: brave and cautious for the classification, and one
-more for the labeling itself. The third is irreducible — brave and cautious give the
-union and the intersection of the optima, and neither is a single answer set — so the
-labeling has to be solved for separately.
+`do/labeling` reads both from one place: the optimal resolutions the solve-free bracket
+below enumerates from the dependency graph. The labeling is the resolution whose members
+sort first by content, and an assumption is kept when it stays believed with that
+resolution forced OUT, so a member a defeat drops by cascade is dropped with it. A
+`Program` encodes no derivation between members, and a solve over it misses the cascade.
+With three defaults where `b` rebuts both `a` and `c` and each rebuts `b`, the one optimal
+resolution defeats `b`, and the `¬a` and `¬c` it derives go with it; a `Program`'s optima
+spend a defeat per dilemma, and one of them gives up `a`, `b` and `c` together.
 
-Separate solves have to be *reconciled*. `classify-program` needs to enumerate optima,
+A cluster past the bracket's caps is labeled by a solve over its dilemmas' `Program`
+instead, and with a backend a member of one whose members derive from none of each other is
+classified by brave and cautious solves, where the `Program` is exact. That is up to three
+solves, and separate solves have to be *reconciled*. `classify-program` needs to enumerate optima,
 which only ASP does, so it goes straight to the backend and ignores `(:solver kb)`. A
 labeling taken from the installed solver — on a default KB, the greedy `local-solver` —
 would answer from a different search procedure, and the two diverge in practice.
@@ -232,21 +241,23 @@ comes through `do/labeling`:
 
 Which optimum is materialized may not depend on assertion order, on handle ids, or on
 solver nondeterminism — the engine-wide invariant (docs/nmtms.md) does not get an
-exception for being inside a solver. The choice is keyed on **content**, through the
-same `solve/content-key` that orders the stub solver, and the ASP encoding's
-three-level objective already ends in a content-keyed tiebreak for this reason.
+exception for being inside a solver. The choice is keyed on **content**: the resolution
+whose members' `solve/content-key`s sort first, the key that orders the stub solver, and
+the ASP encoding's three-level objective ends in a content-keyed tiebreak for the clusters
+a solve labels.
 
 ### Without an ASP backend
 
 `local-solver` produces one labeling deterministically but cannot enumerate optima. So
-on a plain build:
+on a plain build, for a cluster past the bracket's caps:
 
 * materialization works — the stub's pick is well-defined and content-keyed;
 * classification reports every contested assumption `:supportable`, which is correct
   (each *is* one of several) and never overclaims `:true`.
 
-A build without clingo behaves like one with it, minus the ability to distinguish
-forced from arbitrary — which is precisely the thing enumeration buys.
+That holds for a cluster past the bracket's caps only. Everywhere the bracket enumerates,
+labeling and classification read the dependency graph, and a build without clingo labels
+and classifies as one with it does.
 
 ## Reading brave/cautious without committing: `(bravely S)` / `(cautiously S)`
 
@@ -264,14 +275,17 @@ S)` prover answers that question as a read.
 
 `(cautiously S)` holds when `S` is in **every** optimal labeling of the current dilemmas,
 `(bravely S)` when `S` is in **some** — the cautious and brave halves of one classification
-the prover reads through `label/classify-datum`: the ASP backend when one is reachable,
-and otherwise the solve-free JTMS bracket below. Over a datum in no dilemma both reduce to
-ordinary belief, since every resolution agrees there. The read **commits nothing**: after
-asking, belief, `contradictions` and `last-program` are exactly as they were.
+the prover reads through `label/classify-datum`: the solve-free JTMS bracket below, with
+or without a backend. Over a datum no dilemma moves — neither a
+member nor derived from one — both reduce to ordinary belief, since every resolution agrees
+there. The read **commits nothing**: after asking, belief, `contradictions` and
+`last-program` are exactly as they were.
 
-The backend classifies only the asked datum's **member component**: the dilemmas that
-share a member with one naming it, directly or through a chain. A `Program` encodes no
-derivation between members, so the optima of dilemmas that share no member are every
+A backend refines only a **`:refinable`** member: one in a cluster the bracket did not
+enumerate, whose members move none of each other — where a `Program`, which encodes no
+derivation between members, is exact. Everywhere else a backend changes no answer. It
+classifies the member's **member component**: the dilemmas that share a member with one
+naming it, directly or through a chain. The optima of dilemmas that share no member are every
 combination of each component's optima, and a member's class over the whole program is its
 class over its component. The whole program's optima multiply across independent dilemmas
 (twenty Nixon diamonds have 2^20), and one component's do not. Each classification is held
@@ -281,8 +295,8 @@ once (`lein perf`'s `brave-ask-between-writes`).
 Three limits, none silent:
 
 * **It is opt-in**, so the ASP stack stays off a KB's load path until asked
-  (docs/asp.md). Without a backend the prover reads the solve-free bracket below rather
-  than an enumeration, so `bravely` and `cautiously` still answer.
+  (docs/asp.md). The bracket below needs no backend, so `bravely` and `cautiously` answer
+  on a plain build.
 * **`bravely` / `cautiously` are not assertible** (they join `unknown` and the aggregates as
   reserved query operators, docs/naming.md): a stored one would be a computed value with no
   way to keep it current.
@@ -294,17 +308,14 @@ Three limits, none silent:
 
 ### The solve-free bracket
 
-`label/classify-datum` reads the ASP backend when one is reachable and
-`label/classify-local` otherwise. `classify-local` classifies the current dilemmas from
-the JTMS dependency graph, with no answer-set enumeration and no backend, so a plain build
-answers `bravely` and `cautiously` rather than reporting every contested datum
-`:supportable`.
+`label/classify-local` classifies the current dilemmas from the JTMS dependency graph,
+with no answer-set enumeration and no backend. `label/classify-datum` and
+`label/label-dilemmas` read it on every build.
 
 It rests on one JTMS read. `jtms/grounded-in-region` recomputes belief with a set of datums
 **forced OUT** — the forward consequence closure of that set, and within it the datums that
 stay believed, belief outside the closure read per datum rather than materialized
-(`grounded-forcing-out` splices the same read back into full belief, equal to `(jtms/defeat
-…)` of the set). A **resolution** is a minimum-cardinality set of dilemma members whose
+(`grounded-forcing-out` splices the same read back into full belief). A **resolution** is a minimum-cardinality set of dilemma members whose
 forcing OUT satisfies every nogood — leaves no nogood with all its members still believed —
 which is a dilemma set's optimal labelings. `classify-local` reads belief under each
 resolution and splits a believed datum by which resolutions keep it: `:true` when every
@@ -313,11 +324,11 @@ resolution keeps it (skeptical), `:supportable` when some but not every do (cred
 
 `(hasEthicalStance Nixon)` drawn from **both** the pacifist and non-pacifist side is `:true`:
 every resolution keeps one side, so one support survives. `(opposesWar Nixon)` resting on
-the pacifist side alone is `:supportable`, so `(cautiously (opposesWar Nixon))` is false —
-where the member-only `classify-program` leaves that conclusion to base belief (which
-believes both sides and so reports it cautious). `(weird Nixon)` drawn from `(and (pacifist
-Nixon) (not (pacifist Nixon)))` is `:false`: it is believed only because base belief holds
-both sides at once, and every resolution drops one, so it holds in none.
+the pacifist side alone is `:supportable`, so `(cautiously (opposesWar Nixon))` is false,
+where base belief, which believes both sides, would report it cautious. `(weird Nixon)`
+drawn from `(and (pacifist Nixon) (not (pacifist Nixon)))` is `:false`: it is believed only
+because base belief holds both sides at once, and every resolution drops one, so it holds
+in none.
 
 **Coupled dilemmas are enumerated together, independent ones apart.** Two nogoods that share
 a member, or that move a member of each other through the derivation graph, form one cluster
@@ -338,10 +349,11 @@ is `:true`: it holds in every combination of the two diamonds' resolutions.
 `classify-local` is **sound** — nothing is `:true` that a resolution gives up, nothing
 `:false` that one keeps — and **complete for a datum whose clusters it enumerates**: the one
 cluster its support touches, or the several whose product of resolutions stays within
-`VAELII_CLASSIFY_MAX_JOINT_OPTIMA`. The residual a backend still refines is a datum whose
-product of clusters exceeds that cap, or a cluster past `VAELII_CLASSIFY_MAX_CLUSTER_MEMBERS`
-or the `VAELII_CLASSIFY_RESOLUTION_BUDGET` search ceiling; each degrades to `:supportable`,
-which claims neither forced nor excluded. An operator tunes each cap through its
+`VAELII_CLASSIFY_MAX_JOINT_OPTIMA`. A datum whose product of clusters exceeds that cap, or
+in a cluster past `VAELII_CLASSIFY_MAX_CLUSTER_MEMBERS` or the
+`VAELII_CLASSIFY_RESOLUTION_BUDGET` search ceiling, degrades to `:supportable`, which claims
+neither forced nor excluded. A backend refines the members of such a cluster when it is
+`:refinable`, and nothing else. An operator tunes each cap through its
 `VAELII_CLASSIFY_*` switch (docs/operations.md). Its cost is
 the clusters' consequence closures: **linear** in the number of independent dilemmas
 (`grounded_forcing_out_test`), exponential only inside one interacting cluster or across the
@@ -355,7 +367,7 @@ only adds.
 
 ## Status
 
-`labeling_test` covers this channel in 16 tests: the `do/` channel itself, the
+`labeling_test` covers this channel in 17 tests: the `do/` channel itself, the
 dilemma-to-`Program` bridge (`label/dilemma-program`), the solve-sourced labeling, and
 `label/label-dilemmas`. `label/classify-program`, `label/label-context`,
 `edge/edge-solver` and the clingo/clasp backends are `asp_label_test` /

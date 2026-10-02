@@ -29,6 +29,7 @@
             [vaelii.impl.strength :as strength]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
+            [vaelii.impl.violations :as violations]
             [vaelii.impl.wff :as wff]))
 
 ;; ---- invariants: naming + argument type declarations --------------------
@@ -231,16 +232,10 @@
   one carrying its own declaration, **takes 2 arguments through parentOf** for one whose
   length descends from a super-predicate.
 
-  Public and spelled once, because a binding is described in more than one place and a
-  reader carries the vocabulary from one description to the next.  Both of this
-  namespace's entry points word it — a wrong-length sentence (`arity-problem`) and a declaration
-  naming a position the length denies (`arg-position-problem`) — and
-  `settle/report-arity-reach!` words the same binding for the facts one arriving late
-  convicts.  \"is declared with\" is false of a predicate that declared nothing and took
-  its length off a super, so the split is a claim about the KB rather than a phrasing: a
-  reader told it goes looking for a declaration nobody wrote, and one binding wearing two
-  descriptions reads as two problems.  `entry_point_and_report_test` is the roster that holds
-  every reader's message to this clause."
+  Public and spelled once: `arg-position-problem` words a declaration naming a position
+  the length denies with it, and a caller describing a binding reads the same clause.
+  \"is declared with\" is false of a predicate that declared nothing and took its length
+  off a super, so the split is a claim about the KB rather than a phrasing."
   [pred via n]
   (str (if (= via pred) "is declared with " "takes ")
        n " argument" (when (not= 1 n) "s")
@@ -262,7 +257,7 @@
   nothing about order, so a `(first (for …))` over the raw matches would let the
   retrieval strategy pick *which* declaration a refusal names when several convict.
   Sorting on content keys the choice on what the KB says rather than on enumeration —
-  the rule `handle-naming` states for the handle a clash is reported as.  Existence is
+  the rule `handle-namings` states for the handle a clash is reported as.  Existence is
   untouched: every declaration is still read, and a sentence no declaration convicts
   still has no violation.
 
@@ -330,6 +325,14 @@
   without needing a list of exemptions to keep in step."
   [tax t]
   (and (symbol? t) (not (sx/variable? t)) (tax/genl?-global tax t 'thing)))
+
+(defn mintable-types
+  "`mintable-type?` as a fn of one type, for a caller asking about many types while the
+  hierarchy holds still: `thing`'s subtypes are walked once (`tax/specs-of-all`, global
+  for `mintable-type?`'s reason) and each answer is a set lookup (docs/exceptions.md)."
+  [tax]
+  (let [under (tax/specs-of-all tax ['thing])]
+    (fn [t] (and (symbol? t) (not (sx/variable? t)) (contains? under t)))))
 
 (defn- declares-locally?
   "Does the declaration stored at `dh` speak **for** `context`, rather than merely
@@ -715,10 +718,9 @@
 ;; `argsGenl` the subtype question `genlArg` asks.
 ;;
 ;; **The walk is over the positions the sentence actually has, not a re-counted tail.**
-;; `arity-problem` runs first in `constraint-problem` and refuses a sentence whose length
-;; its relation does not admit, so every position reached here is one a well-formed
-;; application has — there is no second notion of where the tail ends for the covering
-;; check and the arity reader to disagree about.  The covering declarations are read
+;; every position the sentence has is walked, including one past a length its relation
+;; is bound to: such a tuple is stored, and a reader decides it as an arity nogood
+;; (`vaelii.impl.decide`).  The covering declarations are read
 ;; through the same `decls` reader the singular forms use, so a super-predicate's covering
 ;; declaration binds a sub-predicate's tuples for `args-problem`'s reason.
 
@@ -754,8 +756,7 @@
 (defn- suffix-positions
   "The one-based positions from `start` to the last argument of the argument vector `as`
   — the walk every tail constraint makes, the covering forms and the homogeneity forms
-  alike.  Bounded by the arguments the sentence has, which `arity-problem` has already
-  held to a length the relation admits."
+  alike.  Bounded by the arguments the sentence has."
   [as start]
   (range start (inc (count as))))
 
@@ -1103,50 +1104,6 @@
   forcing it in would put that difference inside every reader of this map."
   '{arg genlArg, genlArg arg})
 
-(def exact-arity-classes
-  "What each exact-arity class membership says the arity is.  The `arity` sentexes and
-  these memberships derive each other through the CxCore rules, so a declared
-  relation normally has both — but a `{:chain? false}` assert or a KB loaded without
-  the rules has only what was written, so both spellings are read.
-
-  **Nine spellings, because CxCore ships nine classes.**  `unary` / `binary` / `ternary`
-  are the relation-wide ones and the other six specialize them by kind, so a KB may write
-  the arity of a function as `(binary_function F)` exactly as it writes a predicate's as
-  `(binary_predicate P)`.  The relation-wide three alone would answer `membered-arity`,
-  which reads the term's whole `genl` closure — but `arity-declaration-handle` looks for
-  a **stored** sentex to name in a refusal, and what a KB stored is whichever of the nine
-  its author wrote.
-
-  The three arities never disagree across the spellings one term holds: a class and its
-  specializations map to one number, and `(disjoint unary binary)` and its two peers
-  separate the relation-wide three, which the six inherit through their `genl` edges.
-
-  Public because `settle`'s retroactive arity report triggers on an arriving *arity
-  declaration*, and these memberships are the second way to write one — a roster read
-  twice is a roster that drifts."
-  '{unary 1 binary 2 ternary 3
-    unary_predicate 1 binary_predicate 2 ternary_predicate 3
-    unary_function 1 binary_function 2 ternary_function 3})
-
-(def exact-arity-class-gates
-  "The `exact-arity-classes` keys a KB can hold a membership of **without** CxCore, which
-  is the question `settle/any-arity-declared?` asks the index — one `stored-count-with-functor`
-  per class, per assert, on a KB whose `(arity P n)` table is empty.
-
-  Three of the nine, and the other six are left out on a measurement.  `unary` / `binary`
-  / `ternary` and the three function classes are CxCore's own vocabulary: a KB holding one
-  holds CxCore, whose rules put an `(arity P n)` sentex in the table for it, and the
-  table is the gate's first branch — so asking the index about them adds six reads per
-  assert (`assert_cost_test`'s `functor-root` budget) to answer what the branch above
-  already answered.  What the six lose is the retroactive *report* in a KB that has
-  CxCore's class names and not its rules; the entry point still refuses a wrong-length
-  fact under all nine, `declared-arity` reading the roster rather than this.
-
-  A **vector**, in arity order: the reader walks it until one class has a stored member,
-  so the order decides how many index reads a KB with no arity at all pays, and a set
-  would make that number a hash order rather than a decision."
-  '[unary_predicate binary_predicate ternary_predicate])
-
 (defn- tabled-arity
   "The arity the `(arity P n)` **table** gives `pred` from `context`, or nil.
 
@@ -1175,7 +1132,7 @@
   however many of the nine spellings its closure holds."
   [types pred]
   (let [cs (types pred)]
-    (first (for [[t n] exact-arity-classes
+    (first (for [[t n] tax/exact-arity-classes
                  :when (kb/isa-among? cs t)]
              n))))
 
@@ -1196,67 +1153,11 @@
       (membered-arity types pred)))
 
 (defn- inherited-arity
-  "The arity `pred`'s **super-predicates** bind it to, as `[n via]`, or nil.
-
-  A `genl` edge between predicates says the sub's tuples *are* the super's, and a tuple
-  has an arity: a ternary `fatherOf` fact is a ternary `parentOf` tuple, which
-  `(binary_predicate parentOf)` says does not exist.  So a sub-predicate the KB has said
-  nothing about is held to what the predicates above it declare — the cheapest and least
-  contestable member of the descension family, since it convicts on the structure of the
-  tuple rather than on anything the arguments happen to be.
-
-  **Read only when `pred` declares nothing itself**, and that restriction is the whole of
-  the difference between this and preserving arity down the hierarchy as an *answerable*
-  fact.  The arity table is untouched, so `(arity child ?n)` still answers the one value
-  somebody wrote and `(functional arity)` still has a single value to be functional
-  about.
-
-  The case this declines to read cannot disagree with it: a specialization carrying a
-  signature of its own is held to the same length as the predicates above it
-  (`edge-arity-problem` and `declaration-arity-problem` refuse the pair that disagrees),
-  so \"where `pred` declares nothing\" is a restriction on where the *reading* happens
-  and not a hole a conflicting declaration escapes through.
-
-  **Unanimity or nothing**, which is the stance `tax/declared-arity` already takes toward
-  two contradictory declarations of one predicate: supers that disagree leave the
-  question genuinely unsettled, and convicting on whichever was enumerated first would be
-  arbitrary.  A `variable_arity` super releases the inheritance entirely, for the reason
-  it exempts a predicate that carries it — a relation declared to read a chain of any
-  length binds nothing beneath it to one length.
-
-  The release is asked of **every** super, not only of the ones that declared the arity
-  being inherited.  A super marked `variable_arity` and given no length of its own says
-  the hierarchy under it reads a chain, which is exactly the claim that should release a
-  sibling's binary declaration; reading the mark only off the supers that contributed a
-  number let such a super sit in the hierarchy saying nothing, and refused the chain it
-  exists to license.  It costs no retrieval to ask it of all of them: the membership
-  read is per super and memoized per assert, and the arity spelling below already pays
-  it for every super the table does not name.
-
-  `via` is the content-first super that declares the binding arity, so a refusal can name
-  the declaration it convicts against.  Free for a predicate with no super-predicates:
-  one closure read, already memoized by the argument-constraint reader beside it.
-
-  **Both spellings, like `own-arity`** — the `(arity P n)` table first, since it is a map
-  read where the exact-class membership is a retrieval, and the membership after it
-  for a super the table does not name.  A KB loaded with CxCore's rules has both for
-  every declared predicate, because the rules derive each from the other; a KB loaded
-  without them, or one written with `{:chain? false}`, has only what somebody typed, and
-  a descension that saw one spelling and not the other would bind or release by which
-  one that was.
-
-  **Cost is one membership read per super-predicate**, and that is a real per-assert
-  price on a deep hierarchy rather than a constant: the `variable_arity` release has to
-  be asked of every super whatever the table said, so the table saves the *arity* read
-  and not the membership one.  The read is memoized per assert, so it is one retrieval
-  per distinct super and not one per question asked of it.  Making it flat in the depth
-  would mean holding the memberships somewhere the taxonomy can answer from — the trade
-  `(arity P n)` itself takes one screen up — and it is not a filter that can be bolted
-  on here, because a `variable_arity` reached through a `genl` edge between collections
-  releases exactly as a directly asserted one does, so a roster of the direct spelling
-  would not be the superset such a gate needs.  `assert-cost-test`'s `deep-membership`
-  workload and `perf`'s `membership-under-depth` pin the shape so it cannot worsen
-  unnoticed."
+  "The arity `pred`'s **super-predicates** bind it to, as `[n via]`, or nil: the one
+  length every super-predicate visible from `context` that declares one agrees on, both
+  spellings read (`own-arity`), with `via` the content-first of them.  Nil when they
+  disagree, and when any super is `variable_arity`.  One membership read per super,
+  memoized per `types` reader."
   [kb pred context types]
   (let [tax    (reasoning/taxonomy kb)
         supers (sort (disj (tax/genls tax pred context) pred))
@@ -1319,346 +1220,6 @@
       (map first (nm/sort-by-content-key order compare exact))
       (take 1 (map first (nm/sort-by-content-key order compare matches))))))
 
-(defn- handle-naming
-  "The one handle a *refusal* names — the first of `handle-namings`, which is the
-  content-first exact match where one is stored.  A refusal needs one reason, and the
-  arity arm convicts against a declaration rather than against a pair, so there is
-  nothing plural for it to say."
-  [matches target]
-  (first (handle-namings matches target)))
-
-(defn- arity-declaration-handle
-  "The handle of the believed declaration saying `via` has arity `declared`, visible
-  from `context` — the sentex a wrong-arity sentence convicts *against*.
-
-  Two spellings declare it and `own-arity` reads both, so both are looked for: the
-  `(arity P n)` sentex, and failing that the exact-class membership `(binary_predicate P)`
-  — or `(binary F)`, or `(binary_function F)` — that says the same thing.  `via` is the predicate the binding arity was read off,
-  which is the sentence's own for a locally declared one and a super-predicate for an
-  inherited one — so a refusal through the hierarchy names the declaration that convicted
-  rather than looking for one the sentence's predicate never had.  Asked only once a
-  clash has been found, so an admissible assert never pays for the retrieval."
-  [kb via declared context]
-  ;; `handle-naming` for the same reason it exists: both reads are type-aware, so a
-  ;; subtype of the declaration's own predicate comes back beside it.  The preference
-  ;; between the two *spellings* is this `or`, and stays content-ordered by construction.
-  (or (let [target (list 'arity via declared)]
-        (handle-naming (res/matches-visible kb target context) target))
-      ;; sorted, so which of the nine spellings a refusal names is decided by the roster's
-      ;; content and not by a map's iteration order — the reason `membership-arity` sorts
-      (first (for [[t n] (sort-by key exact-arity-classes)
-                   :when (= n declared)
-                   :let  [target (list t via)
-                          h (handle-naming (res/matches-visible kb target context) target)]
-                   :when h]
-               h))))
-
-(defn- arity-min-declaration-handle
-  "The handle of the believed `(arityMin pred m)` declaration visible from `context` — the
-  sentex a too-short application of a variable-arity relation convicts against.  Asked only
-  once the floor has found a violation, so an admissible assert never pays the retrieval."
-  [kb pred m context]
-  (let [target (list 'arityMin pred m)]
-    (handle-naming (res/matches-visible kb target context) target)))
-
-(defn- arity-problem
-  "A sentence used at an arity its predicate is not declared with, or nil.
-
-  The **top literal only**, exactly like `args-problem`: a rule reaches here as its
-  `implies` form, whose own arity is 2 and is checked as such, and its antecedents are
-  not.  That is the existing line between what `assert` checks and what a rule is
-  trusted to contain, and arity does not move it.
-
-  Open-world in the same shape as `arg`: a predicate the KB has never declared can
-  be used at any arity, since the declaration may simply not have arrived.  A
-  `variable_arity` predicate is exempt outright — `lessThan` has a binary floor and
-  reads a chain of any length, and the declarations are what say so.
-
-  The binding arity **descends the predicate hierarchy** where the predicate declares
-  none of its own (`inherited-arity`): a `fatherOf` tuple is a `parentOf` tuple, so its
-  length is held to what `parentOf` was declared with.
-
-  `:opposing-handle` names the declaration that convicted, so a refusal can say *which*
-  one and the retroactive report can point at it.  It does **not** make this arbitrable
-  — `arbitrable-kinds` is what decides that, and the comment above it says why arity is
-  not on the list even though it names a second sentex.
-
-  `:via` names the predicate the length was read off — `pred` itself for one carrying its
-  own declaration, a super-predicate for one that inherits — and the message is worded off
-  it, because \"`fatherOf` is declared with 2 arguments\" is false of a predicate nobody
-  declared and sends an author looking for a declaration that does not exist.  So an
-  inherited length **takes … through** and a declared one **is declared with**, which is
-  `arity-binding-clause`'s one spelling of the split — and the key is on the map so a
-  reader building its own message reads the same binding, which `settle`'s retroactive
-  report and `arg-position-problem` beside it both do."
-  [kb sentence context types]
-  (let [pred (nm/functor sentence)]
-    (when (symbol? pred)
-      (let [actual (nm/arity sentence)]
-        (if (variable-arity? types pred)
-          ;; a variable-arity relation reads a chain of any length at or above the
-          ;; minimum `arityMin` states, so its floor is that minimum rather than an
-          ;; exact length.  An application shorter than the minimum is missing a
-          ;; guaranteed position and is refused; a longer one is admitted.  `arityMin`
-          ;; is read by retrieval, reached only on this variable-arity branch and never
-          ;; on the exact-arity path below.  A relation with no `arityMin` keeps the
-          ;; outright exemption it had before the minimum was read.
-          (when-let [m (provers/arity-min kb pred context)]
-            (when (< actual m)
-              {:type :arity :sentence sentence :predicate pred
-               :expected m :actual actual :via pred :minimum? true
-               :opposing-handle (arity-min-declaration-handle kb pred m context)
-               :message (str pred " takes at least " m " argument"
-                             (when (not= 1 m) "s") " but has " actual)}))
-          ;; a fixed-arity relation is held to its exact declared length, answered from
-          ;; the taxonomy cache and the predicate's own type memberships
-          ;; (`declared-arity`) — no declaration query is made here
-          (when-let [[declared via] (declared-arity kb pred context types)]
-            (when (not= actual declared)
-              {:type :arity :sentence sentence :predicate pred
-               :expected declared :actual actual :via via
-               :opposing-handle (arity-declaration-handle kb via declared context)
-               :message (str pred " " (arity-binding-clause pred via declared)
-                             " but has " actual)})))))))
-
-;; ---- arity across a genl edge -------------------------------------------
-;;
-;; `arity-problem` above holds a *sentence* to its predicate's declared length.  The two
-;; arms below hold the **vocabulary** to itself: a `genl` edge between predicates asserts
-;; that the sub's tuples *are* the super's, and tuples of different lengths are not the
-;; same tuples, so two declared arities across one edge is a pair the KB may not hold.
-;;
-;; **A specialization does not carry its own signature.**  A signature on the sub that
-;; disagrees with the super is not a narrowing, it is a contradiction: `(genl fatherOf
-;; parentOf)` beside `(binary_predicate parentOf)` and `(ternary_predicate fatherOf)` admits
-;; a ternary `fatherOf` fact that answers a `(parentOf ?a ?b ?c)` query the entry point refuses.
-;; Refusing the pair is also what keeps the arity *table* single-valued, which `(functional
-;; arity)` needs: a conflicting declaration never lands, so no predicate has two lengths to
-;; answer with and no two genl-related predicates disagree about one either.
-;;
-;; **The arriving sentence is what is refused**, in both directions — the edge when it
-;; arrives onto two declared predicates, the declaration when it arrives onto a predicate
-;; a visible edge already relates to a differently declared one.  So the KB never enters
-;; the inconsistent state, and which sentence is refused is the ordinary first-writer-wins
-;; every entry point refusal already has.
-;;
-;; **Through the closures on both sides**, because a predicate declaring nothing itself is
-;; not a predicate binding nothing: it takes its supers' length (`inherited-arity`), and an
-;; edge arriving onto it puts the specs below it into the same tuple set (`descended-arity`).
-;; Reading each end's own declaration alone leaves an undeclared predicate between two
-;; declared ones as a gap both arms fall through — the case `an-undeclared-predicate-between-
-;; two-declared-ones-is-still-a-pair` pins.  Predicates that disagree with *each other* on
-;; one side are not a pair: neither is above the other, the end binds neither, and
-;; `supers-that-disagree-about-arity-bind-nothing` is the case that says so.
-
-(defn- arity-descension-message
-  "The refusal both arms carry: both predicates, both arities, and the edge that makes
-  them one claim.  Sub first whichever sentence arrived, so the message is a fact about
-  the pair rather than about the arrival order."
-  [sub sub-arity super super-arity]
-  (str "arity does not descend: " sub-arity " argument" (when (not= 1 sub-arity) "s")
-       " declared of " sub ", " super-arity " declared of " super
-       ", and (genl " sub " " super ") says every " sub " tuple is a " super
-       " tuple — tuples of different lengths are not the same tuples"
-       " (give the two one arity, or declare one variable_arity)"))
-
-(defn- descended-arity
-  "The arity `pred`'s **sub-predicates** declare, as `[n via]`, or nil — the spec-side
-  twin of `inherited-arity`, and read for the reason that one is read: a length binding
-  one end of an arriving edge does not have to be declared *at* that end.
-
-  Where `inherited-arity` looks up because a sub's tuples are its supers' tuples, this
-  looks down because the same edge makes a spec's tuples the super's: `(genl grandOf
-  fatherOf)` with `(ternary_predicate grandOf)` says `fatherOf` has ternary tuples under
-  it, so an arriving `(genl fatherOf parentOf)` onto a binary `parentOf` is the same
-  incoherent pair seen from below.
-
-  **Unanimity or nothing**, `inherited-arity`'s stance and for its reason.  Two specs
-  that disagree with *each other* under an undeclared `pred` are not themselves a pair —
-  neither is above the other and `pred` binds neither — so a disagreement here leaves the
-  question unsettled rather than convicting on whichever the closure yielded first.
-
-  **Read only when the other end already binds a length**, which is what keeps it off the
-  ordinary load: the spec closure of a collection is the whole taxonomy beneath it, and
-  an edge between two collections has no arity on either side to make it worth walking."
-  [kb pred context types]
-  (let [tax   (reasoning/taxonomy kb)
-        specs (sort (disj (tax/specs tax pred context) pred))
-        pairs (into [] (keep (fn [p]
-                               (when-not (variable-arity? types p)
-                                 (when-let [n (own-arity kb p context types)] [p n]))))
-                    specs)]
-    (when (and (seq pairs) (= 1 (count (into #{} (map second) pairs))))
-      (let [[p n] (nth pairs 0)] [n p]))))
-
-(defn- reached-arity
-  "The arity `pred`'s visible relatives bind it to, as `[n via]`, or nil — above it first
-  (`inherited-arity`, the commoner and the cheaper, since a predicate has fewer supers
-  than a collection has specs), then below it (`descended-arity`).
-
-  What `edge-arity-problem` asks of the end that declares no length of its own, once the
-  *other* end has declared one."
-  [kb pred context types]
-  (or (inherited-arity kb pred context types)
-      (descended-arity kb pred context types)))
-
-(defn- arity-descension-violation
-  "The violation map for a `sub` / `super` pair declared at `sub-arity` and `super-arity`,
-  reported against the sentence that arrived.
-
-  `:opposing-handle` names the *other* side's declaration — the one the KB already holds —
-  for `arity-problem`'s reason, and with `arity-problem`'s consequence: `:arity` is not in
-  `arbitrable-kinds`, so this is a refusal and not a nogood.  The sentex it names is a
-  vocabulary entry the conviction is read through, and the comment above `arbitrable-kinds`
-  says why that may not be defeated."
-  [kb sentence sub sub-arity super super-arity opposing opposing-arity context]
-  {:type :arity :sentence sentence :predicate sub
-   :sub sub :sub-arity sub-arity :super super :super-arity super-arity
-   :opposing-handle (arity-declaration-handle kb opposing opposing-arity context)
-   :message (arity-descension-message sub sub-arity super super-arity)})
-
-(defn- edge-arity-problem
-  "An arriving `(genl sub super)` whose two predicates are declared with different
-  arities, or nil.
-
-  **The sub's own declaration is read first and the super's only if it found one**, which
-  is both the cheap order and the complete one: a clash needs a declaration on each side,
-  and an undeclared sub is the case the descension exists to serve.  So an edge between
-  two collections — the bulk of what a load asserts — stops on the sub and never reads the
-  super.  It stops at a cost rather than at none: `own-arity` falls through to the
-  membership spelling wherever the `(arity P n)` table has no entry, and an undeclared
-  collection is exactly the term the table does not name, so the ordinary edge pays the
-  table read *and* the sub's memberships retrieval — cold here, since this arm runs ahead
-  of the argument checks and a `genl` sentence gives them no `arg` position to read the
-  same term through.  Both spellings are read on each side (`own-arity`), because a KB loaded
-  without CxCore's derivation rules has only what somebody typed and a rule that saw one
-  spelling and not the other would refuse by which one that was.
-
-  `variable_arity` on **either** side releases, for the reason it exempts the predicate
-  carrying it: a relation declared to read a chain of any length makes no claim about the
-  length of the tuples above or below it, so there is nothing to contradict.
-
-  **What binds an end is not only what is declared at it.**  An *undeclared* predicate
-  between two declared ones hides the pair from a reader of the two endpoints' own
-  declarations: `(genl fatherOf parentOf)` onto a binary `parentOf` and `(genl grandOf
-  fatherOf)` from a ternary `grandOf` each stop on the side `fatherOf` says nothing about,
-  and the KB is left answering `(parentOf ?a ?b ?c)` with a tuple the entry point refuses — the
-  state the comment above says this arm exists to prevent, reachable in 14 of the 24 orders
-  those four sentences arrive in.  So the end that declares nothing is read through the
-  closures instead, `inherited-arity` for a length above it and `descended-arity` for one
-  below (`reached-arity`).
-
-  **One end has to declare its own length for the other to be walked**, and that gate is
-  the whole of what keeps this affordable.  A `genl` edge is the commonest vocabulary
-  write there is, most of them run between collections, and neither end of those declares
-  an arity — so the walk is skipped before it starts and the ordinary edge pays exactly
-  what it always did, two `own-arity` reads.  `taxonomy-depth` is the structure that makes the
-  gate necessary rather than merely thrifty: edges arriving down one chain give each new
-  edge a super whose `genl` closure is every edge already asserted, so walking it per edge
-  is quadratic in the chain, and the cell pins that edge at a flat cost 2000 deep.
-
-  What the gate gives up is a pair whose two lengths are *both* only inherited — an
-  undeclared sub under a declared super, an undeclared super over a declared one, and an
-  edge between those two.  Each of the three edges involved refuses when it is the one
-  that arrives onto the others, so the pair is caught in most orders and escapes in the
-  ones where the edge between the two undeclared ends arrives last.  Closing that costs
-  the quadratic walk above on every edge in the KB, which is not a trade this arm can make
-  for a shape two declarations away from anything a hierarchy states."
-  [kb sentence context types]
-  (when (and (= 'genl (nm/functor sentence)) (= 2 (nm/arity sentence)))
-    (let [[sub super] (nm/args sentence)]
-      (when (and (checkable-term? sub) (checkable-term? super) (not= sub super)
-                 (not (variable-arity? types sub))
-                 (not (variable-arity? types super)))
-        (let [n (own-arity kb sub context types)
-              m (own-arity kb super context types)
-              ;; the walk runs on one end only, and only against a length the other end
-              ;; declares of itself — both undeclared is the ordinary edge, and it stops here
-              a (or (when n [n sub])   (when m (reached-arity kb sub context types)))
-              b (or (when m [m super]) (when n (reached-arity kb super context types)))]
-          (when (and a b (not= (first a) (first b)))
-            (let [[an via-sub]   a
-                  [bm via-super] b]
-              (arity-descension-violation kb sentence via-sub an via-super bm
-                                          via-super bm context))))))))
-
-(defn membership-arity
-  "The arity a one-place membership functor `f` declares of its argument, or nil — one of
-  the nine spellings itself, or a collection the taxonomy makes a `genl` of one.
-
-  Public for the reason `exact-arity-classes` is, and in its place: `settle`'s
-  retroactive arity report triggers on an arriving declaration and has to recognise the
-  same ones this entry point does.  Reading the raw map there and the closure here is the drift
-  its own docstring warns about, so the closure read is the shared one.
-
-  **Read through the closure because the readers read through one.**  `membered-arity`
-  answers by `kb/isa-among?` over `(types pred)`, so `(genl myBinPred binary_predicate)` beside
-  `(myBinPred fatherOf)` makes `fatherOf` binary to everything that *reads* a declaration.
-  Matching the roster's own functors and nothing else here made the *writer* of one blind
-  to exactly that spelling: the disagreeing edge lands, and the reader then convicts facts under it.  A
-  roster read twice is a roster that drifts, and these are its two reads.
-
-  The literal is asked first and answers all but the unusual case; only a one-place
-  sentence whose functor is not already one of the nine pays the cached `genls` behind
-  it.  Content-ordered, so a functor made a `genl` of two that disagree — itself
-  incoherent — picks the same one every run."
-  [kb f context]
-  (or (exact-arity-classes f)
-      (let [supers (tax/genls (reasoning/taxonomy kb) f context)]
-        (first (for [[t n] (sort-by key exact-arity-classes)
-                     :when (contains? supers t)]
-                 n)))))
-
-(defn- arity-declared-by
-  "The `[pred n]` an arriving sentence declares an arity of, or nil — both spellings,
-  `(arity P n)` and the exact-class membership (`binary_predicate`, `binary`,
-  `binary_function`, …) that says the same thing.  The gate on the arm below: nothing else can
-  put a predicate in disagreement with one a `genl` edge already relates it to."
-  [kb sentence context]
-  (let [f  (nm/functor sentence)
-        as (vec (nm/args sentence))]
-    (cond
-      (and (= 'arity f) (= 2 (count as)) (checkable-term? (first as))
-           (integer? (second as)) (pos? (second as)))
-      [(first as) (second as)]
-
-      (and (= 1 (count as)) (checkable-term? (first as)))
-      (when-let [n (membership-arity kb f context)]
-        [(first as) n]))))
-
-(defn- declaration-arity-problem
-  "An arriving arity declaration that disagrees with one already declared of a predicate
-  a visible `genl` edge relates it to, or nil — the other arrival order of
-  `edge-arity-problem`, and the same refusal.
-
-  **Both directions of the edge**, since a declaration can arrive onto either end: the
-  super closure says what this predicate's tuples already are, the spec closure what
-  already claims to be its tuples, and a mismatch either way is the same incoherent pair.
-  The two closures are cached, and a predicate outside the `genl` hierarchy — which is
-  most of them — has an empty related set and stops there.
-
-  **Scoped like every other descension**, to the edges and declarations `context` can see:
-  a writer is refused on evidence its own vantage holds, which is the judgement
-  `genls-problem` spells out at length.
-
-  Content-ordered, so which of several disagreeing relatives a refusal names is a function
-  of the vocabulary rather than of the order the closure came back in."
-  [kb sentence context types]
-  (when-let [[pred n] (arity-declared-by kb sentence context)]
-    (let [tax     (reasoning/taxonomy kb)
-          supers  (tax/genls tax pred context)
-          related (sort (disj (into supers (tax/specs tax pred context)) pred))]
-      (when (and (seq related) (not (variable-arity? types pred)))
-        (first
-         (for [q     related
-               :let  [m (own-arity kb q context types)]
-               :when (and m (not= m n) (not (variable-arity? types q)))
-               :let  [[sub sn super sm] (if (contains? supers q)
-                                          [pred n q m]
-                                          [q m pred n])]]
-           (arity-descension-violation kb sentence sub sn super sm
-                                       q m context)))))))
-
 (defn- arg-position-problem
   "A declaration constraining a position `pred` does not have — `(arg parentOf 5
   animal)` where `parentOf` is declared binary.  The constraint would never fire, so it
@@ -1685,7 +1246,7 @@
   it of `via` *instead* is the reading that loses the case: the mark sits on the sub, which
   is exactly where `inherited-arity` never looks.
 
-  `:via` and the wording that follows it for `arity-problem`'s reason.  **Both routes reach
+  `:via` names the predicate the length was read off.  **Both routes reach
   here** — a predicate held to a number it declared, and one held to a super's — so
   `arity-binding-clause` says which: `parentOf` *is declared with* 2 arguments, `fatherOf`
   *takes* 2 arguments *through* `parentOf`.  Wording the second as a declaration would be
@@ -1772,37 +1333,14 @@
 ;; Each convicts by pointing at **another believed sentex** that the incoming one
 ;; cannot coexist with — a pair, which is exactly what a nogood is, and exactly what
 ;; `settle` already arbitrates for `S` against `(not S)`.  So each carries the
-;; opposing handle and that handle's defeat class, and the layers above decide from
-;; the class alone whether this is a *refusal* (contradicting the fixed background) or
-;; a *nogood* (contradicting a defeasible claim).  See docs/nmtms.md.
+;; opposing handle, the entry point stores the sentence, and `settle` decides the nogood
+;; from its members' classes.  See docs/nmtms.md.
 ;;
-;; **Two families do not join them, for two different reasons.**
-;;
-;; The argument constraints cannot form a pair at all.  `(parentOf Fred Mary)` violating
-;; `(arg parentOf 1 animal)` is convicted by the *absence* of a path from Fred's types
-;; to `animal` — an open-world negation-as-failure judgement, not a stored sentex to weigh
-;; against — so there is no second member to make a pair of, and nothing for a defeat
-;; class to compare.  Those stay refusals.
-;;
-;; `arity` **does** name a second sentex — the `(arity P n)` declaration, or the
-;; exact-class membership saying the same thing — and is still not arbitrable, which is
-;; the case worth naming because the pair looks so much like the three above it.  The
-;; sentex it names is the *vocabulary entry the conviction is read through*: `declared-arity`
-;; answers from the taxonomy's arity table, which follows belief, so a nogood that defeated
-;; the declaration would destroy its own premise.  Measured, on `(pRelOf A B C)` known-true
-;; against a `:default` `(arity pRelOf 2)`: the declaration is defeated in the settle that
-;; admits the pair, revived by the next settle's `clear-defeats!` while the table it was
-;; uninstalled from is still empty, and with the table empty the clash is not re-derived —
-;; so it is never reported again, and while the declaration was out a *fourth*-arity fact
-;; of the same predicate was admitted too.  One wrong fact would disable a declaration for
-;; every other use of the predicate, and belief would depend on how many settles had run.
-;;
-;; The other two members of the family defeat a *fact* and leave the vocabulary standing,
-;; which is why they are stable.  So arity keeps the entry point refusal, and the retroactive half
-;; is a **report** (`settle/report-arity-reach!`) rather than a decision: it names the facts
-;; a declaration arriving late convicts, and moves no belief.  Do not promote it to a
-;; nogood without first making the vocabulary read independent of the belief the nogood
-;; moves.
+;; The argument constraints do not join them: `(parentOf Fred Mary)` violating `(arg
+;; parentOf 1 animal)` is convicted by the *absence* of a path from Fred's types to
+;; `animal`, an open-world negation-as-failure judgement with no second member to weigh,
+;; so those stay refusals.  `arity` is not checked here: a tuple whose length breaks its
+;; predicate's binding is a nogood a reader decides (`vaelii.impl.decide`).
 
 (def arbitrable-kinds
   "The definitional violations that name **other believed sentexes** rather than a
@@ -1826,27 +1364,6 @@
     (integer? (:opposing-handle v)) [(:opposing-handle v)]
     :else []))
 
-(defn- opposing-class
-  "The **weakest** defeat class among the sentexes a violation is against, or nil when it
-  names none.  Read from the TMS rather than from the record's `:strength`, because a
-  derived opposing claim is a premise of nothing and carries its class only on the node.
-
-  Weakest, because the one question asked of it is whether the newcomer could ever be
-  believed beside what it opposes (`against-known-true?`): a chain with one defeasible
-  step is a chain the arbitration can break, so a refusal there would refuse content the
-  KB can perfectly well hold.  Over a single opposing sentex — every kind but
-  `:anti-transitive` — this is that sentex's class and nothing has changed."
-  [kb v]
-  (let [hs (opposing-handles v)]
-    (when (seq hs)
-      (reduce strength/min (map #(jtms/defeat-class (reasoning/tms kb) %) hs)))))
-
-(defn- with-opposing-class
-  "Stamp a violation with its opposing sentexes' defeat class, so every consumer reads
-  the same answer rather than each fetching it again."
-  [kb v]
-  (if (and v (seq (opposing-handles v))) (assoc v :opposing-class (opposing-class kb v)) v))
-
 (defn arbitrable?
   "Can `settle` arbitrate this violation instead of the caller refusing it — does it
   name opposing believed sentexes to form a nogood with?"
@@ -1854,179 +1371,35 @@
   (boolean (and v (contains? arbitrable-kinds (:type v))
                 (seq (opposing-handles v)))))
 
-(defn- against-known-true?
-  "Is the opposing side known-true — the fixed background a solve reasons *from*?
-  Then admitting the newcomer would store something the KB can never believe, and the
-  newcomer is refused instead.  A violation naming no opposing sentex answers true:
-  what cannot be arbitrated must be refused."
-  [v]
-  (or (not (arbitrable? v))
-      (strength/known-true? (:opposing-class v))))
-
-(def ^:dynamic *arbitrate-constraints?*
-  "Does the **assert** path hand a disjointness, functionality or cover clash to `settle`
-  as a nogood instead of throwing?
-
-  **Off by default**, which leaves `assert` refusing a disjoint, functional or cover
-  clash at any strength.  On, the checks read one rule —
-  refuse only against `:monotonic` content, arbitrate against a `:default` claim — and
-  `(dog Rex)` beside `(cat Rex)` becomes a represented dilemma rather than a throw.
-
-  The derivation path does not consult this and never did: a rule firing has no caller
-  to refuse, so an arbitrable violation there is always placed and arbitrated (which is
-  what gives the loser a `why-not`).  This var is only about whether a *writer* is told
-  no, and that is a policy question rather than an engine one.
-
-  `binding` it is the ordinary way in; `VAELII_ARBITRATE_CONSTRAINTS=1` sets the root
-  value, which is what lets the whole suite be run under it.  A KB that names a
-  `:constraints` policy of its own overrides both — `kb/constraint-policies` names them
-  and `arbitrating?` is the one read of either."
-  ;; A var root, so it is read at namespace load and refuses there — `config`'s own
-  ;; docstring says why that is the right entry point for a `def` and the wrong one for a value
-  ;; a worker reads.
-  (config/arbitrate-constraints?))
-
-(defn arbitrating?
-  "Does `kb` arbitrate a definitional clash against defeasible content rather than
-  refusing it at the entry point, and ask a clash from every context that sees both of
-  its halves?  A declaration reaching back over stored content does not read this: it
-  runs under either policy (`settle/clash-candidates`).
-
-  The KB's own `:constraints` policy decides when it has one (`kb/constraint-policies`
-  names them); a KB that named none reads the process default, so
-  `VAELII_ARBITRATE_CONSTRAINTS=1` still moves a whole suite and a `binding` still moves
-  one call."
-  [kb]
-  (case (:constraints kb)
-    :arbitrate true
-    :refuse    false
-    *arbitrate-constraints?*))
-
-(defn- functional-mark-class
-  "How strongly the functionality a `:functional` violation convicts through holds, as
-  `context` reads it: the declaration on `via` at position `n`, and the `genl` edges a
-  declaration written of `via` descends to reach the sentence's own `pred`.  Both are
-  ingredients of one derivation — `tax/props-over` is what read the mark down that
-  hierarchy, and `edge-support` is what records the descent in a justification — so the
-  weaker of the two decides.
-
-  The declaration's own class is the **stronger** of its two spellings, the way
-  `functional-declaration-supporters` unions them: `(functional via)` speaks at argument
-  2 and `(functionalInArg via n)` at the position it names, and either one carries the
-  constraint on its own."
-  [kb context pred via n]
-  (let [tax (reasoning/taxonomy kb)
-        sc  #(jtms/defeat-class (reasoning/tms kb) %)
-        cls (fn [k] (or (tax/key-class tax k context sc) :default))]
-    (strength/min (strength/max (if (= 2 n) (cls [:prop :functional via]) :default)
-                                (cls [:functional-in-arg via n]))
-                  (or (tax/reach-strength tax :genl pred via context sc) :monotonic))))
-
-(defn- cover-grounds-class
-  "How strongly a `:cover` violation's refutation holds, as `context` reads it: the cover
-  declaration over `whole` and `parts`, and the `genl` route from the membership's own
-  type up to `whole`.  The weaker of the two decides.
-
-  The declaration's class is the stronger of its `covering` and `partition` spellings,
-  either of which states the coverage alone.  The route is the strongest one from any
-  membership the violation names, since any one of them puts the term under the whole.
-  Nil where neither can be read."
-  [kb context v]
-  (let [tax  (reasoning/taxonomy kb)
-        sc   #(jtms/defeat-class (reasoning/tms kb) %)
-        [whole & parts] (:types v)
-        best (fn [cs] (when (seq cs) (reduce strength/max cs)))
-        decl (best (keep #(tax/key-class tax (tax/cover-key whole parts %) context sc)
-                         [:covering :partition]))
-        route (best (for [sen   (cons (:sentence v)
-                                      (keep #(:sentence (p/get-sentex (:records kb) %))
-                                            (opposing-handles v)))
-                          :when (and (not (sx/negation? sen)) (= 1 (nm/arity sen)))
-                          :let  [c (tax/reach-strength tax :genl (nm/functor sen) whole
-                                                       context sc)]
-                          :when c]
-                      c))]
-    (when (or decl route)
-      (strength/min (or decl :monotonic) (or route :monotonic)))))
-
-(defn- grounds-class
-  "How strongly the **derivation** that makes `v` a violation holds, as `context` reads
-  it.  Never the class of what the sentence opposes, which is `opposing-class`' question
-  and the other half of the same reading.
-
-  A definitional clash is a clash because of something the KB says beyond the two
-  sentexes: a separation between two types (`tax/disjointness-class`), a functionality
-  declared of a predicate and read down the predicate hierarchy, or a cover declared of a
-  whole (`cover-grounds-class`).  That something is
-  content like any other, and a `:default` link in it is a link a later denial takes out
-  — after which the pair is not a pair, and the newcomer is believed by every reader that
-  reads the link gone.  So the derivation's own class bounds what a refusal may claim,
-  the way `opposing-class` reads the *weakest* step of an `:anti-transitive` chain rather
-  than the endpoints of it.
-
-  **Read for the three policy-gated kinds and no others.**  `:asymmetric` and
-  `:anti-transitive` convict through a declaration the same way and are the same case,
-  but they read the class under *either* policy — so moving them would move what the
-  engine refuses out of the box, which is a change of its own.
-
-  `:monotonic` where no derivation can be read: the reading that leaves a refusal
-  standing, so an unestablished ground never admits content."
-  [kb context v]
-  (case (:type v)
-    :disjoint   (let [[t t'] (:types v)]
-                  (or (tax/disjointness-class (reasoning/taxonomy kb) t t' context
-                                              #(jtms/defeat-class (reasoning/tms kb) %))
-                      :monotonic))
-    :functional (functional-mark-class kb context (nm/functor (:sentence v))
-                                       (:pred v) (:position v))
-    :cover      (or (cover-grounds-class kb context v) :monotonic)
-    :monotonic))
-
 (defn refuses-assert?
-  "Does this violation refuse the sentence on the **assert** path?
-
-  `:asymmetric` reads the class either way — that is the line it draws, and the one the
-  other two are generalized to.  `:anti-transitive` reads it the same way, over the
-  *weakest* step of the chain it convicts (`opposing-class`), so a chain the arbitration
-  could break is arbitrated and one it could not is refused.  `:disjoint`, `:functional`
-  and `:cover` refuse unconditionally until `kb`'s constraint policy (`arbitrating?`)
-  opts into the same rule.  Everything else is a malformed sentence or an open-world
-  judgement and refuses outright.
-
-  **Under that policy the three read their grounds as well as their opposition.**  A
-  known-true opposing sentex says the newcomer cannot be believed *beside* it; it does
-  not say the two are a pair, which is what the separation, the functionality or the cover
-  says, and
-  that is content the KB can be told otherwise about.  A pair resting on a `:default`
-  `genl` edge is a pair a denial of the edge retires at every context that reads the
-  denial, and the sentence refused for it is one five other write orders store and
-  believe (docs/nmtms.md, \"1. Order independence\").  So both halves have to be
-  known-true for a refusal: `opposing-class` for the opposition, `grounds-class` for the
-  derivation.  A violation naming no opposing sentex is not arbitrable at all and refuses
-  before either is read."
-  [kb context v]
-  (when v
-    (case (:type v)
-      (:asymmetric
-       :anti-transitive)             (against-known-true? v)
-      (:disjoint :functional :cover) (or (not (arbitrating? kb))
-                                         (not (arbitrable? v))
-                                         (and (strength/known-true? (:opposing-class v))
-                                              (strength/known-true?
-                                               (grounds-class kb context v))))
-      true)))
+  "Does violation `v` refuse its sentence at the write entry point?  True unless `v` is
+  arbitrable (`arbitrable?`): a clash naming the other believed members of its nogood is
+  stored, and `settle` decides it and reports it when every member is `:monotonic`.  A
+  malformed sentence, an argument conviction and a clash naming no stored member refuse
+  (docs/nmtms.md, \"What a refusal may rest on\")."
+  [v]
+  (boolean (and v (not (arbitrable? v)))))
 
 (defn- membership-handles-led
   "`membership-handles`' small side: lead from `x`'s own argument-1 postings (a handful)
-  and test each up via `genls` (t ∈ genls(t'') ⟺ t'' ∈ specs(t), see `kb/memberships`),
+  and test each up via `genl?` (t'' ⊑ t ⟺ t'' ∈ specs(t), see `kb/memberships`),
   rather than `matches-visible` walking `specs(t)` *down* — unbounded for a broad t (with
   t = `thing`, every type in the KB), and the closure walk that dominates a cold rebuild's
   clash pass.  The candidate set, the filters (believed, context-visible, `except`-hidden,
   retired) and `handle-namings` are exactly what `matches-visible` would feed here — it is
   `matches-hierarchical` over `(t x)` then `without-excepted`/`without-retired`, and the
-  pred-hierarchy filter `t'' ∈ specs(t)` is the same set as `t ∈ genls(t'')` — so the
+  pred-hierarchy filter `t'' ∈ specs(t)` is the same set as `t'' ⊑ t` — so the
   answer set is identical, retrieved from the small side.  Split out so `res/*lead-side*`
-  can force the `matches-visible` reference the two oracles compare it against."
+  can force the `matches-visible` reference the two oracles compare it against.
+
+  **The exact postings first.**  `handle-namings` names the matches saying `(t x)` itself
+  whenever one survives the filters, and the entailing ones only when none does, so a
+  surviving exact match settles the answer and no other posting is walked up.  The
+  filters drop matches one at a time, so the exact ones that survive them alone are the
+  ones that survive them among the rest.  `disjoint-problems` asks this of the types a
+  term is asserted to hold, where an exact posting is the rule, so the exact ones are
+  read first by their own trie path under every context, and the term's postings, every
+  fact holding it at argument 1, only when none survives."
   [kb t x context]
   (let [recs   (:records kb)
         tms    (reasoning/tms kb)
@@ -2034,26 +1407,36 @@
         target (list t x)
         up     (when-not (sx/variable? context) (tax/context-up tax context))
         vis?   (if up #(contains? up %) (constantly true))
-        matches (->> (reads/as-stored-with-arg (:index kb) 1 x)
-                     (keep (fn [h]
-                             (when-let [s (p/get-sentex recs h)]
-                               (when (and (jtms/in? tms (:id s)) (vis? (:context s)))
-                                 (let [sen (:sentence s)]
-                                   (when (and (= 1 (nm/arity sen))
-                                              (= x (first (nm/args sen)))
-                                              (not (sx/exceptWhen-meta? sen)))
-                                     (let [t'' (nm/functor sen)]
-                                       ;; the closure, not a `genl?` walk: t'' is one of
-                                       ;; the few types many instances share, so its
-                                       ;; closure (bounded by the closure LRU) is read
-                                       ;; again by every clash on them, where a walk
-                                       ;; repeats the whole ancestor climb each time
-                                       (when (or (= t'' t)
-                                                 (contains? (tax/genls tax t'' context) t))
-                                         [(:id s) nil s]))))))))
-                     (res/without-excepted kb context)
-                     (res/without-retired kb context))]
-    (handle-namings matches target)))
+        cand   (fn [h]
+                 (when-let [s (p/get-sentex recs h)]
+                   (when (and (jtms/in? tms (:id s)) (vis? (:context s)))
+                     (let [sen (:sentence s)]
+                       (when (and (= 1 (nm/arity sen))
+                                  (= x (first (nm/args sen)))
+                                  (not (sx/exceptWhen-meta? sen)))
+                         s)))))
+        kept   #(->> % (res/without-excepted kb context) (res/without-retired kb context))
+        said   (keep #(when (= target (:sentence %)) [(:id %) nil %]))
+        ;; the exact memberships by their own path, then by the postings when none
+        ;; survives, which is when the postings are read anyway
+        by-path (when (and (symbol? x) (not (sx/variable? x)))
+                  (kept (sequence (comp (distinct) (keep cand) said)
+                                  (reads/as-stored-at-path (:index kb)
+                                                           (sx/path (sx/sentex target '?c))))))
+        cands  (delay (into [] (keep cand) (reads/as-stored-with-arg (:index kb) 1 x)))
+        exact  (if (seq by-path) by-path (kept (sequence said @cands)))]
+    (handle-namings
+     (if (seq exact)
+       exact
+       (kept (keep (fn [s]
+                     (let [t'' (nm/functor (:sentence s))]
+                       ;; a walk memoized per pass, not the closure: every type `x`
+                       ;; holds is tested, and a closure read builds the supertype
+                       ;; closure of each; a plain walk repeats per instance sharing t''
+                       (when (or (= t'' t) (tax/genl?-per-pass tax t'' t context))
+                         [(:id s) nil s])))
+                   @cands)))
+     target)))
 
 (defn- membership-handles
   "The handles of the believed `(t x)` sentexes visible from `context` — the sentexes a
@@ -2151,14 +1534,14 @@
   the weakest, exactly as it weighs the two memberships of a disjointness clash.
 
   Asked of the membership `(W X)` or of a negation `(not (A X))`: either one can
-  complete the refutation.  `settle` asks it of the membership, which a negation arriving
-  or a declaration arriving puts in its candidates (`settle/clash-candidates`).
+  complete the refutation.  `settle` re-asks it of the membership (`reads-clash?`) for a
+  nogood a reader found from the term (`membership/term-nogoods`).
 
   `:opposing-handles` names every other member of the nogood, for the reason
   `:anti-transitive` names both steps of its chain: the contradiction is not a pair, and
   arbitration that could see only one side of it would defeat the one sentex it could
   name whatever the rest were worth.  The declaration is not a member (the comment on
-  the map says why); its class bounds a refusal instead (`cover-grounds-class`).
+  the map says why).
 
   Scoped to the asserting context throughout, as `disjoint-problems` is: the declaration,
   the membership and each negation must be visible from `context`, since a context is
@@ -2223,8 +1606,9 @@
 
   This is the line between a clash that is knowledge and a clash that is an error.
   Two spellings of a person may denote one woman; 1980 and 1990 are two numbers and
-  no merge can make them one, so a numeric functional clash stays the hard rejection
-  it has always been."
+  no merge can make them one, so a numeric functional clash is a nogood the settle
+  decides.  A symbol clash merges only when both members are `:monotonic`
+  (docs/reference.md, decision 6)."
   [x y]
   (and (symbol? x) (symbol? y) (not (sx/variable? x)) (not (sx/variable? y))))
 
@@ -2334,12 +1718,12 @@
   equality could reconcile with `b` (visible from `context`), as a violation map,
   or nil.
 
-  A clash between two **symbols** is not an error: `(functional motherOf)` plus
-  two spellings of Tom's mother is exactly where co-reference shows up, and the KB
-  *derives* `(equals V1 V2)` from it (see `special/derive-functional-equalities`)
-  instead of refusing the second fact.  Everything else — two numbers, two strings, a
-  compound — is still the hard contradiction it was, because no merge can make two
-  numbers one thing.  See docs/equality.md.
+  A clash between two **symbols** whose members are both `:monotonic` is not an error:
+  `(functional motherOf)` plus two known-true spellings of Tom's mother is where
+  co-reference shows up, and the KB *derives* `(equals V1 V2)` from it (see
+  `special/derive-functional-equalities`).  Everything else — two numbers, two strings,
+  a compound — is a nogood, because no merge can make two numbers one thing.  See
+  docs/equality.md.
 
   Every clash, not the first, for the reason `disjoint-problems` gives: a slot filled
   with three irreconcilable values forms three pairs, and which of them is reported may
@@ -2349,22 +1733,14 @@
   declaration descended — the slot that is already filled is that predicate's.  It names
   the **position** too once the constraint is not at argument 2, because with
   `functionalInArg` the determinant is every other argument and reporting only the first
-  would describe a slot the reader does not have."
+  would describe a slot the reader does not have.
+
+  A symbol clash is left out: whether it merges or forms a nogood is read from the
+  members' classes, which a reader does (`vaelii.impl.decide`, docs/reference.md,
+  decision 6)."
   [kb sentence context]
   (for [[h v via n :as clash] (functional-clashes kb sentence context)
         :let [b (functional-filler sentence clash)]
-        ;; violation iff no merge could reconcile them: a clash between two symbols is
-        ;; not a violation but a co-reference the KB *derives* an equality from (see
-        ;; `special/derive-functional-equalities`), everything else is the hard
-        ;; contradiction it always was.  A "no merge already has" guard was here as
-        ;; `(not (tax/same-class? tax v b))`, but the partition is over symbols, so
-        ;; `same-class?` can only hold of two symbols — and `mergeable-values?` has
-        ;; already excluded that whole case, so the conjunct only ever ran where it was
-        ;; false and could not change the answer.  Deleted rather than left as an
-        ;; unscoped read to be widened into: the derivation twin keeps the guard, where
-        ;; it is live and scoped (`special/derive-functional-equalities`), and if this
-        ;; entry point ever admits a symbol clash it wants that same context-scoped read, not
-        ;; the global one this was.
         :when (not (mergeable-values? v b))]
     {:type :functional :sentence sentence :existing v :new b :opposing-handle h
      :pred via :position n
@@ -2385,7 +1761,7 @@
   "`c`, a `:for` claim `inherit/surviving` read for `converse`, as an opposing claim.  A
   claim stated at another tuple reaches `converse` by preservation, and carries the
   reading's handles as `::via` and as `:class` the weakest defeat class of the claim and
-  those handles, the reading `settle/preserving-nogoods` weighs.  With no reading, `c`
+  those handles, the reading `discovery/preserving-nogoods` weighs.  With no reading, `c`
   carries no `::via`, so `arbitrable-violations` keeps the pair."
   [kb converse c context]
   (if-let [via (when (not= (:tuple c) (vec (nm/args converse)))
@@ -2406,18 +1782,14 @@
   other pair below it, and a strict claim is exactly as binding there as where it was
   written (`vaelii.impl.inherit`).
 
-  Only a **`:monotonic`** opposing claim refuses.  That is the whole strict/typical
-  distinction, and it is read off the claim rather than the vocabulary: known-true
-  content is the fixed background, so contradicting it is an error, while a `:default`
-  generality is something a more specific statement is *entitled* to override — there
-  the inheritance is undercut and never fires, so no clash reaches here at all.  A claim
-  reached by preservation opposes at the weakest class of the claim and its reading, and
-  names the reading's handles (`inherited-opposing`, docs/inherit.md).
+  A `:default` generality is something a more specific statement is entitled to
+  override: there the inheritance is undercut and never fires, so no clash reaches here.
+  A claim reached by preservation opposes at the weakest class of the claim and its
+  reading, and names the reading's handles (`inherited-opposing`, docs/inherit.md).
 
-  A **`:default`** opposing claim is still reported, and that is what makes a relation
-  declared not to hold both ways stop holding both ways in silence: the violation is
-  not a refusal (`refuses-assert?` reads the class), it is the pair `settle` arbitrates
-  — at equal class, a represented dilemma in `(contradictions kb)`.
+  The violation is the pair `settle` arbitrates: the weaker member loses, a tie at
+  `:default` is a dilemma in `(contradictions kb)`, and a tie at `:monotonic` is a hard
+  clash in `(conflicts kb)`.
 
   The **strongest** surviving opposing claim is reported first, ties broken on the
   context name and then on the sentence, for the reason `inherit/strongest-per-tuple`
@@ -2430,9 +1802,8 @@
   **One violation per opposing sentex**, in that order, for the reason
   `disjoint-problems` gives: the converse stated in a general context and again in
   one that sees it is two claims, and each is its own pair with the sentence here.  The
-  refusal path takes the first and is therefore deciding against the strongest, which is
-  the claim it always decided against; the discovery weighs all of them.  Deduped on the
-  handle, since preservation can reach one stored claim by several routes.
+  discovery weighs all of them, deduped on the handle, since preservation can reach one
+  stored claim by several routes.
 
   That is why the converse is read **twice**.  `inherit/surviving` answers what is
   *inherited* — one claim per tuple, the strongest — which is the right answer to whether
@@ -2476,7 +1847,7 @@
 
   **The context that decides self is the sentence's own — `home` — and not the asker.**
   The two are the same at the entry point and differ wherever `settle` asks a stored sentex's
-  question from a *vantage* that sees more than its own context (`clash-vantages`).  Key
+  question from a *vantage* that sees more than its own context (`reads-clash?`).  Key
   self on the asker instead and the twin **stored in the vantage** is thrown away as
   though the candidate were it: `(P a a)` written in a general context and again in one
   that sees it is a real pair, and whether it is reported turns on which of the two is
@@ -2576,10 +1947,9 @@
 
   Both ends enumerate the **same** set of midpoints — `{m : (q a m) ∧ (q m b)}` — so this
   decides only which side is walked and which is probed per candidate, never the answer.
-  The two argument roots are read for their cardinality alone (`could-clash?` reads the
-  same counts the same over-approximating way: they span every predicate and either
-  polarity, so they bound the walk rather than describing it).  A non-symbol has no root
-  and cannot be led from."
+  The two argument roots are read for their cardinality alone: they span every predicate
+  and either polarity, so they bound the walk rather than describing it.  A non-symbol
+  has no root and cannot be led from."
   [kb a b]
   (let [idx  (:index kb)
         wide Long/MAX_VALUE
@@ -2631,13 +2001,9 @@
   carries `:opposing-handles` where the pairwise kinds carry `:opposing-handle` —
   `settle` weighs the three together as one nogood (docs/nmtms.md).
 
-  Only a chain every step of which is **`:monotonic`** refuses, which is
-  `asymmetry-problems`' rule read over a set rather than over a single claim: the
-  opposing class stamped on the violation is the *weakest* of the two steps
-  (`opposing-class`), so `refuses-assert?` refuses exactly when the newcomer could never
-  be believed beside them and arbitrates otherwise.  At equal class the triple is a
-  represented dilemma in `(contradictions kb)` — three claims, none of which the engine
-  will pick between, which is what `decide-nogood` does with any tie.
+  The triple is decided as any nogood is: at equal `:default` class it is a dilemma in
+  `(contradictions kb)`, three claims none of which the engine picks between, and at
+  equal `:monotonic` class a hard clash in `(conflicts kb)`.
 
   **The mark is read up the predicate hierarchy** (`tax/props-over`) and the steps are
   probed **at the marked predicate**, exactly as `asymmetry-problems` reads its converse:
@@ -2734,41 +2100,6 @@
   [kb sentence context]
   (first (antitransitivity-problems kb sentence context)))
 
-(defn- irreflexivity-problems
-  "Every `(irreflexive P)` violation a self tuple `(P a a)` commits in `context`.
-
-  `(irreflexive largerThan)` says `(P a a)` cannot hold, so a self tuple is contradictory
-  the moment it is written — unlike `asymmetric`, which admits it (`asymmetry-problems`
-  spells out why).  A lone tuple names no second sentex to weigh against, so this is a
-  **refusal** at the entry point and never an arbitrable nogood: `refuses-assert?` reads no
-  class here, and the derivation path drops a self tuple a rule concluded.
-
-  The mark is read up the predicate hierarchy (`tax/props-over`), like the two clashes
-  above it: `(irreflexive parentOf)` refuses `(fatherOf a a)` too, the sub's tuples being
-  the super's.  Ground binary self tuples only — `a` must equal `b`, or there is no self
-  tuple to refuse, and a predicate whose two arguments differ has an ordinary tuple that
-  irreflexivity says nothing about.
-
-  No `:opposing-handle`: there is no pair.  A declaration arriving after a self tuple was
-  stored is the `arity` case rather than the `asymmetric` one — the tuple stands and the
-  late mark reports rather than defeats, since promoting a lone-tuple conviction to a
-  nogood would make belief depend on how many settles had run (docs/nmtms.md)."
-  [kb sentence context]
-  (let [pred (nm/functor sentence)
-        args (vec (nm/args sentence))]
-    (when (and (symbol? pred) (= 2 (count args))
-               (= (first args) (second args))
-               (every? sx/ground-term? args))
-      (for [q (sort (tax/props-over (reasoning/taxonomy kb) :irreflexive pred context))]
-        {:type :irreflexive :sentence sentence :pred q
-         :message (str "irreflexive: " q " cannot hold of a thing and itself, but "
-                       (pr-str sentence) " does")}))))
-
-(defn- irreflexivity-problem
-  "The first `(irreflexive P)` violation, for the refusal paths."
-  [kb sentence context]
-  (first (irreflexivity-problems kb sentence context)))
-
 (defn antisymmetric-converses
   "The believed `[handle via]` pairs whose sentence is the converse of `(P a b)` under an
   `(anti_symmetric P)` mark — the facts `(P b a)` that, with the sentence, force
@@ -2799,52 +2130,6 @@
                       [(first m) nil q])]
         (map (fn [[h _ via]] [h via]) (first-per-slot triples))))))
 
-(defn- antisymmetry-problems
-  "The `(anti_symmetric P)` violations a sentence commits in `context` that cannot be
-  **merged** away — a believed converse whose two arguments no equality could reconcile
-  (two numbers, a compound, a self tuple's trivial case aside).
-
-  The mergeable case is not here: two symbols denoting one thing is a co-reference the KB
-  *derives* `(equals a b)` from and merges (`special/derive-antisymmetric-equalities`),
-  exactly as `functional-problems` leaves a symbol clash to `derive-functional-equalities`.
-  What is left is the hard contradiction — `(P 1 2)` beside `(P 2 1)` under an
-  antisymmetric `P` forces `1 = 2`, which no merge can make true — and, like a numeric
-  functional clash, it **refuses** at the entry point: this carries no arbitrable class, so
-  `refuses-assert?` reads its default and says no.  A self tuple's arguments are equal, so
-  it is admitted rather than refused."
-  [kb sentence context]
-  (let [args (vec (nm/args sentence))]
-    (when (= 2 (count args))
-      (let [[a b] args]
-        (when (and (not= a b) (not (mergeable-values? a b)))
-          (for [[_ via] (antisymmetric-converses kb sentence context)]
-            {:type :anti-symmetric :sentence sentence :pred via
-             :message (str "antisymmetric: " via " with " (pr-str sentence)
-                           " and its converse forces " (pr-str (list 'equals a b))
-                           ", which no merge can make hold")}))))))
-
-(defn- antisymmetry-problem
-  "The first non-mergeable `(anti_symmetric P)` violation, for the refusal paths."
-  [kb sentence context]
-  (first (antisymmetry-problems kb sentence context)))
-
-(defn unarbitrable-mark-problems
-  "The `irreflexive` and non-mergeable `anti_symmetric` violations a **stored** fact
-  commits in its own `context`: at most one of each kind, the one read through the
-  content-first marked predicate.
-
-  These two marks convict with nothing to weigh — a self tuple names no second sentex,
-  and a converse no merge can reconcile carries no arbitrable class — so the entry point
-  refuses under either policy.  A fact stored before the mark reached it stands, and
-  `settle/report-unarbitrable-reach!` asks this function about it in order to file the
-  report the entry point would have refused with.  The two checks are the entry point's
-  own, so the report and the refusal agree on the predicate blamed and on the mark
-  read through."
-  [kb sentence context]
-  (into [] (keep first)
-        [(irreflexivity-problems kb sentence context)
-         (antisymmetry-problems kb sentence context)]))
-
 (defn- matches-pattern-problem
   "A `matchesPattern` literal whose pattern argument is a ground string the regex engine
   cannot compile, or nil.  `EvaluableProver` reads the pattern as a value at query time, so
@@ -2870,44 +2155,36 @@
   (or (sx/positive-body sentence) sentence))
 
 (defn- constraint-problem
-  "The first definitional violation for `chk` in `context`, as a value, or nil
-  when the sentence is admissible.  The checks are stated once, here, and every
-  path reads them: `constraint-checks` (assert) throws the value,
-  `constraint-violation` (derivation) records it.
+  "The first definitional violation for `chk` in `context` that `keep?` accepts, as a
+  value, or nil.  The checks are stated once, here, and every path reads them:
+  `constraint-checks` (assert) throws the first that `refuses-assert?`,
+  `constraint-admission` (derivation) drops a firing for it, and `constraint-violation`
+  reports the first of any kind (`some?`).  The arms run in order and stop at the first
+  accepted, so an arbitrable clash an early arm finds does not hide a refusal a later arm
+  finds.
 
   `types` is the shared membership reader (`kb/membership-reader`).  The arms that ask
   what types a term holds ask about the same few terms — the sentence's arguments and
-  its predicate — and between them ask several times each: the arity arm reads the
-  predicate's memberships for three spellings and again for `variable_arity`, `arg`
-  reads an argument's twice per constraint, and for a unary sentence the disjointness
-  arm wants the very memberships `arg` just read.
-
-  The answer is stamped with the opposing sentex's defeat class where it names one, so
-  the two callers decide refusal-versus-nogood from the value alone rather than each
-  reaching back into the TMS for the same reading."
-  [kb chk context types decls]
-  (with-opposing-class
-    kb
-    (or (arity-problem kb chk context types)
-        (edge-arity-problem kb chk context types)
-        (declaration-arity-problem kb chk context types)
-        (matches-pattern-problem chk)
-        (args-problem kb chk context types decls)
-        (inter-args-problem kb chk context types decls)
-        (inter-args-homogeneity-problem kb chk context types decls)
-        (genls-problem kb chk context decls)
-        (covering-args-problem kb chk context types decls)
-        (covering-genls-problem kb chk context decls)
-        (args-quoted-problem kb chk context types decls)
-        (application-input-problem kb chk context types decls)
-        (declaration-problem kb chk context types)
-        (disjoint-problem kb chk context types)
-        (cover-refutation kb chk context)
-        (asymmetry-problem kb chk context)
-        (functional-problem kb chk context)
-        (irreflexivity-problem kb chk context)
-        (antisymmetry-problem kb chk context)
-        (antitransitivity-problem kb chk context))))
+  its predicate — and between them ask several times each: `arg` reads an argument's
+  twice per constraint, and for a unary sentence the disjointness arm wants the very
+  memberships `arg` just read."
+  [kb chk context types decls keep?]
+  (some (fn [arm] (let [p (arm)] (when (and p (keep? p)) p)))
+        [#(matches-pattern-problem chk)
+         #(args-problem kb chk context types decls)
+         #(inter-args-problem kb chk context types decls)
+         #(inter-args-homogeneity-problem kb chk context types decls)
+         #(genls-problem kb chk context decls)
+         #(covering-args-problem kb chk context types decls)
+         #(covering-genls-problem kb chk context decls)
+         #(args-quoted-problem kb chk context types decls)
+         #(application-input-problem kb chk context types decls)
+         #(declaration-problem kb chk context types)
+         #(disjoint-problem kb chk context types)
+         #(cover-refutation kb chk context)
+         #(asymmetry-problem kb chk context)
+         #(functional-problem kb chk context)
+         #(antitransitivity-problem kb chk context)]))
 
 ;; ---- what the argument constraints *entail* ------------------------------
 ;; `args-problem` and `genls-problem` read `arg` / `genlArg` as constraints to test,
@@ -3095,12 +2372,11 @@
   than a walk of `t`'s whole spec subtree, which on a shipped taxonomy is thousands of
   types with no fact between them.
 
-  Belief, not storage: a defeated `(dog Fred)` licenses nothing, so the mint it would
-  have made redundant stands.  The visibility test is `sees?` in the direction a read
+  Belief at `context`, not storage: a `(dog Fred)` `context` takes OUT licenses nothing,
+  so the mint it would have made redundant stands.  The visibility test is `sees?` in the direction a read
   takes — a membership stated below `context` is invisible there and subsumes nothing."
   [kb t x context]
-  (let [tax (reasoning/taxonomy kb)
-        tms (reasoning/tms kb)]
+  (let [tax (reasoning/taxonomy kb)]
     (first
      (for [p    (reads/as-stored-predicates-at-arg (:index kb) 1 x)
            :when (and (symbol? p) (not= p t) (tax/genl? tax p t context))
@@ -3108,7 +2384,7 @@
            :let [sx (p/get-sentex (:records kb) h)]
            :when (and sx (= (list p x) (:sentence sx))
                       (tax/sees? tax context (:context sx))
-                      (jtms/in? tms h))]
+                      (res/believed-at? kb h context))]
        h))))
 
 (defn- subsuming-edge
@@ -3122,8 +2398,7 @@
   reading.  The taxonomy refuses a `genl` cycle (`edge-stratification-violation`), so the
   acyclicity the argument rests on is the store's invariant rather than an assumption."
   [kb x t context]
-  (let [tax (reasoning/taxonomy kb)
-        tms (reasoning/tms kb)]
+  (let [tax (reasoning/taxonomy kb)]
     (first
      (for [h    (reads/as-stored-with-args (:index kb) 'genl {1 x})
            :let [sx (p/get-sentex (:records kb) h)
@@ -3131,7 +2406,7 @@
            :when (and sx (= 3 (count (:sentence sx))) (symbol? s)
                       (not= s t) (tax/genl? tax s t context)
                       (tax/sees? tax context (:context sx))
-                      (jtms/in? tms h))]
+                      (res/believed-at? kb h context))]
        h))))
 
 (defn subsumed-mint
@@ -3183,7 +2458,8 @@
 
   A membership the cascade itself would add is **not** threaded into `types`: the reader
   answers what is stored, which is what the materializer will read too for every mint but
-  the ones this same cascade produces.  `cascade-clash` is the arm for that residue.
+  the ones this same cascade produces.  A clash between two mints of one cascade is
+  found by `settle` once the materializer has placed both.
 
   Seeded with the caller's own reader and its **already-computed** first level, so the
   common case — a sentence whose declarations mint nothing further — walks an empty
@@ -3208,73 +2484,6 @@
                  (into mints fresh)))
         {:mints mints :readers readers}))))
 
-(defn- cascade-memberships
-  "term -> #{type} — the memberships `sentence` and its cascade would add, as content
-  rather than as records.
-
-  The pair no stored sentex witnesses: `(p1 Fred)` under `(arg p1 1 p2)` mints
-  `(p2 Fred)`, and whether those two clash is a question about the sentence being
-  asserted and the mint it draws, neither of which is in the index yet.
-  `disjoint-problems` reads memberships to name an **opposing handle**, so it cannot see
-  a pair with no second record, and a cascade that convicted only against stored types
-  would refuse `(p1 Bert)` for Bert's old membership and admit the identical clash when
-  the cascade supplies both sides."
-  [sentence mints]
-  (reduce (fn [acc s]
-            (if (= 1 (nm/arity s))
-              (update acc (first (nm/args s)) (fnil conj #{}) (nm/functor s))
-              acc))
-          {}
-          (cons sentence mints)))
-
-(defn- cascade-clash
-  "The disjointness clash between prospective mint `sentence` and a membership the
-  cascade itself introduces, or nil.
-
-  No `:opposing-handle`, because there is no opposing sentex — both sides are content the
-  KB is being asked to take on at once, and neither is stored when the check runs.  So
-  `refuses-assert?` has no opposing class to read, and `mint-refused?` reads the sentence's
-  strength alone: the materializer places both mints and settle weighs them, so under
-  `:arbitrate` only a `:monotonic` sentence, whose mints may both be known-true, refuses.
-
-  Content order over the types, so which of several clashes is named is keyed on what the
-  KB says rather than on the order the cascade enumerated its mints.
-
-  `disjointness-test` once rather than `tax/disjoint?` per candidate: the frame the test
-  closes over depends on `t` and `context` alone, and `t` is fixed across the candidates,
-  so building it once and applying it to each is the amortization `disjointness-test`
-  exists for — the same shape `wff/disjoint-problems` uses.  `disjoint?` is that test asked
-  once, so the result is unchanged."
-  [tax sentence context added]
-  (when (= 1 (nm/arity sentence))
-    (let [t   (nm/functor sentence)
-          x   (first (nm/args sentence))
-          dj? (tax/disjointness-test tax t context)]
-      (when-let [t' (first (filter #(and (not= % t) (dj? %))
-                                   (sort (get added x))))]
-        {:type :disjoint :sentence sentence :types [t t']
-         :message (str "disjointness violated: " x " cannot be both " t " and " t')}))))
-
-(defn- mint-refused?
-  "Does the mint's violation `p` refuse the sentence at `strength` that entails it?  The
-  three-argument arity asks it of a `cascade-clash` between two mints of one cascade.
-
-  Every violation refuses under the `:refuse` policy, and so does one naming no opposing
-  sentex under either.  Under `:arbitrate` a clash with a believed membership is weighed
-  at settle, since the materializer places the mint (`derivation-violation`), unless the
-  entailing sentence is known-true and the pair is one `refuses-assert?` refuses: the mint
-  may then be known-true too, and a known-true pair is refused as two stated memberships
-  are.  A cascade clash has no opposing class to read, so it refuses a known-true
-  sentence alone.  A mint of a `:default` sentence is at most `:default`
-  (`conferred-class`), so it loses or ties at settle."
-  ([kb context p strength]
-   (and p
-        (or (not (arbitrating? kb))
-            (not (arbitrable? p))
-            (and (strength/known-true? strength) (refuses-assert? kb context p)))))
-  ([kb clash strength]
-   (and clash (or (not (arbitrating? kb)) (strength/known-true? strength)))))
-
 (defn- entailment-check
   "The entailment reading's half of the entry point check:
   `{:entailments [{:assert …} …] :refusal v}` — what `sentence`'s argument declarations
@@ -3284,7 +2493,7 @@
   **The refusal sits on the consequence.**  With the entailment on, `args-problem`'s
   symbol arm yields (`entailment-covers?`), so a wrongly-typed symbol argument is not a
   violation: the declaration says what the argument is.  A *consequence* still can be one
-  — a minted membership clashing with a disjoint one, a mint at an arity its type denies —
+  — a minted membership clashing with a disjoint one —
   so the entry point refuses `sentence` exactly when it would refuse what `sentence`
   entails.  The constraint reading's rule, moved one step along the derivation.
 
@@ -3292,8 +2501,9 @@
   mint as it materializes, and it runs after the triggering sentex exists — so a mint
   whose violation names no opposing sentex is *dropped* and recorded, and the KB is left
   believing a fact whose declared consequence it rejects.  Asked here, the refusal reaches
-  the writer and nothing is stored.  A clash with a believed membership refuses only as
-  `mint-refused?` says, since the materializer places that mint.
+  the writer and nothing is stored.  A clash with a believed membership, or between two
+  mints of one cascade, refuses nothing: the materializer places each mint and `settle`
+  decides the nogood the mints form.
 
   The violation handed back is the **mint's own**, with the sentence that entailed it in
   `:entailed-from`: what could not be held is what a reader is told, rather than a second
@@ -3308,28 +2518,24 @@
   materializes and is also the cascade's seed, so asking `constraint-entailments` again
   for the answer already in hand would read the triggering functor's declarations twice
   per assert — a cost `assert_cost_test` counts."
-  [kb sentence context types decls strength]
+  [kb sentence context types decls]
   (when *assertive-arg-types?*
     (let [seed (constraint-entailments kb sentence context types decls)]
       ;; The common assert draws no entailment (its functor carries no visible
       ;; declaration).  An empty seed makes the cascade's frontier empty, so `mints` is
-      ;; exactly the seed and the refusal `keep` over it is nil — computing the cascade,
-      ;; the `added` memberships and the `keep` at all is the same `{:entailments []
-      ;; :refusal nil}` reached without reading anything.
+      ;; exactly the seed and the refusal `keep` over it is nil — computing the cascade
+      ;; and the `keep` at all is the same `{:entailments [] :refusal nil}` reached
+      ;; without reading anything.
       (if (empty? seed)
         {:entailments seed :refusal nil}
-        (let [{:keys [mints readers]} (entailment-cascade kb sentence context types decls seed)
-              added (cascade-memberships sentence mints)
-              tax   (reasoning/taxonomy kb)]
+        (let [{:keys [mints readers]} (entailment-cascade kb sentence context types decls seed)]
           {:entailments seed
            :refusal
            (first
             (keep (fn [m]
-                    (when-let [p (or (let [p (constraint-problem kb m context types
-                                                                 (get readers (nm/functor m)))]
-                                       (when (mint-refused? kb context p strength) p))
-                                     (let [c (cascade-clash tax m context added)]
-                                       (when (mint-refused? kb c strength) c)))]
+                    (when-let [p (constraint-problem kb m context types
+                                                     (get readers (nm/functor m))
+                                                     refuses-assert?)]
                       (assoc p :entailed-from sentence
                              :message (str "arg constraint: " (nm/print-key sentence)
                                            " entails " (nm/print-key m)
@@ -3337,15 +2543,14 @@
                   mints))})))))
 
 (defn constraint-checks
-  "Throw the first definitional violation as typed ex-info — the assert path.
+  "Throw the first definitional violation that `refuses-assert?`, as typed ex-info — the
+  assert path.
 
-  Not every violation refuses.  One that names an opposing *believed* sentex is a
-  nogood, and whether the writer is told no is `refuses-assert?`'s question: against
-  known-true content, yes (admitting it would store what the KB can never believe);
-  against a defeasible claim, the sentence is admitted and `settle` arbitrates the pair
-  it forms.  An admitted clash is **not** reported here — settle discovers it from the
-  relabelled region, which is what makes the discovery route-agnostic and the answer
-  the same in every arrival order.
+  A violation naming the other believed members of its nogood does not refuse: the
+  sentence is stored and `settle` decides the nogood, whatever the members' classes.  An
+  admitted clash is **not** reported here — settle discovers it from the relabelled
+  region, which is what makes the discovery route-agnostic and the answer the same in
+  every arrival order.
 
   Returns the **entailments** the argument constraints draw over an admissible
   sentence (`constraint-entailments`), for the caller to materialize once the sentex
@@ -3356,20 +2561,14 @@
   declarations are read as definitions there, so admitting `(parentOf Rex Mary)` is
   admitting `(animal Rex)`, and a KB that cannot hold the second may not be left holding
   the first.  Asked second, and only when the sentence itself passed: a sentence already
-  refused needs no second reason, and the cascade is the more expensive read of the two.
-
-  **The second question reads the sentence's `strength`** (`mint-refused?`).  A mint that
-  clashes with a believed membership is placed and weighed at settle
-  (`special/entail-arg-type`), so under `:arbitrate` the sentence is admitted unless it is
-  known-true and the pair it would mint is one `refuses-assert?` refuses."
-  [kb sentence context strength]
+  refused needs no second reason, and the cascade is the more expensive read of the two."
+  [kb sentence context]
   (let [chk   (checked-sentence sentence)
         types (kb/membership-reader kb context)
-        decls (declaration-reader kb (nm/functor chk) context)
-        p     (constraint-problem kb chk context types decls)]
-    (if (refuses-assert? kb context p)
+        decls (declaration-reader kb (nm/functor chk) context)]
+    (if-let [p (constraint-problem kb chk context types decls refuses-assert?)]
       (throw (ex-info (:message p) (dissoc p :message)))
-      (let [{:keys [entailments refusal]} (entailment-check kb chk context types decls strength)]
+      (let [{:keys [entailments refusal]} (entailment-check kb chk context types decls)]
         (if refusal
           (throw (ex-info (:message refusal) (dissoc refusal :message)))
           entailments)))))
@@ -3397,7 +2596,7 @@
         (let [p (application-input-problem kb chk context
                                            (kb/membership-reader kb context)
                                            (declaration-reader kb (nm/functor chk) context))]
-          (when (refuses-assert? kb context p)
+          (when p
             (throw (ex-info (:message p) (dissoc p :message)))))))))
 
 (defn constraint-admission
@@ -3421,9 +2620,8 @@
   [kb sentence context]
   (let [chk   (checked-sentence sentence)
         types (kb/membership-reader kb context)
-        decls (declaration-reader kb (nm/functor chk) context)
-        p     (constraint-problem kb chk context types decls)]
-    (if (and p (not (arbitrable? p)))
+        decls (declaration-reader kb (nm/functor chk) context)]
+    (if-let [p (constraint-problem kb chk context types decls refuses-assert?)]
       {:violation {:violation (:type p) :detail (dissoc p :type :sentence)}}
       {:entailments (constraint-entailments kb chk context types decls)})))
 
@@ -3433,10 +2631,10 @@
   The argument-type mint reads this, so a mint clashing with a believed membership is
   placed and weighed at settle as a rule's conclusion is (docs/argtypes.md)."
   [kb sentence context]
-  (let [chk (checked-sentence sentence)
-        p   (constraint-problem kb chk context (kb/membership-reader kb context)
-                                (declaration-reader kb (nm/functor chk) context))]
-    (when (and p (not (arbitrable? p)))
+  (let [chk (checked-sentence sentence)]
+    (when-let [p (constraint-problem kb chk context (kb/membership-reader kb context)
+                                     (declaration-reader kb (nm/functor chk) context)
+                                     refuses-assert?)]
       {:violation (:type p) :detail (dissoc p :type :sentence)})))
 
 (defn conviction-watch
@@ -3455,65 +2653,32 @@
 
 (defn constraint-violation
   "The definitional checks as a value alone: nil when `sentence` is admissible in
-  `context`, else `{:violation :arity|:arg-type|:arg-genl|:arg-position
-  |:arg-constraint-kind|:disjoint|:asymmetric|:functional|:irreflexive|:anti-symmetric
+  `context`, else `{:violation :arg-type|:arg-genl|:arg-position
+  |:arg-constraint-kind|:disjoint|:asymmetric|:functional|:anti-transitive
   :detail {...}}`.
 
   **Every** violation, arbitrable ones included — which is what separates this from
-  `constraint-admission`.  The callers are the paths that *mint* content nobody asked
-  for and that has somewhere else to be: the decontextualization lift's copy, the
-  equality migration's twin, and the gate on what `abduce` may assume.  None of those
-  is a rule firing with a conclusion to stand behind — a lift can decline to copy, a
-  merge can decline to restate, an abducer can decline to hypothesize — so where a
-  firing arbitrates, they refuse, and the refusal is reported rather than thrown."
+  `constraint-admission`.  The callers are the gates on content that is never stored
+  when it fails: `special/inadmissible`'s default arity, read by what `abduce` may assume
+  and by a context-valued function's computed `genlCx` edge.  Content the engine stores
+  on its own behalf (a lift's copy, a merge's twin, an argument-type mint) asks
+  `derivation-violation` instead, so its arbitrable clash is stored and decided at each
+  reader."
   [kb sentence context]
   (let [chk   (checked-sentence sentence)
         types (kb/membership-reader kb context)
         decls (declaration-reader kb (nm/functor chk) context)]
-    (when-let [p (constraint-problem kb chk context types decls)]
+    (when-let [p (constraint-problem kb chk context types decls some?)]
       {:violation (:type p) :detail (dissoc p :type :sentence)})))
-
-(defn arity-violation
-  "The arity violation `sentence` commits in `context`, or nil — that one arm, asked of
-  content **already stored**.
-
-  The retroactive report's probe (`settle/report-arity-reach!`).  A declaration arriving
-  after the facts it convicts was never seen by the check that runs on the way in, so
-  the facts are re-asked here — the same `arity-problem` the entry point reads, so the two
-  cannot drift about what a wrong arity is.
-
-  Nothing else in the arm's family is asked: the sentence is stored, so whatever the
-  other checks would say about it was said when it was written, and only the *arity*
-  declaration is what just arrived.
-
-  **No `:opposing-class`**, unlike every problem `constraint-problem` hands back.  A class
-  is what a caller weighs two sides with, and this caller weighs nothing — stamping one
-  would advertise an arbitration that deliberately does not happen.
-
-  The four-argument form takes the membership reader rather than building one.  A reader
-  memoizes per context for the life of one caller, and the sweep asks this of every fact
-  of a whole spec subtree — so building one per fact throws the memo away once per
-  question and pays the retrieval every time.  The caller holds one reader per context it
-  meets instead."
-  ([kb sentence context]
-   (arity-violation kb sentence context (kb/membership-reader kb context)))
-  ([kb sentence context types]
-   (arity-problem kb (checked-sentence sentence) context types)))
 
 (defn arg-position-violation
   "The `:arg-position` violation the **stored declaration** `sentence` commits in
   `context`, or nil — a constraint on a position its predicate does not have.
 
-  `arity-violation`'s twin, one level up: that one asks whether a stored *fact* is the
-  wrong length, this one whether a stored *declaration* names a position the length
-  leaves it without.  Both re-ask an entry point check of content already admitted, and both go
-  through the arm the entry point itself reads so the two cannot drift.
-
-  The reader is `vaelii.impl.quality`, not `settle`.  A declaration stranded by an arity
-  that arrived later is **inert** — it constrains nothing, refuses nothing and mints
-  nothing — so unlike a wrong-length fact there is no admitted content to name and no
-  *newly* to report: it reads the same an hour later, which makes it a census question
-  rather than a settle one.  `docs/taxonomy.md` records that split.
+  It re-asks an entry point check of a stored declaration through the arm the entry point
+  reads, so the two cannot drift.  The reader is `vaelii.impl.quality`: a declaration
+  stranded by an arity that arrived later constrains nothing, refuses nothing and mints
+  nothing, so it is a census question rather than a settle one (docs/taxonomy.md).
 
   Only the position arm.  `declaration-problem` also convicts a declaration disagreeing
   with its predicate's `relation_kind`, and an arity arriving is not what makes that true,
@@ -3522,7 +2687,7 @@
   Both of `interArg`'s positions are asked, as at the entry point, and the first that
   convicts is the answer.
 
-  Through `checked-sentence`, like the twin and like the entry point: a doubly negated
+  Through `checked-sentence`, like the entry point: a doubly negated
   declaration is a declaration and is read as one, and a genuinely negative sentence keeps
   its `not`, which matches neither arm below.  A caller reading the record store hands in
   a sentence the constructor already stripped to its positive body, so the pass costs it
@@ -3545,50 +2710,25 @@
                  (assoc :sentence chk)))))))
 
 (defn arbitrable-violations
-  "**Every** definitional clash `sentence` forms against believed content visible from
-  `context` — the nogood half of the checks, read by `settle`'s discovery.  Empty when
-  the sentence is admissible outright.
+  "**Every** disjointness and cover clash `sentence` forms against believed content
+  visible from `context` — the nogood half of the membership checks, read by `settle`'s
+  discovery.  Empty when the sentence forms none.  The tuple marks' nogoods are found
+  from a candidate index instead (`vaelii.impl.decide`).
 
   Asked of a sentence that is itself **stored and believed**, which is what the
-  discovery walks: the clashes it reports are with the *other* members of each pair,
-  since a sentence never opposes itself (a term's own type is not disjoint from itself,
-  its own value is not a second value, and its own converse is a different tuple).
+  discovery walks: the clashes it reports are with the *other* members of each nogood,
+  since a term's own type is not disjoint from itself.
 
-  Plural, and that is the point.  `constraint-problem` stops at the first violation
-  because a refusal needs only one reason.  A pair is not a reason — it is a fact about
-  two sentexes — and a term holding three mutually disjoint types forms three of them,
-  so stopping at the first would report a set of pairs that depended on the order the
-  argument root handed the memberships back.  That order is handle order, which is
-  arrival order, which is the one thing belief may not depend on.
-
-  Only the five arbitrable arms run.  The argument constraints cannot name a second
-  sentex, and on this path the sentence is already stored — so whatever they would say
-  about it was said when it was written.
-
-  `:anti-transitive` names **two** other sentexes rather than one, and is read here the
-  same way: `opposing-handles` is what the discovery forms its nogood from, so a triple
-  arrives as one entry with three members and a pair as one with two.
-
-  **`context` is the asker and `home` is where the sentence lives**, and the two arms that
-  tell a partner from the sentence *itself* read `home` (`asymmetry-problems` records
-  what keying that on the asker cost).  The three-argument form is the entry point's, where a
-  sentence is asked about from the context it is being written into and the two are one;
-  a caller asking a **stored** sentex's question from a vantage owes the four-argument
-  form and its own `(:context s)`."
-  ([kb sentence context] (arbitrable-violations kb sentence context context))
-  ([kb sentence context home]
-   (let [chk   (checked-sentence sentence)
-         types (kb/membership-reader kb context)]
-     (->> (concat (disjoint-problems kb chk context types)
-                  (cover-refutations kb chk context)
-                  (functional-problems kb chk context)
-                  ;; a converse the sentence's own mark reaches by preservation is
-                  ;; `settle/preserving-nogoods`' pair, over the same members
-                  (remove #(and (:via %) (= (:pred %) (nm/functor chk)))
-                          (asymmetry-problems kb chk context home))
-                  (antitransitivity-problems kb chk context home))
-          (map #(with-opposing-class kb %))
-          (filter arbitrable?)))))
+  Plural: a term holding three mutually disjoint types forms three pairs, and stopping at
+  the first would report a set of pairs that depended on the order the argument root
+  handed the memberships back, which is arrival order.  `context` is the asker; a caller
+  asking a stored sentex's question from a vantage passes the vantage."
+  [kb sentence context]
+  (let [chk   (checked-sentence sentence)
+        types (kb/membership-reader kb context)]
+    (->> (concat (disjoint-problems kb chk context types)
+                 (cover-refutations kb chk context))
+         (filter arbitrable?))))
 
 (defn check-sentex-ground
   "`check-ground` over `s`, the sentex already built from `sentence` in `context`: throw
@@ -3645,6 +2785,250 @@
     (when (nil? (p/get-sentex (:records kb) h))
       (throw (ex-info (str "except names handle " h ", and no sentex is stored under it")
                       {:type :unknown-handle :handle h :sentence sentence})))))
+
+;; ---- the forced-monotonic roster ------------------------------------------
+
+(defn- predicate-spelled?
+  "Is `x` spelled as a predicate of arity 2 or more: `nm/predicate?` and not
+  `nm/type-symbol?`, so camelCase with an uppercase letter after the first character.  A
+  bare lowercase word satisfies the type spelling as well and is read as a type
+  (docs/naming.md)."
+  [x]
+  (and (nm/predicate? x) (not (nm/type-symbol? x))))
+
+(def uncleared-forcing
+  "The roster declarations whose retraction is refused, each with the semantics the
+  declared predicate has no unforced reading of: `[declaration-functor predicate]` ->
+  missing semantics (docs/nmtms.md, \"The forced-monotonic roster\")."
+  (into {['forced_monotonic_between_predicates 'genl] :unforced-predicate-genl
+         ['forced_monotonic_predicate 'genlCx]        :unforced-context-edge
+         ['forced_monotonic_predicate 'except]        :unforced-except}
+        (for [[missing preds]
+              {:unforced-relation-mark
+               '[irreflexive anti_symmetric asymmetric functional functionalInArg
+                 anti_transitive transitiveInArg]
+               :unforced-definitional-declaration '[disjoint covering partition sibling_disjoint]
+               :unforced-arity-binding
+               '[arity unary binary ternary unary_predicate binary_predicate
+                 ternary_predicate unary_function binary_function ternary_function
+                 variable_arity variable_arity_predicate variable_arity_function arityMin]
+               :unforced-equality '[rewriteOf sameAs equals]}
+              p preds]
+          [['forced_monotonic_predicate p] missing])))
+
+(def ^:private roster-kind
+  "The taxonomy property each roster declaration functor maintains."
+  '{forced_monotonic_predicate          :forced-monotonic
+    forced_monotonic_between_predicates :forced-between-predicates})
+
+(def baseline-roster
+  "The engine's own roster, `{kind #{predicate …}}`: every `uncleared-forcing`
+  declaration, held on every KB whether or not it is stated (docs/nmtms.md, \"The
+  forced-monotonic roster\")."
+  (reduce (fn [m [functor pred]] (update m (roster-kind functor) (fnil conj #{}) pred))
+          {} (keys uncleared-forcing)))
+
+(defn on-roster?
+  "Does `pred` carry the roster property `kind` (`:forced-monotonic` or
+  `:forced-between-predicates`): a `baseline-roster` member, or declared.  The one reader
+  of the two properties, and a global one: the roster decides what a stored sentex is,
+  and that does not vary by the reader's visibility."
+  [tax kind pred]
+  (or (contains? (baseline-roster kind) pred) (tax/has-prop? tax kind pred)))
+
+(def roster-kinds "The two roster properties." (set (vals roster-kind)))
+
+(defn roster
+  "Every predicate `on-roster?` as `kind`."
+  [tax kind]
+  (into (baseline-roster kind) (tax/props tax kind)))
+
+(defn forced-monotonic?
+  "Is `literal` on the forced-monotonic roster: its functor is `on-roster?` as
+  `:forced-monotonic`, or as `:forced-between-predicates` with every argument spelled as a
+  predicate of arity 2 or more (docs/nmtms.md, \"The forced-monotonic roster\")."
+  [kb literal]
+  (let [f   (nm/functor literal)
+        tax (reasoning/taxonomy kb)]
+    (boolean (and (symbol? f)
+                  (or (on-roster? tax :forced-monotonic f)
+                      (and (on-roster? tax :forced-between-predicates f)
+                           (next literal)
+                           (every? predicate-spelled? (rest literal))))))))
+
+(defn inert-denial?
+  "Is `sentence` a denial `(not S)` of a `forced-monotonic?` literal `S`.  The labeller
+  holds such a denial OUT (the `:out` forced set): it is never believed, forms no nogood
+  and fires no rule (docs/nmtms.md, \"The forced-monotonic roster\")."
+  [kb sentence]
+  (and (sx/negation? sentence) (forced-monotonic? kb (second sentence))))
+
+(defn roster-rule?
+  "Is the stored rule `rule-sentex` one whose firings conclude a roster literal as an
+  ordinary belief: not `set/defaultRule`, no `unknown` antecedent, and every antecedent a
+  `forced-monotonic?` literal.  Its `exceptWhen` exceptions are meta-sentexes, which
+  `forced-conclusion-violation` reads at the firing."
+  [kb rule-sentex]
+  (let [antes (:antecedent rule-sentex)]
+    (boolean (and (seq antes) (not (:defeasible rule-sentex))
+                  (every? #(and (not (sx/unknown? %)) (forced-monotonic? kb %)) antes)))))
+
+(defn forced-conclusion-violation
+  "The `:forced-conclusion` violation of a firing of the rule stored at `rule-handle` that
+  concludes the ground sentence `conseq`, or nil when the firing is admitted.  A firing
+  concluding a denial of a `forced-monotonic?` literal is convicted, and so is one
+  concluding a roster literal unless its rule is a `roster-rule?` with no believed
+  `exceptWhen`.  A convicted firing is stored, held void (the `:void` forced set) and
+  reported (docs/nmtms.md, \"The forced-monotonic roster\")."
+  [kb rule-handle conseq]
+  (let [neg? (sx/negation? conseq)
+        body (if neg? (second conseq) conseq)]
+    (when (and (forced-monotonic? kb body)
+               (or neg?
+                   (let [rsx (p/get-sentex (:records kb) rule-handle)]
+                     (or (nil? rsx) (not (roster-rule? kb rsx))
+                         (seq (provers/rule-exception-entries kb rule-handle))))))
+      {:violation :forced-conclusion
+       :detail    {:message (str (pr-str conseq) " is not concluded: " (nm/functor body)
+                                 " is on the forced-monotonic roster, and a rule concludes a"
+                                 " roster literal only from roster antecedents, with no"
+                                 " unknown, exceptWhen or set/defaultRule")}})))
+
+(defn forced-premise?
+  "Does a premise mark on the stored sentex `sx` confer `:monotonic` in the labeller (the
+  `:mono` forced set): `sx` is a roster literal, or a `roster-rule?` concluding one."
+  [kb sx]
+  (if (rules/rule? sx)
+    (boolean (and (forced-monotonic? kb (:consequent sx)) (roster-rule? kb sx)))
+    (forced-monotonic? kb (:sentence sx))))
+
+(defn force-sentex!
+  "Write the `:mono` and `:out` memberships of the stored sentex `sx` into the network.
+  The assert path calls it before the premise mark, so a forced-out denial is never IN,
+  even for one relabel.  A membership already right writes nothing."
+  [kb sx]
+  (let [tms (reasoning/tms kb)
+        h   (:id sx)
+        put (fn [kind on?]
+              (when (not= on? (jtms/forced? tms kind h))
+                (jtms/set-forced tms kind [h] on?)))]
+    (put :mono (forced-premise? kb sx))
+    (when-not (rules/rule? sx)
+      (put :out (inert-denial? kb (:sentence sx))))))
+
+(defn- rule-sentex
+  "The stored rule at `h`, or nil when `h` names no stored rule."
+  [kb h]
+  (when (integer? h)
+    (let [sx (p/get-sentex (:records kb) h)]
+      (when (rules/rule? sx) sx))))
+
+(defn- forcing-moves
+  "Add to `acc` the forced memberships that move for the stored sentex `sx` and for the
+  firings that conclude it or that its rule informs, as `{[kind on?] [id …]}`, and the
+  report of each firing newly held void under `[:report]`."
+  [kb acc sx]
+  (let [tms  (reasoning/tms kb)
+        recs (:records kb)
+        h    (:id sx)
+        put  (fn [acc kind id on?]
+               (let [on? (boolean on?)]
+                 (if (= on? (jtms/forced? tms kind id))
+                   acc
+                   (update acc [kind on?] (fnil conj []) id))))
+        void (fn [acc jid rh conclusion]
+               (let [v (forced-conclusion-violation kb rh (:sentence conclusion))
+                     acc (put acc :void jid v)]
+                 (if (and v (not (jtms/forced? tms :void jid)))
+                   (update acc [:report] (fnil conj [])
+                           (assoc v :sentence (:sentence conclusion)
+                                  :context (:context conclusion) :rule rh))
+                   acc)))
+        acc  (put acc :mono h (forced-premise? kb sx))]
+    (if (rules/rule? sx)
+      ;; a firing is read only when its conclusion can be on the roster now, or when it
+      ;; is held void now and the roster may have released it
+      (let [c       (:consequent sx)
+            body    (if (sx/negation? c) (second c) c)
+            reach?  (let [f   (nm/functor body)
+                          tax (reasoning/taxonomy kb)]
+                      (or (sx/variable? f)
+                          (and (symbol? f) (or (on-roster? tax :forced-monotonic f)
+                                               (on-roster? tax :forced-between-predicates f)))))]
+        (reduce (fn [acc jid]
+                  (let [j (jtms/justification tms jid)]
+                    (if (and (= h (:informant j)) (or reach? (jtms/forced? tms :void jid)))
+                      (if-let [conclusion (p/get-sentex recs (:consequence j))]
+                        (void acc jid h conclusion)
+                        acc)
+                      acc)))
+                acc (sort (jtms/dependents tms h))))
+      (reduce (fn [acc jid]
+                (let [rh (:informant (jtms/justification tms jid))]
+                  (if (rule-sentex kb rh) (void acc jid rh sx) acc)))
+              (put acc :out h (inert-denial? kb (:sentence sx)))
+              (sort (jtms/supports tms h))))))
+
+(defn force-sentexes!
+  "Rewrite the network's forced memberships for the stored sentexes `sxs` and the
+  firings each concludes or informs, from the roster as it stands, and report each firing
+  newly held void.  The relabel each set change runs is the whole recompute: nothing
+  stored is written or deleted.  Answers whether any membership moved."
+  [kb sxs]
+  (let [tms   (reasoning/tms kb)
+        moves (reduce #(forcing-moves kb %1 %2) {} sxs)]
+    (doseq [[[kind on?] ids] (dissoc moves [:report])]
+      (jtms/set-forced tms kind ids on?))
+    (violations/report kb (get moves [:report]))
+    (boolean (seq (dissoc moves [:report])))))
+
+(defn force-reach!
+  "Rewrite the forced memberships over what `pred` reaches — every stored sentex
+  mentioning it (its literals, their denials, the rules reading or concluding it) and
+  their firings — after `pred` joins or leaves the roster (docs/nmtms.md, \"The
+  forced-monotonic roster\").  Answers the handles of the rules in that reach, which a
+  firing swept while it was held void is restored from by a re-join."
+  [kb pred]
+  (let [sxs (into [] (kb/find-sentexes kb pred))]
+    (force-sentexes! kb sxs)
+    (into [] (comp (filter rules/rule?) (map :id)) sxs)))
+
+(defn force-roster!
+  "Write every forced membership the stored content takes under the roster:
+  `recover`'s pass, run once the taxonomy replay has rebuilt the roster properties.  A
+  stored denial of a roster literal with no premise mark and no support is the record an
+  older store kept inert, and it takes the `:default` premise mark it was written with
+  (docs/nmtms.md, \"The forced-monotonic roster\")."
+  [kb]
+  (let [tax  (reasoning/taxonomy kb)
+        tms  (reasoning/tms kb)
+        preds (sort (into #{} (mapcat #(roster tax %)) roster-kinds))
+        sxs  (vals (into {} (comp (mapcat #(kb/find-sentexes kb %)) (map (juxt :id identity)))
+                         preds))]
+    (force-sentexes! kb sxs)
+    (doseq [{h :id s :sentence} sxs
+            :when (and (inert-denial? kb s) (not (jtms/premise? tms h))
+                       (empty? (jtms/supports tms h)))]
+      (p/mark-premise (:records kb) h :default)
+      (jtms/add-premise tms h :default))))
+
+(defn forcing-retraction-problem
+  "The `:uncleared-forcing` refusal of retracting the sentex at `handle`, as a value, or
+  nil: the handle states a roster declaration whose predicate has no established unforced
+  semantics (`uncleared-forcing`).  The test reads the declaration properties' supporters,
+  which are what the sentence alone puts there, and fetches no record.  `where` names the
+  entry point."
+  [kb handle where]
+  (let [tax (reasoning/taxonomy kb)]
+    (some (fn [[[functor pred :as decl] missing]]
+            (let [kind (roster-kind functor)]
+              (when (contains? (tax/prop-supporter-contexts tax kind pred) handle)
+                {:type :uncleared-forcing :handle handle :predicate pred :missing missing
+                 :operation where
+                 :message (str (pr-str (apply list decl)) " is not retracted: " pred
+                               " has no unforced semantics yet (" (name missing)
+                               "), so its declaration stays")})))
+          uncleared-forcing)))
 
 ;; ---- storable values ----------------------------------------------------
 ;; A sentence's leaves must survive the durable log.  Symbols and keywords (the
@@ -3778,6 +3162,11 @@
 ;; Only *additions* can close a cycle: `specs` grows monotonically with the edge set,
 ;; so removing an edge only removes graph edges and a retraction needs no check.
 
+(def ^:private different-negatives
+  "The predicates a `different` antecedent depends on negatively: the relations a fact on
+  which withdraws it (`negative-predicates`)."
+  (into #{'indeterminate_term 'genl} kb/equality-predicates))
+
 (defn- negative-predicates
   "The predicates a rule depends on **negatively**.
 
@@ -3798,9 +3187,9 @@
   `different` the same way an equality does (docs/predall.md, docs/equality.md).
 
   Two names carry the indeterminacy half.  `indeterminate_term` is the category itself,
-  and a subkind of it needs no name here: `wff/rule-edges` fans every negative predicate
-  down its `specs-global` closure, so a rule concluding a `(vague_kind ?x)` declared under
-  the category is already reached through the category's own edge.  `genl` is the second,
+  and a subkind of it needs no name here: `wff/negation-walk` steps from a rule concluding
+  a `(vague_kind ?x)` declared under the category to the readers of every predicate in its
+  `genls-global` closure, so the category's own edge reaches it.  `genl` is the second,
   and it is the over-approximation this check prefers: a rule concluding `genl` mints a
   subkind the taxonomy does not hold yet, which no fan over the current closure can see.
   It costs a refusal where a rule set reads `different` and concludes any `genl` whatever,
@@ -3819,11 +3208,11 @@
   [antecedent-preds neg-query-preds]
   (concat neg-query-preds
           (when (some #(= 'different %) antecedent-preds)
-            (concat kb/equality-predicates '[indeterminate_term genl]))))
+            (nm/sort-by-content-key identity different-negatives))))
 
 (defn- negative-edge-rules
-  "Handles of every **stored** rule a negative edge leaves — the roster a walk that has
-  no rule of its own to start from has to start at, and the gate on walking at all.
+  "Handles of every **stored** rule a negative edge leaves — the gate on walking at all:
+  with none, the stored graph has no negative edge and no cycle through negation.
 
   Two rosters, because the re-check index is written when a rule is **indexed**.  Its
   `:rules` holds a rule carrying an `exceptWhen`, an `(unknown S)` antecedent, an
@@ -3835,11 +3224,10 @@
   roster is what keeps the refusal right over an index written before the registration
   existed and not yet rebuilt by `reindex`.
 
-  Read `different` out and the roster under-approximates the graph — a cycle whose only
-  negative edge is one rule's `different` passes through no watched rule, so no walk
-  starts on it and the cycle is stored.  Belief is unread on both halves,
-  over-approximating for the reason `wff/rule-edges` does: refusing a stratified rule set
-  is annoying, accepting an order-dependent one is a correctness hole.
+  Read `different` out and the gate under-approximates the graph — a KB whose only
+  negative edge is one rule's `different` would skip the walk, and a cycle through it
+  would be stored.  Belief is unread on both halves, over-approximating for the reason
+  `stratification-readers` does.
 
   The antecedent lookup sits behind the in-memory `:rule-antecedents` roster, which is a
   deref rather than an index read and holds exactly the antecedent keys some stored rule
@@ -3872,15 +3260,22 @@
   `different`).  The exceptWhen predicates come from the rule's meta-sentexes, so kb is
   needed.
 
-  The antecedents are read as **dependency** predicates, not as index keys: an edge is
-  followed by looking the predicate up among the concluders, and a conclusion is filed
-  by `consequent-predicate` — which spells a negation `not` where the index key spells
-  it `[:not pred]` (`rules/dependency-predicates`)."
+  The antecedents are read as **dependency** predicates, not as index keys: an edge
+  joins a reader to a rule whose consequent is filed under a spec of what it reads, and
+  a conclusion is filed by `consequent-predicate` — which spells a negation `not` where
+  the index key spells it `[:not pred]` (`rules/dependency-predicates`).  The consequent
+  is `:concludes-any?` for a rule concluding `(?p …)` that chains, which could conclude
+  any predicate (`rules/consequent-index-pred`)."
   [kb handle rule-sentex]
-  (let [antes (rules/dependency-predicates (sx/sentence-of rule-sentex))]
+  (let [antes   (rules/dependency-predicates (sx/sentence-of rule-sentex))
+        ;; an `:inert` rule with a variable consequent keeps the canonical variable, and
+        ;; concludes nothing
+        conseq  (rules/consequent-index-pred rule-sentex)]
     {:id               handle
      :label            (str "rule#" handle)
      :content          [(sx/sentence-of rule-sentex) (:context rule-sentex)]
+     :consequent-pred  (when (symbol? conseq) (when-not (sx/variable? conseq) conseq))
+     :concludes-any?   (= p/var-consequent-key conseq)
      :antecedent-preds antes
      :exception-preds  (negative-predicates
                         antes (concat (exception-predicates kb handle)
@@ -3896,50 +3291,67 @@
   (when-let [rsx (p/get-sentex (:records kb) handle)]
     (when (rules/rule? rsx) (rule-graph-node kb handle rsx))))
 
-(defn- stratification-concluders
-  "Predicate -> the rule nodes concluding it, read off the rule index.
+(defn- stratification-readers
+  "Predicate -> the rule nodes reading it, positively or negatively, in content order;
+  with no argument, every rule node.  `wff/negation-walk` steps from a rule to the readers
+  of each predicate at or above its consequent.
 
-  The one-arity is the graph exactly as **stored**, which is what an edge change is
-  checked against.  The two-arity adds `pending`, the rule (or exception) being added,
-  under its own consequent by hand: it is not reflected in the graph yet, and without
-  it a rule whose exception mentions what it concludes — a one-rule cycle — would look
-  stratified.  A pending rule whose consequent functor is a **variable** could conclude
-  *any* predicate, so it is added under every `pred` the walk asks about — the same
-  reason `direct-concluders` folds the catch-all into the stored side.
+  A reader is found through the rule index: the antecedent postings under the predicate
+  (every `[:not f]` key for `not`, the dependency spelling of a negated antecedent), the
+  re-check postings under it, and the antecedent postings under `different` or `[:not P]`
+  where the predicate is one a `different` antecedent or a closed extent makes negative.
+  Each candidate's node is read, and kept when its predicates hold the one asked.  Belief
+  is unread: refusing a stratified rule set is annoying, accepting an order-dependent one
+  is a correctness hole.
 
-  The returned fn memoizes both the rule-index lookup per predicate and the node per
-  rule handle, for as long as the caller holds it.  Every caller builds one per check and
-  drops it when the check returns, and a check runs before anything is written, so the
-  store cannot change under the memo.  Without it a walk rebuilds a node — a record read
-  plus the rule's exceptWhen meta-sentexes off the index — once per edge that reaches the
-  rule, and an edge check repeats that per start rule: the cyc-tiny load at `:ontology`
-  walks 900 times, and per-edge building would build 60 million nodes where the memo
-  builds 33 thousand (docs/exceptions.md, \"The search\")."
-  ([kb]
-   (let [nodes   (java.util.HashMap.)
-         by-pred (java.util.HashMap.)
+  The two-arity adds `pending`, the rule (or exception) being added, under each predicate
+  it reads, in place of any stored node with its id: without it a rule whose exception
+  mentions what it concludes — a one-rule cycle — would look stratified.
+
+  The returned fn memoizes the node per rule handle and the readers per predicate, for as
+  long as the caller holds it.  Every caller builds one per check and drops it when the
+  check returns, and a check runs before anything is written, so the store cannot change
+  under the memo (docs/exceptions.md, \"The search\")."
+  ([kb] (stratification-readers kb nil))
+  ([kb pending]
+   (let [index   (:index kb)
+         tx      (reasoning/taxonomy kb)
+         nodes   (java.util.HashMap.)
          node    (fn [h]
                    (if (.containsKey nodes h)
                      (.get nodes h)
-                     (let [n (stored-rule-node kb h)] (.put nodes h n) n)))]
-     (fn [pred]
-       (if (.containsKey by-pred pred)
-         (.get by-pred pred)
-         ;; `direct-concluders` folds in the variable-consequent catch-all: a rule
-         ;; concluding `(?p …)` could conclude `pred`, so a negation cycle through it must
-         ;; not be missed.
-         ;; content order, since `negation-cycle` returns the first cycle its walk
-         ;; closes, and a set of handles iterates in an order the handles decide
-         (let [found (nm/sort-by-content-key
-                      :content (keep node (rules/direct-concluders (:index kb) pred)))]
-           (.put by-pred pred found)
-           found)))))
-  ([kb pending]
-   (let [stored      (stratification-concluders kb)
-         var-conseq? (sx/variable? (:consequent-pred pending))]
-     (fn [pred]
-       (cond-> (remove #(= (:id %) (:id pending)) (stored pred))
-         (or var-conseq? (= pred (:consequent-pred pending))) (conj pending))))))
+                     (let [n (stored-rule-node kb h)] (.put nodes h n) n)))
+         reads?  (fn [n g] (or (some #(= g %) (:antecedent-preds n))
+                               (some #(= g %) (:exception-preds n))))
+         ;; content order, since `wff/negation-walk` returns the first cycle it closes, and a
+         ;; set of handles iterates in an order the handles decide
+         ordered (fn [handles keep?]
+                   (cond-> (nm/sort-by-content-key
+                            :content (filter keep? (keep node (disj (set handles) (:id pending)))))
+                     (and pending (keep? pending)) (conj pending)))
+         by-pred (java.util.HashMap.)
+         every   (delay (ordered (concat (mapcat #(reads/as-stored-rules-by-antecedent index %)
+                                                 (keys @(reasoning/rule-antecedents kb)))
+                                         (reads/watched-rules index))
+                                 some?))]
+     (fn
+       ([] @every)
+       ([g]
+        (if (.containsKey by-pred g)
+          (.get by-pred g)
+          (let [ante-keys (if (= sx/not-functor g)
+                            (cons g (filter vector? (keys @(reasoning/rule-antecedents kb))))
+                            [g])
+                found     (ordered (concat (mapcat #(reads/as-stored-rules-by-antecedent index %)
+                                                   ante-keys)
+                                           (reads/watched-rules-on index g)
+                                           (when (contains? different-negatives g)
+                                             (reads/as-stored-rules-by-antecedent index 'different))
+                                           (when (and (symbol? g) (tax/has-prop? tx :closed-extent g))
+                                             (reads/as-stored-rules-by-antecedent index [:not g])))
+                                   #(reads? % g))]
+            (.put by-pred g found)
+            found)))))))
 
 (defn check-stratified
   "Throw unless adding this rule leaves the rule set stratified — see
@@ -3961,7 +3373,7 @@
         ;; firing names, so a cycle through any of them is unstratified — a rule whose
         ;; count is over a relation the rule itself concludes has no settled answer, and
         ;; which one it lands on would depend on arrival order.
-        negatives         (negative-predicates antes (concat (keep nm/functor exception)
+        negatives         (negative-predicates antes (concat (rules/watched-predicates exception)
                                                              (rules/naf-predicates-of inner)
                                                              (rules/aggregate-predicates-of inner)
                                                              (rules/closed-extent-predicates-of
@@ -3971,13 +3383,15 @@
     ;; equality closure is walked, and a *stored* one keeps the walk alive for a rule
     ;; arriving above it that carries no negative edge of its own.
     (when (or (seq negatives) (seq (negative-edge-rules kb)))
-      (let [pending {:id               ::pending
+      (let [conseq  (rules/consequent-predicate inner)
+            pending {:id               ::pending
                      :label            "the rule being asserted"
                      :antecedent-preds antes
                      :exception-preds  negatives
-                     :consequent-pred  (rules/consequent-predicate inner)}]
+                     :consequent-pred  (when-not (sx/variable? conseq) conseq)
+                     :concludes-any?   (sx/variable? conseq)}]
         (when-let [cycle (wff/negation-cycle (reasoning/taxonomy kb)
-                                             (stratification-concluders kb pending)
+                                             (stratification-readers kb pending)
                                              pending)]
           (throw (ex-info (str "not stratified: " (pr-str inner) " would close a cycle"
                                " through negation: " (wff/cycle-description cycle)
@@ -4484,7 +3898,7 @@
   The exception is a new negative edge from the rule to those predicates, so it can
   close a cycle through negation exactly as a whole rule can (`check-stratified`).  The
   pending node is the rule's stored graph node augmented with the new negative edges;
-  `stratification-concluders` swaps it in for the stored rule so the walk sees the edge.
+  `stratification-readers` swaps it in for the stored rule so the walk sees the edge.
   Runs before the meta-sentex is stored, so a refused exception leaves nothing behind."
   [kb rule-handle new-exc-preds context]
   (when-let [rsx (p/get-sentex (:records kb) rule-handle)]
@@ -4493,11 +3907,10 @@
                          :label           (str "rule#" rule-handle " (with the new exception)")
                          :exception-preds (concat (:exception-preds base)
                                                   (negative-predicates (:antecedent-preds base)
-                                                                       new-exc-preds))
-                         :consequent-pred (rules/consequent-key (:consequent rsx)))]
+                                                                       new-exc-preds)))]
       (when (seq (:exception-preds pending))
         (when-let [cycle (wff/negation-cycle (reasoning/taxonomy kb)
-                                             (stratification-concluders kb pending)
+                                             (stratification-readers kb pending)
                                              pending)]
           (throw (ex-info (str "not stratified: the exception on rule#" rule-handle
                                " reads " (pr-str (vec new-exc-preds)) " and would close a"
@@ -4545,12 +3958,10 @@
                                                    :exception-preds
                                                    (concat (:exception-preds base)
                                                            (negative-predicates
-                                                            (:antecedent-preds base) [pred]))
-                                                   :consequent-pred
-                                                   (rules/consequent-key (:consequent rsx)))]
+                                                            (:antecedent-preds base) [pred])))]
                                 (when-let [c (wff/negation-cycle
                                               (reasoning/taxonomy kb)
-                                              (stratification-concluders kb pending)
+                                              (stratification-readers kb pending)
                                               pending)]
                                   [pending c]))))
                       first)]
@@ -4564,48 +3975,27 @@
                          :rule (:id node) :cycle cycle}))))))
 
 (defn- edge-negation-cycle
-  "The cycle through negation that adding this `genl` / `genlCx` sentence would
-  create among the **stored** rules, or nil.  Nil for anything that is not one of
-  those two edges.
+  "The cycle through negation that adding this `genl` sentence would create among the
+  **stored** rules, or nil.  Nil for anything else: a `genlCx` edge moves no edge of the
+  graph, which reads the `genl` closure alone.
 
-  Every cycle through negation contains at least one negative edge, and every negative
-  edge leaves a rule `negative-edge-rules` names — so starting the walk at each of those
-  is complete, and it is two index lookups.  The re-check roster is the same set (and the
-  same reason) as `recheck-every-exception`'s: an edge change has no rule and no fact to
-  narrow by, so it re-walks those rules wholesale.  They are few, and edge changes are
-  rare.  The `different` half is not registered anywhere, so it is read off the antecedent
-  index; leave it out and a cycle whose only negative edge is a `different` passes through
-  no start node and the edge closing it is stored.
+  `wff/genl-negation-cycle` walks once, from the rules the edge's added graph edges point
+  to, so the check reads what the edge reaches and nothing else (docs/exceptions.md, \"A
+  taxonomy edge closes a cycle too\").
 
-  **Fast path:** no stored rule carries a negative edge, so the graph has none and no
-  walk can find a cycle.  That is every rule in the bundled starter, so an ordinary
-  `genl` assert pays two set reads and stops.
+  **Fast path:** no stored rule carries a negative edge (`negative-edge-rules`), so the
+  graph has none and no walk can find a cycle.  That is every rule in the bundled
+  starter, so an ordinary `genl` assert pays two set reads and stops.
 
   The edge is added to a **detached copy** of the taxonomy rather than to the real
   one: the check runs before anything is written, and a refused edge must leave the
   cached closures untouched as well as the store."
   [kb sentence]
-  (let [f (nm/functor sentence)]
-    (when (or (= f 'genl) (= f 'genlCx))
-      (let [starts (negative-edge-rules kb)]
-        (when (seq starts)
-          (let [[_ a b]    sentence
-                probe      (tax/detached-copy (reasoning/taxonomy kb))
-                _          (if (= f 'genl)
-                             (tax/add-genl probe a b ::probe)
-                             (tax/add-genlCx probe a b ::probe))
-                concluders (stratification-concluders kb)]
-            ;; walked in content order: the roster is a **set**, and the cycle this
-            ;; returns is the witness the refusal message prints and
-            ;; `edge-stratification-violation` carries in `:detail :cycle`.  Two rules
-            ;; that each close a cycle through the arriving edge would otherwise give two
-            ;; different refusals for one edge according to which was asserted first.
-            (some #(some->> (stored-rule-node kb %)
-                            (wff/negation-cycle probe concluders))
-                  (nm/sort-by-content-key
-                   (fn [h] (let [s (p/get-sentex (:records kb) h)]
-                             [(sx/sentence-of s) (:context s)]))
-                   starts))))))))
+  (when (and (= 'genl (nm/functor sentence)) (seq (negative-edge-rules kb)))
+    (let [[_ a b] sentence
+          probe   (tax/detached-copy (reasoning/taxonomy kb))]
+      (tax/add-genl probe a b ::probe)
+      (wff/genl-negation-cycle probe (stratification-readers kb) a b))))
 
 (defn check-edge-stratified
   "Throw unless adding this taxonomy edge leaves the stored rule set stratified.
@@ -4631,7 +4021,7 @@
 ;; the special-predicate table, which sits a layer above this namespace.)
 
 (defn edge-stratification-violation
-  "The same check as a **value**, for a `genl` / `genlCx` edge a rule *derived*
+  "The same check as a **value**, for a `genl` edge a rule *derived*
   rather than one a caller asserted: nil when the edge is admissible, else a
   violation map in the shape `constraint-violation` returns.
 

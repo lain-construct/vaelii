@@ -180,6 +180,8 @@
         (v/assert kb (list p a b) ctx)
         (let [snap (collected #(doall (res/matches-hierarchical kb (list p a '?y) ctx)))]
           (is (contains? (paths-of snap p) :hier-scoped-roots)))
+        (let [snap (collected #(doall (res/matches-hierarchical kb (list p a b) ctx)))]
+          (is (contains? (paths-of snap p) :hier-trie-prefix)))
         (let [snap (collected #(doall (res/matches-hierarchical kb (list p '?x '?y) ctx)))]
           (is (contains? (paths-of snap p) :hier-functor-extent)
               "nothing indexable to lead with, so it reads the sub-predicates' extents"))))))

@@ -13,6 +13,7 @@
             [vaelii.impl.asp.label :as label]
             [vaelii.impl.asp.prover :as prover]
             [vaelii.impl.asp.solver :as solver]
+            [vaelii.impl.config :as config]
             [vaelii.impl.rules :as vr]
             [vaelii.test-util :as tu]))
 
@@ -175,48 +176,62 @@
         (is (not (contains? (:supportable cls) quaker)))
         (is (not (contains? (:true cls) quaker)))))))
 
+(defn- extended-nixon-reads
+  "The brave/cautious reads over `extended-nixon`, which both classification paths owe: a
+  one-sided downstream conclusion is not cautious — where base belief alone, believing
+  both dilemma sides, would report it cautious."
+  []
+  (tu/with-neutral-kb [kb tu/fresh]
+    (v/add-reasoner kb :brave-cautious)
+    (let [{:keys [pos-form neg-form ethical-form opposes-form quaker-form]} (extended-nixon kb)]
+      (testing "each dilemma side is bravely true, not cautiously"
+        (is (v/ask? kb (list 'bravely    pos-form) 'CxUniverse))
+        (is (v/ask? kb (list 'bravely    neg-form) 'CxUniverse))
+        (is (not (v/ask? kb (list 'cautiously pos-form) 'CxUniverse)))
+        (is (not (v/ask? kb (list 'cautiously neg-form) 'CxUniverse))))
+      (testing "a conclusion drawn from both sides is cautiously true — it holds either way"
+        (is (v/ask? kb (list 'bravely    ethical-form) 'CxUniverse))
+        (is (v/ask? kb (list 'cautiously ethical-form) 'CxUniverse)))
+      (testing "a one-sided downstream conclusion is bravely true but not cautiously"
+        (is (v/ask? kb (list 'bravely    opposes-form) 'CxUniverse))
+        (is (not (v/ask? kb (list 'cautiously opposes-form) 'CxUniverse))))
+      (testing "the monotonic background is both brave and cautious"
+        (is (v/ask? kb (list 'bravely    quaker-form) 'CxUniverse))
+        (is (v/ask? kb (list 'cautiously quaker-form) 'CxUniverse))))))
+
 (deftest solve-free-brave-cautious
   ;; Forcing the no-backend path (`with-redefs`), the prover reads the solve-free bracket:
-  ;; brave/cautious hold without enumerating optima, and a one-sided downstream conclusion
-  ;; is correctly not cautious — where base belief alone, believing both dilemma sides,
-  ;; would report it cautious.
+  ;; brave/cautious hold without enumerating optima.
   (with-redefs [solver/available? (constantly false)]
-    (tu/with-neutral-kb [kb tu/fresh]
-      (v/add-reasoner kb :brave-cautious)
-      (let [{:keys [pos-form neg-form ethical-form opposes-form quaker-form]} (extended-nixon kb)]
-        (testing "each dilemma side is bravely true, not cautiously"
-          (is (v/ask? kb (list 'bravely    pos-form) 'CxUniverse))
-          (is (v/ask? kb (list 'bravely    neg-form) 'CxUniverse))
-          (is (not (v/ask? kb (list 'cautiously pos-form) 'CxUniverse)))
-          (is (not (v/ask? kb (list 'cautiously neg-form) 'CxUniverse))))
-        (testing "a conclusion drawn from both sides is cautiously true — it holds either way"
-          (is (v/ask? kb (list 'bravely    ethical-form) 'CxUniverse))
-          (is (v/ask? kb (list 'cautiously ethical-form) 'CxUniverse)))
-        (testing "a one-sided downstream conclusion is bravely true but not cautiously"
-          (is (v/ask? kb (list 'bravely    opposes-form) 'CxUniverse))
-          (is (not (v/ask? kb (list 'cautiously opposes-form) 'CxUniverse))))
-        (testing "the monotonic background is both brave and cautious"
-          (is (v/ask? kb (list 'bravely    quaker-form) 'CxUniverse))
-          (is (v/ask? kb (list 'cautiously quaker-form) 'CxUniverse)))))))
+    (extended-nixon-reads)))
+
+(deftest backend-brave-cautious-on-derived-conclusions
+  ;; With a backend the members come from `classify-program`, which holds members only; a
+  ;; derived conclusion is read off `classify-local`, so the two paths answer alike.
+  (when asp?
+    (extended-nixon-reads)))
 
 (deftest the-backend-classifies-the-asked-datums-component-once-per-write
-  ;; One program over independent dilemmas has the product of their optima, so the
-  ;; backend classifies only the member component the asked datum is in, and a second ask
-  ;; with no write between reads the first one's answer (docs/labeling.md).
+  ;; The backend refines a member only past the bracket's member cap, lowered here so a
+  ;; Nixon diamond is past it.  One program over independent dilemmas has the product of
+  ;; their optima, so the backend classifies only the member component the asked datum is
+  ;; in, and a second ask with no write between reads the first one's answer
+  ;; (docs/labeling.md).
   (when asp?
-    (tu/with-neutral-kb [kb tu/fresh]
-      (v/add-reasoner kb :brave-cautious)
-      (let [{:keys [pacifist nixon]} (first (doall (repeatedly 3 #(nixon-diamond kb))))
-            P        (list pacifist nixon)
-            sizes    (atom [])
-            classify label/classify-program]
-        (with-redefs [label/classify-program
-                      (fn [program]
-                        (swap! sizes conj (count (:assumptions program)))
-                        (classify program))]
-          (is (v/ask? kb (list 'bravely P) 'CxUniverse))
-          (is (not (v/ask? kb (list 'cautiously P) 'CxUniverse))))
-        (is (= [2] @sizes))))))
+    (with-redefs [config/classify-max-cluster-members (constantly 1)]
+      (tu/with-neutral-kb [kb tu/fresh]
+        (v/add-reasoner kb :brave-cautious)
+        (let [{:keys [pacifist nixon]} (first (doall (repeatedly 3 #(nixon-diamond kb))))
+              P        (list pacifist nixon)
+              sizes    (atom [])
+              classify label/classify-program]
+          (with-redefs [label/classify-program
+                        (fn [program]
+                          (swap! sizes conj (count (:assumptions program)))
+                          (classify program))]
+            (is (v/ask? kb (list 'bravely P) 'CxUniverse))
+            (is (not (v/ask? kb (list 'cautiously P) 'CxUniverse))))
+          (is (= [2] @sizes)))))))
 
 (deftest the-solve-free-bracket-runs-once-per-write
   (with-redefs [solver/available? (constantly false)]
@@ -320,6 +335,34 @@
           (is (v/ask? kb (list 'cautiously a-form) 'CxUniverse))
           (is (v/ask? kb (list 'cautiously c-form) 'CxUniverse)))))))
 
+(deftest the-backend-answers-coupled-dilemmas-as-the-bracket-does
+  ;; A `Program` encodes no derivation between members, so over `three-way-rebuttal` the
+  ;; backend's optima defeat one member per dilemma and call all six `:supportable`.  The
+  ;; prover reads the bracket with a backend too, and answers as it does without one.
+  (when asp?
+    (tu/with-neutral-kb [kb tu/fresh]
+      (v/add-reasoner kb :brave-cautious)
+      (let [{:keys [a-form b-form c-form]} (three-way-rebuttal kb)]
+        (is (v/ask? kb (list 'cautiously a-form) 'CxUniverse))
+        (is (v/ask? kb (list 'cautiously c-form) 'CxUniverse))
+        (is (not (v/ask? kb (list 'bravely b-form) 'CxUniverse)))))))
+
+(deftest a-member-is-refinable-only-past-the-cap-and-uncoupled
+  ;; `:refinable` names the members a backend may classify: those in a cluster the bracket
+  ;; did not enumerate whose members move none of each other, where a `Program` is exact.
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [{:keys [pos neg]} (nixon-diamond kb)
+          {:keys [a b c]}   (three-way-rebuttal kb)]
+      (testing "under the cap nothing is refinable"
+        (is (empty? (:refinable (label/classify-local kb)))))
+      (with-redefs [config/classify-max-cluster-members (constantly 1)]
+        (let [refinable (:refinable (label/classify-local kb))]
+          (testing "past it, a diamond's members are"
+            (is (contains? refinable pos))
+            (is (contains? refinable neg)))
+          (testing "and a cluster whose members derive from one another is not"
+            (is (not-any? refinable [a b c]))))))))
+
 (deftest classify-local-classifies-independent-dilemmas-apart
   ;; Two Nixon diamonds on disjoint terms are separate clusters, so each both-sided
   ;; conclusion is skeptical on its own and each member stays credulous-only — the two
@@ -349,10 +392,10 @@
           (is (contains? (:supportable cls) (:p d2))))))))
 
 (deftest classify-local-agrees-with-the-backend-on-dilemma-members
-  ;; The prover reads the backend's `classify-program` when a backend is reachable and
-  ;; `classify-local` otherwise, so the two classify each dilemma member the same way.
-  ;; `classify-program` classifies the members a `Program` holds; the comparison covers every
-  ;; one of those that `classify-local` also classifies.
+  ;; The prover refines a `:refinable` member with the backend's `classify-program`, so on
+  ;; dilemmas whose members derive from none of the others the two must classify each member
+  ;; the same way.  `classify-program` classifies the members a `Program` holds; the
+  ;; comparison covers every one of those that `classify-local` also classifies.
   ;;
   ;; The fixtures are dilemmas whose members derive from none of the other members.
   ;; `dilemma-program` encodes each member as an independent choice with no derivation

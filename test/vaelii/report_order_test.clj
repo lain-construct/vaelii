@@ -207,7 +207,7 @@
                     [[f1 f2] [f2 f1]]
                     (fn [kb facts]
                       (v/assert kb (list 'functional motherOf) CxFam)
-                      (doseq [f facts] (v/assert kb f CxFam))
+                      (doseq [f facts] (v/assert kb f CxFam {:strength :monotonic}))
                       (v/handle-of kb (list 'equals lo hi) CxFam))
                     (fn [kb eq]
                       [(some? eq) (listing kb (v/supporting-justifications kb eq))]))]
@@ -274,9 +274,31 @@
   ;; `[sentence context]` is total, so a handle tie-break in the key is unreachable and
   ;; invisible to every reading; only the source shows it (`sort_by_content_key_test`'s
   ;; reason for a scan).
-  (let [line (->> (str/split-lines (slurp "src/vaelii/impl/settle.clj"))
+  (let [line (->> (str/split-lines (slurp "src/vaelii/impl/clashes.clj"))
                   (filter #(str/includes? % "(sort-by (juxt :sentence :context"))
                   first)]
     (is (some? line) "clash-report still orders its sides by a juxt of content keys")
     (is (not (str/includes? line ":handle"))
         (str "a handle is in the side-ordering key, which is arrival order: " line))))
+
+;; ---- a clash a reader decides --------------------------------------------
+
+(deftest the-hard-clashes-a-reader-decides-read-the-same-in-either-order
+  ;; Two `:monotonic` self tuples under one `irreflexive` mark are two hard clashes
+  ;; `conflicts` builds at the read (`clashes/read-clashes`), and the list is in content
+  ;; order whichever tuple was written first.
+  (tu/with-terms [before Ann Bob CxRd]
+    (let [t1       (list before Ann Ann)
+          t2       (list before Bob Bob)
+          readings (both-orders
+                    [[t1 t2] [t2 t1]]
+                    (fn [kb facts]
+                      (v/assert kb (list 'irreflexive before) CxRd)
+                      (doseq [f facts] (v/assert kb f CxRd {:strength :monotonic})))
+                    (fn [kb _]
+                      (mapv (fn [r] [(:kind r) (:sentence r) (mapv :sentence (:sides r))])
+                            (v/conflicts kb))))]
+      (is (= [[:irreflexive (list 'contradicts t1) [t1]]
+              [:irreflexive (list 'contradicts t2) [t2]]]
+             (first readings)))
+      (is (apply = readings)))))

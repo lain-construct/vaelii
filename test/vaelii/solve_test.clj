@@ -22,7 +22,7 @@
 
   Almost everything here is **pure** — hand-built `Program` values, no store, no
   fixture — in the style of `strength_test` and `jtms_blocked_test`.  A settle hands no
-  nogood to a solver (`settle/decide-nogood` answers a defeat, a dilemma or a hard
+  nogood to a solver (`decide/verdict` answers a defeat, a dilemma or a hard
   clash), and labeling reaches the installed solver only when no ASP backend is
   reachable (`label/labeling-solver`), so these tests drive the stub as a unit.  The
   contract lives at that level: `set-solver` takes any implementation, and this is the
@@ -218,8 +218,7 @@
 
 (deftest only-a-contested-member-is-ever-defeated
   ;; The fixed side is known-true.  Dropping the `(filter assumptions ...)` would let
-  ;; the stub defeat it — `settle/accepted-defeat` clamps the *output* of a third-party
-  ;; solver for exactly this reason, but the shipped one must not need clamping.
+  ;; the stub defeat it, and the shipped solver must never defeat a known-true member.
   ;; Note the fixed member here carries the greater content-key, so a stub that
   ;; ignored `:assumptions` would pick it.
   (let [c (content 1 '(a) 9 '(z))

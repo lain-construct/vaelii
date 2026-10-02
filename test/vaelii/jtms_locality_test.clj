@@ -4,13 +4,12 @@
   "Locality for the operations `jtms_blocked_test` does not cover, and `sweep!`'s
   semantics.
 
-  docs/nmtms.md publishes a measured, flat-in-graph-size claim for
-  `add-justification`, `defeat` and `clear-defeats!` — \"defeat went from 16.9ms to
-  8µs at 4000 nodes, and is now flat in graph size\".  The instrument that makes that
-  checkable already exists (`regions-touched`, in `jtms_blocked_test`), but it is
-  applied to `set-blocked` alone.  So a regression in any of the other three — a
-  region widened back to `(set (keys (:nodes state)))`, say — costs a 2000× slowdown
-  that no assertion catches and only a benchmark nobody runs would notice.
+  docs/nmtms.md publishes a measured, flat-in-graph-size claim for the relabelling
+  operations.  The instrument that makes that checkable already exists
+  (`regions-touched`, in `jtms_blocked_test`), which applies it to `set-blocked`.  So a
+  regression in any of the others — a region widened back to `(set (keys (:nodes
+  state)))`, say — costs a 2000× slowdown that no assertion catches and only a benchmark
+  nobody runs would notice.
 
   Measuring the *region* rather than a wall clock is what makes this a test rather
   than a flake: the claim is about how much work is scoped, not how fast the machine
@@ -83,38 +82,7 @@
 
 (def ^:private sizes [50 500 2000])
 
-;; ---- locality of the three operations docs/nmtms.md measures ------------
-
-(deftest defeat-touches-only-the-affected-region
-  (testing "defeating one datum relabels its forward closure, at any graph size"
-    (doseq [n sizes]
-      (let [tms (fan-of n)]
-        (is (= [1] (regions-touched #(jtms/defeat tms [1])))
-            (str "region grew with the graph at n=" n)))))
-  (testing "the region is the forward closure, so a chain is reached but nothing else"
-    (let [tms (fan-of 500)]
-      (justify tms 9001 [1] 100001)
-      (justify tms 9002 [100001] 100002)
-      (is (= [3] (regions-touched #(jtms/defeat tms [1])))
-          "the defeated datum plus its two descendants — not the other 499 pairs"))))
-
-(deftest clearing-defeats-touches-only-what-was-defeated
-  (testing "revival is scoped to the previously-defeated nodes and their closure"
-    (doseq [n sizes]
-      (let [tms (fan-of n)]
-        (jtms/defeat tms [1])
-        (is (= [1] (regions-touched #(jtms/clear-defeats! tms)))
-            (str "region grew with the graph at n=" n)))))
-  (testing "a settle that defeated nothing relabels no node"
-    ;; `settle` calls `clear-defeats!` unconditionally on every assert, and most
-    ;; settles defeat nothing — so this is the hottest path through the module.  The
-    ;; region comes out empty and `relabel-region*` is entered once on it, which is
-    ;; O(1) the whole way down: no candidate justifications, an empty fixpoint loop,
-    ;; and `set/difference` against an empty set reduces over nothing and returns its
-    ;; argument.  What must never come back is a *non-empty* region here.
-    (let [tms (fan-of 500)]
-      (is (every? zero? (regions-touched #(jtms/clear-defeats! tms)))
-          "with an empty defeated set there is nothing to revive"))))
+;; ---- locality of the operations docs/nmtms.md measures -------------------
 
 (deftest adding-a-justification-touches-only-its-consequence
   (testing "a new justification relabels its conclusion, not the graph"
@@ -131,10 +99,9 @@
   ;; second derivation must not walk its forward closure again.
   ;;
   ;; **Still in the window** is what a reader of `touched` needs, and belief cannot say
-  ;; it: `settle/record-clashes!` republishes a standing clash's supporting
-  ;; justifications every settle and carries the report forward for a pair the window
-  ;; does not hold, so a silent arrival is a `contradictions` entry naming fewer reasons
-  ;; than the KB holds.  `touched-in` takes it too — the datum was believed before, and a
+  ;; it: the withdrawal cache keeps an entry whose watch the window does not meet
+  ;; (`res/reconcile-withdrawn!`), so a silent arrival is a cached answer that reads fewer
+  ;; reasons than the KB holds.  `touched-in` takes it too — the datum was believed before, and a
   ;; window that said otherwise would read as "newly believed" to `preview` and the feed.
   (doseq [n sizes]
     (let [tms (fan-of n)]
@@ -172,11 +139,11 @@
   (let [n 300, tms (chain-of n)]
     (testing "belief reaches the end of a deep chain"
       (is (every? #(jtms/in? tms %) (range (inc n)))))
-    (testing "defeating the root withdraws the entire chain"
-      (jtms/defeat tms [0])
+    (testing "suspending the root withdraws the entire chain"
+      (jtms/suspend-premise tms 0)
       (is (not-any? #(jtms/in? tms %) (range (inc n)))))
-    (testing "clearing the defeat revives all of it"
-      (jtms/clear-defeats! tms)
+    (testing "restoring it brings all of it back"
+      (jtms/add-premise tms 0 :default)
       (is (every? #(jtms/in? tms %) (range (inc n)))))))
 
 (deftest region-classes-relabels-a-deep-chain-in-linear-work
@@ -264,7 +231,7 @@
     (premise tms 1)
     (justify tms 101 [1] 2)
     (let [{:keys [removed-sentexes removed-justifications]} (jtms/sweep! tms [2])]
-      (is (empty? removed-sentexes) "2 is groundable, so it stays")
+      (is (empty? removed-sentexes) "2 is still derived, so it stays")
       (is (empty? removed-justifications)))))
 
 ;; ---- ensure* keeps the SHALLOWEST depth --------------------------------
@@ -327,23 +294,21 @@
 (deftest every-representation-scopes-its-window-to-the-region
   (doseq [[label make] networks]
     (testing label
-      (testing "defeating one datum publishes a window that does not grow with the graph"
-        (let [ws (flat-across-sizes make #(jtms/defeat % [1]))]
+      (testing "blocking one derivation publishes a window that does not grow with the graph"
+        (let [ws (flat-across-sizes make #(jtms/set-blocked % #{1000}))]
           (is (apply = ws) (str label ": window sizes " (pr-str ws) " across " (pr-str sizes)))
           (is (<= (first ws) 2) (str label ": the window is the datum and its closure"))))
-      (testing "reviving publishes a window scoped to what was defeated"
+      (testing "unblocking publishes a window scoped to what was blocked"
         (let [ws (mapv (fn [n]
                          (let [tms (fan-on make n)]
-                           (jtms/defeat tms [1])
-                           (count (window-of tms #(jtms/clear-defeats! tms)))))
+                           (jtms/set-blocked tms #{1000})
+                           (count (window-of tms #(jtms/set-blocked tms #{})))))
                        sizes)]
           (is (apply = ws) (str label ": window sizes " (pr-str ws)))
-          (is (<= (first ws) 2) (str label ": revival reaches only the previously defeated"))))
-      (testing "a settle that defeated nothing publishes an empty window"
-        ;; the hottest path through the module — `settle` calls `clear-defeats!` on every
-        ;; assert, and most settles defeat nothing
+          (is (<= (first ws) 2) (str label ": the release reaches only what was blocked"))))
+      (testing "a settle that blocks nothing publishes an empty window"
         (let [tms (fan-on make 500)]
-          (is (empty? (window-of tms #(jtms/clear-defeats! tms))))))
+          (is (empty? (window-of tms #(jtms/set-blocked tms #{}))))))
       (testing "a new justification publishes a window around its conclusion"
         (let [ws (flat-across-sizes make #(justify % 77777 [0] 999999))]
           (is (apply = ws) (str label ": window sizes " (pr-str ws)))
@@ -352,9 +317,9 @@
         (let [tms (fan-on make 500)]
           (justify tms 9001 [1] 100001)
           (justify tms 9002 [100001] 100002)
-          (let [w (window-of tms #(jtms/defeat tms [1]))]
+          (let [w (window-of tms #(jtms/set-blocked tms #{1000}))]
             (is (= #{1 100001 100002} (set w))
-                (str label ": the defeated datum and its two descendants, not the other 499 pairs"))))))))
+                (str label ": the blocked datum and its two descendants, not the other 499 pairs"))))))))
 
 (deftest every-representation-keeps-a-redundant-witness-in-the-window
   ;; The window's *superset* half, which the scoping tests above cannot see: a second
@@ -363,10 +328,9 @@
   ;; the flip set").  Both halves are needed and both are checked here.
   ;;
   ;; It is worth a protocol-level test because the failure is backend-specific and shows up
-  ;; far away: `settle/record-clashes!` republishes a standing clash's supporting
-  ;; justifications for the pairs the window holds and carries the report forward for
-  ;; the rest, so a silently-arriving witness is a `contradictions` entry naming fewer
-  ;; reasons than the KB holds — on one backend and not the other.
+  ;; far away: the withdrawal cache keeps an entry whose watch the window does not meet
+  ;; (`res/reconcile-withdrawn!`), so a silently-arriving witness is a cached answer that
+  ;; reads fewer reasons than the KB holds — on one backend and not the other.
   (doseq [[label make] networks]
     (testing label
       (let [tms (make)]
@@ -406,3 +370,28 @@
       (is (not (contains? (set (tree-seq coll? seq form)) 'vaelii.impl.protocols))
           (str ns-sym " names the store protocols; the network holds no store"
                " (see the `Tms` docstring, obligation 4)")))))
+
+(deftest a-mark-reads-what-the-window-recorded-after-it
+  ;; `touched-since` is what a reader that asks the window more than once in it reads.
+  ;; Relabelling again a datum the window already holds is the case a set difference over
+  ;; `touched` drops, and a redundant witness is the one that moves no label.
+  (doseq [[label make] networks]
+    (testing label
+      (let [tms (fan-on make 50)]
+        (jtms/reset-touched! tms)
+        (jtms/set-blocked tms #{1000})
+        (let [m (jtms/touch-mark tms)]
+          (is (empty? (jtms/touched-since tms m)) "a mark reads nothing recorded before it")
+          (jtms/set-blocked tms #{})
+          (justify tms 77777 [2] 3)
+          (is (= #{1 3} (jtms/touched-since tms m))
+              (str label ": the datums relabelled again and the redundant witness's conclusion"))
+          (let [m2 (jtms/touch-mark tms)]
+            (justify tms 77778 [4] 5)
+            (is (= #{5} (jtms/touched-since tms m2)) "each reader's mark reads from its own point")
+            (is (= #{1 3 5} (jtms/touched-since tms m)) "and a later mark leaves an earlier one whole"))
+          (is (= (jtms/touched tms) (jtms/touched-since tms nil)) "a nil mark reads the whole window")
+          (jtms/reset-touched! tms)
+          (justify tms 77779 [6] 7)
+          (is (= (jtms/touched tms) (jtms/touched-since tms m))
+              "a mark from before the reset reads the whole window, not a stale epoch"))))))

@@ -14,8 +14,8 @@
   `columnar_index_oracle_test` established for the index: drive **both**
   implementations through the same randomized operation stream and compare after
   *every* step.  The comparison is the whole network — `jtms/snapshot` — not a
-  sampled read, because a divergence in `:groundable` is invisible to `in?` until a
-  retraction three operations later collects the wrong node.
+  sampled read, because a divergence in a class or a block is invisible to `in?` until a
+  later operation reads it.
 
   Two things are compared as sets rather than sequences.  A retraction's
   `:removed-sentexes` / `:removed-justifications` are unordered by contract (the
@@ -53,7 +53,7 @@
 
   All of them, not the first: a whole-map mismatch on nine keys names none of them,
   but reporting only the first names the wrong one — the keys are compared in sorted
-  order, so `:classes` would mask a `:groundable` divergence it is merely a symptom of."
+  order, so `:blocked` would mask an `:in` divergence it is merely a symptom of."
   [ref-snap dns-snap]
   (let [a (normalize ref-snap)
         b (normalize dns-snap)
@@ -99,13 +99,12 @@
                     (jtms/add-justification t (jtms/->just jid (or inf 'rule) antes c {} s))
                     nil)
     :restrength   (let [[inf s] args] (jtms/restrength-informant t inf s) nil)
-    :defeat       (do (jtms/defeat t (first args)) nil)
-    :clear-defeat (do (jtms/clear-defeats! t) nil)
     :set-blocked  (do (jtms/set-blocked t (first args)) nil)
     ;; a delta on the blocked set, stated as the whole set `set-blocked` takes
     :block        (do (jtms/set-blocked t (into (jtms/blocked t) (first args))) nil)
     :unblock      (do (jtms/set-blocked t (reduce disj (jtms/blocked t) (first args))) nil)
     :supersede    (do (jtms/supersede t (first args)) nil)
+    :force        (let [[k xs on?] args] (jtms/set-forced t k xs on?) nil)
     :suspend      (do (jtms/suspend-premise t (first args)) nil)
     :retract      (jtms/retract! t (first args))
     :sweep        (jtms/sweep! t (first args))
@@ -116,7 +115,7 @@
 (defn- gen-ops
   "A random operation stream over a small datum space, weighted so the interesting
   states are actually reached: enough premises and justifications to build a layered
-  graph, then defeats, blocks, supersessions, retractions and sweeps over it.
+  graph, then blocks, suspensions, supersessions, retractions and sweeps over it.
 
   `datums` is kept small on purpose — a wide sparse graph never exercises the shared
   antecedent, the re-derivation fast path, or the multi-witness revival that the
@@ -142,7 +141,7 @@
         (let [reissue #(when (seq issued) (nth issued (.nextInt rng (count issued))))
               ;; a jid to block/unblock: a live one when there is one, else anything
               some-jid #(or (some-> (reissue) second) (long (+ 1000 (.nextInt rng 20))))
-              op (case (.nextInt rng 14)
+              op (case (.nextInt rng 15)
                    (0 1 2) [:premise (d) (str*)]
                    3       [:ensure (d) (.nextInt rng 4)]
                    (4 5 6 7)
@@ -155,8 +154,8 @@
                            ;; work — the engine's own firing shape
                            inf   (when (zero? (.nextInt rng 2)) (first antes))]
                        [:justify next-jid antes (d) (str*) inf]))
-                   8       [:defeat (vec (distinct (repeatedly (inc (.nextInt rng 2)) d)))]
-                   9       [:clear-defeat]
+                   8       [:suspend (d)]
+                   9       [:premise (d) (str*)]
                    10      [:set-blocked (vec (distinct (repeatedly (.nextInt rng 3) some-jid)))]
                    11      (if (zero? (.nextInt rng 2))
                              [:block [(some-jid)]]
@@ -169,7 +168,12 @@
                              2 [:reset-touch]
                              3 [:suspend (d)]
                              4 [:restrength (d) (str*)]
-                             5 [:drop (some-jid)]))
+                             5 [:drop (some-jid)])
+                   14      (let [k ([:mono :out :void] (.nextInt rng 3))]
+                             [:force k
+                              (vec (repeatedly (inc (.nextInt rng 2))
+                                               #(if (= :void k) (some-jid) (d))))
+                              (pos? (.nextInt rng 3))]))
               fresh? (and (= :justify (first op)) (= next-jid (second op)))]
           [(conj ops op)
            (if fresh? (conj issued op) issued)
@@ -226,8 +230,6 @@
                     (keep #(get-in snap [:justs % :consequence])
                           (filter #(= inf (get-in snap [:justs % :informant]))
                                   (get-in snap [:nodes inf :consequences] #{}))))
-    :defeat       (first args)
-    :clear-defeat (:defeated snap #{})
     :set-blocked  (blocked-seeds snap (first args))
     :block        (blocked-seeds snap (into (:blocked snap #{}) (first args)))
     :unblock      (blocked-seeds snap (reduce disj (:blocked snap #{}) (first args)))
@@ -235,6 +237,12 @@
     :retract      [(first args)]
     :sweep        (first args)
     :drop         (some-> (get-in snap [:justs (first args) :consequence]) vector)
+    :force        (let [[k xs on?] args
+                        cur   (get-in snap [:forced k] #{})
+                        moved (filter #(not= on? (contains? cur %)) (distinct xs))]
+                    (if (= :void k)
+                      (keep #(get-in snap [:justs % :consequence]) moved)
+                      (filter #(get-in snap [:nodes %]) moved)))
     :relabel      (keys (:nodes snap))
     (:supersede :reset-touch) nil))
 
@@ -299,7 +307,7 @@
   ;; Agreement between two networks that both did nothing is worth nothing.  Before
   ;; trusting the comparison, pin that the generated streams actually reach every
   ;; state the comparison is supposed to cover — a generator tweak that stopped
-  ;; producing sweeps (or defeats, or monotonic classes) would otherwise leave the
+  ;; producing sweeps (or blocks, or monotonic classes) would otherwise leave the
   ;; oracle green and empty.
   (let [tally (reduce
                (fn [acc seed]
@@ -314,11 +322,11 @@
                        (update :removed + removed)
                        (update :derived + (count (remove (comp :premise? val) (:nodes s))))
                        (update :justs + (count (:justs s)))
-                       (update :defeated + (count (:defeated s)))
                        (update :blocked + (count (:blocked s)))
                        (update :superseded + (count (:superseded s)))
-                       (update :monotonic + (count (:classes s))))))
-               (zipmap [:removed :derived :justs :defeated :blocked :superseded :monotonic]
+                       (update :monotonic + (count (:classes s)))
+                       (update :forced + (reduce + (map count (vals (:forced s))))))))
+               (zipmap [:removed :derived :justs :blocked :superseded :monotonic :forced]
                        (repeat 0))
                (range 200))]
     (doseq [[k n] tally]
@@ -437,7 +445,7 @@
                    (jtms/retract! t 1)
                    [(jtms/in? t 3) (jtms/in? t 2)]))))))
 
-(deftest blocking-suppresses-groundability-and-sweeps
+(deftest blocking-suppresses-a-derivation-and-sweeps
   (testing "a blocked justification is invalid, so its conclusion is collected"
     ;; the exceptWhen contract: blocking is garbage collection, not defeat
     (is (= [false false]
@@ -449,20 +457,6 @@
                    (jtms/set-blocked t #{10})
                    (jtms/sweep! t [2])
                    [(jtms/in? t 2) (jtms/known-datum? t 2)]))))))
-
-(deftest defeat-keeps-a-defeated-node-for-revival
-  (testing "a defeated node stays groundable and comes back when the defeat lifts"
-    (is (= [false true true]
-           (both (fn [t]
-                   (jtms/add-premise t 1 :default)
-                   (jtms/ensure-node t 2 1)
-                   (jtms/add-justification t (jtms/->just 10 'r [1] 2 {} :monotonic)))
-                 (fn [t]
-                   (jtms/defeat t [2])
-                   (let [out (jtms/in? t 2)
-                         kept (jtms/known-datum? t 2)]
-                     (jtms/clear-defeats! t)
-                     [out kept (jtms/in? t 2)])))))))
 
 (deftest supersession-subtracts-from-reported-belief-only
   (testing "a superseded datum leaves the fixpoint alone but stops being believed"
@@ -627,7 +621,7 @@
                    (jtms/add-premise t 3 :monotonic)
                    (jtms/ensure-node t 2 1)
                    (jtms/add-justification t (jtms/->just 10 3 [1] 2 {} :monotonic))
-                   (jtms/retract! t 1)                      ; 2 ungroundable => both swept
+                   (jtms/retract! t 1)                      ; 2 OUT => both swept
                    (jtms/add-premise t 5 :default)
                    (jtms/ensure-node t 6 1)
                    (jtms/add-justification t (jtms/->just 10 'fresh [5] 6 {} :default)))

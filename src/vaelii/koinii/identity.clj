@@ -467,12 +467,11 @@
   written in.  The trust a read reports, and the row an overwrite retracts, would then
   depend on the write order rather than on what the registry holds.
 
-  At most one row is what the registry vocabulary already guarantees: `trustLevel` and
-  `displayNameOf` are declared `functional` (`resources/kb/koinii/CxRegistry.txt`), so
-  `assert` refuses a second value outright with a `:functional` violation rather than
-  storing it.  Every registry read and the trust overwrite rest on that refusal, so this
-  is where it is said out loud — and where a KB that ever held two rows is named rather
-  than silently halved."
+  `trustLevel` and `displayNameOf` are declared `functional`
+  (`resources/kb/koinii/CxRegistry.txt`), and the koinii writers retract a value before
+  writing its successor.  A second value written beside the first is stored, and the
+  settle decides the pair: a second value at the first's class is a dilemma and both
+  stand.  This read names that state rather than silently halving it."
   [kb pattern]
   (let [ms (v/sentexes-matching kb pattern registry-context)]
     (when (next ms)

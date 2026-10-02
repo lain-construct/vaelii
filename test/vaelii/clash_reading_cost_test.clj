@@ -16,19 +16,19 @@
   reading and throws each one away; asked once for the reading it builds one.  Pinned at
   **1** below, at two sizes, so the count is a property of the call and not of the KB.
 
-  ## Two: the disagreement reports are built once per settle, not once per read
+  ## Two: a read builds no disagreement report
 
   A report reads a sentence and the supporting justifications of every side and sorts
-  them on content, which is why `settle/record-clashes!` publishes the ordinary ones once
-  per settle.  The reports for a nogood whose vantages disagreed cannot be published that
-  way — a settle whose region does not reach the pair weighs it in no round — so
-  `disagreement-reports` builds them from the roster at read time and caches them beside
-  the per-reader withdrawals.  Pinned below at **one build per settle**: the first reading
-  after a settle builds the pair's report, and every later reading builds nothing."
+  them on content, which is why `clashes/read-clashes` keeps each report it built while its
+  inputs stand (`:read-reports`), the report for a nogood whose vantages took different
+  members OUT among them.  Pinned below at **no build per read**: a reading after an
+  unrelated settle finds the pair's report and builds nothing."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
+            [vaelii.impl.checks :as checks]
+            [vaelii.impl.clashes :as clashes]
             [vaelii.impl.resolution :as res]
-            [vaelii.impl.settle :as settle]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
 ;; ---- one: the hidden predicate per reading -------------------------------
@@ -80,18 +80,18 @@
 ;; ---- two: the disagreement reports per settle ----------------------------
 
 (defn- clash-report-builds
-  "`settle/clash-report` calls made while `f` runs."
+  "`clashes/clash-report` calls made while `f` runs."
   [f]
   (let [calls (atom 0)
-        orig  @#'settle/clash-report]
-    (with-redefs-fn {#'settle/clash-report (fn [& args] (swap! calls inc) (apply orig args))}
+        orig  @#'clashes/clash-report]
+    (with-redefs-fn {#'clashes/clash-report (fn [& args] (swap! calls inc) (apply orig args))}
       (fn [] (f)))
     @calls))
 
 (defn- types! [kb & ts]
   (doseq [t ts] (v/assert kb (list 'genl t 'thing) 'CxUniverse)))
 
-(deftest the-disagreement-reports-are-built-once-per-settle-and-not-once-per-read
+(deftest a-read-builds-no-disagreement-report
   ;;   CxUniverse
   ;;     +- CxCrcA      (crc_cat CrcRex) default, and monotonic through a rule
   ;;     +- CxCrcB      (crc_dog CrcRex) default, and monotonic through a rule
@@ -99,8 +99,8 @@
   ;;     +- CxCrcH2     (except (sentexHandle (crc_dog_src CrcRex)))
   ;;   CxCrcW1 - sees CxCrcA CxCrcB CxCrcH1, so it defeats cat
   ;;   CxCrcW2 - sees CxCrcA CxCrcB CxCrcH2, so it defeats dog
-  ;;   CxCrcZ  - sees both vantages, reads two verdicts and takes neither
-  (tu/with-neutral-kb [kb #(tu/fresh {:constraints :arbitrate})]
+  ;;   CxCrcZ  - sees both vantages and both excepts, so it reads a tie
+  (tu/with-neutral-kb [kb #(tu/fresh)]
     (tu/with-terms [CxCrcA CxCrcB CxCrcH1 CxCrcH2 CxCrcW1 CxCrcW2 CxCrcZ
                     crc_cat crc_dog crc_cat_src crc_dog_src CrcRex]
       (types! kb crc_cat crc_dog)
@@ -127,16 +127,54 @@
           (v/assert kb (list 'disjoint crc_dog crc_cat) 'CxUniverse)))
       (testing "the disagreement is on the roster, or the counts below measure nothing"
         (is (= 1 (count (filter :vantages (v/contradictions kb))))))
-      (testing "the first reading after a settle builds the pair's report"
-        ;; the `disjoint` assert above settled, and the reading on the roster above is a
-        ;; 1-arity one, which builds them too — so an unrelated assert puts the cache
-        ;; back in the state a settle leaves it
+      (testing "a reading after an unrelated settle finds the report and builds nothing"
         (v/assert kb '(crc_unrelated CrcU) 'CxUniverse {})
-        (is (pos? (clash-report-builds #(v/contradictions kb CxCrcZ)))))
-      (testing "every later reading builds nothing"
         (is (zero? (clash-report-builds #(v/contradictions kb CxCrcZ))))
         (is (zero? (clash-report-builds #(v/contradictions kb))))
-        (is (zero? (clash-report-builds #(v/contradictions kb CxCrcW1)))))
-      (testing "a settle that moves belief discards the cache, so the next reading rebuilds"
-        (v/assert kb '(crc_unrelated2 CrcU2) 'CxUniverse {})
-        (is (pos? (clash-report-builds #(v/contradictions kb CxCrcZ))))))))
+        (is (zero? (clash-report-builds #(v/contradictions kb CxCrcW1))))
+        (is (= 1 (count (filter :vantages (v/contradictions kb)))))))))
+
+;; ---- three: the membership lookup builds no closure ----------------------
+
+(defn- lookup-closure-reads
+  "`[lookups closure-reads]` while `f` runs: `checks/membership-handles-led` calls, and the
+  `tax/genls` / `tax/genls-global` calls made inside one."
+  [f]
+  (let [lookups (atom 0)
+        reads   (atom 0)
+        inside  (atom false)
+        led     @#'checks/membership-handles-led
+        counted (fn [orig] (fn [& args] (when @inside (swap! reads inc)) (apply orig args)))]
+    (with-redefs-fn {#'checks/membership-handles-led
+                     (fn [& args]
+                       (swap! lookups inc)
+                       (reset! inside true)
+                       (try (apply led args) (finally (reset! inside false))))
+                     #'tax/genls        (counted tax/genls)
+                     #'tax/genls-global (counted tax/genls-global)}
+      (fn [] (f)))
+    [@lookups @reads]))
+
+(deftest a-clash-s-membership-lookup-reads-no-supertype-closure
+  ;; `checks/membership-handles` names the `(t x)` sentex a clash is with by testing every
+  ;; type `x` holds against `t`, including types no clash is about.  A closure read there
+  ;; builds the supertype closure of each, which on a large taxonomy is most of a settle;
+  ;; `crc_deep` sits under a chain so its closure is one a read would build.
+  (tu/with-neutral-kb [kb #(tu/fresh)]
+    (tu/with-terms [crc_a crc_b crc_deep crc_mid crc_top CrcX]
+      (types! kb crc_a crc_b crc_top)
+      (v/assert kb (list 'genl crc_mid crc_top) 'CxUniverse)
+      (v/assert kb (list 'genl crc_deep crc_mid) 'CxUniverse)
+      (v/assert kb (list 'disjoint crc_a crc_b) 'CxUniverse {:strength :monotonic})
+      (v/assert kb (list crc_deep CrcX) 'CxUniverse {})
+      (v/assert kb (list crc_a CrcX) 'CxUniverse {})
+      (doseq [lead [:auto :agnostic]]
+        (testing (str "leading " lead)
+          (binding [res/*lead-side* lead]
+            (let [h                (atom nil)
+                  [lookups reads]  (lookup-closure-reads
+                                    #(reset! h (v/assert kb (list crc_b CrcX) 'CxUniverse {})))]
+              (is (pos? lookups) "the clash looked its members up, or the count measures nothing")
+              (is (zero? reads))
+              (is (= 1 (count (v/contradictions kb))))
+              (v/retract! kb @h))))))))

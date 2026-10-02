@@ -312,116 +312,36 @@
   (and (= 'not (first sentence))
        (let [[f a b] (second sentence)] (and (= 'equals f) (= a b)))))
 
-(tu/deftest-kb a-denied-instance-of-a-schematic-equation-is-stored-as-stated
-  ;; An equality relation's arguments are mentions, so the schematic normal form leaves
-  ;; them as written (docs/equational.md, "Matching and normalization").  A monotonic
-  ;; denial of one ground instance of a default equation keeps its own spelling in either
-  ;; arrival order: it is believed, a read of it as spelled returns it, and no twin denies
-  ;; reflexivity.  The equation still rewrites the other facts in the context.
-  (doseq [[label denial-first?] [["the equation first" false] ["the denial first" true]]]
-    (testing label
+(tu/deftest-kb a-denied-instance-of-a-schematic-equation-is-inert
+  ;; `equals` is on the forced-monotonic roster, so a denial of one ground instance is
+  ;; stored as stated and never believed (docs/nmtms.md, "The forced-monotonic roster"):
+  ;; the equation rewrites the denied instance as it rewrites every other, in either
+  ;; arrival order and at either strength, and no twin denies reflexivity.
+  (doseq [strength [:monotonic :default]
+          denial-first? [false true]]
+    (testing (str strength " denial, denial first: " denial-first?)
       (tu/with-terms [fatherOf grandfather_of other_chain Ann Tom CxA]
         (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse {:strength :monotonic})
-        (let [equation (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfather_of '?x))
-              denial   (list 'not (list 'equals (list fatherOf (list fatherOf Tom))
-                                        (list grandfather_of Tom)))
-              deny!    #(v/assert kb denial CxA {:strength :monotonic})
+        (let [ff       (fn [n] (list fatherOf (list fatherOf n)))
+              g        (fn [n] (list grandfather_of n))
+              equation (list 'equals (ff '?x) (g '?x))
+              denial   (list 'not (list 'equals (ff Tom) (g Tom)))
+              deny!    #(v/assert kb denial CxA {:strength strength})
               h        (if denial-first?
                          (let [h (deny!)] (v/assert kb equation CxA) h)
                          (do (v/assert kb equation CxA) (deny!)))]
-          (v/assert kb (list other_chain (list fatherOf (list fatherOf Ann))) CxA
-                    {:strength :monotonic})
-          (is (true? (v/in? kb h)) "the denial as stated is believed")
+          (v/assert kb (list other_chain (ff Tom)) CxA {:strength :monotonic})
+          (v/assert kb (list other_chain (ff Ann)) CxA {:strength :monotonic})
+          (is (some? (v/sentex kb h)) "the denial is stored as stated")
+          (is (false? (v/in? kb h)) "and not believed")
           (is (not-any? #(reflexive-denial? (:sentence %)) (v/sentexes-in-context kb CxA))
               "no stored sentex denies reflexivity")
-          (is (= [h] (map :id (v/sentexes-matching kb denial CxA)))
-              "a read of the denial as spelled returns the stated sentex")
-          (is (true? (v/ask? kb denial CxA)))
-          (is (true? (v/ask? kb (list other_chain (list grandfather_of Ann)) CxA))
-              "the equation still rewrites the other facts"))))))
-
-;; The equation, the facts and the denial in every arrival order, under both denial
-;; strengths.  `carved` reads what the ruling states: the denied instance answers false,
-;; Tom's term stays its own, Ann's instance still rewrites, and a fact naming both takes
-;; the normal form that rewrites Ann alone.
-(def ^:private carve-orders
-  (for [strength [:monotonic :default]
-        order    [[:equation :facts :denial] [:equation :denial :facts] [:facts :equation :denial]
-                  [:facts :denial :equation] [:denial :equation :facts] [:denial :facts :equation]]]
-    [strength order]))
-
-(tu/deftest-kb a-denied-instance-is-carved-out-of-its-schematic-equation
-  (doseq [[strength order] carve-orders]
-    (testing (str strength " denial, " order)
-      (tu/with-terms [fatherOf grandfather_of other_chain pairChain Ann Tom CxA]
-        (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse {:strength :monotonic})
-        (let [ff     (fn [n] (list fatherOf (list fatherOf n)))
-              g      (fn [n] (list grandfather_of n))
-              denial (list 'not (list 'equals (ff Tom) (g Tom)))
-              steps  {:equation #(v/assert kb (list 'equals (ff '?x) (g '?x)) CxA)
-                      :facts    #(vector (v/assert kb (list other_chain (ff Ann)) CxA
-                                                   {:strength :monotonic})
-                                         (v/assert kb (list other_chain (ff Tom)) CxA
-                                                   {:strength :monotonic})
-                                         (v/assert kb (list pairChain (ff Tom) (ff Ann)) CxA
-                                                   {:strength :monotonic}))
-                      :denial   #(v/assert kb denial CxA {:strength strength})}
-              hs     (into {} (map (fn [k] [k ((steps k))])) order)
-              tom    (second (:facts hs))
-              stored (fn [s] (some #(= s (:sentence %)) (v/sentexes-in-context kb CxA)))
-              reads  (fn []
-                       {:instance   (v/ask? kb (list 'equals (ff Tom) (g Tom)) CxA)
-                        :ann        (v/ask? kb (list 'equals (ff Ann) (g Ann)) CxA)
-                        :ann-fact   (v/ask? kb (list other_chain (g Ann)) CxA)
-                        :tom-nf     (v/ask? kb (list other_chain (g Tom)) CxA)
-                        :pair-carve (v/ask? kb (list pairChain (ff Tom) (g Ann)) CxA)
-                        :pair-nf    (v/ask? kb (list pairChain (g Tom) (g Ann)) CxA)})]
-          (is (= {:instance false :ann true :ann-fact true :tom-nf false
-                  :pair-carve true :pair-nf false}
-                 (reads))
-              "the denied instance is false and every other instance still rewrites")
-          (is (= [tom] (map :id (v/sentexes-matching kb (list other_chain (ff Tom)) CxA)))
-              "Tom's fact is read as stated")
-          (is (true? (v/in? kb tom)) "and believed, not superseded")
-          (is (not (stored (list other_chain (g Tom))))
-              "no twin spells Tom's fact in the normal form")
-          (is (not (stored (list pairChain (g Tom) (g Ann))))
-              "nor the fact naming both")
-          (is (true? (v/ask? kb denial CxA)))
-          (v/retract! kb (:denial hs))
-          (is (= {:instance true :ann true :ann-fact true :tom-nf true
-                  :pair-carve true :pair-nf true}
-                 (reads))
-              "retracting the denial resumes the rewrite for Tom")
-          (is (false? (v/in? kb tom)) "Tom's fact is superseded by its twin again")
-          (is (not (stored (list pairChain (ff Tom) (g Ann))))
-              "the twin that rewrote Ann alone is gone"))))))
-
-(tu/deftest-kb an-except-of-a-denied-instance-resumes-the-rewrite-where-it-reads
-  ;; An `except` of the denial hides it from the contexts that read the except, so the
-  ;; block lifts there and the equation rewrites Tom's fact again; retracting the except
-  ;; carves the instance out once more.  A denial stated in a context the fact's context
-  ;; comes to see through a new `genlCx` edge blocks from the edge's arrival on.
-  (tu/with-terms [fatherOf grandfather_of other_chain Tom CxA CxD]
-    (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list 'genlCx CxD 'CxUniverse) 'CxUniverse {:strength :monotonic})
-    (let [ff    (list fatherOf (list fatherOf Tom))
-          g     (list grandfather_of Tom)
-          _     (v/assert kb (list 'equals (list fatherOf (list fatherOf '?x)) (list grandfather_of '?x))
-                          CxA)
-          tom   (v/assert kb (list other_chain ff) CxA {:strength :monotonic})
-          dh    (v/assert kb (list 'not (list 'equals ff g)) CxD {:strength :monotonic})
-          reads (fn [] [(v/ask? kb (list 'equals ff g) CxA) (v/ask? kb (list other_chain g) CxA)
-                        (v/in? kb tom)])]
-      (is (= [true true false] (reads)) "CxA does not see the denial yet")
-      (let [edge (v/assert kb (list 'genlCx CxA CxD) 'CxUniverse {:strength :monotonic})]
-        (is (= [false false true] (reads)) "the edge makes the denial visible from CxA")
-        (let [x (v/assert kb (list 'except (list 'sentexHandle dh)) CxA {:strength :monotonic})]
-          (is (= [true true false] (reads)) "the except hides the denial from CxA")
-          (v/retract! kb x)
-          (is (= [false false true] (reads)) "retracting the except carves the instance again"))
-        (v/retract! kb edge)
-        (is (= [true true false] (reads)) "without the edge CxA rewrites Tom's fact")))))
+          (is (= [true true true true]
+                 [(v/ask? kb (list 'equals (ff Tom) (g Tom)) CxA)
+                  (v/ask? kb (list 'equals (ff Ann) (g Ann)) CxA)
+                  (v/ask? kb (list other_chain (g Tom)) CxA)
+                  (v/ask? kb (list other_chain (g Ann)) CxA)])
+              "the equation rewrites the denied instance and every other"))))))
 
 (tu/deftest-kb an-excepted-schematic-equation-leaves-its-context-the-original-spelling
   ;; An `except` of a schematic equation takes it out of rewriting at the contexts that

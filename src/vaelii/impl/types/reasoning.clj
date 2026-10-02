@@ -29,20 +29,6 @@
 ;; with the KB it rebuilds (`kb/rebuild-shared`).  Everything here is empty on a new KB
 ;; and rebuilt by `recover`, or is a cache a missing read refills.
 ;;
-;; `clash-readings` holds the last settle's three coupled readings in one atom —
-;; `:conflicts` (the unsatisfiable contradictions surfaced by `core/conflicts`),
-;; `:contradictions`, and `:reports` — so a reader beside the writer takes them as one
-;; publication rather than three (`settle/record-clashes!`).  `:contradictions` holds the
-;; coexisting P/¬P pairs the last settle left standing.  Those are *represented dilemmas*,
-;; not conflicts: neither rule named the other's case, so there is nothing to arbitrate and
-;; both sides stay believed at :default (docs/exceptions.md, "What surfaces where").
-;; `:conflicts` holds only the irreducible clashes among known-true content.  `:reports`
-;; memoizes the `contradicts` reports the other two hand back — `{#{h1 h2} -> report}` for
-;; the pairs the last settle reported, and nothing else, so it is bounded by what is
-;; standing rather than by what ever stood.  Why an entry the settle's region does not hold
-;; can be carried forward, and what removing it costs: docs/nmtms.md, "The reports are
-;; rebuilt only where the region moved".
-;;
 ;; `program` holds the last edge Program handed to the solver (the ASP backend in
 ;; vaelii.impl.asp.edge).  It is kept because belief is *self-erasing evidence*: once
 ;; settle defeats one side of a tie, that side stops matching, so the very nogood that
@@ -81,16 +67,6 @@
 ;; costs a hash lookup where a field costs none.  Every other field here is declared for
 ;; the same reason.
 ;;
-;; `negations` is the memo beside `:opposed`, and the two answer different halves of one
-;; question: `:opposed` says *which bodies could contradict*, kept O(1) per mutation at the
-;; store and removal choke points; `:negations` says *what each of those bodies currently
-;; contradicts about*, as `{body #{nogood}}`.  `:dirty` is the bodies a store or a removal
-;; touched since the last settle drained it (`note-opposed!` posts them, the same choke
-;; points that maintain `:opposed`); `:vocab` is the genlCx generation the joint-visibility
-;; test reads through, so a context edge retires the whole memo.  Which three things move a
-;; pairing, and the measured cost of dropping either narrowing: docs/nmtms.md, "Soft,
-;; prioritized contradictions".
-;;
 ;; `rule-antecedents` and `rule-contexts` are the rule rosters `special` bumps on every
 ;; rule index/unindex and reads per settle for the visibility seeds.  `solve-rules` is the
 ;; third, `{context -> #{handle}}` of the rules a solve reads (`rules/solve-sentex?`),
@@ -108,19 +84,10 @@
 ;; point that does not exist.  `res/excepted-handles` reads it per placement and per
 ;; candidate justification (docs/exceptions.md, "Visibility removal").
 ;;
-;; `scoped-defeats` is `{vantage -> #{handle}}`: the nogood losers the settle disbelieved
-;; at a vantage strictly below their own context, which a reader at or below that vantage
-;; reads as withdrawn (docs/nmtms.md, "A defeat is scoped to its vantage").  It is derived
-;; state, cleared and re-decided by every settle exactly as the network's defeated set is.
-;; `withdrawn` is the per-reader answer built from it and from `excepted`, `{reader ->
-;; #{handle}}`, emptied whenever either input or the network moves.  Each emptying moves
-;; its generation, so a reader thread cannot install an answer computed before it.
-;;
-;; `vantage-disagreements` is `[{vantage -> handle} …]`, one entry per nogood whose live
-;; vantages defeated **different** members.  A reader that sees two of an entry's vantages
-;; sees two verdicts and takes neither: it reads every member of that nogood as believed,
-;; and the nogood is reported by `contradictions` (docs/nmtms.md, "Vantages that
-;; disagree").  Empty on nearly every KB, and every read of it is gated on that.
+;; `withdrawn` is the per-reader answer built from `nogood-candidates` and `excepted`,
+;; `{reader -> #{handle}}`, emptied whenever either input or the network moves.  Each
+;; emptying moves its generation, so a reader thread cannot install an answer computed
+;; before it.
 ;;
 ;; `minted` is the mint roster, `{:by-term {x #{handle}} :by-context {context #{handle}}}`:
 ;; every stored `(t x)` or `(genl x t)` an `arg`, `genlArg` or `interArg` justification has
@@ -131,15 +98,28 @@
 ;; is the queue of removed records that can have subsumed a mint
 ;; (`special/note-departure!`), which every settle drains.
 ;;
+;; `nogood-candidates` is the candidate index of the nogood families a reader decides,
+;; `{:self #{handle} :converse #{handle} :negation #{handle} … :inherited …}`: every stored
+;; ground binary self tuple, every stored ground binary tuple with a stored converse, the
+;; arity candidates, and the negation pairs of every body stored in both polarities, kept
+;; at the store and removal choke points and rebuilt by `recover` like `:opposed`; and the
+;; inherited clashes with their vantages, `{:by-set {members ngmap} :by-vantage {vantage
+;; #{members}}}`, which each settle re-finds.  No verdict is stored: a reader at or below a
+;; vantage decides from its own view (`vaelii.impl.decide`, docs/nmtms.md, "Nogoods decided
+;; at the reader").
+;; `own-readings` is what the last settle read at each context holding a handle of those
+;; candidates' consequence closure, so the next settle publishes the own-context belief a
+;; decided loser moved (`readings/reader-moves`).  `read-reports` is the report memo of the last reading of
+;; those families' clashes (`clashes/read-clashes`).
+;;
 ;; `kb/empty-reasoning` states what the remaining fields hold, beside the expression that
 ;; makes each one.
-(defrecord Reasoning [tms taxonomy clash-readings program violations recheck refused
+(defrecord Reasoning [tms taxonomy program violations recheck refused
                       settle-stats chain-stats opposed preserving preserved-clashes excepted
                       meta-except-count rule-antecedents rule-contexts solve-rules
-                      negations clashes
-                      sib-exc-dirty supersessions qcn qcn-joined matches closures
-                      scoped-defeats vantage-disagreements withdrawn respell except-moves
-                      arbitration-cursors minted])
+                      supersessions qcn qcn-joined matches closures
+                      withdrawn respell except-moves
+                      minted nogood-candidates own-readings read-reports])
 
 (defn of
   "The `Reasoning` value `kb` holds now."
@@ -158,12 +138,6 @@
   {:inline (fn [kb] `(:taxonomy (deref (:reasoning ~kb))))}
   [kb]
   (:taxonomy @(:reasoning kb)))
-
-(defn clash-readings
-  "`kb`'s `:clash-readings` atom."
-  {:inline (fn [kb] `(:clash-readings (deref (:reasoning ~kb))))}
-  [kb]
-  (:clash-readings @(:reasoning kb)))
 
 (defn program
   "`kb`'s `:program` atom."
@@ -207,6 +181,24 @@
   [kb]
   (:opposed @(:reasoning kb)))
 
+(defn nogood-candidates
+  "`kb`'s `:nogood-candidates` atom."
+  {:inline (fn [kb] `(:nogood-candidates (deref (:reasoning ~kb))))}
+  [kb]
+  (:nogood-candidates @(:reasoning kb)))
+
+(defn read-reports
+  "`kb`'s `:read-reports` atom."
+  {:inline (fn [kb] `(:read-reports (deref (:reasoning ~kb))))}
+  [kb]
+  (:read-reports @(:reasoning kb)))
+
+(defn own-readings
+  "`kb`'s `:own-readings` atom."
+  {:inline (fn [kb] `(:own-readings (deref (:reasoning ~kb))))}
+  [kb]
+  (:own-readings @(:reasoning kb)))
+
 (defn preserving
   "`kb`'s `:preserving` atom."
   {:inline (fn [kb] `(:preserving (deref (:reasoning ~kb))))}
@@ -224,18 +216,6 @@
   {:inline (fn [kb] `(:excepted (deref (:reasoning ~kb))))}
   [kb]
   (:excepted @(:reasoning kb)))
-
-(defn scoped-defeats
-  "`kb`'s `:scoped-defeats` atom."
-  {:inline (fn [kb] `(:scoped-defeats (deref (:reasoning ~kb))))}
-  [kb]
-  (:scoped-defeats @(:reasoning kb)))
-
-(defn vantage-disagreements
-  "`kb`'s `:vantage-disagreements` atom."
-  {:inline (fn [kb] `(:vantage-disagreements (deref (:reasoning ~kb))))}
-  [kb]
-  (:vantage-disagreements @(:reasoning kb)))
 
 (defn withdrawn
   "`kb`'s `:withdrawn` atom."
@@ -266,30 +246,6 @@
   {:inline (fn [kb] `(:solve-rules (deref (:reasoning ~kb))))}
   [kb]
   (:solve-rules @(:reasoning kb)))
-
-(defn negations
-  "`kb`'s `:negations` atom."
-  {:inline (fn [kb] `(:negations (deref (:reasoning ~kb))))}
-  [kb]
-  (:negations @(:reasoning kb)))
-
-(defn clashes
-  "`kb`'s `:clashes` atom."
-  {:inline (fn [kb] `(:clashes (deref (:reasoning ~kb))))}
-  [kb]
-  (:clashes @(:reasoning kb)))
-
-(defn sib-exc-dirty
-  "`kb`'s `:sib-exc-dirty` atom."
-  {:inline (fn [kb] `(:sib-exc-dirty (deref (:reasoning ~kb))))}
-  [kb]
-  (:sib-exc-dirty @(:reasoning kb)))
-
-(defn arbitration-cursors
-  "`kb`'s `:arbitration-cursors` atom."
-  {:inline (fn [kb] `(:arbitration-cursors (deref (:reasoning ~kb))))}
-  [kb]
-  (:arbitration-cursors @(:reasoning kb)))
 
 (defn minted
   "`kb`'s `:minted` atom."

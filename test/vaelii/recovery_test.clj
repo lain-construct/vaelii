@@ -15,7 +15,6 @@
             [vaelii.impl.checks :as checks]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.settle :as settle]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]
@@ -267,45 +266,32 @@
       (is (= before (v/disjoint? kb2 a b))
           "the answer must not change across a restart"))))
 
-(tu/deftest-kb recover-agrees-about-a-defeated-declaration
-  ;; The four flat caches follow belief now, like genl: a defeated `(disjoint A B)`
-  ;; stops constraining (docs/taxonomy.md).  Recovery must reproduce that, not merely
-  ;; be self-consistent.  `rebuild-taxonomy` replays the *stored* disjoint (the
-  ;; defeated one included) so `:cache-support` records every asserting sentex, and the
-  ;; reconcile `recover` runs over the replay then drops it by belief — the same answer
-  ;; either side of a restart.  A belief-filtered rebuild would lose the disbelieved
-  ;; supporter and clearing its defeat could never revive the entry.
+(tu/deftest-kb recover-agrees-about-a-denied-declaration
+  ;; `disjoint` is on the engine's baseline roster, so on this bare KB a `:default`
+  ;; declaration is held `:monotonic` and a denial of it OUT, and a restart must give the
+  ;; same answer: the denial's premise is replayed, and `force-roster!` holds it OUT again.
   (let [dog (tu/tmp-type) cat (tu/tmp-type)]
     (v/assert kb (list 'disjoint dog cat) 'CxUniverse {:strength :default})
-    (v/assert kb (list 'not (list 'disjoint dog cat)) 'CxUniverse {:strength :monotonic})
-    (let [before (v/disjoint? kb dog cat)
-          kb2    (restart)]
-      (is (not before) "a defeated disjoint does not constrain in memory")
+    (let [d   (v/assert kb (list 'not (list 'disjoint dog cat)) 'CxUniverse {:strength :monotonic})
+          kb2 (restart)]
+      (is (= [true false] [(v/disjoint? kb dog cat) (v/in? kb d)]) "in memory")
       (v/recover kb2)
-      (is (not (v/disjoint? kb2 dog cat)) "nor after a restart")
-      (is (= before (v/disjoint? kb2 dog cat))
-          "the answer must not change across a restart"))))
+      (is (= [true false] [(v/disjoint? kb2 dog cat) (v/in? kb2 d)]) "after a restart"))))
 
-(tu/deftest-kb recover-skips-the-retroactive-sweep-and-decides-the-same-clash
-  ;; `recover`'s first settle holds every stored sentex, so the retroactive sweeps can add
-  ;; no candidate to it (`settle/*whole-store-region?*`).  Two claims: recover reaches no
-  ;; declaration through `declaration-parts`, and the clash a late declaration makes
-  ;; is decided the same way live and after a restart.
+(tu/deftest-kb recover-decides-a-late-declaration-s-clash-as-the-live-kb-did
+  ;; The clash a declaration arriving after both memberships makes is decided the same
+  ;; way live and after a restart, whose candidate index `recover` rebuilds from storage
+  ;; (`decide/rebuild-candidates!`).
   (let [dog (tu/tmp-type) cat (tu/tmp-type) rex (tu/tmp-ind "Rex")]
     (v/assert kb (list dog rex) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list cat rex) 'CxUniverse {:strength :default})
     (v/assert kb (list 'disjoint dog cat) 'CxUniverse {:strength :monotonic})
     (let [cat-h  (v/handle-of kb (list cat rex) 'CxUniverse)
           before (v/in? kb cat-h)
-          kb2    (restart)
-          calls  (atom 0)
-          real   @#'settle/declaration-parts]
+          kb2    (restart)]
       (is (not before) "the late declaration defeats the default member live")
-      (with-redefs-fn {#'settle/declaration-parts
-                       (fn [& args] (swap! calls inc) (apply real args))}
-        #(v/recover kb2))
-      (is (zero? @calls) "recover's first settle runs no retroactive sweep")
-      (is (= before (v/in? kb2 cat-h)) "and decides the pair as the live KB did"))))
+      (v/recover kb2)
+      (is (= before (v/in? kb2 cat-h)) "and a restart decides the pair as the live KB did"))))
 
 (tu/deftest-kb recover-agrees-about-a-rule-concluded-equality
   ;; The live path reads the write and the rebuild reads the store, so a functor whose
@@ -322,6 +308,8 @@
             caresFor (tu/tmp-pred "caresFor")
             Tom      (tu/tmp-ind "Tom")
             [lo hi]  (sort [(tu/tmp-ind "Ann") (tu/tmp-ind "Ann")])]
+        ;; a firing concludes an equality only from roster antecedents
+        (v/assert kb (list 'forced_monotonic_predicate aliasOf) 'CxUniverse)
         (v/assert-rule kb [(list aliasOf '?x '?y)] (list rel '?x '?y) 'CxUniverse {:direction :forward})
         (v/assert kb (list caresFor hi Tom) 'CxUniverse)
         (v/assert kb (list aliasOf lo hi) 'CxUniverse)
@@ -340,6 +328,40 @@
             (is (= live-in?
                    (v/in? kb2 (v/handle-of kb2 (list caresFor hi Tom) 'CxUniverse)))
                 "a restart changed whether the retired spelling is believed")))))))
+
+(tu/deftest-kb a-void-firing-installs-its-conclusion-in-no-cache-live-or-recovered
+  ;; A rule whose antecedent is off the roster concludes a roster literal, so each firing
+  ;; is held void: the conclusion is stored and OUT.  `recover` replays the record into
+  ;; its cache and narrows the cache to belief; the live KB has to hold the same.  One
+  ;; row per cache a roster literal installs into.  A `genl` edge is on the roster only
+  ;; between camelCase predicates, which `tu/tmp-pred` does not spell.
+  (let [merged? (fn [kb a b] (contains? (set (v/equiv-class kb b)) a))
+        tx      #(reasoning/taxonomy %)
+        relation #(gensym "tmpLikes")]
+    (doseq [[label conseq [a b] in-effect?]
+            [['rewriteOf '(rewriteOf ?x ?y) [(tu/tmp-ind "Ann") (tu/tmp-ind "Bea")] merged?]
+             ['sameAs '(sameAs ?x ?y) [(tu/tmp-ind "Ann") (tu/tmp-ind "Bea")] merged?]
+             ['equals '(equals ?x ?y) [(tu/tmp-ind "Ann") (tu/tmp-ind "Bea")] merged?]
+             ['genl '(genl ?x ?y) [(relation) (relation)] #(tax/genl?-global (tx %1) %2 %3)]
+             ['genlCx '(genlCx ?x ?y) [(tu/tmp-ctx) (tu/tmp-ctx)] #(tax/genlCx?-global (tx %1) %2 %3)]
+             ['disjoint '(disjoint ?x ?y) [(tu/tmp-type "dog") (tu/tmp-type "cat")]
+              #(tax/disjoint? (tx %1) %2 %3)]
+             ['arity '(arity ?x ?y) [(tu/tmp-pred "likes") 2]
+              (fn [kb a _] (some? (tax/declared-arity (tx kb) a)))]
+             ['functional '(functional ?x) [(tu/tmp-pred "likes") (tu/tmp-ind "Ann")]
+              (fn [kb a _] (tax/has-prop? (tx kb) :functional a))]
+             ['irreflexive '(irreflexive ?x) [(tu/tmp-pred "likes") (tu/tmp-ind "Ann")]
+              (fn [kb a _] (tax/has-prop? (tx kb) :irreflexive a))]]]
+      (testing (str "a void firing concluding " label)
+        (let [aliasOf (tu/tmp-pred "alias")
+              c       (apply list (first conseq) (map {'?x a '?y b} (rest conseq)))]
+          (v/assert-rule kb [(list aliasOf '?x '?y)] conseq 'CxUniverse {:direction :forward})
+          (v/assert kb (list aliasOf a b) 'CxUniverse)
+          (is (false? (v/in? kb (v/handle-of kb c 'CxUniverse))) "the conclusion is stored OUT")
+          (is (not (in-effect? kb a b)) "the live cache holds nothing of it")
+          (let [kb2 (restart)]
+            (v/recover kb2)
+            (is (not (in-effect? kb2 a b)) "and neither does the recovered one")))))))
 
 (tu/deftest-kb recover-agrees-about-a-rule-concluded-disjoint-metatype
   ;; The same claim one functor over: `rebuild-taxonomy` replays every stored
@@ -433,25 +455,41 @@
           (is (not (v/in? kb2 orig)))
           (is (seq (v/sentexes-matching kb2 (list chainR (list gpp Nn)) 'CxUniverse))))))))
 
-(tu/deftest-kb recover-keeps-a-denied-instance-carved-out
-  ;; The denials a rewrite blocks on are rebuilt into the taxonomy with the rules, so a
-  ;; denied instance answers false after a restart, its fact is read as stated rather
-  ;; than superseded, and the equation still rewrites the other instance.
+(tu/deftest-kb recover-keeps-a-denial-of-an-equation-instance-inert
+  ;; A denial of a roster literal is a record with no premise mark, and `recover` premises
+  ;; what the store marks, so the denial stays inert after a restart and the equation
+  ;; rewrites the denied instance as it did before.  This KB loads no CxCore, so the
+  ;; test puts `equals` on the roster itself.
   (tu/with-terms [pp gpp chainR Nn Mm]
+    (v/assert kb '(forced_monotonic_predicate equals) 'CxUniverse)
     (v/assert kb (list 'equals (list pp (list pp '?x)) (list gpp '?x)) 'CxUniverse)
     (v/assert kb (list chainR (list pp (list pp Nn))) 'CxUniverse)
     (v/assert kb (list chainR (list pp (list pp Mm))) 'CxUniverse)
-    (v/assert kb (list 'not (list 'equals (list pp (list pp Nn)) (list gpp Nn))) 'CxUniverse
-              {:strength :monotonic})
-    (let [orig  (v/handle-of kb (list chainR (list pp (list pp Nn))) 'CxUniverse)
+    (let [d     (v/assert kb (list 'not (list 'equals (list pp (list pp Nn)) (list gpp Nn)))
+                          'CxUniverse {:strength :monotonic})
+          orig  (v/handle-of kb (list chainR (list pp (list pp Nn))) 'CxUniverse)
           reads (fn [k] [(v/ask? k (list 'equals (list pp (list pp Nn)) (list gpp Nn)) 'CxUniverse)
                          (v/in? k orig)
+                         (v/in? k d)
                          (v/ask? k (list chainR (list gpp Mm)) 'CxUniverse)
                          (v/ask? k (list chainR (list gpp Nn)) 'CxUniverse)])]
-      (is (= [false true true false] (reads kb)) "before the restart")
+      (is (= [true false false true true] (reads kb)) "before the restart")
       (let [kb2 (restart)]
         (v/recover kb2)
-        (is (= [false true true false] (reads kb2)) "after recover")))))
+        (is (= [true false false true true] (reads kb2)) "after recover")))))
+
+(tu/deftest-kb a-store-with-no-roster-declarations-recovers-under-the-engine-baseline
+  ;; this KB loads no CxCore and declares no roster: the engine's baseline alone holds a
+  ;; `:default` equality and arity binding `:monotonic` and a denial of one OUT
+  (tu/with-terms [likes Ann Bob]
+    (let [same   (v/assert kb (list 'sameAs Ann Bob) 'CxUniverse)
+          arity  (v/assert kb (list 'arity likes 2) 'CxUniverse)
+          denial (v/assert kb (list 'not (list 'sameAs Ann Bob)) 'CxUniverse {:strength :monotonic})
+          reads  (fn [k] [(v/defeat-class k same) (v/defeat-class k arity) (v/in? k denial)])]
+      (is (= [:monotonic :monotonic false] (reads kb)) "before the restart")
+      (let [kb2 (restart)]
+        (v/recover kb2)
+        (is (= [:monotonic :monotonic false] (reads kb2)) "after recover")))))
 
 (tu/deftest-kb recover-survives-a-predicate-and-type-merge
   ;; Round-two rewriteOf merges a predicate / type by moving its functor uses onto the

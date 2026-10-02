@@ -27,7 +27,7 @@
 
   Blanking the strings is what separates this scan from `config_surface_test`'s plain
   regex, and it is not fastidiousness: the sources **describe** the entry shape in prose
-  — `checks/constraint-violation` and `settle/exposed-clashes` both spell a
+  — `checks/constraint-violation` and `clashes/exposed-clashes` both spell a
   `{:violation :…}` map in their docstrings — so a text scan reads the documentation as a
   filing site and the reverse direction stops catching anything.
 
@@ -205,28 +205,26 @@
   a sixth one is a failing test, and its kinds have to be named here before the roster
   means anything again."
   {"checks/constraint-admission"
-   {:kinds #{:arity :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
-             :irreflexive :anti-symmetric :disjoint}
+   {:kinds #{:arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
+             :disjoint}
     :why   (str "relabels `(:type p)` off `constraint-problem`, minus the arbitrable "
                 "kinds — a firing places one of those and lets `settle` weigh the pair. "
-                "`:irreflexive` and `:anti-symmetric` are non-arbitrable refusals (a lone "
-                "self tuple, or a converse no merge reconciles), so a firing drops them. "
                 "`:disjoint` is the application a firing has not minted yet, read under "
                 "`*entry-mints?*`: its result type clashes with a demanded type, and no "
                 "second sentex stands for the pair to weigh")}
 
    "checks/derivation-violation"
-   {:kinds #{:arity :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
-             :irreflexive :anti-symmetric :disjoint}
+   {:kinds #{:arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
+             :disjoint}
     :why   (str "`constraint-admission`'s relabel for the argument-type mint, which "
                 "places an arbitrable clash as a firing does")}
 
    "checks/constraint-violation"
-   {:kinds #{:arity :arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
-             :disjoint :functional :asymmetric :anti-transitive :irreflexive :anti-symmetric}
+   {:kinds #{:arg-type :inter-arg-type :arg-genl :arg-position :arg-constraint-kind
+             :disjoint :functional :asymmetric :anti-transitive}
     :why   (str "the same relabel over every `constraint-problem` kind, arbitrable ones "
-                "included — the decontextualization lift, the equality twin and abduction "
-                "refuse where a firing arbitrates")}
+                "included — the gate on what abduction assumes and on a computed `genlCx` "
+                "edge, neither of which files its answer")}
 
    "checks/rule-violation"
    {:kinds #{:naming :not-well-formed :not-stratified :not-range-restricted :not-indexable
@@ -234,24 +232,20 @@
              :arg-variable :disjunction-too-wide}
     :why   (str "carries out whatever `:type` `check-rule!` threw, defaulting to "
                 "`:not-well-formed` — so its kinds are the rule checks' refusal "
-                "vocabulary, minted across `checks`, `rules`, `sentex` and `naming`")}
-
-   "settle/cut-notice"
-   {:kinds #{:arbitration-truncated}
-    :why   (str "the one entry a bounded sweep owes when it stopped short, built once "
-                "and called with the kind — so the keywords sit at the callers and the "
-                "site itself holds none")
-    :kinds-at #"\(cut-notice\s+:([a-z][a-z0-9-]*)"}})
+                "vocabulary, minted across `checks`, `rules`, `sentex` and `naming`")}})
 
 (def ^:private undocumented-by-design
   "Kinds the scan finds that the table deliberately has no row for.
 
-  Empty, and that is the finding rather than an oversight: a kind reaches a consumer
-  through one public reader, so there is nowhere for an undocumented one to hide — a
-  caller branching on `:violation` meets it whether or not anybody wrote it down.  A kind
-  belongs here only when a row would misdescribe the ledger rather than describe it, and
-  it carries the sentence saying which."
-  {})
+  A kind reaches a consumer through one public reader, so there is nowhere for an
+  undocumented one to hide — a caller branching on `:violation` meets it whether or not
+  anybody wrote it down.  A kind belongs here only when a row would misdescribe the ledger
+  rather than describe it, and it carries the sentence saying which."
+  (into {}
+        (for [k [:functional :asymmetric :anti-transitive]]
+          [k (str "only `checks/constraint-violation` relabels it, and that value gates "
+                  "abduction and a computed `genlCx` edge without reaching the ledger; "
+                  "every stored path admits the clash and each reader decides it")])))
 
 (def ^:private detail-not-scannable
   "Kinds whose `:detail` keys no reader of the written-out entry can see, each with why.  The
@@ -284,8 +278,7 @@
 
   One row may name several kinds — the two unconditional argument constraints share a
   shape and a sentence — and each takes the row's keys.  One kind may take several rows,
-  and the keys **union**: `:arity` is a dropped conclusion in one table and a retroactive
-  report in another, and the two carry different maps under the same keyword."
+  and the keys **union**."
   []
   (reduce (fn [acc [kind ks]] (update acc kind (fnil set/union #{}) ks))
           {}

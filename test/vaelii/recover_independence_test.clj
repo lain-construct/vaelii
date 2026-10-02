@@ -28,6 +28,7 @@
   retired."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
@@ -80,7 +81,9 @@
   ;; which `recover` replays and a derivation path can miss.  The rule fires first, so
   ;; there is a standing firing for the except to sweep: a cold KB computes rather than
   ;; recalls, and would hide the difference.
+  ;; `hide` is on the forced-monotonic roster, so a rule reading it may conclude an `except`
   (tu/with-terms [q p hide Aa Trigger CxSub]
+    (v/assert kb (list 'forced_monotonic_predicate hide) 'CxUniverse)
     (v/assert kb (list 'genlCx CxSub 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list q Aa) CxSub {:strength :monotonic})]
       (v/assert kb (list 'implies (list q '?x) (list p '?x)) CxSub {:direction :forward :strength :monotonic})
@@ -271,8 +274,8 @@
   (let [year  '(CxCalFn CxMonad (DatetimeFn "2000"))
         month '(CxCalFn CxMonad (DatetimeFn "2000-01"))]
     (v/assert kb '(functionalInArg the_best 1) year)
-    (v/assert kb '(the_best LaMulanaTwo) year)
-    (v/assert kb '(the_best Silksong) month)
+    (v/assert kb '(the_best LaMulanaTwo) year {:strength :monotonic})
+    (v/assert kb '(the_best Silksong) month {:strength :monotonic})
     (let [observe (fn [k]
                     {:from-january (sort (map (comp str '?x) (v/ask k '(the_best ?x) month)))
                      :merged?      (boolean (v/same-class? k 'LaMulanaTwo 'Silksong))
@@ -282,3 +285,32 @@
       (is (true? (:merged? reading)) "the two fillers are one thing, restarted too")
       (is (= ["LaMulanaTwo"] (:from-january reading))
           "and January reads one filler on both sides of the restart"))))
+
+;; ---- the forced-monotonic roster is a label, read back from the records ----------
+
+(tu/deftest-kb the-roster-forcing-reads-the-same-after-a-restart
+  ;; The records hold every write as written; the forced sets are rebuilt from them and
+  ;; the declarations (docs/nmtms.md, "The forced-monotonic roster").
+  (tu/with-terms [likes knows Ann Bob Cal Dan]
+    (v/assert kb (list 'forced_monotonic_predicate likes) 'CxUniverse)
+    (v/assert kb (list 'set/forwardRule (list 'implies (list knows '?x '?y) (list likes '?x '?y)))
+              'CxUniverse)
+    (let [fact   (v/assert kb (list likes Ann Bob) 'CxUniverse)
+          denial (v/assert kb (list 'not (list likes Ann Cal)) 'CxUniverse)
+          _      (v/assert kb (list knows Ann Dan) 'CxUniverse)
+          fired  (v/handle-of kb (list likes Ann Dan) 'CxUniverse)
+          observe (fn [k] (mapv (fn [h] [(v/in? k h) (v/defeat-class k h) (:strength (v/sentex k h))])
+                                [fact denial fired]))]
+      (is (= [[true :monotonic :default] [false nil :default] [false nil nil]]
+             (one-reading! "a forced fact, a denial held OUT and a void firing" kb observe))))))
+
+(tu/deftest-kb a-denial-an-older-store-kept-inert-recovers-as-a-default-premise
+  ;; An older store held a denial of a roster literal with no premise mark; a recover
+  ;; gives it the `:default` mark it was written with, and the labeller holds it OUT.
+  (tu/with-terms [likes Ann Cal]
+    (v/assert kb (list 'forced_monotonic_predicate likes) 'CxUniverse)
+    (let [d (v/assert kb (list 'not (list likes Ann Cal)) 'CxUniverse)]
+      (p/unmark-premise! (:records kb) d)
+      (let [back (restarted)]
+        (is (= [:default false :inert]
+               [(:strength (v/sentex back d)) (v/in? back d) (:reason (v/why-not back d))]))))))

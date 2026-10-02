@@ -20,7 +20,7 @@
     the cycle and not to the mere presence of an excepted rule;
   * the walk is **skipped entirely** when no stored rule carries a negative edge, which
     is every rule in the bundled starter and therefore every ordinary `genl` assert.
-    Asserted by counting `wff/negation-cycle` calls, not by a clock.
+    Asserted by counting `wff/genl-negation-cycle` calls, not by a clock.
 
   Plus the derivation path, where the answer is different by necessity: forward
   chaining cannot throw, so a derived edge that would close a cycle is dropped and
@@ -29,13 +29,17 @@
   House rules as everywhere: gensym'd temporaries via `tu/with-terms`, engine
   vocabulary (`genl`, `genlCx`, `set/defaultRule`, `exceptWhen`) literal, and the
   neutral fixture asserts the KB is restored."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
+            [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.rules :as vr]
+            [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.impl.wff :as wff]
+            [vaelii.ref.gen :as gen]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -55,13 +59,13 @@
        (catch clojure.lang.ExceptionInfo e (ex-data e))))
 
 (defn- walks
-  "Run `f`, returning how many times it walked the rule dependency graph.  Counting
-  the search calls measures the fast path exactly; a timing test would measure the
-  machine."
+  "Run `f`, returning how many times an edge check walked the rule dependency graph.
+  Counting the search calls measures the fast path exactly; a timing test would measure
+  the machine."
   [f]
   (let [n    (atom 0)
-        orig wff/negation-cycle]
-    (with-redefs [wff/negation-cycle (fn [& args] (swap! n inc) (apply orig args))]
+        orig wff/genl-negation-cycle]
+    (with-redefs [wff/genl-negation-cycle (fn [& args] (swap! n inc) (apply orig args))]
       (f))
     @n))
 
@@ -116,23 +120,17 @@
     (is (v/assert kb (vr/rule-sentence [(list p '?x)] (list penguin '?x)) CxPlain {:direction :forward}))
     (is (v/assert kb (list 'genl penguin flightless) CxPlain))))
 
-;; ---- a genlCx edge takes the same path ------------------------------
-;; DECISION: the trigger sits on **both** transitive relations, the way
-;; `recheck-every-exception` does, so the two edge kinds cannot drift apart.  Today
-;; only a `genl` edge can actually move the graph — the dependency graph is over
-;; *predicates* and mentions no context, so a `genlCx` edge adds no graph edge
-;; and the walk finds nothing.  This test pins that reading: the check runs (the walk
-;; is counted) and the edge is accepted.
+;; ---- a genlCx edge is not walked ----------------------------------------
+;; The dependency graph is over *predicates* and its edges read the `genl` closure
+;; alone, so a `genlCx` edge adds no graph edge and a walk could only find a cycle
+;; already stored.
 
-(tu/deftest-kb a-genlCx-edge-runs-the-same-check-and-is-accepted
+(tu/deftest-kb a-genlCx-edge-walks-nothing-and-is-accepted
   (tu/with-terms [base p flightless penguin CxEdge CxSub]
     (cycle-shaped-rules! kb {:base base :p p :flightless flightless :penguin penguin
                              :ctx CxEdge})
-    (let [n (walks #(v/assert kb (list 'genlCx CxSub CxEdge) CxSub))]
-      (testing "the edge kind is checked, not skipped"
-        (is (pos? n)))
-      (testing "and is accepted: the graph is over predicates, so no context edge is in it"
-        (is (tax/sees? (reasoning/taxonomy kb) CxSub CxEdge))))))
+    (is (zero? (walks #(v/assert kb (list 'genlCx CxSub CxEdge) CxSub))))
+    (is (tax/sees? (reasoning/taxonomy kb) CxSub CxEdge))))
 
 ;; ---- a refused edge leaves nothing behind --------------------------------
 
@@ -173,10 +171,10 @@
         (is (pos? (walks #(v/assert kb (list 'genl sub super) CxFast))))))))
 
 ;; ---- the walk's cost -----------------------------------------------------
-;; A walk reaches a rule once per edge into it, and the graph is dense wherever an
-;; antecedent reads a type with many specs.  A stored rule's node is read from the store
-;; (the record, and the rule's exceptWhen meta-sentexes off the index), so an edge check
-;; builds each one once, however many edges reach it and however many start rules walk.
+;; A walk reaches a rule once per edge into it, and the graph is dense wherever many
+;; rules read one type.  A stored rule's node is read from the store (the record, and the
+;; rule's exceptWhen meta-sentexes off the index), so an edge check builds each one once,
+;; however many edges reach it.
 
 (defn- node-builds
   "Run `f`, returning how many stored-rule nodes the stratification checks built."
@@ -192,19 +190,168 @@
   (tu/with-terms [hub exc p sub CxDense]
     (let [spokes (vec (repeatedly 6 #(tu/tmp-type "spoke")))]
       (doseq [t spokes] (v/assert kb (list 'genl t hub) CxDense))
-      ;; the start rule: excepted, and reading `hub`, so its positive edges fan over
-      ;; every spoke
+      ;; an excepted rule reading `hub`
       (v/assert kb (except-rule (list exc '?x) [(list hub '?x)] (list p '?x)) CxDense)
-      ;; one rule concluding each spoke, each reading `hub` as well: every rule reaches
-      ;; every spoke's rule, six edges out of each
+      ;; one rule concluding each spoke, each reading `hub` as well: every spoke's rule is
+      ;; read by all seven rules, seven edges into each
       (doseq [t spokes]
         (v/assert kb (vr/rule-sentence [(list hub '?x)] (list t '?x)) CxDense
                   {:direction :forward}))
+      ;; the edge's walk starts at the seven rules reading `hub`
       (let [n (node-builds #(v/assert kb (list 'genl sub hub) CxDense))]
-        (testing "the edge is accepted: nothing concludes the exception's predicate"
+        (testing "the edge is accepted: nothing concludes a spec of the fresh subtype"
           (is (tax/genl?-global (reasoning/taxonomy kb) sub hub)))
         (testing "seven stored rules, seven nodes, against 42 edges into them"
           (is (= 7 n)))))))
+
+(tu/deftest-kb a-genl-edge-check-builds-no-excepted-rule-the-edge-does-not-reach
+  ;; Four rules read `top` and conclude predicates nothing reads; the excepted rules read
+  ;; `hub`, under which the spoke rules conclude.  An edge under `top` reaches the four
+  ;; readers of `top` and none of the excepted rules, so its check builds the same four
+  ;; nodes with two excepted rules stored and with six.
+  (tu/with-terms [hub top CxWide]
+    (let [except! (fn [] (v/assert kb (except-rule (list (tu/tmp-type "exc") '?x)
+                                                   [(list hub '?x)]
+                                                   (list (tu/tmp-type "seen") '?x))
+                                   CxWide))]
+      (dotimes [_ 4]
+        (let [t (tu/tmp-type "spoke")]
+          (v/assert kb (list 'genl t hub) CxWide)
+          (v/assert kb (vr/rule-sentence [(list hub '?x)] (list t '?x)) CxWide
+                    {:direction :forward}))
+        (v/assert kb (vr/rule-sentence [(list top '?x)] (list (tu/tmp-type "out") '?x)) CxWide
+                  {:direction :forward}))
+      (dotimes [_ 2] (except!))
+      (let [at-two (node-builds #(v/assert kb (list 'genl (tu/tmp-type "sub") top) CxWide))]
+        (dotimes [_ 4] (except!))
+        (let [at-six (node-builds #(v/assert kb (list 'genl (tu/tmp-type "sub") top) CxWide))]
+          (is (= 4 at-two at-six)))))))
+
+(defn- rule-index-reads
+  "Run `f`, returning how many reads of the rule index's antecedent, consequent and
+  re-check postings it made."
+  [f]
+  (let [n    (atom 0)
+        wrap (fn [orig] (fn [& args] (swap! n inc) (apply orig args)))]
+    (with-redefs [reads/as-stored-rules-by-antecedent (wrap reads/as-stored-rules-by-antecedent)
+                  reads/as-stored-rules-by-consequent (wrap reads/as-stored-rules-by-consequent)
+                  reads/watched-rules-on              (wrap reads/watched-rules-on)]
+      (f))
+    @n))
+
+(defn- chain-edge-reads
+  "Rule-index reads of the check on `(genl p6 p0)` over a chain of six rules, rule i
+  reading `p<i>` and concluding `p<i+1>`, with `width` spec types under every `p<i>`.  The
+  edge closes a positive cycle through all six rules, so the check walks the whole chain
+  and accepts it."
+  [kb width ctx]
+  (let [ps (vec (repeatedly 7 #(tu/tmp-type "link")))]
+    (doseq [p ps, _ (range width)] (v/assert kb (list 'genl (tu/tmp-type "kind") p) ctx))
+    (doseq [[p q] (partition 2 1 ps)]
+      (v/assert kb (vr/rule-sentence [(list p '?x)] (list q '?x)) ctx {:direction :forward}))
+    (let [cycle (atom ::unread)
+          n     (rule-index-reads
+                 #(reset! cycle (@#'checks/edge-negation-cycle kb (list 'genl (ps 6) (ps 0)))))]
+      [n @cycle])))
+
+(tu/deftest-kb a-genl-edge-check-reads-the-rule-index-flat-in-the-spec-closure-width
+  (tu/with-terms [base exc seen CxChain]
+    ;; one excepted rule elsewhere, so the check walks at all
+    (v/assert kb (except-rule (list exc '?x) [(list base '?x)] (list seen '?x)) CxChain)
+    (let [[narrow narrow-cycle] (chain-edge-reads kb 2 CxChain)
+          [wide wide-cycle]     (chain-edge-reads kb 12 CxChain)]
+      (is (= [nil nil] [narrow-cycle wide-cycle]) "a positive cycle is accepted")
+      (is (= narrow wide)))))
+
+;; ---- the walk from the edge against the whole graph ------------------------
+;; The check walks once, against the edges, from the rules reading a predicate at or
+;; above the edge's supertype.  The oracle builds the probe's whole graph forwards, each
+;; reader's spec closures to the rules concluding into them, and looks for a negative
+;; edge whose head reaches its tail.  The store is stratified, so a cycle in the probe's
+;; graph runs through the edge, and the two give the same verdict for every candidate
+;; edge; the walk's cycle runs through the edge, and is the same content in either
+;; arrival order.
+
+(defn- graph-cycle?
+  "Does the probe's graph, built forwards over `specs-global`, hold a cycle through
+  negation?"
+  [kb a b]
+  (let [probe  (tax/detached-copy (reasoning/taxonomy kb))
+        _      (tax/add-genl probe a b ::oracle)
+        rules  ((@#'checks/stratification-readers kb))
+        under? (fn [r p] (or (:concludes-any? r)
+                             (contains? (tax/specs-global probe p) (:consequent-pred r))))
+        edges  (for [r rules
+                     [kind preds] [[:pos (:antecedent-preds r)] [:neg (:exception-preds r)]]
+                     p preds, r' rules :when (under? r' p)]
+                 [kind (:id r) (:id r')])
+        succ   (reduce (fn [m [_ u v]] (update m u (fnil conj #{}) v)) {} edges)
+        reach? (fn [from to]
+                 (loop [todo [from] seen #{}]
+                   (when-let [x (peek todo)]
+                     (or (= x to)
+                         (recur (into (pop todo) (remove seen (succ x))) (conj seen x))))))]
+    (boolean (some (fn [[kind u v]] (and (= :neg kind) (reach? v u))) edges))))
+
+(defn- label-content
+  "A cycle with each `rule#<handle>` label read as the rule's sentence and context."
+  [kb cycle]
+  (mapv #(if-let [[_ h] (re-matches #"rule#(\d+)" %)]
+           (let [sx (p/get-sentex (:records kb) (parse-long h))]
+             [(sx/sentence-of sx) (:context sx)])
+           %)
+        cycle))
+
+(defn- through-edge?
+  "Does `cycle`'s last step run from a rule reading a predicate at or above `b` to a
+  rule concluding a spec of `a`?"
+  [kb cycle a b]
+  (let [tx      (reasoning/taxonomy kb)
+        [_ h]   (re-matches #"rule#(\d+)" (nth cycle (- (count cycle) 3)))
+        node    (@#'checks/stored-rule-node kb (parse-long h))
+        spec    (second (re-matches #"\S+ (.+)" (nth cycle (- (count cycle) 2))))
+        above   (set (map str (tax/genls-global tx b)))]
+    (and (contains? (set (map str (tax/specs-global tx a))) spec)
+         (boolean (some #(above (str %)) (concat (:antecedent-preds node)
+                                                 (:exception-preds node)))))))
+
+(defn- world-types [world]
+  (->> (:writes world) (map :sentence) (tree-seq coll? seq)
+       (filter #(and (symbol? %) (re-matches #"tmpty[a-z]\d+" (name %))))
+       distinct sort vec))
+
+(defn- oracle-seed
+  [seed]
+  (let [world (gen/gen-world seed {:rules [2 6] :writes [8 14] :types [4 7]})
+        types (world-types world)
+        pairs (for [a types, b types :when (not= a b)] [a b])
+        load  (fn [order] (gen/load-world! world order {}))
+        one   (load (vec (:writes world)))
+        two   (load (vec (rseq (vec (:writes world)))))]
+    (try
+      (let [same-store? (= (set (map :refused (:refused one))) (set (map :refused (:refused two))))]
+        (vec (for [[a b] pairs
+                   :let [kb     (:kb one)
+                         sent   (list 'genl a b)
+                         old    (graph-cycle? kb a b)
+                         new    (@#'checks/edge-negation-cycle kb sent)
+                         new-2  (@#'checks/edge-negation-cycle (:kb two) sent)]]
+               {:seed seed :edge sent :refused? (some? new)
+                :problem (cond
+                           (not= old (some? new)) [:verdict old new]
+                           (and new (not (through-edge? kb new a b))) [:not-through-edge new]
+                           (and same-store? (not= (some? new) (some? new-2))) [:order-verdict new new-2]
+                           (and same-store? new
+                                (not= (label-content kb new) (label-content (:kb two) new-2)))
+                           [:order-cycle new new-2])})))
+      (finally (gen/close-kb! one) (gen/close-kb! two)))))
+
+(deftest a-genl-edge-check-agrees-with-the-whole-graph-on-random-worlds
+  (let [rows (into [] (mapcat oracle-seed) (range 1 21))]
+    (is (empty? (filter :problem rows)) (pr-str (take 3 (filter :problem rows))))
+    (testing "the candidate edges hold refusals and acceptances both"
+      (is (pos? (count (filter :refused? rows))))
+      (is (pos? (count (remove :refused? rows)))))))
 
 ;; ---- the derivation path -------------------------------------------------
 ;; DECISION: a *derived* edge is **dropped and reported**, not thrown.  Forward

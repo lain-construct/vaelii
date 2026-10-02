@@ -444,10 +444,8 @@
       (timed-recover! kb))
     (println (format "  [%s] recovered; scanning belief…" (now-str)))
     (let [ids       (p/sentex-ids rec)
-          clashes   (deref (reasoning/clashes kb))
-          pairs     (:pairs clashes)
-          nogoods   (:nogoods clashes)
-          clash-ids (into #{} (mapcat identity) pairs)
+          nogoods   (into (vec (v/conflicts kb)) (v/contradictions kb))
+          clash-ids (into #{} (mapcat :nogood) nogoods)
           outs      (into [] (remove #(jtms/in? tms %)) ids)
           classify  (fn [id]
                       (cond
@@ -461,14 +459,14 @@
                                     (when (:context s) (str " @" (:context s))))))]
       (println (format "%n  sentexes %,d · in %,d · OUT %,d"
                        (count ids) (- (count ids) (count outs)) (count outs)))
-      (println (format "  clash nogood pairs: %,d · clash-side handles: %,d"
-                       (count pairs) (count clash-ids)))
+      (println (format "  clash nogoods: %,d · clash-side handles: %,d"
+                       (count nogoods) (count clash-ids)))
       (println (format "%n  === OUT by category (what destructive cleanup removes) ==="))
       (doseq [cat [:clash-loser :superseded-premise :unsupported-orphan :derived-out]]
         (println (format "    %-22s %,d" (name cat) (count (get by-cat cat [])))))
       (println (format "%n  === clash nogoods (%,d): each side's belief ===" (count nogoods)))
-      (doseq [ng (take 300 (vals nogoods))]
-        (println (format "    [%s]" (name (:kind ng))))
+      (doseq [ng (take 300 nogoods)]
+        (println (format "    [%s]" (some-> (:kind ng) name)))
         (doseq [id (vec (:nogood ng))]
           (println (format "       %-3s %s" (if (jtms/in? tms id) "IN" "OUT") (sen-str id)))))
       (doseq [cat [:unsupported-orphan :superseded-premise :derived-out]]
@@ -538,7 +536,9 @@
 ;; times are the saving.  Removing the manifest discards a cache: pass 1's recover writes
 ;; the image again from the records.
 
-(defn- clash-pairs [kb] (count (:pairs (some-> (reasoning/clashes kb) deref))))
+(defn- clash-pairs
+  "The membership candidates a reader can read as nogood members."
+  [kb] (count (:membership @(reasoning/nogood-candidates kb))))
 
 (defn- belief-census
   "[in out] over the whole live set — belief and its sparse complement."

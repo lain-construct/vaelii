@@ -38,7 +38,7 @@ outrank the default `bird ⇒ flies` without the penguin fact having to be known
 Do not add it. That one problem is [`exceptWhen`](exceptions.md)'s, and it needs no rank:
 a rule states its own exception and does not fire, so nothing has to out-rank anything. A
 class between the two buys that single case and costs the total order **monotonic >
-default** everywhere else — and the total order is what lets `decide-nogood` resolve a
+default** everywhere else — and the total order is what lets `decide/verdict` resolve a
 clash by defeating the strictly-weaker member with no solver. An intermediate class turns
 every unequal pair into a question of which of three ranks each side holds, for a case
 already handled structurally.
@@ -183,13 +183,13 @@ missing. The last column names the test that pins the departure, or `none`.
 | property | where | what stops, and why | pinned by |
 |---|---|---|---|
 | order | a capped read ([anytime.md](anytime.md#the-one-idea-bound-a-lazy-stream-keep-the-tail)) | A `:max-results` cap, or `take` over `ask` or `query`, keeps *k* answers in the order the index holds their handles. Sorting the matches by content first would realize the whole extent the cap bounds. | `order_independence_test/a-capped-answer-is-one-of-the-answers-whichever-fact-arrived-first` |
-| order | a settle sweep past `tax/*exposure-instance-budget*` ([taxonomy.md](taxonomy.md#what-a-declaration-reaches-back-over), [equality.md](equality.md#functional-infers-equality-instead-of-throwing)) | The sweep reads a prefix of its extent in posting order, so which instances a cut sweep examines depends on arrival. Content order would force the extent the budget bounds. Each cut files a `…-truncated` violation (`core/violations`, "Bounded"), and the arbitration sweep resumes past its cut in later settles. | `exposure_test/every-truncation-kind-has-a-test-of-what-fires-it`, `order_independence_test/a-revived-genl-edge-merges-up-to-the-budget-and-names-the-cut` |
+| order | a merge sweep past `tax/*exposure-instance-budget*` ([taxonomy.md](taxonomy.md#what-a-declaration-reaches-back-over), [equality.md](equality.md#functional-infers-equality-instead-of-throwing)) | The sweep reads a prefix of its extent in posting order, so which instances a cut sweep examines depends on arrival. Content order would force the extent the budget bounds. Each cut files a `…-truncated` violation (`core/violations`, "Bounded"). | `order_independence_test/a-revived-genl-edge-merges-up-to-the-budget-and-names-the-cut` |
 | order | the justification set ([nmtms.md](nmtms.md#where-the-layer-stops)) | Belief and `why` agree in every order, and the stored routes do not in four cases: a re-derivation for one reader keeps both routes, an edge defeated and then revived leaves two, a descended `functional` or `anti_symmetric` equality keeps the route it first named, and a firing re-derived for a reader outlives the defeat or `except` that prompted it. Each keeps a justification a reader still reads, or has no second route to replace. | `none` |
 | order | a symmetric fold of two bare rows ([canonicalization.md](canonicalization.md#a-mark-arriving-after-the-facts-migrates-them)) | The lower handle survives. The two rows state one proposition, so no belief reads which one stays. | `none` |
 | order | the browser's listings ([web.md](web.md#a-cap-is-not-an-answer-rank-first-then-cap)) | A listing is in handle order, because paging re-slices one sequence at an offset and a content order moves under every write. | `web_test/a-term-with-thousands-of-sentexes-is-walkable-to-the-end` |
 | order | an ASP solve at the time limit ([asp.md](asp.md#the-time-limit)) | Under an installed `:asp` solver, a solve the wall clock stops decides nothing that round, and which solves it stops depends on the machine's speed and load. `VAELII_ASP_SOLVE_LIMIT` stops a search by its conflict count instead, by default at 100,000, at the same point on every machine ([asp.md](asp.md#the-solve-limit)). The time limit stays as the backstop against a process that does not stop, and is the only limit when the solve limit is set to 0. | `asp_aspif_test/a-solve-past-the-time-limit-is-interrupted-not-answered` |
 | locality | an aggregate over a transitive relation ([aggregate.md](aggregate.md#what-it-costs)) | Every arriving `(ancestorOf a b)` re-joins the rule over every node, and each grouping re-reads its ancestor set. | `none` (`lein bench-aggchain` measures it) |
-| locality | the supersession reconcile ([equality.md](equality.md#what-a-merge-does)) | A settle that moved a schematic rewrite rule or the `genlCx` generation re-examines every superseded datum, since either can retire an entry no relabel touched and no class move names (`special/region-suffices?`). | `none` |
+| locality | the supersession reconcile ([equality.md](equality.md#what-a-merge-does)) | A `genlCx` edge stored or removed, or a schematic rewrite rule removed, re-examines every superseded datum while any is superseded, since either can retire an entry no class move names (`special/reconcile-context-edge`, `special/reconcile-removed-supersession!`). | `none` |
 | locality | the structural `genlCx` producer ([context-nat.md](context-nat.md#the-structural-genlcx-producer)) | The reconcile re-runs over every context of a declared function, and pairing one sibling group is O(k²) in it. It runs once per edge, on the transition into belief. | `none` |
 | locality | a `conversionFactor` arriving ([quantity.md](quantity.md#what-a-comparison-rests-on)) | The datum re-joins every forward rule with a comparison antecedent, since nothing connects the unit table to a comparison by predicate. | `computed_support_test/the-unit-table-may-arrive-last` |
 | locality | a metric bound's support ([stp.md](stp.md#what-a-derived-bound-rests-on)) | Past the walk bound, a bound rests on every supporter in its network, a sound superset. The walk is bounded because a successor chain can go round a zero-weight cycle without end. | `none` |
@@ -198,7 +198,6 @@ missing. The last column names the test that pins the departure, or `none`.
 | scoping | a relation property ([contexts.md](contexts.md#where-a-relation-property-is-read-from)) | A `decontextualized_predicate` declaration is lifted into `CxUniverse`, so every context reads it. A relation's algebra is a claim about the relation, not about a subject matter. | `context_scoping_test/predicate-metadata-is-a-licence-the-whole-kb-holds` |
 | scoping | a NAT's mint ([nat.md](nat.md#typing-an-application-that-is-never-minted)) | The mint reads its result declarations globally and materializes into `CxUniverse`, because what a term denotes does not vary by reader. The check on an application stays scoped. | `arggenl_test/a-result-declaration-a-context-cannot-see-does-not-refuse-it` |
 | scoping | the browser's term graph ([web.md](web.md#a-terms-shape-drawn)) | One edge in two contexts is drawn once, and the graph labels no edge with a context. | `none` |
-| scoping | a verdict below its vantage ([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)) | A reader below a vantage takes the vantage's verdict where a denial or an `except` it sees takes the clash out of its view, so its belief depends on whether the release sits above or below the vantage. Stopping the verdict there would make a network defeat scoped and re-ask every standing verdict at every release reader each settle ([why](#a-verdict-is-not-withdrawn-below-its-vantage)). | `scoped_defeat_test/a-verdict-reaches-a-reader-below-its-vantage-that-reads-the-clash-released` |
 | belief | levels 0 and 1 ([levels.md](levels.md#operators)) | The two levels answer about storage, so a defeated sentex keeps its handle there. The floor defaults to level 2. | `property_cells_test/levels-read-no-defeated-fact` |
 | belief | `CxEverything` ([contexts.md](contexts.md#cxeverything-syntactic-and-a-named-opt-out-of-belief-filtering)) | The named opt-out reads the store with no belief and no context filter. The as-stored reads (`reads/as-stored-…`, lint E16) and a profile's counts read storage the same way, under names that say so. | `query_context_test/cxeverything-sees-a-defeated-default` |
 | belief | a reader thread beside the writer ([storage.md](storage.md#the-single-writer-contract)) | A read takes the postings and then belief per candidate, so a match stored or withdrawn between the two reads is missing. Beside a settle, belief is held but the taxonomy closures are read as the settle moves them. One state per read needs a realized answer and a retry, or a versioned store. | `none` |
@@ -278,7 +277,7 @@ caller wanting a single answer orders on content before it takes one, bounds the
 counts (read 64 of a functor's facts and answer the arity most of them carry), or states
 why there can be only one — a `functional` predicate leaves one
 value in the slot, a second symbol merging into the first through the `(equals V1 V2)` the
-KB derives from the pair and a second non-symbol refused outright, and resting on that is a
+KB derives from the pair and a second non-symbol forming a nogood the settle decides, and resting on that is a
 claim recorded here.
 `sort_by_content_key_test`'s positional-take scan reads `src/` for the ones that do
 neither.
@@ -314,45 +313,22 @@ instead. Every consumer reads the window as a superset, so an extra handle costs
 re-derivation and never a wrong answer — which is exactly what lets a clash report be
 carried forward for any pair the region did not move.
 
-### A bounded sweep reports its cut once, read one past the budget
-
-Every settle pass that spends `tax/*exposure-instance-budget*` takes its enumeration
-through `settle/take-budgeted` and files its notice through `settle/cut-notice`
-([taxonomy.md](taxonomy.md#what-a-declaration-reaches-back-over)).
-
-`take-budgeted` realizes one element past the budget, so a cut means an element went
-unread. Deciding the cut on the budget being spent instead files every trigger whose
-reach is empty as cut short, since a trigger reached after the budget ran out reads
-nothing whether or not there was anything to read. On an OpenCyc load that reported
-183,397 triggers unswept against a true 41,500 (`exposure_test`'s
-`an-enumeration-that-exactly-fills-the-budget-is-not-a-cut` pins the boundary).
-
-`cut-notice` files one entry per pass, off the cut and never off the findings. One entry
-per cut trigger was 41,500 identical entries on a corpus load's closing settle, which
-filled the `:warn` stream and evicted every other violation from a ledger that keeps the
-newest 1,000 (`many-cut-sweeps-file-one-entry-between-them`). A notice filed off a
-finding has nothing to attach to when the sweep spends the budget convicting nobody, and
-the units past the cut then read as examined; each truncation kind has a test of that
-case (`every-truncation-kind-has-a-test-of-what-fires-it`).
-
 ### The settle memoizes standing clashes
 
-`settle` runs after every mutation, and the negation nogoods, the definitional clashes and
-the inherited clashes carry forward the answer for any pair whose members did not move.
-This is a memo on the recomputation, not an optimization to taste.
+`settle` runs after every mutation, and the inherited clashes carry forward the answer for
+any claim whose inputs did not move, while the negation, tuple-mark and membership nogoods
+it decides come off a write-time index and are never re-derived: a membership nogood is
+kept per term, read again only when the term's memberships or the separations move. This
+is a memo on the recomputation, not an optimization to taste.
 
 One check per standing pair per settle is quadratic in the clashes a load creates: measured
 at roughly 35 ms an assert with 300 standing definitional clashes against under 10 ms with
-50, and the negation half separates 12x on `lein perf`'s `negation-arbitration`, which holds 8x the
-standing dilemmas to under 11x the per-assert cost. The carry is sound because the memo
-compares as **values** every input a check reads that is small enough to — the
-separations, the predicate properties,
-the disjoint metatypes' membership — and weighs per pair the one input too big to compare,
-the `genl` closure: a pair of unary memberships is decided by `disjoint?` of the two types
-its sentexes name, so the memo stamps those two supertype closures, and an edge leaving both
-standing is an edge the pair was not about. A `genlCx` edge retires the whole carry, since
-which contexts can convict a pair is a question about the context relation rather than about
-either half's reading of it.
+50; `lein perf`'s `clash-arbitration` and `negation-arbitration` hold the per-assert cost
+against the standing set. The index is sound because it reads as **values** every input a
+separation reads — the separating and covering rosters, the disjoint metatypes' membership
+and the sibling-disjointness exceptions (`tax/separation-stamp`) — and the lower end of
+every `genl` edge that moved (`tax/moves-since`), and reads the separations again over the
+type pairs a move can reach.
 
 The rule the whole scheme rests on: **a nogood whose detection reads a belief-following
 cache its own member supports is not stable.** That is why `arity` is not a nogood though it
@@ -369,49 +345,14 @@ forward rule and holds neither spelling of what they conclude. `settle` re-seeds
 recovered spellings and settles again.
 
 Two other designs lose to that one on what they cost elsewhere. **Moving the reconcile into
-the settle loop** keeps a single fixpoint, the better property in the abstract — but
-`settle-finish` decides what the settle moved by diffing the supersession map it brackets,
-so a reconcile running earlier would have to thread its own flips forward or a merge would
-stop being reported as `:believed-removed` at all: a change to what every preview and feed
-event says, to save a re-derivation. A **re-enter signal** from `settle-finish` is this same
+the settle loop** keeps a single fixpoint, the better property in the abstract — but the
+reconcile runs on the write path, and `settle-finish` publishes the flips it recorded
+there (`special/take-supersession-moves!`), so a reconcile inside the loop would have to
+thread its own flips forward or a merge would stop being reported as `:believed-removed`
+at all: a change to what every preview and feed event says, to save a re-derivation. A **re-enter signal** from `settle-finish` is this same
 second-settle loop with the bound further from what it bounds. What the shipped shape costs
 is that a KB whose settle un-merges something settles twice; one that does not pays a deref
 of an unbound var.
-
-### A verdict is not withdrawn below its vantage
-
-Decision 3 of [reference.md](reference.md#decisions) reverses this rule: a context below
-the vantage that reads the clash released believes the loser, and the engine change is
-owed.
-
-A defeat taken at a vantage reaches every reader below it, including a reader below a
-denial or an `except` that takes the clash out of its view
-([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)). The alternative is to let a
-verdict reach a reader only where that reader still reads the clash (`reads-clash?` at
-the reader), which makes each reader's belief a function of the sentences it sees. Three
-costs decide against it:
-
-- **A network defeat stops being one.** A defeat at the loser's own context goes into the
-  network's defeated set, which holds the loser OUT for every reader and blocks every
-  firing over it. With a release below the vantage, the defeat has to become a scoped
-  defeat that names the readers it skips. A scoped defeat blocks no firing, so every rule
-  over the loser fires and stores conclusions each reader then withdraws.
-- **Every settle re-asks every standing verdict at every release reader.** The settle
-  re-decides its standing defeats each time, and whether a defeat reaches a reader would
-  rest on that reader's reading of the grounds. On a KB of n clashes decided at one
-  context, each released by a denial in one context below it, the re-ask alone costs
-  0.33 ms per settle at n = 8 and 5.79 ms at n = 256: 6% and 16% of the settle it runs
-  in. The cost is linear in the standing defeats times the release readers below each
-  vantage.
-- **Every reader at the vantage pays a withdrawal.** A reader at the loser's context reads
-  no withdrawal while the defeat is the network's. As a scoped defeat, the loser joins
-  the withdrawal region of every reader at or below the vantage: at n = 256 that region
-  costs 0.60 ms per reader per settle against 0.17 ms for the scoped defeats the same KB
-  holds without it.
-
-The rule costs one table: a context's belief depends on whether a release sits above or
-below the vantage ([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)), and the
-[four-properties table](#where-the-four-properties-stop) lists the departure.
 
 ### A nogood must survive being acted on
 
@@ -479,29 +420,18 @@ than decided.
 
 ### A clash reading is sorted at the read, not on the settle path
 
-`settle` stores the conflicts and the dilemmas in arrival order, and `settle/ranked`
-orders a reading when a caller asks for one ([nmtms.md](nmtms.md#a-clash-is-reported-never-stored)).
-Sorting where the readings are published puts O(standing log standing) comparisons on
-the path every mutation runs, for a reading nobody may ask for: 1.60 ms per assert against
-1.07 ms with the sort at the read, on `lein perf`'s `negation-arbitration` at 800
-standing dilemmas. The cost of the shipped shape is a rule: every reader of
-`conflicts-of` or `contradictions-of` owes the `ranked` call.
-
-### A context edge re-derives the negation pairs whose verdict moved, not every pair
-
-The negation memo records, per context pair its entries cross, the joint-visibility
-verdict, and a `genlCx` move re-derives only the entries whose verdict changed
-([nmtms.md](nmtms.md#the-negation-memo)). The alternative is to stamp the memo with the
-relation's generation counter and retire every entry when it moves. A counter says that
-some edge moved and never which, so one edge under a context no contradiction is stated
-in re-derived the whole standing set. The verdict test is exact: a body's pairing reads
-the relation only through one verdict per context pair, so an entry whose verdicts all
-stand yields the pairing it yielded last settle.
+`clashes/read-clashes` builds the conflicts and the dilemmas in the order the candidate
+index answers in, and `clashes/ranked` orders a reading when a caller asks for one
+([nmtms.md](nmtms.md#a-clash-is-reported-never-stored)). Sorting on the settle path puts
+O(standing log standing) comparisons on the path every mutation runs, for a reading nobody
+may ask for: 1.60 ms per assert against 1.07 ms with the sort at the read, on `lein
+perf`'s `negation-arbitration` at 800 standing dilemmas. The cost of the shipped shape is a
+rule: every reader of `conflicts-of` or `contradictions-of` owes the `ranked` call.
 
 ### A settle hands no nogood to a solver
 
 Only `:default` content is ever decided; `:monotonic` is the fixed background a solve
-reasons *from*. `decide-nogood` answers every nogood with a defeat, a dilemma or a hard
+reasons *from*. `decide/verdict` answers every nogood with a defeat, a dilemma or a hard
 clash, so a settle builds no `Program`, and a solver-side guard in `settle` would guard a
 path no settle takes. Labeling holds the split by construction: its `Program` offers only
 the dilemmas' tied, defeasible members as assumptions, and `solved-labeling` reads the
@@ -987,40 +917,25 @@ neither engine, so it promises nothing the index must answer for — and, conclu
 its own variable consequent stays on the dead `?var0` key rather than the live catch-all,
 so it never surfaces as a phantom concluder for every goal.
 
-### A definitional refusal reads its grounds, not only what it opposes
+### A definitional clash is stored, not refused
 
 A variable functor rule is refused because it is inert against **every** KB. A definitional
-clash is not that case: the same sentence is admissible against five of the six orders the
-same three facts can arrive in, so a refusal here is a claim about this KB at this instant,
-and the question is which part of it the claim may rest on.
-
-It may rest on what can never be given up. `assert` refuses a `disjoint`, `functional` or
-cover clash under `:arbitrate` only when the sentex the newcomer opposes is known-true **and**
-the derivation that makes the two a pair is — the separating declaration, the functionality
-mark or the cover, together with every `genl` step the constraint is read over
-(`checks/grounds-class`).
-Reading only the opposition was the narrower answer and the wrong one: a pair reached over a
-`:default` `genl` edge is retired by a denial of that edge at every context that reads the
-denial, and the sentence a refusal would have thrown away is one the KB then believes. The
-generalization is `opposing-class`' own, already made for `anti_transitive`, which convicts a
-chain and weighs its *weakest* step rather than its endpoints.
+clash is not that case: the same sentence completes a clash in the orders where its partner
+arrived first and in none of the others, so a refusal would be a claim about this KB at this
+instant, and what is stored would follow the write order. Reading the classes of the
+opposing sentex and of the grounds does not remove that: a pair every part of which is
+`:monotonic` still depends on which member arrived last. So the entry point stores the
+sentence, the settle decides the nogood, and a clash of `:monotonic` members stands in
+`conflicts` (decisions 8 and 15 of [reference.md](reference.md#decisions)).
 
 The alternative was to record the refusal and re-offer it when the grounds went, the way
 `chain.clj` re-offers a firing an exception blocked. It does not carry over. That ledger is
 re-askable because a firing is a rule and bindings — re-evaluate the condition and the
 conclusion is placed again — where an asserted sentence has no rule to re-fire, so the record
 would have to hold the sentence itself, outside the records a `recover` replays. A KB that
-re-offered live and not after a recover would disagree with itself over one store. Admitting
+re-offered live and not after a recover would disagree with itself over one store. Storing
 the sentence puts it where `recover` already finds it, and the settle's own weighing is what
 then decides it.
-
-`:refuse` is untouched by this. The policy is about whether a **writer** is told no
-(`checks/arbitrating?`), so it answers from the KB in front of the writer and its store
-follows the write order by construction — which
-`order_independence_test/under-refuse-the-writer-is-told-no-and-that-does-follow-the-order`
-states rather than leaves to be found. `asymmetric` and `anti_transitive` read the opposing
-class under either policy and so are not narrowed here; the same argument reaches them, and
-moving them moves the default policy, which is its own change.
 
 
 ## Taxonomy and disjointness
@@ -1066,24 +981,6 @@ imported ontology the vocabulary is six figures ([kbs.md](kbs.md)) where a term'
 declarations are three or four. The answer is read off `a`'s own declarations instead,
 sized by what `a` actually declares rather than by everything the KB knows (see
 [taxonomy.md](taxonomy.md) for `tax/separating-partners`).
-
-### A clash the settle has not decided is counted, not named
-
-A disjointness pair some context sees whole is decided at its vantage
-([nmtms.md](nmtms.md#how-a-settle-finds-the-clashes)). A pair the arbitration's budgeted
-sweep has not reached yet is counted by `:arbitration-truncated`, a later settle resumes
-the sweep past the cut, and `core/exposed-clashes` names every jointly-visible pair on
-demand. The settle runs no second sweep to file the unreached pairs as `:disjoint`
-ledger entries.
-
-A second sweep would spend its own budget over the same triggers in the same content
-order, so it reaches a pair the arbitration missed only when the two reaches differ, and
-the entry it files stays in the ledger after a later settle decides the pair. Measured
-with that sweep instrumented, over the default suite (5,105 tests, 132,572 settles) it
-filed no `:disjoint` entry, and each of its 11 truncation notices fell in a settle whose
-`:arbitration-truncated` named the same trigger. It cost 6.0 s of the suite's 78.1 s of
-settle time (7.7%), 7.3% of the settles in a bulk load of 40 deferred batches of 500
-memberships over separated types, and 3.1% of the starter's load.
 
 ## Contexts and placement
 
@@ -1167,7 +1064,7 @@ Every reader of a justification's antecedents changes with it — `valid?`, `con
 the region walks, the dedup keys and fingerprint, the codec, recovery, the equality
 rewrite, `why`, koinii's adjudication and the browser — and every KB that fires over the
 taxonomy pays the per-test cost, to fix a case that exists only where a scoped defeat or an
-`except` does. The settle's re-derivation (`settle/lost-firing-seeds`) keeps a justification
+`except` does. The settle's re-derivation (`reroute/lost-firing-seeds`) keeps a justification
 a set of handles, is skipped on two derefs in a KB that holds neither, and costs one check per
 withdrawn firing where one stands. It gives up a store that is a function of current
 state, which the entry above records.
@@ -1411,11 +1308,10 @@ alternative is to let the second derivation stand: the defeat was about the firs
 here is a route to the same sentence that does not use it.
 
 It is not, and reading it that way confuses two things belief keeps apart. A defeat is a
-claim about the **datum**, not about a derivation of it: `decide-nogood` resolves a clash
+claim about the **datum**, not about a derivation of it: `decide/verdict` resolves a clash
 by forcing the strictly-weaker *side* OUT, and the side is a stored sentex with every
 justification it has. Its other derivations are not evidence against the defeat — they are
-already in the JTMS, already counted in the `:groundable` set the relabel recomputes
-beside belief, and already the reason it is retained for revival rather than swept
+already in the JTMS, and the reader withdraws the side with every one of them
 ([nmtms.md](nmtms.md)). A chainer that answered on one of them would be re-litigating a
 settled clash from inside a read, and answering it
 differently from `ask`, `sentexes-matching` and `why` about the same KB.

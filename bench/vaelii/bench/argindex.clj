@@ -4,12 +4,9 @@
   "What the **argument-root index** costs the belief-settle (`recover`) hot path — the
   measuring stick for the index-layout experiment, phase 1.
 
-  Settling belief over a large corpus is dominated by the definitional-clash sweep:
-  `settle/clash-nogoods` walks every believed sentex a pair could form, and each of the
-  routes it takes into the index — the `could-clash?` gate's `count-with-arg`, the
-  `partner-contexts` vantage read's `sentexes-with-arg`, and `arbitrable-violations`'
-  `matches-visible` — narrows on the **argument-root** key `[:argument-root pred pos
-  term]`.  That key is a four-element *vector*, and unlike every other index family
+  The definitional checks read a term's memberships through the argument roots — the
+  candidate index's unary-roster read, and `arbitrable-violations`' `matches-visible` —
+  which narrow on the **argument-root** key `[:argument-root pred pos term]`.  That key is a four-element *vector*, and unlike every other index family
   (context / functor / term / rule, all compact int-keyed) it routes to the slow
   fallback (`dense_roots/route :argument-root → :fallback → MemoryKvBackend.kv-members`),
   where a `PersistentHashMap.find` compares the whole vector via `APersistentVector`'s
@@ -29,8 +26,8 @@
     context filter.  A fanout sweep shows the probe cost is a real fraction of the whole.
 
   * **macro** — an end-to-end `reindex` + `recover` over a generated corpus that declares
-    disjointness (so `constraint-nogoods`' O(1) gate opens and the clash sweep actually
-    runs — a corpus declaring none short-circuits and never touches the argument roots).
+    disjointness and holds terms of two memberships, so the rebuild keeps membership
+    candidates and the clash checks read the argument roots.
     Reports reindex and recover wall clock and the bytes `recover` allocates, and prints
     the `prof` read tally as evidence the sweep read the argument roots.
 
@@ -355,16 +352,15 @@
   {:types        6000
    :branching    3
    :individuals  18000
-   :memberships  4       ; ≥2 so `could-clash?` opens for every membership → the sweep reads its root
+   :memberships  4       ; ≥2 so every individual is a membership candidate
    :predicates   20
-   :disjoints    300     ; opens `constraint-nogoods`' O(1) gate so `clash-nogoods` runs at all
+   :disjoints    300     ; separations the candidates' type pairs are tested against
    :clashes      400})   ; individuals holding a declared-disjoint pair — real argument-root matches + sift
 
 (defn- build-macro!
-  "A KB shaped like the definitional-clash sweep's diet: a deep genl tree with
-  disjointness declared between subtrees (the gate-opener), individuals each holding
-  `memberships` non-clashing types from their own ancestor chain (so every membership is
-  a `could-clash?` candidate whose argument-1 root the sweep reads), and `clashes`
+  "A KB shaped like the definitional clashes' diet: a deep genl tree with disjointness
+  declared between subtrees, individuals each holding `memberships` non-clashing types
+  from their own ancestor chain (so every individual is a membership candidate), and `clashes`
   individuals holding both sides of one declared-disjoint pair (so `arbitrable-violations`
   reads the argument roots and `matches-hierarchical` records returned-vs-matched)."
   [kb {:keys [types branching individuals memberships predicates disjoints clashes]}]
@@ -382,8 +378,7 @@
         (v/assert kb (list 'arg (pred-name i) 1 (type-name 0)) ctx {:chain? false})
         (v/assert kb (list 'arg (pred-name i) 2 (type-name 0)) ctx {:chain? false}))
       ;; every individual holds `memberships` types off one leaf's ancestor chain —
-      ;; comparable types, nothing disjoint, so the sweep does the full could-clash read
-      ;; and the disjointness test admits
+      ;; comparable types, nothing disjoint, so every type pair is tested and admitted
       (doseq [i (range individuals)]
         (let [leaf (+ (quot types 2) (mod i (quot types 2)))]
           (doseq [t (take memberships (ancestor-chain branching leaf))]
@@ -455,7 +450,7 @@
   comparable across `:memory`, `:memory-columnar` and `:disk-columnar`."
   [tag open-opts opts]
   (macro-header tag opts)
-  (let [kb (doto (v/open-kb (merge {:recover? false :constraints :arbitrate} open-opts))
+  (let [kb (doto (v/open-kb (merge {:recover? false} open-opts))
              (v/clear!))
         [_ build-ns] (timed (build-macro! kb opts))
         n  (v/sentex-count kb)]

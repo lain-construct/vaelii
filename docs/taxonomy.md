@@ -30,8 +30,10 @@ inert rules CxCore does state record the `commutative` / `commutativeInArgAndRes
 `(genl Sub Super)` — every `Sub` tuple is a `Super` tuple. Types are unary predicates,
 rooted at `thing`. Predicate specializations of other arities also use `genl`;
 membership in that graph alone does not imply `unary_predicate`. The starter assigns
-unary membership to the subtypes of `thing`. We cache the reflexive-transitive closure
-both ways:
+unary membership to the subtypes of `thing`. A `genl` between two predicates spelled
+camelCase is on the forced-monotonic roster, held `:monotonic` and undeniable; a `genl`
+between types stays defeasible ([nmtms.md](nmtms.md#the-forced-monotonic-roster)). We
+cache the reflexive-transitive closure both ways:
 
 - `genls tax t context` — supertypes of `t`, incl. `t` (up-closure).
 - `specs tax t context` — subtypes of `t`, incl. `t` (down-closure).
@@ -68,13 +70,12 @@ function specializations for each. Unsuffixed `unary`, `binary` and `ternary` cl
 exact relations; `unary_predicate` / `unary_function` and their binary and ternary peers
 specialize those relation-wide classes. `relationTypeByArity` owns the shared mapping;
 `predicateTypeByArity` and `functionTypeByArity` are its `genl` specializations, and one
-rule derives a relation's exact `arity` from whichever mapped type classifies it, with no
-parallel rule families. CxCore ships **three** mapping facts, over `unary`, `binary` and
-`ternary`. The predicate and function types reach them through their `genl` edges, so a
-`(predicateTypeByArity unary_predicate 1)` beside them would only stamp a second rule
-firing wherever the first already does — which `ontology_test`'s subsumption reading
-reports. The two specializations stay declared for a KB mapping an arity the
-relation-wide table has no class for. `arityMin` states the lower bound of a variable-arity relation. Prefer
+generator stamps, per mapping fact, the rule classifying a relation from its asserted
+`arity`, with no parallel rule families. CxCore ships **three** mapping facts, over
+`unary`, `binary` and `ternary`. The predicate and function types reach them through
+their `genl` edges, so a `(predicateTypeByArity unary_predicate 1)` beside them would
+classify a unary function as a predicate. The two specializations stay declared for a KB
+mapping an arity the relation-wide table has no class for. `arityMin` states the lower bound of a variable-arity relation. Prefer
 variable arity for a repeatable, homogeneously typed argument role. A relation with a
 bounded optional tail declares variable arity too, with its `arityMin`, and its
 well-formedness check bounds the tail: `functionCorrespondingPredicate` is
@@ -91,15 +92,21 @@ Exact `(arity R N)` entails `fixed_arity`; it is not also an `arityMin` floor. T
 shipped variable predicates state their lower bound with `arityMin` instead of carrying
 an exact binary classification.
 
-The mapping's two rules run in both directions, so `(arity R 2)` and `(binary R)` derive
-each other and asserting either keeps both believed. The cycle is **relation-wide** and
-has to be: `arity` covers functions, so a rule concluding `(binary_predicate R)` from
-`(arity R 2)` would make every shipped binary function a predicate and clash with
-`(disjoint predicate function)`. `binary` carries no kind, which is what an arity
-actually says. The cycle is well-founded — the derived twin cannot ground itself, so
-retracting whichever spelling was asserted collapses both — and an arity no class maps to
-concludes nothing, which is why `(arity InstantFn 6)` leaves `InstantFn` classified only
-by its own `fixed_arity_function`.
+The mapping's rule runs one way: `(arity R 2)` concludes `(binary R)`, and no rule
+concludes an arity. `arity`, the nine exact-arity classes, `variable_arity` with its two
+specializations and `arityMin` are on the forced-monotonic roster
+([nmtms.md](nmtms.md#the-forced-monotonic-roster)): each is held `:monotonic` whatever
+strength it was written at, and a firing concluding one from a non-roster antecedent is
+held void. The minted `(arity R 2)` → `(binary R)` rule reads a roster antecedent, so its
+firings stand. Every reader of an arity reads the exact-class membership beside the
+`(arity P n)` table: the arity nogoods ([Arity](#arity)), the argument-position check
+(`checks/declared-arity`), `kb/relation-arity` behind `describe` and the quality pass, and
+the prover answering `admitsArgnum`. The conclusion is **relation-wide** and has to be:
+`arity` covers functions, so a rule concluding `(binary_predicate R)` from `(arity R 2)`
+would make every shipped binary function a predicate and clash with `(disjoint predicate
+function)`. `binary` carries no kind, which is what an arity actually says. An arity no
+class maps to concludes nothing, which is why `(arity InstantFn 6)` leaves `InstantFn`
+classified only by its own `fixed_arity_function`.
 
 The `genl` edges on the arity classes run downward only: a `binary_predicate` is `binary`
 and is a `predicate`. None of them says that a relation which is `binary` **and** a
@@ -112,11 +119,10 @@ collects a justification per route. The nine exact classes cost that once each; 
 intersection would cost it again for a membership nothing reads.
 
 The classification is read for its arity, and the relation-wide class answers that
-without the intersection: `(arity P 2)` derives `(binary P)` through the converse
-generator above, and `checks/exact-arity-classes` — the roster the assert entry point,
-the retroactive report and the quality readings share — holds all nine spellings, so
-`(binary P)`, `(binary_predicate P)` and `(binary_function F)` each declare an arity the
-check enforces. A KB that wants the kind membership as well writes the
+without the intersection: `(arity P 2)` derives `(binary P)` through the generator above,
+and `tax/exact-arity-classes` — the roster the arity nogoods and the quality readings
+share — holds all nine spellings, so `(binary P)`, `(binary_predicate P)` and
+`(binary_function F)` each declare an arity a reader enforces. A KB that wants the kind membership as well writes the
 `defnSufficient` itself, in its own context, and pays for it there.
 
 ## The closures are derived state
@@ -134,8 +140,15 @@ asserting it**, so each relation carries that set explicitly:
  :depth {dog 1 animal 0}            ; topological potential for O(1) reachability rejects
  :scc {}                            ; node -> component, for the nodes in a cycle
  :scc-members {}                    ; component -> its nodes, the inverse of :scc
- :gen 7}                            ; bumped on every edge change; retires the read memo
+ :gen 7                             ; bumped on every edge change; retires the read memo
+ :moves {7 #{dog}}}                 ; per generation, the lower ends of the edges it moved
 ```
+
+`:moves` holds each node once, at the last generation an edge from it was activated,
+dropped or given other supporting contexts, so a reader holding an older generation
+reads which closures moved since (`tax/moves-since`) without comparing them: the
+membership candidates read it ([What a declaration reaches back
+over](#what-a-declaration-reaches-back-over)).
 
 The closure itself — `genls` (up) / `specs` (down) — is **not** stored. It is
 answered on demand — an up-closure built from its parents' closures, a down-closure by a
@@ -203,6 +216,15 @@ walks the `:derived?` subset (`special/integrate-transitive`) plus what
 | `transitiveInArg` `transitiveInArgInverse` `functionCorrespondingPredicate` | none — read back through the index per query | nothing to reach |
 | `different` `unknown` `thereExists`, the five aggregates | none — never stored | nothing to reach: `wff` refuses the conclusion on the derivation path exactly as it refuses the assertion |
 
+A row naming a functor on the forced-monotonic roster (`genlCx`, a relation mark,
+`disjoint`, `sibling_disjoint`, an arity binding, an equality, a `genl` between predicates) is
+reached only by a firing whose rule reads roster literals alone: any other firing
+concluding one is stored, held void and reported as `:forced-conclusion`, and the rule
+stays stored ([nmtms.md](nmtms.md#the-forced-monotonic-roster)). The conclusion's arm
+installs it and the chainer then reconciles its caches to belief
+(`special/reconcile-belief-change`), so a conclusion held void takes effect neither live
+nor after `recover`.
+
 **One conclusion reaches its cache only once a restart replays it**, and it is
 stated here rather than left to be found:
 
@@ -242,8 +264,8 @@ Two things widen the scope past the moved edges, and both are required:
   caller holding no region gets. `recover` is that caller, and the one that passes it: a
   settle's reconcile is scoped to a region *and* gated on belief having moved, and a
   rebuild replaying an unsupported declaration moves nothing (the subsection above).
-  Every `settle` path names a region instead, and the supersession pass *widens* its own
-  by hand rather than dropping it, because a supersession flip is a belief change with no
+  Every `settle` path names a region instead, and `settle-finish` *widens* its own by
+  hand rather than dropping it, because a supersession flip is a belief change with no
   relabel to record it. The widening is the data whose supersession entry changed since
   the last settle (`special/take-supersession-moves!`), so it grows with the change, not
   with the merges standing.
@@ -386,8 +408,8 @@ probe) constrains everywhere.
 
 **Believed** here is belief as that reader reads it, not the network's label. The
 supporter predicate the KB installs (`res/supporter-believed?`) applies both withdrawal
-kinds: a believed `except` visible from the reader, and a scoped defeat at a vantage the
-reader sees, together with everything resting only on such a handle. A reader that
+kinds: a believed `except` visible from the reader, and a loser of a nogood the reader
+decides, together with everything resting only on such a handle. A reader that
 disbelieves an edge therefore stops reaching over it, and `genl?` from that context
 agrees with `believed?` of the edge's handle (docs/nmtms.md, "A defeat is scoped to its
 vantage"). `relation-filter-active?` is the gate: with neither roster holding anything
@@ -424,8 +446,34 @@ is always walked: built from its children, one read of a broad type would hold t
 down-closure of every type under it.
 
 **A membership test does not build a closure.** `genl?` answers through the depth-pruned
-walk, which holds nothing; `kb/memberships` and the settle's clash stamps (`genl-view`) ask
-it, or read direct parents, and only a caller that walks or intersects the set reads one.
+walk, which holds nothing; `kb/memberships` and a clash's membership lookup
+(`checks/membership-handles`) ask it, and only a caller that walks or intersects the set
+reads one. The lookup names a surviving exact membership `(t x)` without testing
+anything, since the entailing ones are named only when none survives; otherwise it tests
+every type an instance holds and asks the same pair once per instance of a shared type,
+so it asks `genl?-per-pass`, which keeps each answer in a pass cache when one is bound. A
+reader's re-read of its definitional nogoods (`clashes/reread-at`) binds one for its span,
+which holds a detached taxonomy and one reading still.
+
+**Neither does a question asking something small of every type above.**
+`genls-global-union` answers the union of what a transducer makes of each term of
+`genls-global`, by the same recurrence as the up-closure, since what it makes of a union
+is the union of what it makes of the parts; `genls-global-among` is the union with a
+filter, the closure cut to a set of marked terms. Each answer holds a few terms or none.
+Nothing enters the LRU: the caller's memo keeps the answers for one pass over a still
+taxonomy. The arity candidate index (`arity/recompute-arity`) asks the cut to the bound
+predicates only for a functor whose own length differs from one above it: where every type
+binds its own length, the cut to the bound predicates is the closure again. It asks the
+union (`arity/relength`) for the exact lengths above each type below a binding or an edge
+that leaves.
+
+**A property every subtype inherits is spread down, not read up.** The arity index keeps
+the exact lengths bound at or above each type below a binding (`::lengths`), and a length
+arriving is added by `specs-global-while`: a walk down from a type through every active
+edge that enters a subtype only while the caller's predicate holds, here "misses one of
+the arriving lengths". A subtype holding them all stops the walk, since every type below
+it holds them too, so a binding arriving above bound types costs the edges to its
+children; `lein perf`'s `bound-type-load` holds it. A recover spreads every binding once.
 
 **Most scoped reads are the global read.** A node's global closure records the contexts
 its edges rest on (`closure-needs`: the one supporting context of each edge the closure
@@ -445,10 +493,12 @@ a path the scoped `genls` — walking the very same visible edges — returns. W
 filtered walk may **not** borrow is `reachable?`'s other half, answering true off a
 shared component: mutual reachability there is a fact about the *global* edge set, and
 the whole question a scoped read asks is which of those edges the reader can see. So a
-component is a reason to keep walking and never an answer. (A `genl` or `genlCx` cycle is
+component is a reason to keep walking and never an answer. (A `genl` cycle between types is
 refused at assert time and reachable anyway: defeat an edge, assert its reverse — the
 check reads the *active* adjacency, which no longer holds the defeated one — then revive
-the first. A recovered or foreign store replays a stored cycle past the check as well.)
+the first. A `genlCx` edge is on the forced-monotonic roster and is never defeated, so
+a context cycle comes only from a recovered or foreign store, which replays a stored
+cycle past the check, as it does a type cycle.)
 
 The **`genlCx` closure itself is the stated exception and stays global**:
 visibility scoped by visibility would be circular, every `genlCx` edge is forced
@@ -474,17 +524,13 @@ docstring. What is on it:
 | Caller class | Why it must not be scoped |
 |---|---|
 | `vaelii.core`'s own 2-arity `genls` / `specs` / `genl?` | the public API offers both readings, and this arity **is** the global one |
-| assert-time refusals (`wff/genl-problems`, `wff/genlCx-problems`, `checks`) | a refusal is a claim about the KB: a cycle refused when asked from one context and allowed from another is a coin toss, not a rule. The disjoint **overlap** refusal is the deliberate exception — `wff/disjoint-problems` reads the scoped `genl?`, so it agrees with the scoped `(genl a b)` query and an `except` that hides the bridging edge admits the pair (#92) |
+| assert-time refusals (`wff/genl-problems`, `wff/genlCx-problems`, `checks`) | a refusal is a claim about the KB: a cycle refused when asked from one context and allowed from another is a coin toss, not a rule |
 | the forward join and the trigger keys (`rules/trigger-keys`, `chain`, `inherit/moved-predicates`, `vantage`) | a firing is placed in a context the join decides, so the candidate fan cannot be scoped by one — the narrowing happens at placement |
 | the exception re-check triggers (`special`) | a trigger over-approximates in the direction the answer is: a declaration this edge cannot see still qualifies a rule in some context that can, and a missed trigger is a wrong belief where a spare one is a query |
-| settle's candidate discovery | an over-approximated candidate merely checks and yields nothing; the arbitration that follows is scoped |
+| settle's candidate discovery, and the membership candidates a reader filters (`membership/term-nogoods`) | an over-approximated candidate merely checks and yields nothing; the reader that follows reads its own ancestor set |
 | `resolution`'s exception index, `except-hidden-fn` and `withdrawal` | the visibility filter cannot be scoped by the filter it is itself derived from |
 | `quality/taxonomy-coverage` | a report on the whole taxonomy has no vantage to read from |
 | `quality/clash-partners` | a rule pair is decided from a common descendant of the two rules' contexts, a vantage belonging to neither, so the candidate fan cannot be scoped by either |
-
-One caller reads **both** on purpose: `settle/genl-view` compares `genls-global` with the
-scoped answer, because where the two are equal every asker between them reads the same set
-and an unchanged reading is unchanged for all of them at once.
 
 A visibility `except` (docs/contexts.md) can hide a *supporter* from a reader, and then
 the context-only filter is not enough: the scoped walk asks the KB, per supporter, whether
@@ -641,41 +687,21 @@ this wrong is work that never stops rather than a wrong answer.
 
 ### What a batch of edges costs the passes that read it
 
-The depth potential is not the only thing a batch of `genl` edges is quadratic in. Three
+The depth potential is not the only thing a batch of `genl` edges is quadratic in. Two
 passes read the hierarchy *per arriving edge*, and each one's memoization is keyed on
 the node a walk **began** at — so nested roots share nothing and n edges cost n²/2. The
 edges arrive nested because that is what a hierarchy is, and what a load writes.
 
-- **The retroactive arity report expands the union, not the sum.**
-  `settle/report-arity-reach!` takes its extent through `tax/specs-of-all`, which seeds one
-  traversal with every arriving edge's root under one `seen`. Expanding each root's spec
-  subtree separately instead costs 1,024 chained edges ~250 ms — none of it bounded, since
-  the instance budget counts facts examined and this examines none — where the shared walk
-  takes 512 edges from ~60 ms to ~1, growth from 59.5× to 7.5–11.3× per doubling. `lein
-  perf`'s `arity-reach-batch-roots` pins it at 25.0.
-- **The `functional` and `asymmetric` marks are read down, once per pass.** Three gates
-  ask the one question — is a mark at or above this predicate: `could-clash?` per
-  candidate sentex, `declaration-parts` per arriving edge, and
-  `constraint-facts-in-ancestors` per fact a `genlCx` edge brings into sight. Answering each ask with its
-  own `props-over` — `genls(f)` and two sets built off it — is a walk per asker.
-  `settle/clash-marked-below` walks `specs-of-all` over the **marked roster** instead, once
-  per pass behind a `delay`, with the gates asking set membership of the result: 1,000
-  askers over a 1,000-predicate chain go from ~210 ms to ~1, and 2,000 from over a second
-  to ~3, with no closure memo behind it. Warm, it is ~20 ms to ~1 and ~150 to ~2. The
-  roster reading grows with the chain where the per-asker one grows with its square, and the
-  deferred batch *around* it moves 1.04–1.21×, the marks being a small share of a pass that
-  also pairs and reports.
-
-  What that gives up is the form a hybrid would win — a pass carrying a single trigger
-  under a mark near the root of a wide hierarchy. The shipped ontology is not it,
-  declaring twelve marked predicates, of which only `relationTypeByArity` has
-  sub-predicates (`predicateTypeByArity` and `functionTypeByArity`).
-- **The two `special` arms decide before reading the subtree.** `equate-under-edge` reads
-  `tax/props` once before it looks at anything; ungated, every `genl` write on every KB
-  materializes the subtree's extent to discover nothing was functional. `entail-under-edge`
-  is gated on the KB storing an argument constraint. Both take their extent through one
-  `subtree-sentexes`, filtered by index cardinality first. No curve moves —
-  `subsumption-seeds` walks the same subtree and must.
+- **The `special` arms decide before reading the subtree.** `equate-under-edge` and
+  `antisym-equate-under-edge` read it only when a mark of their family stands at or above
+  the edge's upper end (`tax/props-over`), since the edge brings the subtree under those
+  marks and no other; an edge under a broad type whose subtree holds most of the
+  vocabulary reads none of it otherwise (`lein perf`'s `genl-edge-under-no-merge-mark`).
+  `entail-under-edge` is gated on an argument constraint reached from the upper end. All
+  take their extent through one `subtree-sentexes`, filtered by index cardinality first.
+  `subsumption-seeds` reads the subtree's believed handles only when a rule reads a term
+  at or above the upper end, as an antecedent or through a re-join family
+  (`special/rule-reads-above?`, `lein perf`'s `genl-edge-under-no-rule-above`).
 
 All three are **free where nothing is declared**, which is every bulk load: an empty
 marked roster seeds an empty walk, and a KB with no argument constraint never reaches
@@ -781,8 +807,8 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   a subtype from the very type it refines. It is read over the **whole** KB, not the
   reader's context ancestor set — the same global test `(disjoint a b)` applies when it refuses
   a genl-related pair as ill-formed — which is what keeps the sibling arm monotone on
-  visibility, so a descendant context never separates a pair the whole edge set knows
-  overlaps.
+  the visibility of `genl` edges, so a descendant context never separates a pair the
+  whole edge set knows overlaps.
 
   **A mark says nothing about covering.** `sibling_disjoint` says the specializations
   do not *overlap*; it does not say they *exhaust* `C`, so a bare `C` carrying no
@@ -793,8 +819,8 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   a `sibling_disjoint` mark (or a `disjoint_metatype`) would otherwise force disjoint. It is
   keyed as an unordered pair exactly like `disjoint` (`:sib-exception-index`,
   reference-counted on the `(siblingDisjointException X Y)` sentex) and read by
-  `disjointness-test` as one map lookup behind the `genl-related?` guard the sibling and
-  metatype arms already carry; the explicit-`disjoint` arm is deliberately *not* exempted,
+  `disjointness-test` behind the `genl-related?` guard the sibling, metatype and partition
+  arms already carry; the explicit-`disjoint` arm is deliberately *not* exempted,
   since `(disjoint X Y)` is a hard assertion you retract to undo. A Braille reading, both a
   `reading` and a `touch_perception`, is the case it exists for.
 
@@ -804,22 +830,29 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   each read tests the *exact* pair drawn from the two `genl` closures, so nothing wider is
   ever spared.
 
-  **Read globally, not through the reader's ancestor set**, exactly as `genl-related?` is. An
-  exception *removes* a clash, so a context-scoped exception would let a more-specific
-  reader see *fewer* clashes than the KB holds — the non-monotone direction `disjoint?`
-  forbids. The sentex still carries a context and retracts / rebuilds normally; only its
-  read is unscoped. This is the deliberate divergence from Cyc's per-Mt exceptions, and in
-  fact more faithful to disjointness — Cyc has no scoped variant. Asserting an exception
-  releases a standing clash and retracting one re-arms the pair (`clash-vocabulary`
-  compares the exception set, so its move re-derives every known pair); an exception
-  present *ab initio* whose pair therefore never entered the clash set is re-armed on
-  retract by the settle's own sweep off `:sib-exc-dirty`.
+  **Read at the reader.** A reader is exempted only by an exception some supporter states
+  where it reads (`tax/exemption`): a context that sees the exception reads the pair
+  apart, and a context above it or beside it reads the pair separated. With
+  `(sibling_disjoint C)`, `(genl A C)`, `(genl B C)`, `(A X)` and `(B X)` in CxU and the
+  exception in CxE below CxU, CxU reads the two memberships as a nogood and CxE reads
+  none, in every arrival order (`reference_test`'s
+  `a-sibling-exception-exempts-its-pair-only-where-it-is-seen-in-every-order`). The
+  exception is the one read that makes `disjoint?` non-monotone on visibility: seeing
+  more contexts can remove a separation. An unscoped read sees every exception.
+  The membership candidate index keeps the pairs the unscoped taxonomy separates with no
+  exception read, and marks the ones a stored exception spares, so a reader that does
+  not see the exception still finds the nogood and a reader that sees every ground
+  context reads a spared one again over its own ancestor set (`membership/separation-tests`,
+  `membership/scoped-reads`). Asserting an exception releases a standing clash at the readers
+  that see it and retracting one re-arms the pair: the exception set is part of
+  `tax/separation-stamp`, so its move reads every kept type pair's separation again
+  (`membership/sync-memberships`).
 
 **All three separating mechanisms — `disjoint`, `disjoint_metatype` and `sibling_disjoint` — separate any term, not only individuals.** `checks/checkable-term?`
 admits every non-variable symbol, so the predicate meta-ontology is enforced the same
 way the domain is: `(relation_kind …)` is a `disjoint_metatype` over
 `instance_relation_predicate` and `type_relation_predicate`, and a predicate declared both
-is refused exactly as `Muffet` being both a `dog` and a `cat` is. The same widening makes
+is a clash exactly as `Muffet` being both a `dog` and a `cat` is. The same widening makes
 `arg` constrain predicate-valued positions — `(arg typeToInstancePred 1
 type_relation_predicate)` refuses a link whose first argument is not classified
 type-level. A **value** is typed by what it *is* rather than by what somebody
@@ -869,42 +902,26 @@ closure, the visibility ancestor set, the adjacency and the metatype roster read
 asked once; `checks/disjoint-problem` asks it of every type the term already holds,
 which is what it exists for.
 
-### How strongly a separation holds
+Unscoped, neither side reads a whole closure. The frame and each candidate read their
+supertypes cut to the separable types (`separable-genls`): those declared disjoint from
+something, the members of a disjoint metatype, the sibling-disjoint parents and the
+partition parts. A cut is built from the parents' cuts and held in the closure cache
+beside the closures, keyed by the separation stamp. Most types sit under few separable
+types or none, so the membership sync that frames every type of a large KB after a
+recover costs the edges and a small set per type. Only the sibling arm reads a whole
+closure, for the chain under a marked parent.
 
-`disjoint?` answers whether two types are separated; `tax/disjointness-class` answers at
-which defeat class, and returns nil where the reader sees no separation at all. A caller
-asks the first and then the second — this never decides whether a pair is separated, only
-what the separation rests on.
-
-One derivation is a `genl` step up from each side and the declaration the two steps reach,
-and every ingredient has to hold for the derivation to, so its class is the **weakest** of
-them. Several derivations can separate one pair, and the pair is separated as strongly as
-the **best** of them. So the reading is a max of mins over the same four arms
-`disjointness-test` tests — an explicit pair, a metatype, a sibling-disjoint parent and a
-cover — taken off the same `separation-frame`, so the two cannot disagree about which
-derivations exist. The sibling arm counts the two steps down to the marked parent as
-ingredients of their own: the mark separates that parent's specializations, so what makes
-each side one is part of the derivation.
-
-The `genl` steps are read by `reach-strength` above. A declaration's own class is
-`tax/key-class`: the strongest class among the supporters of its flat-cache key that the
-reader can use. **Strongest**, because a declaration stated twice stands on its better
-statement — retracting the defeasible one leaves it holding on the other — where the
-ingredients of one derivation take the weakest. `key-class` is scoped exactly as
-`cache-entry-visible?` is, through the supporter filter when one is active, so a reader is
-never told a declaration holds on a supporter it cannot see.
-
-Where the walk finds no route, the answer is `:monotonic` rather than `:default`: an
-ingredient nothing confirmed is over-claimed toward the strong reading, since the caller
-is deciding whether a refusal may stand and an unconfirmed ground must not admit content.
-
-The caller is `assert` under the `:arbitrate` constraint policy, which refuses a
-definitional clash only when both the sentex it opposes and the derivation that makes the
-two a pair are known-true ([nmtms.md](nmtms.md#1-order-independence), "What a refusal may
-rest on"). `functional` is read the same way one relation over: the mark's class is
-`key-class` of `[:prop :functional p]` and `[:functional-in-arg p n]` — either spelling
-carries the constraint alone, so the **stronger** of the two — capped by the
-`reach-strength` of the predicate hierarchy a mark written higher up descends.
+Scoped, the cut is the same set built through the edges the reader sees
+(`separable-genls-at`). Read from an ancestor set, which carries no belief callback, it is
+held in the closure cache beside the unscoped cuts, as the membership nogoods a reader
+finds from a term ask it; from a concrete context, whose scope reads belief, it is held
+only inside a read-only pass, in the pass cache: a reader's re-read of its
+definitional nogoods frames the types of every nogood it re-asks, and a scoped closure a
+type was most of what it read. A `genl` component every edge of which the reader sees is
+read as one unit, as the unscoped build reads each one. A concrete context off a pass, and
+a type whose build meets a cycle through a component the reader sees only part of, read
+the scoped closure itself, uncut: it holds the same separable types, and cutting it would
+cost more than reading it.
 
 ### Enumerating instead of testing
 
@@ -932,11 +949,8 @@ an answer that silently stops existing, and two copies of this is how that happe
 **Which context it is asked from is a separate question from what it may see.** The
 answer is scoped and stays scoped, but a pair whose halves sit either side of a
 `genlCx` edge is visible from neither of the two contexts they are written in
-alone, so `settle` asks each candidate's question from the maximal common descendant of
-its context and each context holding a sentex it could pair with, beside its own
-(`settle/clash-askers`, and [nmtms.md](nmtms.md) for what the one-sided answer cost).
-Every one of those asks is the same scoped read from a context that already sees both
-halves.
+alone, so each reader asks it over its own ancestor set, and the readers that see both
+halves decide it ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)).
 
 ### Auditing the hierarchy for missing disjointness
 
@@ -959,179 +973,42 @@ decides whether they should be disjoint. The audit reads only, and writes nothin
 
 ### What a declaration reaches back over
 
-A declaration changes what already-stored content *means*, so the settle that admits
-one re-examines the content written before it — or the KB would answer differently
-depending on whether the separation or the memberships were written first, which is
-the invariant [nmtms.md](nmtms.md) opens with. Eight sentence shapes reach back:
-`disjoint`, `disjoint_metatype`, `sibling_disjoint`, a new `(M T)` member of a metatype,
-`genl`, `genlCx`, and (for the nogood path) `functional` and `asymmetric`.
+A declaration changes what already-stored content *means*, so a reader reads the content
+written before it, or the KB would answer differently depending on whether the separation
+or the memberships were written first, which is the invariant [nmtms.md](nmtms.md) opens
+with. Nine sentence shapes move what a membership clash means: `disjoint`,
+`disjoint_metatype`, `sibling_disjoint`, `partition`, `separating`, `covering`, a new
+`(M T)` member of a metatype, `siblingDisjointException` leaving, and `genl`.
 
-The reach is **two questions**, and keeping them apart is what makes a bounded sweep
-buy real coverage:
+**No declaration arriving reads a membership.** The candidate index keeps every term
+holding two memberships, or a membership and a denial, and each pair of types some kept
+term holds (`membership/note-membership!`), whatever the KB declares. A declaration moves
+`tax/separation-stamp`, and the index reads the separations again over those type pairs
+(`membership/sync-memberships`): one separation test per pair, so the cost is the vocabulary
+of type pairs some term holds and not the extent below the types. A `genl` edge moving is
+logged at its lower end (`tax/moves-since`), and only the pairs holding a type at or below
+it are read again; `lein perf`'s `sibling-disjoint-new-spec` holds an edge flat in the
+pairs beside it. A term
+holding a separated pair, or a membership and a denial under a stored cover, keeps its
+nogoods, and each reader reads them off the index
+([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)). `lein perf`'s
+`membership-declaration-arrival` holds a declaration's arrival flat in the memberships
+under the types it separates. `(M T)` is an ordinary unary membership whose functor is
+whatever the metatype is called, and it moves the metatype roster the stamp holds, as
+`(disjoint A B)` moves the pair roster. A `genlCx` edge moves which readers see both halves
+of a pair, and no candidate.
 
-- **what to enumerate** — one record fetch per instance below the declared types,
-  which on a real ontology is the *extent* rather than the moved region. This is what
-  `tax/*exposure-instance-budget*` bounds.
-- **what an enumerated term is a candidate for** — a `believed-memberships` read, a
-  pairwise disjointness probe, and behind that a witness enumeration. Far more
-  expensive per term, and needed only for terms that could really be convicted.
-
-The extent below one side of a separation is **not** the candidate set. A clash needs
-a membership from *each* side, so the terms `(disjoint A B)` implicates are those
-holding a spec of A **and** a spec of B — an intersection, answered by enumerating the
-cheaper side (sized off `count-with-functor` over the spec closures, so choosing costs
-no walk) and probing each of its terms against the other side's closure through the
-argument-1 root. `settle/two-sided-reach` is that rule, and the metatype-member route
-`(M T)` is the same thing between `T` and `M`'s other members. A side whose spec
-closure is **empty** reaches nobody at all — which is what a separation naming a
-non-symbol says, and OpenCyc declares thousands against reified NATs like `(AbnormalFn
-chromosome)`. That is stated in the code rather than left to the sizing arithmetic
-picking the empty side, because what makes it true lives two functions away:
-`believed-memberships` reads a clash half only from a sentence whose functor is a
-symbol, so a compound-functor membership could not be one end of a pair even if it
-were enumerated.
-
-A bound decides *which* candidates get looked at, so ordering matters — and it is applied
-at the **trigger** level and not below it. The declarations in the moved region are walked
-in content order (`settle/content-order`), which a settle's few declarations afford; the
-region itself is not sorted, since it can be the whole store, as in `recover`, where
-sorting it puts an O(n log n) pass over every stored sentex ahead of the first trigger.
-The enumerations under a trigger — the down-closure (`settle/instances-below`), the
-context ancestor set (`settle/members-in-ancestors`), a predicate's posting list — are
-**lazy and unsorted**, so a budgeted consumer realizes only its prefix. Sorting to choose
-that prefix would force the whole extent, which is the cost the cap was added to refuse,
-and the perf gate says so: sorting the ancestor set took `retract-context-cycle-scaling`
-from 0.08 to 0.28 ms/op at 2048 contexts, since a context cycle makes the ancestor set the
-whole graph.
-
-So a cut past the budget reaches a prefix the index chose. The `functional` /
-`asymmetric` route is where that is widest, since a declaration there reaches every
-predicate beneath the one it names: the spec subtree is walked in content order, so which
-predicates a bounded pass reaches is a function of the vocabulary, while within a
-predicate the prefix is still the posting list's own. What it costs is bounded: the pairs not reached
-are **undecided this settle** rather than decided the other way, and the standing whole-KB
-question (`core/exposed-clashes`) takes no budget at all.
-
-**A cut arbitration sweep resumes in later settles** until its reach is read to the end.
-`settle/take-parts` keeps each enumeration's unread tail, the same lazy seq past the
-prefix, so resuming it re-reads no element and sorts nothing. The settle files the sweep's
-key (the trigger's handle, or a re-armed exception pair) under `:clashes`' `:pending` and
-the tails under `:arbitration-cursors` (`settle/carry-arbitration-sweeps!`). The next
-settle's `settle/clash-candidates` spends its budget on the region's own triggers first,
-then on the carried sweeps (`settle/carried-sweeps`), so each settle stays within one
-budget, and a settle whose own triggers spend the whole budget advances no carried sweep.
-A trigger the region holds again restarts from the start of its reach. The tail is read
-against current state:
-
-- a fact stored after the cut is in its own settle's region;
-- a fact retracted after the cut is dropped when the tail reaches it, and the facts past it
-  are still read;
-- a fact whose belief moved is in the region of the settle that moved it, and the tail
-  re-reads belief before a candidate is checked;
-- a trigger retracted or no longer believed ends its sweep.
-
-An image carries `:pending` and not the tails, which are lazy seqs, so a KB installed from
-an image restarts each carried sweep from the start of its reach. A settle whose region
-holds the whole store drops the carried sweeps, since its candidates already include
-everything they reach. Every arrival order therefore reaches the same pairs, and arrival
-order moves *when* a pair is arbitrated, not which way it goes
-(`exposure_test`'s `a-cut-arbitration-sweep-resumes-until-every-arrival-order-believes-the-same`).
-
-**One cap in the engine is the exception to that last sentence**, and it is not one of
-settle's: `special/equate-under-context-edge`'s merge-deriving sweep takes a handle-ordered
-prefix of the ancestor set a `genlCx` edge widens, and nothing re-triggers on an edge that has
-already landed. So past *that* cap arrival order decides whether a merge is derived at
-all, not only when. It is bounded by the same dial, reported on every cut
-(`:context-edge-exposure-truncated`), and exact below the cap; the residual is stated in
+The merge sweeps are bounded where the membership families are not.
+`special/equate-under-context-edge`'s merge-deriving sweep takes a handle-ordered prefix
+of the ancestor set a `genlCx` edge widens, within `tax/*exposure-instance-budget*`, and
+nothing re-triggers on an edge that has already landed. So past that cap arrival order
+decides whether a merge is derived at all. It is reported on every cut
+(`:context-edge-exposure-truncated`) and exact below the cap; the residual is stated in
 full in [equality.md](equality.md).
 
-**No cut is silent.** A bounded sweep that read as full coverage is the failure every
-half guards against, so each files one entry per settle: `:arbitration-truncated` from
-`settle/report-arbitration-cut!`, carrying `:triggers` `:sample` `:budget` `:message`, and
-`:arity-truncated` from `settle/report-arity-reach!`, carrying `:predicates` in place of
-`:triggers`, because its budget is spent walking a subtree of predicates rather than a
-list of triggers.
-`settle/report-unarbitrable-reach!` files `:unarbitrable-reach-truncated` with the arity
-notice's keys, for the same reason. A fifth,
-`:partner-sweep-truncated`, comes from the one bounded read with no settle-wide budget to
-debit: `settle/partner-contexts` runs at the assert entry point as well as inside a settle, so its
-unnarrowed `functionalInArg` arm (a declared position covering the whole tuple, leaving no
-argument root to narrow by) caps locally and reports through a volatile `settle/settle*`
-binds and the entry point leaves nil, drained by `settle/report-partner-cut!`.
-It carries `:sweeps` `:budget` `:message`, and what its cut costs is
-a **vantage** rather than a pair — a context that would have seen the clash is never
-asked, so the pair goes undecided — which makes it the one notice whose loss no other
-entry's counts can reflect. They stay separate kinds because a reader acts differently on
-*went unreported* than on *went undecided*.
-
-The arbitration notice accumulates across the settle's
-passes and is filed once, since `settle/constraint-nogoods` re-runs its sweep every pass
-and one declaration cut in nine of them is one fact about the settle. Every settle whose
-carried sweep is still cut files it again. The partner notice
-accumulates the same way and for the same reason. Every notice is off
-while `settle/*rebuilding?*`; the arbitration **sweep** is not, because that flag does not
-promise the region is everything — `core/recover` binds it around two settles and the
-second one's region is only what re-recording the refusals moved.
-
-The **arbitrating** path reads this rule. `settle/declaration-parts` runs under either
-constraint policy, because a recover decides the same pairs from its region whatever the
-policy, hands `settle` a nogood rather than a ledger entry, and narrows through
-`declaration-reach`.
-
-**Seven of the eight shapes are named by a functor and the eighth is not**. `(M T)` is an ordinary unary
-membership whose functor is whatever the metatype is called, so no fixed vocabulary of
-declaration functors can recognize it — only `tax/disjoint-metatype?` says it declares
-anything at all. The arbitration therefore gates on the taxonomy rather than on the
-sentence (`settle/metatype-member?`).
-
-Measured on the OpenCyc import [kbs.md](kbs.md) is the route to, in one run. Over its
-~27k distinct declared disjoint pairs, sweeping below
-*either* side asks for roughly 26M instance enumerations against the intersection's
-roughly 1.7M — **about 16×** — so a 4,096-instance budget, half the 8,192 default of
-`tax/*exposure-instance-budget*`, is spent after **27**
-declarations rather than several thousand. The candidate sets are further apart than the
-enumerations: on a 2,092-declaration spread the union rule calls roughly 1.8M terms
-candidates, of which 34 can convict.
-
-Run per trigger over all ~38k `disjoint` sentexes with the budget out of the way, the
-pass costs under a minute where the union rule costs several for the first 3,000 alone —
-**roughly 50× on the same 3,000**. And it loses nothing: `core/exposed-clashes`, which
-uses no candidate
-rule and no budget at all and is complete by construction, reports **638** clashes;
-the narrowed sweep reaches the same 638, with both set differences empty. The union
-rule reaches 638 from only 3,000 of those triggers precisely *because* it
-over-collects — those extra reports are clashes it stumbles on while sweeping a
-declaration that does not implicate them, filed against the wrong trigger.
-
-Under a budget the difference is coverage rather than time, which is the point. One
-settle whose region holds 2,000 declarations leaves **536** of them unswept at a
-4,096-instance budget under the union rule and **69** under the intersection; raised to
-100,000 the two are 466 and 5.
-
-Two arms cannot narrow that far and say so. `genl` and `genlCx` move what a
-membership *means* rather than separating two named types, so the second half of a
-clash could be any other membership the term holds; all they can apply is the O(1)
-`pairable?` gate — a term with one fact about it at argument 1 cannot be half of a
-pair. That gate is **over-approximating on purpose**, where the intersection is exact:
-the argument root is not belief-filtered and spans every predicate and either polarity,
-so a count above one is only evidence that a pair is possible, where one is proof that
-it is not. Both directions are safe because a candidate that convicts nobody merely
-checks and yields nothing — the rule may over-collect, never under-collect.
-
-The budget bounds the **enumeration**, never the survivors. Budgeting what survives
-would make a candidate rule that rejects everything walk the whole extent looking for
-one keeper and then report full coverage — which is the one thing a bounded pass may
-not do, and is what `exposure_test`'s
-`an-arbitration-sweep-that-decides-nothing-still-says-it-was-cut` pins.
-
-The sweep is what the *incremental* question needs — which instances a changed
-declaration implicates — and it is why the sweep is bounded. The **standing** question
-needs none of it: a term is a candidate iff it holds two believed memberships, so
-walking the memberships finds every candidate exactly, which is what
-`core/exposed-clashes` does. It is complete where the settle's sweep is budgeted, and it
-names every jointly-visible pair, decided or not. The settle files no report of its own
-for a pair it has not decided
-([defenses.md](defenses.md#a-clash-the-settle-has-not-decided-is-counted-not-named)).
+The **standing** question needs no index: a term is a candidate iff it holds two believed
+memberships, so walking the memberships finds every candidate exactly, which is what
+`core/exposed-clashes` does. It names every jointly-visible pair, decided or not.
 
 ## Covering: a whole and the parts named against it
 
@@ -1173,6 +1050,13 @@ closure sees one taxonomy rather than two, and defeating or retracting the cover
 the edges with it. A cover asserted before its parts carry any other fact therefore
 settles to the state a cover asserted after them does.
 
+Every reader that asks which edges a datum put into or took out of the closure reads them
+off `tax/installed-edges`, which names one edge for a `genl` sentence and one per part
+for a cover. A cover arriving after a rule on the whole and a fact on a part therefore
+seeds the rule over that fact (`subsumption-seeds`) and re-joins a rule reading `genl`
+(`chain/closure-rejoin-rules`), and a retracted cover re-derives over a surviving route
+(`resubsumption-seeds`), each as a stated edge in its place does.
+
 ### The coverage inference is gated on explicit negation
 
 For `(covering W A B C)` and a term `X`, a believed `(W X)` together with a believed
@@ -1188,16 +1072,14 @@ operator that nothing stores ([naf.md](naf.md)).
 
 Ruling out *every* part falsifies the cover. `(W X)` with `(not (A X))`, `(not (B X))`
 and `(not (C X))` is a contradiction of kind `:cover`, and the entry point treats it as
-it treats a disjointness clash: `:refuse` refuses the sentence that completes it, and
-`:arbitrate` refuses only when the opposing sentexes, the declaration and the `genl`
-route from the membership's type to `W` are all known-true
-(`checks/cover-grounds-class`). An admitted refutation is a nogood `settle` arbitrates
-in every arrival order. The membership arriving last is its own candidate. A negation
-arriving last puts the memberships of the term it denies in the candidates. A
-declaration arriving last reaches, under either policy, the terms holding a stored
-denial of its part with the fewest stored facts (`settle/refutable-terms`). The gate in
-front of the clash pass and `clash-vocabulary` read the covering roster
-(`tax/coverings`) beside the separations. The nogood names the membership and the
+it treats a disjointness clash: the sentence that completes it is stored, and the
+refutation is a nogood decided in every arrival order. A denial of a supertype of a part
+denies the part: `(not (Q X))` with `(genl A Q)` rules out `(A X)`. The candidate index
+keeps a term holding a membership and a denial, and reads its covers again when the
+covering roster (`tax/coverings`, in `tax/separation-stamp`) or a `genl` edge moves, so the
+membership, a denial or the declaration arriving last forms the same nogood
+(`reference_test/a-cover-refuted-through-a-denial-of-a-part-s-supertype-is-decided-in-every-order`).
+The nogood names the membership and the
 negations and **not** the declaration, which is `disjoint`'s rule and is there for
 `disjoint`'s reason: a nogood that could defeat the cover would read a taxonomy without
 it on the next pass, find no violation, and revive it.
@@ -1212,13 +1094,12 @@ records no separation at all, so two of its parts may overlap and `disjoint?` an
 false for the pair.
 
 **Every reader of a separation reads all four spellings**, and each place that enumerates
-them is a place the roster has to appear by name: `separations?`, the emptiness gate every
-disjointness pass in `settle` sits behind; `clash-vocabulary`, which decides whether a
-memoized clash answer still holds; `disjointness-witnesses`, whose emptiness a caller
-reads as *not disjoint*; and `disjointness-class`. A gate naming fewer spellings than the
-test behind it shuts on a KB `disjoint?` answers true in — and the pair the entry point
-admits under `:arbitrate` is then stored and never weighed, with `contradictions` and
-`exposed-clashes` both reporting nothing about it.
+them is a place the roster has to appear by name: `clashes/separations?`, the emptiness
+gate `exposed-clashes` sits behind; `tax/separation-stamp`, which decides whether the
+membership candidates' separations still hold; `disjointness-witnesses`, whose emptiness a
+caller reads as *not disjoint at any reader*. A gate naming fewer spellings than the test behind it shuts on a
+KB `disjoint?` answers true in — and the pair the entry point stores is then never
+weighed, with `contradictions` and `exposed-clashes` both reporting nothing about it.
 
 `disjoint_metatype` keeps its own meaning — pairwise disjointness among members, with no
 claim that the members exhaust anything.
@@ -1231,14 +1112,22 @@ instance of its whole belonging to none of its parts is what it declines to spea
 
 `wff/covering-problems` rejects any of the three that states nothing or cannot hold: fewer
 than two parts, a repeated part, an individual in any position, a part equal to the
-whole, a part the closure already places above the whole (the `genl` edge would close a
-cycle), and a part already disjoint from the whole. Each refusal takes the structured
-`:not-well-formed` path rather than throwing, as every other `wff` arm does.
+whole, and a part the closure already places above the whole (the `genl` edge would close
+a cycle). Each refusal takes the structured `:not-well-formed` path rather than throwing,
+as every other `wff` arm does. A part disjoint from the whole is stored: the refusal would
+read the stored `disjoint`, and what is stored would depend on which of the two arrived
+first ([nmtms.md](nmtms.md#1-order-independence)).
 
 ## Predicate metadata
 
 Beyond types, the taxonomy caches predicate properties, declared as sentexes and
-maintained by `integrate-sentex`:
+maintained by `integrate-sentex`. The relation marks `irreflexive`, `anti_symmetric`,
+`asymmetric`, `functional`, `functionalInArg`, `anti_transitive` and `transitiveInArg`,
+the function classes `injection`, `surjection` and `bijection`, and the declarations
+`disjoint`, `covering`, `partition` and `sibling_disjoint`, and the arity bindings
+([Arity](#arity)), are on the forced-monotonic roster: each is held `:monotonic` whatever
+strength it was written at, and a denial of one is held OUT
+([nmtms.md](nmtms.md#the-forced-monotonic-roster)).
 
 - `(transitive P)` / `(symmetric P)` / `(reflexive P)` — drive the generic
   relation provers (see [inference.md](inference.md)).
@@ -1394,9 +1283,9 @@ maintained by `integrate-sentex`:
   mount, and it is the majority of the cost at every size measured. That is the number to
   hold against any scheme for making the fetch cheaper: it bounds one.
 - `(asymmetric P)` — a *constraint*, and the mirror of a claim denies it: `(P a b)` and
-  `(P b a)` are contradictory, so a claim whose converse is believed `:monotonic` is
-  refused (`ex-info` `:type` `:asymmetric`); a converse read by preservation refuses
-  only with its reading known-true too ([inherit.md](inherit.md)). A strict order like
+  `(P b a)` are contradictory, so a claim whose converse is believed forms a nogood with
+  it, which the settle decides; a converse read by preservation opposes at the weakest
+  class of the claim and its reading ([inherit.md](inherit.md)). A strict order like
   `largerThan` is the usual case. The conviction needs a believed **opposing** sentex, and a self tuple has
   none — its converse is the sentence itself — so `(P a a)` is admitted with no clash,
   which asymmetry alone would not license. `inherit/claims` skips the converse probe
@@ -1415,18 +1304,18 @@ maintained by `integrate-sentex`:
   (assert kb '(asymmetric parentOf) 'CxUniverse)
   (assert kb '(genl fatherOf parentOf) 'CxUniverse)
   (assert kb '(parentOf Ann Bob) 'CxUniverse {:strength :monotonic})
-  (check kb '(fatherOf Bob Ann) 'CxUniverse)
+  (require '[vaelii.impl.checks :as checks])
+  (checks/arbitrable-violations kb '(fatherOf Bob Ann) 'CxUniverse)
   ;; [{:type :asymmetric :sentence (fatherOf Bob Ann) :pred parentOf
-  ;;   :opposing (parentOf Ann Bob) :opposing-handle 3 :opposing-class :monotonic
+  ;;   :opposing (parentOf Ann Bob) :opposing-handle 3
   ;;   :message "asymmetric: parentOf cannot hold both ways, and (parentOf Ann Bob) is known true"}]
   ```
 
   The functor of `:sentence` is the spelling the caller wrote; `:pred` is the declaration
   it ran into. Several supers may carry the mark and each contributes its own violation,
   so one sentence can yield several entries differing only in `:pred`. `:opposing` and
-  `:opposing-handle` name the believed claim on the other side and `:opposing-class` is
-  its defeat class — `:monotonic` there is what makes the entry a refusal rather than a
-  pair `settle` arbitrates.
+  `:opposing-handle` name the believed claim on the other side, which is what makes the
+  entry a pair `settle` arbitrates rather than a refusal.
 - `(inverse P Q)` — `P` and `Q` are inverses. A predicate may declare **several**, and
   the cache holds `{predicate #{partners}}` maintained in both directions, so retracting
   one declaration retires that partner and leaves the rest. `tax/inverses-of` is the set,
@@ -1438,11 +1327,17 @@ maintained by `integrate-sentex`:
   sub-predicate answers the super-predicate's goal**, since a sub-predicate's tuples are
   the super's: `tax/inverses-under` is that set, and it consults the spec closure only
   where some inverse exists at all, so a KB declaring none pays one lookup.
-- `(arity P n)` — the declared arity, cached rather than re-queried because the
-  per-assert arity check reads it on every fact.
-- `(functional P)` — a *constraint*: `assert` rejects a second, different value
-  for the same first argument (`checks/functional-problems`). With equality this would
-  instead unify the two values.
+- `(arity P n)` — the declared arity, cached for the argument-position check and
+  `kb/relation-arity`; the arity nogoods read it from the candidate index
+  ([Arity](#arity)).
+- `(functional P)` — a *constraint*: two believed tuples `(P a b)` and `(P a c)` with
+  `b` distinct from `c` collide (`checks/functional-clashes`). A collision of two symbols
+  whose members are both `:monotonic` derives `(equals b c)` and merges
+  (`special/derive-functional-equalities`, [equality.md](equality.md#what-a-merge-does)).
+  Every other collision, a `:default` member or a filler that is not a symbol, is a
+  nogood the settle decides (`checks/functional-problems`): the unique `:default` member
+  is OUT, two `:default` members are a dilemma, and two `:monotonic` members are a hard
+  clash ([reference.md](reference.md#decisions), decision 6).
 - `(functionalInArg P n)` — the same constraint with the *determined* position named
   rather than fixed at 2: every argument of `P` except `n`, taken together, fixes the
   filler at `n`. `(functional P)` is the arity-2 case, and `(functionalInArg P 2)` on a
@@ -1458,9 +1353,8 @@ maintained by `integrate-sentex`:
   unlike `arity`, which collapses to a single value because two lengths are an ambiguity
   where two functional positions are two facts.
 
-  It resolves exactly as `functional` does: two symbol fillers derive `(equals V1 V2)`
-  and merge, two non-symbols are refused outright, and a merge rests on **every**
-  declaration constraining that position, so a predicate carrying both `(functional P)`
+  It resolves exactly as `functional` does, and a merge rests on **every** declaration
+  constraining that position, so a predicate carrying both `(functional P)`
   and `(functionalInArg P 2)` keeps its merge when either is retracted
   (`checks/functional-declaration-supporters`). It is read up the hierarchy for
   `functional`'s reason, through a reader of its own — `tax/functional-in-arg-over`,
@@ -1469,43 +1363,35 @@ maintained by `integrate-sentex`:
 
   The degenerate end is worth naming: `(functionalInArg P 1)` on a *unary* predicate
   leaves an **empty** determinant, which reads as "at most one filler, full stop" — every
-  believed tuple of `P` is then comparable to every other. `settle`'s partner discovery
-  narrows by a single argument root and has none to use in that shape, so it falls back
-  to an extent sweep bounded by `tax/*exposure-instance-budget*`; a cut there files
-  `:partner-sweep-truncated` ([operations.md](operations.md)). The same fallback carries
-  a *composite* determinant whose `n` is the **last** argument — `(functionalInArg P 3)`
-  on a ternary — for the same reason: several positions together are no more a single
-  argument root than none are. What settle-time discovery does **not** reach is a mark on
-  a position that is not the last, `(functionalInArg P 2)` on a ternary, which its
-  candidate gate (`marked-at-final-arg?`) never asks about. The entry point checks that one
-  correctly like any other; it is cross-context *discovery* that stops there.
+  believed tuple of `P` is then comparable to every other. A tuple finds the others of
+  its determinant with one trie read when the determinant's positions lead, or one
+  intersection of their argument roots, whatever the position and the arity, and a
+  determinant already holding two fillers takes a new tuple with no read at all
+  ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)).
 - `(irreflexive P)` — a *constraint*, and the strict counterpart of `reflexive`: a self
-  tuple `(P a a)` is contradictory and refused at the entry point (`ex-info` `:type`
-  `:irreflexive`). Stronger than `asymmetric`, which **admits** the self tuple — asymmetry
-  needs a believed opposing sentex to convict and a lone tuple names none, where
-  irreflexivity refuses it outright. For the same reason it is never an arbitrable nogood:
-  there is no pair. A declaration arriving after a self tuple was stored is the `arity`
-  case rather than the `asymmetric` one — the tuple stands and the late mark reports rather
-  than defeats: `settle/report-unarbitrable-reach!` files one `:irreflexive` entry per
-  marked predicate, with the `:count` and a `:sample` of the self tuples it convicts, and
-  a `genl` or `genlCx` edge arriving last reports the same way. `(genl asymmetric irreflexive)` classifies every asymmetric predicate as an
-  irreflexive one for a *query*, but does not set the `:irreflexive` property on it, so an
-  asymmetric predicate still admits its self tuple.
-- `(anti_symmetric P)` — a *constraint* that resolves by **merging**: a believed converse
-  `(P b a)` beside `(P a b)` forces the two arguments to be one thing, so the KB derives
-  `(equals a b)` and merges (`special/derive-antisymmetric-equalities`), the antisymmetric
-  twin of what `functional` does with two symbol values and the same three arrival
-  directions (fact, declaration, `genl` edge). The merge is justified by both facts and the
-  declaration, so retracting any one un-merges. A converse no equality could reconcile —
-  two numbers, a compound — is the hard contradiction refused at the entry point instead (`:type`
-  `:anti-symmetric`), like a numeric functional clash. Such a pair stored before the mark
-  reached it stands and is reported, `irreflexive`'s reading: one `:anti-symmetric` entry
-  per marked predicate (`settle/report-unarbitrable-reach!`). A self tuple's converse is itself
-  and `(equals a a)` is trivial, so it is admitted.
+  tuple `(P a a)` is a one-member nogood, decided at each reader that reads the mark
+  ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)). A `:default` self tuple is OUT
+  there and a `:monotonic` one is a hard clash in `conflicts`, whichever of the mark, the
+  tuple, a `genl` edge between predicates or a `genlCx` edge arrives last. Stronger than
+  `asymmetric`, which **admits** the self tuple, since asymmetry needs a believed opposing
+  sentex to convict and a lone tuple names none. `(genl asymmetric irreflexive)` classifies
+  every asymmetric predicate as an irreflexive one for a *query*, but does not set the
+  `:irreflexive` property on it, so an asymmetric predicate still admits its self tuple.
+- `(anti_symmetric P)` — a *constraint*: a believed converse `(P b a)` beside `(P a b)`,
+  with `a` distinct from `b`, is a two-member nogood, decided at each reader that reads
+  the pair and the mark ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)): the unique
+  `:default` member is OUT, two `:default` members are a dilemma, and two `:monotonic`
+  members are a hard clash. A converse of two symbols whose members are both `:monotonic`
+  merges instead: the KB derives `(equals a b)` (`special/derive-antisymmetric-equalities`),
+  the antisymmetric twin of what `functional` does with two symbol values and the same
+  three arrival directions (fact, declaration, `genl` edge). The merge is justified by
+  both facts and the declaration, so retracting any one un-merges. A converse is found
+  under the tuple's own functor and under every predicate below a mark on it or above
+  it. A self tuple's converse is itself and `(equals a a)` is trivial, so it is admitted.
 - `(anti_transitive P)` — a *constraint* whose conviction spans **three** claims: `(P a b)`
   and `(P b c)` believed make `(P a c)` contradictory, the dual of `transitive`. The three
   are one nogood rather than three pairs, weighed by the same rule any contradiction is
-  (`settle/decide-nogood` over the whole member set): a chain that is known true refuses
+  (`decide/verdict` over the whole member set): a chain that is known true refuses
   the direct step at the entry point, a chain with one defeasible step has that step defeated
   instead, and three equal defaults are a three-sided dilemma the engine reports and
   declines to decide ([nmtms.md](nmtms.md)). Read up the predicate hierarchy like the other
@@ -1524,7 +1410,7 @@ maintained by `integrate-sentex`:
   no engine code either: eight shipped CxCore rules derive what the engine already
   enforces and audits. Each mark splits into two halves, and the split is what the family
   is for. The **enforced** half is `(functional P)` and `(functionalInArg P 1)`, merged or
-  refused at the assert entry point exactly as a directly written mark is. The **audited**
+  decided as a nogood exactly as a directly written mark is. The **audited**
   half is the binary `(predAllSpecified P D)` for totality and `(predSpecifiedAll P R)`
   for ontoness — each filler type derived from the predicate's own slot contract at
   read time — reported by `specified-violations` when a caller asks
@@ -1563,14 +1449,13 @@ differs by mark. `tax/props-over` walks up for `asymmetric`, `functional`, `irre
 `functionalInArg` walks up too and is no prop: `tax/functional-in-arg-over` reads a
 table keyed `pred → #{n …}`, which is `arity`'s shape rather than a roster's, and
 returns the `[pred n]` pairs a probe predicate is reached by. `arity` is no prop at all:
-`checks/declared-arity` reads it off the arity table and the exact-class memberships
-(`checks/exact-arity-classes`, nine spellings), falling back to `inherited-arity` where
-the predicate declares nothing of its own. And `inverse` has a reader of its own,
+a reader reads the bindings off the candidate index ([Arity](#arity)), falling back to the
+super-predicates' where the predicate binds nothing of its own. And `inverse` has a reader of its own,
 `tax/inverses-under`, which walks the hierarchy the other way.
 
 | mark | descends? | why |
 |---|---|---|
-| `arity`, and the exact-class memberships | yes — read where the sub-predicate declares none of its own, and where it declares one the two are held to **match** | a ternary `fatherOf` fact is a ternary `parentOf` tuple |
+| `arity`, and the exact-class memberships | yes — read where the sub-predicate binds none of its own, and where it binds one the two disagreeing are a hard clash | a ternary `fatherOf` fact is a ternary `parentOf` tuple |
 | `asymmetric` | yes | `(fatherOf a b)` beside `(parentOf b a)` is two `parentOf` tuples one way round each |
 | `functional` | yes | two `fatherOf` mothers for one child are two `parentOf` values |
 | `functionalInArg` | yes — through `tax/functional-in-arg-over` rather than `props-over`, the table carrying an integer | `(functionalInArg parentOf 2)` must convict two `fatherOf` mothers exactly as `(functional parentOf)` does, or the generalization would be weaker than the case it generalizes |
@@ -1587,9 +1472,8 @@ the pair existed. The mark is now read at every predicate above the sentence's, 
 probe runs **at the marked predicate**: `(parentOf b a)` rather than `(fatherOf b a)`,
 since only the general spelling's probe fans down over both. `arity` is the strict one: a
 specialization does not get a signature of its own, because a `genl` edge says its tuples
-*are* the super's and tuples of different lengths are not the same tuples. The arity
-table still answers one value per predicate and `(functional arity)` still has a single
-value to be functional about — now because the second, disagreeing value never lands.
+*are* the super's and tuples of different lengths are not the same tuples, so two
+disagreeing bindings across an edge are reported as a hard clash ([Arity](#arity)).
 
 `tax/props-over` gates on the `:props` roster for the kind being empty, which it is on
 nearly every KB, so a descending read is one map lookup where nothing is declared — the
@@ -1641,7 +1525,10 @@ seen KB-wide (the definitional reads and the structural ones agree). A bare KB, 
 declares no lift, keeps `transitive` and the other definitional marks in their declaring
 context, and the engine lifts `symmetric` and the three commutativity marks on every KB,
 since they decide a sentex's stored key
-([contexts.md](contexts.md#where-a-relation-property-is-read-from)). Arity memberships are likewise direct (the starter loops every
+([contexts.md](contexts.md#where-a-relation-property-is-read-from)). A bare KB holds the
+forced-monotonic roster's engine baseline as a CxCore KB does, so an arity binding or a
+`disjoint` declaration stated `:default` is held `:monotonic` on it
+([nmtms.md](nmtms.md#the-forced-monotonic-roster)). Arity memberships are likewise direct (the starter loops every
 subtype of `thing` into `unary_predicate`). So `isa? siblingOf symmetric`, `isa? siblingOf
 binary_predicate`, and `isa? siblingOf predicate` all hold, and `isa? dog unary_predicate` /
 `isa? arg ternary_predicate`.
@@ -1659,13 +1546,12 @@ Before storing, `assert` checks the special predicates are structurally sound:
 
 - `genl` / `genlCx` — both arguments are types / contexts (not individuals), not
   equal, and don't create a cycle (the reverse relation must not already hold).
-- `disjoint` / `disjoint_metatype` — arguments are types; two genl-related types can't
-  be declared disjoint (one contains the other, so they overlap). Genl-relatedness here
-  is read **scoped to the asserting context**, not globally: where an `except` hides the
-  bridging edge, the scoped `(genl a b)` query is empty and the disjoint assertion is
-  admitted, so the refusal agrees with the query in the context it is made (#92). This is
-  the assert-time reading only — `disjoint?`'s own genl-relatedness guards stay global, so
-  disjointness remains monotone on visibility ([above](#the-global-readers-and-who-may-use-one)).
+- `disjoint` / `disjoint_metatype` — arguments are types, and a type is not disjoint
+  with itself. Two `genl`-related types may be declared disjoint: the refusal would read
+  the stored edge, so the declaration is stored whichever of the two arrived first, the
+  explicit arm separates the pair, and `conflicts` lists the declaration as a hard clash
+  (decision 8 of [reference.md](reference.md#decisions);
+  [nmtms.md](nmtms.md#declarations-over-related-types)).
 - `arg` / `genlArg` — a predicate, a positive-integer position, and a type. One
   check serves both (`wff/arg-constraint-problems`): they are structurally identical
   and differ only in what they demand of the argument, which is `checks`' business.
@@ -1716,62 +1602,58 @@ convict harder the less a context sees.
 
 ### Arity
 
-`checks/arity-problem` holds a sentence to the arity its predicate is **bound** to —
-from `(arity P N)` or from an exact-class membership (`checks/exact-arity-classes`: the
-relation-wide `unary` / `binary` / `ternary` and their six predicate and function
-specializations), which the CxCore rules derive from each other, so either spelling binds,
-and from a super-predicate's where the predicate declares nothing of its own (below). One
-relation binds one length: the relation-wide three are pairwise `disjoint` (above) and the
-six inherit that separation through their `genl` edges, so a second classification never
-lands to derive a second value. The **top literal only**, exactly like `arg`: a rule reaches the check as its
-`implies` form, whose own arity is 2 and is checked as such, and its antecedents are
-not. Open-world in the same shape — a predicate the KB has never declared can be used
-at any arity, since the declaration may simply not have arrived.
+A tuple is held to the length its predicate is **bound** to, and each reader decides a
+tuple that breaks it ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)). Four spellings
+bind, every one of them on the forced-monotonic roster and read as storage: `(arity P N)`,
+an exact-class membership (`tax/exact-arity-classes`: the relation-wide `unary` /
+`binary` / `ternary` and their six predicate and function specializations), a
+`variable_arity` membership (`variable_arity`, `variable_arity_predicate` or
+`variable_arity_function`) and `(arityMin P M)`. A membership binds by its own functor
+and not through a type `genl` edge: `(transitive P)` binds no length although CxCore puts
+`transitive` under `binary_predicate`, because a type edge and a membership off the roster
+are defeasible, and a binding goes OUT only by retraction ([reference.md](reference.md)
+decision 11). The reference model does not model arity, so it settles nothing about that
+reading. Two exact lengths one reader sees bind nothing there; `(functional arity)` and
+the pairwise `disjoint` of the three relation-wide classes report them. Open-world: a
+predicate nothing binds takes a tuple of any length.
 
-`(variable_arity P)` exempts a predicate outright. `lessThan` has `arityMin` two and
-reads a chain of any length (`(lessThan 1 2 3)` is `1 < 2 < 3`); the declaration is what
-says so, rather than the check carrying a roster of predicates it quietly skips.
+A tuple that breaks the binding is a **one-member nogood** whose ground is the binding. A
+`:default` tuple is OUT at every reader that sees the binding, with everything resting
+only on it; a `:monotonic` one is a hard clash, believed and reported in `conflicts` with
+the binding under `:grounds`. Nothing refuses a wrong-length tuple, so the stored set is
+the same whichever of the tuple, the binding and the edges arrived first.
 
-**A predicate that declares no arity takes its super-predicates'**, and only then: a
+`(variable_arity P)` releases a predicate from one exact length. `lessThan` has `arityMin`
+two and reads a chain of any length (`(lessThan 1 2 3)` is `1 < 2 < 3`); the membership is
+what says so, rather than the check carrying a roster of predicates it quietly skips. A
+`variable_arity` predicate is still floored at its `arityMin`: a shorter tuple breaks it.
+
+**A predicate that binds no length takes its super-predicates'**, and only then: a
 `fatherOf` tuple is a `parentOf` tuple, so a ternary `fatherOf` fact is a ternary
-`parentOf` tuple that `(binary_predicate parentOf)` says does not exist. The restriction
-to predicates that declare nothing is what keeps this a *check* rather than a preserved
-fact — `(arity fatherOf ?n)` answers the one value somebody wrote of `fatherOf`, and
-nothing where nobody wrote one. Supers that disagree bind nothing, which is the stance
-`tax/declared-arity` already takes toward two contradictory declarations of one
-predicate, and a `variable_arity` super releases the inheritance for the reason it exempts
-the predicate carrying it. Both spellings are read up the hierarchy, the `(arity P n)`
-table first because it costs a map read where the exact-class membership costs a
-retrieval.
+`parentOf` tuple that `(binary_predicate parentOf)` says does not exist. The super-predicates
+are those above it through `genl` edges stated in the reader's ancestor set. The
+restriction to predicates that bind nothing is what keeps this a *check* rather than a
+preserved fact: `(arity fatherOf ?n)` answers the one value somebody wrote of `fatherOf`,
+and nothing where nobody wrote one. Supers that disagree bind nothing, and a
+`variable_arity` super releases the inheritance for the reason it releases the predicate
+carrying it.
 
-**A predicate that declares one is held to match its super-predicates'**, and the two
-arrival orders are both refused: `checks/edge-arity-problem` refuses a `genl` edge
-arriving onto two predicates already declared at different lengths, and
-`checks/declaration-arity-problem` refuses an arity declaration arriving onto a predicate
-a visible edge already relates to a differently declared one. Either way the **arriving**
-sentence is refused, so the KB never holds the pair, and which of the three sentences is
-refused is the first-writer-wins every entry point refusal has. The refusal is `:arity` and its
-message names both predicates, both lengths, and the two ways out:
-
-    arity does not descend: 3 arguments declared of fatherOf, 2 declared of parentOf,
-    and (genl fatherOf parentOf) says every fatherOf tuple is a parentOf tuple —
-    tuples of different lengths are not the same tuples (give the two one arity, or
-    declare one variable_arity)
+**A predicate that binds a length is held to match its super-predicates'.** Two
+predicates a `genl` edge relates whose own exact lengths differ are a nogood of their
+bindings, `:arity-descension`, read wherever both bindings and the edges between them are
+visible, and neither end `variable_arity`. Every member is on the roster, so the nogood is
+a hard clash: all of it stays believed, and `conflicts` reports it. Neither the edge nor a
+declaration is refused, in either arrival order. The tuple rule still reads a predicate's
+own binding first, so a `fatherOf` declared ternary under a binary `parentOf` holds its
+ternary tuples, and the report names the pair.
 
 A specialization therefore does not carry a signature of its own. This is the one point
 where an arity constraint is stricter than the argument constraints beside it, and the
-reason is that a length cannot be narrowed: `arg` on a sub-predicate *adds* to what
-the super demands of a tuple, while a second length says the two tuple sets are one set
-and are shaped differently, which is not a stricter claim but an unmeanable one. Own
-declarations only, on both sides — what a predicate inherits is what the descension is
-for, and supers that disagree with *each other* are not a pair, since they are not
-genl-related and the sub takes nothing from them. `variable_arity` on **either** side
-releases the match, for the reason it exempts the predicate carrying it.
-
-That strictness also keeps `(functional arity)` true through the hierarchy.
-`(arity P n)` is functional, so one predicate never has two lengths; refusing a
-mismatched pair extends the same guarantee across a `genl` edge, so preserving arity
-downward can never make a child answer both an inherited and an explicit value.
+reason is that a length cannot be narrowed: `arg` on a sub-predicate *adds* to what the
+super demands of a tuple, while a second length says the two tuple sets are one set and
+are shaped differently. Own bindings only, on both sides; supers that disagree with *each
+other* are not a pair, since they are not genl-related and the sub takes nothing from
+them.
 
 ### The declarations are checked against each other
 
@@ -1806,8 +1688,8 @@ than emptying it.
 Each arm needs a declaration to contradict, so a predicate the KB has said nothing
 about stays unconstrained. `(functional arity)` closes the matching hole on the
 declarations themselves: a second, different arity for one predicate is a clash rather
-than a second belief, and since two numbers can never merge it is the hard rejection
-rather than an inferred equality.
+than a second belief, and since two numbers can never merge it is a nogood rather than
+an inferred equality.
 
 `arg` reads **two ways**: as a *constraint* when asserting (`checks/args-problem`
 rejects a wrongly-typed argument), and as an *inference* when querying — the
@@ -1934,32 +1816,26 @@ rather than incidental — so the table is the reference, and the two cells that
 "nothing" each have a reason below it.
 
 **Read the table as being about *storage*, not belief.** Where a cell says "refuses", the
-fact is not stored; where it says "reaches back", the fact is stored and then weighed or
-reported. So a violating set can leave a KB holding different content depending on which
-half arrived first, and that is the documented contract rather than a gap in order
-independence — `kb/constraint-policies` spells out why (admitting a clash against
-known-true content would store what the KB can never believe). What order independence
-demands, and what `:constraints :arbitrate` delivers for the arbitrable kinds, is
-that **belief** over the content that *is* stored comes out the same. `arity` does not
-offer that entry point: it refuses under either policy, so its two orders differ in what is
-stored and always will until somebody decides a wrong-arity fact may be admitted.
+fact is not stored; where it says "stores" or "reaches back", the fact is stored and then
+weighed or reported. A clash that names its other members is stored in every order, so
+its rows store the same content whichever half arrived first, and each reader that sees
+the clash whole decides it, the settle deciding the clashes whose members' contexts are
+one or comparable ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)).
 
 | declaration | declaration first | facts first | why |
 |---|---|---|---|
-| `disjoint` | refuses, or arbitrates under `:arbitrate` | reaches back as a nogood under either policy, over the memberships below the types it separates | two memberships to weigh |
+| `disjoint` | stores the membership; a nogood | same — the next read at each reader decides it, and the declaration reads no membership | two memberships to weigh |
 | `disjoint_metatype` | same | same | the members separate each other |
 | `genl` / `genlCx` | same | same | closes a separation over content already stored |
-| `covering` / `partition`, over a refuted cover | refuses, or arbitrates under `:arbitrate` | reaches back as a nogood under either policy, over the terms holding a denial of a part | the membership and the negations to weigh |
-| `functional` | refuses, or arbitrates | reaches back as a nogood under either policy, over the spec subtree of the predicate it names and not that predicate alone | two values to weigh |
-| `asymmetric` | refuses `:monotonic`, arbitrates `:default` | same | the converse is the second side |
-| `irreflexive`, and `anti_symmetric` over a converse no merge reconciles | **refuses, under either policy** | **reaches back and reports** — one `:irreflexive` or `:anti-symmetric` entry per marked predicate, carrying `:via`, `:count` and a `:sample`; a `genl` edge below the marked predicate and a `genlCx` edge into the fact's sight report the same way | names no second sentex a nogood could weigh |
-| `arity` | **refuses, under either policy** | **reaches back and reports** — one `:arity` entry per convicted predicate of the swept subtree, carrying `:count`, a `:sample`, `:via` and the declaration in `:declared-after`, and at most **8** of them for one pass, past which an `:arity-report-truncated` entry counts the rest | names a second sentex, but it is the *vocabulary* one |
+| `covering` / `partition`, over a refuted cover | stores the sentence; a nogood | same, over the terms holding a denial of a part or of a supertype of one | the membership and the negations to weigh |
+| `functional` | stores the value; a nogood | reaches back as a nogood, over the spec subtree of the predicate it names and not that predicate alone | two values to weigh |
+| `asymmetric` | same | same | the converse is the second side |
+| `irreflexive`, and `anti_symmetric` over a converse that does not merge | stores the tuple; a nogood each reader decides | same — the next read at each reader decides it, and a `genl` edge below the marked predicate or a `genlCx` edge into the tuple's sight does the same | the tuple's own arguments find the nogood |
+| an arity binding: `arity`, an exact-arity class, `variable_arity`, `arityMin` | stores the tuple; a nogood each reader decides | same — and a `genl` edge that binds a sub-predicate's length, or a `genlCx` edge that brings a binding into a tuple's sight, does the same | the tuple's own length finds the nogood |
 | `arg` / `genlArg` / `quotedArg` / `interArg`, the covering `args` / `argAndRest` and the homogeneity `interArgs` / `interArgAndRest` | refuses | **nothing** — for the conditional forms, whichever of the declaration, the trigger's type or the target's type arrives last | convicted by an absence; no second sentex at all |
 | a predicate-level `genl` edge, under an *argument* constraint above it | refuses what follows | **nothing** — the entailment reaches back, the refusal does not | the family's non-reach, one ingredient further out |
-| a predicate-level `genl` edge, under a `functional` / `asymmetric` mark above it | refuses what follows, on the marked predicate's terms — `tax/props-over` reads the mark at every predicate above the sentence's own functor | the edge is admitted, neither mark refusing one, and it reaches back over the sub's stored facts: a nogood under either policy, plus the merges a `functional` mark now licenses (`special/equate-under-edge`) | the sub's tuples *are* the super's, so a clash among them is the super's |
-| a predicate-level `genl` edge, under an **arity** above it | refuses what follows | **reports** — the edge binds the sub-predicate's length, so it files the same `:arity` entry a declaration would, `:via` naming the super | a binding is a binding whichever of the three ingredients supplied it |
-| a predicate-level `genl` edge, across two declared **arities** | **refuses the edge** | **refuses the edge** | there is no order in which the pair means anything, so the arriving sentence is refused whichever it is |
-| a **context** edge, under an **arity** in the ancestor set it opens | refuses what follows — the entry point reads the declaration through the visibility edge like any other | **reports** — the edge names two contexts and no predicate, so the pass sweeps its ends for the facts it newly convicts | a binding is read *from* a context, so an edge that moves what a vantage sees binds as a declaration does |
+| a predicate-level `genl` edge, under a `functional` / `asymmetric` mark above it | stores what follows and weighs it on the marked predicate's terms — `tax/props-over` reads the mark at every predicate above the sentence's own functor | the edge is admitted, and it reaches back over the sub's stored facts: a nogood, plus the merges a `functional` mark now licenses (`special/equate-under-edge`) | the sub's tuples *are* the super's, so a clash among them is the super's |
+| a predicate-level `genl` edge, across two bound **arities** | stores the edge; a hard clash of the two bindings each reader reads | same | every member is on the roster |
 
 **A row's two halves answer one question about one KB, so they answer it in one
 vocabulary.** Both are true statements either way, which is what makes a disagreement
@@ -1967,11 +1843,7 @@ between them expensive: a reader who meets one and greps for the other finds not
 a reader who meets both concludes there are two problems. So the halves owe each other the
 predicate blamed, whether the constraint was inherited or declared outright, and which
 stored sentex convicted — `entry_point_and_report_test` is the roster over these rows, the cells
-reading "nothing" included. The arity binding is where a wording has most to drift over,
-and `checks/arity-binding-clause` is its one spelling: *is declared with 2 arguments* for a
-predicate carrying its own declaration, *takes 2 arguments through `parentOf`* for one
-whose length descends, since crediting a predicate with a declaration nobody wrote sends
-an author looking for it.
+reading "nothing" included.
 
 **`arg` and its family have no retroactive reach.** A constraint arriving after a fact
 whose argument is the wrong type does not reach back over it. It is the one family that
@@ -2001,8 +1873,8 @@ the conviction still rests on an absence, so there is still no pair to weigh. Wh
 reach back is the entailment, which is a different question and answered in
 [argtypes.md](argtypes.md): a minted type is justified content, so it has to exist in
 every arrival order or belief would depend on which. Where `TheRock1` holds a type
-disjoint from `person`, the entailment's `(person TheRock1)` is refused and its drop is
-reported as a `:disjoint` violation.
+disjoint from `person`, the entailment's `(person TheRock1)` is placed and forms a nogood
+with that membership, as a rule's conclusion does.
 
 **A declaration the arity strands is a census finding, not a ledger one.** `(arg
 parentOf 3 person)` is admitted while `parentOf` has no declared length, because the
@@ -2015,14 +1887,10 @@ its tuples reach any length from the declared one upward, so a position past tha
 is one they really do have, and nothing of such a predicate's is stranded or refused
 however high the position. It is not refused
 retroactively, for the reason everything else in this section is not: that would make the
-binding's arrival order decide. Nor is it reported by the settle, and the asymmetry with
-the row above is the argument. A wrong-length *fact* is content an `assert` admitted
-because it could not have known, so there is a **newly** only the settle knows about. A
-stranded declaration is inert — it constrains nothing, refuses nothing, mints nothing —
-and reads the same an hour later, so it belongs to `kb-quality`, whose `:declarations`
-reading names them. Cheaper there, too: the census enumerates the declarations, which are
-vocabulary and therefore few, where a settle-side sweep would probe every predicate of a
-subtree per write.
+binding's arrival order decide. Nor is it a nogood: a wrong-length *fact* is a claim a
+reader believes or withdraws, while a stranded declaration is inert — it constrains
+nothing, refuses nothing, mints nothing — and reads the same an hour later, so it belongs
+to `kb-quality`, whose `:declarations` reading names them.
 
 `interArg` inherits that argument verbatim, and shows the other side of the same gap. A
 conditional constraint has **three** ingredients, not two — the fact, the declaration, and
@@ -2033,88 +1901,3 @@ exactly this, less visibly: an argument that acquires its first type after the f
 admitted was excused by open-world when it was written and is not re-examined. Both are the
 same non-reach, and closing either means answering the policy question above.
 
-**`arity` reaches back but does not arbitrate**, and it is the case worth reading twice
-because the pair looks exactly like the three arbitrable ones. It *does* name a second
-believed sentex — the `(arity P n)` declaration, or the exact-class membership saying
-the same thing. That sentex is the **vocabulary entry the conviction is read through**:
-`declared-arity` answers from the arity cache, which follows belief, so a nogood that
-defeated the declaration would destroy its own premise. Measured, on a known-true
-`(P A B C)` against a `:default` `(arity P 2)`: the declaration is defeated in the settle
-that admits the pair, revived by the next settle's `clear-defeats!` while the table it was
-uninstalled from is still empty, and with the table empty the clash is not re-derived — so
-it is reported once and then by nobody, and while the declaration was out a *fourth*-arity
-fact of the same predicate was admitted too. One wrong fact would disable a declaration for
-every other use of the predicate, and belief would depend on how many settles had run. The
-other members of the family defeat a *fact* and leave the vocabulary standing, which is
-why they are stable. Do not promote `arity` to a nogood without first making the
-vocabulary read independent of the belief the nogood moves.
-
-**And it reaches back through the hierarchy and through visibility, because that is where
-the binding comes from.** A length binds a predicate through its own declaration *or*
-through a super-predicate's, and every one of those is read *from a context* — so `arity`
-has **four** ingredients where `interArg` has three: the fact, the declaration, the
-`genl` edge that inherits one, and the `genlCx` edge that lets a vantage see either. The
-report fires on whichever arrives last. Three of the four name a predicate, and there the
-sweep reads the **spec subtree** of what it triggered on rather than one predicate's
-extent, so a declaration landing on `parentOf` finds the wrong-length `fatherOf` fact that
-`parentOf` itself does not have.
-
-**The fourth names two contexts and no predicate**, so what it convicts is worked out from
-its two ends: the facts stored below `sub`, whose vantage the edge moved, and the bindings
-stored above `super`, which is everything that vantage newly reaches. Either end alone is
-complete — a fact newly convicted sits under one and the binding that convicts it over the
-other — so the pass sizes both ancestor sets with `count-in-context`, an O(1) read apiece, and
-enumerates the smaller. Neither is the cheap one in general: a fresh context joining the
-root is nothing below and the whole vocabulary above, and a root context gaining a parent
-is the reverse, and an ontology writes both. Sizing off stored content rather than off the
-edge's spelling is also what makes two arrival orders reaching one KB choose the same end.
-
-The entry's `:via` says which predicate the length was read off, and an inherited one is
-worded as such — `fatherOf takes 2 arguments through parentOf`, not "is declared with",
-which would send an author looking for a declaration nobody wrote. **The entry point reads the
-same `:via` and words it the same way**, so one binding does not get two descriptions
-depending on which half of the check a reader meets; a length declared of the predicate
-itself still reads `is declared with` at both.
-
-That leaves the two halves saying the same thing in every order: a believed wrong-arity
-fact is **refused** if the binding was already there and **reported** if it was not.
-Which of the two happens still depends on the order, for the reason the note above the
-table gives, and that is the whole of the difference. Three things bound the property and
-none of them is the arrival order — what the sweep can see, how much of the subtree it
-gets to, and how many entries one pass may file.
-
-**What it sees is belief.** The pass enumerates each predicate's *believed* facts
-(`predicate-sentexes`), so a wrong-length fact stored but defeated when the binding
-arrives is neither refused nor reported nor counted, and reviving it runs no entry point either:
-the entry point ran on the assert that stored it, and a relabel re-asks nothing. So the finding is
-about the content a binding convicts *and the KB believes*, which is not everything the
-store holds.
-
-**A subtree is a budget question, so the pass says when it ran out.** Sweeping the specs
-rather than one extent means the instance budget can be spent with predicates still
-unlooked-at, and the *first* of them to spend it may convict nothing at all — leaving no
-finding for a `:truncated` flag to ride on, and every predicate after it examined zero
-facts deep. A context edge whose ancestor set the budget cut is the same reading one ingredient
-earlier: predicates the pass never got as far as looking *for*. The pass therefore files
-one **`:arity-truncated`** entry naming how many predicates went unswept and how many
-`genlCx` edges went unreached (`:predicates` `:sample` `:edges` `:edge-sample` `:budget`
-`:message`) **whether or not anything was found**, which is `settle/cut-notice`'s
-reading and holds the property the descension exists for: a believed wrong-length fact is
-refused, or reported, or the reader is told the sweep did not reach it — never none of the
-three.
-
-**A wide subtree is a ledger question, so the pass caps its own entries.** One binding
-can convict a thousand predicates, against a ledger that keeps the newest 1,000 entries
-and logs each at `:warn` — so a pass filing one apiece evicts every other violation in it,
-which is the failure `settle/cut-notice` records at tens of thousands of identical
-complaints. The findings are therefore capped at **8** for a pass, the content-first 8 of
-the predicates convicted, and a ninth brings one **`:arity-report-truncated`** entry: how
-many predicates
-convicted in all, how many entries were filed, how many facts between them, and up to
-three predicates no entry names (`:predicates` `:filed` `:facts` `:sample` `:message`).
-Read it as a **cap on entries** and not as the sweep notice above it. Nothing is
-swept short and nothing goes undecided — every one of those predicates is reached,
-examined and convicted, and the cap costs the entry naming it rather than the looking.
-Nothing is lost by summarizing, either, which is what separates this from a sweep cut short: the
-wrong-arity facts of `P` are re-derivable from the store by anyone who wants the list, so
-what the ledger owes a reader is which predicates convicted and how many facts each.

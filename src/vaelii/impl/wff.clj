@@ -28,18 +28,10 @@
 ;; would admit an edge that is cyclic globally, and a `genl` cycle is something the
 ;; taxonomy is entitled to assume it does not have.
 ;;
-;; The overlap check reads the **scoped** closure instead — `disjoint-problems` takes
-;; the assertion context and reads `tax/genl?`, not `tax/genl?-global`.  `assert` and
-;; the scoped `(genl a b)` query then agree in the asserting context: where an
-;; `except` hides the bridging edge, the query returns empty and `(disjoint a b)` is
-;; admitted; where the edge is visible, both see it and the assertion is refused.  An
-;; `except` is a visibility hole, not a retraction, so the refusal is scoped to the
-;; contexts that see the overlap rather than fired everywhere the edge exists (#92).
-;;
-;; This scopes the **assert-time** reading only.  `disjoint?`'s own genl-relatedness
-;; guards stay global (taxonomy.clj), because disjointness must be monotone on
-;; visibility — seeing more contexts may only add witnesses, never remove one — and a
-;; scoped guard there would drop a witness a wider reader sees.
+;; No check here reads a `genl` edge to refuse a `disjoint` or a cover.  A declaration
+;; over two `genl`-related types, or a cover naming a part disjoint from its whole, is
+;; stored like any other declaration, and the clash it forms with the edge is `settle`'s
+;; to report (docs/nmtms.md, "What a refusal may rest on").
 ;;
 ;; **`genl` and `genlCx` cycles are both refused, and read the global closure the
 ;; same way.**  A `genl` cycle claims two types are coextensive — a claim about
@@ -84,17 +76,12 @@
     (conj (str "genlCx " sub " " super " creates a cycle (" super
                " already sees " sub ")"))))
 
-(defn disjoint-problems [tax [_ a b :as s] context]
+(defn disjoint-problems [_ [_ a b :as s] _context]
   (cond-> []
     (not= 3 (count s))  (conj "disjoint takes two arguments")
     (nm/individual? a)  (conj (str a " is an individual; disjoint relates types"))
     (nm/individual? b)  (conj (str b " is an individual; disjoint relates types"))
-    (= a b)             (conj (str a " disjoint with itself"))
-    ;; genl-relatedness scoped to the asserting context (not `genl?-global`): an
-    ;; `except` hiding the bridging edge admits the pair here exactly as the scoped
-    ;; `(genl a b)` query returns empty there (#92).  See the header note.
-    (and (not= a b) (or (tax/genl? tax a b context) (tax/genl? tax b a context)))
-    (conj (str a " and " b " are genl-related, so they overlap and can't be disjoint"))))
+    (= a b)             (conj (str a " disjoint with itself"))))
 
 (defn covering-problems
   "`covering` and `partition` — a whole followed by two or more distinct parts.
@@ -105,15 +92,13 @@
   a function of assertion order.  What is refused is a shape no edge could be installed
   for — a part that is the whole, and a part the closure already places above the whole,
   where the edge would close a cycle `genl-problems` refuses in as many words.  A part
-  already disjoint from the whole is refused for the same reason: the edge would make a
-  type a subtype of one it shares no instance with.
+  disjoint from the whole is stored, and the clash is reported (the header note).
 
   The cycle read is global, as `genl-problems`' is (E17_ROSTER): the edge the cover
   installs closes a cycle in the whole edge set whichever context holds the edge above
   it, so a part a sibling context places above the whole is refused here as the bare
-  `genl` would be.  The disjointness read is scoped to the asserting context, as
-  `disjoint-problems`' is: an overlap is well-formed where it is written."
-  [tax [f whole & parts :as s] context]
+  `genl` would be."
+  [tax [f whole & parts :as s] _context]
   (cond-> []
     ;; four elements: the functor, the whole, and two parts.  One part covering a whole
     ;; says only that the two have the same instances, which `genl` in both directions
@@ -136,11 +121,7 @@
 
     (some #(and (not= % whole) (tax/genl?-global tax whole %)) parts)
     (conj (str (first (filter #(and (not= % whole) (tax/genl?-global tax whole %)) parts))
-               " is already a supertype of " whole ", so it cannot be a part of it"))
-
-    (some #(tax/disjoint? tax whole % context) parts)
-    (conj (str (first (filter #(tax/disjoint? tax whole % context) parts))
-               " is disjoint from " whole ", so it cannot be a part of it"))))
+               " is already a supertype of " whole ", so it cannot be a part of it"))))
 
 (defn disjoint-metatype-problems [_ [_ m :as s] _context]
   (cond-> []
@@ -597,109 +578,161 @@
 ;; Both kinds of outgoing edge fan out over the genl **spec** closure, so a taxonomy
 ;; edge is as capable of closing a cycle as a rule is — an exception on `flightless`
 ;; is reached by a stored `(penguin Opus)` the moment `(genl penguin flightless)`
-;; holds.  `negation-cycle` is therefore run from two places in `core`: from the
-;; rule being asserted, and — when a genl / genlCx edge arrives — from each
-;; stored rule carrying an exception, against a taxonomy with the edge added.  The
-;; search itself does not care which; it is told a start node and a taxonomy.
+;; holds.  So `checks` searches on two paths: `negation-cycle` from the rule being
+;; asserted, and `genl-negation-cycle` from the rules reading a predicate at or above a
+;; `genl` edge's supertype, against a taxonomy with the edge added.
 ;;
 ;; The dependency graph has two kinds of node and two kinds of edge:
 ;;
 ;;   rule R --depends-on--> P     P appears in R's antecedents        (positive)
 ;;   rule R --excepts-on--> P     R's exception mentions P            (negative)
-;;   P --concluded-by--> rule R   R concludes P                       (positive)
+;;   P --concluded-by--> rule R   R concludes a spec of P             (positive)
 ;;
 ;; A cycle crossing **at least one** negative edge is rejected.  A purely positive
 ;; cycle is ordinary recursion, which the engine supports and bounds by depth, and
 ;; is deliberately left alone.
+;;
+;; Both walks run against the edges, from a rule to the rules reading a predicate at or
+;; above its consequent: a consequent's upward closure is small where a read predicate's
+;; spec closure is not, since a type's ancestors are bounded by the hierarchy's depth and
+;; its descendants are most of a broad ontology.  A cycle reversed is a cycle, so the
+;; walk finds the cycles a forward walk would.  The closure is the **global** one: a
+;; context-narrowed closure would under-approximate the graph and admit an unstratified
+;; rule set.
 
-(defn- rule-edges
-  "The edges out of a rule node, as `[edge predicate]` pairs.
+(defn- concluded-key
+  "What the walk keys a rule node's consequent by: `::any` for a rule whose consequent
+  functor is a variable, which concludes every predicate, else its consequent predicate
+  (nil for a rule that concludes nothing)."
+  [node]
+  (if (:concludes-any? node) ::any (:consequent-pred node)))
 
-  Both sides fan out over the genl **spec** closure, because predicate dependence
-  is not literal: an antecedent `(animal ?x)` is satisfied by a stored
-  `(dog Muffet)`, and an exception on `flightless` by a stored `(penguin Opus)` when
-  `(genl penguin flightless)`.  This is the fan-out matching does and the one
-  `special/recheck-on-predicate` keys the exception trigger on, read in the same
-  direction; a cycle that exists only through a subtype has to be caught.
-  Expanding the *consuming* side downwards is equivalent to expanding the
-  producing side upwards, so the consequent is looked up literally.
+(defn- edge-kind
+  "The edge from `reader` to a rule concluding something at or below `pred`, which
+  `reader` reads: `:excepts-on` when `pred` is among its negative predicates, else
+  `:depends-on`."
+  [reader pred]
+  (if (some #(= pred %) (:exception-preds reader)) :excepts-on :depends-on))
 
-  Over-approximation is the safe side here: rejecting a stratified program is
-  annoying, accepting an order-dependent one is a correctness hole.  The spec
-  closure is the **global** one for the same reason — a context-narrowed fan would
-  under-approximate the graph and admit an unstratified rule set.
+(defn- negation-walk
+  "Breadth-first over the dependency graph's edges **reversed**, from `starts`
+  (`[node negative?]` pairs, in content order), and the chain to the first state
+  `closes?` (node, negative?) accepts, or nil.
 
-  The node's predicates are walked in content order, since a stored rule's exception
-  predicates come off the index in arrival order.  A spec closure is a set of symbols,
-  whose iteration order is a function of the symbols alone."
-  [tax {:keys [antecedent-preds exception-preds]}]
-  (let [ordered #(nm/sort-by-content-key identity (distinct %))]
-    (concat (for [p (ordered antecedent-preds), s (tax/specs-global tax p)] [:depends-on s])
-            (for [p (ordered exception-preds),  s (tax/specs-global tax p)] [:excepts-on s]))))
+  A step from a node concluding `c` goes to each rule reading a predicate in
+  `genls-global(c)` (`readers`, which answers a predicate's readers in content order and,
+  called with no argument, every rule): an edge `reader -> node` exists exactly when the
+  reader reads a predicate whose spec closure holds `c`.  A node concluding any predicate
+  steps to every rule.  So a step reads the consequent's upward closure and the rule
+  index under each predicate in it, and no spec closure.
+
+  The search state is the consequent and the `negative?` flag, not the rule: two rules
+  concluding one predicate have the same edges in.  A state is pushed once, and a
+  predicate's readers are expanded once per flag, so a walk costs the rules it reaches and
+  the upward closures of their consequents.  `closes?` is asked of every successor, before
+  the state is deduplicated.
+
+  The chain is `[start [edge pred node] …]`: each step is the graph edge from its node to
+  the one before it, which reads `pred`."
+  [tax readers starts closes?]
+  (let [seen-c (java.util.HashSet.)
+        seen-g (java.util.HashSet.)
+        push   (fn [q [node negative? :as state]]
+                 (if (.add seen-c [(concluded-key node) negative?]) (conj q state) q))
+        steps  (fn [node negative?]
+                 (let [c (concluded-key node)]
+                   (cond
+                     (= ::any c)
+                     (when (.add seen-g [::any negative?])
+                       (for [r (readers)
+                             :let [negs (seq (:exception-preds r))
+                                   pred (first (nm/sort-by-content-key
+                                                identity (or negs (:antecedent-preds r))))]
+                             :when pred]
+                         [(if negs :excepts-on :depends-on) pred r]))
+                     (some? c)
+                     (for [g (nm/sort-by-content-key identity (tax/genls-global tax c))
+                           :when (.add seen-g [g negative?])
+                           r (readers g)]
+                       [(edge-kind r g) c r]))))]
+    (or (some (fn [[node negative?]] (when (closes? node negative?) [node])) starts)
+        (loop [q (reduce push clojure.lang.PersistentQueue/EMPTY
+                         (map (fn [[node negative?]] [node negative? [node]]) starts))]
+          (when-let [[node negative? chain] (peek q)]
+            (let [out (reduce (fn [q [edge pred r]]
+                                (let [neg?  (or negative? (= :excepts-on edge))
+                                      chain (conj chain [edge pred r])]
+                                  (if (closes? r neg?)
+                                    (reduced {:closed chain})
+                                    (push q [r neg? chain]))))
+                              (pop q)
+                              (steps node negative?))]
+              (if (map? out) (:closed out) (recur out))))))))
+
+(defn- forward-path
+  "A walk's chain written in the graph's direction: the last node's label, then each
+  edge as `\"<edge> <pred>\"` and the node it reaches, ending at the start's label."
+  [[start & steps]]
+  (reduce (fn [path [edge pred node]] (into [(:label node) (str (name edge) " " pred)] path))
+          [(:label start)]
+          steps))
 
 (defn negation-cycle
   "Search the rule dependency graph for a cycle through negation created by adding
   rule node `rule`, and describe it — a vector of strings naming the nodes and
   edges around the cycle — or nil if there is none.
 
-  A rule node is `{:id :label :antecedent-preds :exception-preds}`; `concluders`
-  maps a predicate to the rule nodes concluding it, and must include `rule` itself
-  under its own consequent, since a rule being asserted is not stored yet and a
-  self-referential exception (a rule excepting on what it concludes) is exactly a
-  one-rule cycle.
+  A rule node is `{:id :label :antecedent-preds :exception-preds :consequent-pred
+  :concludes-any?}`; `readers` maps a predicate to the rule nodes reading it, and must
+  include `rule` itself under each predicate it reads, since a rule being asserted is not
+  stored yet and a self-referential exception (a rule excepting on what it concludes) is
+  exactly a one-rule cycle.
 
   Only cycles through `rule` are looked for.  Every rule assert and every genl edge
-  assert runs this check, so the stored graph is already free of them and whatever
-  is being added can only close a cycle that passes through it.  For a *rule* that
-  start node is the rule itself; for a *taxonomy edge*, which passes through no
-  single rule, the caller starts the walk at each rule a negative edge leaves —
-  complete, because every cycle through negation crosses a negative edge, and
-  `checks/negative-edge-rules` is the roster of the rules one can leave.
-
-  The search state is `[rule negative?]` rather than the rule alone: a node reached
-  with and without a negative edge behind it are different states, since only the
-  negative one closes a bad cycle — that is what keeps positive recursion (which
-  reaches the start with `negative?` false, and stops there) accepted.  The search is
-  a DFS that pushes each state once; building a rule's node is the caller's cost, and
-  `checks/stratification-concluders` bounds it to once per check.
+  assert runs a check, so whatever is being added can only close a cycle that passes
+  through it.  The walk runs from `rule` against the edges and closes on reaching it
+  again with a negative edge on the way (`negation-walk`).
 
   Which cycle is returned, when several pass through `rule`, is decided by content:
-  `rule-edges` orders a node's predicates, and `concluders` must answer each
-  predicate's rules in content order (`checks/stratification-concluders` does)."
-  [tax concluders rule]
-  (let [start  (:id rule)
-        ;; A successor is `[rule negative? edge pred]`, and its path is written only for
-        ;; a successor that is pushed or closes the cycle.  Most successors are neither —
-        ;; the state was seen already — and on cyc-tiny's load a walk yields about 27
-        ;; thousand of them, so writing each one's path strings would dominate the check.
-        extend (fn [path edge pred next-rule]
-                 (conj path (str (name edge) " " pred) (:label next-rule)))
-        step   (fn [[node negative? _]]
-                 (for [[edge pred] (rule-edges tax node)
-                       next-rule   (concluders pred)]
-                   [next-rule (or negative? (= :excepts-on edge)) edge pred]))]
-    (loop [frontier [[rule false [(:label rule)]]]
-           seen     #{[start false]}]
-      (when-let [[_ _ path :as state] (peek frontier)]
-        (let [nexts (step state)]
-          (if-let [[r _ edge pred] (first (filter (fn [[r neg? _ _]] (and neg? (= start (:id r))))
-                                                  nexts))]
-            (extend path edge pred r)
-            (let [unseen (into [] (remove (fn [[r neg? _ _]] (seen [(:id r) neg?]))) nexts)
-                  ;; one successor per state, the last one: the stack pops it first,
-                  ;; and an earlier copy of the same state would be expanded after it
-                  ;; with the same successors, all of them seen by then and none of
-                  ;; them the start, so dropping it changes neither the answer nor the
-                  ;; path returned
-                  last-at (into {} (map-indexed (fn [i [r neg? _ _]] [[(:id r) neg?] i]))
-                                unseen)
-                  fresh   (keep-indexed (fn [i [r neg? :as s]]
-                                          (when (= i (last-at [(:id r) neg?])) s))
-                                        unseen)]
-              (recur (into (pop frontier)
-                           (map (fn [[r neg? edge pred]] [r neg? (extend path edge pred r)]))
-                           fresh)
-                     (into seen (map (fn [[r neg? _ _]] [(:id r) neg?])) fresh)))))))))
+  the walk takes each upward closure in content order, and `readers` must answer each
+  predicate's rules in content order (`checks/stratification-readers` does)."
+  [tax readers rule]
+  (some-> (negation-walk tax readers [[rule false]]
+                         (fn [node negative?] (and negative? (= (:id rule) (:id node)))))
+          forward-path))
+
+(defn genl-negation-cycle
+  "The cycle through negation the edge `(genl sub super)` closes, described as
+  `negation-cycle` describes one, or nil.  `tax` holds the edge already; `readers` is the
+  stored graph's (`checks/stratification-readers`).
+
+  The edge adds the graph edges from each rule reading a predicate at or above `super`
+  to each rule concluding a spec of `sub`, so a cycle the edge closes uses one of them.
+  The walk starts at the rules reading a predicate in `genls-global(super)`, in content
+  order, and goes against the graph's edges (`negation-walk`).  It closes at a rule
+  concluding a spec of `sub` when a negative edge is on the path or the edge from the
+  start is negative.  It reads only the rules those starts reach, and finds only cycles
+  through the new edge, so a cycle already stored refuses no edge that does not reach it.
+
+  A `genlCx` edge needs no walk: the graph's edges read the `genl` closure alone."
+  [tax readers sub super]
+  (let [above  (tax/genls-global tax super)
+        ;; each reader once; stored rules' contents are distinct, so the order is content's
+        starts (->> (into {} (for [g above, r (readers g)] [(:id r) r]))
+                    vals
+                    (nm/sort-by-content-key :content)
+                    (mapv (fn [r] [r (boolean (some above (:exception-preds r)))])))
+        below? (fn [node]
+                 (or (:concludes-any? node)
+                     (some-> (:consequent-pred node) (->> (tax/genls-global tax)) (contains? sub))))]
+    (when-let [chain (negation-walk tax readers starts
+                                    (fn [node negative?] (and negative? (below? node))))]
+      (let [[start] chain
+            closing (if (= 1 (count chain)) start (peek (peek chain)))
+            edge    (if (some above (:exception-preds start)) :excepts-on :depends-on)]
+        (conj (forward-path chain)
+              (str (name edge) " " (if (:concludes-any? closing) sub (:consequent-pred closing)))
+              (:label closing))))))
 
 (defn cycle-description
   "Render a `negation-cycle` path as one line, for an error message."

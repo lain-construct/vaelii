@@ -149,22 +149,19 @@
     (is (= 1 (count (v/sentexes-matching kb (list 'trustLevel 'AgentAtlas '?t) 'CxRegistry)))
         "exactly one trust value stands — the update overwrote, did not accumulate")))
 
-(tu/deftest-kb a-registry-read-rests-on-the-functional-refusal-and-says-so
+(tu/deftest-kb a-registry-read-refuses-two-believed-rows
   ;; `trust-of` and `set-trust!` both read one row out of a *set* of matches, and
   ;; `sentexes-matching` promises the set and not an order: over two rows a bare `first`
   ;; would answer with whichever the index enumerated, so the trust a reader sees and the
   ;; row an overwrite retracts would follow the order the registry was written in.
-  ;;
-  ;; What makes one row the only possibility is the vocabulary, not the read: `trustLevel`
-  ;; is declared `functional`, so the second value is refused at assert.  Both halves are
-  ;; pinned here — the refusal that holds it, and the read's own refusal for the state the
-  ;; first one prevents.
   (let [admin (admin)]
     (id/register-agent kb admin 'AgentAtlas "Atlas" 1)
-    (testing "a second trust value is refused outright — never stored beside the first"
-      (is (thrown-with-msg? ExceptionInfo #"functional violation"
-                            (v/assert kb '(trustLevel AgentAtlas 0.5) 'CxRegistry)))
-      (is (= 1 (id/trust-of kb 'AgentAtlas))))
+    (testing "a second trust value is stored beside the first, and the two stand as a dilemma"
+      (is (some? (v/assert kb '(trustLevel AgentAtlas 0.5) 'CxRegistry)))
+      (let [e (try (id/trust-of kb 'AgentAtlas) (catch ExceptionInfo e e))]
+        (is (= :koinii/registry-not-functional (:type (ex-data e)))))
+      (v/retract! kb (v/handle-of kb '(trustLevel AgentAtlas 0.5) 'CxRegistry))
+      (is (= 1 (id/trust-of kb 'AgentAtlas)) "and one row stands again once it goes"))
     (testing "and the registry read refuses two rows rather than halving them silently"
       ;; a temp predicate nothing declares functional is the only way to build the state
       (let [p  (tu/fresh-term :predicate "heldBy")

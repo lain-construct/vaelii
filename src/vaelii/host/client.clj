@@ -286,14 +286,14 @@
   (call conn :belief-status [handle context]))
 
 (defn believed
-  "The subset of `handles` raw structural JTMS IN, as a set — `in?` asked of many handles
+  "The subset of `handles` `in?` answers true for, as a set — `in?` asked of many handles
   at once."
   [conn handles]
   (call conn :believed [handles]))
 
 (defn believed?
   "Is `handle` JTMS IN and not withdrawn from `context` — hidden by the `(except ...)`
-  cascade visible from it, scoped-defeated at a vantage it sees, or resting only on such a
+  cascade visible from it, a loser of a nogood it decides, or resting only on such a
   handle (docs/nmtms.md, \"A defeat is scoped to its vantage\")?"
   [conn handle context]
   (call conn :believed? [handle context]))
@@ -550,14 +550,16 @@
   docs/api.md lists them: the relation algebra (`:transitive`, `:symmetric`,
   `:asymmetric`, `:reflexive`, `:functional`, `:irreflexive`, `:anti-symmetric`,
   `:anti-transitive`), the grants (`:decontextualized`, `:forced-decontextualized`,
-  `:abducible`, `:closed-extent`, `:modal`, `:target-following`), the function kinds
-  (`:reifiable`, `:unreifiable`, `:quoting`, `:context-denoting`) and the `:declares-*`
-  kinds naming a predicate as the subject of an argument constraint."
+  `:forced-monotonic`, `:abducible`, `:closed-extent`, `:modal`, `:target-following`), the
+  function kinds (`:reifiable`, `:unreifiable`, `:quoting`, `:context-denoting`) and the
+  `:declares-*` kinds naming a predicate as the subject of an argument constraint."
   ([conn kind pred] (call conn :has-prop? [kind pred]))
   ([conn kind pred context] (call conn :has-prop? [kind pred context])))
 
 (defn in?
-  "Is the sentex handle raw structural JTMS IN, before contextual exceptions?"
+  "Is the sentex handle believed as the context it is stored in reads it: JTMS IN, and not
+  withdrawn there by a nogood that context decides or by resting only on such a loser
+  (docs/nmtms.md, \"A read with no reader\")? Visibility `except`s are not applied."
   [conn handle]
   (call conn :in? [handle]))
 

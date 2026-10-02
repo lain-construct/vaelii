@@ -42,12 +42,8 @@
 (defonce ^:private compaction-in-flight (atom #{}))
 (defonce ^:private last-compact-check-ms
   ;; `{registrant-id ms}` — when each backend's dead ratio was last **asked for**, which
-  ;; is what `vaelii.disk.compact-min-interval-ms` throttles.  Asking is not free: a
-  ;; record store answers it by scanning every `.idx` in full under the kind lock
-  ;; (`record-store/kind-dead-ratio`), so a stamp taken only where a compaction *fired*
-  ;; would leave a store that never crosses the threshold paying that scan on every
-  ;; three-second tick, for the life of the process.  Stamped before the ratio is read
-  ;; and again when a compaction finishes, so the interval floors the probe and the
+  ;; is what `vaelii.disk.compact-min-interval-ms` throttles.  Stamped before the ratio is
+  ;; read and again when a compaction finishes, so the interval floors the probe and the
   ;; rewrite alike.
   (atom {}))
 (defonce ^:private compaction-paused
@@ -213,13 +209,11 @@
   "One pass over the registrants: probe each backend's dead ratio and queue a rewrite
   where it has crossed the threshold.
 
-  **`vaelii.disk.compact-min-interval-ms` gates the probe, not just the rewrite.**  A
-  ratio is a measurement a store has to take, and the record store takes it by scanning
-  every `.idx` in full under the kind lock — so gating only the rewrite would leave a
-  store whose ratio never crosses the threshold paying that scan on every tick, which is
-  the tick that exists to fsync.  Stamping the probe makes the interval a floor on both,
-  and the cost of that is detection latency bounded by the same interval — which is
-  what the floor already promised the rewrite."
+  `vaelii.disk.compact-min-interval-ms` gates the probe as well as the rewrite: a backend
+  is probed at most once per interval, and a finished rewrite re-stamps it, so detection
+  latency is bounded by the same interval.  A probe reads no file content.  The record
+  store answers from the live frame bytes it maintains per kind as it writes
+  (`record-store/dead-ratio`), and the KV store from its frame count (`kv/dead-ratio`)."
   []
   (when (and (auto-compact?) (zero? (long @compaction-paused)))
     (let [now       (System/currentTimeMillis)

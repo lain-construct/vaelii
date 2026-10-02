@@ -36,15 +36,15 @@
     (is (= (count declared) (reduce + (map count (vals tms-protocol/roles))))
         "the roles partition the method set, so the counts agree")))
 
-(deftest the-three-overrides-are-their-own-roles
-  ;; The three sets a caller replaces whole each settle enter belief at three different
-  ;; points — `blocked` inside `valid?`, `defeated` inside the fixpoint, `superseded`
-  ;; after both — so each is its own role rather than one "invalidation" or "arbitration"
-  ;; group.  `vaelii.impl.jtms` states the three insertion points under *the state*.
-  (doseq [r [:blocked :defeated :superseded]]
+(deftest the-two-overrides-are-their-own-roles
+  ;; The two sets a caller replaces whole each settle enter belief at two different
+  ;; points — `blocked` inside `valid?`, `superseded` after the fixpoint — so each is its
+  ;; own role rather than one "invalidation" group.  `vaelii.impl.jtms` states the two
+  ;; insertion points under *the state*.
+  (doseq [r [:blocked :superseded]]
     (is (contains? tms-protocol/roles r) (str r " is a role of its own")))
-  (is (= '#{-blocked -defeated -superseded}
+  (is (= '#{-blocked -superseded}
          (into #{} (mapcat #(filter (set (get tms-protocol/roles %))
-                                    ['-blocked '-defeated '-superseded]))
-               [:blocked :defeated :superseded]))
+                                    ['-blocked '-superseded]))
+               [:blocked :superseded]))
       "each override's reader sits in its own role, not in :output"))

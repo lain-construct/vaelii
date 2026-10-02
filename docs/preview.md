@@ -243,12 +243,12 @@ record left to describe, so it is omitted: the half lists belief that went away 
 retracting. An add-only batch, which is what the browser's commit paths send, loses
 nothing this way.
 
-**An equality merge** is the one batch `preview` and `edit-with-consequences!` answer
-differently. A merge supersedes the displaced spelling on the *assert* path, and the
-before-labels cover only what a `settle` supersedes, so `(sameAs Pref Dep)` over a stored
-`(dog Pref)` reports `(dog Dep)` added and nothing removed here, where `preview` reports
-`(dog Pref)` as `:superseded`. The change feed shares this gap ([feed.md](feed.md#what-does-not-arrive)),
-and `feed_test` pins that the two agree.
+**An equality merge** supersedes the displaced spelling on the *assert* path, with no
+relabel to record it. The settle publishes the supersession moves since the last settle,
+each with its entry before (`special/take-supersession-moves!`), so `(sameAs Pref Dep)`
+over a stored `(dog Pref)` reports `(dog Dep)` added and `(dog Pref)` removed here, and
+`preview` reports `(dog Pref)` as `:superseded`. `feed_test` pins that the change feed
+agrees.
 
 ## The third caller: the change feed
 

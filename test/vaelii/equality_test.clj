@@ -518,9 +518,9 @@
   (tu/with-terms [motherOf caresFor Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
       (v/assert kb (list 'functional motherOf) CxFam)
-      (v/assert kb (list motherOf Tom lo) CxFam)
+      (v/assert kb (list motherOf Tom lo) CxFam {:strength :monotonic})
       (testing "the second value does not throw"
-        (is (some? (v/assert kb (list motherOf Tom hi) CxFam))))
+        (is (some? (v/assert kb (list motherOf Tom hi) CxFam {:strength :monotonic}))))
       (testing "the two values are merged, so they are no longer different"
         (is (false? (v/ask? kb (list 'different lo hi) CxFam))))
       (testing "and a fact about either reads under the representative"
@@ -549,8 +549,8 @@
             [lo hi]  (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])
             h1       (v/assert kb (list 'functional motherOf) CxFam)
             h2       (v/assert kb (list 'functional motherOf) CxStory)]
-        (v/assert kb (list motherOf Tom lo) CxFam)
-        (v/assert kb (list motherOf Tom hi) CxFam)
+        (v/assert kb (list motherOf Tom lo) CxFam {:strength :monotonic})
+        (v/assert kb (list motherOf Tom hi) CxFam {:strength :monotonic})
         (is (v/same-class? kb lo hi)
             "the merge is derived while both declarations stand")
         (testing (str "retiring the " (name retire) " declaration leaves the merge")
@@ -569,8 +569,8 @@
   (tu/with-terms [motherOf Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
       (v/assert kb (list 'functional motherOf) CxFam)
-      (v/assert kb (list motherOf Tom lo) CxFam)
-      (v/assert kb (list motherOf Tom hi) CxFam)
+      (v/assert kb (list motherOf Tom lo) CxFam {:strength :monotonic})
+      (v/assert kb (list motherOf Tom hi) CxFam {:strength :monotonic})
       (let [eq (v/handle-of kb (list 'equals lo hi) CxFam)]
         (is (some? eq) "no derived equality to explain")
         (let [tree (v/why kb eq)
@@ -593,8 +593,8 @@
   (tu/with-terms [motherOf caresFor Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
       (v/assert kb (list 'functional motherOf) CxFam)
-      (v/assert kb (list motherOf Tom lo) CxFam)
-      (let [second-fact (v/assert kb (list motherOf Tom hi) CxFam)]
+      (v/assert kb (list motherOf Tom lo) CxFam {:strength :monotonic})
+      (let [second-fact (v/assert kb (list motherOf Tom hi) CxFam {:strength :monotonic})]
         (v/assert kb (list caresFor hi Tom) CxFam)
         (testing "merged while both facts stand"
           (is (false? (v/ask? kb (list 'different lo hi) CxFam)))
@@ -606,6 +606,86 @@
         (testing "and the migrated twin is swept while the original revives"
           (is (nil? (v/handle-of kb (list caresFor lo Tom) CxFam)))
           (is (true? (believed? kb (list caresFor hi Tom) CxFam))))))))
+
+(tu/deftest-kb a-collision-merges-only-when-both-facts-are-monotonic
+  ;; DECISION (docs/reference.md, decisions 6 and 13): a merge is never defeated and is
+  ;; undone only by retracting a premise it rests on, so it rests on `:monotonic`
+  ;; evidence alone.  A `functional` or `anti_symmetric` collision with a `:default` fact
+  ;; is a nogood: the unique `:default` fact is OUT and two `:default` facts are a
+  ;; dilemma, whichever fact arrives first.
+  (doseq [mark    ['functional 'anti_symmetric]
+          [sa sb] [[:monotonic :default] [:monotonic :monotonic] [:default :default]]
+          flip?   [false true]]
+    (tu/with-terms [rel Kid Ann Bea CxFam]
+      (let [[fa fb] (if (= 'functional mark)
+                      [(list rel Kid Ann) (list rel Kid Bea)]
+                      [(list rel Ann Bea) (list rel Bea Ann)])
+            both?   (= :monotonic sa sb)
+            ;; read at the context: an `anti_symmetric` loser is decided by its reader
+            held?   #(boolean (v/believed? kb (v/handle-of kb % CxFam) CxFam))
+            dilemma (fn [] (some #(= #{fa fb} (into #{} (map :sentence) (:sides %)))
+                                 (v/contradictions kb)))]
+        (v/assert kb (list mark rel) CxFam)
+        (doseq [[f st] (cond-> [[fa sa] [fb sb]] flip? reverse)]
+          (v/assert kb f CxFam {:strength st}))
+        (testing (str mark " " sa " beside " sb (when flip? ", the second first"))
+          (is (= both? (v/same-class? kb Ann Bea)))
+          (is (= both? (some? (v/handle-of kb (list 'equals Ann Bea) CxFam))))
+          (when-not both?
+            (is (held? fa))
+            (is (= (= :default sa) (held? fb)))
+            (is (= (= :default sa) (boolean (dilemma))))))))))
+
+;; A member's class also moves under an unchanged label, through a justification of it
+;; arriving or leaving, and the merge follows the class as it follows a write.
+(defn- collision-with-route
+  "Write in a fresh context a `mark` over a fresh `rel`, a `:monotonic` forward rule
+  `(route ?x ?y) => (rel ?x ?y)`, the `:monotonic` tuple `fa`, the `:default` tuple `fb`,
+  and the `:monotonic` `route` twin of `fb`, which makes `fb` `:monotonic`: the route
+  first when `route-first?`, else last."
+  [kb mark route-first?]
+  (tu/with-terms [rel route Kid Ann Bea CxFam]
+    (let [[fa fb] (if (= 'functional mark)
+                    [(list rel Kid Ann) (list rel Kid Bea)]
+                    [(list rel Ann Bea) (list rel Bea Ann)])
+          r       (cons route (rest fb))]
+      (v/assert kb (list mark rel) CxFam)
+      (v/assert kb (list 'set/forwardRule (list 'implies (list route '?x '?y) (list rel '?x '?y)))
+                CxFam {:strength :monotonic})
+      (when route-first? (v/assert kb r CxFam {:strength :monotonic}))
+      (v/assert kb fa CxFam {:strength :monotonic})
+      (v/assert kb fb CxFam {:strength :default})
+      (when-not route-first? (v/assert kb r CxFam {:strength :monotonic}))
+      {:fa fa :fb fb :route r :a Ann :b Bea :cx CxFam})))
+
+(defn- held-at?
+  "Is `s` stored at `cx` and believed there?  An `anti_symmetric` loser is decided by its
+  reader."
+  [kb s cx]
+  (boolean (some->> (v/handle-of kb s cx) (#(v/believed? kb % cx)))))
+
+(tu/deftest-kb a-merge-follows-its-members-classes-when-a-route-moves
+  (doseq [mark '[functional anti_symmetric]]
+    (testing (str mark ", the route retracted after the merge: fb is the unique :default member")
+      (let [{:keys [fa fb route a b cx]} (collision-with-route kb mark true)]
+        (is (true? (v/same-class? kb a b)))
+        (v/retract! kb (v/handle-of kb route cx))
+        (is (false? (v/same-class? kb a b)))
+        (is (true? (held-at? kb fa cx)))
+        (is (false? (held-at? kb fb cx)))))
+    (testing (str mark ", the route arriving after fb merges as it does arriving first")
+      (let [{:keys [a b]} (collision-with-route kb mark false)]
+        (is (true? (v/same-class? kb a b)))))))
+
+(tu/deftest-kb a-reader-re-decides-a-merging-converse-pair-when-a-member-s-class-drops
+  ;; the reader decides the pair while it merges, so its answer watches both members;
+  ;; the functional sequence first leaves the reader's answer cached before the drop
+  (let [{f-route :route f-cx :cx} (collision-with-route kb 'functional false)]
+    (v/retract! kb (v/handle-of kb f-route f-cx)))
+  (let [{:keys [fa fb route cx]} (collision-with-route kb 'anti_symmetric false)]
+    (v/retract! kb (v/handle-of kb route cx))
+    (is (true? (held-at? kb fa cx)))
+    (is (false? (held-at? kb fb cx)))))
 
 ;; DECISION (`functional` infers equality instead of throwing) meeting order
 ;; independence: a declaration has to reach the facts already stored exactly as it
@@ -620,8 +700,8 @@
 (tu/deftest-kb a-functional-declaration-arriving-after-the-facts-merges-them-too
   (tu/with-terms [motherOf caresFor Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (v/assert kb (list motherOf Tom lo) CxFam)
-      (v/assert kb (list motherOf Tom hi) CxFam)
+      (v/assert kb (list motherOf Tom lo) CxFam {:strength :monotonic})
+      (v/assert kb (list motherOf Tom hi) CxFam {:strength :monotonic})
       (testing "before the declaration the two values are simply two values"
         (is (true? (v/ask? kb (list 'different lo hi) CxFam))))
       (v/assert kb (list 'functional motherOf) CxFam)
@@ -659,8 +739,8 @@
   ;; order and shrug at the other
   (tu/with-terms [motherOf Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (v/assert kb (list motherOf Tom lo) CxFam)
-      (v/assert kb (list motherOf Tom hi) CxFam)
+      (v/assert kb (list motherOf Tom lo) CxFam {:strength :monotonic})
+      (v/assert kb (list motherOf Tom hi) CxFam {:strength :monotonic})
       (v/assert kb (list 'functional motherOf) CxFam)
       (let [eq (v/handle-of kb (list 'equals lo hi) CxFam)]
         (is (some? eq) "no derived equality to explain")
@@ -674,8 +754,8 @@
   ;; is one of the three antecedents whichever order it arrived in
   (tu/with-terms [motherOf caresFor Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (v/assert kb (list motherOf Tom lo) CxFam)
-      (v/assert kb (list motherOf Tom hi) CxFam)
+      (v/assert kb (list motherOf Tom lo) CxFam {:strength :monotonic})
+      (v/assert kb (list motherOf Tom hi) CxFam {:strength :monotonic})
       (v/assert kb (list 'functional motherOf) CxFam)
       (v/assert kb (list caresFor hi Tom) CxFam)
       (testing "merged while the declaration stands"
@@ -694,7 +774,7 @@
   ;; value in the slot lands in one class rather than the first pair it happens to meet
   (tu/with-terms [motherOf Tom CxFam]
     (let [[a b c] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
-      (doseq [m [a b c]] (v/assert kb (list motherOf Tom m) CxFam))
+      (doseq [m [a b c]] (v/assert kb (list motherOf Tom m) CxFam {:strength :monotonic}))
       (v/assert kb (list 'functional motherOf) CxFam)
       (testing "all three collapse to one representative"
         (is (= 1 (count (distinct (map #(v/representative kb %) [a b c]))))
@@ -711,10 +791,10 @@
   (tu/with-terms [motherOf parentOf caresFor Tom CxFam]
     (let [[lo hi] (sort [(tu/tmp-ind "Mary") (tu/tmp-ind "Mary")])]
       (v/assert kb (list 'functional motherOf) CxFam)
-      (v/assert kb (list motherOf Tom lo) CxFam)
+      (v/assert kb (list motherOf Tom lo) CxFam {:strength :monotonic})
       (v/assert kb (list caresFor hi Tom) CxFam)
       (v/assert-rule kb [(list parentOf '?x '?y)] (list motherOf '?x '?y) CxFam {:direction :forward})
-      (v/assert kb (list parentOf Tom hi) CxFam)
+      (v/assert kb (list parentOf Tom hi) CxFam {:strength :monotonic})
       (testing "the derived second value merges"
         (is (v/same-class? kb lo hi)))
       (testing "and the fact under the retired spelling is restated, not doubled"
@@ -735,11 +815,14 @@
 ;; so a fact written `(alias lo hi)` retires `hi` under every one of them.
 
 (defn- rule-concluded-merge!
-  "Assert a rule concluding `(rel ?x ?y)` from an ordinary fact, plus one fact naming
-  the spelling the merge retires, and fire it.  Returns `[lo hi]` — the elected
-  representative and the retired spelling."
+  "Assert a rule concluding `(rel ?x ?y)` from a fact of `aliasOf`, plus one fact naming
+  the spelling the merge retires, and fire it.  `aliasOf` is declared on the
+  forced-monotonic roster, since a firing concludes an equality only from roster
+  antecedents.  Returns `[lo hi]` — the elected representative and the retired
+  spelling."
   [kb rel aliasOf caresFor Tom context]
   (let [[lo hi] (sort [(tu/tmp-ind "Ann") (tu/tmp-ind "Ann")])]
+    (v/assert kb (list 'forced_monotonic_predicate aliasOf) 'CxUniverse)
     (v/assert-rule kb [(list aliasOf '?x '?y)] (list rel '?x '?y) context {:direction :forward})
     (v/assert kb (list caresFor hi Tom) context)
     (v/assert kb (list aliasOf lo hi) context)
@@ -787,6 +870,8 @@
                    (list devotedTo '?x '?y) CxAlias {:direction :forward})
     (let [[lo hi] (sort [(tu/tmp-ind "Ann") (tu/tmp-ind "Ann")])]
       (v/assert kb (list lives lo) CxAlias)
+      ;; a firing concludes an equality only from roster antecedents
+      (v/assert kb (list 'forced_monotonic_predicate aliasOf) 'CxUniverse)
       (v/assert-rule kb [(list aliasOf '?x '?y)] (list 'sameAs '?x '?y) CxAlias {:direction :forward})
       (v/assert kb (list caresFor hi Tom) CxAlias)
       (is (nil? (v/handle-of kb (list devotedTo hi Tom) CxAlias))
@@ -797,30 +882,46 @@
           "the twin never reached the agenda: nothing fired off the restated fact"))))
 
 ;; ---- 8. disjointness -----------------------------------------------------
-;; DECISION (Interactions — Disjointness): "A merge can *create* a violation:
-;; `(dog Rex)` + `(cat Fluffy)` + merge makes one individual both.  So migration runs
-;; the integrity checks that `place-conclusion` already runs, and a derived violation
-;; is reported through `violations` rather than thrown."  Reported, not thrown: the
-;; merge is a derivation, and a derivation that aborted would make belief depend on
-;; firing order.
+;; DECISION (Interactions — Disjointness): a merge can *create* a clash, `(dog Rex)` +
+;; `(cat Fluffy)` + merge makes one individual both.  The twin is stored, supersedes its
+;; original, and the clash is decided and reported like any stored clash; dropping the
+;; twin would leave the member restated second under its old spelling.
 
-(tu/deftest-kb a-merge-that-creates-a-disjointness-violation-is-reported-not-thrown
+(tu/deftest-kb a-merge-that-creates-a-disjointness-clash-stores-the-twin-and-reports-it
   (tu/with-terms [dog cat CxPet]
     (tu/with-terms [Rex Fluffy]
-      (v/assert kb (list 'disjoint dog cat) CxPet)
+      (v/assert kb (list 'disjoint dog cat) CxPet {:strength :monotonic})
       (v/assert kb (list dog Rex)    CxPet)
       (v/assert kb (list cat Fluffy) CxPet)
-      (testing "the merge itself does not throw"
-        (is (some? (v/assert kb (list 'sameAs Rex Fluffy) CxPet))))
-      (let [vs (v/violations kb)]
-        (testing "the impossible twin is reported as a disjointness violation"
-          (is (seq vs))
-          (is (some #(= :disjoint (:violation %)) vs)
-              (str "no :disjoint violation reported — got " (pr-str (map :violation vs))))))
-      (testing "and the impossible twin was dropped, not stored"
-        (let [rep (first (sort [Rex Fluffy]))
-              other (if (= rep Rex) cat dog)]
-          (is (nil? (v/handle-of kb (list other rep) CxPet))))))))
+      (v/assert kb (list 'sameAs Rex Fluffy) CxPet)
+      (let [[rep other] (sort [Rex Fluffy])
+            [t-rep t-other] (if (= rep Rex) [dog cat] [cat dog])]
+        (testing "both memberships are restated under the representative and believed"
+          (is (believed? kb (list t-rep rep) CxPet))
+          (is (believed? kb (list t-other rep) CxPet))
+          (is (stored-not-believed? kb (list t-other other) CxPet)))
+        (testing "the clash is a reported dilemma, and nothing is filed in violations"
+          (is (some #(and (= :disjoint (:kind %))
+                          (= #{(list dog rep) (list cat rep)} (set (map :sentence (:sides %)))))
+                    (v/contradictions kb)))
+          (is (not-any? #(= :disjoint (:violation %)) (v/violations kb))))))))
+
+(tu/deftest-kb a-clash-member-out-at-the-merge-takes-the-representative-when-its-defeater-goes
+  ;; `(dog Bea)` is OUT when the merge arrives, defeated by the :monotonic `(cat Bea)`;
+  ;; its twin is stored OUT beside it, so retracting `(cat Bea)` leaves the KB a KB
+  ;; built without `(cat Bea)` would be: `(dog Ann)` believed, `(dog Bea)` superseded
+  (tu/with-terms [dog cat CxZoo]
+    (tu/with-terms [Ann Bea]
+      (let [[rep other] (sort [Ann Bea])]
+        (v/assert kb (list 'disjoint dog cat) CxZoo {:strength :monotonic})
+        (v/assert kb (list cat other) CxZoo {:strength :monotonic})
+        (v/assert kb (list dog other) CxZoo)
+        (v/assert kb (list 'equals rep other) CxZoo {:strength :monotonic})
+        (is (believed? kb (list cat rep) CxZoo))
+        (is (stored-not-believed? kb (list dog rep) CxZoo))
+        (v/retract! kb (v/handle-of kb (list cat other) CxZoo))
+        (is (believed? kb (list dog rep) CxZoo))
+        (is (stored-not-believed? kb (list dog other) CxZoo))))))
 
 ;; ---- 9. well-formedness --------------------------------------------------
 ;; DECISION (Choosing the representative): "A `rewriteOf` cycle has no representative
@@ -947,8 +1048,8 @@
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (merges! kb 20)
       (v/assert kb '(functional eqcMotherOf) merge-cost-ctx)
-      (v/assert kb '(eqcMotherOf EqcTom EqcMaryA) merge-cost-ctx)
-      (let [second-fact (v/assert kb '(eqcMotherOf EqcTom EqcMaryB) merge-cost-ctx)]
+      (v/assert kb '(eqcMotherOf EqcTom EqcMaryA) merge-cost-ctx {:strength :monotonic})
+      (let [second-fact (v/assert kb '(eqcMotherOf EqcTom EqcMaryB) merge-cost-ctx {:strength :monotonic})]
         (v/assert kb '(eqcCaresFor EqcMaryB EqcTom) merge-cost-ctx)
         (let [orig (v/handle-of kb '(eqcCaresFor EqcMaryB EqcTom) merge-cost-ctx)]
           (is (false? (v/in? kb orig))
@@ -979,23 +1080,18 @@
 ;; into the vacuous `(not (sameAs A A))`.  Without that, a monotonic denial of a default
 ;; merge was silently superseded and the merge stood (docs/equality.md, the flagged case).
 
-(tu/deftest-kb a-monotonic-denial-of-an-equality-defeats-a-default-merge
-  (testing "the merge first, then the monotonic denial"
+(tu/deftest-kb a-denial-of-an-equality-leaves-a-default-merge-standing-in-either-order
+  ;; the equality relations are on the engine's baseline roster, so on this bare KB too
+  ;; the merge is held `:monotonic` and a denial of it OUT (decision 13)
+  (doseq [denial-first? [false true]]
     (tu/with-terms [A B]
-      (v/assert kb (list 'sameAs A B) 'CxUniverse)
-      (v/assert kb (list 'not (list 'sameAs A B)) 'CxUniverse {:strength :monotonic})
-      (is (not (v/same-class? kb A B)) "the monotonic denial defeats the default merge")
-      (is (believed? kb (list 'not (list 'sameAs A B)) 'CxUniverse)
-          "and the denial is believed, not superseded by a vacuous rewrite of itself")))
-  (testing "the denial first, then the merge — the same outcome, order-independent"
-    (tu/with-terms [A B]
-      (v/assert kb (list 'not (list 'sameAs A B)) 'CxUniverse {:strength :monotonic})
-      (v/assert kb (list 'sameAs A B) 'CxUniverse)
-      (is (not (v/same-class? kb A B)))))
-  (testing "a default merge with no denial still merges — the fix is scoped to the denial"
-    (tu/with-terms [A B]
-      (v/assert kb (list 'sameAs A B) 'CxUniverse)
-      (is (v/same-class? kb A B)))))
+      (let [deny  #(v/assert kb (list 'not (list 'sameAs A B)) 'CxUniverse {:strength :monotonic})
+            _     (when denial-first? (deny))
+            merge (v/assert kb (list 'sameAs A B) 'CxUniverse)
+            d     (if denial-first? (v/handle-of kb (list 'not (list 'sameAs A B)) 'CxUniverse) (deny))]
+        (is (v/same-class? kb A B) (str "denial first: " denial-first?))
+        (is (= :monotonic (v/defeat-class kb merge)))
+        (is (not (v/in? kb d)) "the denial is held OUT")))))
 
 (deftest the-mention-set-mirrors-the-canonical-equality-predicate-set
   ;; `res/equality-mention-heads` is `rewrite/equality-relations`, a copy of

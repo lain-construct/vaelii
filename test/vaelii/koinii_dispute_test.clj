@@ -244,20 +244,18 @@
 (tu/deftest-kb the-first-mark-loads-the-declarations-the-marks-are-checked-against
   (cross-agent-clash! kb)
   (let [did (:dispute-id (first (d/disputes-in kb 'CxDeploy)))]
-    (is (empty? (v/sentexes-matching kb '(arity disputeNotified ?n) d/state-context))
+    (is (not (v/isa? kb 'disputeNotified 'binary d/state-context))
         "no declaration before a mark is written")
     (d/mark-notified kb did 1750000000000)
     (testing "the first mark loads the CxDisputes seed: CxCore in view, both marks declared"
       (is (v/sees? kb d/state-context 'CxCore))
-      (is (= '[(arity disputeNotified 2)]
-             (mapv :sentence (v/sentexes-matching kb '(arity disputeNotified ?n) d/state-context))))
-      (is (= '[(arity disputeStale 3)]
-             (mapv :sentence (v/sentexes-matching kb '(arity disputeStale ?n) d/state-context)))))
-    (testing "a mark at the wrong arity is refused there"
-      (let [e (try (v/assert kb (list 'disputeStale (d/dispute-term did) 1) d/state-context)
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-        (is (= :arity (:type (ex-data e))))))
+      (is (v/isa? kb 'disputeNotified 'binary d/state-context))
+      (is (v/isa? kb 'disputeStale 'ternary d/state-context)))
+    (testing "a mark at the wrong arity is stored there and read OUT"
+      (let [bad (list 'disputeStale (d/dispute-term did) 1)
+            h   (v/assert kb bad d/state-context)]
+        (is (not (v/ask? kb bad d/state-context)))
+        (v/retract! kb h)))
     (testing "a second mark finds the seed stored and still writes"
       (d/mark-stale kb did 1750000009999 'TimedOut)
       (is (d/stale? kb did)))))

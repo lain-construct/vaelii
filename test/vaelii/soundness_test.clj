@@ -90,10 +90,9 @@
     (v/assert kb (list 'disjoint dog fish) 'CxUniverse)
     (v/assert kb (list dog Rex) 'CxUniverse)
     (v/assert-rule kb [(list dog '?x)] (list fish '?x) 'CxUniverse {:direction :forward})
-    (testing "the direct assertion of the derived sentence is still refused"
-      ;; the assert path keeps its guardrail: a writer is told no
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list fish Rex) 'CxUniverse))))
+    (testing "the direct assertion of the derived sentence is stored as the same sentex"
+      (is (= (v/handle-of kb (list fish Rex) 'CxUniverse)
+             (v/assert kb (list fish Rex) 'CxUniverse))))
     (testing "the derived one is placed, and the clash is a represented dilemma"
       (is (seq (v/sentexes-matching kb (list dog Rex)  'CxUniverse)))
       (is (seq (v/sentexes-matching kb (list fish Rex) 'CxUniverse)))
@@ -132,9 +131,9 @@
     (v/assert kb (list birthYearOf Tom 1980) 'CxUniverse)
     (v/assert kb (list bornIn Tom 1990) 'CxUniverse)
     (v/assert-rule kb [(list bornIn '?x '?y)] (list birthYearOf '?x '?y) 'CxUniverse {:direction :forward})
-    (testing "the direct assertion of the derived sentence is still refused"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list birthYearOf Tom 1990) 'CxUniverse))))
+    (testing "the direct assertion of the derived sentence is stored as the same sentex"
+      (is (= (v/handle-of kb (list birthYearOf Tom 1990) 'CxUniverse)
+             (v/assert kb (list birthYearOf Tom 1990) 'CxUniverse))))
     (testing "the derived second value is placed and the pair reported"
       ;; two *numbers*: no equality could reconcile them, so this is the clash
       ;; `mergeable-values?` keeps hard rather than merging away
@@ -182,11 +181,9 @@
       (is (some? (v/assert-rule kb [(list human '?x)] (list mortal '?x) 'CxUniverse {:direction :forward}))))))
 
 ;; ---- 5. contradiction detection misses incomparable contexts -----------
-;; BUG: `negation-nogoods` pairs S with (not S) only when one of their contexts
-;; `sees?` the other.  Two incomparable contexts with a common *descendant* both
-;; reach the pair, so the clash is real from that descendant — but neither
-;; direction of `sees?` holds between them, so nothing is detected.
-;; `negation-nogoods` now tests for a common descendant instead.
+;; Two incomparable contexts with a common *descendant* both reach the pair, so the
+;; clash is real from that descendant although neither context `sees?` the other: a
+;; reader decides a pair whose two contexts it sees (`decide/nogoods-at`).
 
 (tu/deftest-kb a-contradiction-visible-from-a-common-descendant-is-detected
   (tu/with-terms [flies Zed CxLeft CxRight CxBoth]

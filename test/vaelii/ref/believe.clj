@@ -52,8 +52,9 @@
   `:default` edge on the reach leaves the verdict a `:monotonic` edge would give. The
   view had this shape before D7, and D7 changed no code in this namespace.
   `world/check-world` stores a write of a mark, of a declaration and of a predicate `genl`
-  edge `:monotonic` whatever it was written at and refuses a denial of one (D10, D11), so
-  every read of one is `:monotonic` and no decision takes one OUT: a mark's reach at `C`
+  edge `:monotonic` whatever it was written at and sets a denial of one aside as inert
+  (D10, D11, D17), so every read of one is `:monotonic` and no decision takes one OUT: a
+  mark's reach at `C`
   is the stored predicate edges visible at `C`.
 
   **A verdict does not bind a reader against its own view** (docs/reference.md D3). A
@@ -91,9 +92,9 @@
   "`up(C)`: `c` plus every context it sees, the reflexive transitive closure of the
   world's genlCx edges (`edges`, `{sub #{super}}` off `context-edges`) from `c`.
 
-  Every genlCx edge is `:monotonic` and undeniable (docs/reference.md D1:
-  `world/check-world` stores a genlCx write `:monotonic` and refuses a denial of one), and no rule
-  concludes one, so `up(C)` is a function of the stored edges alone and is fixed for the
+  Every genlCx edge is `:monotonic` (docs/reference.md D1: `world/check-world` stores a
+  genlCx write `:monotonic` and sets a denial or a rule concluding one aside as inert), so
+  `up(C)` is a function of the stored edges alone and is fixed for the
   whole computation. The closure is global, not scoped by visibility: an edge counts
   whatever context stores it (docs/contexts.md, \"Context-scoped constraint checks\").
   A genlCx path caps no class, since each of its edges is `:monotonic`.

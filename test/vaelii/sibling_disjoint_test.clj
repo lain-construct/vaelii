@@ -6,7 +6,6 @@
   same JTMS/ASP path as disjoint."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.checks :as checks]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.test-util :as tu]))
 
@@ -29,8 +28,7 @@
     (testing "two specializations of the marked parent are disjoint, no pair asserted"
       (is (v/disjoint? kb dog cat)))
     (testing "a membership that violates it is refused where written"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list cat muffet) 'CxUniverse))))
+      (is (tu/stored-in-clash? kb (list cat muffet) 'CxUniverse)))
     (testing "an individual holding only one is unaffected"
       (is (v/assert kb (list cat whiskers) 'CxUniverse)))))
 
@@ -62,8 +60,7 @@
       (is (v/disjoint? kb sub_a sub_b)))
     (testing "and a conflicting membership among the subtypes is refused"
       (v/assert kb (list sub_a x) 'CxUniverse)
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list sub_b x) 'CxUniverse))))))
+      (is (tu/stored-in-clash? kb (list sub_b x) 'CxUniverse)))))
 
 (deftest the-mark-reaches-back-over-memberships-stored-before-it
   ;; Order independence, under the arbitrating policy (the one that lets a declaration
@@ -72,21 +69,20 @@
   ;; anything separates them, so the settle's retroactive sweep — not the entry point — is what
   ;; must convict the pair the mark newly separates.  A default/default clash is a
   ;; represented dilemma.
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-kb [kb]
-      (tu/with-terms [collection a b Muffet]
-        (v/assert kb (list 'genl a collection) 'CxUniverse)
-        (v/assert kb (list 'genl b collection) 'CxUniverse)
-        (v/assert kb (list a Muffet) 'CxUniverse)
-        (v/assert kb (list b Muffet) 'CxUniverse)
-        (testing "before the mark, nothing separates them and nothing is wrong"
-          (is (not (v/disjoint? kb a b)))
-          (is (empty? (v/contradictions kb))))
-        (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
-        (testing "the mark arriving last separates the pair"
-          (is (v/disjoint? kb a b)))
-        (testing "and the retroactive sweep convicts the pre-existing pair as a dilemma"
-          (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))))))
+  (tu/with-kb [kb]
+    (tu/with-terms [collection a b Muffet]
+      (v/assert kb (list 'genl a collection) 'CxUniverse)
+      (v/assert kb (list 'genl b collection) 'CxUniverse)
+      (v/assert kb (list a Muffet) 'CxUniverse)
+      (v/assert kb (list b Muffet) 'CxUniverse)
+      (testing "before the mark, nothing separates them and nothing is wrong"
+        (is (not (v/disjoint? kb a b)))
+        (is (empty? (v/contradictions kb))))
+      (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
+      (testing "the mark arriving last separates the pair"
+        (is (v/disjoint? kb a b)))
+      (testing "and the retroactive sweep convicts the pre-existing pair as a dilemma"
+        (is (= [:disjoint] (mapv :kind (v/contradictions kb))))))))
 
 (tu/deftest-kb retracting-the-mark-releases-every-pair-it-separated
   ;; belief-following: the mark is one supporter of the whole induced clique, so dropping
@@ -97,7 +93,7 @@
     (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (v/assert kb (list a x) 'CxUniverse)
     (is (v/disjoint? kb a b))
-    (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list b x) 'CxUniverse)))
+    (is (tu/stored-in-clash? kb (list b x) 'CxUniverse))
     (testing "retracting the one mark releases the separation and admits the membership"
       (v/retract! kb (v/handle-of kb (list 'sibling_disjoint collection) 'CxUniverse))
       (is (not (v/disjoint? kb a b)))
@@ -134,8 +130,7 @@
 (tu/deftest-kb a-general-context-may-hold-what-a-specific-siblingdisjoint-forbids
   ;; the mark lives in a specific context; a sibling above it that cannot see the mark is
   ;; not constrained, and the clash a general write creates for the specific context is
-  ;; weighed at CxA — the only context that sees the mark and both memberships — rather
-  ;; than refused at the general entry point
+  ;; weighed at CxA — the only context that sees the mark and both memberships
   ;;
   ;;   CxUniverse
   ;;     └─ CxC        (t2 Pip) default, written second
@@ -156,12 +151,11 @@
     (testing "the unscoped read still reports the separation the KB holds somewhere"
       (is (v/disjoint? kb t1 t2)))
 
-    (testing "so the general context, blind to the mark, admits the conflicting membership"
+    (testing "so the general context, blind to the mark, stores the conflicting membership"
       (is (= :ok (assert-outcome kb (list t2 Pip) CxC))))
 
-    (testing "while the context that wrote the mark refuses its own"
-      (is (= #{t1 t2} (set (v/types-of kb Pip CxA))))
-      (is (= :disjoint (assert-outcome kb (list t2 Pip) CxA))))
+    (testing "and the context that wrote the mark reads both"
+      (is (= #{t1 t2} (set (v/types-of kb Pip CxA)))))
 
     (testing "the vantage decides the cross-context clash, so nothing reaches the ledger"
       (is (empty? (v/violations kb)))
@@ -199,7 +193,7 @@
       (v/assert kb (list a pip) 'CxUniverse)
       (is (v/assert kb (list b pip) 'CxUniverse)))
     (testing "but still not a non-exempted sibling"
-      (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list c pip) 'CxUniverse))))))
+      (is (tu/stored-in-clash? kb (list c pip) 'CxUniverse)))))
 
 (tu/deftest-kb the-exception-canonicalizes-both-orders-to-one-handle
   ;; symmetric — as CxCore declares it — so (siblingDisjointException a b) and (… b a)
@@ -228,7 +222,7 @@
       (is (v/disjoint? kb b sub_a)))
     (testing "and a term holding sub_a cannot also hold b"
       (v/assert kb (list sub_a x) 'CxUniverse)
-      (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list b x) 'CxUniverse))))))
+      (is (tu/stored-in-clash? kb (list b x) 'CxUniverse)))))
 
 (tu/deftest-kb an-exception-admits-a-membership-the-mark-would-refuse
   (let [collection (tu/tmp-type) a (tu/tmp-type) b (tu/tmp-type) x (tu/tmp-ind)]
@@ -237,7 +231,7 @@
     (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (v/assert kb (list a x) 'CxUniverse)
     (testing "without the exception the second membership is refused"
-      (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list b x) 'CxUniverse))))
+      (is (tu/stored-in-clash? kb (list b x) 'CxUniverse)))
     (testing "with the exception standing it is admitted"
       (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
       (is (v/assert kb (list b x) 'CxUniverse))
@@ -265,7 +259,7 @@
     (testing "a fresh term can no longer hold both"
       (let [y (tu/tmp-ind)]
         (v/assert kb (list a y) 'CxUniverse)
-        (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list b y) 'CxUniverse)))))))
+        (is (tu/stored-in-clash? kb (list b y) 'CxUniverse))))))
 
 (tu/deftest-kb retracting-an-exception-over-a-nat-term-does-not-wedge-writes
   ;; An exception may name a compound/NAT term — `(SomeFn someType)`, a PersistentList and
@@ -292,79 +286,50 @@
 ;; the arms share the fixture KB, so the second would read the first's contradictions.
 
 (deftest an-exception-retracted-after-standing-ab-initio-re-arms-the-dilemma
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-kb [kb]
-      (tu/with-terms [collection a b Muffet]
-        (v/assert kb (list 'genl a collection) 'CxUniverse)
-        (v/assert kb (list 'genl b collection) 'CxUniverse)
-        (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
-        (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
-        (v/assert kb (list a Muffet) 'CxUniverse)
-        (v/assert kb (list b Muffet) 'CxUniverse)
-        (testing "the exception spares the pair — no contradiction"
-          (is (not (v/disjoint? kb a b)))
-          (is (empty? (v/contradictions kb))))
-        (v/retract! kb (v/handle-of kb (list 'siblingDisjointException a b) 'CxUniverse))
-        (testing "retracting it re-arms the ab-initio pair as a dilemma"
-          (is (v/disjoint? kb a b))
-          (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))))))
-
-(deftest a-re-arm-past-the-instance-budget-names-the-exception-and-resumes
-  ;; the departed exception re-arms four members' pairs; a budget of one decides one,
-  ;; files the cut against the exception, and a later settle reaches the rest
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-kb [kb]
-      (tu/with-terms [collection a b other Zed]
-        (v/assert kb (list 'genl a collection) 'CxUniverse)
-        (v/assert kb (list 'genl b collection) 'CxUniverse)
-        (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
-        (let [exc     (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
-              members (repeatedly 4 #(tu/tmp-ind "Member"))
-              ours?   (fn [c] (some #((set members) (second (:sentence %))) (:sides c)))
-              mine    #(count (filter ours? (v/contradictions kb)))]
-          (doseq [m members]
-            (v/assert kb (list a m) 'CxUniverse)
-            (v/assert kb (list b m) 'CxUniverse))
-          (v/clear-violations! kb)
-          (binding [tax/*exposure-instance-budget* 1]
-            (v/retract! kb exc))
-          (is (= [[:arbitration-truncated [(list 'siblingDisjointException a b)] 1]]
-                 (mapv (juxt :violation #(get-in % [:detail :sample]) #(get-in % [:detail :budget]))
-                       (v/violations kb))))
-          (is (= 1 (mine)) "the budget decided one member's pair")
-          (v/assert kb (list other Zed) 'CxUniverse)
-          (is (= 4 (mine)) "and the next settle resumes past the cut"))))))
+  (tu/with-kb [kb]
+    (tu/with-terms [collection a b Muffet]
+      (v/assert kb (list 'genl a collection) 'CxUniverse)
+      (v/assert kb (list 'genl b collection) 'CxUniverse)
+      (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
+      (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
+      (v/assert kb (list a Muffet) 'CxUniverse)
+      (v/assert kb (list b Muffet) 'CxUniverse)
+      (testing "the exception spares the pair — no contradiction"
+        (is (not (v/disjoint? kb a b)))
+        (is (empty? (v/contradictions kb))))
+      (v/retract! kb (v/handle-of kb (list 'siblingDisjointException a b) 'CxUniverse))
+      (testing "retracting it re-arms the ab-initio pair as a dilemma"
+        (is (v/disjoint? kb a b))
+        (is (= [:disjoint] (mapv :kind (v/contradictions kb))))))))
 
 (deftest a-sibling-separated-clash-is-exposed-where-its-mark-is-seen
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-kb [kb]
-      (tu/with-terms [collection a b Muffet CxMark]
-        (v/assert kb (list 'genlCx CxMark 'CxUniverse) 'CxUniverse)
-        (v/assert kb (list 'genl a collection) 'CxUniverse)
-        (v/assert kb (list 'genl b collection) 'CxUniverse)
-        (v/assert kb (list 'sibling_disjoint collection) CxMark)
-        (v/assert kb (list a Muffet) 'CxUniverse)
-        (v/assert kb (list b Muffet) 'CxUniverse)
-        (is (= [#{CxMark}]
-               (for [c (v/exposed-clashes kb) :when (= Muffet (get-in c [:detail :term]))]
-                 (get-in c [:detail :visible-from])))
-            "the witness rests on the mark's context")))))
+  (tu/with-kb [kb]
+    (tu/with-terms [collection a b Muffet CxMark]
+      (v/assert kb (list 'genlCx CxMark 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genl a collection) 'CxUniverse)
+      (v/assert kb (list 'genl b collection) 'CxUniverse)
+      (v/assert kb (list 'sibling_disjoint collection) CxMark)
+      (v/assert kb (list a Muffet) 'CxUniverse)
+      (v/assert kb (list b Muffet) 'CxUniverse)
+      (is (= [#{CxMark}]
+             (for [c (v/exposed-clashes kb) :when (= Muffet (get-in c [:detail :term]))]
+               (get-in c [:detail :visible-from])))
+          "the witness rests on the mark's context"))))
 
 (deftest an-exception-asserted-last-releases-a-standing-dilemma
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-kb [kb]
-      (tu/with-terms [collection a b Muffet]
-        (v/assert kb (list 'genl a collection) 'CxUniverse)
-        (v/assert kb (list 'genl b collection) 'CxUniverse)
-        (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
-        (v/assert kb (list a Muffet) 'CxUniverse)
-        (v/assert kb (list b Muffet) 'CxUniverse)
-        (testing "the mark makes the pre-existing pair a standing dilemma"
-          (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))
-        (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
-        (testing "the exception releases it"
-          (is (not (v/disjoint? kb a b)))
-          (is (empty? (v/contradictions kb))))))))
+  (tu/with-kb [kb]
+    (tu/with-terms [collection a b Muffet]
+      (v/assert kb (list 'genl a collection) 'CxUniverse)
+      (v/assert kb (list 'genl b collection) 'CxUniverse)
+      (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
+      (v/assert kb (list a Muffet) 'CxUniverse)
+      (v/assert kb (list b Muffet) 'CxUniverse)
+      (testing "the mark makes the pre-existing pair a standing dilemma"
+        (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))
+      (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
+      (testing "the exception releases it"
+        (is (not (v/disjoint? kb a b)))
+        (is (empty? (v/contradictions kb)))))))
 
 (tu/deftest-kb the-exception-is-well-formedness-checked
   (let [a (tu/tmp-type) Fido (tu/tmp-ind)]

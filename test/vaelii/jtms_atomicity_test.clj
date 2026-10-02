@@ -70,7 +70,7 @@
       "dense: every concurrent retraction must land — a lost update leaves a node behind"))
 
 (defn- retraction-beside-a-relabelling-writer
-  "Retract one range while another thread defeats and revives a disjoint one.  Answers
+  "Retract one range while another thread suspends and restores a disjoint one.  Answers
   `{:tms :retracted :parked}` for the caller to read both halves off."
   [make-tms]
   (let [tms  (make-tms)
@@ -78,10 +78,10 @@
         park (range n (+ n 50))]                      ; disjoint from the retracted range
     (doseq [d (range (+ n 50))] (jtms/add-premise tms d :default))
     (let [retracting (future (doseq [d (range n)] (jtms/retract! tms d)))
-          defeating  (future (dotimes [_ 25]
-                               (jtms/defeat tms park)
-                               (jtms/clear-defeats! tms)))]
-      @retracting @defeating)
+          relabelling (future (dotimes [_ 25]
+                                (doseq [d park] (jtms/suspend-premise tms d))
+                                (doseq [d park] (jtms/add-premise tms d :default))))]
+      @retracting @relabelling)
     {:tms tms :retracted (range n) :parked park}))
 
 (defn- check-composed [label make-tms]

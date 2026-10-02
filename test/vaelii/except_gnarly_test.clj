@@ -279,7 +279,10 @@
   ;; The first half.  The rule fires while nothing hides its antecedent; the except then
   ;; arrives **by derivation**, and the conclusion is left resting on a fact its own
   ;; context can no longer see unless the derivation path queues the sweep.
+  ;; `hide` is put on the forced-monotonic roster, so a rule reading it may conclude an
+  ;; `except` (docs/nmtms.md, "The forced-monotonic roster")
   (tu/with-terms [q p hide Aa trigger CxSub]
+    (v/assert kb (list 'forced_monotonic_predicate hide) 'CxUniverse)
     (v/assert kb (list 'genlCx CxSub 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list q Aa) CxSub {:strength :monotonic})]
       (v/assert kb (list 'implies (list q '?x) (list p '?x)) CxSub {:direction :forward :strength :monotonic})
@@ -302,6 +305,7 @@
   ;; hidden from every warm read — and the KB then disagrees with `recover` over one
   ;; store, which is the property the derivation path exists to keep.
   (tu/with-terms [shiny gold hide trigger CxChild CxParent CxOther]
+    (v/assert kb (list 'forced_monotonic_predicate hide) 'CxUniverse)
     (let [tx (reasoning/taxonomy kb)]
       (v/assert kb (list 'genlCx CxParent 'CxWell) 'CxUniverse {:strength :monotonic})
       (v/assert kb (list 'genlCx CxOther CxParent) 'CxUniverse {:strength :monotonic})
@@ -482,14 +486,14 @@
           (is (v/has-prop? kb :symmetric siblingOf)))))))
 
 (tu/deftest-kb except-blocks-asymmetric-sentex-visibility
-  ;; asymmetric: the converse of an asymmetric predicate is refused.
+  ;; asymmetric: the converse of an asymmetric predicate forms a nogood with the claim.
   (tu/with-terms [olderThan Alice Bob CxAs]
     (v/assert kb (list 'genlCx CxAs 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [ah (v/assert kb (list 'asymmetric olderThan) CxAs {:strength :monotonic})]
       (v/assert kb (list olderThan Alice Bob) CxAs {:strength :monotonic})
-      (testing "asymmetric is active — the converse is refused"
+      (testing "asymmetric is active — the default converse is stored and loses"
         (is (v/has-prop? kb :asymmetric olderThan))
-        (is (= :asymmetric (ex-type #(v/assert kb (list olderThan Bob Alice) CxAs)))))
+        (is (tu/stored-in-clash? kb (list olderThan Bob Alice) CxAs)))
       (let [eh (v/assert kb (list 'except (sx/sentex-handle ah)) CxAs {:strength :monotonic})]
         (testing "the asymmetric sentex is hidden from query"
           (is (empty? (v/sentexes-matching kb (list 'asymmetric olderThan) CxAs))))
@@ -529,20 +533,24 @@
           (is (v/has-prop? kb :functional motherOf)))))))
 
 (tu/deftest-kb except-blocks-irreflexive-sentex-visibility
-  ;; irreflexive: a self-tuple is refused.
+  ;; irreflexive: a :default self tuple is OUT at a reader that reads the mark, and a
+  ;; reader the mark is excepted from believes it.
   (tu/with-terms [before Alice CxIr]
     (v/assert kb (list 'genlCx CxIr 'CxWell) 'CxUniverse {:strength :monotonic})
-    (let [ih (v/assert kb (list 'irreflexive before) CxIr {:strength :monotonic})]
+    (let [ih (v/assert kb (list 'irreflexive before) CxIr {:strength :monotonic})
+          th (v/assert kb (list before Alice Alice) CxIr)]
       (testing "irreflexive is active"
         (is (v/has-prop? kb :irreflexive before))
-        (is (= :irreflexive (ex-type #(v/assert kb (list before Alice Alice) CxIr)))))
+        (is (not (v/believed? kb th CxIr))))
       (let [eh (v/assert kb (list 'except (sx/sentex-handle ih)) CxIr {:strength :monotonic})]
-        (testing "the irreflexive sentex is hidden from query"
-          (is (empty? (v/sentexes-matching kb (list 'irreflexive before) CxIr))))
+        (testing "the irreflexive sentex is hidden from query, and the self tuple believed"
+          (is (empty? (v/sentexes-matching kb (list 'irreflexive before) CxIr)))
+          (is (v/believed? kb th CxIr)))
         (testing "retract except — irreflexive sentex returns"
           (v/retract! kb eh)
           (is (seq (v/sentexes-matching kb (list 'irreflexive before) CxIr)))
-          (is (v/has-prop? kb :irreflexive before)))))))
+          (is (v/has-prop? kb :irreflexive before))
+          (is (not (v/believed? kb th CxIr))))))))
 
 (tu/deftest-kb except-blocks-antiSymmetric-sentex-visibility
   ;; anti_symmetric: a believed converse merges the two arguments via equals.

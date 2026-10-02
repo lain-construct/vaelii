@@ -252,7 +252,7 @@
   ;; is the bug this whole test is about.  So the roster is pinned: it shrinks on purpose.
   (testing "and the roster is exactly the vocabulary"
     (is (= #{:backend :records :index :space :dir :pg :tms :recover?
-             :naming :constraints :base :base-stores :overlay}
+             :naming :base :base-stores :overlay}
            kb/opt-keys))))
 
 (deftest a-store-value-outside-its-domain-is-refused

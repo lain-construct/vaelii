@@ -88,19 +88,15 @@
     :goal '(binary_predicate friendOf) :context 'CxWell :expect :yes}
 
    {:id "arity-by-class" :group "Predicates about predicates"
-    :title "One generator stamps the arity rule for every exact class"
-    :shows "CxCore maps each relation-wide exact class to its number —
-            (relationTypeByArity binary 2) — and one generator turns each such fact into
-            the rule concluding that arity for the relations the class holds of.
-            largerThan is declared a binary_predicate, which is a binary through
-            (genl binary_predicate binary), so the stamped rule answers its arity. A
-            second generator runs the mapping the other way, so an asserted (arity R 2)
-            concludes (binary R) and the two spellings keep each other believed."
+    :title "The exact class is the arity"
+    :shows "largerThan is declared a binary_predicate, which is a binary through
+            (genl binary_predicate binary), and every reader of an arity reads that
+            class: the position query answers that a second argument exists. No rule
+            concludes (arity largerThan 2), since arity is on the forced-monotonic
+            roster; an asserted (arity R 2) concludes (binary R) the other way."
     :rests-on [['(binary_predicate largerThan) 'CxAbstract]
-               ['(relationTypeByArity binary 2) 'CxCore]
-               ['(genl binary_predicate binary) 'CxCore]
-               ['(implies (binary ?relation) (arity ?relation 2)) 'CxCore]]
-    :goal '(arity largerThan 2) :context 'CxWell :expect :yes}
+               ['(genl binary_predicate binary) 'CxCore]]
+    :goal '(admitsArgnum largerThan 2) :context 'CxWell :expect :yes}
 
    {:id "type-level" :group "Predicates about predicates"
     :title "A relation between kinds, marked as one"
@@ -233,15 +229,15 @@
     :goal '(olderThan AdaEx BenEx) :expect :yes}
 
    ;; ---- what the KB will not accept -----------------------------------
-   {:id "disjoint-refusal" :group "What it refuses"
-    :title "A membership the taxonomy forbids"
-    :shows "Rex is a dog, dog and cat are disjoint, so the KB refuses to be told he is
-            also a cat. Not a warning and not a contradiction to arbitrate later —
-            check reports it and nothing is stored."
-    :rests-on [['(disjoint dog cat) 'CxOrganism]]
-    :premises '[(dog RexEx)]
+   {:id "cycle-refusal" :group "What it refuses"
+    :title "A genl edge that would close a cycle"
+    :shows "Every dog is a mammal, so an edge saying every mammal is a dog would make the
+            two types one, which the type hierarchy does not hold. The edge is malformed
+            as written, so it is refused. A membership that breaks a disjointness is
+            stored instead, and the clash is decided and reported."
+    :rests-on [['(genl dog mammal) 'CxOrganism]]
     :kind :refusal
-    :refuse '(cat RexEx)}
+    :refuse '(genl mammal dog)}
 
    {:id "argisa-refusal" :group "What it refuses"
     :title "An argument the predicate's own type constraint forbids"

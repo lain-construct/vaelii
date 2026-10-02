@@ -206,11 +206,6 @@ moved under it would hold two vocabularies with nothing recording which sentence
 under which. So a lenient loader and a strict editor can hold the *same store* at once,
 and neither has to win.
 
-`:constraints` is the other policy of the same kind, over what a **definitional clash**
-does rather than over how a symbol is spelled — `:refuse` or `:arbitrate`, on the KB as a
-plain value for the same reason ([nmtms.md](nmtms.md), "Which entry point the content
-came through").
-
 No setting moves the role **reading**. `predicate?` and its three siblings answer the
 same way under every policy, so `:off` stores a name nothing can classify: `term-role`
 returns nil and a `(Type Individual)` goal takes the general path rather than the

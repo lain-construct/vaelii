@@ -191,7 +191,10 @@
   "Refusals no test in this tree reaches, each with the reason. Every other refusal is
   provoked by a test that checks its `:type`; these are the ones where provoking it would
   mean staging a failure the entry points cannot produce."
-  {})
+  {:cover (str "a refuted cover names its membership and its negations, which the entry"
+               " point's reads always find, so `assert` stores it and the settle decides it;"
+               " the `:type` is carried by the violation the lift, the merge twin and"
+               " `abduce` refuse on")})
 
 ;; ---- the checks ----------------------------------------------------------
 

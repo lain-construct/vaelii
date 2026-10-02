@@ -6,25 +6,32 @@
   box (docs/nmtms.md, \"The runtime of a settle\").
 
   * The relabelled region is materialized `passes + 1` times: one delay per pass, and one
-    at the finish, which `record-clashes!` forces even on a rebuild.
-  * A `genl` or `genlCx` edge no standing clash depends on re-derives none of them.  The
-    bound is zero, which cannot drift upward; a plain fact retracted beside each edge is
-    the control, and `clash_oracle_test` / `negation_oracle_test` hold the answers.
-  * A definitional clash is re-asked at its vantages only after a round that defeated.
-  * The phase clock charges seven buckets, and a settle's total is the sum of its own.
+    at the finish, which the own-context reconcile forces even on a rebuild.
+  * A `genl` or `genlCx` edge no standing clash depends on re-derives none of them, and a
+    `genlCx` edge reads no opposed body.  The bound is zero, which cannot drift upward; a
+    plain fact retracted beside each edge is the control, and `clash_oracle_test` /
+    `negation_oracle_test` hold the answers.
+  * A `genl` edge no `functional` or `anti_symmetric` mark stands above hands no fact
+    below it to a merge derivation and recomputes no arity candidate.
+  * A definitional clash is re-asked at a reader only once the reader withdraws a ground.
+  * The phase clock charges six buckets, and a settle's total is the sum of its own.
   * A settle reads the standing merges and `except`s only where they moved: a batch of
-    merges reads the region once per settle, an un-merge re-examines its own class, and
-    resolution's flip check reads no `except` root when the region is smaller, and an
-    assert the excepts' regions do not reach recomputes no reader's withdrawal."
+    merges reads the region once per settle, an un-merge re-examines its own class, a
+    settle that moves no equality premise calls no supersession reconcile, and
+    resolution's flip check reads no `except` root when the region is smaller, an assert
+    the excepts' regions do not reach recomputes no reader's withdrawal, and a two-pass
+    settle keeps the withdrawal it computed."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
+            [vaelii.impl.clashes :as clashes]
+            [vaelii.impl.decide.arity :as arity]
+            [vaelii.impl.decide.negation :as negation]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.settle :as settle]
             [vaelii.impl.settle-phases :as phases]
             [vaelii.impl.special :as special]
             [vaelii.impl.types.reasoning :as reasoning]
@@ -126,95 +133,164 @@
 (deftest a-genl-edge-elsewhere-re-derives-no-standing-clash
   (let [kb (tu/fresh)]
     (try
-      (binding [checks/*arbitrate-constraints?* true]
-        (clash-kb kb)
-        (is (= n (count (v/contradictions kb)))
-            "the standing set is standing, or the counts below are about an empty memo")
-        (testing "retracting the lone genl edge asks the checks nothing"
-          (let [h (v/handle-of kb '(genl srcvictim_t srctop_t) 'CxUniverse)]
-            (is (zero? (arbitrable-calls #(v/retract! kb h))))))
-        (testing "and asserting it back asks them nothing either"
-          (is (zero? (arbitrable-calls
-                      #(v/assert kb '(genl srcvictim_t srctop_t) 'CxUniverse
-                                 {:strength :monotonic})))))
-        (testing "the control: a plain fact leaving is already free"
-          (let [h (v/handle-of kb '(src_plain SrcTarget) 'CxUniverse)]
-            (is (zero? (arbitrable-calls #(v/retract! kb h))))))
-        (is (= n (count (v/contradictions kb)))
-            "and every standing dilemma is still reported"))
+      (clash-kb kb)
+      (is (= n (count (v/contradictions kb)))
+          "the standing set is standing, or the counts below are about an empty memo")
+      (testing "retracting the lone genl edge asks the checks nothing"
+        (let [h (v/handle-of kb '(genl srcvictim_t srctop_t) 'CxUniverse)]
+          (is (zero? (arbitrable-calls #(v/retract! kb h))))))
+      (testing "and asserting it back asks them nothing either"
+        (is (zero? (arbitrable-calls
+                    #(v/assert kb '(genl srcvictim_t srctop_t) 'CxUniverse
+                               {:strength :monotonic})))))
+      (testing "the control: a plain fact leaving is already free"
+        (let [h (v/handle-of kb '(src_plain SrcTarget) 'CxUniverse)]
+          (is (zero? (arbitrable-calls #(v/retract! kb h))))))
+      (is (= n (count (v/contradictions kb)))
+          "and every standing dilemma is still reported")
       (finally (tu/clear-kb! kb)))))
 
-;; ---- the negation memo ---------------------------------------------------
+;; ---- the negation pairs -------------------------------------------------
 
 (defn- negation-kb
-  "n P/¬P dilemmas sharing no body, plus the two victims: one `genlCx` edge with nothing
-  below it, and one plain fact.  No separation, so the clash memo is not asked."
+  "n P/¬P dilemmas in one context and n across two contexts a third sees, sharing no
+  body, plus the two victims: one `genlCx` edge with nothing below it, and one plain fact.
+  No separation, so the clash memo is not asked."
   [kb]
+  (doseq [[c up] '[[CxSrL CxUniverse] [CxSrR CxUniverse] [CxSrJ CxSrL] [CxSrJ CxSrR]]]
+    (v/assert kb (list 'genlCx c up) 'CxUniverse {}))
   (dotimes [i n]
     (let [pr (symbol (str "srneg" i))
+          px (symbol (str "srnegx" i))
           x  (symbol (str "SRN" i))]
       (v/assert kb (list pr x) 'CxUniverse {})
-      (v/assert kb (list 'not (list pr x)) 'CxUniverse {})))
+      (v/assert kb (list 'not (list pr x)) 'CxUniverse {})
+      (v/assert kb (list px x) 'CxSrL {})
+      (v/assert kb (list 'not (list px x)) 'CxSrR {})))
   (v/assert kb '(genlCx CxSrVictim CxUniverse) 'CxUniverse {})
   (v/assert kb '(sr_plain SrTarget) 'CxUniverse {})
   kb)
 
-(defn- rederived-bodies
-  "Opposed bodies re-derived while `f` runs: `settle/body-nogoods` is the only
-  re-derivation site."
+(defn- body-reads
+  "Opposed bodies read off the index while `f` runs: `negation/polarity-handles` is the only
+  site that reads one."
   [f]
   (let [calls (atom 0)
-        orig  @#'settle/body-nogoods]
-    (with-redefs [settle/body-nogoods (fn [& args] (swap! calls inc) (apply orig args))]
+        orig  @#'negation/polarity-handles]
+    (with-redefs [negation/polarity-handles (fn [& args] (swap! calls inc) (apply orig args))]
       (f))
     @calls))
 
-(deftest a-genlCx-edge-elsewhere-re-derives-no-standing-pairing
+(deftest a-genlCx-edge-elsewhere-reads-no-opposed-body
   (let [kb (tu/fresh)]
     (try
       (negation-kb kb)
-      (is (= n (count (v/contradictions kb)))
-          "the standing set is standing, or the counts below are about an empty memo")
-      (testing "retracting the lone genlCx edge re-derives no body"
+      (is (= (* 2 n) (count (v/contradictions kb)))
+          "the standing set is standing, or the counts below are about an empty index")
+      (testing "retracting the lone genlCx edge reads no body"
         (let [h (v/handle-of kb '(genlCx CxSrVictim CxUniverse)
                              'CxUniverse)]
-          (is (zero? (rederived-bodies #(v/retract! kb h))))))
-      (testing "and asserting it back re-derives none either"
-        (is (zero? (rederived-bodies
-                    #(v/assert kb '(genlCx CxSrVictim CxUniverse)
-                               'CxUniverse {})))))
+          (is (zero? (body-reads #(do (v/retract! kb h) (v/contradictions kb)))))))
+      (testing "and asserting it back reads none either"
+        (is (zero? (body-reads
+                    #(do (v/assert kb '(genlCx CxSrVictim CxUniverse) 'CxUniverse {})
+                         (v/contradictions kb))))))
       (testing "the control: a plain fact leaving is already free"
         (let [h (v/handle-of kb '(sr_plain SrTarget) 'CxUniverse)]
-          (is (zero? (rederived-bodies #(v/retract! kb h))))))
-      (is (= n (count (v/contradictions kb)))
+          (is (zero? (body-reads #(v/retract! kb h))))))
+      (is (= (* 2 n) (count (v/contradictions kb)))
           "and every standing dilemma is still reported")
+      (finally (tu/clear-kb! kb)))))
+
+;; ---- a genl edge's merge sweeps ------------------------------------------
+
+(defn- edge-sweep-calls
+  "Facts handed to the two merge derivations, and arity recomputes, while `f` runs."
+  [f]
+  (let [calls (atom {})
+        vs    [#'special/derive-functional-equalities #'special/derive-antisymmetric-equalities
+               #'arity/recompute-arity]]
+    (with-redefs-fn (into {} (map (fn [v] (let [orig @v]
+                                            [v (fn [& args]
+                                                 (swap! calls update (:name (meta v)) (fnil inc 0))
+                                                 (apply orig args))])))
+                          vs)
+      f)
+    @calls))
+
+(deftest a-genl-edge-under-no-merge-mark-re-derives-no-fact-below-it
+  ;; each fact below the edge is an exact-arity membership, so a fact handed back to every
+  ;; candidate family recomputes its predicate's arity candidates
+  (let [kb   (tu/fresh)
+        m    {:strength :monotonic}
+        edge (fn [top] (edge-sweep-calls
+                        #(v/assert kb (list 'genl 'sre_rel top) 'CxUniverse m)))]
+    (try
+      (v/assert kb '(functional sreFn) 'CxUniverse m)
+      (v/assert kb '(anti_symmetric sreAnti) 'CxUniverse m)
+      (v/assert kb '(genl binary_predicate sre_rel) 'CxUniverse m)
+      (v/assert kb '(binary_predicate sreRel0) 'CxUniverse m)
+      (let [small (edge 'sre_top1)]
+        (dotimes [i n]
+          (v/assert kb (list 'binary_predicate (symbol (str "sreRel" (inc i)))) 'CxUniverse m))
+        (is (= small (edge 'sre_top2)) "flat in the facts below the edge")
+        (is (not (contains? small 'recompute-arity)) "the edge brings no length"))
+      (finally (tu/clear-kb! kb)))))
+
+(defn- seeds-sent
+  "Chaining seeds `special/subsumption-seeds` returns while `f` runs."
+  [f]
+  (let [sent (atom 0)
+        orig special/subsumption-seeds]
+    (with-redefs [special/subsumption-seeds (fn [kb s] (let [r (orig kb s)]
+                                                         (swap! sent + (count r))
+                                                         r))]
+      (f))
+    @sent))
+
+(deftest a-genl-edge-under-no-rule-reading-above-it-seeds-no-fact-below-it
+  ;; the rule reads a predicate the edge does not reach, so the roster is not empty
+  (let [kb   (tu/fresh)
+        m    {:strength :monotonic}
+        edge (fn [top] (seeds-sent #(v/assert kb (list 'genl 'sss_low top) 'CxUniverse m)))]
+    (try
+      (v/assert kb '(implies (sss_else ?x) (sss_seen ?x)) 'CxUniverse {:direction :forward})
+      (v/assert kb '(sss_low SssA0) 'CxUniverse m)
+      (let [small (edge 'sss_top1)]
+        (dotimes [i n]
+          (v/assert kb (list 'sss_low (symbol (str "SssA" (inc i)))) 'CxUniverse m))
+        (is (zero? small))
+        (is (zero? (edge 'sss_top2)) "flat in the facts below the edge")
+        (v/assert kb '(implies (sss_top3 ?x) (sss_seen ?x)) 'CxUniverse {:direction :forward})
+        (is (= (inc n) (edge 'sss_top3)) "a rule above the edge is seeded every fact below it")
+        (is (seq (v/sentexes-matching kb (list 'sss_seen (symbol (str "SssA" n))) 'CxUniverse))))
       (finally (tu/clear-kb! kb)))))
 
 ;; ---- the grounds re-ask --------------------------------------------------
 
 (defn- reasked-clashes
-  "`settle/reads-clash?` calls made while `f` runs."
+  "`clashes/reads-clash?` calls made while `f` runs."
   [f]
   (let [calls (atom 0)
-        orig  @#'settle/reads-clash?]
-    (with-redefs [settle/reads-clash? (fn [& args] (swap! calls inc) (apply orig args))]
+        orig  @#'clashes/reads-clash?]
+    (with-redefs [clashes/reads-clash? (fn [& args] (swap! calls inc) (apply orig args))]
       (f))
     @calls))
 
-(deftest a-definitional-clash-is-re-asked-only-after-a-round-that-defeated
+(deftest a-definitional-clash-is-re-asked-only-where-a-reader-withdraws-a-ground
   (let [kb (tu/fresh)]
     (try
-      (binding [checks/*arbitrate-constraints?* true]
-        (v/assert kb '(disjoint srr_a srr_b) 'CxUniverse {:strength :monotonic})
-        (v/assert kb '(srr_a SrrY) 'CxUniverse {})
-        (testing "a settle whose one round defeats nothing re-asks nothing"
-          (is (zero? (reasked-clashes #(v/assert kb '(srr_b SrrY) 'CxUniverse {}))))
-          (is (= 1 (count (v/contradictions kb))) "the premise: a standing dilemma"))
-        (testing "a round that defeated re-asks the clash still standing beside it"
-          (v/assert kb '(srr_a SrrX) 'CxUniverse {:strength :monotonic})
-          (v/assert-rule kb ['(srr_src ?z)] '(srr_b ?z) 'CxUniverse {:direction :forward})
-          (is (pos? (reasked-clashes #(v/assert kb '(srr_src SrrX) 'CxUniverse {}))))
-          (is (not (v/ask? kb '(srr_b SrrX) 'CxUniverse)) "the premise: round one defeated")))
+      (v/assert kb '(disjoint srr_a srr_b) 'CxUniverse {:strength :monotonic})
+      (v/assert kb '(srr_a SrrY) 'CxUniverse {})
+      (testing "a reader that decides a dilemma re-asks nothing"
+        (is (zero? (reasked-clashes #(v/assert kb '(srr_b SrrY) 'CxUniverse {}))))
+        (is (= 1 (count (v/contradictions kb))) "the premise: a standing dilemma"))
+      (testing "nor does one whose loser is no ground"
+        (v/assert kb '(srr_a SrrX) 'CxUniverse {:strength :monotonic})
+        (v/assert-rule kb ['(srr_src ?z)] '(srr_b ?z) 'CxUniverse {:direction :forward})
+        (is (zero? (reasked-clashes #(do (v/assert kb '(srr_src SrrX) 'CxUniverse {})
+                                         (v/ask? kb '(srr_b SrrX) 'CxUniverse)))))
+        (is (not (v/ask? kb '(srr_b SrrX) 'CxUniverse)) "the premise: the reader defeated it"))
       (finally (tu/clear-kb! kb)))))
 
 ;; ---- the phase clock -----------------------------------------------------
@@ -226,7 +302,7 @@
       (v/assert kb '(srp_fact SrpA) 'CxUniverse {})
       (v/assert kb '(not (srp_fact SrpA)) 'CxUniverse {})
       (let [{:keys [run settles]} (phases/stop)]
-        (is (= #{:belief :discovery :resolution :chaining :finish :glue :outside}
+        (is (= #{:belief :discovery :chaining :finish :glue :outside}
                (set (keys run))))
         (is (seq settles))
         (doseq [s settles]
@@ -303,8 +379,21 @@
           (is (empty? (set/intersection standing handed)))))
       (finally (tu/clear-kb! kb)))))
 
+(deftest a-settle-that-moves-no-equality-premise-calls-no-supersession-reconcile
+  ;; the write path reconciles what a stored or removed sentence moves
+  (let [kb (tu/isolated-fresh)]
+    (try
+      (tu/with-shipped-config
+        (merge-kb kb n)
+        (is (empty? (calls-to #'special/refresh-supersessions
+                              #(v/assert kb '(srm_plain SrmNoMerge) 'CxUniverse {}))))
+        (is (empty? (calls-to #'special/refresh-supersessions
+                              #(v/retract! kb (v/handle-of kb '(srm_plain SrmNoMerge)
+                                                           'CxUniverse))))))
+      (finally (tu/clear-kb! kb)))))
+
 (deftest a-settle-over-standing-excepts-reads-no-except-root-when-its-region-is-smaller
-  ;; resolution's flip check walks the smaller side (`settle/resolution-watch`)
+  ;; no resolution defeats an `except`, so the settle reads no `except` root at all
   (let [kb (tu/isolated-fresh)]
     (try
       (tu/with-shipped-config
@@ -335,4 +424,32 @@
                                       #(do (v/assert kb '(srm_plain SrmBesideExcepts)
                                                      'CxUniverse {})
                                            (read-both))))))))
+      (finally (tu/clear-kb! kb)))))
+
+(deftest a-withdrawal-a-two-pass-settle-computes-is-cached-after-it
+  ;; The batch stores a nogood the reader decides, whose handles are in the window before
+  ;; the settle computes the reader's withdrawal, and a blocker of a guarded firing, which
+  ;; runs a second pass.  Each reconcile reads the window since the cache's mark
+  ;; (`res/reconcile-withdrawn!`), so no later one drops the entry for the writes it was
+  ;; computed after.
+  (let [kb (tu/isolated-fresh)]
+    (try
+      (tu/with-shipped-config
+        (v/with-deferred-settle kb
+          (v/assert kb '(binary_predicate srmRel) 'CxUniverse {:strength :monotonic})
+          (v/assert kb '(asymmetric srmRel) 'CxUniverse {:strength :monotonic})
+          (v/assert kb '(exceptWhen (srm_skip ?x)
+                                    (set/forwardRule (implies (srm_probe ?x) (srm_seen ?x))))
+                    'CxUniverse)
+          (v/assert kb '(srm_probe SrmP) 'CxUniverse))
+        (v/with-deferred-settle kb
+          (v/assert kb '(srm_skip SrmP) 'CxUniverse)
+          (v/assert kb '(srmRel SrmA SrmB) 'CxUniverse)
+          (v/assert kb '(srmRel SrmB SrmA) 'CxUniverse))
+        (is (= 2 (:passes (v/settle-stats kb))))
+        (is (contains? @(reasoning/withdrawn kb) '[CxUniverse :defeats]))
+        (is (= {#{(v/handle-of kb '(srmRel SrmA SrmB) 'CxUniverse)
+                  (v/handle-of kb '(srmRel SrmB SrmA) 'CxUniverse)} :dilemma}
+               (res/verdicts kb 'CxUniverse)))
+        (is (zero? (count (calls-to #'res/withdrawal* #(res/verdicts kb 'CxUniverse))))))
       (finally (tu/clear-kb! kb)))))

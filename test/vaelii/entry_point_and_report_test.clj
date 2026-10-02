@@ -4,8 +4,8 @@
   "One fact, one wording: a definitional check's **entry point** and its **retroactive reader**
   describe the same KB the same way.
 
-  Several checks exist twice — once refusing content as it arrives, once reading back over
-  content admitted before the check could convict it — and the pair answers one question
+  Several checks exist twice — once at the entry point as content arrives, once reading
+  back over content admitted before the check could convict it — and the pair answers one question
   about one KB.  Neither half is wrong on its own, which is what makes the class expensive
   to debug: both messages are true statements about the same knowledge, so a reader who
   meets one and greps for the other finds nothing, and a reader who meets both concludes
@@ -26,7 +26,8 @@
   declared outright, and **which stored sentex convicted**.  What they may differ on is
   said row by row, because the difference is real rather than sloppy: an entry point refuses one
   arriving sentence and names one reason, where a reader swept an extent and names a
-  count, and a nogood names a pair in which neither side is the newcomer."
+  count.  A clash that names its members is stored at the entry point, so both halves of
+  its row are the same nogood, a pair in which neither side is the newcomer."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
@@ -35,103 +36,6 @@
 
 ;; ---- reading the two halves ---------------------------------------------
 
-(defn- entry-point
-  "What a writer meets: the first problem `sentence` draws from a KB `setup` wrote, plus
-  `:against` — the **sentence** its `:opposing-handle` names.
-
-  Resolved to a sentence rather than compared as a handle, because the two halves of a
-  pair are built in two KBs and a handle is allocation order.  The sentex convicted
-  against is what the halves have to agree on; the integer naming it is not."
-  [setup sentence context]
-  (tu/with-cleared-kb [kb tu/fresh]
-    (setup kb)
-    (when-let [v (first (v/check kb sentence context))]
-      (assoc v :against (:sentence (v/sentex kb (:opposing-handle v)))))))
-
-(defn- reported
-  "The `violations` entries of kind `k` a KB `setup` writes, each as its `:detail` with
-  `:against` resolved from `:declared-after` where the kind carries one — the same
-  handle-to-sentence step `entry point` takes, for the same reason."
-  [setup k]
-  (tu/with-cleared-kb [kb tu/fresh]
-    (setup kb)
-    (into []
-          (comp (filter #(= k (:violation %)))
-                (map (fn [e]
-                       (assoc (:detail e)
-                              :against (:sentence
-                                        (v/sentex kb (:declared-after (:detail e))))))))
-          (v/violations kb))))
-
-(defn- writing
-  "A `setup` that asserts each of `sentences` into `CxUniverse`, in order."
-  [& sentences]
-  (fn [kb] (doseq [s sentences] (v/assert kb s 'CxUniverse))))
-
-(defn- arbitrating-fresh
-  "An empty KB under `:constraints :arbitrate` — the policy the three arbitrable kinds
-  reach back under, where `:refuse` leaves an identical pair to the entry point."
-  []
-  (tu/fresh {:constraints :arbitrate}))
-
-;; ---- arity: the pair with a binding to describe -------------------------
-;;
-;; The row of the table that reaches back *and reports*, and the one with the most for two
-;; halves to disagree about: a length binds a predicate through its own declaration or
-;; through a super-predicate's, so each half has a predicate, an inheritance and a
-;; declaration to name, and each is its own chance to name it differently.
-
-(deftest the-arity-entry-point-and-its-report-word-one-binding-the-same-way
-  (tu/with-terms [parentOf fatherOf A B C]
-    (let [declaration (list 'binary_predicate parentOf)
-          edge        (list 'genl fatherOf parentOf)]
-      (doseq [{:keys [binding pred via fact ingredients]}
-              [{:binding     "declared of the predicate itself"
-                :pred        parentOf :via parentOf
-                :fact        (list parentOf A B C)
-                :ingredients [declaration]}
-               {:binding     "inherited, with the edge arriving last"
-                :pred        fatherOf :via parentOf
-                :fact        (list fatherOf A B C)
-                :ingredients [declaration edge]}
-               {:binding     "inherited, with the length arriving last onto the super"
-                :pred        fatherOf :via parentOf
-                :fact        (list fatherOf A B C)
-                :ingredients [edge declaration]}]]
-        (testing binding
-          (let [d  (entry-point (apply writing ingredients) fact 'CxUniverse)
-                rs (reported (apply writing fact ingredients) :arity)
-                r  (first rs)]
-            (is (= :arity (:type d)) "the entry point refuses the fact")
-            (is (= 1 (count rs))     "and the other order files one finding")
-            (testing "both blame the predicate the fact is of"
-              (is (= pred (:predicate d) (:predicate r))))
-            (testing "both read the binding off the same predicate"
-              (is (= via (:via d) (:via r)))
-              (is (= 2 (:expected d) (:expected r))))
-            (testing "both convict against the declaration the KB actually holds"
-              (is (= declaration (:against d) (:against r))))
-            (testing "and both word the binding with the one clause that describes it"
-              (let [clause (checks/arity-binding-clause pred via 2)]
-                (is (str/includes? (:message d) clause) (:message d))
-                (is (str/includes? (:message r) clause) (:message r))))
-            (when (not= pred via)
-              (testing "an inherited length credits no declaration the predicate carries"
-                ;; the drift this roster exists for: "is declared with" is true of the
-                ;; super and false of the sub, and a reader who believes it goes looking
-                ;; for a sentence nobody wrote
-                (is (not (str/includes? (:message d) "is declared with")) (:message d))
-                (is (not (str/includes? (:message r) "is declared with")) (:message r))))
-            ;; the entry point refuses **one** sentence, so it names that sentence's length; the
-            ;; report swept the predicate's extent, so it names how many facts disagreed.
-            ;; Neither statement is available to the other half, and asserting a similarity
-            ;; here would be asserting one that is not there.
-            (testing "where the two legitimately differ, and why"
-              (is (= 3 (:actual d)) "the entry point names the length of the sentence it refused")
-              (is (nil? (:count d)))
-              (is (= 1 (:count r))  "the report names the size of the sweep's finding")
-              (is (nil? (:actual r))))))))))
-
 (defn- standing-pairs
   "The pairs the last settle left standing — represented dilemmas and irreducible clashes
   alike.  One entry shape between them, and which reading a pair lands in is a question
@@ -139,6 +43,68 @@
   them."
   [kb]
   (concat (v/contradictions kb) (v/conflicts kb)))
+
+(defn- entry-point
+  "What a writer meets when `sentence` arrives last in a KB `setup` wrote.  A refusal is
+  the first problem `check` names, plus `:against` — the **sentence** its
+  `:opposing-handle` names.  A sentence the entry point stores instead answers the first
+  standing pair the settle left, which is how a clash that names its members is met.
+
+  Resolved to a sentence rather than compared as a handle, because the two halves of a
+  pair are built in two KBs and a handle is allocation order.  The sentex convicted
+  against is what the halves have to agree on; the integer naming it is not."
+  ([setup sentence context] (entry-point setup sentence context {}))
+  ([setup sentence context opts]
+   (tu/with-cleared-kb [kb tu/fresh]
+     (setup kb)
+     (if-let [v (first (v/check kb sentence context opts))]
+       (assoc v :against (:sentence (v/sentex kb (:opposing-handle v))))
+       (do (v/assert kb sentence context opts)
+           (first (standing-pairs kb)))))))
+
+;; ---- arity: the pair with a binding to describe -------------------------
+;;
+;; A tuple of a length its binding breaks is stored in every order and each reader
+;; decides it, so the two halves are one reading: the same hard clash at `:monotonic`,
+;; grounded on the same binding, whichever of the tuple, the declaration and the edge
+;; arrived last (docs/taxonomy.md, "Arity").
+
+(defn- arity-reading
+  "`[believed? [[kind sides grounds] …]]` for `fact` at `strength` in a KB `setup` wrote,
+  the sides and grounds as sentences."
+  [setup fact strength]
+  (tu/with-cleared-kb [kb tu/fresh]
+    (setup kb)
+    (v/assert kb fact 'CxUniverse {:strength strength})
+    (let [h (v/handle-of kb fact 'CxUniverse)]
+      [(v/believed? kb h 'CxUniverse)
+       (mapv (juxt :kind #(mapv :sentence (:sides %)) #(mapv :sentence (:grounds %)))
+             (v/conflicts kb))])))
+
+(deftest an-arity-nogood-reads-the-same-whichever-arrives-last
+  (tu/with-terms [parentOf fatherOf A B C]
+    (let [declaration (list 'binary_predicate parentOf)
+          edge        (list 'genl fatherOf parentOf)]
+      (doseq [{:keys [binding fact ingredients]}
+              [{:binding     "declared of the predicate itself"
+                :fact        (list parentOf A B C)
+                :ingredients [declaration]}
+               {:binding     "inherited, with the edge arriving last"
+                :fact        (list fatherOf A B C)
+                :ingredients [declaration edge]}
+               {:binding     "inherited, with the length arriving last onto the super"
+                :fact        (list fatherOf A B C)
+                :ingredients [edge declaration]}]]
+        (testing binding
+          (let [late   (fn [kb] (doseq [s ingredients] (v/assert kb s 'CxUniverse)))
+                first* (fn [kb] (v/assert kb fact 'CxUniverse {:strength :monotonic})
+                         (doseq [s ingredients] (v/assert kb s 'CxUniverse)))]
+            (is (= [true [[:arity [fact] [declaration]]]]
+                   (arity-reading late fact :monotonic)
+                   (arity-reading first* fact :monotonic))
+                "a :monotonic tuple is one hard clash grounded on the declaration, in both orders")
+            (is (= [false []] (arity-reading late fact :default))
+                "and a :default one is OUT, with nothing to report")))))))
 
 ;; ---- disjointness: every trigger, one nogood ----------------------------
 ;;
@@ -150,7 +116,7 @@
 ;; The deciding half places the two memberships in sibling contexts that only CxBelow
 ;; sees together.  The on-demand `exposed-clashes` answer is `exposure_test`'s.
 
-(deftest every-disjointness-trigger-refuses-and-weighs-the-same-clash
+(deftest every-disjointness-trigger-stores-and-weighs-the-same-clash
   (tu/with-terms [dog_t cat_t pup_t meta_t alpha_t beta_t Rex CxLeft CxRight CxBelow]
     (let [ground (fn [& ts] (map #(list 'genl % 'thing) ts))
           rows
@@ -200,20 +166,13 @@
                     (v/assert kb arriving CxRight)
                     (v/assert kb (or report-closing closing) 'CxUniverse)
                     (first (standing-pairs kb)))]
-            (is (= :disjoint (:type d)) "the entry point refuses the second membership")
-            (is (some? c)               "and the other order weighs the pair at CxBelow")
-            (testing "both name the two memberships, and neither adds one"
-              (is (= #{held arriving} (set (map :sentence (:sides c)))))
-              (is (= (set [(first held) (first arriving)]) (set (:types d))))
-              (is (= held (:against d)))
-              (is (str/includes? (:message d) (str Rex))))
-            ;; a refusal has a newcomer and a message; a nogood has two believed sentexes
-            ;; and no newcomer, so it carries the pair and a kind
-            (testing "where the two legitimately differ, and why"
-              (is (= :disjoint (:kind c)))
-              (is (string? (:message d)))
-              (is (nil? (:message c)))
-              (is (= 2 (count (:sides c)))))))))))
+            (is (some? d) "the entry point stores the second membership and the pair is weighed")
+            (is (some? c) "and the other order weighs the pair at CxBelow")
+            (testing "both name the two memberships as the same kind, and neither adds one"
+              (is (= :disjoint (:kind d) (:kind c)))
+              (is (= #{held arriving}
+                     (set (map :sentence (:sides d)))
+                     (set (map :sentence (:sides c))))))))))))
 
 ;; ---- functional and asymmetric: a pair, not a message -------------------
 ;;
@@ -221,20 +180,19 @@
 ;; the roster pins that it names the two sentences the entry point named.  Both rows put
 ;; the mark on a super-predicate, and either the mark or the `genl` edge arrives last.
 
-(deftest a-descended-mark-weighs-the-pair-the-entry-point-refuses-in-every-arrival-order
-  (doseq [{:keys [kind mark edge held arriving strength via]}
+(deftest a-descended-mark-weighs-the-same-pair-in-every-arrival-order
+  (doseq [{:keys [kind mark edge held arriving strength]}
           (tu/with-terms [parentOf fatherOf Kid A B]
             [{:kind     :functional
               :mark     (list 'functional parentOf)
               :edge     (list 'genl fatherOf parentOf)
-              :via      parentOf :strength :default
+              :strength :default
               :held     (list fatherOf Kid 1980)
               :arriving (list fatherOf Kid 1990)}
-             ;; known-true, since the entry point admits a defeasible converse
              {:kind     :asymmetric
               :mark     (list 'asymmetric parentOf)
               :edge     (list 'genl fatherOf parentOf)
-              :via      parentOf :strength :monotonic
+              :strength :monotonic
               :held     (list fatherOf A B)
               :arriving (list fatherOf B A)}])]
     (testing (name kind)
@@ -242,14 +200,12 @@
             d (entry-point (fn [kb]
                              (doseq [s [edge mark]] (v/assert kb s 'CxUniverse))
                              (v/assert kb held 'CxUniverse {:strength strength}))
-                           arriving 'CxUniverse)]
-        (is (= kind (:type d)) "the entry point refuses the second fact")
-        (testing "and blames the predicate carrying the mark, not the fact's functor"
-          (is (= via (:pred d)))
-          (is (= held (:against d))))
+                           arriving 'CxUniverse {:strength strength})]
+        (is (= kind (:kind d)) "the entry point stores the second fact and the pair is weighed")
+        (is (= #{held arriving} (set (map :sentence (:sides d)))))
         (doseq [last-in [:mark :edge]]
           (testing (str "with the " (name last-in) " arriving last")
-            (let [c (tu/with-cleared-kb [kb arbitrating-fresh]
+            (let [c (tu/with-cleared-kb [kb tu/fresh]
                       (doseq [k [:mark :edge] :when (not= k last-in)]
                         (v/assert kb (ingredient k) 'CxUniverse))
                       (doseq [s [held arriving]]
@@ -258,21 +214,17 @@
                       (first (standing-pairs kb)))]
               (is (= kind (:kind c)) "the pair is weighed, and as the same kind")
               (is (= #{held arriving} (set (map :sentence (:sides c))))
-                  "and it is the pair the entry point named")
-              (testing "where the two legitimately differ, and why"
-                (is (string? (:message d)))
-                (is (nil? (:message c)))
-                (is (= 2 (count (:sides c))))))))))))
+                  "and it is the pair the fact-last order weighed"))))))))
 
-(deftest a-cross-context-clash-is-weighed-in-the-entry-points-vocabulary
+(deftest a-cross-context-clash-is-weighed-as-the-same-pair
   ;; two facts each admissible where written, put in CxBelow's sight by two `genlCx`
-  ;; edges, under the default `:refuse` policy
-  (doseq [{:keys [kind mark held arriving strength via]}
+  ;; edges, against the same two facts written into one context
+  (doseq [{:keys [kind mark held arriving strength]}
           (tu/with-terms [parentOf Kid A B]
-            [{:kind :functional :mark (list 'functional parentOf) :via parentOf
+            [{:kind :functional :mark (list 'functional parentOf)
               :strength :default
               :held (list parentOf Kid 1980) :arriving (list parentOf Kid 1990)}
-             {:kind :asymmetric :mark (list 'asymmetric parentOf) :via parentOf
+             {:kind :asymmetric :mark (list 'asymmetric parentOf)
               :strength :monotonic
               :held (list parentOf A B) :arriving (list parentOf B A)}])]
     (testing (name kind)
@@ -280,7 +232,7 @@
         (let [d (entry-point (fn [kb]
                                (v/assert kb mark 'CxUniverse)
                                (v/assert kb held 'CxUniverse {:strength strength}))
-                             arriving 'CxUniverse)
+                             arriving 'CxUniverse {:strength strength})
               c (tu/with-cleared-kb [kb tu/fresh]
                   (doseq [s [(list 'genlCx CxLeft 'CxUniverse)
                              (list 'genlCx CxRight 'CxUniverse)
@@ -291,17 +243,12 @@
                   (v/assert kb (list 'genlCx CxBelow CxLeft) 'CxUniverse)
                   (v/assert kb (list 'genlCx CxBelow CxRight) 'CxUniverse)
                   (first (standing-pairs kb)))]
-          (is (= kind (:type d)) "the entry point refuses the second fact")
-          (is (some? c)          "and the split-context order weighs the pair at CxBelow")
-          (testing "both convict on the same constraint"
-            (is (= kind (:kind c)))
-            (is (= via (:pred d))))
-          (testing "both name the two facts"
-            (is (= held (:against d)))
-            (is (= #{held arriving} (set (map :sentence (:sides c))))))
-          (testing "where the two legitimately differ, and why"
-            (is (string? (:message d)))
-            (is (nil? (:message c)))))))))
+          (is (some? d) "the one-context order weighs the pair")
+          (is (some? c) "and the split-context order weighs it at CxBelow")
+          (is (= kind (:kind d) (:kind c)))
+          (is (= #{held arriving}
+                 (set (map :sentence (:sides d)))
+                 (set (map :sentence (:sides c))))))))))
 
 ;; ---- the cells that read "nothing" --------------------------------------
 ;;
@@ -445,38 +392,36 @@
               "the length came through the super, and both halves say so"))))))
 
 (deftest two-declared-arities-across-one-edge-read-the-same-whichever-arrives-last
-  ;; The row of the table whose two halves are **both** entry points: there is no order in which
-  ;; the pair means anything, so the arriving sentence is refused whichever it is.  The
-  ;; message is therefore a fact about the pair rather than about the arrival, and this is
-  ;; what fails if one arm ever starts describing the sentence in front of it instead.
+  ;; The pair is a nogood of the two declarations (a hard clash under CxCore, whose
+  ;; roster stores both `:monotonic`), and the report is a fact about the pair rather than
+  ;; about the arrival.
   (tu/with-terms [parentOf fatherOf]
     (let [sentence {:edge (list 'genl fatherOf parentOf)
                     :sub  (list 'arity fatherOf 3)}
-          messages (into {}
+          readings (into {}
                          (for [last-in [:edge :sub]]
                            [last-in
-                            (:message
-                             (entry-point (fn [kb]
-                                            (v/assert kb (list 'arity parentOf 2) 'CxUniverse)
-                                            (doseq [k [:edge :sub] :when (not= k last-in)]
-                                              (v/assert kb (sentence k) 'CxUniverse)))
-                                          (sentence last-in) 'CxUniverse))]))]
-      (is (= (:edge messages) (:sub messages))
-          "one pair, one description, whichever half of it arrived")
-      (is (str/includes? (:edge messages) (str "3 arguments declared of " fatherOf)))
-      (is (str/includes? (:edge messages) (str "2 declared of " parentOf))))))
+                            (tu/with-cleared-kb [kb tu/fresh]
+                              (v/assert kb (list 'arity parentOf 2) 'CxUniverse)
+                              (doseq [k [:edge :sub] :when (not= k last-in)]
+                                (v/assert kb (sentence k) 'CxUniverse))
+                              (v/assert kb (sentence last-in) 'CxUniverse)
+                              (mapv (juxt :kind #(into #{} (map :sentence) (:sides %)))
+                                    (standing-pairs kb)))]))]
+      (is (= (:edge readings) (:sub readings))
+          "one pair, one report, whichever half of it arrived")
+      (is (= [[:arity-descension #{(list 'arity fatherOf 3) (list 'arity parentOf 2)}]]
+             (:edge readings))))))
 
 ;; ---- the wording spelled once -------------------------------------------
 
 (deftest one-clause-words-an-arity-binding-for-every-reader-of-it
-  ;; Three readers describe a binding, and the rows above pin that they agree.  This pins
-  ;; *how*: `checks/arity-binding-clause` is the wording, the entry point and the settle's
-  ;; retroactive report each carry it, and `kb-quality`'s stranded-declaration census
-  ;; carries the entry point's own message rather than writing a second one.  A copy of a rule
-  ;; that says "is declared with" of a declaration and "takes … through" of an inheritance
-  ;; is a chance for one binding to acquire two descriptions, which is what this namespace
-  ;; is about.
-  (tu/with-terms [parentOf fatherOf A B C a_type]
+  ;; `checks/arity-binding-clause` is the wording the argument-position check carries, and
+  ;; `kb-quality`'s stranded-declaration census carries that check's own message rather
+  ;; than writing a second one.  A copy of a rule that says "is declared with" of a
+  ;; declaration and "takes … through" of an inheritance is a chance for one binding to
+  ;; acquire two descriptions, which is what this namespace is about.
+  (tu/with-terms [parentOf fatherOf a_type]
     (let [inherited (checks/arity-binding-clause fatherOf parentOf 2)]
       (is (= (str "takes 2 arguments through " parentOf) inherited))
       (is (= "is declared with 2 arguments"
@@ -484,19 +429,6 @@
       (is (= "is declared with 1 argument"
              (checks/arity-binding-clause parentOf parentOf 1))
           "the plural agrees with the number, in one place rather than three")
-      (testing "the entry point"
-        (is (str/includes?
-             (:message (entry-point (writing (list 'binary_predicate parentOf)
-                                             (list 'genl fatherOf parentOf))
-                                    (list fatherOf A B C) 'CxUniverse))
-             inherited)))
-      (testing "the retroactive report"
-        (is (str/includes?
-             (:message (first (reported (writing (list fatherOf A B C)
-                                                 (list 'binary_predicate parentOf)
-                                                 (list 'genl fatherOf parentOf))
-                                        :arity)))
-             inherited)))
       (testing "and the census, which carries the entry point's message unaltered"
         (tu/with-cleared-kb [kb tu/fresh]
           (doseq [s [(list 'genl a_type 'thing)

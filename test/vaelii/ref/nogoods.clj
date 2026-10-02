@@ -175,26 +175,36 @@
   `(disjoint a b)` and `(disjoint b a)` both believed make one nogood per pair of
   memberships, with both declarations in `:ground`.
 
-  TODO(spec): one membership whose own closure holds both separated types convicts
-  nothing here, since the family pairs two distinct memberships. Smallest view where the readings differ:
-  `(disjoint dog animal)`, `(genl dog animal)`, `(dog Fido)`. The other reading is a
-  one-member nogood that defeats `(dog Fido)` when it is `:default`."
+  A declaration over two types one of which is in the other's closure is a one-member
+  nogood of the declaration itself, `:ground` the edges of the routes between them
+  (decision 8; the ruling on settle prompt 54, item 3). The declaration is forced
+  `:monotonic`, so the nogood is a hard clash and moves no belief. One membership whose own
+  closure holds both separated types convicts nothing: `(disjoint dog animal)`, `(genl dog
+  animal)` and `(dog Fido)` leave `(dog Fido)` believed."
   [view]
   (let [decls  (filterv (fn [[_ t1 t2]] (not= t1 t2)) (declarations view 'disjoint 2))
         edges  (genl-edges view)
         byterm (group-by second (filter membership? (:believed view)))]
     (collect
-     (for [[_ ms] byterm
-           m1     ms
-           m2     ms
-           :when  (not= m1 m2)
-           :let   [a (first m1) b (first m2) ua (up view a) ub (up view b)]
-           [_ t1 t2 :as d] decls
-           :when  (and (contains? ua t1) (contains? ub t2))]
-       {:kind    :disjoint
-        :members #{m1 m2}
-        :ground  (into #{d} (concat (route-edges view edges a t1)
-                                    (route-edges view edges b t2)))}))))
+     (concat
+      (for [[_ ms] byterm
+            m1     ms
+            m2     ms
+            :when  (not= m1 m2)
+            :let   [a (first m1) b (first m2) ua (up view a) ub (up view b)]
+            [_ t1 t2 :as d] decls
+            :when  (and (contains? ua t1) (contains? ub t2))]
+        {:kind    :disjoint
+         :members #{m1 m2}
+         :ground  (into #{d} (concat (route-edges view edges a t1)
+                                     (route-edges view edges b t2)))})
+      (for [[_ t1 t2 :as d] decls
+            :let  [lower (cond (contains? (up view t1) t2) t1
+                               (contains? (up view t2) t1) t2)]
+            :when lower]
+        {:kind    :disjoint
+         :members #{d}
+         :ground  (route-edges view edges lower (if (= lower t1) t2 t1))})))))
 
 ;; ---- functional and functionalInArg ------------------------------------------
 
@@ -338,7 +348,12 @@
   explicit negation and never on absence.
 
   The declaration is not a member, for `disjoint`'s reason (docs/taxonomy.md): a nogood
-  that defeated the cover would find no violation on the next pass and revive it."
+  that defeated the cover would find no violation on the next pass and revive it.
+
+  A cover naming a part that a believed `(disjoint P W)` or `(disjoint W P)` separates from
+  its whole is a two-member nogood of the cover and the `disjoint`, with an empty `:ground`
+  (the ruling on settle prompt 54, item 3). Both are forced `:monotonic`, so it is a hard
+  clash and moves no belief."
   [view]
   (let [edges   (genl-edges view)
         covers  (filterv #(and (tuple? %) (= 'covering (first %)) (<= 4 (count %)))
@@ -346,21 +361,27 @@
         denials (group-by #(second (denial-of %))
                           (filter #(some-> (denial-of %) membership?) (:believed view)))]
     (collect
-     (for [[_ w & parts :as d] covers
-           [s x :as m] (filter membership? (:believed view))
-           :when (contains? (up view s) w)
-           :let  [per-part (for [p (distinct parts)]
-                             (for [den  (get denials x)
-                                   :let [q (first (denial-of den))]
-                                   :when (contains? (up view p) q)]
-                               [p q den]))]
-           :when (every? seq per-part)
-           combo (combinations per-part)]
-       {:kind    :covering
-        :members (into #{m} (map #(nth % 2)) combo)
-        :ground  (into (conj (route-edges view edges s w) d)
-                       (mapcat (fn [[p q]] (route-edges view edges p q)))
-                       combo)}))))
+     (concat
+      (for [[_ w & parts :as d] covers
+            [s x :as m] (filter membership? (:believed view))
+            :when (contains? (up view s) w)
+            :let  [per-part (for [p (distinct parts)]
+                              (for [den  (get denials x)
+                                    :let [q (first (denial-of den))]
+                                    :when (contains? (up view p) q)]
+                                [p q den]))]
+            :when (every? seq per-part)
+            combo (combinations per-part)]
+        {:kind    :covering
+         :members (into #{m} (map #(nth % 2)) combo)
+         :ground  (into (conj (route-edges view edges s w) d)
+                        (mapcat (fn [[p q]] (route-edges view edges p q)))
+                        combo)})
+      (for [[_ w & parts :as cv] covers
+            [_ a b :as d] (declarations view 'disjoint 2)
+            :when (and (not= a b)
+                       (or (and (= a w) (some #{b} parts)) (and (= b w) (some #{a} parts))))]
+        {:kind :covering :members #{cv d} :ground #{}})))))
 
 ;; ---- inherited (transitiveInArg) --------------------------------------------
 

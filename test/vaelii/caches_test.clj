@@ -26,6 +26,7 @@
             [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.caches :as caches]
+            [vaelii.impl.provers :as provers]
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu])
   (:import [java.io File]))
@@ -141,7 +142,10 @@
   (is (= 1000000 (:limit (row kb :symbol-pool))))
   (binding [sx/*symbol-pool-limit* 8]
     (is (= 8 (:limit (row kb :symbol-pool)))
-        "the pool flushes at 8 here, so the page must not say a million")))
+        "the pool flushes at 8 here, so the page must not say a million"))
+  (binding [provers/*closure-answer-limit* 5]
+    (is (= 5 (:limit (row kb :closure-answers)))
+        "a bound routed through the profile reads the binding too")))
 
 ;; ---- the tunable profile ------------------------------------------------
 
@@ -609,6 +613,16 @@
                               "being one")
    "set-cache-limit"     "core.clj — the public setter wrapping `caches/set-limit`"
    "default-limit"       "quality.clj — how many findings a report lists"
+   "bounded-reach-limit" (str "inherit.clj — how far a `genl` reach is walked "
+                              "before membership turns to a walk per term; the set is held "
+                              "in the question's memo (`inherit/*memo*`), not a cache")
+   "whole-reach-limit"   (str "inherit.clj — the most terms one term's reach is walked whole "
+                              "for; held in the question's memo (`inherit/*memo*`), dropped "
+                              "with the question or pass, not a cache")
+   "whole-reach-budget"  (str "inherit.clj — the most terms the whole reaches one question's "
+                              "memo holds may come to, the least recently read dropped past "
+                              "it; the memo is dropped with the question or pass, not a "
+                              "registered cache")
    "dense-table-limit"   (str "qcn.clj — whether a composition table is built whole or "
                               "per base relation; a build decision, and the table is not "
                               "evicted")
@@ -627,6 +641,9 @@
    "default-node-budget" (str "inference.clj — how many nodes the debugger's bounded "
                               "search-tree walk expands before it stops; a per-read "
                               "search bound, not a retained cache")
+   "tracked-limit"       (str "decide.clj — how many tuples of one shape the arity "
+                              "candidate index keeps the handles of before it marks the "
+                              "shape `:many`; storage the index needs, never evicted")
    "*exposure-instance-budget*" (str "taxonomy.clj — how many candidate instances one "
                                      "bounded arbitration or merge sweep enumerates")
    "regex-step-budget"   (str "core.clj — how many characters a `find-terms` regex may "

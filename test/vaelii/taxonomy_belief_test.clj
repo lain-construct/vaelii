@@ -12,9 +12,11 @@
   The four flat caches — `disjoint`, disjoint metatypes + members, the predicate
   properties, and `inverse` — follow belief the same way: `refresh-beliefs`
   reconciles each `:cache-support` entry after every relabel. So a defeated
-  `(disjoint A B)` stops constraining, a defeated `(functional P)` stops merging, and a
-  defeated `(inverse P Q)` stops answering the swapped goal — each reviving when the
-  defeater is retracted. The end-to-end half of that is at the foot of this file."
+  `(transitive P)` stops composing and a defeated `(inverse P Q)` stops answering the
+  swapped goal — each reviving when the defeater is retracted. A `disjoint`, a
+  `functional` mark, a `genlCx` edge and an equality are on the engine's baseline
+  forced-monotonic roster, so no denial defeats one. The end-to-end half of that is at
+  the foot of this file."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.taxonomy :as tax]
@@ -173,27 +175,23 @@
         (is (every? symbol? (v/contexts kb)))
         (is (not (:merged? (snapshot))) "no equality class exists, so no filter")))))
 
-(tu/deftest-kb retracting-a-defeated-merge-leaves-the-partition-no-trace-of-it
-  ;; `:out` is the partition's record of which supporters are defeated, read against
-  ;; `:support`.  A supporter that is *retracted* while defeated leaves `:handles`,
-  ;; `:handle-edge` and `:support` — and `:out` with them, or the set grows by one entry
-  ;; per such retraction for the KB's life.  A merge rewrites its own negation's terms,
-  ;; so the defeated supporter here is a rule-derived equality whose trigger is defeated;
-  ;; retracting the trigger sweeps it.
-  (tu/with-terms [flag Switch Aa Bb]
-    (v/assert kb (list 'implies (list flag '?s) (list 'sameAs Aa Bb)) 'CxUniverse
-              {:direction :forward :strength :monotonic})
-    (let [h   (v/assert kb (list flag Switch) 'CxUniverse)
-          eq  #(:equality @(reasoning/taxonomy kb))
-          e   (first (:handles (eq)))]
-      (is (some? e) "the rule derives the merge")
-      (is (= Aa (tax/representative (reasoning/taxonomy kb) Bb)))
-      (v/assert kb (list 'not (list flag Switch)) 'CxUniverse {:strength :monotonic})
-      (is (false? (v/in? kb e)) "the derived merge is defeated with its trigger")
+(tu/deftest-kb retracting-a-merge-held-out-leaves-the-partition-no-trace-of-it
+  ;; `:out` is the partition's record of which supporters are not believed, read against
+  ;; `:support`.  A supporter retracted while OUT leaves `:handles`, `:handle-edge` and
+  ;; `:support`, and `:out` with them, or the set grows by one entry per such retraction
+  ;; for the KB's life.  The OUT supporter here is a merge a void firing concludes (its
+  ;; antecedent is off the roster); retracting the trigger sweeps it.
+  (tu/with-terms [aliasOf Aa Bb]
+    (v/assert-rule kb [(list aliasOf '?x '?y)] '(sameAs ?x ?y) 'CxUniverse {:direction :forward})
+    (let [h  (v/assert kb (list aliasOf Aa Bb) 'CxUniverse)
+          eq #(:equality @(reasoning/taxonomy kb))
+          e  (first (:handles (eq)))]
+      (is (some? e) "the firing stores the merge")
+      (is (false? (v/in? kb e)) "held void")
       (is (contains? (:out (eq)) e) "and the partition records it OUT")
-      (is (= Bb (tax/representative (reasoning/taxonomy kb) Bb)) "merging nothing")
+      (is (= #{Bb} (set (v/equiv-class kb Bb))) "merging nothing")
       (v/retract! kb h)
-      (is (nil? (v/sentex kb e)) "retracting the trigger sweeps the derived merge")
+      (is (nil? (v/sentex kb e)) "retracting the trigger sweeps the merge")
       (is (not (contains? (:out (eq)) e)) "and it leaves :out")
       (is (not (contains? (:handles (eq)) e)))
       (is (not (contains? (:handle-edge (eq)) e))))))
@@ -219,45 +217,6 @@
       (testing "CxB still asserts it, so the edge stands"
         (is (seq (v/sentexes-matching kb (list 'genl sub_t super_t) CxB)))
         (is (tax/genl?-global (reasoning/taxonomy kb) sub_t super_t))))))
-
-(tu/deftest-kb a-defeated-genlCx-stops-making-facts-visible
-  (tu/with-terms [parentOf Tom Bob CxSub CxSuper]
-    (v/assert kb (list 'genlCx CxSub CxSuper) 'CxUniverse)
-    (v/assert kb (list parentOf Tom Bob) CxSuper)
-    (testing "the inherited fact is visible from the sub-context"
-      (is (seq (v/ask kb (list parentOf Tom '?y) CxSub))))
-    (v/assert kb (list 'not (list 'genlCx CxSub CxSuper)) 'CxUniverse
-              {:strength :monotonic})
-    (testing "defeating the context edge withdraws the inheritance"
-      (is (not (tax/sees? (reasoning/taxonomy kb) CxSub CxSuper)))
-      (is (empty? (v/ask kb (list parentOf Tom '?y) CxSub))))))
-
-(tu/deftest-kb a-revived-genlCx-arbitrates-the-pair-it-rejoins
-  ;; `clear-defeats!` revives a defeated edge at the top of the settle, so the closures
-  ;; discovery reads must be refreshed *before* `constraint-nogoods` asks them a
-  ;; question: a P/¬P pair made jointly visible by the revival is arbitrated in the
-  ;; same settle, never left with both sides believed — a state `recover` over the
-  ;; same records would disagree with.  The edge's defeater is *derived*, so lifting
-  ;; it removes no record and the revival happens purely in the settle.
-  (tu/with-terms [happy qq Tom Trigger CxSub CxSuper]
-    (v/assert kb (list 'genlCx CxSub CxSuper) 'CxUniverse)
-    (let [hn (v/assert kb (list 'not (list happy Tom)) CxSuper {:strength :monotonic})
-          hp (v/assert kb (list happy Tom) CxSub)]
-      (testing "with the edge in place, the default fact loses to the monotonic negation"
-        (is (v/in? kb hn))
-        (is (not (v/in? kb hp))))
-      (v/assert-rule kb [(list qq '?x)]
-                     (list 'not (list 'genlCx CxSub CxSuper))
-                     'CxUniverse {:direction :forward})
-      (let [ht (v/assert kb (list qq Trigger) 'CxUniverse {:strength :monotonic})]
-        (testing "the derived monotonic negation defeats the edge"
-          (is (not (tax/sees? (reasoning/taxonomy kb) CxSub CxSuper)))
-          (is (v/in? kb hn)))
-        (v/retract! kb ht)
-        (testing "the retract's own settle revives the edge and re-arbitrates the pair"
-          (is (tax/sees? (reasoning/taxonomy kb) CxSub CxSuper))
-          (is (v/in? kb hn))
-          (is (not (v/in? kb hp))))))))
 
 (tu/deftest-kb a-quiet-settle-does-not-resurrect-a-defeated-edge
   ;; `refresh-beliefs` runs only when a settle actually moved belief (defeat, revival,
@@ -296,52 +255,10 @@
       (tax/refresh-beliefs t (constantly false) nil)
       (is (not (tax/genl?-global t 'dog 'animal))))))
 
-;; ---- the four flat caches follow belief end-to-end ----------------------
+;; ---- the flat caches follow belief end-to-end ---------------------------
 ;; Same shape as the genl tests above, exercised through the KB: assert a default
 ;; declaration, defeat it with a monotonic `(not …)`, and watch the thing it enabled
 ;; stop happening — then retract the defeater and watch it come back.
-
-(tu/deftest-kb a-defeated-disjoint-stops-constraining
-  (tu/with-terms [dog cat Felix]
-    ;; one context: the disjointness check is scoped, and this KB is fresh
-    (let [_hd (v/assert kb (list 'disjoint dog cat) 'CxNaturalWorld {:strength :default})]
-      (v/assert kb (list cat Felix) 'CxNaturalWorld)
-      (testing "believed: the pair is disjoint and the conflicting membership is refused"
-        (is (v/disjoint? kb dog cat))
-        (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list dog Felix) 'CxNaturalWorld))))
-      (let [hn (v/assert kb (list 'not (list 'disjoint dog cat)) 'CxNaturalWorld
-                         {:strength :monotonic})]
-        (testing "defeated: no longer disjoint, so the membership is accepted"
-          (is (not (v/disjoint? kb dog cat)))
-          (is (v/assert kb (list dog Felix) 'CxNaturalWorld)))
-        (testing "retracting the defeater restores the constraint"
-          ;; drop the now-admitted membership so the revived disjoint has no live clash
-          (when-let [hf (v/handle-of kb (list dog Felix) 'CxNaturalWorld)]
-            (v/retract! kb hf))
-          (v/retract! kb hn)
-          (is (v/disjoint? kb dog cat)))))))
-
-(tu/deftest-kb a-defeated-functional-stops-rejecting
-  (tu/with-terms [ageOf Bob]
-    (let [_hf (v/assert kb (list 'functional ageOf) 'CxUniverse {:strength :default})]
-      (v/assert kb (list ageOf Bob 40) 'CxUniverse)
-      (testing "believed: a second, unmergeable numeric value is refused"
-        (is (v/has-prop? kb :functional ageOf))
-        (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list ageOf Bob 41) 'CxUniverse))))
-      (let [hn (v/assert kb (list 'not (list 'functional ageOf)) 'CxUniverse
-                         {:strength :monotonic})]
-        (testing "defeated: the declaration no longer constrains"
-          (is (not (v/has-prop? kb :functional ageOf)))
-          (is (v/assert kb (list ageOf Bob 41) 'CxUniverse)))
-        (testing "retracting the defeater re-arms the constraint"
-          (when-let [h41 (v/handle-of kb (list ageOf Bob 41) 'CxUniverse)]
-            (v/retract! kb h41))
-          (v/retract! kb hn)
-          (is (v/has-prop? kb :functional ageOf))
-          (is (thrown? clojure.lang.ExceptionInfo
-                       (v/assert kb (list ageOf Bob 41) 'CxUniverse))))))))
 
 (tu/deftest-kb a-defeated-inverse-stops-answering-the-swapped-goal
   (tu/with-terms [parentOf childOf Tom Bob]

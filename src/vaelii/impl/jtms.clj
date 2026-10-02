@@ -16,12 +16,11 @@
   by handle.
 
   Belief is a least fixpoint: a node is IN when it is a premise or has a valid
-  justification (all antecedents IN) — EXCEPT that a node in the *defeated* set is
-  forced OUT.  Because labels are computed from the current justification set and
-  the current defeated set rather than accumulated as events arrive, belief is
-  order-independent: asserting a defeater later withdraws a previously-drawn
-  conclusion, and removing the defeater revives it.  That is the non-monotonic
-  behaviour a plain monotone JTMS lacked.
+  justification (all antecedents IN).  Because labels are computed from the current
+  justification set rather than accumulated as events arrive, belief is
+  order-independent.  A contradiction takes nothing OUT here: each reader decides it
+  and withdraws the loser from its own view (`vaelii.impl.resolution`), so the network
+  holds support labels only.
 
   ## Two invariants
 
@@ -51,26 +50,22 @@
       than the weakest of its antecedents' classes, so a conclusion is never stronger
       than what it rests on.  That makes the class equation recursive, and
       `region-classes` solves it as a least fixpoint inside the region relabel.
-      The class decides who loses a soft contradiction; the caller
-      (core) owns the contradiction layer and pushes the losers into the defeated set
-      with `defeat`.
-
-    * defeated — a set of datums forced OUT by contradiction resolution.  It is
-      *derived* (recomputed each settle by core), so `clear-defeats!` resets it and
-      revival is automatic.
+      The class decides who loses a soft contradiction at a reader
+      (`vaelii.impl.decide`); the network records no defeat, and nothing forces a datum
+      OUT.
 
     * superseded — a *map* `datum -> reason` of datums displaced by an equality
       merge: the stale spelling of a fact whose terms have been rewritten to their
       class representative (docs/equality.md).  Three things make it its own state
-      rather than a reuse of `defeated` or `blocked`:
+      rather than a reuse of `blocked`:
 
       - `blocked` names *justifications*, and a directly asserted `(bornIn Dep
         Chicago)` is a **premise with no justification at all** — `region-fixpoint`
         seeds every premise IN unconditionally, so there is nothing for a block to
         invalidate.  Superseding has to act on the datum.
-      - `defeated` would be the wrong reason.  A superseded spelling lost no
-        argument; it was restated, and `why-not` must be able to say so — hence the
-        map carries the displacing representative rather than being a bare set.
+      - A superseded spelling lost no argument; it was restated, and `why-not` must be
+        able to say so — hence the map carries the displacing representative rather than
+        being a bare set.
       - It is **not** a forced OUT inside the fixpoint.  A superseded datum stays in
         `:in` for the purposes of `valid?`, because its rewritten twin is justified
         *by it*: forcing it OUT structurally would invalidate the twin's own
@@ -81,26 +76,32 @@
 
       Retention is the point: the spelling is the **caller's premise**, so unlike an
       excepted conclusion it is never swept, and dropping the equality gives it back.
-      Like `defeated` and `blocked` the map is *derived* — core recomputes it each
+      Like `blocked` the map is *derived* — core recomputes it each
       settle from the equality closure — so belief stays order independent.
 
+    * forced — three sets the forced-monotonic roster writes (docs/nmtms.md, \"The
+      forced-monotonic roster\"): `:mono`, premises whose class is `:monotonic` whatever
+      strength they carry; `:out`, datums the fixpoint never adds, a premise included;
+      and `:void`, justifications that support nothing and confer no class.  Each is an
+      **attribute** of the element it names, written by the caller with the element and
+      rewritten when the roster moves (`set-forced`), so the stored content keeps the
+      strength it was written at and every record a forced set governs stays stored.
+
     * blocked — a set of *justification* ids whose rule's exception currently holds
-      (`exceptWhen`, see docs/exceptions.md).  A blocked justification is not a
-      defeated conclusion: it is simply **invalid**, so it supports nothing, confers
-      no defeat-class, and does not make its consequence groundable — which is what
+      (`exceptWhen`, see docs/exceptions.md).  A blocked justification is simply
+      **invalid**, so it supports nothing and confers no defeat-class — which is what
       lets the ordinary dependency-directed sweep garbage-collect an excepted
-      conclusion instead of retaining it for revival.  This module is pure and has no
+      conclusion.  This module is pure and has no
       KB, so it cannot run the exception query itself: the caller evaluates the
       exception and hands the answer in with `set-blocked`, which relabels only the
-      region the change reaches.  Like `defeated`, the set is *derived* — computed
+      region the change reaches.  The set is *derived* — computed
       from current state each settle, never accumulated — so belief stays order
       independent.
 
   Retraction is dependency-directed: drop the premise, relabel, then SWEEP the
-  affected closure — datums that end up OUT with no valid support and are not
-  defeated are solely supported by the retraction, so they (and their non-premise
-  justifications) are returned for the caller to delete from the stores.  A datum that
-  is merely *defeated* keeps its support and is retained for later revival.
+  affected closure — datums that end up OUT with no valid support are solely supported
+  by the retraction, so they (and their non-premise justifications) are returned for the
+  caller to delete from the stores.
 
   This module owns the in-memory graph; the caller owns physical deletion, since
   only it holds the stores."
@@ -109,13 +110,16 @@
             [vaelii.impl.jtms-protocol :refer [Tms
                                                -believed? -believed -node? -datums
                                                -any-node? -any-belief? -depth -premise?
-                                               -premise-strength -defeat-class -defeated
+                                               -premise-strength -defeat-class
                                                -blocked -superseded -touched -touched-in
-                                               -touched-new -reset-touched -supports
+                                               -touched-new -touched-out -reset-touched
+                                               -touch-mark -touched-since
+                                               -supports
                                                -dependents -justification -justifications
                                                -ensure-node -add-premise -suspend-premise
                                                -add-justification -restrength-informant
-                                               -relabel -defeat -clear-defeats -set-blocked
+                                               -forced? -set-forced
+                                               -relabel -set-blocked
                                                -supersede -retract -sweep
                                                -drop-justification -snapshot
                                                -hold -release -held]]
@@ -325,16 +329,23 @@
         (update :touched-new (fnil conj #{}) datum))))
 
 (defn- valid?
-  "Is justification `j` currently satisfied under the IN set `in` and the blocked set
-  `blocked`?
+  "Is justification `j` currently satisfied under the IN set `in`, the blocked set
+  `blocked` and the `:void` forced set `void`?
 
-  Three independent conditions: every antecedent believed, the rule believed when the
-  informant is a rule handle, and the justification not blocked by its rule's exception."
-  [j in blocked]
+  Four independent conditions: every antecedent believed, the rule believed when the
+  informant is a rule handle, the justification not blocked by its rule's exception, and
+  not void."
+  [j in blocked void]
   (let [inf (:informant j)]
     (and (every? #(contains? in %) (:antecedents j))
          (or (not (integer? inf)) (contains? in inf))
-         (not (contains? blocked (:id j))))))
+         (not (contains? blocked (:id j)))
+         (not (contains? void (:id j))))))
+
+(defn- forced-set
+  "`state`'s forced set `kind`."
+  [state kind]
+  (get-in state [:forced kind] #{}))
 
 (defn- conferred-class
   "The defeat-class a valid justification confers on its consequence: its own
@@ -352,8 +363,8 @@
   conclusion — and a rule takes `:default` unless its own assertion says otherwise,
   exactly as a fact does, so that alone would put every datum an ordinary rule
   licensed at `:default`.  The strength a rule contributes
-  is already carried by `:strength` on the justification (`:monotonic` for a bare
-  rule, `:default` for a `set/defaultRule`)."
+  is already carried by `:strength` on the justification (`provers/firing-strength`:
+  `:default` for a `set/defaultRule` and for a guarded rule)."
   [j classes]
   (reduce (fn [c a] (strength/min c (get classes a :default)))
           (or (:strength j) :monotonic)
@@ -368,11 +379,14 @@
   [state d in classes]
   (let [n       (get-in state [:nodes d])
         blocked (:blocked state #{})
-        prem  (when (and (:premise? n) (not (contains? (:defeated state) d)))
-                (:premise-strength n :default))
+        void    (forced-set state :void)
+        prem  (when (:premise? n)
+                (if (contains? (forced-set state :mono) d)
+                  :monotonic
+                  (:premise-strength n :default)))
         strs  (for [jid (:supports n)
                     :let [j (get-in state [:justs jid])]
-                    :when (and j (valid? j in blocked))]
+                    :when (and j (valid? j in blocked void))]
                 (conferred-class j classes))]
     (reduce strength/max :default (remove nil? (cons prem strs)))))
 
@@ -400,26 +414,25 @@
 
 (defn- region-fixpoint
   "Least fixpoint of IN over `region`, with `base` — the boundary's believed nodes —
-  held fixed.  `forced-out?` forces a node OUT whatever its support (the defeated set
-  when labelling; nothing when computing groundability).
+  held fixed.
 
-  Blocking is *not* a forced-OUT: it invalidates a justification rather than a datum,
-  so it is read through `valid?` and therefore applies to the groundability pass as
-  well.  That is deliberate — an excepted conclusion has lost a derivation, not merely
-  a belief, so the retraction sweep should collect it (docs/exceptions.md, \"Garbage
-  collection, not defeat\").
+  Blocking invalidates a justification rather than a datum, so it is read through
+  `valid?`: an excepted conclusion has lost a derivation, so the retraction sweep
+  collects it (docs/exceptions.md, \"Garbage collection, not defeat\").
 
   Starting from *nothing believed inside the region* and only ever adding is what
   keeps support well-founded: a cycle within the region that has no ground outside
   it never enters, exactly as in a global least fixpoint.  And a least fixpoint is
   unique, so the result cannot depend on the order nodes are visited — which is why
   going local costs no order independence."
-  [state region cands base forced-out?]
+  [state region cands base]
   (let [blocked (:blocked state #{})
+        void    (forced-set state :void)
+        out     (forced-set state :out)
         justs   (:justs state)
         nodes   (:nodes state)
-        seeded  (into base
-                      (filter #(and (get-in state [:nodes % :premise?]) (not (forced-out? %))))
+        seeded  (into base (filter #(and (get-in state [:nodes % :premise?])
+                                         (not (contains? out %))))
                       region)]
     ;; Semi-naive worklist.  `valid?` is monotone in `in` (blocked is fixed and the
     ;; reserved `:out` slot is empty), so a justification only needs re-testing when one
@@ -434,8 +447,8 @@
         (let [j (peek stack), stack (pop stack), c (:consequence j)]
           (if (and (contains? region c)
                    (not (contains? in c))
-                   (not (forced-out? c))
-                   (valid? j in blocked))
+                   (not (contains? out c))
+                   (valid? j in blocked void))
             (recur (conj in c)
                    (into stack (keep justs) (get-in nodes [c :consequences])))
             (recur in stack)))))))
@@ -505,8 +518,18 @@
                                    (filter #(contains? in %)))
                          (get-in nodes [d :consequences])))))))))
 
+(defn- note-epoch
+  "`state` with `hs` recorded in the window's open epoch, the one the last `-touch-mark`
+  opened: what `-touched-since` reads.  No epoch is open before the first mark of a
+  window, so a window nobody marks records nothing twice."
+  [state hs]
+  (let [es (:epochs (:marks state))]
+    (if (seq es)
+      (update-in state [:marks :epochs (dec (count es))] into hs)
+      state)))
+
 (defn- relabel-region*
-  "Recompute `:in`, `:groundable` and the defeat-classes for `region`, holding every
+  "Recompute `:in` and the defeat-classes for `region`, holding every
   node outside it fixed.  Equivalent to a global relabel whenever the region is the
   affected closure of what changed, and proportional to the region rather than to
   the graph.
@@ -516,8 +539,7 @@
   a boundary node whose class could move would have an antecedent in the region — and
   would therefore be in the region itself."
   [state region]
-  (let [defeated (:defeated state #{})
-        old-in   (:in state #{})
+  (let [old-in   (:in state #{})
         ;; the region members this window has not relabelled yet — their label right now
         ;; is their label before anything in the window moved, and that is the reading
         ;; `touched-in` wants.  A member relabelled earlier already contributed its own,
@@ -528,13 +550,8 @@
                                 (distinct)
                                 (keep #(get-in state [:justs %])))
                        region)
-        in       (region-fixpoint state region cands
-                                  (set/difference old-in region)
-                                  defeated)
-        ground   (region-fixpoint state region cands
-                                  (set/difference (:groundable state #{}) region)
-                                  (constantly false))
-        state    (assoc state :in in :groundable ground)]
+        in       (region-fixpoint state region cands (set/difference old-in region))
+        state    (assoc state :in in)]
     ;; Record the region as *touched*: a supporter's belief can flip only inside a
     ;; relabelled region, so the accumulated touched set is a superset of every handle
     ;; whose belief moved this settle — what `tax/refresh-beliefs` uses to skip a cache
@@ -544,6 +561,7 @@
     (-> state
         (assoc :classes (region-classes state region in))
         (update :touched (fnil into #{}) region)
+        (note-epoch region)
         (update :touched-in (fnil into #{}) (filter old-in fresh)))))
 
 (defn- resettle
@@ -594,17 +612,16 @@
     ;; walked once, when the fact is *first* derived (a brand-new node has no consequences
     ;; yet, so its region is a singleton and the relabel is O(log n)); every later
     ;; re-derivation via another path is a no-op.  Any *real* change still takes the full
-    ;; resettle — a newly-IN consequence, a class that actually rises, a defeated/blocked one
+    ;; resettle — a newly-IN consequence, a class that actually rises, a blocked one
     ;; (all of which move belief or class and so must reconcile the region) — so belief is
     ;; identical to the per-conclusion relabel, only cheaper.
     ;;
     ;; The consequence still enters `touched`, and that is not a hedge against the fast
     ;; path being wrong about belief.  A caller reading the window asks a slightly larger
     ;; question — *is what I published about this datum still current* — and a second
-    ;; witness moves the answer to that while moving no label: `settle/record-clashes!`
-    ;; republishes a standing clash's supporting justifications each settle and carries
-    ;; the report forward for a pair the window does not hold, so a silent arrival is a
-    ;; report naming fewer reasons than the KB holds.  Noting one handle is O(1) where
+    ;; witness moves the answer to that while moving no label: the withdrawal cache keeps
+    ;; an entry whose watch the window does not meet (`res/reconcile-withdrawn!`), so a
+    ;; silent arrival is a cached answer that reads fewer reasons than the KB holds.  Noting one handle is O(1) where
     ;; polling every standing pair for its support count is O(standing) per settle — which
     ;; `lein perf`'s `negation-arbitration` measures as a 19% worse growth ratio at 800
     ;; standing dilemmas, against no measurable change for this.  `touched-in` takes it too,
@@ -612,10 +629,12 @@
     ;; relabelled it already, since an earlier relabel's answer is the one that predates
     ;; the window (`relabel-region*`'s `fresh`).
     (if (and (contains? in consequence)
-             (or (not (valid? just in (:blocked state #{})))
+             (or (not (valid? just in (:blocked state #{}) (forced-set state :void)))
                  (let [cls (get (:classes state) consequence :default)]
                    (= cls (strength/max cls (conferred-class just (:classes state)))))))
-      (cond-> (update state :touched (fnil conj #{}) consequence)
+      (cond-> (-> state
+                  (update :touched (fnil conj #{}) consequence)
+                  (note-epoch [consequence]))
         (not (contains? (:touched state #{}) consequence))
         (update :touched-in (fnil conj #{}) consequence))
       (resettle state [consequence]))))
@@ -689,22 +708,20 @@
                                   #(get-in nodes [% :depth] 0)))))))
 
 (defn- sweep*
-  "SWEEP: collect the datums in `suspects` that are no longer *structurally*
-  derivable (not groundable) and are not premises, delete them and every
+  "SWEEP: collect the datums in `suspects` that are no longer derivable (OUT) and are
+  not premises, delete them and every
   justification touching them, and return
   [new-state {:removed-sentexes [datum...] :removed-justifications [jid...]}].
   A survivor that lost a justification, and each of `raised`, has its depth re-solved
   (`redepth*`).
 
-  Groundability ignores defeats, so a defeated node with a surviving derivation is
-  kept for revival, while a defeated node whose only support was just torn down is
-  swept (no orphan leak).  Blocking, by contrast, *does* suppress groundability
-  (see `region-fixpoint`), which is what makes this the garbage collector for an
-  excepted conclusion as well as for a retracted one — docs/exceptions.md,
-  \"Garbage collection, not defeat\".
+  Nothing forces a datum OUT, so OUT is having no valid derivation.  Blocking
+  suppresses a derivation (see `region-fixpoint`), which is what makes this the garbage
+  collector for an excepted conclusion as well as for a retracted one —
+  docs/exceptions.md, \"Garbage collection, not defeat\".
 
-  The caller must have relabelled `suspects` already: this reads `:groundable`, it
-  does not compute it.
+  The caller must have relabelled `suspects` already: this reads `:in`, it does not
+  compute it.
 
   Like every other operation here it is **region-local**: the justifications to tear
   down are read off the dead nodes' own `:supports` / `:consequences`, never found by
@@ -712,10 +729,10 @@
   ordinary fact arrival, so sweeping is routine rather than a retraction-only path,
   and a sweep that scanned the whole graph would make a run of them quadratic."
   [state suspects raised]
-  (let [groundable (:groundable state #{})
+  (let [in       (:in state #{})
         dead     (filter (fn [d]
                            (and (not (get-in state [:nodes d :premise?]))
-                                (not (contains? groundable d))))
+                                (not (contains? in d))))
                          suspects)
         ;; The justifications that touch a dead datum are exactly the ones its node
         ;; already names: `:supports` (it is their consequence) and `:consequences`
@@ -746,13 +763,17 @@
         ;; block too — an id left behind would be a stale block waiting to be
         ;; reapplied to whatever reuses it
         state (update state :blocked disj-all dead-jids)
+        ;; ...and a forced membership names a justification or a datum, for the same reason
+        state (-> state
+                  (update-in [:forced :void] disj-all dead-jids)
+                  (update-in [:forced :mono] disj-all dead)
+                  (update-in [:forced :out] disj-all dead))
         ;; a supersession names a datum, so a swept datum must lose it too — an entry
         ;; left behind would hold a future handle OUT for a merge that is long gone
         state (update state :superseded dissoc-all dead)
-        ;; the swept nodes were OUT and ungroundable, so dropping them cannot move
-        ;; any survivor's label — only these bookkeeping sets need the removal
-        state (update state :in         disj-all dead)
-        state (update state :groundable disj-all dead)
+        ;; the swept nodes were OUT, so dropping them cannot move any survivor's label —
+        ;; only the bookkeeping set needs the removal
+        state (update state :in disj-all dead)
         state (redepth* state (into (vec raised) lost))]
     [state {:removed-sentexes removed-sentexes
             :removed-justifications removed-justifications}]))
@@ -779,7 +800,10 @@
   for it by name.  An unknown `jid` is a no-op."
   [state jid]
   (if-let [c (get-in state [:justs jid :consequence])]
-    (let [state    (-> state (unlink-just jid) (update :blocked disj-all [jid]))
+    (let [state    (-> state
+                       (unlink-just jid)
+                       (update :blocked disj-all [jid])
+                       (update-in [:forced :void] disj-all [jid]))
           suspects (affected-region state [c])]
       (sweep* (relabel-region* state suspects) suspects [c]))
     [state {:removed-sentexes [] :removed-justifications []}]))
@@ -800,7 +824,7 @@
   An unknown datum is a no-op: retraction is idempotent, and the test is what keeps it
   so.  Reaching `retract-known*` regardless would have `assoc-in` *create* the node it
   was asked to retract; the sweep then collects the phantom (not a premise, not
-  groundable) and the result claims a removal that never happened."
+  IN) and the result claims a removal that never happened."
   [state datum]
   (if-not (get-in state [:nodes datum])
     [state {:removed-sentexes [] :removed-justifications []}]
@@ -819,6 +843,25 @@
       (-> state
           (assoc :blocked jids)
           (resettle (keep #(get-in state [:justs % :consequence]) changed))))))
+
+(defn- set-forced*
+  "`state` with each of `xs` added to forced set `kind` (`on?`) or taken out of it, and
+  the region of the members that moved relabelled: the datums with a node for `:mono`
+  and `:out`, the consequences of the stored justifications for `:void`."
+  [state kind xs on?]
+  (let [cur   (forced-set state kind)
+        moved (into [] (comp (distinct) (filter #(not= (boolean on?) (contains? cur %)))) xs)]
+    (if (empty? moved)
+      state
+      (let [region (affected-region state (if (= :void kind)
+                                            (keep #(get-in state [:justs % :consequence]) moved)
+                                            (filter #(get-in state [:nodes %]) moved)))
+            was    (filterv #(contains? (:in state #{}) %) region)
+            state  (-> state
+                       (assoc-in [:forced kind] (if on? (into cur moved) (disj-all cur moved)))
+                       (relabel-region* region))]
+        ;; what the change took OUT, for `revived` to re-seed if it comes back this window
+        (update state :touched-out (fnil into #{}) (remove #(contains? (:in state) %)) was)))))
 
 (defn- swap-with-result!
   "Atomically apply `f` — a pure `state -> [state' result]` fn — to atom `a`,
@@ -893,13 +936,28 @@
   (-defeat-class [_ datum]
     (let [s (ref-view hold state)]
       (when (contains? (:in s) datum) (get (:classes s) datum :default))))
-  (-defeated [_] (:defeated (ref-view hold state) #{}))
   (-blocked [_] (:blocked (ref-view hold state) #{}))
   (-superseded [_] (:superseded (ref-view hold state) {}))
   (-touched [_] (:touched @state #{}))
   (-touched-in [_] (:touched-in @state #{}))
   (-touched-new [_] (:touched-new @state #{}))
-  (-reset-touched [_] (swap! state assoc :touched #{} :touched-in #{} :touched-new #{}) nil)
+  (-touched-out [_] (:touched-out @state #{}))
+  (-reset-touched [_]
+    (swap! state #(-> %
+                      (assoc :touched #{} :touched-in #{} :touched-new #{} :touched-out #{})
+                      (update :marks (fn [m] {:gen (inc (:gen m 0)) :epochs []}))))
+    nil)
+  (-touch-mark [_]
+    (let [m (:marks (swap! state update :marks
+                           (fn [m] (update (or m {:gen 0 :epochs []}) :epochs conj #{}))))]
+      [(:gen m) (dec (count (:epochs m)))]))
+  (-touched-since [_ mark]
+    (let [st @state
+          {:keys [gen epochs]} (:marks st)
+          [g i] mark]
+      (if (and mark (= g gen) (< i (count epochs)))
+        (into #{} cat (subvec epochs i))
+        (:touched st #{}))))
   (-supports [_ datum] (get-in (ref-view hold state) [:nodes datum :supports] #{}))
   (-dependents [_ datum] (get-in (ref-view hold state) [:nodes datum :consequences] #{}))
   (-justification [_ jid] (get-in (ref-view hold state) [:justs jid]))
@@ -919,20 +977,15 @@
   (-add-justification [_ just] (swap! state add-just* just) nil)
   (-restrength-informant [_ informant strength]
     (swap! state restrength-informant* informant strength) nil)
+  (-forced? [_ kind x] (contains? (forced-set (ref-view hold state) kind) x))
+  (-set-forced [_ kind xs on?] (swap! state set-forced* kind xs on?) nil)
   (-relabel [_] (swap! state relabel-all*) nil)
-  (-defeat [_ datums]
-    (swap! state (fn [s] (-> s (update :defeated (fnil into #{}) datums) (resettle datums))))
-    nil)
-  (-clear-defeats [_]
-    (swap! state (fn [s] (let [was (:defeated s #{})]
-                           (-> s (assoc :defeated #{}) (resettle was)))))
-    nil)
   (-set-blocked [_ jids] (swap! state set-blocked* jids) nil)
   (-supersede [_ m] (swap! state assoc :superseded (if (map? m) m (into {} m))) nil)
   (-retract [_ datum] (swap-with-result! state #(retract* % datum)))
   (-sweep [_ seeds] (swap-with-result! state (fn [s] (sweep* s (affected-region s seeds) nil))))
   (-drop-justification [_ jid] (swap-with-result! state #(drop-just* % jid)))
-  (-snapshot [_] @state)
+  (-snapshot [_] (dissoc @state :marks))
   (-hold [_ h]
     ;; the writer is the one thread that swaps `state`, so the map read here is the one
     ;; every relabel after this call starts from
@@ -947,10 +1000,7 @@
   "A fresh, empty truth-maintenance network — the reference implementation.
 
   `:in` is the believed set and the authority on belief — nodes carry no label of
-  their own, so there is no second copy to drift.  `:groundable` is the set that is
-  *structurally* derivable from the premises ignoring defeats: a defeated node that
-  is still groundable can revive, one that is not has lost its last derivation and
-  is swept.  Both are maintained region-locally.
+  their own, so there is no second copy to drift.  It is maintained region-locally.
 
   `:blocked` is the set of justification ids currently blocked by their rule's
   exception; it starts empty and only a caller that has evaluated the exceptions can
@@ -958,9 +1008,10 @@
 
   (Rules live in the stores as sentexes, not here.)"
   []
-  (->RefTms (atom {:nodes {} :justs {} :defeated #{} :blocked #{} :superseded {}
-                   :classes {} :in #{} :groundable #{}
-                   :touched #{} :touched-in #{} :touched-new #{}})
+  (->RefTms (atom {:nodes {} :justs {} :blocked #{} :superseded {}
+                   :forced {:mono #{} :out #{} :void #{}}
+                   :classes {} :in #{}
+                   :touched #{} :touched-in #{} :touched-new #{} :touched-out #{}})
             (AtomicReference. nil)))
 
 ;; ---- public API ---------------------------------------------------------
@@ -997,9 +1048,6 @@
   presence cannot carry both, since only one of them is information."
   [tms datum] (-defeat-class tms datum))
 
-(defn defeated?  [tms datum] (contains? (-defeated tms) datum))
-(defn defeated   [tms] (-defeated tms))
-
 (defn touched
   "The datums whose region has been relabelled since the last `reset-touched!` — a
   superset of every datum whose belief could have flipped in that window.  `settle`
@@ -1015,11 +1063,12 @@
   [tms] (-touched tms))
 
 (defn touched-in
-  "The subset of `touched` that was **already believed** when this window first
-  relabelled it.  With `touched` and current belief that is the whole belief delta:
-  a datum in `touched` and IN now but not here came *in*, and one here that is OUT now
-  went *out*.  The superset alone cannot say which — most of a relabelled region does
-  not move — so this is what a caller reporting consequences reads.
+  "The subset of `touched` whose label was **IN** when this window first relabelled it.
+  With `touched` and current belief this set gives the label delta: a datum in `touched`
+  and IN now but not here came *in*, and one here that is OUT now went *out*.  The
+  superset alone cannot say which, since most of a relabelled region does not move.  A
+  superseded spelling keeps an IN label and is not believed (`in?`), so `settle-finish`
+  drops the spellings superseded when the window opened before it reports belief.
 
   \"When first relabelled\" is what makes it a reading from before the window rather
   than from part-way through it: a datum relabelled twice keeps the earlier answer."
@@ -1046,7 +1095,10 @@
   The three window sets between them are the whole belief delta, and this is the corner
   of it that costs work rather than a report: `touched` minus `touched-in` is what
   gained belief, and minus `touched-new` is the part of *that* which is not a datum the
-  writer has already chained from.
+  writer has already chained from.  A datum a forced-set change took OUT inside the
+  window (`-touched-out`) is one too when it is believed again by the window's end,
+  whether or not it was believed when the window opened: a partner arriving while it
+  was OUT joined against nothing.
 
   The two-arity takes `touched` as the caller already read it — `settle` reads the
   region once per pass and hands the value to everything in the pass that wants it,
@@ -1057,9 +1109,9 @@
      #{}
      (let [was-in (touched-in tms)
            born   (touched-new tms)]
-       (into #{}
-             (comp (remove was-in) (remove born) (filter #(in? tms %)))
-             t)))))
+       (-> #{}
+           (into (comp (remove was-in) (remove born) (filter #(in? tms %))) t)
+           (into (filter #(in? tms %)) (-touched-out tms)))))))
 
 (defn reset-touched!
   "Clear the accumulated touched sets (see `touched` / `touched-in` / `touched-new`).
@@ -1067,6 +1119,20 @@
   spans everything since the last settle finished, which for `edit` is the whole
   deferred batch and its one settle rather than the settle alone."
   [tms] (-reset-touched tms) tms)
+
+(defn touch-mark
+  "A mark of this point in the touched window, for a reader that asks the window more
+  than once in it: `touched-since` answers what was recorded after it.  Each reader keeps
+  its own mark."
+  [tms] (-touch-mark tms))
+
+(defn touched-since
+  "The datums `touched` recorded after `mark` (`touch-mark`): a datum relabelled again
+  since the mark is in it although `touched` held it already, which a set difference over
+  `touched` would drop.  A superset of what moved since the mark, as `touched` is of what
+  moved in the window.  The whole of `touched` for a mark the window outdated
+  (`reset-touched!`) or a nil one."
+  [tms mark] (-touched-since tms mark))
 
 (defn superseded
   "The `datum -> reason` map of spellings an equality merge has displaced."
@@ -1284,8 +1350,9 @@
   is `informant`, and relabel the region their consequences span.
 
   A justification's `:strength` is the *rule's* contribution, read off the record at
-  fire time (`chain/rule-view-of`) — a cache of one slot of one sentex.  When that slot
-  moves (a re-asserted rule's defeasibility resolves strict, `assert-entry/reconcile-rule-slots!`),
+  fire time (`chain/rule-view-of`) — a cache of `provers/firing-strength`.  When that
+  moves (a re-asserted rule's defeasibility resolves strict, or an `exceptWhen` arrives
+  or leaves: `special/restrength-firings!`),
   the cache must move with it, or belief keeps the arrival order the slot resolution
   exists to remove: the same rule stated defeasible-then-strict and strict-then-defeasible
   would confer two different classes on conclusions already derived.  The antecedent half
@@ -1295,6 +1362,27 @@
   [tms informant strength]
   (moving (-restrength-informant tms informant strength))
   tms)
+
+(defn forced?
+  "Is `x` a member of forced set `kind`?"
+  [tms kind x] (-forced? tms kind x))
+
+(defn set-forced
+  "Add each of `xs` to forced set `kind` (`on?` true) or take it out, and relabel the
+  region the members that moved reach.  `:mono` names premises whose class is
+  `:monotonic` whatever strength they carry, `:out` datums never IN, and `:void`
+  justifications that support nothing.  A member may be written before its node or its
+  justification exists, so the element never holds a label the set rules out."
+  [tms kind xs on?]
+  (when (seq xs) (moving (-set-forced tms kind xs on?)))
+  tms)
+
+(defn premise-class
+  "The class `datum`'s premise mark confers: `:monotonic` for a `:mono` member, its
+  premise strength otherwise, nil for a datum that is no premise."
+  [tms datum]
+  (when-let [s (premise-strength tms datum)]
+    (if (forced? tms :mono datum) :monotonic s)))
 
 (defn relabel
   "Recompute *every* node's label and defeat-class, and clear the blocked and superseded
@@ -1310,10 +1398,6 @@
   stored — a whole-graph relabel cannot recover either and must not inherit a stale one."
   [tms] (moving (-relabel tms)) tms)
 
-(defn defeat
-  "Force `datums` OUT (contradiction resolution) and relabel the region they affect."
-  [tms datums] (moving (-defeat tms datums)) tms)
-
 (defn blocked
   "The justification ids currently blocked by their rule's exception."
   [tms] (-blocked tms))
@@ -1323,8 +1407,7 @@
   has just found to hold — and relabel the region the change reaches.
 
   The set is *replaced*, not accumulated: the caller re-evaluates every exception it
-  cares about and states the whole answer, exactly as core recomputes the defeated set
-  each settle.  Nothing here remembers that a justification was blocked a round ago,
+  cares about and states the whole answer.  Nothing here remembers that a justification was blocked a round ago,
   so belief cannot depend on the order the exceptions were discovered in.
 
   The region is seeded from the **consequences of the justifications whose blocked
@@ -1333,19 +1416,11 @@
   call that changes nothing does no work at all.  `#{}` unblocks everything."
   [tms jids] (moving (-set-blocked tms jids)) tms)
 
-(defn clear-defeats!
-  "Reset the derived defeated set and relabel — the basis for revival.
-
-  The region is the *previously* defeated nodes: lifting a forced OUT can only
-  affect them and what follows from them, so a settle that defeated nothing last
-  round does no work at all here."
-  [tms] (moving (-clear-defeats tms)) tms)
-
 (defn hold!
   "Open hold `h` (`observe/new-hold`) on `tms`, and answer whether it opened: false when a
   hold is open on it already.  Until `release!`, every relabel records the labels it moves
   as they were before the hold's first move, and once `observe/open-hold!` registers `h`, a
-  thread other than its owner reads belief, the defeated, blocked and superseded sets, and
+  thread other than its owner reads belief, the blocked and superseded sets, and
   on the reference every read, from those.  A settle holds its network this way, so a
   reader beside it reads the belief the settle began from until the settle publishes what
   it decided (`vaelii.impl.settle/settle`)."
@@ -1385,26 +1460,34 @@
         (let [v (cached)]
           (if (identical? m (observe/registry)) v (recur)))))))
 
+(defn consequence-closure
+  "The forward consequence closure of `seeds`, seeds included: every datum a justification
+  resting on one of them concludes, transitively.  The region `grounded-in-region` labels,
+  for a caller that needs the datums a forced-OUT set can move and not their labels."
+  [tms seeds]
+  (loop [seen #{}, stack (vec seeds)]
+    (if (empty? stack)
+      seen
+      (let [d (peek stack), stack (pop stack)]
+        (if (contains? seen d)
+          (recur seen stack)
+          (recur (conj seen d)
+                 (into stack (comp (keep #(justification tms %)) (map :consequence))
+                       (dependents tms d))))))))
+
 (defn- grounded-in-region*
-  [tms extra belief-only]
+  [tms extra belief-only invalid]
   (let [extra       (set extra)
-        forced?     (let [f (into (set (defeated tms)) extra)] #(contains? f %))
+        invalid     (set invalid)
+        out?        #(or (contains? extra %) (forced? tms :out %))
         blocked-set (blocked tms)
         just-of     #(justification tms %)
         ;; raw belief for a boundary datum: reported belief plus the superseded spellings
         ;; the fixpoint keeps IN (their twin is justified by them).
         raw-in?     (fn [d] (or (in? tms d) (superseded? tms d)))
-        ;; forward consequence closure of `extra`, seeds included — the only datums a
-        ;; forced-out member can move.
-        region      (loop [seen #{}, stack (vec extra)]
-                      (if (empty? stack)
-                        seen
-                        (let [d (peek stack), stack (pop stack)]
-                          (if (contains? seen d)
-                            (recur seen stack)
-                            (recur (conj seen d)
-                                   (into stack (comp (keep just-of) (map :consequence))
-                                         (dependents tms d)))))))
+        ;; the only datums a forced-out member or an invalid justification can move
+        region      (consequence-closure
+                     tms (into extra (keep #(:consequence (just-of %))) invalid))
         ;; an antecedent in the region reads the recomputed set; outside it, live belief
         believed?*  (fn [in d] (if (contains? region d) (contains? in d) (raw-in? d)))
         valid-here? (fn [in j] (and (if-let [b (and belief-only (belief-only j))]
@@ -1413,9 +1496,11 @@
                                       (every? #(believed?* in %) (:antecedents j)))
                                     (let [inf (:informant j)]
                                       (or (not (integer? inf)) (believed?* in inf)))
-                                    (not (contains? blocked-set (:id j)))))
+                                    (not (contains? blocked-set (:id j)))
+                                    (not (contains? invalid (:id j)))
+                                    (not (forced? tms :void (:id j)))))
         ;; region premises seed the fixpoint unless forced out
-        seed        (into #{} (filter #(and (premise? tms %) (not (forced? %)))) region)
+        seed        (into #{} (filter #(and (premise? tms %) (not (out? %)))) region)
         ;; the justifications that can conclude something in the region
         cands       (into [] (comp (mapcat #(supports tms %)) (distinct) (keep just-of)) region)
         in          (loop [in seed, stack (vec cands)]
@@ -1424,7 +1509,7 @@
                         (let [j (peek stack), stack (pop stack), c (:consequence j)]
                           (if (and (contains? region c)
                                    (not (contains? in c))
-                                   (not (forced? c))
+                                   (not (out? c))
                                    (valid-here? in j))
                             (recur (conj in c)
                                    (into stack (keep just-of) (dependents tms c)))
@@ -1442,7 +1527,7 @@
   quadratic (`grounded_forcing_out_test`).  The walk mirrors `affected-region` over the
   closure and the fixpoint mirrors `region-fixpoint` over it, both restricted to the
   region.  Built on the protocol reads (`in?`, `dependents`, `supports`, `justification`,
-  `premise?`, `defeated`, `blocked`, `superseded?`), so both network representations answer
+  `premise?`, `blocked`, `superseded?`), so both network representations answer
   it identically without either implementing a method — the derived-read footing `revived`
   has.
 
@@ -1453,16 +1538,18 @@
   `belief-only`, when given, maps a justification to the one antecedent it reads at its
   current label rather than the recomputed one, or nil: `res/withdrawal` passes
   `res/belief-only-antecedent`, for a reader's copy that rests on an equality hidden
-  wherever the copy is read."
-  ([tms extra] (grounded-in-region* tms extra nil))
-  ([tms extra belief-only] (grounded-in-region* tms extra belief-only)))
+  wherever the copy is read.  `invalid` is a set of justification ids read as invalid,
+  as a blocked one is: a guarded firing a reader re-asks and finds blocked."
+  ([tms extra] (grounded-in-region* tms extra nil nil))
+  ([tms extra belief-only] (grounded-in-region* tms extra belief-only nil))
+  ([tms extra belief-only invalid] (grounded-in-region* tms extra belief-only invalid)))
 
 (defn grounded-forcing-out
   "The believed datums recomputed with every datum in `extra` **forced OUT**, the rest of
   the graph held at its current label — a non-mutating read of what belief would be if
-  `extra` were disbelieved.  Equal to the believed set after `(defeat tms extra)` on a
-  network with nothing else defeated, computed without touching the network
-  (`grounded-forcing-out-equals-defeat` pins it).
+  `extra` were disbelieved, computed without touching the network: equal to the believed
+  set of a copy of the network in which `extra` are no premises and conclude nothing
+  (`grounded-forcing-out-equals-a-network-without-them` pins it).
 
   The recompute is region-local (`grounded-in-region`); splicing its region-in-set into
   belief outside the region is the one ordinary belief read, the cost `in-datums` has.  A
@@ -1504,14 +1591,15 @@
                                       (get classes d :default)
                                       (or (defeat-class tms d) :default)))
         node-class  (fn [classes d]
-                      (let [prem (when (premise? tms d) (or (premise-strength tms d) :default))
+                      (let [prem (when (premise? tms d) (or (premise-class tms d) :default))
                             strs (for [jid  (supports tms d)
                                        :let [j (justification tms jid)]
                                        :when (and j
                                                   (every? believed?* (:antecedents j))
                                                   (let [inf (:informant j)]
                                                     (or (not (integer? inf)) (believed?* inf)))
-                                                  (not (contains? blocked-set (:id j))))]
+                                                  (not (contains? blocked-set (:id j)))
+                                                  (not (forced? tms :void (:id j))))]
                                    (reduce (fn [c a] (strength/min c (class-of classes a)))
                                            (or (:strength j) :monotonic)
                                            (:antecedents j)))]
@@ -1532,18 +1620,18 @@
 
 (defn sweep!
   "Garbage-collect the consequence closure of `seeds`: every datum in it that is not
-  a premise and is no longer *groundable* is deleted, along with the justifications
+  a premise and is OUT is deleted, along with the justifications
   touching it.  Returns the same shape as `retract!`, for the caller to apply to its
   own stores.
 
   This is `retract!`'s sweep without the retraction.  It exists because `exceptWhen`
   removes a conclusion by invalidating its justification rather than by withdrawing a
-  premise: blocking suppresses groundability (`region-fixpoint`), so the conclusion is
-  ungroundable and this collects it exactly as a retraction would — the trade
+  premise: blocking suppresses a derivation (`region-fixpoint`), so the conclusion is OUT
+  and this collects it exactly as a retraction would — the trade
   docs/exceptions.md records under \"Garbage collection, not defeat\".
 
   Labels must already be current — `set-blocked` relabels the same region — so this
-  only reads `:groundable`."
+  only reads `:in`."
   [tms seeds]
   ;; removes justifications, so a bound dedup index over this TMS is cleared (see
   ;; `*dedup-cache*`)
@@ -1552,7 +1640,7 @@
 
 (defn drop-justification!
   "Remove the one justification `jid` from the network, relabel the region it
-  supported, and sweep what that leaves ungroundable.  Returns `retract!`'s shape, for
+  supported, and sweep what that leaves OUT.  Returns `retract!`'s shape, for
   the caller to apply to its own stores; `jid`'s own record is the caller's to delete,
   and is not listed.
 

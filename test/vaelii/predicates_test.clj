@@ -138,98 +138,38 @@
                  pr/entries))
         "the one arbitrable spelling that takes its kind from the mark it generalizes")))
 
-(deftest the-declaration-reconstructs-the-reach-rosters
-  ;; `clash-declaration-functors` is `clash-declaration-kinds`' functors, which are the
-  ;; terms carrying a `:sweeps` kind — so this reads the declaration on both sides and is
-  ;; about the *facet*: which terms settle sweeps for, against which terms claim to reach
-  ;; at all.  The values themselves are pinned in the test below.
-  (let [clash (set (keys (pr/sweeps)))]
-    (testing "every functor settle sweeps for is declared :reach"
-      (is (set/subset? clash (pr/by-facet :reach))))
-    (testing "and the terms that reach some *other* way are named, because :reach is one
-              facet over four mechanisms"
-      ;; `arity` and the three predicate-type memberships — the second way to write an
-      ;; arity — reach through `settle/report-arity-reach!`, which *names* the facts a
-      ;; late declaration convicts and moves no belief, deliberately: the arity table
-      ;; follows belief, so a nogood that defeated the declaration would destroy its own
-      ;; premise. The argument constraints reach through `special/entail-existing`, which
-      ;; *mints* rather than convicting, being open-world, and is gated on
-      ;; `checks/*assertive-arg-types?*`. `arg1` / `arg2` / `arg3` reach through that
-      ;; same mechanism at one remove, the bridge rule's `arg` conclusion being what
-      ;; entail-existing reads: a late `(arg1 owns person)` mints `(person Ann)` over an
-      ;; `(owns Ann Rex)` stored before it, exactly as the ternary spelling does.
-      ;;
-      ;; The commutativity marks reach through the fourth mechanism,
-      ;; `integrate/commute-existing`: a declaration that moves a *spelling* re-spells
-      ;; the records already stored, which neither convicts nor mints — it is a write,
-      ;; and the one retroactive arm that writes records rather than deriving content.
-      ;; `commutative` reaches at one remove the way `arg1` does, the CxCore rule's
-      ;; `(commutativeInArgAndRest P 1)` conclusion being what the sweep fires on.
-      ;;
-      ;; `irreflexive` and `anti_symmetric` reach through arity's mechanism, a report:
-      ;; `settle/report-unarbitrable-reach!` names the stored self tuples and unmergeable
-      ;; converses a late mark convicts, since neither names a pair a nogood could weigh.
-      (is (= (into '#{arity arg genlArg interArg arg1 arg2 arg3
-                      commutative commutativeInArgs commutativeInArgAndRest
-                      irreflexive anti_symmetric}
-                   (keys checks/exact-arity-classes))
-             (set/difference (pr/by-facet :reach) clash))))))
-
-(deftest the-declaration-writes-settles-two-questions
-  ;; The two rosters `settle` no longer writes.  Each states its **value** as a literal
-  ;; rather than reconstructing it: the vars are derived now, so rebuilding one from the
-  ;; declaration would prove the wiring and nothing about what it holds, and a roster that
-  ;; comes out one functor short is a pair that stops being reported in one arrival order
-  ;; with no other test necessarily seeing it (`declaration-parts`: the sweep is the
-  ;; only route in).
-  (testing "which prop keyword each definitional mark stores under"
-    (is (= '#{[asymmetric :asymmetric] [functional :functional]
-              [anti_transitive :anti-transitive]}
-           (set @#'settle/definitional-marks))
-        "as a set: the vector's order is entries' order and is read by nobody"))
-  (testing "what each declaration's arrival puts back in question"
-    (is (= '{:both             #{genl}
-             :type-separating  #{genlCx disjoint disjoint_metatype sibling_disjoint
-                                 covering separating partition}
-             :predicate-marked #{functional asymmetric anti_transitive functionalInArg}}
-           @#'settle/clash-declaration-kinds)))
-  (testing "the five derived beside them, which stay derived one step further back"
-    (is (= '#{functional asymmetric anti_transitive} @#'settle/definitional-mark-symbols))
-    (is (= '#{:functional :asymmetric :anti-transitive} @#'settle/definitional-mark-keywords))
-    (is (= '#{genl genlCx disjoint disjoint_metatype sibling_disjoint
-              covering separating partition
-              functional asymmetric anti_transitive functionalInArg}
-           @#'settle/clash-declaration-functors))
-    (is (= '{genl :both, genlCx :type-separating, disjoint :type-separating,
-             disjoint_metatype :type-separating, sibling_disjoint :type-separating,
-             covering :type-separating, separating :type-separating,
-             partition :type-separating,
-             functional :predicate-marked, asymmetric :predicate-marked,
-             anti_transitive :predicate-marked, functionalInArg :predicate-marked}
-           @#'settle/clash-declaration-kind))))
-
-(deftest a-family-spelling-wired-into-one-lane-does-not-load
-  ;; The load check itself, driven.  `every-functional-family-mark-is-in-both-of-settles-
-  ;; rosters` in `exposure_test` asserted the same thing about the real declarations and is
-  ;; gone: it only ever failed if this mechanism worked, and the mechanism is now checked
-  ;; here directly.  What a family has to agree about *besides* its sweep is
-  ;; `check-facets`' lane rule, driven in `a-facet-implication-nothing-answers-for-does-
-  ;; not-load`.
-  (let [check   @#'pr/check-families
-        refusal (fn [entries] (try (check entries) nil
-                                   (catch clojure.lang.ExceptionInfo e (ex-data e))))]
-    (is (= pr/entries (check pr/entries)) "the real table passes and comes back unchanged")
-    (testing "#54 itself: one spelling reaches stored content and the other does not"
-      (let [data (refusal '[[functional {:family :functional :sweeps :predicate-marked
-                                         :shape {:args [:predicate]}}]
-                            [functionalInArg {:family :functional
-                                              :shape {:args [:predicate :position]}}]])]
-        (is (= :bad-table-entry (:type data)))
-        (is (= :family (:mismatch data)))))
-    (testing "and a declaration no trigger can recognize at an arity"
-      (let [data (refusal '[[functional {:family :functional :sweeps :predicate-marked}]])]
-        (is (= :bad-table-entry (:type data)))
-        (is (= :sweeps (:mismatch data)))))))
+(deftest the-declaration-names-the-terms-that-reach
+  ;; A term carrying `:reach` convicts or mints over content stored before it, each by
+  ;; one of four mechanisms, and none of them a settle sweep.
+  ;;
+  ;; The separations, the covers and the `genl` and `genlCx` edges reach at the read: a
+  ;; reader finds a membership nogood from the term the memberships name
+  ;; (`membership/term-nogoods`), through the separations it reads.  `arity`, `arityMin` and
+  ;; the exact-arity memberships reach at the read too: a reader decides a tuple whose
+  ;; length a late binding breaks from the candidate index (`vaelii.impl.decide`).
+  ;; `irreflexive`, `anti_symmetric` and the tuple marks reach at the read: a late mark
+  ;; offers the stored tuples to the candidate index and a reader decides what it
+  ;; convicts.
+  ;;
+  ;; The argument constraints reach through `special/entail-existing`, which *mints*
+  ;; rather than convicting, being open-world, and is gated on
+  ;; `checks/*assertive-arg-types?*`.  `arg1` / `arg2` / `arg3` reach through that same
+  ;; mechanism at one remove, the bridge rule's `arg` conclusion being what
+  ;; entail-existing reads: a late `(arg1 owns person)` mints `(person Ann)` over an
+  ;; `(owns Ann Rex)` stored before it, exactly as the ternary spelling does.
+  ;;
+  ;; The commutativity marks reach through `integrate/commute-existing`: a declaration
+  ;; that moves a *spelling* re-spells the records already stored, which neither convicts
+  ;; nor mints.  `commutative` reaches at one remove the way `arg1` does, the CxCore
+  ;; rule's `(commutativeInArgAndRest P 1)` conclusion being what the re-spelling fires on.
+  (is (= (into '#{genl genlCx disjoint disjoint_metatype sibling_disjoint
+                  covering separating partition
+                  arity arityMin arg genlArg interArg arg1 arg2 arg3
+                  commutative commutativeInArgs commutativeInArgAndRest
+                  irreflexive anti_symmetric functional functionalInArg asymmetric
+                  anti_transitive}
+               (keys tax/exact-arity-classes))
+         (pr/by-facet :reach))))
 
 (def ^:private live-rosters
   "What `settle`'s call site hands the validator — the cross-layer reads a bottom
@@ -405,10 +345,6 @@
       (is (= :storage (:mismatch (refusal [['brokenPred (ok {:facets #{:cached}})]]))))
       (is (= :storage (:mismatch (refusal [['brokenPred (ok {:storage [:prop :nope]})]])))))
 
-    (testing "a sweep with no reach claims a sweep that reaches nothing"
-      (is (= :sweep-reach
-             (:mismatch (refusal [['brokenPred (ok {:facets #{} :sweeps :predicate-marked})]])))))
-
     (testing "and an arbitrable term must say what its conviction is read through —
               the one conjunct no data decides, so it is claimed on the entry"
       (is (= :arbitrable
@@ -422,15 +358,10 @@
 
 (deftest the-four-arbitrable-marks-say-what-they-are-read-through
   ;; The claim `check-facets` requires, read as content rather than as presence: five
-  ;; spellings arbitrate, and `arity` names a second sentex exactly as they do and is
-  ;; deliberately not one of them.  Its entry carries the same field with the negative
-  ;; answer, which is the one place a validator can hold the two together.
+  ;; spellings arbitrate, and `arity` is decided at the reader instead.
   (doseq [t (pr/by-facet :arbitrable)]
     (is (string? (:opposing-read (pr/entry t))) (str t " must claim it")))
-  (is (:opposing-read (pr/entry 'arity))
-      "and the term that stops short of arbitration answers the same question")
-  (is (not (contains? (pr/by-facet :arbitrable) 'arity))
-      "having answered it in the negative"))
+  (is (not (contains? (pr/by-facet :arbitrable) 'arity))))
 
 ;; ---- the query operators -------------------------------------------------
 

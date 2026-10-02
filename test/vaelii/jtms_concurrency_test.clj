@@ -81,9 +81,9 @@
                          (when (< d chain)
                            (jtms/ensure-node tms (+ premises d) 1)
                            (jtms/add-justification tms (->just (+ j0 d) d (+ premises d)))))
-                       ;; and a defeat/clear sweep across a slice, another relabel shape
-                       (jtms/defeat tms (range 0 premises 3))
-                       (jtms/clear-defeats! tms))
+                       ;; and a suspend/restore sweep across a slice, another relabel shape
+                       (doseq [d (range 0 premises 3)] (jtms/suspend-premise tms d))
+                       (doseq [d (range 0 premises 3)] (jtms/add-premise tms d :default)))
                      (finally (reset! stop true))))
           rs     (mapv (fn [_] (future (reader))) (range readers))]
       @writer

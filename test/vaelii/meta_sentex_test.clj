@@ -211,46 +211,6 @@
           (is (= [dog] (vec (v/types-of kb Muffet ctx))))
           (is (v/isa? kb Muffet dog ctx)))))))
 
-(tu/deftest-kb a-defeated-except-does-not-hide
-  ;; The filter reads *believed* excepts, so an except defeated by a stronger contrary
-  ;; belief stops hiding — visibility follows belief, like every cached relation.
-  (let [ctx (tu/tmp-ctx "Sub") shiny (tu/tmp-pred) gold (tu/tmp-ind)]
-    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
-    (let [h (v/assert kb (list shiny gold) ctx {:strength :monotonic})]
-      (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :default})
-      (is (not (v/ask? kb (list shiny gold) ctx)) "the default except hides it")
-      (v/assert kb (list 'not (list 'except (sx/sentex-handle h))) ctx {:strength :monotonic})
-      (testing "the monotonic negation defeats the default except; the target reappears"
-        (is (v/ask? kb (list shiny gold) ctx))))))
-
-(tu/deftest-kb defeating-an-except-revives-the-derivation-it-blocked
-  ;; A belief flip on an except is a visibility flip.  The store/removal chokepoints
-  ;; queue the re-check when one arrives or leaves; the settle queues the same
-  ;; re-check when one is defeated or revived — else defeating an except revives
-  ;; nothing it hid: backward proving answers yes while the store holds nothing, and
-  ;; which belief set the KB ends with depends on the order the except and its
-  ;; defeater arrived.
-  (let [ctx (tu/tmp-ctx "Sub") qq (tu/tmp-pred) pp (tu/tmp-pred) Aa (tu/tmp-ind)]
-    (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
-    (let [h (v/assert kb (list qq Aa) ctx {:strength :monotonic})]
-      (v/assert kb (list 'implies (list qq '?x) (list pp '?x)) ctx {:direction :forward})
-      (is (seq (v/sentexes-matching kb (list pp Aa) ctx)) "the rule fired")
-      (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :default})
-      (is (empty? (v/sentexes-matching kb (list pp Aa) ctx)) "the except sweeps the conclusion")
-      (v/assert kb (list 'not (list 'except (sx/sentex-handle h))) ctx {:strength :monotonic})
-      (testing "defeating the except re-derives what it hid, as retracting it would"
-        (is (v/ask? kb (list qq Aa) ctx) "the target is seeable again")
-        (is (seq (v/sentexes-matching kb (list pp Aa) ctx))
-            "and the conclusion resting on it is back in the store"))
-      (testing "the same knowledge in the other order ends in the same belief"
-        (tu/with-terms [Bb]
-          (let [h2 (v/assert kb (list qq Bb) ctx {:strength :monotonic})]
-            (v/assert kb (list 'not (list 'except (sx/sentex-handle h2))) ctx
-                      {:strength :monotonic})
-            (v/assert kb (list 'except (sx/sentex-handle h2)) ctx {:strength :default})
-            (is (seq (v/sentexes-matching kb (list pp Bb) ctx))
-                "an except born defeated hides nothing")))))))
-
 ;; ---- except: the full derivation block ----------------------------------
 
 (tu/deftest-kb except-blocks-a-derivation-that-rests-on-the-hidden-fact
@@ -363,9 +323,9 @@
             contexts)))
 
 (tu/deftest-kb the-roster-answers-what-a-full-scan-of-storage-answers
-  ;; Every way a roster entry can be created, defeated, revived or removed, with the
-  ;; scan checked after each — an arrival, a second except in another context on the
-  ;; same target, a defeat, a revival, a retraction, and the target's own removal.
+  ;; Every way a roster entry can be created or removed, with the scan checked after each
+  ;; — an arrival, a second except in another context on the same target, an inert
+  ;; denial, a retraction, and the target's own removal.
   (let [gp (tu/tmp-ctx "Gp") pm (tu/tmp-ctx "Pm") cm (tu/tmp-ctx "Cm")
         ctxs [gp pm cm 'CxWell 'CxUniverse '?ctx]
         shiny (tu/tmp-pred) gold (tu/tmp-ind) lead (tu/tmp-ind)]
@@ -380,22 +340,21 @@
         (is (roster-agrees? kb ctxs) "one except, one context")
         (is (= #{h} (res/excepted-handles kb cm)) "and it is the target that is hidden")
         (let [e2 (v/assert kb (list 'except (sx/sentex-handle h)) cm {:strength :monotonic})
-              ;; :default, so the monotonic negation below can defeat it — a monotonic
-              ;; except and a monotonic negation are a contradiction, not a defeat
               e3 (v/assert kb (list 'except (sx/sentex-handle h2)) pm {:strength :default})]
           (is (roster-agrees? kb ctxs) "a second except on one target, and a second in one context")
           (is (= #{h h2} (res/excepted-handles kb cm)))
-          (testing "a defeated except is out of the roster's answer, being out of belief"
+          (testing "a denied except stays in the roster's answer, its denial being inert"
             (v/assert kb (list 'not (list 'except (sx/sentex-handle h2))) pm
                       {:strength :monotonic})
             (is (roster-agrees? kb ctxs))
-            (is (= #{h} (res/excepted-handles kb cm)) "h2 is visible again"))
+            (is (= #{h h2} (res/excepted-handles kb cm)) "h2 stays hidden"))
           (testing "retracting one of two excepts on a target leaves the other hiding it"
             (v/retract! kb e2)
             (is (roster-agrees? kb ctxs))
-            (is (= #{h} (res/excepted-handles kb cm)) "e1 still hides h from cm"))
+            (is (= #{h h2} (res/excepted-handles kb cm)) "e1 still hides h from cm"))
           (v/retract! kb e3)
-          (is (roster-agrees? kb ctxs) "and the defeated one's record can go too")
+          (is (roster-agrees? kb ctxs) "and the retracted one's record goes")
+          (is (= #{h} (res/excepted-handles kb cm)) "h2 is visible again")
           (testing "retracting the last except empties the roster"
             (v/retract! kb e1)
             (is (roster-agrees? kb ctxs))

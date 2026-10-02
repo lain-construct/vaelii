@@ -130,6 +130,8 @@
     [inverse                          [:integrate :disintegrate :rebuild :wff]       nil                        true]
     [decontextualized_predicate        [:integrate :disintegrate :rebuild :wff]       :decontextualized          false]
     [forced_decontextualized_predicate  [:integrate :disintegrate :rebuild :wff]       :forced-decontextualized   true]
+    [forced_monotonic_predicate         [:integrate :disintegrate :rebuild :wff]       :forced-monotonic          true]
+    [forced_monotonic_between_predicates [:integrate :disintegrate :rebuild :wff]      :forced-between-predicates true]
     [target_following_predicate         [:integrate :disintegrate :rebuild :wff]       :target-following          true]
     [abducible_predicate               [:integrate :disintegrate :rebuild :wff]       :abducible                 true]
     [closed_extent_predicate            [:integrate :disintegrate :rebuild :wff]       :closed-extent             true]

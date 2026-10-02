@@ -24,6 +24,7 @@
             [vaelii.impl.asp.edge :as edge]
             [vaelii.impl.asp.label :as label]
             [vaelii.impl.asp.solver :as solver]
+            [vaelii.impl.config :as config]
             [vaelii.impl.solve :as solve]
             [vaelii.impl.types.solve :as solve-types]
             [vaelii.test-util :as tu]))
@@ -301,30 +302,61 @@
           (is (= 2 (count (:assumptions program)))))))))
 
 (deftest a-labeling-whose-solve-did-not-finish-is-refused-not-committed
-  ;; The classification solve and the labeling solve are two solves, so a budget that
-  ;; runs out between them leaves one answered and the other not.  Degrading the
-  ;; unanswered half to the stub would commit a world the classification beside it
-  ;; contradicts, and `check-agrees` would report it as `:labeling-inconsistent` —
-  ;; blaming the encoding for a disagreement the fallback introduced.  The imperative
-  ;; refuses instead, and refuses *before* writing anything.
+  ;; A cluster past the bracket's member cap (lowered here) is labeled by a solve, and its
+  ;; refined classification by another, so a budget that runs out between them leaves one
+  ;; answered and the other not.  Degrading the unanswered half to the stub would commit a
+  ;; world the classification beside it contradicts, and `check-agrees` would report it as
+  ;; `:labeling-inconsistent` — blaming the encoding for a disagreement the fallback
+  ;; introduced.  The imperative refuses instead, and refuses *before* writing anything.
   (when asp?
-    (tu/with-neutral-kb [kb tu/fresh]
-      (let [d   (dilemma kb)
-            ctx (tu/tmp-ctx "Labeling")
-            real solver/solve
-            e (with-redefs [solver/solve (fn [aspif mode]
-                                           (if (= mode :label)
-                                             {:status :interrupted :atoms [] :cost nil :raw nil}
-                                             (real aspif mode)))]
-                (is (thrown? clojure.lang.ExceptionInfo
-                             (v/assert kb (list 'do/labeling ctx) 'CxUniverse))))]
-        (testing "and it names the solver, not the encoding"
-          (is (= :solver-failed (:type (ex-data e))))
-          (is (= :interrupted (:status (ex-data e)))))
-        (testing "nothing was committed: the dilemma still stands, both sides believed"
-          (is (= {:positive true :negative true :reported 1} (belief-snapshot kb d))))
-        (testing "and no labeling context was minted"
-          (is (empty? (v/sentexes-in-context kb ctx))))))))
+    (with-redefs [config/classify-max-cluster-members (constantly 1)]
+      (tu/with-neutral-kb [kb tu/fresh]
+        (let [d   (dilemma kb)
+              ctx (tu/tmp-ctx "Labeling")
+              real solver/solve
+              e (with-redefs [solver/solve (fn [aspif mode]
+                                             (if (= mode :label)
+                                               {:status :interrupted :atoms [] :cost nil :raw nil}
+                                               (real aspif mode)))]
+                  (is (thrown? clojure.lang.ExceptionInfo
+                               (v/assert kb (list 'do/labeling ctx) 'CxUniverse))))]
+          (testing "and it names the solver, not the encoding"
+            (is (= :solver-failed (:type (ex-data e))))
+            (is (= :interrupted (:status (ex-data e)))))
+          (testing "nothing was committed: the dilemma still stands, both sides believed"
+            (is (= {:positive true :negative true :reported 1} (belief-snapshot kb d))))
+          (testing "and no labeling context was minted"
+            (is (empty? (v/sentexes-in-context kb ctx)))))))))
+
+(deftest a-labeling-drops-what-its-defeat-drops-by-cascade
+  ;; `b` rebuts both `a` and `c`, and each of them rebuts `b`.  Defeating `b` alone drops
+  ;; the `¬a` and `¬c` it derives, so it is the one optimal labeling; a `Program`, which
+  ;; encodes no derivation between members, spends a defeat per dilemma instead.  The
+  ;; labeling and its classification read the dependency graph, with or without a backend.
+  (doseq [backend? (if asp? [true false] [false])]
+    (testing (str "backend " backend?)
+      (with-redefs [solver/available? (constantly backend?)]
+        (tu/with-neutral-kb [kb tu/fresh]
+          (let [pa (tu/tmp-pred) pb (tu/tmp-pred) pc (tu/tmp-pred) x (tu/tmp-ind)
+                ctx (tu/tmp-ctx "Labeling")]
+            (doseq [[p q] [[pa pb] [pb pa] [pc pb] [pb pc]]]
+              (v/assert kb (default-rule (list p x) (list 'not (list q x))) 'CxUniverse))
+            (doseq [p [pa pb pc]] (v/assert kb (list p x) 'CxUniverse))
+            (let [h  #(v/handle-of kb % 'CxUniverse)
+                  [a b c na nb nc] (map h [(list pa x) (list pb x) (list pc x)
+                                           (list 'not (list pa x)) (list 'not (list pb x))
+                                           (list 'not (list pc x))])
+                  {:keys [classification]} (v/assert kb (list 'do/labeling ctx) 'CxUniverse)]
+              (testing "the classification is the cascade's"
+                (is (= #{a c nb} (:true classification)))
+                (is (= #{b na nc} (:false classification))))
+              (testing "and the labeled context keeps a, c and ¬b"
+                (is (= {a true c true nb true b false na false nc false}
+                       (into {} (for [[f k] [[(list pa x) a] [(list pc x) c]
+                                             [(list 'not (list pb x)) nb] [(list pb x) b]
+                                             [(list 'not (list pa x)) na]
+                                             [(list 'not (list pc x)) nc]]]
+                                  [k (boolean (v/ask? kb f ctx))]))))))))))))
 
 ;; ---- 5. determinism -----------------------------------------------------
 

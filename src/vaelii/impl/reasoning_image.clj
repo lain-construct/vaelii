@@ -13,7 +13,7 @@
   ## What is in it
 
   - `network.bin` — the dense network (`dense/write-image`): every node, justification
-    column, label, defeat-class, defeat, block and supersession;
+    column, label, defeat-class, block, forced set and supersession;
   - `state.nippy` — the taxonomy's relations and caches, less the slots the live KB
     owns (`taxonomy-side-slots`), and the KB atoms recovery fills or the closing settle
     leaves (`state-atoms`);
@@ -22,8 +22,9 @@
 
   ## The stamp
 
-  The two layout numbers, a records fingerprint, the source identity's digest, and the two
-  policies that move belief (`checks/arbitrating?` and `config/assertive-arg-types?`).  The
+  The two layout numbers, a records fingerprint, the source identity's digest, and the
+  policies that move belief: `config/assertive-arg-types?`, and the forced-monotonic
+  roster the stored declarations give (`declared-roster`).  The
   records fingerprint differs by place, because each place is checked against something
   different.  A disk image carries the record store's `reasoning-fingerprint`, read off the
   slots without decoding a record.  A dump's image carries content fingerprints of the
@@ -62,18 +63,17 @@
   The records stay the only source of truth.  An image is installed whole, against the
   exact records, source and policies it was written under, or discarded whole; nothing
   reconciles an image against records that moved.  So a KB that installs an image is the
-  KB that wrote it, field for field.  An image written after a recover is that recover.  An
-  image written by a KB built assert by assert carries that KB's labels, which equal a
-  recover's because belief is order independent, and that KB's derivation depths and
-  settle readings, which a recover rebuilds from the records instead of reading
-  ([docs/defenses.md](docs/defenses.md), \"A reasoning image is installed whole or not at
-  all\")."
+  KB that wrote it, field for field, less the discovery memo's `:mark`, which names a point
+  in the writer's touched window and which the install drops.  An image written after a
+  recover is that recover.  An image written by a KB built assert by assert carries that
+  KB's labels, which equal a recover's because belief is order independent, and that KB's
+  derivation depths and settle readings, which a recover rebuilds from the records
+  instead of reading ([docs/defenses.md](docs/defenses.md), \"A reasoning image is
+  installed whole or not at all\")."
   (:require [clojure.java.io :as io]
-            [clojure.walk :as walk]
             [taoensso.nippy :as nippy]
             [taoensso.trove :as trove]
             [vaelii.impl.capabilities :as cap]
-            [vaelii.impl.checks :as checks]
             [vaelii.impl.config :as config]
             [vaelii.impl.dense-jtms :as dense]
             [vaelii.impl.disk.backend :as disk]
@@ -82,18 +82,18 @@
             [vaelii.impl.io.thaw :as safe]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.observe :as observe]
+            [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.solve :as solve]
             [vaelii.impl.source-identity :as si]
             [vaelii.impl.taxonomy :as tax]
-            [vaelii.impl.types.reasoning :as reasoning]
-            [vaelii.impl.types.tms :as tms-types])
+            [vaelii.impl.types.reasoning :as reasoning])
   (:import [java.io BufferedInputStream BufferedOutputStream DataInputStream
             DataOutputStream File FileInputStream FileOutputStream]
            [java.nio.file CopyOption Files StandardCopyOption]
            [vaelii.impl.dense_jtms DenseTms]
-           [vaelii.impl.disk.record_store DiskRecordStore]
-           [vaelii.impl.types.tms Justification]))
+           [vaelii.impl.disk.record_store DiskRecordStore]))
 
 (def format-version
   "The image's own layout number, beside `dense/image-version` (the network section's).
@@ -111,30 +111,32 @@
   "The KB atoms an image carries: each one recovery fills, or the closing settle leaves
   holding something the next settle reads.  `reasoning_image_test` fails on a KB atom that is
   in neither this list nor `unimaged-atoms`."
-  [:clash-readings :program :recheck :refused :opposed :preserving
+  [:program :recheck :refused :opposed :preserving
    :preserved-clashes :excepted :meta-except-count :rule-antecedents :rule-contexts
-   :solve-rules :negations :clashes :sib-exc-dirty :supersessions :scoped-defeats
-   :vantage-disagreements :minted])
+   :solve-rules :supersessions :minted :nogood-candidates])
 
 (def unimaged-atoms
   "The KB atoms an image leaves as the open made them.  `:taxonomy` has its own section.
   `:provers` and `:solver` are configuration the caller sets, held to the defaults by
   `refusal`.  `:settle-stats` and `:chain-stats` count work this process did.  `:qcn`,
-  `:qcn-joined`, `:matches` and `:closures` are bounded caches a missing read refills, and
-  `:withdrawn` is the per-reader cache `res/withdrawal` refills from the imaged
-  `:scoped-defeats`, `:vantage-disagreements` and `:excepted`.
+  `:matches` and `:closures` are bounded caches a missing read refills.  `:qcn-joined`
+  holds one re-join baseline per calculus and reader context, with no count bound, and a
+  missing baseline makes the next join a full one.  `:withdrawn` is the per-reader cache
+  `res/withdrawal` refills from the imaged `:nogood-candidates` and `:excepted`.
   `:unrecovered` is the write-hazard record recovery clears after an install.  `:feed`
   holds the change feed's subscriptions, which a caller in this process registered.
   `:violations` is the log of what writes newly exposed; a restore exposes nothing
   (`settle/*rebuilding?*`), so an installed KB starts it empty, as a recovered one does.
   `:respell` is the queue of predicates whose permuting marks moved, and `:except-moves`
   the queue of handles an `except` began or stopped hiding; every settle drains both, so
-  they are empty whenever an image can be taken.  `:arbitration-cursors` holds lazy
-  enumerations, which do not freeze; the imaged `:clashes` names the sweeps they resume,
-  and an installed KB restarts each from the start of its reach."
+  they are empty whenever an image can be taken.  `:read-reports` is the last reading's
+  report memo, which a missing entry rebuilds.  `:own-readings` is what
+  the last settle read at each context holding a handle of the decided families' closure,
+  and an installed KB's first settle that reads them publishes what they withdraw as
+  moved."
   #{:taxonomy :provers :solver :settle-stats :chain-stats :qcn :qcn-joined :matches
     :closures :withdrawn :unrecovered :feed :violations :respell :except-moves
-    :arbitration-cursors})
+    :own-readings :read-reports})
 
 (def taxonomy-side-slots
   "The taxonomy keys an image leaves as the open made them: the two callbacks
@@ -194,6 +196,25 @@
 
 ;; ---- the stamp --------------------------------------------------------------
 
+(def ^:private roster-declarations
+  '#{forced_monotonic_predicate forced_monotonic_between_predicates})
+
+(defn declared-roster
+  "The forced-monotonic roster `kb`'s stored declarations give, as a sorted vector of
+  `[declaration-functor predicate]` pairs: what the image's forced sets were computed
+  under (docs/nmtms.md, \"The forced-monotonic roster\").  Read off the index and the
+  records, so an image is checked against it before any belief is installed."
+  [kb]
+  (into []
+        (comp (mapcat #(reads/as-stored-with-term (:index kb) %))
+              (keep #(p/get-sentex (:records kb) %))
+              (map :sentence)
+              (filter #(and (sequential? %) (= 2 (count %))
+                            (contains? roster-declarations (first %)) (symbol? (second %))))
+              (map vec)
+              (distinct))
+        (sort roster-declarations)))
+
 (defn stamp
   "What an image of `kb` whose records fingerprint is `records` is valid against.
   `:libraries` is carried for a reader of the manifest; the source digest already covers
@@ -208,8 +229,8 @@
              :records   records
              :source    (:digest sid)
              :libraries (:libraries sid)
-             :policy    {:arbitrate           (boolean (checks/arbitrating? kb))
-                         :assertive-arg-types (boolean (config/assertive-arg-types?))}}
+             :policy    {:assertive-arg-types (boolean (config/assertive-arg-types?))
+                         :forced-monotonic    (vec (sort (declared-roster kb)))}}
       lr (assoc :recover lr))))
 
 (defn decision
@@ -257,27 +278,6 @@
   {:taxonomy (apply dissoc @(reasoning/taxonomy kb) taxonomy-side-slots)
    :atoms    (into {} (map (fn [a] [a @(get (reasoning/of kb) a)])) state-atoms)})
 
-;; A file the engine writes states no class name, and the image's reader refuses one
-;; (`vaelii.impl.io.thaw`).  One atom holds records: a clash report lists, per side, the
-;; justifications supporting it (`settle/clash-report`), and a derived side has some.  So
-;; `:clash-readings` is written with each justification as its field map and read back
-;; into the record, which leaves the installed state equal to the state written.  The
-;; walk is that one atom's: the others hold no record, and walking the taxonomy would
-;; rebuild the largest structure in the image for nothing.
-
-(def ^:private justification-fields (set (keys (tms-types/map->Justification {}))))
-
-(defn- justification-map? [x]
-  (and (map? x) (not (record? x)) (= justification-fields (set (keys x)))))
-
-(defn- written-state [st]
-  (update-in st [:atoms :clash-readings]
-             (partial walk/postwalk #(if (instance? Justification %) (into {} %) %))))
-
-(defn- read-back-state [st]
-  (update-in st [:atoms :clash-readings]
-             (partial walk/postwalk #(if (justification-map? %) (tms-types/map->Justification %) %))))
-
 (defn write-sections!
   "Write `kb`'s network and state into `dir`, then a manifest carrying `stamp`, and return
   the manifest — or nil when `commit?`, asked after both sections are written, answers
@@ -292,7 +292,7 @@
      (write-atomic! (section dir "network.bin")
                     (fn [f] (with-open [o (data-out f)] (dense/write-image (reasoning/tms kb) o))))
      (write-atomic! (section dir "state.nippy")
-                    (fn [f] (with-open [o (data-out f)] (nippy/freeze-to-out! o (written-state (state-of kb))))))
+                    (fn [f] (with-open [o (data-out f)] (nippy/freeze-to-out! o (state-of kb)))))
      (when (commit?)
        (let [manifest (assoc stamp
                              :written-at (str (java.time.Instant/now))
@@ -391,7 +391,7 @@
   (let [st (with-open [i (data-in (section dir "state.nippy"))] (safe/thaw-from-in! i))]
     (when-not (and (map? (:taxonomy st)) (= (set state-atoms) (set (keys (:atoms st)))))
       (throw (IllegalStateException. "state.nippy does not hold the atoms this build images")))
-    (read-back-state st)))
+    st))
 
 (defn install-from!
   "Install the image in `dir` into `kb` in place of a recover.  `records-fn` returns the
@@ -425,6 +425,10 @@
              (dense/copy-into! (reasoning/tms kb) net)
              (swap! (reasoning/taxonomy kb) #(tax/with-cache-census (merge % (:taxonomy st))))
              (doseq [[a v] (:atoms st)] (reset! (get (reasoning/of kb) a) v))
+             ;; the discovery memo's `:mark` names a point in the writer's touched window,
+             ;; and the installed network opens a window of its own at generation 0, where
+             ;; `jtms/touched-since` would take the writer's mark for one of its own
+             (swap! (reasoning/preserved-clashes kb) dissoc :mark)
              (let [image (select-keys manifest [:source :written-at :recover])]
                (if why
                  {:reasoning :stale :reason why :source (:source now)
@@ -478,15 +482,15 @@
     (dense/read-image! (dense/create-dense-tms) i)))
 
 (defn- labels
-  "The bitmaps that state what network `t` believes: its nodes, and the IN, defeated and
-  blocked sets."
+  "The bitmaps that state what network `t` believes: its nodes, and the IN and blocked
+  sets."
   [^DenseTms t]
-  [(.-nodes t) (.-in t) (.-defeated t) (.-blocked t)])
+  [(.-nodes t) (.-in t) (.-blocked t)])
 
 (defn compare-images
   "Compare the images in `a` and `b`, as `{:labels :network :state}`, each `:same` or
-  `:differs`.  `:labels` compares what the two networks believe: the node set and the IN,
-  defeated and blocked sets.  `:network` and `:state` compare the two files byte for byte,
+  `:differs`.  `:labels` compares what the two networks believe: the node set and the IN
+  and blocked sets.  `:network` and `:state` compare the two files byte for byte,
   so they also differ on derivation depths, justification order and map iteration order,
   and none of those is belief.  Both images must carry this build's layout numbers, which
   the caller checks against the manifests before calling."

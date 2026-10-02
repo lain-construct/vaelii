@@ -231,13 +231,18 @@
               (:value p)
               (let [v (.deref a)]
                 (if (identical? m (.get holds)) v (recur)))))))))
-  clojure.lang.IAtom
+  clojure.lang.IAtom2
   (swap [_ f] (.swap a f))
   (swap [_ f x] (.swap a f x))
   (swap [_ f x y] (.swap a f x y))
   (swap [_ f x y args] (.swap a f x y args))
   (compareAndSet [_ o n] (.compareAndSet a o n))
-  (reset [_ v] (.reset a v)))
+  (reset [_ v] (.reset a v))
+  (swapVals [_ f] (.swapVals a f))
+  (swapVals [_ f x] (.swapVals a f x))
+  (swapVals [_ f x y] (.swapVals a f x y))
+  (swapVals [_ f x y args] (.swapVals a f x y args))
+  (resetVals [_ v] (.resetVals a v)))
 
 (defn held-atom
   "An atom holding `v` that keeps its value for a hold's readers (`hold-atom!`)."

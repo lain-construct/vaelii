@@ -179,14 +179,20 @@
   ;; returns its handle, and the call after it is refused.
   (with-tmp
     (fn [dir]
-      (let [kb   (seed! (open dir))
-            prov (:provenance (:kinds (:records kb)))]
-        ;; the provenance kind's channels close under the store, as an interrupt on
-        ;; another thread would close them
-        (.close (.getChannel ^RandomAccessFile (:log prov)))
-        (.close (.getChannel ^RandomAccessFile (:idx prov)))
-        (let [h (v/assert kb '(dog Spot) 'CxUniverse)]
-          (is (integer? h) "the assert returns the handle it stored"))
+      (let [kb        (seed! (open dir))
+            prov      (:provenance (:kinds (:records kb)))
+            read-slot f/read-slot]
+        ;; the provenance kind's channels close under the store as the stamp reads its
+        ;; slot, as an interrupt on another thread would close them.  Closed before the
+        ;; assert, the durability daemon's fsync tick can find them first and stop the
+        ;; store while the sentence is still being chained.
+        (with-redefs [f/read-slot (fn [^RandomAccessFile raf ^long id]
+                                    (when (identical? raf (:idx prov))
+                                      (.close (.getChannel ^RandomAccessFile (:log prov)))
+                                      (.close (.getChannel raf)))
+                                    (read-slot raf id))]
+          (let [h (v/assert kb '(dog Spot) 'CxUniverse)]
+            (is (integer? h) "the assert returns the handle it stored")))
         (is (= [:store-unusable :channel-closed]
                (refusal #(v/assert kb '(dog Fido) 'CxUniverse)))
             "the next write is refused by name")

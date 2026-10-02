@@ -58,15 +58,14 @@
             (fn [kb p n cx _]
               (grant kb p cx)
               (v/assert kb (list 'not (list p n)) cx {:strength :monotonic}))]
-           ["assert would refuse it: a cat in a dog-only slot"
+           ["a clash the hypothesis would form: a cat in a dog-only slot"
             (fn [kb p n cx [dog_ cat_]]
               (grant kb p cx)
               (v/assert kb (list 'genl dog_ 'thing) cx)
               (v/assert kb (list 'genl cat_ 'thing) cx)
               (v/assert kb (list 'disjoint dog_ cat_) cx)
               (v/assert kb (list cat_ n) cx)
-              (v/assert kb (list 'arg p 1 dog_) cx)
-              (is (thrown? clojure.lang.ExceptionInfo (v/assert kb (list p n) cx))))]]]
+              (v/assert kb (list 'arg p 1 dog_) cx))]]]
     (tu/with-terms [wabGoal wabPremise N dog_ cat_ CxTheory]
       (a-context kb CxTheory)
       (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)

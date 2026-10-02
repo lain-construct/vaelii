@@ -44,7 +44,7 @@
 ;; without the standing set growing with `n` — a real corpus's contradictions are sparse,
 ;; and a set that scaled with `n` would make discovery quadratic and unrepresentative.
 
-(def ^:private centres [:belief :discovery :resolution :chaining :finish :glue :outside])
+(def ^:private centres [:belief :discovery :chaining :finish :glue :outside])
 
 (defn- config [n]
   (let [M (max 1000 (quot n 4))]
@@ -123,10 +123,8 @@
   `relB`.
 
   `defeats` is 0 for the clean additive load (chaining-dominated).  A positive count is
-  the **contradiction-density** knob: a standing monotonic defeat is revived by
-  `clear-defeats!` and re-resolved on *every* later settle, so `defeats` of them turn each
-  assert's settle into an O(`defeats`) discovery-and-resolution pass — the cost the
-  clash-discovery candidate targets, measured against a count."
+  the **contradiction-density** knob: `defeats` standing negation pairs, each decided at
+  its reader, measured against a count."
   [kb ctxs defeats facts]
   (doseq [c ctxs] (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse {}))
   (v/assert-rule kb ['(relA ?x ?y)] '(relB ?x ?y) 'CxUniverse {:direction :forward})

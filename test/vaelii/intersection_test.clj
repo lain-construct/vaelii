@@ -22,23 +22,15 @@
   [kb sentence ctx]
   (boolean (seq (v/sentexes-matching kb sentence ctx))))
 
-(defn- refusal-data
-  "The `ex-data` of the refusal `f` throws, or nil if it does not throw."
-  [f]
-  (try (f) nil (catch clojure.lang.ExceptionInfo e (ex-data e))))
-
 ;; ---- the arity floor -----------------------------------------------------
 
-(tu/deftest-kb one-type-intersection-is-refused-below-the-arity-floor
+(tu/deftest-kb one-type-intersection-is-out-below-the-arity-floor
   (tu/with-terms [combined_kind type_a]
     (v/assert kb (list 'genl 'type_a 'thing) 'CxUniverse)
     ;; arityMin is three (the combined kind plus at least two types); the intersection
-    ;; of a single type is that type and drives no rule, so the arity check refuses it.
-    (is (= :arity (:type (refusal-data
-                          #(v/assert kb (list 'intersection 'combined_kind 'type_a) 'CxUniverse))))
-        "(intersection combined one-type) is one argument below the floor")
-    (is (nil? (v/handle-of kb (list 'intersection 'combined_kind 'type_a) 'CxUniverse))
-        "and nothing is stored")))
+    ;; of a single type is that type, and the reader takes it OUT as an arity nogood.
+    (is (tu/stored-in-clash? kb (list 'intersection 'combined_kind 'type_a) 'CxUniverse)
+        "(intersection combined one-type) is one argument below the floor")))
 
 ;; ---- binary: intersection -> genl ----------------------------------------
 

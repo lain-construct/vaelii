@@ -28,12 +28,7 @@
   drops the whole batch, which prices the key-stream computation against the backend
   apply.  Both keep `index-sentex` running its real code.
 
-  **The guard arm** is the third mode, and it prices one decision rather than a phase:
-  `kb/note-opposed!`'s guard against posting a body that is opposed at neither end.  It
-  alternates the two arms A-B-B-A inside one JVM, because a JVM loading the same corpus a
-  dozen times drifts and a fixed A-then-B order reports that drift as the difference.
-
-  Run: `lein bench-loadphase [n] [repeats] [full|guard]`  (default 200000, 1, full)."
+  Run: `lein bench-loadphase [n] [repeats]`  (default 200000, 1)."
   (:require [vaelii.core :as v]
             [vaelii.impl.assert-entry :as entry]
             [vaelii.impl.integrate :as integrate]
@@ -43,10 +38,8 @@
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
-            [vaelii.impl.sentex :as sx]
             [vaelii.impl.settle :as settle]
             [vaelii.impl.special :as special]
-            [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.impl.violations :as violations]))
 
 (def ^:private bench-context 'CxLoadPhase)
@@ -237,63 +230,6 @@
       (drop-kb! kb)
       ms)))
 
-;; ---- the guard arm ------------------------------------------------------
-;; `kb/note-opposed!` writes to the coincidence set and the negation memo only for a
-;; body that is opposed before the store or after it.  This arm posts for every body
-;; instead, which is what prices the guard: the post is a `conj` into a `:dirty` set
-;; that grows to the size of the corpus, so it is the one phase of a load whose
-;; per-fact cost rises with N.  Interleaved with the real one in a single JVM, so
-;; ambient load lands on both arms rather than on whichever ran second.
-
-(defn- always-post-opposed!
-  [kb sentence]
-  (let [b (sx/canon (kb/body-under-not sentence))]
-    (swap! (reasoning/opposed kb) (if (@#'kb/opposed? (:index kb) b) conj disj) b)
-    (swap! (reasoning/negations kb) (fn [m] (-> m
-                                                (update :by-body dissoc b)
-                                                (update :dirty (fnil conj #{}) b))))))
-
-(defn- baseline-run [facts redefs]
-  (gc!)
-  (let [kb (fresh-kb)
-        ms (timed redefs #(load! kb facts))]
-    (drop-kb! kb)
-    ms))
-
-(defn- median [xs] (nth (sort xs) (quot (count xs) 2)))
-
-(defn- report-guard
-  "Alternate the two arms `repeats` times, **A-B-B-A within each pair**, and report every
-  pair's ratio beside the median of them.
-
-  The order alternation is not decoration.  A JVM loading the same corpus a dozen times
-  drifts — the heap fills, the collector works harder, and a later run is slower than an
-  earlier one whatever it is running.  With a fixed A-then-B order that drift lands
-  entirely on B, and the ratio reports the drift as if it were the difference.  Each arm
-  here takes one early slot and one late slot per pair, so the drift cancels.  The
-  per-pair spread is printed for the same reason: a 4% claim off pairs that scatter 20%
-  is a claim about the box."
-  [n repeats facts]
-  (println (format "%n── the coincidence-post guard, %,d facts × %d ABBA pairs ──" n repeats))
-  (println (format "%-14s %12s %12s %10s" "pair" "guarded ms" "posting ms" "ratio"))
-  (let [unguarded {#'kb/note-opposed! always-post-opposed!}
-        pairs (mapv (fn [i]
-                      (let [a (baseline-run facts {})
-                            b (baseline-run facts unguarded)
-                            c (baseline-run facts unguarded)
-                            d (baseline-run facts {})
-                            kept   (/ (+ a d) 2.0)
-                            posted (/ (+ b c) 2.0)]
-                        (println (format "%-14d %12.1f %12.1f %9.3f×"
-                                         (inc i) kept posted (/ kept posted)))
-                        [kept posted]))
-                    (range repeats))
-        kept   (median (map first pairs))
-        posted (median (map second pairs))]
-    (println (format "%-14s %12.1f %12.1f %9.3f×   (%.2f vs %.2f µs/fact)"
-                     "median" kept posted (/ kept posted)
-                     (* 1000.0 (/ kept n)) (* 1000.0 (/ posted n))))))
-
 ;; ---- reporting ----------------------------------------------------------
 
 (defn- report-ladder [n mss]
@@ -338,23 +274,17 @@
                      (if (= na nb (count facts)) "OK" "MISMATCH") na nb (count facts)))))
 
 (defn -main
-  "`[n repeats mode]` — `mode` is `full` (the ladder, the index split and the transient
-  arm) or `guard` (the alternating guard arm alone, which is the cheap re-check)."
+  "`[n repeats]`: the ladder, the index split and the transient arm."
   [& args]
   (let [n       (or (some-> ^String (first args) parse-long) 200000)
         repeats (or (some-> ^String (second args) parse-long) 1)
-        mode    (or (nth args 2 nil) "full")
         facts   (corpus n)]
-    (println (format "load-path decomposition — :memory pair — %,d facts, %d repeat(s), %s"
-                     n repeats mode))
+    (println (format "load-path decomposition — :memory pair — %,d facts, %d repeat(s)"
+                     n repeats))
     (let [warm (fresh-kb)]                       ; so the ladder is not measuring the JIT
       (load! warm (subvec facts 0 (min n 20000)))
       (drop-kb! warm))
     (verify! (subvec facts 0 (min n 5000)))
-    (when (= mode "guard")
-      (report-guard n repeats facts)
-      (shutdown-agents)
-      (System/exit 0))
     (dotimes [r repeats]
       (when (> repeats 1) (println (format "%n=== repeat %d ===" (inc r))))
       (report-ladder n (one-ladder facts))

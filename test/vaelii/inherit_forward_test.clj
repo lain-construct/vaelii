@@ -271,6 +271,8 @@
           _     (v/assert kb (list largerThan dog_t cat_t) ctx quiet)
           rh    (v/assert kb (list 'set/forwardRule (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y)))
                           ctx quiet)
+          ;; a firing concludes a `transitiveInArg` only from roster antecedents
+          _     (v/assert kb (list 'forced_monotonic_predicate preservesBoth) ctx quiet)
           _     (v/assert kb (list 'set/forwardRule (list 'implies (list preservesBoth '?p)
                                                           (list 'transitiveInArg '?p 1 'genl))) ctx quiet)
           _     (v/assert kb (list 'set/forwardRule (list 'implies (list preservesBoth '?p)
@@ -479,7 +481,7 @@
   ;; A scoped defeat of the long route at CxA withdraws the CxUniverse firing there, while
   ;; CxA still reaches chi → dog over its own edge.  The short route first stored a firing
   ;; in CxA before the long route arrived; the long route first stored none, and the settle
-  ;; re-derives one over CxA's route (settle/lost-firing-seeds).  Either way CxA holds a
+  ;; re-derives one over CxA's route (reroute/lost-firing-seeds).  Either way CxA holds a
   ;; firing of its own afterwards, and it is kept rather than retired (docs/defenses.md, "A
   ;; firing placed over a lower route is not retired").
   (doseq [order [[:short :long] [:long :short]]]

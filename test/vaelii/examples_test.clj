@@ -126,12 +126,12 @@
 
 (tu/deftest-kb a-refusal-example-stores-nothing
   (let [ctx (scratch kb)
-        e   (ex/by-id "disjoint-refusal")]
+        e   (ex/by-id "cycle-refusal")]
     (ex/establish! kb e ctx)
     (let [before (v/sentex-count kb)
           r      (ex/run kb e ctx)]
       (is (:refused? r))
-      (is (= '(:disjoint) (map :type (:problems r))))
+      (is (= '(:not-well-formed) (map :type (:problems r))))
       (is (= before (v/sentex-count kb))
           "`check` answers what assert would do and writes nothing"))))
 

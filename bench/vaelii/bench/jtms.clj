@@ -105,7 +105,7 @@
 
 (defn- by-key [state]
   (let [total (retained [state])
-        rows  (for [k [:nodes :justs :in :groundable :defeated :blocked :touched
+        rows  (for [k [:nodes :justs :in :blocked :touched
                        :classes :superseded]]
                 [k (retained [(get state k)]) (count (get state k))])]
     (println "\n══ Phase 3.1: the JTMS by key ══")

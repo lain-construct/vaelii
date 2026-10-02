@@ -175,9 +175,8 @@
     (is (v/ask? kb '(childOf Bob Tom)))               ; inverse of parentOf
     (is (v/ask? kb '(siblingOf Carol Ann)))           ; symmetric
     (is (v/ask? kb '(partOf Piston1 Car1))))          ; transitive
-  (testing "functional birthYearOf rejects a second, different value"
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb '(birthYearOf Tom 1971) 'CxSocialWorld)))))
+  (testing "functional birthYearOf makes a second, different value a clash"
+    (is (tu/stored-in-clash? kb '(birthYearOf Tom 1971) 'CxSocialWorld))))
 
 (tu/deftest-kb every-stored-sentence-satisfies-the-naming-invariants
   ;; `nm/problems` checks a functor per *literal*, so tightening it can invalidate

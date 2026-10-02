@@ -167,7 +167,7 @@
         (is (v/assert kb (list 'arg rel 1 'thing) 'CxUniverse))
         (is (v/assert kb (list 'genlArg rel 2 'thing) 'CxUniverse))))))
 
-(tu/deftest-kb arity-is-functional-so-a-second-value-is-refused
+(tu/deftest-kb arity-is-functional-so-a-second-value-is-a-clash
   ;; the declaration ships in CxCore; this KB is empty, so it states it — that
   ;; the shipped vocabulary carries it is core-context-test's assertion
   (let [rel (tu/tmp-pred)]
@@ -175,17 +175,19 @@
     (v/assert kb (list 'arity rel 2) 'CxUniverse)
     (testing "restating the same arity is a no-op, not a clash"
       (is (v/assert kb (list 'arity rel 2) 'CxUniverse)))
-    (testing "a different arity for the same predicate is a functional violation"
-      (is (= :functional (ex-type #(v/assert kb (list 'arity rel 7) 'CxUniverse)))))))
+    (testing "a different arity for the same predicate is stored as a functional clash"
+      (is (tu/stored-in-clash? kb (list 'arity rel 7) 'CxUniverse))
+      ;; both bindings are on the engine's baseline roster, so `:monotonic`: a hard clash
+      (is (= [:functional] (mapv :kind (v/conflicts kb)))))))
 
 (tu/deftest-kb a-sentence-must-match-its-predicates-declared-arity
   (let [rel (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
     (v/assert kb (list 'binary_predicate rel) 'CxUniverse)
     (testing "the declared arity stores"
       (is (v/assert kb (list rel a b) 'CxUniverse)))
-    (testing "too many arguments, and too few, are both refused"
-      (is (= :arity (ex-type #(v/assert kb (list rel a b (tu/tmp-ind)) 'CxUniverse))))
-      (is (= :arity (ex-type #(v/assert kb (list rel a) 'CxUniverse)))))
+    (testing "too many arguments, and too few, are both stored and read OUT"
+      (is (tu/stored-in-clash? kb (list rel a b (tu/tmp-ind)) 'CxUniverse))
+      (is (tu/stored-in-clash? kb (list rel a) 'CxUniverse)))
     (testing "open-world: an undeclared predicate takes any arity"
       (let [undeclared (tu/tmp-pred)]
         (is (v/assert kb (list undeclared a) 'CxUniverse))
@@ -198,8 +200,8 @@
     (v/assert kb (list 'unary_predicate byType) 'CxUniverse)
     (is (v/assert kb (list byArity a) 'CxUniverse))
     (is (v/assert kb (list byType a) 'CxUniverse))
-    (is (= :arity (ex-type #(v/assert kb (list byArity a (tu/tmp-ind)) 'CxUniverse))))
-    (is (= :arity (ex-type #(v/assert kb (list byType a (tu/tmp-ind)) 'CxUniverse))))))
+    (is (tu/stored-in-clash? kb (list byArity a (tu/tmp-ind)) 'CxUniverse))
+    (is (tu/stored-in-clash? kb (list byType a (tu/tmp-ind)) 'CxUniverse))))
 
 (tu/deftest-kb the-arity-declaration-is-cached-and-follows-its-sentex
   ;; `(arity P n)` is read on every assertion, so it is cached in the taxonomy beside
@@ -208,11 +210,11 @@
   (let [rel (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
     (let [h (v/assert kb (list 'arity rel 2) 'CxUniverse)]
       (is (= 2 (tax/declared-arity (reasoning/taxonomy kb) rel)) "cached on assert")
-      (is (= :arity (ex-type #(v/assert kb (list rel a) 'CxUniverse))))
+      (is (tu/stored-in-clash? kb (list rel a) 'CxUniverse))
       (testing "and retracting the declaration takes the constraint with it"
         (v/retract! kb h)
         (is (nil? (tax/declared-arity (reasoning/taxonomy kb) rel)))
-        (is (v/assert kb (list rel a) 'CxUniverse))
+        (is (v/ask? kb (list rel a) 'CxUniverse) "the tuple stored under it is read IN")
         (is (v/assert kb (list rel a b) 'CxUniverse)
             "the arity the declaration named is admitted too — with nothing declared
              the check is released, not inverted")))
@@ -262,9 +264,11 @@
             "sees both, so has no settled answer")
         (is (nil? (tax/declared-arity tax rel)) "and unscoped is the same"))
       (testing "and each reader is bound by what it sees"
-        (is (= :arity (ex-type #(v/assert kb (list rel a) CxLeft))))
-        (is (v/assert kb (list rel a b) CxLeft))
-        (is (v/assert kb (list rel a b) CxBoth) "unsettled constrains nothing")))))
+        (is (tu/stored-in-clash? kb (list rel a) CxLeft))
+        (v/assert kb (list rel a b) CxLeft)
+        (is (v/ask? kb (list rel a b) CxLeft))
+        (v/assert kb (list rel a b) CxBoth)
+        (is (v/ask? kb (list rel a) CxBoth) "unsettled constrains nothing")))))
 
 (tu/deftest-kb two-arities-for-one-predicate-constrain-nothing
   ;; The cache holds what it was told, and it was told two different things.  Refusing
@@ -277,21 +281,26 @@
     (v/assert kb (list 'arity rel 3) 'CxUniverse)
     (is (nil? (tax/declared-arity (reasoning/taxonomy kb) rel))
         "unsettled, which is not the same as undeclared but constrains the same")
-    (is (v/assert kb (list rel a b) 'CxUniverse))
-    (is (v/assert kb (list rel a b (tu/tmp-ind)) 'CxUniverse))
-    (testing "and dropping one of them settles it again"
-      (v/retract! kb (v/handle-of kb (list 'arity rel 3) 'CxUniverse))
-      (is (= 2 (tax/declared-arity (reasoning/taxonomy kb) rel)))
-      (is (= :arity (ex-type #(v/assert kb (list rel a) 'CxUniverse)))))))
+    (let [c (tu/tmp-ind)]
+      (v/assert kb (list rel a b) 'CxUniverse)
+      (v/assert kb (list rel a b c) 'CxUniverse)
+      (is (v/ask? kb (list rel a b) 'CxUniverse))
+      (is (v/ask? kb (list rel a b c) 'CxUniverse))
+      (testing "and dropping one of them settles it again"
+        (v/retract! kb (v/handle-of kb (list 'arity rel 3) 'CxUniverse))
+        (is (= 2 (tax/declared-arity (reasoning/taxonomy kb) rel)))
+        (is (not (v/ask? kb (list rel a b c) 'CxUniverse)) "the ternary tuple goes OUT")
+        (is (tu/stored-in-clash? kb (list rel a) 'CxUniverse))))))
 
 (tu/deftest-kb a-variableArity-predicate-is-exempt
   ;; lessThan has a binary floor and reads a chain of any length; the declaration says so
   (let [rel (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind)]
     (v/assert kb (list 'binary_predicate rel) 'CxUniverse)
-    (is (= :arity (ex-type #(v/assert kb (list rel a b (tu/tmp-ind)) 'CxUniverse))))
-    (v/assert kb (list 'variable_arity rel) 'CxUniverse)
-    (testing "declaring it variable arity releases the check"
-      (is (v/assert kb (list rel a b (tu/tmp-ind)) 'CxUniverse)))))
+    (let [long-tuple (list rel a b (tu/tmp-ind))]
+      (is (tu/stored-in-clash? kb long-tuple 'CxUniverse))
+      (v/assert kb (list 'variable_arity rel) 'CxUniverse)
+      (testing "declaring it variable arity releases the tuple stored before it"
+        (is (v/ask? kb long-tuple 'CxUniverse))))))
 
 (tu/deftest-kb a-variableArity-predicate-takes-a-constraint-past-its-declared-length
   ;; One release, so the entry point owes the same answer twice.  A predicate reading a chain of

@@ -27,14 +27,14 @@
     ;; one context: the disjointness check is scoped, and this KB is fresh
     (let [h (v/assert kb (list 'disjoint dog cat) 'CxNaturalWorld)]
       (is (v/disjoint? kb dog cat))
-      (testing "while it stands, the conflicting membership is refused"
+      (testing "while it stands, the conflicting membership is a clash"
         (v/assert kb (list cat Felix) 'CxNaturalWorld)
-        (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list dog Felix) 'CxNaturalWorld))))
+        (is (tu/stored-in-clash? kb (list dog Felix) 'CxNaturalWorld)))
       (v/retract! kb h)
       (testing "retracting it releases the pair rather than leaving a stale entry"
         (is (not (v/disjoint? kb dog cat))
-            "a stale disjoint pair would reject legitimate asserts forever")))))
+            "a stale disjoint pair would convict legitimate memberships forever")
+        (is (empty? (v/contradictions kb)))))))
 
 (tu/deftest-kb retracting-a-predicate-property-unmarks-it
   (tu/with-terms [partOf siblingOf sameAs marriedTo]

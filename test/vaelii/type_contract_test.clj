@@ -377,8 +377,8 @@
   "Every `:type` on the refusal surface, by hand.  Going stale is the feature: a new
   or renamed keyword fails the comparison below until it is added here deliberately —
   with a changelog entry, since callers discriminate on it (CONTRIBUTING.md §3.8)."
-  #{:already-loaded :anti-symmetric :anti-transitive :arg-constraint-kind :arg-genl :arg-position
-    :arg-type :arg-variable :argument-family-ceiling :arity :asymmetric :bad-algebra :bad-arg
+  #{:already-loaded :anti-transitive :arg-constraint-kind :arg-genl :arg-position
+    :arg-type :arg-variable :argument-family-ceiling :asymmetric :bad-algebra :bad-arg
     :bad-args :bad-batch :bad-cursor :bad-foreign-manifest :bad-handle :bad-host
     :bad-level :bad-pattern :bad-registrant :bad-reply
     :bad-snapshot :bad-table-entry :base-is-overlay :body-too-large :budget-exhausted
@@ -386,8 +386,9 @@
     :compaction-failed :cover :cross-origin :daemon-error :damaged-dictionary
     :damaged-frame :disallowed-class
     :disjoint :disjunction-too-wide :disk-locked :duplicate-handle :duplicate-tokens :error
-    :exception-not-closed :export-busy :frozen-base :functional :handle-ceiling
-    :incomplete-racer :inter-arg-type :internal-error :irreflexive :job-busy
+    :exception-not-closed :export-busy :fork-base-overlap :frozen-base :functional
+    :handle-ceiling
+    :incomplete-racer :inter-arg-type :internal-error :job-busy
     :labeling-inconsistent :labeling-run-blocked
     :malformed-entry :malformed-manifest :malformed-record :manifest-too-large
     :missing-adapter :missing-resource :naf-justification
@@ -404,7 +405,8 @@
     :stacked-fork :stale-index-layout :stale-index-records :still-exporting :still-loading :still-stopping
     :still-writing
     :store-unusable :too-many-subscriptions :too-many-waiters
-    :torn-snapshot :truncated-dump :unauthorized :unbound-deferred :unforkable-index :unknown-backend
+    :torn-snapshot :truncated-dump :unauthorized :unbound-deferred :uncleared-forcing
+    :unforkable-index :unknown-backend
     :unknown-command :unknown-entry :unknown-frame :unknown-framing :unknown-handle
     :unknown-op :unknown-option :unknown-source :unknown-subscription :unknown-tactician
     :unminted-nat
@@ -466,7 +468,6 @@
    ;; covering-genls-problem) — the same payload at both
    :arg-genl                #{:message :sentence :arg :expected :position}
    :arg-type                #{:message :sentence :arg :expected :position}
-   :arity                   #{:message :opposing-handle :predicate :sentence}
    :bad-arg                 #{:arg :value}
    :bad-args                #{:op}
    :bad-cursor              #{:cursor :token}
@@ -487,7 +488,7 @@
    :disjoint                #{:message :sentence :types}
    :disk-locked             #{:dir :holder}
    :duplicate-handle        #{:handle}
-   :exception-not-closed    #{:unbound}
+   :exception-not-closed    #{:antecedents :exception :unbound}
    ;; the conditional refusal, raised by interArg's arm (inter-args-problem) and by the
    ;; homogeneity arm (inter-args-homogeneity-problem) — the same payload at both
    :inter-arg-type          #{:message :sentence :arg :expected :position
@@ -511,6 +512,9 @@
    :not-watchable           #{}
    :not-well-formed         #{}
    :pattern-too-costly      #{:scope}
+   ;; a rule's own quantifier names its kind (`:thereExists` / `:aggregate`) and an
+   ;; exception's carries `:exception` instead
+   :quantifier-not-local    #{:antecedents :leaked}
    :shape                   #{}
    :solver-failed           #{}
    ;; clasp's missing binary and its process killed at the deadline
@@ -561,10 +565,10 @@
   vocabulary is pinned here and not spelled out in a table cell forty rows long."
   {:bad-table-entry
    #{:arbitrable :blank-exemption :blank-title :cached :checked :duplicate-name
-     :duplicate-reading :duplicate-title :enumeration :exempt-and-rostered :family
+     :duplicate-reading :duplicate-title :enumeration :exempt-and-rostered
      :family-lane :family-roster :illegal-pair :image-axis :implication :inert :no-arm
-     :no-names :partial-cache-triple :reach :read-at :reading :recheck
-     :reserved-name :stale-exemption :stops-short :storage :sweep-reach :sweeps
+     :no-names :partial-cache-triple :read-at :reading :recheck
+     :reserved-name :stale-exemption :stops-short :storage
      :unarmed-axis :unarmed-reading :undeclared-arm :unknown-axis :unnamed-pair
      :unrostered-arm :unrostered-reader :vocabulary}
    :unknown-backend

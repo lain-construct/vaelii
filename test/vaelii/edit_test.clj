@@ -142,14 +142,13 @@
 
 (deftest a-refusal-check-edit-cannot-see-takes-the-whole-batch-back
   ;; The dry run checks each entry against the KB **as it stands**, so a batch whose
-  ;; third entry clashes with its *first* is admissible to `check-edit` and refused by
-  ;; the engine two entries in.  That is the case a rollback exists for.
+  ;; third entry closes a `genl` cycle with its *second* is admissible to `check-edit`
+  ;; and refused by the engine two entries in.  That is the case a rollback exists for.
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [dog cat Muffet Whiskers Rex CxThe]
+    (tu/with-terms [dog cat Muffet Rex CxThe]
       (v/assert kb (list 'genlCx CxThe 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
-      (let [sentences [(list dog Muffet) (list cat Whiskers)
-                       (list cat Muffet) (list dog Rex)]
+      (let [sentences [(list dog Muffet) (list 'genl dog cat)
+                       (list 'genl cat dog) (list dog Rex)]
             batch     {:add (mapv #(vector % CxThe) sentences)}
             before    {:count      (v/sentex-count kb)
                        :sentexes   (tu/sentex-ids kb)
@@ -161,7 +160,7 @@
         (let [e (is (thrown? clojure.lang.ExceptionInfo (v/edit! kb batch)))
               d (ex-data e)]
           (testing "the engine's own refusal comes back, saying where and that it was undone"
-            (is (= :disjoint (:type d)) "the original ex-data is kept")
+            (is (= :not-well-formed (:type d)) "the original ex-data is kept")
             (is (true? (:rolled-back d)))
             (is (= :add (:in d)))
             (is (= 2 (:index d)))
@@ -188,16 +187,15 @@
   ;; Removes run after adds, so a batch refused on an add has not reached its removals —
   ;; and the rollback owes the premise, and everything derived from it, untouched.
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [dog cat barks Muffet Whiskers CxThe]
+    (tu/with-terms [dog cat barks Muffet CxThe]
       (v/assert kb (list 'genlCx CxThe 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
       (v/assert-rule kb [(list dog '?x)] (list barks '?x) CxThe {:direction :forward})
       (let [h  (v/assert kb (list dog Muffet) CxThe)
             bh (v/handle-of kb (list barks Muffet) CxThe)]
         (is (v/in? kb bh) "the conclusion the removal would sweep is derived")
         (is (thrown? clojure.lang.ExceptionInfo
-                     (v/edit! kb {:add [[(list cat Whiskers) CxThe]
-                                        [(list cat Muffet) CxThe]]
+                     (v/edit! kb {:add [[(list 'genl dog cat) CxThe]
+                                        [(list 'genl cat dog) CxThe]]
                                   :remove [h]})))
         (testing "the removal was never made: the premise stands at its handle"
           (is (= h (v/handle-of kb (list dog Muffet) CxThe)))
@@ -207,22 +205,21 @@
           (is (= bh (v/handle-of kb (list barks Muffet) CxThe)))
           (is (v/in? kb bh)))
         (testing "with neither add left behind"
-          (is (nil? (v/handle-of kb (list cat Whiskers) CxThe)))
-          (is (nil? (v/handle-of kb (list cat Muffet) CxThe))))))))
+          (is (nil? (v/handle-of kb (list 'genl dog cat) CxThe)))
+          (is (nil? (v/handle-of kb (list 'genl cat dog) CxThe))))))))
 
 (deftest a-strength-a-refused-batch-raised-goes-back-down
   ;; The audit's third case: a handle the batch did not create and did not merely
   ;; re-assert, but **re-classed**.  `mark-premise` resolves by content and keeps the
   ;; stronger class, which is right for an assertion and wrong for an undo.
   (tu/with-neutral-kb [kb tu/fresh]
-    (tu/with-terms [dog cat Muffet Whiskers CxThe]
+    (tu/with-terms [dog cat Muffet CxThe]
       (v/assert kb (list 'genlCx CxThe 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
       (let [h (v/assert kb (list dog Muffet) CxThe)]
         (is (= :default (v/defeat-class kb h)))
         (is (thrown? clojure.lang.ExceptionInfo
                      (v/edit! kb {:add [[(list dog Muffet) CxThe {:strength :monotonic}]
-                                        [(list cat Whiskers) CxThe]
-                                        [(list cat Muffet) CxThe]]})))
+                                        [(list 'genl dog cat) CxThe]
+                                        [(list 'genl cat dog) CxThe]]})))
         (testing "the class the batch raised is back where the KB had it"
           (is (= :default (v/defeat-class kb h))))))))

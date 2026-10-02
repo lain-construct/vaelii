@@ -11,7 +11,6 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
-            [vaelii.impl.checks :as checks]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.nat :as nat]
@@ -383,27 +382,26 @@
           k (k-of kb h)]
       ;; the claim first, the separation over it after — the retroactive case, and the
       ;; policy under which a definitional clash is arbitrated rather than refused
-      (binding [checks/*arbitrate-constraints?* true]
-        (let [hs (v/assert kb (list stone_t k) 'CxUniverse)
-              hd (v/assert kb (list 'disjoint fruit_t stone_t) 'CxUniverse
-                           {:strength :monotonic})]
-          (testing "the claim is stored and OUT, outranked by the declared result type"
-            (is (false? (v/in? kb hs)))
-            (is (true? (v/in? kb (v/handle-of kb (list fruit_t k) 'CxUniverse)))))
-          (v/retract! kb h)
-          (testing "so the sweep that the last *believed* use leaving triggers keeps it"
-            (is (false? (nat/orphan? kb k)))
-            (is (= k (nat/dedup-constant kb (list FruitFn AppleTree))))
-            (is (= hs (v/handle-of kb (list stone_t k) 'CxUniverse))))
-          (v/retract! kb hd)
-          (testing "and the defeat lifting revives a use naming a constant still mapped"
-            (is (true? (v/in? kb hs)))
-            (is (= (list FruitFn AppleTree) (nat/nat-expression kb k))))
-          (v/retract! kb hs)
-          (testing "removing it is what makes the constant an orphan, and it is collected"
-            (is (empty? (kb/find-sentexes kb k)))
-            (is (nil? (nat/dedup-constant kb (list FruitFn AppleTree))))
-            (is (empty? (nat/orphaned-constants kb)))))))))
+      (let [hs (v/assert kb (list stone_t k) 'CxUniverse)
+            hd (v/assert kb (list 'disjoint fruit_t stone_t) 'CxUniverse
+                         {:strength :monotonic})]
+        (testing "the claim is stored and OUT, outranked by the declared result type"
+          (is (false? (v/in? kb hs)))
+          (is (true? (v/in? kb (v/handle-of kb (list fruit_t k) 'CxUniverse)))))
+        (v/retract! kb h)
+        (testing "so the sweep that the last *believed* use leaving triggers keeps it"
+          (is (false? (nat/orphan? kb k)))
+          (is (= k (nat/dedup-constant kb (list FruitFn AppleTree))))
+          (is (= hs (v/handle-of kb (list stone_t k) 'CxUniverse))))
+        (v/retract! kb hd)
+        (testing "and the defeat lifting revives a use naming a constant still mapped"
+          (is (true? (v/in? kb hs)))
+          (is (= (list FruitFn AppleTree) (nat/nat-expression kb k))))
+        (v/retract! kb hs)
+        (testing "removing it is what makes the constant an orphan, and it is collected"
+          (is (empty? (kb/find-sentexes kb k)))
+          (is (nil? (nat/dedup-constant kb (list FruitFn AppleTree))))
+          (is (empty? (nat/orphaned-constants kb))))))))
 
 (tu/deftest-kb an-inert-use-keeps-the-constant-though-it-has-no-node-at-all
   ;; The other half, and the one belief cannot speak about either way: an inert sentex —
@@ -981,26 +979,29 @@
 (tu/deftest-kb a-mint-the-assert-path-refuses-drops-the-conclusion-without-throwing
   ;; the correspondence projects the new constant onto a predicate whose `arg` declaration
   ;; its result type is disjoint from, so the mint's own assert refuses; a firing may not
-  ;; throw, so the conclusion is dropped and the refusal recorded
-  (tu/with-terms [FruitFn AppleTree Pear Orchard fruit beast keeperOf bears grownIn tagged]
-    (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
-    (v/assert kb (list 'genl fruit 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl beast 'thing) 'CxUniverse)
-    (v/assert kb (list 'disjoint fruit beast) 'CxUniverse)
-    (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
-    (v/assert kb (list 'arg keeperOf 2 beast) 'CxUniverse)
-    (v/assert kb (list 'functionCorrespondingPredicate FruitFn keeperOf) 'CxUniverse)
-    (testing "the assert path refuses the same application"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list tagged (list FruitFn Pear)) 'CxUniverse))))
-    (v/assert kb (list 'set/forwardRule
-                       (list 'implies (list bears '?t '?o) (list grownIn (list FruitFn '?t) '?o)))
-              'CxUniverse)
-    (is (some? (v/assert kb (list bears AppleTree Orchard) 'CxUniverse))
-        "the assert that fires the rule is not refused")
-    (is (empty? (v/sentexes-matching kb (list grownIn '?f Orchard) 'CxUniverse))
-        "the conclusion is dropped")
-    (is (some #(and (= :mint-refused (:violation %)) (= grownIn (first (:sentence %)))
-                    (keyword? (get-in % [:detail :refusal])))
-              (v/violations kb))
-        "the refused mint is recorded, carrying the refusal's kind")))
+  ;; throw, so the conclusion is dropped and the refusal recorded.  Pinned to the
+  ;; constraint reading, where the declaration convicts the constant; the entailing one
+  ;; mints `(beast …)` beside `(fruit …)` and stores the clash (docs/argtypes.md)
+  (tu/without-entailing
+   (tu/with-terms [FruitFn AppleTree Pear Orchard fruit beast keeperOf bears grownIn tagged]
+     (v/assert kb (list 'reifiable_function FruitFn) 'CxUniverse)
+     (v/assert kb (list 'genl fruit 'thing) 'CxUniverse)
+     (v/assert kb (list 'genl beast 'thing) 'CxUniverse)
+     (v/assert kb (list 'disjoint fruit beast) 'CxUniverse)
+     (v/assert kb (list 'result FruitFn fruit) 'CxUniverse)
+     (v/assert kb (list 'arg keeperOf 2 beast) 'CxUniverse)
+     (v/assert kb (list 'functionCorrespondingPredicate FruitFn keeperOf) 'CxUniverse)
+     (testing "the assert path refuses the same application"
+       (is (thrown? clojure.lang.ExceptionInfo
+                    (v/assert kb (list tagged (list FruitFn Pear)) 'CxUniverse))))
+     (v/assert kb (list 'set/forwardRule
+                        (list 'implies (list bears '?t '?o) (list grownIn (list FruitFn '?t) '?o)))
+               'CxUniverse)
+     (is (some? (v/assert kb (list bears AppleTree Orchard) 'CxUniverse))
+         "the assert that fires the rule is not refused")
+     (is (empty? (v/sentexes-matching kb (list grownIn '?f Orchard) 'CxUniverse))
+         "the conclusion is dropped")
+     (is (some #(and (= :mint-refused (:violation %)) (= grownIn (first (:sentence %)))
+                     (keyword? (get-in % [:detail :refusal])))
+               (v/violations kb))
+         "the refused mint is recorded, carrying the refusal's kind"))))

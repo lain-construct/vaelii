@@ -693,7 +693,7 @@ moved pair without comparing the n(n−1) pairs a chain of n regions closes to. 
 perf`'s `qcn-arrival-beside-an-unmoved-network` bounds an arrival in a sibling context of
 such a chain at 2.5× over 6× the regions; the pair-by-pair comparison reads 4.3×. The read
 itself stays. Invalidating finer than the clock would need every relabelled handle tested
-against the calculus's extent in both TMS representations, and the scoped defeats, the
+against the calculus's extent in both TMS representations, and the standing nogoods, the
 `except` roster and the merges besides.
 
 **One thing the clock cannot supply**, and it is the reason `observe/*pin*` exists.

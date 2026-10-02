@@ -398,7 +398,7 @@
 (genl ternary_function ternary)
 
 (comment relationTypeByArity
-         "(relationTypeByArity ?type ?arity) maps a relation-wide exact-arity type to its arity. Its three declarations drive the shared arity/type rules.")
+         "(relationTypeByArity ?type ?arity) maps a relation-wide exact-arity type to its arity. Its three declarations drive the rule that classifies a relation from its asserted arity.")
 (binary_predicate relationTypeByArity)
 (instance_relation_predicate relationTypeByArity)
 (set/monotonic (functional relationTypeByArity))
@@ -432,15 +432,13 @@
 
 ;; The three relation-wide mappings are the only ones SHIPPED, and the predicate and
 ;; function members are mapped by their genl edges rather than by six more facts.
-;; (predicateTypeByArity unary_predicate 1) would stamp (implies (unary_predicate ?r)
-;; (arity ?r 1)) beside the (unary ?r) rule that already fires on every unary_predicate
-;; membership through (genl unary_predicate unary): two rules concluding one arity, and
-;; `ontology_test`'s subsumption reading finds six such pairs.  The two specialization
-;; predicates stay declared for a KB that maps an arity the relation-wide table has no
-;; class for.
+;; (predicateTypeByArity unary_predicate 1) would stamp (implies (arity ?r 1)
+;; (unary_predicate ?r)), which classifies a unary function as a predicate.  The two
+;; specialization predicates stay declared for a KB that maps an arity the relation-wide
+;; table has no class for.
 
 (comment arity
-         "(arity ?relation ?n) means that ?relation takes exactly ?n arguments and is fixed_arity. One maps to unary, two to binary and three to ternary, and the arity and that relation-wide class derive each other, so asserting either keeps both believed and retracting the one that was asserted collapses the pair. Predicate and function specializations inherit those classes; the cycle stops at the relation-wide class because an arity says how many arguments, not whether the relation holds or denotes.")
+         "(arity ?relation ?n) means that ?relation takes exactly ?n arguments and is fixed_arity. One maps to unary, two to binary and three to ternary: an asserted arity concludes that relation-wide class, and a membership of an exact-arity class is read as the arity by every reader of one, so no rule concludes an arity. Predicate and function specializations inherit those classes; the conclusion stops at the relation-wide class because an arity says how many arguments, not whether the relation holds or denotes.")
 (binary_predicate arity)
 (instance_relation_predicate arity)
 (set/monotonic (functional arity))
@@ -497,25 +495,20 @@
 ;; same context — answered false.  One KB cannot say both.
 
 ;; relationTypeByArity is the one rule-bearing family.  Predicate and function mappings
-;; are its genl specializations rather than parallel arity/type rules, so one statement
-;; covers every exact-arity type in either subdomain: a relation classified under a type
-;; that maps to an arity has that arity.  It is a generator (docs/generators.md): the
-;; rule index is keyed by predicate, so (?type ?relation) cannot stand as a top-level
-;; antecedent, but as a hole the enclosing antecedent fills it is ground before the
-;; per-type rule is stamped — one minted rule per mapping fact, justified by that fact
-;; and withdrawn with it.
-(implies (relationTypeByArity ?type ?arity)
-         (set/forwardRule (implies (?type ?relation) (arity ?relation ?arity))))
-
-;; The converse, stamped the same way: an exact arity classifies the relation under the
-;; type that maps to it, so the two spellings derive each other and asserting either
-;; keeps both believed.  RELATION-WIDE, and it has to be — arity covers functions, so a
-;; rule concluding (binary_predicate ?r) from (arity ?r 2) would make every shipped
-;; binary function a predicate and clash with (disjoint predicate function); (binary ?r)
-;; carries no kind and is what the arity actually says.  A positive cycle, and a
-;; well-founded one: the derived twin cannot ground itself, so retracting whichever
-;; spelling was asserted collapses both.  An arity no class maps to concludes nothing —
-;; (arity InstantFn 6) leaves InstantFn fixed_arity_function by its own declaration.
+;; are its genl specializations rather than parallel arity/type rules.  It is a generator
+;; (docs/generators.md): one minted rule per mapping fact, its (?type ?relation)
+;; consequent ground once the enclosing antecedent fills ?type, justified by that fact and
+;; withdrawn with it.
+;;
+;; The rule runs one way: an exact arity classifies the relation under the type that
+;; maps to it.  No rule concludes an arity, because arity is on the forced-monotonic
+;; roster and a classification is not; every reader of an arity reads the exact-arity
+;; class membership beside the (arity P n) table (docs/taxonomy.md).  RELATION-WIDE, and
+;; it has to be — arity covers functions, so a rule concluding (binary_predicate ?r) from
+;; (arity ?r 2) would make every shipped binary function a predicate and clash with
+;; (disjoint predicate function); (binary ?r) carries no kind and is what the arity
+;; actually says.  An arity no class maps to concludes nothing — (arity InstantFn 6)
+;; leaves InstantFn fixed_arity_function by its own declaration.
 (implies (relationTypeByArity ?type ?arity)
          (set/forwardRule (implies (arity ?relation ?arity) (?type ?relation))))
 
@@ -837,27 +830,69 @@
          "(forced_decontextualized_predicate ?predicate) means that every (?predicate …) sentence is stored directly in CxUniverse by force. No separate deduction and no justification: the fact's extent simply lives there. Used for genlCx, so the context topology has one canonical home instead of a copy per context.")
 (unary_predicate forced_decontextualized_predicate)
 
+(comment forced_monotonic_predicate
+         "(forced_monotonic_predicate ?predicate) puts ?predicate on the forced-monotonic roster. Every (?predicate …) sentence is stored as written, and belief is computed with the roster applied: a premise of one is :monotonic whatever strength it was written at, a denial of one is never believed, forms no nogood and fires no rule, and a firing concluding one from a rule that is not all roster antecedents with no unknown, exceptWhen or set/defaultRule supports nothing and is reported as a :forced-conclusion violation. The declaration is a switch: asserting or retracting it recomputes belief over what ?predicate reaches, so a KB that retracted it believes what a KB that never held it believes. Declared of genlCx, the relation marks, the function classes, the definitional declarations, the arity bindings (arity, the exact-arity classes, variable_arity and its two specializations, arityMin), except and the equality relations; the retraction of every one of these but injection, surjection and bijection is refused. See docs/nmtms.md.")
+(unary_predicate forced_monotonic_predicate)
+(forced_monotonic_predicate genlCx)
+(forced_monotonic_predicate irreflexive)
+(forced_monotonic_predicate anti_symmetric)
+(forced_monotonic_predicate asymmetric)
+(forced_monotonic_predicate functional)
+(forced_monotonic_predicate functionalInArg)
+(forced_monotonic_predicate anti_transitive)
+(forced_monotonic_predicate transitiveInArg)
+(forced_monotonic_predicate injection)
+(forced_monotonic_predicate surjection)
+(forced_monotonic_predicate bijection)
+(forced_monotonic_predicate disjoint)
+(forced_monotonic_predicate covering)
+(forced_monotonic_predicate partition)
+(forced_monotonic_predicate sibling_disjoint)
+(forced_monotonic_predicate arity)
+(forced_monotonic_predicate unary)
+(forced_monotonic_predicate binary)
+(forced_monotonic_predicate ternary)
+(forced_monotonic_predicate unary_predicate)
+(forced_monotonic_predicate binary_predicate)
+(forced_monotonic_predicate ternary_predicate)
+(forced_monotonic_predicate unary_function)
+(forced_monotonic_predicate binary_function)
+(forced_monotonic_predicate ternary_function)
+(forced_monotonic_predicate variable_arity)
+(forced_monotonic_predicate variable_arity_predicate)
+(forced_monotonic_predicate variable_arity_function)
+(forced_monotonic_predicate arityMin)
+(forced_monotonic_predicate except)
+(forced_monotonic_predicate rewriteOf)
+(forced_monotonic_predicate sameAs)
+(forced_monotonic_predicate equals)
+
+(comment forced_monotonic_between_predicates
+         "(forced_monotonic_between_predicates ?predicate) puts on the forced-monotonic roster every (?predicate …) sentence whose arguments are all spelled as predicates of arity 2 or more. Declared of genl: a genl between two predicates is forced, and a genl between types stays defeasible, since the spelling of the arguments separates the two. Its retraction is refused. See docs/nmtms.md.")
+(unary_predicate forced_monotonic_between_predicates)
+(forced_monotonic_between_predicates genl)
+
 (comment functional
-         "(functional ?predicate) means that ?predicate maps its first argument to at most one value. A second, different value is not a second fact: two symbols derive (equals V1 V2) and merge, so retracting either fact or the declaration un-merges them, while two non-symbols such as 1980 and 1990 are refused outright, no merge being able to make two numbers one thing. Declared of birthYearOf, for instance. Also a type: (functional P) classifies P as a binary_predicate, so a KB can be queried for the predicates carrying the property.")
+         "(functional ?predicate) means that ?predicate maps its first argument to at most one value. A second, different value collides with the first: two symbols both known true (monotonic) derive (equals V1 V2) and merge, so retracting either fact or the declaration un-merges them. Any other collision is a nogood each context reading the pair decides, a default fact losing to a monotonic one and two default facts being a dilemma: two non-symbols such as 1980 and 1990, since no merge can make two numbers one thing, and a pair with a default fact, since a merge rests on monotonic evidence alone. Declared of birthYearOf, for instance. Also a type: (functional P) classifies P as a binary_predicate, so a KB can be queried for the predicates carrying the property.")
 (unary_predicate functional)
 (decontextualized_predicate functional)
 (genl functional binary_predicate)
 
 (comment functionalInArg
-         "(functionalInArg ?predicate ?n) means that the argument of ?predicate at position ?n is determined by the others: two applications agreeing everywhere but at ?n name one thing there. functional read at another position, and enforced the same way: two symbols derive (equals V1 V2) and merge, two non-symbols such as 1980 and 1990 are refused outright. Read up the predicate hierarchy, so a mark on a predicate governs its specs. Decontextualized like functional, so a mark stated in one theory merges from every context. Declared of capitalCityOf at position 1, for instance, beside (functional capitalCityOf): one capital per country and one country per capital. See docs/taxonomy.md.")
+         "(functionalInArg ?predicate ?n) means that the argument of ?predicate at position ?n is determined by the others: two applications agreeing everywhere but at ?n name one thing there. functional read at another position, and enforced the same way: two monotonic symbols derive (equals V1 V2) and merge, and any other collision, such as 1980 and 1990 or a pair with a default fact, is a nogood. Read up the predicate hierarchy, so a mark on a predicate governs its specs. Decontextualized like functional, so a mark stated in one theory merges from every context. Declared of capitalCityOf at position 1, for instance, beside (functional capitalCityOf): one capital per country and one country per capital. See docs/taxonomy.md.")
 (binary_predicate functionalInArg)
 (decontextualized_predicate functionalInArg)
 (arg functionalInArg 1 relation)
 (arg functionalInArg 2 positive_integer)
 
 (comment injection
-         "(injection ?predicate) means that ?predicate is an injective function: single-valued, one-to-one, and total on the type its first argument is declared to be. Declared once, it stands in for four claims the engine already reads. Two forward rules derive (functional ?predicate) and (functionalInArg ?predicate 1), each a real mark the engine enforces in turn: the merge/refuse rule over a shared first argument, and the same rule mirrored over a shared second. A second symbol filler on either side derives (equals V1 V2) and merges, while two non-symbols such as 1980 and 1990 are refused outright. A third rule reads the domain off (arg ?predicate 1 ?d) and derives the binary integrity requirement (predAllSpecified ?predicate ?d); the required filler type is not restated — the audit derives it from ?predicate's own slot-2 contract at read time. That requirement is audited on demand by vaelii.core/specified-violations, which reports the domain members carrying no determinate filler. Totality is audited rather than enforced because an open world cannot refuse a write for a member whose filler has not arrived. A predicate with no arg 1 declaration gets the two enforced marks and no audit, since nothing states what the domain is; one typed at arg 1 but not at arg 2 concludes the requirement, and the audit reports the missing slot contract as an explicit gap rather than auditing unconstrained. A one-to-one relation that is not total is (functional P) beside (functionalInArg P 1), written directly. Also a type: (genl injection functional) classifies P as functional and so binary_predicate. Declared of a relation such as capitalCityOf, for instance. See docs/taxonomy.md.")
+         "(injection ?predicate) means that ?predicate is an injective function: single-valued, one-to-one, and total on the type its first argument is declared to be. Declared once, it stands in for four claims the engine already reads. Two forward rules derive (functional ?predicate) and (functionalInArg ?predicate 1), each a real mark the engine enforces in turn: the merge-or-nogood rule over a shared first argument, and the same rule mirrored over a shared second. A second symbol filler on either side, both facts monotonic, derives (equals V1 V2) and merges, while any other collision, such as 1980 and 1990, is a nogood. A third rule reads the domain off (arg ?predicate 1 ?d) and derives the binary integrity requirement (predAllSpecified ?predicate ?d); the required filler type is not restated — the audit derives it from ?predicate's own slot-2 contract at read time. That requirement is audited on demand by vaelii.core/specified-violations, which reports the domain members carrying no determinate filler. Totality is audited rather than enforced because an open world cannot refuse a write for a member whose filler has not arrived. A predicate with no arg 1 declaration gets the two enforced marks and no audit, since nothing states what the domain is; one typed at arg 1 but not at arg 2 concludes the requirement, and the audit reports the missing slot contract as an explicit gap rather than auditing unconstrained. A one-to-one relation that is not total is (functional P) beside (functionalInArg P 1), written directly. Also a type: (genl injection functional) classifies P as functional and so binary_predicate. Declared of a relation such as capitalCityOf, for instance. See docs/taxonomy.md.")
 (unary_predicate injection)
 (decontextualized_predicate injection)
 (genl injection functional)
 
 (comment surjection
-         "(surjection ?predicate) means that ?predicate is a surjective function: single-valued, total on the type its first argument is declared to be, and onto the type its second is. Declared once, it stands in for three claims. One forward rule derives (functional ?predicate), the mark the engine enforces by merging two symbol fillers for one first argument and refusing two it cannot merge. Two further rules read the domain off (arg ?predicate 1 ?d) and the range off (arg ?predicate 2 ?r), and derive (predAllSpecified ?predicate ?d) for totality and (predSpecifiedAll ?predicate ?r) for ontoness — each binary, the filler's type derived from the predicate's own slot contract at read time rather than restated. Both are audited on demand by vaelii.core/specified-violations: the first reports the domain members with no determinate filler, the second the range members no determinate domain member reaches. Neither is enforced at a write, an open world having no ground to refuse a fact for a member nothing has reached yet. A predicate whose quantified side is untyped concludes no requirement; an untyped filler side is reported by the audit as an explicit gap. Nothing here says one-to-one, so a surjection may send two domain members to one range member; that is what separates it from bijection. Declared of a relation such as capitalCityOf over capital_city, for instance. See docs/taxonomy.md.")
+         "(surjection ?predicate) means that ?predicate is a surjective function: single-valued, total on the type its first argument is declared to be, and onto the type its second is. Declared once, it stands in for three claims. One forward rule derives (functional ?predicate), the mark the engine enforces by merging two monotonic symbol fillers for one first argument and deciding any other two as a nogood. Two further rules read the domain off (arg ?predicate 1 ?d) and the range off (arg ?predicate 2 ?r), and derive (predAllSpecified ?predicate ?d) for totality and (predSpecifiedAll ?predicate ?r) for ontoness — each binary, the filler's type derived from the predicate's own slot contract at read time rather than restated. Both are audited on demand by vaelii.core/specified-violations: the first reports the domain members with no determinate filler, the second the range members no determinate domain member reaches. Neither is enforced at a write, an open world having no ground to refuse a fact for a member nothing has reached yet. A predicate whose quantified side is untyped concludes no requirement; an untyped filler side is reported by the audit as an explicit gap. Nothing here says one-to-one, so a surjection may send two domain members to one range member; that is what separates it from bijection. Declared of a relation such as capitalCityOf over capital_city, for instance. See docs/taxonomy.md.")
 (unary_predicate surjection)
 (decontextualized_predicate surjection)
 (genl surjection functional)
@@ -1065,7 +1100,7 @@
 (genl reflexive binary_predicate)
 
 (comment irreflexive
-         "(irreflexive ?predicate) means that ?predicate never holds of a thing and itself, so (?predicate a a) is contradictory and refused at the entry point. The strict counterpart of reflexive, and stronger than asymmetric — asymmetry needs a believed opposing claim to convict and so admits the lone self tuple, where irreflexivity refuses it outright. A declaration arriving after a self tuple was stored is the arity case, not the asymmetric one: the tuple stands and the late mark reports rather than defeats, since a lone tuple names no second sentex to form a nogood with (docs/nmtms.md). Also a type: (irreflexive P) classifies P as a binary_predicate. Declared of a strict order such as largerThan, for instance.")
+         "(irreflexive ?predicate) means that ?predicate never holds of a thing and itself, so (?predicate a a) is contradictory: a one-member nogood that each context reading the mark decides, whichever of the mark and the tuple arrives first. A default self tuple is not believed there, and a monotonic one is a hard clash conflicts reports (docs/nmtms.md). The strict counterpart of reflexive, and stronger than asymmetric — asymmetry needs a believed opposing claim to convict and so admits the lone self tuple. Also a type: (irreflexive P) classifies P as a binary_predicate. Declared of a strict order such as largerThan, for instance.")
 (unary_predicate irreflexive)
 (decontextualized_predicate irreflexive)
 (genl irreflexive binary_predicate)
@@ -1164,7 +1199,9 @@
 
 ;; The converse needs the arity, and is a rule because it concludes a mark the engine
 ;; enforces: commutativity at two arguments IS symmetry, where commutativity at any other
-;; arity implies neither symmetry nor arity 2.
+;; arity implies neither symmetry nor arity 2.  It reads the (arity ?p 2) declaration and
+;; not the (binary ?p) class: every symmetric predicate is binary and commutative through
+;; its genl edges, so a class antecedent would re-derive each symmetric mark from itself.
 ;;
 ;; forwardOnlyRule, not forwardRule: set/forwardRule adds forward chaining without taking
 ;; the backward use away, and backward this rule is a cycle. The genl edge above makes
@@ -1186,7 +1223,7 @@
 (genl asymmetric binary_predicate)
 
 (comment anti_symmetric
-         "(anti_symmetric ?predicate) means that ?predicate holding both ways forces its two arguments to be one thing. Believing (?predicate a b) and (?predicate b a) derives (equals a b) and merges, mirroring how a functional predicate reconciles two symbol values — the merge is justified by both facts and the declaration, so retracting any one un-merges them. Two non-symbols such as 1980 and 1990, which no merge can make one thing, are refused instead of merged. A self tuple (?predicate a a) is admitted: its converse is itself and (equals a a) is trivial. Also a type: (anti_symmetric P) classifies P as a binary_predicate. Declared of a partial order such as atOrAbove, for instance.")
+         "(anti_symmetric ?predicate) means that ?predicate holding both ways forces its two arguments to be one thing. Believing (?predicate a b) and (?predicate b a) of two symbols, both known true (monotonic), derives (equals a b) and merges, mirroring how a functional predicate reconciles two symbol values — the merge is justified by both facts and the declaration, so retracting any one un-merges them. Any other converse pair, two non-symbols such as 1980 and 1990 or a pair with a default member, is a nogood each context reading the pair decides instead: a default member is not believed there when the other is monotonic, and two default members are a dilemma. A self tuple (?predicate a a) is admitted: its converse is itself and (equals a a) is trivial. Also a type: (anti_symmetric P) classifies P as a binary_predicate. Declared of a partial order such as atOrAbove, for instance.")
 (unary_predicate anti_symmetric)
 (decontextualized_predicate anti_symmetric)
 (genl anti_symmetric binary_predicate)

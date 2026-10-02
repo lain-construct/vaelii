@@ -84,7 +84,9 @@ leaves it dormant, an unreachable target convicts. See [argtypes.md](argtypes.md
 `variable_arity` are disjoint relation-wide argument policies. Unsuffixed `unary`,
 `binary` and `ternary` are the exact relation classes, each with predicate and function
 specializations. `arity` states one exact relation arity and derives its exact
-class, which derives the arity back; `arityMin` states a variable relation's lower bound.
+relation-wide class; `arityMin` states a variable relation's lower bound. These bindings
+are forced monotonic, and a tuple breaking one is a nogood each reader decides
+([taxonomy.md](taxonomy.md#arity)).
 `at_least_binary_relation` / `at_least_ternary_relation` are derived minimum classes.
 `admitsArgnum` names whether one positive position exists; `AdmitsArgnumProver` answers
 `(admitsArgnum P n)` as a computed query, from a relation's `arity` and `variable_arity`
@@ -481,7 +483,7 @@ forms a sentence is built out of are **Wrapper**s, not frames. See [storage.md](
 
 **`functional`** ![kb](../.github/badges/cat-kb.svg): `(functional P)` plus two
 *symbol* values for one first argument derives `(equals V1 V2)`, justified by
-both facts and the declaration. Two non-symbols stay a hard rejection. See
+both facts and the declaration. Two non-symbols are a nogood the settle decides. See
 [equality.md](equality.md).
 
 **`functional_at_instant`** ![kb](../.github/badges/cat-kb.svg): `(functional_at_instant F)`
@@ -495,7 +497,7 @@ See [time.md](time.md) and [equality.md](equality.md).
 
 **`functionalInArg`** ![kb](../.github/badges/cat-kb.svg): `(functionalInArg P n)` —
 `functional` generalized off its fixed argument 2: every argument of `P` except `n`,
-taken together, fixes the filler at `n`. Same merge/refuse rule and same four arrival
+taken together, fixes the filler at `n`. Same merge-or-nogood rule and same four arrival
 directions; what it adds is a **composite determinant**, as in
 `(functionalInArg namesObject 3)` for "one namespace and one path name one object".
 `(functionalInArg P 2)` on a binary predicate is `(functional P)`. See
@@ -989,12 +991,10 @@ function of the facts alone, so it is repeatable.
 `core/qualitative-scenario` / `qualitative-scenarios`. See
 [scenario.md](scenario.md).
 
-**Scoped defeat** ![tms](../.github/badges/cat-tms.svg): A nogood's defeated member
-disbelieved at the nogood's **Vantage** and in every context below it, where the vantage
-sits strictly below the member's own context. The member keeps its IN label in the
-network, and a read from a context at or below the vantage reads it, and whatever rests
-only on it, as withdrawn. The settle re-decides the scoped defeats every settle. See
-[nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage).
+**Scoped defeat** ![tms](../.github/badges/cat-tms.svg): A nogood's member a reader
+takes OUT. Every defeat is scoped: the member keeps its IN label in the network, and each
+reader at or below the nogood's **Vantage** decides the nogood from its own view and reads
+the loser, and whatever rests only on it, as withdrawn. See [nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage).
 
 **Seal** ![backend](../.github/badges/cat-backend.svg): The point an **operation log**
 starts again from (`vaelii.impl.seal`): the index image and the reasoning image, written
@@ -1043,8 +1043,8 @@ belief-following, and raising contradictions through the same JTMS/ASP path as
 **`siblingDisjointException`** ![kb](../.github/badges/cat-kb.svg): Exempts the one pair
 of types it names from a disjointness a `sibling_disjoint` mark or a `disjoint_metatype`
 would otherwise force — pair-local, so it does not disturb either type's disjointness from
-the parent's other specializations and does not leak to subtypes. Read over the whole KB,
-not the reader's context ancestor set, because an exemption removes a clash. See
+the parent's other specializations and does not leak to subtypes. Read at the reader: a
+context that does not see the exception reads the pair separated. See
 [taxonomy.md](taxonomy.md).
 
 **Sideways information passing** ![inference](../.github/badges/cat-inference.svg):
@@ -1231,10 +1231,10 @@ quantifier's variable. Ground/closed only and never stored. See [naf.md](naf.md)
 a string, a number, a character, a boolean. It denotes itself, which is why its **Kind**
 answers both argument readings. See [argtypes.md](argtypes.md).
 
-**Vantage** ![tms](../.github/badges/cat-tms.svg): A context a nogood is decided at —
-one that sees every member, and for a definitional clash the declaration too. The
-defeated member is disbelieved there and in every context below it. When the vantage is
-the member's own context the defeat is the network's; below it, a **Scoped defeat**. See
+**Vantage** ![tms](../.github/badges/cat-tms.svg): A most general context that sees every
+member of a nogood, and for a definitional clash the declaration too. Every reader at or
+below a vantage decides the nogood from its own view, and a member such a reader takes OUT
+is a **Scoped defeat**. See
 [nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage).
 
 **Variable** ![kb](../.github/badges/cat-kb.svg): A `?x` symbol standing for an unknown. Canonically renumbered
@@ -1252,17 +1252,11 @@ none. See [canonicalization.md](canonicalization.md).
 accumulating ledger of conclusions *dropped* on the derivation path — a failed
 arg / disjoint / functional check, a placement-less firing, or a derived
 cycle through negation — recorded rather than thrown. Three groups drop nothing
-and report: the seven that say bounded work did not cover everything —
-`:arbitration-truncated`, `:arity-truncated` and
-`:unarbitrable-reach-truncated`, all three sweeps cut short; `:arity-report-truncated`, a pass finding more predicates than it will
-file; `:partner-sweep-truncated`, a vantage the cap kept the arbitration from consulting
-at all;
-`:context-edge-exposure-truncated`, the only one filed eagerly from an assert rather than
+and report: the two that say bounded work did not cover everything —
+`:context-edge-exposure-truncated`, filed eagerly from an assert rather than
 a settle, over merges a `genlCx` edge's ancestor set did not reach; and
 `:genl-edge-revival-truncated`, over merges a revived `genl` edge's subtree walk did not
-reach; a retroactive
-`:arity` reach, and a retroactive `:irreflexive` / `:anti-symmetric` reach over facts a
-late mark convicts, beside a `:non-confluent` pair of equations; and the provers' own —
+reach; a `:non-confluent` pair of equations; and the provers' own —
 `:aggregate` for an extent that will not reduce, `:qualitative-inconsistency` and the two
 `:metric-temporal-*` for a network a context cannot satisfy, and `:sign-inconsistency`
 for sign facts that leave a quantity no sign at all. An entry about a term, a pair or

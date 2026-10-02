@@ -169,7 +169,6 @@
       (println "== justifications" (count js))
       (doseq [j js] (prn j))
       (println "== blocked" (count (jtms/blocked tms))
-               "defeated" (count (jtms/defeated tms))
                "superseded" (count (jtms/superseded tms))))))
 
 (defn- measured-run

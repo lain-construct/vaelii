@@ -60,10 +60,10 @@
       (is (v/in? kb (v/handle-of kb (list flies eagle) 'CxUniverse))))))
 
 ;; ---- nogood discovery is driven off the opposed bodies (settle F1) -------
-;; `negation-nogoods` enumerates the negated bodies and gates each on whether a
-;; positive is *stored* for it, before doing the belief/visibility pairing.  These
-;; pin the two things that gate could get wrong: it must not miss a real clash, and
-;; a negation with no positive twin must added no work yet still be believed.
+;; The negation family reads a body's pairs only when the body is stored in both
+;; polarities (`:opposed`).  These pin the two things that gate could get wrong: it must
+;; not miss a real clash, and a negation with no positive twin must add no work yet still
+;; be believed.
 
 (tu/deftest-kb an-unpaired-negation-forms-no-nogood
   (let [swims (tu/tmp-pred) a (tu/tmp-ind) b (tu/tmp-ind) c (tu/tmp-ind)]
@@ -121,29 +121,23 @@
           (is (seq (v/sentexes-matching kb (list warm sun) 'CxUniverse))))))))
 
 (tu/deftest-kb a-body-with-no-twin-is-not-posted-and-still-pairs-later
-  ;; `note-opposed!` writes to the coincidence set and to the negation memo only for a
-  ;; body opposed before the store or after it — a body with no twin has no pairing that
-  ;; could have moved, and posting one costs a `conj` into a set that grows to the size
-  ;; of the corpus on a bulk load.  The order that would expose a wrong guard is a
-  ;; **settle between the two polarities**: the memo is derived while nothing is opposed,
-  ;; and the twin's arrival is then the only thing that can invalidate it.
+  ;; The candidate index reads a body's pairs only for a body opposed before the store or
+  ;; after it, so a body with no twin adds no entry.  The order that would expose a wrong
+  ;; gate is a **settle between the two polarities**: the twin's arrival is then the only
+  ;; write that can form the pair.
   (let [warm (tu/tmp-pred) sun (tu/tmp-ind) moon (tu/tmp-ind)]
     (v/assert kb (list warm sun) 'CxUniverse)
     (v/assert kb (list warm moon) 'CxUniverse)          ; a second settle, nothing opposed
     (is (empty? (v/contradictions kb)))
-    (testing "and the memo did not grow: a batch of twinless bodies posts nothing"
-      ;; read inside the batch, since the closing settle drops the whole memo when
-      ;; nothing is opposed and would hide an unguarded post.  This is the invariant
-      ;; that keeps a bulk load's per-fact cost a constant: an unguarded post is one
-      ;; `conj` per fact into a set that ends the load holding the whole corpus.
+    (testing "and the index did not grow: a batch of twinless bodies adds no entry"
       (v/with-deferred-settle kb
         (doseq [i (range 8)]
           (v/assert kb (list warm (tu/tmp-ind (str "Cold" i))) 'CxUniverse
                     {:chain? false}))
-        (is (empty? (:dirty @(reasoning/negations kb))))))
+        (is (empty? (:vaelii.impl.decide.negation/negation @(reasoning/nogood-candidates kb))))))
     (let [hn (v/assert kb (list 'not (list warm sun)) 'CxUniverse)]
       (is (= 1 (count (v/contradictions kb))) "the twin arriving is what forms the pair")
-      (testing "and the memo drops the entry when the twin leaves"
+      (testing "and the index drops the entry when the twin leaves"
         (v/retract! kb hn)
         (is (empty? (v/contradictions kb)))
         (is (seq (v/sentexes-matching kb (list warm sun) 'CxUniverse)))))
@@ -164,3 +158,34 @@
       (is (= 1 (count (v/contradictions kb))))
       (let [{:keys [handles]} (first (v/contradictions kb))]
         (is (every? #(v/in? kb %) handles) "both sides believed — the dilemma stands")))))
+
+(tu/deftest-kb a-pair-in-two-contexts-is-decided-by-each-reader-that-sees-both
+  ;;   CxL  (flies Tweety) default        CxR  (not (flies Tweety)) monotonic
+  ;;   CxJ sees CxL and CxR, and CxM sees CxL and a default (not (flies Tweety)) in CxD
+  ;; The pair in CxL/CxR is decided where both contexts are seen, and nowhere else; the
+  ;; network keeps both sides IN.  The pair in CxL/CxD is a dilemma, reported at CxM.
+  (tu/with-terms [flies Tweety CxL CxR CxD CxJ CxM]
+    (doseq [[c up] [[CxL 'CxUniverse] [CxR 'CxUniverse] [CxD 'CxUniverse]
+                    [CxJ CxL] [CxJ CxR] [CxM CxL] [CxM CxD]]]
+      (v/assert kb (list 'genlCx c up) 'CxUniverse))
+    (let [pos (v/assert kb (list flies Tweety) CxL)
+          neg (v/assert kb (list 'not (list flies Tweety)) CxR {:strength :monotonic})
+          dn  (v/assert kb (list 'not (list flies Tweety)) CxD)]
+      (testing "the reader seeing both takes the default side OUT"
+        (is (false? (v/believed? kb pos CxJ)))
+        (is (true? (v/believed? kb neg CxJ)))
+        (is (= [CxJ] (:scoped-vantages (v/belief-status kb pos CxJ)))))
+      (testing "a context seeing one side believes it, and the network keeps it IN"
+        (is (true? (v/believed? kb pos CxL)))
+        (is (true? (v/in? kb pos))))
+      (testing "the default pair is a dilemma reported at the reader that sees both"
+        (let [r (first (filter #(= #{pos dn} (:nogood %)) (v/contradictions kb)))]
+          (is (some? r))
+          (is (nil? (:kind r)) "a rebuttal")
+          (is (= (list 'contradicts (list flies Tweety) (list 'not (list flies Tweety)))
+                 (:sentence r)))
+          (is (some #(= #{pos dn} (:nogood %)) (v/contradictions kb CxM)))
+          (is (not-any? #(= #{pos dn} (:nogood %)) (v/contradictions kb CxL)))))
+      (testing "retracting the denial gives the side back at the reader"
+        (v/retract! kb neg)
+        (is (true? (v/believed? kb pos CxJ)))))))

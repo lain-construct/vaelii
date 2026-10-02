@@ -46,8 +46,10 @@
   (let [kb        (open-kb :stale tu/load-starter!)
         ;; a shipped fact the KB lost
         missing   (shipped-form 'CxAbstract (every-pred seq? (complement monotonic?)))
-        ;; a known-true one the KB holds at :default
-        weakened  (shipped-form 'CxOrganism monotonic?)
+        ;; a known-true one the KB holds at :default, off the forced-monotonic roster
+        weakened  (shipped-form 'CxOrganism
+                                #(and (monotonic? %)
+                                      (not (v/has-prop? kb :forced-monotonic (first (second %))))))
         wsentence (second (:form weakened))
         ;; an author's own context wired into the spindle, and a fact in the collector
         user-cx   'CxSpindleAuthored
@@ -66,7 +68,9 @@
           (is (= #{{:context 'CxAbstract :form (:form missing)}
                    {:context 'CxOrganism :form (:form weakened)}}
                  (set add)))
-          (testing "and a raised strength is only an addition"
+          (testing "and a stale membership is a removal at the strength it was written at"
+            ;; `unary_predicate` is on the forced-monotonic roster, which moves the class
+            ;; belief reads and leaves the record as written
             (is (= #{['CxCore '(unary_predicate spindle_stale_kind)]}
                    (set (map (juxt :context :form) remove)))))))
       (testing "the sync applies it"
@@ -101,23 +105,23 @@
 
 (deftest an-addition-the-batch-refuses-is-set-aside-and-lands-after-it
   (let [kb      (open-kb :aside tu/load-starter!)
-        ;; `relation_kind` is a disjoint_metatype: a predicate is at most one of the two
-        lost    '(instance_relation_predicate heavierThan)
-        clash   '(type_relation_predicate heavierThan)
+        ;; a `genl` edge and its reverse close a cycle, which is refused
+        lost    '(genl dog mammal)
+        clash   '(genl mammal dog)
         edits   (atom 0)
         edit!   v/edit!]
     (try
-      (v/retract! kb (v/handle-of kb lost 'CxMeasure))
-      ;; an author's fact the lost one clashes with, in the exact context the sync
-      ;; retracts it from: the batch asserts before it retracts, so it refuses the
-      ;; shipped fact, and the fact lands once the batch has retracted the clash
-      (v/assert kb clash 'CxMeasure)
+      (v/retract! kb (v/handle-of kb lost 'CxOrganism))
+      ;; an author's edge the lost one would close a cycle with, in the exact context the
+      ;; sync retracts it from: the batch asserts before it retracts, so it refuses the
+      ;; shipped edge, and the edge lands once the batch has retracted the author's
+      (v/assert kb clash 'CxOrganism)
       (with-redefs [v/edit! (fn [& args] (swap! edits inc) (apply edit! args))]
         (is (= {:added 1 :removed 1 :refused []} (spindle/sync-spindle! kb))))
-      (testing "the batch refused the fact, and ran again without it"
+      (testing "the batch refused the edge, and ran again without it"
         (is (= 2 @edits)))
-      (is (some? (v/handle-of kb lost 'CxMeasure)))
-      (is (nil? (v/handle-of kb clash 'CxMeasure)))
+      (is (some? (v/handle-of kb lost 'CxOrganism)))
+      (is (nil? (v/handle-of kb clash 'CxOrganism)))
       (is (= {:add [] :remove []} (spindle/plan kb @shipped)))
       (finally (tu/clear-kb! kb)))))
 

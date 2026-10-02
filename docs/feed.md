@@ -107,6 +107,11 @@ sentence together. When a check after the mint refuses the sentence, `assert` ta
 back ([api.md](api.md#validating-without-writing)) with the feed off, the held region then
 names only handles that are gone, and no event is delivered.
 
+An `exceptWhen` assert stores the rule and then its exception, and each store settles. A
+handle the accumulator already holds keeps the before-reading of the settle that filed it
+first (`feed/note-region!`), as `jtms/touched-in` keeps the first relabel's, so a firing the
+rule's own settle placed is reported as added in the event.
+
 ## A standing query is a filter, not a re-run
 
 `(watch kb goal context f)` matches the region's entries against `goal` with
@@ -247,15 +252,6 @@ and start from what it says. A feed is how belief *moves*, never how it is first
   `edit-with-consequences!` has the same gap; `preview` is what answers "what would this
   removal take with it", since it suspends instead of retracting and can still name every
   casualty.
-- **A spelling an equality merge displaced.** A merge supersedes the displaced sentex on
-  the **assert** path, and the before-labels hand-off covers only what a *settle*
-  supersedes — so the displaced spelling loses belief with nothing in the region saying
-  it did. `edit-with-consequences!` misses it identically (the two agree, which is the
-  contract, and a test pins that they do); `preview` reports it as `:superseded`, because
-  its rollback lets it read belief-before off the restored KB instead. Closing it means
-  the equality path posting the displaced handle where a settle can see it, which would
-  move `edit-with-consequences!`' answer too — a change to that mechanism, not to this
-  one.
 - **A batch that threw.** `edit!` is all-or-nothing ([api.md](api.md)): a throw is
   followed by a rollback that puts the KB back at the handles it wrote, so there is no
   belief left for the batch to have moved. The rollback runs with `feed/*enabled?*` off
@@ -437,7 +433,7 @@ progress, and progress is not belief moving. Nothing in the browser subscribes.
   next settle reports what it left; the feed and `edit-with-consequences!` are the same
   answer on the same batch — two mechanisms sharing their entry shapes and nothing else,
   so agreement is evidence rather than tautology, and an equality merge is pinned
-  separately because it is where they agree about a *gap*.
+  separately because its displaced spelling loses belief with no relabel.
 - **Reentrancy**: delivery is registration order; a thrower loses its own event and its
   neighbour still runs and the write stands; a listener that asserts is delivered its own
   event in a second round, and one that asserts on *every* event stops at the bound

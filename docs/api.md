@@ -34,8 +34,8 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
                                               ; :dir is the directory for :disk / :sqlite, and
                                               ; for :pg-disk-log, whose durable index is files on
                                               ; this host describing records on a server
-                                              ; :naming and :constraints are this KB's two
-                                              ; entry-point policies (docs/naming.md, nmtms.md)
+                                              ; :naming is this KB's entry-point naming
+                                              ; policy (docs/naming.md)
                                               ; :recover? is :auto (or true) / :background /
                                               ; :warn / false — :background installs a stored
                                               ; image and rebuilds belief behind it
@@ -83,7 +83,8 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
 default-chain-opts                              ; the bounds a chain run takes when opts omit them —
                                                 ; max-depth (productive recursion) and max-derivations
 (conflicts kb)                                  ; irreducible clashes among known-true content —
-                                               ; same entry shape as contradictions; both sides stay believed
+                                               ; same entry shape as contradictions; both sides stay believed;
+                                               ; :grounds names the declarations a clash is convicted through
 (contradictions kb)                            ; coexisting pairs at :default — represented dilemmas:
                                                ; a rebuttal (P/not-P), a definitional clash
                                                ; (:kind :disjoint|:functional|:asymmetric
@@ -371,7 +372,8 @@ default-chain-opts                              ; the bounds a chain run takes w
 (has-prop? kb kind pred [context]) / (props kb kind)              ; :transitive :symmetric :asymmetric :reflexive
                                                         ; :functional :irreflexive :anti-symmetric
                                                         ; :anti-transitive :decontextualized
-                                                        ; :forced-decontextualized :abducible
+                                                        ; :forced-decontextualized
+                                                        ; :forced-monotonic :abducible
                                                         ; :closed-extent :modal :target-following
                                                         ; :reifiable :unreifiable :quoting
                                                         ; :context-denoting, and the six :declares-*
@@ -503,7 +505,7 @@ assertable-strengths                            ; #{:monotonic :default}, the se
 (retract! kb handle)                            ; teardown -> {:removed-sentexes n :removed-justifications n}
 (in? kb handle)                                 ; raw structural JTMS IN, before contextual exceptions
 (believed? kb handle context)                   ; IN and not withdrawn from context (an except, a
-                                                ; scoped defeat, or resting only on one), before
+                                                ; loser it decides, or resting only on one), before
                                                 ; assertion-context inheritance
 (belief-status kb handle context)               ; deterministic diagnostic map:
                                                 ; {:handle :view-context :stored? :in?
@@ -521,7 +523,7 @@ assertable-strengths                            ; #{:monotonic :default}, the se
                                                 ; the cap bounds the tree returned, not the depth a
                                                 ; read can reach without overflowing
 (why-not kb handle)                             ; stored but OUT: :defeated (+ what contradicts it)
-                                                ; / :withdrawn (+ the scoped defeat that withdrew it)
+                                                ; / :withdrawn (+ the verdict that withdrew it)
                                                 ; / :superseded (+ the restatement that displaced it)
                                                 ; / :unsupported (+ the missing antecedents) / :not-stored
 (why-not kb sentence context)                   ; the same five, plus the two only this arity
@@ -839,8 +841,8 @@ It returns a **vector of problems**, empty when the sentence is admissible.  Eac
 map with the `:type` keyword `assert` would have thrown — `:naming`, `:not-ground`,
 `:not-well-formed`, `:unknown-handle` (an `except` naming no stored sentex), `:not-range-restricted`, `:not-indexable`, `:disjunction-too-wide`, `:not-stratified`,
 `:not-assertible`, `:exception-not-closed`, `:arg-type`, `:arg-genl`, `:arg-position`, `:inter-arg-type`,
-`:arg-constraint-kind`, `:arg-variable`, `:arity`, `:disjoint`, `:functional`, `:asymmetric`,
-`:anti-transitive`, `:irreflexive`, `:anti-symmetric` — a readable
+`:arg-constraint-kind`, `:arg-variable`, `:disjoint`, `:functional`, `:asymmetric`,
+`:anti-transitive` — a readable
 `:message`, and whatever else that check knows (`:arg` / `:expected` / `:position` for an
 arg breach, plus `:trigger` and `:trigger-position` for the `interArg` form, which
 names the argument whose type made the constraint fire; `:cycle` for a stratification

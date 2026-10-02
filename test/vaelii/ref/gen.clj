@@ -3,8 +3,9 @@
 (ns vaelii.ref.gen
   "Random worlds inside the reference's v1 fragment, the loader that asserts a world into
   a fresh KB in a given order, the reader of the engine's belief per context, the
-  comparators (engine against reference, engine against engine across orders), the
-  divergence classifier, the shrinker and the failure report.
+  comparators (engine against reference, engine against engine across orders, and a
+  report's `:grounds` against the reference's `:ground`), the divergence classifier, the
+  shrinker and the failure report.
 
   A **world** is `{:contexts #{C ...} :writes [{:sentence S :context C :strength k} ...]}`
   (the belief reference design note).  An **order** is a vector holding each write of a
@@ -17,14 +18,13 @@
 
   **The reference judges every write offered** (decision D8).  A write the engine refuses
   is not dropped from the reference's world: the run records the refusal as a divergence
-  of kind `:engine-refused-clash`, `:engine-refused-mark` or `:engine-refused-other`
-  (`refusal-kind`), and the belief differences of that run are reported under that
-  divergence and never as belief disagreements.  Every belief disagreement of a run with
-  no refusal is shrunk to a minimal world and given a `:kind` by `classify`.
+  of kind `:engine-refused-other` (`refusal-kind`), and the belief differences of that
+  run are reported under that divergence and never as belief disagreements.  Every belief
+  disagreement of a run with no refusal is shrunk to a minimal world and given a `:kind`
+  by `classify`.
 
   Every KB this namespace opens is an in-RAM KB on a space of its own
-  (`[::ref n]`, `n` from a process counter), opened `{:constraints :arbitrate}` so a
-  clash is stored and decided rather than refused.  `run-order` and every caller of it
+  (`[::ref n]`, `n` from a process counter).  `run-order` and every caller of it
   close the KB and drop both RAM stores in a `finally`; `load-world!` hands the open KB
   to its caller, who closes it with `close-kb!`."
   (:refer-clojure :exclude [compare])
@@ -33,6 +33,7 @@
             [clojure.set :as set]
             [clojure.string :as str]
             [vaelii.core :as v]
+            [vaelii.impl.clashes :as clashes]
             [vaelii.impl.memory :as mem]
             [vaelii.test-util :as tu])
   (:import [java.util ArrayList Collections Random]))
@@ -125,13 +126,6 @@
 
 ;; ---- the generator -----------------------------------------------------
 
-(def drawn-monotonic
-  "The roster functors the generator writes `:monotonic` itself, because the engine at
-  HEAD stores a `:default` write of one as written (decision D11 is not yet in the
-  engine).  The engine coerces the rest of `vaelii.ref.world/forced-monotonic`, so those
-  take a random strength."
-  '#{disjoint covering})
-
 (def default-sizes
   "The v1 sizes from the design note, each an inclusive `[lo hi]` range.  `:writes`
   counts every write, rules included."
@@ -152,8 +146,8 @@
 
   - `:plain` — two individuals; marks `irreflexive`, `anti_transitive`, `functional`,
     `functionalInArg`, `anti_symmetric`.  Two symbol fillers colliding under a mark are
-    a merge only when both are `:monotonic` (decision D6), and `demote-merges` keeps the
-    generator from writing that pair.
+    a merge only when both are `:monotonic` (decision D6), which `merge-disagreements`
+    reads through the engine's equality.
   - `:num` — two integers in 1..3; the same marks.  Two integers never merge.
   - `:type-arg` — a type then an individual; marks `(transitiveInArg P 1 genl)`."
   [rng sizes]
@@ -243,27 +237,29 @@
                                                             (repeatedly 6 arg))))]
                 (when b (list p a b))))))))))
 
+(def ^:private menu-roster-functors
+  "The functors of the writes `fact-write` draws that are on the forced-monotonic roster:
+  the `genlCx` edge and every `declaration`."
+  '#{genlCx disjoint covering functional functionalInArg anti_symmetric irreflexive
+     anti_transitive transitiveInArg})
+
 (defn- fact-write
   "One non-rule write drawn from the menu: a `genlCx` edge, a `genl` edge or its denial, a
-  membership or its denial, a tuple or its denial, a declaration, or a `violation` of a
-  mark among `acc`, the writes drawn before it.  A write whose functor is in
-  `drawn-monotonic` is written `:monotonic`; any other write of
-  `vaelii.ref.world/forced-monotonic` takes a random strength, since the reference and
-  the engine both store it `:monotonic`.  The menu holds no denial of a
-  `vaelii.ref.world/forced-monotonic` functor."
+  membership or its denial, a tuple or its denial, a declaration, a denial of a roster
+  write (one among `acc`, the writes drawn before it, when there is one), or a
+  `violation` of a mark among `acc`.  Every write takes a random strength: the reference
+  and the engine both read a write of `vaelii.ref.world/forced-monotonic` `:monotonic`,
+  and both hold a denial of one inert."
   [rng {:keys [contexts types individuals predicates] :as pools} acc]
   (let [ctx   #(pick rng contexts)
         kind  (weighted rng (cond-> [[2 :genl] [1 :genl-denial] [5 :member] [2 :member-denial]
-                                     [3 :tuple] [1 :tuple-denial] [3 :declaration]]
+                                     [3 :tuple] [1 :tuple-denial] [3 :declaration]
+                                     [1 :roster-denial]]
                               (>= (count contexts) 2) (conj [2 :genl-cx])
                               (some #(#{'irreflexive 'anti_symmetric} (functor-of (:sentence %)))
                                     acc)
                               (conj [2 :violation])))
-        write (fn [s c]
-                ;; the strength is drawn first either way, so the seed's draws stay put
-                (let [k (strength rng)]
-                  {:sentence s :context c
-                   :strength (if (contains? drawn-monotonic (functor-of s)) :monotonic k)}))]
+        write (fn [s c] {:sentence s :context c :strength (strength rng)})]
     (case kind
       :genl-cx       (let [[sub super] (type-pair rng contexts)]
                        (write (list 'genlCx sub super) 'CxUniverse))
@@ -276,54 +272,13 @@
       :tuple         (write (fix-self (tuple rng (pick rng predicates) pools)) (ctx))
       :tuple-denial  (write (list 'not (fix-self (tuple rng (pick rng predicates) pools))) (ctx))
       :declaration   (write (declaration rng pools) (ctx))
+      :roster-denial (let [prior (filterv #(contains? menu-roster-functors (first (:sentence %)))
+                                          acc)
+                           s     (if (seq prior)
+                                   (:sentence (pick rng prior))
+                                   (declaration rng pools))]
+                       (write (list 'not s) (if (= 'genlCx (first s)) 'CxUniverse (ctx))))
       :violation     (when-let [t (violation rng pools acc)] (write t (ctx))))))
-
-(defn- merge-marks
-  "`{P #{mark …}}` over the writes: `:functional`, `[:functional-in-arg n]` and
-  `:anti-symmetric` for each such declaration of `P`, whatever its context."
-  [writes]
-  (reduce (fn [m {s :sentence}]
-            (if-let [mk (when (seq? s)
-                          (case (first s)
-                            functional      :functional
-                            functionalInArg [:functional-in-arg (nth s 2)]
-                            anti_symmetric  :anti-symmetric
-                            nil))]
-              (update m (second s) (fnil conj #{}) mk)
-              m))
-          {} writes))
-
-(defn- merge-pair?
-  "Do the distinct binary tuples `t1` and `t2` collide with symbol fillers under a mark of
-  `marks` (`merge-marks`): a pair two `:monotonic` members make a merge (decision D6)."
-  [marks t1 t2]
-  (and (not= t1 t2) (= (first t1) (first t2)) (= 3 (count t1) (count t2))
-       (let [[_ a1 b1] t1 [_ a2 b2] t2]
-         (some (fn [mk]
-                 (cond
-                   (= :functional mk)     (and (= a1 a2) (symbol? b1) (symbol? b2))
-                   (= :anti-symmetric mk) (and (= a1 b2) (= b1 a2) (not= a1 b1)
-                                               (symbol? a1) (symbol? b1))
-                   :else (let [n (second mk)
-                               [v1 v2 o1 o2] (if (= 1 n) [a1 a2 b1 b2] [b1 b2 a1 a2])]
-                           (and (= o1 o2) (symbol? v1) (symbol? v2)))))
-               (get marks (first t1))))))
-
-(defn- demote-merges
-  "`writes` with every `:monotonic` tuple that is a `merge-pair?` with an earlier
-  `:monotonic` tuple set to `:default`, so no two `:monotonic` symbol-filler tuples
-  collide under one mark (decision D6: equality is outside v1).  One member of such a
-  pair stays `:monotonic`."
-  [writes]
-  (let [marks (merge-marks writes)]
-    (first
-     (reduce (fn [[acc kept] {s :sentence k :strength :as w}]
-               (cond
-                 (not (and (= :monotonic k) (seq? s) (contains? marks (first s))))
-                 [(conj acc w) kept]
-                 (some #(merge-pair? marks s %) kept) [(conj acc (assoc w :strength :default)) kept]
-                 :else                               [(conj acc w) (conj kept s)]))
-             [[] []] writes))))
 
 (defn- up-closure
   "`start` plus every type reachable from it over `edges`, a map sub -> #{super}."
@@ -423,6 +378,100 @@
            {:sentence (list tc ind) :context k :strength :default}])
         [member {:sentence (list 'not (list tb ind)) :context k :strength :default}]))))
 
+(defn- collision
+  "The writes of a mark that merges and two tuples of symbols it convicts, all in one
+  context: `(functional P)` over `(P a b)` and `(P a a)`, `(functionalInArg P 1)` over
+  `(P b a)` and `(P a a)`, or `(anti_symmetric P)` over `(P a b)` and `(P b a)`, for a
+  `:plain` predicate.  The two tuples take one of the four pairs of strengths, so a
+  quarter of these worlds hold a merge (decision D6) and the rest a nogood.  In a third
+  of the worlds with a `:default` tuple, that tuple also has a `:monotonic` route: a
+  `:monotonic` forward rule `(Q ?x ?y) => (P ?x ?y)` over a `:monotonic` `(Q …)` of its
+  arguments, for a fresh `Q`, so the merge waits on the route and the order permutations
+  move the member's class under an unchanged label.  In a third of the worlds whose tuples
+  merge, a `:monotonic` `(disjoint ta tc)` over two types related by no edge of `facts`,
+  with `(ta x)` and `(tc y)` in the same context, `x` and `y` drawn from the two merged
+  individuals and each at a random strength, so the orders reach a clash member restated
+  second and one OUT when the merge arrives.  Nil without a `:plain` predicate or two
+  individuals."
+  [rng {:keys [contexts individuals predicates types]} facts]
+  (let [plain (filterv #(= :plain (:kind %)) predicates)]
+    (when (and (seq plain) (<= 2 (count individuals)))
+      (let [p       (:pred (pick rng plain))
+            c       (pick rng contexts)
+            [a b]   (take 2 (shuffled (.nextLong ^Random rng) individuals))
+            [s1 s2] (pick rng [[:monotonic :monotonic] [:monotonic :default]
+                               [:default :monotonic] [:default :default]])
+            [d t u] (pick rng [[(list 'functional p) (list p a b) (list p a a)]
+                               [(list 'functionalInArg p 1) (list p b a) (list p a a)]
+                               [(list 'anti_symmetric p) (list p a b) (list p b a)]])
+            routed  (when (and (some #{:default} [s1 s2]) (chance rng 0.33))
+                      (if (= :default s1) t u))
+            q       (when routed (tu/fresh-term :predicate "route"))
+            clash   (when (and (or routed (= [:monotonic :monotonic] [s1 s2]))
+                               (<= 2 (count types)) (chance rng 0.33))
+                      (let [edges (type-edges facts)
+                            [ta tc] (type-pair rng types)]
+                        (when-not (or (contains? (up-closure edges [ta]) tc)
+                                      (contains? (up-closure edges [tc]) ta))
+                          [{:sentence (list* 'disjoint (sort [ta tc])) :context c :strength :monotonic}
+                           {:sentence (list ta (pick rng [a b])) :context c :strength (strength rng)}
+                           {:sentence (list tc (pick rng [a b])) :context c :strength (strength rng)}])))]
+        (cond-> [{:sentence d :context c :strength :monotonic}
+                 {:sentence t :context c :strength s1}
+                 {:sentence u :context c :strength s2}]
+          routed (into [{:sentence (forward (list 'implies (list q '?x '?y) (list p '?x '?y)))
+                         :context  c :strength :monotonic}
+                        {:sentence (apply list q (rest routed)) :context c :strength :monotonic}])
+          clash  (into clash))))))
+
+(defn- release-below
+  "The writes of a clash a context decides and a context below it reads released
+  (decision D3), or nil when the world has one context or no third type apart from the
+  pair.  For contexts `hi` above `lo`, types `ta` below `tb`, a type `tc` related to
+  neither over `type-edges`, and an individual `I`: `(genlCx lo hi)`, and in `hi` a
+  `:default` `(genl ta tb)`, a `:monotonic` `(disjoint tb tc)`, a `:default` `(ta I)` and a
+  `:monotonic` `(tc I)`; in `lo` a `:monotonic` `(not (genl ta tb))`.  `hi` takes `(ta I)`
+  OUT; `lo` takes the edge OUT, reads no clash, and believes `(ta I)`."
+  [rng {:keys [contexts types individuals]} facts]
+  (when (and (>= (count contexts) 2) (>= (count types) 3))
+    (let [[lo hi] (type-pair rng contexts)
+          [ta tb] (type-pair rng types)
+          ind     (pick rng individuals)
+          edges   (update (type-edges facts) ta (fnil conj #{}) tb)
+          apart   (remove (fn [t] (or (contains? #{ta tb} t)
+                                      (contains? (up-closure edges [ta]) t)
+                                      (contains? (up-closure edges [t]) ta)
+                                      (contains? (up-closure edges [t]) tb)))
+                          types)]
+      (when (seq apart)
+        (let [tc (pick rng apart)
+              w  (fn [s c st] {:sentence s :context c :strength st})]
+          [(w (list 'genlCx lo hi) 'CxUniverse :monotonic)
+           (w (list 'genl ta tb) hi :default)
+           (w (list* 'disjoint (sort [tb tc])) hi :monotonic)
+           (w (list ta ind) hi :default)
+           (w (list tc ind) hi :monotonic)
+           (w (list 'not (list 'genl ta tb)) lo :monotonic)])))))
+
+(defn- blocker-below
+  "The writes that make a guarded rule's guard hold at a context below its placement and
+  not at the placement (decision D4), or nil when `rules` holds no guarded rule or no
+  context follows the rule's in the pool.  For the first guarded rule `(ta ?x) ⇒ (tb ?x)`,
+  guarded by `tu` and placed in `k`, a context `lo` after `k` in the pool, and an
+  individual `I`: `(genlCx lo k)`, a `(ta I)` in `k` and a `(tu I)` in `lo`.  `k` believes
+  `(tb I)` and `lo` does not."
+  [rng {:keys [contexts individuals]} rules]
+  (when-let [[k [ta _ tu]] (first (keep #(when-let [p (guarded-parts (:sentence %))]
+                                           [(:context %) p])
+                                        rules))]
+    (let [later (drop (inc (.indexOf ^java.util.List contexts k)) contexts)]
+      (when (seq later)
+        (let [lo  (pick rng later)
+              ind (pick rng individuals)]
+          [{:sentence (list 'genlCx lo k) :context 'CxUniverse :strength :monotonic}
+           {:sentence (list ta ind) :context k :strength (strength rng)}
+           {:sentence (list tu ind) :context lo :strength (strength rng)}])))))
+
 (defn gen-world
   "A random world for `seed`, inside the v1 fragment.  The same seed gives the same
   structure; every term carries a fresh gensym tail, so two calls never share a term.
@@ -432,11 +481,11 @@
   `CxUniverse`); types form a `genl` forest under `thing` the same way; the writes are
   drawn from `fact-write`'s menu without repeating a `[sentence context]` pair; 0–2
   rules come from `rule-writes`; half the worlds holding a guarded rule add the writes of
-  `guarded-clash`, less any `[sentence context]` pair already drawn.  Every write of
-  `vaelii.ref.world/forced-monotonic` is stored `:monotonic` and none is denied;
-  `demote-merges` leaves no two `:monotonic` symbol-filler tuples colliding under one
-  mark.  `:contexts` holds every generated context plus `CxUniverse` when an edge names
-  it."
+  `guarded-clash`, a quarter of the worlds the writes of `release-below`, a third the
+  writes of `collision`, and a third of the worlds holding a guarded rule the writes of
+  `blocker-below`, each less any `[sentence context]` pair already drawn.  Every write of
+  `vaelii.ref.world/forced-monotonic` is read `:monotonic`, and a denial of one inert.
+  `:contexts` holds every generated context plus `CxUniverse` when an edge names it."
   [seed opts]
   (let [rng    (Random. (long seed))
         sizes  (merge default-sizes opts)
@@ -451,12 +500,20 @@
                      (if (or (nil? w) (seen k))
                        (recur acc seen (inc guard))
                        (recur (conj acc w) (conj seen k) (inc guard))))))
-        facts  (demote-merges facts)
         rules  (rule-writes rng pools facts nrules)
         clash  (when (chance rng 0.5) (guarded-clash rng pools facts rules))
+        ;; drawn last, so every draw before it reads the numbers it read without it
+        below  (when (chance rng 0.25) (release-below rng pools facts))
+        ;; drawn after it, for the same reason
+        coll   (when (chance rng 0.33) (collision rng pools facts))
+        ;; and this after that
+        under  (when (chance rng 0.33) (blocker-below rng pools rules))
         seen   (into #{} (map (juxt :sentence :context)) facts)
         writes (-> facts
                    (into (remove #(seen [(:sentence %) (:context %)])) clash)
+                   (into (remove #(seen [(:sentence %) (:context %)])) below)
+                   (into (remove #(seen [(:sentence %) (:context %)])) coll)
+                   (into (remove #(seen [(:sentence %) (:context %)])) under)
                    (into rules))]
     {:contexts (into (set (:contexts pools)) (world-contexts writes))
      :writes   writes}))
@@ -497,22 +554,29 @@
            (mem/drop-record-space! space)
            (mem/drop-index-space! space)))))
 
+(def ^:private roster-context
+  "The context the roster declarations of a world KB are stored in: one no world context
+  sees, so no comparison reads them.  The engine reads the roster globally."
+  'CxRefRoster)
+
 (defn load-world!
-  "A fresh KB on a space of its own, opened `{:constraints :arbitrate}` merged with
-  `opts`, with the writes of `order` (a vector of the world's writes) asserted in that
-  order.  A write `assert` refuses with an `ex-info` is recorded as
+  "A fresh KB on a space of its own, opened with `opts`, holding the
+  `forced_monotonic_predicate` declaration of `genlCx` and of every functor in
+  `menu-roster-functors` and the `(forced_monotonic_between_predicates genl)` declaration
+  (CxCore declares them, and a world KB loads no CxCore), then the
+  writes of `order` (a vector of the world's writes) asserted in that order.  A write
+  `assert` refuses with an `ex-info` is recorded as
   `{:refused write :type (:type ex-data) :message …}` and loading goes on; any other
   throwable closes the KB and propagates.
 
-  Returns `{:kb kb :space space :refused [...]}`; the caller closes it with `close-kb!`.
-  Decision D15 removes the `:constraints` option; the loader passes it until the engine
-  drops it."
+  Returns `{:kb kb :space space :refused [...]}`; the caller closes it with `close-kb!`."
   [_world order opts]
   (let [space [::ref (swap! space-counter inc)]
-        kb    (v/open-kb (merge {:backend :memory :space space :recover? false
-                                 :constraints :arbitrate}
-                                opts))]
+        kb    (v/open-kb (merge {:backend :memory :space space :recover? false} opts))]
     (try
+      (doseq [f (sort (conj menu-roster-functors 'genlCx))]
+        (v/assert kb (list 'forced_monotonic_predicate f) roster-context))
+      (v/assert kb '(forced_monotonic_between_predicates genl) roster-context)
       {:kb      kb
        :space   space
        :refused (into []
@@ -560,17 +624,107 @@
                       (filter #(and (not (kept %)) (v/ask? kb % c)))
                       (sort-by pr-str (get asks c)))])))))
 
+(defn engine-reports
+  "Every report of `conflicts` and `contradictions`, as `{:members #{S} :grounds #{S}
+  :vantages #{C}}`, with `:canon`, each non-rule write sentence of `world` mapped to the
+  sentence the engine stores it as, so a reference sentence is compared in the engine's
+  spelling.  `:vantages` is empty for a report weighed at none."
+  [kb world]
+  {:reports (vec (for [r (concat (v/conflicts kb) (v/contradictions kb))]
+                   {:members  (into #{} (map :sentence) (:sides r))
+                    :grounds  (into #{} (map :sentence) (:grounds r))
+                    :vantages (set (clashes/report-vantages r))}))
+   :canon   (into {}
+                  (keep (fn [{:keys [sentence context]}]
+                          ;; a write the engine refuses has no stored spelling
+                          (when (comparable-sentence? sentence)
+                            (try [sentence (v/sentence-of
+                                            (v/canonical-sentex kb sentence context))]
+                                 (catch clojure.lang.ExceptionInfo _ nil)))))
+                  (:writes world))})
+
+(defn- individuals-of
+  "The individuals `world`'s writes name: every CapitalCamel symbol that is not a context."
+  [world]
+  (into (sorted-set)
+        (comp (mapcat (comp symbols-in :sentence))
+              (filter #(Character/isUpperCase (.charAt ^String (name %) 0)))
+              (remove #(str/starts-with? (name %) "Cx")))
+        (:writes world)))
+
+(defn engine-merges
+  "`{C #{#{a b}}}`: the pairs of `world`'s individuals the engine holds equal at each
+  context of `world`, read by `ask?` on `(equals a b)`."
+  [kb world]
+  (let [inds (vec (individuals-of world))]
+    (into {}
+          (for [c (:contexts world)]
+            [c (into #{}
+                     (for [i (range (count inds))
+                           j (range (inc i) (count inds))
+                           :let [a (inds i) b (inds j)]
+                           :when (v/ask? kb (list 'equals a b) c)]
+                       #{a b}))]))))
+
+(defn- respell
+  "`form` with every symbol that is a key of `m` replaced by its value, at any depth."
+  [form m]
+  (cond (symbol? form) (get m form form)
+        (seq? form)    (apply list (map #(respell % m) form))
+        :else          form))
+
+(defn engine-displaced
+  "`{C {S S'}}`: each sentence `S` of `beliefs` (`engine-beliefs`) believed at `C` that
+  names a term of a pair of `merges` (`engine-merges`) whose representative at `C` is
+  another term, with `S'`, its spelling under the representatives.  A merge supersedes
+  every spelling it displaces but its own equalities', so each entry is a spelling the
+  merge left believed."
+  [kb beliefs merges]
+  (into {}
+        (for [[c pairs] merges
+              :let [rep (into {} (comp cat
+                                       (map (fn [t] [t (v/representative kb t c)]))
+                                       (remove (fn [[t r]] (= t r))))
+                              pairs)]
+              :when (seq rep)
+              :let [ss (into {} (comp (remove #(contains? '#{equals sameAs rewriteOf} (functor-of %)))
+                                      (filter #(some rep (symbols-in %)))
+                                      (map (fn [s] [s (respell s rep)])))
+                             (get beliefs c))]
+              :when (seq ss)]
+          [c ss])))
+
+(defn- recovered-beliefs
+  "`engine-beliefs` of the KB `loaded` holds after it is closed and opened again over the
+  same RAM stores with `{:recover? true}`, which rebuilds belief from the records alone.
+  Closes both KBs; `close-kb!` then drops the stores."
+  [{:keys [kb space]} world opts asks]
+  (v/close! kb)
+  (let [kb' (v/open-kb (merge {:backend :memory :space space :recover? true} opts))]
+    (try (engine-beliefs kb' world asks)
+         (finally (v/close! kb')))))
+
 (defn run-order
   "Load `world` in `order`, read `engine-beliefs` (asking the sentences of `asks`,
-  `{C #{S}}`, through `ask?`), and close the KB.
-  Returns `{:order order :refused [...] :beliefs {C #{S}}}`."
+  `{C #{S}}`, through `ask?`), `engine-reports`, `engine-merges` and `engine-displaced`,
+  and close the KB.  Returns `{:order order :refused [...] :beliefs {C #{S}} :reports {...}
+  :merges {C #{#{a b}}} :displaced {C {S S'}}}`, and with `recover?` also `:recovered`,
+  the beliefs the KB reads once closed and recovered (`recovered-beliefs`)."
   ([world order opts] (run-order world order opts {}))
-  ([world order opts asks]
+  ([world order opts asks] (run-order world order opts asks false))
+  ([world order opts asks recover?]
    (let [loaded (load-world! world order opts)]
      (try
-       {:order   order
-        :refused (:refused loaded)
-        :beliefs (engine-beliefs (:kb loaded) world asks)}
+       (let [kb      (:kb loaded)
+             beliefs (engine-beliefs kb world asks)
+             merges  (engine-merges kb world)]
+         (cond-> {:order     order
+                  :refused   (:refused loaded)
+                  :beliefs   beliefs
+                  :reports   (engine-reports kb world)
+                  :merges    merges
+                  :displaced (engine-displaced kb beliefs merges)}
+           recover? (assoc :recovered (recovered-beliefs loaded world opts asks))))
        (finally (close-kb! loaded))))))
 
 ;; ---- reading the reference ---------------------------------------------
@@ -619,6 +773,62 @@
               :when (not= r e)]
           {:context c :sentence s :engine e :reference r}))))
 
+(defn- joined-pairs
+  "The unordered pairs of symbols `pairs` (`[[a b] …]`) join, closed under
+  transitivity, as `#{#{a b}}`."
+  [pairs]
+  (let [classes (reduce (fn [cs [a b]]
+                          (let [in (filter #(or (contains? % a) (contains? % b)) cs)]
+                            (conj (reduce disj cs in) (into #{a b} cat in))))
+                        #{} pairs)]
+    (into #{} (for [cls classes a cls b cls :when (neg? (clojure.core/compare a b))] #{a b}))))
+
+(defn reference-merges
+  "`{C #{#{a b}}}`: the pairs of symbols the reference's `:merge` verdicts at each
+  context of `ref-result` join (decision D6): each argument position where the two
+  members differ pairs its two symbols."
+  [ref-result]
+  (into {}
+        (for [[c ref-c] ref-result]
+          [c (joined-pairs
+              (for [ng (:nogoods ref-c)
+                    :when (= :merge (:verdict ng))
+                    [x y] (apply map vector (map rest (:members ng)))
+                    :when (not= x y)]
+                [x y]))])))
+
+(defn merge-disagreements
+  "Each context of `world` where the engine's merges in `run` (`engine-merges`) differ
+  from the reference's (`reference-merges`), as `{:context :engine :reference :order}`."
+  [world ref-result run]
+  (let [want (reference-merges ref-result)]
+    (vec (for [c (sort-by str (:contexts world))
+               :let [e (get (:merges run) c #{}) r (get want c #{})]
+               :when (not= e r)]
+           {:context c :engine e :reference r :order (:order run)}))))
+
+(defn grounds-disagreements
+  "Each engine report of `run` whose `:grounds` differ from the declarations in the
+  reference's `:ground` (every sentence but a `genl` edge, which the engine does not
+  name), unioned over the reference's nogoods with the same members at the report's
+  vantages (every context of `ref-result` for a report weighed at none), as
+  `{:members :engine :reference :vantages :order}`.  A report no such nogood matches is
+  left to the belief comparison."
+  [ref-result run]
+  (let [{:keys [reports canon]} (:reports run)
+        spell (fn [ss] (into #{} (map #(get canon % %)) ss))]
+    (vec (for [{:keys [members grounds vantages]} reports
+               :let [vs  (if (seq vantages) (filter #(contains? ref-result %) vantages)
+                             (keys ref-result))
+                     ngs (for [c vs, ng (:nogoods (get ref-result c))
+                               :when (= members (spell (:members ng)))]
+                           ng)
+                     want (spell (remove #(and (seq? %) (= 'genl (first %)))
+                                         (mapcat :ground ngs)))]
+               :when (and (seq ngs) (not= want grounds))]
+           {:members members :engine grounds :reference want :vantages vantages
+            :order (:order run)}))))
+
 (defn- refused-set [run] (into #{} (map :refused) (:refused run)))
 
 (defn- run-disagreements
@@ -643,34 +853,12 @@
 
 ;; ---- refusals ----------------------------------------------------------
 
-(def clash-refusal-types
-  "The `:type`s of an entry-point refusal that reads other stored content and convicts a
-  clash (docs/naming.md's roster of `assert`'s refusals).  Decision D8 stores such a
-  clash instead."
-  #{:disjoint :functional :cover :asymmetric :anti-transitive})
-
-(def mark-refusal-types
-  "The `:type`s of an entry-point refusal of an `irreflexive` or `anti_symmetric`
-  violation.  Decision D7 makes each a nogood instead."
-  #{:irreflexive :anti-symmetric})
-
 (defn refusal-kind
   "The divergence kind of an engine refusal `{:refused w :type t …}`:
-  `:engine-refused-clash` for a type in `clash-refusal-types`, `:engine-refused-mark`
-  for one in `mark-refusal-types`, `:engine-refused-genl-related` for a `disjoint` or
-  `covering` write refused as `:not-well-formed` (the entry point reads the stored genl
-  and disjoint content to refuse a declaration over related types; a generated
-  declaration is well formed on its own, so the refusal read other content, which
-  decision D8 makes a stored hard clash), and `:engine-refused-other` for anything
-  else.  The reference judges every write offered (decision D8), so every refusal of a
-  generated write is a divergence."
-  [{:keys [type refused]}]
-  (let [f (let [s (:sentence refused)] (when (seq? s) (first s)))]
-    (cond (contains? clash-refusal-types type) :engine-refused-clash
-          (contains? mark-refusal-types type)  :engine-refused-mark
-          (and (= :not-well-formed type)
-               (contains? #{'disjoint 'covering} f)) :engine-refused-genl-related
-          :else                                :engine-refused-other)))
+  `:engine-refused-other`.  The reference judges every write offered (decision D8), so
+  every refusal of a generated write is a divergence."
+  [_refusal]
+  :engine-refused-other)
 
 ;; ---- the check ---------------------------------------------------------
 
@@ -683,7 +871,18 @@
                                                      ; holds that run's belief differences
      :reference   [disagreement …]  ; engine against reference in the runs that refused
                                     ; nothing, each with the :order it was read in
+     :grounds     [disagreement …]  ; `grounds-disagreements` in the runs that refused
+                                    ; nothing
+     :merges      [disagreement …]  ; `merge-disagreements` in the runs that refused
+                                    ; nothing
      :orders      [disagreement …]  ; `order-disagreements`
+     :recovered   [disagreement …]  ; engine against reference after the first order's
+                                    ; KB is closed and recovered, when it refused nothing
+     :displaced   [{:context C :sentence S :respelled S' :order o} …]
+                                    ; at a context of :merge-skips, a spelling the
+                                    ; engine's own merge displaces there and it believes,
+                                    ; with its spelling under the representatives
+                                    ; (`engine-displaced`)
      :merge-skips #{C …}            ; contexts skipped for a :merge verdict (D6)
      :refused     [{:refused w :type t :message m} …]  ; every refusal, distinct
      :store-split bool              ; did two orders store different content
@@ -692,12 +891,13 @@
   `judges` is a map.  `:reference` is `world -> {C {:believed :out :inherited
   :nogoods}}`, called once on the whole world.  `:kb-opts` is merged into each KB's
   `open-kb` options.  An inherited claim of the reference at `C` is read from the engine
-  through `ask?` at `C`."
+  through `ask?` at `C`.  The first order's KB is also closed, recovered and read again
+  (`run-order`'s `recover?`), since belief is a function of the records."
   [world orders {:keys [reference kb-opts]}]
   (let [ref    (reference world)
         asks   (into {} (for [[c ref-c] ref :let [i (inherited-at ref-c)] :when (seq i)] [c i]))
         skip   (into #{} (keep (fn [[c ref-c]] (when (merge-at? ref-c) c))) ref)
-        runs   (mapv #(run-order world % kb-opts asks) orders)
+        runs   (into [] (map-indexed #(run-order world %2 kb-opts asks (zero? %1))) orders)
         judged (mapv (fn [r] [r (compare world ref (:beliefs r) skip)]) runs)]
     {:refusals    (vec (for [[r ds] judged
                              rf     (:refused r)]
@@ -706,7 +906,23 @@
                              :when (empty? (:refused r))
                              d ds]
                          (assoc d :order (:order r))))
+     :grounds     (vec (for [r runs
+                             :when (empty? (:refused r))
+                             d (grounds-disagreements ref r)]
+                         d))
+     :merges      (vec (for [r runs
+                             :when (empty? (:refused r))
+                             d (merge-disagreements world ref r)]
+                         d))
      :orders      (order-disagreements world runs)
+     :recovered   (vec (for [r (take 1 runs)
+                             :when (empty? (:refused r))
+                             d (compare world ref (:recovered r) skip)]
+                         (assoc d :order (:order r))))
+     :displaced   (vec (for [r runs
+                             c (sort-by str skip)
+                             [s s'] (sort-by (comp pr-str key) (get (:displaced r) c))]
+                         {:context c :sentence s :respelled s' :order (:order r)}))
      :merge-skips skip
      :refused     (vec (distinct (mapcat :refused runs)))
      :store-split (< 1 (count (distinct (map refused-set runs))))
@@ -716,7 +932,7 @@
 
 (defn- context-up
   "`c` plus every context it sees over the `genlCx` writes of `writes` (every such write
-  counts: decision D1 makes each one monotonic and undeniable)."
+  counts: decision D1 makes each one monotonic, and a denial of one inert)."
   [writes c]
   (let [adj (reduce (fn [m {[f a b] :sentence}]
                       (if (= 'genlCx f) (update m a (fnil conj #{}) b) m))
@@ -781,71 +997,7 @@
           g guards]
       [w (mapv #(substitute % b) g)])))
 
-(defn- ground-sentence?
-  "Is `s` a `genl` edge or a declaration: something a clash is read through."
-  [s]
-  (and (seq? s) (or (= 'genl (first s))
-                    (contains? '#{disjoint covering functional functionalInArg irreflexive
-                                  anti_symmetric asymmetric anti_transitive transitiveInArg}
-                               (first s)))))
-
 ;; ---- classification ----------------------------------------------------
-
-(defn- exit-gate?
-  "Prompt 29: the engine disbelieves `s` at `c` where the reference believes it; `s` is
-  the conclusion of a guarded rule visible at `c`; one guard instance is OUT at `c` in
-  the reference, defeated by a nogood that is not a negation pair (a cross-functor
-  defeat, which queues none of the loser's watchers)."
-  [world ref {:keys [context sentence engine reference]}]
-  (let [ref-c (get ref context)]
-    (and reference (not engine)
-         (boolean
-          (some (fn [[_ g]]
-                  (some (fn [b]
-                          (and (contains? (set (:out ref-c)) b)
-                               (some #(and (= :defeat (:verdict %)) (= b (:loser %))
-                                           (not= :negation (:kind %)))
-                                     (:nogoods ref-c))))
-                        g))
-                (guarded-firings world context sentence))))))
-
-(defn- joint-view?
-  "Prompt 31: the engine believes `s` at `c` where the reference takes it OUT there; a
-  `genlCx` edge `(genlCx H K)` with `H` a strict ancestor of `c` widens `c`'s view (`c`
-  sees strictly less without it), and in the disagreement's order the edge arrives
-  after `s` when `s` is itself a write."
-  [world ref {:keys [context sentence engine reference order]}]
-  (let [ws  (:writes world)
-        up  (context-up ws context)
-        pos (fn [s] (first (keep-indexed (fn [i w] (when (= s (:sentence w)) i)) order)))]
-    (and engine (not reference)
-         (contains? (set (:out (get ref context))) sentence)
-         (boolean
-          (some (fn [{[f h] :sentence :as e}]
-                  (and (= 'genlCx f) (not= h context) (contains? up h)
-                       (< (count (context-up (filterv #(not= e %) ws) context)) (count up))
-                       (let [pe (pos (:sentence e)) ps (pos sentence)]
-                         (or (nil? ps) (and pe (> pe ps))))))
-                (filter #(seq? (:sentence %)) ws))))))
-
-(defn- verdict-bound-below-vantage?
-  "Decision D3: the engine disbelieves `s` at `c` where the reference believes it, and a
-  strict ancestor `V` of `c` takes `s` OUT in the reference: `c` reads a denial or an
-  edge that dissolves the clash `V` decides, and the engine keeps `V`'s verdict at `c`."
-  [world ref {:keys [context sentence engine reference]}]
-  (and reference (not engine)
-       (boolean (some #(and (not= context %) (contains? (set (:out (get ref %))) sentence))
-                      (context-up (:writes world) context)))))
-
-(defn- pass-count?
-  "Prompt 30: the engine disbelieves `s` at `c` where the reference believes it; the
-  reference at `c` takes a ground (a `genl` edge or a declaration) OUT, which releases a
-  clash there; and the world holds a guarded rule, whose blocker makes a settle run a
-  second pass."
-  [world ref {:keys [context engine reference]}]
-  (and reference (not engine)
-       (boolean (some ground-sentence? (:out (get ref context))))
-       (boolean (some #(seq (:guards (rule-shape (:sentence %)))) (:writes world)))))
 
 (defn- exception-not-reasked?
   "Decision D4: the engine believes `s` at `c` where the reference does not; `s` is the
@@ -860,53 +1012,11 @@
          (boolean (some #(and (not= context %) (ref-in? (get ref %) sentence))
                         (context-up (:writes world) context))))))
 
-(defn- late-mark-reported?
-  "Decision D7: the engine believes `s` at `c` where the reference takes it OUT as the
-  loser of an `irreflexive` or `anti_symmetric` nogood: the mark arrived after the
-  tuple, and the engine files a report and leaves the tuple believed instead of
-  deciding the nogood."
-  [_world ref {:keys [context sentence engine reference]}]
-  (and engine (not reference)
-       (boolean (some #(and (contains? #{:irreflexive :anti-symmetric} (:kind %))
-                            (= sentence (:loser %)))
-                      (:nogoods (get ref context))))))
-
-(defn- naf-conclusion-monotonic?
-  "Decision D14: the engine and the reference disagree on `s` at `c`; `s` is a member of a
-  nogood the reference decides at `c` that also holds the conclusion `m` of a guarded
-  rule visible at `c`, decided as a dilemma or with `m` the loser; and the rule's join
-  antecedents under the binding that concludes `m` are `:monotonic` writes seen from `c`.
-  The engine confers `m` `:monotonic` there, where the reference caps a guarded firing
-  at `:default`."
-  [world ref {:keys [context sentence]}]
-  (let [ws    (:writes world)
-        up    (context-up ws context)
-        mono  (into #{} (keep (fn [{s :sentence k :context st :strength}]
-                                (when (and (= :monotonic st) (contains? up k)) s)))
-                    ws)
-        mono? (fn [m]
-                (some (fn [{r :sentence k :context}]
-                        (let [{:keys [consequent antecedents guards]} (rule-shape r)
-                              b (when (and (seq guards) (contains? up k)) (bind consequent m))]
-                          (and b (every? #(contains? mono (substitute % b)) antecedents))))
-                      ws))]
-    (boolean
-     (some (fn [{:keys [members verdict loser]}]
-             (and (contains? members sentence)
-                  (some #(and (mono? %) (or (= :dilemma verdict) (= % loser))) members)))
-           (:nogoods (get ref context))))))
-
 (def classifiers
   "The belief-disagreement shapes, as `[kind predicate]` in the order `classify` tries
   them.  Each predicate reads the minimal world, the reference's result on it and the
   disagreement `{:context :sentence :engine :reference :order}`."
-  [[:late-mark-reported                     late-mark-reported?]
-   [:naf-conclusion-monotonic               naf-conclusion-monotonic?]
-   [:exit-gate                              exit-gate?]
-   [:joint-view                             joint-view?]
-   [:verdict-bound-below-vantage            verdict-bound-below-vantage?]
-   [:pass-count                             pass-count?]
-   [:exception-not-reasked-below-placement exception-not-reasked?]])
+  [[:exception-not-reasked-below-placement exception-not-reasked?]])
 
 (defn classify
   "The `:kind` of the belief disagreement `d` read in the minimal world `world`, whose
@@ -987,6 +1097,17 @@
     :world minimal :minimal d}`: the world shrunk while that disagreement persists
     (`shrink`, `failing-under` over at most two of the orders it was read in), and `k`
     from `classify` on the minimal world;
+  - one per member set whose report's `:grounds` differ from the reference's
+    declarations (`grounds-disagreements`), `{:kind :grounds-differ :category :grounds
+    :members :engine :reference :vantages :orders [o …]}`;
+  - one per context and pair of merge sets that differ (`merge-disagreements`),
+    `{:kind :merge-differs :category :merges :context :engine :reference :orders [o …]}`;
+  - one per `[context sentence]` of `:displaced`, a spelling the engine's own merge
+    displaces at a context the belief comparison skips and the engine believes there,
+    `{:kind :displaced-spelling :category :displaced-spelling :context :sentence :orders
+    [o …]}`;
+  - one per recovered disagreement, `{:kind :recover-differs :category :recovered
+    :context :sentence :engine :reference :order}`;
   - one per engine-against-engine disagreement no divergence above accounts for (none
     is expected: a disagreement between two runs that refused nothing is a reference
     disagreement of one of them, and one between two runs that refused the same writes
@@ -1016,15 +1137,47 @@
                     :orders    orders
                     :world     mw
                     :minimal   mf})
-        covered  (into #{} (map (juxt :context :sentence)) (:reference check))
+        grounds  (for [[[m e r] ds] (group-by (juxt :members :engine :reference) (:grounds check))]
+                   {:kind      :grounds-differ
+                    :category  :grounds
+                    :members   m
+                    :engine    e
+                    :reference r
+                    :vantages  (:vantages (first ds))
+                    :orders    (vec (take 2 (distinct (map :order ds))))})
+        merges   (for [[[c e r] ds] (group-by (juxt :context :engine :reference) (:merges check))]
+                   {:kind      :merge-differs
+                    :category  :merges
+                    :context   c
+                    :engine    e
+                    :reference r
+                    :orders    (vec (take 2 (distinct (map :order ds))))})
+        displaced (for [[[c s] ds] (group-by (juxt :context :sentence) (:displaced check))]
+                    {:kind     :displaced-spelling
+                     :category :displaced-spelling
+                     :context  c
+                     :sentence s
+                     :orders   (vec (take 2 (distinct (map :order ds))))})
+        ;; a displaced spelling believed in one order is, in another, its restatement
+        ;; believed: both halves of that orders disagreement are this divergence
+        covered  (-> #{}
+                     (into (map (juxt :context :sentence)) (:reference check))
+                     (into (mapcat (juxt (juxt :context :sentence) (juxt :context :respelled)))
+                           (:displaced check)))
         refusing (into #{} (comp (map :order)) (:refusals check))
         orphans  (for [d (:orders check)
                        :when (not (or (covered [(:context d) (:sentence d)])
                                       (refusing (:order-a d)) (refusing (:order-b d))))]
-                   (assoc d :kind :unclassified :category :orders))]
+                   (assoc d :kind :unclassified :category :orders))
+        recovered (for [d (:recovered check)]
+                    (assoc d :kind :recover-differs :category :recovered))]
     (vec (concat (sort-by #(pr-str (:refusal %)) refusals)
                  (sort-by #(pr-str [(:context %) (:sentence %)]) refs)
-                 orphans))))
+                 (sort-by #(pr-str (sort-by pr-str (:members %))) grounds)
+                 (sort-by #(pr-str [(:context %) (:engine %) (:reference %)]) merges)
+                 (sort-by #(pr-str [(:context %) (:sentence %)]) displaced)
+                 orphans
+                 recovered))))
 
 ;; ---- reporting ---------------------------------------------------------
 
@@ -1048,8 +1201,18 @@
                          (count (:contexts (:world d))) " contexts; order "
                          (pr-str (mapv (juxt :sentence :context :strength)
                                        (:order (:minimal d) (first (:orders d))))))
+         :grounds   (str "over " (pr-str (sort-by pr-str (:members d))) " at "
+                         (pr-str (sort (:vantages d))) ", engine grounds "
+                         (pr-str (sort-by pr-str (:engine d))) " reference declarations "
+                         (pr-str (sort-by pr-str (:reference d))))
          :orders    (str "at " (:context d) " on " (pr-str (:sentence d)) ", order a "
-                         (:a d) " order b " (:b d)))))
+                         (:a d) " order b " (:b d))
+         :merges    (str "at " (:context d) ", engine merges " (pr-str (:engine d))
+                         " reference merges " (pr-str (:reference d)))
+         :recovered (str "after a recover, at " (:context d) " on " (pr-str (:sentence d))
+                         ", engine " (:engine d) " reference " (:reference d))
+         :displaced-spelling (str "at " (:context d) " the engine believes "
+                                  (pr-str (:sentence d)) ", a spelling its merge displaces"))))
 
 (defn report!
   "Write the divergence `d` of `seed` as EDN into `dir` (default `default-report-dir`),

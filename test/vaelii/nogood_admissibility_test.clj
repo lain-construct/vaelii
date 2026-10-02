@@ -29,7 +29,6 @@
   this namespace owns the one property that spans them."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.checks :as checks]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -47,8 +46,8 @@
 ;; ---- a rebuttal names the two claims ------------------------------------
 
 (tu/deftest-kb a-rebuttals-members-are-the-two-claims-and-nothing-else
-  ;; The baseline shape.  `negation-nogoods` reads joint visibility to decide whether
-  ;; the pair clashes at all, and no member supports that verdict — so defeating either
+  ;; The baseline shape.  A negation pair is read through joint visibility to decide
+  ;; whether it clashes at all, and no member supports that verdict — so defeating either
   ;; side removes one of the two claims the pair was about, which is the whole of what
   ;; the criterion asks.
   (tu/with-terms [flies Tweety]
@@ -65,25 +64,24 @@
 (tu/deftest-kb a-definitional-clashs-members-exclude-the-declaration-it-was-read-through
   ;; The criterion's live case.  `(disjoint A B)` is what convicts the pair, and it is
   ;; read through `clash-vocabulary` rather than weighed with the members: putting it in
-  ;; the set would let `decide-nogood` defeat it, after which nothing could look at the
+  ;; the set would let `decide/verdict` defeat it, after which nothing could look at the
   ;; pair again and both memberships would stand unconvicted.
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-kb [kb]
-      (tu/with-terms [dog_t fish_t Rex]
-        (v/assert kb (list 'disjoint dog_t fish_t) U)
-        (v/assert kb (list dog_t Rex) U)
-        (v/assert kb (list fish_t Rex) U)
-        (let [c    (the-clash kb)
-              decl (v/handle-of kb (list 'disjoint dog_t fish_t) U)]
-          (is (= :disjoint (:kind c)))
-          (is (= #{(v/handle-of kb (list dog_t Rex) U)
-                   (v/handle-of kb (list fish_t Rex) U)}
-                 (:nogood c))
-              "the members are the two memberships")
-          (is (not (contains? (:nogood c) decl))
-              "the declaration convicts the pair; it is not one of the convicted")
-          (is (v/in? kb decl)
-              "and it is believed, which is what makes the conviction re-derivable"))))))
+  (tu/with-kb [kb]
+    (tu/with-terms [dog_t fish_t Rex]
+      (v/assert kb (list 'disjoint dog_t fish_t) U)
+      (v/assert kb (list dog_t Rex) U)
+      (v/assert kb (list fish_t Rex) U)
+      (let [c    (the-clash kb)
+            decl (v/handle-of kb (list 'disjoint dog_t fish_t) U)]
+        (is (= :disjoint (:kind c)))
+        (is (= #{(v/handle-of kb (list dog_t Rex) U)
+                 (v/handle-of kb (list fish_t Rex) U)}
+               (:nogood c))
+            "the members are the two memberships")
+        (is (not (contains? (:nogood c) decl))
+            "the declaration convicts the pair; it is not one of the convicted")
+        (is (v/in? kb decl)
+            "and it is believed, which is what makes the conviction re-derivable")))))
 
 (tu/deftest-kb acting-on-a-definitional-clash-leaves-its-verdict-stable
   ;; What the exclusion buys, stated as behaviour rather than as membership.  With one
@@ -95,28 +93,27 @@
   ;; against content already known true (`constraint_nogood_test`), so this is the
   ;; arrival that leaves the settle a strength-differentiated pair to decide rather than
   ;; a writer to turn away.
-  (binding [checks/*arbitrate-constraints?* true]
-    (tu/with-kb [kb]
-      (tu/with-terms [dog_t fish_t Rex Bystander]
-        (v/assert kb (list 'disjoint dog_t fish_t) U)
-        (v/assert kb (list fish_t Rex) U)
-        (v/assert kb (list dog_t Rex) U mono)
-        (let [decl   (v/handle-of kb (list 'disjoint dog_t fish_t) U)
-              winner (v/handle-of kb (list dog_t Rex) U)
-              loser  (v/handle-of kb (list fish_t Rex) U)]
-          (testing "the weakest member loses, and only it"
-            (is (v/in? kb winner))
-            (is (not (v/in? kb loser)))
-            (is (v/in? kb decl) "the declaration is not a member, so nothing defeats it"))
-          (testing "and the verdict survives the settles that follow"
-            ;; every assert re-settles: `clear-defeats!` revives the loser tentatively
-            ;; and the pair must be re-derived and re-decided.  A declaration defeated
-            ;; along with the loser would leave nothing able to do that.
-            (dotimes [_ 3] (v/assert kb (list dog_t Bystander) U))
-            (is (v/in? kb decl))
-            (is (v/in? kb winner))
-            (is (not (v/in? kb loser))
-                "the loser came back, so the clash stopped being derivable")))))))
+  (tu/with-kb [kb]
+    (tu/with-terms [dog_t fish_t Rex Bystander]
+      (v/assert kb (list 'disjoint dog_t fish_t) U)
+      (v/assert kb (list fish_t Rex) U)
+      (v/assert kb (list dog_t Rex) U mono)
+      (let [decl   (v/handle-of kb (list 'disjoint dog_t fish_t) U)
+            winner (v/handle-of kb (list dog_t Rex) U)
+            loser  (v/handle-of kb (list fish_t Rex) U)]
+        (testing "the weakest member loses, and only it"
+          (is (v/in? kb winner))
+          (is (not (v/in? kb loser)))
+          (is (v/in? kb decl) "the declaration is not a member, so nothing defeats it"))
+        (testing "and the verdict survives the settles that follow"
+          ;; every assert re-settles, and the reader decides the pair again from
+          ;; current state.  A declaration defeated along with the loser would leave
+          ;; nothing able to do that.
+          (dotimes [_ 3] (v/assert kb (list dog_t Bystander) U))
+          (is (v/in? kb decl))
+          (is (v/in? kb winner))
+          (is (not (v/in? kb loser))
+              "the loser came back, so the clash stopped being derivable"))))))
 
 ;; ---- an inherited clash names its reasons, deliberately -----------------
 

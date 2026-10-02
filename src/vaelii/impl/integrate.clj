@@ -33,7 +33,9 @@
   in `special/index-rule-sentex` — the trigger is the rule gaining an exception to
   evaluate), and `recover` (nothing about blocking survives a restart, so it
   re-queues everything wholesale)."
-  (:require [vaelii.impl.jtms :as jtms]
+  (:require [vaelii.impl.decide :as decide]
+            [vaelii.impl.discovery :as discovery]
+            [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
@@ -109,6 +111,8 @@
   (let [except-target (kb/except-target (sx/sentence-of sentex))]
     ;; the removal record, for a caller scoping its own follow-up work to what left
     (when-let [sink *removed-sink*] (vswap! sink conj sentex))
+    ;; the sentence the inherited-clash discovery reads for a handle with no record
+    (discovery/note-removed! kb sentex)
     (special/disintegrate-sentex! kb sentex)
     (p/unindex-sentex! (:index kb) sentex (:id sentex))
     (p/delete-sentex! (:records kb) (:id sentex))
@@ -131,10 +135,16 @@
     ;; add.  Reads the departing sentex rather than the index, so order does not matter
     ;; to this one either
     (kb/note-preserving! kb (sx/sentence-of sentex) false)
+    ;; ...and the candidates of the nogood families a reader decides
+    (decide/note-candidate! kb sentex false)
     ;; ...and the mint roster, the remove half of `special/entail-arg-type`'s add, and
     ;; the departure the settle re-derives withheld mints from
     (special/drop-mint! kb sentex)
     (special/note-departure! kb sentex)
+    ;; ...and the supersessions the departure moves: a superseded spelling leaving, or an
+    ;; equality, a rewrite rule or a `genlCx` edge whose leaving gives spellings back.
+    ;; After the record is deleted, which is what drops a departing spelling's entry
+    (special/reconcile-removed-supersession! kb sentex)
     ;; An except's departure changes the effective belief of the declaration it hid.
     ;; Run after the roster drop so the common reconcile reads the new visibility state;
     ;; report the visibility move explicitly because the exception record is already gone.

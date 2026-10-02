@@ -216,7 +216,7 @@ without storing anything, and answers with the identical problem.
 | `:disjunction-too-wide` | a disjunctive antecedent over the 16-alternative cap; the message names the count — [canonicalization.md](canonicalization.md) |
 | `:arg-type` / `:arg-genl` | an `arg` / `genlArg` constraint convicted it — [argtypes.md](argtypes.md) |
 | `:arg-variable` | a **rule** variable two argument constraints demand disjoint types of — [taxonomy.md](taxonomy.md) |
-| `:disjoint` / `:functional` / `:asymmetric` | a definitional clash — [exceptions.md](exceptions.md) |
+| `:disjoint` / `:functional` / `:asymmetric` | a definitional clash that names no stored member; a clash naming its members is stored, and `contradictions` or `conflicts` reports it — [nmtms.md](nmtms.md#1-order-independence) |
 | `:cover` | a `covering` declaration every part of which is now denied of a term the whole holds — [taxonomy.md](taxonomy.md) |
 | `:unknown-option` | an option key nothing reads, or a non-map `opts` — `:mismatch` says which. A refused `VAELII_*` or `vaelii.*` switch is named under `:switch`, and under `:property`, the older key |
 
@@ -282,30 +282,15 @@ where nothing is derived.
 
 ## A `functionalInArg` clash is not reported
 
-Two things stop one, and they are different failures.
-
 **The determinant differs.** `(functionalInArg P n)` says every argument *except* `n`
 fixes the filler at `n`, so two tuples are the same slot only when they agree on all the
 others. `(namesObject NsA PathA ObjOne)` and `(namesObject NsA PathB ObjTwo)` differ at
 argument 2 and are two slots, not one — nothing is owed. Check the determinant before the
 declaration.
 
-**Or the mark is not on the last argument.** The assert entry point checks every shape
-correctly. What is narrower is *cross-context* discovery: the pass finds a pair's far half
-by reading one argument root, and its candidate gate asks only whether some mark
-constrains the tuple's **final** position. A declaration whose `n` is below the arity —
-`(functionalInArg P 2)` on a ternary predicate — is never asked about, so two mutually
-blind contexts each holding half of such a clash are not brought together.
-
-A mark *on* the last argument is covered, whatever the arity. At arity 1 the determinant
-is empty; above arity 2 it is composite, several positions at once — neither is a single
-argument root, so both reach an extent sweep bounded by
-`tax/*exposure-instance-budget*` rather than a posting read, and past that bound the settle
-files `:partner-sweep-truncated` rather than going quiet. Arity 2 is the one that *is* a
-single root and takes the same narrow path `functional` does.
-
-Same context, or a vantage that already sees both halves when the second arrives, is the
-entry point's business and is checked.
+**No context sees both tuples.** Two tuples in two contexts are a clash only for a reader
+that sees both ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)); ask
+`(contradictions kb context)` from such a reader.
 
 [taxonomy.md](taxonomy.md) has the shape table; [equality.md](equality.md) has the merge
 rule and the four arrival orders.
@@ -506,14 +491,12 @@ so one vocabulary reads both.
 | `:type` | What happened | Where |
 |---|---|---|
 | `:already-loaded` | the catalog already holds a KB under this source's key — unload it first | [catalog.md](catalog.md) |
-| `:anti-symmetric` | a sentence and its converse both hold of a predicate declared `anti_symmetric`, which would force an `equals` no merge can make hold | [taxonomy.md](taxonomy.md) |
 | `:anti-transitive` | two steps of a predicate declared `anti_transitive` are stored, so the direct step between their ends cannot also hold | [taxonomy.md](taxonomy.md) |
 | `:arg-constraint-kind` | `genlArg` on a predicate declared `instance_relation_predicate`, or `arg` on a `type_relation_predicate` | [argtypes.md](argtypes.md) |
 | `:arg-genl` | a `genlArg` constraint convicted the sentence — see [An `arg` constraint never convicts](#an-arg-constraint-never-convicts) | [argtypes.md](argtypes.md) |
 | `:arg-position` | an argument constraint names a position the predicate's declared arity does not have | [argtypes.md](argtypes.md) |
 | `:arg-type` | an `arg` constraint convicted the sentence — see [`assert` refused it](#assert-refused-it) | [argtypes.md](argtypes.md) |
 | `:arg-variable` | two argument constraints demand disjoint types of one rule variable | [taxonomy.md](taxonomy.md) |
-| `:arity` | the functor is used at an arity its declaration does not admit | [naming.md](naming.md) |
 | `:asymmetric` | a definitional clash with a predicate declared `asymmetric` | [exceptions.md](exceptions.md) |
 | `:bad-algebra` | a two-axis projection table does not cover all nine `[x y]` pairs exactly once | [space.md](space.md) |
 | `:bad-arg` | a `foreign/register` argument is the wrong kind of thing — the kind must be a keyword, the reader a namespace-qualified symbol | [foreign.md](foreign.md) |
@@ -547,6 +530,7 @@ so one vocabulary reads both.
 | `:error` | a check reached something it could not classify, and reports the throwable's own message | [api.md](api.md) |
 | `:exception-not-closed` | an `exceptWhen` reads a variable no antecedent binds, or the anonymous wildcard `_`, which binds nothing | [exceptions.md](exceptions.md) |
 | `:export-busy` | an export is already running, and one runs at a time | [catalog.md](catalog.md) |
+| `:fork-base-overlap` | a durable fork that has written anything was remounted over a base that has grown or been rebuilt in another order since, so its records and removals would hide the base's sentences; `:handles` names the handles at issue | [overlay.md](overlay.md) |
 | `:frozen-base` | a write reached the overlay's base, which is mounted read-only | [overlay.md](overlay.md) |
 | `:functional` | a second value for a predicate declared `functional`, or for the position a `functionalInArg` declaration names — see [`assert` refused it](#assert-refused-it) | [equality.md](equality.md) |
 | `:handle-ceiling` | a handle past the dense TMS's int-keyed ceiling | [density.md](density.md) |
@@ -554,7 +538,6 @@ so one vocabulary reads both.
 | `:incomplete-racer` | a portfolio was handed a strategy with `:first-result?` on, which stops the search rather than steering it | [inference.md](inference.md) |
 | `:inter-arg-type` | an `interArg`, `interArgs` or `interArgAndRest` constraint convicted one argument because of what another one is | [argtypes.md](argtypes.md) |
 | `:internal-error` | the daemon caught a throwable carrying no `:type` of its own | [operations.md](operations.md) |
-| `:irreflexive` | a predicate declared `irreflexive` holds of a thing and itself | [taxonomy.md](taxonomy.md) |
 | `:job-busy` | a job holding this process's one writer is already running | [operations.md](operations.md) |
 | `:labeling-inconsistent` | a labeling disagrees with the brave/cautious classification of the same program | [labeling.md](labeling.md) |
 | `:labeling-run-blocked` | a previous run's artifacts cannot be replaced — see [`do/label` refuses to re-run](#dolabel-refuses-to-re-run) | [solving.md](solving.md) |
@@ -614,6 +597,7 @@ so one vocabulary reads both.
 | `:truncated-dump` | a dump stream ended early, or holds a chunk length this framing does not write | [storage.md](storage.md) |
 | `:unauthorized` | the token presented is not the one the daemon holds — see [Every call to the daemon is refused](#every-call-to-the-daemon-is-refused) | [operations.md](operations.md) |
 | `:unbound-deferred` | a computed antecedent reached the join with an input no earlier antecedent bound | [generators.md](generators.md) |
+| `:uncleared-forcing` | a retraction named a roster declaration whose predicate has no unforced semantics yet (`:predicate`, `:missing`); its declaration stays, and `genlCx` is always forced | [nmtms.md](nmtms.md#the-forced-monotonic-roster) |
 | `:unforkable-index` | a `:columnar` index cannot be forked, since its trie is not written over a KV backend | [overlay.md](overlay.md) |
 | `:unknown-backend` | a backend selection the storage layer refuses; `:axis` says which axis, `:kind` what was named, `:mismatch` which kind of wrong (`:unknown-name`, `:reserved-name`, `:illegal-pair`, `:illegal-position`) — see [`open-kb` refuses an unknown backend](#open-kb-refuses-an-unknown-backend) | [storage.md](storage.md) |
 | `:unknown-command` | the CLI was given a word that is not one of its commands | [api.md](api.md) |

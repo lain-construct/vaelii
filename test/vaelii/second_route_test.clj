@@ -23,7 +23,7 @@
     scoped     a monotonic negation in a context below the edge defeats it at that
                vantage and below; the network keeps the edge IN, and the settle
                re-derives the firing from each such reader's view
-               (`settle/lost-firing-seeds`, `chain/*witness-view*`)
+               (`reroute/lost-firing-seeds`, `chain/*witness-view*`)
     except     an `(except (sentexHandle H))` hides the edge from its context and below,
                re-derived the same way
 

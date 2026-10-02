@@ -275,21 +275,6 @@
         (v/assert kb (list 'arg parentOf 1 animal) CxStory)
         (is (believed? kb (list animal Fred) CxStory))))))
 
-(tu/deftest-kb a-disjoint-argument-is-convicted-rather-than-minted
-  (tu/with-terms [animal rock parentOf Rex Mary CxWorld]
-    (with-entailing
-      (a-context kb CxWorld)
-      (a-type kb animal CxWorld)
-      (a-type kb rock CxWorld)
-      (v/assert kb (list 'disjoint animal rock) CxWorld)
-      (v/assert kb (list 'arg parentOf 1 animal) CxWorld)
-      (v/assert kb (list rock Rex) CxWorld)
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"arg constraint"
-                            (v/assert kb (list parentOf Rex Mary) CxWorld))
-          "the existing :arg-type refusal, not a minted contradiction")
-      (is (nil? (v/handle-of kb (list animal Rex) CxWorld))
-          "and no type was minted on the way to the refusal"))))
-
 (tu/deftest-kb one-sentex-however-many-declarations-entail-it
   ;; Deduplication is by content, and only by content: one record for the sentence, one
   ;; justification per (fact, declaration) pair.  Nothing is withheld because the type
@@ -544,11 +529,11 @@
         (is (= h (v/assert kb (list p1 Fred) CxWorld))
             "and the same sentence again is the same handle, not a refusal")))))
 
-(tu/deftest-kb a-mint-the-kb-cannot-hold-refuses-the-fact-that-entails-it
-  ;; The refusal the symbol arm used to carry, moved one step along the derivation: Bert is
-  ;; a `rock`, `rock` and `animal` are disjoint, and the fact is refused for the mint it
-  ;; draws rather than for the type its argument lacks.  What must not happen is the third
-  ;; possibility — storing the fact and dropping the mint, which leaves the KB believing a
+(tu/deftest-kb a-mint-clashing-with-a-stored-membership-is-stored-beside-the-fact
+  ;; Bert is a `rock`, `rock` and `animal` are disjoint, and the fact's mint `(animal
+  ;; Bert)` clashes with the membership.  The clash names a stored member, so the fact
+  ;; and its mint are stored and the pair is a nogood the settle decides.  What must not
+  ;; happen is storing the fact and dropping the mint, which leaves the KB believing a
   ;; fact whose declared consequence it rejects.
   (tu/with-terms [animal rock parentOf Bert Mary CxWorld]
     (with-entailing
@@ -558,18 +543,17 @@
       (v/assert kb (list 'disjoint animal rock) CxWorld)
       (v/assert kb (list 'arg parentOf 1 animal) CxWorld)
       (v/assert kb (list rock Bert) CxWorld)
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cannot be admitted"
-                            (v/assert kb (list parentOf Bert Mary) CxWorld)))
-      (is (nil? (v/handle-of kb (list parentOf Bert Mary) CxWorld))
-          "the fact is not stored")
-      (is (nil? (v/handle-of kb (list animal Bert) CxWorld))
-          "nor the mint that refused it"))))
+      (is (some? (v/assert kb (list parentOf Bert Mary) CxWorld)))
+      (is (some? (v/handle-of kb (list animal Bert) CxWorld)) "the mint is stored")
+      (is (= [#{(v/handle-of kb (list animal Bert) CxWorld)
+                (v/handle-of kb (list rock Bert) CxWorld)}]
+             (mapv :nogood (v/contradictions kb)))
+          "and the two `:default` memberships are a dilemma"))))
 
-(tu/deftest-kb a-clash-between-the-fact-and-its-own-mint-refuses
+(tu/deftest-kb a-clash-between-the-fact-and-its-own-mint-is-stored
   ;; Neither side of this pair is stored when the check runs: `(p1 Fred)` is the sentence
-  ;; being asserted and `(p2 Fred)` is what it entails.  `disjoint-problems` names an
-  ;; opposing *handle*, so it cannot see a clash with no second record —
-  ;; `checks/cascade-clash` is the arm that reads the cascade's own memberships as content.
+  ;; being asserted and `(p2 Fred)` is what it entails.  The materializer places the mint
+  ;; beside the stored sentence, and the settle finds the pair.
   (tu/with-terms [p1 p2 Fred CxWorld]
     (with-entailing
       (a-context kb CxWorld)
@@ -577,14 +561,13 @@
       (a-type kb p2 CxWorld)
       (v/assert kb (list 'disjoint p1 p2) CxWorld)
       (v/assert kb (list 'arg p1 1 p2) CxWorld)
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cannot be admitted"
-                            (v/assert kb (list p1 Fred) CxWorld)))
-      (is (empty? (v/types-of kb Fred CxWorld)) "and Fred is left with no type at all"))))
+      (is (some? (v/assert kb (list p1 Fred) CxWorld)))
+      (is (= #{p1 p2} (set (v/types-of kb Fred CxWorld))))
+      (is (= 1 (count (v/contradictions kb)))))))
 
-(tu/deftest-kb a-clash-between-two-mints-of-one-cascade-refuses
+(tu/deftest-kb a-clash-between-two-mints-of-one-cascade-is-stored
   ;; Both sides come from the cascade this time, two links apart, and the triggering fact
-  ;; is a binary relation that types nothing itself.  The check has to walk the whole
-  ;; cascade to see it: one level down, `(t1 Fred)` is admissible.
+  ;; is a binary relation that types nothing itself.
   (tu/with-terms [t1 t2 rel Fred Mary CxWorld]
     (with-entailing
       (a-context kb CxWorld)
@@ -593,9 +576,10 @@
       (v/assert kb (list 'disjoint t1 t2) CxWorld)
       (v/assert kb (list 'arg rel 1 t1) CxWorld)
       (v/assert kb (list 'arg t1 1 t2) CxWorld)
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cannot be admitted"
-                            (v/assert kb (list rel Fred Mary) CxWorld)))
-      (is (nil? (v/handle-of kb (list rel Fred Mary) CxWorld))))))
+      (is (some? (v/assert kb (list rel Fred Mary) CxWorld)))
+      (is (= [#{(v/handle-of kb (list t1 Fred) CxWorld)
+                (v/handle-of kb (list t2 Fred) CxWorld)}]
+             (mapv :nogood (v/contradictions kb)))))))
 
 (tu/deftest-kb an-inherited-declaration-still-convicts
   ;; The yield is `arg-entailments`' condition term for term, and `declares-locally?` is
@@ -614,27 +598,22 @@
                             (v/assert kb (list parentOf Bert Mary) CxDown)))
       (is (nil? (v/handle-of kb (list animal Bert) CxDown))))))
 
-(tu/deftest-kb an-inadmissible-entailment-refuses-the-assert
+(tu/deftest-kb an-entailment-of-a-length-its-type-denies-is-read-out
   ;; `(t Rex)` is what the declaration entails, and `t` is declared binary — so the
-  ;; entailment is a sentence the KB cannot hold.  The entry point refuses the fact that
-  ;; entails it, because with the entailment on the declaration is a definition: admitting
-  ;; `(rel Rex Mary)` is admitting `(t Rex)`.  Asked by `checks/entailment-check` before
-  ;; anything is written, so the refusal leaves nothing behind — the materializer's own
-  ;; test runs after the triggering sentex is stored, and dropping the mint there would
-  ;; leave the KB believing a fact whose declared consequence it rejects.
+  ;; entailment is a tuple of a length its binding denies.  No refusal reads a binding
+  ;; (docs/taxonomy.md, "Arity"): the fact and its entailment are both stored, and a
+  ;; reader that sees the binding takes the entailment OUT as an arity nogood.
   (tu/with-terms [t rel Rex Mary CxWorld]
     (with-entailing
       (a-context kb CxWorld)
       (a-type kb t CxWorld)
       (v/assert kb (list 'binary_predicate t) CxWorld)
       (v/assert kb (list 'arg rel 1 t) CxWorld)
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"arg constraint"
-                            (v/assert kb (list rel Rex Mary) CxWorld))
-          "refused for what it entails, not for what it says")
-      (is (nil? (v/handle-of kb (list rel Rex Mary) CxWorld))
-          "and the fact is not stored")
-      (is (nil? (v/handle-of kb (list t Rex) CxWorld))
-          "nor the entailment that refused it")))
+      (v/assert kb (list rel Rex Mary) CxWorld)
+      (is (v/ask? kb (list rel Rex Mary) CxWorld) "the fact stands")
+      (let [h (v/handle-of kb (list t Rex) CxWorld)]
+        (is (some? h) "its entailment is stored")
+        (is (not (v/believed? kb h CxWorld)) "and read OUT"))))
   (testing "with the entailment off, the constraint reading admits it — Rex is untyped"
     (tu/with-terms [t rel Rex Mary CxWorld]
       (without-entailing
@@ -644,12 +623,10 @@
        (v/assert kb (list 'arg rel 1 t) CxWorld)
        (is (some? (v/assert kb (list rel Rex Mary) CxWorld)))))))
 
-(tu/deftest-kb an-inadmissible-entailment-on-the-derivation-path-is-reported-not-thrown
-  ;; The same declaration, reached by a rule firing instead of by a caller.  Here the
-  ;; entailment is **recorded** and the conclusion stands: forward chaining has no caller
-  ;; to refuse, and a firing that threw mid-fixpoint would leave belief half-computed.
-  ;; The split is the one `constraint-checks` and `constraint-admission` already draw for
-  ;; every other check — the entry point refuses, the derivation path reports.
+(tu/deftest-kb an-entailment-of-a-length-its-type-denies-reads-the-same-on-the-derivation-path
+  ;; The same declaration, reached by a rule firing instead of by a caller: the
+  ;; conclusion stands, and its entailment is stored and read OUT as at the entry point,
+  ;; with nothing in the ledger.
   (tu/with-terms [t rel trigger Rex Mary CxWorld]
     (with-entailing
       (a-context kb CxWorld)
@@ -661,11 +638,10 @@
       (v/assert kb (list trigger Rex Mary) CxWorld)
       (is (some? (v/handle-of kb (list rel Rex Mary) CxWorld))
           "the conclusion stands")
-      (is (nil? (v/handle-of kb (list t Rex) CxWorld))
-          "and the entailment it could not admit was not stored")
-      (let [vs (v/violations kb)]
-        (is (some #(and (= :arity (:violation %)) (= (list t Rex) (:sentence %))) vs)
-            (str "reported in the ledger: " (pr-str vs)))))))
+      (let [h (v/handle-of kb (list t Rex) CxWorld)]
+        (is (some? h) "its entailment is stored")
+        (is (not (v/believed? kb h CxWorld)) "and read OUT"))
+      (is (empty? (v/violations kb))))))
 
 (tu/deftest-kb a-declaration-arriving-over-stored-facts-closes-the-whole-chain
   ;; The retroactive direction has to reach as far as the forward one, or which order the
@@ -702,11 +678,10 @@
       (is (nil? (v/handle-of kb (list t2 Fred) CxWorld)) "the link the declaration held")
       (is (believed? kb (list t1 Fred) CxWorld) "and only that one"))))
 
-(tu/deftest-kb under-refuse-the-refusal-lands-on-arrival-and-a-late-declaration-mints
-  ;; Under `:refuse` the entry point refuses whichever of the fact and the membership
-  ;; arrives second, as it refuses two stated memberships.  A declaration arriving over
-  ;; both refuses nothing and mints over the stored fact, and the mint's clash with the
-  ;; membership is weighed at settle, as a rule's conclusion is.
+(tu/deftest-kb a-mint-clashing-with-a-membership-is-stored-in-either-order
+  ;; The entry point stores the fact whichever of the fact and the declaration arrives
+  ;; second, and the mint's clash with the membership is weighed at settle, as a rule's
+  ;; conclusion is: two `:default` members are a dilemma.
   (letfn [(run [order]
             (tu/with-neutral-kb [kb tu/fresh]
               (tu/with-terms [p_a p_b rel Bert Mary CxWorld]
@@ -717,23 +692,21 @@
                   (v/assert kb (list 'disjoint p_a p_b) CxWorld)
                   (v/assert kb (list p_b Bert) CxWorld)
                   (doseq [step order]
-                    (try
-                      (case step
-                        :decl (v/assert kb (list 'arg rel 1 p_a) CxWorld)
-                        :fact (v/assert kb (list rel Bert Mary) CxWorld))
-                      (catch clojure.lang.ExceptionInfo _ nil)))
+                    (case step
+                      :decl (v/assert kb (list 'arg rel 1 p_a) CxWorld)
+                      :fact (v/assert kb (list rel Bert Mary) CxWorld)))
                   {:fact  (some? (v/handle-of kb (list rel Bert Mary) CxWorld))
                    :mint  (believed? kb (list p_a Bert) CxWorld)
                    :clash (count (v/contradictions kb))}))))]
-    (is (= {:fact false :mint false :clash 0} (run [:decl :fact])))
+    (is (= {:fact true :mint true :clash 1} (run [:decl :fact])))
     (is (= {:fact true :mint true :clash 1} (run [:fact :decl])))))
 
 (defn- mint-clash
   "Belief in the fact, the mint and the membership, and the contradictions count, after
-  `order` under `:arbitrate`, with `(coll_t Foo)` at `strength` and `coll_t`/`rel_t`
+  `order`, with `(coll_t Foo)` at `strength` and `coll_t`/`rel_t`
   disjoint at `:monotonic`."
   [order strength]
-  (tu/with-neutral-kb [kb #(v/open-kb (assoc (tu/scratch-space) :constraints :arbitrate))]
+  (tu/with-neutral-kb [kb #(v/open-kb (tu/scratch-space))]
     (tu/with-terms [rel_t coll_t pp Foo Bar]
       (with-entailing
         (doseq [s [(list 'genl rel_t 'thing) (list 'genl coll_t 'thing) (list 'disjoint rel_t coll_t)]]
@@ -762,9 +735,8 @@
   ;; A declaration a forward rule derives reaches the stored facts through
   ;; `entail-existing`, after the clashing membership is believed; the text export
   ;; reloads the same content in content order, where the declaration is derived before
-  ;; the fact arrives.  `:arbitrate`, so the reload's fact is admitted rather than
-  ;; refused on the way in.  The two hold the same sentences and believe the same ones.
-  (let [build #(tu/isolated-fresh {:constraints :arbitrate})
+  ;; the fact arrives.  The two hold the same sentences and believe the same ones.
+  (let [build #(tu/isolated-fresh)
         dir   (.toFile (Files/createTempDirectory "argtype-clash" (make-array FileAttribute 0)))
         rows  (fn [kb pick]
                 (set (for [h (v/handles kb) :when (pick h)
@@ -791,12 +763,10 @@
       (finally
         (run! #(io/delete-file % true) (reverse (file-seq dir)))))))
 
-(tu/deftest-kb a-clash-the-asserting-context-cannot-see-does-not-refuse
-  ;; The refusal is scoped like every other read: the mint is tested against what the
-  ;; asserting context sees, so a disjointness declared in a context this one does not
-  ;; reach convicts nothing here.  A context is only ever refused on grounds it can see
-  ;; (docs/contexts.md), and that holds of a refusal drawn one step along the derivation
-  ;; exactly as it holds of one drawn on the sentence itself.
+(tu/deftest-kb a-clash-the-asserting-context-cannot-see-is-no-clash-there
+  ;; The mint is placed in the asserting context and tested against what that context
+  ;; sees, so a disjointness declared in a context this one does not reach convicts
+  ;; nothing here (docs/contexts.md).
   (tu/with-terms [p_a p_b rel Bert Mary CxLeft CxRight]
     (with-entailing
       (v/assert kb (list 'genlCx CxLeft 'CxUniverse) 'CxUniverse)
@@ -806,12 +776,13 @@
       (v/assert kb (list 'arg rel 1 p_a) 'CxUniverse)
       (v/assert kb (list p_b Bert) 'CxUniverse)
       (v/assert kb (list 'disjoint p_a p_b) CxLeft)
-      (testing "the sibling that cannot see the disjointness admits the fact and mints"
+      (testing "the sibling that cannot see the disjointness mints with no clash"
         (is (some? (v/assert kb (list rel Bert Mary) CxRight)))
-        (is (believed? kb (list p_a Bert) CxRight)))
-      (testing "and the one that can see it refuses"
-        (is (thrown-with-msg? clojure.lang.ExceptionInfo #"cannot be admitted"
-                              (v/assert kb (list rel Bert 'TmpOther) CxLeft)))))))
+        (is (believed? kb (list p_a Bert) CxRight))
+        (is (empty? (v/contradictions kb))))
+      (testing "and the one that can see it stores the fact and a dilemma"
+        (is (some? (v/assert kb (list rel Bert 'TmpOther) CxLeft)))
+        (is (= 1 (count (v/contradictions kb))))))))
 
 ;; ---- genlArg -------------------------------------------------------------
 
@@ -955,6 +926,29 @@
         "and no order keeps the type the specific membership already says")
     (is (every? (comp :dog second) results)
         "which is the membership every order does keep")))
+
+(tu/deftest-kb every-arrival-order-prunes-the-same-way-under-a-cover
+  ;; The edge that puts `dog` under `animal` is a cover's: withheld in every order while
+  ;; the cover stands, and drawn again in every order once it is retracted.
+  (let [results
+        (for [order (permutations [:edge :decl :fact :type])]
+          (tu/with-neutral-kb [kb tu/fresh]
+            (tu/with-terms [animal dog cat parentOf Fred Mary CxWorld]
+              (with-pruning
+                (a-context kb CxWorld)
+                (a-type kb animal CxWorld)
+                (doseq [step order]
+                  (case step
+                    :edge (v/assert kb (list 'covering animal dog cat) CxWorld)
+                    :decl (v/assert kb (list 'arg parentOf 1 animal) CxWorld)
+                    :fact (v/assert kb (list parentOf Fred Mary) CxWorld)
+                    :type (v/assert kb (list dog Fred) CxWorld)))
+                (let [standing (believed-shape kb animal dog parentOf Fred Mary CxWorld)]
+                  (v/retract! kb (v/handle-of kb (list 'covering animal dog cat) CxWorld))
+                  [order [standing (believed-shape kb animal dog parentOf Fred Mary CxWorld)]])))))]
+    (is (= #{[{:animal false :dog true :fact true} {:animal true :dog true :fact true}]}
+           (set (map second results)))
+        (str "the mint varied by arrival order: " (pr-str results)))))
 
 (tu/deftest-kb every-arrival-order-prunes-the-same-way-across-contexts
   ;; `(dog Fred)` is stated in CxDogs and the mint lands in CxWorld, so what makes the mint

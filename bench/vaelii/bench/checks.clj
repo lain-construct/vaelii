@@ -153,7 +153,6 @@
         (run-arm "  the arg lookup" (fn [s c] (seq (res/matches-visible
                                                        kb (list 'arg (first s) '?n '?type) c))) b)
         (run-arm "  memberships x1" (fn [s c] (seq (:types (kb/memberships kb (second s) c)))) b)
-        (run-arm "arity-problem" (fn [s c] (#'checks/arity-problem kb s c (types c))) b)
         (run-arm "args-problem" (fn [s c] (#'checks/args-problem kb s c (types c))) b)
         (run-arm "genls-problem" (fn [s c] (#'checks/genls-problem kb s c)) b)
         (run-arm "declaration-problem" (fn [s c] (#'checks/declaration-problem kb s c (types c))) b)

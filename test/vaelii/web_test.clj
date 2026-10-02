@@ -476,22 +476,24 @@
 (deftest a-violation-about-no-sentence-renders-without-a-nil-link
   ;; Three of the ledger's kinds are about a *pair* or a *budget* rather than a dropped
   ;; sentence, so they carry a `:detail` and no `:sentence` or `:context`: the
-  ;; cross-context `:disjoint` report and both sweep notices.  The row rendered both
+  ;; cross-context `:disjoint` report and the sweep notices.  The row rendered both
   ;; fields unconditionally, and `term-link`'s fallback arm links whatever it is handed
   ;; — so each printed the text "nil" beside a live link to `/term?q=nil`.
   ;;
-  ;; The sweep notices are the ones written here: a separation arriving over more
-  ;; memberships than a budget of one lets either sweep read files both.
+  ;; The sweep notice is the one written here: a `genlCx` edge joining two functional
+  ;; collisions under a budget of one cuts its merge sweep short.
   (let [kb tu/*kb*]
-    (tu/with-terms [CxC left_t right_t]
-      (v/assert kb (list 'genl left_t 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl right_t 'thing) 'CxUniverse)
-      (v/assert kb (list 'genlCx CxC 'CxUniverse) 'CxUniverse)
-      (dotimes [_ 3] (v/assert kb (list left_t (tu/tmp-ind "Left")) CxC))
-      (dotimes [_ 3] (v/assert kb (list right_t (tu/tmp-ind "Right")) CxC))
+    (tu/with-terms [parentOf CxL CxR CxS Kid1 Kid2 MumA MumB MumC MumD]
+      (v/assert kb (list 'functional parentOf) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxL 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxR 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxS CxL) 'CxUniverse)
+      (doseq [[k a b] [[Kid1 MumA MumB] [Kid2 MumC MumD]]]
+        (v/assert kb (list parentOf k a) CxL {:strength :monotonic})
+        (v/assert kb (list parentOf k b) CxR {:strength :monotonic}))
       (binding [tax/*exposure-instance-budget* 1]
-        (v/assert kb (list 'disjoint left_t right_t) CxC))
-      (is (some #(and (#{:arbitration-truncated} (:violation %))
+        (v/assert kb (list 'genlCx CxS CxR) 'CxUniverse))
+      (is (some #(and (#{:context-edge-exposure-truncated} (:violation %))
                       (nil? (:sentence %)))
                 (v/violations kb))
           "a sentence-less sweep notice is on the ledger")
@@ -866,7 +868,7 @@
   (let [body (:body (GET "/term" "q=dog"))]
     (is (not (re-find #"badge-kind|badge-h" body)) "no words beside the circle")
     (is (re-find #"title=\"default premise · #\d+\"" body) "the reading is the title's")
-    (is (re-find #"title=\"derived · #\d+\"" body)))
+    (is (re-find #"title=\"derived · #\d+\"" (:body (GET "/term" "q=Tweety")))))
   (testing "a rule's direction is the title's too, and the circle's colour"
     (let [body (:body (GET "/term" "q=heavierThan"))]
       (is (re-find #"title=\"backward rule · #\d+\"" body))
@@ -965,13 +967,13 @@
   (count (re-seq #"badge-derived" body)))
 
 (deftest a-reader-can-read-only-what-the-kb-was-told
-  ;; `dog`'s arg-1 sentexes include conclusions the engine drew from the others.  Hiding
+  ;; `Ann`'s arg-1 sentexes include conclusions the engine drew from the others.  Hiding
   ;; those is a reading preference and nothing else: no belief moves, no count changes,
   ;; and the group still says how many sentexes are stored in it.  The count is read off
   ;; the shown page rather than written here: how many of them are conclusions depends on
   ;; whether the argument declarations entail (`VAELII_ASSERTIVE_ARG_TYPES`).
-  (let [shown  (:body (GET "/term" "q=dog"))
-        hid    (GET "/term" "q=dog&derived=hide")
+  (let [shown  (:body (GET "/term" "q=Ann"))
+        hid    (GET "/term" "q=Ann&derived=hide")
         stored #(some->> % (re-find #"Argument position 1 .*?· (\d+) stored") second parse-long)]
     (is (pos? (derived-badges shown)) "the page shows them by default")
     (is (= (derived-badges shown)
@@ -992,15 +994,15 @@
         (is (some #(re-find #"^vaelii-sandbox=" %) cs)
             "and the token this request minted survived being set alongside it")))
     (testing "a later request carrying the cookie reads the same way, with no parameter"
-      (let [again (GET "/term" "q=dog" {"cookie" "vaelii-derived=hide"})]
+      (let [again (GET "/term" "q=Ann" {"cookie" "vaelii-derived=hide"})]
         (is (zero? (derived-badges (:body again))))
         (is (not-any? #(re-find #"^vaelii-derived=" %) (set-cookies again))
             "nothing was chosen, so the preference is not re-set"))
       (testing "and so does a group's continuation, which pages the same sequence"
-        (let [rows (GET "/term/rows" "q=dog&g=0&offset=0" {"cookie" "vaelii-derived=hide"})]
+        (let [rows (GET "/term/rows" "q=Ann&g=0&offset=0" {"cookie" "vaelii-derived=hide"})]
           (is (zero? (derived-badges (:body rows)))))))
     (testing "asking to show them again clears it"
-      (let [back (GET "/term" "q=dog&derived=show" {"cookie" "vaelii-derived=hide"})]
+      (let [back (GET "/term" "q=Ann&derived=show" {"cookie" "vaelii-derived=hide"})]
         (is (= (derived-badges shown) (derived-badges (:body back))))
         (is (some #(re-find #"^vaelii-derived=show;" %) (set-cookies back)))))))
 
@@ -1010,7 +1012,7 @@
   ;; down a list neither sees a row twice nor steps over one.
   (let [page (fn [off cookie]
                (mapv second (re-seq #"data-h=\"(\d+)\""
-                                    (:body (GET "/term/rows" (str "q=dog&g=0&offset=" off)
+                                    (:body (GET "/term/rows" (str "q=Ann&g=0&offset=" off)
                                              (when cookie {"cookie" cookie}))))))
         all  (page 0 nil)
         kept (page 0 "vaelii-derived=hide")]

@@ -15,8 +15,8 @@
   So the firing's justification names a **witness** for each sighting: one `genlCx`
   path from the placement up to each ingredient context, one supporter per edge.  A
   section per consequence below — `why` shows the edges, retracting either side's edge
-  withdraws what it licensed, defeating one puts the conclusion OUT, and a reachability
-  that outlives the named witness re-derives.
+  withdraws what it licensed, an edge caps nothing since every edge is `:monotonic`, and
+  a reachability that outlives the named witness re-derives.
 
   The `genl` twin of all of it is `subsumption_support_test`, and the two are one claim
   about two relations."
@@ -215,62 +215,18 @@
     (is (= {:asked true :witness true :after false} (arm true)))
     (is (= (arm true) (arm false)))))
 
-;; ---- the edge is an antecedent, so belief and strength both run through it ----
+;; ---- the edge is an antecedent, so strength runs through it ----
 
-(tu/deftest-kb a-defeated-edge-puts-the-conclusion-out-and-a-revived-one-brings-it-back
-  ;; defeat, not removal: the justification is structurally intact, so the sweep leaves
-  ;; the conclusion alone and the JTMS simply labels it OUT.  Revival is a relabel — the
-  ;; *same* handle — which is what distinguishes this from the retraction cases above.
-  (tu/with-terms [bird flies Tweety CxLow CxHigh]
-    (under! kb CxLow CxHigh)
-    (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxHigh {:direction :forward})
-    (v/assert kb (list bird Tweety) CxLow {:strength :monotonic})
-    (let [derived (v/handle-of kb (list flies Tweety) CxLow)
-          nope    (v/assert kb (list 'not (list 'genlCx CxLow CxHigh)) 'CxUniverse
-                            {:strength :monotonic})]
-      (is (not (v/in? kb derived)) "the edge is not believed, so neither is what was seen over it")
-      (is (some? (v/sentex kb derived)) "stored all along — nothing was swept")
-      (is (= :unsupported (:reason (v/why-not kb derived))))
-      (v/retract! kb nope)
-      (is (v/in? kb derived) "and the edge coming back brings the conclusion back")
-      (is (= derived (v/handle-of kb (list flies Tweety) CxLow))
-          "at the same handle: a relabel, not a re-derivation"))))
-
-(tu/deftest-kb defeating-either-side-s-edge-puts-the-conclusion-out
-  ;; the three-way witness under defeat rather than retraction: the placement sees the
-  ;; rule over one edge and the fact over another, and `(not (genlCx …))` on either is
-  ;; enough — the same asymmetry a retraction shows, since both run through the one
-  ;; antecedent list
-  (tu/with-terms [bird flies Tweety CxPlace CxRule CxFact]
-    (under! kb CxPlace CxRule CxFact)
-    (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxRule {:direction :forward})
-    (v/assert kb (list bird Tweety) CxFact {:strength :monotonic})
-    (let [derived (v/handle-of kb (list flies Tweety) CxPlace)]
-      (is (v/in? kb derived))
-      (doseq [[side edge] [["rule-side" (list 'genlCx CxPlace CxRule)]
-                           ["fact-side" (list 'genlCx CxPlace CxFact)]]]
-        (testing side
-          (let [nope (v/assert kb (list 'not edge) 'CxUniverse {:strength :monotonic})]
-            (is (not (v/in? kb derived)) "the sighting is not believed, so neither is the conclusion")
-            (v/retract! kb nope)
-            (is (v/in? kb derived) "and it comes back at the same handle when the edge does")))))))
-
-(tu/deftest-kb the-edge-caps-the-conclusion-s-defeat-class
+(tu/deftest-kb an-edge-written-default-leaves-the-conclusion-as-strong-as-its-grounds
   ;; a conclusion is never stronger than what it rests on, and the edge its placement
-  ;; was seen over is now one of those things: known-true fact + bare rule + *defeasible*
-  ;; context edge is a defeasible conclusion, however monotonic the fact.
+  ;; was seen over is one of those things — but a `genlCx` edge is stored `:monotonic`
+  ;; whatever it was written at (docs/nmtms.md, "The forced-monotonic roster"), so
+  ;; known-true fact + bare rule + an edge written `:default` is a known-true conclusion
   (tu/with-terms [bird flies Tweety CxLow CxHigh]
     (under! kb CxLow CxHigh)
     (v/assert kb (list 'implies (list bird '?x) (list flies '?x)) CxHigh {:direction :forward :strength :monotonic})
     (v/assert kb (list bird Tweety) CxLow {:strength :monotonic})
-    (testing "seen over a :default edge"
-      (is (= :default (v/defeat-class
-                        kb (v/handle-of kb (list flies Tweety) CxLow)))))
-    (testing "the control: no sighting, and the conclusion is as strong as its grounds"
-      (tu/with-terms [Robin]
-        (v/assert kb (list bird Robin) CxHigh {:strength :monotonic})
-        (is (= :monotonic (v/defeat-class
-                            kb (v/handle-of kb (list flies Robin) CxHigh))))))))
+    (is (= :monotonic (v/defeat-class kb (v/handle-of kb (list flies Tweety) CxLow))))))
 
 ;; ---- a reachability that outlives its named witness -----------------------
 

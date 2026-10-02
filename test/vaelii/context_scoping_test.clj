@@ -25,7 +25,8 @@
   The deliberately-global reads are pinned here too, at the end — a reader finding
   `genl?` refusing a cycle across invisible contexts should find it *stated* rather
   than have to decide whether it is a bug."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+            [clojure.walk :as walk]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
@@ -286,8 +287,8 @@
     (v/assert kb (list 'functional fp13) 'CxUniverse)
     (v/assert kb (list 'sameAs V1 V2) CxB)                 ; a merge CxA cannot see
     (is (not (v/same-class? kb V1 V2 CxA)) "CxA cannot see the sibling's merge")
-    (v/assert kb (list fp13 X13 V1) CxA)
-    (v/assert kb (list fp13 X13 V2) CxA)                   ; the functional clash
+    (v/assert kb (list fp13 X13 V1) CxA {:strength :monotonic})
+    (v/assert kb (list fp13 X13 V2) CxA {:strength :monotonic})                   ; the functional clash
     (testing "CxA derives the equality its own two fillers license"
       (is (v/same-class? kb V1 V2 CxA)
           "the reader merges the fillers it stated, not skipping on an invisible merge"))
@@ -306,8 +307,8 @@
   (tu/with-terms [fbP FbTom FbV1 FbV2 CxFbA CxFbB CxFbBelow]
     (siblings! kb CxFbA CxFbB)
     (v/assert kb (list 'functional fbP) 'CxUniverse)
-    (v/assert kb (list fbP FbTom FbV1) CxFbA)
-    (v/assert kb (list fbP FbTom FbV2) CxFbB)
+    (v/assert kb (list fbP FbTom FbV1) CxFbA {:strength :monotonic})
+    (v/assert kb (list fbP FbTom FbV2) CxFbB {:strength :monotonic})
     (testing "blind siblings hold one filler each and merge nothing"
       (is (not (v/same-class? kb FbV1 FbV2 CxFbA)))
       (is (not (v/same-class? kb FbV1 FbV2 CxFbB))))
@@ -411,6 +412,82 @@
       (is (v/ask? kb (list likes16 Tom16 Bravo16) CxLeaf))
       (is (v/ask? kb (list likes16 Tom16 Charlie16) CxLeaf)))))
 
+(def ^:private head-move-shapes
+  "Three ways a reader comes to see `(sameAs Pa Qb)` and not `(rewriteOf Qb Pa)`, so that
+  it elects `Pa` where the KB elects `Qb`: an `except` of the `rewriteOf` below the merge,
+  the `rewriteOf` in a sibling the reader does not inherit, and a `genlCx` edge that puts
+  the `sameAs` and not the `rewriteOf` in the reader's ancestor set.  `:wire` is
+  `[[sub super]]`, each step `[context sentence]`, and `:rw` in a step's sentence names
+  the `rewriteOf`'s handle."
+  '{:except  {:wire   [[CxA CxUniverse] [CxLow CxA]]
+              :reader CxLow
+              :steps  {:fact [CxA (dog_ Qb)] :same [CxA (sameAs Pa Qb)] :rw [CxA (rewriteOf Qb Pa)]
+                       :except [CxLow (except (sentexHandle :rw))]}}
+    :sibling {:wire   [[CxA CxUniverse] [CxB CxUniverse]]
+              :reader CxA
+              :steps  {:fact [CxA (dog_ Qb)] :same [CxA (sameAs Pa Qb)] :rw [CxB (rewriteOf Qb Pa)]}}
+    :edge    {:wire   [[CxA CxUniverse] [CxB CxUniverse] [CxLow CxUniverse]]
+              :reader CxLow
+              :steps  {:fact [CxLow (dog_ Qb)] :same [CxA (sameAs Pa Qb)] :rw [CxB (rewriteOf Qb Pa)]
+                       :edge [CxUniverse (genlCx CxLow CxA)]}}})
+
+(defn- permutations [coll]
+  (if (empty? coll)
+    [[]]
+    (for [x coll, p (permutations (remove #{x} coll))] (cons x p))))
+
+(defn- head-move-reads
+  "Wire `shape` and assert its steps in `order` over fresh terms; answer the reader's
+  matches of `(dog_ ?x)` as sentences, and the one sentence the reader's election gives."
+  [kb {:keys [wire steps reader]} order]
+  (tu/with-terms [dog_ Pa Qb CxA CxB CxLow]
+    (let [sub #(walk/postwalk-replace {'dog_ dog_ 'Pa Pa 'Qb Qb 'CxA CxA 'CxB CxB 'CxLow CxLow} %)
+          hs  (atom {})]
+      (doseq [[c s] (sub wire)] (v/assert kb (list 'genlCx c s) 'CxUniverse))
+      (doseq [k order, :let [[cx s] (sub (get steps k))]]
+        (swap! hs assoc k (v/assert kb (walk/postwalk-replace @hs s) cx {:strength :monotonic})))
+      [(mapv :sentence (v/sentexes-matching kb (list dog_ '?x) (sub reader)))
+       [(list dog_ Pa)]])))
+
+(defn- head-move-misreads
+  "The orders among `orders` in which `shape`'s reader does not read the fact under the
+  head it elects, each with what it read."
+  [kb shape orders]
+  (into []
+        (keep (fn [o] (let [[reads want] (head-move-reads kb (head-move-shapes shape) o)]
+                        (when (not= want reads) [o reads]))))
+        orders))
+
+(tu/deftest-kb a-reader-that-retires-the-kb-s-head-reads-the-fact-under-its-own
+  ;; the KB's head `Qb` stands on the `rewriteOf` alone, so a reader that cannot see the
+  ;; `rewriteOf` retires `Qb` with no supporter moving; one order per shape, the one in
+  ;; which the sentence that hides the `rewriteOf` from the reader arrives last
+  (doseq [[shape order] {:except  [:same :rw :fact :except]
+                         :sibling [:fact :rw :same]
+                         :edge    [:fact :rw :same :edge]}]
+    (is (empty? (head-move-misreads kb shape [order])) (str shape))))
+
+(tu/deftest-kb ^:slow a-reader-that-retires-the-kb-s-head-reads-the-fact-under-its-own-in-every-order
+  (doseq [shape (keys head-move-shapes)]
+    (let [orders (remove #(some #{[:except :rw]} (partition 2 1 (filter #{:rw :except} %)))
+                         (permutations (sort (keys (:steps (head-move-shapes shape))))))]
+      (is (empty? (head-move-misreads kb shape orders)) (str shape " in " (count orders) " orders")))))
+
+(deftest a-reader-below-a-denial-of-the-rewrite-reads-the-fact-under-the-kb-s-head-in-a-bare-kb
+  ;; no CxCore: the engine's baseline roster holds the `:default` `rewriteOf` `:monotonic`
+  ;; and its denial OUT, so no reader's round defeats the merge's election
+  (tu/with-neutral-kb [kb tu/isolated-fresh]
+    (tu/with-terms [dog_ Pa Qb CxBase CxMid CxSub]
+      (let [mono {:strength :monotonic}]
+        (v/assert kb (list 'genlCx CxSub CxBase) 'CxUniverse)
+        (v/assert kb (list 'genlCx CxSub CxMid) 'CxUniverse)
+        (v/assert kb (list 'sameAs Pa Qb) CxBase mono)
+        (v/assert kb (list 'rewriteOf Qb Pa) CxBase)
+        (v/assert kb (list 'not (list 'rewriteOf Qb Pa)) CxMid mono)
+        (v/assert kb (list dog_ Qb) CxBase mono)
+        (is (= [Qb [{'?x Qb}]]
+               [(v/representative kb Pa CxSub) (vec (v/query kb (list dog_ '?x) CxSub))]))))))
+
 (tu/deftest-kb why-not-names-the-supersession-the-fact-s-own-context-elected
   ;; `why-not`'s `:superseded-by` is a read on behalf of the superseded fact's context —
   ;; the only context that supersedes it.  Mid elects Bravo over Charlie and stores the
@@ -474,12 +551,14 @@
 (tu/deftest-kb a-derived-declaration-installs-live-not-only-on-recover
   ;; `recover` replays every stored sentex of the functor, so a declaration that
   ;; reaches the cache only there makes a restart change the answer
-  (tu/with-terms [needsSep14 q1_t q2_t]
+  ;; reachable only from a roster antecedent, since `disjoint` is on the forced-monotonic
+  ;; roster (docs/nmtms.md)
+  (tu/with-terms [q1_t q2_t sepOf14]
     (v/assert kb (list 'genl q1_t 'thing) 'CxUniverse)
     (v/assert kb (list 'genl q2_t 'thing) 'CxUniverse)
-    (v/assert kb (list 'implies (list needsSep14 '?x) (list 'disjoint q1_t q2_t))
+    (v/assert kb (list 'implies (list 'irreflexive '?p) (list 'disjoint q1_t q2_t))
               'CxUniverse {:direction :forward})
-    (v/assert kb (list needsSep14 'Go) 'CxUniverse)
+    (v/assert kb (list 'irreflexive sepOf14) 'CxUniverse)
     (is (v/disjoint? kb q1_t q2_t 'CxUniverse)
         "the rule-concluded separation constrains the moment it is believed")))
 

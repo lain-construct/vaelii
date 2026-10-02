@@ -37,6 +37,7 @@
             [vaelii.impl.asp.atoms :as atoms]
             [vaelii.impl.asp.edge :as edge]
             [vaelii.impl.asp.solver :as solver]
+            [vaelii.impl.config :as config]
             [vaelii.impl.rules :as vr]
             [vaelii.impl.solve :as solve]
             [vaelii.impl.types.solve :as solve-types]
@@ -428,10 +429,8 @@
             (is (= :solver-failed (:type (ex-data (:error r)))))))))))
 
 (deftest a-backend-that-throws-does-not-unwind-the-arbitration
-  ;; `resolve-contradictions` reaches the solver after an earlier round has already
-  ;; defeated things, so an exception escaping the protocol leaves a half-arbitrated KB:
-  ;; round 1's defeats landed, `:conflicts` stale, `settle-finish` never reached.  The
-  ;; three currencies a backend fails in all read as one decided-nothing result.
+  ;; An exception escaping the protocol would leave its caller half done.  The three
+  ;; currencies a backend fails in all read as one decided-nothing result.
   (doseq [[what thrown expected-type]
           [["clingo's chk!"      (ex-info "clingo solve failed: out of memory"
                                           {:type :solver-failed :op "solve"})   :solver-failed]
@@ -527,17 +526,22 @@
     (testing "classification is two — cautious, then brave"
       (is (= [:classify-true :classify-supportable]
              (backend-solves #(edge/classify-program two-choices)))))
-    (testing "labeling a dilemma is three: the classification's two, then the labeling"
-      (tu/with-neutral-kb [kb tu/fresh]
-        (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
-              nixon (tu/tmp-ind)]
-          (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
-          (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
-          (v/assert kb (list quaker nixon)     'CxUniverse)
-          (v/assert kb (list republican nixon) 'CxUniverse)
-          (is (= [:classify-true :classify-supportable :label]
-                 (backend-solves
-                  #(v/assert kb (list 'do/labeling (tu/tmp-ctx "Labeling")) 'CxUniverse)))))))))
+    (let [labeling-solves
+          (fn []
+            (tu/with-neutral-kb [kb tu/fresh]
+              (let [quaker (tu/tmp-pred) pacifist (tu/tmp-pred) republican (tu/tmp-pred)
+                    nixon (tu/tmp-ind)]
+                (v/assert kb (default-rule [(list quaker '?x)]     (list pacifist '?x))             'CxUniverse)
+                (v/assert kb (default-rule [(list republican '?x)] (list 'not (list pacifist '?x))) 'CxUniverse)
+                (v/assert kb (list quaker nixon)     'CxUniverse)
+                (v/assert kb (list republican nixon) 'CxUniverse)
+                (backend-solves
+                 #(v/assert kb (list 'do/labeling (tu/tmp-ctx "Labeling")) 'CxUniverse)))))]
+      (testing "labeling a dilemma the solve-free bracket enumerates is none"
+        (is (= [] (labeling-solves))))
+      (testing "past the bracket's caps it is three: the classification's two, then the labeling"
+        (with-redefs [config/classify-max-cluster-members (constantly 1)]
+          (is (= [:classify-true :classify-supportable :label] (labeling-solves))))))))
 
 (deftest an-irreducible-clash-still-bypasses-the-solver
   ;; Two monotonic claims that contradict cannot be arbitrated by defeating one —

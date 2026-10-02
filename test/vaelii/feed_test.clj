@@ -27,7 +27,10 @@
             [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.feed :as feed]
+            [vaelii.impl.protocols :as p]
+            [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as vr]
+            [vaelii.ref.gen :as gen]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -78,6 +81,19 @@
                (:rule (:justification c)))
             "the entry carries why it is believed")
         (is (= [(list dog Muffet)] (:antecedents (:justification c))))))))
+
+(tu/deftest-kb a-firing-an-exceptWhen-rule-makes-on-its-arrival-arrives-with-it
+  ;; The assert stores the rule and then its exception, and each store settles: the
+  ;; firing the first settle places is believed when the second one reads it.
+  (tu/with-terms [bird penguin flies Opus]
+    (let [rule (list 'exceptWhen (list penguin '?x)
+                     (list 'set/forwardRule (list 'implies (list bird '?x) (list flies '?x))))]
+      (v/assert kb (list bird Opus) 'CxUniverse)
+      (let [[seen f] (recorder)
+            tok      (v/watch kb f)]
+        (v/assert kb rule 'CxUniverse)
+        (v/unwatch kb tok)
+        (is (some #{(list flies Opus)} (added @seen)))))))
 
 (tu/deftest-kb nothing-arrives-for-a-mutation-that-moved-no-belief
   (tu/with-terms [dog Muffet cat Tom]
@@ -253,10 +269,9 @@
 (tu/deftest-kb an-equality-merge-agrees-with-the-consequence-report
   ;; The contract is that a feed event and `edit-with-consequences` are the same answer,
   ;; and a merge is where that is worth pinning: the displaced spelling loses belief with
-  ;; no relabel to record it, and the hand-off both read covers only what the *settle*
-  ;; supersedes — an equality merge installs its supersession on the assert path.  So
-  ;; neither reports it, `preview` does, and this test is what keeps the two that must
-  ;; agree agreeing (and names the third).
+  ;; no relabel to record it, and both read the supersession moves the settle publishes
+  ;; (`special/take-supersession-moves!`), which name a spelling the assert path's
+  ;; reconcile displaced with the entry it had before.
   (tu/with-terms [dog Pref Dep CxName]
     (v/assert kb (list dog Pref) CxName)
     (let [[seen f] (recorder)]
@@ -266,9 +281,8 @@
         (is (= 1 (count @seen)))
         (is (= (set (map :sentence (:believed-added report))) (set (added @seen))))
         (is (= (set (map :sentence (:believed-removed report))) (set (removed @seen))))
-        (is (empty? (removed @seen))
-            "the displaced spelling is not in either — see preview_test for the one that
-             does report it")))))
+        (is (= #{(list dog Pref)} (set (removed @seen)))
+            "the displaced spelling is in both")))))
 
 (tu/deftest-kb registering-a-listener-does-not-move-belief
   ;; A feed is a read.  If registering one moved an `in?`, the delivery point is wrong.
@@ -731,3 +745,153 @@
       (v/assert kb (list dog Muffet) 'CxUniverse)
       (is (= [(list dog Muffet)] (added @seen))
           "a matching unary fact fires the variable-functor goal"))))
+
+;;; ── a belief a reader's verdict moved ──────────────────────────────────
+
+(defn- believed-pairs
+  "The `[sentence context]` pairs of `pairs` believed at their own context now."
+  [kb pairs]
+  (into #{} (filter (fn [[s c]] (when-let [h (v/handle-of kb s c)] (v/believed? kb h c))))
+        pairs))
+
+(defn- reported
+  "The `[added removed]` halves of a report or of `events`, as the `[sentence context]`
+  pairs of `pairs` they name."
+  [pairs added removed]
+  (let [keep (fn [entries] (into #{} (comp (map (juxt :sentence :context)) (filter (set pairs)))
+                                 entries))]
+    [(keep added) (keep removed)]))
+
+(tu/deftest-kb a-verdict-a-reader-reaches-arrives-in-every-order
+  ;; CxJ sees CxA, CxB and CxD, so it decides the membership nogood and takes (cat Rex)
+  ;; OUT, and (meows Rex), stored at CxJ, rests only on it.  Neither member's own context
+  ;; sees the other, so no label moves: the window has to carry the move.  Each write,
+  ;; and each retraction after them, is made in every order twice: once previewed first,
+  ;; once through `edit-with-consequences!` under a listener.  Each report names what the
+  ;; readings of belief at each sentence's own context before and after differ by; a
+  ;; preview also names a removed premise, and the other two leave out what a removal
+  ;; deleted.
+  ;;
+  ;;   CxA  (cat Rex) default     CxB  (dog Rex) monotonic     CxD  (disjoint dog cat)
+  ;;   CxJ sees CxA, CxB and CxD:  (cat ?x) => (meows ?x)
+  (doseq [mode  [:preview :edit]
+          order (gen/permutations [:disjoint :dog :cat :rule])]
+    (tu/with-terms [dog cat meows Rex CxA CxB CxD CxJ]
+      (doseq [[c up] [[CxA 'CxUniverse] [CxB 'CxUniverse] [CxD 'CxUniverse]
+                      [CxJ CxA] [CxJ CxB] [CxJ CxD]]]
+        (v/assert kb (list 'genlCx c up) 'CxUniverse {:strength :monotonic}))
+      (let [writes {:disjoint [(list 'disjoint dog cat) CxD {:strength :monotonic}]
+                    :dog      [(list dog Rex) CxB {:strength :monotonic}]
+                    :cat      [(list cat Rex) CxA {}]
+                    :rule     [(vr/rule-sentence [(list cat '?x)] (list meows '?x)) CxJ
+                               {:direction :forward}]}
+            pairs  [[(list cat Rex) CxA] [(list dog Rex) CxB] [(list meows Rex) CxJ]]
+            step   (fn [label batch]
+                     (let [before (believed-pairs kb pairs)
+                           msg    (str (name mode) " " label " " order)]
+                       (if (= :preview mode)
+                         (let [r (v/preview kb batch)]
+                           (v/edit! kb batch)
+                           (let [after (believed-pairs kb pairs)]
+                             (is (= [(into #{} (remove before) after)
+                                     (into #{} (remove after) before)]
+                                    (reported pairs (:believed-added r) (:believed-removed r)))
+                                 msg)))
+                         (let [[seen f] (recorder)
+                               tok      (v/watch kb f)
+                               r        (v/edit-with-consequences! kb batch)
+                               _        (v/unwatch kb tok)
+                               after    (believed-pairs kb pairs)
+                               want     [(into #{} (remove before) after)
+                                         (into #{} (comp (remove after)
+                                                         (filter (fn [[s c]] (v/handle-of kb s c))))
+                                               before)]]
+                           (is (= want (reported pairs (:believed-added r) (:believed-removed r)))
+                               (str msg " sinks"))
+                           (is (= want (reported pairs (mapcat :believed-added @seen)
+                                                 (mapcat :believed-removed @seen)))
+                               (str msg " feed"))))))]
+        (doseq [k order] (step [:add k] {:add [(writes k)]}))
+        (is (= #{[(list dog Rex) CxB]} (disj (believed-pairs kb pairs) [(list cat Rex) CxA]))
+            "CxJ withdraws (meows Rex)")
+        (doseq [k order
+                :let [[s c] (writes k)]]
+          (step [:remove k] {:remove [(v/handle-of kb s c)]}))))))
+
+(defn- own-belief
+  "Every stored handle believed at its own context, the reading an event is a diff of."
+  [kb]
+  (into #{} (filter #(when-let [sx (p/get-sentex (:records kb) %)]
+                       (res/believed-at? kb % (:context sx))))
+        (p/sentex-ids (:records kb))))
+
+(defn- window-disagreements
+  "Each write of `world` in `order`, then each retraction in `removals` (`order` when
+  not given), made under a listener on a KB of its own, as one entry per step whose event
+  differs from the diff of `own-belief` around it."
+  ([world order] (window-disagreements world order order))
+  ([world order removals]
+   (let [loaded (gen/load-world! world [] {})
+         kb     (:kb loaded)
+         seen   (atom [])
+         out    (atom [])
+         step   (fn [label f]
+                  (let [before (own-belief kb)]
+                    (reset! seen [])
+                    (try (f) (catch clojure.lang.ExceptionInfo _ nil))
+                    (let [after  (own-belief kb)
+                          stored (set (p/sentex-ids (:records kb)))
+                          want   [(into #{} (remove before) after)
+                                  (into #{} (comp (remove after) (filter stored)) before)]
+                          got    [(into #{} (comp (mapcat :believed-added) (map :handle)) @seen)
+                                  (into #{} (comp (mapcat :believed-removed) (map :handle)) @seen)]]
+                      (when-not (= want got)
+                        (swap! out conj {:step label :want want :got got})))))]
+     (try
+       (v/watch kb #(swap! seen conj %))
+       (doseq [{:keys [sentence context strength]} order]
+         (step [:add sentence context]
+               #(v/assert kb (gen/engine-form sentence) context {:strength (or strength :default)})))
+       (doseq [{:keys [sentence context]} removals]
+         (step [:remove sentence context]
+               #(some->> (v/handle-of kb (gen/engine-form sentence) context) (v/retract! kb))))
+       @out
+       (finally (gen/close-kb! loaded))))))
+
+(defn- random-window-check [seeds]
+  (let [bad (for [seed  seeds
+                  :let  [world (gen/gen-world seed {})
+                         ws    (vec (:writes world))]
+                  order [ws (vec (rseq ws))]
+                  d     (window-disagreements world order)]
+              (assoc d :seed seed))]
+    (is (= [] (vec (take 4 bad))))))
+
+(deftest an-un-merge-reports-no-given-back-spelling-the-step-did-not-move
+  ;; (relb IndA IndB) is superseded by (relb IndA IndA) under the merge of IndA and IndB,
+  ;; so it is not believed before the retraction.  In the first two rows the retraction
+  ;; un-merges, and the given-back spelling is decided OUT beside the :monotonic
+  ;; (relb IndA IndA); in the third the merge stands and the spelling stays superseded.
+  (let [w     (fn [s st] {:sentence s :context 'CxA :strength st})
+        R     '(set/forwardRule (implies (route ?x ?y) (relb ?x ?y)))
+        route (w '(route IndA IndB) :monotonic)
+        eq    (w '(equals IndA IndB) :monotonic)]
+    (doseq [[label writes removal]
+            [["the route retracted: the class drop un-merges"
+              [(w R :monotonic) route (w '(relb IndA IndB) :default)] route]
+             ["the equality retracted"
+              [(w '(relb IndA IndB) :default) eq] eq]
+             ["the route retracted beside a :monotonic premise: the merge stands"
+              [(w R :monotonic) route (w '(relb IndA IndB) :monotonic)] route]]]
+      (let [order (into [{:sentence '(genlCx CxA CxUniverse) :context 'CxUniverse
+                          :strength :monotonic}
+                         (w '(functional relb) :monotonic) (w '(relb IndA IndA) :monotonic)]
+                        writes)]
+        (is (= [] (window-disagreements {:contexts #{'CxA}} order [removal])) label)))))
+
+(deftest every-event-is-the-diff-of-own-context-belief-in-random-worlds
+  (random-window-check (range 40)))
+
+(deftest ^:slow every-event-is-the-diff-of-own-context-belief-in-400-random-worlds
+  (random-window-check (range 400)))
+

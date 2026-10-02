@@ -58,8 +58,8 @@
   (dimension! kb)
   (order-by-subinterval! kb)
   (v/assert kb '(functionalInArg the_best 1) year)
-  (v/assert kb '(the_best LaMulanaTwo) year)
-  (v/assert kb '(the_best Silksong) month)
+  (v/assert kb '(the_best LaMulanaTwo) year {:strength :monotonic})
+  (v/assert kb '(the_best Silksong) month {:strength :monotonic})
   (testing "January sees one filler, not two — the computed edge ran the merge"
     (is (= ["LaMulanaTwo"] (fillers kb month)))
     (is (v/same-class? kb 'LaMulanaTwo 'Silksong)
@@ -79,8 +79,8 @@
   (dimension! kb)
   (order-by-subinterval! kb)
   (v/assert kb '(functionalInArg the_best 1) year)
-  (v/assert kb '(the_best Silksong) month)
-  (v/assert kb '(the_best LaMulanaTwo) year)
+  (v/assert kb '(the_best Silksong) month {:strength :monotonic})
+  (v/assert kb '(the_best LaMulanaTwo) year {:strength :monotonic})
   (is (= ["LaMulanaTwo"] (fillers kb month)))
   (is (v/same-class? kb 'LaMulanaTwo 'Silksong)))
 
@@ -90,8 +90,8 @@
   ;; `contextArgSubrelation` declaration is what materializes the edge.
   (dimension! kb)
   (v/assert kb '(functionalInArg the_best 1) year)
-  (v/assert kb '(the_best LaMulanaTwo) year)
-  (v/assert kb '(the_best Silksong) month)
+  (v/assert kb '(the_best LaMulanaTwo) year {:strength :monotonic})
+  (v/assert kb '(the_best Silksong) month {:strength :monotonic})
   (testing "unordered, the two contexts are blind to each other and nothing merges"
     (is (= ["Silksong"] (fillers kb month)) "January reads only its own")
     (is (not (v/same-class? kb 'LaMulanaTwo 'Silksong))))
@@ -109,8 +109,8 @@
   (dimension! kb)
   (order-by-subinterval! kb)
   (v/assert kb '(functionalInArg the_best 1) year)
-  (v/assert kb '(the_best LaMulanaTwo) year)
-  (v/assert kb '(the_best Silksong) month)
+  (v/assert kb '(the_best LaMulanaTwo) year {:strength :monotonic})
+  (v/assert kb '(the_best Silksong) month {:strength :monotonic})
   (let [before (fillers kb month)
         ky     (:context (tu/sentex-matching kb '(the_best LaMulanaTwo) year))]
     (v/assert kb (list 'genlCx ky U) U)
@@ -152,7 +152,7 @@
   (dimension! kb)
   (order-by-subinterval! kb)
   (v/assert kb '(anti_symmetric asHeavyAs) year)
-  (v/assert kb '(asHeavyAs Lead Plumbum) year)
-  (v/assert kb '(asHeavyAs Plumbum Lead) month)
+  (v/assert kb '(asHeavyAs Lead Plumbum) year {:strength :monotonic})
+  (v/assert kb '(asHeavyAs Plumbum Lead) month {:strength :monotonic})
   (is (v/same-class? kb 'Lead 'Plumbum)
       "a converse pair under an anti_symmetric mark is two names for one thing"))

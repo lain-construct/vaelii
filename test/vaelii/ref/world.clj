@@ -21,17 +21,21 @@
   - **declaration**: `(d a1 … an)` with `d` in `declaration-predicates`, every argument a
     constant symbol or an integer. A `transitiveInArg` declaration is `(transitiveInArg
     P k genl)`, `P` an ordinary predicate and `k` a positive integer.
-  - **denial**: `(not S)` with `S` a fact or a `genl` edge between types.
+  - **denial**: `(not S)` with `S` a fact, a `genl` edge, or a write of the
+    forced-monotonic roster.
   - **rule**: the shapes `parse-rule` accepts.
 
-  **The forced-monotonic roster** (`forced?`, docs/reference.md D1, D7 and D10–D13):
-  `genlCx`, the relation marks, the definitional declarations, `except`, the equality
-  predicates, and a `genl` between two predicates (`predicate-genl?`). A write of one is
-  stored `:monotonic` whatever strength it was written at (`force-monotonic`, as the
-  engine's entry point coerces a context for a `forced_decontextualized_predicate`), a
-  denial of one is refused, and a rule concluding one is refused (D17), so every read of
-  one at every context is `:monotonic`. v1 admits `genlCx`, the marks, `disjoint`,
-  `covering` and a predicate `genl`; the rest of the roster is outside v1.
+  **The forced-monotonic roster** (`forced?`, docs/reference.md D1, D7, D10–D13 and
+  D17): `genlCx`, the relation marks, the function classes, the definitional
+  declarations, `except`, the equality predicates, and a `genl` between two predicates
+  (`predicate-genl?`). A write of one is read `:monotonic` whatever strength it was
+  written at (`force-monotonic`), as the engine's labeller holds it. A write the roster
+  rules out is stored and inert, never refused (`inert-write?`): a denial of a roster
+  literal, and a rule concluding one,
+  whose antecedents in v1 are never roster literals. `check-world` sets the inert writes
+  aside under `:inert`, so every read of a roster literal at every context is
+  `:monotonic`. v1 admits `genlCx`, the marks, `disjoint`, `covering` and a predicate
+  `genl`; the rest of the roster is outside v1.
 
   Refused besides (`check-computed-reads`): a rule that reads a predicate some write
   declares `transitiveInArg`, or a positive literal on a predicate the written `genl`
@@ -58,14 +62,18 @@
      anti_transitive transitiveInArg})
 
 (def forced-monotonic
-  "The functors whose every write is `:monotonic`, whose denial is outside the fragment,
-  and which no rule concludes: `genlCx` (docs/reference.md D1), the relation marks (D7),
-  the definitional declarations (D11), `except` (D12) and the equality predicates (D13).
-  `partition`, `sibling_disjoint`, `arity`, `except`, `rewriteOf`, `sameAs` and `equals`
-  are outside v1, and `write-kind` refuses a write of one."
+  "The functors whose every write is `:monotonic`, whose denial is inert, and which a v1
+  rule concludes only inertly: `genlCx` (docs/reference.md D1), the relation marks and the
+  function classes (D7, D17), the definitional declarations and the arity bindings (D11),
+  `except` (D12) and the equality predicates (D13).  `injection`, `surjection`,
+  `bijection`, `partition`, `sibling_disjoint`, the arity bindings, `except`, `rewriteOf`,
+  `sameAs` and `equals` are outside v1, and `write-kind` refuses a write of one."
   '#{genlCx irreflexive anti_symmetric asymmetric functional functionalInArg
-     anti_transitive transitiveInArg disjoint covering partition sibling_disjoint arity
-     except rewriteOf sameAs equals})
+     anti_transitive transitiveInArg injection surjection bijection disjoint covering
+     partition sibling_disjoint arity unary binary ternary unary_predicate
+     binary_predicate ternary_predicate unary_function binary_function ternary_function
+     variable_arity variable_arity_predicate variable_arity_function arityMin except
+     rewriteOf sameAs equals})
 
 (def ^:private direction-wrappers
   '{set/forwardRule :forward, set/forwardOnlyRule :forward-only})
@@ -218,10 +226,10 @@
     `(unknown L)` / `(unknown (and L1 L2 …))` over positive literals. A negated literal
     inside `unknown` or `exceptWhen` is refused: the engine answers one there through
     level-6 provers (disjointness among them) the reference does not model.
-  - `C` is a literal or its denial over an ordinary predicate. A rule concluding a
-    member of the forced-monotonic roster (`forced?`), or its denial, is refused with
-    `:reason :forced-conclusion` (docs/reference.md D17: a derived sentence goes OUT with
-    its antecedents, so it cannot be `:monotonic`). A rule concluding a type-level
+  - `C` is a literal or its denial over an ordinary predicate, or a member of the
+    forced-monotonic roster (`forced?`) or its denial. A rule concluding a roster member
+    parses with `:inert? true` (docs/reference.md D17): its antecedents are v1 literals,
+    never roster literals, so each firing of it is inert. A rule concluding a type-level
     `genl` or a rule is refused as outside v1.
   - at least one join antecedent; every variable of `C`, of each `unknown` and of the
     exception occurs in a join antecedent (range restriction and closure)."
@@ -246,10 +254,8 @@
       (when-not (every? #(literal? % true) (concat (apply concat unknowns) exc))
         (unsupported "an unknown or exceptWhen conjunct outside the positive v1 literals"
                      {:sentence form}))
-      (when (forced? (if (denial? conseq) (second conseq) conseq))
-        (unsupported "a rule concluding a forced-monotonic predicate (docs/reference.md D17)"
-                     {:sentence form :reason :forced-conclusion}))
-      (when-not (signed-literal? conseq true)
+      (when-not (or (signed-literal? conseq true)
+                    (forced? (if (denial? conseq) (second conseq) conseq)))
         (unsupported "a consequent outside the v1 literals" {:sentence form}))
       (when-not (set/subset? (vars-of [conseq unknowns exc]) bound)
         (unsupported "a variable no join antecedent binds" {:sentence form}))
@@ -259,7 +265,8 @@
        :antecedents joins
        :unknowns    unknowns
        :consequent  conseq
-       :exceptions  (if (seq exc) [exc] [])})))
+       :exceptions  (if (seq exc) [exc] [])
+       :inert?      (forced? (if (denial? conseq) (second conseq) conseq))})))
 
 (defn rule-form?
   "Does `s` look like a rule form: an `implies` under zero or more wrappers."
@@ -289,7 +296,7 @@
       (unsupported "a declaration argument outside the v1 fragment" {:sentence s}))
     (denial? s)
     (let [b (second s)]
-      (if (or (literal? b false) (genl-edge? b))
+      (if (or (literal? b false) (genl-edge? b) (forced? b))
         (do (write-kind b) :denial)
         (unsupported "a denial outside the v1 fragment" {:sentence s})))
     (literal? s false) :fact
@@ -392,17 +399,21 @@
         (unsupported "an unknown or exceptWhen reads a covering part"
                      {:sentence s :predicate f})))))
 
-(defn- check-forced
-  "Throw `:unsupported` when write `w` is a denial of a member of the forced-monotonic
-  roster (`forced?`; docs/reference.md D1, D7, D10, D11), or a `transitiveInArg`
-  declaration other than `(transitiveInArg P k genl)` over an ordinary predicate `P`
-  and a positive integer `k`."
+(defn inert-write?
+  "Is write `w` one the forced-monotonic roster makes inert (docs/reference.md D1, D7,
+  D10–D13, D17): a denial of a `forced?` sentence, which the engine stores and never
+  believes, or a rule concluding one or its denial, whose every firing the engine drops.
+  The engine stores both rather than refusing them, so the stored set is a function of the
+  offered set in every order."
+  [{:keys [sentence]}]
+  (or (and (denial? sentence) (forced? (second sentence)))
+      (and (rule-form? sentence) (:inert? (parse-rule sentence)))))
+
+(defn- check-transitive-in-arg
+  "Throw `:unsupported` when write `w` is a `transitiveInArg` declaration other than
+  `(transitiveInArg P k genl)` over an ordinary predicate `P` and a positive integer `k`."
   [{:keys [sentence] :as w}]
   (let [f (when (seq? sentence) (first sentence))]
-    (when (and (denial? sentence) (forced? (second sentence)))
-      (unsupported (str "a denial of " (first (second sentence))
-                        " is outside the v1 fragment (the forced-monotonic roster)")
-                   {:write w}))
     (when (= 'transitiveInArg f)
       (let [[_ p k r] sentence]
         (when-not (and (= 4 (count sentence)) (ordinary-predicate? p) (integer? k) (pos? k)
@@ -421,19 +432,24 @@
     write))
 
 (defn check-world
-  "Return `world` with every roster write forced `:monotonic` (`force-monotonic`) when
-  every write is inside the v1 fragment (the namespace docstring), and throw
-  `:unsupported` otherwise."
+  "Throw `:unsupported` unless every write of `world` is inside the v1 fragment (the
+  namespace docstring), and return `world` with its `inert-write?` writes moved from
+  `:writes` to `:inert` and every roster write left forced `:monotonic`
+  (`force-monotonic`).  The fragment's structural checks read the writes that stay."
   [world]
   (let [ws (:writes world)]
     (doseq [{:keys [sentence context strength] :as w} ws]
       (when-not (and (map? w) (context-term? context) (contains? strengths strength))
         (unsupported "a write without a context term and a strength" {:write w}))
-      (check-forced w)
+      (check-transitive-in-arg w)
       (write-kind sentence))
-    (check-acyclic-contexts ws)
-    (check-computed-reads ws)
-    (update world :writes #(mapv force-monotonic %))))
+    (let [{inert true live false} (group-by (comp boolean inert-write?) ws)
+          live (vec live)]
+      (check-acyclic-contexts live)
+      (check-computed-reads live)
+      (assoc world
+             :writes (mapv force-monotonic live)
+             :inert  (vec inert)))))
 
 ;; ---- extraction from a KB ---------------------------------------------------
 

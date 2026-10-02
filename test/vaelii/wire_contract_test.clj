@@ -135,21 +135,14 @@
   ;; reverse proxy and 5xx alarm between the caller and the daemon counts as a backend
   ;; fault — for a request the caller wrote.  `assert`'s own vocabulary is pinned above;
   ;; these are the entry points beside it, one refusal each, driven through the same handler.
-  (tu/with-terms [before Alice atOrAbove dog Rex]
+  (tu/with-terms [dog Rex]
     (let [handler (open-app kb)
           op!     (fn [op args] (post-raw handler edn-headers (op-body op args)))
           ;; a directory no export ever reaches: both refusals below run before the
           ;; destination is touched, so nothing is created and nothing needs cleaning up
           nowhere "/vaelii-export-that-is-never-written"]
-      (op! :assert [(list 'irreflexive before) 'CxUniverse])
-      (op! :assert [(list 'anti_symmetric atOrAbove) 'CxUniverse])
-      (op! :assert [(list atOrAbove 1 2) 'CxUniverse])
       (doseq [[label ty reply]
-              [["a self tuple of an irreflexive predicate" :irreflexive
-                (op! :assert [(list before Alice Alice) 'CxUniverse])]
-               ["a converse no equality could merge" :anti-symmetric
-                (op! :assert [(list atOrAbove 2 1) 'CxUniverse])]
-               ;; the read entry points that do not resolve a query context refuse it rather
+              [;; the read entry points that do not resolve a query context refuse it rather
                ;; than answering empty (docs/contexts.md); over the wire that refusal is
                ;; the caller naming a reading this op does not offer
                ["a query context at a read that does not resolve one" :unsupported-context

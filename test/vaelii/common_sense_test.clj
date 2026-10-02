@@ -55,9 +55,9 @@
   (testing "the stated pair, and the pair a metatype separates"
     (is (v/disjoint? kb 'dog 'cat))
     (is (v/disjoint? kb 'penguin 'dog)))
-  (testing "and the KB refuses the membership rather than storing a contradiction"
-    (is (= :disjoint (refusal kb '(cat Muffet) N)))
-    (is (= :disjoint (refusal kb '(dog Tweety) N))))
+  (testing "and the KB stores the membership as a contradiction the settle weighs"
+    (is (tu/stored-in-clash? kb '(cat Muffet) N))
+    (is (tu/stored-in-clash? kb '(dog Tweety) N)))
   (testing "what nothing rules out stays open — an open world, not a closed one"
     (is (not (v/disjoint? kb 'dog 'food)))
     (is (not (v/isa? kb 'Muffet 'food)))))
@@ -327,18 +327,18 @@
 
 (tu/deftest-kb one-child-has-one-mother-and-a-second-name-for-her-merges
   ;; motherOf is functional, so a second, different mother is not a second fact.  Two
-  ;; symbols are two names — they merge — where two numbers could not be one thing and
-  ;; a second birth year is refused outright.
+  ;; known-true symbols are two names — they merge — where two numbers could not be one
+  ;; thing and a second birth year is a clash.
   (tu/with-terms [Pup Dam Mum]
     (v/assert kb (list 'dog Pup) N)
     (v/assert kb (list 'dog Dam) N)
     (v/assert kb (list 'dog Mum) N)
-    (v/assert kb (list 'motherOf Pup Dam) N)
-    (v/assert kb (list 'motherOf Pup Mum) N)
+    (v/assert kb (list 'motherOf Pup Dam) N {:strength :monotonic})
+    (v/assert kb (list 'motherOf Pup Mum) N {:strength :monotonic})
     (testing "the two mothers are one animal under two names"
       (is (v/same-class? kb Dam Mum)))
-    (testing "where two numbers cannot merge, and the second is refused"
-      (is (= :functional (refusal kb '(birthYearOf Tom 1971) S))))))
+    (testing "where two numbers cannot merge, and the second is a clash"
+      (is (tu/stored-in-clash? kb '(birthYearOf Tom 1971) S)))))
 
 ;; ---- naming a thing by the role it plays --------------------------------
 
@@ -418,7 +418,7 @@
   (testing "an animal with no weight on record is not ordered against anything"
     (is (not (v/query? kb '(heavierThan Muffet Sam) N {:max-depth 2}))))
   (testing "and a second, different weight is a contradiction rather than a second fact"
-    (is (= :functional (refusal kb '(weightOf Muffet (QuantityFn 30 Kilogram)) N)))))
+    (is (tu/stored-in-clash? kb '(weightOf Muffet (QuantityFn 30 Kilogram)) N))))
 
 (tu/deftest-kb two-stated-comparisons-answer-the-third-with-nothing-weighed
   ;; Nobody weighs an elephant.  heavierThan is a strict order — transitive as well as
@@ -536,10 +536,10 @@
   (tu/with-terms [primaryHostOf Svc BoxA BoxB]
     (v/assert kb (list 'binary_predicate primaryHostOf) N)
     (v/assert kb (list 'functional primaryHostOf) N)
-    (v/assert kb (list primaryHostOf Svc BoxA) N)
-    (v/assert kb (list primaryHostOf Svc BoxB) N)
+    (v/assert kb (list primaryHostOf Svc BoxA) N {:strength :monotonic})
+    (v/assert kb (list primaryHostOf Svc BoxB) N {:strength :monotonic})
     (is (v/same-class? kb BoxA BoxB)
-        "two co-believed bare fillers of a functional predicate are one thing under two names")))
+        "two co-believed known-true bare fillers of a functional predicate are one thing under two names")))
 
 (defn- swap-fixture
   "Two observations of a per-instant-functional host state in `kb`, each event initiating a

@@ -743,9 +743,9 @@
     (is (not (v/ask? kb (list rankedOver chihuahua_t maine_coon_t) 'CxUniverse))
         "so nothing is answered")))
 
-;; ---- strict: the same shape, refused instead of overridden ---------------
+;; ---- strict: the same shape, defeated instead of overridden --------------
 
-(tu/deftest-kb a-contrary-claim-against-known-true-content-is-refused
+(tu/deftest-kb a-contrary-claim-against-known-true-content-is-stored-and-loses
   ;; known-true content here is the claim and the reading: the edges and the declarations
   ;; are `:monotonic` too
   (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t largerThan]
@@ -755,18 +755,12 @@
     (preserving! kb largerThan {:strength :monotonic})
     (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse {:strength :monotonic})
     (testing "the inherited claim is as binding as the one that was written"
-      (let [e (try (v/assert kb (list largerThan maine_coon_t chihuahua_t) 'CxUniverse)
-                   nil
-                   (catch clojure.lang.ExceptionInfo e e))]
-        (is (some? e))
-        (is (= :asymmetric (:type (ex-data e))))
-        (is (= (list largerThan dog_t cat_t) (:opposing (ex-data e)))
-            "the message names the general claim actually responsible")))
+      (is (tu/stored-in-clash? kb (list largerThan maine_coon_t chihuahua_t) 'CxUniverse)))
     (testing "and so is the plain converse of a directly-stated one"
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list largerThan cat_t dog_t) 'CxUniverse))))
-    (testing "nothing was stored by either refusal"
+      (is (tu/stored-in-clash? kb (list largerThan cat_t dog_t) 'CxUniverse)))
+    (testing "neither contrary claim is believed, and the known-true reading stands"
       (is (not (v/ask? kb (list largerThan maine_coon_t chihuahua_t) 'CxUniverse)))
+      (is (not (v/ask? kb (list largerThan cat_t dog_t) 'CxUniverse)))
       (is (v/ask? kb (list largerThan chihuahua_t maine_coon_t) 'CxUniverse)))))
 
 (tu/deftest-kb a-contrary-claim-against-a-default-reading-is-admitted-as-a-dilemma
@@ -787,10 +781,10 @@
   (tu/with-terms [dog_t cat_t largerThan]
     (v/assert kb (list 'asymmetric largerThan) 'CxUniverse)
     (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse {:strength :monotonic})
-    (is (thrown? clojure.lang.ExceptionInfo
-                 (v/assert kb (list largerThan cat_t dog_t) 'CxUniverse)))))
+    (is (tu/stored-in-clash? kb (list largerThan cat_t dog_t) 'CxUniverse))
+    (is (not (v/ask? kb (list largerThan cat_t dog_t) 'CxUniverse)))))
 
-(tu/deftest-kb a-default-general-claim-does-not-refuse-anything
+(tu/deftest-kb a-default-general-claim-leaves-the-contrary-claim-believed
   ;; The whole strict/typical difference, isolated: same vocabulary, same declarations,
   ;; only the strength of the general claim differs.
   (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t largerThan]
@@ -798,14 +792,16 @@
                 :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
     (preserving! kb largerThan)
     (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)     ; :default, not monotonic
-    (is (integer? (v/assert kb (list largerThan maine_coon_t chihuahua_t) 'CxUniverse))
-        "accepted, where the monotonic version refuses")))
+    (is (integer? (v/assert kb (list largerThan maine_coon_t chihuahua_t) 'CxUniverse)))
+    (is (v/ask? kb (list largerThan maine_coon_t chihuahua_t) 'CxUniverse)
+        "believed, where the monotonic version defeats it")))
 
 ;; ---- order independence ---------------------------------------------------
 
-(defn- admits-converse?
+(defn- believes-converse?
   "State `(P a b)` in a super-context and a sub-context at the two given strengths, in
-  the given order, then report whether the converse is admitted from the sub-context."
+  the given order, then store the converse in the sub-context and report whether the
+  sub-context believes it."
   [kb {:keys [pred a b super sub order]}]
   ;; the declarations below live in CxUniverse, and the asymmetry check reads
   ;; them from the asserting context's ancestor set — so the lattice is wired below it
@@ -816,22 +812,14 @@
   (v/assert kb (list 'transitiveInArg pred 2 'genl) 'CxUniverse)
   (doseq [[where strength] order]
     (v/assert kb (list pred a b) (if (= where :super) super sub) {:strength strength}))
-  (try (v/assert kb (list pred b a) sub) true
-       (catch clojure.lang.ExceptionInfo e
-         ;; **Only the asymmetry check's refusal counts as one.**  Every assertion below
-         ;; is `(is (false? …))`, so mapping any ex-info to false would let a `:naming`
-         ;; or `:arg-type` regression read as the intended refusal — the converse would
-         ;; be "refused" for a reason that has nothing to do with `(asymmetric P)`.
-         ;; Anything else is rethrown, which is an error rather than a silent pass.
-         (if (= :asymmetric (:type (ex-data e)))
-           false
-           (throw e)))))
+  (v/assert kb (list pred b a) sub)
+  (v/ask? kb (list pred b a) sub))
 
 (tu/deftest-kb the-strongest-visible-claim-decides-not-the-first-one-stored
-  ;; One sentence, two visible contexts, two strengths.  `:class` decides whether the
-  ;; asymmetry check refuses, so reading it off whichever handle `matches-visible`
-  ;; happened to yield first would key an *admission* on arrival order — and handles
-  ;; are allocated in assertion order.
+  ;; One sentence, two visible contexts, two strengths.  `:class` decides which member
+  ;; of the asymmetry nogood loses, so reading it off whichever handle `matches-visible`
+  ;; happened to yield first would key a *verdict* on arrival order — and handles are
+  ;; allocated in assertion order.
   ;;
   ;; Every combination of (which context holds the monotonic claim) x (which was
   ;; asserted first) must give the same answer, and it must be the strong one: a claim
@@ -845,11 +833,11 @@
             order    (if (= first-where :super)
                        [[:super (strength :super)] [:sub (strength :sub)]]
                        [[:sub (strength :sub)] [:super (strength :super)]])]
-        (is (false? (admits-converse? kb {:pred largerThan :a dog_t :b cat_t
-                                          :super CxSuper :sub CxSub
-                                          :order order}))
+        (is (false? (believes-converse? kb {:pred largerThan :a dog_t :b cat_t
+                                            :super CxSuper :sub CxSub
+                                            :order order}))
             (str "monotonic in " (name strong) ", " (name first-where) " asserted first ["
-                 i j "]: the converse of known-true content is refused either way"))))))
+                 i j "]: the converse of known-true content loses either way"))))))
 
 (tu/deftest-kb the-supporter-a-fan-answers-with-is-the-content-least-not-the-first
   ;; What licenses a reach along a fact-relation includes the `(transitive R)` the

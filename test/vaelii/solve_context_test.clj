@@ -613,7 +613,8 @@
   (set (for [ctx (distinct (cons base (tax/context-up (reasoning/taxonomy kb) base)))
              h   (reads/as-stored-in-context (:index kb) ctx)
              :let [s (p/get-sentex (:records kb) h)]
-             :when (and s (rules/solve-sentex? s) (res/rule-believed? kb h))]
+             :when (and s (rules/solve-sentex? s) (res/rule-believed? kb h)
+                        (res/believed-at? kb h base))]
          h)))
 
 (deftest the-solve-rule-roster-answers-what-the-extent-walk-answers

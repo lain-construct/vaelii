@@ -34,27 +34,32 @@
   One function, and every method below either supplies an argument to it, reads a
   result of it, or edits its domain:
 
-      label(graph, attributes, blocked, defeated) -> (in, groundable, classes)
-      believed                                     = in - superseded
+      label(graph, attributes, blocked) -> (in, classes)
+      believed                           = in - superseded
 
   `graph` is the nodes and justifications.  `attributes` are the per-element strengths
-  the class fixpoint reads.  `blocked`, `defeated` and `superseded` are three sets the
-  **caller** computes and replaces whole every settle — the network is pure and holds no
-  KB, so it can run none of the three queries that decide them.  `in`, `groundable` and
-  `classes` are what a relabel writes.
+  the class fixpoint reads, and the three **forced** sets the forced-monotonic roster
+  writes (docs/nmtms.md, \"The forced-monotonic roster\"): `:mono`, premises whose class is
+  `:monotonic` whatever strength they carry; `:out`, datums never IN; and `:void`,
+  justifications that support nothing.  The caller decides each membership from the
+  stored content and writes it with the element, as it writes a strength.  `blocked` and
+  `superseded` are two sets the **caller** computes and replaces whole every settle — the
+  network is pure and holds no KB, so it can run neither query that decides them.  `in`
+  and `classes` are what a relabel writes.  No contradiction forces a datum OUT: a
+  contradiction is decided at each reader, above this boundary, so the network holds
+  support labels only, and an `:out` member is the one datum the fixpoint never adds.
 
-  The three overrides enter belief at three different points, and a method that confuses
-  two of them is wrong in a way no label comparison catches:
+  The two overrides enter belief at two different points, and a method that confuses
+  them is wrong in a way no label comparison catches:
 
   | override | enters at | moves |
   |---|---|---|
-  | `blocked` | inside `valid?`, so a blocked justification supports nothing | `in` **and** `groundable` |
-  | `defeated` | inside the fixpoint, as a datum forced OUT | `in` only, so a defeated datum can revive |
-  | `superseded` | subtracted at the read, after both fixpoints | neither — the datum stays in `in` so its rewritten twin keeps its justification |
+  | `blocked` | inside `valid?`, so a blocked justification supports nothing | `in` |
+  | `superseded` | subtracted at the read, after the fixpoint | nothing — the datum stays in `in` so its rewritten twin keeps its justification |
 
-  `vaelii.impl.jtms` states each of the three at length under *the state*.
+  `vaelii.impl.jtms` states each at length under *the state*.
 
-  ## The eight roles
+  ## The seven roles
 
   `roles` below assigns every method exactly one, and `jtms_protocol_test` fails on a
   method in none or in two.  The roles are a division of **what a method touches**, not
@@ -65,15 +70,14 @@
   | role | what it holds | what supplies it |
   |---|---|---|
   | `:graph` | nodes, justifications, depth, adjacency | `-ensure-node`, the two `-add-*`, `-retract`, `-sweep`, `-drop-justification` |
-  | `:attribute` | a premise's and a justification's strength | written with the element, and by `-restrength-informant` |
+  | `:attribute` | a premise's and a justification's strength, and the forced sets | written with the element, and by `-restrength-informant` and `-set-forced` |
   | `:blocked` | the blocked justification-id set | the caller's exception query |
-  | `:defeated` | the forced-OUT datum set | the caller's contradiction decision |
   | `:superseded` | the `datum -> reason` map | the caller's equality closure |
-  | `:output` | `in`, `groundable`, `classes` | every relabel |
+  | `:output` | `in`, `classes` | every relabel |
   | `:window` | the touched sets | every relabel |
   | `:hold` | the labels a settle has moved, as they were when it began | the settle |
 
-  **A fourth place belief is decided is not on this protocol.**  A scoped defeat and a
+  **A third place belief is decided is not on this protocol.**  A reader's verdict and a
   visibility `except` are applied per reading context by `vaelii.impl.resolution`, over
   `vaelii.impl.jtms/grounded-in-region` — which is built on the reads here and is
   therefore not a method at all, so both representations answer it without implementing
@@ -88,9 +92,9 @@
   obligation with no gate is a comment.
 
   1. **The same fixpoint over the same region.**  Binds `:output`, and through it
-     `:blocked` and `:defeated`, which are the fixpoint's two override arguments.  A
-     datum is believed when it is a premise or has a valid justification (all
-     antecedents believed), minus the defeated set; the label is recomputed over the forward consequence closure of
+     `:blocked`, the fixpoint's override argument.  A datum is believed when it is a
+     premise or has a valid justification (all antecedents believed); the label is
+     recomputed over the forward consequence closure of
      whatever changed, with the rest held fixed as boundary.  That is the *semantics*
      of belief here (docs/nmtms.md), not a strategy an implementation may improve on:
      the region fixpoint is equal to the global one because a least fixpoint with the
@@ -98,8 +102,8 @@
      no order independence.  An implementation may move where the graph lives; it may
      not move what is believed.  Gate: `jtms_dense_oracle_test`, which compares the
      entire `-snapshot` after **every** step of a randomized operation stream — not a
-     sampled read, because a divergence in `:groundable` is invisible to `-believed?`
-     until a retraction three operations later collects the wrong node.
+     sampled read, because a divergence in a class or a block is invisible to
+     `-believed?` until a later operation reads it.
 
   2. **A mutation is atomic to a concurrent reader.**  Binds every role.  A reader
      sees the state wholly
@@ -109,8 +113,8 @@
      by compare-and-set on its state atom, the dense network by taking its
      `StampedLock` for writing.  Gate: `jtms_atomicity_test`, whose atomicity half runs
      against both networks for exactly this reason.  **While a hold is open**
-     (`-hold`), a thread other than its owner reads the `:output`, `:defeated`,
-     `:blocked` and `:superseded` roles as they stood when the hold began, so a settle's
+     (`-hold`), a thread other than its owner reads the `:output`, `:blocked` and
+     `:superseded` roles as they stood when the hold began, so a settle's
      run of relabels reaches such a reader as one step when the hold closes.  The reference keeps
      its state map from that moment; the dense network records each label the first
      relabel after it moves, which costs the region that relabel walks.  Gate:
@@ -179,7 +183,7 @@
   (-retract          [tms datum] "Drop the premise, relabel, sweep; return the removals.")
   (-sweep            [tms seeds] "Sweep the consequence closure of `seeds`.")
   (-drop-justification [tms jid] "Remove the one justification `jid`, relabel what it
-    supported, and sweep what that leaves ungroundable; return the removals.")
+    supported, and sweep what that leaves OUT; return the removals.")
   (-relabel          [tms]       "Whole-graph relabel — no engine path calls it; see
     `vaelii.impl.jtms/relabel`.  The one method whose cost is the graph rather than a
     region, which is why nothing on the engine path may acquire the habit.")
@@ -192,31 +196,28 @@
     "Set `strength` as the rule-contribution slot of every justification whose
     informant is `informant`, and relabel the region their consequences span.  Cost is
     that region, plus the scan for the informant's justifications.")
+  (-forced?          [tms kind x] "Is `x` a member of forced set `kind`?  A set lookup,
+    read on the relabel path.")
+  (-set-forced       [tms kind xs on?] "Add each of `xs` to forced set `kind` (`on?`
+    true) or take it out, and relabel the region of the members that moved: the datums
+    themselves for `:mono` and `:out`, the consequences for `:void`.  A member need not
+    have a node or a justification yet, so a caller writes it before the element it
+    governs and the element never holds a label the set rules out.")
 
   ;; ---- :blocked — invalid justifications, computed by the caller --------------
   (-blocked          [tms]       "The blocked justification-id set.")
   (-set-blocked      [tms jids]  "Replace the blocked set and relabel what moved.
-    Blocking enters through `valid?`, so it moves `:groundable` as well as `:in` and an
-    excepted conclusion is swept rather than retained.  The caller evaluates the
+    Blocking enters through `valid?`, so an excepted conclusion goes OUT and is swept
+    rather than retained.  The caller evaluates the
     exceptions and hands `jids` in — the network holds no KB and cannot run the query —
     so the cost here is the region seeded by the justifications whose blocked status
     changed, never the cost of deciding which those are.")
 
-  ;; ---- :defeated — datums forced OUT, decided by the caller -------------------
-  (-defeated         [tms]       "The forced-OUT set.")
-  (-defeat           [tms datums] "Force `datums` OUT and relabel their region.  A defeat
-    enters the fixpoint as a forced-OUT datum, so it moves `:in` and leaves `:groundable`
-    standing, which is what lets a defeated datum revive when the defeat is cleared.
-    `settle` decides `datums` by a walk over the opposed set that reads no justification
-    edge; the cost here is the forward closure of `datums`, never the cost of that walk.")
-  (-clear-defeats    [tms]       "Empty the defeated set and relabel the forward closure
-    of what was defeated.")
-
-  ;; ---- :superseded — reported belief subtracted after both fixpoints ----------
+  ;; ---- :superseded — reported belief subtracted after the fixpoint -------------
   (-superseded       [tms]       "The `datum -> reason` supersession map.")
   (-supersede        [tms m]     "Replace the supersession map.  No relabel, and the one
     override mutation that walks no region: supersession subtracts *reported* belief
-    after both fixpoints, so no label moves.  The caller computes `m` from the equality
+    after the fixpoint, so no label moves.  The caller computes `m` from the equality
     closure.  A map `m` is installed as it is, in O(1); any other collection of entries
     costs its size.")
 
@@ -231,8 +232,8 @@
     `:graph`-resident IN-ness too: `:classes` holds only the datums above the lattice's
     bottom, so being IN is what separates OUT from IN at the default class.")
   (-snapshot         [tms]
-    "The whole network as one canonical persistent map — `:nodes :justs :in
-    :groundable :defeated :blocked :superseded :classes`.  The only method that spans
+    "The whole network as one canonical persistent map — `:nodes :justs :in :blocked
+    :superseded :classes`.  The only method that spans
     every role, and the *comparison* shape the differential oracle checks; it is the
     shape `RefTms` happens to store, and a dense implementation materializes it, so it
     is a debugging and testing surface, never something an engine path calls.")
@@ -241,7 +242,14 @@
   (-touched          [tms]       "Datums whose region was relabelled since the reset.")
   (-touched-in       [tms]       "Of those, the ones already believed when first relabelled.")
   (-touched-new      [tms]       "Datums whose node this window created.")
-  (-reset-touched    [tms]       "Clear the touched sets.")
+  (-touched-out      [tms]       "Datums a forced-set change (`-set-forced`) took from IN
+    to OUT this window.")
+  (-reset-touched    [tms]       "Clear the touched sets, and outdate every mark.")
+  (-touch-mark       [tms]       "A mark of this point in the window, which
+    `-touched-since` reads: every datum the window records after this call is in it.")
+  (-touched-since    [tms mark]  "The datums the window recorded after `mark`, a datum
+    relabelled again since included; the whole `-touched` set for a mark taken before the
+    last `-reset-touched`, or nil.")
 
   ;; ---- :hold — the labels a settle keeps for the other threads ----------------
   (-hold             [tms h]     "Open hold `h` (`vaelii.impl.observe/new-hold`) on this
@@ -254,7 +262,7 @@
 
 (def roles
   "Which role each `Tms` method is in, as `{role #{method-name}}` — the protocol
-  docstring's *The eight roles* written as data, so a test holds it rather than review.
+  docstring's *The seven roles* written as data, so a test holds it rather than review.
 
   It is a partition of what a method **touches**, and the protocol docstring says why it
   cannot be a partition of what a network may be implemented without: every mutation
@@ -268,10 +276,10 @@
                   -justification -justifications -ensure-node -add-premise
                   -suspend-premise -add-justification -retract -sweep -drop-justification
                   -relabel}
-    :attribute  #{-premise-strength -restrength-informant}
+    :attribute  #{-premise-strength -restrength-informant -forced? -set-forced}
     :blocked    #{-blocked -set-blocked}
-    :defeated   #{-defeated -defeat -clear-defeats}
     :superseded #{-superseded -supersede}
     :output     #{-believed? -believed -any-belief? -defeat-class -snapshot}
-    :window     #{-touched -touched-in -touched-new -reset-touched}
+    :window     #{-touched -touched-in -touched-new -touched-out -reset-touched
+                  -touch-mark -touched-since}
     :hold       #{-hold -release -held}})

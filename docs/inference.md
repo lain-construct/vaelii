@@ -441,9 +441,10 @@ which is `not` for every negation there is, and reads the direction off that key
 polarity. And an edge arriving *after* the facts owes a re-seeding of what it newly makes
 matchable, which for a negated antecedent sits on the far side of the edge:
 `special/subsumption-seeds` reads a positive antecedent's new facts down `sub`'s spec
-subtree and a negated one's negative facts up `super`'s genl closure, the latter gated on
-some rule actually reading a negation under `sub` so that a KB with none pays one pass
-over the antecedent roster. Without either half, retracting the edge leaves the conclusion
+subtree and a negated one's negative facts up `super`'s genl closure. The former is gated
+on some rule reading a term at or above `super`, the latter on some rule reading a
+negation under `sub`, so that a KB with neither pays a pass over the antecedent roster
+and reads no subtree. Without either half, retracting the edge leaves the conclusion
 standing and the same three sentences derive it in one arrival order and not the other.
 
 **What already fired follows the edge too.** A subsumption match is a use of the edge,
@@ -609,8 +610,8 @@ Four things about the structure of it:
   and a `superseded` spelling is displaced by an equality merge, which the goal rewrite
   applies before any prover sees the goal ([equality.md](equality.md)).
 - **It costs a KB with no contradiction nothing.** `res/defeated-index` is read once per
-  query and is **nil** when the defeated set is empty; when it is not, a goal whose functor
-  no defeated datum carries is never checked. So no marker is pushed and no node records
+  query and is **nil** when no nogood member is stored; when one is, a goal whose functor
+  no member carries is never checked. So no marker is pushed and no node records
   anything unless a defeat on that predicate is actually in play. Laziness and the anytime
   budget are untouched: the check is one lookup at a frame that was going to be popped
   anyway.
@@ -2235,17 +2236,16 @@ unfinished DFS goal stack (`res/prove-from`). Full design: [anytime.md](anytime.
 ## JTMS → NMTMS
 
 A node is IN if it is a premise or has a *valid* justification (all antecedents
-IN), computed as a least fixpoint — **except** a datum in the `defeated` set is
-forced OUT. Belief is a **relabelling**, recomputed from the current justifications
-and defeated set rather than accumulated, so it is order-independent: a defeater
-withdraws its target whether it arrives before or after, and removing the defeater
-revives it. The relabel is *scoped to the affected region* with the rest of the graph
+IN), computed as a least fixpoint. Belief is a **relabelling**, recomputed from the
+current justifications rather than accumulated, so it is order-independent. A
+contradiction takes nothing OUT of the network: each reader decides it and withdraws the
+loser from its own view, whether the defeater arrives before or after, and removing the
+defeater gives the loser back. The relabel is *scoped to the affected region* with the rest of the graph
 held fixed, and the whole-graph `jtms/relabel` has no engine caller: `recover` composes
 the region relabels its own rebuild runs (`recovery/rebuild-tms`), because a region relabel
 over the affected closure equals a global one. What `relabel` is for is the differential
-oracle ([nmtms.md](nmtms.md)). This is the non-monotonic upgrade — assumption strengths, the
-defeated set, and the soft-contradiction layer that fills it are documented in
-[nmtms.md](nmtms.md).
+oracle ([nmtms.md](nmtms.md)). This is the non-monotonic upgrade — assumption strengths and
+the soft-contradiction layer at the readers are documented in [nmtms.md](nmtms.md).
 
 **Retraction is dependency-directed** (relabel-then-sweep):
 

@@ -168,9 +168,10 @@ Three properties hold, each of them `arg`'s:
   stop-short `arityMin` records, and order-sensitive in the way every constraint's refusal
   half is.
 
-The walk is over the positions a sentence has, not a re-counted tail. `arity-problem`
-refuses a length the relation does not admit before the covering check runs, so the arity
-reader and the covering check never hold two answers about where the tail ends.
+The walk is over the positions a sentence has, not a re-counted tail. A tuple of a length
+its relation's binding denies is stored and each reader decides it as an arity nogood
+([taxonomy.md](taxonomy.md#arity)); the covering check walks every position such a tuple
+has.
 
 ## Constraint and entailment readings
 
@@ -242,23 +243,19 @@ argument — convicts every mint after the first.
 The refusal did not disappear with the symbol arm; it moved one step along the
 derivation. `checks/entailment-check` walks the whole cascade of prospective mints before
 anything is stored and reports the first the KB could not admit, so **the entry point
-refuses a sentence exactly when it would refuse what the sentence entails**:
+refuses a sentence exactly when it would refuse what the sentence entails**: a mint an
+inherited declaration convicts. The violation is the **mint's own**, with the sentence
+that entailed it in `:entailed-from`.
 
-```clojure
-(v/assert kb '(rock Bert) 'CxWorld)
-(v/assert kb '(disjoint animal rock) 'CxWorld)
-(v/assert kb '(arg parentOf 1 animal) 'CxWorld)
-(v/assert kb '(parentOf Bert Mary) 'CxWorld)
-;; throws :disjoint — "arg constraint: (parentOf Bert Mary) entails (animal Bert),
-;; which cannot be admitted — disjointness violated: Bert cannot be both animal and rock"
-```
+A mint at an arity its type denies is not refused. With `t` declared binary, `(arg rel 1
+t)` and `(rel Rex Mary)` store the fact and its entailment `(t Rex)`, and a reader that
+sees the binding reads `(t Rex)` OUT as an arity nogood
+(`argtype_entail_test/an-entailment-of-a-length-its-type-denies-is-read-out`,
+[taxonomy.md](taxonomy.md#arity)).
 
-The violation is the **mint's own**, and `checks/mint-refused?` weighs it. A violation
-naming no opposing sentex refuses, and so does a disjointness clash under the `:refuse`
-policy. Under `:arbitrate` a clash with a believed membership refuses only when the
-sentence is `:monotonic` and `refuses-assert?` refuses the pair; otherwise the sentence is
-stored and its mint is weighed at settle (below). A mint of a `:default` sentence is at
-most `:default`, so it loses to a `:monotonic` membership or ties with a `:default` one.
+A mint whose violation names the other stored members of a clash is not refused: a
+disjointness clash with a stored membership, or between two mints of one cascade, is
+stored and weighed as below.
 
 Asked before the store, which is the whole point of asking here.
 `special/entail-arg-type` asks the same question of each mint as it materializes, but it
@@ -272,18 +269,14 @@ rule's conclusion is (`checks/derivation-violation`): the stronger class wins, a
 equal `:default` pair both stay believed and are listed by `contradictions`. With
 `(disjoint relation collection)` and `(arg p 1 relation)`, `(collection Foo)` and
 `(p Foo)` at `:default` leave both memberships believed and the pair listed in every
-arrival order under `:arbitrate`, and a `:monotonic` `(collection Foo)` takes
-`(relation Foo)` OUT in every order. A declaration arriving over both, including one a
-rule derives, mints under either policy and is weighed the same way
+arrival order, and a `:monotonic` `(collection Foo)` takes `(relation Foo)` OUT in every
+order. A declaration arriving over both, including one a rule derives, mints and is weighed
+the same way
 (`argtype_entail_test/a-minted-membership-clashing-with-a-believed-one-is-weighed-at-settle`).
 
-**Two arms, because a clash has two shapes.** `disjoint-problems` names an opposing
-*handle*, so it reads clashes against **stored** memberships. A pair the cascade supplies
-both sides of has no second record — `(p1 Fred)` and the `(p2 Fred)` it entails — and
-`checks/cascade-clash` reads those as content instead. Without it the same clash would
-refuse when the opposing type arrived earlier and pass when the cascade produced it. The
-two arms are weighed alike: under `:refuse` both refuse, and under `:arbitrate` both refuse
-only a `:monotonic` sentence, and the materializer places the two mints for settle.
+**A clash between two mints of one cascade** — `(p1 Fred)` and the `(p2 Fred)` it
+entails — has no second record when the check runs. The materializer places both, and the
+settle finds the pair from the stored mints, as it finds a clash with a stored membership.
 
 **The derivation path still reports.** A rule firing has no caller to refuse and may not
 throw mid-fixpoint, so `constraint-admission` leaves the conclusion standing and a mint
@@ -488,6 +481,7 @@ concludes, by the term it is about and by its context.
 |---|---|
 | a membership `(T x)` | the mints about `x`, each tested against `(T x)` alone |
 | a `genl` edge `(genl sub super)` | the edges minted out of `sub`, tested against the edge; the mints about each type under `sub` and each member of one, asked `checks/subsumed-mint` |
+| a cover, `(covering W P …)` and its two sibling spellings | per part `P`, the mints about each type under `P` and each member of one, asked `checks/subsumed-mint`; a cover is never tested against a mint by itself |
 | a `genlCx` edge `(genlCx sub super)` | the mints stated in each context under `sub`, asked `checks/subsumed-mint` |
 
 The types and members under a `genl` edge are gathered once per settle over **all** the
@@ -513,10 +507,11 @@ re-deriving the mints that departure can have released (`special/withheld-releas
 |---|---|
 | a membership `(T x)` | the facts naming `x`, for the mints about `x` |
 | a `genl` edge `(genl sub super)` | the same, for `sub`, each type under it and each member of one |
+| a cover | the same, per part |
 | a `genlCx` edge `(genlCx sub super)` | every fact stored in a context under `sub` |
 
 A departure reaches the settle from the network when a record goes OUT, and from
-`integrate/sentex-removed!`, which queues each removed record of those three shapes on the
+`integrate/sentex-removed!`, which queues each removed record of those four shapes on the
 roster's `:departed`; a mint the same settle withdrew is left out, since what subsumed it
 subsumes what it did. The release is therefore a function of the store: a KB rebuilt by
 `recover` releases what the KB that withheld the mint releases, which
@@ -552,8 +547,9 @@ It is **checked**: `special/inadmissible` runs the same triple `place-conclusion
 over a rule conclusion — naming, the definitional constraints, `wff`, and edge
 stratification, with the definitional constraints read as `place-conclusion` reads them:
 a minted `(T x)` that clashes with a believed disjoint membership is placed and weighed at
-settle. A minted `(T x)` at an arity its type denies, and a minted `(genl X T)` that closes
-a taxonomy cycle or a cycle through negation, are **reported, not thrown**: this runs after the triggering sentex is stored and inside a
+settle. A minted `(T x)` at an arity its type denies is stored and read OUT by each
+reader that sees the binding, with nothing in the ledger. A minted `(genl X T)` that closes
+a taxonomy cycle or a cycle through negation is **reported, not thrown**: this runs after the triggering sentex is stored and inside a
 fixpoint, neither of which may abort halfway, so it lands in `(violations kb)` the way
 the lift's does.
 

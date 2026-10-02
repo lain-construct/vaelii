@@ -106,7 +106,9 @@ sweep / revive — differing only in **polarity and combination**:
 - each `(unknown S)` antecedent is an **independent** condition, block-if-**any**-holds
   — one derivable `S` withdraws the conclusion.
 
-The two block conditions are OR'd wherever a firing's block status is decided.
+The two block conditions are OR'd wherever a firing's block status is decided. A firing
+of a rule with either confers `:default`
+([nmtms.md](nmtms.md#strength-propagates-from-the-antecedents)).
 
 ### `S` may be a conjunction
 
@@ -255,9 +257,10 @@ and the same exemption at the two taxonomy edge triggers).
 
 ### Evaluated in the placement context, not the join
 
-Decision 4 of [reference.md](reference.md#decisions) restates this rule: the question is
-asked at the placement context and again at every reader below it, and a reader at which
-the exception holds reads the conclusion as withdrawn.
+The question is asked at the placement context when the firing is made, and again at every
+reader below it; a reader at which it holds reads the firing as withdrawn (decision 4 of
+[reference.md](reference.md#decisions)). The placement keeps its block, and the reading
+below never revives a firing the placement blocks.
 
 An `unknown` antecedent is **not** a join filter. Forward chaining *skips* it in the
 join (it binds nothing and names no fact) and checks it at **derive time, per
@@ -268,6 +271,34 @@ solves it as a deferred antecedent through the prover at the query's context, wh
 is the backward analogue of the placement context. Both read the identical level-6
 judgement (`chain/unknown-inner-holds?` → `provers/exception-holds?` over the query's
 conjuncts), so the two can never drift.
+
+**A reader below the placement asks again.** `res/withdrawal` at a reader R reads the
+guarded firings placed in a context R sees other than R itself
+(`chain/guard-withdrawals`), and each one whose `unknown` query or `exceptWhen` holds at R
+is read at R as a blocked justification is: `jtms/grounded-in-region` takes it as invalid,
+so its conclusion is withdrawn from R unless another justification holds it, and what rests
+only on the conclusion goes with it. The rule stays whatever the placement decided. With
+`(pp ?x) & (unknown (qq ?x)) => (rr ?x)` and `(pp Zed)` in CxA, and `(qq Zed)` in CxB below
+it, CxA believes `(rr Zed)` and CxB does not.
+
+The firings a reader asks are found from the query, not from the rule's extent. The query
+is solved at R with the rule's variables open (`provers/condition-solutions`), and each
+binding names the conclusions it can block by instantiating the consequent, matched in the
+contexts R sees. A reader that sees no blocker asks no firing, whatever the rule's extent;
+`lein perf`'s `guarded-firings-read-below` holds that read flat in the firings. A query an
+open solve cannot enumerate (a nested `unknown`, `forall`, aggregate or computed conjunct)
+or a consequent a match cannot name (`ist`, a rule) asks every firing placed above R. The
+query reads R's view with R's other withdrawals applied, in rounds, so a guard reads a
+firing of a lower stratum that R withdraws (`res/guard-reading`).
+
+The answer is kept in the reader's withdrawal cache entry with the guarded rules it asked.
+A fact moving on a predicate one of them watches, a firing of one arriving or leaving, and a
+re-check queued for one (`special/mark-recheck`) drop the entry
+([nmtms.md](nmtms.md#the-withdrawal-cache)).
+
+The other direction is absent: a blocker the placement context sees and a reader below it
+withdraws leaves the rule blocked, so that reader lacks the conclusion the question asked at
+it would give.
 
 ### Standalone positive `thereExists` desugars
 
@@ -406,9 +437,14 @@ leaves. This is the `exceptWhen` block/sweep/revive path, reused verbatim:
   Zed))` arriving after a firing was blocked and swept defeats the default `(happy Zed)`,
   so `(unknown (happy Zed))` holds again. The swept firing left no blocked justification
   and no refusal record to re-ask, so the settle pass that newly defeats a datum re-chains
-  every rule watching its predicate (`settle/released-by-defeat`, keyed as
+  every rule watching its predicate (`readings/released-by-defeat`, keyed as
   `special/rules-watching` keys an arrival). A defeat the previous settle already applied
-  re-chains nothing.
+  re-chains nothing. A reader's verdict on an inherited clash moves belief with no relabel
+  at all, so the pass that finds a member taken OUT or given back at a vantage
+  (`discovery/inherited-losers` against the pass before) posts the member's sentence to the
+  re-check queue as its arrival would be and re-chains the rules watching it
+  (`readings/released-by-verdicts`); an `unknown` or `exceptWhen` read at the placement
+  context reads that context's verdicts.
 
 The settle-time firing filter (`firing-reachable?`) shapes the exception's conjuncts
 and the `unknown` antecedents' inner queries the same way: a ground inner narrows

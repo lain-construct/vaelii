@@ -15,14 +15,17 @@
   the claim nobody wrote, the sentex it was read off, the declaration and the edge — and
   that it is a function of the knowledge rather than of the order it arrived in.  The
   belief consequence is pinned beside it, because the two are one decision: the nogood's
-  members are the stored claim and everything the reading rests on, so `decide-nogood`
+  members are the stored claim and everything the reading rests on, so `decide/verdict`
   weighs them as it weighs any other nogood and the **weakest member decides**
   (docs/inherit.md).
 
   `ontology_test` reads the same mechanism as a modelling claim about the shipped
   vocabulary; this namespace reads it as an engine contract."
   (:require [clojure.test :refer [is testing use-fixtures]]
+            [taoensso.trove :as trove]
             [vaelii.core :as v]
+            [vaelii.impl.decide :as decide]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
@@ -35,7 +38,8 @@
   "The declaration and the taxonomy the whole namespace runs on: `carriesLoad` preserves
   its first argument down `genl`, and `cart_kind` is a kind of `hauler_kind`.  Every
   sentence here is at the default `:default` unless a test says otherwise, which is what
-  the shipped ontology's own edges and declarations are."
+  the shipped ontology's own edges are; the declaration is on the engine's baseline
+  roster, so it is held `:monotonic`."
   [kb {:keys [pred hauler cart]} & {:keys [edge?] :or {edge? true}}]
   (v/assert kb (list 'binary_predicate pred) U)
   (v/assert kb (list 'transitiveInArg pred 1 'genl) U)
@@ -224,7 +228,7 @@
 (tu/deftest-kb a-body-stored-in-both-polarities-is-reported-once-and-as-a-rebuttal
   ;; The diagonal.  `witness-terms` is reflexive, so the claim stated at the very tuple
   ;; the stored negation is about comes back through the reach too — and that pair is an
-  ;; ordinary `P` beside an ordinary `(not P)`, which `negation-nogoods` already forms off
+  ;; ordinary `P` beside an ordinary `(not P)`, which the negation family already forms off
   ;; the `:opposed` set.  Reporting it here as well would report one pair twice.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
     (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}]
@@ -241,7 +245,7 @@
 (tu/deftest-kb a-known-true-reading-defeats-the-nearer-default
   ;; The whole reading is known-true — the general claim, the declaration and the edge —
   ;; so the stored `:default` claim is the nogood's unique weakest member and is defeated.
-  ;; That is `decide-nogood`'s ordinary rule, and it is what "a monotonic claim is never
+  ;; That is `decide/verdict`'s ordinary rule, and it is what "a monotonic claim is never
   ;; undercut" comes to: the general claim reaches the subkind and the nearer default
   ;; does not stop it.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
@@ -274,20 +278,21 @@
       (is (v/ask? kb (list carriesLoad hauler_kind 'Bone1) U))
       (is (v/ask? kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)))))
 
-(tu/deftest-kb a-default-declaration-leaves-the-clash-a-dilemma-however-strong-the-claims
-  ;; The reading is capped by its weakest link exactly as a firing's strength is, so two
-  ;; known-true claims bridged by a `:default` declaration are a dilemma and not a
-  ;; conflict: what the engine has no grounds to choose between is which of the
-  ;; declaration, the edge and the stored claim to give up.
+(tu/deftest-kb a-default-edge-between-two-known-true-claims-is-the-reading-s-weakest-link
+  ;; The reading is capped by its weakest link exactly as a firing's strength is.  The
+  ;; declaration is on the engine's baseline roster, so it is `:monotonic` on this bare KB
+  ;; too, and the `:default` edge is the nogood's unique weakest member: it loses, and
+  ;; both known-true claims stand with nothing reported.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
     (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}]
       (vocabulary! kb terms)
       (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
       (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U mono)
       (is (empty? (v/conflicts kb)))
-      (is (= 1 (count (inherited-reports kb))))
-      (is (= 2 (:priority (first (inherited-reports kb))))
-          "the rebuttal range: two claims about the world, not a violated declaration"))))
+      (is (empty? (inherited-reports kb)))
+      (is (not (v/ask? kb (list 'genl cart_kind hauler_kind) U)))
+      (is (v/ask? kb (list carriesLoad hauler_kind 'Bone1) U))
+      (is (v/ask? kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)))))
 
 ;; ---- the other polarity --------------------------------------------------
 
@@ -364,6 +369,80 @@
       (is (= 1 (count (inherited-reports kb carriesLoad)))
           "the rebuild re-derives the roster from the records"))))
 
+(tu/deftest-kb a-recover-asks-the-preserved-claims-and-not-every-stored-sentex
+  ;; recover's settle reads the whole store as its region; its discovery asks the stored
+  ;; extent of the preserved predicate, read off the index, and reads no record of the
+  ;; facts beside it.  The `::asked` log line counts the questions.
+  (tu/with-terms [carriesLoad hauler_kind cart_kind]
+    (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}
+          asked (atom [])]
+      (vocabulary! kb terms)
+      (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
+      (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)
+      (dotimes [_ 40] (v/assert kb (list 'animal (tu/tmp-ind "Beast")) U))
+      (binding [trove/*log-fn* (fn [_ns _coords _level id payload]
+                                 (when (= :vaelii.impl.discovery/asked id)
+                                   (swap! asked conj (:data (force payload)))))]
+        (v/recover kb))
+      (let [{:keys [region fresh] n :asked} (first @asked)]
+        (is (= :whole-store fresh))
+        (is (< 40 region))
+        (is (= 2 n) "the two stored carriesLoad sentences"))
+      (is (= 1 (count (inherited-reports kb carriesLoad)))))))
+
+(def ^:private sync-stamp-keys
+  "The keys each family stamps its candidate rows with, read off the index a sync is handed."
+  [:vaelii.impl.decide.membership/sep-stamp :vaelii.impl.decide.membership/genl-seen
+   :vaelii.impl.decide.related/dj-seen :vaelii.impl.decide.tuple/ts-gen])
+
+(defn- sync-log
+  "`decide/registry` with each family's `:sync` logging, to `log`, the family, the
+  taxonomy it was handed, that taxonomy's separation stamp and generations, and the
+  stamp the index held before the sync.  A sync from a stamp the index held after an
+  earlier sync under the same taxonomy state repeats that sync; a rebuilt index holds no
+  stamp, so its first sync is a new entry."
+  [log]
+  (into []
+        (map-indexed
+         (fn [i {s :sync :as f}]
+           (cond-> f
+             s (assoc :sync (fn [w c]
+                              (let [tax (:tax w)]
+                                (swap! log conj [i (System/identityHashCode tax)
+                                                 (tax/separation-stamp tax)
+                                                 (tax/relation-gen tax :genl)
+                                                 (tax/relation-gen tax :genlCx)
+                                                 (select-keys c sync-stamp-keys)]))
+                              (s w c))))))
+        decide/registry))
+
+(tu/deftest-kb a-discovery-over-a-detached-taxonomy-syncs-each-candidate-index-once-per-taxonomy-state
+  ;; The disjoint declaration loses to its denial at its own context, so the live
+  ;; taxonomy leaves it out and the discovery reads a detached copy that holds it
+  ;; (`discovery-view`).  The copy and the live taxonomy each read the membership
+  ;; candidates of the four terms the declaration separates; a candidate index both
+  ;; stamped would be read again under one taxonomy state at every alternation.
+  (tu/with-terms [carriesLoad hauler_kind cart_kind a_kind b_kind]
+    (let [log   (atom [])
+          bones (vec (repeatedly 4 #(tu/tmp-ind "Bone")))
+          once? (fn [] (let [l @log] (= (count l) (count (distinct l)))))]
+      (vocabulary! kb {:pred carriesLoad :hauler hauler_kind :cart cart_kind})
+      (doseq [t [a_kind b_kind]] (v/assert kb (list 'genl t 'animal) U))
+      (dotimes [_ 4]
+        (let [x (tu/tmp-ind "Pair")]
+          (v/assert kb (list a_kind x) U mono)
+          (v/assert kb (list b_kind x) U mono)))
+      (v/assert kb (list 'disjoint a_kind b_kind) U)
+      (v/assert kb (list 'not (list 'disjoint a_kind b_kind)) U mono)
+      (doseq [b bones] (v/assert kb (list carriesLoad hauler_kind b) U mono))
+      (with-redefs [decide/registry (sync-log log)]
+        (v/assert kb (list 'not (list carriesLoad cart_kind (first bones))) U)
+        (is (once?) "a settle")
+        (reset! log [])
+        (v/recover kb)
+        (is (once?) "a recover"))
+      (is (= 1 (count (inherited-reports kb carriesLoad)))))))
+
 ;; ---- a KB that declares no preservation ----------------------------------
 
 (tu/deftest-kb a-kb-declaring-no-preservation-reports-nothing-here
@@ -378,3 +457,26 @@
     (is (empty? (inherited-reports kb)))
     (is (empty? (v/contradictions kb)))
     (is (empty? (v/conflicts kb)))))
+
+(tu/deftest-kb a-reader-below-a-one-context-inherited-clash-that-reads-it-released-believes-the-loser
+  ;;   CxUniverse  (transitiveInArg carriesLoad 1 genl) (genl cart hauler)
+  ;;               (carriesLoad hauler Bone), each :monotonic
+  ;;    └─ CxA     (not (carriesLoad cart Bone)) :default — loses at CxA
+  ;;        └─ CxB (except (sentexHandle <(carriesLoad hauler Bone)>))
+  ;; CxB sees no claim to read the denial against, so it believes the denial whatever
+  ;; arrived first (docs/reference.md, decision 3).
+  (doseq [except-first? [false true]]
+    (tu/with-terms [carriesLoad hauler_kind cart_kind Bone CxA CxB]
+      (v/assert kb (list 'genlCx CxA U) U mono)
+      (v/assert kb (list 'genlCx CxB CxA) U mono)
+      (v/assert kb (list 'binary_predicate carriesLoad) U mono)
+      (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) U mono)
+      (v/assert kb (list 'genl hauler_kind 'animal) U mono)
+      (v/assert kb (list 'genl cart_kind hauler_kind) U mono)
+      (let [claim  (v/assert kb (list carriesLoad hauler_kind Bone) U mono)
+            except #(v/assert kb (list 'except (list 'sentexHandle claim)) CxB mono)
+            denial #(v/assert kb (list 'not (list carriesLoad cart_kind Bone)) CxA)
+            d      (if except-first? (do (except) (denial)) (let [d (denial)] (except) d))]
+        (testing (if except-first? "the except first" "the denial first")
+          (is (false? (v/believed? kb d CxA)) "CxA reads the known-true claim and the denial loses")
+          (is (true? (v/believed? kb d CxB)) "CxB reads no claim, and believes the denial"))))))

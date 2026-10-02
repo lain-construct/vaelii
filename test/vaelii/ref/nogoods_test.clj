@@ -63,11 +63,12 @@
          (ng/disjoint (view-of '[(disjoint dog cat) (disjoint cat dog)
                                  (dog Fido) (cat Fido)])))))
 
-(deftest a-declaration-between-a-type-and-its-supertype-needs-two-memberships
-  (testing "one membership under both separated types forms no nogood"
-    (is (= [] (ng/disjoint (view-of '[(disjoint dog animal) (genl dog animal) (dog Fido)])))))
+(deftest a-declaration-between-a-type-and-its-supertype-is-its-own-nogood-and-convicts-two-memberships
+  (testing "the declaration is a one-member nogood, and one membership under both types forms none"
+    (is (= [{:kind :disjoint :members #{'(disjoint dog animal)} :ground #{'(genl dog animal)}}]
+           (ng/disjoint (view-of '[(disjoint dog animal) (genl dog animal) (dog Fido)])))))
   (testing "a membership of each separated type forms one"
-    (is (= #{#{'(dog Fido) '(animal Fido)}}
+    (is (= #{#{'(dog Fido) '(animal Fido)} #{'(disjoint dog animal)}}
            (member-sets (ng/disjoint (view-of '[(disjoint dog animal) (genl dog animal)
                                                 (dog Fido) (animal Fido)])))))))
 
@@ -152,6 +153,10 @@
                                            (parentOf Bob Cy)]))]))))
 
 ;; ---- covering ---------------------------------------------------------------
+
+(deftest a-cover-naming-a-part-disjoint-from-its-whole-is-a-nogood-with-the-disjoint
+  (is (= [{:kind :covering :members #{'(covering w p1 p2) '(disjoint p1 w)} :ground #{}}]
+         (ng/covering (view-of '[(covering w p1 p2) (disjoint p1 w)])))))
 
 (deftest a-cover-with-every-part-denied-convicts-the-membership-and-the-denials
   (is (= [{:kind    :covering

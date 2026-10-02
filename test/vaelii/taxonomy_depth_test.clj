@@ -421,37 +421,6 @@
     (is (kb-sound? kb))
     (is (v/genl? kb p_t s_t) "and everything the batch did land is still reachable")))
 
-(tu/deftest-kb a-revived-context-cycle-is-one-place-to-stand-again-in-its-own-settle
-  ;; Two contexts that see each other are **one** place for a firing to put its
-  ;; conclusion, and which of their names stands for the group is read off `:scc`
-  ;; (`placement-rep`).  A defeat splits the component where it happens and a revival
-  ;; condenses the relation as the edge activates, so `:scc` holds the group — or
-  ;; nothing — at the end of the settle that moved the edge, never a settle later.
-  ;; Otherwise how many settles have run would decide where a conclusion lands, which
-  ;; is exactly what content-keyed placement exists to rule out (docs/contexts.md).
-  (tu/with-terms [CxAlpha CxBeta]
-    (let [tx    (reasoning/taxonomy kb)
-          place #(tax/maximal-common-descendant-contexts tx [%])]
-      (v/assert kb (list 'genlCx CxBeta CxAlpha) 'CxUniverse)   ; b sees a
-      ;; a → b closes the cycle, which `wff` refuses at assert; form it the way a belief
-      ;; race does (docs/taxonomy.md) — defeat b → a, assert a → b while it is inactive,
-      ;; then revive b → a, so both stand and the two contexts see each other.
-      (let [d (v/assert kb (list 'not (list 'genlCx CxBeta CxAlpha))
-                        'CxUniverse {:strength :monotonic})]
-        (v/assert kb (list 'genlCx CxAlpha CxBeta) 'CxUniverse) ; a sees b — no active cycle
-        (v/retract! kb d))
-      (let [group (place CxBeta)]
-        (is (= 1 (count group)) "the cycle is one place to stand")
-        (is (= group (place CxAlpha)) "wearing one name")
-        (let [h (v/assert kb (list 'not (list 'genlCx CxAlpha CxBeta))
-                          'CxUniverse {:strength :monotonic})]
-          (is (= #{CxBeta} (place CxBeta))
-              "with one edge defeated there is no cycle and no group")
-          (v/retract! kb h)
-          (is (not (loose? tx :genlCx)) "the revival repaired in the settle that made it")
-          (is (= group (place CxBeta)) "and the group answers to one name again")
-          (is (= group (place CxAlpha))))))))
-
 (tu/deftest-kb recover-rebuilds-a-sound-potential
   ;; `recover` replays every stored edge, which is a bulk load and is deferred like
   ;; one; the repair runs before anything reads the relation back.
@@ -522,31 +491,31 @@
 
 (tu/deftest-kb recover-rebuilds-a-cyclic-context-potential
   ;; The acyclic recover test above never reaches the cyclic branch of `activate`.  A
-  ;; `genlCx` cycle is refused at assert, so it reaches the taxonomy only from a
-  ;; recovered or foreign store; the cycle below is formed the way a belief race does
-  ;; (defeat an edge, assert its reverse, revive the first — docs/taxonomy.md), which
-  ;; leaves all three positive edges stored for `recover` to replay.  Recovery defers
-  ;; the repair through `*defer-cycle-scc?*`, so `restore-depths` is what has to land the
-  ;; component.  The recovered condensation and visibility must match the live build's.
+  ;; `genlCx` cycle is refused at assert, and `genlCx` is on the forced-monotonic roster,
+  ;; so no belief race forms one either: it reaches the taxonomy only from a foreign
+  ;; store.  The closing edge is written by a second KB over the same store whose
+  ;; taxonomy was never built, so no check reads the other two.  Recovery defers the
+  ;; repair through `*defer-cycle-scc?*`, so `restore-depths` is what has to land the
+  ;; component, and a second recover must rebuild what the first did.
   (v/assert kb '(genlCx CxCycLo CxCycMid) 'CxUniverse)
   (v/assert kb '(genlCx CxCycMid CxCycHi) 'CxUniverse)      ; mid sees hi
-  ;; hi → mid closes CxCycMid ⇄ CxCycHi; break mid → hi, assert hi → mid, revive mid → hi
-  (let [d (v/assert kb '(not (genlCx CxCycMid CxCycHi)) 'CxUniverse {:strength :monotonic})]
-    (v/assert kb '(genlCx CxCycHi CxCycMid) 'CxUniverse)    ; hi sees mid — no active cycle
-    (v/retract! kb d))
+  (let [raw (v/open-kb (assoc (tu/scratch-space) :recover? false))]
+    (binding [v/*write-unrecovered?* true]                  ; hi → mid closes the cycle
+      (v/assert raw '(genlCx CxCycHi CxCycMid) 'CxUniverse)))
+  (v/recover kb)
   (let [tax    (reasoning/taxonomy kb)
         scc-of #(:scc (rel tax :genlCx))
         before {:scc    (scc-of)
                 :mid-hi (tax/sees? tax 'CxCycMid 'CxCycHi)
                 :hi-mid (tax/sees? tax 'CxCycHi 'CxCycMid)
                 :lo-hi  (tax/sees? tax 'CxCycLo 'CxCycHi)}]
-    (testing "the live build makes the cycle one mutually-visible component"
+    (testing "the recover makes the cycle one mutually-visible component"
       (is (= 1 (count (distinct (map (scc-of) '[CxCycMid CxCycHi])))))
       (is (every? some? (map (scc-of) '[CxCycMid CxCycHi])))
       (is (true? (:mid-hi before)))
       (is (true? (:hi-mid before))))
     (v/recover kb)
-    (testing "recover rebuilds the same condensation, sound and not loose"
+    (testing "a second recover rebuilds the same condensation, sound and not loose"
       (is (not (loose? tax :genlCx)))
       (is (sound? tax :genlCx))
       (is (= (:scc before) (scc-of)) "same component, same representative")

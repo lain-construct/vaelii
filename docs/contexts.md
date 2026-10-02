@@ -20,6 +20,10 @@ transitive up/down closure (`context-up`, `context-down`, `sees?`), recomputed w
 `genlCx` edge is asserted/retracted. A context `K` sees a sentex in context `Y`
 iff `Y ∈ context-up(K)`.
 
+**A `genlCx` edge is `:monotonic` and undeniable.** `genlCx` is on the forced-monotonic
+roster ([nmtms.md](nmtms.md#the-forced-monotonic-roster)): every edge is held
+`:monotonic` whatever strength it was written at, and a denial of one is held OUT.
+
 **A `genlCx` cycle is refused at assert, like a `genl` cycle.** The context hierarchy
 is a partial order: `wff/genlCx-problems` reads the global `genlCx` closure and refuses
 an edge whose super already sees its sub, so mutual visibility is not a claim the edge
@@ -374,10 +378,12 @@ common view), so the placement intersection is empty and no justification is mad
 from C **and every context that sees C** — its `context-down` closure — while leaving
 the more general contexts C sees untouched. It is a **meta-sentex**: `(sentexHandle H)`
 is the term form of a stored sentex's handle (`sentex/sentex-handle`), so the except
-names the sentex it hides rather than restating it. Like every other fact it is
-belief-following — retracting or defeating the except restores the hidden sentex — and
-it rides the ordinary `genlCx` up-closure, visible from exactly the contexts where
-it hides its target.
+names the sentex it hides rather than restating it. `except` is on the forced-monotonic
+roster where CxCore declares it ([nmtms.md](nmtms.md#the-forced-monotonic-roster)): an
+except is held `:monotonic` and a denial of one is held OUT, so retracting the except is
+what restores
+the hidden sentex. It rides the ordinary `genlCx` up-closure, visible from exactly the
+contexts where it hides its target.
 
 `assert` and `check` refuse an except when no sentex is stored under `H`
 (`:unknown-handle`, `checks/check-except-target`). Handles are allocated in assertion
@@ -569,8 +575,8 @@ stated meet in the target as a violation nothing reports:
 
 CxUniverse is the target that closes this, because every context that lifts sees it:
 the middle spindle and the data contexts below the joint all reach CxUniverse, so the
-first copy is visible to the *next* assert, the ordinary context-scoped check catches
-the clash at its source, and the second assert is refused where it is made. The upper
+first copy is visible to the *next* assert, and the settle weighs the clash where the
+second assert is made. The upper
 spindle sits above the joint and reaches CxCore instead, which is why a declaration
 written in CxCore constrains every context in the tree. That is not a lucky property of a well-known context — it is the
 whole reason the target is fixed.
@@ -578,8 +584,13 @@ whole reason the target is fixed.
 The residual case is a context wired outside the spindle, which sees neither its
 siblings nor CxUniverse. There the stating context could not have run the check
 either, so the lift runs it on the copy itself (`unchecked-target?` — one `sees?` per
-lift, and only that case pays anything more), dropping the copy and recording a
-`violations` entry that names the context it was lifted from.
+lift, and only that case pays anything more). A sweep over stored facts, the one a
+declaration arriving last runs and the one `recover` runs, asks `sees?` once per stating
+context. The copy is asked what a rule's
+conclusion is asked (`checks/derivation-violation`): a clash with a believed member is
+stored and decided at each reader, and only an inadmissible copy, an argument
+conviction or a malformed form, is dropped, recording a `violations` entry that names
+the context it was lifted from.
 
 ### The lift is about the predicate, so derived content is lifted too
 
@@ -685,7 +696,10 @@ four as the store does ([A context outside the spindle](#a-context-outside-the-s
 them, so every reader reads `(transitive R)` stated in `CxA` from `CxA` and below, alike.
 `inherit_test`'s `the-transitivity-licence-is-read-from-the-asking-context` pins that half,
 and `a-permuting-mark-is-read-from-every-context-on-this-kb-too` beside it pins the four
-permuting marks.
+permuting marks. Such a KB still holds the forced-monotonic roster's engine baseline, so a
+`genlCx` edge, a `functional` or `irreflexive` mark, a definitional declaration, an arity
+binding, an `except` or an equality stated `:default` is held `:monotonic` and a denial of
+one OUT, as under CxCore ([nmtms.md](nmtms.md#the-forced-monotonic-roster)).
 
 Measured on a lattice of two siblings `CxA` and `CxB` under CxUniverse and `CxD` below
 both, with the mark stated in `CxA` and the facts it governs in CxUniverse, each in both
@@ -699,7 +713,7 @@ arrival orders:
 | `commutativeInArgAndRest` | every context | every context | the `:commuting` table |
 | `transitive` | every context | `CxA`, `CxD` | `:props :transitive` — the closure prover, `usable-relation?` |
 | `reflexive` | every context | `CxA`, `CxD` | `:props :reflexive` — the reflexive prover |
-| `irreflexive` | every context | `CxA`, `CxD` | `:props :irreflexive` — the entry-point refusal |
+| `irreflexive` | every context | `CxA`, `CxD` | the mark's supporters and their contexts — the nogood a reader decides |
 | `asymmetric` | every context | `CxA`, `CxD` | `:props :asymmetric` — the refusal and the settle's nogood |
 | `anti_symmetric` | every context | `CxA`, `CxD` | `:props :anti-symmetric` — the merge, placed where the mark is visible |
 | `anti_transitive` | every context | `CxA`, `CxD` | `:props :anti-transitive` — the refusal and the settle's nogood |
@@ -809,18 +823,15 @@ the context where it comes into view. That chooses the asker rather than widenin
 an asker sees — a vantage already sees both halves and what separates them — and it is
 what stops the same three sentences from landing on
 a defeat or on two coexisting claims according to which half was written last
-([nmtms.md](nmtms.md)). Both constraint policies ask the vantages: the policy decides
-whether a *writer* is refused, and a writer who could not see the far half is refused by
-neither. The defeat a vantage lands is scoped to that vantage and below, so a context
+([nmtms.md](nmtms.md)). The defeat a vantage lands is scoped to that vantage and below, so a context
 reading one half alone keeps what it holds.
 
 A separation derivable only from a context below the maximal common descendant is
 decided at the most general context that reads it: CxW sees `(t1 Pip)` in CxA and `(t2
 Pip)` in CxB, CxV sees CxW and the `(disjoint t1 t2)` in CxDecl, so CxV and the contexts
 below it believe one membership while CxW keeps both
-([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)). A pair the arbitration's
-budgeted sweep has not reached yet is counted by `:arbitration-truncated`, and
-`exposed-clashes` names it with the contexts that see it whole.
+([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)), and `exposed-clashes` names
+every such pair with the contexts that see it whole.
 
 **The pass asks its question of the scoped read, not of an enumeration.** For a
 candidate pair of held memberships it must answer "does any context see both of these
@@ -967,9 +978,8 @@ just as well when the feature is broken outright.
   both. The `up` half narrows once more, to `fresh`: the contexts of `up` that `sub` did
   not already see through its other parents (`taxonomy/context-up-besides`), since every
   lower context saw the rest before the edge. The old ancestor set is read the way
-  placement reads it: the walk does not cross an edge with a stored negation, and while a
-  scoped defeat stands `fresh` is all of `up`, since the taxonomy's closure applies
-  neither. So a new pairing has an ingredient in `fresh`, or the lower context saw all of
+  placement reads it: the walk does not cross an edge with a stored negation, which the
+  taxonomy's closure does not apply. So a new pairing has an ingredient in `fresh`, or the lower context saw all of
   it, and one in `seen`, or `super` saw all of it, and its rule sits in one of three
   places: in `seen`, with a fact in `fresh`; in `fresh`, with a fact in `seen` — a rule
   stated *above* inherited into the context newly wired under it, placing its conclusion

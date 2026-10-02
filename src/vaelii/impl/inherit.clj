@@ -73,13 +73,11 @@
   behaviours, and the difference is stated where it belongs: on the claim, not on the
   vocabulary.
 
-  Where the contradiction goes depends on how the contrary claim is spelled.  A converse
-  under an `(asymmetric P)` is `checks/asymmetry-problem`'s, and known-true content
-  refuses it at the entry point.  A plain `(not (P a b))` needs no mark and is not refused: it is
-  admitted and paired with the inherited claim by `settle/preserving-nogoods`, whose
-  members are the general claim and everything the reading rests on, so `decide-nogood`
-  weighs the set and the weakest member decides (`clashing-claim` below,
-  `docs/inherit.md` for the readings).
+  A stored `(not (P a b))`, and a stored `(P b a)` under an `asymmetric` mark on `P` or
+  above it, are paired with the inherited claim by `discovery/preserving-nogoods`, whose
+  members are the general claim and everything the reading rests on, so `decide/verdict`
+  weighs the set and the weakest member decides (`clashing-claim` and `converse-claim`
+  below, `docs/inherit.md` for the readings).
 
   Ground goals only.  An open argument is left to the fact and rule provers, in the
   shape `different` and the NAF operators already use — enumerating it would mean
@@ -179,7 +177,7 @@
   declaration naming `pred` would be in that intersection whatever anyone believes
   about it.  That is also what makes it the right question for a *conservative* caller
   that wants no answer at all, only \"could preservation be in play here\":
-  `settle/cross-argument-predicate?` reads it to decide whether an exception conjunct's
+  `recheck/cross-argument-predicate?` reads it to decide whether an exception conjunct's
   arguments may be compared with a trigger's, where an under-selection is a missed
   withdrawal.
 
@@ -300,6 +298,58 @@
           (recur (into seen fresh) (into (pop frontier) fresh)))
         seen))))
 
+(def ^:private bounded-reach-limit
+  "The most terms a `genl` reach is walked for and held as a set.  Past it a membership
+  is a walk per term (`witness?`) and the closure is never built."
+  1024)
+
+(def ^:private walks-before-reach
+  "How many memberships past the bound one term's reach answers by walking before the
+  question reads the reach whole (`witness?`).  A walk toward a shallow term climbs
+  about as much of the ancestry as the whole reach does, so each walk past the first
+  few costs what reading the reach once would: a term asked twice pays at most twice,
+  and one asked often stops walking early."
+  2)
+
+(def ^:private whole-reach-limit
+  "The most terms one whole reach is walked for (`whole-reach`).  Past it the walk stops,
+  holds nothing, and the term's memberships stay a walk each: a broad type's down-closure
+  is most of the KB's types."
+  65536)
+
+(def ^:private whole-reach-budget
+  "The most terms the whole reaches one memo holds may come to together (`whole-reach`):
+  past it the least recently read are dropped, and a term read again is walked again.
+  The memo lives for one question or one discovery pass, and is dropped with it."
+  1048576)
+
+(defn- unscoped? [context] (or (nil? context) (sx/variable? context)))
+
+(defn- scoped
+  "`(f)` with the scoped walks' neighbours held for the question or pass
+  (`tax/with-neighbours`): a discovery pass tests the reach of every argument term of
+  every stored claim from a context, each test a walk whose every edge asks whether a
+  supporter is believed there, and belief does not move while the pass asks."
+  [f]
+  (tax/with-neighbours (memoized [:neighbours] #(atom {})) f))
+
+(defn- bounded-reach
+  "The `genl` reach of `x` from `context` when it holds at most `bounded-reach-limit`
+  terms, else nil: a walk of the edges `context` sees (of every active edge when it is
+  unscoped) that stops at the limit and stores nothing in the closure cache
+  (`tax/genls-within`), held in the memo for the question or pass.  A discovery pass reads the reach of every argument term of
+  every stored claim, and building each through the closure cache overran it on a large
+  KB: a closure built from its parents' held ones rebuilds whatever parents were
+  evicted."
+  [kb inverse? x context]
+  (let [cx (when-not (unscoped? context) context)]
+    (memoized [:bounded-reach inverse? x cx]
+              #(let [tx (reasoning/taxonomy kb)]
+                 (scoped (fn []
+                           (if inverse?
+                             (tax/specs-within tx x cx bounded-reach-limit)
+                             (tax/genls-within tx x cx bounded-reach-limit))))))))
+
 (defn witness-terms
   "The terms a claim's argument may be **stated of** for it to reach `x` at this
   position: `{w : (rel x w)}` for `transitiveInArg`, `{w : (rel w x)}` for the inverse
@@ -325,7 +375,12 @@
             (fn []
               (let [tx (reasoning/taxonomy kb)]
                 (case rel
-                  genl        (if inverse? (tax/specs tx x context) (tax/genls tx x context))
+                  ;; a reach within the bound is walked and not built through the
+                  ;; closure cache (`bounded-reach`): the same set
+                  genl        (or (bounded-reach kb inverse? x context)
+                                  (scoped #(if inverse?
+                                             (tax/specs tx x context)
+                                             (tax/genls tx x context))))
                   genlCx (if inverse? (tax/context-down tx x) (tax/context-up tx x)) ; global on purpose
                   (fact-reach kb rel inverse? x context))))))
 
@@ -339,6 +394,101 @@
     (witness-terms kb (first poss) x context)   ; the common case: no set to rebuild
     (into #{} (mapcat #(witness-terms kb % x context)) poss)))
 
+(defn- whole-reach
+  "The `genl` reach of `x` from `context`, whole, walked through the edges it sees and
+  stored nowhere but the question's memo: never through the closure cache, whose builds
+  from held parents a discovery pass over a large KB overran.  nil, and remembered so,
+  when it holds more than `whole-reach-limit` terms; the walk stops there and holds
+  nothing.  The memo holds the reaches in a weighted LRU bounded by `whole-reach-budget`,
+  so a discovery pass, which moves from goal term to goal term, keeps the recent ones
+  where a budget spent once would leave every later term a walk per membership."
+  [kb inverse? x cx]
+  (let [lru (memoized [:whole-reach]
+                      #(caches/weighted-lru (constantly whole-reach-budget)
+                                            (fn [r] (if (set? r) (max 1 (count r)) 1))))
+        k   [inverse? x cx]
+        hit (caches/lru-get lru k)]
+    (cond
+      (identical? ::past hit) nil
+      (some? hit)             hit
+      :else
+      (let [tx (reasoning/taxonomy kb)
+            r  (scoped (fn []
+                         (if inverse?
+                           (tax/specs-within tx x cx whole-reach-limit)
+                           (tax/genls-within tx x cx whole-reach-limit))))]
+        (caches/lru-put! lru k (if (some? r) r ::past))
+        r))))
+
+(defn- witness?
+  "Is `t` among `witness-terms` of `x` at one declaration?  A `genl` reach is read
+  bounded (`bounded-reach`), and past the bound the membership is a reachability walk of
+  the edges `context` sees (`tax/genl?`, `tax/genl?-global` unscoped), memoized like the
+  reach, so the closure is never built.  A term asked more than `walks-before-reach`
+  such memberships has its reach walked whole once instead (`whole-reach`), when it holds
+  few enough terms: a discovery pass tests every stored claim's argument against one goal
+  term's reach, and a walk per argument climbs the same ancestry each time.  Every other
+  reach is `witness-terms`."
+  [kb {:keys [rel inverse?] :as pos} x t context]
+  (if (= 'genl rel)
+    (if-some [r (bounded-reach kb inverse? x context)]
+      (contains? r t)
+      (let [cx (when-not (unscoped? context) context)
+            [sub super] (if inverse? [t x] [x t])
+            n  (memoized [:walks inverse? x cx] #(volatile! 0))]
+        (if-some [r (when (>= @n walks-before-reach) (whole-reach kb inverse? x cx))]
+          (contains? r t)
+          (memoized [:witness? sub super cx]
+                    #(let [tx (reasoning/taxonomy kb)]
+                       (vswap! n inc)
+                       (if cx
+                         (scoped (fn [] (tax/genl? tx sub super cx)))
+                         (tax/genl?-global tx sub super)))))))
+    (contains? (witness-terms kb pos x context) t)))
+
+(defn- held-reach
+  "`reach` of `x` over the declarations `poss` as a set, when each `genl` reach in it holds
+  at most `whole-reach-limit` terms (`bounded-reach`, else `whole-reach`), or nil when one
+  holds more.  Read through the memo, so a pass walks each term's reach once."
+  [kb poss x context]
+  (let [cx  (when-not (unscoped? context) context)
+        one (fn [{:keys [rel inverse?] :as pos}]
+              (if (= 'genl rel)
+                (or (bounded-reach kb inverse? x context) (whole-reach kb inverse? x cx))
+                (witness-terms kb pos x context)))]
+    (if (= 1 (count poss))
+      (one (first poss))
+      (reduce (fn [acc pos] (if-some [r (one pos)] (into acc r) (reduced nil))) #{} poss))))
+
+(defn- reaches?
+  "Is `t` in `reach` of `x` over the declarations `poss`: one of them licenses it."
+  [kb poss x t context]
+  (boolean (some #(witness? kb % x t context) poss)))
+
+(defn- reach-size
+  "How many terms `reach` of `x` holds, when it holds at most `limit`, else ##Inf.  Only
+  ever weighed against an extent to pick a retrieval path, which never changes the
+  answer.  A `genl` reach is counted bounded (`bounded-reach`, then a walk of the edges
+  `context` sees that stops at `limit`, `tax/genls-within`), so the closure is not built
+  to be counted."
+  [kb poss x context limit]
+  (let [tx  (reasoning/taxonomy kb)
+        cx  (when-not (unscoped? context) context)
+        lim (long (min limit Long/MAX_VALUE))]
+    (reduce (fn [n {:keys [rel inverse?] :as pos}]
+              (let [m (if (= 'genl rel)
+                        (if-some [r (bounded-reach kb inverse? x context)]
+                          (count r)
+                          (if-let [c (if inverse?
+                                       (tax/specs-within tx x cx lim)
+                                       (tax/genls-within tx x cx lim))]
+                            (count c)
+                            ##Inf))
+                        (count (witness-terms kb pos x context)))
+                    n (+ n m)]
+                (if (> n limit) (reduced ##Inf) n)))
+            0 poss)))
+
 ;; ---- the claims bearing on a goal ---------------------------------------
 
 (defn- by-position
@@ -350,17 +500,26 @@
   (into {} (filter (fn [[n _]] (<= n arity))) (group-by :n positions)))
 
 (defn- slots
-  "What a claim's argument may be, per argument position of the goal: `{:reach terms}`
-  at a preserved position, `{:pinned term}` where the goal's own argument stands.
+  "What a claim's argument may be, per argument position of the goal: at a preserved
+  position `{:reach terms :in? member? :size size :held held}`, `terms` a delay of the
+  reach and `held` a thunk of `held-reach`, and `{:pinned term}` where the goal's own
+  argument stands.
 
   The **product** of the reaches is the set of tuples a claim could be stated at, and
   it is what the two retrieval paths below are two ways of intersecting with what is
-  actually stored."
+  actually stored.  Only enumerating the product reads a reach whole: reading the
+  extent tests membership (`:in?`, `reaches?`), and weighing the two reads a size that
+  stops at a limit (`:size`, `reach-size`), so a question answered off the extent
+  builds no closure."
   [kb positions args context]
   (let [by-n (by-position positions (count args))]
     (mapv (fn [i]
             (if-let [poss (by-n (inc i))]
-              {:reach (reach kb poss (nth args i) context)}
+              (let [x (nth args i)]
+                {:reach (delay (reach kb poss x context))
+                 :in?   #(reaches? kb poss x % context)
+                 :size  #(reach-size kb poss x context %)
+                 :held  #(held-reach kb poss x context)})
               {:pinned (nth args i)}))
           (range (count args)))))
 
@@ -369,23 +528,25 @@
   pinned elsewhere."
   [slots]
   (reduce (fn [tuples s]
-            (let [terms (or (:reach s) #{(:pinned s)})]
+            (let [terms (if-let [r (:reach s)] @r #{(:pinned s)})]
               (for [t tuples, w terms] (conj t w))))
           [[]]
           slots))
 
 (def ^:private product-ceiling
-  "Past this the product's size stops being counted and is simply *large*.  The number
-  is only ever compared against a stored extent, and no extent reaches it."
+  "Past this an extent stops being counted and is simply *large*.  The extent is counted
+  first, and the product's size only up to it (`product-size`), so no reach is read whole
+  to weigh the two; no extent reaches this."
   1e12)
 
 (defn- product-size
-  "How many tuples the product holds — the count the extent is weighed against."
-  ^double [slots]
+  "How many tuples the product holds — the count the extent is weighed against — or
+  ##Inf once it passes `limit`, since the caller asks only which is smaller."
+  ^double [slots ^double limit]
   (reduce (fn [^double n s]
-            (if (>= n product-ceiling)
-              n
-              (* n (double (if-let [r (:reach s)] (count r) 1)))))
+            (if (> n limit)
+              (reduced ##Inf)
+              (* n (double (if-let [size (:size s)] (size (/ limit n)) 1)))))
           1.0 slots))
 
 (defn- extent-size
@@ -448,7 +609,7 @@
   (and (= (count tuple) (count slots))
        (every? (fn [i]
                  (let [s (nth slots i) t (nth tuple i)]
-                   (if-let [r (:reach s)] (contains? r t) (= t (:pinned s)))))
+                   (if-let [in? (:in? s)] (in? t) (= t (:pinned s)))))
                (range (count slots)))))
 
 (defn- bound-tuple
@@ -474,17 +635,74 @@
 (defn- believed-matches
   "`[tuple handle sentex]` for every believed sentex matching `sentence` that states
   something about a tuple in the product.  `known` is the tuple when the caller
-  already has it — a ground probe binds nothing to read one back from.  `dl` is checked
-  per probe and per row read (`budget/check-deadline!`)."
-  [kb sentence slots order context known dl]
+  already has it — a ground probe binds nothing to read one back from.  `strong?` keeps
+  the known-true sentexes alone.  `dl` is checked per probe and per row read
+  (`budget/check-deadline!`)."
+  [kb sentence slots order context known strong? dl]
   (budget/check-deadline! dl)
-  (for [[h b] (res/matches-visible kb sentence context)
-        :let  [_     (budget/check-deadline! dl)
-               tuple (or known (bound-tuple b slots order))]
-        :when (and tuple (in-product? slots tuple))
-        :let  [sxr (p/get-sentex (:records kb) h)]
-        :when (and sxr (jtms/in? (reasoning/tms kb) h))]
-    [tuple h sxr]))
+  (let [tms (reasoning/tms kb)]
+    (for [[h b] (res/matches-visible kb sentence context)
+          :let  [_     (budget/check-deadline! dl)
+                 tuple (or known (bound-tuple b slots order))]
+          :when (and tuple
+                     (or (not strong?) (st/known-true? (jtms/defeat-class tms h)))
+                     (in-product? slots tuple))
+          :let  [sxr (p/get-sentex (:records kb) h)]
+          :when (and sxr (jtms/in? tms h))]
+      [tuple h sxr])))
+
+(defn- extent-key [sentence order context strong?]
+  [:extent-index sentence order context strong?])
+
+(defn- extent-index
+  "The matches of the open probe `sentence` from `context`, as `[tuple handle]`, grouped
+  by the term at each preserved tuple index: `{ti {term [[tuple h] …]}}`, the known-true
+  ones alone under `strong?`.  Held in the memo, so the questions of one discovery pass
+  read a predicate's extent once between them.  The grouping reads no goal: the probe
+  pins the pinned positions, and `slots` says only which tuple indices are preserved."
+  [kb sentence slots order context strong?]
+  (memoized (extent-key sentence order context strong?)
+            #(let [tms  (reasoning/tms kb)
+                   rows (into [] (keep (fn [[h b]]
+                                         (when (or (not strong?)
+                                                   (st/known-true? (jtms/defeat-class tms h)))
+                                           (when-let [t (bound-tuple b slots order)] [t h]))))
+                              (res/matches-visible kb sentence context))]
+               (into {}
+                     (comp (filter (fn [ti] (:reach (nth slots ti))))
+                           (map (fn [ti] [ti (group-by (fn [[t]] (nth t ti)) rows)])))
+                     (range (count slots))))))
+
+(defn- indexed-rows
+  "The rows of `extent-index` whose term at one preserved tuple index lies in that slot's
+  `held-reach`, read from whichever of the reach and the index's terms is smaller, at the
+  tuple index where that is smallest; nil when no preserved slot's reach is held.  A
+  tuple index with no rows reads no reach."
+  [slots index]
+  (let [cost (fn [[ti groups]]
+               (if (empty? groups)
+                 [0 groups #{}]
+                 (when-some [r ((:held (nth slots ti)))]
+                   [(min (count r) (count groups)) groups r])))
+        best (reduce (fn [b x] (if (or (nil? b) (< (first x) (first b))) x b))
+                     nil (keep cost index))]
+    (when-let [[_ groups r] best]
+      (if (< (count r) (count groups))
+        (into [] (mapcat #(get groups %)) r)
+        (into [] (comp (filter #(contains? r (key %))) (mapcat val)) groups)))))
+
+(defn- indexed-matches
+  "`believed-matches` over the open probe `sentence`, read through `extent-index` and
+  `indexed-rows`, then `in-product?` over the rest of each tuple.  nil when no preserved
+  slot's reach is held, for the caller to read the extent row by row."
+  [kb sentence slots order context strong?]
+  (when-let [rows (indexed-rows slots (extent-index kb sentence slots order context strong?))]
+    (let [tms (reasoning/tms kb)]
+      (for [[tuple h] rows
+            :when (in-product? slots tuple)
+            :let  [sxr (p/get-sentex (:records kb) h)]
+            :when (and sxr (jtms/in? tms h))]
+        [tuple h sxr]))))
 
 (def ^:dynamic *retrieval*
   "Which of the two paths finds the claims: `:auto` weighs the extent against the
@@ -495,23 +713,31 @@
   :auto)
 
 (defn- found-claims
-  "Every believed statement bearing on the goal at `order` and `negated?`, by whichever
-  of the two retrieval paths is cheaper for this KB.  Either path throws
-  `budget/check-deadline!`'s signal once `*deadline*` passes."
-  [kb pred slots order negated? context]
+  "Every believed statement bearing on the goal at `order` and `negated?`, the known-true
+  ones alone under `strong?`, by whichever of the two retrieval paths is cheaper for this
+  KB.  Either path throws `budget/check-deadline!`'s signal once `*deadline*` passes."
+  [kb pred slots order negated? context strong?]
   (let [wrap (fn [s] (if negated? (list 'not s) s))
-        dl   *deadline*]
-    (if (case *retrieval*
-          :extent  true
-          :product false
-          (let [product (product-size slots)]
-            (<= (extent-size kb pred slots order negated? context product) product)))
-      (believed-matches kb (wrap (probe-sentence pred slots order (constantly nil)))
-                        slots order context nil dl)
-      (mapcat (fn [tuple]
-                (believed-matches kb (wrap (probe-sentence pred slots order tuple))
-                                  slots order context tuple dl))
-              (product-tuples slots)))))
+        dl   *deadline*
+        open (delay (wrap (probe-sentence pred slots order (constantly nil))))]
+    ;; the index reads the extent whole before its first row, so a reader under a
+    ;; deadline reads it row by row.  A known-true read takes an index the memo already
+    ;; holds before the two paths are weighed: it holds the known-true statements alone,
+    ;; and weighing the product walks the reaches an empty index does not read
+    (or (when (and strong? (not dl) (not= :product *retrieval*)
+                   (some-> *memo* deref (contains? (extent-key @open order context true))))
+          (indexed-matches kb @open slots order context true))
+        (if (case *retrieval*
+              :extent  true
+              :product false
+              (let [extent (extent-size kb pred slots order negated? context product-ceiling)]
+                (<= extent (product-size slots extent))))
+          (or (when-not dl (indexed-matches kb @open slots order context strong?))
+              (believed-matches kb @open slots order context nil strong? dl))
+          (mapcat (fn [tuple]
+                    (believed-matches kb (wrap (probe-sentence pred slots order tuple))
+                                      slots order context tuple strong? dl))
+                  (product-tuples slots))))))
 
 (defn- strongest-per-tuple
   "One claim per tuple — the **strongest** believed statement of it, with its
@@ -586,33 +812,38 @@
   collecting both polarities would manufacture the dilemma rather than report it.
   (`(P a a)` under an `asymmetric P` *is* wrong — asymmetry implies irreflexivity —
   but it is wrong in a way `contradictions` does not report either, so answering
-  `:ambiguous` here would be this function inventing a verdict on its own.)"
-  [kb goal context]
-  (with-memo
-    (let [pred  (nm/functor goal)
-          args  (vec (nm/args goal))
-          poss  (positions kb pred context)
-          asym? (tax/has-prop? (reasoning/taxonomy kb) :asymmetric pred context)
-          ;; With no preserved position the product is the goal's own arguments alone,
-          ;; so this still answers "what is believed about exactly this tuple" — which
-          ;; is what the asymmetry check needs of a predicate that inherits nothing.
-          sl    (slots kb poss args context)
-          fwd   (vec (range (count args)))
-          probe (fn [order negated? polarity]
-                  (strongest-per-tuple
-                   kb polarity (found-claims kb pred sl order negated? context)))]
-      ;; realized here, inside the memo (`with-memo`): the probes read the store and
-      ;; `strongest-per-tuple` groups lazily, so a seq handed back unrealized does all
-      ;; of that with the memo gone
-      (vec
-       (concat
-        (probe fwd false :for)
-        (probe fwd true  :against)
-        ;; The converse is read with the tuple indices swapped, so a stored `(P x y)`
-        ;; is filed against the tuple `[y x]` it denies.
-        (when (and asym? (= 2 (count args)))
-          (remove #(= (first (:tuple %)) (second (:tuple %)))
-                  (probe [1 0] false :against))))))))
+  `:ambiguous` here would be this function inventing a verdict on its own.)
+
+  `strong?` reads the known-true statements alone, which are all a caller keeping only
+  known-true claims needs: `undercut?` drops none of them, and a tuple's strongest
+  statement is known-true whenever one of its statements is."
+  ([kb goal context] (claims kb goal context false))
+  ([kb goal context strong?]
+   (with-memo
+     (let [pred  (nm/functor goal)
+           args  (vec (nm/args goal))
+           poss  (positions kb pred context)
+           asym? (tax/has-prop? (reasoning/taxonomy kb) :asymmetric pred context)
+           ;; With no preserved position the product is the goal's own arguments alone,
+           ;; so this still answers "what is believed about exactly this tuple" — which
+           ;; is what the asymmetry check needs of a predicate that inherits nothing.
+           sl    (slots kb poss args context)
+           fwd   (vec (range (count args)))
+           probe (fn [order negated? polarity]
+                   (strongest-per-tuple
+                    kb polarity (found-claims kb pred sl order negated? context strong?)))]
+       ;; realized here, inside the memo (`with-memo`): the probes read the store and
+       ;; `strongest-per-tuple` groups lazily, so a seq handed back unrealized does all
+       ;; of that with the memo gone
+       (vec
+        (concat
+         (probe fwd false :for)
+         (probe fwd true  :against)
+         ;; The converse is read with the tuple indices swapped, so a stored `(P x y)`
+         ;; is filed against the tuple `[y x]` it denies.
+         (when (and asym? (= 2 (count args)))
+           (remove #(= (first (:tuple %)) (second (:tuple %)))
+                   (probe [1 0] false :against)))))))))
 
 ;; ---- specificity ---------------------------------------------------------
 
@@ -622,7 +853,7 @@
   inheritance travels, never off a score."
   [kb positions t1 t2 context]
   (every? (fn [[n poss]]
-            (contains? (reach kb poss (nth t1 (dec n)) context) (nth t2 (dec n))))
+            (reaches? kb poss (nth t1 (dec n)) (nth t2 (dec n)) context))
           (by-position positions (count t1))))
 
 (defn- undercut?
@@ -1001,6 +1232,27 @@
                                        alts))))))
           []))))
 
+(defn- strongest-claim
+  "Of the surviving claims `sv` bearing on the tuple `args`, the one whose
+  `strongest-reading`, capped at the claim's class, is strongest, as `[claim handles]`, or
+  nil when no reading reaches.  Of two at one rank the first on content: the tuple, then
+  the asserting context, then what the claim says, all spellings rather than handles,
+  since the chosen handle lands in a reported nogood."
+  [kb by-n args sv context]
+  (when-let [[_ c hs]
+             (reduce (fn [best c]
+                       (if-let [[r hs] (strongest-reading kb by-n args c context)]
+                         (let [r (min r (st/rank-of (:class c)))]
+                           (if (or (nil? best) (> r (first best))) [r c hs] best))
+                         best))
+                     nil
+                     (nm/sort-by-content-key (juxt #(nm/print-key (:tuple %))
+                                                   #(nm/name-key (:context %))
+                                                   #(nm/print-key (:sentence %)))
+                                             compare
+                                             sv))]
+    [c hs]))
+
 (defn clashing-claim
   "The **known-true** claim that reaches `sentence`'s own tuple by preservation and
   denies it — `{:sentence :context :claim handle :handles [handle …] :class}` — or nil.
@@ -1013,31 +1265,20 @@
   **Known-true, because that is the whole of what `undercut?` leaves standing.**  A
   `:default` general claim yields to a nearer contrary one: it is undercut, never fires
   for that tuple, and there is nothing for anybody to report (docs/inherit.md).  A
-  `:monotonic` one is not undercut — its docstring calls a contrary specific claim \"a
-  contradiction to report rather than a refinement to defer to\" — so it survives beside
-  the stored claim, `verdict` answers `:ambiguous`, and the pair is exactly what has no
-  handle to be reported by.  This is what gives it one.
+  `:monotonic` one is not undercut, so it survives beside the stored claim and the pair
+  is a nogood with no second stored member.  This names it.
 
-  **The claim's own tuple is excluded**, and that is what keeps this to the inherited
-  case: a claim stated at the very tuple `sentence` is about is an ordinary `P` beside
-  an ordinary `(not P)`, both stored, which `settle/negation-nogoods` already pairs off
-  the `:opposed` set.  Reporting it here as well would report one pair twice.  A claim
-  stating `sentence` itself is excluded too: an asymmetric converse carried round a
-  `genl` cycle to its own tuple is one sentence on both sides (docs/inherit.md).
+  **The claim's own tuple is excluded**: a claim stated at the very tuple `sentence` is
+  about is an ordinary `P` beside an ordinary `(not P)`, both stored, which the negation
+  family pairs (`decide/note-candidate!`).  A claim stating `sentence` itself is excluded
+  too: an asymmetric converse carried round a `genl` cycle to its own tuple is one
+  sentence on both sides (docs/inherit.md).
 
-  `:handles` is the reading's support and not the claim — the declaration that permits
+  `:handles` is the reading's support and not the claim: the declaration that permits
   each move, the relation edges the reach travelled, the `(transitive R)` a fact-relation
-  reach is closed under, and the `(symmetric …)` behind a mirrored reading.  Every one of
-  them is a sentex that has to hold for the inherited claim to be read at all, which is
-  what lets a caller pair `sentence` with the whole reading rather than with a claim
-  whose relevance rests on sentexes nobody named.
-
-  One claim is named where several reach: the one whose `strongest-reading`, capped at
-  the claim's class, is strongest, and of two at one rank the first on content — the
-  tuple, then the asserting context, then what the claim says, all spellings rather than
-  handles, since the chosen handle lands in a reported nogood.  Asked from the vantage of `context`,
-  which callers pass as the stored sentence's own: a claim in a context that cannot see
-  the general one is not denied by it."
+  reach is closed under, and the `(symmetric …)` behind a mirrored reading.  One claim is
+  named where several reach (`strongest-claim`).  Asked from the vantage of `context`: a
+  claim in a context that cannot see the general one is not denied by it."
   [kb sentence context]
   (with-memo
     (let [neg? (and (sequential? sentence) (= 'not (nm/functor sentence))
@@ -1049,29 +1290,59 @@
               poss (positions kb pred context)]
           (when (seq poss)
             (let [want (if neg? :for :against)
-                  by-n (by-position poss (count args))
-                  sv   (->> (surviving kb body context)
+                  ;; known-true claims alone, which `undercut?` never drops
+                  sv   (->> (claims kb body context true)
                             (filter #(and (= want (:polarity %))
                                           (st/known-true? (:class %))
                                           (not= (:tuple %) args)
                                           (not= (:sentence %) sentence))))]
-              (when-let [[_ c hs]
-                         (reduce (fn [best c]
-                                   (if-let [[r hs] (strongest-reading kb by-n args c context)]
-                                     (let [r (min r (st/rank-of (:class c)))]
-                                       (if (or (nil? best) (> r (first best))) [r c hs] best))
-                                     best))
-                                 nil
-                                 (nm/sort-by-content-key (juxt #(nm/print-key (:tuple %))
-                                                               #(nm/name-key (:context %))
-                                                               #(nm/print-key (:sentence %)))
-                                                         compare
-                                                         sv))]
+              (when-let [[c hs] (strongest-claim kb (by-position poss (count args)) args sv
+                                                 context)]
                 {:sentence (if neg? body (list 'not body))
                  :context  context
                  :claim    (:handle c)
                  :handles  hs
                  :class    (:class c)}))))))))
+
+(defn- converse-goal
+  "`(P b a)` for a ground positive binary `sentence` `(P a b)` with `a` distinct from `b`
+  whose functor `P`, or a super-predicate of it, carries an `asymmetric` mark
+  (`tax/props-over`, read from `context`, or anywhere for `'?ctx`), else nil."
+  [kb sentence context]
+  (when (and (ground-goal? sentence) (= 3 (count sentence)))
+    (let [[pred a b] sentence
+          tax        (reasoning/taxonomy kb)]
+      (when (and (not= a b)
+                 (seq (tax/props tax :asymmetric))
+                 (seq (tax/props-over tax :asymmetric pred (when-not (= '?ctx context) context))))
+        (list pred b a)))))
+
+(defn converse-claim
+  "The **known-true** claim that reaches the converse `(P b a)` of the stored `sentence`
+  `(P a b)` by preservation, while an `asymmetric` mark on `P` or on a super-predicate of
+  it holds at `context` — `{:sentence (P b a) :context :claim handle :handles [handle …]
+  :class}` — or nil.  The mark says the two tuples cannot both hold, so the inherited
+  converse and the stored tuple are a nogood as `clashing-claim`'s pair is.  A claim
+  stated at `(P b a)` itself is a stored converse, which the `asymmetric` family pairs
+  (`decide/note-candidate!`), and is excluded.  The reading and the choice among several
+  claims are `clashing-claim`'s (`strongest-claim`)."
+  [kb sentence context]
+  (with-memo
+    (when-let [goal (converse-goal kb sentence context)]
+      (let [pred (nm/functor goal)
+            args (vec (nm/args goal))
+            poss (positions kb pred context)]
+        (when (seq poss)
+          (let [sv (filter #(and (= :for (:polarity %))
+                                 (st/known-true? (:class %))
+                                 (not= (:tuple %) args))
+                           (claims kb goal context true))]
+            (when-let [[c hs] (strongest-claim kb (by-position poss 2) args sv context)]
+              {:sentence goal
+               :context  context
+               :claim    (:handle c)
+               :handles  hs
+               :class    (:class c)})))))))
 
 (defn denial-contexts
   "Where each reading of a claim that denies `sentence` by preservation rests, read from
@@ -1095,29 +1366,38 @@
 
   The claim's own tuple is excluded, as `clashing-claim` excludes it: a claim stated at
   `sentence`'s tuple is a stored pair, found by the partner reads that pair stored
-  sentexes."
+  sentexes.  The readings of `converse-claim`'s converse are named too, each set joined
+  by the context of an `asymmetric` statement that makes the converse deny `sentence`."
   [kb sentence]
   (with-memo
-    (let [neg? (and (sequential? sentence) (= 'not (nm/functor sentence))
-                    (= 2 (count sentence)))
-          body (if neg? (second sentence) sentence)]
+    (let [neg?  (and (sequential? sentence) (= 'not (nm/functor sentence))
+                     (= 2 (count sentence)))
+          body  (if neg? (second sentence) sentence)
+          sets  (fn [goal want]
+                  (let [args (vec (nm/args goal))
+                        poss (positions kb (nm/functor goal) '?ctx)]
+                    (if (empty? poss)
+                      #{}
+                      (let [by-n (by-position poss (count args))]
+                        (into #{}
+                              (comp (filter #(and (= want (:polarity %)) (not= (:tuple %) args)))
+                                    (mapcat #(cons % (:also %)))
+                                    (remove #(= (:sentence %) sentence))
+                                    (mapcat (fn [c]
+                                              (for [{:keys [ctxs]} (claim-supports kb by-n args c '?ctx
+                                                                                   (defeat-classes kb))]
+                                                (into #{(:context c)} ctxs)))))
+                              (claims kb goal '?ctx))))))]
       (if-not (ground-goal? body)
         #{}
-        (let [args (vec (nm/args body))
-              poss (positions kb (nm/functor body) '?ctx)]
-          (if (empty? poss)
-            #{}
-            (let [want (if neg? :for :against)
-                  by-n (by-position poss (count args))]
-              (into #{}
-                    (comp (filter #(and (= want (:polarity %)) (not= (:tuple %) args)))
-                          (mapcat #(cons % (:also %)))
-                          (remove #(= (:sentence %) sentence))
-                          (mapcat (fn [c]
-                                    (for [{:keys [ctxs]} (claim-supports kb by-n args c '?ctx
-                                                                         (defeat-classes kb))]
-                                      (into #{(:context c)} ctxs)))))
-                    (claims kb body '?ctx)))))))))
+        (into (sets body (if neg? :for :against))
+              (when-let [goal (when-not neg? (converse-goal kb body '?ctx))]
+                (let [tax  (reasoning/taxonomy kb)
+                      mark (into #{}
+                                 (comp (mapcat #(vals (tax/prop-supporter-contexts tax :asymmetric %)))
+                                       (map #(when % #{%})))
+                                 (tax/props-over tax :asymmetric (nm/functor body)))]
+                  (for [g (sets goal :for), m mark] (into g m)))))))))
 
 ;; ---- enumerating what a claim licenses -----------------------------------
 ;; A backward goal is closed and asks one question.  A **forward** antecedent is a
@@ -1668,7 +1948,11 @@
       (cond
         (contains? declarations f) [nil (when (symbol? arg1) #{arg1})]
         (= 'transitive f)          [nil (into #{} (get by-r arg1))]
-        (= 'asymmetric f)          [nil (when (contains? by-p arg1) #{arg1})]
+        ;; the mark binds its spec subtree, whose converses `converse-claim` reads
+        (= 'asymmetric f)          [nil (when (symbol? arg1)
+                                          (into #{} (among (tax/specs-global
+                                                            (reasoning/taxonomy kb) arg1)
+                                                           by-p)))]
         ;; the permutation is applied per fanned literal on its own mark, so a mark on
         ;; a sub-predicate moves every preserved super it feeds
         (permuting-mark? f)        [nil (when (symbol? arg1)
@@ -1843,9 +2127,10 @@
         (when (seq rs) rs)))))
 
 (defn licensing-functors
-  "The functors whose facts move what a preserved predicate among `preds` licenses, or
-  nil — `moved-predicates`' channels named as functors rather than asked of one sentence,
-  for a caller that enumerates stored facts to hand to `rejoin-rules`.
+  "The functors whose facts move what a preserved predicate in `preds` (a set, or a map
+  keyed by predicate) licenses, or nil — `moved-predicates`' channels named as functors
+  rather than asked of one sentence, for a caller that enumerates stored facts to hand
+  to `rejoin-rules`.
 
   The declaration functors, `transitive` and `asymmetric`, and each relation some `P` in
   `preds` is preserved along, with its sub-predicates, since a fact on one is a fact on
@@ -1861,8 +2146,7 @@
   [kb preds]
   (let [roster @(reasoning/preserving kb)]
     (when (seq roster)
-      (let [ps   (set preds)
-            rels (into #{} (keep (fn [[pr r]] (when (contains? ps pr) r))) (keys roster))]
+      (let [rels (into #{} (keep (fn [[pr r]] (when (contains? preds pr) r))) (keys roster))]
         (when (seq rels)
           (into (into #{'transitive 'asymmetric} (keys declarations))
                 (mapcat #(tax/specs-global (reasoning/taxonomy kb) %))

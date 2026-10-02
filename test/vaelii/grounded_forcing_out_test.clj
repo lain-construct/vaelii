@@ -47,21 +47,23 @@
      :opposes (v/handle-of kb (list o x) 'CxUniverse)
      :q       (v/handle-of kb (list q x) 'CxUniverse)}))
 
-(deftest grounded-forcing-out-equals-defeat
-  ;; The primitive's contract: forcing a set OUT and reading belief equals the belief the
-  ;; engine's own `defeat` of that set leaves — and it drops what rests only on the set
-  ;; while keeping the rest.  Runs under both TMS representations.
+(deftest grounded-forcing-out-equals-a-network-without-them
+  ;; The primitive's contract: forcing a set of derived datums OUT and reading belief
+  ;; equals the belief the network holds with every justification concluding them
+  ;; blocked — and it drops what rests only on the set while keeping the rest.  Runs
+  ;; under both TMS representations.
   (tu/with-neutral-kb [kb tu/fresh]
     (let [{:keys [pos neg ethical opposes q]} (one-diamond kb)
           tms        (reasoning/tms kb)
           extra      #{pos neg}
-          via-defeat (do (jtms/defeat tms extra)
+          was        (jtms/blocked tms)
+          via-block  (do (jtms/set-blocked tms (into was (mapcat #(jtms/supports tms %)) extra))
                          (let [r (set (jtms/in-datums tms))]
-                           (jtms/clear-defeats! tms)   ; restore — nothing else was defeated
+                           (jtms/set-blocked tms was)   ; restore
                            r))
           core       (jtms/grounded-forcing-out tms extra)]
-      (is (= via-defeat core)
-          "grounded-forcing-out equals the belief left after defeating the same set")
+      (is (= via-block core)
+          "grounded-forcing-out equals the belief left with the set's derivations blocked")
       (testing "the forced sides and everything resting only on a side drop out"
         (is (not (contains? core pos)))
         (is (not (contains? core neg)))

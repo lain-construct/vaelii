@@ -182,6 +182,47 @@
       (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird)))
       (is (nil? (v/handle-of kb (list flies Opus) CxBird))))))
 
+;; DECISION (Closure is enforced, not assumed): a variable a `thereExists` binds inside
+;; the exception is the query's own, not one an antecedent owes — the closure check reads
+;; free variables, as `unknown`'s does.  The witness is searched for; the rule's
+;; variables are still bound before the query runs.
+
+(tu/deftest-kb an-existential-exception-blocks-when-a-witness-exists
+  (tu/with-terms [bird childOf sick flies Opus Kid Stranger CxBird]
+    (v/assert kb (except-rule (list 'thereExists '?c (list 'and (list childOf '?b '?c) (list sick '?c)))
+                              [(list bird '?b)] (list flies '?b))
+              CxBird)
+    (v/assert kb (list bird Opus) CxBird)
+    (v/assert kb (list childOf Opus Kid) CxBird)
+    (v/assert kb (list sick Stranger) CxBird)
+    (testing "a child who is not sick and a sick non-child are no witness: one ?c takes both"
+      (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))))
+    (let [sh (v/assert kb (list sick Kid) CxBird)]
+      (testing "a sick child is a witness, so the conclusion goes"
+        (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
+      (v/retract! kb sh)
+      (testing "and retracting the witness re-derives it"
+        (is (seq (v/sentexes-matching kb (list flies Opus) CxBird)))))))
+
+(tu/deftest-kb an-existential-exception-dedups-across-binder-names
+  ;; canonical form: two exceptions identical up to the bound variable's name are one
+  (tu/with-terms [bird childOf sick flies CxBird]
+    (let [exc  #(list 'thereExists % (list 'and (list childOf '?b %) (list sick %)))
+          h1   (v/assert kb (except-rule (exc '?c) [(list bird '?b)] (list flies '?b)) CxBird)
+          h2   (v/assert kb (except-rule (exc '?d) [(list bird '?b)] (list flies '?b)) CxBird)]
+      (is (= h1 h2)))))
+
+(tu/deftest-kb an-existential-exception-binder-a-rule-variable-names-is-refused
+  ;; the binder would be substituted with the rule's binding, so the quantifier would
+  ;; quantify over a constant — refused, as a leaking antecedent `thereExists` is
+  (tu/with-terms [bird childOf sick flies CxBird]
+    (let [rule (except-rule (list 'thereExists '?b (list sick '?b))
+                            [(list bird '?b)] (list flies '?b))]
+      (is (= :quantifier-not-local
+             (:type (ex-data (try (v/assert kb rule CxBird)
+                                  (catch clojure.lang.ExceptionInfo e e))))))
+      (is (= [:quantifier-not-local] (mapv :type (v/check kb rule CxBird)))))))
+
 ;; ---- 7. the exception is a level-6 query, not a literal lookup ----------
 ;; DECISION (The exception is a query, not a literal): "an exception may reach
 ;; through genl specificity, the genlCx visibility closure, transitive /
@@ -489,3 +530,25 @@
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/assert kb (except-rule (list p '?x) [(list base '?x)] (list q '?x))
                              CxCyc))))))
+
+(tu/deftest-kb a-cycle-through-an-existential-exception-is-rejected-at-assert-time
+  ;; the new exception's negative edge runs to the predicates its `thereExists` reads,
+  ;; not to the quantifier's own functor, which no rule concludes
+  (tu/with-terms [base link p q CxCyc]
+    (v/assert kb (except-rule (list q '?x) [(list base '?x)] (list p '?x)) CxCyc)
+    (is (= :not-stratified
+           (:type (ex-data (try (v/assert kb (except-rule (list 'thereExists '?y
+                                                                (list 'and (list link '?x '?y) (list p '?y)))
+                                                          [(list base '?x)] (list q '?x))
+                                          CxCyc)
+                                (catch clojure.lang.ExceptionInfo e e))))))))
+
+(tu/deftest-kb a-cycle-through-an-unknown-exception-is-rejected-at-assert-time
+  ;; the same read for an `unknown` query: its edge runs to `p`, not to `unknown`
+  (tu/with-terms [base p q CxCyc]
+    (v/assert kb (except-rule (list q '?x) [(list base '?x)] (list p '?x)) CxCyc)
+    (is (= :not-stratified
+           (:type (ex-data (try (v/assert kb (except-rule (list 'unknown (list p '?x))
+                                                          [(list base '?x)] (list q '?x))
+                                          CxCyc)
+                                (catch clojure.lang.ExceptionInfo e e))))))))

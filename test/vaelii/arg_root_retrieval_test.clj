@@ -60,21 +60,23 @@
   *evenly* across the world's facts rather than the first `n` — the leading facts
   cluster by predicate, so an even spread spans more functors and argument shapes for
   the same cost.  The handles are sorted first: `sentex-ids` is a set in the store's own
-  order, so the same world gives the same sample on every backend.  This is a
-  trie-vs-arg-root equivalence oracle, so the sample is a regression net over the fact
-  space."
-  [kb n]
-  (let [all (->> (sort (p/sentex-ids (:records kb)))
-                 (keep #(p/get-sentex (:records kb) %))
-                 (remove #(some? (:antecedent %)))     ; drop rules
-                 (keep sx/body)
-                 (filter #(and (sequential? %) (symbol? (nm/functor %))))
-                 distinct
-                 vec)
-        m   (count all)]
-    (if (<= m n)
-      all
-      (mapv #(nth all (quot (* % m) n)) (range n)))))
+  order, so the same world gives the same sample on every backend.  `keep?` narrows the
+  facts before the spread is taken.  This is a trie-vs-arg-root equivalence oracle, so the
+  sample is a regression net over the fact space."
+  ([kb n] (fact-sentences kb n (constantly true)))
+  ([kb n keep?]
+   (let [all (->> (sort (p/sentex-ids (:records kb)))
+                  (keep #(p/get-sentex (:records kb) %))
+                  (remove #(some? (:antecedent %)))    ; drop rules
+                  (keep sx/body)
+                  (filter #(and (sequential? %) (symbol? (nm/functor %))))
+                  (filter keep?)
+                  distinct
+                  vec)
+         m   (count all)]
+     (if (<= m n)
+       all
+       (mapv #(nth all (quot (* % m) n)) (range n))))))
 
 (defn- var-patterns
   "For a ground fact `(pred a1 a2 …)`, a spread of query patterns that stress the
@@ -124,9 +126,13 @@
 (deftest a-sample-of-the-arg-root-oracle-runs-at-default
   ;; The two sweeps above are `^:slow`, so `lein gate` never runs this harness.  Four
   ;; facts' patterns through both comparisons keep it running at `:default`; the sweeps
-  ;; widen the sample to 80 and 48 facts.
+  ;; widen the sample to 80 and 48 facts.  The sample is drawn from binary facts only,
+  ;; so each fact yields the same nine patterns: the stored facts differ between the
+  ;; `assertive-off` sweep, which stores no argument-type mint, and every other
+  ;; configuration, and a sample of mixed arity would run a different number of
+  ;; assertions there.
   (tu/with-kb [kb]
-    (let [pats (mapcat var-patterns (fact-sentences kb 4))]
+    (let [pats (mapcat var-patterns (fact-sentences kb 4 #(= 3 (count %))))]
       (is (seq pats))
       (doseq [pat pats]
         (let [[off on] (both-ways #(res/match-pattern kb pat '?ctx))]

@@ -65,7 +65,6 @@
                ["a rule antecedent literal with a variable predicate"
                 (list 'implies (list 'and (list '?p '?x '?y) (list 'transitive '?p))
                       (list '?p '?x '?x)) CxThe                          :not-indexable]
-               ["a disjoint type membership" (list cat Muffet) CxThe      :disjoint]
                ;; the operand of a wrapper or a `not` is a sentence, and a bare symbol
                ;; there is refused as a bare antecedent or consequent literal is
                ["a rule wrapper around a bare symbol"

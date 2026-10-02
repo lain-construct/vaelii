@@ -306,13 +306,15 @@
   never a context's facts.  The belief question is asked here, as both chainers ask it
   of the rule index: a defeated or superseded rule must not mint choice heads or forbid
   models.  `rule-believed?` rather than `jtms/in?`, so a rule reads by the same rule
-  the chainers use."
+  the chainers use, and a rule `base` withdraws is left out."
   [kb base]
-  (let [roster @(reasoning/solve-rules kb)]
+  (let [roster @(reasoning/solve-rules kb)
+        ;; ...and not withdrawn at `base` by a verdict `base` reaches
+        out    (res/defeat-withdrawn-set kb base)]
     (->> (distinct (cons base (tax/context-up (reasoning/taxonomy kb) base)))
          (mapcat #(get roster %))
          (keep #(p/get-sentex (:records kb) %))
-         (filter #(res/rule-believed? kb (:id %)))
+         (filter #(and (res/rule-believed? kb (:id %)) (not (contains? out (:id %)))))
          (nm/sort-by-content-key #(nm/print-key [(sx/sentence-of %) (:context %)]) compare))))
 
 (defn- assumption-rules

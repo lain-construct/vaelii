@@ -31,9 +31,7 @@
   ;; and lands here.  (Disjointness, functionality and asymmetry each *do* name an
   ;; opposing sentex, and are arbitrated instead — see `soundness_test`.)
   ;; Pinned to the constraint reading, which is the reading the conviction-by-absence above
-  ;; belongs to.  With the entailment on the conclusion is admitted and the type minted, and
-  ;; what the derivation path drops is a mint it cannot admit — held by
-  ;; argtype_entail_test/an-inadmissible-entailment-on-the-derivation-path-is-reported-not-thrown.
+  ;; belongs to.  With the entailment on the conclusion is admitted and the type minted.
   (tu/without-entailing
    (tu/with-terms [person rock parentOf looksLike Boulder Muffet]
      (v/assert kb (list 'genl person 'thing) 'CxUniverse)

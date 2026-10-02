@@ -40,5 +40,5 @@
 ;; `write-hazards` below.  An atom because `recover` and `reindex` clear what they build.
 ;; `oplog` is the operation log (`vaelii.impl.oplog`) this KB records its public writes
 ;; into, or nil.  A field, because every public write reads it to decide whether to record.
-(defrecord KB [records index reasoning provers solver naming constraints feed dir
+(defrecord KB [records index reasoning provers solver naming feed dir
                snapshot-dir index-space unrecovered oplog])

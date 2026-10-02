@@ -129,10 +129,10 @@
   "Handles whose trie path matches `pattern` — one walk, no records fetched, nothing
   interpreted.  A variable token in the path is a wildcard that fans over every child.
 
-  The rawest read the index has, and the only caller that wants it is one reporting the
-  index itself: level 0 of `vaelii.impl.levels` addresses the trie directly and interprets
-  neither belief nor polarity, which is what makes it the floor the other levels are
-  measured against."
+  The rawest read the index has.  Level 0 of `vaelii.impl.levels` addresses the trie
+  directly and interprets neither belief nor polarity, which is what makes it the floor
+  the other levels are measured against, and `vaelii.impl.decide` reads one exact
+  sentence under every context to find a stored converse."
   [index pattern]
   (p/lookup index pattern))
 
