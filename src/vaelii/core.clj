@@ -5308,14 +5308,17 @@
   passes while its necessary definition fails, so both `(Coll term)` and
   `(not (Coll term))` are definition-provable.  It also composes the complete visible
   `predAllSpecified` / `predSpecifiedAll` audit, reports the visible predicate `genl`
-  edges that widen a declared argument type, and reports each candidate term declared
-  `unary_predicate` with no visible `genl` path to `thing`.  It does not enumerate the
-  domain, broaden `contradictions`, or repair/file anything.
+  edges that widen a declared argument type, reports each candidate term declared
+  `unary_predicate` with no visible `genl` path to `thing`, and suggests each `(genl X P)`
+  a visible cover forces on a candidate type `X` that the `genl` closure does not hold.
+  It does not enumerate the domain, broaden `contradictions`, or repair/file anything:
+  a suggestion is reported, never asserted.
 
   A clean result is `{:status :audited :candidate-count n}`.  Findings change `:status`
   to `:gap` and add any of the sparse keys `:all-specified-violations`,
-  `:definition-inconsistencies`, `:genl-arg-widening` and `:not-under-thing`.  Inspect `:status`; it makes a successful audit and a
-  report with gaps different shapes by construction.
+  `:definition-inconsistencies`, `:genl-arg-widening`, `:not-under-thing` and
+  `:implicit-genl`.  Inspect `:status`; it makes a successful audit and a report with
+  gaps different shapes by construction.
 
   Optional `options` bounds cooperative query work, elapsed time and returned findings:
   `{:max-work n :max-ms n :max-results n}`. Exhaustion returns `:status :truncated`

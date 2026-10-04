@@ -92,3 +92,7 @@
 (defn record-not-under-thing! [finding]
   (when *progress* (swap! *progress* update :not-under-thing conj finding))
   finding)
+
+(defn record-implicit-genl! [finding]
+  (when *progress* (swap! *progress* update :implicit-genl conj finding))
+  finding)

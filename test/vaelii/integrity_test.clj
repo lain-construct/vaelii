@@ -624,3 +624,104 @@
                         partials))
             (is (some #(= (subvec in-order 0 1) (:not-under-thing %)) partials)
                 "a budget exhausted between the two terms keeps the first finding")))))))
+
+;; ---- implicit-genl --------------------------------------------------------
+
+(defn- two-partition-shape!
+  "Assert the facts that produce a partition coverage gap: `thing` partitioned two ways,
+  one part of the first partition placed under one part of the second, and `kind` placed
+  under the other part of the second."
+  [kb {:keys [tangible intangible spatiotemporal temporal atemporal kind]}]
+  (v/assert kb (list 'partition 'thing tangible intangible) 'CxUniverse)
+  (v/assert kb (list 'genl tangible spatiotemporal) 'CxUniverse)
+  (v/assert kb (list 'genl spatiotemporal temporal) 'CxUniverse)
+  (v/assert kb (list 'partition 'thing temporal atemporal) 'CxUniverse)
+  (v/assert kb (list 'genl kind atemporal) 'CxUniverse))
+
+(tu/deftest-kb a-type-separated-from-every-part-but-one-is-suggested-under-that-part
+  (tu/with-terms [tangible_like intangible_like spatiotemporal_like temporal_like
+                  atemporal_like novel_kind]
+    (two-partition-shape! kb {:tangible tangible_like :intangible intangible_like
+                              :spatiotemporal spatiotemporal_like :temporal temporal_like
+                              :atemporal atemporal_like :kind novel_kind})
+    (let [stated (list 'genl novel_kind intangible_like)]
+      (v/assert kb stated 'CxUniverse)
+      (v/retract! kb (v/handle-of kb stated 'CxUniverse))
+      (let [before  (state-snapshot kb)
+            report  (v/kb-integrity kb #{novel_kind} 'CxUniverse)
+            [found & more] (:implicit-genl report)]
+        (is (= :gap (:status report)))
+        (is (nil? more) "exactly one suggestion")
+        (is (= {:term novel_kind :genl intangible_like}
+               (select-keys found [:term :genl]))
+            "the retracted edge is suggested again")
+        (is (= [(set (list 'partition 'thing tangible_like intangible_like))]
+               (map set (:cover found)))
+            "the evidence names the partition whose coverage forces the edge")
+        (is (= [tangible_like] (map :part (:disjoint-from found)))
+            "every other part is excluded")
+        (is (= [(set (list 'partition 'thing temporal_like atemporal_like))]
+               (map set (:grounds (first (:disjoint-from found)))))
+            "the exclusion names the separation it rests on")
+        (is (= before (state-snapshot kb)) "a suggestion asserts nothing")))))
+
+(tu/deftest-kb a-stated-or-derivable-genl-is-not-suggested
+  (tu/with-terms [tangible_like intangible_like spatiotemporal_like temporal_like
+                  atemporal_like novel_kind abstract_kind]
+    (two-partition-shape! kb {:tangible tangible_like :intangible intangible_like
+                              :spatiotemporal spatiotemporal_like :temporal temporal_like
+                              :atemporal atemporal_like :kind novel_kind})
+    (v/assert kb (list 'genl novel_kind intangible_like) 'CxUniverse)        ; stated
+    (v/assert kb (list 'genl abstract_kind novel_kind) 'CxUniverse)          ; derivable
+    (is (nil? (:implicit-genl (v/kb-integrity kb #{novel_kind abstract_kind}
+                                              'CxUniverse))))))
+
+(tu/deftest-kb a-type-left-with-two-candidate-parts-is-not-suggested
+  (tu/with-terms [first_part second_part third_part loose_kind narrowed_kind pinned_kind]
+    (v/assert kb (list 'partition 'thing first_part second_part third_part) 'CxUniverse)
+    (doseq [k [loose_kind narrowed_kind pinned_kind]]
+      (v/assert kb (list 'genl k 'thing) 'CxUniverse))
+    (v/assert kb (list 'disjoint narrowed_kind first_part) 'CxUniverse)
+    (v/assert kb (list 'disjoint pinned_kind first_part) 'CxUniverse)
+    (v/assert kb (list 'disjoint pinned_kind second_part) 'CxUniverse)
+    (let [report (v/kb-integrity kb #{loose_kind narrowed_kind pinned_kind first_part}
+                                 'CxUniverse)]
+      (is (= [{:term pinned_kind :genl third_part}]
+             (map #(select-keys % [:term :genl]) (:implicit-genl report)))
+          "disjoint from no part, or from one part of three, leaves two candidates and
+           no suggestion; a part itself is never a suggestion")
+      (is (= [[first_part [(list 'disjoint pinned_kind first_part)]]
+              [second_part [(list 'disjoint pinned_kind second_part)]]]
+             (sort-by (comp nm/print-key first)
+                      (map (juxt :part #(mapv (partial apply list) (:grounds %)))
+                           (:disjoint-from (first (:implicit-genl report))))))
+          "an explicit disjoint pair is its own ground"))))
+
+(tu/deftest-kb implicit-genl-findings-truncate-under-every-bound
+  (tu/with-terms [left_part right_part one_kind two_kind]
+    (v/assert kb (list 'partition 'thing left_part right_part) 'CxUniverse)
+    (doseq [k [one_kind two_kind]]
+      (v/assert kb (list 'genl k 'thing) 'CxUniverse)
+      (v/assert kb (list 'disjoint k left_part) 'CxUniverse))
+    (let [terms    #{one_kind two_kind}
+          in-order (mapv (fn [t] {:term t :genl right_part}) (sort-by nm/print-key terms))
+          shown    #(mapv (fn [f] (select-keys f [:term :genl])) (:implicit-genl %))]
+      (testing "a result cap below the finding count keeps the completed prefix"
+        (let [report (v/kb-integrity kb terms 'CxUniverse {:max-results 1})]
+          (is (= :truncated (:status report)))
+          (is (= :max-results (:reason report)))
+          (is (= (subvec in-order 0 1) (shown report)))))
+      (testing "an exact result cap is complete"
+        (let [report (v/kb-integrity kb terms 'CxUniverse {:max-results 2})]
+          (is (= :gap (:status report)))
+          (is (= in-order (shown report)))))
+      (testing "work exhaustion inside the pass is truncated, never audited, and keeps the
+                findings completed before it"
+        (let [run    #(v/kb-integrity kb terms 'CxUniverse {:max-work %})
+              needed (first (filter #(= :gap (:status (run %))) (range 0 2000)))]
+          (is (some? needed) "some finite work budget completes the sweep")
+          (let [partials (map run (range 0 (or needed 0)))]
+            (is (every? #(and (= :truncated (:status %)) (= :max-work (:reason %)))
+                        partials))
+            (is (some #(= (subvec in-order 0 1) (shown %)) partials)
+                "a budget exhausted between the two terms keeps the first finding")))))))
