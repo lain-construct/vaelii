@@ -4117,12 +4117,18 @@
   singleton; an inconsistent pair (e.g. both genl-related and disjoint) yields multiple;
   a pair with no provable relationship yields the empty set.
 
-  `genl?` and `disjoint?` read the global cached closures. The `:orthogonal` witness — a
-  member of `a` that is also a member of `b` — is read from `context` (default
-  `CxUniverse`, the upper spindle's collector), because a read sees only its own context
-  and that context's `genlCx` ancestors; a caller whose instances live in a narrower
-  context passes it so their overlap is visible. The witness is a facts-only read
-  (`{:max-depth 0}`), so the status is the same under every query engine.
+  `genl?` and `disjoint?` read the global cached closures. `:orthogonal` has two
+  witnesses: a stated `(orthogonal a b)` (either spelling, the predicate being symmetric),
+  or a member of `a` that is also a member of `b` where neither type subsumes the other and
+  the pair is not disjoint. Both are read from `context` (default `CxUniverse`, the upper
+  spindle's collector), because a read sees only its own context and that context's
+  `genlCx` ancestors; a caller whose declarations or instances live in a narrower context
+  passes it so they are visible. Both are facts-only reads (`{:max-depth 0}`), so the
+  status is the same under every query engine.
+
+  The declaration stands alone: a declared pair that is also genl-related or disjoint
+  yields both statuses, which `subsumption-status` reads as `:inconsistent`. The shared
+  instance does not: it settles only a pair the taxonomy and the separations leave open.
 
   `:coextensional` is two distinct types each `genl` the other — a `genl` cycle, which
   `wff` refuses at assertion, so it appears only from a belief-state cycle or an equality
@@ -4130,7 +4136,10 @@
   ([kb a b] (subsumption-statuses kb a b 'CxUniverse))
   ([kb a b context]
    (let [a<b (genl? kb a b)
-         b<a (genl? kb b a)]
+         b<a (genl? kb b a)
+         ;; the declaration, read facts-only like the shared instance below.  Asked in one
+         ;; spelling: `orthogonal` is symmetric, so the goal folds onto the stored order.
+         declared? (boolean (seq (query kb (list 'orthogonal a b) context {:max-depth 0})))]
      (cond-> #{}
        (and a<b b<a)                                        (conj :coextensional)
        (and a<b (not b<a))                                  (conj :genl)
@@ -4141,22 +4150,24 @@
        ;; of `(a ?x)` over the whole starter, once per taxonomy-open pair, hangs.
        ;; `:orthogonal`'s witness is a shared instance the registry answers without rule
        ;; expansion.
-       (and (not a<b) (not b<a) (not (disjoint? kb a b))
-            (boolean (some #(isa? kb (get % '?x) b context)
-                           (query kb (list a '?x) context {:max-depth 0})))) (conj :orthogonal)))))
+       (or declared?
+           (and (not a<b) (not b<a) (not (disjoint? kb a b))
+                (boolean (some #(isa? kb (get % '?x) b context)
+                               (query kb (list a '?x) context {:max-depth 0}))))) (conj :orthogonal)))))
 
 (defn subsumption-status
   "The subsumption relationship of type `a` to type `b`, one of:
   `:coextensional` (each is `genl` the other), `:genl` (`(genl a b)` holds — `a` is a
   subtype of `b`), `:spec` (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint`
-  (provably no shared instance), `:orthogonal` (neither subsumes the other and not
-  disjoint, but a shared instance the registry answers without rule expansion exists),
+  (provably no shared instance), `:orthogonal` (a stated `(orthogonal a b)`, or neither
+  subsumes the other and not disjoint, but a shared instance the registry answers without
+  rule expansion exists),
   `:unknown` (none of the above is provable), or `:inconsistent` (multiple contradictory
   relationships hold, e.g. both genl-related and disjoint).
 
   Wraps `subsumption-statuses`: an empty set is `:unknown`, a singleton is that status,
   and two or more contradictory statuses is `:inconsistent`. `context` is the
-  `:orthogonal` witness vantage (default `CxUniverse`); see `subsumption-statuses`."
+  `:orthogonal` vantage (default `CxUniverse`); see `subsumption-statuses`."
   ([kb a b] (subsumption-status kb a b 'CxUniverse))
   ([kb a b context]
    (let [ss (subsumption-statuses kb a b context)]
@@ -4174,7 +4185,8 @@
   `context` is the shared-instance vantage (default `CxUniverse`). Each entry carries both
   the resolved `:status` keyword and the raw `:statuses` set from `subsumption-statuses`,
   so contradictions are visible without re-querying. The `:unknown` pairs are the
-  candidates for a missing `disjoint` assertion."
+  candidates for a missing `disjoint` or `orthogonal` assertion; a declared `orthogonal`
+  pair reads `:orthogonal`, never `:unknown`."
   ([kb] (disjointness-audit kb 'CxUniverse))
   ([kb context]
    ;; `by-print-key`, never bare `sort`: a type node need not be a symbol.  A NAT — a

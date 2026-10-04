@@ -425,12 +425,11 @@
 
      ;; ---- the overlap: the separations' converse --------------------------
      ['orthogonal
-      (inert {:shape {:args [:type :type]} :storage [:none] :checked false :family nil
-              :facets #{}
-              :notes  (str "declared ahead of its readers: a stored fact, symmetric by"
-                           " its mark, that nothing in the engine reads yet.")}
-             (str "declared ahead of its readers: a stored fact, symmetric by its mark,"
-                  " that nothing in the engine reads yet"))]
+      (enforced {:shape {:args [:type :type]} :storage [:none] :checked false :family nil
+                 :facets #{}}
+                (str "core/subsumption-statuses — a stated pair reads :orthogonal with no"
+                     " shared instance, and :inconsistent beside a genl edge or a"
+                     " disjointness"))]
 
      ;; ---- exhaustion: the parts that cover a whole ------------------------
      ;;
