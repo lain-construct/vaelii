@@ -219,12 +219,10 @@
 (comment living_thing "An organism — it is born, lives, and (by default) dies.")
 (comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
 (comment abstract "An entity outside space and time — a number, a relation, an expression, a language. Below both aspatial and atemporal.")
-;; spatial, aspatial, tangible and intangible reach thing through the two partitions of
-;; thing below, each of which installs its parts' edges to the whole; spatiotemporal
-;; reaches it through spatial.
+;; spatial, aspatial, temporal, atemporal, tangible and intangible reach thing through
+;; the three partitions of thing below, each of which installs its parts' edges to the
+;; whole; spatiotemporal reaches it through spatial.
 (intersection spatiotemporal spatial temporal)
-(genl temporal thing)
-(genl atemporal thing)
 (genl tangible spatiotemporal)
 (genl living_thing tangible)
 (genl capability intangible)
@@ -1474,9 +1472,9 @@
 ;; spatiotemporal, since a region has a location and no mass.
 (set/monotonic (partition thing tangible intangible))
 ;; A thing either has extent in some space or is aspatial, and is either in time or
-;; atemporal: each pair is a complement.  The first is a partition, which records the
-;; separation and the coverage both; the second is the separation alone.  The quality
-;; checker's schematic clash reading prunes the phantom pairs these create by antecedent
-;; arg-type disjointness (vaelii#95, fix(quality)).
+;; atemporal: each pair is a complement, and each is a partition, which records the
+;; separation and the coverage both.  The quality checker's schematic clash reading
+;; prunes the phantom pairs these separations create by antecedent arg-type
+;; disjointness (vaelii#95, fix(quality)).
 (set/monotonic (partition thing spatial aspatial))
-(set/monotonic (disjoint temporal atemporal))
+(set/monotonic (partition thing temporal atemporal))

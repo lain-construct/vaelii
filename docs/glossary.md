@@ -122,7 +122,7 @@ on a justification. A sentex may be both asserted and **Derived**; `kb-diff`'s
 
 **`at_least_metatype`** ![kb](../.github/badges/cat-kb.svg): The metatype-order collection of every type at order two or higher — `metatype`, `meta_metatype`, and up. See [taxonomy.md](taxonomy.md).
 
-**`atemporal`** ![kb](../.github/badges/cat-kb.svg): An entity not located in time. See [taxonomy.md](taxonomy.md).
+**`atemporal`** ![kb](../.github/badges/cat-kb.svg): An entity not located in time — the complement of `temporal`, the two partitioning `thing`. See [taxonomy.md](taxonomy.md).
 
 **Atomic (storage)** ![backend](../.github/badges/cat-backend.svg): All-or-nothing, the systems sense —
 an atomic rename publishing a new file over the live one, a crash-atomic write, and

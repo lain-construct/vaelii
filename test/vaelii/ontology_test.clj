@@ -649,6 +649,18 @@
       (v/assert kb (list 'not (list 'spatial Rumour)) 'CxUniverse)
       (is (true? (v/ask? kb (list 'aspatial Rumour) 'CxUniverse))))))
 
+(tu/deftest-kb temporal-and-atemporal-partition-thing
+  (is (true? (v/disjoint? kb 'temporal 'atemporal)))
+  (testing "a thing cannot be both"
+    (tu/with-terms [Moment]
+      (v/assert kb (list 'temporal Moment) 'CxUniverse)
+      (is (true? (tu/stored-in-clash? kb (list 'atemporal Moment) 'CxUniverse)))))
+  (testing "and a thing denied a place in time is atemporal — the coverage half"
+    (tu/with-terms [Theorem]
+      (v/assert kb (list 'thing Theorem) 'CxUniverse)
+      (v/assert kb (list 'not (list 'temporal Theorem)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'atemporal Theorem) 'CxUniverse))))))
+
 (tu/deftest-kb tangible-and-intangible-partition-thing
   (is (true? (v/disjoint? kb 'tangible 'intangible)))
   (is (true? (v/genl? kb 'tangible 'thing)))
@@ -684,6 +696,9 @@
   written."
   '[[genl aspatial thing CxCore "partition thing spatial aspatial"]
     [genl intangible thing CxCore "partition thing tangible intangible"]
+    [genl temporal thing CxCore "partition thing temporal atemporal"]
+    [genl atemporal thing CxCore "partition thing temporal atemporal"]
+    [disjoint temporal atemporal CxCore "partition thing temporal atemporal"]
     [genl spatiotemporal thing CxCore "spatiotemporal genl spatial (intersection), spatial genl thing (partition)"]
     [genl tangible temporal CxAbstract "tangible genl spatiotemporal genl temporal (intersection)"]
     [disjoint tangible intangible CxAbstract "partition thing tangible intangible"]
