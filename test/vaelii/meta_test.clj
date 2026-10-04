@@ -149,11 +149,11 @@
     (is (v/ask? kb '(functional birthYearOf)))
     (is (not (v/ask? kb '(symmetric parentOf)))))
   (testing "and enumerated"
-    ;; the domain relations and siblingDisjointException are the symmetric marks,
-    ;; decontextualized like the other algebraic marks, so they answer the enumeration
-    ;; wherever CxUniverse is seen.  seeAlso is NOT among them — it is a directional
-    ;; cross-reference, not symmetric.
-    (is (= '#{siblingOf marriedTo friendOf siblingDisjointException}
+    ;; the domain relations, siblingDisjointException and orthogonal are the symmetric
+    ;; marks, decontextualized like the other algebraic marks, so they answer the
+    ;; enumeration wherever CxUniverse is seen.  seeAlso is NOT among them — it is a
+    ;; directional cross-reference, not symmetric.
+    (is (= '#{siblingOf marriedTo friendOf siblingDisjointException orthogonal}
            (set (map #(get % '?p) (v/ask kb '(symmetric ?p) '?ctx)))))
     ;; `genl` and `genlCx` are in the enumeration because CxCore asserts (transitive genl)
     ;; / (transitive genlCx) outright.  They *are* transitive; answering them from cached

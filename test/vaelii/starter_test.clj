@@ -110,7 +110,7 @@
                 (cond
                   (= 'genl f)
                   (reduce #(update %1 %2 (fnil conj #{}) ctx) acc (filter symbol? (take 2 args)))
-                  (contains? '#{disjoint sibling_disjoint siblingDisjointException} f)
+                  (contains? '#{disjoint sibling_disjoint siblingDisjointException orthogonal} f)
                   (reduce #(update %1 %2 (fnil conj #{}) ctx) acc (filter symbol? args))
                   (and (contains? defining-functors f) (symbol? (first args)))
                   (update acc (first args) (fnil conj #{}) ctx)

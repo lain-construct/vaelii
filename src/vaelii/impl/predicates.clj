@@ -423,6 +423,15 @@
                 (str "taxonomy/add-sib-exception — exempts one pair the sibling clique or a"
                      " disjoint_metatype would separate; read at the reader in disjointness-test"))]
 
+     ;; ---- the overlap: the separations' converse --------------------------
+     ['orthogonal
+      (inert {:shape {:args [:type :type]} :storage [:none] :checked false :family nil
+              :facets #{}
+              :notes  (str "declared ahead of its readers: a stored fact, symmetric by"
+                           " its mark, that nothing in the engine reads yet.")}
+             (str "declared ahead of its readers: a stored fact, symmetric by its mark,"
+                  " that nothing in the engine reads yet"))]
+
      ;; ---- exhaustion: the parts that cover a whole ------------------------
      ;;
      ;; :derived, like the separations above and for the same argument — a rule may
