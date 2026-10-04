@@ -210,7 +210,7 @@
 ;; stay in the band: (genl artifact physical_object) is CxAbstract's, (genl animal
 ;; living_thing) is CxOrganism's, and both now resolve.
 (comment intangible "Something with no mass or location: an attribute, a relation, a time.")
-(comment spatial "Something with a location, so that it can stand in a spatial relation to another — a physical object, but also a region or a place, which occupy space without being made of anything. What the four spatial calculi relate.")
+(comment spatiotemporal "Something with a location, so that it can stand in a spatial relation to another — a physical object, but also a region or a place, which occupy space without being made of anything. What the four spatial calculi relate.")
 (comment temporal "Something that happens or exists in time. Physical objects, events, and situations are all temporal.")
 (comment aspatial "Not located in space. The complement CxSpace's calculi never relate.")
 (comment atemporal "Not located in time. Numbers, relations and the rest of the abstract kinds are atemporal; a fluent is intangible but not atemporal, since it holds over time.")
@@ -219,11 +219,11 @@
 (comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
 (comment abstract "An entity outside space and time — a number, a relation, an expression, a language. Below both aspatial and atemporal.")
 (genl intangible thing)
-(genl spatial thing)
+(genl spatiotemporal thing)
 (genl temporal thing)
 (genl aspatial thing)
 (genl atemporal thing)
-(genl physical_object spatial)
+(genl physical_object spatiotemporal)
 (genl living_thing physical_object)
 (genl capability intangible)
 (genl abstract intangible)
@@ -1468,9 +1468,9 @@
 (variable_order_type fixed_order_type)
 (variable_order_type variable_order_type)
 
-(set/monotonic (disjoint intangible spatial))
+(set/monotonic (disjoint intangible spatiotemporal))
 ;; A thing is either located in space or aspatial, and either in time or atemporal: each
 ;; pair is a complement.  The quality checker's schematic clash reading prunes the phantom
 ;; pairs these create by antecedent arg-type disjointness (vaelii#95, fix(quality)).
-(set/monotonic (disjoint spatial aspatial))
+(set/monotonic (disjoint spatiotemporal aspatial))
 (set/monotonic (disjoint temporal atemporal))

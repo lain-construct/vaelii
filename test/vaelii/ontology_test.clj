@@ -372,7 +372,7 @@
   purpose — each with the reason.  A term absent from this roster that only one member uses
   fails the test below; a term here that gains a second member user fails it too, so the
   roster stays a list of reasons rather than a list of debts."
-  '{abstract "the top-level abstract/concrete ontological division, held in the head beside intangible / spatial / temporal so any member can extend it; only CxAbstract does today"
+  '{abstract "the top-level abstract/concrete ontological division, held in the head beside intangible / spatiotemporal / temporal so any member can extend it; only CxAbstract does today"
     capability "the upper-ontology skeleton collection CxLife extends (vaelii.impl.predicates); the head holds it so a member can place a capability under the root"
     denotational_term "the logic sense of `term`, vocabulary the head documents; only CxAbstract links it into the expression lattice today"
     formula "the formula-ladder type the head documents beside the grammar sense; only CxAbstract places it under expression today"
@@ -500,7 +500,7 @@
   ;; refuse on the antecedents.  No `?relation` satisfies two of them, so the pair is
   ;; unreachable rather than unstated (docs/quality.md).
   ;;
-  ;; `(disjoint intangible spatial)` makes a relation-classification conclusion and a
+  ;; `(disjoint intangible spatiotemporal)` makes a relation-classification conclusion and a
   ;; story-predicate conclusion disjoint, so the arity rules would pair with CxCriedWolf's
   ;; `lied_before → liar` if the checker read only the conclusions.  It reads the
   ;; antecedents' `arg` declarations too: `(arg arity 1 relation)` types the arity rule's
@@ -585,10 +585,10 @@
 
 (tu/deftest-kb the-types-added-for-argument-constraints-are-placed-where-they-are-used
   (testing "the two calculi types the argument declarations name"
-    (is (v/genl? kb 'physical_object 'spatial))
+    (is (v/genl? kb 'physical_object 'spatiotemporal))
     (is (v/genl? kb 'time_point 'temporal)))
-  (testing "and an animal reaches spatial, so a spatial relation admits one"
-    (is (v/genl? kb 'dog 'spatial))))
+  (testing "and an animal reaches spatiotemporal, so a spatial relation admits one"
+    (is (v/genl? kb 'dog 'spatiotemporal))))
 
 ;; ---- the literal types: one vocabulary, and one exception ----------------
 ;; `string` / `number` / `integer` / `symbol` are the KB's only names for text, numbers
