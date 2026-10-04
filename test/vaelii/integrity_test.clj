@@ -466,7 +466,7 @@
   (v/assert kb (list 'arg pred 2 t2) 'CxUniverse))
 
 (tu/deftest-kb a-genl-edge-that-widens-an-argument-type-is-reported
-  ;; The shape Pace asked the sweep to find: every animal parentage would be an
+  ;; The shape the sweep exists to find: every animal parentage would be an
   ;; originatorOf tuple, and originatorOf admits only persons.
   (tu/with-terms [animal person parentOf originatorOf Fido Rex]
     (v/assert kb (list 'genl person animal) 'CxUniverse)
