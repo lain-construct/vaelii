@@ -675,23 +675,32 @@
     (is (true? (v/ask? kb (list 'spatial Meadow) 'CxUniverse)))
     (is (not (v/ask? kb (list 'tangible Meadow) 'CxUniverse)))))
 
-(tu/deftest-kb the-partitions-carry-the-edges-their-parts-would-otherwise-restate
-  ;; A partition installs a genl edge from each part to the whole and separates the
-  ;; parts, so a stated edge or disjointness that only repeats one of those is not
-  ;; written.  Each pair is read from the context that held the removed sentence.
-  (testing "the edges to the root"
-    (doseq [t '[aspatial intangible spatiotemporal]]
-      (is (true? (v/genl? kb t 'thing 'CxCore)) (str t " reaches thing from the head"))
-      (is (empty? (v/sentexes-matching kb (list 'genl t 'thing) '?ctx))
-          (str "and no (genl " t " thing) is stated"))))
-  (testing "tangible reaches temporal through spatiotemporal"
-    (is (true? (v/genl? kb 'tangible 'temporal 'CxAbstract)))
-    (is (empty? (v/sentexes-matching kb '(genl tangible temporal) '?ctx))))
-  (testing "the separations"
-    (is (true? (v/disjoint? kb 'tangible 'intangible 'CxAbstract)))
-    (is (true? (v/disjoint? kb 'attribute 'tangible 'CxAbstract)))
-    (is (empty? (v/sentexes-matching kb '(disjoint tangible intangible) '?ctx)))
-    (is (empty? (v/sentexes-matching kb '(disjoint attribute tangible) '?ctx)))))
+(def ^:private derivable-and-unstated
+  "Relations the shipped KB holds without stating them, each with the context that held
+  the sentence before it was removed and the route it is derived by instead.  A
+  partition installs a genl edge from each part to the whole and separates the parts,
+  an intersection installs an edge to each of its types, genl is transitive, and a
+  disjointness descends a genl edge — so a stated sentence repeating one of those is not
+  written."
+  '[[genl aspatial thing CxCore "partition thing spatial aspatial"]
+    [genl intangible thing CxCore "partition thing tangible intangible"]
+    [genl spatiotemporal thing CxCore "spatiotemporal genl spatial (intersection), spatial genl thing (partition)"]
+    [genl tangible temporal CxAbstract "tangible genl spatiotemporal genl temporal (intersection)"]
+    [disjoint tangible intangible CxAbstract "partition thing tangible intangible"]
+    [disjoint attribute tangible CxAbstract "attribute genl intangible; partition thing tangible intangible"]
+    [disjoint organization substance CxAbstract "organization genl intangible, substance genl tangible; partition thing tangible intangible"]
+    [disjoint language substance CxAbstract "language genl intangible, substance genl tangible; partition thing tangible intangible"]
+    [disjoint attribute substance CxAbstract "attribute genl intangible, substance genl tangible; partition thing tangible intangible"]
+    [disjoint organization animal CxUniverse "organization genl intangible, animal genl living_thing genl tangible; partition thing tangible intangible"]])
+
+(tu/deftest-kb the-kb-states-no-relation-it-already-derives
+  ;; Each relation is read from the context that held the removed sentence, so a removal
+  ;; that left a context unable to see the route would fail here.
+  (doseq [[pred a b ctx route] derivable-and-unstated]
+    (is (true? (if (= 'genl pred) (v/genl? kb a b ctx) (v/disjoint? kb a b ctx)))
+        (str "(" pred " " a " " b ") holds in " ctx " by " route))
+    (is (empty? (v/sentexes-matching kb (list pred a b) '?ctx))
+        (str "and (" pred " " a " " b ") is not stated"))))
 
 ;; ---- the literal types: one vocabulary, and one exception ----------------
 ;; `string` / `number` / `integer` / `symbol` are the KB's only names for text, numbers

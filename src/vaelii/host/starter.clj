@@ -103,7 +103,7 @@
        ;; A collector's cross-member axiom names terms from more than one member, so the
        ;; file loads above every member where both terms are visible.  `seed/root-contexts`
        ;; discovers these files from the classpath and omits CxCore, the head loaded above.
-       ;; Today the one such file is CxUniverse.txt, holding `(disjoint organization animal)`.
+       ;; Today the one such file is CxUniverse.txt, which states no axiom of its own.
        (layer! nil (seed/root-contexts)))              ; top-level collector files
      ;; The subtypes of thing are unary types. Other genl components may relate
      ;; predicates of any arity and do not imply unary membership.  `specs` is read after the

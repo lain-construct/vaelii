@@ -112,10 +112,11 @@ Data hangs below CxWell.
 - **CxUniverse** — the upper spindle's *collector* and the middle spindle's *head*, left free for **lifting**: universally-true facts collect here
   (`decontextualized_predicate` justifications and the forced `genlCx` extent). It sees
   every upper member and is seen by every middle member. It also holds hand-authored
-  cross-member axioms: `resources/kb/CxUniverse.txt` states `(disjoint organization
-  animal)`, whose `organization` and `animal` come from different upper members. No
-  member sees a sibling, so only the collector sees both terms, and a cross-member
-  `disjoint` belongs here. Being the one context
+  cross-member axioms in `resources/kb/CxUniverse.txt`: a claim naming terms from two
+  upper members belongs here, since no member sees a sibling and only the collector
+  sees both. It states none today — `organization` and `animal`, the pair it once
+  separated, are already separated by `(partition thing tangible intangible)` in
+  CxCore. Being the one context
   that sees the whole upper spindle is what makes it the head of the next.
 - **the middle spindle's members** (`kb/middle/`) — how the definitional things *interrelate*,
   where several overlapping theories can coexist. One context per theory, each seeing
