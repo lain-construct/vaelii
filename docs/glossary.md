@@ -1142,6 +1142,8 @@ orders at match time. See [canonicalization.md](canonicalization.md).
 
 ## T
 
+**`tangible`** ![kb](../.github/badges/cat-kb.svg): An entity with mass — and so, necessarily, a location in space and time: below `spatiotemporal`. See [taxonomy.md](taxonomy.md).
+
 **Taxonomy** ![kb](../.github/badges/cat-kb.svg): The in-memory cache of the
 `genl` / `genlCx` closures, the equality partition, the predicate metadata,
 and the disjointness caches — all belief-following, reconciled each `settle`. See

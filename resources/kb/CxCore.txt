@@ -49,7 +49,7 @@
          "(and ?antecedent1 ?antecedent2 …) means the conjunction of the antecedents inside an implies rule. A syntactic connective rather than a predicate: it is never asserted on its own, and a rule with a single antecedent needs no and at all.")
 
 (comment genlArg
-         "(genlArg ?relation ?position ?type) means that argument ?position of ?relation must be a subtype of ?type. The arg constraint one level up, for arguments naming kinds rather than instances: (genlArg partType 1 physical_object) says the argument names a kind of physical object, where (arg partOf 1 physical_object) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
+         "(genlArg ?relation ?position ?type) means that argument ?position of ?relation must be a subtype of ?type. The arg constraint one level up, for arguments naming kinds rather than instances: (genlArg partType 1 tangible) says the argument names a kind of physical object, where (arg partOf 1 tangible) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
 (ternary_predicate genlArg)
 (arg genlArg 1 relation)
 (arg genlArg 2 positive_integer)
@@ -207,7 +207,7 @@
 ;; Nothing in the engine reads any of them by name — they are classified inert in
 ;; vaelii.impl.predicates for that reason.  What they are is the top of the ontology,
 ;; and the grammar head is where every context can reach it.  The kinds hanging off them
-;; stay in the band: (genl artifact physical_object) is CxAbstract's, (genl animal
+;; stay in the band: (genl artifact tangible) is CxAbstract's, (genl animal
 ;; living_thing) is CxOrganism's, and both now resolve.
 (comment intangible "Something with no mass or location: an attribute, a relation, a time.")
 (comment spatial "Something with extent in some space. Physical space, but also a mathematical one: the line y=x has extent in the Cartesian plane and a square of an abstract chessboard has extent on that board, though neither is located anywhere in the world. Everything spatiotemporal is spatial; spatial and aspatial partition thing.")
@@ -215,7 +215,7 @@
 (comment temporal "Something that happens or exists in time. Physical objects, events, and situations are all temporal.")
 (comment aspatial "Not located in any space: no extent in physical space or in a mathematical one. The complement of spatial — the two partition thing — and so nothing CxSpace's calculi relate.")
 (comment atemporal "Not located in time. Numbers, relations and the rest of the abstract kinds are atemporal; a fluent is intangible but not atemporal, since it holds over time.")
-(comment physical_object "Something with mass and a location in space.")
+(comment tangible "Something with mass. Having mass, it necessarily has a location in space and time too, so it is spatiotemporal.")
 (comment living_thing "An organism — it is born, lives, and (by default) dies.")
 (comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
 (comment abstract "An entity outside space and time — a number, a relation, an expression, a language. Below both aspatial and atemporal.")
@@ -226,8 +226,8 @@
 (genl temporal thing)
 (genl aspatial thing)
 (genl atemporal thing)
-(genl physical_object spatiotemporal)
-(genl living_thing physical_object)
+(genl tangible spatiotemporal)
+(genl living_thing tangible)
 (genl capability intangible)
 (genl abstract intangible)
 (genl abstract aspatial)

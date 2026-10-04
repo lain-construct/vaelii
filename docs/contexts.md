@@ -77,7 +77,7 @@ Data hangs below CxWell.
   root — every context in the spindle sees it, and a context no `genlCx` edge names
   sees nothing but itself ([A context outside the
   spindle](#a-context-outside-the-spindle)). It also holds the six collections at the
-  top of the ontology — `intangible`, `spatial`, `spatiotemporal`, `physical_object`,
+  top of the ontology — `intangible`, `spatial`, `spatiotemporal`, `tangible`,
   `living_thing`, `capability` — which the engine reads by no name and which are here for the reason
   below: the members of a spindle see each other not at all, so a term two of them
   extend has to be defined in the head.

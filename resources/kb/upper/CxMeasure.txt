@@ -80,8 +80,8 @@
          "(heavierThan ?object1 ?object2) means that ?object1 weighs more than ?object2. Between two particular objects, and derivable rather than only asserted: a rule compares their two weightOf measures with quantityGreaterThan, so it holds whenever both weights are known and ordered. The instance-level counterpart of the type-level largerThan, and a strict order like it — transitive and asymmetric together. Transitivity is what answers a chain nobody weighed: two stated comparisons carry the third, so a KB that knows an elephant outweighs a horse and a horse a dog answers the elephant against the dog with no measure anywhere. Asymmetry makes the mirror of a claim deny it, and the pair entails irreflexivity as a reading without setting the mark: a lone (heavierThan a a) names no second sentex to weigh against and is admitted, exactly as it is for largerThan.")
 (binary_predicate heavierThan)
 (instance_relation_predicate heavierThan)
-(arg heavierThan 1 physical_object)
-(arg heavierThan 2 physical_object)
+(arg heavierThan 1 tangible)
+(arg heavierThan 2 tangible)
 (transitive heavierThan)
 (asymmetric heavierThan)
 
@@ -89,7 +89,7 @@
          "(heightOf ?object ?measure) means that ?object stands ?measure tall. A measure of Length, exact as (QuantityFn 2 Meter) or bounded as (QuantityIntervalFn 1 2 Meter). Functional, like weightOf and for the same reason: with no time argument to say when, a second height is a contradiction rather than a second fact.")
 (binary_predicate heightOf)
 (instance_relation_predicate heightOf)
-(arg heightOf 1 physical_object)
+(arg heightOf 1 tangible)
 (arg heightOf 2 thing)
 (set/monotonic (functional heightOf))
 
@@ -215,8 +215,8 @@
          "(tallerThan ?object1 ?object2) means that ?object1 stands higher than ?object2. Derivable by comparing two heightOf measures, the same shape heavierThan has over weights, and a strict order for the same reasons: transitive, so two stated comparisons answer the third with nothing measured, and asymmetric, so the mirror of a claim denies it.")
 (binary_predicate tallerThan)
 (instance_relation_predicate tallerThan)
-(arg tallerThan 1 physical_object)
-(arg tallerThan 2 physical_object)
+(arg tallerThan 1 tangible)
+(arg tallerThan 2 tangible)
 (transitive tallerThan)
 (asymmetric tallerThan)
 
@@ -239,6 +239,6 @@
          "(weightOf ?object ?measure) means that ?object weighs ?measure. A measure of Mass, exact as (QuantityFn 20 Kilogram) or bounded as (QuantityIntervalFn 18 22 Kilogram). Declared functional: one object, one weight, since nothing here says at what time — and two measures are compounds rather than symbols, so a second one is refused outright instead of merging the way two names for one thing would.")
 (binary_predicate weightOf)
 (instance_relation_predicate weightOf)
-(arg weightOf 1 physical_object)
+(arg weightOf 1 tangible)
 (arg weightOf 2 thing)
 (set/monotonic (functional weightOf))

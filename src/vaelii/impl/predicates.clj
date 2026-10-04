@@ -1084,7 +1084,7 @@
          '[[intangible "ontology, not grammar: something with no mass or location. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [spatial "ontology, not grammar: something with extent in some space, physical or mathematical. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [spatiotemporal "ontology, not grammar: something with a location in space and time. CxCore holds it so every spindle member can extend it; no engine check names it."]
-           [physical_object "ontology, not grammar: something with mass and a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [tangible "ontology, not grammar: something with mass, and so with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [living_thing "ontology, not grammar: an organism. CxCore holds it so CxOrganism's kinds reach the root from CxOrganism; no engine check names it."]
            [capability "ontology, not grammar: something a kind of thing can do. CxCore holds it so CxLife can extend it; no engine check names it."]])
 

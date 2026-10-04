@@ -104,7 +104,7 @@
 (genl penguin bird)
 
 (comment person "An entity with social agency — a human, or any other agent that stands in social relations. Broader than human: a non-biological agent (a sentient construct) can be a person without being a mammal or an animal, which is what lets the social predicates (friendOf, knows, marriedTo, …) constrain their arguments to person and still admit it. A physical entity — an agent has a location and can act — but not, by itself, a living thing.")
-(genl person physical_object)
+(genl person tangible)
 
 (comment plant "A living thing that photosynthesizes; disjoint from animal.")
 (genl plant living_thing)

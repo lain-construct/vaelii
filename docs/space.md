@@ -286,7 +286,7 @@ a KB built from CxCore plus the layers it wants carries regions only if it reaso
 about them (the starter, which loads every upper context it finds, takes them). Regions,
 places, and the things a frame or a distance is about are all **ordinary individuals**:
 every argument position is declared `(arg … spatiotemporal)`, the type a location is
-what makes something an instance of. `physical_object` sits under it, so every animal,
+what makes something an instance of. `tangible` sits under it, so every animal,
 artifact and substance qualifies without a further declaration, while a region or a frame
 of reference — which occupy space without being made of anything — is declared into it
 directly. `spatiotemporal` is below both `spatial` — extent in some space,

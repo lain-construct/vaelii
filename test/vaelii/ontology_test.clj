@@ -279,7 +279,7 @@
       (is (v/isa? kb p 'unary_predicate)
           (str p " is still a one-place predicate"))))
   (testing "while the kinds they are said of are types, and reach the root"
-    (doseq [t '[animal bird penguin dog person physical_object capability flying]]
+    (doseq [t '[animal bird penguin dog person tangible capability flying]]
       (is (v/genl? kb t 'thing) (str t " must reach thing")))))
 
 (tu/deftest-kb every-shipped-type-is-placed-under-the-root
@@ -585,7 +585,7 @@
 
 (tu/deftest-kb the-types-added-for-argument-constraints-are-placed-where-they-are-used
   (testing "the two calculi types the argument declarations name"
-    (is (v/genl? kb 'physical_object 'spatiotemporal))
+    (is (v/genl? kb 'tangible 'spatiotemporal))
     (is (v/genl? kb 'time_point 'temporal)))
   (testing "and an animal reaches spatiotemporal, so a spatial relation admits one"
     (is (v/genl? kb 'dog 'spatiotemporal))))
@@ -601,6 +601,18 @@
 (tu/deftest-kb spatiotemporal-is-below-spatial-and-temporal
   (is (true? (v/genl? kb 'spatiotemporal 'spatial)))
   (is (true? (v/genl? kb 'spatiotemporal 'temporal))))
+
+(tu/deftest-kb a-tangible-thing-is-spatiotemporal-and-so-spatial-and-temporal
+  (testing "the type reaches all three"
+    (is (true? (v/genl? kb 'tangible 'spatiotemporal)))
+    (is (true? (v/genl? kb 'tangible 'spatial)))
+    (is (true? (v/genl? kb 'tangible 'temporal))))
+  (testing "and an instance carries the memberships"
+    (tu/with-terms [Pebble]
+      (v/assert kb (list 'tangible Pebble) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'spatiotemporal Pebble) 'CxUniverse)))
+      (is (true? (v/ask? kb (list 'spatial Pebble) 'CxUniverse)))
+      (is (true? (v/ask? kb (list 'temporal Pebble) 'CxUniverse))))))
 
 (tu/deftest-kb an-abstract-figure-is-spatial-without-being-spatiotemporal
   ;; A line in a plane has extent in that plane and no location in the world, no mass,

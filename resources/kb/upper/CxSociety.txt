@@ -47,7 +47,7 @@
 (binary_predicate owns)
 (instance_relation_predicate owns)
 (arg owns 1 person)
-(arg owns 2 physical_object)
+(arg owns 2 tangible)
 
 (comment speaks
          "(speaks ?person ?language) means that ?person speaks ?language. Says nothing about fluency and nothing about which language they speak best, and a person may speak several.")
