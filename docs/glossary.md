@@ -35,8 +35,6 @@ scratch context hung below the asking context, so an ignored call leaves the
 KB as it found it and every answer names its assumptions. See
 [abduction.md](abduction.md).
 
-**`abstract`** ![kb](../.github/badges/cat-kb.svg): An entity outside space and time — both `aspatial` and `atemporal`. See [taxonomy.md](taxonomy.md).
-
 **Aggregation** ![inference](../.github/badges/cat-inference.svg): The five
 query operators `agg/count` / `agg/sum` / `agg/min` / `agg/max` / `agg/avg` —
 namespaced like `set/*Rule`, the bare words being ordinary vocabulary.
@@ -728,6 +726,8 @@ weakest, never thrown. See [nmtms.md](nmtms.md).
 stored with its one head `not`, double negation eliminated, and that head is the
 literal's sign (`sentex/negative?`); the trie keys it under `:false`. See
 [canonicalization.md](canonicalization.md).
+
+**`nowhere_never`** ![kb](../.github/badges/cat-kb.svg): An entity in no space and at no time — below both `aspatial` and `atemporal`, and so neither physically nor mathematically located. An expression or a language is one; the line y=x is not, being located in the Cartesian plane. Formerly `abstract`. See [taxonomy.md](taxonomy.md).
 
 ## O
 

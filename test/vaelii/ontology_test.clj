@@ -372,7 +372,7 @@
   purpose — each with the reason.  A term absent from this roster that only one member uses
   fails the test below; a term here that gains a second member user fails it too, so the
   roster stays a list of reasons rather than a list of debts."
-  '{abstract "the top-level abstract/concrete ontological division, held in the head beside intangible / spatiotemporal / temporal so any member can extend it; only CxAbstract does today"
+  '{nowhere_never "in no space and at no time, held in the head beside intangible / spatiotemporal / temporal so any member can extend it; only CxAbstract does today"
     capability "the upper-ontology skeleton collection CxLife extends (vaelii.impl.predicates); the head holds it so a member can place a capability under the root"
     denotational_term "the logic sense of `term`, vocabulary the head documents; only CxAbstract links it into the expression lattice today"
     formula "the formula-ladder type the head documents beside the grammar sense; only CxAbstract places it under expression today"
@@ -633,6 +633,24 @@
     (is (not (v/ask? kb (list 'spatiotemporal Diagonal) 'CxUniverse))
         "it is not located in space and time")))
 
+(tu/deftest-kb nowhere-never-is-below-aspatial-atemporal-and-intangible
+  (testing "it is below aspatial, atemporal and intangible"
+    (is (true? (v/genl? kb 'nowhere_never 'aspatial)))
+    (is (true? (v/genl? kb 'nowhere_never 'atemporal)))
+    (is (true? (v/genl? kb 'nowhere_never 'intangible))))
+  (testing "an expression and a language are nowhere and never"
+    (is (true? (v/genl? kb 'expression 'nowhere_never)))
+    (is (true? (v/genl? kb 'language 'nowhere_never)))
+    (tu/with-terms [Formula]
+      (v/assert kb (list 'expression Formula) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'nowhere_never Formula) 'CxUniverse)))))
+  (testing "a line in the plane is atemporal and spatial, so it is not"
+    (tu/with-terms [Bisector]
+      (v/assert kb (list 'spatial Bisector) 'CxUniverse)
+      (v/assert kb (list 'atemporal Bisector) 'CxUniverse)
+      (is (not (v/ask? kb (list 'nowhere_never Bisector) 'CxUniverse)))
+      (is (empty? (v/sentexes-matching kb (list 'nowhere_never Bisector) 'CxUniverse))))))
+
 (tu/deftest-kb spatial-and-aspatial-partition-thing
   (is (true? (v/disjoint? kb 'spatial 'aspatial)))
   (is (true? (v/disjoint? kb 'spatiotemporal 'aspatial))
@@ -707,13 +725,13 @@
     [disjoint language substance CxAbstract "language genl intangible, substance genl tangible; partition thing tangible intangible"]
     [disjoint attribute substance CxAbstract "attribute genl intangible, substance genl tangible; partition thing tangible intangible"]
     [disjoint organization animal CxUniverse "organization genl intangible, animal genl living_thing genl tangible; partition thing tangible intangible"]
-    [genl string intangible CxAbstract "string genl unrepresented_term genl expression genl abstract genl intangible"]
-    [genl number intangible CxAbstract "number genl unrepresented_term genl expression genl abstract genl intangible"]
-    [genl keyword intangible CxAbstract "keyword genl unrepresented_term genl expression genl abstract genl intangible"]
-    [genl boolean intangible CxAbstract "boolean genl unrepresented_term genl expression genl abstract genl intangible"]
-    [genl character intangible CxAbstract "character genl unrepresented_term genl expression genl abstract genl intangible"]
-    [genl context intangible CxAbstract "context genl expression genl abstract genl intangible"]
-    [genl language intangible CxAbstract "language genl abstract genl intangible"]
+    [genl string intangible CxAbstract "string genl unrepresented_term genl expression genl nowhere_never genl intangible"]
+    [genl number intangible CxAbstract "number genl unrepresented_term genl expression genl nowhere_never genl intangible"]
+    [genl keyword intangible CxAbstract "keyword genl unrepresented_term genl expression genl nowhere_never genl intangible"]
+    [genl boolean intangible CxAbstract "boolean genl unrepresented_term genl expression genl nowhere_never genl intangible"]
+    [genl character intangible CxAbstract "character genl unrepresented_term genl expression genl nowhere_never genl intangible"]
+    [genl context intangible CxAbstract "context genl expression genl nowhere_never genl intangible"]
+    [genl language intangible CxAbstract "language genl nowhere_never genl intangible"]
     [genl building artifact CxAbstract "building genl container genl artifact"]
     [genl asymmetric binary_predicate CxCore "asymmetric genl anti_symmetric genl binary_predicate"]
     [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]

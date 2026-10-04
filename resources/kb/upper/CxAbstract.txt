@@ -51,7 +51,7 @@
 
 ;; CxCore's literal types are placed in this lattice by their edges to unrepresented_term,
 ;; below.  Text and a number have no mass and no location, and neither of them is a
-;; relation: unrepresented_term is an expression, so abstract and so intangible, and it
+;; relation: unrepresented_term is an expression, so nowhere_never and so intangible, and it
 ;; is disjoint from relation, so from predicate.  The second is what lets a rule be
 ;; refused for feeding a text-valued argument into a position that holds a type: every
 ;; type is a unary_predicate, so the type position asks for a predicate, and one variable
@@ -196,7 +196,7 @@
 
 ;; --- Lacuna proposals (CxAbstract, upper ontology overhaul) ---
 ;; The metatype-order ladder (type / metatype / meta_metatype / at_least_metatype /
-;; variable_order_type / fixed_order_type / type_type_by_order) and `abstract` are declared
+;; variable_order_type / fixed_order_type / type_type_by_order) and `nowhere_never` are declared
 ;; and commented in CxCore, the head, because that is where their genl edges are: a comment
 ;; belongs with the declaration it documents, visible from every context that sees the term.
 (comment expression "The abstract parent of all representable forms — relations, formulas, contexts, and unrepresented terms.")
@@ -233,12 +233,12 @@
 ;; This edge lives here, not in CxCore, because CxAbstract sees both denotational_term
 ;; (declared in CxCore) and expression (declared here).
 (genl denotational_term expression)
-(genl expression abstract)
+(genl expression nowhere_never)
 (genl formula expression)
 (genl building container)
 (genl gas substance)
 (genl keyword unrepresented_term)
-(genl language abstract)
+(genl language nowhere_never)
 (genl number unrepresented_term)
 (genl plasma substance)
 (genl relation expression)
