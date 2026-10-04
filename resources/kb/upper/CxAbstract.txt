@@ -156,8 +156,6 @@
 ;; typeGenl requires this because the stuff metatypes classify it (typeGenl … substance).
 (type substance)
 
-(set/monotonic (disjoint tangible intangible))
-
 (comment time_point "A moment rather than a stretch — one of the two instants bounding an interval. What the point algebra relates, and what startOf and endOf reach from an interval.")
 (genl time_point temporal)
 
@@ -219,7 +217,6 @@
 (comment stuff_type_by_state_of_matter "A disjoint_metatype classifying substances by physical state — solid, liquid, gas, plasma.")
 (comment stuff_type_by_substance "A disjoint_metatype classifying substances by material — wood, metal, glass_stuff, stone.")
 (comment unrepresented_term "An expression that cannot be further decomposed in the KB — strings, numbers, keywords, booleans, characters.")
-(set/monotonic (disjoint attribute tangible))
 (set/monotonic (disjoint building furniture))
 (set/monotonic (disjoint building tool))
 (set/monotonic (disjoint building vehicle))
@@ -263,7 +260,6 @@
 (genl keyword unrepresented_term)
 (genl language abstract)
 (genl number unrepresented_term)
-(genl tangible temporal)
 (genl plasma substance)
 (genl relation expression)
 (genl relation_application expression)

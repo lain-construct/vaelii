@@ -219,12 +219,12 @@
 (comment living_thing "An organism — it is born, lives, and (by default) dies.")
 (comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
 (comment abstract "An entity outside space and time — a number, a relation, an expression, a language. Below both aspatial and atemporal.")
-(genl intangible thing)
-(genl spatiotemporal thing)
+;; spatial, aspatial, tangible and intangible reach thing through the two partitions of
+;; thing below, each of which installs its parts' edges to the whole; spatiotemporal
+;; reaches it through spatial.
 (genl spatiotemporal spatial)
 (genl spatiotemporal temporal)
 (genl temporal thing)
-(genl aspatial thing)
 (genl atemporal thing)
 (genl tangible spatiotemporal)
 (genl living_thing tangible)

@@ -669,6 +669,24 @@
     (is (true? (v/ask? kb (list 'spatial Meadow) 'CxUniverse)))
     (is (not (v/ask? kb (list 'tangible Meadow) 'CxUniverse)))))
 
+(tu/deftest-kb the-partitions-carry-the-edges-their-parts-would-otherwise-restate
+  ;; A partition installs a genl edge from each part to the whole and separates the
+  ;; parts, so a stated edge or disjointness that only repeats one of those is not
+  ;; written.  Each pair is read from the context that held the removed sentence.
+  (testing "the edges to the root"
+    (doseq [t '[aspatial intangible spatiotemporal]]
+      (is (true? (v/genl? kb t 'thing 'CxCore)) (str t " reaches thing from the head"))
+      (is (empty? (v/sentexes-matching kb (list 'genl t 'thing) '?ctx))
+          (str "and no (genl " t " thing) is stated"))))
+  (testing "tangible reaches temporal through spatiotemporal"
+    (is (true? (v/genl? kb 'tangible 'temporal 'CxAbstract)))
+    (is (empty? (v/sentexes-matching kb '(genl tangible temporal) '?ctx))))
+  (testing "the separations"
+    (is (true? (v/disjoint? kb 'tangible 'intangible 'CxAbstract)))
+    (is (true? (v/disjoint? kb 'attribute 'tangible 'CxAbstract)))
+    (is (empty? (v/sentexes-matching kb '(disjoint tangible intangible) '?ctx)))
+    (is (empty? (v/sentexes-matching kb '(disjoint attribute tangible) '?ctx)))))
+
 ;; ---- the literal types: one vocabulary, and one exception ----------------
 ;; `string` / `number` / `integer` / `symbol` are the KB's only names for text, numbers
 ;; and names, and both argument declarations read the same four (docs/argtypes.md).  The
