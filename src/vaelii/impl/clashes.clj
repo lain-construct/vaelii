@@ -138,9 +138,11 @@
   vantage `v`, found from the members' shape: the separations of two memberships of one
   term; the `functional` and `functionalInArg` marks over two tuples differing at one
   position; the `asymmetric` and `anti_symmetric` marks over a converse pair, the
-  `irreflexive` mark over a self tuple and the `anti_transitive` mark over a chain; and
-  the covers whose every part a denial in `sens` rules out for the whole's member.  A
-  shape no conviction has reads nothing."
+  `irreflexive` mark over a self tuple and the `anti_transitive` mark over a chain; the
+  covers whose every part a denial in `sens` rules out for the whole's member; and the
+  separations of the two types a lone `(orthogonal a b)` names.  A `genl` edge is no
+  flat-cache entry, so an `orthogonal` convicted through one alone reads nothing, as a
+  `disjoint` over related types does.  A shape no conviction has reads nothing."
   [tax sens v]
   (let [pos    (filterv #(not (sx/negation? %)) sens)
         denied (mapv second (filter sx/negation? sens))
@@ -172,6 +174,10 @@
                  (marks [:asymmetric :anti-symmetric]))))
            (when (and binary (= 1 (count pos)) (apply = (args (first pos))))
              (marks [:irreflexive]))
+           (when (and (empty? denied) (= 1 (count pos)) (= 'orthogonal (nm/functor (first pos)))
+                      (= 2 (nm/arity (first pos))))
+             (let [[a b] (args (first pos))]
+               (tax/separating-keys tax a b v)))
            (when (and binary (<= 2 (count pos) 3) (chain? pos))
              (marks [:anti-transitive]))
            (when (and (= 1 (count pos)) (seq denied) (= 1 (nm/arity (first pos)))

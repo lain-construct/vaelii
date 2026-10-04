@@ -426,8 +426,15 @@
      ;; ---- the overlap: the separations' converse --------------------------
      ['orthogonal
       (enforced {:shape {:args [:type :type]} :storage [:none] :checked false :family nil
-                 :facets #{}}
-                (str "core/subsumption-statuses — a stated pair reads :orthogonal with no"
+                 :facets #{}
+                 :notes  (str "convicted rather than convicting: the related-types family"
+                              " reads the stored declaration back as a one-member nogood of"
+                              " itself whenever a separation or a genl edge a reader sees"
+                              " contradicts it. No facet names a declaration that is the"
+                              " only member of its own conviction.")}
+                (str "decide/related — a one-member nogood of the declaration over a pair"
+                     " a reader reads separated or genl-related; and"
+                     " core/subsumption-statuses — a stated pair reads :orthogonal with no"
                      " shared instance, and :inconsistent beside a genl edge or a"
                      " disjointness"))]
 
