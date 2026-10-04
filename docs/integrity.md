@@ -3,13 +3,15 @@
 - **Covers:** `kb-integrity` — one read-only checkpoint report for the complete visible
   `predAllSpecified` / `predSpecifiedAll` population, query-only definition clashes
   over a caller-owned finite set of ground candidate terms, the predicate `genl`
-  edges that widen a declared argument type, and the candidate types with no `genl`
-  path to `thing`.
+  edges that widen a declared argument type, the candidate types with no `genl`
+  path to `thing`, and the `genl` edges a cover forces on a candidate type that the
+  closure does not hold.
 - **Not here:** repairing findings, enumerating a domain, vocabulary completeness,
   generic constraint auditing, or the represented settled dilemmas returned by
   `contradictions`; how definitions infer membership → [defns.md](defns.md); what a
   specified declaration requires → [predall.md](predall.md); how an `arg` declaration
-  descends a predicate `genl` edge → [argtypes.md](argtypes.md); general
+  descends a predicate `genl` edge → [argtypes.md](argtypes.md); what a cover
+  declares → [taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it); general
   knowledge-quality census readings → [quality.md](quality.md).
 - **Assumes:** sentex, context, ground term, `genl` → [glossary.md](glossary.md).
 
@@ -54,7 +56,8 @@ validates one collection and one ground candidate at a time. The specified pass 
 uses small declaration censuses only to identify its finite worklist, then audits each
 declared predicate independently. The widening pass does the same: one census of visible
 `arg` declarations, then one direct `genl` edge at a time. The `thing` pass reads no
-census: it checks one candidate term at a time. These focused units are where
+census: it checks one candidate term at a time. The implicit-`genl` pass reads none
+either: one candidate term, then one visible cover over it, at a time. These focused units are where
 cooperative checkpoints and partial-result preservation sit.
 
 An explicit `nil` options value means the same thing as omitting the options arity,
@@ -78,7 +81,7 @@ A finding changes the top-level status and adds only the populated categories:
   {:status :audited :violations #{Bob}}}}
 ```
 
-`:status :audited` means all four passes ran and none found a gap. `:status :gap` cannot
+`:status :audited` means all five passes ran and none found a gap. `:status :gap` cannot
 be confused with that clean shape even when only one sparse category is present. The
 specified category is exactly `all-specified-violations`, including its typed declaration
 gaps; it is composed, not reimplemented.
@@ -190,3 +193,60 @@ The scope is deliberate:
 
 Reading the declaration and testing the `genl` path each spend one work unit, and
 `:max-results` counts these findings last, after the widening category.
+
+## What an implicit-genl finding means
+
+A cover places individuals: an instance of the whole denied every part but one is an
+instance of the remaining part
+([taxonomy.md](taxonomy.md#the-coverage-inference-is-gated-on-explicit-negation)). The
+same argument holds of a type, and nothing on the write path applies it there. A type
+under the whole that is disjoint from every part but one has all its instances in that
+part, so `(genl X P)` is true, but no sentence states it and the `genl` closure does not
+derive it. The sweep suggests each such edge, with the cover that forces it and, for each
+other part, the declarations that separate the type from it:
+
+```clojure
+;; (partition thing tangible intangible)
+;; (partition thing temporal atemporal)
+;; (genl tangible temporal)
+;; (genl abstract_kind atemporal)
+{:status :gap
+ :candidate-count 1
+ :implicit-genl
+ [{:term abstract_kind
+   :genl intangible
+   :cover [(partition thing intangible tangible)]
+   :disjoint-from [{:part tangible
+                    :grounds [(partition thing atemporal temporal)]}]}]}
+```
+
+`abstract_kind` is separated from `tangible` by the second partition, which holds a
+supertype of each, so every `abstract_kind` is `intangible`. The finding is a
+suggestion: the sweep asserts nothing, and the edge is the author's to state.
+
+One finding is reported for each candidate term and cover that force an edge, in print
+order of the term and then of the cover. The separation is `disjoint?`, so an explicit
+`disjoint` pair, a shared `disjoint_metatype`, a `sibling_disjoint` parent and a
+separating cover all count, each inherited down the `genl` closure; `:grounds` names the
+believed declarations it rests on.
+
+The scope is deliberate:
+
+- **Candidate terms, not a census.** The caller's candidate set bounds the pass, as it
+  bounds the `thing` pass. A candidate is read as a type when it is declared with arity
+  one, or, with no arity visible, when it is the subtype of a visible `genl` edge; an
+  individual and a relation of two or more places are skipped.
+- **Covers over a supertype or over `thing`.** Every visible `covering` or `partition`
+  over a supertype of the term is read, and every one over `thing` even when the term
+  has no `genl` path to `thing` yet. A `separating` roster claims no coverage and forces
+  nothing, though it may separate the term from a part.
+- **Exactly one part left.** A term separated from every part is empty and is forced
+  under none; a term left two parts or more is forced under none. A part, or the whole
+  itself, is never a finding.
+- **Only edges the closure misses.** A `genl` already stated, or derived through the
+  closure, is not a finding.
+- **Visible from the audit context.** The cover, the separating declarations and the
+  `genl` edges are those the audit context sees.
+
+Reading the term's arity and edges, each cover and each part's disjointness test spend
+one work unit, and `:max-results` counts these findings last, after the `thing` category.

@@ -156,13 +156,15 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; audit above, query-only definition clashes over an
                                                 ; explicit finite set of ground terms, every visible
                                                 ; predicate genl edge whose spec declares an arg type its
-                                                ; genl's constraint does not subsume, and every candidate
+                                                ; genl's constraint does not subsume, every candidate
                                                 ; term declared unary_predicate with no genl path to
-                                                ; thing. Returns {:status :audited :candidate-count n}
+                                                ; thing, and a suggested (genl X P) for every candidate
+                                                ; type a visible cover forces under P that the closure
+                                                ; misses. Returns {:status :audited :candidate-count n}
                                                 ; when clean, or :status :gap plus any of the sparse
                                                 ; categories :all-specified-violations,
-                                                ; :definition-inconsistencies, :genl-arg-widening and
-                                                ; :not-under-thing. opts may bound :max-work,
+                                                ; :definition-inconsistencies, :genl-arg-widening,
+                                                ; :not-under-thing and :implicit-genl. opts may bound :max-work,
                                                 ; :max-ms and :max-results; exhaustion is :truncated,
                                                 ; never :audited. Work/time check between opaque callbacks
                                                 ; and result pulls (one callback/chunk may overrun);
