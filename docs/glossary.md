@@ -727,7 +727,7 @@ stored with its one head `not`, double negation eliminated, and that head is the
 literal's sign (`sentex/negative?`); the trie keys it under `:false`. See
 [canonicalization.md](canonicalization.md).
 
-**`nowhere_never`** ![kb](../.github/badges/cat-kb.svg): An entity in no space and at no time — below both `aspatial` and `atemporal`, and so neither physically nor mathematically located. An expression or a language is one; the line y=x is not, being located in the Cartesian plane. Formerly `abstract`. See [taxonomy.md](taxonomy.md).
+**`nowhere_never`** ![kb](../.github/badges/cat-kb.svg): An entity in no space and at no time — below both `aspatial` and `atemporal`, and so neither physically nor mathematically located. An expression or a language is one; the line y=x is not, being located in the Cartesian plane. See [taxonomy.md](taxonomy.md).
 
 ## O
 

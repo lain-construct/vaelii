@@ -15,23 +15,27 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
-- **The upper ontology divides `thing` by extent and by mass: `spatial` is extent in any
-  space, `spatiotemporal` is a location in space and time, and `physical_object` is
-  renamed `tangible`.** The type every CxSpace argument is declared at, which meant a
+- **The upper ontology divides `thing` by location in space, by time and by mass:
+  `spatial` is a location in any space, `spatiotemporal` is a location in space and
+  time, `physical_object` is renamed `tangible` and `abstract` is renamed
+  `nowhere_never`.** The type every CxSpace argument is declared at, which meant a
   location in space, is renamed `spatiotemporal`, and `spatial` now names the broader
-  collection of things with extent in some space, mathematical spaces included — the
-  line y=x, a square of an abstract chessboard — and `spatiotemporal` is defined as the
-  intersection of `spatial` and `temporal`. `(partition thing spatial aspatial)` and
-  `(partition thing tangible intangible)` state the two divisions, separation and
+  collection of things with a location in some space, mathematical spaces included — the
+  line y=x, a square of an abstract chessboard, a point — and `spatiotemporal` is
+  defined as the intersection of `spatial` and `temporal`.
+  `(partition thing spatial aspatial)`, `(partition thing temporal atemporal)` and
+  `(partition thing tangible intangible)` state the three divisions, separation and
   coverage both, so a thing denied one part is concluded the other. `tangible` is
   something with mass and keeps `physical_object`'s edge to `spatiotemporal`;
   `intangible` is something with no mass, and `(disjoint intangible spatial)` is dropped
-  so that a region can be spatiotemporal and intangible at once. Six sentences the new
-  structure already states are removed: `(genl intangible thing)`,
-  `(genl aspatial thing)`, `(genl spatiotemporal thing)`, `(genl tangible temporal)`,
-  `(disjoint tangible intangible)` and `(disjoint attribute tangible)`. `ontology_test`
-  pins the divisions and the removals, and `spatial` is classified inert in the
-  vocabulary roster beside `spatiotemporal`.
+  so that a region can be spatiotemporal and intangible at once. `nowhere_never` is in
+  no space and at no time — an expression, a language — and sits below `aspatial`,
+  `atemporal` and `intangible`. Every stated `genl` or `disjoint` that a partition, an
+  intersection, a `genl` chain, a `disjoint_metatype` or another disjointness already
+  derives in the same context is removed — thirty-three sentences across CxCore,
+  CxAbstract and CxUniverse, which now states no axiom of its own. `ontology_test` pins
+  the divisions and every removal, and `spatial` and `nowhere_never` are classified
+  inert in the vocabulary roster.
   [space.md](docs/space.md), [glossary.md](docs/glossary.md)
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
@@ -39,8 +43,11 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* a KB that wrote `physical_object` renames to `tangible`. A KB that wrote
   `spatial` for "located in the world" renames to `spatiotemporal`; the old spelling
   still stores, and now places the thing in the broader collection, where nothing
-  concludes it has a location in the world.
-  *Breaks:* `physical_object`, `spatial`
+  concludes it has a location in the world. A KB that wrote `abstract` renames to
+  `nowhere_never`; the old spelling stores clean but attaches to nothing in the taxonomy.
+  A KB that relied on `(disjoint organization animal)` or another removed sentence being
+  stated, rather than derived, reads it from `disjoint?` or `genl?` instead.
+  *Breaks:* `physical_object`, `spatial`, `abstract`
 
 ## 0.23.0 — 2026-10-02 — "no definitional clash is refused, each reader decides a clash from its own view, and the definitional vocabulary is held known-true"
 
