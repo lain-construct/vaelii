@@ -11,6 +11,23 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Additions
+
+- **`kb-integrity` reports a candidate type with no `genl` path to `thing`.** Every type
+  is a specialization of `thing`, but nothing on the write path reports a
+  `unary_predicate` that reaches `thing` by no `genl` edge. The sweep adds a fourth
+  sparse category, `:not-under-thing`, with one `{:term X}` per candidate term the audit
+  context sees declared `unary_predicate` and that has no `genl` path to `thing` visible
+  from that context, in print order. `thing` itself is never a finding, and a candidate
+  that is not a ground symbol is skipped. The caller's candidate set bounds the pass, so
+  it enumerates no types. Findings count against `:max-results` after the
+  `:genl-arg-widening` category and are kept on truncation.
+  [integrity.md](docs/integrity.md#what-a-not-under-thing-finding-means).
+
+  *Class:* **Additive**.
+
 ## 0.23.0 — 2026-10-02 — "no definitional clash is refused, each reader decides a clash from its own view, and the definitional vocabulary is held known-true"
 
 ### Breaking

@@ -2,8 +2,9 @@
 
 - **Covers:** `kb-integrity` — one read-only checkpoint report for the complete visible
   `predAllSpecified` / `predSpecifiedAll` population, query-only definition clashes
-  over a caller-owned finite set of ground candidate terms, and the predicate `genl`
-  edges that widen a declared argument type.
+  over a caller-owned finite set of ground candidate terms, the predicate `genl`
+  edges that widen a declared argument type, and the candidate types with no `genl`
+  path to `thing`.
 - **Not here:** repairing findings, enumerating a domain, vocabulary completeness,
   generic constraint auditing, or the represented settled dilemmas returned by
   `contradictions`; how definitions infer membership → [defns.md](defns.md); what a
@@ -52,7 +53,8 @@ declarations because callers intentionally supply terms, not collection names. I
 validates one collection and one ground candidate at a time. The specified pass likewise
 uses small declaration censuses only to identify its finite worklist, then audits each
 declared predicate independently. The widening pass does the same: one census of visible
-`arg` declarations, then one direct `genl` edge at a time. These focused units are where
+`arg` declarations, then one direct `genl` edge at a time. The `thing` pass reads no
+census: it checks one candidate term at a time. These focused units are where
 cooperative checkpoints and partial-result preservation sit.
 
 An explicit `nil` options value means the same thing as omitting the options arity,
@@ -76,7 +78,7 @@ A finding changes the top-level status and adds only the populated categories:
   {:status :audited :violations #{Bob}}}}
 ```
 
-`:status :audited` means all three passes ran and none found a gap. `:status :gap` cannot
+`:status :audited` means all four passes ran and none found a gap. `:status :gap` cannot
 be confused with that clean shape even when only one sparse category is present. The
 specified category is exactly `all-specified-violations`, including its typed declaration
 gaps; it is composed, not reimplemented.
@@ -154,3 +156,37 @@ The scope is deliberate:
 Each declaration row, edge and position comparison spends one work unit, and
 `:max-results` counts these findings after the definition and specified categories, in
 that order.
+
+## What a not-under-thing finding means
+
+Every type is a specialization of `thing`. Nothing on the write path reports a term
+declared `(unary_predicate X)` with no `genl` path to `thing`: no violation or
+contradiction names the term. So the sweep reads the declaration and the taxonomy for
+each candidate:
+
+```clojure
+{:status :gap
+ :candidate-count 1
+ :not-under-thing
+ [{:term orphan_kind}]}
+```
+
+One finding is reported for each candidate term, in print order. The path is the
+transitive `genl` closure read from the audit context, so `(genl nested_kind placed_kind)`
+with `(genl placed_kind thing)` places `nested_kind` under `thing`.
+
+The scope is deliberate:
+
+- **Candidate terms, not a census.** The caller's candidate set bounds the pass, as it
+  bounds the definition pass. A type declared `unary_predicate` but absent from the set
+  is not read, so the pass never enumerates the KB's types. A candidate that is not a
+  ground symbol (a number, a string, a compound) cannot be a type and is skipped.
+- **`unary_predicate` only.** A binary or wider predicate is not a type, so a predicate
+  `genl` edge between two binary predicates is not a finding however its chain ends.
+- **`thing` is the root.** `thing` itself is never a finding.
+- **Visible from the audit context.** A `unary_predicate` declaration or a `genl` edge
+  asserted in a context the audit context cannot see contributes nothing, so a type whose
+  only edge to `thing` is asserted below the audit context is a finding there.
+
+Reading the declaration and testing the `genl` path each spend one work unit, and
+`:max-results` counts these findings last, after the widening category.
