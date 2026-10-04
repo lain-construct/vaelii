@@ -289,7 +289,7 @@ every argument position is declared `(arg … spatiotemporal)`, the type a locat
 what makes something an instance of. `tangible` sits under it, so every animal,
 artifact and substance qualifies without a further declaration, while a region or a frame
 of reference — which occupy space without being made of anything — is declared into it
-directly. `spatiotemporal` is below both `spatial` — extent in some space,
+directly. `spatiotemporal` is the intersection of `spatial` — extent in some space,
 mathematical spaces included — and `temporal`, so a figure with extent only in an abstract
 space, such as the line y=x, is `spatial` without being `spatiotemporal`. A spatial relation between two predicates is refused rather than stored.
 

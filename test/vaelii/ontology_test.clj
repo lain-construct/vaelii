@@ -594,13 +594,19 @@
 ;; Two partitions of `thing`.  `spatial` / `aspatial` divides by extent in SOME space —
 ;; physical space, or a mathematical one, where a line or a square of an abstract board
 ;; has extent and no location in the world.  `tangible` / `intangible` divides by mass.
-;; `spatiotemporal` is below both `spatial` and `temporal`: what has a location in space
-;; and time, which is what the spatial calculi relate.  A region is the case the
+;; `spatiotemporal` is the intersection of `spatial` and `temporal`: what has a location
+;; in space and time, which is what the spatial calculi relate.  A region is the case the
 ;; two partitions cross on: spatiotemporal, and massless.
 
-(tu/deftest-kb spatiotemporal-is-below-spatial-and-temporal
-  (is (true? (v/genl? kb 'spatiotemporal 'spatial)))
-  (is (true? (v/genl? kb 'spatiotemporal 'temporal))))
+(tu/deftest-kb spatiotemporal-is-the-intersection-of-spatial-and-temporal
+  (testing "the combined kind is below each of its two types"
+    (is (true? (v/genl? kb 'spatiotemporal 'spatial)))
+    (is (true? (v/genl? kb 'spatiotemporal 'temporal))))
+  (testing "something spatial and temporal is concluded spatiotemporal"
+    (tu/with-terms [Puddle]
+      (v/assert kb (list 'spatial Puddle) 'CxUniverse)
+      (v/assert kb (list 'temporal Puddle) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list 'spatiotemporal Puddle) 'CxUniverse))))))
 
 (tu/deftest-kb a-tangible-thing-is-spatiotemporal-and-so-spatial-and-temporal
   (testing "the type reaches all three"

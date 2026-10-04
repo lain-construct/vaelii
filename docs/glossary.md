@@ -1085,7 +1085,7 @@ by a build whose source identity equals the one the image was written under. See
 
 **`spatial`** ![kb](../.github/badges/cat-kb.svg): An entity with extent in some space — physical space, or a mathematical one such as the Cartesian plane, where the line y=x has extent and no location in the world. `spatial` and `aspatial` partition `thing`. See [space.md](space.md).
 
-**`spatiotemporal`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in space and time — a physical object, a region, a place. Below both `spatial` and `temporal`, and the type every argument of the spatial calculi is declared at. See [space.md](space.md).
+**`spatiotemporal`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in space and time — a physical object, a region, a place. The intersection of `spatial` and `temporal`, and the type every argument of the spatial calculi is declared at. See [space.md](space.md).
 
 **Spindle** ![kb](../.github/badges/cat-kb.svg): The shape the context topology
 is built from — three layers: a **head** every member sees, a set of **members**
