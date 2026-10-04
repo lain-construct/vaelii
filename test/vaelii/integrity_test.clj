@@ -5,6 +5,7 @@
   query-only definition clashes over a caller-owned finite ground term set."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.predall :as predall]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
@@ -550,3 +551,76 @@
           (is (every? #(and (= :truncated (:status %)) (= :max-work (:reason %))) partials))
           (is (some #(= 1 (count (:genl-arg-widening %))) partials)
               "a budget exhausted between the two positions keeps the first finding"))))))
+
+;; ---- not-under-thing ------------------------------------------------------
+
+(tu/deftest-kb a-unary-predicate-with-no-genl-path-to-thing-is-reported
+  (tu/with-terms [orphan_kind_fixture]
+    (v/assert kb (list 'unary_predicate orphan_kind_fixture) 'CxUniverse)
+    (let [before (state-snapshot kb)
+          report (v/kb-integrity kb #{orphan_kind_fixture} 'CxUniverse)]
+      (is (= :gap (:status report)))
+      (is (= [{:term orphan_kind_fixture}] (:not-under-thing report)))
+      (is (= before (state-snapshot kb)) "the audit stores, believes and files nothing"))))
+
+(tu/deftest-kb a-unary-predicate-under-thing-is-not-reported
+  (tu/with-terms [placed_kind_fixture nested_kind_fixture]
+    (v/assert kb (list 'unary_predicate placed_kind_fixture) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate nested_kind_fixture) 'CxUniverse)
+    (v/assert kb (list 'genl placed_kind_fixture 'thing) 'CxUniverse)        ; directly
+    (v/assert kb (list 'genl nested_kind_fixture placed_kind_fixture) 'CxUniverse) ; transitively
+    (is (= {:status :audited :candidate-count 3}
+           (v/kb-integrity kb #{placed_kind_fixture nested_kind_fixture 'thing}
+                           'CxUniverse))
+        "thing itself is never a finding")))
+
+(tu/deftest-kb a-unary-predicate-outside-the-candidate-terms-is-not-reported
+  (tu/with-terms [orphan_kind_fixture]
+    (v/assert kb (list 'unary_predicate orphan_kind_fixture) 'CxUniverse)
+    (is (= {:status :audited :candidate-count 1}
+           (v/kb-integrity kb #{7} 'CxUniverse))
+        "the caller-owned term set is the bound; the sweep enumerates no types")))
+
+(tu/deftest-kb a-non-unary-term-is-not-reported
+  (tu/with-terms [linksFixture relatesFixture]
+    (v/assert kb (list 'binary_predicate linksFixture) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate relatesFixture) 'CxUniverse)
+    (v/assert kb (list 'genl linksFixture relatesFixture) 'CxUniverse)
+    (is (= {:status :audited :candidate-count 2}
+           (v/kb-integrity kb #{linksFixture relatesFixture} 'CxUniverse)))))
+
+(tu/deftest-kb not-under-thing-findings-respect-context-visibility
+  (tu/with-terms [orphan_kind_fixture CxHidden]
+    (v/assert kb (list 'genlCx CxHidden 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate orphan_kind_fixture) 'CxUniverse)
+    (v/assert kb (list 'genl orphan_kind_fixture 'thing) CxHidden)
+    (is (= [{:term orphan_kind_fixture}]
+           (:not-under-thing (v/kb-integrity kb #{orphan_kind_fixture} 'CxUniverse)))
+        "a genl edge asserted below the audit context is not seen from it")
+    (is (= :audited (:status (v/kb-integrity kb #{orphan_kind_fixture} CxHidden))))))
+
+(tu/deftest-kb not-under-thing-findings-truncate-under-every-bound
+  (tu/with-terms [orphan_kind_fixture stray_kind_fixture]
+    (v/assert kb (list 'unary_predicate orphan_kind_fixture) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate stray_kind_fixture) 'CxUniverse)
+    (let [terms    #{orphan_kind_fixture stray_kind_fixture}
+          in-order (mapv (fn [t] {:term t}) (sort-by nm/print-key terms))]
+      (testing "a result cap below the finding count keeps the completed prefix"
+        (let [report (v/kb-integrity kb terms 'CxUniverse {:max-results 1})]
+          (is (= :truncated (:status report)))
+          (is (= :max-results (:reason report)))
+          (is (= (subvec in-order 0 1) (:not-under-thing report)))))
+      (testing "an exact result cap is complete"
+        (let [report (v/kb-integrity kb terms 'CxUniverse {:max-results 2})]
+          (is (= :gap (:status report)))
+          (is (= in-order (:not-under-thing report)))))
+      (testing "work exhaustion inside the pass is truncated, never audited, and keeps the
+                findings completed before it"
+        (let [run    #(v/kb-integrity kb terms 'CxUniverse {:max-work %})
+              needed (first (filter #(= :gap (:status (run %))) (range 0 1000)))]
+          (is (some? needed) "some finite work budget completes the sweep")
+          (let [partials (map run (range 0 (or needed 0)))]
+            (is (every? #(and (= :truncated (:status %)) (= :max-work (:reason %)))
+                        partials))
+            (is (some #(= (subvec in-order 0 1) (:not-under-thing %)) partials)
+                "a budget exhausted between the two terms keeps the first finding")))))))

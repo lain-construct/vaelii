@@ -5307,12 +5307,14 @@
   query-time definitional inconsistencies: a collection whose sufficient definition
   passes while its necessary definition fails, so both `(Coll term)` and
   `(not (Coll term))` are definition-provable.  It also composes the complete visible
-  `predAllSpecified` / `predSpecifiedAll` audit.  It does not enumerate the domain,
-  broaden `contradictions`, or repair/file anything.
+  `predAllSpecified` / `predSpecifiedAll` audit, reports the visible predicate `genl`
+  edges that widen a declared argument type, and reports each candidate term declared
+  `unary_predicate` with no visible `genl` path to `thing`.  It does not enumerate the
+  domain, broaden `contradictions`, or repair/file anything.
 
   A clean result is `{:status :audited :candidate-count n}`.  Findings change `:status`
-  to `:gap` and add either or both sparse keys `:all-specified-violations` and
-  `:definition-inconsistencies`.  Inspect `:status`; it makes a successful audit and a
+  to `:gap` and add any of the sparse keys `:all-specified-violations`,
+  `:definition-inconsistencies`, `:genl-arg-widening` and `:not-under-thing`.  Inspect `:status`; it makes a successful audit and a
   report with gaps different shapes by construction.
 
   Optional `options` bounds cooperative query work, elapsed time and returned findings:

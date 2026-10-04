@@ -88,3 +88,7 @@
 (defn record-widening! [finding]
   (when *progress* (swap! *progress* update :widenings conj finding))
   finding)
+
+(defn record-not-under-thing! [finding]
+  (when *progress* (swap! *progress* update :not-under-thing conj finding))
+  finding)

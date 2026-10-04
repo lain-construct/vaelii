@@ -36,27 +36,31 @@
                      :option k :value value})))
   options)
 
-(defn- categories [definitions specified widenings]
+(defn- categories [definitions specified widenings unrooted]
   (cond-> {}
     (seq specified)   (assoc :all-specified-violations specified)
     (seq definitions) (assoc :definition-inconsistencies definitions)
-    (seq widenings)   (assoc :genl-arg-widening widenings)))
+    (seq widenings)   (assoc :genl-arg-widening widenings)
+    (seq unrooted)    (assoc :not-under-thing unrooted)))
 
-(defn- bounded-categories [definitions specified widenings max-results]
+(defn- bounded-categories [definitions specified widenings unrooted max-results]
   (if (nil? max-results)
-    (categories definitions specified widenings)
+    (categories definitions specified widenings unrooted)
     (let [definitions (vec (take max-results definitions))
           remaining   (- max-results (count definitions))
           specified   (into {} (take remaining (sort-by (comp nm/print-key key) specified)))
           remaining   (- remaining (count specified))
-          widenings   (vec (take remaining widenings))]
-      (categories definitions specified widenings))))
+          widenings   (vec (take remaining widenings))
+          remaining   (- remaining (count widenings))
+          unrooted    (vec (take remaining unrooted))]
+      (categories definitions specified widenings unrooted))))
 
 (defn- truncate-report
-  [candidate-count reason meter {:keys [definitions specified widenings]} max-results]
+  [candidate-count reason meter
+   {:keys [definitions specified widenings not-under-thing]} max-results]
   (merge {:status :truncated :reason reason :candidate-count candidate-count}
          (integrity-budget/snapshot meter)
-         (bounded-categories definitions specified widenings max-results)))
+         (bounded-categories definitions specified widenings not-under-thing max-results)))
 
 (defn- specified-findings
   "Audit one declared predicate at a time, stopping after the first finding beyond
@@ -151,12 +155,45 @@
             (recur (conj findings finding) (rest units))))
         {:status :complete :findings findings}))))
 
+;; ---- not-under-thing: a candidate type with no genl path to thing ----
+
+(defn- unrooted-type?
+  "Is `term` a type `context` sees declared `unary_predicate` that reaches `thing` by no
+  `genl` path visible from `context`?  `thing` itself is the root, never unrooted."
+  [kb tx term context]
+  (and (not= 'thing term)
+       (do (integrity-budget/spend!)
+           (seq (res/matches-visible kb (list 'unary_predicate term) context)))
+       (do (integrity-budget/spend!)
+           (not (tax/genl? tx term 'thing context)))))
+
+(defn- not-under-thing-findings
+  "Audit each ground symbol of `candidate-terms` in print order, one term at a time,
+  stopping after the first finding beyond `remaining` proves that the result bound
+  truncated the sweep."
+  [kb candidate-terms context remaining]
+  (let [tx (reasoning/taxonomy kb)]
+    (loop [findings []
+           units    (for [term (->> candidate-terms
+                                    (filter #(and (symbol? %) (not (sx/variable? %))))
+                                    (sort-by nm/print-key))
+                          :when (unrooted-type? kb tx term context)]
+                      {:term term})]
+      (if-let [finding (first units)]
+        (if (and remaining (>= (count findings) remaining))
+          {:status :truncated :reason :max-results :findings findings}
+          (do
+            (integrity-budget/record-not-under-thing! finding)
+            (recur (conj findings finding) (rest units))))
+        {:status :complete :findings findings}))))
+
 (defn kb-integrity
   "Run the bounded integrity sweep in `context` over `candidate-terms`.
 
   A clean result is `{:status :audited :candidate-count n}`.  A result with findings
-  is `{:status :gap :candidate-count n ...}`, adding any of three sparse categories:
-  `:all-specified-violations`, `:definition-inconsistencies` and `:genl-arg-widening`.
+  is `{:status :gap :candidate-count n ...}`, adding any of four sparse categories:
+  `:all-specified-violations`, `:definition-inconsistencies`, `:genl-arg-widening` and
+  `:not-under-thing`.
   The status therefore cannot be mistaken for success merely because a category is
   absent.
 
@@ -175,7 +212,8 @@
          candidate-count (when (set? candidate-terms) (count candidate-terms))
          meter           (integrity-budget/meter options)
          local-reports   (atom [])
-         progress        (atom {:definitions [] :specified {} :widenings []})
+         progress        (atom {:definitions [] :specified {} :widenings []
+                                :not-under-thing []})
          max-results     (:max-results options)]
      (binding [integrity-budget/*meter* meter
                integrity-budget/*progress* progress
@@ -202,11 +240,20 @@
                    (if (= :truncated (:status widening-result))
                      (truncate-report candidate-count :max-results meter @progress
                                       max-results)
-                     (let [findings (categories definitions specified widenings)]
-                       (integrity-budget/spend!)
-                       (merge {:status (if (seq findings) :gap :audited)
-                               :candidate-count candidate-count}
-                              findings))))))))
+                     (let [remaining (when remaining (- remaining (count widenings)))
+                           unrooted-result (not-under-thing-findings
+                                            kb candidate-terms context remaining)
+                           unrooted (:findings unrooted-result)]
+                       (swap! progress assoc :not-under-thing unrooted)
+                       (if (= :truncated (:status unrooted-result))
+                         (truncate-report candidate-count :max-results meter @progress
+                                          max-results)
+                         (let [findings (categories definitions specified widenings
+                                                    unrooted)]
+                           (integrity-budget/spend!)
+                           (merge {:status (if (seq findings) :gap :audited)
+                                   :candidate-count candidate-count}
+                                  findings))))))))))
          (catch clojure.lang.ExceptionInfo e
            (if-let [reason (integrity-budget/exhausted e)]
              (truncate-report candidate-count reason meter @progress
