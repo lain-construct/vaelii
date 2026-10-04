@@ -500,7 +500,7 @@
   ;; refuse on the antecedents.  No `?relation` satisfies two of them, so the pair is
   ;; unreachable rather than unstated (docs/quality.md).
   ;;
-  ;; `(disjoint intangible spatiotemporal)` makes a relation-classification conclusion and a
+  ;; `(partition thing tangible intangible)` makes a relation-classification conclusion and a
   ;; story-predicate conclusion disjoint, so the arity rules would pair with CxCriedWolf's
   ;; `lied_before → liar` if the checker read only the conclusions.  It reads the
   ;; antecedents' `arg` declarations too: `(arg arity 1 relation)` types the arity rule's
@@ -642,6 +642,32 @@
       (v/assert kb (list 'thing Rumour) 'CxUniverse)
       (v/assert kb (list 'not (list 'spatial Rumour)) 'CxUniverse)
       (is (true? (v/ask? kb (list 'aspatial Rumour) 'CxUniverse))))))
+
+(tu/deftest-kb tangible-and-intangible-partition-thing
+  (is (true? (v/disjoint? kb 'tangible 'intangible)))
+  (is (true? (v/genl? kb 'tangible 'thing)))
+  (is (true? (v/genl? kb 'intangible 'thing)))
+  (testing "a thing cannot be both"
+    (tu/with-terms [Boulder]
+      (v/assert kb (list 'tangible Boulder) 'CxUniverse)
+      (is (true? (tu/stored-in-clash? kb (list 'intangible Boulder) 'CxUniverse)))))
+  (testing "and a thing denied mass is intangible — the coverage half"
+    (tu/with-terms [Echo]
+      (v/assert kb (list 'thing Echo) 'CxUniverse)
+      (v/assert kb (list 'not (list 'tangible Echo)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'intangible Echo) 'CxUniverse))))))
+
+(tu/deftest-kb a-region-is-spatiotemporal-and-intangible-at-once
+  ;; A region of space has a location and no mass.  Nothing separates intangible from
+  ;; spatial or from spatiotemporal, so the pair is consistent.
+  (is (not (v/disjoint? kb 'intangible 'spatiotemporal)))
+  (is (not (v/disjoint? kb 'intangible 'spatial)))
+  (tu/with-terms [Meadow]
+    (v/assert kb (list 'spatiotemporal Meadow) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'intangible Meadow) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'intangible Meadow) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'spatial Meadow) 'CxUniverse)))
+    (is (not (v/ask? kb (list 'tangible Meadow) 'CxUniverse)))))
 
 ;; ---- the literal types: one vocabulary, and one exception ----------------
 ;; `string` / `number` / `integer` / `symbol` are the KB's only names for text, numbers

@@ -1081,7 +1081,7 @@
     ;; check names one, and the kinds hanging off them are the members'.  `inert` is the
     ;; class, and the note is what a KB author asking `interpreted` is told.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
-         '[[intangible "ontology, not grammar: something with no mass or location. CxCore holds it so every spindle member can extend it; no engine check names it."]
+         '[[intangible "ontology, not grammar: something with no mass, the complement of tangible. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [spatial "ontology, not grammar: something with extent in some space, physical or mathematical. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [spatiotemporal "ontology, not grammar: something with a location in space and time. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [tangible "ontology, not grammar: something with mass, and so with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
