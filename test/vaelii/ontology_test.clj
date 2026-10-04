@@ -691,7 +691,27 @@
     [disjoint organization substance CxAbstract "organization genl intangible, substance genl tangible; partition thing tangible intangible"]
     [disjoint language substance CxAbstract "language genl intangible, substance genl tangible; partition thing tangible intangible"]
     [disjoint attribute substance CxAbstract "attribute genl intangible, substance genl tangible; partition thing tangible intangible"]
-    [disjoint organization animal CxUniverse "organization genl intangible, animal genl living_thing genl tangible; partition thing tangible intangible"]])
+    [disjoint organization animal CxUniverse "organization genl intangible, animal genl living_thing genl tangible; partition thing tangible intangible"]
+    [genl string intangible CxAbstract "string genl unrepresented_term genl expression genl abstract genl intangible"]
+    [genl number intangible CxAbstract "number genl unrepresented_term genl expression genl abstract genl intangible"]
+    [genl keyword intangible CxAbstract "keyword genl unrepresented_term genl expression genl abstract genl intangible"]
+    [genl boolean intangible CxAbstract "boolean genl unrepresented_term genl expression genl abstract genl intangible"]
+    [genl character intangible CxAbstract "character genl unrepresented_term genl expression genl abstract genl intangible"]
+    [genl context intangible CxAbstract "context genl expression genl abstract genl intangible"]
+    [genl language intangible CxAbstract "language genl abstract genl intangible"]
+    [genl building artifact CxAbstract "building genl container genl artifact"]
+    [genl asymmetric binary_predicate CxCore "asymmetric genl anti_symmetric genl binary_predicate"]
+    [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
+    [disjoint number predicate CxAbstract "number genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
+    [disjoint keyword predicate CxAbstract "keyword genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
+    [disjoint boolean predicate CxAbstract "boolean genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
+    [disjoint character predicate CxAbstract "character genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
+    [disjoint glass_stuff stone CxAbstract "disjoint_metatype stuff_type_by_substance"]
+    [disjoint metal glass_stuff CxAbstract "disjoint_metatype stuff_type_by_substance"]
+    [disjoint metal stone CxAbstract "disjoint_metatype stuff_type_by_substance"]
+    [disjoint metal wood CxAbstract "disjoint_metatype stuff_type_by_substance"]
+    [disjoint wood glass_stuff CxAbstract "disjoint_metatype stuff_type_by_substance"]
+    [disjoint wood stone CxAbstract "disjoint_metatype stuff_type_by_substance"]])
 
 (tu/deftest-kb the-kb-states-no-relation-it-already-derives
   ;; Each relation is read from the context that held the removed sentence, so a removal

@@ -1737,9 +1737,10 @@ Four restrictions keep the arm to what it can actually prove:
   that position, so `(implies (and (dog ?x) (not (plant ?x))) …)` is saying exactly what
   its author meant; an existential is skipped because its variables are local.
 - **Declared disjointness only**, so the arm stays as open-world as the ground one. The
-  value kinds carry the declaration that makes the case above bite —
-  `(disjoint string predicate)` and `(disjoint number predicate)` in CxAbstract, text and
-  a number each being a thing no relation is, and the second carrying `integer` with it.
+  value kinds carry the declaration that makes the case above bite — each is an
+  `unrepresented_term`, and `(disjoint unrepresented_term relation)` in CxAbstract
+  separates it from every predicate, text and a number each being a thing no relation
+  is, and `number` carrying `integer` with it.
   `symbol` deliberately carries neither: a name is exactly how a predicate is written, so
   the disjointness would be false. CxCore adds `(disjoint function predicate)`, which is
   what `function`'s own comment has always said in prose, and it is what refuses

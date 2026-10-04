@@ -1222,7 +1222,6 @@
          "(asymmetric ?predicate) means that ?predicate cannot hold both ways. (?predicate a b) and (?predicate b a) are contradictory, and a strict order such as largerThan is the usual case. Read as a nogood: the mirror of a claim denies it, so a strict claim conflicts with its converse instead of silently coexisting with it. The conviction needs a believed opposing claim, so a self tuple (?predicate a a) is admitted rather than refused. Also a type: (asymmetric P) classifies P as a binary_predicate.")
 (unary_predicate asymmetric)
 (decontextualized_predicate asymmetric)
-(genl asymmetric binary_predicate)
 
 (comment anti_symmetric
          "(anti_symmetric ?predicate) means that ?predicate holding both ways forces its two arguments to be one thing. Believing (?predicate a b) and (?predicate b a) of two symbols, both known true (monotonic), derives (equals a b) and merges, mirroring how a functional predicate reconciles two symbol values — the merge is justified by both facts and the declaration, so retracting any one un-merges them. Any other converse pair, two non-symbols such as 1980 and 1990 or a pair with a default member, is a nogood each context reading the pair decides instead: a default member is not believed there when the other is monotonic, and two default members are a dilemma. A self tuple (?predicate a a) is admitted: its converse is itself and (equals a a) is trivial. Also a type: (anti_symmetric P) classifies P as a binary_predicate. Declared of a partial order such as atOrAbove, for instance.")

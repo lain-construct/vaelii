@@ -17,7 +17,6 @@
 (genl body_part tangible)
 
 (comment building "An artifact that is a fixed structure enclosing space.")
-(genl building artifact)
 
 
 (comment clothing "An artifact worn on the body.")
@@ -27,7 +26,6 @@
 (genl container artifact)
 
 (comment context "A context: the second half of a sentex, and what a sentence holds in.")
-(genl context intangible)
 
 (comment feather "A light keratin body part covering a bird.")
 (genl feather body_part)
@@ -51,27 +49,18 @@
 (genl glass_stuff substance)
 
 
-;; CxCore's literal types, placed in this lattice.  Text and a number have no mass and no
-;; location, and neither of them is a relation.  Saying the second is what lets a rule be
+;; CxCore's literal types are placed in this lattice by their edges to unrepresented_term,
+;; below.  Text and a number have no mass and no location, and neither of them is a
+;; relation: unrepresented_term is an expression, so abstract and so intangible, and it
+;; is disjoint from relation, so from predicate.  The second is what lets a rule be
 ;; refused for feeding a text-valued argument into a position that holds a type: every
 ;; type is a unary_predicate, so the type position asks for a predicate, and one variable
 ;; cannot be both at once.  The disjointness on number carries integer with it.
 ;;
-;; symbol gets neither edge, and CxCore's note on it says why: a name is exactly how a
+;; symbol gets no such edge, and CxCore's note on it says why: a name is exactly how a
 ;; predicate is written, so (disjoint symbol predicate) would be false.
-(genl string intangible)
-(genl number intangible)
-(genl keyword intangible)
-(genl boolean intangible)
-(genl character intangible)
-(set/monotonic (disjoint string predicate))
-(set/monotonic (disjoint number predicate))
-(set/monotonic (disjoint keyword predicate))
-(set/monotonic (disjoint boolean predicate))
-(set/monotonic (disjoint character predicate))
 
 (comment language "A system of signs a person speaks, writes or signs in.")
-(genl language intangible)
 
 (comment largerThan
          "(largerThan ?kind1 ?kind2) means that a ?kind1 is bigger than a ?kind2. A claim about two KINDS rather than about two things — a type_relation_predicate — so (largerThan dog cat) says dogs are bigger than cats and says nothing whatever about any particular dog. Transitive and asymmetric, so a cycle of size claims is a contradiction the KB reports rather than a chain it walks. Declared transitiveInArg on both positions along genl, which is what carries a claim down to subkinds: a kind of dog is larger than a kind of cat. That distribution is itself a claim about largerThan, which is why it is declared rather than assumed — the same inheritance is false of a chihuahua and a maine coon, and nothing in a sentence says which case it is in.")
@@ -225,12 +214,8 @@
 (set/monotonic (disjoint clothing vehicle))
 (set/monotonic (disjoint food body_part))
 (set/monotonic (disjoint formula relation))
-(set/monotonic (disjoint glass_stuff stone))
 (set/monotonic (disjoint liquid stone))
 (set/monotonic (disjoint living_thing substance))
-(set/monotonic (disjoint metal glass_stuff))
-(set/monotonic (disjoint metal stone))
-(set/monotonic (disjoint metal wood))
 (set/monotonic (disjoint relation context))
 (set/monotonic (disjoint substance artifact))
 (set/monotonic (disjoint substance body_part))
@@ -238,8 +223,6 @@
 (set/monotonic (disjoint unrepresented_term formula))
 (set/monotonic (disjoint unrepresented_term relation))
 (set/monotonic (disjoint unrepresented_term relation_application))
-(set/monotonic (disjoint wood glass_stuff))
-(set/monotonic (disjoint wood stone))
 (set/monotonic (disjoint_metatype stuff_type_by_state_of_matter))
 (set/monotonic (disjoint_metatype stuff_type_by_substance))
 (metatype stuff_type_by_state_of_matter)
