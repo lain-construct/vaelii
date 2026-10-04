@@ -11,6 +11,37 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Additions
+
+- **The upper ontology divides `thing` by extent and by mass: `spatial` is extent in any
+  space, `spatiotemporal` is a location in space and time, and `physical_object` is
+  renamed `tangible`.** The type every CxSpace argument is declared at, which meant a
+  location in space, is renamed `spatiotemporal`, and `spatial` now names the broader
+  collection of things with extent in some space, mathematical spaces included — the
+  line y=x, a square of an abstract chessboard — and `spatiotemporal` is defined as the
+  intersection of `spatial` and `temporal`. `(partition thing spatial aspatial)` and
+  `(partition thing tangible intangible)` state the two divisions, separation and
+  coverage both, so a thing denied one part is concluded the other. `tangible` is
+  something with mass and keeps `physical_object`'s edge to `spatiotemporal`;
+  `intangible` is something with no mass, and `(disjoint intangible spatial)` is dropped
+  so that a region can be spatiotemporal and intangible at once. Six sentences the new
+  structure already states are removed: `(genl intangible thing)`,
+  `(genl aspatial thing)`, `(genl spatiotemporal thing)`, `(genl tangible temporal)`,
+  `(disjoint tangible intangible)` and `(disjoint attribute tangible)`. `ontology_test`
+  pins the divisions and the removals, and `spatial` is classified inert in the
+  vocabulary roster beside `spatiotemporal`.
+  [space.md](docs/space.md), [glossary.md](docs/glossary.md)
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that wrote `physical_object` renames to `tangible`. A KB that wrote
+  `spatial` for "located in the world" renames to `spatiotemporal`; the old spelling
+  still stores, and now places the thing in the broader collection, where nothing
+  concludes it has a location in the world.
+  *Breaks:* `physical_object`, `spatial`
+
 ## 0.23.0 — 2026-10-02 — "no definitional clash is refused, each reader decides a clash from its own view, and the definitional vocabulary is held known-true"
 
 ### Breaking
