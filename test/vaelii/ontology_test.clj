@@ -590,10 +590,10 @@
   (testing "and an animal reaches spatiotemporal, so a spatial relation admits one"
     (is (v/genl? kb 'dog 'spatiotemporal))))
 
-;; ---- the upper divisions by extent and by mass ----------------------------
-;; Two partitions of `thing`.  `spatial` / `aspatial` divides by extent in SOME space —
+;; ---- the upper divisions by location and by mass --------------------------
+;; Two partitions of `thing`.  `spatial` / `aspatial` divides by a location in SOME space —
 ;; physical space, or a mathematical one, where a line or a square of an abstract board
-;; has extent and no location in the world.  `tangible` / `intangible` divides by mass.
+;; has a location and none in the world.  `tangible` / `intangible` divides by mass.
 ;; `spatiotemporal` is the intersection of `spatial` and `temporal`: what has a location
 ;; in space and time, which is what the spatial calculi relate.  A region is the case the
 ;; two partitions cross on: spatiotemporal, and massless.
@@ -621,7 +621,7 @@
       (is (true? (v/ask? kb (list 'temporal Pebble) 'CxUniverse))))))
 
 (tu/deftest-kb an-abstract-figure-is-spatial-without-being-spatiotemporal
-  ;; A line in a plane has extent in that plane and no location in the world, no mass,
+  ;; A line in a plane has a location in that plane and none in the world, no mass,
   ;; and no place in time.
   (tu/with-terms [Diagonal]
     (v/assert kb (list 'spatial Diagonal) 'CxUniverse)
@@ -661,7 +661,7 @@
     (tu/with-terms [Figment]
       (v/assert kb (list 'spatial Figment) 'CxUniverse)
       (is (true? (tu/stored-in-clash? kb (list 'aspatial Figment) 'CxUniverse)))))
-  (testing "and a thing denied extent is aspatial — the coverage half"
+  (testing "and a thing denied a location in any space is aspatial — the coverage half"
     (tu/with-terms [Rumour]
       (v/assert kb (list 'thing Rumour) 'CxUniverse)
       (v/assert kb (list 'not (list 'spatial Rumour)) 'CxUniverse)
