@@ -693,6 +693,15 @@
       (v/assert kb (list 'not (list 'tangible Echo)) 'CxUniverse)
       (is (true? (v/ask? kb (list 'intangible Echo) 'CxUniverse))))))
 
+(tu/deftest-kb what-has-no-place-in-space-or-time-has-no-mass
+  ;; Mass entails a location in space and time, so what lacks either lacks mass.
+  (is (true? (v/genl? kb 'aspatial 'intangible)))
+  (is (true? (v/genl? kb 'atemporal 'intangible)))
+  (tu/with-terms [Prime]
+    (v/assert kb (list 'atemporal Prime) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'intangible Prime) 'CxUniverse)))
+    (is (true? (tu/stored-in-clash? kb (list 'tangible Prime) 'CxUniverse)))))
+
 (tu/deftest-kb a-region-is-spatiotemporal-and-intangible-at-once
   ;; A region of space has a location and no mass.  Nothing separates intangible from
   ;; spatial or from spatiotemporal, so the pair is consistent.
@@ -714,6 +723,7 @@
   written."
   '[[genl aspatial thing CxCore "partition thing spatial aspatial"]
     [genl intangible thing CxCore "partition thing tangible intangible"]
+    [genl nowhere_never intangible CxCore "nowhere_never genl aspatial genl intangible"]
     [genl temporal thing CxCore "partition thing temporal atemporal"]
     [genl atemporal thing CxCore "partition thing temporal atemporal"]
     [disjoint temporal atemporal CxCore "partition thing temporal atemporal"]

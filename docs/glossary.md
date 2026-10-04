@@ -107,7 +107,7 @@ backend the edge solver renders a contested `Program` into, solved with clingo
 (in-process JNA) or clasp (subprocess). Opt-in, with a deterministic stub
 fallback. See [asp.md](asp.md).
 
-**`aspatial`** ![kb](../.github/badges/cat-kb.svg): An entity not located in any space — the complement of `spatial`, the two partitioning `thing`. See [taxonomy.md](taxonomy.md).
+**`aspatial`** ![kb](../.github/badges/cat-kb.svg): An entity not located in any space — the complement of `spatial`, the two partitioning `thing`. Having no location, it has no mass, so it is below `intangible`. See [taxonomy.md](taxonomy.md).
 
 **ASPIF** ![asp](../.github/badges/cat-asp.svg): The intermediate text format a
 `Program` is emitted to before a clingo/clasp solve. Contested assumptions
@@ -120,7 +120,7 @@ on a justification. A sentex may be both asserted and **Derived**; `kb-diff`'s
 
 **`at_least_metatype`** ![kb](../.github/badges/cat-kb.svg): The metatype-order collection of every type at order two or higher — `metatype`, `meta_metatype`, and up. See [taxonomy.md](taxonomy.md).
 
-**`atemporal`** ![kb](../.github/badges/cat-kb.svg): An entity not located in time — the complement of `temporal`, the two partitioning `thing`. See [taxonomy.md](taxonomy.md).
+**`atemporal`** ![kb](../.github/badges/cat-kb.svg): An entity not located in time — the complement of `temporal`, the two partitioning `thing`. Having no location in time, it has no mass, so it is below `intangible`. See [taxonomy.md](taxonomy.md).
 
 **Atomic (storage)** ![backend](../.github/badges/cat-backend.svg): All-or-nothing, the systems sense —
 an atomic rename publishing a new file over the live one, a crash-atomic write, and
