@@ -754,6 +754,12 @@ that the same knowledge asserted in any order yields the same beliefs — belief
 is computed from state, and every tie-break keys on content, never on handle id.
 See [nmtms.md](nmtms.md).
 
+**`orthogonal`** ![kb](../.github/badges/cat-kb.svg): States that two types overlap —
+some thing is an instance of both — and that neither is a `genl` of the other; nothing
+is claimed about things that are instances of neither. Symmetric. The declared witness of
+the `:orthogonal` subsumption status, and a one-member clash of the declaration wherever
+a reader reads the pair separated or `genl`-related. See [taxonomy.md](taxonomy.md).
+
 ## P
 
 **`partitionedByType`** ![kb](../.github/badges/cat-kb.svg): Declares the cells that exhaustively and disjointly partition a whole, each cell an instance of a named classifier. Inert — declared, read by no inference path. See [taxonomy.md](taxonomy.md).
@@ -1114,11 +1120,12 @@ retracted. See [quality.md](quality.md); the matching-time relation it is built 
 **Subsumption status** ![kb](../.github/badges/cat-kb.svg): The relationship of one type
 to another in the genl hierarchy, as `subsumption-status` classifies it: `:genl` (the
 first type is a subtype of the second), `:spec` (the converse), `:coextensional` (each is
-`genl` the other), `:disjoint` (provably no shared instance), `:orthogonal` (a shared
-instance with neither subsumption nor disjointness), or `:unknown` (none of these is
-provable). `disjointness-audit` runs the classification over every unordered type pair,
-and its `:unknown` pairs are the candidates for a missing `disjoint` declaration. See
-[taxonomy.md](taxonomy.md).
+`genl` the other), `:disjoint` (provably no shared instance), `:orthogonal` (a stated
+`orthogonal`, or a shared instance with neither subsumption nor disjointness),
+`:unknown` (none of these is provable), or `:inconsistent` (two or more of them at once).
+`disjointness-audit` runs the classification over every unordered type pair, and its
+`:unknown` pairs are the candidates for a missing `disjoint` or `orthogonal` declaration.
+See [taxonomy.md](taxonomy.md).
 
 **Superseded** ![tms](../.github/badges/cat-tms.svg): The TMS state an equality
 merge puts a stale spelling in — stored but not believed and not matching,

@@ -11,6 +11,34 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Additions
+
+- **`orthogonal` declares that two types overlap and neither subsumes the other.**
+  `(orthogonal A B)` states that some thing is an instance of both and that neither is a
+  `genl` of the other; it says nothing about things that are instances of neither. CxCore
+  declares it a symmetric binary `type_relation_predicate`, so `(orthogonal B A)` is the
+  same sentex. It derives nothing and mints no shared instance.
+  [taxonomy.md](docs/taxonomy.md#disjointness). *Class:* **Additive**.
+
+- **`subsumption-statuses` reads a stated `orthogonal` as `:orthogonal`.** A pair
+  declared `(orthogonal a b)` in either spelling, visible from the vantage `context`,
+  reads `:orthogonal` with no shared instance, so `disjointness-audit` no longer counts it
+  among its `:unknown` pairs. A declared pair that is also `genl`-related or disjoint
+  carries both statuses, and `subsumption-status` reports it `:inconsistent`.
+  [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
+  *Class:* **Additive**.
+
+- **An `orthogonal` over a separated or `genl`-related pair is a clash of the
+  declaration.** Wherever a reader reads the pair disjoint — through a `disjoint`, a
+  disjoint metatype, a `sibling_disjoint` parent or a `partition` or `separating` roster
+  over any supertypes of the two — or reads a `genl` edge between them, the declaration is
+  a one-member nogood, `:kind :orthogonal`, in every arrival order. Nothing is refused: a
+  `:monotonic` declaration is a hard clash `conflicts` lists, with the separating
+  declarations under `:grounds`, and a `:default` one is taken OUT at that reader.
+  [nmtms.md](docs/nmtms.md#declarations-over-related-types). *Class:* **Additive**.
+
 ## 0.23.0 — 2026-10-02 — "no definitional clash is refused, each reader decides a clash from its own view, and the definitional vocabulary is held known-true"
 
 ### Breaking

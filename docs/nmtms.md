@@ -1543,6 +1543,28 @@ removal choke points. A KB whose `disjoint`s are all over unrelated types holds 
 `decide/live?` stays false for it. A reader reads a row whose declarations it sees, and a
 `disjoint` whose arguments the `genl` edges stated in its ancestor set relate
 (`related/related-nogoods`).
+
+An `(orthogonal a b)` states that the two types overlap and that neither subsumes the
+other, so it is the same family's one-member clash, of the `orthogonal` declaration,
+wherever a reader reads the pair separated — through a `disjoint`, a disjoint metatype, a
+`sibling_disjoint` parent or a `partition` or `separating` roster, over any supertypes of
+the two — or reads a `genl` edge between them, or the two are one type.
+
+```
+(disjoint alphaw betaw)  (orthogonal alphaw betaw)                          ; {(orthogonal …)}
+(partition wholew alphaw betaw)  (orthogonal alphaw betaw)                  ; {(orthogonal …)}
+(genl betaw alphaw)  (orthogonal alphaw betaw)                              ; {(orthogonal …)}
+```
+
+The declaration is not forced `:monotonic`. A `:monotonic` one is a hard clash `conflicts`
+lists, with the separating declarations under `:grounds` and every member left believed;
+a `:default` one is the weakest member of its own nogood, so the reader takes it OUT and
+the pair reads what the taxonomy says of it. The candidate index keeps every stored
+`orthogonal`, and those some reader can read contradicted — over the unscoped `genl`
+closure, or separated by `disjointness-test` with no exception read — under the `genl`
+generation and `tax/separation-stamp` (`:related-orth`); either moving reads every one
+again. A reader reads one it sees whose pair the `genl` edges stated in its ancestor set
+relate, or `tax/disjoint?` over that ancestor set separates.
 `reference_test/a-disjoint-over-related-types-is-a-hard-clash-of-the-declaration-in-every-order`
 holds both in every arrival order.
 
@@ -1796,7 +1818,7 @@ layer 0   region relabel, genl/genlCx closures, strength classes, recheck queue,
 | touched window | `jtms/touched`, and a reader's mark in it: `jtms/touch-mark`, `jtms/touched-since` | none | removes the published window; `preview`, the change feed and the cache reconcile diff the believed set instead, at O(KB) per write |
 | forward chaining | `vaelii.impl.chain` | `implies` `set/forwardRule` `set/defaultRule` `set/backwardRule` `set/assumptionRule` `set/inertRule` | removes generators; backward proof still answers |
 | generators | `vaelii.impl.chain` | `implies` `set/forwardRule` with a rule consequent | removes nothing |
-| nogood discovery | `decide/nogoods-at`, `discovery/preserving-nogoods` | `not` `disjoint` `disjoint_metatype` `sibling_disjoint` `siblingDisjointException` `functional` `functionalInArg` `asymmetric` `anti_transitive` `covering` `partition` `transitiveInArg` `transitiveInArgInverse` | leaves `decide/verdict` with no nogood to decide |
+| nogood discovery | `decide/nogoods-at`, `discovery/preserving-nogoods` | `not` `disjoint` `disjoint_metatype` `sibling_disjoint` `siblingDisjointException` `orthogonal` `functional` `functionalInArg` `asymmetric` `anti_transitive` `covering` `partition` `transitiveInArg` `transitiveInArgInverse` | leaves `decide/verdict` with no nogood to decide |
 | `exceptWhen` · NAF | `recheck/exception-blocked-set` | `exceptWhen` `unknown` | removes nothing; `:blocked` stays empty |
 | supersession | `special/refresh-supersessions` | `rewriteOf` `sameAs` | removes nothing; `:superseded` stays empty |
 | visibility except | `res/withdrawal` | `except` `sentexHandle` | removes nothing |

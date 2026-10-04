@@ -847,6 +847,16 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   that see it and retracting one re-arms the pair: the exception set is part of
   `tax/separation-stamp`, so its move reads every kept type pair's separation again
   (`membership/sync-memberships`).
+- `(orthogonal X Y)` — the converse of a separation: `X` and `Y` overlap (some thing is an
+  instance of both) and neither is a `genl` of the other. Nothing is claimed about things
+  that are instances of neither. Symmetric, so `(orthogonal Y X)` is the same sentex. It
+  caches nothing and derives nothing — no shared instance is minted for it — and is read
+  back in two places. `subsumption-status` takes it as the `:orthogonal` witness
+  ([below](#auditing-the-hierarchy-for-missing-disjointness)). And the related-types
+  family reads it against the separations and the `genl` edges a reader sees: a pair
+  `disjoint?` separates there, through any of its arms, or one a `genl` edge relates
+  there, makes it a one-member nogood of the declaration
+  ([nmtms.md](nmtms.md#declarations-over-related-types)).
 
 **All three separating mechanisms — `disjoint`, `disjoint_metatype` and `sibling_disjoint` — separate any term, not only individuals.** `checks/checkable-term?`
 admits every non-variable symbol, so the predicate meta-ontology is enforced the same
@@ -956,20 +966,23 @@ halves decide it ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)).
 
 `subsumption-status kb a b` classifies one type pair against the whole hierarchy at once,
 returning `:genl` / `:spec` (one subsumes the other), `:coextensional` (each is `genl`
-the other), `:disjoint` (a declaration, closed under `genl`), `:orthogonal` (a shared
-instance the registry answers without rule expansion, so neither subsumption nor
-disjointness holds but overlap is shown), `:unknown` (none of these is provable), or
-`:inconsistent` (two or more hold at once, such as genl-related and disjoint).
-`genl?` and `disjoint?` read the global closures; the `:orthogonal` witness is a
-facts-only query (`{:max-depth 0}`) for a member of `a` that is also a member of `b`, read
-from a `context` (default `CxUniverse`) because a read sees only that context and its
-`genlCx` ancestors.
+the other), `:disjoint` (a declaration, closed under `genl`), `:orthogonal` (a stated
+`(orthogonal a b)`, or a shared instance the registry answers without rule expansion
+where neither subsumption nor disjointness holds), `:unknown` (none of these is
+provable), or `:inconsistent` (two or more hold at once, such as genl-related and
+disjoint, or a stated `orthogonal` beside a `genl` edge or a disjointness).
+`genl?` and `disjoint?` read the global closures; the two `:orthogonal` witnesses are
+facts-only queries (`{:max-depth 0}`) — for the `(orthogonal a b)` declaration in either
+spelling, and for a member of `a` that is also a member of `b` — read from a `context`
+(default `CxUniverse`) because a read sees only that context and its `genlCx` ancestors.
+The declaration stands alone; the shared instance settles only a pair the taxonomy and
+the separations leave open.
 
 `disjointness-audit kb` runs the classification over every unordered pair of distinct
 types and returns `{:types :pairs :by-status :pairs-data}`. The `:unknown` pairs are the
-candidates for a missing `disjoint` declaration: no subsumption relates them, no
-declaration separates them, and no shared instance shows they overlap — so the modeller
-decides whether they should be disjoint. The audit reads only, and writes nothing.
+candidates for a missing `disjoint` or `orthogonal` declaration: no subsumption relates
+them, no declaration separates them, and neither a declaration nor a shared instance
+shows they overlap — so the modeller decides which they are. The audit reads only, and writes nothing.
 
 ### What a declaration reaches back over
 

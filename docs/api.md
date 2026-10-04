@@ -356,11 +356,13 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; :genl :spec :coextensional :disjoint :orthogonal
                                                ; :unknown, or :inconsistent when two of those hold
                                                ; at once; genl/disjoint read the global closures,
-                                               ; `context` is the shared-instance vantage (default
-                                               ; CxUniverse)
+                                               ; a stated `(orthogonal a b)` reads :orthogonal,
+                                               ; `context` is the vantage the declaration and the
+                                               ; shared instance are read from (default CxUniverse)
 (disjointness-audit kb [context])              ; subsumption-status over every unordered type pair —
                                                ; {:types :pairs :by-status :pairs-data}; the
                                                ; :unknown pairs flag a candidate missing `disjoint`
+                                               ; or `orthogonal`
 ;; the taxonomy, read (thin delegations to vaelii.impl.taxonomy — reads only, since
 ;; edges and metadata are maintained by assert / retract! from the sentexes stating them)
 (genls kb t [context]) / (specs kb t [context])         ; genl up/down closure (scoped with a context)
@@ -1201,8 +1203,8 @@ a variable so they join — grandparentOf, part-location, owns-parts).
 **A binary predicate says which level it relates at, unless its two ends disagree.**
 `relation_kind` is a `disjoint_metatype` over `instance_relation_predicate` and
 `type_relation_predicate`: `parentOf`, `northOf` and `madeOf` relate individuals; `genl`,
-`disjoint`, `largerThan`, `partType`, `capabilityType` and `siblingDisjointException`
-relate kinds. *At most* one, not
+`disjoint`, `orthogonal`, `largerThan`, `partType`, `capabilityType` and
+`siblingDisjointException` relate kinds. *At most* one, not
 exactly one — the unmarked are those whose two ends sit at different levels, or at no
 level at all (`implies` is a connective; `rewriteOf` takes either role so long as its two
 sides agree; `result` and `genlResult` relate a function to a type;
