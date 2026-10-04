@@ -590,6 +590,47 @@
   (testing "and an animal reaches spatiotemporal, so a spatial relation admits one"
     (is (v/genl? kb 'dog 'spatiotemporal))))
 
+;; ---- the upper divisions by extent and by mass ----------------------------
+;; Two partitions of `thing`.  `spatial` / `aspatial` divides by extent in SOME space —
+;; physical space, or a mathematical one, where a line or a square of an abstract board
+;; has extent and no location in the world.  `tangible` / `intangible` divides by mass.
+;; `spatiotemporal` is below both `spatial` and `temporal`: what has a location in space
+;; and time, which is what the spatial calculi relate.  A region is the case the
+;; two partitions cross on: spatiotemporal, and massless.
+
+(tu/deftest-kb spatiotemporal-is-below-spatial-and-temporal
+  (is (true? (v/genl? kb 'spatiotemporal 'spatial)))
+  (is (true? (v/genl? kb 'spatiotemporal 'temporal))))
+
+(tu/deftest-kb an-abstract-figure-is-spatial-without-being-spatiotemporal
+  ;; A line in a plane has extent in that plane and no location in the world, no mass,
+  ;; and no place in time.
+  (tu/with-terms [Diagonal]
+    (v/assert kb (list 'spatial Diagonal) 'CxUniverse)
+    (v/assert kb (list 'atemporal Diagonal) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'intangible Diagonal) 'CxUniverse))
+        "spatial and intangible together are consistent")
+    (is (true? (v/ask? kb (list 'spatial Diagonal) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'intangible Diagonal) 'CxUniverse)))
+    (is (not (v/ask? kb (list 'spatiotemporal Diagonal) 'CxUniverse))
+        "it is not located in space and time")))
+
+(tu/deftest-kb spatial-and-aspatial-partition-thing
+  (is (true? (v/disjoint? kb 'spatial 'aspatial)))
+  (is (true? (v/disjoint? kb 'spatiotemporal 'aspatial))
+      "the partition separates spatiotemporal from aspatial through the genl to spatial")
+  (is (true? (v/genl? kb 'spatial 'thing)))
+  (is (true? (v/genl? kb 'aspatial 'thing)))
+  (testing "a thing cannot be both"
+    (tu/with-terms [Figment]
+      (v/assert kb (list 'spatial Figment) 'CxUniverse)
+      (is (true? (tu/stored-in-clash? kb (list 'aspatial Figment) 'CxUniverse)))))
+  (testing "and a thing denied extent is aspatial — the coverage half"
+    (tu/with-terms [Rumour]
+      (v/assert kb (list 'thing Rumour) 'CxUniverse)
+      (v/assert kb (list 'not (list 'spatial Rumour)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'aspatial Rumour) 'CxUniverse))))))
+
 ;; ---- the literal types: one vocabulary, and one exception ----------------
 ;; `string` / `number` / `integer` / `symbol` are the KB's only names for text, numbers
 ;; and names, and both argument declarations read the same four (docs/argtypes.md).  The

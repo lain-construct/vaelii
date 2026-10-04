@@ -109,7 +109,7 @@ backend the edge solver renders a contested `Program` into, solved with clingo
 (in-process JNA) or clasp (subprocess). Opt-in, with a deterministic stub
 fallback. See [asp.md](asp.md).
 
-**`aspatial`** ![kb](../.github/badges/cat-kb.svg): An entity not located in space. See [taxonomy.md](taxonomy.md).
+**`aspatial`** ![kb](../.github/badges/cat-kb.svg): An entity not located in any space — the complement of `spatial`, the two partitioning `thing`. See [taxonomy.md](taxonomy.md).
 
 **ASPIF** ![asp](../.github/badges/cat-asp.svg): The intermediate text format a
 `Program` is emitted to before a clingo/clasp solve. Contested assumptions
@@ -1082,6 +1082,10 @@ no var. Each form is read with comments, docstrings and reader positions removed
 jar names of the libraries the engine namespaces load are included. A **reasoning image** is installed only
 by a build whose source identity equals the one the image was written under. See
 [storage.md](storage.md).
+
+**`spatial`** ![kb](../.github/badges/cat-kb.svg): An entity with extent in some space — physical space, or a mathematical one such as the Cartesian plane, where the line y=x has extent and no location in the world. `spatial` and `aspatial` partition `thing`. See [space.md](space.md).
+
+**`spatiotemporal`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in space and time — a physical object, a region, a place. Below both `spatial` and `temporal`, and the type every argument of the spatial calculi is declared at. See [space.md](space.md).
 
 **Spindle** ![kb](../.github/badges/cat-kb.svg): The shape the context topology
 is built from — three layers: a **head** every member sees, a set of **members**

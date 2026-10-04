@@ -210,9 +210,10 @@
 ;; stay in the band: (genl artifact physical_object) is CxAbstract's, (genl animal
 ;; living_thing) is CxOrganism's, and both now resolve.
 (comment intangible "Something with no mass or location: an attribute, a relation, a time.")
-(comment spatiotemporal "Something with a location, so that it can stand in a spatial relation to another — a physical object, but also a region or a place, which occupy space without being made of anything. What the four spatial calculi relate.")
+(comment spatial "Something with extent in some space. Physical space, but also a mathematical one: the line y=x has extent in the Cartesian plane and a square of an abstract chessboard has extent on that board, though neither is located anywhere in the world. Everything spatiotemporal is spatial; spatial and aspatial partition thing.")
+(comment spatiotemporal "Something with a location in space and time, so that it can stand in a spatial relation to another — a physical object, but also a region or a place, which occupy space without being made of anything. Both spatial and temporal, and what the four spatial calculi relate.")
 (comment temporal "Something that happens or exists in time. Physical objects, events, and situations are all temporal.")
-(comment aspatial "Not located in space. The complement CxSpace's calculi never relate.")
+(comment aspatial "Not located in any space: no extent in physical space or in a mathematical one. The complement of spatial — the two partition thing — and so nothing CxSpace's calculi relate.")
 (comment atemporal "Not located in time. Numbers, relations and the rest of the abstract kinds are atemporal; a fluent is intangible but not atemporal, since it holds over time.")
 (comment physical_object "Something with mass and a location in space.")
 (comment living_thing "An organism — it is born, lives, and (by default) dies.")
@@ -220,6 +221,8 @@
 (comment abstract "An entity outside space and time — a number, a relation, an expression, a language. Below both aspatial and atemporal.")
 (genl intangible thing)
 (genl spatiotemporal thing)
+(genl spatiotemporal spatial)
+(genl spatiotemporal temporal)
 (genl temporal thing)
 (genl aspatial thing)
 (genl atemporal thing)
@@ -1469,8 +1472,10 @@
 (variable_order_type variable_order_type)
 
 (set/monotonic (disjoint intangible spatiotemporal))
-;; A thing is either located in space or aspatial, and either in time or atemporal: each
-;; pair is a complement.  The quality checker's schematic clash reading prunes the phantom
-;; pairs these create by antecedent arg-type disjointness (vaelii#95, fix(quality)).
-(set/monotonic (disjoint spatiotemporal aspatial))
+;; A thing either has extent in some space or is aspatial, and is either in time or
+;; atemporal: each pair is a complement.  The first is a partition, which records the
+;; separation and the coverage both; the second is the separation alone.  The quality
+;; checker's schematic clash reading prunes the phantom pairs these create by antecedent
+;; arg-type disjointness (vaelii#95, fix(quality)).
+(set/monotonic (partition thing spatial aspatial))
 (set/monotonic (disjoint temporal atemporal))
