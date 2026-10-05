@@ -1,9 +1,9 @@
 ;; CxAbstract — non-biological upper-ontology types (intangible, physical
 ;; objects, substances, made things, body parts and their kinds), the
-;; physical-structure relations partOf/locatedIn/madeOf, the event-doer relations
-;; doneBy/performedBy, and the two type-level relations largerThan/partType. Sees
-;; CxCore; CxUniverse sees it, so any type or relation here is visible from every
-;; context.
+;; physical-structure relations partOf/locatedIn/madeOf, the event relations
+;; doneBy/performedBy and input/output, and the two type-level relations
+;; largerThan/partType. Sees CxCore; CxUniverse sees it, so any type or relation
+;; here is visible from every context.
 
 (genlCx CxAbstract CxCore)
 (genlCx CxUniverse CxAbstract)
@@ -229,6 +229,66 @@
 (arg performedBy 1 event)
 (arg performedBy 2 thing)
 (genl performedBy doneBy)
+
+;; --- input / output: what went into an event and what it left behind -----------
+;; Each relation takes the event first, as every relation over an event does.  Each states
+;; binary_predicate beside instance_relation_predicate.  The arity check holds out a fact
+;; of the wrong length only where binary_predicate is stated, and the genl edge from
+;; instance_relation_predicate does not reach that check.  CxChange states when an input
+;; and an output exist relative to their event, because CxChange sees CxTime's point
+;; relations.
+(comment input "(input ?event ?thing) means that ?thing went into ?event: the lettuce in a salad, the ore in smelting, the plank in sawing. An instrument the event used and left unchanged, like the knife or the saw, is not an input. Contrast output.")
+(binary_predicate input)
+(instance_relation_predicate input)
+(arg input 1 event)
+(arg input 2 thing)
+(termsRelated input output)
+
+(comment destroyedInput "(destroyedInput ?event ?thing) means that ?thing went into ?event and ceased to exist there: the ore in smelting, the plank in sawing, the egg in an omelet. The lettuce in a salad is an input but not a destroyed one.")
+(binary_predicate destroyedInput)
+(instance_relation_predicate destroyedInput)
+(arg destroyedInput 1 event)
+(arg destroyedInput 2 thing)
+(genl destroyedInput input)
+
+(comment preservedInput "(preservedInput ?event ?thing) means that ?thing went into ?event and still exists when ?event ends: the lettuce in a salad, the thread in a woven cloth.")
+(binary_predicate preservedInput)
+(instance_relation_predicate preservedInput)
+(arg preservedInput 1 event)
+(arg preservedInput 2 thing)
+(genl preservedInput input)
+;; No thing is both a destroyed and a preserved input of one event.  The KB does not
+;; state the disjointness, because a separation over two relations constrains no tuple.
+
+(comment output
+         "(output ?event ?thing) means that ?event gave ?thing the form or content it has, as something it left behind: a chair from its making, sawdust from sawing, a footprint from a step, a file from a program run. Whether that was the point of the event does not matter.")
+(binary_predicate output)
+(instance_relation_predicate output)
+(arg output 1 event)
+(arg output 2 thing)
+
+(comment tangibleOutput
+         "(tangibleOutput ?event ?thing) means that ?thing is a tangible output of ?event: a chair from its making, steel from smelting, sawdust from sawing, a footprint from a step.")
+(binary_predicate tangibleOutput)
+(instance_relation_predicate tangibleOutput)
+(arg tangibleOutput 1 event)
+(arg tangibleOutput 2 tangible)
+(genl tangibleOutput output)
+
+(comment intangibleOutput
+         "(intangibleOutput ?event ?thing) means that ?thing is an intangible output of ?event: a file from a program run, a receipt from a tool call, a recorded measurement from an observation.")
+(binary_predicate intangibleOutput)
+(instance_relation_predicate intangibleOutput)
+(arg intangibleOutput 1 event)
+(arg intangibleOutput 2 intangible)
+(genl intangibleOutput output)
+
+;; A tangible output of an intentionally initiated event is made.  Growth is never
+;; intentionally initiated, so a calf is not made by its mother.
+(set/forwardRule (implies (and (tangibleOutput ?e ?x) (performedBy ?e ?d)) (made ?x)))
+;; A tangible output of an event a made thing did is made: a widget a factory machine
+;; stamped is made.
+(set/forwardRule (implies (and (tangibleOutput ?e ?x) (doneBy ?e ?d) (made ?d)) (made ?x)))
 
 (comment tool "An artifact used to perform work.")
 (genl tool made)

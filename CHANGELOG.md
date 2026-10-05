@@ -522,6 +522,28 @@ it — `git show v0.16.0:CHANGELOG.md`.
   being stated, rather than derived, reads it from `genl?` instead.
   *Breaks:* `(disjoint substance artifact)`
 
+- **`input`, `destroyedInput`, `preservedInput`, `output`, `tangibleOutput` and
+  `intangibleOutput` relate an event to what went into it and what it left behind, and
+  two rules conclude `made`.** Each is a binary `instance_relation_predicate` in
+  CxAbstract that takes the event first. `(input ?event ?thing)` says the thing went into
+  the event; an instrument the event leaves unchanged, such as the knife, is not an
+  input. `destroyedInput` (the thing ceased to exist in the event) and `preservedInput`
+  (the thing still exists when the event ends) are each a `genl` of `input`.
+  `(output ?event ?thing)` says the event gave the thing the form or content it has.
+  `tangibleOutput` types its second position `tangible`, `intangibleOutput` types it
+  `intangible`, and each is a `genl` of `output`. A tangible output of an event something
+  `performedBy` is concluded `made`, and so is a tangible output of an event a made thing
+  `doneBy`. A calf its natural mother grew is not concluded `made`. In CxChange and the
+  contexts that see it, each relation places the thing's start or end against its
+  event's on the point network: with `:includes-instant` registered, the lettuce in a
+  salad exists the moment the making ends, and a smashed pot does not exist then or a
+  year later. With `:point` registered, an order that contradicts one of these placements
+  is a `:qualitative-inconsistency`. A three-place use of `doneBy`, `performedBy` or any
+  of the six is held out. `causality_cluster_test` and `input_output_timing_test` pin
+  each of these. [time.md](docs/time.md)
+
+  *Class:* **Additive**.
+
 ### Fixes: answers
 
 - **The browser front page's disjointness list holds the pairs a `separating` or
