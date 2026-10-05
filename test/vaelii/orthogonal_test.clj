@@ -24,20 +24,20 @@
   (is (true? (v/ask? kb '(symmetric orthogonal))))
   (is (true? (v/ask? kb '(type_relation_predicate orthogonal)))))
 
-(tu/deftest-kb its-binary-class-is-stated-because-the-arity-binding-reads-it
+(tu/deftest-kb its-binary-class-is-stated-and-its-length-is-checked
   ;; `symmetric` and `type_relation_predicate` are each `genl binary_predicate`, so the
   ;; class is answered without the stated `(binary_predicate orthogonal)` — but the arity
-  ;; nogood reads only a stated binding, and without it a three-place orthogonal is stored
-  ;; with no clash.  The stated class is what keeps the length enforced.
+  ;; nogood reads only a stated binding, so the class is stated.  The well-formedness arm
+  ;; refuses another length before either is read.
   (is (seq (v/sentexes-matching kb '(binary_predicate orthogonal) 'CxCore)))
   (is (= 2 (:arity (v/describe kb 'orthogonal))))
   (tu/with-terms [alphaKind betaKind gammaKind]
     (doseq [t ['alphaKind 'betaKind 'gammaKind]]
       (v/assert kb (list 'genl t 'thing) 'CxUniverse))
-    (v/assert kb (list 'orthogonal 'alphaKind 'betaKind 'gammaKind) 'CxUniverse {:strength :monotonic})
-    (is (= [[(list 'orthogonal 'alphaKind 'betaKind 'gammaKind)]]
-           (keep #(when (= :arity (:kind %)) (mapv :sentence (:sides %))) (v/conflicts kb)))
-        "a three-place orthogonal is an arity clash")))
+    (is (= :not-well-formed
+           (try (v/assert kb (list 'orthogonal 'alphaKind 'betaKind 'gammaKind) 'CxUniverse) :ok
+                (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+        "a three-place orthogonal is refused")))
 
 (tu/deftest-kb orthogonal-is-symmetric
   (tu/with-terms [spatialKind temporalKind]
@@ -224,6 +224,64 @@
     (v/assert kb (list 'orthogonal 'alphaKind 'alphaKind) 'CxUniverse {:strength :monotonic})
     (is (= #{#{(list 'orthogonal 'alphaKind 'alphaKind)}} (clashes kb))
         "a type subsumes itself")))
+
+;; ---- the exemption: the two clique marks spare a stated pair -----------------
+;;
+;; `sibling_disjoint` and `disjoint_metatype` separate a family of types without naming
+;; the pair, so an `orthogonal` over two of them exempts that pair rather than clashing
+;; with the mark.  A separation that names the pair (`disjoint`, a `partition` or
+;; `separating` roster) stays a clash, above.
+
+(defn- exempted?
+  "The pair `a` `b` reads apart at CxUniverse, `orthogonal`, with no orthogonal clash."
+  [kb a b]
+  (and (not (v/disjoint? kb a b 'CxUniverse))
+       (= :orthogonal (v/subsumption-status kb a b))
+       (empty? (clashes kb))))
+
+(tu/deftest-kb an-orthogonal-pair-is-exempt-from-sibling-disjointness
+  (tu/with-terms [parentKind alphaKind betaKind gammaKind]
+    (v/assert kb (list 'genl 'parentKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint 'parentKind) 'CxUniverse)
+    (doseq [t ['alphaKind 'betaKind 'gammaKind]]
+      (v/assert kb (list 'genl t 'parentKind) 'CxUniverse))
+    (is (true? (v/disjoint? kb 'alphaKind 'betaKind 'CxUniverse)))
+    (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse)
+    (is (true? (exempted? kb 'alphaKind 'betaKind)))
+    (is (true? (v/disjoint? kb 'alphaKind 'gammaKind 'CxUniverse))
+        "only the stated pair is spared")))
+
+(tu/deftest-kb an-orthogonal-pair-is-exempt-from-a-disjoint-metatype
+  (tu/with-terms [kind_type alphaKind betaKind gammaKind]
+    (doseq [t ['alphaKind 'betaKind 'gammaKind]]
+      (v/assert kb (list 'genl t 'thing) 'CxUniverse)
+      (v/assert kb (list 'kind_type t) 'CxUniverse))
+    (v/assert kb (list 'disjoint_metatype 'kind_type) 'CxUniverse)
+    (is (true? (v/disjoint? kb 'alphaKind 'betaKind 'CxUniverse)))
+    (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse)
+    (is (true? (exempted? kb 'alphaKind 'betaKind)))
+    (is (true? (v/disjoint? kb 'betaKind 'gammaKind 'CxUniverse))
+        "only the stated pair is spared")))
+
+(tu/deftest-kb the-exemption-is-read-where-the-declaration-is-seen
+  (tu/with-terms [parentKind alphaKind betaKind]
+    (let [cx (tu/tmp-ctx)]
+      (v/assert kb (list 'genlCx cx 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genl 'parentKind 'thing) 'CxUniverse)
+      (v/assert kb (list 'sibling_disjoint 'parentKind) 'CxUniverse)
+      (v/assert kb (list 'genl 'alphaKind 'parentKind) 'CxUniverse)
+      (v/assert kb (list 'genl 'betaKind 'parentKind) 'CxUniverse)
+      (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) cx)
+      (is (false? (v/disjoint? kb 'alphaKind 'betaKind cx)) "spared where it is stated")
+      (is (true? (v/disjoint? kb 'alphaKind 'betaKind 'CxUniverse)) "separated above it")
+      (is (= #{} (clashes kb)) "and no reader reads a clash"))))
+
+(tu/deftest-kb a-separating-roster-naming-both-is-a-clash
+  (tu/with-terms [wholeKind alphaKind betaKind]
+    (v/assert kb (list 'genl 'wholeKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'separating 'wholeKind 'alphaKind 'betaKind) 'CxUniverse)
+    (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse)
+    (is (= #{#{(list 'orthogonal 'alphaKind 'betaKind)}} (clashes kb)))))
 
 ;; ---- not preserved along genl --------------------------------------------------
 ;;

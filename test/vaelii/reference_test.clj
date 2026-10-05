@@ -735,14 +735,14 @@
   (doseq [[label fails n] (merged-clash-failures {:exhaustive-up-to 6})]
     (is (empty? fails) (failure-text label fails n))))
 
-;; A `siblingDisjointException` exempts its pair at the readers that see it.  CxU sees the
-;; mark and both memberships and not the exception, so it reads the pair as a nogood; CxE
-;; sees the exception too and reads none.
+;; An `orthogonal` exempts its pair at the readers that see it.  CxU sees the
+;; mark and both memberships and not the declaration, so it reads the pair as a nogood; CxE
+;; sees the declaration too and reads none.
 ;;
 ;;   CxUniverse
 ;;     └─ CxU  (sibling_disjoint col) (genl ta col) (genl tb col)
 ;;             (ta X) default   (tb X) default or monotonic
-;;          └─ CxE  (siblingDisjointException ta tb)
+;;          └─ CxE  (orthogonal ta tb)
 ;;
 ;; With (tb X) :default, CxU reads a dilemma (decision 7): both stay believed and one
 ;; report names the pair with vantage CxU.  With (tb X) :monotonic, (ta X) is OUT at CxU
@@ -760,7 +760,7 @@
           content [(w (list 'sibling_disjoint col) CxU :monotonic)
                    (w (list ta X) CxU)
                    (w (list tb X) CxU strength)
-                   (w (list 'siblingDisjointException ta tb) CxE :monotonic)]
+                   (w (list 'orthogonal ta tb) CxE :monotonic)]
           [wiring content] (if fixed? [(into edges subtype) content] [edges (into subtype content)])
           world   {:contexts #{CxU CxE} :writes (into wiring content)}
           orders  (mapv #(into wiring %) (gen/permutations content))

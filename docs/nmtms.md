@@ -1170,7 +1170,7 @@ vantage took OUT:
 `scoped_defeat_test`'s release tests pin both rows in every arrival order, the retraction
 of the denial and the `except`.
 
-A `siblingDisjointException` exempts its pair only at the readers that see it
+An `orthogonal` exempts its pair from the clique marks only at the readers that see it
 ([taxonomy.md](taxonomy.md)): written below a vantage, it releases the pair there and
 below, and the vantage decides the pair as it reads it.
 
@@ -1492,10 +1492,10 @@ members it sees and whose grounds it reads: every ground context is in its ances
 or the separations, covers and `genl` edges stated there convict the members
 (`membership/term-nogoods`), read with no belief callback. A nogood the reader then decides is
 read again, as the settle's standing ones are, once a round withdraws a ground it was
-found through or an equality supporter (`res/*reread*`). A `siblingDisjointException` exempts a pair at a reader
+found through or an equality supporter (`res/*reread*`). An `orthogonal` exempts a pair at a reader
 whose ancestor set states it, as `tax/disjoint?` over an ancestor set reads it. The
-unscoped taxonomy the index keeps reads no exception, so a pair only an exception spares
-is kept, marked `:spared?`, and read again over the reader's ancestor set.
+unscoped taxonomy the index keeps reads no exemption, so a pair only an `orthogonal`
+spares is kept, marked `:spared?`, and read again over the reader's ancestor set.
 
 **The reports.** `conflicts` and `contradictions` add the families' hard clashes and
 dilemmas (`clashes/read-clashes`), built at the read: each context below a candidate's own
@@ -1546,9 +1546,11 @@ removal choke points. A KB whose `disjoint`s are all over unrelated types holds 
 
 An `(orthogonal a b)` states that the two types may overlap and that neither subsumes
 the other, so it is the same family's one-member clash, of the `orthogonal` declaration,
-wherever a reader reads the pair separated — through a `disjoint`, a disjoint metatype, a
-`sibling_disjoint` parent or a `partition` or `separating` roster, over any supertypes of
-the two — or reads a `genl` edge between them, or the two are one type.
+wherever a reader reads the pair separated — through a `disjoint`, or a `partition` or
+`separating` roster, over any supertypes of the two, or through a `sibling_disjoint`
+parent or a disjoint metatype over two supertypes other than the pair itself — or reads a
+`genl` edge between them, or the two are one type. Over the pair itself the clique marks
+are exempted rather than contradicted ([taxonomy.md](taxonomy.md#disjointness)).
 
 ```
 (disjoint alphaw betaw)  (orthogonal alphaw betaw)                          ; {(orthogonal …)}
@@ -1818,7 +1820,7 @@ layer 0   region relabel, genl/genlCx closures, strength classes, recheck queue,
 | touched window | `jtms/touched`, and a reader's mark in it: `jtms/touch-mark`, `jtms/touched-since` | none | removes the published window; `preview`, the change feed and the cache reconcile diff the believed set instead, at O(KB) per write |
 | forward chaining | `vaelii.impl.chain` | `implies` `set/forwardRule` `set/defaultRule` `set/backwardRule` `set/assumptionRule` `set/inertRule` | removes generators; backward proof still answers |
 | generators | `vaelii.impl.chain` | `implies` `set/forwardRule` with a rule consequent | removes nothing |
-| nogood discovery | `decide/nogoods-at`, `discovery/preserving-nogoods` | `not` `disjoint` `disjoint_metatype` `sibling_disjoint` `siblingDisjointException` `orthogonal` `functional` `functionalInArg` `asymmetric` `anti_transitive` `covering` `partition` `transitiveInArg` `transitiveInArgInverse` | leaves `decide/verdict` with no nogood to decide |
+| nogood discovery | `decide/nogoods-at`, `discovery/preserving-nogoods` | `not` `disjoint` `disjoint_metatype` `sibling_disjoint` `orthogonal` `functional` `functionalInArg` `asymmetric` `anti_transitive` `covering` `partition` `transitiveInArg` `transitiveInArgInverse` | leaves `decide/verdict` with no nogood to decide |
 | `exceptWhen` · NAF | `recheck/exception-blocked-set` | `exceptWhen` `unknown` | removes nothing; `:blocked` stays empty |
 | supersession | `special/refresh-supersessions` | `rewriteOf` `sameAs` | removes nothing; `:superseded` stays empty |
 | visibility except | `res/withdrawal` | `except` `sentexHandle` | removes nothing |

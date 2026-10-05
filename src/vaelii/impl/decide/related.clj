@@ -153,7 +153,7 @@
 (defn- contradicted-somewhere?
   "Can some reader read the `orthogonal` over `[a b]` contradicted?  One type twice, a
   `genl` edge between the two over the unscoped closure, or a separation
-  `disjointness-test` reads with no `siblingDisjointException` exempting it — the superset
+  `disjointness-test` reads with no `orthogonal` exempting it — the superset
   over every reader that `related-nogoods` scopes."
   [w [a b]]
   (or (= a b)

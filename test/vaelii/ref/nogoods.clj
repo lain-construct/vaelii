@@ -53,7 +53,7 @@
 
   Left out, and for the world extraction to refuse rather than for this namespace to
   read: `disjoint_metatype`, `sibling_disjoint`, `separating`, `partition`,
-  `siblingDisjointException`, `transitiveInArgInverse`, a `transitiveInArg` over any
+  `orthogonal`, `transitiveInArgInverse`, a `transitiveInArg` over any
   relation but `genl`, and an `asymmetric`, `anti_symmetric` or `anti_transitive` step
   reached only by argument preservation.")
 

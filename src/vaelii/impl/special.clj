@@ -5912,20 +5912,21 @@
      :rebuild      (fn [tax {[_ c] :sentence id :id ctx :context}]
                      (tax/mark-sibling-disjoint tax c id ctx))
      :wff          wff/sibling-disjoint-problems}
-    ;; `(siblingDisjointException x y)` exempts one pair the sibling clique or a
-    ;; `disjoint_metatype` would separate — the plain add/drop `disjoint` has, keyed as
-    ;; the same unordered pair.  A reader reads the exemption where it reads the
-    ;; separation (`membership/sync-memberships`).
-    'siblingDisjointException
+    ;; `(orthogonal x y)` exempts one pair the sibling clique or a `disjoint_metatype`
+    ;; would separate — the plain add/drop `disjoint` has, keyed as the same unordered
+    ;; pair.  A reader reads the exemption where it reads the separation
+    ;; (`membership/sync-memberships`); a direct separation of the pair is not exempted,
+    ;; and `decide.related` reports the declaration's clash with it.
+    'orthogonal
     {:integrate    (fn [kb sx h]
                      (let [[_ a b] (:sentence sx)]
-                       (tax/add-sib-exception (reasoning/taxonomy kb) a b h (:context sx))))
+                       (tax/add-orthogonal (reasoning/taxonomy kb) a b h (:context sx))))
      :disintegrate (fn [kb sx]
                      (let [[_ a b] (:sentence sx)]
-                       (tax/del-sib-exception! (reasoning/taxonomy kb) a b (:id sx))))
+                       (tax/del-orthogonal! (reasoning/taxonomy kb) a b (:id sx))))
      :rebuild      (fn [tax {[_ a b] :sentence id :id ctx :context}]
-                     (tax/add-sib-exception tax a b id ctx))
-     :wff          wff/siblingDisjointException-problems}
+                     (tax/add-orthogonal tax a b id ctx))
+     :wff          wff/orthogonal-problems}
     ;; `(arity P n)` is read by the per-assert arity check, so it is cached like the
     ;; other declarations the engine interprets rather than re-queried per assertion.
     ;; No `:wff` arm: the arity of `arity` is what would check it.

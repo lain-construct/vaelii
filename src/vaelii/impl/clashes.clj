@@ -402,7 +402,7 @@
 
 (defn- exposure-probes
   "`{:disjoint? (fn [t1 t2]) :visible-from (fn [t1 c1 t2 c2])}` over the taxonomy `tax`,
-  each memoized for one pass.  `:disjoint?` reads no `siblingDisjointException`, since a
+  each memoized for one pass.  `:disjoint?` reads no `orthogonal` exemption, since a
   reader that does not see one reads the pair separated.  `:visible-from` is the maximal
   common descendant contexts of the first disjointness witness that shares one with `c1`
   and `c2`, kept where the scoped `disjoint?` holds, or nil; it enumerates witnesses only

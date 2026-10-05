@@ -295,7 +295,7 @@
    (atom {:genl (empty-relation) :genlCx (empty-relation)
           :equality (empty-equality)
           :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
-          :sibling-disjoint #{} :sib-exception-index {}
+          :sibling-disjoint #{} :orthogonal-index {}
           :covers {} :cover-parts {} :partitions #{}
           :props {} :inverse {} :arity {} :functional-in-arg {} :commuting {}
           :cache-support {} :cache-handle-keys {} :cache-dirty #{} :cache-ctxs {}
@@ -1089,10 +1089,10 @@
     ;; read off the genl closure (`separation-frame`), never materialized, exactly
     ;; as the metatype clique reads its members.
     :sib-disjoint (update t :sibling-disjoint conj a)              ; a = c
-    ;; `:sib-exception` exempts one pair the sibling clique (or a `disjoint_metatype`)
-    ;; would otherwise separate; stored as adjacency exactly as `:disjoint-index` is, so
-    ;; the read is one map lookup behind the `genl-related?` guard it sits beside.
-    :sib-exception (index-symmetric t :sib-exception-index a true)  ; a = #{x y}
+    ;; `:orthogonal` exempts one pair the sibling clique or a `disjoint_metatype` would
+    ;; otherwise separate; stored as adjacency exactly as `:disjoint-index` is, so the read
+    ;; is one map lookup behind the `genl-related?` guard it sits beside.
+    :orthogonal (index-symmetric t :orthogonal-index a true)        ; a = #{x y}
     ;; `:cover` is one whole-and-parts declaration: `a` is `[whole parts]` with the parts
     ;; sorted and `b` is the `cover-kinds` keyword saying which of the two claims it
     ;; makes.  Three tables, because three readers ask three different questions of one
@@ -1146,7 +1146,7 @@
     :metatype (update t :disjoint-metatypes disj a)
     :member   (update-in t [:metatype-members a] (fnil disj #{}) b)
     :sib-disjoint (update t :sibling-disjoint disj a)
-    :sib-exception (index-symmetric t :sib-exception-index a false)
+    :orthogonal (index-symmetric t :orthogonal-index a false)
     ;; The exact inverse of the install, with the emptied-key discipline `:arity` and
     ;; `:commuting` follow: a part whose last cover left must not linger as a key mapping
     ;; to `#{}`, since `covers-naming` gates on the entry being present.
@@ -2553,7 +2553,7 @@
 
 (defn- refresh-cache-support
   "Reconcile the seven flat caches — `disjoint`, the disjoint metatypes and their
-  members, the sibling-disjoint marks, the sibling-disjointness exceptions, the
+  members, the sibling-disjoint marks, the `orthogonal` pairs, the
   predicate properties, `inverse` and the declared arities — with current
   belief, the way `refresh-relation` does for genl.  Each `[kind key]` in
   `:cache-support` is active iff some supporter is believed; install or uninstall its
@@ -2609,7 +2609,7 @@
 
   Every cache follows belief here — the two transitive relations, the equality
   partition, and the seven flat caches (`disjoint`, disjoint metatypes + members, the
-  sibling-disjoint marks, the sibling-disjointness exceptions, the predicate properties,
+  sibling-disjoint marks, the `orthogonal` pairs, the predicate properties,
   `inverse`, the declared arities) —
   so a defeated declaration
   stops taking effect the
@@ -2682,7 +2682,7 @@
          :genl (empty-relation) :genlCx (empty-relation)
          :equality (empty-equality)
          :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
-         :sibling-disjoint #{} :sib-exception-index {}
+         :sibling-disjoint #{} :orthogonal-index {}
          :covers {} :cover-parts {} :partitions #{}
          :props {} :inverse {} :arity {} :functional-in-arg {} :commuting {}
          :cache-support {} :cache-handle-keys {} :cache-dirty #{} :cache-ctxs {}
@@ -2717,7 +2717,7 @@
 (defn derives-from?
   "Does `handle` assert something the taxonomy derives an answer from — an edge of a
   cached relation (`genl`, `genlCx`), or a flat-cache entry (a separation, a metatype
-  mark and its memberships, a sibling-disjointness mark or exception, a cover roster, a
+  mark and its memberships, a sibling-disjointness mark, an `orthogonal` pair, a cover roster, a
   predicate property, an inverse, an arity)?
 
   **Three O(1) lookups, off the reverse indexes the reconcile already reads forward.**
@@ -2836,12 +2836,12 @@
 (defn separation-stamp
   "What a separation or a cover over two types reads of `tax` besides the `genl` closures,
   as one value compared with `=`: the separating and covering declarations with the
-  sibling-disjointness exceptions.  A declaration moving replaces its roster's value, so
+  `orthogonal` pairs that exempt a pair from the two clique marks.  A declaration moving replaces its roster's value, so
   an unmoved stamp compares on identity.  The closures that moved are `moves-since`'s."
   [tax]
   (let [t @tax]
     [(:disjoint t) (:disjoint-metatypes t) (:metatype-members t)
-     (:sibling-disjoint t) (:partitions t) (:covers t) (:sib-exception-index t)]))
+     (:sibling-disjoint t) (:partitions t) (:covers t) (:orthogonal-index t)]))
 
 (defn moves-since
   "The lower ends of the edges of relation `rel-key` whose activation or supporting
@@ -4085,20 +4085,25 @@
   ([tax a b handle ctx] (add-supported tax [:disjoint #{a b}] handle ctx)))
 (defn del-disjoint! [tax a b handle] (del-supported! tax [:disjoint #{a b}] handle))
 
-;; ---- sibling-disjointness exceptions -------------------------------------
+;; ---- orthogonal pairs: the exemption from the two clique marks ----------
 ;;
-;; `(siblingDisjointException x y)` exempts the one pair `x`,`y` that a `sibling_disjoint`
-;; mark (or a `disjoint_metatype`) would otherwise force disjoint, without disturbing
-;; either type's disjointness from the parent's *other* specializations.  Keyed as an
+;; `(orthogonal x y)` states that `x` and `y` may share an instance, so it exempts the one
+;; pair `x`,`y` that a `sibling_disjoint` mark or a `disjoint_metatype` would otherwise
+;; force disjoint, without disturbing either type's disjointness from the parent's
+;; *other* specializations or the metatype's other members.  A direct separation of the
+;; pair — a `(disjoint x y)` or a `partition` / `separating` roster naming both — is not
+;; exempted: the declaration contradicts it, which `decide.related` reports.  Keyed as an
 ;; unordered pair exactly like `disjoint`, belief-following through the same
 ;; `cache-install` / `cache-uninstall` refcount, and read by `exemption` inside
 ;; `disjointness-test` behind the `genl-related?` guard, at the reader: a reader is
-;; exempted only by an exception some supporter states where it reads.
+;; exempted only by an `orthogonal` some supporter states where it reads.
 
-(defn add-sib-exception
-  ([tax a b handle] (add-sib-exception tax a b handle nil))
-  ([tax a b handle ctx] (add-supported tax [:sib-exception #{a b}] handle ctx)))
-(defn del-sib-exception! [tax a b handle] (del-supported! tax [:sib-exception #{a b}] handle))
+;; `hash-set`, not a set literal: `(orthogonal a a)` is stored (the related-types family
+;; reports it), and a literal over two equal values throws.
+(defn add-orthogonal
+  ([tax a b handle] (add-orthogonal tax a b handle nil))
+  ([tax a b handle ctx] (add-supported tax [:orthogonal (hash-set a b)] handle ctx)))
+(defn del-orthogonal! [tax a b handle] (del-supported! tax [:orthogonal (hash-set a b)] handle))
 
 (defn- forget-metatype
   "Drop `m` entirely: the mark, its recorded members, and the support entries behind
@@ -4294,26 +4299,27 @@
     (cache-entry-visible? tax k context)))
 
 (defn- exemption
-  "`(fn [x y])` → does a `siblingDisjointException` of the pair `x`, `y` exempt it for a
-  reader at `context`: one with a supporter `context` reads (`entry-visible-at?`), or,
-  for an unscoped `context`, any stored one.  One map lookup when no exception names `x`."
+  "`(fn [x y])` → does an `orthogonal` over the pair `x`, `y` exempt it from the clique
+  marks for a reader at `context`: one with a supporter `context` reads
+  (`entry-visible-at?`), or, for an unscoped `context`, any stored one.  One map lookup
+  when no `orthogonal` names `x`."
   [tax context]
-  (let [idx (:sib-exception-index @tax)]
+  (let [idx (:orthogonal-index @tax)]
     (cond
       (empty? idx)
       (constantly false)
 
       (or (set? context) (scoped-context? context))
       (fn [x y] (and (contains? (get idx x) y)
-                     (entry-visible-at? tax [:sib-exception #{x y}] context)))
+                     (entry-visible-at? tax [:orthogonal (hash-set x y)] context)))
 
       :else
       (fn [x y] (contains? (get idx x) y)))))
 
-(defn sib-exceptions?
-  "Is any `siblingDisjointException` stored?"
+(defn orthogonals?
+  "Is any `orthogonal` stored?"
   [tax]
-  (boolean (seq (:sib-exception-index @tax))))
+  (boolean (seq (:orthogonal-index @tax))))
 
 (defn covers-of
   "Every covering declaration over `whole`, as `[parts kind]`."
@@ -4582,9 +4588,10 @@
   all; one that *is* separable pays a set lookup per declaration rather than a walk
   over the closure product.
 
-  `exempt?` is the `siblingDisjointException` read, `(fn [x y])`: by default the
-  exceptions `context` reads (`exemption`); `(constantly false)` reads none, which
-  answers true for every pair some reader can read separated."
+  `exempt?` is the `orthogonal` read, `(fn [x y])`, consulted by the metatype and
+  sibling arms only: by default the `orthogonal` pairs `context` reads (`exemption`);
+  `(constantly false)` reads none, which answers true for every pair some reader can read
+  separated."
   ([tax a context] (disjointness-test tax a context (exemption tax context)))
   ([tax a context exempt?]
    (let [{:keys [scoped? seps metas sibs parts pair-vis? member-vis?]}
@@ -4597,8 +4604,9 @@
        ;; `(genl x y)` edge separate a pair the whole KB knows overlaps.
        ;; `exempt?` sits behind the `not=` / `genl-related?` guards, so the negative path
        ;; pays one map lookup only for a pair those tests already admitted.  The
-       ;; explicit-`disjoint` arm is not exempted: an explicit `(disjoint x y)` is a hard
-       ;; assertion you retract to undo, not except.
+       ;; explicit-`disjoint` and partition arms are not exempted: each names the pair
+       ;; directly, so an `orthogonal` over it is a clash (`decide.related`), not an
+       ;; exemption.
        (let [genl-related? (fn [x y] (or (genl?-global tax x y) (genl?-global tax y x)))]
          (fn [b]
            ;; `b`'s supertypes cut to the separable ones as `a`'s are, and whole only for
@@ -4635,15 +4643,16 @@
                                           below-b))
                                   below-a)))
                         sibs)
-                  ;; a partition separates on its part roster exactly as a metatype
-                  ;; separates on its members: a part above `a` and a *different*,
-                  ;; non-genl-related, non-exempted part above `b`.  `covering` alone
-                  ;; records no partition, so its parts reach nothing here and may overlap.
+                  ;; a partition separates on its part roster as a metatype separates on
+                  ;; its members: a part above `a` and a *different*, non-genl-related part
+                  ;; above `b`.  Not exempted: a roster naming both parts separates the
+                  ;; pair directly, as `(disjoint x y)` does, and an `orthogonal` over it
+                  ;; is a clash rather than an exemption.  `covering` alone records no
+                  ;; partition, so its parts reach nothing here and may overlap.
                   (some (fn [[ps in-a]]
                           (let [in-b (filterv #(contains? bs %) ps)]
                             (some (fn [x]
-                                    (some #(and (not= x %) (not (genl-related? x %))
-                                                (not (exempt? x %)))
+                                    (some #(and (not= x %) (not (genl-related? x %)))
                                           in-b))
                                   in-a)))
                         parts))))))))))
@@ -4654,7 +4663,8 @@
   metatype with `y`, stands beside `y` as a proper specialization of one
   `(sibling_disjoint C)` parent, or stands beside `y` in one `partition` roster —
   the same four arms `disjointness-test` tests, with the same global genl-relatedness
-  guard and the same exemptions at `context` on the latter three.
+  guard on the latter three and the same `orthogonal` exemptions at `context` on the
+  metatype and sibling arms.
 
   This is the enumeration `disjointness-test` is the membership test of, and the two
   read one frame so they cannot disagree.  Every type disjoint from `a` is a **subtype
@@ -4703,12 +4713,11 @@
                          acc (if scoped? (specs tax c context) (specs-global tax c))))
                acc sibs)
        ;; a partition separates `a` from every other part of a roster holding a
-       ;; non-genl-related, non-exempted supertype of `a` — the enumeration side of the
-       ;; partition arm, written as the metatype arm above is.
+       ;; non-genl-related supertype of `a` — the enumeration side of the partition arm,
+       ;; written as the metatype arm above is, and unexempted as that arm is.
        (reduce (fn [acc [ps in-a]]
                  (reduce (fn [acc y]
-                           (if (some #(and (not= % y) (not (genl-related? % y))
-                                           (not (exempt? % y)))
+                           (if (some #(and (not= % y) (not (genl-related? % y)))
                                      in-a)
                              (conj! acc y)
                              acc))
@@ -4729,9 +4738,10 @@
       ;; global genl-relatedness, for the reason `disjointness-test` states
       (let [bs      (genls-at tax b context)
             exempt? (exemption tax context)
-            sep?    (fn [x y] (and (not= x y)
-                                   (not (genl?-global tax x y)) (not (genl?-global tax y x))
-                                   (not (exempt? x y))))]
+            apart?  (fn [x y] (and (not= x y)
+                                   (not (genl?-global tax x y)) (not (genl?-global tax y x))))
+            ;; the clique marks spare an `orthogonal` pair; a roster naming both does not
+            sep?    (fn [x y] (and (apart? x y) (not (exempt? x y))))]
         (into #{}
               cat
               [(for [[x ys] seps, y ys
@@ -4748,7 +4758,7 @@
                                  below-a)]
                  [:sib-disjoint c])
                (for [[ps in-a k] parts
-                     :when (some (fn [x] (some #(and (contains? bs %) (sep? x %)) ps)) in-a)]
+                     :when (some (fn [x] (some #(and (contains? bs %) (apart? x %)) ps)) in-a)]
                  k)])))))
 
 (defn separating-pairs
@@ -4794,16 +4804,16 @@
                       (not (genl?-global tax y x))
                       (not (exempt? x y)))]
        [x y])
-     ;; each partition contributes its parts against each other, under the same two
-     ;; guards — the metatype arm's roster, read off a `partition` declaration
+     ;; each partition contributes its parts against each other, under the genl guard
+     ;; and with no exemption — the metatype arm's roster, read off a `partition`
+     ;; declaration that names both parts directly
      (for [[whole ps kind] (:partitions t)
            :when (vis? [:cover [whole ps] kind])
            x  ps
            y  ps
            :when (and (not= x y)
                       (not (genl?-global tax x y))       ; global, per disjointness-test
-                      (not (genl?-global tax y x))
-                      (not (exempt? x y)))]
+                      (not (genl?-global tax y x)))]
        [x y]))))
 
 (defn disjoint?
@@ -4841,10 +4851,10 @@
   is how a reader decides inside its own withdrawal (`vaelii.impl.decide`).
 
   Monotone on the visibility of declarations and edges: seeing more of them only adds
-  witnesses.  A `siblingDisjointException` is the one read that removes one: the three
-  guarded arms spare the exempted pair at a reader that sees the exception, so a context
-  below the exception reads the pair apart and a context above it, or beside it, reads it
-  separated.  An unscoped read sees every exception."
+  witnesses.  An `orthogonal` is the one read that removes one: the metatype and sibling
+  arms spare the pair it names at a reader that sees it, so a context below the
+  `orthogonal` reads the pair apart and a context above it, or beside it, reads it
+  separated.  An unscoped read sees every `orthogonal`."
   ([tax a b] ((disjointness-test tax a nil) b))
   ([tax a b context] ((disjointness-test tax a context) b)))
 
@@ -4898,11 +4908,10 @@
   choices can all multiply, and a node can have exponentially many ancestor paths
   — so a consumer that finds its witness early never pays for the tail.
 
-  No `siblingDisjointException` is read: an exception removes a separation at the
-  readers that see it, which a set of contexts to see cannot state, so a caller tests
-  the reader it names with `disjoint?`.  Empty exactly when no reader separates the
-  pair, `disjointness-test` reading no exception, which is the guard a caller runs
-  first."
+  No `orthogonal` is read: an exemption removes a separation at the readers that see it,
+  which a set of contexts to see cannot state, so a caller tests the reader it names with
+  `disjoint?`.  Empty exactly when no reader separates the pair, `disjointness-test`
+  reading no exemption, which is the guard a caller runs first."
   [tax a b]
   (let [t       @tax
         rel     (:genl t)

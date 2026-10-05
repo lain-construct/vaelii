@@ -757,9 +757,12 @@ See [nmtms.md](nmtms.md).
 **`orthogonal`** ![kb](../.github/badges/cat-kb.svg): States that two types may overlap —
 something could be an instance of both — and that neither is a `genl` of the other. It
 does not say that anything is an instance of both, and claims nothing about things that
-are instances of neither. Symmetric. The declared witness of
-the `:orthogonal` subsumption status, and a one-member clash of the declaration wherever
-a reader reads the pair separated or `genl`-related. See [taxonomy.md](taxonomy.md).
+are instances of neither. Symmetric and forced monotonic. It exempts the pair from a
+disjointness a `sibling_disjoint` mark or a `disjoint_metatype` would otherwise force —
+pair-local, read at the reader, and not reaching subtypes. A direct separation of the pair
+(`disjoint`, a `partition` or `separating` roster) or a `genl` edge between the two
+contradicts it instead: a one-member clash of the declaration. It is also the declared
+witness of the `:orthogonal` subsumption status. See [taxonomy.md](taxonomy.md).
 
 ## P
 
@@ -1046,13 +1049,6 @@ queued `exceptWhen` exceptions until the blocked set stops moving. See
 the `disjoint_metatype` clique keyed off the genl closure, consulted not stored,
 belief-following, and raising contradictions through the same JTMS/ASP path as
 `disjoint`. Covering is out of scope. See [taxonomy.md](taxonomy.md).
-
-**`siblingDisjointException`** ![kb](../.github/badges/cat-kb.svg): Exempts the one pair
-of types it names from a disjointness a `sibling_disjoint` mark or a `disjoint_metatype`
-would otherwise force — pair-local, so it does not disturb either type's disjointness from
-the parent's other specializations and does not leak to subtypes. Read at the reader: a
-context that does not see the exception reads the pair separated. See
-[taxonomy.md](taxonomy.md).
 
 **Sideways information passing** ![inference](../.github/badges/cat-inference.svg):
 Costing each conjunct under the bindings the already-chosen literals will

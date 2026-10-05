@@ -13,6 +13,28 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ## Unreleased
 
+### Breaking
+
+- **`siblingDisjointException` is retired; `orthogonal` is the exemption.** A stated
+  `(orthogonal a b)` exempts the pair from a separation a `sibling_disjoint` parent or a
+  `disjoint_metatype` would otherwise force, pair-local and read at the reader, exactly as
+  `(siblingDisjointException a b)` did. Two things differ. The declaration also says the
+  pair may overlap and that neither subsumes the other, so a `disjoint` of the pair, a
+  disjointness inherited from separated supertypes, a `partition` or `separating` roster
+  naming both, or a `genl` edge between them is a clash of the declaration rather than an
+  exemption — `siblingDisjointException` exempted a pair of `partition` parts, and
+  `orthogonal` does not. And `(orthogonal a a)` is stored and reported as that clash,
+  where `(siblingDisjointException a a)` was refused as not well-formed. CxCore no longer
+  declares `siblingDisjointException`, `special/entries` no longer interprets it, and a
+  stored one is an ordinary fact that exempts nothing.
+  [taxonomy.md](docs/taxonomy.md#disjointness).
+
+  *Class:* **Breaking** (a predicate retired, and an exemption of `partition` parts
+  becomes a clash).
+  *Migration:* `(siblingDisjointException a b)` → `(orthogonal a b)`; a pair of
+  `partition` or `separating` parts that must overlap needs the roster split.
+  *Breaks:* `siblingDisjointException`
+
 ### Additions
 
 - **`orthogonal` declares that two types may overlap and neither subsumes the other.**
@@ -31,10 +53,11 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
   *Class:* **Additive**.
 
-- **An `orthogonal` over a separated or `genl`-related pair is a clash of the
-  declaration.** Wherever a reader reads the pair disjoint — through a `disjoint`, a
-  disjoint metatype, a `sibling_disjoint` parent or a `partition` or `separating` roster
-  over any supertypes of the two — or reads a `genl` edge between them, the declaration is
+- **An `orthogonal` over a directly separated or `genl`-related pair is a clash of the
+  declaration.** Wherever a reader reads the pair disjoint — through a `disjoint` or a
+  `partition` or `separating` roster over any supertypes of the two, or through a
+  `sibling_disjoint` parent or a disjoint metatype over two supertypes other than the pair
+  itself — or reads a `genl` edge between them, or the two are one type, the declaration is
   a one-member nogood, `:kind :orthogonal`, in every arrival order. Nothing is refused:
   `orthogonal` is on the forced-monotonic roster beside `disjoint`, so the declaration,
   at whatever strength it was written, is a hard clash `conflicts` lists, with the

@@ -237,7 +237,7 @@
     (v/assert kb (list 'genl b collection) 'CxUniverse)
     (v/assert kb (list 'genl c collection) 'CxUniverse)
     (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
+    (v/assert kb (list 'orthogonal a b) 'CxUniverse)
     (is (not (v/disjoint? kb a b)))
     (is (v/disjoint? kb a c))
     (let [kb2 (restart)]
@@ -247,24 +247,22 @@
       (is (v/disjoint? kb2 a c)
           "and the mark it excepts still separates a non-exempted pair"))))
 
-(tu/deftest-kb recover-agrees-about-a-defeated-exception
-  ;; The exceptions cache follows belief like the others: a defeated exception does not
-  ;; exempt.  rebuild-taxonomy replays the *stored* exception (the defeated one included) so
-  ;; :cache-support records every asserting sentex, and the reconcile recover runs drops it
-  ;; by belief — the same answer either side of a restart.
+(tu/deftest-kb recover-agrees-about-a-denied-exemption
+  ;; `orthogonal` is on the engine's baseline roster, so on this bare KB a `:default`
+  ;; declaration is held `:monotonic` and a denial of it OUT: the exemption stands.
+  ;; rebuild-taxonomy replays the stored declaration and the denial's premise, and
+  ;; `force-roster!` holds the denial OUT again — the same answer either side of a restart.
   (let [collection (tu/tmp-type) a (tu/tmp-type) b (tu/tmp-type)]
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
     (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse {:strength :default})
-    (v/assert kb (list 'not (list 'siblingDisjointException a b)) 'CxUniverse {:strength :monotonic})
-    (let [before (v/disjoint? kb a b)
-          kb2    (restart)]
-      (is before "a defeated exception does not exempt in memory")
+    (v/assert kb (list 'orthogonal a b) 'CxUniverse {:strength :default})
+    (let [d   (v/assert kb (list 'not (list 'orthogonal a b)) 'CxUniverse {:strength :monotonic})
+          kb2 (restart)]
+      (is (= [false false] [(v/disjoint? kb a b) (v/in? kb d)])
+          "the denial is OUT, so the exemption stands in memory")
       (v/recover kb2)
-      (is (v/disjoint? kb2 a b) "nor after a restart")
-      (is (= before (v/disjoint? kb2 a b))
-          "the answer must not change across a restart"))))
+      (is (= [false false] [(v/disjoint? kb2 a b) (v/in? kb2 d)]) "and after a restart"))))
 
 (tu/deftest-kb recover-agrees-about-a-denied-declaration
   ;; `disjoint` is on the engine's baseline roster, so on this bare KB a `:default`

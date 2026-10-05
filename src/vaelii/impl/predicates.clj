@@ -414,29 +414,22 @@
      ['sibling_disjoint (enforced (mark :sibling-disjoint :facets #{:reach :convicts})
                                   (str "taxonomy/mark-sibling-disjoint — the specialization clique keyed off"
                                        " the genl closure, consulted like disjoint_metatype"))]
-     ['siblingDisjointException
-      (enforced (assoc (pair :sib-exception :type)
-                       :notes (str "its retract moves the separations a reader reads, which the"
-                                   " membership candidates read again (membership/sync-memberships);"
-                                   " that is a reach in the removal direction, which :reach (an"
-                                   " arriving declaration) does not name."))
-                (str "taxonomy/add-sib-exception — exempts one pair the sibling clique or a"
-                     " disjoint_metatype would separate; read at the reader in disjointness-test"))]
-
-     ;; ---- the possible overlap: the separations' converse ------------------
      ['orthogonal
-      (enforced {:shape {:args [:type :type]} :storage [:none] :checked false :family nil
-                 :facets #{}
-                 :notes  (str "convicted rather than convicting: the related-types family"
-                              " reads the stored declaration back as a one-member nogood of"
-                              " itself whenever a separation or a genl edge a reader sees"
-                              " contradicts it. No facet names a declaration that is the"
-                              " only member of its own conviction.")}
-                (str "decide/related — a one-member nogood of the declaration over a pair"
-                     " a reader reads separated or genl-related; and"
-                     " core/subsumption-statuses — a stated pair reads :orthogonal with no"
-                     " shared instance, and :inconsistent beside a genl edge or a"
-                     " disjointness"))]
+      (enforced (assoc (pair :orthogonal :type)
+                       :notes (str "two readings, and no facet for either. Its retract moves the"
+                                   " separations a reader reads, which the membership candidates"
+                                   " read again (membership/sync-memberships); that is a reach in"
+                                   " the removal direction, which :reach (an arriving declaration)"
+                                   " does not name. And it is convicted rather than convicting:"
+                                   " the related-types family reads the stored declaration back"
+                                   " as a one-member nogood of itself whenever a direct separation"
+                                   " or a genl edge a reader sees contradicts it."))
+                (str "taxonomy/add-orthogonal — exempts one pair the sibling clique or a"
+                     " disjoint_metatype would separate, read at the reader in"
+                     " disjointness-test; decide/related — a one-member nogood of the"
+                     " declaration over a pair a reader reads directly separated or"
+                     " genl-related; and core/subsumption-statuses — a stated pair reads"
+                     " :orthogonal with no shared instance"))]
 
      ;; ---- exhaustion: the parts that cover a whole ------------------------
      ;;

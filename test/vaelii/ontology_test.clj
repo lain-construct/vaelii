@@ -307,7 +307,7 @@
   declaring `(arg parentOf 1 animal)` over CxOrganism's `animal` is checked where it bites and
   is not misplaced."
   '#{genl disjoint typeGenl genlInverse intersection partitionedByType
-     covering separating partition siblingDisjointException orthogonal})
+     covering separating partition orthogonal})
 
 (tu/deftest-kb no-authored-type-relation-names-a-term-its-own-context-cannot-see
   ;; The scoped complement of `every-shipped-type-is-placed-under-the-root`.  That test asks
