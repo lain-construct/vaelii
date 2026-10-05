@@ -96,3 +96,7 @@
 (defn record-implicit-genl! [finding]
   (when *progress* (swap! *progress* update :implicit-genl conj finding))
   finding)
+
+(defn record-orthogonal-over-separation! [finding]
+  (when *progress* (swap! *progress* update :orthogonal-over-separation conj finding))
+  finding)

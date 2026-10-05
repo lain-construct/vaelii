@@ -5322,14 +5322,15 @@
   `predAllSpecified` / `predSpecifiedAll` audit, reports the visible predicate `genl`
   edges that widen a declared argument type, reports each candidate term declared
   `unary_predicate` with no visible `genl` path to `thing`, and suggests each `(genl X P)`
-  a visible cover forces on a candidate type `X` that the `genl` closure does not hold.
+  a visible cover forces on a candidate type `X` that the `genl` closure does not hold,
+  and reports each visible `(orthogonal a b)` whose pair a stated separation divides.
   It does not enumerate the domain, broaden `contradictions`, or repair/file anything:
   a suggestion is reported, never asserted.
 
   A clean result is `{:status :audited :candidate-count n}`.  Findings change `:status`
   to `:gap` and add any of the sparse keys `:all-specified-violations`,
-  `:definition-inconsistencies`, `:genl-arg-widening`, `:not-under-thing` and
-  `:implicit-genl`.  Inspect `:status`; it makes a successful audit and a report with
+  `:definition-inconsistencies`, `:genl-arg-widening`, `:not-under-thing`,
+  `:implicit-genl` and `:orthogonal-over-separation`.  Inspect `:status`; it makes a successful audit and a report with
   gaps different shapes by construction.
 
   Optional `options` bounds cooperative query work, elapsed time and returned findings:

@@ -39,17 +39,19 @@
                      :option k :value value})))
   options)
 
-(defn- categories [definitions specified widenings unrooted implicit]
+(defn- categories [definitions specified widenings unrooted implicit orthogonals]
   (cond-> {}
     (seq specified)   (assoc :all-specified-violations specified)
     (seq definitions) (assoc :definition-inconsistencies definitions)
     (seq widenings)   (assoc :genl-arg-widening widenings)
     (seq unrooted)    (assoc :not-under-thing unrooted)
-    (seq implicit)    (assoc :implicit-genl implicit)))
+    (seq implicit)    (assoc :implicit-genl implicit)
+    (seq orthogonals) (assoc :orthogonal-over-separation orthogonals)))
 
-(defn- bounded-categories [definitions specified widenings unrooted implicit max-results]
+(defn- bounded-categories
+  [definitions specified widenings unrooted implicit orthogonals max-results]
   (if (nil? max-results)
-    (categories definitions specified widenings unrooted implicit)
+    (categories definitions specified widenings unrooted implicit orthogonals)
     (let [definitions (vec (take max-results definitions))
           remaining   (- max-results (count definitions))
           specified   (into {} (take remaining (sort-by (comp nm/print-key key) specified)))
@@ -58,16 +60,20 @@
           remaining   (- remaining (count widenings))
           unrooted    (vec (take remaining unrooted))
           remaining   (- remaining (count unrooted))
-          implicit    (vec (take remaining implicit))]
-      (categories definitions specified widenings unrooted implicit))))
+          implicit    (vec (take remaining implicit))
+          remaining   (- remaining (count implicit))
+          orthogonals (vec (take remaining orthogonals))]
+      (categories definitions specified widenings unrooted implicit orthogonals))))
 
 (defn- truncate-report
   [candidate-count reason meter
-   {:keys [definitions specified widenings not-under-thing implicit-genl]} max-results]
+   {:keys [definitions specified widenings not-under-thing implicit-genl
+           orthogonal-over-separation]}
+   max-results]
   (merge {:status :truncated :reason reason :candidate-count candidate-count}
          (integrity-budget/snapshot meter)
          (bounded-categories definitions specified widenings not-under-thing implicit-genl
-                             max-results)))
+                             orthogonal-over-separation max-results)))
 
 (defn- specified-findings
   "Audit one declared predicate at a time, stopping after the first finding beyond
@@ -291,14 +297,84 @@
             (recur (conj findings finding) (rest units))))
         {:status :complete :findings findings}))))
 
+;; ---- orthogonal-over-separation: an orthogonal that lifts a stated separation ----
+
+(defn- stated-records
+  "The believed sentexes stating the flat-cache entries `ks` that `context` sees, as
+  `{:handle :sentence :context}` maps in content order — the shape `conflicts` names a
+  clash's grounds in, so a reader can drop one by its handle."
+  [kb tx ks context]
+  (let [tms  (reasoning/tms kb)
+        recs (:records kb)]
+    (->> ks
+         (into #{} (mapcat #(tax/visible-supporters tx % context)))
+         (into [] (comp (filter #(jtms/in? tms %))
+                        (keep #(p/get-sentex recs %))
+                        (map (fn [s] {:handle (:id s) :sentence (sx/sentence-of s)
+                                      :context (:context s)}))))
+         (sort-by (juxt :sentence :context) nm/compare-form)
+         vec)))
+
+(defn- visible-orthogonals
+  "Every believed `(orthogonal a b)` over two ground symbols that `context` sees, as
+  `[a b record]` in content order: the one open read of this pass, a census of
+  declarations, which are few, rather than of any extent."
+  [kb context]
+  (let [tms  (reasoning/tms kb)
+        recs (:records kb)]
+    (->> (res/matches-visible kb '(orthogonal ?a ?b) context)
+         (keep (fn [[h b]]
+                 (integrity-budget/spend!)
+                 (let [a (get b '?a) c (get b '?b)]
+                   (when (and (symbol? a) (not (sx/variable? a))
+                              (symbol? c) (not (sx/variable? c))
+                              (jtms/in? tms h))
+                     (when-let [s (p/get-sentex recs h)]
+                       [a c {:handle h :sentence (sx/sentence-of s) :context (:context s)}])))))
+         (into [] (distinct))
+         (sort-by (fn [[_ _ r]] [(:sentence r) (:context r)]) nm/compare-form))))
+
+(defn- orthogonal-separation
+  "The finding for one visible `(orthogonal a b)`, or nil: the stated separations
+  `context` sees over the pair with no `orthogonal` exempting any of them — an explicit
+  `disjoint`, a `partition` or `separating` roster, a `sibling_disjoint` parent or a
+  `disjoint_metatype` — over `a` and `b` or over a supertype of each.  The `orthogonal`
+  lifts exactly these, so `disjoint?` reads the pair apart and cannot show them."
+  [kb tx [a b orthogonal] context]
+  (integrity-budget/spend!)
+  (let [ks (tax/separating-keys tx a b context (constantly false))]
+    (when (seq ks)
+      (let [separated-by (stated-records kb tx ks context)]
+        (when (seq separated-by)
+          {:orthogonal orthogonal :separated-by separated-by})))))
+
+(defn- orthogonal-over-separation-findings
+  "Audit every visible `orthogonal` declaration, one at a time, stopping after the first
+  finding beyond `remaining` proves that the result bound truncated the sweep."
+  [kb context remaining]
+  (let [tx (reasoning/taxonomy kb)]
+    (loop [findings []
+           units    (keep #(orthogonal-separation kb tx % context)
+                          (visible-orthogonals kb context))]
+      (if-let [finding (first units)]
+        (if (and remaining (>= (count findings) remaining))
+          {:status :truncated :reason :max-results :findings findings}
+          (do
+            (integrity-budget/record-orthogonal-over-separation! finding)
+            (recur (conj findings finding) (rest units))))
+        {:status :complete :findings findings}))))
+
 (defn kb-integrity
   "Run the bounded integrity sweep in `context` over `candidate-terms`.
 
   A clean result is `{:status :audited :candidate-count n}`.  A result with findings
-  is `{:status :gap :candidate-count n ...}`, adding any of five sparse categories:
+  is `{:status :gap :candidate-count n ...}`, adding any of six sparse categories:
   `:all-specified-violations`, `:definition-inconsistencies`, `:genl-arg-widening`,
-  `:not-under-thing` and `:implicit-genl`.  The last is a suggestion rather than a
-  fault: a `genl` edge a cover forces that the closure does not hold.
+  `:not-under-thing`, `:implicit-genl` and `:orthogonal-over-separation`.
+  `:implicit-genl` is a suggestion rather than a fault: a `genl` edge a cover forces
+  that the closure does not hold.  `:orthogonal-over-separation` names each
+  `orthogonal` that lifts a stated separation of its pair, which `disjoint?` therefore
+  cannot show.
   The status therefore cannot be mistaken for success merely because a category is
   absent.
 
@@ -318,7 +394,8 @@
          meter           (integrity-budget/meter options)
          local-reports   (atom [])
          progress        (atom {:definitions [] :specified {} :widenings []
-                                :not-under-thing [] :implicit-genl []})
+                                :not-under-thing [] :implicit-genl []
+                                :orthogonal-over-separation []})
          max-results     (:max-results options)]
      (binding [integrity-budget/*meter* meter
                integrity-budget/*progress* progress
@@ -361,12 +438,20 @@
                            (if (= :truncated (:status implicit-result))
                              (truncate-report candidate-count :max-results meter @progress
                                               max-results)
-                             (let [findings (categories definitions specified widenings
-                                                        unrooted implicit)]
-                               (integrity-budget/spend!)
-                               (merge {:status (if (seq findings) :gap :audited)
-                                       :candidate-count candidate-count}
-                                      findings))))))))))))
+                             (let [remaining (when remaining (- remaining (count implicit)))
+                                   orthogonal-result (orthogonal-over-separation-findings
+                                                      kb context remaining)
+                                   orthogonals (:findings orthogonal-result)]
+                               (swap! progress assoc :orthogonal-over-separation orthogonals)
+                               (if (= :truncated (:status orthogonal-result))
+                                 (truncate-report candidate-count :max-results meter
+                                                  @progress max-results)
+                                 (let [findings (categories definitions specified widenings
+                                                            unrooted implicit orthogonals)]
+                                   (integrity-budget/spend!)
+                                   (merge {:status (if (seq findings) :gap :audited)
+                                           :candidate-count candidate-count}
+                                          findings))))))))))))))
          (catch clojure.lang.ExceptionInfo e
            (if-let [reason (integrity-budget/exhausted e)]
              (truncate-report candidate-count reason meter @progress

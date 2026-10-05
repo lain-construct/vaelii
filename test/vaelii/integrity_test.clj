@@ -725,3 +725,110 @@
                         partials))
             (is (some #(= (subvec in-order 0 1) (shown %)) partials)
                 "a budget exhausted between the two terms keeps the first finding")))))))
+
+;; ---- orthogonal-over-separation ---------------------------------------------
+
+(defn- shown-orthogonals
+  "Each `:orthogonal-over-separation` finding of `report` as its `orthogonal` sentence
+  and the set of the sentences separating the pair, unordered pairs read as sets."
+  [report]
+  (mapv (fn [{:keys [orthogonal separated-by]}]
+          [(set (:sentence orthogonal)) (into #{} (map (comp set :sentence)) separated-by)])
+        (:orthogonal-over-separation report)))
+
+(tu/deftest-kb an-orthogonal-over-a-partitioned-pair-is-reported
+  (tu/with-terms [tangible_like intangible_like]
+    (let [cover (list 'partition 'thing tangible_like intangible_like)
+          orth  (list 'orthogonal tangible_like intangible_like)]
+      (v/assert kb cover 'CxUniverse)
+      (v/assert kb orth 'CxUniverse)
+      (is (not (v/disjoint? kb tangible_like intangible_like))
+          "the orthogonal exempts the pair, so disjoint? cannot show the conflict")
+      (let [before (state-snapshot kb)
+            report (v/kb-integrity kb #{} 'CxUniverse)
+            [found & more] (:orthogonal-over-separation report)]
+        (is (= :gap (:status report)))
+        (is (nil? more) "exactly one finding")
+        (is (= [[(set orth) #{(set cover)}]] (shown-orthogonals report))
+            "the finding names the orthogonal and the partition it undoes")
+        (is (= (v/handle-of kb orth 'CxUniverse) (:handle (:orthogonal found)))
+            "the orthogonal is named by handle")
+        (is (= [(v/handle-of kb cover 'CxUniverse)] (map :handle (:separated-by found)))
+            "the separation is named by handle")
+        (is (= before (state-snapshot kb)) "the audit stores, believes and files nothing")))))
+
+(tu/deftest-kb an-orthogonal-over-an-unseparated-pair-is-not-reported
+  (tu/with-terms [spatial_like temporal_like]
+    (v/assert kb (list 'genl spatial_like 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl temporal_like 'thing) 'CxUniverse)
+    (v/assert kb (list 'orthogonal spatial_like temporal_like) 'CxUniverse)
+    (is (= {:status :audited :candidate-count 0} (v/kb-integrity kb #{} 'CxUniverse)))))
+
+(tu/deftest-kb every-form-of-stated-separation-is-reported
+  (tu/with-terms [left_kind right_kind upper_left upper_right parent_kind kind_metatype
+                  roster_a roster_b]
+    (testing "an explicit disjoint over the pair"
+      (v/assert kb (list 'disjoint left_kind right_kind) 'CxUniverse)
+      (v/assert kb (list 'orthogonal left_kind right_kind) 'CxUniverse)
+      (is (= [[(set (list 'orthogonal left_kind right_kind))
+               #{(set (list 'disjoint left_kind right_kind))}]]
+             (shown-orthogonals (v/kb-integrity kb #{} 'CxUniverse)))))
+    (v/retract! kb (v/handle-of kb (list 'disjoint left_kind right_kind) 'CxUniverse))
+    (testing "a separating roster naming a supertype of each"
+      (v/assert kb (list 'genl left_kind upper_left) 'CxUniverse)
+      (v/assert kb (list 'genl right_kind upper_right) 'CxUniverse)
+      (v/assert kb (list 'separating 'thing upper_left upper_right) 'CxUniverse)
+      (is (= [[(set (list 'orthogonal left_kind right_kind))
+               #{(set (list 'separating 'thing upper_left upper_right))}]]
+             (shown-orthogonals (v/kb-integrity kb #{} 'CxUniverse)))))
+    (v/retract! kb (v/handle-of kb (list 'separating 'thing upper_left upper_right)
+                                'CxUniverse))
+    (testing "a sibling_disjoint parent"
+      (v/assert kb (list 'genl roster_a parent_kind) 'CxUniverse)
+      (v/assert kb (list 'genl roster_b parent_kind) 'CxUniverse)
+      (v/assert kb (list 'sibling_disjoint parent_kind) 'CxUniverse)
+      (v/assert kb (list 'orthogonal roster_a roster_b) 'CxUniverse)
+      (is (some #(= [(set (list 'orthogonal roster_a roster_b))
+                     #{(set (list 'sibling_disjoint parent_kind))}] %)
+                (shown-orthogonals (v/kb-integrity kb #{} 'CxUniverse)))))
+    (testing "a disjoint_metatype holding both"
+      (v/assert kb (list 'disjoint_metatype kind_metatype) 'CxUniverse)
+      (v/assert kb (list kind_metatype left_kind) 'CxUniverse)
+      (v/assert kb (list kind_metatype right_kind) 'CxUniverse)
+      (is (some #(= [(set (list 'orthogonal left_kind right_kind))
+                     #{(set (list 'disjoint_metatype kind_metatype))
+                       (set (list kind_metatype left_kind))
+                       (set (list kind_metatype right_kind))}] %)
+                (shown-orthogonals (v/kb-integrity kb #{} 'CxUniverse)))))))
+
+(tu/deftest-kb orthogonal-over-separation-findings-respect-context-visibility
+  (tu/with-terms [tangible_like intangible_like CxHidden]
+    (v/assert kb (list 'genlCx CxHidden 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'orthogonal tangible_like intangible_like) 'CxUniverse)
+    (v/assert kb (list 'partition 'thing tangible_like intangible_like) CxHidden)
+    (is (= :audited (:status (v/kb-integrity kb #{} 'CxUniverse)))
+        "a separation asserted below the audit context is not seen from it")
+    (is (= 1 (count (:orthogonal-over-separation (v/kb-integrity kb #{} CxHidden)))))))
+
+(tu/deftest-kb orthogonal-over-separation-findings-truncate-under-every-bound
+  (tu/with-terms [left_part right_part middle_part]
+    (v/assert kb (list 'partition 'thing left_part middle_part right_part) 'CxUniverse)
+    (v/assert kb (list 'orthogonal left_part middle_part) 'CxUniverse)
+    (v/assert kb (list 'orthogonal middle_part right_part) 'CxUniverse)
+    (testing "a result cap below the finding count keeps the completed prefix"
+      (let [report (v/kb-integrity kb #{} 'CxUniverse {:max-results 1})]
+        (is (= :truncated (:status report)))
+        (is (= :max-results (:reason report)))
+        (is (= 1 (count (:orthogonal-over-separation report))))))
+    (testing "an exact result cap is complete"
+      (is (= 2 (count (:orthogonal-over-separation
+                       (v/kb-integrity kb #{} 'CxUniverse {:max-results 2}))))))
+    (testing "work exhaustion inside the pass is truncated, never audited, and keeps the
+              findings completed before it"
+      (let [run    #(v/kb-integrity kb #{} 'CxUniverse {:max-work %})
+            needed (first (filter #(= :gap (:status (run %))) (range 0 2000)))]
+        (is (some? needed) "some finite work budget completes the sweep")
+        (let [partials (map run (range 0 (or needed 0)))]
+          (is (every? #(and (= :truncated (:status %)) (= :max-work (:reason %))) partials))
+          (is (some #(= 1 (count (:orthogonal-over-separation %))) partials)
+              "a budget exhausted between the two orthogonals keeps the first finding"))))))

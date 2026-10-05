@@ -160,11 +160,14 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; term declared unary_predicate with no genl path to
                                                 ; thing, and a suggested (genl X P) for every candidate
                                                 ; type a visible cover forces under P that the closure
-                                                ; misses. Returns {:status :audited :candidate-count n}
+                                                ; misses, and every visible (orthogonal a b) a stated
+                                                ; separation of the pair is lifted by. Returns
+                                                ; {:status :audited :candidate-count n}
                                                 ; when clean, or :status :gap plus any of the sparse
                                                 ; categories :all-specified-violations,
                                                 ; :definition-inconsistencies, :genl-arg-widening,
-                                                ; :not-under-thing and :implicit-genl. opts may bound :max-work,
+                                                ; :not-under-thing, :implicit-genl and
+                                                ; :orthogonal-over-separation. opts may bound :max-work,
                                                 ; :max-ms and :max-results; exhaustion is :truncated,
                                                 ; never :audited. Work/time check between opaque callbacks
                                                 ; and result pulls (one callback/chunk may overrun);

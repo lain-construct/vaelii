@@ -160,6 +160,22 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **`kb-integrity` reports an `orthogonal` that lifts a stated separation.** An
+  `(orthogonal a b)` exempts the pair from every separation, so `disjoint?` reads it
+  apart and nothing shows the conflict when the separation was meant: one `orthogonal`
+  silently undoes a `partition` of `thing`. The sweep adds a sixth sparse category,
+  `:orthogonal-over-separation`, with one
+  `{:orthogonal {:handle :sentence :context} :separated-by [{:handle :sentence :context} ...]}`
+  per visible, believed `orthogonal` whose pair, or a supertype of each, an explicit
+  `disjoint`, a `partition` or `separating` roster, a `sibling_disjoint` parent or a
+  `disjoint_metatype` separates, read with no exemption applied. Both sides are named by
+  handle so the author can drop whichever is wrong. The pass reads one census of
+  visible `orthogonal` declarations, not the candidate set. Findings count against
+  `:max-results` after the `:implicit-genl` category and are kept on truncation.
+  [integrity.md](docs/integrity.md#what-an-orthogonal-over-separation-finding-means).
+
+  *Class:* **Additive**.
+
 ## 0.23.0 — 2026-10-02 — "no definitional clash is refused, each reader decides a clash from its own view, and the definitional vocabulary is held known-true"
 
 ### Breaking
