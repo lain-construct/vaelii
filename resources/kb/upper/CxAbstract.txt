@@ -19,6 +19,8 @@
 ;; edge to biological, so body_part's is not stated; organism's is stated in CxCore too,
 ;; where CxOrganism can see it.
 (separating biological organism body_part)
+;; A leg of lamb or a chicken wing is food and a body part at once.
+(orthogonal food body_part)
 
 (comment building "An artifact that is a fixed structure enclosing space.")
 
@@ -219,7 +221,6 @@
 (set/monotonic (disjoint clothing building))
 (set/monotonic (disjoint clothing furniture))
 (set/monotonic (disjoint clothing vehicle))
-(set/monotonic (disjoint food body_part))
 (set/monotonic (disjoint formula relation))
 (set/monotonic (disjoint liquid stone))
 (set/monotonic (disjoint relation context))

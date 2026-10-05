@@ -873,3 +873,14 @@
       (v/assert kb (list 'biological Spore) 'CxUniverse)
       (v/assert kb (list 'not (list 'organism Spore)) 'CxUniverse)
       (is (not (v/ask? kb (list 'body_part Spore) 'CxUniverse))))))
+
+(tu/deftest-kb a-body-part-can-be-food
+  ;; A leg of lamb or a chicken wing is both, so the pair is declared orthogonal rather
+  ;; than disjoint.
+  (is (not (v/disjoint? kb 'food 'body_part)))
+  (tu/with-terms [Drumstick]
+    (v/assert kb (list 'body_part Drumstick) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'food Drumstick) 'CxUniverse))
+        "a body part that is also food is no clash")
+    (is (true? (v/ask? kb (list 'food Drumstick) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'body_part Drumstick) 'CxUniverse)))))
