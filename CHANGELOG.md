@@ -696,6 +696,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* a KB that relied on `(genl sign_value thing)` being stated, rather than
   derived, reads it from `genl?` instead.
 
+- **Every cause is in time, and what is not in time is not a cause.** CxAbstract states
+  `(genl causal temporal)` and `(genl atemporal acausal)`, so a thing both causal and
+  atemporal is a clash, and the line y=x, a sign value or any other atemporal thing reads
+  `acausal`. `causal` stops at `temporal`, since a contract expiring at midnight is a
+  cause located in no space. `ontology_test` pins both edges, the disjointness and the
+  readings.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that states an atemporal thing causal chooses one.
+
 ### Fixes: answers
 
 - **`check` reads a reifiable application in a quoting predicate's payload as a mention.**

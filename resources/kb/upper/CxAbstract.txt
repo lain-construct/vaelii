@@ -205,6 +205,14 @@
 
 (comment acausal "A thing that cannot be a cause: a time, a property line, an attribute, the information a record or piece of evidence carries (a reading of it can cause; the information itself causes nothing). The other side of the causal/acausal division of thing.")
 
+;; Every cause is in time.  A contract expiring at midnight is a cause located in no space,
+;; so causal stops at temporal rather than spatiotemporal.
+(genl causal temporal)
+;; What is not in time is not a cause.  The edge follows from (genl causal temporal) and
+;; the two partitions of thing, but the taxonomy draws no genl edge from partitions, so
+;; it is stated.
+(genl atemporal acausal)
+
 ;; Every thing is causal or acausal, and no thing is both.  The partition installs the
 ;; genl edges from causal and from acausal to thing, so neither edge is stated.  A thing
 ;; denied causal is concluded acausal.  causal_event and acausal_event are disjoint,

@@ -1429,3 +1429,16 @@
   (is (true? (v/genl? kb 'sign_value 'nowhere_never 'CxMeasure)))
   (doseq [t '[aspatial atemporal intangible]]
     (is (true? (v/ask? kb (list t 'SignPositive) 'CxMeasure)) (str "SignPositive is " t))))
+
+(tu/deftest-kb every-cause-is-in-time
+  (is (true? (v/genl? kb 'causal 'temporal)))
+  (is (true? (v/disjoint? kb 'causal 'atemporal)))
+  (is (true? (v/genl? kb 'atemporal 'acausal)) "what is not in time is not a cause")
+  (is (true? (v/ask? kb '(acausal SignPositive) 'CxUniverse))
+      "read where acausal is visible: CxMeasure sees CxCore and not CxAbstract")
+  (tu/with-terms [Line1]
+    ;; the line y=x: located in the Cartesian plane, and in no time
+    (v/assert kb (list 'spatial Line1) 'CxUniverse)
+    (v/assert kb (list 'atemporal Line1) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'acausal Line1) 'CxUniverse)))
+    (is (true? (tu/stored-in-clash? kb (list 'causal Line1) 'CxUniverse)))))
