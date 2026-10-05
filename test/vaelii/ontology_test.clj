@@ -587,17 +587,17 @@
 
 (tu/deftest-kb the-types-added-for-argument-constraints-are-placed-where-they-are-used
   (testing "the two calculi types the argument declarations name"
-    (is (v/genl? kb 'tangible 'spatiotemporal))
+    (is (v/genl? kb 'tangible 'spatial))
     (is (v/genl? kb 'time_point 'temporal)))
-  (testing "and an animal reaches spatiotemporal, so a spatial relation admits one"
-    (is (v/genl? kb 'dog 'spatiotemporal))))
+  (testing "and an animal reaches spatial, so a spatial relation admits one"
+    (is (v/genl? kb 'dog 'spatial))))
 
 ;; ---- the upper divisions by location and by mass --------------------------
 ;; Two partitions of `thing`.  `spatial` / `aspatial` divides by a location in SOME space —
 ;; physical space, or a mathematical one, where a line or a square of an abstract board
 ;; has a location and none in the world.  `tangible` / `intangible` divides by mass.
 ;; `spatiotemporal` is the intersection of `spatial` and `temporal`: what has a location
-;; in space and time, which is what the spatial calculi relate.  A region is the case the
+;; in space and time.  The spatial calculi relate anything spatial.  A region is the case the
 ;; two partitions cross on: spatiotemporal, and massless.
 
 (tu/deftest-kb spatiotemporal-is-the-intersection-of-spatial-and-temporal

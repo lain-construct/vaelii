@@ -207,6 +207,28 @@
       (v/retract! kb (v/handle-of kb (list 'nonTangentialProperPart B D) CxInner))
       (is (not (v/ask? kb (list 'nonTangentialProperPart A D) CxInner))))))
 
+;; ---- regions of a mathematical space --------------------------------------
+
+(tu/deftest-kb regions-of-a-mathematical-space-compose-like-any-other
+  ;; Three nested squares of an abstract plane: located in that plane, at no time.
+  (tu/with-terms [A B D]
+    (doseq [r [A B D]]
+      (v/assert kb (list 'spatial r) C)
+      (v/assert kb (list 'atemporal r) C))
+    (v/assert kb (list 'nonTangentialProperPart A B) C)
+    (v/assert kb (list 'nonTangentialProperPart B D) C)
+    (testing "the facts are admitted and believed — no clash with atemporal"
+      (is (empty? (v/contradictions kb)))
+      (is (empty? (v/conflicts kb)))
+      (is (v/ask? kb (list 'nonTangentialProperPart A B) C))
+      (is (v/ask? kb (list 'nonTangentialProperPart B D) C)))
+    (testing "the chain composes in the abstract plane as it does in the world"
+      (is (v/ask? kb (list 'nonTangentialProperPart A D) C)))
+    (testing "and nothing concludes the squares are located in time"
+      (doseq [r [A B D]]
+        (is (not (v/ask? kb (list 'spatiotemporal r) C)))
+        (is (not (v/ask? kb (list 'temporal r) C)))))))
+
 ;; ---- registration --------------------------------------------------------
 
 (deftest the-registered-calculus-list-follows-the-registry

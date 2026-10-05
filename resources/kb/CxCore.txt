@@ -210,8 +210,8 @@
 ;; stay in the band: (genl artifact tangible) is CxAbstract's, (genl animal
 ;; living_thing) is CxOrganism's, and both now resolve.
 (comment intangible "Something with no mass: a region, a shadow, a number, a relation, a time. It may have a location — a region of space is spatiotemporal and intangible both.")
-(comment spatial "Something with a location in some space, physical or mathematical. The line y=x is located in the Cartesian plane and a square of an abstract chessboard on that board, though neither is located anywhere in the world; a point has a location and no extent, and is spatial too. Everything spatiotemporal is spatial; spatial and aspatial partition thing.")
-(comment spatiotemporal "Something with a location in space and time, so that it can stand in a spatial relation to another — a physical object, but also a region or a place, which occupy space without being made of anything. The intersection of spatial and temporal, and what the four spatial calculi relate.")
+(comment spatial "Something with a location in some space, physical or mathematical. The line y=x is located in the Cartesian plane and a square of an abstract chessboard on that board, though neither is located anywhere in the world; a point has a location and no extent, and is spatial too. Everything spatiotemporal is spatial; spatial and aspatial partition thing. The four spatial calculi relate what is spatial, in whichever space a context is about.")
+(comment spatiotemporal "Something with a location in space and time — a physical object, but also a region or a place, which occupy space without being made of anything. The intersection of spatial and temporal.")
 (comment temporal "Something that happens or exists in time. Physical objects, events, and situations are all temporal.")
 (comment aspatial "Not located in any space: no location in any space, physical or mathematical. The complement of spatial — the two partition thing — and so nothing CxSpace's calculi relate.")
 (comment atemporal "Not located in time. Numbers, relations and the other kinds below nowhere_never are atemporal; a fluent is intangible but not atemporal, since it holds over time.")
