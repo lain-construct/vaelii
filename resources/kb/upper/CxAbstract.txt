@@ -202,18 +202,17 @@
 
 ;; --- causal / acausal: whether a thing can occupy a cause slot -----------------
 (comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. One side of the causal/acausal division of thing.")
-(genl causal thing)
 
 (comment acausal "A thing that cannot be a cause: a time, a property line, an attribute, the information a record or piece of evidence carries (a reading of it can cause; the information itself causes nothing). The other side of the causal/acausal division of thing.")
-(genl acausal thing)
 
-;; The causal/acausal division: a thing either can be a cause or cannot, so the two
-;; sides are disjoint. This also makes causal_event and acausal_event disjoint, by the
-;; genl closure of disjointness.
-(set/monotonic (disjoint causal acausal))
+;; Every thing is causal or acausal, and no thing is both.  The partition installs the
+;; genl edges from causal and from acausal to thing, so neither edge is stated.  A thing
+;; denied causal is concluded acausal.  causal_event and acausal_event are disjoint,
+;; because disjointness descends a genl edge.
+(set/monotonic (partition thing causal acausal))
 
 ;; Anything with mass can fill a cause slot: the rock dented the car. tangible is in
-;; CxCore, so the edge lives here beside causal; with the disjointness above it also
+;; CxCore, so the edge lives here beside causal; with the partition above it also
 ;; keeps every tangible out of acausal.
 (genl tangible causal)
 

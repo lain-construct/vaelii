@@ -1016,6 +1016,9 @@
     [disjoint formation made CxAbstract "formation genl natural; partition tangible made natural"]
     [disjoint formation organism CxAbstract "organism genl biological; separating tangible formation biological"]
     [disjoint formation body_part CxAbstract "body_part genl biological; separating tangible formation biological"]
+    [genl causal thing CxAbstract "partition thing causal acausal"]
+    [genl acausal thing CxAbstract "partition thing causal acausal"]
+    [disjoint causal acausal CxAbstract "partition thing causal acausal"]
     [genl asymmetric binary_predicate CxCore "asymmetric genl anti_symmetric genl binary_predicate"]
     [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
     [disjoint number predicate CxAbstract "number genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
@@ -1407,3 +1410,14 @@
     (v/assert kb (list 'substance WoodPortion1) 'CxUniverse)
     (is (not (tu/stored-in-clash? kb (list 'madeOf Trunk1 WoodPortion1) 'CxUniverse)))
     (is (true? (v/ask? kb (list 'madeOf Trunk1 WoodPortion1) 'CxUniverse)))))
+
+;; ---- pairs the disjointness audit left unknown ------------------------------
+
+(tu/deftest-kb causal-and-acausal-partition-thing
+  (is (true? (v/disjoint? kb 'causal 'acausal)))
+  (is (true? (v/disjoint? kb 'causal_event 'acausal_event)) "and the two event kinds below them")
+  (testing "a thing denied being a cause is acausal — the coverage half"
+    (tu/with-terms [Footprint1]
+      (v/assert kb (list 'thing Footprint1) 'CxUniverse)
+      (v/assert kb (list 'not (list 'causal Footprint1)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'acausal Footprint1) 'CxUniverse))))))

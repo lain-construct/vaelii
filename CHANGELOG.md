@@ -673,6 +673,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(partition thing spatial aspatial)`, since some events are located and some are not.
   *Breaks:* `capability`
 
+- **`causal` and `acausal` partition `thing`.** `(partition thing causal acausal)`
+  replaces `(disjoint causal acausal)` and the stated `genl` edges from `causal` and
+  `acausal` to `thing`, which the partition installs. A thing denied `causal` is now
+  concluded `acausal`; the two stay disjoint, and so do `causal_event` and
+  `acausal_event`. `ontology_test` pins the coverage and adds the three removed sentences
+  to its derived-and-unstated table.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that relied on `(disjoint causal acausal)`, `(genl causal thing)` or
+  `(genl acausal thing)` being stated, rather than derived, reads it from `disjoint?` or
+  `genl?` instead.
+
 ### Fixes: answers
 
 - **`check` reads a reifiable application in a quoting predicate's payload as a mention.**
