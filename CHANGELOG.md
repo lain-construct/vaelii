@@ -544,6 +544,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **Eleven pairs across `made` and `natural` are stated orthogonal.** An `orthogonal`
+  is not inherited along `genl`, so eleven pairs are stated in CxAbstract beside
+  `(orthogonal biological made)` and `(orthogonal biological natural)`: `organism` and
+  `body_part` each with `made` and with `natural` (a cloned sheep and a wild one, a
+  lab-grown bladder and a heart), `substance` with `made`, `natural` and `formation`
+  (steel, water, sand), and `food` with `made`, `natural`, `biological` and `formation`
+  (bread, an apple, sea salt). No stated separation covers any of the pairs.
+  `ontology_test` pins each pair as stated and read `:orthogonal`, an individual in both
+  types as no clash, a body part made of a substance as no clash, and a formation's
+  disjointness from `made`, `organism` and `body_part` as derived and unstated.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
 ### Fixes: answers
 
 - **The browser front page's disjointness list holds the pairs a `separating` or

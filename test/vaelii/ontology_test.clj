@@ -979,6 +979,9 @@
     [genl made tangible CxAbstract "partition tangible made natural"]
     [genl natural tangible CxAbstract "partition tangible made natural"]
     [genl formation tangible CxAbstract "formation genl natural genl tangible"]
+    [disjoint formation made CxAbstract "formation genl natural; partition tangible made natural"]
+    [disjoint formation organism CxAbstract "organism genl biological; separating tangible formation biological"]
+    [disjoint formation body_part CxAbstract "body_part genl biological; separating tangible formation biological"]
     [genl asymmetric binary_predicate CxCore "asymmetric genl anti_symmetric genl binary_predicate"]
     [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
     [disjoint number predicate CxAbstract "number genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
@@ -1336,3 +1339,37 @@
     (is (not (tu/stored-in-clash? kb (list 'made Steel1) 'CxUniverse))
         "a substance that is also made is no clash")
     (is (true? (v/ask? kb (list 'made Steel1) 'CxUniverse)))))
+
+;; ---- orthogonal pairs across made and natural -------------------------------
+;; In each pair the two types overlap and neither subsumes the other.  An orthogonal is
+;; not inherited along genl, so the KB states each pair.  Each witness is an individual
+;; in both types.
+
+(def ^:private cross-cutting
+  '[[organism made Dolly1] [organism natural WildSheep1]
+    [body_part made LabBladder1] [body_part natural Heart1]
+    [substance made Steel1] [substance natural Water1] [substance formation Sand1]
+    [food made Bread1] [food natural Apple1] [food biological Apple2]
+    [food formation SeaSalt1]])
+
+(tu/deftest-kb what-cuts-across-made-and-natural-is-stated-orthogonal
+  (doseq [[a b witness] cross-cutting]
+    (testing (str a " and " b)
+      (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'orthogonal a b) 'CxAbstract))
+          (str "(orthogonal " a " " b ") is stated"))
+      (is (= :orthogonal (v/subsumption-status kb a b)) "the pair reads orthogonal")
+      (is (not (v/disjoint? kb a b)))
+      (let [w (tu/fresh-term :individual witness)]
+        (v/assert kb (list a w) 'CxUniverse)
+        (is (not (tu/stored-in-clash? kb (list b w) 'CxUniverse))
+            (str "a " a " that is " b " is no clash"))
+        (is (true? (v/ask? kb (list b w) 'CxUniverse)))))))
+
+(tu/deftest-kb a-body-part-is-made-of-a-substance
+  ;; Nothing is both biological and a substance.  madeOf relates a biological thing to the
+  ;; substance it is made of, so a trunk made of wood is no clash.
+  (tu/with-terms [Trunk1 WoodPortion1]
+    (v/assert kb (list 'body_part Trunk1) 'CxUniverse)
+    (v/assert kb (list 'substance WoodPortion1) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'madeOf Trunk1 WoodPortion1) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'madeOf Trunk1 WoodPortion1) 'CxUniverse)))))
