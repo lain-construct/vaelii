@@ -122,6 +122,10 @@
   ;; concludes nothing and there is no clash to resolve.  The `genl` edge is what lets
   ;; the exception be stated at the type rather than at every liar individually.
   (v/assert kb '(genl liar person) 'CxCriedWolf)
+  ;; what the comment on lied_before says, stated: the quality reading's clash census reads
+  ;; this declaration to drop, as unreachable, a pair whose other rule could only fire on
+  ;; something no person is — an integer, or a thing in no space and at no time
+  (v/assert kb '(arg lied_before 1 person) 'CxCriedWolf)
   (assert-all kb 'CxCriedWolf
               '[(person BoyA) (wolf WolfA)
                 (lied_before BoyA)                     ; he has raised false alarms

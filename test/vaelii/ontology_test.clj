@@ -279,7 +279,7 @@
       (is (v/isa? kb p 'unary_predicate)
           (str p " is still a one-place predicate"))))
   (testing "while the kinds they are said of are types, and reach the root"
-    (doseq [t '[animal bird penguin dog person physical_object capability flying]]
+    (doseq [t '[animal bird penguin dog person tangible capability flying]]
       (is (v/genl? kb t 'thing) (str t " must reach thing")))))
 
 (tu/deftest-kb every-shipped-type-is-placed-under-the-root
@@ -373,7 +373,7 @@
   purpose — each with the reason.  A term absent from this roster that only one member uses
   fails the test below; a term here that gains a second member user fails it too, so the
   roster stays a list of reasons rather than a list of debts."
-  '{abstract "the top-level abstract/concrete ontological division, held in the head beside intangible / spatial / temporal so any member can extend it; only CxAbstract does today"
+  '{nowhere_never "the intersection of aspatial and atemporal, held in the head beside intangible / spatiotemporal / temporal so any member can extend it; only CxAbstract does today"
     capability "the upper-ontology skeleton collection CxLife extends (vaelii.impl.predicates); the head holds it so a member can place a capability under the root"
     denotational_term "the logic sense of `term`, vocabulary the head documents; only CxAbstract links it into the expression lattice today"
     formula "the formula-ladder type the head documents beside the grammar sense; only CxAbstract places it under expression today"
@@ -403,7 +403,10 @@
   (let [members  (set (map text/context-of
                            (mapcat #(filter text/kb-file? (file-seq (io/file (str "resources/kb/" %))))
                                    ["upper" "middle"])))
-        users    (fn [t] (distinct (filter members (map :context (v/find-sentexes kb t)))))
+        ;; authored use only: a rule's conclusion placed in a member names the term there
+        ;; without anybody having written it, and moving the term down would not move it
+        users    (fn [t] (distinct (filter members (map :context (filter #(v/premise? kb (:id %))
+                                                                         (v/find-sentexes kb t))))))
         core-structural-use?
         (fn [t] (some (fn [sx]
                         (let [s (:sentence sx)]
@@ -477,22 +480,21 @@
   ;; `disjoint`, so no `?p` satisfies two antecedents and the pairs are unreachable rather
   ;; than unstated (docs/quality.md).
   ;;
-  ;; The four `:disjoint` pairs are the checker's residual limitation.  Each pairs an
-  ;; integer-classification rule — a signed refinement concluding `integer` — with
-  ;; CxCriedWolf's `lied_before → liar`, whose conclusions `integer` and `liar` a
-  ;; separation makes disjoint.  No ground term is both an integer and a person,
-  ;; so the pairs are unreachable, but the checker cannot read that: the sign types and
-  ;; `lied_before` carry no `arg` declaration, so the only type each antecedent states is
-  ;; the membership that is itself the clash.  The relation-classification rules — arity,
-  ;; `bijection`, the arity classes — do carry an `arg` declaration typing their variable a
-  ;; `relation`, which `arg-type-conflicted?` reads to drop their pairs with `lied_before`
-  ;; as unreachable (vaelii#95).
+  ;; No `:disjoint` pair is left.  CxCriedWolf's `lied_before → liar` concludes a person,
+  ;; and three kinds of rule conclude a type disjoint from one: the signed refinements of
+  ;; `integer`, the relation classifications (arity, `bijection`, the arity classes), and
+  ;; the membership rule of `(intersection nowhere_never aspatial atemporal)`.  No ground
+  ;; term satisfies both antecedents of any such pair — nothing is a person and an integer,
+  ;; a relation, or in no space and at no time — and the checker reads that off the
+  ;; `arg` declarations: `(arg lied_before 1 person)` types the liar rule's variable a
+  ;; `person`, disjoint from what the other rule states or concludes about the same term,
+  ;; so `arg-type-conflicted?` drops every such pair as unreachable (vaelii#95).
   (let [pairs (:pairs (:clashes (v/kb-quality kb {:limit 100})))
         kinds (frequencies (map :kind pairs))]
-    (is (= {:negation 4, :disjoint 4} kinds)
+    (is (= {:negation 4} kinds)
         (str "clashes: " (pr-str (mapv (juxt :kind :sentences) pairs))))
     (is (every? :excepted (filter #(= :negation (:kind %)) pairs))
-        "negation clashes are excepted; the disjoint clashes are integer/person rules the checker cannot prune")))
+        "negation clashes are excepted")))
 
 (tu/deftest-kb the-arity-rules-clash-with-each-other-in-neither-direction
   ;; The reading's own half of the arity separation.  The generator stamps one rule per
@@ -501,7 +503,7 @@
   ;; refuse on the antecedents.  No `?relation` satisfies two of them, so the pair is
   ;; unreachable rather than unstated (docs/quality.md).
   ;;
-  ;; `(disjoint intangible spatial)` makes a relation-classification conclusion and a
+  ;; `(partition thing tangible intangible)` makes a relation-classification conclusion and a
   ;; story-predicate conclusion disjoint, so the arity rules would pair with CxCriedWolf's
   ;; `lied_before → liar` if the checker read only the conclusions.  It reads the
   ;; antecedents' `arg` declarations too: `(arg arity 1 relation)` types the arity rule's
@@ -586,10 +588,191 @@
 
 (tu/deftest-kb the-types-added-for-argument-constraints-are-placed-where-they-are-used
   (testing "the two calculi types the argument declarations name"
-    (is (v/genl? kb 'physical_object 'spatial))
+    (is (v/genl? kb 'tangible 'spatial))
     (is (v/genl? kb 'time_point 'temporal)))
   (testing "and an animal reaches spatial, so a spatial relation admits one"
     (is (v/genl? kb 'dog 'spatial))))
+
+;; ---- the upper divisions by location and by mass --------------------------
+;; Two partitions of `thing`.  `spatial` / `aspatial` divides by a location in SOME space —
+;; physical space, or a mathematical one, where a line or a square of an abstract board
+;; has a location and none in the world.  `tangible` / `intangible` divides by mass.
+;; `spatiotemporal` is the intersection of `spatial` and `temporal`: what has a location
+;; in space and time.  The spatial calculi relate anything spatial.  A region is the case the
+;; two partitions cross on: spatiotemporal, and massless.
+
+(tu/deftest-kb spatiotemporal-is-the-intersection-of-spatial-and-temporal
+  (testing "the combined kind is below each of its two types"
+    (is (true? (v/genl? kb 'spatiotemporal 'spatial)))
+    (is (true? (v/genl? kb 'spatiotemporal 'temporal))))
+  (testing "something spatial and temporal is concluded spatiotemporal"
+    (tu/with-terms [Puddle]
+      (v/assert kb (list 'spatial Puddle) 'CxUniverse)
+      (v/assert kb (list 'temporal Puddle) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list 'spatiotemporal Puddle) 'CxUniverse))))))
+
+(tu/deftest-kb a-tangible-thing-is-spatiotemporal-and-so-spatial-and-temporal
+  (testing "the type reaches all three"
+    (is (true? (v/genl? kb 'tangible 'spatiotemporal)))
+    (is (true? (v/genl? kb 'tangible 'spatial)))
+    (is (true? (v/genl? kb 'tangible 'temporal))))
+  (testing "and an instance carries the memberships"
+    (tu/with-terms [Pebble]
+      (v/assert kb (list 'tangible Pebble) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'spatiotemporal Pebble) 'CxUniverse)))
+      (is (true? (v/ask? kb (list 'spatial Pebble) 'CxUniverse)))
+      (is (true? (v/ask? kb (list 'temporal Pebble) 'CxUniverse))))))
+
+(tu/deftest-kb an-abstract-figure-is-spatial-without-being-spatiotemporal
+  ;; A line in a plane has a location in that plane and none in the world, no mass,
+  ;; and no place in time.
+  (tu/with-terms [Diagonal]
+    (v/assert kb (list 'spatial Diagonal) 'CxUniverse)
+    (v/assert kb (list 'atemporal Diagonal) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'intangible Diagonal) 'CxUniverse))
+        "spatial and intangible together are consistent")
+    (is (true? (v/ask? kb (list 'spatial Diagonal) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'intangible Diagonal) 'CxUniverse)))
+    (is (not (v/ask? kb (list 'spatiotemporal Diagonal) 'CxUniverse))
+        "it is not located in space and time")))
+
+(tu/deftest-kb nowhere-never-is-the-intersection-of-aspatial-and-atemporal
+  (testing "the combined kind is below each of its two types, and massless"
+    (is (true? (v/genl? kb 'nowhere_never 'aspatial)))
+    (is (true? (v/genl? kb 'nowhere_never 'atemporal)))
+    (is (true? (v/genl? kb 'nowhere_never 'intangible))))
+  (testing "an expression and a language are nowhere and never"
+    (is (true? (v/genl? kb 'expression 'nowhere_never)))
+    (is (true? (v/genl? kb 'language 'nowhere_never)))
+    (tu/with-terms [Formula]
+      (v/assert kb (list 'expression Formula) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'nowhere_never Formula) 'CxUniverse)))))
+  (testing "something aspatial and atemporal is concluded nowhere_never"
+    (tu/with-terms [Platitude]
+      (v/assert kb (list 'aspatial Platitude) 'CxUniverse)
+      (v/assert kb (list 'atemporal Platitude) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list 'nowhere_never Platitude) 'CxUniverse)))))
+  (testing "a line in the plane is atemporal and spatial, so it is not"
+    (tu/with-terms [Bisector]
+      (v/assert kb (list 'spatial Bisector) 'CxUniverse)
+      (v/assert kb (list 'atemporal Bisector) 'CxUniverse)
+      (is (not (v/ask? kb (list 'nowhere_never Bisector) 'CxUniverse)))
+      (is (empty? (v/sentexes-matching kb (list 'nowhere_never Bisector) 'CxUniverse))))))
+
+(tu/deftest-kb spatial-and-aspatial-partition-thing
+  (is (true? (v/disjoint? kb 'spatial 'aspatial)))
+  (is (true? (v/disjoint? kb 'spatiotemporal 'aspatial))
+      "the partition separates spatiotemporal from aspatial through the genl to spatial")
+  (is (true? (v/genl? kb 'spatial 'thing)))
+  (is (true? (v/genl? kb 'aspatial 'thing)))
+  (testing "a thing cannot be both"
+    (tu/with-terms [Figment]
+      (v/assert kb (list 'spatial Figment) 'CxUniverse)
+      (is (true? (tu/stored-in-clash? kb (list 'aspatial Figment) 'CxUniverse)))))
+  (testing "and a thing denied a location in any space is aspatial — the coverage half"
+    (tu/with-terms [Rumour]
+      (v/assert kb (list 'thing Rumour) 'CxUniverse)
+      (v/assert kb (list 'not (list 'spatial Rumour)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'aspatial Rumour) 'CxUniverse))))))
+
+(tu/deftest-kb temporal-and-atemporal-partition-thing
+  (is (true? (v/disjoint? kb 'temporal 'atemporal)))
+  (testing "a thing cannot be both"
+    (tu/with-terms [Moment]
+      (v/assert kb (list 'temporal Moment) 'CxUniverse)
+      (is (true? (tu/stored-in-clash? kb (list 'atemporal Moment) 'CxUniverse)))))
+  (testing "and a thing denied a place in time is atemporal — the coverage half"
+    (tu/with-terms [Theorem]
+      (v/assert kb (list 'thing Theorem) 'CxUniverse)
+      (v/assert kb (list 'not (list 'temporal Theorem)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'atemporal Theorem) 'CxUniverse))))))
+
+(tu/deftest-kb tangible-and-intangible-partition-thing
+  (is (true? (v/disjoint? kb 'tangible 'intangible)))
+  (is (true? (v/genl? kb 'tangible 'thing)))
+  (is (true? (v/genl? kb 'intangible 'thing)))
+  (testing "a thing cannot be both"
+    (tu/with-terms [Boulder]
+      (v/assert kb (list 'tangible Boulder) 'CxUniverse)
+      (is (true? (tu/stored-in-clash? kb (list 'intangible Boulder) 'CxUniverse)))))
+  (testing "and a thing denied mass is intangible — the coverage half"
+    (tu/with-terms [Echo]
+      (v/assert kb (list 'thing Echo) 'CxUniverse)
+      (v/assert kb (list 'not (list 'tangible Echo)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'intangible Echo) 'CxUniverse))))))
+
+(tu/deftest-kb what-has-no-place-in-space-or-time-has-no-mass
+  ;; Mass entails a location in space and time, so what lacks either lacks mass.
+  (is (true? (v/genl? kb 'aspatial 'intangible)))
+  (is (true? (v/genl? kb 'atemporal 'intangible)))
+  (tu/with-terms [Prime]
+    (v/assert kb (list 'atemporal Prime) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'intangible Prime) 'CxUniverse)))
+    (is (true? (tu/stored-in-clash? kb (list 'tangible Prime) 'CxUniverse)))))
+
+(tu/deftest-kb a-region-is-spatiotemporal-and-intangible-at-once
+  ;; A region of space has a location and no mass.  Nothing separates intangible from
+  ;; spatial or from spatiotemporal, so the pair is consistent.
+  (is (not (v/disjoint? kb 'intangible 'spatiotemporal)))
+  (is (not (v/disjoint? kb 'intangible 'spatial)))
+  (tu/with-terms [Meadow]
+    (v/assert kb (list 'spatiotemporal Meadow) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'intangible Meadow) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'intangible Meadow) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'spatial Meadow) 'CxUniverse)))
+    (is (not (v/ask? kb (list 'tangible Meadow) 'CxUniverse)))))
+
+(def ^:private derivable-and-unstated
+  "Relations the shipped KB holds without stating them, each with the context that held
+  the sentence before it was removed and the route it is derived by instead.  A
+  partition installs a genl edge from each part to the whole and separates the parts,
+  an intersection installs an edge to each of its types, genl is transitive, and a
+  disjointness descends a genl edge — so a stated sentence repeating one of those is not
+  written."
+  '[[genl aspatial thing CxCore "partition thing spatial aspatial"]
+    [genl intangible thing CxCore "partition thing tangible intangible"]
+    [genl nowhere_never intangible CxCore "nowhere_never genl aspatial genl intangible"]
+    [genl temporal thing CxCore "partition thing temporal atemporal"]
+    [genl atemporal thing CxCore "partition thing temporal atemporal"]
+    [disjoint temporal atemporal CxCore "partition thing temporal atemporal"]
+    [genl spatiotemporal thing CxCore "spatiotemporal genl spatial (intersection), spatial genl thing (partition)"]
+    [genl tangible temporal CxAbstract "tangible genl spatiotemporal genl temporal (intersection)"]
+    [disjoint tangible intangible CxAbstract "partition thing tangible intangible"]
+    [disjoint attribute tangible CxAbstract "attribute genl intangible; partition thing tangible intangible"]
+    [disjoint organization substance CxAbstract "organization genl intangible, substance genl tangible; partition thing tangible intangible"]
+    [disjoint language substance CxAbstract "language genl intangible, substance genl tangible; partition thing tangible intangible"]
+    [disjoint attribute substance CxAbstract "attribute genl intangible, substance genl tangible; partition thing tangible intangible"]
+    [disjoint organization animal CxUniverse "organization genl intangible, animal genl living_thing genl tangible; partition thing tangible intangible"]
+    [genl string intangible CxAbstract "string genl unrepresented_term genl expression genl nowhere_never genl intangible"]
+    [genl number intangible CxAbstract "number genl unrepresented_term genl expression genl nowhere_never genl intangible"]
+    [genl keyword intangible CxAbstract "keyword genl unrepresented_term genl expression genl nowhere_never genl intangible"]
+    [genl boolean intangible CxAbstract "boolean genl unrepresented_term genl expression genl nowhere_never genl intangible"]
+    [genl character intangible CxAbstract "character genl unrepresented_term genl expression genl nowhere_never genl intangible"]
+    [genl context intangible CxAbstract "context genl expression genl nowhere_never genl intangible"]
+    [genl language intangible CxAbstract "language genl nowhere_never genl intangible"]
+    [genl building artifact CxAbstract "building genl container genl artifact"]
+    [genl asymmetric binary_predicate CxCore "asymmetric genl anti_symmetric genl binary_predicate"]
+    [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
+    [disjoint number predicate CxAbstract "number genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
+    [disjoint keyword predicate CxAbstract "keyword genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
+    [disjoint boolean predicate CxAbstract "boolean genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
+    [disjoint character predicate CxAbstract "character genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
+    [disjoint glass_stuff stone CxAbstract "disjoint_metatype stuff_type_by_substance"]
+    [disjoint metal glass_stuff CxAbstract "disjoint_metatype stuff_type_by_substance"]
+    [disjoint metal stone CxAbstract "disjoint_metatype stuff_type_by_substance"]
+    [disjoint metal wood CxAbstract "disjoint_metatype stuff_type_by_substance"]
+    [disjoint wood glass_stuff CxAbstract "disjoint_metatype stuff_type_by_substance"]
+    [disjoint wood stone CxAbstract "disjoint_metatype stuff_type_by_substance"]])
+
+(tu/deftest-kb the-kb-states-no-relation-it-already-derives
+  ;; Each relation is read from the context that held the removed sentence, so a removal
+  ;; that left a context unable to see the route would fail here.
+  (doseq [[pred a b ctx route] derivable-and-unstated]
+    (is (true? (if (= 'genl pred) (v/genl? kb a b ctx) (v/disjoint? kb a b ctx)))
+        (str "(" pred " " a " " b ") holds in " ctx " by " route))
+    ;; stated means a premise: a derived copy is the KB deriving it, which is the point
+    (is (not-any? #(v/premise? kb (:id %)) (v/sentexes-matching kb (list pred a b) '?ctx))
+        (str "and (" pred " " a " " b ") is not stated"))))
 
 ;; ---- the literal types: one vocabulary, and one exception ----------------
 ;; `string` / `number` / `integer` / `symbol` are the KB's only names for text, numbers

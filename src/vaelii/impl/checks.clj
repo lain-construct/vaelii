@@ -645,8 +645,8 @@
 
   `genlArg` is `arg` one level up: it constrains the argument to be a **subtype**
   of the named type rather than an instance of it, which is what a type-level relation
-  wants — `(genlArg partType 1 physical_object)` says the first argument names a kind
-  of physical object, where `(arg partOf 1 physical_object)` says it names one.
+  wants — `(genlArg partType 1 tangible)` says the first argument names a kind
+  of physical object, where `(arg partOf 1 tangible)` says it names one.
 
   Which constraints apply is context-scoped exactly as `arg` is, and so is the
   subtype test itself: absence of a *visible* path to the constraint type is what
@@ -2323,8 +2323,8 @@
   :position n :kind arg|genlArg|interArg}`, empty when they entail nothing.
 
   `(arg parentOf 1 animal)` over `(parentOf Fred Mary)` entails `(animal Fred)`;
-  `(genlArg partType 1 physical_object)` over `(partType wheel_kind axle_kind)` entails
-  `(genl wheel_kind physical_object)`; `(interArg eats 1 carnivore 2 meat)` over
+  `(genlArg partType 1 tangible)` over `(partType wheel_kind axle_kind)` entails
+  `(genl wheel_kind tangible)`; `(interArg eats 1 carnivore 2 meat)` over
   `(eats Rex Chunk)` entails `(meat Chunk)` — but only once `Rex` is known to be a
   carnivore, which is the condition the declaration is *about*.  An **individual** in an
   `genlArg` position is convicted by `genls-problem` rather than given an edge, so it is

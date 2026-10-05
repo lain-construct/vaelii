@@ -1078,7 +1078,7 @@
            [non_atomic_term "documentary: a function applied to terms — the NAT of docs/nat.md, named as a collection. Reification reads the declaration on the function, never this."]])
 
     ;; ---- the upper-ontology skeleton -------------------------------------
-    ;; The five collections CxCore holds so that a spindle member can place its own types
+    ;; The six collections CxCore holds so that a spindle member can place its own types
     ;; under the root.  A spindle's members see the head and not each other, so a skeleton
     ;; term defined in one member is invisible to the member extending it — which left
     ;; `animal` unable to reach `thing` from CxOrganism, where it is defined.
@@ -1088,9 +1088,10 @@
     ;; check names one, and the kinds hanging off them are the members'.  `inert` is the
     ;; class, and the note is what a KB author asking `interpreted` is told.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
-         '[[intangible "ontology, not grammar: something with no mass or location. CxCore holds it so every spindle member can extend it; no engine check names it."]
-           [spatial "ontology, not grammar: something with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
-           [physical_object "ontology, not grammar: something with mass and a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
+         '[[intangible "ontology, not grammar: something with no mass, the complement of tangible. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [spatial "ontology, not grammar: something with a location in some space, physical or mathematical. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [spatiotemporal "ontology, not grammar: something with a location in space and time. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [tangible "ontology, not grammar: something with mass, and so with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [living_thing "ontology, not grammar: an organism. CxCore holds it so CxOrganism's kinds reach the root from CxOrganism; no engine check names it."]
            [capability "ontology, not grammar: something a kind of thing can do. CxCore holds it so CxLife can extend it; no engine check names it."]])
 
@@ -1098,14 +1099,14 @@
     ;; CxCore comments these too — the overhaul moved them here from CxAbstract, beside their
     ;; genl edges — so `vocabulary/audit` answers for them and they are classified inert like
     ;; the skeleton above: ontology the engine reads by no name.  `temporal` is `spatial`'s
-    ;; time twin; `aspatial` / `atemporal` are the not-in-space / not-in-time collections
-    ;; `abstract` sits under; the ladder is the metatype-order theory that `typeGenl` reads,
+    ;; time twin; `aspatial` / `atemporal` are the not-in-any-space / not-in-time collections
+    ;; `nowhere_never` sits under; the ladder is the metatype-order theory that `typeGenl` reads,
     ;; and `typeGenl` is itself inert.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
          '[[temporal "ontology, not grammar: something that exists in time. CxCore holds it so CxTime and CxAbstract can extend it; no engine check names it."]
-           [aspatial "ontology, not grammar: not located in space. CxCore holds it so abstract kinds can sit under it; no engine check names it."]
-           [atemporal "ontology, not grammar: not located in time. CxCore holds it so abstract kinds can sit under it; no engine check names it."]
-           [abstract "ontology, not grammar: an entity outside space and time, the root of the expression kinds CxAbstract hangs beneath it; no engine check names it."]
+           [aspatial "ontology, not grammar: not located in any space, the complement of spatial. CxCore holds it so nowhere_never can sit under it; no engine check names it."]
+           [atemporal "ontology, not grammar: not located in time, the complement of temporal. CxCore holds it so nowhere_never can sit under it; no engine check names it."]
+           [nowhere_never "ontology, not grammar: in no space and at no time, the intersection of aspatial and atemporal and the root of the expression kinds CxAbstract hangs beneath it; no engine check names it."]
            [type "ontology, not grammar: a first-order type, on the metatype-order ladder. No engine check names it — typeGenl, which reads the ladder, is inert."]
            [metatype "ontology, not grammar: a second-order type, on the metatype-order ladder. No engine check names it."]
            [meta_metatype "ontology, not grammar: a third-order type, on the metatype-order ladder. No engine check names it."]

@@ -35,8 +35,6 @@ scratch context hung below the asking context, so an ignored call leaves the
 KB as it found it and every answer names its assumptions. See
 [abduction.md](abduction.md).
 
-**`abstract`** ![kb](../.github/badges/cat-kb.svg): An entity outside space and time — both `aspatial` and `atemporal`. See [taxonomy.md](taxonomy.md).
-
 **Aggregation** ![inference](../.github/badges/cat-inference.svg): The five
 query operators `agg/count` / `agg/sum` / `agg/min` / `agg/max` / `agg/avg` —
 namespaced like `set/*Rule`, the bare words being ordinary vocabulary.
@@ -109,7 +107,7 @@ backend the edge solver renders a contested `Program` into, solved with clingo
 (in-process JNA) or clasp (subprocess). Opt-in, with a deterministic stub
 fallback. See [asp.md](asp.md).
 
-**`aspatial`** ![kb](../.github/badges/cat-kb.svg): An entity not located in space. See [taxonomy.md](taxonomy.md).
+**`aspatial`** ![kb](../.github/badges/cat-kb.svg): An entity not located in any space — the complement of `spatial`, the two partitioning `thing`. Having no location, it has no mass, so it is below `intangible`. See [taxonomy.md](taxonomy.md).
 
 **ASPIF** ![asp](../.github/badges/cat-asp.svg): The intermediate text format a
 `Program` is emitted to before a clingo/clasp solve. Contested assumptions
@@ -122,7 +120,7 @@ on a justification. A sentex may be both asserted and **Derived**; `kb-diff`'s
 
 **`at_least_metatype`** ![kb](../.github/badges/cat-kb.svg): The metatype-order collection of every type at order two or higher — `metatype`, `meta_metatype`, and up. See [taxonomy.md](taxonomy.md).
 
-**`atemporal`** ![kb](../.github/badges/cat-kb.svg): An entity not located in time. See [taxonomy.md](taxonomy.md).
+**`atemporal`** ![kb](../.github/badges/cat-kb.svg): An entity not located in time — the complement of `temporal`, the two partitioning `thing`. Having no location in time, it has no mass, so it is below `intangible`. See [taxonomy.md](taxonomy.md).
 
 **Atomic (storage)** ![backend](../.github/badges/cat-backend.svg): All-or-nothing, the systems sense —
 an atomic rename publishing a new file over the live one, a crash-atomic write, and
@@ -729,6 +727,8 @@ stored with its one head `not`, double negation eliminated, and that head is the
 literal's sign (`sentex/negative?`); the trie keys it under `:false`. See
 [canonicalization.md](canonicalization.md).
 
+**`nowhere_never`** ![kb](../.github/badges/cat-kb.svg): An entity in no space and at no time — the intersection of `aspatial` and `atemporal`, and so neither physically nor mathematically located. An expression or a language is one; the line y=x is not, being located in the Cartesian plane. See [taxonomy.md](taxonomy.md).
+
 ## O
 
 **Operation log** ![backend](../.github/badges/cat-backend.svg): The file a KB records
@@ -1086,6 +1086,10 @@ jar names of the libraries the engine namespaces load are included. A **reasonin
 by a build whose source identity equals the one the image was written under. See
 [storage.md](storage.md).
 
+**`spatial`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in some space — physical space, or a mathematical one such as the Cartesian plane, where the line y=x is located though it has no location in the world. `spatial` and `aspatial` partition `thing`, and every argument of the spatial calculi is declared at `spatial`. See [space.md](space.md).
+
+**`spatiotemporal`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in space and time — a physical object, a region, a place. The intersection of `spatial` and `temporal`. See [space.md](space.md).
+
 **Spindle** ![kb](../.github/badges/cat-kb.svg): The shape the context topology
 is built from — three layers: a **head** every member sees, a set of **members**
 that see the head and not each other, and a **collector** that sees every member.
@@ -1141,6 +1145,8 @@ sentex; a pattern is never reordered, and order-insensitive lookup probes both
 orders at match time. See [canonicalization.md](canonicalization.md).
 
 ## T
+
+**`tangible`** ![kb](../.github/badges/cat-kb.svg): An entity with mass — and so, necessarily, a location in space and time: below `spatiotemporal`. `tangible` and `intangible` partition `thing`. See [taxonomy.md](taxonomy.md).
 
 **Taxonomy** ![kb](../.github/badges/cat-kb.svg): The in-memory cache of the
 `genl` / `genlCx` closures, the equality partition, the predicate metadata,

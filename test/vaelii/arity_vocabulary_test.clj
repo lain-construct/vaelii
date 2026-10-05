@@ -37,7 +37,7 @@
     (is (v/isa? kb mapping 'binary_predicate))
     (is (not (v/isa? kb mapping 'unary_predicate)))
     (is (= 2 (arity-of kb mapping 'CxCore))))
-  (doseq [type '[thing animal physical_object fixed_arity]]
+  (doseq [type '[thing animal tangible fixed_arity]]
     (is (v/isa? kb type 'unary_predicate)))
   (is (v/genl? kb 'predicateTypeByArity 'relationTypeByArity))
   (is (v/genl? kb 'functionTypeByArity 'relationTypeByArity)))

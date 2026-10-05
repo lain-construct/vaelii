@@ -135,7 +135,7 @@
       ;; to a handler test — the swap is the client's — so the attribute is the assertion
       (is (re-find #"<input[^>]*hx-select=\"unset\"[^>]*hx-get=\"/tree/rows|<input[^>]*hx-get=\"/tree/rows[^>]*hx-select=\"unset\"" body)))
     (testing "and what is below it is not in the page until it is opened"
-      ;; `animal` is under `physical_object` and `bird` under that — the eager tree
+      ;; `animal` is under `tangible` and `bird` under that — the eager tree
       ;; rendered the whole hierarchy, this one renders one level and a placeholder
       (is (not (re-find #"href=\"/term\?q=bird\"" body)))
       (is (re-find #"tree-kids" body) "the placeholder a fetch will replace"))))

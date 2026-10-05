@@ -119,7 +119,7 @@
 (binary_predicate livesIn)
 (instance_relation_predicate livesIn)
 (arg livesIn 1 animal)
-(arg livesIn 2 physical_object)
+(arg livesIn 2 tangible)
 
 (comment mortal
          "(mortal ?living_thing) means that ?living_thing will die. Asserted as a default of every living thing, so it is defeasible: something known not to die defeats it instead of contradicting the KB.")

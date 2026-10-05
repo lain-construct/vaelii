@@ -670,8 +670,11 @@
   rules the pass released.  `asked` takes the mints withdrawn."
   [kb {:keys [was new wdrawn queued free cfree revived mnew departed lost aggs over flips]}
    asked]
-  ;; read before the sweep, which deletes justifications
-  (let [released (released-rules kb was new)]
+  ;; read before the sweep, which deletes justifications — and so are the re-joins the
+  ;; withdrawn mints' firings owe (`special/withdrawn-edge-seeds`)
+  (let [released (released-rules kb was new)
+        wseeds   (when-not *rebuilding?*
+                   (not-empty (special/withdrawn-edge-seeds kb (:withdrawn wdrawn))))]
     (vswap! (:withdrawn asked) into (:withdrawn wdrawn))
     (jtms/set-blocked (reasoning/tms kb) new)
     (sweep-excepted! kb (into #{} (remove was) new))
@@ -687,6 +690,9 @@
       ;; (`chain/*report-no-placement?*`)
       (when (seq departed)
         (binding [chain/*report-no-placement?* false] (rechain-seeds kb departed)))
+      ;; ...and the one a withdrawn mint's firings owe, as silent for the same reason
+      (when wseeds
+        (binding [chain/*report-no-placement?* false] (rechain-seeds kb wseeds)))
       ;; each reader's lost firings, with every witness search asked from that reader
       (doseq [[r pairs] lost]
         (binding [chain/*witness-view*         r

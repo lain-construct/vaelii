@@ -51,8 +51,10 @@
 ;; (leftOf A B) with (leftOf B C) answers (leftOf A C) in the frame all three were stated
 ;; in; and (coLocatedWith A B) with (closeTo B C) answers (closeTo A C). Each prover is
 ;; opt-in; the vocabulary is not. Every argument position here is declared at
-;; spatial — the type the four calculi relate — and nothing narrower;
-;; picking them out more finely is not this file's job. See docs/space.md.
+;; spatial — located in some space, the world or a mathematical one such as a plane —
+;; and nothing narrower, since none of the four calculi needs time; picking them out
+;; more finely is not this file's job. The context keeps two spaces apart, as it keeps
+;; two frames of reference apart. See docs/space.md.
 
 (genlCx CxSpace CxCore)
 (genlCx CxUniverse CxSpace)

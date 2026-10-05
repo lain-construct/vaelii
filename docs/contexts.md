@@ -76,9 +76,9 @@ Data hangs below CxWell.
   special predicate the engine interprets), asserted by `vaelii.host.core-context`. The
   root — every context in the spindle sees it, and a context no `genlCx` edge names
   sees nothing but itself ([A context outside the
-  spindle](#a-context-outside-the-spindle)). It also holds the five collections at the
-  top of the ontology — `intangible`, `spatial`, `physical_object`, `living_thing`,
-  `capability` — which the engine reads by no name and which are here for the reason
+  spindle](#a-context-outside-the-spindle)). It also holds the six collections at the
+  top of the ontology — `intangible`, `spatial`, `spatiotemporal`, `tangible`,
+  `living_thing`, `capability` — which the engine reads by no name and which are here for the reason
   below: the members of a spindle see each other not at all, so a term two of them
   extend has to be defined in the head.
   `starter_test/a-term-two-spindle-members-touch-is-defined-in-the-head` holds that.
@@ -112,10 +112,11 @@ Data hangs below CxWell.
 - **CxUniverse** — the upper spindle's *collector* and the middle spindle's *head*, left free for **lifting**: universally-true facts collect here
   (`decontextualized_predicate` justifications and the forced `genlCx` extent). It sees
   every upper member and is seen by every middle member. It also holds hand-authored
-  cross-member axioms: `resources/kb/CxUniverse.txt` states `(disjoint organization
-  animal)`, whose `organization` and `animal` come from different upper members. No
-  member sees a sibling, so only the collector sees both terms, and a cross-member
-  `disjoint` belongs here. Being the one context
+  cross-member axioms in `resources/kb/CxUniverse.txt`: a claim naming terms from two
+  upper members belongs here, since no member sees a sibling and only the collector
+  sees both. It states none today — `organization` and `animal`, the pair it once
+  separated, are already separated by `(partition thing tangible intangible)` in
+  CxCore. Being the one context
   that sees the whole upper spindle is what makes it the head of the next.
 - **the middle spindle's members** (`kb/middle/`) — how the definitional things *interrelate*,
   where several overlapping theories can coexist. One context per theory, each seeing

@@ -1584,8 +1584,8 @@ These are structural checks; the *content* check that an argument actually reach
 `(arg P n T)` asks argument *n* to be an **instance** of T; `(genlArg P n T)` asks
 it to be a **subtype** — `arg` one level up. An `instance_relation_predicate` takes
 the first, a `type_relation_predicate` the second, and the same symbol answers them
-differently: `penguin` satisfies `(genlArg partType 1 physical_object)` and fails
-`(arg partOf 1 physical_object)`, which is exactly the distinction between a claim
+differently: `penguin` satisfies `(genlArg partType 1 tangible)` and fails
+`(arg partOf 1 tangible)`, which is exactly the distinction between a claim
 about a kind and a claim about a thing.
 
 **A constraint on a predicate binds its sub-predicates' tuples.** `(genl fatherOf
@@ -1757,9 +1757,10 @@ Four restrictions keep the arm to what it can actually prove:
   that position, so `(implies (and (dog ?x) (not (plant ?x))) …)` is saying exactly what
   its author meant; an existential is skipped because its variables are local.
 - **Declared disjointness only**, so the arm stays as open-world as the ground one. The
-  value kinds carry the declaration that makes the case above bite —
-  `(disjoint string predicate)` and `(disjoint number predicate)` in CxAbstract, text and
-  a number each being a thing no relation is, and the second carrying `integer` with it.
+  value kinds carry the declaration that makes the case above bite — each is an
+  `unrepresented_term`, and `(disjoint unrepresented_term relation)` in CxAbstract
+  separates it from every predicate, text and a number each being a thing no relation
+  is, and `number` carrying `integer` with it.
   `symbol` deliberately carries neither: a name is exactly how a predicate is written, so
   the disjointness would be false. CxCore adds `(disjoint function predicate)`, which is
   what `function`'s own comment has always said in prose, and it is what refuses

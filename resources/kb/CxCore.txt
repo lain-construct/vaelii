@@ -49,7 +49,7 @@
          "(and ?antecedent1 ?antecedent2 …) means the conjunction of the antecedents inside an implies rule. A syntactic connective rather than a predicate: it is never asserted on its own, and a rule with a single antecedent needs no and at all.")
 
 (comment genlArg
-         "(genlArg ?relation ?position ?type) means that argument ?position of ?relation must be a subtype of ?type. The arg constraint one level up, for arguments naming kinds rather than instances: (genlArg partType 1 physical_object) says the argument names a kind of physical object, where (arg partOf 1 physical_object) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
+         "(genlArg ?relation ?position ?type) means that argument ?position of ?relation must be a subtype of ?type. The arg constraint one level up, for arguments naming kinds rather than instances: (genlArg partType 1 tangible) says the argument names a kind of physical object, where (arg partOf 1 tangible) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
 (ternary_predicate genlArg)
 (arg genlArg 1 relation)
 (arg genlArg 2 positive_integer)
@@ -207,28 +207,30 @@
 ;; Nothing in the engine reads any of them by name — they are classified inert in
 ;; vaelii.impl.predicates for that reason.  What they are is the top of the ontology,
 ;; and the grammar head is where every context can reach it.  The kinds hanging off them
-;; stay in the band: (genl artifact physical_object) is CxAbstract's, (genl animal
+;; stay in the band: (genl artifact tangible) is CxAbstract's, (genl animal
 ;; living_thing) is CxOrganism's, and both now resolve.
-(comment intangible "Something with no mass or location: an attribute, a relation, a time.")
-(comment spatial "Something with a location, so that it can stand in a spatial relation to another — a physical object, but also a region or a place, which occupy space without being made of anything. What the four spatial calculi relate.")
+(comment intangible "Something with no mass: a region, a shadow, a number, a relation, a time. It may have a location — a region of space is spatiotemporal and intangible both.")
+(comment spatial "Something with a location in some space, physical or mathematical. The line y=x is located in the Cartesian plane and a square of an abstract chessboard on that board, though neither is located anywhere in the world; a point has a location and no extent, and is spatial too. Everything spatiotemporal is spatial; spatial and aspatial partition thing. The four spatial calculi relate what is spatial, in whichever space a context is about.")
+(comment spatiotemporal "Something with a location in space and time — a physical object, but also a region or a place, which occupy space without being made of anything. The intersection of spatial and temporal.")
 (comment temporal "Something that happens or exists in time. Physical objects, events, and situations are all temporal.")
-(comment aspatial "Not located in space. The complement CxSpace's calculi never relate.")
-(comment atemporal "Not located in time. Numbers, relations and the rest of the abstract kinds are atemporal; a fluent is intangible but not atemporal, since it holds over time.")
-(comment physical_object "Something with mass and a location in space.")
+(comment aspatial "Not located in any space: no location in any space, physical or mathematical. The complement of spatial — the two partition thing — and so nothing CxSpace's calculi relate.")
+(comment atemporal "Not located in time. Numbers, relations and the other kinds below nowhere_never are atemporal; a fluent is intangible but not atemporal, since it holds over time.")
+(comment tangible "Something with mass. Having mass, it necessarily has a location in space and time too, so it is spatiotemporal.")
 (comment living_thing "An organism — it is born, lives, and (by default) dies.")
 (comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
-(comment abstract "An entity outside space and time — a number, a relation, an expression, a language. Below both aspatial and atemporal.")
-(genl intangible thing)
-(genl spatial thing)
-(genl temporal thing)
-(genl aspatial thing)
-(genl atemporal thing)
-(genl physical_object spatial)
-(genl living_thing physical_object)
+(comment nowhere_never "In no space and at no time: no location in any space, physical or mathematical, and none in time. An expression, a language. The line y=x is not one: it is located in the Cartesian plane, so it is spatial.")
+;; spatial, aspatial, temporal, atemporal, tangible and intangible reach thing through
+;; the three partitions of thing below, each of which installs its parts' edges to the
+;; whole; spatiotemporal reaches it through spatial.
+(intersection spatiotemporal spatial temporal)
+(genl tangible spatiotemporal)
+(genl living_thing tangible)
 (genl capability intangible)
-(genl abstract intangible)
-(genl abstract aspatial)
-(genl abstract atemporal)
+;; Mass entails a location in space and in time, so what has no location in any space,
+;; or none in time, has no mass.
+(genl aspatial intangible)
+(genl atemporal intangible)
+(intersection nowhere_never aspatial atemporal)
 
 ;; The expression kinds — what a sentence is BUILT OUT OF, named as collections so a
 ;; declaration can type an argument by the FORM of the expression written there rather
@@ -1230,7 +1232,6 @@
          "(asymmetric ?predicate) means that ?predicate cannot hold both ways. (?predicate a b) and (?predicate b a) are contradictory, and a strict order such as largerThan is the usual case. Read as a nogood: the mirror of a claim denies it, so a strict claim conflicts with its converse instead of silently coexisting with it. The conviction needs a believed opposing claim, so a self tuple (?predicate a a) is admitted rather than refused. Also a type: (asymmetric P) classifies P as a binary_predicate.")
 (unary_predicate asymmetric)
 (decontextualized_predicate asymmetric)
-(genl asymmetric binary_predicate)
 
 (comment anti_symmetric
          "(anti_symmetric ?predicate) means that ?predicate holding both ways forces its two arguments to be one thing. Believing (?predicate a b) and (?predicate b a) of two symbols, both known true (monotonic), derives (equals a b) and merges, mirroring how a functional predicate reconciles two symbol values — the merge is justified by both facts and the declaration, so retracting any one un-merges them. Any other converse pair, two non-symbols such as 1980 and 1990 or a pair with a default member, is a nogood each context reading the pair decides instead: a default member is not believed there when the other is monotonic, and two default members are a dilemma. A self tuple (?predicate a a) is admitted: its converse is itself and (equals a a) is trivial. Also a type: (anti_symmetric P) classifies P as a binary_predicate. Declared of a partial order such as atOrAbove, for instance.")
@@ -1479,9 +1480,14 @@
 (variable_order_type fixed_order_type)
 (variable_order_type variable_order_type)
 
-(set/monotonic (disjoint intangible spatial))
-;; A thing is either located in space or aspatial, and either in time or atemporal: each
-;; pair is a complement.  The quality checker's schematic clash reading prunes the phantom
-;; pairs these create by antecedent arg-type disjointness (vaelii#95, fix(quality)).
-(set/monotonic (disjoint spatial aspatial))
-(set/monotonic (disjoint temporal atemporal))
+;; A thing has mass or it does not: tangible and intangible partition thing, which records
+;; the separation and the coverage both.  Nothing separates intangible from spatial or
+;; spatiotemporal, since a region has a location and no mass.
+(set/monotonic (partition thing tangible intangible))
+;; A thing either has a location in some space or is aspatial, and is either in time or
+;; atemporal: each pair is a complement, and each is a partition, which records the
+;; separation and the coverage both.  The quality checker's schematic clash reading
+;; prunes the phantom pairs these separations create by antecedent arg-type
+;; disjointness (vaelii#95, fix(quality)).
+(set/monotonic (partition thing spatial aspatial))
+(set/monotonic (partition thing temporal atemporal))

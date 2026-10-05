@@ -91,15 +91,15 @@
 (tu/deftest-kb type-inferred-from-how-a-thing-is-used
   ;; Bone1 is never given a type; it is only ever eaten by Muffet. Because
   ;; (arg eats 2 food), we can infer Bone1 is food — and, by genl, a
-  ;; physical_object and a thing — without ever storing those memberships.
+  ;; tangible and a thing — without ever storing those memberships.
   (testing "the type is not stored, only inferable"
     (is (empty? (v/sentexes-matching kb '(food Bone1) '?ctx))))
   (testing "the individual's type follows from the relation's arg"
     (is (v/ask? kb '(food Bone1)))
-    (is (v/ask? kb '(physical_object Bone1)))            ; a supertype of food
+    (is (v/ask? kb '(tangible Bone1)))            ; a supertype of food
     (is (not (v/ask? kb '(vehicle Bone1)))))            ; but only what actually follows
   (testing "asking for all of an individual's inferred types"
-    (is (= '#{food physical_object spatial temporal thing}
+    (is (= '#{food tangible spatial spatiotemporal temporal thing}
            (set (map #(get % '?t) (v/ask kb '(?t Bone1) '?ctx)))))))
 
 ;; ---- arithmetic, and the ordering derived from it ------------------------

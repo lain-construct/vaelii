@@ -39,11 +39,11 @@
     (is (empty? (v/sentexes-matching kb '(owns Tom Engine1) 'CxNaturalWorld)))))
 
 (tu/deftest-kb joined-antecedents-infer-a-part-type
-  ;; partOf now carries arg (partOf 2 physical_object), so an untyped part is
-  ;; inferred to be a physical_object from how it is used.
-  (testing "Roof1 is never typed, but its physical_object-hood is inferable"
-    (is (empty? (v/sentexes-matching kb '(physical_object Roof1) '?ctx)))
-    (is (v/ask? kb '(physical_object Roof1)))))
+  ;; partOf now carries arg (partOf 2 tangible), so an untyped part is
+  ;; inferred to be a tangible from how it is used.
+  (testing "Roof1 is never typed, but its tangible-hood is inferable"
+    (is (empty? (v/sentexes-matching kb '(tangible Roof1) '?ctx)))
+    (is (v/ask? kb '(tangible Roof1)))))
 
 ;; ---- the stories --------------------------------------------------------
 
