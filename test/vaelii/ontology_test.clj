@@ -1482,3 +1482,7 @@
     (v/assert kb (list 'spatial Waterloo1) 'CxUniverse)
     (is (true? (v/ask? kb (list 'spatial_event Waterloo1) 'CxUniverse))
         "an event located in some space is a spatial event")))
+
+(tu/deftest-kb a-fluent-is-temporal
+  (is (true? (v/genl? kb 'fluent 'temporal 'CxAbstract)))
+  (is (true? (v/disjoint? kb 'fluent 'atemporal))))

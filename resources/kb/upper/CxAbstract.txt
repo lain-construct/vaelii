@@ -55,6 +55,8 @@
 
 (comment fluent "A state of affairs that holds over some stretches of time and not others — a cat being asleep, a light being on. What an event starts and stops, and what holdsAt asks about at a moment; aspatial and so intangible, because it is a way the world is rather than a thing in it. See docs/time.md.")
 (genl fluent aspatial)
+;; A fluent holds over stretches of time, so it is temporal and never atemporal.
+(genl fluent temporal)
 
 (comment food "A physical object eaten by an animal for nourishment.")
 (genl food tangible)

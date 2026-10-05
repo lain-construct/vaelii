@@ -735,6 +735,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **A fluent is temporal.** CxAbstract states `(genl fluent temporal)`, so a fluent that
+  is also atemporal is a clash, as CxCore's `atemporal` comment already says.
+  `ontology_test` pins the edge and the disjointness.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
 ### Fixes: answers
 
 - **`check` reads a reifiable application in a quoting predicate's payload as a mention.**
