@@ -568,7 +568,6 @@
 
 (comment orthogonal
          "(orthogonal ?type1 ?type2) means that the two types may overlap — something could be an instance of both — and that neither is a subtype of the other. It does not say that anything is an instance of both, and claims nothing about things that are instances of neither. The declared spelling of the :orthogonal subsumption status, which otherwise needs a shared instance as its witness; the declaration names no such instance and derives none. Symmetric, so the two spellings of one pair store as one sentex. It exempts the pair from the two clique marks: a sibling_disjoint parent or a disjoint_metatype that would otherwise separate the two no longer does, and only that pair is spared — each type stays disjoint from the parent's other specializations and the metatype's other members, and the exemption does not reach subtypes, since each read tests the exact pair drawn from the two genl closures. Read at the reader: a context that does not see the declaration reads the pair separated. A Braille reading, both a reading and a touch perception, is the structure of it. A direct separation is not exempted: a (disjoint ?type1 ?type2), a disjointness inherited from separated supertypes, a partition or separating roster naming both, and a genl edge between the two in either direction each contradict the declaration.")
-(binary_predicate orthogonal)
 (symmetric orthogonal)
 (type_relation_predicate orthogonal)
 (genlArg orthogonal 1 thing)

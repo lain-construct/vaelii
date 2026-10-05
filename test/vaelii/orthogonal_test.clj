@@ -24,20 +24,22 @@
   (is (true? (v/ask? kb '(symmetric orthogonal))))
   (is (true? (v/ask? kb '(type_relation_predicate orthogonal)))))
 
-(tu/deftest-kb its-binary-class-is-stated-and-its-length-is-checked
+(tu/deftest-kb its-length-is-checked-by-its-own-arm-not-a-stated-class
   ;; `symmetric` and `type_relation_predicate` are each `genl binary_predicate`, so the
-  ;; class is answered without the stated `(binary_predicate orthogonal)` — but the arity
-  ;; nogood reads only a stated binding, so the class is stated.  The well-formedness arm
-  ;; refuses another length before either is read.
-  (is (seq (v/sentexes-matching kb '(binary_predicate orthogonal) 'CxCore)))
+  ;; class is answered without stating it, and the well-formedness arm, which reads the
+  ;; sentence alone, refuses any other length.
+  (is (empty? (v/sentexes-matching kb '(binary_predicate orthogonal) '?ctx))
+      "no (binary_predicate orthogonal) is stated")
+  (is (true? (v/ask? kb '(binary_predicate orthogonal))))
   (is (= 2 (:arity (v/describe kb 'orthogonal))))
   (tu/with-terms [alphaKind betaKind gammaKind]
     (doseq [t ['alphaKind 'betaKind 'gammaKind]]
       (v/assert kb (list 'genl t 'thing) 'CxUniverse))
-    (is (= :not-well-formed
-           (try (v/assert kb (list 'orthogonal 'alphaKind 'betaKind 'gammaKind) 'CxUniverse) :ok
-                (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
-        "a three-place orthogonal is refused")))
+    (doseq [s [(list 'orthogonal 'alphaKind 'betaKind 'gammaKind) (list 'orthogonal 'alphaKind)]]
+      (is (= :not-well-formed
+             (try (v/assert kb s 'CxUniverse) :ok
+                  (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+          (str (pr-str s) " is refused")))))
 
 (tu/deftest-kb orthogonal-is-symmetric
   (tu/with-terms [spatialKind temporalKind]
