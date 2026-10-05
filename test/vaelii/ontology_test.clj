@@ -372,7 +372,7 @@
   purpose — each with the reason.  A term absent from this roster that only one member uses
   fails the test below; a term here that gains a second member user fails it too, so the
   roster stays a list of reasons rather than a list of debts."
-  '{nowhere_never "in no space and at no time, held in the head beside intangible / spatiotemporal / temporal so any member can extend it; only CxAbstract does today"
+  '{nowhere_never "the intersection of aspatial and atemporal, held in the head beside intangible / spatiotemporal / temporal so any member can extend it; only CxAbstract does today"
     capability "the upper-ontology skeleton collection CxLife extends (vaelii.impl.predicates); the head holds it so a member can place a capability under the root"
     denotational_term "the logic sense of `term`, vocabulary the head documents; only CxAbstract links it into the expression lattice today"
     formula "the formula-ladder type the head documents beside the grammar sense; only CxAbstract places it under expression today"
@@ -402,7 +402,10 @@
   (let [members  (set (map text/context-of
                            (mapcat #(filter text/kb-file? (file-seq (io/file (str "resources/kb/" %))))
                                    ["upper" "middle"])))
-        users    (fn [t] (distinct (filter members (map :context (v/find-sentexes kb t)))))
+        ;; authored use only: a rule's conclusion placed in a member names the term there
+        ;; without anybody having written it, and moving the term down would not move it
+        users    (fn [t] (distinct (filter members (map :context (filter #(v/premise? kb (:id %))
+                                                                          (v/find-sentexes kb t))))))
         core-structural-use?
         (fn [t] (some (fn [sx]
                         (let [s (:sentence sx)]
@@ -476,22 +479,21 @@
   ;; `disjoint`, so no `?p` satisfies two antecedents and the pairs are unreachable rather
   ;; than unstated (docs/quality.md).
   ;;
-  ;; The four `:disjoint` pairs are the checker's residual limitation.  Each pairs an
-  ;; integer-classification rule — a signed refinement concluding `integer` — with
-  ;; CxCriedWolf's `lied_before → liar`, whose conclusions `integer` and `liar` a
-  ;; separation makes disjoint.  No ground term is both an integer and a person,
-  ;; so the pairs are unreachable, but the checker cannot read that: the sign types and
-  ;; `lied_before` carry no `arg` declaration, so the only type each antecedent states is
-  ;; the membership that is itself the clash.  The relation-classification rules — arity,
-  ;; `bijection`, the arity classes — do carry an `arg` declaration typing their variable a
-  ;; `relation`, which `arg-type-conflicted?` reads to drop their pairs with `lied_before`
-  ;; as unreachable (vaelii#95).
+  ;; No `:disjoint` pair is left.  CxCriedWolf's `lied_before → liar` concludes a person,
+  ;; and three kinds of rule conclude a type disjoint from one: the signed refinements of
+  ;; `integer`, the relation classifications (arity, `bijection`, the arity classes), and
+  ;; the membership rule of `(intersection nowhere_never aspatial atemporal)`.  No ground
+  ;; term satisfies both antecedents of any such pair — nothing is a person and an integer,
+  ;; a relation, or in no space and at no time — and the checker reads that off the
+  ;; `arg` declarations: `(arg lied_before 1 person)` types the liar rule's variable a
+  ;; `person`, disjoint from what the other rule states or concludes about the same term,
+  ;; so `arg-type-conflicted?` drops every such pair as unreachable (vaelii#95).
   (let [pairs (:pairs (:clashes (v/kb-quality kb {:limit 100})))
         kinds (frequencies (map :kind pairs))]
-    (is (= {:negation 4, :disjoint 4} kinds)
+    (is (= {:negation 4} kinds)
         (str "clashes: " (pr-str (mapv (juxt :kind :sentences) pairs))))
     (is (every? :excepted (filter #(= :negation (:kind %)) pairs))
-        "negation clashes are excepted; the disjoint clashes are integer/person rules the checker cannot prune")))
+        "negation clashes are excepted")))
 
 (tu/deftest-kb the-arity-rules-clash-with-each-other-in-neither-direction
   ;; The reading's own half of the arity separation.  The generator stamps one rule per
@@ -633,8 +635,8 @@
     (is (not (v/ask? kb (list 'spatiotemporal Diagonal) 'CxUniverse))
         "it is not located in space and time")))
 
-(tu/deftest-kb nowhere-never-is-below-aspatial-atemporal-and-intangible
-  (testing "it is below aspatial, atemporal and intangible"
+(tu/deftest-kb nowhere-never-is-the-intersection-of-aspatial-and-atemporal
+  (testing "the combined kind is below each of its two types, and massless"
     (is (true? (v/genl? kb 'nowhere_never 'aspatial)))
     (is (true? (v/genl? kb 'nowhere_never 'atemporal)))
     (is (true? (v/genl? kb 'nowhere_never 'intangible))))
@@ -644,6 +646,11 @@
     (tu/with-terms [Formula]
       (v/assert kb (list 'expression Formula) 'CxUniverse)
       (is (true? (v/ask? kb (list 'nowhere_never Formula) 'CxUniverse)))))
+  (testing "something aspatial and atemporal is concluded nowhere_never"
+    (tu/with-terms [Platitude]
+      (v/assert kb (list 'aspatial Platitude) 'CxUniverse)
+      (v/assert kb (list 'atemporal Platitude) 'CxUniverse)
+      (is (seq (v/sentexes-matching kb (list 'nowhere_never Platitude) 'CxUniverse)))))
   (testing "a line in the plane is atemporal and spatial, so it is not"
     (tu/with-terms [Bisector]
       (v/assert kb (list 'spatial Bisector) 'CxUniverse)
@@ -762,7 +769,8 @@
   (doseq [[pred a b ctx route] derivable-and-unstated]
     (is (true? (if (= 'genl pred) (v/genl? kb a b ctx) (v/disjoint? kb a b ctx)))
         (str "(" pred " " a " " b ") holds in " ctx " by " route))
-    (is (empty? (v/sentexes-matching kb (list pred a b) '?ctx))
+    ;; stated means a premise: a derived copy is the KB deriving it, which is the point
+    (is (not-any? #(v/premise? kb (:id %)) (v/sentexes-matching kb (list pred a b) '?ctx))
         (str "and (" pred " " a " " b ") is not stated"))))
 
 ;; ---- the literal types: one vocabulary, and one exception ----------------

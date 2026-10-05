@@ -1099,7 +1099,7 @@
          '[[temporal "ontology, not grammar: something that exists in time. CxCore holds it so CxTime and CxAbstract can extend it; no engine check names it."]
            [aspatial "ontology, not grammar: not located in any space, the complement of spatial. CxCore holds it so nowhere_never can sit under it; no engine check names it."]
            [atemporal "ontology, not grammar: not located in time, the complement of temporal. CxCore holds it so nowhere_never can sit under it; no engine check names it."]
-           [nowhere_never "ontology, not grammar: in no space and at no time, below aspatial and atemporal and the root of the expression kinds CxAbstract hangs beneath it; no engine check names it."]
+           [nowhere_never "ontology, not grammar: in no space and at no time, the intersection of aspatial and atemporal and the root of the expression kinds CxAbstract hangs beneath it; no engine check names it."]
            [type "ontology, not grammar: a first-order type, on the metatype-order ladder. No engine check names it — typeGenl, which reads the ladder, is inert."]
            [metatype "ontology, not grammar: a second-order type, on the metatype-order ladder. No engine check names it."]
            [meta_metatype "ontology, not grammar: a third-order type, on the metatype-order ladder. No engine check names it."]

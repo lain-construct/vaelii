@@ -230,8 +230,7 @@
 ;; or none in time, has no mass.
 (genl aspatial intangible)
 (genl atemporal intangible)
-(genl nowhere_never aspatial)
-(genl nowhere_never atemporal)
+(intersection nowhere_never aspatial atemporal)
 
 ;; The expression kinds — what a sentence is BUILT OUT OF, named as collections so a
 ;; declaration can type an argument by the FORM of the expression written there rather

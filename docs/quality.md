@@ -306,9 +306,10 @@ rule *concludes* about the unified term. `(arity ?r ?a) => (fixed_arity ?r)` dem
 be a `relation` through `(arg arity 1 relation)`, and CxCriedWolf's
 `(lied_before ?x) => (liar ?x)` places the unified term under `person`. No ground term is
 both a relation and a person, so the two rules never both fire for one term and the pair is
-dropped. The demand is read where a membership cannot state it: `lied_before` says nothing
-about its argument's type, so only the `arg` declaration on the paired rule's antecedent
-rules the term out. A declared domain the other conclusion does not exclude, and an
+dropped. The demand is read where a membership cannot state it, on either side: the test
+world declares `(arg lied_before 1 person)`, so the same reading drops the pairs whose other
+rule concludes a type no person has — a signed refinement of `integer`, or `nowhere_never`
+from `aspatial` and `atemporal`. A declared domain the other conclusion does not exclude, and an
 undeclared one, both stay candidates — two stated types clashing is the clash the pair
 reports, so at least one side of the disjoint pair must be a declared arg type.
 
