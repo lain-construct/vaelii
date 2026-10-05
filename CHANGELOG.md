@@ -187,6 +187,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Breaks:* `(unary_predicate not)`, `(binary_predicate implies)`,
   `(genl function relation)`, `(genl predicate relation)`, `(disjoint function predicate)`
 
+- **CxCore declares `empty` and `nonempty`, which partition `unary_predicate`.** An
+  `(empty t)` says `t` has no instance in the context the sentence is stated in, and a
+  `(nonempty t)` says `t` has at least one. Both are `variable_order_type` and
+  `at_least_metatype`. A type stated both `empty` and `nonempty` in contexts one reader
+  sees is a disjointness clash, and two sibling contexts may disagree. `empty` does not
+  contradict `orthogonal`. The vocabulary roster classifies both inert.
+
+  *Class:* **Additive** (shipped ontology content).
+
 - **The upper ontology divides `thing` by location in space, by time and by mass:
   `spatial` is a location in any space, `spatiotemporal` is a location in space and
   time, `physical_object` is renamed `tangible` and `abstract` is renamed

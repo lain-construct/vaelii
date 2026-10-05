@@ -1103,7 +1103,8 @@
     ;; the skeleton above: ontology the engine reads by no name.  `temporal` is `spatial`'s
     ;; time twin; `aspatial` / `atemporal` are the not-in-any-space / not-in-time collections
     ;; `nowhere_never` sits under; the ladder is the metatype-order theory that `typeGenl` reads,
-    ;; and `typeGenl` is itself inert.
+    ;; and `typeGenl` is itself inert.  `empty` and `nonempty` partition `unary_predicate`,
+    ;; and the engine reads neither by name.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
          '[[temporal "ontology, not grammar: something that exists in time. CxCore holds it so CxTime and CxAbstract can extend it; no engine check names it."]
            [aspatial "ontology, not grammar: not located in any space, the complement of spatial. CxCore holds it so every spindle member can place a kind under it; no engine check names it."]
@@ -1115,7 +1116,9 @@
            [at_least_metatype "ontology, not grammar: a type of order two or higher, on the metatype-order ladder. No engine check names it."]
            [fixed_order_type "ontology, not grammar: a type whose members are all of one order, on the metatype-order ladder. No engine check names it."]
            [variable_order_type "ontology, not grammar: a type holding members of any order, on the metatype-order ladder. No engine check names it."]
-           [type_type_by_order "ontology, not grammar: the disjoint_metatype partitioning fixed_order_type by order. No engine check names it."]])
+           [type_type_by_order "ontology, not grammar: the disjoint_metatype partitioning fixed_order_type by order. No engine check names it."]
+           [empty "ontology, not grammar: a unary predicate with no instance in the context the claim is stated in, one half of the partition of unary_predicate. No engine check names it."]
+           [nonempty "ontology, not grammar: a unary predicate with at least one instance in the context the claim is stated in, one half of the partition of unary_predicate. No engine check names it."]])
 
     ;; ---- the hierarchy roots and the meta-level targets -------------------
     [['thing     (enforced (collection :notes "the hierarchy root the open-world floors test against by name.")
