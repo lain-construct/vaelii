@@ -573,6 +573,12 @@
 (type_relation_predicate orthogonal)
 (genlArg orthogonal 1 thing)
 (genlArg orthogonal 2 thing)
+;; Not preserved along genl in either direction, at either position: a subtype of one side
+;; may be disjoint from the other, and a supertype of one side may subsume the other.
+(not (transitiveInArg orthogonal 1 genl))
+(not (transitiveInArg orthogonal 2 genl))
+(not (transitiveInArgInverse orthogonal 1 genl))
+(not (transitiveInArgInverse orthogonal 2 genl))
 ;; orthogonal is the compatible counterpart of disjoint (which states two kinds share no
 ;; instance).
 (termsRelated disjoint orthogonal)

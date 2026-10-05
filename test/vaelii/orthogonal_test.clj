@@ -216,3 +216,47 @@
     (v/assert kb (list 'orthogonal 'alphaKind 'alphaKind) 'CxUniverse {:strength :monotonic})
     (is (= #{#{(list 'orthogonal 'alphaKind 'alphaKind)}} (clashes kb))
         "a type subsumes itself")))
+
+;; ---- not preserved along genl --------------------------------------------------
+;;
+;; That two types could overlap says nothing about a subtype or a supertype of either: a
+;; subtype of one may be disjoint from the other, and a supertype of one may subsume the
+;; other.  CxCore denies both directions of preservation along genl at both positions.
+;;
+;; `transitiveInArg` is on the forced-monotonic roster and `transitiveInArgInverse` is not,
+;; so the two denials of the first are stored and held OUT (`why-not` answers `:inert`),
+;; and the two of the second are believed.  Nothing concludes any of the four
+;; preservations, so orthogonal is inherited neither way whichever is believed.
+
+(def ^:private preservation-denials
+  '[(not (transitiveInArg orthogonal 1 genl))
+    (not (transitiveInArg orthogonal 2 genl))
+    (not (transitiveInArgInverse orthogonal 1 genl))
+    (not (transitiveInArgInverse orthogonal 2 genl))])
+
+(tu/deftest-kb cxcore-denies-preserving-orthogonal-along-genl
+  (doseq [s preservation-denials
+          :let [h (v/handle-of kb s 'CxCore)]]
+    (is (some? h) (str (pr-str s) " is stated in CxCore"))
+    (if (= 'transitiveInArg (first (second s)))
+      (is (= :inert (:reason (v/why-not kb h)))
+          (str (pr-str s) " denies a forced-monotonic literal, so it is held OUT"))
+      (is (true? (v/in? kb h)) (str (pr-str s) " is believed"))))
+  (doseq [s preservation-denials]
+    (is (false? (v/ask? kb (second s) 'CxCore))
+        (str (pr-str (second s)) " does not hold"))))
+
+(tu/deftest-kb orthogonal-is-not-inherited-down-or-up-genl
+  (tu/with-terms [alphaKind betaKind subAlpha superAlpha]
+    (v/assert kb (list 'genl 'superAlpha 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'alphaKind 'superAlpha) 'CxUniverse)
+    (v/assert kb (list 'genl 'subAlpha 'alphaKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'betaKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse)))
+    (is (false? (v/ask? kb (list 'orthogonal 'subAlpha 'betaKind) 'CxUniverse))
+        "a subtype of one side is not thereby orthogonal to the other")
+    (is (false? (v/ask? kb (list 'orthogonal 'superAlpha 'betaKind) 'CxUniverse))
+        "nor is a supertype")
+    (is (false? (v/ask? kb (list 'orthogonal 'betaKind 'subAlpha) 'CxUniverse))
+        "in either argument position")))
