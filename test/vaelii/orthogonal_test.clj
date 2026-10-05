@@ -23,6 +23,21 @@
   (is (true? (v/ask? kb '(symmetric orthogonal))))
   (is (true? (v/ask? kb '(type_relation_predicate orthogonal)))))
 
+(tu/deftest-kb its-binary-class-is-stated-because-the-arity-binding-reads-it
+  ;; `symmetric` and `type_relation_predicate` are each `genl binary_predicate`, so the
+  ;; class is answered without the stated `(binary_predicate orthogonal)` — but the arity
+  ;; nogood reads only a stated binding, and without it a three-place orthogonal is stored
+  ;; with no clash.  The stated class is what keeps the length enforced.
+  (is (seq (v/sentexes-matching kb '(binary_predicate orthogonal) 'CxCore)))
+  (is (= 2 (:arity (v/describe kb 'orthogonal))))
+  (tu/with-terms [alphaKind betaKind gammaKind]
+    (doseq [t ['alphaKind 'betaKind 'gammaKind]]
+      (v/assert kb (list 'genl t 'thing) 'CxUniverse))
+    (v/assert kb (list 'orthogonal 'alphaKind 'betaKind 'gammaKind) 'CxUniverse {:strength :monotonic})
+    (is (= [[(list 'orthogonal 'alphaKind 'betaKind 'gammaKind)]]
+           (keep #(when (= :arity (:kind %)) (mapv :sentence (:sides %))) (v/conflicts kb)))
+        "a three-place orthogonal is an arity clash")))
+
 (tu/deftest-kb orthogonal-is-symmetric
   (tu/with-terms [spatialKind temporalKind]
     (v/assert kb (list 'genl 'spatialKind 'thing) 'CxUniverse)
