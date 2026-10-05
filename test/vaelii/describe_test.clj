@@ -35,7 +35,7 @@
       (is (= :predicate (:role d)))
       (is (= 2 (:arity d))))
     (testing "both argument positions are declared, and each declaration says where"
-      (is (= '[(arg parentOf 1 animal) (arg parentOf 2 animal)]
+      (is (= '[(arg parentOf 1 organism) (arg parentOf 2 organism)]
              (mapv :sentence (:arg-declarations d))))
       (is (every? #(= :arg (:kind %)) (:arg-declarations d)))
       (is (every? #(symbol? (:context %)) (:arg-declarations d))))
@@ -192,7 +192,7 @@
 ;; ---- the scoping, which is the whole point ------------------------------
 
 (tu/deftest-kb an-argument-declaration-is-reported-only-where-the-reader-can-see-it
-  ;; `(arg parentOf 1 animal)` is stated in an upper-spindle member; `CxCore` is its head and
+  ;; `(arg parentOf 1 organism)` is stated in an upper-spindle member; `CxCore` is its head and
   ;; sees nothing below.  A `describe` that read the whole KB would report the
   ;; declaration to a reader for whom it does not bind, which is the failure this
   ;; scoping exists to stop — and it is invisible from the answer, since a declaration

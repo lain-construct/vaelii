@@ -577,7 +577,7 @@
     (testing "so a social relation type-checks between two persons"
       (is (v/assert kb (list 'friendOf CmdrData Geordi) N))
       (is (v/ask? kb (list 'friendOf CmdrData Geordi) N)))
-    (testing "while a biological predicate refuses the non-animal person"
+    (testing "while a biological predicate refuses the person that is no organism"
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/assert kb (list 'parentOf CmdrData Geordi) N))))
     (testing "and human, the biological half, reaches mammal, animal and person alike"

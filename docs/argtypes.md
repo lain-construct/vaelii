@@ -414,7 +414,7 @@ So only a declaration written in the context being checked, or in `CxUniverse`
 (which speaks for every context by construction), draws the entailment. Pure can express
 this because every supporter records the context it asserts from.
 
-This is also what keeps the **cast** quiet: the starter's `(arg parentOf 1 animal)`
+This is also what keeps the **cast** quiet: the starter's `(arg parentOf 1 organism)`
 lives in `CxLife` while the individuals live in `CxNaturalWorld`, so nothing is
 minted over them however the toggle is set. The schema's own contexts are the other case
 and mint freely, because there a declaration and the facts it constrains are written side

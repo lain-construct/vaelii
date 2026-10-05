@@ -39,8 +39,8 @@ capital to arity 2 and above.
 
 ## What a Cyclist's habits do here
 
-**`arg` is a gate first.** `(arg parentOf 1 animal)` — the shipped ontology's own
-declaration — refuses `(parentOf Fern Mary)` where `Fern` is a `plant`: `ex-info` with
+**`arg` is a gate first.** `(arg eats 1 animal)` — the shipped ontology's own
+declaration — refuses `(eats Fern Kibble)` where `Fern` is a `plant`: `ex-info` with
 `:type :arg-type`, exactly as Cyc's constraint would refuse it. What convicts is that the
 hierarchy **places** `Fern` and the place it puts him does not reach `animal`. The
 `(disjoint animal plant)` sitting beside those types is not what does the work — a type
@@ -51,12 +51,12 @@ places nowhere *the asserting context can see* cannot contradict anything, so it
 `(parentOf Zork Mary)` stores when nothing is known about `Zork`. A **literal** is not in
 that escape: its EDN kind is knowable from the value itself and those kinds sit in the
 same `genl` lattice, so `(parentOf 212 Mary)` is refused `:arg-type` — 212 is a `number`,
-and `number` does not reach `animal` ([argtypes.md](argtypes.md)).
+and `number` does not reach `organism` ([argtypes.md](argtypes.md)).
 
-The *entailment* reading — the same declaration minting `(animal Fred)` from
-`(parentOf Fred Mary)` — is the **default**, behind
-`checks/*assertive-arg-types?*` (root value true, or `VAELII_ASSERTIVE_ARG_TYPES=0` to opt
-out). It is additive: it keeps the refusal and adds the derived type, as a justified
+The *entailment* reading — the same declarations minting `(animal Fred)` from
+`(eats Fred Kibble)` and `(organism Fred)` from `(parentOf Fred Mary)` — is the
+**default**, behind `checks/*assertive-arg-types?*` (root value true, or
+`VAELII_ASSERTIVE_ARG_TYPES=0` to opt out). It is additive: it keeps the refusal and adds the derived type, as a justified
 sentex that retracts like any conclusion. See [argtypes.md](argtypes.md).
 
 **Undeclared is unconstrained — which is not the same as unchecked.** No predicate has to
