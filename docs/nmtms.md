@@ -74,7 +74,7 @@ A predicate is on it by the engine's **baseline** or by a declaration. The basel
 (`checks/baseline-roster`) is code, held on every KB whether or not it loads CxCore:
 `genlCx`, the relation marks (`irreflexive`, `anti_symmetric`, `asymmetric`, `functional`,
 `functionalInArg`, `anti_transitive`, `transitiveInArg`), the definitional declarations
-(`disjoint`, `covering`, `partition`, `sibling_disjoint`), the arity bindings (`arity`, the
+(`disjoint`, `covering`, `partition`, `sibling_disjoint`, `orthogonal`), the arity bindings (`arity`, the
 nine exact-arity classes, `variable_arity` and its two specializations, `arityMin`),
 `except` and the equality relations (`rewriteOf`, `sameAs`, `equals`) with the first, and
 `genl` with the second: a `genl` between two predicates is on the roster and a `genl`
@@ -1556,10 +1556,10 @@ the two — or reads a `genl` edge between them, or the two are one type.
 (genl betaw alphaw)  (orthogonal alphaw betaw)                              ; {(orthogonal …)}
 ```
 
-The declaration is not forced `:monotonic`. A `:monotonic` one is a hard clash `conflicts`
-lists, with the separating declarations under `:grounds` and every member left believed;
-a `:default` one is the weakest member of its own nogood, so the reader takes it OUT and
-the pair reads what the taxonomy says of it. The candidate index keeps every stored
+The declaration is forced `:monotonic`, as `disjoint` is, so one written at `:default` is
+held `:monotonic` too: the clash is a hard one `conflicts` lists, with the separating
+declarations under `:grounds`, every member left believed, and the pair reading both
+statuses (`:inconsistent`). The candidate index keeps every stored
 `orthogonal`, and those some reader can read contradicted — over the unscoped `genl`
 closure, or separated by `disjointness-test` with no exception read — under the `genl`
 generation and `tax/separation-stamp` (`:related-orth`); either moving reads every one

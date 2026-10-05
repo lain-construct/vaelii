@@ -6,6 +6,7 @@
   both, and claims nothing about things that are instances of neither.  The declared spelling of the `:orthogonal` subsumption status."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.checks :as checks]
             [vaelii.impl.clashes :as clashes]
             [vaelii.test-util :as tu]))
 
@@ -184,18 +185,25 @@
       (v/assert kb (list 'orthogonal 'subA 'subB) 'CxUniverse {:strength :monotonic})
       (is (= #{#{(list 'orthogonal 'subA 'subB)}} (clashes kb))))))
 
-(tu/deftest-kb a-default-declaration-the-separations-contradict-is-defeated
-  ;; A known-true declaration is a hard clash, every member left believed, as a `disjoint`
-  ;; over related types is.  A default one is the weaker member of its own nogood, so the
-  ;; reader takes it OUT and the pair reads what the taxonomy says of it.
+(tu/deftest-kb orthogonal-is-on-the-forced-monotonic-roster
+  (is (true? (v/has-prop? kb :forced-monotonic 'orthogonal)))
+  (is (= :unforced-definitional-declaration
+         (get checks/uncleared-forcing ['forced_monotonic_predicate 'orthogonal]))
+      "held on every KB, as disjoint is, and its declaration is not retracted"))
+
+(tu/deftest-kb a-default-declaration-the-separations-contradict-is-a-hard-clash
+  ;; `orthogonal` is forced monotonic, so a declaration written at `:default` is held
+  ;; `:monotonic`: its one-member nogood is a hard clash `conflicts` lists, every member
+  ;; stays believed, and the pair reads both statuses.
   (tu/with-terms [alphaKind betaKind]
     (v/assert kb (list 'genl 'alphaKind 'thing) 'CxUniverse)
     (v/assert kb (list 'genl 'betaKind 'thing) 'CxUniverse)
     (v/assert kb (list 'disjoint 'alphaKind 'betaKind) 'CxUniverse)
-    (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse)
-    (is (= #{} (clashes kb)) "a decided nogood is not a conflict")
-    (is (false? (v/ask? kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse)))
-    (is (= :disjoint (v/subsumption-status kb 'alphaKind 'betaKind)))))
+    (let [o (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse {:strength :default})]
+      (is (= :monotonic (v/defeat-class kb o)))
+      (is (= #{#{(list 'orthogonal 'alphaKind 'betaKind)}} (clashes kb)))
+      (is (true? (v/ask? kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse)))
+      (is (= :inconsistent (v/subsumption-status kb 'alphaKind 'betaKind))))))
 
 (tu/deftest-kb the-clash-is-read-where-the-separation-is-seen
   (tu/with-terms [alphaKind betaKind]

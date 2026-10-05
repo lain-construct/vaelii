@@ -2807,7 +2807,7 @@
               {:unforced-relation-mark
                '[irreflexive anti_symmetric asymmetric functional functionalInArg
                  anti_transitive transitiveInArg]
-               :unforced-definitional-declaration '[disjoint covering partition sibling_disjoint]
+               :unforced-definitional-declaration '[disjoint covering partition sibling_disjoint orthogonal]
                :unforced-arity-binding
                '[arity unary binary ternary unary_predicate binary_predicate
                  ternary_predicate unary_function binary_function ternary_function

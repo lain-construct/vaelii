@@ -35,9 +35,11 @@ it — `git show v0.16.0:CHANGELOG.md`.
   declaration.** Wherever a reader reads the pair disjoint — through a `disjoint`, a
   disjoint metatype, a `sibling_disjoint` parent or a `partition` or `separating` roster
   over any supertypes of the two — or reads a `genl` edge between them, the declaration is
-  a one-member nogood, `:kind :orthogonal`, in every arrival order. Nothing is refused: a
-  `:monotonic` declaration is a hard clash `conflicts` lists, with the separating
-  declarations under `:grounds`, and a `:default` one is taken OUT at that reader.
+  a one-member nogood, `:kind :orthogonal`, in every arrival order. Nothing is refused:
+  `orthogonal` is on the forced-monotonic roster beside `disjoint`, so the declaration,
+  at whatever strength it was written, is a hard clash `conflicts` lists, with the
+  separating declarations under `:grounds`, and its retraction from the roster is refused
+  with `:unforced-definitional-declaration`.
   [nmtms.md](docs/nmtms.md#declarations-over-related-types). *Class:* **Additive**.
 
 ## 0.23.0 — 2026-10-02 — "no definitional clash is refused, each reader decides a clash from its own view, and the definitional vocabulary is held known-true"

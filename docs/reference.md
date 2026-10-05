@@ -224,7 +224,7 @@ builders of `vaelii.ref.*` wrote are now citations of these decisions by number.
     belief. The engine change is invariant 5's. Section to change:
     [taxonomy.md](taxonomy.md#predicate-metadata).
 11. **Can a definitional declaration be `:default`, denied or derived?** No. `disjoint`,
-    `covering`, `partition`, `sibling_disjoint` and `arity` are forced monotonic
+    `covering`, `partition`, `sibling_disjoint`, `orthogonal` and `arity` are forced monotonic
     (invariant 6), a denial of one is held OUT and it is derived only from roster
     antecedents (decision 17), so a ground goes OUT only by retraction and no verdict is re-asked
     because its ground moved. Four spellings bind an arity and each is forced monotonic:

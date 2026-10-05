@@ -862,6 +862,7 @@
 (forced_monotonic_predicate surjection)
 (forced_monotonic_predicate bijection)
 (forced_monotonic_predicate disjoint)
+(forced_monotonic_predicate orthogonal)
 (forced_monotonic_predicate covering)
 (forced_monotonic_predicate partition)
 (forced_monotonic_predicate sibling_disjoint)
