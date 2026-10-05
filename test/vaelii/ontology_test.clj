@@ -779,8 +779,11 @@
   disjointness descends a genl edge — so a stated sentence repeating one of those is not
   written."
   '[[genl aspatial thing CxCore "partition thing spatial aspatial"]
+    [disjoint spatiotemporal aspatial CxCore "spatiotemporal genl spatial (intersection); partition thing spatial aspatial"]
     [genl intangible thing CxCore "partition thing tangible intangible"]
     [genl nowhere_never intangible CxCore "nowhere_never genl aspatial genl intangible"]
+    [genl nowhere_never aspatial CxCore "intersection nowhere_never aspatial atemporal"]
+    [genl nowhere_never atemporal CxCore "intersection nowhere_never aspatial atemporal"]
     [genl capability intangible CxCore "capability genl aspatial genl intangible"]
     [genl attribute intangible CxAbstract "attribute genl aspatial genl intangible"]
     [genl relation_type intangible CxAbstract "relation_type genl aspatial genl intangible"]

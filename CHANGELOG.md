@@ -117,9 +117,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
   from `spatial` and `spatiotemporal` in every context that sees the kind's placement.
   Every stated `genl` or `disjoint` that a partition, an intersection, a `genl` chain, a
   `disjoint_metatype` or another disjointness already derives in the same context is
-  removed — thirty-eight sentences across CxCore, CxAbstract and CxUniverse, which now
+  removed — forty-two sentences across CxCore, CxAbstract and CxUniverse, which now
   states no axiom of its own. `ontology_test` pins the divisions and every removal, and
-  `spatial` and `nowhere_never` are classified inert in the vocabulary roster.
+  `spatial`, `spatiotemporal`, `tangible` and `nowhere_never` are classified inert in the
+  vocabulary roster.
   [space.md](docs/space.md), [glossary.md](docs/glossary.md)
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
