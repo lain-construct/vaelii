@@ -1,8 +1,9 @@
 ;; CxAbstract — non-biological upper-ontology types (intangible, physical
 ;; objects, substances, artifacts, body parts and their kinds), the
-;; physical-structure relations partOf/locatedIn/madeOf, and the two type-level
-;; relations largerThan/partType. Sees CxCore; CxUniverse sees it, so any
-;; type or relation here is visible from every context.
+;; physical-structure relations partOf/locatedIn/madeOf, the event-doer relations
+;; doneBy/performedBy, and the two type-level relations largerThan/partType. Sees
+;; CxCore; CxUniverse sees it, so any type or relation here is visible from every
+;; context.
 
 (genlCx CxAbstract CxCore)
 (genlCx CxUniverse CxAbstract)
@@ -198,6 +199,22 @@
 
 (comment acausal_event "An event that is not a cause (an observation or receipt is one): the intersection of acausal and event.")
 (intersection acausal_event acausal event)
+
+;; --- doneBy / performedBy: an event's doer -----------------------------------
+(comment doneBy
+         "(doneBy ?event ?doer) means that ?doer brought about ?event, intentionally or not. The doer can be any thing — a person, an animal, a machine, a process — so the second position is typed thing rather than agent, which names a registered participant rather than something that can act. performedBy is the intentional case.")
+(binary_predicate doneBy)
+(instance_relation_predicate doneBy)
+(arg doneBy 1 event)
+(arg doneBy 2 thing)
+
+(comment performedBy
+         "(performedBy ?event ?doer) means that ?doer intentionally initiated ?event. Specializes doneBy through a genl edge, so every performing is a doing and a doing is not concluded a performing.")
+(binary_predicate performedBy)
+(instance_relation_predicate performedBy)
+(arg performedBy 1 event)
+(arg performedBy 2 thing)
+(genl performedBy doneBy)
 
 (comment tool "An artifact used to perform work.")
 (genl tool artifact)
