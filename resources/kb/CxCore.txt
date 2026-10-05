@@ -1443,7 +1443,7 @@
 (at_least_metatype metatype)
 (at_least_metatype meta_metatype)
 (set/monotonic (disjoint_metatype type_type_by_order))
-(genl at_least_metatype variable_order_type)
+(genl at_least_metatype unary_predicate)
 (genl disjoint_metatype at_least_metatype)
 (genl meta_metatype at_least_metatype)
 (genl metatype at_least_metatype)
@@ -1466,6 +1466,7 @@
 (typeGenl metatype type)
 (typeGenl relation_kind binary_predicate)
 (typeGenl type_type_by_order fixed_order_type)
+(variable_order_type at_least_metatype)
 (variable_order_type fixed_order_type)
 (variable_order_type variable_order_type)
 

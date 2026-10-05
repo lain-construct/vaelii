@@ -68,6 +68,34 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix**.
 
+- **`kb-integrity` reports a candidate type with no `genl` path to `thing`.** Every type
+  is a specialization of `thing`, but nothing on the write path reports a
+  `unary_predicate` that reaches `thing` by no `genl` edge. The sweep adds a fourth
+  sparse category, `:not-under-thing`, with one `{:term X}` per candidate term the audit
+  context sees declared `unary_predicate` and that has no `genl` path to `thing` visible
+  from that context, in print order. `thing` itself is never a finding, and a candidate
+  that is not a ground symbol is skipped. The caller's candidate set bounds the pass, so
+  it enumerates no types. Findings count against `:max-results` after the
+  `:genl-arg-widening` category and are kept on truncation.
+  [integrity.md](docs/integrity.md#what-a-not-under-thing-finding-means).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` suggests a `genl` edge a cover forces but the closure misses.** A
+  cover places individuals, not types: a type under the whole that is disjoint from every
+  part but one has all its instances in that part, yet `(genl X P)` is neither stated nor
+  derived. The sweep adds a fifth sparse category, `:implicit-genl`, with one
+  `{:term X :genl P :cover [...] :disjoint-from [{:part Q :grounds [...]} ...]}` per
+  candidate type and visible `covering` or `partition` over one of its supertypes or over
+  `thing` that leaves exactly one part `disjoint?` does not exclude, when `genl?` does not
+  already hold. `:grounds` names the believed declarations each separation rests on. A
+  part or the whole itself is never a finding, and the sweep asserts nothing. The
+  caller's candidate set bounds the pass. Findings count against `:max-results` after the
+  `:not-under-thing` category and are kept on truncation.
+  [integrity.md](docs/integrity.md#what-an-implicit-genl-finding-means).
+
+  *Class:* **Additive**.
+
 ## 0.23.0 — 2026-10-02 — "no definitional clash is refused, each reader decides a clash from its own view, and the definitional vocabulary is held known-true"
 
 ### Breaking
