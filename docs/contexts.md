@@ -88,7 +88,7 @@ Data hangs below CxWell.
   true, like `genl`. One context per domain (`vaelii.host.starter`), each seeing CxCore
   and seen by CxUniverse:
   - `CxAbstract` — the kinds hanging off the skeleton CxCore holds (`artifact`,
-    `attribute`, `food`, `substance`, `body_part`, `fluent`, `context`, …) plus the
+    `food`, `substance`, `body_part`, `fluent`, `context`, …) plus the
     structural relations `partOf`/`locatedIn`.
   - `CxOrganism` — the biological taxonomy and its disjointness.
   - `CxLife` — the organism relations (`parentOf`, `siblingOf`, `flies`, `mortal`,
