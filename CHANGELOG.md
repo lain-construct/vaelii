@@ -707,6 +707,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   far it moves an answer).
   *Migration:* a KB that states an atemporal thing causal chooses one.
 
+- **A situation is intangible, and located or not.** CxAbstract states
+  `(genl situation intangible)`, so a situation that is also tangible is a clash, and
+  states `situation` and `static_situation` each orthogonal to `spatial` and to
+  `aspatial`, and `situation` orthogonal to `spatiotemporal`: a battle, a party or a cat
+  on a mat is located, and a debt owed or a treaty in force is not. `situation`'s comment
+  says so. `ontology_test` pins the edge and each pair with a witness.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that states a situation tangible chooses one.
+
 ### Fixes: answers
 
 - **`check` reads a reifiable application in a quoting predicate's payload as a mention.**

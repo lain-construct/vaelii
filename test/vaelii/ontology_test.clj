@@ -1442,3 +1442,24 @@
     (v/assert kb (list 'atemporal Line1) 'CxUniverse)
     (is (true? (v/ask? kb (list 'acausal Line1) 'CxUniverse)))
     (is (true? (tu/stored-in-clash? kb (list 'causal Line1) 'CxUniverse)))))
+
+(defn- located-or-not
+  "Each [kind side witness] row: the pair is stated orthogonal, reads :orthogonal, and an
+  individual of the kind that is also of the side is no clash."
+  [kb rows]
+  (doseq [[a b witness] rows]
+    (testing (str a " and " b)
+      (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'orthogonal a b) 'CxAbstract))
+          (str "(orthogonal " a " " b ") is stated"))
+      (is (= :orthogonal (v/subsumption-status kb a b)))
+      (let [w (tu/fresh-term :individual witness)]
+        (v/assert kb (list a w) 'CxUniverse)
+        (is (not (tu/stored-in-clash? kb (list b w) 'CxUniverse)) (str "a " a " that is " b))))))
+
+(tu/deftest-kb a-situation-is-intangible-and-may-or-may-not-be-located
+  ;; A battle, a party or a cat on a mat is located; a debt owed or a treaty in force is not.
+  (is (true? (v/genl? kb 'situation 'intangible 'CxAbstract)))
+  (is (true? (v/disjoint? kb 'situation 'tangible)))
+  (located-or-not kb '[[situation spatial Party1] [situation aspatial Debt1]
+                       [static_situation spatial CatOnMat1] [static_situation aspatial TreatyInForce1]
+                       [situation spatiotemporal Battle1]]))

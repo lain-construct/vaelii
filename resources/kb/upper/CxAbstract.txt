@@ -188,8 +188,17 @@
 (set/monotonic (disjoint time situation))
 
 ;; --- situation / static_situation / event: the state-of-affairs hierarchy ------
-(comment situation "A state of affairs: objects bearing properties or relations over a time interval. Parent of static_situation (the state holds unchanged) and event (the world's state changes); change is the specialization axis.")
+(comment situation "A state of affairs: objects bearing properties or relations over a time interval. A situation is intangible, because it is a way things are and not a thing with mass. Some situations are located, such as a battle, a party or a cat on a mat. Other situations are located nowhere, such as a debt owed or a treaty in force. static_situation and event specialize situation by whether the state changes.")
 (genl situation temporal)
+(genl situation intangible)
+;; A situation can be located or not, so each situation kind is orthogonal to spatial
+;; and to aspatial.  A battle is a situation and spatiotemporal; a rock is spatiotemporal
+;; and no situation; a debt is a situation and not spatiotemporal.
+(orthogonal situation spatial)
+(orthogonal situation aspatial)
+(orthogonal situation spatiotemporal)
+(orthogonal static_situation spatial)
+(orthogonal static_situation aspatial)
 
 (comment static_situation "A situation extended in time but unchanged, a held state, e.g. a file existing. Contrast event, the kind whose state changes.")
 
