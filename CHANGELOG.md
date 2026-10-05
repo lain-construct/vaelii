@@ -197,12 +197,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(transitiveInArgInverse empty 1 genl)` and `(transitiveInArg nonempty 1 genl)` carry
   the claims along `genl`: each subtype of an `empty` type reads `empty`, and each
   supertype of a `nonempty` type reads `nonempty`. Both are read at query time and store
-  nothing.
-  A forward rule concludes `empty` of a `unary` type below two types a stated or inherited
+  nothing. A forward rule concludes `empty` of a `unary` type below two types a stated or inherited
   `disjoint` separates; a `partition`, `separating` roster, `disjoint_metatype` or
   `sibling_disjoint` parent stores no `disjoint` sentence, so a type below two types only
   one of those separates is not concluded `empty`. The conclusion lands in the context the
-  rule places it in, so a separation stated in CxCore concludes the emptiness in CxCore.
+  rule places it in, so a separation stated in CxCore concludes the emptiness in CxCore. CxCore states
+  `empty` and `nonempty` each `orthogonal` to `type`, `metatype`, `meta_metatype`,
+  `fixed_order_type`, `variable_order_type`, `at_least_metatype` and `disjoint_metatype`.
 
   *Class:* **Additive** (shipped ontology content).
 

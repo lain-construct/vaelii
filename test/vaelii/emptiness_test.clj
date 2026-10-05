@@ -143,3 +143,12 @@
     (v/assert kb (list 'genl both_kind mineral_kind) 'CxCore)
     (is (= ['CxCore] (map :context (v/sentexes-matching kb (list 'empty both_kind) '?ctx))))
     (is (stored? kb (list 'empty both_kind)))))
+
+;; ---- against the metatype ladder ------------------------------------------
+
+(tu/deftest-kb empty-and-nonempty-are-orthogonal-to-the-metatype-ladder
+  ;; a type of each order may have instances or have none
+  (doseq [part '[empty nonempty]
+          t    '[type metatype meta_metatype fixed_order_type variable_order_type
+                 at_least_metatype disjoint_metatype]]
+    (is (= :orthogonal (v/subsumption-status kb part t)) (str part " and " t))))

@@ -1550,6 +1550,21 @@
 (variable_order_type at_least_metatype)
 (variable_order_type fixed_order_type)
 (variable_order_type variable_order_type)
+;; A type of any order may have no instance or may have one.
+(orthogonal empty type)
+(orthogonal empty metatype)
+(orthogonal empty meta_metatype)
+(orthogonal empty fixed_order_type)
+(orthogonal empty variable_order_type)
+(orthogonal at_least_metatype empty)
+(orthogonal disjoint_metatype empty)
+(orthogonal nonempty type)
+(orthogonal metatype nonempty)
+(orthogonal meta_metatype nonempty)
+(orthogonal fixed_order_type nonempty)
+(orthogonal nonempty variable_order_type)
+(orthogonal at_least_metatype nonempty)
+(orthogonal disjoint_metatype nonempty)
 
 ;; A thing has mass or it does not: tangible and intangible partition thing, which records
 ;; the separation and the coverage both.  Nothing separates intangible from spatial or
