@@ -1544,8 +1544,8 @@ removal choke points. A KB whose `disjoint`s are all over unrelated types holds 
 `disjoint` whose arguments the `genl` edges stated in its ancestor set relate
 (`related/related-nogoods`).
 
-An `(orthogonal a b)` states that the two types overlap and that neither subsumes the
-other, so it is the same family's one-member clash, of the `orthogonal` declaration,
+An `(orthogonal a b)` states that the two types may overlap and that neither subsumes
+the other, so it is the same family's one-member clash, of the `orthogonal` declaration,
 wherever a reader reads the pair separated — through a `disjoint`, a disjoint metatype, a
 `sibling_disjoint` parent or a `partition` or `separating` roster, over any supertypes of
 the two — or reads a `genl` edge between them, or the two are one type.

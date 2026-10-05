@@ -847,9 +847,10 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   that see it and retracting one re-arms the pair: the exception set is part of
   `tax/separation-stamp`, so its move reads every kept type pair's separation again
   (`membership/sync-memberships`).
-- `(orthogonal X Y)` — the converse of a separation: `X` and `Y` overlap (some thing is an
-  instance of both) and neither is a `genl` of the other. Nothing is claimed about things
-  that are instances of neither. Symmetric, so `(orthogonal Y X)` is the same sentex. It
+- `(orthogonal X Y)` — the converse of a separation: `X` and `Y` may overlap (something
+  could be an instance of both) and neither is a `genl` of the other. It does not say that
+  anything is an instance of both, and claims nothing about things that are instances of
+  neither. Symmetric, so `(orthogonal Y X)` is the same sentex. It
   caches nothing and derives nothing — no shared instance is minted for it — and is read
   back in two places. `subsumption-status` takes it as the `:orthogonal` witness
   ([below](#auditing-the-hierarchy-for-missing-disjointness)). And the related-types
@@ -982,7 +983,7 @@ the separations leave open.
 types and returns `{:types :pairs :by-status :pairs-data}`. The `:unknown` pairs are the
 candidates for a missing `disjoint` or `orthogonal` declaration: no subsumption relates
 them, no declaration separates them, and neither a declaration nor a shared instance
-shows they overlap — so the modeller decides which they are. The audit reads only, and writes nothing.
+shows they can overlap — so the modeller decides which they are. The audit reads only, and writes nothing.
 
 ### What a declaration reaches back over
 

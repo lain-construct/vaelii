@@ -567,13 +567,13 @@
 (unary_predicate disjoint_metatype)
 
 (comment orthogonal
-         "(orthogonal ?type1 ?type2) means that the two types overlap — some thing is an instance of both — and that neither is a subtype of the other. Nothing is claimed about things that are instances of neither. The declared spelling of the :orthogonal subsumption status, which otherwise needs a shared instance as its witness; the declaration names no such instance and derives none. Symmetric, so the two spellings of one pair store as one sentex. It contradicts a disjointness of the pair, however that disjointness is reached, and a genl edge between the two types in either direction.")
+         "(orthogonal ?type1 ?type2) means that the two types may overlap — something could be an instance of both — and that neither is a subtype of the other. It does not say that anything is an instance of both, and claims nothing about things that are instances of neither. The declared spelling of the :orthogonal subsumption status, which otherwise needs a shared instance as its witness; the declaration names no such instance and derives none. Symmetric, so the two spellings of one pair store as one sentex. It contradicts a disjointness of the pair, however that disjointness is reached, and a genl edge between the two types in either direction.")
 (binary_predicate orthogonal)
 (symmetric orthogonal)
 (type_relation_predicate orthogonal)
 (genlArg orthogonal 1 thing)
 (genlArg orthogonal 2 thing)
-;; orthogonal is the overlapping counterpart of disjoint (which states two kinds share no
+;; orthogonal is the compatible counterpart of disjoint (which states two kinds share no
 ;; instance).
 (termsRelated disjoint orthogonal)
 

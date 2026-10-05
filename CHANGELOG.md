@@ -15,9 +15,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
-- **`orthogonal` declares that two types overlap and neither subsumes the other.**
-  `(orthogonal A B)` states that some thing is an instance of both and that neither is a
-  `genl` of the other; it says nothing about things that are instances of neither. CxCore
+- **`orthogonal` declares that two types may overlap and neither subsumes the other.**
+  `(orthogonal A B)` states that something could be an instance of both and that neither
+  is a `genl` of the other; it does not say that anything is, and says nothing about
+  things that are instances of neither. CxCore
   declares it a symmetric binary `type_relation_predicate`, so `(orthogonal B A)` is the
   same sentex. It derives nothing and mints no shared instance.
   [taxonomy.md](docs/taxonomy.md#disjointness). *Class:* **Additive**.

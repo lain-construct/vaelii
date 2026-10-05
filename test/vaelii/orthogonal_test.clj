@@ -1,9 +1,9 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.orthogonal-test
-  "`(orthogonal A B)`: the two types overlap — some thing is an instance of both — and
-  neither is a subtype of the other.  Nothing is claimed about things that are instances of
-  neither.  The declared spelling of the `:orthogonal` subsumption status."
+  "`(orthogonal A B)`: the two types may overlap — something could be an instance of both —
+  and neither is a subtype of the other.  It does not say that anything is an instance of
+  both, and claims nothing about things that are instances of neither.  The declared spelling of the `:orthogonal` subsumption status."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.clashes :as clashes]
@@ -85,7 +85,7 @@
       (is (= :orthogonal (:status (row)))
           "a declared pair leaves the audit's unknown candidates"))))
 
-;; ---- the clash: an overlap stated over a separated or subsumed pair -------------
+;; ---- the clash: a possible overlap stated over a separated or subsumed pair -----
 ;;
 ;; A `disjoint` over two `genl`-related types is a one-member hard clash of the
 ;; declaration (docs/nmtms.md, "Declarations over related types"), stored and reported by

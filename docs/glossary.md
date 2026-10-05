@@ -754,9 +754,10 @@ that the same knowledge asserted in any order yields the same beliefs — belief
 is computed from state, and every tie-break keys on content, never on handle id.
 See [nmtms.md](nmtms.md).
 
-**`orthogonal`** ![kb](../.github/badges/cat-kb.svg): States that two types overlap —
-some thing is an instance of both — and that neither is a `genl` of the other; nothing
-is claimed about things that are instances of neither. Symmetric. The declared witness of
+**`orthogonal`** ![kb](../.github/badges/cat-kb.svg): States that two types may overlap —
+something could be an instance of both — and that neither is a `genl` of the other. It
+does not say that anything is an instance of both, and claims nothing about things that
+are instances of neither. Symmetric. The declared witness of
 the `:orthogonal` subsumption status, and a one-member clash of the declaration wherever
 a reader reads the pair separated or `genl`-related. See [taxonomy.md](taxonomy.md).
 

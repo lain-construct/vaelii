@@ -23,7 +23,7 @@
 ;; whole, and `:cover-pairs` each `#{cover disjoint}` whose `disjoint` separates the whole
 ;; from a part.
 ;;
-;; An `(orthogonal a b)` says the two types overlap and neither subsumes the other, so a
+;; An `(orthogonal a b)` says the two types may overlap and neither subsumes the other, so a
 ;; separation of the pair, however it is reached, and a `genl` edge between the two
 ;; contradict it: a one-member clash of the declaration, as a `disjoint` over related types
 ;; is.  `::orths` keeps every stored `orthogonal` by handle, and `:related-orth` those whose

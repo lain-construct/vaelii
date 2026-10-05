@@ -423,7 +423,7 @@
                 (str "taxonomy/add-sib-exception — exempts one pair the sibling clique or a"
                      " disjoint_metatype would separate; read at the reader in disjointness-test"))]
 
-     ;; ---- the overlap: the separations' converse --------------------------
+     ;; ---- the possible overlap: the separations' converse ------------------
      ['orthogonal
       (enforced {:shape {:args [:type :type]} :storage [:none] :checked false :family nil
                  :facets #{}
