@@ -17,23 +17,25 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 - **`siblingDisjointException` is retired; `orthogonal` is the exemption.** A stated
   `(orthogonal a b)` exempts the pair from a separation a `sibling_disjoint` parent or a
-  `disjoint_metatype` would otherwise force, pair-local and read at the reader, exactly as
-  `(siblingDisjointException a b)` did. Two things differ. The declaration also says the
-  pair may overlap and that neither subsumes the other, so a `disjoint` of the pair, a
-  disjointness inherited from separated supertypes, a `partition` or `separating` roster
-  naming both, or a `genl` edge between them is a clash of the declaration rather than an
-  exemption — `siblingDisjointException` exempted a pair of `partition` parts, and
-  `orthogonal` does not. And `(orthogonal a a)` is stored and reported as that clash,
-  where `(siblingDisjointException a a)` was refused as not well-formed. CxCore no longer
+  `disjoint_metatype` would otherwise force, pair-local and read at the reader, as
+  `(siblingDisjointException a b)` did, and from every other form of disjointness too: a
+  `partition` or `separating` roster naming both (a partition keeps its coverage half) and
+  an explicit `(disjoint a b)`, which an `orthogonal` of the pair now overrides wherever
+  it is seen. The exemption is read against the separated pair of supertypes, so it lifts
+  what that separation reached below them. The declaration also says neither type
+  subsumes the other, so a `genl` edge between them, `(orthogonal a a)`, or an
+  `orthogonal` over two subtypes of a pair that stays separated is a clash of the
+  declaration; `(siblingDisjointException a a)` was refused as not well-formed. CxCore no longer
   declares `siblingDisjointException`, `special/entries` no longer interprets it, and a
   stored one is an ordinary fact that exempts nothing.
   [taxonomy.md](docs/taxonomy.md#disjointness).
 
-  *Class:* **Breaking** (a predicate retired, and an exemption of `partition` parts
-  becomes a clash).
-  *Migration:* `(siblingDisjointException a b)` → `(orthogonal a b)`; a pair of
-  `partition` or `separating` parts that must overlap needs the roster split.
-  *Breaks:* `siblingDisjointException`
+  *Class:* **Breaking** (a predicate retired, and an explicit `disjoint` is overridden by
+  an `orthogonal` of the same pair).
+  *Migration:* `(siblingDisjointException a b)` → `(orthogonal a b)`; a KB that states
+  both `(disjoint a b)` and `(orthogonal a b)` reads the pair apart, so drop whichever is
+  wrong.
+  *Breaks:* `siblingDisjointException`, `disjoint?`
 
 - **`transitiveInArgInverse` is forced monotonic, as `transitiveInArg` is.** CxCore
   declares `(forced_monotonic_predicate transitiveInArgInverse)` and the engine's roster
@@ -66,11 +68,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
   *Class:* **Additive**.
 
-- **An `orthogonal` over a directly separated or `genl`-related pair is a clash of the
-  declaration.** Wherever a reader reads the pair disjoint — through a `disjoint` or a
-  `partition` or `separating` roster over any supertypes of the two, or through a
-  `sibling_disjoint` parent or a disjoint metatype over two supertypes other than the pair
-  itself — or reads a `genl` edge between them, or the two are one type, the declaration is
+- **An `orthogonal` over a `genl`-related or still-separated pair is a clash of the
+  declaration.** Wherever a reader reads a `genl` edge between the two, the two are one
+  type, or the pair is still disjoint through a separation of two supertypes the
+  declaration does not exempt, the declaration is
   a one-member nogood, `:kind :orthogonal`, in every arrival order. Nothing is refused:
   `orthogonal` is on the forced-monotonic roster beside `disjoint`, so the declaration,
   at whatever strength it was written, is a hard clash `conflicts` lists, with the

@@ -5912,11 +5912,12 @@
      :rebuild      (fn [tax {[_ c] :sentence id :id ctx :context}]
                      (tax/mark-sibling-disjoint tax c id ctx))
      :wff          wff/sibling-disjoint-problems}
-    ;; `(orthogonal x y)` exempts one pair the sibling clique or a `disjoint_metatype`
-    ;; would separate — the plain add/drop `disjoint` has, keyed as the same unordered
+    ;; `(orthogonal x y)` exempts one pair from every separation — the plain add/drop
+    ;; `disjoint` has, keyed as the same unordered
     ;; pair.  A reader reads the exemption where it reads the separation
-    ;; (`membership/sync-memberships`); a direct separation of the pair is not exempted,
-    ;; and `decide.related` reports the declaration's clash with it.
+    ;; (`membership/sync-memberships`), from every form of separation, and
+    ;; `decide.related` reports the declaration's clash with a genl edge or with a
+    ;; separation of supertypes it does not exempt.
     'orthogonal
     {:integrate    (fn [kb sx h]
                      (let [[_ a b] (:sentence sx)]

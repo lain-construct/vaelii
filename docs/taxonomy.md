@@ -821,18 +821,23 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   neither. Symmetric, so `(orthogonal Y X)` is the same sentex, and forced monotonic. It
   derives nothing — no shared instance is minted for it — and is read in three places.
 
-  **It exempts the pair from the two clique marks.** A `sibling_disjoint` parent or a
-  `disjoint_metatype` that would otherwise separate `X` and `Y` no longer does. It is keyed
-  as an unordered pair exactly like `disjoint` (`:orthogonal-index`, reference-counted on
-  the `(orthogonal X Y)` sentex) and read by `disjointness-test` behind the
-  `genl-related?` guard the sibling and metatype arms already carry. A Braille reading,
-  both a `reading` and a `touch_perception`, is the case it exists for.
+  **It exempts the pair from every form of disjointness.** Each form is one claim: a
+  `(disjoint X Y)`, a `partition` or `separating` roster naming both (a partition keeps
+  its coverage half), a `disjoint_metatype` and a `sibling_disjoint` parent. Over the pair
+  the `orthogonal` names, none of them separates. It is keyed as an unordered pair exactly
+  like `disjoint` (`:orthogonal-index`, reference-counted on the `(orthogonal X Y)` sentex)
+  and read by `disjointness-test` behind each arm's guards. A Braille reading, both a
+  `reading` and a `touch_perception`, is the case it exists for. The `disjoint` or roster
+  stays stored and believed; the KB integrity sweep is where a stated `disjoint` beside an
+  `orthogonal` of the same pair is reported.
 
-  **Pair-local, and it does not leak to subtypes.** The exemption spares `X`, `Y` alone:
-  each stays disjoint from the parent's *other* specializations and the metatype's other
-  members, and an `orthogonal` on `(X, Y)` leaves `(X', Y)` disjoint for a subtype `X'` of
-  `X`. That falls out for free — each read tests the *exact* pair drawn from the two
-  `genl` closures, so nothing wider is ever spared.
+  **Pair-local, read against the separated pair.** The exemption spares `X`, `Y` alone,
+  and each stays disjoint from everything else. A separation is found between a
+  supertype of each side, and the exemption is tested against that pair: exempting `X`,
+  `Y` therefore lifts what their separation reached below them, while an `orthogonal`
+  over two subtypes `X'`, `Y'` of a pair that stays separated exempts nothing. That is
+  coherent rather than a gap: overlap propagates upward, so an instance of both `X'` and
+  `Y'` would be an instance of both `X` and `Y`, and the declaration is the clash below.
 
   **Read at the reader.** A reader is exempted only by an `orthogonal` some supporter
   states where it reads (`tax/exemption`): a context that sees it reads the pair apart,
@@ -852,11 +857,10 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   `tax/separation-stamp`, so their move reads every kept type pair's separation again
   (`membership/sync-memberships`).
 
-  **A direct separation is a clash, not an exemption.** A `(disjoint X Y)`, a disjointness
-  inherited from separated supertypes, a `partition` or `separating` roster naming both,
-  a `genl` edge between the two, or `X` and `Y` being one type contradicts the
-  declaration: the related-types family makes it a one-member nogood of the declaration
-  wherever a reader reads that ([nmtms.md](nmtms.md#declarations-over-related-types)).
+  **What contradicts it is a clash.** A `genl` edge between the two, the one type named
+  twice, or a separation of two supertypes it does not exempt makes the declaration a
+  one-member nogood wherever a reader reads that
+  ([nmtms.md](nmtms.md#declarations-over-related-types)).
 
   **And it is the `:orthogonal` witness** `subsumption-status` reads
   ([below](#auditing-the-hierarchy-for-missing-disjointness)).
@@ -1104,10 +1108,8 @@ it on the next pass, find no violation, and revive it.
 
 A separating roster is recorded the way a `disjoint_metatype`'s member set is: held
 in the taxonomy, consulted by `disjointness-test`, and never written out as `(disjoint
-…)` sentexes. The genl-relatedness guard and the nogood reporting therefore read a
-partition exactly as they read a metatype. An `orthogonal` does not: a roster names its
-parts directly, so an `orthogonal` over two of them is a clash, where over two members of
-a metatype it is an exemption. A bare `covering`
+…)` sentexes. An `orthogonal`, the genl-relatedness guard and the nogood reporting
+therefore read a partition exactly as they read a metatype. A bare `covering`
 records no separation at all, so two of its parts may overlap and `disjoint?` answers
 false for the pair.
 

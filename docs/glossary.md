@@ -757,10 +757,10 @@ See [nmtms.md](nmtms.md).
 **`orthogonal`** ![kb](../.github/badges/cat-kb.svg): States that two types may overlap —
 something could be an instance of both — and that neither is a `genl` of the other. It
 does not say that anything is an instance of both, and claims nothing about things that
-are instances of neither. Symmetric and forced monotonic. It exempts the pair from a
-disjointness a `sibling_disjoint` mark or a `disjoint_metatype` would otherwise force —
-pair-local, read at the reader, and not reaching subtypes. A direct separation of the pair
-(`disjoint`, a `partition` or `separating` roster) or a `genl` edge between the two
+are instances of neither. Symmetric and forced monotonic. It exempts the pair from every
+form of disjointness — `disjoint`, a `partition` or `separating` roster, a
+`sibling_disjoint` mark, a `disjoint_metatype` — pair-local and read at the reader. A
+`genl` edge between the two, or a separation of two supertypes it does not exempt,
 contradicts it instead: a one-member clash of the declaration. It is also the declared
 witness of the `:orthogonal` subsumption status. See [taxonomy.md](taxonomy.md).
 

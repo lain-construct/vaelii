@@ -422,13 +422,12 @@
                                    " the removal direction, which :reach (an arriving declaration)"
                                    " does not name. And it is convicted rather than convicting:"
                                    " the related-types family reads the stored declaration back"
-                                   " as a one-member nogood of itself whenever a direct separation"
-                                   " or a genl edge a reader sees contradicts it."))
-                (str "taxonomy/add-orthogonal — exempts one pair the sibling clique or a"
-                     " disjoint_metatype would separate, read at the reader in"
-                     " disjointness-test; decide/related — a one-member nogood of the"
-                     " declaration over a pair a reader reads directly separated or"
-                     " genl-related; and core/subsumption-statuses — a stated pair reads"
+                                   " as a one-member nogood of itself whenever a genl edge or an"
+                                   " unexempted separation a reader sees contradicts it."))
+                (str "taxonomy/add-orthogonal — exempts one pair from every separation,"
+                     " read at the reader in disjointness-test; decide/related — a"
+                     " one-member nogood of the declaration over a pair a reader reads"
+                     " genl-related, or separated through supertypes it does not exempt; and core/subsumption-statuses — a stated pair reads"
                      " :orthogonal with no shared instance"))]
 
      ;; ---- exhaustion: the parts that cover a whole ------------------------

@@ -82,14 +82,18 @@
     (is (= #{:spec :orthogonal} (v/subsumption-statuses kb 'alphaKind 'betaKind)))
     (is (= :inconsistent (v/subsumption-status kb 'alphaKind 'betaKind)))))
 
-(tu/deftest-kb a-declared-pair-that-is-also-disjoint-is-inconsistent
-  (tu/with-terms [alphaKind betaKind]
-    (v/assert kb (list 'genl 'alphaKind 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl 'betaKind 'thing) 'CxUniverse)
-    (v/assert kb (list 'disjoint 'alphaKind 'betaKind) 'CxUniverse)
-    (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse {:strength :monotonic})
-    (is (= #{:disjoint :orthogonal} (v/subsumption-statuses kb 'alphaKind 'betaKind)))
-    (is (= :inconsistent (v/subsumption-status kb 'betaKind 'alphaKind)))))
+(tu/deftest-kb a-declared-pair-under-a-separated-pair-is-inconsistent
+  ;; overlap propagates upward: two subtypes that could share an instance put it in both
+  ;; separated supertypes, so the declaration does not exempt the pair it names
+  (tu/with-terms [upperA upperB subA subB]
+    (v/assert kb (list 'genl 'upperA 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'upperB 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'subA 'upperA) 'CxUniverse)
+    (v/assert kb (list 'genl 'subB 'upperB) 'CxUniverse)
+    (v/assert kb (list 'disjoint 'upperA 'upperB) 'CxUniverse)
+    (v/assert kb (list 'orthogonal 'subA 'subB) 'CxUniverse)
+    (is (= #{:disjoint :orthogonal} (v/subsumption-statuses kb 'subA 'subB)))
+    (is (= :inconsistent (v/subsumption-status kb 'subB 'subA)))))
 
 (tu/deftest-kb the-audit-counts-a-declared-pair-as-known
   (tu/with-terms [spatialKind temporalKind]
@@ -103,12 +107,13 @@
       (is (= :orthogonal (:status (row)))
           "a declared pair leaves the audit's unknown candidates"))))
 
-;; ---- the clash: a possible overlap stated over a separated or subsumed pair -----
+;; ---- the clash: a possible overlap stated over a subsumed pair -----------------
 ;;
 ;; A `disjoint` over two `genl`-related types is a one-member hard clash of the
 ;; declaration (docs/nmtms.md, "Declarations over related types"), stored and reported by
-;; `conflicts` rather than refused.  An `orthogonal` over a pair the separations or a
-;; `genl` edge contradict is the same family's clash, of the `orthogonal` declaration.
+;; `conflicts` rather than refused.  An `orthogonal` over two `genl`-related types, over
+;; one type twice, or over two subtypes of a pair still separated is the same family's
+;; clash, of the `orthogonal` declaration.
 
 (defn- clashes
   "The member sentence sets of the `:orthogonal` clashes `conflicts` lists."
@@ -123,31 +128,6 @@
     (v/assert kb (list 'genl 'temporalKind 'thing) 'CxUniverse)
     (v/assert kb (list 'orthogonal 'spatialKind 'temporalKind) 'CxUniverse {:strength :monotonic})
     (is (= #{} (clashes kb)))))
-
-(tu/deftest-kb an-orthogonal-over-a-disjoint-pair-is-a-clash-in-either-order
-  (tu/with-terms [alphaKind betaKind]
-    (v/assert kb (list 'genl 'alphaKind 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl 'betaKind 'thing) 'CxUniverse)
-    (let [orth (list 'orthogonal 'alphaKind 'betaKind)
-          dj   (list 'disjoint 'alphaKind 'betaKind)]
-      (testing "the disjoint first"
-        (let [d (v/assert kb dj 'CxUniverse)
-              o (v/assert kb orth 'CxUniverse {:strength :monotonic})]
-          (is (= #{#{orth}} (clashes kb)))
-          (is (= [dj] (map :sentence (:grounds (first (filter #(= :orthogonal (:kind %))
-                                                              (v/conflicts kb))))))
-              "the report names the disjointness it was convicted through")
-          (v/retract! kb o)
-          (v/retract! kb d)))
-      (is (= #{} (clashes kb)))
-      (testing "the orthogonal first"
-        (let [o (v/assert kb orth 'CxUniverse {:strength :monotonic})]
-          (is (= #{} (clashes kb)))
-          (let [d (v/assert kb dj 'CxUniverse)]
-            (is (= #{#{orth}} (clashes kb)) "the later disjoint convicts the stored declaration")
-            (v/retract! kb d))
-          (is (= #{} (clashes kb)) "the disjoint leaving takes the clash")
-          (v/retract! kb o))))))
 
 (tu/deftest-kb an-orthogonal-over-a-genl-related-pair-is-a-clash-in-either-order
   (tu/with-terms [alphaKind betaKind]
@@ -169,23 +149,44 @@
           (is (= #{} (clashes kb)))
           (v/retract! kb o))))))
 
-(tu/deftest-kb a-derived-disjointness-convicts-the-declaration
-  (tu/with-terms [wholeKind alphaKind betaKind upperA upperB subA subB]
+(tu/deftest-kb an-orthogonal-under-a-separated-pair-is-a-clash-in-either-order
+  ;; The exemption is read against the separated pair of supertypes, so (orthogonal subA
+  ;; subB) does not lift (disjoint upperA upperB): an instance of both subtypes would be an
+  ;; instance of both separated supertypes.  The report names the separation it was
+  ;; convicted through.
+  (tu/with-terms [upperA upperB subA subB]
+    (v/assert kb (list 'genl 'upperA 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'upperB 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'subA 'upperA) 'CxUniverse)
+    (v/assert kb (list 'genl 'subB 'upperB) 'CxUniverse)
+    (let [orth (list 'orthogonal 'subA 'subB)
+          dj   (list 'disjoint 'upperA 'upperB)]
+      (testing "the separation first"
+        (let [d (v/assert kb dj 'CxUniverse)
+              o (v/assert kb orth 'CxUniverse)]
+          (is (= #{#{orth}} (clashes kb)))
+          (is (= [dj] (map :sentence (:grounds (first (filter #(= :orthogonal (:kind %))
+                                                              (v/conflicts kb)))))))
+          (v/retract! kb o)
+          (v/retract! kb d)))
+      (is (= #{} (clashes kb)))
+      (testing "the orthogonal first"
+        (let [o (v/assert kb orth 'CxUniverse)]
+          (is (= #{} (clashes kb)))
+          (let [d (v/assert kb dj 'CxUniverse)]
+            (is (= #{#{orth}} (clashes kb)) "the later separation convicts the declaration")
+            (v/retract! kb d))
+          (is (= #{} (clashes kb)) "the separation leaving takes the clash")
+          (v/retract! kb o))))))
+
+(tu/deftest-kb an-orthogonal-under-two-partition-parts-is-a-clash
+  (tu/with-terms [wholeKind alphaKind betaKind subA subB]
     (v/assert kb (list 'genl 'wholeKind 'thing) 'CxUniverse)
-    (testing "the two parts of a partition"
-      (let [p (v/assert kb (list 'partition 'wholeKind 'alphaKind 'betaKind) 'CxUniverse)
-            o (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse {:strength :monotonic})]
-        (is (= #{#{(list 'orthogonal 'alphaKind 'betaKind)}} (clashes kb)))
-        (v/retract! kb o)
-        (v/retract! kb p)))
-    (testing "two subtypes of a disjoint pair"
-      (v/assert kb (list 'genl 'upperA 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl 'upperB 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl 'subA 'upperA) 'CxUniverse)
-      (v/assert kb (list 'genl 'subB 'upperB) 'CxUniverse)
-      (v/assert kb (list 'disjoint 'upperA 'upperB) 'CxUniverse)
-      (v/assert kb (list 'orthogonal 'subA 'subB) 'CxUniverse {:strength :monotonic})
-      (is (= #{#{(list 'orthogonal 'subA 'subB)}} (clashes kb))))))
+    (v/assert kb (list 'partition 'wholeKind 'alphaKind 'betaKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'subA 'alphaKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'subB 'betaKind) 'CxUniverse)
+    (v/assert kb (list 'orthogonal 'subA 'subB) 'CxUniverse)
+    (is (= #{#{(list 'orthogonal 'subA 'subB)}} (clashes kb)))))
 
 (tu/deftest-kb orthogonal-is-on-the-forced-monotonic-roster
   (is (true? (v/has-prop? kb :forced-monotonic 'orthogonal)))
@@ -193,14 +194,13 @@
          (get checks/uncleared-forcing ['forced_monotonic_predicate 'orthogonal]))
       "held on every KB, as disjoint is, and its declaration is not retracted"))
 
-(tu/deftest-kb a-default-declaration-the-separations-contradict-is-a-hard-clash
+(tu/deftest-kb a-default-declaration-the-taxonomy-contradicts-is-a-hard-clash
   ;; `orthogonal` is forced monotonic, so a declaration written at `:default` is held
   ;; `:monotonic`: its one-member nogood is a hard clash `conflicts` lists, every member
   ;; stays believed, and the pair reads both statuses.
   (tu/with-terms [alphaKind betaKind]
     (v/assert kb (list 'genl 'alphaKind 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl 'betaKind 'thing) 'CxUniverse)
-    (v/assert kb (list 'disjoint 'alphaKind 'betaKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'betaKind 'alphaKind) 'CxUniverse)
     (let [o (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse {:strength :default})]
       (is (= :monotonic (v/defeat-class kb o)))
       (is (= #{#{(list 'orthogonal 'alphaKind 'betaKind)}} (clashes kb)))
@@ -208,14 +208,14 @@
       (is (= :inconsistent (v/subsumption-status kb 'alphaKind 'betaKind))))))
 
 (tu/deftest-kb the-clash-is-read-where-the-separation-is-seen
-  (tu/with-terms [alphaKind betaKind]
+  (tu/with-terms [upperA upperB subA subB]
     (let [cx (tu/tmp-ctx)]
       (v/assert kb (list 'genlCx cx 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'genl 'alphaKind 'thing) 'CxUniverse)
-      (v/assert kb (list 'genl 'betaKind 'thing) 'CxUniverse)
-      (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse {:strength :monotonic})
-      (v/assert kb (list 'disjoint 'alphaKind 'betaKind) cx)
-      (is (= #{#{(list 'orthogonal 'alphaKind 'betaKind)}} (clashes kb)))
+      (doseq [[s t] [['upperA 'thing] ['upperB 'thing] ['subA 'upperA] ['subB 'upperB]]]
+        (v/assert kb (list 'genl s t) 'CxUniverse))
+      (v/assert kb (list 'orthogonal 'subA 'subB) 'CxUniverse)
+      (v/assert kb (list 'disjoint 'upperA 'upperB) cx)
+      (is (= #{#{(list 'orthogonal 'subA 'subB)}} (clashes kb)))
       (is (= [#{cx}] (keep #(when (= :orthogonal (:kind %)) (clashes/report-vantages %))
                            (v/conflicts kb)))
           "read where the disjoint is seen, and not above it"))))
@@ -227,12 +227,12 @@
     (is (= #{#{(list 'orthogonal 'alphaKind 'alphaKind)}} (clashes kb))
         "a type subsumes itself")))
 
-;; ---- the exemption: the two clique marks spare a stated pair -----------------
+;; ---- the exemption: every form of disjointness spares a stated pair ------------
 ;;
-;; `sibling_disjoint` and `disjoint_metatype` separate a family of types without naming
-;; the pair, so an `orthogonal` over two of them exempts that pair rather than clashing
-;; with the mark.  A separation that names the pair (`disjoint`, a `partition` or
-;; `separating` roster) stays a clash, above.
+;; Each form of disjointness is one claim — an explicit `disjoint`, a `partition` or
+;; `separating` roster (a partition keeps its coverage half), a `disjoint_metatype` and a
+;; `sibling_disjoint` parent — and an `orthogonal` over the separated pair exempts it from
+;; every one, wherever the declaration is seen.
 
 (defn- exempted?
   "The pair `a` `b` reads apart at CxUniverse, `orthogonal`, with no orthogonal clash."
@@ -240,6 +240,55 @@
   (and (not (v/disjoint? kb a b 'CxUniverse))
        (= :orthogonal (v/subsumption-status kb a b))
        (empty? (clashes kb))))
+
+(tu/deftest-kb an-orthogonal-pair-is-exempt-from-an-explicit-disjoint-in-every-order
+  (tu/with-terms [alphaKind betaKind]
+    (v/assert kb (list 'genl 'alphaKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'betaKind 'thing) 'CxUniverse)
+    (doseq [[o-args d-args] [[['alphaKind 'betaKind] ['alphaKind 'betaKind]]
+                             [['betaKind 'alphaKind] ['alphaKind 'betaKind]]]
+            orth-first [true false]]
+      (let [orth (cons 'orthogonal o-args)
+            dj   (cons 'disjoint d-args)
+            [h1 h2] (if orth-first
+                      [(v/assert kb orth 'CxUniverse) (v/assert kb dj 'CxUniverse)]
+                      [(v/assert kb dj 'CxUniverse) (v/assert kb orth 'CxUniverse)])]
+        (is (true? (exempted? kb 'alphaKind 'betaKind))
+            (str (pr-str orth) " and " (pr-str dj) (if orth-first ", orthogonal first" ", disjoint first")))
+        (is (true? (v/in? kb (v/handle-of kb dj 'CxUniverse)))
+            "the disjoint stays stored and believed")
+        (is (false? (v/ask? kb dj 'CxUniverse))
+            "and the disjointness prover answers the pair apart")
+        (v/retract! kb h2)
+        (v/retract! kb h1)))))
+
+(tu/deftest-kb an-exempted-pair-lifts-the-separation-below-it
+  (tu/with-terms [upperA upperB subA subB]
+    (doseq [[s t] [['upperA 'thing] ['upperB 'thing] ['subA 'upperA] ['subB 'upperB]]]
+      (v/assert kb (list 'genl s t) 'CxUniverse))
+    (v/assert kb (list 'disjoint 'upperA 'upperB) 'CxUniverse)
+    (is (true? (v/disjoint? kb 'subA 'subB 'CxUniverse)))
+    (v/assert kb (list 'orthogonal 'upperA 'upperB) 'CxUniverse)
+    (is (false? (v/disjoint? kb 'subA 'subB 'CxUniverse))
+        "the exemption is read against the separated pair, so it reaches what it separated")))
+
+(tu/deftest-kb an-orthogonal-pair-is-exempt-from-a-partition-which-keeps-its-cover
+  (tu/with-terms [wholeKind alphaKind betaKind]
+    (v/assert kb (list 'genl 'wholeKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'partition 'wholeKind 'alphaKind 'betaKind) 'CxUniverse)
+    (is (true? (v/disjoint? kb 'alphaKind 'betaKind 'CxUniverse)))
+    (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse)
+    (is (true? (exempted? kb 'alphaKind 'betaKind)))
+    (is (true? (v/genl? kb 'alphaKind 'wholeKind)) "the cover's part edges stand")))
+
+(tu/deftest-kb an-orthogonal-pair-is-exempt-from-a-separating-roster
+  (tu/with-terms [wholeKind alphaKind betaKind gammaKind]
+    (v/assert kb (list 'genl 'wholeKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'separating 'wholeKind 'alphaKind 'betaKind 'gammaKind) 'CxUniverse)
+    (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse)
+    (is (true? (exempted? kb 'alphaKind 'betaKind)))
+    (is (true? (v/disjoint? kb 'alphaKind 'gammaKind 'CxUniverse))
+        "only the stated pair is spared")))
 
 (tu/deftest-kb an-orthogonal-pair-is-exempt-from-sibling-disjointness
   (tu/with-terms [parentKind alphaKind betaKind gammaKind]
@@ -266,24 +315,16 @@
         "only the stated pair is spared")))
 
 (tu/deftest-kb the-exemption-is-read-where-the-declaration-is-seen
-  (tu/with-terms [parentKind alphaKind betaKind]
+  (tu/with-terms [alphaKind betaKind]
     (let [cx (tu/tmp-ctx)]
       (v/assert kb (list 'genlCx cx 'CxUniverse) 'CxUniverse)
-      (v/assert kb (list 'genl 'parentKind 'thing) 'CxUniverse)
-      (v/assert kb (list 'sibling_disjoint 'parentKind) 'CxUniverse)
-      (v/assert kb (list 'genl 'alphaKind 'parentKind) 'CxUniverse)
-      (v/assert kb (list 'genl 'betaKind 'parentKind) 'CxUniverse)
+      (v/assert kb (list 'genl 'alphaKind 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl 'betaKind 'thing) 'CxUniverse)
+      (v/assert kb (list 'disjoint 'alphaKind 'betaKind) 'CxUniverse)
       (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) cx)
       (is (false? (v/disjoint? kb 'alphaKind 'betaKind cx)) "spared where it is stated")
       (is (true? (v/disjoint? kb 'alphaKind 'betaKind 'CxUniverse)) "separated above it")
       (is (= #{} (clashes kb)) "and no reader reads a clash"))))
-
-(tu/deftest-kb a-separating-roster-naming-both-is-a-clash
-  (tu/with-terms [wholeKind alphaKind betaKind]
-    (v/assert kb (list 'genl 'wholeKind 'thing) 'CxUniverse)
-    (v/assert kb (list 'separating 'wholeKind 'alphaKind 'betaKind) 'CxUniverse)
-    (v/assert kb (list 'orthogonal 'alphaKind 'betaKind) 'CxUniverse)
-    (is (= #{#{(list 'orthogonal 'alphaKind 'betaKind)}} (clashes kb)))))
 
 ;; ---- not preserved along genl --------------------------------------------------
 ;;

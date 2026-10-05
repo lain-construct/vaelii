@@ -3,7 +3,7 @@
 (ns vaelii.impl.decide.related
   "The declarations over related types: a `disjoint` over two types one reaches the other
   of through `genl`, a cover naming a part a `disjoint` separates from its whole, and an
-  `orthogonal` over two types a separation or a `genl` edge contradicts.  See
+  `orthogonal` over two types a `genl` edge or an unexempted separation contradicts.  See
   docs/reference.md, decision 8."
   (:require [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
@@ -23,9 +23,11 @@
 ;; whole, and `:cover-pairs` each `#{cover disjoint}` whose `disjoint` separates the whole
 ;; from a part.
 ;;
-;; An `(orthogonal a b)` says the two types may overlap and neither subsumes the other, so a
-;; separation of the pair, however it is reached, and a `genl` edge between the two
-;; contradict it: a one-member clash of the declaration, as a `disjoint` over related types
+;; An `(orthogonal a b)` says the two types may overlap and neither subsumes the other.  It
+;; exempts its own pair from every separation (`tax/exemption`), so what contradicts it is
+;; a `genl` edge between the two, one type named twice, or a separation of two supertypes
+;; it does not exempt — an instance of both would be an instance of both separated
+;; supertypes: a one-member clash of the declaration, as a `disjoint` over related types
 ;; is.  `::orths` keeps every stored `orthogonal` by handle, and `:related-orth` those whose
 ;; pair some reader can read contradicted — related over the unscoped `genl` closure, or
 ;; separated by `disjointness-test` with no exception read — under the `genl` generation and
@@ -210,7 +212,8 @@
   `{:members #{h} :marks #{} :kind :disjoint}`, a cover pair,
   `{:members #{cover disjoint} :marks #{} :kind :cover}`, and an `orthogonal` of
   `:related-orth` over one type twice, over two types the `genl` edges stated in `up`
-  relate, or over two types `up` separates (`tax/disjoint?` over the ancestor set),
+  relate, or over two types `up` still separates (`tax/disjoint?` over the ancestor set,
+  which reads the declaration's own exemption),
   `{:members #{h} :marks #{} :kind :orthogonal}`."
   [kb c up hidden?]
   (when (or (seq (:related-dj c)) (seq (:cover-pairs c)) (seq (:related-orth c)))

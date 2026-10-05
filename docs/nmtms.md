@@ -1170,7 +1170,7 @@ vantage took OUT:
 `scoped_defeat_test`'s release tests pin both rows in every arrival order, the retraction
 of the denial and the `except`.
 
-An `orthogonal` exempts its pair from the clique marks only at the readers that see it
+An `orthogonal` exempts its pair from every separation only at the readers that see it
 ([taxonomy.md](taxonomy.md)): written below a vantage, it releases the pair there and
 below, and the vantage decides the pair as it reads it.
 
@@ -1545,17 +1545,17 @@ removal choke points. A KB whose `disjoint`s are all over unrelated types holds 
 (`related/related-nogoods`).
 
 An `(orthogonal a b)` states that the two types may overlap and that neither subsumes
-the other, so it is the same family's one-member clash, of the `orthogonal` declaration,
-wherever a reader reads the pair separated — through a `disjoint`, or a `partition` or
-`separating` roster, over any supertypes of the two, or through a `sibling_disjoint`
-parent or a disjoint metatype over two supertypes other than the pair itself — or reads a
-`genl` edge between them, or the two are one type. Over the pair itself the clique marks
-are exempted rather than contradicted ([taxonomy.md](taxonomy.md#disjointness)).
+the other. It exempts its own pair from every form of disjointness
+([taxonomy.md](taxonomy.md#disjointness)), so it is the same family's one-member clash, of
+the `orthogonal` declaration, wherever a reader reads a `genl` edge between the two, the
+two are one type, or the pair is still separated — through a separation of two
+supertypes the declaration does not exempt.
 
 ```
-(disjoint alphaw betaw)  (orthogonal alphaw betaw)                          ; {(orthogonal …)}
-(partition wholew alphaw betaw)  (orthogonal alphaw betaw)                  ; {(orthogonal …)}
 (genl betaw alphaw)  (orthogonal alphaw betaw)                              ; {(orthogonal …)}
+(disjoint upperw otherw)  (genl subw upperw)  (genl subv otherw)  (orthogonal subw subv)
+                                                                            ; {(orthogonal …)}
+(disjoint alphaw betaw)  (orthogonal alphaw betaw)                          ; no clash: exempt
 ```
 
 The declaration is forced `:monotonic`, as `disjoint` is, so one written at `:default` is

@@ -106,19 +106,17 @@
       (is (not (v/disjoint? kb dog cat)))
       (is (not (v/disjoint? kb cat bird))))))
 
-(tu/deftest-kb an-orthogonal-over-two-parts-is-a-clash-not-an-exemption
-  ;; A roster names its parts directly, as `(disjoint reading touch)` would, so an
-  ;; `orthogonal` over two of them contradicts the partition rather than sparing the pair,
-  ;; where over two members of a disjoint metatype it is an exemption.
-  (tu/with-terms [perception reading touch]
+(tu/deftest-kb an-orthogonal-exempts-one-pair-of-parts
+  ;; Every form of disjointness is one claim, and a partition's separation half is one, so
+  ;; an `orthogonal` over two parts exempts that pair; the coverage half stands.
+  (tu/with-terms [perception reading touch Braille]
     (v/assert kb (list 'partition perception reading touch) 'CxUniverse)
     (is (v/disjoint? kb reading touch))
     (v/assert kb (list 'orthogonal reading touch) 'CxUniverse)
-    (is (v/disjoint? kb reading touch) "the parts stay separated")
-    (is (= [[(list 'orthogonal reading touch)]]
-           (keep #(when (= :orthogonal (:kind %)) (mapv :sentence (:sides %)))
-                 (v/conflicts kb)))
-        "and the declaration is a clash")))
+    (is (not (v/disjoint? kb reading touch)))
+    (v/assert kb (list reading Braille) 'CxUniverse)
+    (is (= :ok (outcome kb (list touch Braille) 'CxUniverse)))
+    (is (empty? (filter #(= :orthogonal (:kind %)) (v/conflicts kb))))))
 
 ;; ---- what the declaration is refused for --------------------------------
 
