@@ -405,7 +405,7 @@
         ;; authored use only: a rule's conclusion placed in a member names the term there
         ;; without anybody having written it, and moving the term down would not move it
         users    (fn [t] (distinct (filter members (map :context (filter #(v/premise? kb (:id %))
-                                                                          (v/find-sentexes kb t))))))
+                                                                         (v/find-sentexes kb t))))))
         core-structural-use?
         (fn [t] (some (fn [sx]
                         (let [s (:sentence sx)]
