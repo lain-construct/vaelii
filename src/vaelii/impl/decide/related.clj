@@ -30,7 +30,7 @@
 ;; supertypes: a one-member clash of the declaration, as a `disjoint` over related types
 ;; is.  `::orths` keeps every stored `orthogonal` by handle, and `:related-orth` those whose
 ;; pair some reader can read contradicted — related over the unscoped `genl` closure, or
-;; separated by `disjointness-test` with no exception read — under the `genl` generation and
+;; separated by `disjointness-test` with no exemption read — under the `genl` generation and
 ;; `tax/separation-stamp` it was read at (`::orth-seen`).  The `orthogonal`s are few, so a
 ;; move of either reads every one again rather than tracking which a move touched.
 

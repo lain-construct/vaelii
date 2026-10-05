@@ -1089,9 +1089,9 @@
     ;; read off the genl closure (`separation-frame`), never materialized, exactly
     ;; as the metatype clique reads its members.
     :sib-disjoint (update t :sibling-disjoint conj a)              ; a = c
-    ;; `:orthogonal` exempts one pair the sibling clique or a `disjoint_metatype` would
-    ;; otherwise separate; stored as adjacency exactly as `:disjoint-index` is, so the read
-    ;; is one map lookup behind the `genl-related?` guard it sits beside.
+    ;; `:orthogonal` exempts one pair from every separation; stored as adjacency exactly
+    ;; as `:disjoint-index` is, so the read is one map lookup behind the guards of the arm
+    ;; it sits in.
     :orthogonal (index-symmetric t :orthogonal-index a true)        ; a = #{x y}
     ;; `:cover` is one whole-and-parts declaration: `a` is `[whole parts]` with the parts
     ;; sorted and `b` is the `cover-kinds` keyword saying which of the two claims it
@@ -4301,8 +4301,8 @@
     (cache-entry-visible? tax k context)))
 
 (defn- exemption
-  "`(fn [x y])` → does an `orthogonal` over the pair `x`, `y` exempt it from the clique
-  marks for a reader at `context`: one with a supporter `context` reads
+  "`(fn [x y])` → does an `orthogonal` over the pair `x`, `y` exempt it from every
+  separation for a reader at `context`: one with a supporter `context` reads
   (`entry-visible-at?`), or, for an unscoped `context`, any stored one.  One map lookup
   when no `orthogonal` names `x`."
   [tax context]
