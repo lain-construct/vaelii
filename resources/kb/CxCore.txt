@@ -579,9 +579,9 @@
 (not (transitiveInArg orthogonal 2 genl))
 (not (transitiveInArgInverse orthogonal 1 genl))
 (not (transitiveInArgInverse orthogonal 2 genl))
-;; orthogonal is the compatible counterpart of disjoint (which states two kinds share no
-;; instance).
-(termsRelated disjoint orthogonal)
+(termsRelated sibling_disjoint disjoint_metatype disjoint orthogonal)   ;; disjointness and exceptions thereto
+(seeAlso sibling_disjoint genl)   ;; exceptions to sibling disjointness
+(termsRelated genl disjoint orthogonal)   ;; the three basic taxonomic relations
 
 ;; ---- a whole and the parts named against it -------------------------------
 ;; Two independent claims about one roster, and the three spellings they make: covering

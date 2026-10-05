@@ -326,3 +326,13 @@
         "nor is a supertype")
     (is (false? (v/ask? kb (list 'orthogonal 'betaKind 'subAlpha) 'CxUniverse))
         "in either argument position")))
+
+;; ---- the related-terms links ---------------------------------------------------
+
+(tu/deftest-kb cxcore-links-orthogonal-to-its-neighbours
+  (doseq [s '[(termsRelated sibling_disjoint disjoint_metatype disjoint orthogonal)
+              (seeAlso sibling_disjoint genl)
+              (termsRelated genl disjoint orthogonal)]]
+    (is (some? (v/handle-of kb s 'CxCore)) (str (pr-str s) " is stated in CxCore")))
+  (is (nil? (v/handle-of kb '(termsRelated disjoint orthogonal) 'CxCore))
+      "the pairwise link the two rosters cover is gone"))
