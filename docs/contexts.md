@@ -76,9 +76,9 @@ Data hangs below CxWell.
   special predicate the engine interprets), asserted by `vaelii.host.core-context`. The
   root — every context in the spindle sees it, and a context no `genlCx` edge names
   sees nothing but itself ([A context outside the
-  spindle](#a-context-outside-the-spindle)). It also holds the six collections at the
+  spindle](#a-context-outside-the-spindle)). It also holds the seven collections at the
   top of the ontology — `intangible`, `spatial`, `spatiotemporal`, `tangible`,
-  `organism`, `capability` — which the engine reads by no name and which are here for the reason
+  `organism`, `biological`, `capability` — which the engine reads by no name and which are here for the reason
   below: the members of a spindle see each other not at all, so a term two of them
   extend has to be defined in the head.
   `starter_test/a-term-two-spindle-members-touch-is-defined-in-the-head` holds that.

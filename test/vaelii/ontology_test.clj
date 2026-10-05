@@ -736,13 +736,18 @@
     [genl atemporal thing CxCore "partition thing temporal atemporal"]
     [disjoint temporal atemporal CxCore "partition thing temporal atemporal"]
     [genl spatiotemporal thing CxCore "spatiotemporal genl spatial (intersection), spatial genl thing (partition)"]
+    [genl organism tangible CxCore "organism genl biological genl tangible"]
+    [genl body_part tangible CxAbstract "body_part genl biological genl tangible"]
+    [genl body_part biological CxAbstract "separating biological organism body_part"]
+    [disjoint organism substance CxAbstract "organism genl biological; disjoint biological substance"]
+    [disjoint substance body_part CxAbstract "body_part genl biological; disjoint biological substance"]
     [genl tangible temporal CxAbstract "tangible genl spatiotemporal genl temporal (intersection)"]
     [disjoint tangible intangible CxAbstract "partition thing tangible intangible"]
     [disjoint attribute tangible CxAbstract "attribute genl intangible; partition thing tangible intangible"]
     [disjoint organization substance CxAbstract "organization genl intangible, substance genl tangible; partition thing tangible intangible"]
     [disjoint language substance CxAbstract "language genl intangible, substance genl tangible; partition thing tangible intangible"]
     [disjoint attribute substance CxAbstract "attribute genl intangible, substance genl tangible; partition thing tangible intangible"]
-    [disjoint organization animal CxUniverse "organization genl intangible, animal genl organism genl tangible; partition thing tangible intangible"]
+    [disjoint organization animal CxUniverse "organization genl intangible, animal genl organism genl biological genl tangible; partition thing tangible intangible"]
     [genl string intangible CxAbstract "string genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl number intangible CxAbstract "number genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl keyword intangible CxAbstract "keyword genl unrepresented_term genl expression genl nowhere_never genl intangible"]
@@ -826,3 +831,45 @@
   (tu/with-terms [Thing1]
     (v/assert kb (list 'string Thing1) 'CxUniverse)
     (is (tu/stored-in-clash? kb (list 'predicate Thing1) 'CxUniverse))))
+
+;; ---- what is biological ---------------------------------------------------
+;; An organism and a part it grew are both biological, and tangible through it.  The two
+;; are separated without being said to exhaust biological.
+
+(tu/deftest-kb an-organism-and-a-body-part-are-biological-and-tangible
+  (doseq [t '[organism body_part]]
+    (is (true? (v/genl? kb t 'biological)) (str t " is biological"))
+    (is (true? (v/genl? kb t 'tangible)) (str t " is tangible through biological")))
+  (is (true? (v/genl? kb 'biological 'tangible)))
+  (testing "a kind CxOrganism places reaches tangible from CxOrganism itself"
+    (is (true? (v/genl? kb 'animal 'tangible 'CxOrganism))))
+  (tu/with-terms [Gizzard]
+    (v/assert kb (list 'body_part Gizzard) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'biological Gizzard) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'tangible Gizzard) 'CxUniverse)))))
+
+(tu/deftest-kb a-biological-thing-is-not-a-substance
+  ;; Stated once, of biological and substance, and read down to both of biological's
+  ;; parts: neither an organism nor a part it grew is stuff.
+  (is (true? (v/disjoint? kb 'biological 'substance)))
+  (testing "the separation reaches organism and body_part, which state none of their own"
+    (is (true? (v/disjoint? kb 'organism 'substance)))
+    (is (true? (v/disjoint? kb 'body_part 'substance)))
+    (is (true? (v/disjoint? kb 'leaf 'wood)) "and the kinds below each"))
+  (tu/with-terms [Gristle]
+    (v/assert kb (list 'biological Gristle) 'CxUniverse)
+    (is (true? (tu/stored-in-clash? kb (list 'substance Gristle) 'CxUniverse))
+        "a biological thing that is also a substance is a clash")))
+
+(tu/deftest-kb an-organism-is-not-a-body-part
+  (is (true? (v/disjoint? kb 'organism 'body_part)))
+  (is (true? (v/disjoint? kb 'animal 'feather))
+      "the separation reaches the kinds below each part")
+  (tu/with-terms [Polyp]
+    (v/assert kb (list 'organism Polyp) 'CxUniverse)
+    (is (true? (tu/stored-in-clash? kb (list 'body_part Polyp) 'CxUniverse))))
+  (testing "and nothing says a biological thing is one or the other"
+    (tu/with-terms [Spore]
+      (v/assert kb (list 'biological Spore) 'CxUniverse)
+      (v/assert kb (list 'not (list 'organism Spore)) 'CxUniverse)
+      (is (not (v/ask? kb (list 'body_part Spore) 'CxUniverse))))))
