@@ -3062,6 +3062,42 @@
                 (distinct))
           handles)))
 
+;; `departed-edge-seeds` reads an edge that left belief by a relabel, and its gate is a
+;; dependent whose conclusion went OUT.  A redundant mint the settle withdraws
+;; (`subsumed-mint-blocks`) leaves by a sweep instead, and the firings that named it as
+;; their witness are deleted with it while their conclusion usually stands on another
+;; firing — so that gate would read nothing, and the firing itself is never drawn again
+;; over the route that made the mint redundant.
+(defn withdrawn-edge-seeds
+  "The chaining seeds a settle owes the closure edges among `handles` — mints it is about
+  to withdraw as redundant (`subsumed-mint-blocks`) — that a rule firing names as its
+  witness: `departed-edge-rejoin`'s facts and rules for each such edge.
+
+  The firing is what is owed, not the conclusion.  A `genl` mint is withdrawn because a
+  stated route now reaches as far as it did, so every firing that climbed it has a
+  surviving route, and the same content loaded with the stated route first stores that
+  firing over it.  Its conclusion keeping another firing says nothing about this one,
+  so the gate is a dependent justification whose informant is a rule, read **before** the
+  sweep deletes it, and not a dependent conclusion that went OUT.  Without the re-join the
+  store keeps whichever firings the arrival order happened to draw, and a later full join
+  — a re-join, `forward-chain` — draws the rest at fresh handles."
+  [kb handles]
+  (let [tms (reasoning/tms kb)
+        fired-over? (fn [h]
+                      (some (fn [jid]
+                              (when-let [j (jtms/justification tms jid)]
+                                (integer? (:informant j))))
+                            (jtms/dependents tms h)))]
+    (into []
+          (comp (filter fired-over?)
+                (keep (fn [h]
+                        (let [s (:sentence (p/get-sentex (:records kb) h))]
+                          (when (closure-edge-relation s) s))))
+                (distinct)
+                (mapcat #(departed-edge-rejoin kb %))
+                (distinct))
+          handles)))
+
 ;; ---- equality: rewriteOf / sameAs / equals ------------------------------
 ;;
 ;; Three assertable relations feed one equivalence closure in the taxonomy

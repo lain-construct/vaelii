@@ -87,6 +87,24 @@
         (is (:believed gone))
         (is (= (build (concat base kept) goal) gone))))))
 
+(deftest a-stated-route-withdrawing-a-mint-keeps-the-firings-the-mint-carried
+  ;; A firing that climbed a minted edge loses its justification when a stated route makes
+  ;; the mint redundant and the settle withdraws it.  Its conclusion stands on a second
+  ;; firing here, and the firing over the minted edge is still owed: the order that states
+  ;; the route first draws it over the route, so this one draws it again over the route
+  ;; rather than keep only the firing that happened not to climb the mint.
+  (tu/with-terms [animal mammal dog cat kindUnder noted Rex Zoo]
+    (let [base [(list 'genl animal 'thing) (list 'genl cat animal)
+                (list 'set/forwardRule (list 'implies (list animal '?x) (list noted '?x)))
+                (list cat Rex) (list dog Rex)
+                (list 'genlArg kindUnder 1 animal) (list kindUnder dog Zoo)]
+          late [(list 'genl mammal animal) (list 'genl dog mammal)]
+          goal (list noted Rex)
+          late-last  (build (concat base late) goal)
+          late-first (build (concat late base) goal)]
+      (is (:believed late-last))
+      (is (= late-first late-last)))))
+
 (defn- round-trip
   "The reasons `load!` leaves in a cleared KB, and those its own text export reloads."
   [load!]
