@@ -285,13 +285,17 @@ calculi are *about* space: CxCore holds only the grammar they are stated in
 a KB built from CxCore plus the layers it wants carries regions only if it reasons
 about them (the starter, which loads every upper context it finds, takes them). Regions,
 places, and the things a frame or a distance is about are all **ordinary individuals**:
-every argument position is declared `(arg … spatiotemporal)`, the type a location is
-what makes something an instance of. `tangible` sits under it, so every animal,
-artifact and substance qualifies without a further declaration, while a region or a frame
-of reference — which occupy space without being made of anything — is declared into it
-directly. `spatiotemporal` is the intersection of `spatial` — a location in some space,
-mathematical spaces included — and `temporal`, so a figure located only in an abstract
-space, such as the line y=x, is `spatial` without being `spatiotemporal`. A spatial relation between two predicates is refused rather than stored.
+every argument position is declared `(arg … spatial)`, the type a location in some
+space — physical or mathematical — makes something an instance of. None of the four
+calculi needs time, so they relate regions of a plane, squares of an abstract board or a
+line such as y=x as readily as fields and rooms. `tangible` sits under it, so every
+animal, artifact and substance qualifies without a further declaration, while a region or
+a frame of reference — which occupy space without being made of anything — is declared
+into it directly. The context keeps two spaces apart, as it keeps two frames of
+reference apart: a prover's network is built per context, so facts about an abstract
+plane and facts about the world, stated in two contexts neither of which sees the other,
+never meet. A spatial relation between two predicates is refused rather than
+stored.
 
 Each prover is **opt-in**: register it by name with `vaelii.core/add-reasoner`
 (`:rcc8`, `:cardinal`, `:relative`, `:distance`), and until then a KB stores and

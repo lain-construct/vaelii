@@ -18,11 +18,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
 - **The upper ontology divides `thing` by location in space, by time and by mass:
   `spatial` is a location in any space, `spatiotemporal` is a location in space and
   time, `physical_object` is renamed `tangible` and `abstract` is renamed
-  `nowhere_never`.** The type every CxSpace argument is declared at, which meant a
-  location in space, is renamed `spatiotemporal`, and `spatial` now names the broader
-  collection of things with a location in some space, mathematical spaces included — the
-  line y=x, a square of an abstract chessboard, a point — and `spatiotemporal` is
-  defined as the intersection of `spatial` and `temporal`.
+  `nowhere_never`.** The old `spatial`, which meant a location in the world, is renamed
+  `spatiotemporal`, and `spatial` now names the broader collection of things with a
+  location in some space, mathematical spaces included — the line y=x, a square of an
+  abstract chessboard, a point — and `spatiotemporal` is defined as the intersection of
+  `spatial` and `temporal`. Every CxSpace argument is declared at the broader `spatial`,
+  since none of the four calculi needs time, so RCC-8, direction and distance relate
+  regions of the Cartesian plane as readily as fields; the context keeps two spaces apart.
   `(partition thing spatial aspatial)`, `(partition thing temporal atemporal)` and
   `(partition thing tangible intangible)` state the three divisions, separation and
   coverage both, so a thing denied one part is concluded the other. `tangible` is
