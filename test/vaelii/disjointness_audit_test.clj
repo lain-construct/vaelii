@@ -4,7 +4,8 @@
   "`subsumption-status` classifies a pair of types, and `disjointness-audit` runs it
   over every unordered pair. The status cases: :genl / :spec (one subsumes the other),
   :coextensional (mutual), :disjoint (a declaration, closed under genl), :orthogonal
-  (a provable shared instance with no subsumption or disjointness), and :unknown."
+  (a provable shared instance, or a shared subtype not separated from itself, with no
+  subsumption or disjointness), and :unknown."
   (:require [clojure.test :refer [is use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -40,6 +41,70 @@
     (v/assert kb (list 'aquatic 'Nemo) 'CxUniverse)
     (is (= :orthogonal (v/subsumption-status kb 'striped 'aquatic))
         "a provable shared instance, with neither subsuming nor disjoint")))
+
+;; ---- a shared subtype is an overlap witness unless it is provably empty ----
+
+(tu/deftest-kb a-shared-subtype-with-no-instance-reads-orthogonal
+  (tu/with-terms [spatialKind temporalKind bothKind]
+    (v/assert kb (list 'genl 'spatialKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'temporalKind 'thing) 'CxUniverse)
+    (is (= :unknown (v/subsumption-status kb 'spatialKind 'temporalKind))
+        "no relation, no shared instance and no shared subtype yet")
+    (v/assert kb (list 'genl 'bothKind 'spatialKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'temporalKind) 'CxUniverse)
+    (is (= #{:orthogonal} (v/subsumption-statuses kb 'spatialKind 'temporalKind))
+        "a subtype of both, not separated from itself, shows the two overlap")
+    (is (= :orthogonal (v/subsumption-status kb 'temporalKind 'spatialKind)))
+    (let [e (first (filter #(= #{'spatialKind 'temporalKind} (hash-set (:a %) (:b %)))
+                           (:pairs-data (v/disjointness-audit kb))))]
+      (is (= [:orthogonal :shared-spec 'bothKind] ((juxt :status :witness :via) e))
+          "the audit names the witness kind and the subtype"))))
+
+(tu/deftest-kb a-shared-subtype-with-an-instance-reads-as-a-shared-instance
+  (tu/with-terms [spatialKind temporalKind both_kind Thing1]
+    (v/assert kb (list 'genl 'spatialKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'temporalKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'both_kind 'spatialKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'both_kind 'temporalKind) 'CxUniverse)
+    (v/assert kb (list 'both_kind 'Thing1) 'CxUniverse)
+    (is (= :orthogonal (v/subsumption-status kb 'spatialKind 'temporalKind)))
+    (let [e (first (filter #(= #{'spatialKind 'temporalKind} (hash-set (:a %) (:b %)))
+                           (:pairs-data (v/disjointness-audit kb))))]
+      (is (= [:shared-instance 'Thing1] ((juxt :witness :via) e))
+          "the member found is reported ahead of the subtype it belongs to"))))
+
+(tu/deftest-kb a-shared-subtype-below-two-separated-types-is-no-witness
+  ;; bothKind is also below upperX and upperY, which are disjoint, so it has no member
+  (tu/with-terms [spatialKind temporalKind bothKind upperX upperY]
+    (v/assert kb (list 'genl 'spatialKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'temporalKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'upperX 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'upperY 'thing) 'CxUniverse)
+    (v/assert kb (list 'disjoint 'upperX 'upperY) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'spatialKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'temporalKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'upperX) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'upperY) 'CxUniverse)
+    (is (true? (v/disjoint? kb 'bothKind 'bothKind)) "the subtype is separated from itself")
+    (is (= :unknown (v/subsumption-status kb 'spatialKind 'temporalKind))
+        "an empty subtype is below every pair, so it shows no overlap")))
+
+(tu/deftest-kb a-shared-subtype-of-a-genl-related-pair-reads-genl
+  (tu/with-terms [outerKind innerKind bothKind]
+    (v/assert kb (list 'genl 'outerKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'innerKind 'outerKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'innerKind) 'CxUniverse)
+    (is (= #{:genl} (v/subsumption-statuses kb 'innerKind 'outerKind)))))
+
+(tu/deftest-kb a-shared-subtype-of-a-disjoint-pair-reads-disjoint
+  ;; a type below both halves of a disjoint pair is empty, so the pair stays consistent
+  (tu/with-terms [plantKind mineralKind bothKind]
+    (v/assert kb (list 'genl 'plantKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'mineralKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'disjoint 'plantKind 'mineralKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'plantKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'mineralKind) 'CxUniverse)
+    (is (= #{:disjoint} (v/subsumption-statuses kb 'plantKind 'mineralKind)))))
 
 (tu/deftest-kb a-known-starter-disjoint-pair
   ;; function and predicate are declared disjoint in CxCore.
