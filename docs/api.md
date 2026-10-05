@@ -158,10 +158,12 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; predicate genl edge whose spec declares an arg type its
                                                 ; genl's constraint does not subsume, every candidate
                                                 ; term declared unary_predicate with no genl path to
-                                                ; thing, and a suggested (genl X P) for every candidate
+                                                ; thing, a suggested (genl X P) for every candidate
                                                 ; type a visible cover forces under P that the closure
-                                                ; misses, and every visible (orthogonal a b) a stated
-                                                ; separation of the pair is lifted by, plus three
+                                                ; misses, every visible (orthogonal a b) a stated
+                                                ; separation of the pair is lifted by, and the suggested
+                                                ; declaration for every stored rule that a declaration the
+                                                ; engine implements states, plus three
                                                 ; review-only smells: sibling types sharing one direct
                                                 ; genl set, stated genl/disjoint edges that derive
                                                 ; without themselves, and disjoint pairs a known cover
@@ -172,7 +174,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; categories :all-specified-violations,
                                                 ; :definition-inconsistencies, :genl-arg-widening,
                                                 ; :not-under-thing, :implicit-genl,
-                                                ; :orthogonal-over-separation, :twin-genls,
+                                                ; :orthogonal-over-separation, :rule-macro, :twin-genls,
                                                 ; :derivable-stated-edge,
                                                 ; :disjoint-could-be-partition and :missing-arg. opts may bound :max-work,
                                                 ; :max-ms and :max-results, and :categories names the

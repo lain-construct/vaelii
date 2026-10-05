@@ -1161,3 +1161,190 @@
     (is (nil? (:missing-arg (v/kb-integrity kb #{} 'CxUniverse {:categories #{:missing-arg}})))
         "arg, genlArg, an inherited declaration, argAndRest and a type's own genl edge
          each type their positions")))
+
+;; ---- rule-macro -----------------------------------------------------------
+
+(defn- macro-of
+  "`[sentence macro declaration]` of each `:rule-macro` finding in `report`, sentences as
+  lists so a test can compare them with the rule it wrote."
+  [report]
+  (mapv (fn [f] [(:sentence f) (:macro f) (:declaration f)]) (:rule-macro report)))
+
+(defn- rule-macros
+  "The `:rule-macro` findings a sweep run with that category alone reports in `context`."
+  ([kb] (rule-macros kb 'CxUniverse))
+  ([kb context]
+   (macro-of (v/kb-integrity kb #{} context {:categories #{:rule-macro}}))))
+
+(tu/deftest-kb a-preservation-rule-is-reported-as-the-declaration
+  (tu/with-terms [empty_kind nonempty_kind]
+    (let [down (list 'implies (list 'and (list empty_kind '?c) '(genl ?d ?c))
+                     (list empty_kind '?d))
+          up   (list 'implies (list 'and (list nonempty_kind '?d) '(genl ?d ?c))
+                     (list nonempty_kind '?c))]
+      (v/assert kb (list 'set/forwardRule down) 'CxUniverse)
+      (v/assert kb (list 'set/forwardRule up) 'CxUniverse)
+      (let [before (state-snapshot kb)
+            report (v/kb-integrity kb #{} 'CxUniverse {:categories #{:rule-macro}})]
+        (is (= :gap (:status report)))
+        (is (= #{[(v/handle-of kb down 'CxUniverse) 'CxUniverse 'transitiveInArg
+                  (list 'transitiveInArg empty_kind 1 'genl)]
+                 [(v/handle-of kb up 'CxUniverse) 'CxUniverse 'transitiveInArgInverse
+                  (list 'transitiveInArgInverse nonempty_kind 1 'genl)]}
+               (set (map (juxt :rule :context :macro :declaration) (:rule-macro report)))))
+        (is (= 2 (count (:rule-macro report))) "one finding per rule")
+        (is (every? #(v/sentexes-matching kb (:sentence %) 'CxUniverse) (:rule-macro report))
+            "the sentence is the rule as stored")
+        (is (= before (state-snapshot kb)) "the audit stores, believes and files nothing")))))
+
+(tu/deftest-kb a-preservation-rule-names-its-position-and-relation
+  (tu/with-terms [rankedAt needs_care partOfX]
+    (v/assert kb (list 'ternary_predicate rankedAt) 'CxUniverse)
+    (v/assert kb (list 'transitive partOfX) 'CxUniverse)
+    (v/assert kb (list 'implies (list 'and (list rankedAt '?a '?w '?b) (list partOfX '?w '?z))
+                       (list rankedAt '?a '?z '?b))
+              'CxUniverse)
+    (v/assert kb (list 'implies (list 'and (list needs_care '?w) (list partOfX '?p '?w))
+                       (list needs_care '?p))
+              'CxUniverse)
+    (is (= #{(list 'transitiveInArgInverse rankedAt 2 partOfX)
+             (list 'transitiveInArg needs_care 1 partOfX)}
+           (set (map #(nth % 2) (rule-macros kb)))))))
+
+(tu/deftest-kb relation-algebra-rules-are-reported-as-their-marks
+  (tu/with-terms [likesX partX betweenX childX parentX]
+    (doseq [p [likesX partX childX parentX]]
+      (v/assert kb (list 'binary_predicate p) 'CxUniverse))
+    (v/assert kb (list 'ternary_predicate betweenX) 'CxUniverse)
+    (v/assert kb (list 'implies (list likesX '?x '?y) (list likesX '?y '?x)) 'CxUniverse)
+    (v/assert kb (list 'implies (list 'and (list partX '?x '?y) (list partX '?y '?z))
+                       (list partX '?x '?z))
+              'CxUniverse)
+    (v/assert kb (list 'implies (list betweenX '?x '?a '?b) (list betweenX '?x '?b '?a))
+              'CxUniverse)
+    (v/assert kb (list 'implies (list childX '?x '?y) (list parentX '?y '?x)) 'CxUniverse)
+    (v/assert kb (list 'implies (list parentX '?x '?y) (list childX '?y '?x)) 'CxUniverse)
+    (is (= #{(list 'symmetric likesX)
+             (list 'transitive partX)
+             (list 'commutativeInArgs betweenX 2 3)
+             (list 'inverse childX parentX)
+             (list 'inverse parentX childX)}
+           (set (map #(nth % 2) (rule-macros kb)))))))
+
+(tu/deftest-kb a-subsumption-rule-is-reported-as-genl
+  (tu/with-terms [bird_kind warm_blooded_kind fatherX parentX]
+    (v/assert kb (list 'binary_predicate fatherX) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentX) 'CxUniverse)
+    (v/assert kb (list 'set/forwardRule (list 'implies (list bird_kind '?x)
+                                              (list warm_blooded_kind '?x)))
+              'CxUniverse)
+    (v/assert kb (list 'implies (list fatherX '?x '?y) (list parentX '?x '?y)) 'CxUniverse)
+    (is (= #{(list 'genl bird_kind warm_blooded_kind) (list 'genl fatherX parentX)}
+           (set (map #(nth % 2) (rule-macros kb)))))))
+
+(tu/deftest-kb a-default-rule-is-reported-only-as-a-default-generator
+  (tu/with-terms [pet_kind ownedBy fatherX parentX Somebody]
+    (v/assert kb (list 'binary_predicate ownedBy) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate fatherX) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate parentX) 'CxUniverse)
+    (v/assert kb (list 'set/defaultRule
+                       (list 'set/forwardRule
+                             (list 'implies (list pet_kind '?x) (list ownedBy '?x Somebody))))
+              'CxUniverse)
+    (v/assert kb (list 'set/defaultRule
+                       (list 'implies (list fatherX '?x '?y) (list parentX '?x '?y)))
+              'CxUniverse)
+    (is (= [(list 'predAllInstance ownedBy pet_kind Somebody)]
+           (map #(nth % 2) (rule-macros kb)))
+        "genl is monotonic, so the default subsumption rule is not reported")))
+
+(tu/deftest-kb a-monotonic-generator-shape-is-not-reported
+  (tu/with-terms [pet_kind ownedBy Somebody]
+    (v/assert kb (list 'binary_predicate ownedBy) 'CxUniverse)
+    (v/assert kb (list 'implies (list pet_kind '?x) (list ownedBy Somebody '?x)) 'CxUniverse)
+    (is (= [] (rule-macros kb))
+        "predInstanceAll stamps a default rule, so a monotonic one is not its spelling")))
+
+(tu/deftest-kb near-miss-rules-are-not-reported
+  (tu/with-terms [empty_kind other_kind needs_care begetsX likesX partX childX parentX
+                  ownedBy mark_kind Bob]
+    (doseq [p [begetsX likesX partX childX parentX ownedBy]]
+      (v/assert kb (list 'binary_predicate p) 'CxUniverse))
+    (doseq [r [;; an extra conjunct
+               (list 'implies (list 'and (list empty_kind '?c) '(genl ?d ?c) (list other_kind '?d))
+                     (list empty_kind '?d))
+               ;; a relation nobody declared transitive
+               (list 'implies (list 'and (list needs_care '?w) (list begetsX '?a '?w))
+                     (list needs_care '?a))
+               ;; a constant where the mark leaves the argument free
+               (list 'implies (list likesX '?x Bob) (list likesX Bob '?x))
+               ;; a different variable flow: euclidean, not transitive
+               (list 'implies (list 'and (list partX '?x '?y) (list partX '?x '?z))
+                     (list partX '?y '?z))
+               ;; one direction of an inverse
+               (list 'implies (list childX '?x '?y) (list parentX '?y '?x))
+               ;; a conclusion the engine interprets as a mark
+               (list 'implies (list mark_kind '?p) (list 'symmetric '?p))
+               ;; a repeated variable
+               (list 'implies (list ownedBy '?x '?x) (list likesX '?x '?x))
+               ;; an inert rule
+               (list 'set/inertRule (list 'implies (list other_kind '?x) (list mark_kind '?x)))]]
+      (v/assert kb r 'CxUniverse))
+    (is (= [] (rule-macros kb)))))
+
+(tu/deftest-kb a-mark-rule-stated-in-one-theory-is-not-reported
+  (tu/with-terms [CxTheory likesX empty_kind]
+    (v/assert kb (list 'genlCx CxTheory 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate likesX) 'CxUniverse)
+    (v/assert kb (list 'implies (list likesX '?x '?y) (list likesX '?y '?x)) CxTheory)
+    (v/assert kb (list 'implies (list 'and (list empty_kind '?c) '(genl ?d ?c))
+                       (list empty_kind '?d))
+              CxTheory)
+    (is (= [] (rule-macros kb)) "a rule CxUniverse cannot see is not visible from it")
+    (is (= [(list 'transitiveInArg empty_kind 1 'genl)]
+           (map #(nth % 2) (rule-macros kb CxTheory)))
+        "a mark is read from every context, so a theory's own symmetry rule stays a rule;
+         a preservation declaration is read where it is stated")))
+
+(tu/deftest-kb a-rule-beside-its-declaration-is-marked-stated
+  (tu/with-terms [likesX]
+    (v/assert kb (list 'binary_predicate likesX) 'CxUniverse)
+    (v/assert kb (list 'implies (list likesX '?x '?y) (list likesX '?y '?x)) 'CxUniverse)
+    (v/assert kb (list 'symmetric likesX) 'CxUniverse)
+    (let [[f & more] (:rule-macro (v/kb-integrity kb #{} 'CxUniverse))]
+      (is (nil? more))
+      (is (= 'symmetric (:macro f)))
+      (is (true? (:stated f)) "the declaration already says it, so the rule is redundant")
+      (is (integer? (:rule f)))
+      (is (= 'CxUniverse (:context f))))))
+
+(tu/deftest-kb categories-run-the-rule-macro-pass-alone
+  (tu/with-terms [likesX orphan_kind_fixture]
+    (v/assert kb (list 'binary_predicate likesX) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate orphan_kind_fixture) 'CxUniverse)
+    (v/assert kb (list 'implies (list likesX '?x '?y) (list likesX '?y '?x)) 'CxUniverse)
+    (let [all  (v/kb-integrity kb #{orphan_kind_fixture} 'CxUniverse)
+          only (v/kb-integrity kb #{orphan_kind_fixture} 'CxUniverse
+                               {:categories #{:rule-macro}})]
+      (is (= #{:not-under-thing :rule-macro}
+             (set (keys (dissoc all :status :candidate-count)))))
+      (is (= [:rule-macro] (keys (dissoc only :status :candidate-count))))
+      (is (= (:rule-macro all) (:rule-macro only))))))
+
+(tu/deftest-kb rule-macro-findings-truncate-under-every-bound
+  (tu/with-terms [likesX metX]
+    (doseq [p [likesX metX]]
+      (v/assert kb (list 'binary_predicate p) 'CxUniverse)
+      (v/assert kb (list 'implies (list p '?x '?y) (list p '?y '?x)) 'CxUniverse))
+    (let [run      #(v/kb-integrity kb #{} 'CxUniverse (assoc % :categories #{:rule-macro}))
+          in-order (mapv :declaration (:rule-macro (run {})))]
+      (is (= 2 (count in-order)))
+      (testing "a result cap below the finding count keeps the completed prefix"
+        (let [report (run {:max-results 1})]
+          (is (= [:truncated :max-results] ((juxt :status :reason) report)))
+          (is (= (subvec in-order 0 1) (mapv :declaration (:rule-macro report))))))
+      (testing "work exhaustion is truncated, never audited"
+        (let [needed (first (filter #(= :gap (:status (run {:max-work %}))) (range 0 5000)))]
+          (is (some? needed))
+          (is (every? #(= [:truncated :max-work] ((juxt :status :reason) (run {:max-work %})))
+                      (range 0 (or needed 0)))))))))

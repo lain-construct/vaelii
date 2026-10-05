@@ -612,7 +612,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `{:types [...] :genls [...]}` per direct `genl` set two visible types or more share. A
   finding is for review only. The pass reads every node of the `genl` relation once, not
   the candidate set, and its findings count against `:max-results` after the
-  `:orthogonal-over-separation` category.
+  `:rule-macro` category.
   [integrity.md](docs/integrity.md#the-ontology-engineering-smells).
 
   *Class:* **Additive**.
@@ -711,6 +711,25 @@ it — `git show v0.16.0:CHANGELOG.md`.
 - **CxCore types every position of `termsRelated` with one `(args termsRelated thing)`.**
   The declaration replaces `arg` declarations for positions 1 and 2, which left the
   variable-arity tail untyped, so `:missing-arg` no longer reports `termsRelated`.
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a stored rule that a declaration the engine implements
+  states.** `(implies (and (empty ?c) (genl ?d ?c)) (empty ?d))` concludes what
+  `(transitiveInArg empty 1 genl)` concludes. The sweep adds an eleventh sparse category,
+  `:rule-macro`, with one `{:rule h :sentence S :context C :macro M :declaration D}` per
+  believed premise rule visible from the audit context and declaration shape the rule
+  matches, for `transitiveInArg`, `transitiveInArgInverse`, `symmetric`, `transitive`,
+  `commutativeInArgs`, `inverse` (a pair of rules), `genl`, `predAllInstance` and
+  `predInstanceAll`. The match unifies the shape with the rule's variables renamed apart,
+  and each free argument takes a distinct rule variable. A relation mark is suggested
+  only for a rule CxUniverse sees, a preservation only along a relation the rule's
+  context reads as transitive, `genl` never for a consequent the engine interprets, and
+  a shape only for a rule of its class, so a `set/defaultRule` is suggested only as a
+  generator. `:stated true` marks a rule whose context already sees the declaration. The
+  pass reads the stored rules, not the candidate terms. Findings count against
+  `:max-results` after the `:implicit-genl` category and are kept on truncation.
+  [integrity.md](docs/integrity.md#what-a-rule-macro-finding-means).
 
   *Class:* **Additive**.
 
