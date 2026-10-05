@@ -323,7 +323,7 @@
         (is (empty? (ok-result handler :find-sentexes-all [[dog Tom]]))))
       (testing "the subsumption relationship of one pair of types"
         (is (= :genl (ok-result handler :subsumption-status [dog animal CxRule])))
-        (is (= :disjoint (ok-result handler :subsumption-status [dog cat])))
+        (is (= :disjoint (ok-result handler :subsumption-status [dog cat CxRule])))
         (is (= :orthogonal (ok-result handler :subsumption-status [dog pet CxRule])))
         (is (= #{:genl} (ok-result handler :subsumption-statuses [dog animal]))))
       (testing "the per-instant functionality audit, the twin of the specified pair"

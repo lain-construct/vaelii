@@ -31,11 +31,24 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [taxonomy.md](docs/taxonomy.md#disjointness).
 
   *Class:* **Breaking** (a predicate retired, and an explicit `disjoint` is overridden by
-  an `orthogonal` of the same pair).
+  an `orthogonal` of the same pair, so `subsumption-status` of a pair stating both moves
+  from `:disjoint` to `:orthogonal`).
   *Migration:* `(siblingDisjointException a b)` → `(orthogonal a b)`; a KB that states
   both `(disjoint a b)` and `(orthogonal a b)` reads the pair apart, so drop whichever is
   wrong.
-  *Breaks:* `siblingDisjointException`, `disjoint?`
+  *Breaks:* `siblingDisjointException`, `disjoint?`, `subsumption-status`
+
+- **`subsumption-statuses` reads `:disjoint` from its vantage.** `disjoint?` is read at
+  `context` (default `CxUniverse`), the vantage the declared `orthogonal` is read from, so
+  a pair separated in `CxUniverse` and declared `orthogonal` in a context below it reads
+  `:disjoint` at `CxUniverse` and `:orthogonal` below, and a `disjoint` stated only in a
+  context the vantage does not see no longer counts.
+  [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
+
+  *Class:* **Breaking** (a pair separated only in a context below the vantage reads
+  `:unknown` at the vantage).
+  *Migration:* pass the context that states the separation as `context`.
+  *Breaks:* `subsumption-statuses`, `subsumption-status`, `disjointness-audit`
 
 - **`transitiveInArgInverse` is forced monotonic, as `transitiveInArg` is.** CxCore
   declares `(forced_monotonic_predicate transitiveInArgInverse)` and the engine's roster
@@ -148,8 +161,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
 - **`subsumption-statuses` reads a stated `orthogonal` as `:orthogonal`.** A pair
   declared `(orthogonal a b)` in either spelling, visible from the vantage `context`,
   reads `:orthogonal` with no shared instance, so `disjointness-audit` no longer counts it
-  among its `:unknown` pairs. A declared pair that is also `genl`-related or disjoint
-  carries both statuses, and `subsumption-status` reports it `:inconsistent`.
+  among its `:unknown` pairs. A declared pair that is also `genl`-related, or separated
+  through two supertypes the declaration does not exempt, carries both statuses, and
+  `subsumption-status` reports it `:inconsistent`; a `disjoint` over the declared pair
+  itself is exempted, so that pair reads `:orthogonal`.
   [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
   *Class:* **Additive**.
 
@@ -193,6 +208,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive**.
 
 ### Internal
+
+- **The `orthogonal` comments and taxonomy.md name every separation the declaration
+  exempts.** The flat-cache comment and `tax/exemption`'s docstring named the clique marks
+  alone. [taxonomy.md](docs/taxonomy.md#disjointness).
+
+  *Class:* **Internal**.
 
 - **taxonomy.md documents the three partitions of `thing`, and the glossary defines
   `intangible`.** The glossary entries for `aspatial`, `atemporal`, `tangible` and
