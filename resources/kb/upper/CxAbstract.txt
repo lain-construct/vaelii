@@ -194,21 +194,26 @@
 (genl situation temporal)
 (genl situation intangible)
 ;; A situation can be located or not, so each situation kind is orthogonal to spatial
-;; and to aspatial.  A battle is a situation and spatiotemporal; a rock is spatiotemporal
-;; and no situation; a debt is a situation and not spatiotemporal.
+;; and to aspatial, and to spatiotemporal.  A battle is a situation and spatiotemporal; a
+;; rock is spatiotemporal and no situation; a debt is a situation and not spatiotemporal.
+;; A cat on a mat is a static situation and spatiotemporal; a treaty in force is one and
+;; not.  An orthogonal is not inherited along genl, so each kind's pair is stated.
 (orthogonal situation spatial)
 (orthogonal situation aspatial)
 (orthogonal situation spatiotemporal)
 (orthogonal static_situation spatial)
 (orthogonal static_situation aspatial)
+(orthogonal static_situation spatiotemporal)
 
 (comment static_situation "A situation extended in time but unchanged, a held state, e.g. a file existing. Contrast event, the kind whose state changes.")
 
 (comment event "Something that happens: an occurrence located in time whose state changes. The event-calculus slots (happens/initiates/terminates) are typed temporal and no event collection was declared; this names one.")
 ;; An event is temporal through situation, and an event can be located or not: the battle
-;; of Waterloo is located, and a contract expiring at midnight is not.
+;; of Waterloo is located and spatiotemporal, and a contract expiring at midnight is
+;; neither.
 (orthogonal event spatial)
 (orthogonal event aspatial)
+(orthogonal event spatiotemporal)
 
 (comment spatial_event "An event located in some space: a battle, a smelting, a sawing, a footprint's step. An institutional change, such as a contract expiring, is an event located nowhere and is not a spatial event.")
 (intersection spatial_event event spatial)

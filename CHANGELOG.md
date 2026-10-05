@@ -726,6 +726,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
 
+- **An event and a static situation are spatiotemporal or not.** CxAbstract states
+  `event` and `static_situation` each orthogonal to `spatiotemporal`, beside
+  `(orthogonal situation spatiotemporal)`: an orthogonal is not inherited along `genl`,
+  so each kind's pair is stated. A battle and a cat on a mat are spatiotemporal; a
+  contract expiring and a treaty in force are not. `ontology_test` pins both pairs with a
+  witness.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
 - **`spatial_event` is an event located in some space.** CxAbstract defines
   `(intersection spatial_event event spatial)` and states
   `(genl spatial_event spatiotemporal)`, so a battle or a smelting stated an event and

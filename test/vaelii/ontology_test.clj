@@ -1471,6 +1471,13 @@
       "and the edge is not stated")
   (located-or-not kb '[[event spatial Waterloo1] [event aspatial ContractExpiry1]]))
 
+(tu/deftest-kb an-event-and-a-held-state-may-or-may-not-be-spatiotemporal
+  ;; A battle is an event and spatiotemporal, and a contract expiring is an event and not.
+  ;; A cat on a mat is a held state and spatiotemporal, and a treaty in force is one and not.
+  ;; A rock is spatiotemporal and neither.
+  (located-or-not kb '[[event spatiotemporal Battle2]
+                       [static_situation spatiotemporal CatOnMat2]]))
+
 (tu/deftest-kb a-spatial-event-is-an-event-located-in-some-space
   (is (seq (v/sentexes-matching kb '(comment spatial_event ?text) 'CxAbstract)))
   (doseq [t '[event spatial spatiotemporal temporal situation]]
