@@ -133,12 +133,15 @@
     (not= 2 (count s)) (conj "sibling_disjoint takes one argument")
     (nm/individual? c) (conj (str c " is an individual; sibling_disjoint marks a collection"))))
 
-(defn siblingDisjointException-problems [_ [_ a b :as s] _context]
+(defn orthogonal-problems
+  "`(orthogonal a b)` — two arguments, neither an individual.  One type named twice is
+  not refused here: a type subsumes itself, so the declaration contradicts the taxonomy,
+  and `decide.related` reports that clash as it reports one over two genl-related types."
+  [_ [_ a b :as s] _context]
   (cond-> []
-    (not= 3 (count s)) (conj "siblingDisjointException takes two arguments")
-    (nm/individual? a) (conj (str a " is an individual; siblingDisjointException relates types"))
-    (nm/individual? b) (conj (str b " is an individual; siblingDisjointException relates types"))
-    (= a b)            (conj (str a " siblingDisjointException with itself"))))
+    (not= 3 (count s)) (conj "orthogonal takes two arguments")
+    (nm/individual? a) (conj (str a " is an individual; orthogonal relates types"))
+    (nm/individual? b) (conj (str b " is an individual; orthogonal relates types"))))
 
 (defn arg-constraint-problems
   "`arg` and `genlArg` — the two argument constraints — are structurally identical:

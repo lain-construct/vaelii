@@ -754,6 +754,16 @@ that the same knowledge asserted in any order yields the same beliefs — belief
 is computed from state, and every tie-break keys on content, never on handle id.
 See [nmtms.md](nmtms.md).
 
+**`orthogonal`** ![kb](../.github/badges/cat-kb.svg): States that two types may overlap —
+something could be an instance of both — and that neither is a `genl` of the other. It
+does not say that anything is an instance of both, and claims nothing about things that
+are instances of neither. Symmetric and forced monotonic. It exempts the pair from every
+form of disjointness — `disjoint`, a `partition` or `separating` roster, a
+`sibling_disjoint` mark, a `disjoint_metatype` — pair-local and read at the reader. A
+`genl` edge between the two, or a separation of two supertypes it does not exempt,
+contradicts it instead: a one-member clash of the declaration. It is also the declared
+witness of the `:orthogonal` subsumption status. See [taxonomy.md](taxonomy.md).
+
 ## P
 
 **`partitionedByType`** ![kb](../.github/badges/cat-kb.svg): Declares the cells that exhaustively and disjointly partition a whole, each cell an instance of a named classifier. Inert — declared, read by no inference path. See [taxonomy.md](taxonomy.md).
@@ -1040,13 +1050,6 @@ the `disjoint_metatype` clique keyed off the genl closure, consulted not stored,
 belief-following, and raising contradictions through the same JTMS/ASP path as
 `disjoint`. Covering is out of scope. See [taxonomy.md](taxonomy.md).
 
-**`siblingDisjointException`** ![kb](../.github/badges/cat-kb.svg): Exempts the one pair
-of types it names from a disjointness a `sibling_disjoint` mark or a `disjoint_metatype`
-would otherwise force — pair-local, so it does not disturb either type's disjointness from
-the parent's other specializations and does not leak to subtypes. Read at the reader: a
-context that does not see the exception reads the pair separated. See
-[taxonomy.md](taxonomy.md).
-
 **Sideways information passing** ![inference](../.github/badges/cat-inference.svg):
 Costing each conjunct under the bindings the already-chosen literals will
 produce, so the plan reflects the fan-out a literal actually runs with. See
@@ -1114,11 +1117,12 @@ retracted. See [quality.md](quality.md); the matching-time relation it is built 
 **Subsumption status** ![kb](../.github/badges/cat-kb.svg): The relationship of one type
 to another in the genl hierarchy, as `subsumption-status` classifies it: `:genl` (the
 first type is a subtype of the second), `:spec` (the converse), `:coextensional` (each is
-`genl` the other), `:disjoint` (provably no shared instance), `:orthogonal` (a shared
-instance with neither subsumption nor disjointness), or `:unknown` (none of these is
-provable). `disjointness-audit` runs the classification over every unordered type pair,
-and its `:unknown` pairs are the candidates for a missing `disjoint` declaration. See
-[taxonomy.md](taxonomy.md).
+`genl` the other), `:disjoint` (provably no shared instance), `:orthogonal` (a stated
+`orthogonal`, or a shared instance with neither subsumption nor disjointness),
+`:unknown` (none of these is provable), or `:inconsistent` (two or more of them at once).
+`disjointness-audit` runs the classification over every unordered type pair, and its
+`:unknown` pairs are the candidates for a missing `disjoint` or `orthogonal` declaration.
+See [taxonomy.md](taxonomy.md).
 
 **Superseded** ![tms](../.github/badges/cat-tms.svg): The TMS state an equality
 merge puts a stale spelling in — stored but not believed and not matching,

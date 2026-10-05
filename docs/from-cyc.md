@@ -82,7 +82,7 @@ be decided → [solving.md](solving.md).
 | `negationPreds`, binary and up | a pair of implication rules | no declarative form — see below |
 | `disjoint` | `disjoint` | same reading, and `(disjoint_metatype M)` makes every member pairwise disjoint without writing the pairs |
 | `SiblingDisjointCollectionType` | `sibling_disjoint` | a mark on the collection; its `genl`-specializations are pairwise disjoint unless one genls the other, the clique keyed off the genl closure rather than written |
-| `siblingDisjointExceptions` (plural) | `siblingDisjointException` (**singular**, house style) | exempts one pair the sibling mark or a `disjoint_metatype` would force disjoint; read at the reader, so a context that does not see it reads the pair separated, pair-local, and it does not leak to subtypes |
+| `siblingDisjointExceptions` (plural) | `orthogonal` | exempts one pair from every form of disjointness, the sibling mark and a `disjoint_metatype` among them; read at the reader, so a context that does not see it reads the pair separated, and pair-local |
 | `SymmetricBinaryPredicate` | `(symmetric P)` | |
 | `AsymmetricBinaryPredicate` | `(asymmetric P)` | convicts a claim whose **converse** is believed; it does not make `P` irreflexive, and `(P a a)` is admitted |
 | `genlInverse` | an inert `genlInverse` declaration, or a forward rule | vaelii declares `genlInverse` as an inert predicate with no inference path; a working inverse is a forward rule, and `(inverse P Q)` is the stronger biconditional |

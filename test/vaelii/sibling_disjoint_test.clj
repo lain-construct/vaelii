@@ -168,7 +168,7 @@
       (is (empty? (v/conflicts kb)))
       (is (= #{t1 t2} (set (v/types-of kb Pip CxA)))))))
 
-;;; ── siblingDisjointException: an escape hatch exempting one pair ──
+;;; ── orthogonal: an exemption of one pair from the clique ──
 
 (tu/deftest-kb an-exception-exempts-one-pair-and-only-that-pair
   ;; the exemption spares x,y while the mark still separates every other sibling —
@@ -182,7 +182,7 @@
     (testing "before the exception every pair of specializations is disjoint"
       (is (v/disjoint? kb a b))
       (is (v/disjoint? kb a c)))
-    (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
+    (v/assert kb (list 'orthogonal a b) 'CxUniverse)
     (testing "the exempted pair no longer separates — symmetric in either order"
       (is (not (v/disjoint? kb a b)))
       (is (not (v/disjoint? kb b a))))
@@ -196,14 +196,14 @@
       (is (tu/stored-in-clash? kb (list c pip) 'CxUniverse)))))
 
 (tu/deftest-kb the-exception-canonicalizes-both-orders-to-one-handle
-  ;; symmetric — as CxCore declares it — so (siblingDisjointException a b) and (… b a)
+  ;; symmetric — as CxCore declares it — so (orthogonal a b) and (… b a)
   ;; sort to one canonical sentence and share a handle (the bare test KB has no CxCore, so
   ;; the mark is asserted here to stand in for it)
   (let [a (tu/tmp-type) b (tu/tmp-type)]
-    (v/assert kb (list 'symmetric 'siblingDisjointException) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
-    (is (= (v/handle-of kb (list 'siblingDisjointException a b) 'CxUniverse)
-           (v/handle-of kb (list 'siblingDisjointException b a) 'CxUniverse)))))
+    (v/assert kb (list 'symmetric 'orthogonal) 'CxUniverse)
+    (v/assert kb (list 'orthogonal a b) 'CxUniverse)
+    (is (= (v/handle-of kb (list 'orthogonal a b) 'CxUniverse)
+           (v/handle-of kb (list 'orthogonal b a) 'CxUniverse)))))
 
 (tu/deftest-kb an-exemption-does-not-leak-to-a-subtype
   ;; an exception on (a, b) must leave (sub_a, b) disjoint: each read tests the exact pair
@@ -214,7 +214,7 @@
     (v/assert kb (list 'genl b collection) 'CxUniverse)
     (v/assert kb (list 'genl sub_a a) 'CxUniverse)
     (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
+    (v/assert kb (list 'orthogonal a b) 'CxUniverse)
     (testing "the declared pair overlaps"
       (is (not (v/disjoint? kb a b))))
     (testing "a subtype of one side is still disjoint from the other"
@@ -233,7 +233,7 @@
     (testing "without the exception the second membership is refused"
       (is (tu/stored-in-clash? kb (list b x) 'CxUniverse)))
     (testing "with the exception standing it is admitted"
-      (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
+      (v/assert kb (list 'orthogonal a b) 'CxUniverse)
       (is (v/assert kb (list b x) 'CxUniverse))
       (is (empty? (v/violations kb))))))
 
@@ -245,12 +245,12 @@
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
     (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
+    (v/assert kb (list 'orthogonal a b) 'CxUniverse)
     (v/assert kb (list a x) 'CxUniverse)
     (testing "with the exception standing both memberships coexist, nothing exposed"
       (is (v/assert kb (list b x) 'CxUniverse))
       (is (empty? (v/violations kb))))
-    (v/retract! kb (v/handle-of kb (list 'siblingDisjointException a b) 'CxUniverse))
+    (v/retract! kb (v/handle-of kb (list 'orthogonal a b) 'CxUniverse))
     (testing "retracting it re-separates the pair"
       (is (v/disjoint? kb a b)))
     (testing "and the re-arm sweep decides the clash the ab-initio pair now forms"
@@ -273,9 +273,9 @@
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
     (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
-    (v/assert kb (list 'siblingDisjointException nat b) 'CxUniverse)
+    (v/assert kb (list 'orthogonal nat b) 'CxUniverse)
     (testing "retracting an exception whose argument is a NAT does not throw"
-      (let [h (v/handle-of kb (list 'siblingDisjointException nat b) 'CxUniverse)]
+      (let [h (v/handle-of kb (list 'orthogonal nat b) 'CxUniverse)]
         (is (v/retract! kb h))))
     (testing "and the KB is not wedged — an unrelated later write still settles"
       (is (v/assert kb (list a x) 'CxUniverse)))))
@@ -291,13 +291,13 @@
       (v/assert kb (list 'genl a collection) 'CxUniverse)
       (v/assert kb (list 'genl b collection) 'CxUniverse)
       (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
-      (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
+      (v/assert kb (list 'orthogonal a b) 'CxUniverse)
       (v/assert kb (list a Muffet) 'CxUniverse)
       (v/assert kb (list b Muffet) 'CxUniverse)
       (testing "the exception spares the pair — no contradiction"
         (is (not (v/disjoint? kb a b)))
         (is (empty? (v/contradictions kb))))
-      (v/retract! kb (v/handle-of kb (list 'siblingDisjointException a b) 'CxUniverse))
+      (v/retract! kb (v/handle-of kb (list 'orthogonal a b) 'CxUniverse))
       (testing "retracting it re-arms the ab-initio pair as a dilemma"
         (is (v/disjoint? kb a b))
         (is (= [:disjoint] (mapv :kind (v/contradictions kb))))))))
@@ -326,7 +326,7 @@
       (v/assert kb (list b Muffet) 'CxUniverse)
       (testing "the mark makes the pre-existing pair a standing dilemma"
         (is (= [:disjoint] (mapv :kind (v/contradictions kb)))))
-      (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse)
+      (v/assert kb (list 'orthogonal a b) 'CxUniverse)
       (testing "the exception releases it"
         (is (not (v/disjoint? kb a b)))
         (is (empty? (v/contradictions kb)))))))
@@ -334,11 +334,10 @@
 (tu/deftest-kb the-exception-is-well-formedness-checked
   (let [a (tu/tmp-type) Fido (tu/tmp-ind)]
     (testing "an individual argument is refused on either side"
-      (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException Fido a) 'CxUniverse)))
-      (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException a Fido) 'CxUniverse))))
+      (is (= :not-well-formed (assert-outcome kb (list 'orthogonal Fido a) 'CxUniverse)))
+      (is (= :not-well-formed (assert-outcome kb (list 'orthogonal a Fido) 'CxUniverse))))
     (testing "the wrong arity is refused"
-      ;; :naming rather than :not-well-formed — a camelCase functor at arity 1 is a unary
-      ;; predicate wearing a relation's spelling, and the naming check is upstream of `wff`
-      (is (= :naming (assert-outcome kb (list 'siblingDisjointException a) 'CxUniverse))))
-    (testing "a self-pair is refused"
-      (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException a a) 'CxUniverse))))))
+      (is (= :not-well-formed (assert-outcome kb (list 'orthogonal a a a) 'CxUniverse))))
+    (testing "a self-pair is not refused: a type subsumes itself, so it is the related-types
+              family's clash (orthogonal_test), not a malformed sentence"
+      (is (= :ok (assert-outcome kb (list 'orthogonal a a) 'CxUniverse))))))

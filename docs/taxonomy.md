@@ -208,7 +208,7 @@ walks the `:derived?` subset (`special/integrate-transitive`) plus what
 | a rule concluding | the cache behind it | reached by |
 |---|---|---|
 | `genl` `genlCx` | the two closures | `:derived?` |
-| `disjoint` `disjoint_metatype` `sibling_disjoint` `siblingDisjointException` | disjointness, the metatype and sibling marks, and the exemption | `:derived?` |
+| `disjoint` `disjoint_metatype` `sibling_disjoint` `orthogonal` | disjointness, the metatype and sibling marks, and the exemption | `:derived?` |
 | `arity` `inverse` | the arity and inverse caches | `:derived?` |
 | `transitive` `symmetric` `asymmetric` `reflexive` `functional` `forced_decontextualized_predicate` `abducible_predicate` `closed_extent_predicate` `reifiable_function` `unreifiable_function` | the predicate-metadata marks | `:derived?` |
 | `rewriteOf` `sameAs` `equals` | the equality partition, and migration | by name — the arm's return value is the twins and the violations, which `:derived?` would discard ([equality.md](equality.md)) |
@@ -815,38 +815,55 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   further membership violates the mark in no way. Exhaustion is declared separately and
   by name, over a named roster rather than over every specialization at once —
   [covering](#covering-a-whole-and-the-parts-named-against-it), below.
-- `(siblingDisjointException X Y)` — an escape hatch exempting the one pair `X`, `Y` that
-  a `sibling_disjoint` mark (or a `disjoint_metatype`) would otherwise force disjoint. It is
-  keyed as an unordered pair exactly like `disjoint` (`:sib-exception-index`,
-  reference-counted on the `(siblingDisjointException X Y)` sentex) and read by
-  `disjointness-test` behind the `genl-related?` guard the sibling, metatype and partition
-  arms already carry; the explicit-`disjoint` arm is deliberately *not* exempted,
-  since `(disjoint X Y)` is a hard assertion you retract to undo. A Braille reading, both a
-  `reading` and a `touch_perception`, is the case it exists for.
+- `(orthogonal X Y)` — the converse of a separation: `X` and `Y` may overlap (something
+  could be an instance of both) and neither is a `genl` of the other. It does not say that
+  anything is an instance of both, and claims nothing about things that are instances of
+  neither. Symmetric, so `(orthogonal Y X)` is the same sentex, and forced monotonic. It
+  derives nothing — no shared instance is minted for it — and is read in three places.
 
-  **Pair-local, and it does not leak to subtypes.** The exemption spares `X`, `Y` alone:
-  each stays disjoint from the parent's *other* specializations, and an exception on
-  `(X, Y)` leaves `(X', Y)` disjoint for a subtype `X'` of `X`. That falls out for free —
-  each read tests the *exact* pair drawn from the two `genl` closures, so nothing wider is
-  ever spared.
+  **It exempts the pair from every form of disjointness.** Each form is one claim: a
+  `(disjoint X Y)`, a `partition` or `separating` roster naming both (a partition keeps
+  its coverage half), a `disjoint_metatype` and a `sibling_disjoint` parent. Over the pair
+  the `orthogonal` names, none of them separates. It is keyed as an unordered pair exactly
+  like `disjoint` (`:orthogonal-index`, reference-counted on the `(orthogonal X Y)` sentex)
+  and read by `disjointness-test` behind each arm's guards. A Braille reading, both a
+  `reading` and a `touch_perception`, is the case it exists for. The `disjoint` or roster
+  stays stored and believed; the KB integrity sweep is where a stated `disjoint` beside an
+  `orthogonal` of the same pair is reported.
 
-  **Read at the reader.** A reader is exempted only by an exception some supporter states
-  where it reads (`tax/exemption`): a context that sees the exception reads the pair
-  apart, and a context above it or beside it reads the pair separated. With
-  `(sibling_disjoint C)`, `(genl A C)`, `(genl B C)`, `(A X)` and `(B X)` in CxU and the
-  exception in CxE below CxU, CxU reads the two memberships as a nogood and CxE reads
-  none, in every arrival order (`reference_test`'s
+  **Pair-local, read against the separated pair.** The exemption spares `X`, `Y` alone,
+  and each stays disjoint from everything else. A separation is found between a
+  supertype of each side, and the exemption is tested against that pair: exempting `X`,
+  `Y` therefore lifts what their separation reached below them, while an `orthogonal`
+  over two subtypes `X'`, `Y'` of a pair that stays separated exempts nothing. That is
+  coherent rather than a gap: overlap propagates upward, so an instance of both `X'` and
+  `Y'` would be an instance of both `X` and `Y`, and the declaration is the clash below.
+
+  **Read at the reader.** A reader is exempted only by an `orthogonal` some supporter
+  states where it reads (`tax/exemption`): a context that sees it reads the pair apart,
+  and a context above it or beside it reads the pair separated. With `(sibling_disjoint
+  C)`, `(genl A C)`, `(genl B C)`, `(A X)` and `(B X)` in CxU and `(orthogonal A B)` in
+  CxE below CxU, CxU reads the two memberships as a nogood and CxE reads none, in every
+  arrival order (`reference_test`'s
   `a-sibling-exception-exempts-its-pair-only-where-it-is-seen-in-every-order`). The
-  exception is the one read that makes `disjoint?` non-monotone on visibility: seeing
-  more contexts can remove a separation. An unscoped read sees every exception.
+  exemption is the one read that makes `disjoint?` non-monotone on visibility: seeing
+  more contexts can remove a separation. An unscoped read sees every `orthogonal`.
   The membership candidate index keeps the pairs the unscoped taxonomy separates with no
-  exception read, and marks the ones a stored exception spares, so a reader that does
-  not see the exception still finds the nogood and a reader that sees every ground
+  exemption read, and marks the ones a stored `orthogonal` spares, so a reader that does
+  not see the declaration still finds the nogood and a reader that sees every ground
   context reads a spared one again over its own ancestor set (`membership/separation-tests`,
-  `membership/scoped-reads`). Asserting an exception releases a standing clash at the readers
-  that see it and retracting one re-arms the pair: the exception set is part of
-  `tax/separation-stamp`, so its move reads every kept type pair's separation again
+  `membership/scoped-reads`). Asserting an `orthogonal` releases a standing clash at the
+  readers that see it and retracting one re-arms the pair: the exempted pairs are part of
+  `tax/separation-stamp`, so their move reads every kept type pair's separation again
   (`membership/sync-memberships`).
+
+  **What contradicts it is a clash.** A `genl` edge between the two, the one type named
+  twice, or a separation of two supertypes it does not exempt makes the declaration a
+  one-member nogood wherever a reader reads that
+  ([nmtms.md](nmtms.md#declarations-over-related-types)).
+
+  **And it is the `:orthogonal` witness** `subsumption-status` reads
+  ([below](#auditing-the-hierarchy-for-missing-disjointness)).
 
 **All three separating mechanisms — `disjoint`, `disjoint_metatype` and `sibling_disjoint` — separate any term, not only individuals.** `checks/checkable-term?`
 admits every non-variable symbol, so the predicate meta-ontology is enforced the same
@@ -956,20 +973,23 @@ halves decide it ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)).
 
 `subsumption-status kb a b` classifies one type pair against the whole hierarchy at once,
 returning `:genl` / `:spec` (one subsumes the other), `:coextensional` (each is `genl`
-the other), `:disjoint` (a declaration, closed under `genl`), `:orthogonal` (a shared
-instance the registry answers without rule expansion, so neither subsumption nor
-disjointness holds but overlap is shown), `:unknown` (none of these is provable), or
-`:inconsistent` (two or more hold at once, such as genl-related and disjoint).
-`genl?` and `disjoint?` read the global closures; the `:orthogonal` witness is a
-facts-only query (`{:max-depth 0}`) for a member of `a` that is also a member of `b`, read
-from a `context` (default `CxUniverse`) because a read sees only that context and its
-`genlCx` ancestors.
+the other), `:disjoint` (a declaration, closed under `genl`), `:orthogonal` (a stated
+`(orthogonal a b)`, or a shared instance the registry answers without rule expansion
+where neither subsumption nor disjointness holds), `:unknown` (none of these is
+provable), or `:inconsistent` (two or more hold at once, such as genl-related and
+disjoint, or a stated `orthogonal` beside a `genl` edge or a disjointness).
+`genl?` and `disjoint?` read the global closures; the two `:orthogonal` witnesses are
+facts-only queries (`{:max-depth 0}`) — for the `(orthogonal a b)` declaration in either
+spelling, and for a member of `a` that is also a member of `b` — read from a `context`
+(default `CxUniverse`) because a read sees only that context and its `genlCx` ancestors.
+The declaration stands alone; the shared instance settles only a pair the taxonomy and
+the separations leave open.
 
 `disjointness-audit kb` runs the classification over every unordered pair of distinct
 types and returns `{:types :pairs :by-status :pairs-data}`. The `:unknown` pairs are the
-candidates for a missing `disjoint` declaration: no subsumption relates them, no
-declaration separates them, and no shared instance shows they overlap — so the modeller
-decides whether they should be disjoint. The audit reads only, and writes nothing.
+candidates for a missing `disjoint` or `orthogonal` declaration: no subsumption relates
+them, no declaration separates them, and neither a declaration nor a shared instance
+shows they can overlap — so the modeller decides which they are. The audit reads only, and writes nothing.
 
 ### What a declaration reaches back over
 
@@ -978,7 +998,7 @@ written before it, or the KB would answer differently depending on whether the s
 or the memberships were written first, which is the invariant [nmtms.md](nmtms.md) opens
 with. Nine sentence shapes move what a membership clash means: `disjoint`,
 `disjoint_metatype`, `sibling_disjoint`, `partition`, `separating`, `covering`, a new
-`(M T)` member of a metatype, `siblingDisjointException` leaving, and `genl`.
+`(M T)` member of a metatype, `orthogonal` leaving, and `genl`.
 
 **No declaration arriving reads a membership.** The candidate index keeps every term
 holding two memberships, or a membership and a denial, and each pair of types some kept
@@ -1088,8 +1108,8 @@ it on the next pass, find no violation, and revive it.
 
 A separating roster is recorded the way a `disjoint_metatype`'s member set is: held
 in the taxonomy, consulted by `disjointness-test`, and never written out as `(disjoint
-…)` sentexes. `siblingDisjointException`, the genl-relatedness guard and the nogood
-reporting therefore read a partition exactly as they read a metatype. A bare `covering`
+…)` sentexes. An `orthogonal`, the genl-relatedness guard and the nogood reporting
+therefore read a partition exactly as they read a metatype. A bare `covering`
 records no separation at all, so two of its parts may overlap and `disjoint?` answers
 false for the pair.
 

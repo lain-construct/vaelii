@@ -106,15 +106,17 @@
       (is (not (v/disjoint? kb dog cat)))
       (is (not (v/disjoint? kb cat bird))))))
 
-(tu/deftest-kb an-exception-exempts-one-pair-of-parts
+(tu/deftest-kb an-orthogonal-exempts-one-pair-of-parts
+  ;; Every form of disjointness is one claim, and a partition's separation half is one, so
+  ;; an `orthogonal` over two parts exempts that pair; the coverage half stands.
   (tu/with-terms [perception reading touch Braille]
     (v/assert kb (list 'partition perception reading touch) 'CxUniverse)
     (is (v/disjoint? kb reading touch))
-    (v/assert kb (list 'siblingDisjointException reading touch) 'CxUniverse)
-    (testing "the roster is read by the same test the metatype clique is"
-      (is (not (v/disjoint? kb reading touch)))
-      (v/assert kb (list reading Braille) 'CxUniverse)
-      (is (= :ok (outcome kb (list touch Braille) 'CxUniverse))))))
+    (v/assert kb (list 'orthogonal reading touch) 'CxUniverse)
+    (is (not (v/disjoint? kb reading touch)))
+    (v/assert kb (list reading Braille) 'CxUniverse)
+    (is (= :ok (outcome kb (list touch Braille) 'CxUniverse)))
+    (is (empty? (filter #(= :orthogonal (:kind %)) (v/conflicts kb))))))
 
 ;; ---- what the declaration is refused for --------------------------------
 

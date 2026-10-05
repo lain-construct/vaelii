@@ -294,7 +294,8 @@
 (def ^:private type-relating-predicates
   "The predicates whose every argument is a TYPE (or a predicate) the claim relates, so the
   claim is meaningful only in a context that sees all of them at once.  A `genl`, `disjoint`,
-  `intersection` or `typeGenl` between two members' terms therefore belongs at the context
+  `orthogonal`, `intersection` or `typeGenl` between two members' terms therefore belongs at
+  the context
   that sees both — the collector (CxUniverse for the upper spindle), never the head, which
   sees no member (docs/contexts.md, and the rule `resources/kb/CxUniverse.txt`'s own header
   states).
@@ -306,7 +307,7 @@
   declaring `(arg parentOf 1 animal)` over CxOrganism's `animal` is checked where it bites and
   is not misplaced."
   '#{genl disjoint typeGenl genlInverse intersection partitionedByType
-     covering separating partition siblingDisjointException})
+     covering separating partition orthogonal})
 
 (tu/deftest-kb no-authored-type-relation-names-a-term-its-own-context-cannot-see
   ;; The scoped complement of `every-shipped-type-is-placed-under-the-root`.  That test asks

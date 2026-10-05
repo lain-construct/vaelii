@@ -65,12 +65,13 @@
   "The functors whose every write is `:monotonic`, whose denial is inert, and which a v1
   rule concludes only inertly: `genlCx` (docs/reference.md D1), the relation marks and the
   function classes (D7, D17), the definitional declarations and the arity bindings (D11),
-  `except` (D12) and the equality predicates (D13).  `injection`, `surjection`,
-  `bijection`, `partition`, `sibling_disjoint`, the arity bindings, `except`, `rewriteOf`,
-  `sameAs` and `equals` are outside v1, and `write-kind` refuses a write of one."
+  `except` (D12) and the equality predicates (D13).  `transitiveInArgInverse`,
+  `injection`, `surjection`, `bijection`, `partition`, `sibling_disjoint`, the arity
+  bindings, `except`, `rewriteOf`, `sameAs` and `equals` are outside v1, and `write-kind`
+  refuses a write of one."
   '#{genlCx irreflexive anti_symmetric asymmetric functional functionalInArg
-     anti_transitive transitiveInArg injection surjection bijection disjoint covering
-     partition sibling_disjoint arity unary binary ternary unary_predicate
+     anti_transitive transitiveInArg transitiveInArgInverse injection surjection bijection
+     disjoint covering partition sibling_disjoint arity unary binary ternary unary_predicate
      binary_predicate ternary_predicate unary_function binary_function ternary_function
      variable_arity variable_arity_predicate variable_arity_function arityMin except
      rewriteOf sameAs equals})

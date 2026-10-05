@@ -566,6 +566,22 @@
          "(disjoint_metatype ?metatype) means that every pair of ?metatype's member types is disjoint. The clique is consulted rather than stored, so it adds no work quadratic and retraction reaches all of it: dropping ?metatype releases every pair at once, and dropping one member releases exactly that member's pairs.")
 (unary_predicate disjoint_metatype)
 
+(comment orthogonal
+         "(orthogonal ?type1 ?type2) means that the two types may overlap — something could be an instance of both — and that neither is a subtype of the other. It does not say that anything is an instance of both, and claims nothing about things that are instances of neither. The declared spelling of the :orthogonal subsumption status, which otherwise needs a shared instance as its witness; the declaration names no such instance and derives none. Symmetric, so the two spellings of one pair store as one sentex. It exempts the pair from every form of disjointness, each being one claim: a (disjoint ?type1 ?type2), a partition or separating roster naming both (a partition keeps its coverage half), a disjoint_metatype and a sibling_disjoint parent no longer separate the two. Only that pair is spared — each type stays disjoint from everything else — and the exemption is read against the separated pair, so exempting two types lifts what their separation reached below them, while an orthogonal over two subtypes of a pair that stays separated exempts nothing: an instance of both would be an instance of both separated supertypes. Read at the reader: a context that does not see the declaration reads the pair separated. A Braille reading, both a reading and a touch perception, is the structure of it. A genl edge between the two in either direction, the one type named twice, and a separation of two supertypes it does not exempt each contradict the declaration.")
+(symmetric orthogonal)
+(type_relation_predicate orthogonal)
+(genlArg orthogonal 1 thing)
+(genlArg orthogonal 2 thing)
+;; Not preserved along genl in either direction, at either position: a subtype of one side
+;; may be disjoint from the other, and a supertype of one side may subsume the other.
+(not (transitiveInArg orthogonal 1 genl))
+(not (transitiveInArg orthogonal 2 genl))
+(not (transitiveInArgInverse orthogonal 1 genl))
+(not (transitiveInArgInverse orthogonal 2 genl))
+(termsRelated sibling_disjoint disjoint_metatype disjoint orthogonal)   ;; disjointness and exceptions thereto
+(seeAlso sibling_disjoint genl)   ;; exceptions to sibling disjointness
+(termsRelated genl disjoint orthogonal)   ;; the three basic taxonomic relations
+
 ;; ---- a whole and the parts named against it -------------------------------
 ;; Two independent claims about one roster, and the three spellings they make: covering
 ;; says the parts leave nothing of the whole uncovered, separating says no two of them
@@ -591,7 +607,7 @@
 (commutativeInArgAndRest separating 2)
 
 (comment partition
-         "(partition ?whole ?part1 ?part2 ...) means that the named parts cover ?whole and that no two of them share an instance. The coverage half is covering's exactly, and both declarations are recorded under one roster, so the coverage inference reads a partition as the cover it is. The separation half is recorded the way a disjoint_metatype's member set is — consulted by the disjointness test, never written out as a (disjoint …) sentex per pair — so siblingDisjointException exempts a pair of parts the way it exempts a pair of metatype members, and dropping the declaration releases every pair at once. disjoint_metatype keeps its own meaning and claims no coverage.")
+         "(partition ?whole ?part1 ?part2 ...) means that the named parts cover ?whole and that no two of them share an instance. The coverage half is covering's exactly, and both declarations are recorded under one roster, so the coverage inference reads a partition as the cover it is. The separation half is recorded the way a disjoint_metatype's member set is — consulted by the disjointness test, never written out as a (disjoint …) sentex per pair — so an orthogonal over two parts exempts that pair as it exempts two metatype members, and dropping the declaration releases every pair at once. disjoint_metatype keeps its own meaning and claims no coverage.")
 (variable_arity_predicate partition)
 (genlArg partition 1 thing)
 (argAndRestGenl partition 2 thing)
@@ -841,10 +857,12 @@
 (forced_monotonic_predicate functionalInArg)
 (forced_monotonic_predicate anti_transitive)
 (forced_monotonic_predicate transitiveInArg)
+(forced_monotonic_predicate transitiveInArgInverse)
 (forced_monotonic_predicate injection)
 (forced_monotonic_predicate surjection)
 (forced_monotonic_predicate bijection)
 (forced_monotonic_predicate disjoint)
+(forced_monotonic_predicate orthogonal)
 (forced_monotonic_predicate covering)
 (forced_monotonic_predicate partition)
 (forced_monotonic_predicate sibling_disjoint)
@@ -1133,14 +1151,6 @@
          "(sibling_disjoint ?collection) means that any two specializations of ?collection — the types below it under genl — share no instance, unless one is itself a genl of the other. The clique is consulted rather than stored, exactly as disjoint_metatype's is: no (disjoint …) sentex per pair, dropping the mark releases every pair at once, and a specialization arriving as a later genl edge is separated the moment it is believed. The genl-relatedness exception is what keeps a specialization disjoint from its siblings without being separated from its own supertypes, which are specializations of ?collection too; it is read over the whole KB, the way (disjoint a b) refuses a genl-related pair. Whether those specializations cover ?collection is a separate claim this one does not make, and covering states it over a named roster.")
 (unary_predicate sibling_disjoint)
 (genlArg sibling_disjoint 1 thing)
-
-(comment siblingDisjointException
-         "(siblingDisjointException ?type1 ?type2) means that the one pair ?type1, ?type2 is permitted to overlap even though a sibling_disjoint mark (or a disjoint_metatype) would otherwise force it disjoint. It exempts only that pair: each type stays disjoint from the parent's other specializations, and the exemption does not leak to subtypes, since each read tests the exact pair drawn from the two genl closures. Read over the whole KB, not the reader's context ancestor set, because an exception removes a clash and a scoped one would let a more specific reader see fewer clashes than the KB holds. A Braille reading, both a Reading and a TouchPerception, is the structure of it.")
-(binary_predicate siblingDisjointException)
-(symmetric siblingDisjointException)
-(type_relation_predicate siblingDisjointException)
-(genlArg siblingDisjointException 1 thing)
-(genlArg siblingDisjointException 2 thing)
 
 (comment symmetric
          "(symmetric ?predicate) means that ?predicate is symmetric. Whenever (?predicate a b) holds so does (?predicate b a), and the two spellings of a ground fact store as one sentex, since the arguments of a symmetric predicate are sorted into canonical order. Declared of siblingOf and marriedTo, for instance. Also a type: (symmetric P) classifies P as a binary_predicate.")

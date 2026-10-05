@@ -224,7 +224,7 @@ builders of `vaelii.ref.*` wrote are now citations of these decisions by number.
     belief. The engine change is invariant 5's. Section to change:
     [taxonomy.md](taxonomy.md#predicate-metadata).
 11. **Can a definitional declaration be `:default`, denied or derived?** No. `disjoint`,
-    `covering`, `partition`, `sibling_disjoint` and `arity` are forced monotonic
+    `covering`, `partition`, `sibling_disjoint`, `orthogonal` and `arity` are forced monotonic
     (invariant 6), a denial of one is held OUT and it is derived only from roster
     antecedents (decision 17), so a ground goes OUT only by retraction and no verdict is re-asked
     because its ground moved. Four spellings bind an arity and each is forced monotonic:
@@ -317,7 +317,8 @@ the prompt that owes it.
    forced-monotonic roster ([nmtms.md](nmtms.md#the-forced-monotonic-roster)).
 2. **The relation marks are forced monotonic.** The roster is `irreflexive`,
    `anti_symmetric`, `asymmetric`, `functional`, `functionalInArg`, `anti_transitive`,
-   `transitiveInArg` and `genlCx`, and invariants 5 to 8 extend it. Every write of a
+   `transitiveInArg`, `transitiveInArgInverse` and `genlCx`, and invariants 5 to 8 extend
+   it. Every write of a
    roster predicate is read `:monotonic` whatever strength it was written at, and a
    denial of one is inert. A mark's reach, the
    sub-predicates it convicts through predicate `genl`, reads the edges believed at `C`

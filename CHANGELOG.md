@@ -13,7 +13,71 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ## Unreleased
 
+### Breaking
+
+- **`siblingDisjointException` is retired; `orthogonal` is the exemption.** A stated
+  `(orthogonal a b)` exempts the pair from a separation a `sibling_disjoint` parent or a
+  `disjoint_metatype` would otherwise force, pair-local and read at the reader, as
+  `(siblingDisjointException a b)` did, and from every other form of disjointness too: a
+  `partition` or `separating` roster naming both (a partition keeps its coverage half) and
+  an explicit `(disjoint a b)`, which an `orthogonal` of the pair now overrides wherever
+  it is seen. The exemption is read against the separated pair of supertypes, so it lifts
+  what that separation reached below them. The declaration also says neither type
+  subsumes the other, so a `genl` edge between them, `(orthogonal a a)`, or an
+  `orthogonal` over two subtypes of a pair that stays separated is a clash of the
+  declaration; `(siblingDisjointException a a)` was refused as not well-formed. CxCore no longer
+  declares `siblingDisjointException`, `special/entries` no longer interprets it, and a
+  stored one is an ordinary fact that exempts nothing.
+  [taxonomy.md](docs/taxonomy.md#disjointness).
+
+  *Class:* **Breaking** (a predicate retired, and an explicit `disjoint` is overridden by
+  an `orthogonal` of the same pair).
+  *Migration:* `(siblingDisjointException a b)` → `(orthogonal a b)`; a KB that states
+  both `(disjoint a b)` and `(orthogonal a b)` reads the pair apart, so drop whichever is
+  wrong.
+  *Breaks:* `siblingDisjointException`, `disjoint?`
+
+- **`transitiveInArgInverse` is forced monotonic, as `transitiveInArg` is.** CxCore
+  declares `(forced_monotonic_predicate transitiveInArgInverse)` and the engine's roster
+  holds it on every KB beside `transitiveInArg`, under `:unforced-relation-mark`: a
+  declaration written at `:default` reads back `:monotonic`, a denial of one is stored and
+  held OUT (`why-not` answers `:inert`), a rule concludes one only from roster
+  antecedents, and retracting the roster declaration is refused.
+  [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
+
+  *Class:* **Breaking** (a denial of a `transitiveInArgInverse` is no longer believed, and
+  a `:default` one is no longer defeasible).
+  *Migration:* retract a `transitiveInArgInverse` declaration instead of denying it.
+  *Breaks:* `transitiveInArgInverse`
+
 ### Additions
+
+- **`orthogonal` declares that two types may overlap and neither subsumes the other.**
+  `(orthogonal A B)` states that something could be an instance of both and that neither
+  is a `genl` of the other; it does not say that anything is, and says nothing about
+  things that are instances of neither. CxCore
+  declares it a symmetric binary `type_relation_predicate`, so `(orthogonal B A)` is the
+  same sentex. It derives nothing and mints no shared instance.
+  [taxonomy.md](docs/taxonomy.md#disjointness). *Class:* **Additive**.
+
+- **`subsumption-statuses` reads a stated `orthogonal` as `:orthogonal`.** A pair
+  declared `(orthogonal a b)` in either spelling, visible from the vantage `context`,
+  reads `:orthogonal` with no shared instance, so `disjointness-audit` no longer counts it
+  among its `:unknown` pairs. A declared pair that is also `genl`-related or disjoint
+  carries both statuses, and `subsumption-status` reports it `:inconsistent`.
+  [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
+  *Class:* **Additive**.
+
+- **An `orthogonal` over a `genl`-related or still-separated pair is a clash of the
+  declaration.** Wherever a reader reads a `genl` edge between the two, the two are one
+  type, or the pair is still disjoint through a separation of two supertypes the
+  declaration does not exempt, the declaration is
+  a one-member nogood, `:kind :orthogonal`, in every arrival order. Nothing is refused:
+  `orthogonal` is on the forced-monotonic roster beside `disjoint`, so the declaration,
+  at whatever strength it was written, is a hard clash `conflicts` lists, with the
+  separating declarations under `:grounds`, and its retraction from the roster is refused
+  with `:unforced-definitional-declaration`.
+  [nmtms.md](docs/nmtms.md#declarations-over-related-types). *Class:* **Additive**.
 
 - **`kb-integrity` reports a candidate type with no `genl` path to `thing`.** Every type
   is a specialization of `thing`, but nothing on the write path reports a

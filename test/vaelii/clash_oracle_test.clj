@@ -62,7 +62,7 @@
 (defn- rand-op
   "One write, drawn over every route a membership clash arrives by: a membership, a
   retraction, a premise a rule derives a membership from, a declaration arriving after the content it convicts, a
-  sibling-disjointness exception arriving and leaving, a merge arriving and leaving."
+  orthogonal exemption arriving and leaving, a merge arriving and leaving."
   [^java.util.Random rng]
   (let [ctx  (nth ctxs (.nextInt rng (count ctxs)))
         ind  #(nth inds  (.nextInt rng (count inds)))
@@ -77,8 +77,8 @@
       12      [:retract (list (if (even? (.nextInt rng 2)) 'pet 'canine) (ind)) ctx]
       (13 14) [:retract (list (typ) (ind)) ctx]
       15      [:assert '(sibling_disjoint animal) (first ctxs) {:strength :monotonic}]
-      16      [:assert '(siblingDisjointException dog cat) (first ctxs) {:strength :monotonic}]
-      17      [:retract '(siblingDisjointException dog cat) (first ctxs)]
+      16      [:assert '(orthogonal dog cat) (first ctxs) {:strength :monotonic}]
+      17      [:retract '(orthogonal dog cat) (first ctxs)]
       18      [:assert (list 'sameAs (ind) (ind)) (first ctxs) {:strength :monotonic}]
       19      [:retract (list 'sameAs (ind) (ind)) (first ctxs)])))
 
@@ -333,8 +333,8 @@
           {:sibling '[(sibling_disjoint clsh_craft_t)
                       (genl clsh_car_t clsh_craft_t)
                       (genl clsh_boat_t clsh_craft_t)
-                      (siblingDisjointException clsh_amphi_t clsh_yacht_t)
-                      (siblingDisjointException clsh_car_t clsh_yacht_t)]
+                      (orthogonal clsh_amphi_t clsh_yacht_t)
+                      (orthogonal clsh_car_t clsh_yacht_t)]
            :metatype '[(disjoint_metatype clsh_kind_t)
                        (clsh_kind_t clsh_car_t)
                        (clsh_kind_t clsh_boat_t)]
