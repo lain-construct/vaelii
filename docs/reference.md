@@ -317,7 +317,8 @@ the prompt that owes it.
    forced-monotonic roster ([nmtms.md](nmtms.md#the-forced-monotonic-roster)).
 2. **The relation marks are forced monotonic.** The roster is `irreflexive`,
    `anti_symmetric`, `asymmetric`, `functional`, `functionalInArg`, `anti_transitive`,
-   `transitiveInArg` and `genlCx`, and invariants 5 to 8 extend it. Every write of a
+   `transitiveInArg`, `transitiveInArgInverse` and `genlCx`, and invariants 5 to 8 extend
+   it. Every write of a
    roster predicate is read `:monotonic` whatever strength it was written at, and a
    denial of one is inert. A mark's reach, the
    sub-predicates it convicts through predicate `genl`, reads the edges believed at `C`

@@ -291,10 +291,10 @@
 ;; subtype of one may be disjoint from the other, and a supertype of one may subsume the
 ;; other.  CxCore denies both directions of preservation along genl at both positions.
 ;;
-;; `transitiveInArg` is on the forced-monotonic roster and `transitiveInArgInverse` is not,
-;; so the two denials of the first are stored and held OUT (`why-not` answers `:inert`),
-;; and the two of the second are believed.  Nothing concludes any of the four
-;; preservations, so orthogonal is inherited neither way whichever is believed.
+;; `transitiveInArg` and `transitiveInArgInverse` are both on the forced-monotonic roster,
+;; so the four denials are stored and held OUT alike (`why-not` answers `:inert`): they
+;; record the decision for a reader, and nothing concludes any of the four preservations,
+;; so orthogonal is inherited neither way.
 
 (def ^:private preservation-denials
   '[(not (transitiveInArg orthogonal 1 genl))
@@ -306,10 +306,8 @@
   (doseq [s preservation-denials
           :let [h (v/handle-of kb s 'CxCore)]]
     (is (some? h) (str (pr-str s) " is stated in CxCore"))
-    (if (= 'transitiveInArg (first (second s)))
-      (is (= :inert (:reason (v/why-not kb h)))
-          (str (pr-str s) " denies a forced-monotonic literal, so it is held OUT"))
-      (is (true? (v/in? kb h)) (str (pr-str s) " is believed"))))
+    (is (= :inert (:reason (v/why-not kb h)))
+        (str (pr-str s) " denies a forced-monotonic literal, so it is held OUT")))
   (doseq [s preservation-denials]
     (is (false? (v/ask? kb (second s) 'CxCore))
         (str (pr-str (second s)) " does not hold"))))

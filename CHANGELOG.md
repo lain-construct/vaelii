@@ -35,6 +35,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `partition` or `separating` parts that must overlap needs the roster split.
   *Breaks:* `siblingDisjointException`
 
+- **`transitiveInArgInverse` is forced monotonic, as `transitiveInArg` is.** CxCore
+  declares `(forced_monotonic_predicate transitiveInArgInverse)` and the engine's roster
+  holds it on every KB beside `transitiveInArg`, under `:unforced-relation-mark`: a
+  declaration written at `:default` reads back `:monotonic`, a denial of one is stored and
+  held OUT (`why-not` answers `:inert`), a rule concludes one only from roster
+  antecedents, and retracting the roster declaration is refused.
+  [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
+
+  *Class:* **Breaking** (a denial of a `transitiveInArgInverse` is no longer believed, and
+  a `:default` one is no longer defeasible).
+  *Migration:* retract a `transitiveInArgInverse` declaration instead of denying it.
+  *Breaks:* `transitiveInArgInverse`
+
 ### Additions
 
 - **`orthogonal` declares that two types may overlap and neither subsumes the other.**

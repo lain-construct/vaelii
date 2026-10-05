@@ -73,7 +73,7 @@ arguments are all spelled as predicates of arity 2 or more (camelCase,
 A predicate is on it by the engine's **baseline** or by a declaration. The baseline
 (`checks/baseline-roster`) is code, held on every KB whether or not it loads CxCore:
 `genlCx`, the relation marks (`irreflexive`, `anti_symmetric`, `asymmetric`, `functional`,
-`functionalInArg`, `anti_transitive`, `transitiveInArg`), the definitional declarations
+`functionalInArg`, `anti_transitive`, `transitiveInArg`, `transitiveInArgInverse`), the definitional declarations
 (`disjoint`, `covering`, `partition`, `sibling_disjoint`, `orthogonal`), the arity bindings (`arity`, the
 nine exact-arity classes, `variable_arity` and its two specializations, `arityMin`),
 `except` and the equality relations (`rewriteOf`, `sameAs`, `equals`) with the first, and

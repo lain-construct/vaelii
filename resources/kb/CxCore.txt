@@ -857,6 +857,7 @@
 (forced_monotonic_predicate functionalInArg)
 (forced_monotonic_predicate anti_transitive)
 (forced_monotonic_predicate transitiveInArg)
+(forced_monotonic_predicate transitiveInArgInverse)
 (forced_monotonic_predicate injection)
 (forced_monotonic_predicate surjection)
 (forced_monotonic_predicate bijection)
