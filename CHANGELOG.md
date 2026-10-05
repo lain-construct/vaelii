@@ -500,6 +500,28 @@ it — `git show v0.16.0:CHANGELOG.md`.
   clean but attaches to nothing in the taxonomy.
   *Breaks:* `artifact`
 
+- **`made` and `natural` partition `tangible`; `formation` is natural and never
+  biological.** `natural` is a tangible whose form no living thing's action gave it: a
+  wild sheep, a coral reef, a rock, a river, a star. `(partition tangible made natural)` installs both
+  `genl` edges to `tangible`, so the stated `(genl artifact tangible)`, renamed
+  `(genl made tangible)`, is removed; a thing both made and natural is a clash, and a
+  tangible denied `made` is concluded `natural`. `formation` is a natural tangible whose
+  form came from physical processes, neither grown nor made: a rock, a crystal, a river,
+  a star, a dune. `(separating tangible formation biological)` keeps a formation from
+  being biological. `(orthogonal biological natural)` beside `(orthogonal biological
+  made)` lets a wild sheep and a cloned one each be biological. The monotonic
+  `(disjoint substance artifact)` is removed, since steel is a made substance.
+  `ontology_test` pins the partition both ways, the formation's placement and its clashes,
+  a natural sheep and a made substance as no clash, and the removed edges in its
+  derived-and-unstated table.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that relied on a substance and a made thing clashing states that
+  separation over narrower kinds of its own. A KB that relied on `(genl made tangible)`
+  being stated, rather than derived, reads it from `genl?` instead.
+  *Breaks:* `(disjoint substance artifact)`
+
 ### Fixes: answers
 
 - **The browser front page's disjointness list holds the pairs a `separating` or

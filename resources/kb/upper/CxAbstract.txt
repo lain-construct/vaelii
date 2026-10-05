@@ -43,6 +43,12 @@
 (comment food "A physical object eaten by an animal for nourishment.")
 (genl food tangible)
 
+(comment formation "A natural tangible whose form came from physical processes, neither grown nor made: a rock, a crystal, a river, a star, a dune.")
+(genl formation natural)
+;; Nothing grown is a formation.  The roster also installs (genl formation tangible), and
+;; formation's edge to natural derives the same edge.
+(separating tangible formation biological)
+
 (comment fur "The hair covering a mammal.")
 (genl fur body_part)
 
@@ -87,7 +93,10 @@
 (genl machine made)
 
 (comment made "A tangible shaped by an agent's action, or by something made: a chair, a widget from a factory machine, steel, sawdust, a footprint, a beaver's dam, a cloned sheep. Contrast natural.")
-(genl made tangible)
+;; Every tangible is made or natural, and no tangible is both.  The partition installs
+;; the genl edges from made and from natural to tangible, so neither edge is stated.  A
+;; tangible denied made is concluded natural.
+(partition tangible made natural)
 
 (comment madeOf
          "(madeOf ?object ?substance) means that ?object is made of ?substance. About one particular object and the stuff it is made of, so it is instance-level; what a whole kind is made of is a claim about that kind. Partial rather than exhaustive — a thing may be made of several substances, and saying it is made of one does not deny the others.")
@@ -98,6 +107,11 @@
 
 (comment metal "A hard, dense, conducting substance — iron, copper, gold.")
 (genl metal substance)
+
+(comment natural "A tangible whose form no living thing's action gave it: a wild sheep, a coral reef, a rock, a river, a star. Contrast made.")
+;; A wild sheep is natural and biological.  A cloned sheep is made and biological.  So
+;; biological is orthogonal to made and to natural.
+(orthogonal biological natural)
 
 (comment organization "A group of people acting as one body — a company, a school, a team.")
 ;; An organization has no location in any space; its members and its buildings have one.
@@ -250,7 +264,6 @@
 (set/monotonic (disjoint formula relation))
 (set/monotonic (disjoint liquid stone))
 (set/monotonic (disjoint relation context))
-(set/monotonic (disjoint substance made))
 (set/monotonic (disjoint_metatype stuff_type_by_state_of_matter))
 (set/monotonic (disjoint_metatype stuff_type_by_substance))
 (metatype stuff_type_by_state_of_matter)

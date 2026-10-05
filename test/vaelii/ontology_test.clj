@@ -976,6 +976,9 @@
     [genl context intangible CxAbstract "context genl expression genl nowhere_never genl intangible"]
     [genl language intangible CxAbstract "language genl nowhere_never genl intangible"]
     [genl building made CxAbstract "building genl container genl made"]
+    [genl made tangible CxAbstract "partition tangible made natural"]
+    [genl natural tangible CxAbstract "partition tangible made natural"]
+    [genl formation tangible CxAbstract "formation genl natural genl tangible"]
     [genl asymmetric binary_predicate CxCore "asymmetric genl anti_symmetric genl binary_predicate"]
     [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
     [disjoint number predicate CxAbstract "number genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
@@ -1274,3 +1277,62 @@
   (doseq [t '[clothing container furniture machine tool vehicle]]
     (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl t 'made) 'CxAbstract))
         (str "(genl " t " made) is stated"))))
+
+;; ---- made and natural ------------------------------------------------------
+;; made and natural partition tangible.  A formation is a natural tangible that nothing
+;; grew and nobody made.  biological is orthogonal to made and to natural.
+
+(tu/deftest-kb made-and-natural-partition-tangible
+  (is (true? (v/disjoint? kb 'made 'natural)))
+  (is (true? (v/genl? kb 'made 'tangible 'CxAbstract)))
+  (is (true? (v/genl? kb 'natural 'tangible 'CxAbstract)))
+  (is (= 1 (count (v/sentexes-matching kb '(comment natural ?text) 'CxAbstract))))
+  (testing "a tangible cannot be both"
+    (tu/with-terms [Hybrid1]
+      (v/assert kb (list 'made Hybrid1) 'CxUniverse)
+      (is (true? (tu/stored-in-clash? kb (list 'natural Hybrid1) 'CxUniverse)))))
+  (testing "and a tangible denied being made is natural — the coverage half"
+    (tu/with-terms [Pebble1]
+      (v/assert kb (list 'tangible Pebble1) 'CxUniverse)
+      (v/assert kb (list 'not (list 'made Pebble1)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'natural Pebble1) 'CxUniverse))))))
+
+(tu/deftest-kb a-formation-is-natural-and-never-made
+  (is (true? (v/genl? kb 'formation 'natural 'CxAbstract)))
+  (is (= 1 (count (v/sentexes-matching kb '(comment formation ?text) 'CxAbstract))))
+  (tu/with-terms [Rock1]
+    (v/assert kb (list 'formation Rock1) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'natural Rock1) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'tangible Rock1) 'CxUniverse)))
+    (is (true? (tu/stored-in-clash? kb (list 'made Rock1) 'CxUniverse))
+        "a formation that is also made is a clash, by the partition")))
+
+(tu/deftest-kb a-formation-is-not-biological
+  (is (true? (v/disjoint? kb 'formation 'biological)))
+  (is (true? (v/disjoint? kb 'formation 'organism)) "the separation reaches below biological")
+  (tu/with-terms [Crystal1]
+    (v/assert kb (list 'formation Crystal1) 'CxUniverse)
+    (is (true? (tu/stored-in-clash? kb (list 'biological Crystal1) 'CxUniverse)))))
+
+(tu/deftest-kb a-wild-sheep-is-natural-and-biological
+  ;; biological is orthogonal to made and to natural.  A wild sheep is natural and
+  ;; biological, and a cloned sheep is made and biological.
+  (is (not (v/disjoint? kb 'biological 'natural)))
+  (is (not (v/disjoint? kb 'sheep 'natural)))
+  (tu/with-terms [WildSheep1]
+    (v/assert kb (list 'sheep WildSheep1) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'natural WildSheep1) 'CxUniverse))
+        "a sheep that is natural is no clash")
+    (is (true? (v/ask? kb (list 'natural WildSheep1) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'biological WildSheep1) 'CxUniverse)))
+    (is (not (v/ask? kb (list 'made WildSheep1) 'CxUniverse)))))
+
+(tu/deftest-kb a-substance-can-be-made
+  ;; Steel is a made substance, so nothing separates substance from made.
+  (is (not (v/disjoint? kb 'substance 'made)))
+  (is (not-any? #(v/premise? kb (:id %)) (v/sentexes-matching kb '(disjoint substance made) '?ctx)))
+  (tu/with-terms [Steel1]
+    (v/assert kb (list 'substance Steel1) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'made Steel1) 'CxUniverse))
+        "a substance that is also made is no clash")
+    (is (true? (v/ask? kb (list 'made Steel1) 'CxUniverse)))))
