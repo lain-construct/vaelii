@@ -726,6 +726,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
 
+- **`spatial_event` is an event located in some space.** CxAbstract defines
+  `(intersection spatial_event event spatial)` and states
+  `(genl spatial_event spatiotemporal)`, so a battle or a smelting stated an event and
+  spatial reads `spatial_event` and `spatiotemporal`, and a contract expiring at midnight
+  stays an event that is no spatial event. `ontology_test` pins the edges and the
+  membership.
+
+  *Class:* **Additive**.
+
 ### Fixes: answers
 
 - **`check` reads a reifiable application in a quoting predicate's payload as a mention.**

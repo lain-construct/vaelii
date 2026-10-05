@@ -208,6 +208,14 @@
 (orthogonal event spatial)
 (orthogonal event aspatial)
 
+(comment spatial_event "An event located in some space: a battle, a smelting, a sawing, a footprint's step. An institutional change, such as a contract expiring, is an event located nowhere and is not a spatial event.")
+(intersection spatial_event event spatial)
+;; An event is temporal, so a spatial event is spatial and temporal.  spatiotemporal is
+;; the intersection of spatial and temporal.  The intersection rules place each spatial
+;; event's instances in spatiotemporal, but the taxonomy draws no genl edge between two
+;; intersections, so the type-level edge is stated.
+(genl spatial_event spatiotemporal)
+
 ;; A situation either holds unchanged or changes, never both and never neither.  The
 ;; partition installs both genl edges and the separation, and adds the coverage, so a
 ;; situation denied being an event is concluded a static_situation.
