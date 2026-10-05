@@ -36,7 +36,7 @@
       (is (= ["?magnitude" "?unit"] (:params t)))
       (is (= "the measure of ?magnitude ?unit" (:text t)))))
   (testing "a comment with no signature is a description — a type's noun phrase"
-    (let [t (gloss/template "A physical part of a living thing (a wing, a heart).")]
+    (let [t (gloss/template "A physical part of an organism (a wing, a heart).")]
       (is (empty? (:params t)))
       (is (str/starts-with? (:text t) "A physical part"))))
   (testing "a signature naming a compound argument is read as a description, not parsed"

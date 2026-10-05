@@ -78,7 +78,7 @@ Data hangs below CxWell.
   sees nothing but itself ([A context outside the
   spindle](#a-context-outside-the-spindle)). It also holds the six collections at the
   top of the ontology — `intangible`, `spatial`, `spatiotemporal`, `tangible`,
-  `living_thing`, `capability` — which the engine reads by no name and which are here for the reason
+  `organism`, `capability` — which the engine reads by no name and which are here for the reason
   below: the members of a spindle see each other not at all, so a term two of them
   extend has to be defined in the head.
   `starter_test/a-term-two-spindle-members-touch-is-defined-in-the-head` holds that.
@@ -124,7 +124,7 @@ Data hangs below CxWell.
   - `CxKinship` — grandparentOf, ancestorOf, olderThan.
   - `CxMereology` — a part is located where its whole is; owning a whole entails
     owning its parts.
-  - `CxBiology` — birds fly by default except penguins; living things are mortal;
+  - `CxBiology` — birds fly by default except penguins; organisms are mortal;
     flight enables travel.
   - `CxChange` — a simple event calculus: a state persists until an event ends it,
     so `holdsAt` is inertia over what `initiates` and `terminates` say
@@ -144,8 +144,8 @@ Data hangs below CxWell.
 **A member sees no member, so a shared term belongs in the head.** That is what makes a
 spindle a spindle: `CxLife` does not see `CxOrganism` and `CxOrganism` does not see
 `CxAbstract`. A term defined in one member and *extended* from another is therefore
-invisible where it is extended, and the closure breaks — `(genl animal living_thing)` in
-`CxOrganism` against a `living_thing` defined in `CxAbstract` left `animal` unable to
+invisible where it is extended, and the closure breaks — `(genl animal organism)` in
+`CxOrganism` against an `organism` defined in `CxAbstract` left `animal` unable to
 reach `thing` from `CxOrganism` itself, so every `arg` constraint written there convicted
 nothing in its own context. So a term more than one member of a spindle defines or
 extends belongs at or above that spindle's head: CxCore for the upper spindle, and

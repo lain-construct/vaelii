@@ -9,9 +9,9 @@
 (genlCx CxUniverse CxLife)
 
 (comment alive
-         "(alive ?living_thing) means that ?living_thing is currently living. True by default of every living thing and blocked for one known to be dead, so a KB never told otherwise takes its organisms to be alive — which is the common-sense reading, and the one every story assumes without saying.")
+         "(alive ?organism) means that ?organism is currently living. True by default of every organism and blocked for one known to be dead, so a KB never told otherwise takes its organisms to be alive — which is the common-sense reading, and the one every story assumes without saying.")
 (unary_predicate alive)
-(arg alive 1 living_thing)
+(arg alive 1 organism)
 
 (comment ancestorOf
          "(ancestorOf ?ancestor ?descendant) means that ?ancestor is a parent of ?descendant, or a parent of an ancestor of ?descendant. Both arguments are individual animals. Declared transitive, so the chain is walked by the closure prover rather than materialized, and the base link is derived from parentOf by a rule — an ancestorOf fact normally follows from kinship rather than being asserted.")
@@ -52,9 +52,9 @@
 (arg childOf 2 animal)
 
 (comment dead
-         "(dead ?living_thing) means that ?living_thing has died. Assert it known-true and it both blocks the alive default and defeats what that default licensed. Not the same sentence as (not (alive ?x)): dead says something happened, and a rule derives the negation from it, so the KB ends up holding the positive claim and its consequence rather than only the absence of one.")
+         "(dead ?organism) means that ?organism has died. Assert it known-true and it both blocks the alive default and defeats what that default licensed. Not the same sentence as (not (alive ?x)): dead says something happened, and a rule derives the negation from it, so the KB ends up holding the positive claim and its consequence rather than only the absence of one.")
 (unary_predicate dead)
-(arg dead 1 living_thing)
+(arg dead 1 organism)
 
 (comment eats
          "(eats ?animal ?food) means that ?animal takes ?food as nourishment. Both arguments are individuals — a particular animal and a particular food — and the fact says nothing about when or how often, there being no time argument to say it with. A whole kind's diet is a different sentence: state it of the kind, and declare (transitiveInArg eats 1 genl) if it should reach that kind's members.")
@@ -122,9 +122,9 @@
 (arg livesIn 2 tangible)
 
 (comment mortal
-         "(mortal ?living_thing) means that ?living_thing will die. Asserted as a default of every living thing, so it is defeasible: something known not to die defeats it instead of contradicting the KB.")
+         "(mortal ?organism) means that ?organism will die. Asserted as a default of every organism, so it is defeasible: something known not to die defeats it instead of contradicting the KB.")
 (unary_predicate mortal)
-(arg mortal 1 living_thing)
+(arg mortal 1 organism)
 
 (comment MotherFn
          "(MotherFn ?animal) means the mother of ?animal. The same shape as FatherFn, over motherOf.")

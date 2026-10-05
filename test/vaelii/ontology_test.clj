@@ -270,7 +270,7 @@
   ;; them says whether a name belongs in the genl hierarchy.  That is a modelling
   ;; decision: a type is a kind of thing and wants a noun, while a property is something
   ;; a thing *is*, and putting one in the hierarchy would make "mortal" a kind that
-  ;; living things are a kind OF.  Were one wanted as a type it would be spelled for it —
+  ;; organisms are a kind OF.  Were one wanted as a type it would be spelled for it —
   ;; `mortal_being`, not `mortal`.
   (testing "the properties the biology theory concludes are outside the hierarchy"
     (doseq [p '[alive dead awake asleep mortal warm_blooded breathes_air]]
@@ -742,7 +742,7 @@
     [disjoint organization substance CxAbstract "organization genl intangible, substance genl tangible; partition thing tangible intangible"]
     [disjoint language substance CxAbstract "language genl intangible, substance genl tangible; partition thing tangible intangible"]
     [disjoint attribute substance CxAbstract "attribute genl intangible, substance genl tangible; partition thing tangible intangible"]
-    [disjoint organization animal CxUniverse "organization genl intangible, animal genl living_thing genl tangible; partition thing tangible intangible"]
+    [disjoint organization animal CxUniverse "organization genl intangible, animal genl organism genl tangible; partition thing tangible intangible"]
     [genl string intangible CxAbstract "string genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl number intangible CxAbstract "number genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl keyword intangible CxAbstract "keyword genl unrepresented_term genl expression genl nowhere_never genl intangible"]

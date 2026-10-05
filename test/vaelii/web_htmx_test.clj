@@ -211,7 +211,7 @@
   ;; backend whose enumeration led with one would leave this audit unrun — and unrun is
   ;; indistinguishable from clean, since it moves the assertion count by nothing
   (tu/with-terms [Rufus]
-    (v/assert tu/*kb* (list 'living_thing Rufus) 'CxBiology)
+    (v/assert tu/*kb* (list 'organism Rufus) 'CxBiology)
     (let [stored         (:id (first (v/sort-by-content (juxt :sentence :context)
                                                         (v/sentexes-with-functor tu/*kb* 'genl))))
           [concl & more] (v/sentexes-matching tu/*kb* (list 'mortal Rufus) '?ctx)

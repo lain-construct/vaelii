@@ -13,7 +13,7 @@
 (comment attribute "A property an object can bear (a color, a size).")
 (genl attribute intangible)
 
-(comment body_part "A physical part of a living thing (a wing, a heart).")
+(comment body_part "A physical part of an organism (a wing, a heart).")
 (genl body_part tangible)
 
 (comment building "An artifact that is a fixed structure enclosing space.")
@@ -82,7 +82,7 @@
 (comment liquid "A substance that flows and takes the structure of its container.")
 (genl liquid substance)
 
-(set/monotonic (disjoint living_thing artifact))
+(set/monotonic (disjoint organism artifact))
 
 (comment locatedIn
          "(locatedIn ?object ?place) means that ?object sits within ?place. Declared transitive, so a chain of containments is walked by the closure prover rather than materialized, and a joined rule carries location down parthood — a part is located wherever its whole is. Both arguments are physical objects: a region is CxSpace's business, and partOfRegion is the relation to reach for there.")
@@ -215,7 +215,7 @@
 (set/monotonic (disjoint food body_part))
 (set/monotonic (disjoint formula relation))
 (set/monotonic (disjoint liquid stone))
-(set/monotonic (disjoint living_thing substance))
+(set/monotonic (disjoint organism substance))
 (set/monotonic (disjoint relation context))
 (set/monotonic (disjoint substance artifact))
 (set/monotonic (disjoint substance body_part))

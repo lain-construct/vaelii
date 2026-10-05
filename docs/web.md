@@ -434,7 +434,7 @@ can end with the thing a commit otherwise leaves unsaid — and an extension tha
 renders the same ending through `stored-sentexes` ([Extensions](#extensions)):
 
 > **You didn't say this, but it follows**
-> `(mortal Muffet)` — because `(dog Muffet)`, `(genl animal living_thing)`, `(genl dog mammal)`, `(genl mammal animal)`, the `genlCx` edges from the sandbox up to the rule's context, and the rule `(implies (living_thing ?x) (mortal ?x))` · _proof_
+> `(mortal Muffet)` — because `(dog Muffet)`, `(genl animal organism)`, `(genl dog mammal)`, `(genl mammal animal)`, the `genlCx` edges from the sandbox up to the rule's context, and the rule `(implies (organism ?x) (mortal ?x))` · _proof_
 > `(mammal Muffet)` — because `(dog Muffet)`, and every `dog` is a `mammal`
 
 Those two lines come from **different mechanisms**, and the callout keeps them apart rather
@@ -444,7 +444,7 @@ than blurring them into one list of "conclusions":
   the JTMS sense, has a handle, and its whole proof is one click away. The `because` lists
   every antecedent of the justification, then the rule. The antecedents are the fact that
   matched plus the `genl` and `genlCx` edges the match went through, which is why the
-  example above reads `(dog Muffet)` against a rule about `living_thing`: the match fanned
+  example above reads `(dog Muffet)` against a rule about `organism`: the match fanned
   out over the genl spec closure, and the edges it crossed are listed beside the fact.
 - a **type subsumes**. `(genl dog animal)` plus `(dog Muffet)` makes Muffet an animal, and the
   engine deliberately never materializes `(animal Muffet)` — matching fans the functor out

@@ -726,10 +726,10 @@
       (is (contains? (drawn-terms svg) "animal")))
     (testing "a supertype above it and a subtype below it are both drawn"
       (let [ts (drawn-terms svg)]
-        (is (contains? ts "living_thing"))
+        (is (contains? ts "organism"))
         (is (contains? ts "bird"))))
     (testing "every node is a link to that term's page — the graph is navigation"
-      (is (re-find #"<a href=\"/term\?q=living_thing\"><g class=\"g-node" svg))
+      (is (re-find #"<a href=\"/term\?q=organism\"><g class=\"g-node" svg))
       (is (= (drawn-terms svg) (set (map second (re-seq #"<a href=\"/term\?q=([^\"]+)\"" svg))))))
     (testing "and it says which claim the vertical axis is"
       (is (re-find #"class=\"g-edge g-genl\"" svg))
@@ -1709,7 +1709,7 @@
   (tu/with-terms [Rufus]
     (let [sbx (sandbox/context-for (sandbox/mint-token))]
       (sandbox/open kb sbx)
-      (v/assert kb (list 'living_thing Rufus) sbx)
+      (v/assert kb (list 'organism Rufus) sbx)
       (is (v/ask? kb (list 'mortal Rufus) sbx) "so there is a conclusion to sweep too")
       (let [rows (#'web/sandbox-note (sandbox/reset! kb sbx))]
         (is (= [:reset] (mapv :type rows)))
@@ -1725,7 +1725,7 @@
             sbx    (second (re-find #"value=\"(CxSandbox[0-9a-f]+)\"" (:body opened)))
             hdrs   {"cookie" cookie "host" "localhost:3000"}]
         (*app* {:request-method :post :uri "/assert" :scheme :http :headers hdrs
-                :params {"text" (str "(living_thing " Rufus ")") "ctx" sbx}})
+                :params {"text" (str "(organism " Rufus ")") "ctx" sbx}})
         (let [r (*app* {:request-method :post :uri "/sandbox/reset" :scheme :http
                         :params {} :headers hdrs})]
           (is (= 200 (:status r)))

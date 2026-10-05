@@ -199,7 +199,7 @@
 ;; The upper-ontology skeleton: the collections a band context has to be able to
 ;; SEE in order to place its own types under the root.  They sit here rather than in
 ;; CxAbstract because the band's contexts are siblings and no sibling sees another: with
-;; living_thing defined in CxAbstract, (genl animal living_thing) written in CxOrganism
+;; organism defined in CxAbstract, (genl animal organism) written in CxOrganism
 ;; left animal unable to reach thing FROM CXORGANISM, so every arg constraint written
 ;; there convicted nothing in its own context.  A term extended from more than one band
 ;; context belongs above them all, which is here.
@@ -208,7 +208,7 @@
 ;; vaelii.impl.predicates for that reason.  What they are is the top of the ontology,
 ;; and the grammar head is where every context can reach it.  The kinds hanging off them
 ;; stay in the band: (genl artifact tangible) is CxAbstract's, (genl animal
-;; living_thing) is CxOrganism's, and both now resolve.
+;; organism) is CxOrganism's, and both now resolve.
 (comment intangible "Something with no mass: a region, a shadow, a number, a relation, a time. It may have a location — a region of space is spatiotemporal and intangible both.")
 (comment spatial "Something with a location in some space, physical or mathematical. The line y=x is located in the Cartesian plane and a square of an abstract chessboard on that board, though neither is located anywhere in the world; a point has a location and no extent, and is spatial too. Everything spatiotemporal is spatial; spatial and aspatial partition thing. The four spatial calculi relate what is spatial, in whichever space a context is about.")
 (comment spatiotemporal "Something with a location in space and time — a physical object, but also a region or a place, which occupy space without being made of anything. The intersection of spatial and temporal.")
@@ -216,7 +216,7 @@
 (comment aspatial "Not located in any space: no location in any space, physical or mathematical. The complement of spatial — the two partition thing — and so nothing CxSpace's calculi relate.")
 (comment atemporal "Not located in time. Numbers, relations and the other kinds below nowhere_never are atemporal; a fluent is intangible but not atemporal, since it holds over time.")
 (comment tangible "Something with mass. Having mass, it necessarily has a location in space and time too, so it is spatiotemporal.")
-(comment living_thing "An organism — it is born, lives, and (by default) dies.")
+(comment organism "Something alive in its own right: it is born, grows, reproduces, and (by default) dies.")
 (comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
 (comment nowhere_never "In no space and at no time: no location in any space, physical or mathematical, and none in time. An expression, a language. The line y=x is not one: it is located in the Cartesian plane, so it is spatial.")
 ;; spatial, aspatial, temporal, atemporal, tangible and intangible reach thing through
@@ -224,7 +224,7 @@
 ;; whole; spatiotemporal reaches it through spatial.
 (intersection spatiotemporal spatial temporal)
 (genl tangible spatiotemporal)
-(genl living_thing tangible)
+(genl organism tangible)
 (genl capability intangible)
 ;; Mass entails a location in space and in time, so what has no location in any space,
 ;; or none in time, has no mass.
