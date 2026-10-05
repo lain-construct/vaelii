@@ -730,6 +730,7 @@
   disjointness descends a genl edge — so a stated sentence repeating one of those is not
   written."
   '[[genl aspatial thing CxCore "partition thing spatial aspatial"]
+    [disjoint spatial aspatial CxCore "partition thing spatial aspatial"]
     [genl intangible thing CxCore "partition thing tangible intangible"]
     [genl nowhere_never intangible CxCore "nowhere_never genl aspatial genl intangible"]
     [genl temporal thing CxCore "partition thing temporal atemporal"]

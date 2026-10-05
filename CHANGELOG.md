@@ -72,10 +72,11 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `aspatial` and `atemporal`; what has no location in space, or none in time, has no
   mass, so `aspatial` and `atemporal` are both below `intangible`. Every stated `genl`
   or `disjoint` that a partition, an intersection, a `genl` chain, a `disjoint_metatype`
-  or another disjointness already derives in the same context is removed — thirty-three
+  or another disjointness already derives in the same context is removed — thirty-five
   sentences across CxCore, CxAbstract and CxUniverse, which now states no axiom of its
-  own. `ontology_test` pins the divisions and every removal, and `spatial` and
-  `nowhere_never` are classified inert in the vocabulary roster.
+  own. `ontology_test` pins the divisions and every removal, and `spatial`,
+  `spatiotemporal`, `tangible` and `nowhere_never` are classified inert in the vocabulary
+  roster.
   [space.md](docs/space.md), [glossary.md](docs/glossary.md)
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
