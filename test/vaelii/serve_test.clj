@@ -789,6 +789,10 @@
                 omitted (:result (post-op handler :kb-integrity [#{7} CxServe]))
                 explicit (:result (post-op handler :kb-integrity [#{7} CxServe nil]))]
             (is (= local omitted explicit))))
+        (testing "a call short of the context is the op's arity refusal, not a padded one"
+          (let [r (post-op handler :kb-integrity [#{7}])]
+            (is (= 400 (:status r)))
+            (is (= :bad-args (:type r)))))
         (with-redefs [serve/integrity-max-work 1000
                       serve/integrity-max-results 20]
           (testing "a caller may lower but not raise either daemon-owned ceiling"

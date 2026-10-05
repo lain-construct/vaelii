@@ -52,6 +52,34 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **`kb-integrity` runs a bounded, read-only integrity sweep in a context.** Over a finite
+  set of ground candidate terms it reports the definition clashes a candidate meets (a
+  passing `defnSufficient` beside a failing own `defnNecessary`), and it reports every
+  visible `predAllSpecified` / `predSpecifiedAll` declaration that `all-specified-violations`
+  reports. A clean sweep answers `{:status :audited :candidate-count n}`, a sweep with
+  findings `:status :gap` with only the non-empty categories, and a sweep that runs out of
+  `:max-work`, `:max-ms` or `:max-results` `:status :truncated` with its `:reason` and the
+  findings kept. `:categories` names the passes to run. The sweep stores nothing and
+  files no violation. [integrity.md](docs/integrity.md).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a predicate `genl` edge that widens a declared argument type.**
+  The sweep adds the sparse category `:genl-arg-widening`, one
+  `{:spec P :genl Q :arg n :spec-type T :genl-type U}` per type `P` declares at a position
+  that no type `Q`'s constraint demands there subsumes. The pass reads the visible `arg`
+  declarations, not the candidate terms.
+  [integrity.md](docs/integrity.md#what-a-widening-finding-means).
+
+  *Class:* **Additive**.
+
+- **The daemon serves `kb-integrity` as the `:kb-integrity` op.** A request with no option
+  map receives the daemon's three ceilings (`:max-work` 10,000, `:max-results` 1,000 and
+  the query clock), and a bound over a ceiling is refused `:over-ceiling`. `vaelii.client`
+  gains `kb-integrity`. [operations.md](docs/operations.md).
+
+  *Class:* **Additive**.
+
 - **The upper ontology divides `thing` by location in space, by time and by mass:
   `spatial` is a location in any space, `spatiotemporal` is a location in space and
   time, `physical_object` is renamed `tangible` and `abstract` is renamed
@@ -159,6 +187,52 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [integrity.md](docs/integrity.md#what-an-implicit-genl-finding-means).
 
   *Class:* **Additive**.
+
+### Internal
+
+- **`vaelii.impl.violations/*report-sink*` collects the diagnostics a read files.** Bound
+  to an atom, it receives the violations an evaluation would add to the ledger;
+  `kb-integrity` binds it, so the ledger does not move during a sweep. The
+  `kb-integrity` docstring states its contract, and `docs/integrity.md` drops two
+  sentences that gave a rationale where a mechanism belongs.
+  [integrity.md](docs/integrity.md#what-a-definition-finding-means).
+
+  *Class:* **Internal**.
+
+- **A daemon `:kb-integrity` call that sends only the candidate set is refused
+  `:bad-args`.** The daemon no longer pads it to a call that reads its option map as the
+  context. [operations.md](docs/operations.md).
+
+  *Class:* **Internal**.
+
+- **A `kb-integrity` sweep that spends no more than `:max-work` finishes.** A sweep that
+  completed within its work budget no longer reports `:truncated` with `:reason
+  :max-work`. [integrity.md](docs/integrity.md#the-call).
+
+  *Class:* **Internal**.
+
+- **`kb-integrity` takes `:categories`, and checks its candidate set before any pass.**
+  A set of category keys runs those passes alone, so a caller reaches a candidate pass
+  the census passes would spend the work budget ahead of. A candidate set that is not a
+  set of ground terms is refused with `:op kb-integrity` whichever passes run.
+  [integrity.md](docs/integrity.md#the-call).
+
+  *Class:* **Internal**.
+
+- **`kb-integrity`'s specified pass reads the declarations in content order.** A sweep cut
+  short by `:max-results`, `:max-work` or `:max-ms` keeps the same declarations in every
+  arrival order. The sweep's deadline tests move a hooked clock instead of sleeping.
+  [integrity.md](docs/integrity.md#the-call).
+
+  *Class:* **Internal**.
+
+- **`kb-integrity`'s work meter is part of `vaelii.impl.budget`, and a read outside a
+  sweep takes no meter wrapper.** Outside a sweep, prover dispatch returns each answer
+  stream and callback result unwrapped. A sweep's `:max-ms` reaches the
+  argument-preservation prover's claim walk, and a `nil` bound reads as no bound.
+  [integrity.md](docs/integrity.md#the-call).
+
+  *Class:* **Internal**.
 
 ## 0.23.0 — 2026-10-02 — "no definitional clash is refused, each reader decides a clash from its own view, and the definitional vocabulary is held known-true"
 

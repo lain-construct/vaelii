@@ -5315,30 +5315,14 @@
 (defn kb-integrity
   "Run the bounded, read-only integrity sweep in `context`.
 
-  `candidate-terms` is a finite set of ground terms.  For those terms the sweep reports
-  query-time definitional inconsistencies: a collection whose sufficient definition
-  passes while its necessary definition fails, so both `(Coll term)` and
-  `(not (Coll term))` are definition-provable.  It also composes the complete visible
-  `predAllSpecified` / `predSpecifiedAll` audit, reports the visible predicate `genl`
-  edges that widen a declared argument type, reports each candidate term declared
-  `unary_predicate` with no visible `genl` path to `thing`, and suggests each `(genl X P)`
-  a visible cover forces on a candidate type `X` that the `genl` closure does not hold.
-  It does not enumerate the domain, broaden `contradictions`, or repair/file anything:
-  a suggestion is reported, never asserted.
-
-  A clean result is `{:status :audited :candidate-count n}`.  Findings change `:status`
-  to `:gap` and add any of the sparse keys `:all-specified-violations`,
-  `:definition-inconsistencies`, `:genl-arg-widening`, `:not-under-thing` and
-  `:implicit-genl`.  Inspect `:status`; it makes a successful audit and a report with
-  gaps different shapes by construction.
-
-  Optional `options` bounds cooperative query work, elapsed time and returned findings:
-  `{:max-work n :max-ms n :max-results n}`. Exhaustion returns `:status :truncated`
-  with its `:reason`, never an `:audited` prefix. The daemon supplies and clamps all
-  three bounds even when a remote caller omits the map. Work and time are cooperative:
-  they are checked between prover callbacks and result pulls; one opaque callback or a
-  chunk realized by one pull may overrun before control returns. `:max-results` is an
-  absolute cap on the findings carried by every complete or truncated report."
+  `candidate-terms` is a finite set of ground terms (`:bad-args` otherwise).  Answers
+  `{:status :audited :candidate-count n}` when no pass finds anything, `:status :gap` with
+  the non-empty categories among `:definition-inconsistencies`,
+  `:all-specified-violations`, `:genl-arg-widening`, `:not-under-thing` and
+  `:implicit-genl`, or `:status :truncated` with its `:reason` and the findings kept when
+  a bound runs out.  `options` takes `:max-work`, `:max-ms` and `:max-results`, and
+  `:categories`, a set of category keys to run.  Stores and files nothing.  See
+  docs/integrity.md."
   ([kb candidate-terms context]
    (integrity/kb-integrity kb candidate-terms context nil))
   ([kb candidate-terms context options]
