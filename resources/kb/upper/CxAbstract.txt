@@ -1,5 +1,5 @@
 ;; CxAbstract — non-biological upper-ontology types (intangible, physical
-;; objects, attributes, substances, artifacts, body parts and their kinds), the
+;; objects, substances, artifacts, body parts and their kinds), the
 ;; physical-structure relations partOf/locatedIn/madeOf, and the two type-level
 ;; relations largerThan/partType. Sees CxCore; CxUniverse sees it, so any
 ;; type or relation here is visible from every context.
@@ -9,9 +9,6 @@
 
 (comment artifact "A physical object made by an agent for a purpose.")
 (genl artifact tangible)
-
-(comment attribute "A property an object can bear (a color, a size).")
-(genl attribute aspatial)
 
 (comment body_part "A part an organism grew — a wing, a heart, a leaf. It stays a body part once transplanted into another organism or shed from its own.")
 ;; An organism and a part it grew are both biological and never the same thing; nothing
