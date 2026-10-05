@@ -31,11 +31,24 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [taxonomy.md](docs/taxonomy.md#disjointness).
 
   *Class:* **Breaking** (a predicate retired, and an explicit `disjoint` is overridden by
-  an `orthogonal` of the same pair).
+  an `orthogonal` of the same pair, so `subsumption-status` of a pair stating both moves
+  from `:disjoint` to `:orthogonal`).
   *Migration:* `(siblingDisjointException a b)` → `(orthogonal a b)`; a KB that states
   both `(disjoint a b)` and `(orthogonal a b)` reads the pair apart, so drop whichever is
   wrong.
-  *Breaks:* `siblingDisjointException`, `disjoint?`
+  *Breaks:* `siblingDisjointException`, `disjoint?`, `subsumption-status`
+
+- **`subsumption-statuses` reads `:disjoint` from its vantage.** `disjoint?` is read at
+  `context` (default `CxUniverse`), the vantage the declared `orthogonal` is read from, so
+  a pair separated in `CxUniverse` and declared `orthogonal` in a context below it reads
+  `:disjoint` at `CxUniverse` and `:orthogonal` below, and a `disjoint` stated only in a
+  context the vantage does not see no longer counts.
+  [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
+
+  *Class:* **Breaking** (a pair separated only in a context below the vantage reads
+  `:unknown` at the vantage).
+  *Migration:* pass the context that states the separation as `context`.
+  *Breaks:* `subsumption-statuses`, `subsumption-status`, `disjointness-audit`
 
 - **`transitiveInArgInverse` is forced monotonic, as `transitiveInArg` is.** CxCore
   declares `(forced_monotonic_predicate transitiveInArgInverse)` and the engine's roster
@@ -51,6 +64,34 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Breaks:* `transitiveInArgInverse`
 
 ### Additions
+
+- **`kb-integrity` runs a bounded, read-only integrity sweep in a context.** Over a finite
+  set of ground candidate terms it reports the definition clashes a candidate meets (a
+  passing `defnSufficient` beside a failing own `defnNecessary`), and it reports every
+  visible `predAllSpecified` / `predSpecifiedAll` declaration that `all-specified-violations`
+  reports. A clean sweep answers `{:status :audited :candidate-count n}`, a sweep with
+  findings `:status :gap` with only the non-empty categories, and a sweep that runs out of
+  `:max-work`, `:max-ms` or `:max-results` `:status :truncated` with its `:reason` and the
+  findings kept. `:categories` names the passes to run. The sweep stores nothing and
+  files no violation. [integrity.md](docs/integrity.md).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a predicate `genl` edge that widens a declared argument type.**
+  The sweep adds the sparse category `:genl-arg-widening`, one
+  `{:spec P :genl Q :arg n :spec-type T :genl-type U}` per type `P` declares at a position
+  that no type `Q`'s constraint demands there subsumes. The pass reads the visible `arg`
+  declarations, not the candidate terms.
+  [integrity.md](docs/integrity.md#what-a-widening-finding-means).
+
+  *Class:* **Additive**.
+
+- **The daemon serves `kb-integrity` as the `:kb-integrity` op.** A request with no option
+  map receives the daemon's three ceilings (`:max-work` 10,000, `:max-results` 1,000 and
+  the query clock), and a bound over a ceiling is refused `:over-ceiling`. `vaelii.client`
+  gains `kb-integrity`. [operations.md](docs/operations.md).
+
+  *Class:* **Additive**.
 
 - **The upper ontology divides `thing` by location in space, by time and by mass:
   `spatial` is a location in any space, `spatiotemporal` is a location in space and
@@ -70,25 +111,29 @@ it — `git show v0.16.0:CHANGELOG.md`.
   so that a region can be spatiotemporal and intangible at once. `nowhere_never` is in
   no space and at no time — an expression, a language — defined as the intersection of
   `aspatial` and `atemporal`; what has no location in space, or none in time, has no
-  mass, so `aspatial` and `atemporal` are both below `intangible`. Every stated `genl`
-  or `disjoint` that a partition, an intersection, a `genl` chain, a `disjoint_metatype`
-  or another disjointness already derives in the same context is removed — thirty-five
-  sentences across CxCore, CxAbstract and CxUniverse, which now states no axiom of its
-  own. `ontology_test` pins the divisions and every removal, and `spatial`,
-  `spatiotemporal`, `tangible` and `nowhere_never` are classified inert in the vocabulary
-  roster.
+  mass, so `aspatial` and `atemporal` are both below `intangible`. `attribute`,
+  `capability`, `fluent`, `organization` and `relation_type` are below `aspatial`, and
+  CxCore places `context` and `language` below `nowhere_never`, so each stays disjoint
+  from `spatial` and `spatiotemporal` in every context that sees the kind's placement.
+  Every stated `genl` or `disjoint` that a partition, an intersection, a `genl` chain, a
+  `disjoint_metatype` or another disjointness already derives in the same context is
+  removed — forty-two sentences across CxCore, CxAbstract and CxUniverse, which now
+  states no axiom of its own. `ontology_test` pins the divisions and every removal, and
+  `spatial`, `spatiotemporal`, `tangible` and `nowhere_never` are classified inert in the
+  vocabulary roster.
   [space.md](docs/space.md), [glossary.md](docs/glossary.md)
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
-  *Migration:* a KB that wrote `physical_object` renames to `tangible`. A KB that wrote
-  `spatial` for "located in the world" renames to `spatiotemporal`; the old spelling
-  still stores, and now places the thing in the broader collection, where nothing
-  concludes it has a location in the world. A KB that wrote `abstract` renames to
-  `nowhere_never`; the old spelling stores clean but attaches to nothing in the
-  taxonomy. A KB that relied on `(disjoint organization animal)` or another removed
-  sentence being stated, rather than derived, reads it from `disjoint?` or `genl?`
-  instead.
+  *Migration:* a KB that wrote `physical_object` renames to `tangible`; the old spelling
+  stores clean but attaches to nothing in the taxonomy, so its instance reaches neither
+  `tangible` nor `thing`. A KB that wrote `spatial` for "located in the world" renames to
+  `spatiotemporal`; the old spelling still stores, and now places the thing in the
+  broader collection, where nothing concludes it has a location in the world. A KB that
+  wrote `abstract` renames to `nowhere_never`; the old spelling stores clean but attaches
+  to nothing in the taxonomy. A KB that relied on `(disjoint organization animal)` or
+  another removed sentence being stated, rather than derived, reads it from `disjoint?`
+  or `genl?` instead.
   *Breaks:* `physical_object`, `spatial`, `abstract`
 
 ### Fixes: clashes and order independence
@@ -117,8 +162,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
 - **`subsumption-statuses` reads a stated `orthogonal` as `:orthogonal`.** A pair
   declared `(orthogonal a b)` in either spelling, visible from the vantage `context`,
   reads `:orthogonal` with no shared instance, so `disjointness-audit` no longer counts it
-  among its `:unknown` pairs. A declared pair that is also `genl`-related or disjoint
-  carries both statuses, and `subsumption-status` reports it `:inconsistent`.
+  among its `:unknown` pairs. A declared pair that is also `genl`-related, or separated
+  through two supertypes the declaration does not exempt, carries both statuses, and
+  `subsumption-status` reports it `:inconsistent`; a `disjoint` over the declared pair
+  itself is exempted, so that pair reads `:orthogonal`.
   [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
   *Class:* **Additive**.
 
@@ -160,6 +207,79 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [integrity.md](docs/integrity.md#what-an-implicit-genl-finding-means).
 
   *Class:* **Additive**.
+
+### Internal
+
+- **The `orthogonal` comments and taxonomy.md name every separation the declaration
+  exempts.** The flat-cache comment and `tax/exemption`'s docstring named the clique marks
+  alone. [taxonomy.md](docs/taxonomy.md#disjointness).
+
+  *Class:* **Internal**.
+
+- **taxonomy.md documents the three partitions of `thing`, and the glossary defines
+  `intangible`.** The glossary entries for `aspatial`, `atemporal`, `tangible` and
+  `nowhere_never` link the section. `nm/advice`'s documented multi-word example is
+  `(isa Muffet LivingThing)`, a type the shipped ontology declares, and contexts.md lists
+  the head's ontology collections without a count.
+  [taxonomy.md](docs/taxonomy.md#the-three-partitions-of-thing)
+
+  *Class:* **Internal**.
+
+- **`full_kb_test`'s write probes borrow no type from a relation's membership.** A
+  function's name is spelled as an individual's, so the probe skips a sampled `(T x)`
+  whose `x` is a `relation` in its context.
+
+  *Class:* **Internal**.
+
+- **`ontology_test` fails a loaded membership in a type no other sentence names.** The
+  test reads every premise membership in the starter and the test-world, and names a
+  type that no `genl` edge, argument declaration or comment names.
+
+  *Class:* **Internal**.
+
+- **`vaelii.impl.violations/*report-sink*` collects the diagnostics a read files.** Bound
+  to an atom, it receives the violations an evaluation would add to the ledger;
+  `kb-integrity` binds it, so the ledger does not move during a sweep. The
+  `kb-integrity` docstring states its contract, and `docs/integrity.md` drops two
+  sentences that gave a rationale where a mechanism belongs.
+  [integrity.md](docs/integrity.md#what-a-definition-finding-means).
+
+  *Class:* **Internal**.
+
+- **A daemon `:kb-integrity` call that sends only the candidate set is refused
+  `:bad-args`.** The daemon no longer pads it to a call that reads its option map as the
+  context. [operations.md](docs/operations.md).
+
+  *Class:* **Internal**.
+
+- **A `kb-integrity` sweep that spends no more than `:max-work` finishes.** A sweep that
+  completed within its work budget no longer reports `:truncated` with `:reason
+  :max-work`. [integrity.md](docs/integrity.md#the-call).
+
+  *Class:* **Internal**.
+
+- **`kb-integrity` takes `:categories`, and checks its candidate set before any pass.**
+  A set of category keys runs those passes alone, so a caller reaches a candidate pass
+  the census passes would spend the work budget ahead of. A candidate set that is not a
+  set of ground terms is refused with `:op kb-integrity` whichever passes run.
+  [integrity.md](docs/integrity.md#the-call).
+
+  *Class:* **Internal**.
+
+- **`kb-integrity`'s specified pass reads the declarations in content order.** A sweep cut
+  short by `:max-results`, `:max-work` or `:max-ms` keeps the same declarations in every
+  arrival order. The sweep's deadline tests move a hooked clock instead of sleeping.
+  [integrity.md](docs/integrity.md#the-call).
+
+  *Class:* **Internal**.
+
+- **`kb-integrity`'s work meter is part of `vaelii.impl.budget`, and a read outside a
+  sweep takes no meter wrapper.** Outside a sweep, prover dispatch returns each answer
+  stream and callback result unwrapped. A sweep's `:max-ms` reaches the
+  argument-preservation prover's claim walk, and a `nil` bound reads as no bound.
+  [integrity.md](docs/integrity.md#the-call).
+
+  *Class:* **Internal**.
 
 ## 0.23.0 — 2026-10-02 — "no definitional clash is refused, each reader decides a clash from its own view, and the definitional vocabulary is held known-true"
 

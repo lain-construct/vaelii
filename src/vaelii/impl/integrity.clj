@@ -1,17 +1,14 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.integrity
-  "Bounded, read-only KB integrity reporting.
-
-  This namespace sits below `vaelii.core`, which requires it: the aggregate reads the
-  `predall` specified audit's focused per-declaration units and the `provers` definition
-  pass, both of which sit below core themselves, so every call here points downward and
-  the internal units stay off the public API."
-  (:require [vaelii.impl.integrity-budget :as integrity-budget]
+  "Bounded, read-only KB integrity reporting: the passes `kb-integrity` runs under a work
+  meter (`vaelii.impl.budget`).  `vaelii.core` requires this namespace; it requires
+  `predall` and `provers`, which also sit below `vaelii.core`.  See docs/integrity.md."
+  (:require [clojure.string :as str]
+            [vaelii.impl.budget :as budget]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
-            [vaelii.impl.opts :as opts]
             [vaelii.impl.predall :as predall]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
@@ -22,52 +19,8 @@
             [vaelii.impl.violations :as violations]))
 
 (def integrity-opt-keys
-  "The cooperative bounds `kb-integrity` reads."
-  #{:max-work :max-ms :max-results})
-
-(defn- check-opts! [options]
-  (opts/check! options integrity-opt-keys "kb-integrity"
-               "A bound nothing reads would make an integrity sweep unbounded in silence.")
-  (doseq [[k ok? what] [[:max-work nat-int? "a non-negative integer"]
-                        [:max-results nat-int? "a non-negative integer"]
-                        [:max-ms #(and (number? %) (not (neg? (double %))))
-                         "a non-negative number"]]
-          :let [value (get options k)]
-          :when (and (contains? options k) (not (ok? value)))]
-    (throw (ex-info (str "kb-integrity " k " must be " what ", got " (pr-str value))
-                    {:type :unknown-option :mismatch :bad-value
-                     :option k :value value})))
-  options)
-
-(defn- categories [definitions specified widenings unrooted implicit]
-  (cond-> {}
-    (seq specified)   (assoc :all-specified-violations specified)
-    (seq definitions) (assoc :definition-inconsistencies definitions)
-    (seq widenings)   (assoc :genl-arg-widening widenings)
-    (seq unrooted)    (assoc :not-under-thing unrooted)
-    (seq implicit)    (assoc :implicit-genl implicit)))
-
-(defn- bounded-categories [definitions specified widenings unrooted implicit max-results]
-  (if (nil? max-results)
-    (categories definitions specified widenings unrooted implicit)
-    (let [definitions (vec (take max-results definitions))
-          remaining   (- max-results (count definitions))
-          specified   (into {} (take remaining (sort-by (comp nm/print-key key) specified)))
-          remaining   (- remaining (count specified))
-          widenings   (vec (take remaining widenings))
-          remaining   (- remaining (count widenings))
-          unrooted    (vec (take remaining unrooted))
-          remaining   (- remaining (count unrooted))
-          implicit    (vec (take remaining implicit))]
-      (categories definitions specified widenings unrooted implicit))))
-
-(defn- truncate-report
-  [candidate-count reason meter
-   {:keys [definitions specified widenings not-under-thing implicit-genl]} max-results]
-  (merge {:status :truncated :reason reason :candidate-count candidate-count}
-         (integrity-budget/snapshot meter)
-         (bounded-categories definitions specified widenings not-under-thing implicit-genl
-                             max-results)))
+  "The options `kb-integrity` reads: three cooperative bounds and the categories to run."
+  #{:max-work :max-ms :max-results :categories})
 
 (defn- specified-findings
   "Audit one declared predicate at a time, stopping after the first finding beyond
@@ -80,7 +33,7 @@
         (if (and remaining (>= (count findings) remaining))
           {:status :truncated :reason :max-results :findings findings}
           (do
-            (integrity-budget/record-specified! declaration result)
+            (budget/record! :all-specified-violations [declaration result])
             (recur (rest audits) (assoc findings declaration result))))
         (recur (rest audits) findings))
       {:status :complete :findings findings})))
@@ -93,7 +46,7 @@
   read into it."
   [kb pred context]
   (reduce (fn [m [_ b]]
-            (integrity-budget/spend!)
+            (budget/spend!)
             (let [n (get b '?n) t (get b '?t)]
               (if (and (integer? n) (symbol? t) (not (sx/variable? t)))
                 (update m n (fnil conj #{}) t)
@@ -118,7 +71,7 @@
   [kb context]
   (->> (res/matches-visible kb '(arg ?p ?n ?t) context)
        (keep (fn [[_ b]]
-               (integrity-budget/spend!)
+               (budget/spend!)
                (let [p (get b '?p)]
                  (when (and (symbol? p) (not (sx/variable? p))) p))))
        distinct
@@ -134,7 +87,7 @@
                                     (distinct (constraining-arg-types kb super context)))
         :let  [tps (get own n)]
         :when (seq tps)
-        :when (do (integrity-budget/spend!)
+        :when (do (budget/spend!)
                   (not-any? #(or (= % tq) (tax/genl? tx % tq context)) tps))
         tp    (sort-by nm/print-key tps)]
     (cond-> {:spec spec :genl super :arg n :spec-type tp :genl-type tq}
@@ -151,14 +104,14 @@
                           :let  [own (own-arg-types kb spec context)]
                           super (sort-by nm/print-key (tax/direct-genls tx spec context))
                           :when (not= super spec)
-                          finding (do (integrity-budget/spend!)
+                          finding (do (budget/spend!)
                                       (edge-widenings kb tx spec own super context))]
                       finding)]
       (if-let [finding (first units)]
         (if (and remaining (>= (count findings) remaining))
           {:status :truncated :reason :max-results :findings findings}
           (do
-            (integrity-budget/record-widening! finding)
+            (budget/record! :genl-arg-widening finding)
             (recur (conj findings finding) (rest units))))
         {:status :complete :findings findings}))))
 
@@ -169,9 +122,9 @@
   `genl` path visible from `context`?  `thing` itself is the root, never unrooted."
   [kb tx term context]
   (and (not= 'thing term)
-       (do (integrity-budget/spend!)
+       (do (budget/spend!)
            (seq (res/matches-visible kb (list 'unary_predicate term) context)))
-       (do (integrity-budget/spend!)
+       (do (budget/spend!)
            (not (tax/genl? tx term 'thing context)))))
 
 (defn- not-under-thing-findings
@@ -190,7 +143,7 @@
         (if (and remaining (>= (count findings) remaining))
           {:status :truncated :reason :max-results :findings findings}
           (do
-            (integrity-budget/record-not-under-thing! finding)
+            (budget/record! :not-under-thing finding)
             (recur (conj findings finding) (rest units))))
         {:status :complete :findings findings}))))
 
@@ -234,10 +187,10 @@
   of some visible `genl` edge.  An individual, and a relation of two or more places
   whose `genl` edges are predicate specializations, are never suggested a type edge."
   [kb tx term context]
-  (let [n (do (integrity-budget/spend!) (kb/relation-arity kb term context))]
+  (let [n (do (budget/spend!) (kb/relation-arity kb term context))]
     (or (= 1 n)
         (and (nil? n)
-             (do (integrity-budget/spend!)
+             (do (budget/spend!)
                  (seq (tax/direct-genls tx term context)))))))
 
 (defn- cover-suggestion
@@ -249,13 +202,13 @@
   [kb tx term [whole parts] context]
   (when-not (or (= term whole) (some #{term} parts))
     (let [excluded (filterv (fn [part]
-                              (integrity-budget/spend!)
+                              (budget/spend!)
                               (tax/disjoint? tx term part context))
                             parts)
           left     (remove (set excluded) parts)]
       (when (= 1 (count left))
         (let [part (first left)]
-          (integrity-budget/spend!)
+          (budget/spend!)
           (when-not (tax/genl? tx term part context)
             {:term term
              :genl part
@@ -279,7 +232,7 @@
                                     (sort-by nm/print-key))
                           :when (suggestible-type? kb tx term context)
                           cover (visible-covers tx term context)
-                          :let  [finding (do (integrity-budget/spend!)
+                          :let  [finding (do (budget/spend!)
                                              (cover-suggestion kb tx term cover context))]
                           :when finding]
                       finding)]
@@ -287,88 +240,85 @@
         (if (and remaining (>= (count findings) remaining))
           {:status :truncated :reason :max-results :findings findings}
           (do
-            (integrity-budget/record-implicit-genl! finding)
+            (budget/record! :implicit-genl finding)
             (recur (conj findings finding) (rest units))))
         {:status :complete :findings findings}))))
 
+(def ^:private passes
+  "The passes in run order, `[category audit]`: `audit` takes `kb candidate-terms context
+  remaining` and answers `{:status :complete|:truncated :findings …}`.  `:max-results`
+  counts findings in this order."
+  [[:definition-inconsistencies provers/definition-inconsistencies]
+   [:all-specified-violations (fn [kb _ context remaining]
+                                (specified-findings kb context remaining))]
+   [:genl-arg-widening (fn [kb _ context remaining]
+                         (widening-findings kb context remaining))]
+   [:not-under-thing not-under-thing-findings]
+   [:implicit-genl implicit-genl-findings]])
+
+(defn- check-args!
+  "Refuse a `candidate-terms` that is not a set of ground terms (`:bad-args`), and a
+  `:categories` that is not a set of the categories `passes` names (`:unknown-option`)."
+  [candidate-terms categories]
+  (when-not (set? candidate-terms)
+    (throw (ex-info "kb-integrity candidate-terms must be a finite set"
+                    {:type :bad-args :op 'kb-integrity :arg :candidate-terms})))
+  (when-let [term (first (remove sx/ground-term? candidate-terms))]
+    (throw (ex-info "kb-integrity candidate-terms must all be ground"
+                    {:type :bad-args :op 'kb-integrity :arg :candidate-terms :term term})))
+  (let [known (mapv first passes)]
+    (when-not (or (nil? categories) (and (set? categories) (every? (set known) categories)))
+      (throw (ex-info (str "kb-integrity :categories must be a set of "
+                           (str/join ", " known) ", got " (pr-str categories))
+                      {:type :unknown-option :mismatch :bad-value
+                       :option :categories :value categories})))))
+
+(defn- run-passes
+  "Run the `passes` that `categories` names (every one when nil) in order, each with what
+  is left of `max-results`: nil when every pass completed, `:max-results` when one
+  stopped at the cap."
+  [kb candidate-terms context max-results categories]
+  (loop [[[_ audit] & more] (filter #(or (nil? categories) (categories (first %))) passes)
+         remaining          max-results]
+    (when audit
+      (let [result (audit kb candidate-terms context remaining)]
+        (if (= :truncated (:status result))
+          :max-results
+          (recur more (some-> remaining (- (count (:findings result))))))))))
+
+(defn- report-categories
+  "The non-empty categories of a meter's findings, the specified category as a map."
+  [found]
+  (into {}
+        (keep (fn [[k xs]]
+                (when (seq xs)
+                  [k (if (= :all-specified-violations k) (into {} xs) xs)])))
+        found))
+
 (defn kb-integrity
-  "Run the bounded integrity sweep in `context` over `candidate-terms`.
-
-  A clean result is `{:status :audited :candidate-count n}`.  A result with findings
-  is `{:status :gap :candidate-count n ...}`, adding any of five sparse categories:
-  `:all-specified-violations`, `:definition-inconsistencies`, `:genl-arg-widening`,
-  `:not-under-thing` and `:implicit-genl`.  The last is a suggestion rather than a
-  fault: a `genl` edge a cover forces that the closure does not hold.
-  The status therefore cannot be mistaken for success merely because a category is
-  absent.
-
-  `candidate-terms` must be a finite set of ground terms. `options` may bound the sweep
-  by cooperative work units, wall-clock milliseconds, and returned findings:
-  `{:max-work n :max-ms n :max-results n}`. Exhaustion returns `:status :truncated`,
-  never a clean-looking `:audited` prefix.
-
-  Reads only. Diagnostics raised by evaluating a query-only condition are collected in
-  a private sink, so the live sentexes, belief and violations ledger do not move."
+  "Run the bounded integrity sweep in `context` over the finite set of ground
+  `candidate-terms`.  Answers `{:status :audited :candidate-count n}` when no pass finds
+  anything, `:status :gap` with the non-empty categories otherwise, and `:status
+  :truncated` with its `:reason`, `:work`, `:elapsed-ms` and the findings kept before a
+  bound in `options` (`integrity-opt-keys`) ran out.  `:categories`, a set of category
+  keys, runs those passes alone.  Reads only: a diagnostic raised by
+  evaluating a condition goes to a sink local to the call.  See docs/integrity.md."
   ([kb candidate-terms context]
    (kb-integrity kb candidate-terms context nil))
   ([kb candidate-terms context options]
-   (check-opts! options)
-   (let [options         (or options {})
-         candidate-count (when (set? candidate-terms) (count candidate-terms))
-         meter           (integrity-budget/meter options)
-         local-reports   (atom [])
-         progress        (atom {:definitions [] :specified {} :widenings []
-                                :not-under-thing [] :implicit-genl []})
-         max-results     (:max-results options)]
-     (binding [integrity-budget/*meter* meter
-               integrity-budget/*progress* progress
-               violations/*report-sink* local-reports]
-       (try
-         (let [definition-result
-               (provers/definition-inconsistencies
-                 kb candidate-terms context max-results)
-               definitions (:findings definition-result)]
-           (swap! progress assoc :definitions definitions)
-           (if (= :truncated (:status definition-result))
-             (truncate-report candidate-count (:reason definition-result) meter
-                              @progress max-results)
-             (let [remaining (when max-results (- max-results (count definitions)))
-                   specified-result (specified-findings kb context remaining)
-                   specified (:findings specified-result)]
-               (swap! progress assoc :specified specified)
-               (if (= :truncated (:status specified-result))
-                 (truncate-report candidate-count :max-results meter @progress max-results)
-                 (let [remaining (when remaining (- remaining (count specified)))
-                       widening-result (widening-findings kb context remaining)
-                       widenings (:findings widening-result)]
-                   (swap! progress assoc :widenings widenings)
-                   (if (= :truncated (:status widening-result))
-                     (truncate-report candidate-count :max-results meter @progress
-                                      max-results)
-                     (let [remaining (when remaining (- remaining (count widenings)))
-                           unrooted-result (not-under-thing-findings
-                                            kb candidate-terms context remaining)
-                           unrooted (:findings unrooted-result)]
-                       (swap! progress assoc :not-under-thing unrooted)
-                       (if (= :truncated (:status unrooted-result))
-                         (truncate-report candidate-count :max-results meter @progress
-                                          max-results)
-                         (let [remaining (when remaining (- remaining (count unrooted)))
-                               implicit-result (implicit-genl-findings
-                                                kb candidate-terms context remaining)
-                               implicit (:findings implicit-result)]
-                           (swap! progress assoc :implicit-genl implicit)
-                           (if (= :truncated (:status implicit-result))
-                             (truncate-report candidate-count :max-results meter @progress
-                                              max-results)
-                             (let [findings (categories definitions specified widenings
-                                                        unrooted implicit)]
-                               (integrity-budget/spend!)
-                               (merge {:status (if (seq findings) :gap :audited)
-                                       :candidate-count candidate-count}
-                                      findings))))))))))))
-         (catch clojure.lang.ExceptionInfo e
-           (if-let [reason (integrity-budget/exhausted e)]
-             (truncate-report candidate-count reason meter @progress
-                              max-results)
-             (throw e))))))))
+   (budget/check-budget! options integrity-opt-keys "kb-integrity")
+   (check-args! candidate-terms (:categories options))
+   (let [candidate-count (count candidate-terms)
+         m               (budget/meter options)
+         reason          (binding [violations/*report-sink* (atom [])]
+                           (budget/metered
+                            m #(try (run-passes kb candidate-terms context
+                                                (:max-results options) (:categories options))
+                                    (catch clojure.lang.ExceptionInfo e
+                                      (or (budget/exhausted e) (throw e))))))
+         found           (report-categories (budget/found m))]
+     (cond
+       reason      (merge {:status :truncated :reason reason :candidate-count candidate-count}
+                          (budget/snapshot m) found)
+       (seq found) (merge {:status :gap :candidate-count candidate-count} found)
+       :else       {:status :audited :candidate-count candidate-count}))))

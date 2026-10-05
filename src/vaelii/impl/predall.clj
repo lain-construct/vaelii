@@ -30,7 +30,8 @@
   is punted (Pace): a plain individual, a literal and an *Exists* placeholder alike are
   all treated as determinate here, which is what makes `predAllSpecified` the exact
   antagonist of `predAllExists`."
-  (:require [vaelii.impl.provers :as provers]
+  (:require [vaelii.impl.naming :as nm]
+            [vaelii.impl.provers :as provers]
             [vaelii.impl.quasiquote :as quasiquote]
             [vaelii.impl.resolution :as res]))
 
@@ -199,24 +200,32 @@
                     (remove #(admissible-filler? kb pred % typings n ctx)))
               (quasiquote/ask-prepared kb (list indep '?x) ctx))}))))
 
+(defn- content-ordered
+  "The distinct tuples `xs` in content order, so a sweep cut short keeps the same prefix
+  in every arrival order."
+  [xs]
+  (sort-by #(apply list %) nm/compare-form (distinct xs)))
+
 (defn- declaration-args
   "Read the stored binary `(functor pred indep)` declarations in `ctx` as
-  `[pred indep]` tuples."
+  `[pred indep]` tuples, in content order."
   [kb functor ctx]
-  (for [b (quasiquote/ask-prepared kb (list functor '?pred '?indep) ctx)]
-    [(get b '?pred) (get b '?indep)]))
+  (content-ordered
+   (for [b (quasiquote/ask-prepared kb (list functor '?pred '?indep) ctx)]
+     [(get b '?pred) (get b '?indep)])))
 
 (defn- legacy-ternary-declarations
   "The retired ternary `(functor pred a b)` sentexes still believed in `ctx`, as
-  `[pred a b]` tuples.  A fresh assert of the shape is refused (the functors are
-  `binary_predicate`s and the arity classes are disjoint), but the bulk import path
+  `[pred a b]` tuples in content order.  A fresh assert of the shape is refused (the
+  functors are `binary_predicate`s and the arity classes are disjoint), but the bulk import path
   builds records without the assert-time checks, so a pre-migration dump's ternary
   declarations load intact — and, matching neither the binary ask pattern nor any
   audit, would otherwise vanish from the sweep entirely, turning an unmigrated KB
   into a fake clean sweep."
   [kb functor ctx]
-  (for [b (quasiquote/ask-prepared kb (list functor '?pred '?a '?b) ctx)]
-    [(get b '?pred) (get b '?a) (get b '?b)]))
+  (content-ordered
+   (for [b (quasiquote/ask-prepared kb (list functor '?pred '?a '?b) ctx)]
+     [(get b '?pred) (get b '?a) (get b '?b)])))
 
 (defn specified-declaration-audits
   "Every declaration audit as a lazy stream of `[declaration result]` entries.

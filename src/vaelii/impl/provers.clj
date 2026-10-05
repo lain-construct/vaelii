@@ -76,7 +76,6 @@
             [vaelii.impl.caches :as caches]
             [vaelii.impl.datetime :as datetime]
             [vaelii.impl.inherit :as inherit]
-            [vaelii.impl.integrity-budget :as integrity-budget]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.modal :as modal]
             [vaelii.impl.naming :as nm]
@@ -232,13 +231,13 @@
   stable and the estimate is a function of the goal and the KB, so a tie still breaks
   on registry order and not on when the comparison happened."
   [kb applicable goal context]
-  (when (empty? (integrity-budget/checked-call
+  (when (empty? (budget/checked-call
                  (fn [] (shadowing-channels kb goal context))))
     (->> applicable
-         (filter #(>= (integrity-budget/checked-call
+         (filter #(>= (budget/checked-call
                        (fn [] (completeness % kb goal context)))
                       100))
-         (map (juxt identity #(integrity-budget/checked-call
+         (map (juxt identity #(budget/checked-call
                                (fn [] (est-bindings % kb goal context)))))
          (sort-by second)
          ffirst)))
@@ -2173,7 +2172,7 @@
         [_ bindings _] (res/matches-visible
                         kb (list pred declaring-coll '?condition) context)]
     (do
-      (integrity-budget/spend!)
+      (budget/spend!)
       {:defined-collection declaring-coll
        :condition          (get bindings '?condition)})))
 
@@ -2220,7 +2219,7 @@
         declared
         (into #{}
               (map (fn [match]
-                     (integrity-budget/spend!)
+                     (budget/spend!)
                      (get (second match) '?collection)))
               (res/matches-visible
                kb '(defnSufficient ?collection ?condition) context))]
@@ -2237,21 +2236,10 @@
 
   Collections are not supplied or guessed.  They are the finite visible population
   induced by `defnSufficient` declarations and their `genl` ancestors, exactly the
-  collections the positive prover can reach.  The caller supplies the term bound; it
-  must be a set, so an accidental lazy or unbounded enumerator is refused before any
-  query work begins.  Reads only; stores and belief are untouched."
+  collections the positive prover can reach.  `candidate-terms` is a finite set of ground
+  terms, which `vaelii.impl.integrity/kb-integrity` checks.  Reads only; stores and
+  belief are untouched."
   [kb candidate-terms context max-results]
-  (when-not (set? candidate-terms)
-    (throw (ex-info "definition-inconsistencies candidate-terms must be a finite set"
-                    {:type :bad-args :op 'definition-inconsistencies
-                     :arg :candidate-terms})))
-  (when-let [term (first (remove (fn [term]
-                                   (integrity-budget/spend!)
-                                   (sx/ground-term? term))
-                                 candidate-terms))]
-    (throw (ex-info "definition-inconsistencies candidate-terms must all be ground"
-                    {:type :bad-args :op 'definition-inconsistencies
-                     :arg :candidate-terms :term term})))
   (let [query-colls (sufficient-definition-collections kb context)]
     (loop [pairs (seq (for [coll   (sort-by nm/print-key query-colls)
                             member (sort-by nm/print-key candidate-terms)]
@@ -2259,12 +2247,12 @@
            findings []]
       (if-let [[coll member] (first pairs)]
         (do
-          (integrity-budget/spend!)
+          (budget/spend!)
           (if-let [finding (definition-inconsistency kb coll member context)]
             (if (and max-results (>= (count findings) max-results))
               {:status :truncated :reason :max-results :findings findings}
               (let [findings' (conj findings finding)]
-                (integrity-budget/record-definition! finding)
+                (budget/record! :definition-inconsistencies finding)
                 (recur (next pairs) findings')))
             (recur (next pairs) findings)))
         {:status :complete :findings findings}))))
@@ -2833,7 +2821,7 @@
   reports both — so a sweep that drifted between them would make the diagnostic lie
   about the dispatch it is there to explain."
   [kb provers goal context]
-  (filterv #(integrity-budget/checked-call
+  (filterv #(budget/checked-call
              (fn [] (applicable? % kb goal context)))
            provers))
 
@@ -2968,7 +2956,7 @@
         (tax/meet-closure (reasoning/taxonomy kb) held))))))
 
 (defn- goal-cost-rank [pr kb goal context]
-  (cost-rank (integrity-budget/checked-call
+  (cost-rank (budget/checked-call
               (fn [] (cost pr kb goal context)))))
 
 (defn- dispatch-provers
@@ -2982,8 +2970,8 @@
   exactly what `run` carries."
   [kb provers goal context run]
   (let [run        (fn [prover]
-                     (let [answers (integrity-budget/checked-call #(run prover))]
-                       (integrity-budget/checked-seq answers)))
+                     (let [answers (budget/checked-call #(run prover))]
+                       (budget/checked-seq answers)))
         applicable (applicable-provers kb provers goal context)
         complete   (sole-prover kb applicable goal context)]
     (if complete

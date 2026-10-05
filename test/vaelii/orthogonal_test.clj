@@ -95,6 +95,18 @@
     (is (= #{:disjoint :orthogonal} (v/subsumption-statuses kb 'subA 'subB)))
     (is (= :inconsistent (v/subsumption-status kb 'subB 'subA)))))
 
+(tu/deftest-kb the-separation-and-the-declaration-are-read-from-one-vantage
+  (tu/with-terms [alphakind betakind]
+    (let [cx (tu/tmp-ctx)]
+      (v/assert kb (list 'genlCx cx 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genl alphakind 'thing) 'CxUniverse)
+      (v/assert kb (list 'genl betakind 'thing) 'CxUniverse)
+      (v/assert kb (list 'disjoint alphakind betakind) 'CxUniverse)
+      (v/assert kb (list 'orthogonal alphakind betakind) cx)
+      (is (= #{:disjoint} (v/subsumption-statuses kb alphakind betakind))
+          "CxUniverse reads the disjoint and not the declaration below it")
+      (is (= #{:orthogonal} (v/subsumption-statuses kb alphakind betakind cx))))))
+
 (tu/deftest-kb the-audit-counts-a-declared-pair-as-known
   (tu/with-terms [spatialKind temporalKind]
     (v/assert kb (list 'genl 'spatialKind 'thing) 'CxUniverse)

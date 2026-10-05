@@ -403,3 +403,17 @@
           (let [e (is (thrown? clojure.lang.ExceptionInfo (entry-point)))]
             (is (= :unknown-option (:type (ex-data e))))
             (is (= [:max-result] (:unknown (ex-data e))))))))))
+
+;; ---- the work meter ------------------------------------------------------
+
+(deftest an-unmetered-read-gets-its-stream-and-callback-untouched
+  (let [xs (map inc (range 64))]
+    (is (identical? xs (budget/checked-seq xs)))
+    (is (= :answer (budget/checked-call (constantly :answer))))
+    (is (nil? (budget/spend!)))))
+
+(deftest a-metered-read-binds-its-deadline-for-a-walk-inside-a-pull
+  (is (= :max-ms
+         (try (budget/metered (budget/meter {:max-ms 0})
+                              #(budget/check-deadline! budget/*deadline*))
+              (catch clojure.lang.ExceptionInfo e (budget/exhausted e))))))

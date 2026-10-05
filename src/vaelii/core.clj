@@ -4118,18 +4118,21 @@
   singleton; an inconsistent pair (e.g. both genl-related and disjoint) yields multiple;
   a pair with no provable relationship yields the empty set.
 
-  `genl?` and `disjoint?` read the global cached closures. `:orthogonal` has two
-  witnesses: a stated `(orthogonal a b)` (either spelling, the predicate being symmetric),
-  or a member of `a` that is also a member of `b` where neither type subsumes the other and
-  the pair is not disjoint. Both are read from `context` (default `CxUniverse`, the upper
-  spindle's collector), because a read sees only its own context and that context's
-  `genlCx` ancestors; a caller whose declarations or instances live in a narrower context
-  passes it so they are visible. Both are facts-only reads (`{:max-depth 0}`), so the
-  status is the same under every query engine.
+  `genl?` reads the global cached closure. `disjoint?` and the two `:orthogonal`
+  witnesses are read from `context` (default `CxUniverse`, the upper spindle's
+  collector), because a read sees only its own context and that context's `genlCx`
+  ancestors, and an `orthogonal` exempts its pair only where it is seen; a caller whose
+  declarations or instances live in a narrower context passes it so they are visible.
+  The witnesses are a stated `(orthogonal a b)` (either spelling, the predicate being
+  symmetric), and a member of `a` that is also a member of `b` where neither type
+  subsumes the other and the pair is not disjoint. Both are facts-only reads (`{:max-depth
+  0}`), so the status is the same under every query engine.
 
-  The declaration stands alone: a declared pair that is also genl-related or disjoint
-  yields both statuses, which `subsumption-status` reads as `:inconsistent`. The shared
-  instance does not: it settles only a pair the taxonomy and the separations leave open.
+  The declaration stands alone: a declared pair that is also genl-related, or separated
+  through two supertypes the declaration does not exempt, yields both statuses, which
+  `subsumption-status` reads as `:inconsistent`. A declaration over the separated pair
+  itself exempts it, so that pair reads `:orthogonal` alone. The shared instance settles
+  only a pair the taxonomy and the separations leave open.
 
   `:coextensional` is two distinct types each `genl` the other — a `genl` cycle, which
   `wff` refuses at assertion, so it appears only from a belief-state cycle or an equality
@@ -4145,14 +4148,14 @@
        (and a<b b<a)                                        (conj :coextensional)
        (and a<b (not b<a))                                  (conj :genl)
        (and b<a (not a<b))                                  (conj :spec)
-       (disjoint? kb a b)                                   (conj :disjoint)
+       (disjoint? kb a b context)                           (conj :disjoint)
        ;; The shared-instance check is facts-only, pinned with `{:max-depth 0}` so it
        ;; expands no rule under a caller's `*query-options*` depth: a node-engine search
        ;; of `(a ?x)` over the whole starter, once per taxonomy-open pair, hangs.
        ;; `:orthogonal`'s witness is a shared instance the registry answers without rule
        ;; expansion.
        (or declared?
-           (and (not a<b) (not b<a) (not (disjoint? kb a b))
+           (and (not a<b) (not b<a) (not (disjoint? kb a b context))
                 (boolean (some #(isa? kb (get % '?x) b context)
                                (query kb (list a '?x) context {:max-depth 0}))))) (conj :orthogonal)))))
 
@@ -4167,8 +4170,9 @@
   relationships hold, e.g. both genl-related and disjoint).
 
   Wraps `subsumption-statuses`: an empty set is `:unknown`, a singleton is that status,
-  and two or more contradictory statuses is `:inconsistent`. `context` is the
-  `:orthogonal` vantage (default `CxUniverse`); see `subsumption-statuses`."
+  and two or more contradictory statuses is `:inconsistent`. `context` is the vantage
+  `:disjoint` and `:orthogonal` are read from (default `CxUniverse`); see
+  `subsumption-statuses`."
   ([kb a b] (subsumption-status kb a b 'CxUniverse))
   ([kb a b context]
    (let [ss (subsumption-statuses kb a b context)]
@@ -4183,7 +4187,8 @@
   [{:a t :b t :status s} …]}`. `genl?` and `disjoint?` read cached closures, and the
   shared-instance query runs only for a pair the taxonomy and disjoint declarations
   leave open — pinned facts-only (`{:max-depth 0}`), so the N² sweep expands no rule.
-  `context` is the shared-instance vantage (default `CxUniverse`). Each entry carries both
+  `context` is the vantage `disjoint?` and the `:orthogonal` witnesses are read from
+  (default `CxUniverse`). Each entry carries both
   the resolved `:status` keyword and the raw `:statuses` set from `subsumption-statuses`,
   so contradictions are visible without re-querying. The `:unknown` pairs are the
   candidates for a missing `disjoint` or `orthogonal` assertion; a declared `orthogonal`
@@ -5315,30 +5320,14 @@
 (defn kb-integrity
   "Run the bounded, read-only integrity sweep in `context`.
 
-  `candidate-terms` is a finite set of ground terms.  For those terms the sweep reports
-  query-time definitional inconsistencies: a collection whose sufficient definition
-  passes while its necessary definition fails, so both `(Coll term)` and
-  `(not (Coll term))` are definition-provable.  It also composes the complete visible
-  `predAllSpecified` / `predSpecifiedAll` audit, reports the visible predicate `genl`
-  edges that widen a declared argument type, reports each candidate term declared
-  `unary_predicate` with no visible `genl` path to `thing`, and suggests each `(genl X P)`
-  a visible cover forces on a candidate type `X` that the `genl` closure does not hold.
-  It does not enumerate the domain, broaden `contradictions`, or repair/file anything:
-  a suggestion is reported, never asserted.
-
-  A clean result is `{:status :audited :candidate-count n}`.  Findings change `:status`
-  to `:gap` and add any of the sparse keys `:all-specified-violations`,
-  `:definition-inconsistencies`, `:genl-arg-widening`, `:not-under-thing` and
-  `:implicit-genl`.  Inspect `:status`; it makes a successful audit and a report with
-  gaps different shapes by construction.
-
-  Optional `options` bounds cooperative query work, elapsed time and returned findings:
-  `{:max-work n :max-ms n :max-results n}`. Exhaustion returns `:status :truncated`
-  with its `:reason`, never an `:audited` prefix. The daemon supplies and clamps all
-  three bounds even when a remote caller omits the map. Work and time are cooperative:
-  they are checked between prover callbacks and result pulls; one opaque callback or a
-  chunk realized by one pull may overrun before control returns. `:max-results` is an
-  absolute cap on the findings carried by every complete or truncated report."
+  `candidate-terms` is a finite set of ground terms (`:bad-args` otherwise).  Answers
+  `{:status :audited :candidate-count n}` when no pass finds anything, `:status :gap` with
+  the non-empty categories among `:definition-inconsistencies`,
+  `:all-specified-violations`, `:genl-arg-widening`, `:not-under-thing` and
+  `:implicit-genl`, or `:status :truncated` with its `:reason` and the findings kept when
+  a bound runs out.  `options` takes `:max-work`, `:max-ms` and `:max-results`, and
+  `:categories`, a set of category keys to run.  Stores and files nothing.  See
+  docs/integrity.md."
   ([kb candidate-terms context]
    (integrity/kb-integrity kb candidate-terms context nil))
   ([kb candidate-terms context options]

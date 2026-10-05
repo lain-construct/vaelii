@@ -835,9 +835,9 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   and each stays disjoint from everything else. A separation is found between a
   supertype of each side, and the exemption is tested against that pair: exempting `X`,
   `Y` therefore lifts what their separation reached below them, while an `orthogonal`
-  over two subtypes `X'`, `Y'` of a pair that stays separated exempts nothing. That is
-  coherent rather than a gap: overlap propagates upward, so an instance of both `X'` and
-  `Y'` would be an instance of both `X` and `Y`, and the declaration is the clash below.
+  over two subtypes `X'`, `Y'` of a pair that stays separated exempts nothing. Overlap
+  propagates upward: an instance of both `X'` and `Y'` would be an instance of both `X`
+  and `Y`, so that declaration is the clash below.
 
   **Read at the reader.** A reader is exempted only by an `orthogonal` some supporter
   states where it reads (`tax/exemption`): a context that sees it reads the pair apart,
@@ -977,11 +977,13 @@ the other), `:disjoint` (a declaration, closed under `genl`), `:orthogonal` (a s
 `(orthogonal a b)`, or a shared instance the registry answers without rule expansion
 where neither subsumption nor disjointness holds), `:unknown` (none of these is
 provable), or `:inconsistent` (two or more hold at once, such as genl-related and
-disjoint, or a stated `orthogonal` beside a `genl` edge or a disjointness).
-`genl?` and `disjoint?` read the global closures; the two `:orthogonal` witnesses are
-facts-only queries (`{:max-depth 0}`) — for the `(orthogonal a b)` declaration in either
-spelling, and for a member of `a` that is also a member of `b` — read from a `context`
-(default `CxUniverse`) because a read sees only that context and its `genlCx` ancestors.
+disjoint, or a stated `orthogonal` beside a `genl` edge or a separation of two
+supertypes it does not exempt).
+`genl?` reads the global closure. `disjoint?` and the two `:orthogonal` witnesses are
+read from a `context` (default `CxUniverse`), because a read sees only that context and
+its `genlCx` ancestors and an `orthogonal` exempts its pair only where it is seen. The
+witnesses are facts-only queries (`{:max-depth 0}`): for the `(orthogonal a b)`
+declaration in either spelling, and for a member of `a` that is also a member of `b`.
 The declaration stands alone; the shared instance settles only a pair the taxonomy and
 the separations leave open.
 
@@ -1137,6 +1139,30 @@ a cycle). Each refusal takes the structured `:not-well-formed` path rather than 
 as every other `wff` arm does. A part disjoint from the whole is stored: the refusal would
 read the stored `disjoint`, and what is stored would depend on which of the two arrived
 first ([nmtms.md](nmtms.md#1-order-independence)).
+
+### The three partitions of `thing`
+
+CxCore divides `thing` three ways, each with a `partition`, so each pair is separated and
+covers `thing`:
+
+| partition | the first part | the second part |
+|---|---|---|
+| `(partition thing spatial aspatial)` | a location in some space, physical or mathematical | no location in any space |
+| `(partition thing temporal atemporal)` | a location in time | none |
+| `(partition thing tangible intangible)` | mass | no mass |
+
+`genl` edges and two intersections in CxCore relate the parts across the three
+divisions. `tangible` is below `spatiotemporal`, the intersection of `spatial` and
+`temporal`. `aspatial` and `atemporal` are below `intangible`, and `nowhere_never` is
+their intersection. No edge or disjointness relates `intangible` to `spatial`: a region
+of space is `spatiotemporal` and `intangible`.
+
+A kind with no location in any space sits below `aspatial`, which separates it from
+`spatial` and from every CxSpace argument. `capability` (CxCore) and `attribute`,
+`fluent`, `organization` and `relation_type` (CxAbstract) are below `aspatial`.
+`context` and `language` are below `nowhere_never` in CxCore, so a spindle member that
+does not see CxAbstract's `expression` lattice reads both as disjoint from `spatial`.
+`ontology_test` pins each separation from the contexts that read it.
 
 ## Predicate metadata
 
