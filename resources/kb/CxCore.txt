@@ -1558,6 +1558,15 @@
 
 (termsRelated positiveExample negativeExample borderlineExample)
 
+;; A reviewer's record on a kb-integrity rule-macro suggestion.  It quotes the suggested
+;; declaration rather than naming the rule by (sentexHandle H): a handle is one store's,
+;; and a text export skips a sentence that names one, so the record would not survive a
+;; reload.  The suggestion is a function of the rule's sentence, so it names the rule.
+(comment declined_rule_macro
+         "(declined_rule_macro ?declaration) means that a reviewer read the kb-integrity rule-macro suggestion ?declaration and keeps the rule it was suggested for as written — most often a set/defaultRule that is meant to be a default. ?declaration is the suggested declaration as the sweep reports it, written as a quoted argument, for example (declined_rule_macro (genl livesIn locatedIn)). The rule-macro pass reads the record from the rule's context and does not report that suggestion; nothing else reads it and it draws no inference. See docs/integrity.md.")
+(unary_predicate declined_rule_macro)
+(quotedArg declined_rule_macro 1 thing)
+
 ;; --- Lacuna proposals (upper ontology overhaul) ---
 ;; Two predicates the engine does not yet act on (inert, no inference path — see
 ;; vaelii.impl.predicates):

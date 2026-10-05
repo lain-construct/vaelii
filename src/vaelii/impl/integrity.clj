@@ -767,14 +767,14 @@
   (tax/sees? (reasoning/taxonomy kb) special/universal-context rule-ctx))
 
 (defn- converse-rule
-  "A believed premise rule visible from `context`, other than `handle`, stating
-  `(Q ?y ?x)` ⇒ `(P ?x ?y)` with no other condition, or nil: the other half of an
-  `inverse`.  Read off the consequent index under `p`."
-  [kb rule-ok? handle p q]
+  "A believed premise rule visible from `context`, other than `handle`, of the class
+  `defeasible` names, stating `(Q ?y ?x)` ⇒ `(P ?x ?y)` with no other condition, or nil:
+  the other half of an `inverse`.  Read off the consequent index under `p`."
+  [kb rule-ok? handle p q defeasible]
   (some (fn [h]
           (budget/spend!)
           (when-let [rsx (and (not= h handle) (p/get-sentex (:records kb) h))]
-            (when (and (rule-ok? h rsx) (not (:defeasible rsx)))
+            (when (and (rule-ok? h rsx) (= defeasible (boolean (:defeasible rsx))))
               (let [m      (freezing (cons (:consequent rsx) (:antecedent rsx)))
                     shape  {:antecedent [(list q '?o1 '?o2)] :consequent (list p '?o2 '?o1)
                             :meta #{}}]
@@ -835,29 +835,82 @@
          (jtms/in? tms h)
          (res/rule-visible-from? kb context (:context rsx)))))
 
+(defn- contrary-rule?
+  "Is the stored rule at `h` a believed rule concluding `(not (g …))` for a `g` of
+  `preds`, in a context that sees `ctx` or that `ctx` sees?"
+  [kb preds ctx h]
+  (budget/spend!)
+  (when-let [rsx (p/get-sentex (:records kb) h)]
+    (let [c  (:consequent rsx)
+          tx (reasoning/taxonomy kb)]
+      (and (rules/rule? rsx)
+           (sx/negation? c)
+           (contains? preds (nm/functor (second c)))
+           (res/rule-believed? kb h)
+           (or (tax/sees? tx (:context rsx) ctx) (tax/sees? tx ctx (:context rsx)))))))
+
+(defn- known-exception?
+  "Does the KB hold a claim that overrides the default rule `rsx`: a believed `(not (g …))`
+  in a context that sees the rule's, or a rule concluding one, for `g` the rule's
+  consequent predicate or a `genl` of it read from the rule's context?  A default with an
+  `exceptWhen` is not read at all (`macro-candidate?`)."
+  [kb rsx]
+  (let [ctx   (:context rsx)
+        tx    (reasoning/taxonomy kb)
+        c     (:consequent rsx)
+        vars  (positions-vars (nm/arity c))
+        preds (do (budget/spend!) (set (tax/genls tx (nm/functor c) ctx)))]
+    (or (some (fn [g]
+                (budget/spend!)
+                (some (fn [[_ _ sx']]
+                        (tax/sees? tx (:context sx') ctx))
+                      (res/matches-visible kb (list 'not (list* g vars)) '?ctx)))
+              (sort-by nm/print-key preds))
+        (some #(contrary-rule? kb preds ctx %)
+              (sort (reads/as-stored-rules-by-consequent (:index kb) sx/not-functor))))))
+
+(def ^:private declined-marker
+  "The predicate a reviewer states of a suggested declaration to record that the rule
+  it was suggested for stays as written."
+  'declined_rule_macro)
+
+(defn- declined?
+  "Does the rule's context see `(declined_rule_macro decl)`?"
+  [kb rsx decl]
+  (budget/spend!)
+  (seq (res/matches-visible kb (list declined-marker decl) (:context rsx))))
+
 (defn- rule-macro-units
   "The findings for one rule `rsx` at handle `h`: one per macro shape the rule is, with
-  the conditions `macro-holds?` reads."
+  the conditions `macro-holds?` reads.  A shape matches a rule of its own class; a
+  `set/defaultRule` matching a monotonic shape is a `:default-shaped` finding unless
+  `known-exception?` holds.  A suggestion the rule's context declines is not a finding."
   [kb context h rsx]
   (let [m      (freezing (cons (:consequent rsx) (:antecedent rsx)))
         antes  (mapv #(freeze % m) (:antecedent rsx))
         conseq (freeze (:consequent rsx) m)
         n      (nm/arity conseq)
-        ok?    #(macro-candidate? kb context %1 %2)]
+        dflt?  (boolean (:defeasible rsx))
+        ok?    #(macro-candidate? kb context %1 %2)
+        excused (delay (known-exception? kb rsx))]
     (when (and (seq? conseq) (integer? n) (not (sx/negation? conseq)))
       (for [shape (macro-shapes n)
-            :when (= (boolean (:defeasible rsx)) (:defeasible shape))
+            :let  [shaped? (and dflt? (not (:defeasible shape)))]
+            :when (or (= dflt? (:defeasible shape)) shaped?)
             :let  [b (do (budget/spend!) (shape-bindings shape antes conseq))]
             :when (and b (macro-holds? kb rsx shape b n))
             :let  [partner (when (= 'inverse (:macro shape))
-                             (converse-rule kb ok? h (b '?mP) (b '?mQ)))]
+                             (converse-rule kb ok? h (b '?mP) (b '?mQ) dflt?))]
             :when (or partner (not= 'inverse (:macro shape)))
-            :let  [decl ((:declaration shape) b)]]
+            :let  [decl ((:declaration shape) b)]
+            :when (not (declined? kb rsx decl))
+            :when (not (and shaped? @excused))]
         (cond-> {:rule h
                  :sentence (sx/authored-sentence rsx)
                  :context (:context rsx)
                  :macro (:macro shape)
                  :declaration decl}
+          shaped? (assoc :default-shaped true)
           partner (assoc :converse partner)
           (do (budget/spend!) (seq (res/matches-visible kb decl (:context rsx))))
           (assoc :stated true))))))

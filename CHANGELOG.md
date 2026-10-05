@@ -725,8 +725,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   and each free argument takes a distinct rule variable. A relation mark is suggested
   only for a rule CxUniverse sees, a preservation only along a relation the rule's
   context reads as transitive, `genl` never for a consequent the engine interprets, and
-  a shape only for a rule of its class, so a `set/defaultRule` is suggested only as a
-  generator. `:stated true` marks a rule whose context already sees the declaration. The
+  a generator shape only for a `set/defaultRule`, the class the generators stamp; a
+  default rule of a monotonic shape is the `:default-shaped` finding below. `:stated true` marks a rule whose context already sees the declaration. The
   pass reads the stored rules, not the candidate terms. Findings count against
   `:max-results` after the `:implicit-genl` category and are kept on truncation.
   [integrity.md](docs/integrity.md#what-a-rule-macro-finding-means).
@@ -759,6 +759,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   and individuals alike, are declared `variable_order_type`. Each order class is a
   specialization of `unary_predicate`, so `kb/relation-arity` reads arity one for all 43.
   [integrity.md](docs/integrity.md#what-an-undeclared-arity-finding-means).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a `set/defaultRule` of a monotonic declaration's shape, and
+  `declined_rule_macro` records a reviewed suggestion.** A default rule shaped as `genl`,
+  `transitiveInArg` or another monotonic declaration is a `:rule-macro` finding with
+  `:default-shaped true`, unless the KB holds a claim the default yields to: a believed
+  `(not (Q …))` in a context that sees the rule's, or a rule concluding one, for `Q` the
+  rule's consequent predicate or a `genl` of it. A default with an `exceptWhen` is not
+  read, as before. CxCore adds `(declined_rule_macro D)`, which quotes a suggested
+  declaration `D`; the pass does not report a suggestion the rule's context sees declined,
+  and the record survives `export-text!` and `load-text!`.
+  [integrity.md](docs/integrity.md#what-a-rule-macro-finding-means).
 
   *Class:* **Additive**.
 

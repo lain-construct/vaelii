@@ -355,7 +355,8 @@ the rule matches:
 suggested declaration, to be asserted in the rule's `:context`. `:stated true` is
 present when that context already sees the declaration, so the rule repeats it. An
 `inverse` finding carries `:converse`, the handle, sentence and context of the rule
-that states the other direction. The finding is a suggestion: the sweep asserts and
+that states the other direction. `:default-shaped true` marks a `set/defaultRule` whose
+shape is a monotonic declaration (below). The finding is a suggestion: the sweep asserts and
 retracts nothing.
 
 The match is structural. The rule's variables are renamed apart, and each shape is
@@ -376,10 +377,40 @@ shapes, with `?o…` standing for the free arguments of a predicate of arity `n`
 | `(predAllInstance P C K)` | `(C ?x)` ⇒ `(P ?x K)`, `K` ground | the rule is a `set/defaultRule`, and `P` is not declared with another arity |
 | `(predInstanceAll P K C)` | `(C ?y)` ⇒ `(P K ?y)`, `K` ground | as `predAllInstance` |
 
-A shape matches a rule of its own class only. The two generators stamp a
-`set/defaultRule`, so a monotonic rule of their shape is not reported as one. Every
-other declaration concludes at the class of its weakest premise, as a bare rule does,
-so a `set/defaultRule` of their shape is not reported.
+The two generators stamp a `set/defaultRule`, so a monotonic rule of their shape is not
+reported as one. Every other declaration concludes at the class of its weakest premise,
+as a bare rule does, so a `set/defaultRule` of their shape is not the declaration. Such
+a rule is either a default its author meant, or a rule written as a default by accident,
+and the KB states no marker that tells the two apart. The sweep reads one sign instead:
+
+- A `set/defaultRule` with an `exceptWhen` is a default with a stated exception. Like
+  every rule with an `exceptWhen`, it is not read.
+- A `set/defaultRule` is **excused** when the KB holds a claim the default yields to: a
+  believed `(not (Q …))`, in a context that sees the rule's, or a believed rule
+  concluding `(not (Q …))`, in a context that sees the rule's or that the rule's context
+  sees, for `Q` the rule's consequent predicate or a `genl` of it. An excused default
+  is not reported.
+- Any other `set/defaultRule` of a monotonic shape is reported with
+  `:default-shaped true`, as a default nothing yet overrides, which may be a default by
+  accident.
+
+The heuristic is a sign, not a proof. A default may be deliberate before anything
+overrides it, and a contrary claim may override a default that was written by accident.
+
+A reviewer records a decision on any suggestion with `declined_rule_macro`, a CxCore
+predicate over the suggested declaration:
+
+```clojure
+;; (set/defaultRule (set/forwardRule (implies (livesIn ?a ?p) (locatedIn ?a ?p))))
+(declined_rule_macro (genl livesIn locatedIn))
+```
+
+The pass does not report a suggestion that the rule's context sees declined. The record
+quotes the suggestion rather than naming the rule by `(sentexHandle H)`: a handle belongs
+to one store, and `export-text!` skips a sentence that names one, so a handle-based record
+would not survive a reload. The suggestion is a function of the rule's sentence, so the
+record names the rule, and an edit to the rule that changes its shape changes the
+suggestion and brings the finding back. Retracting the record brings the finding back too.
 
 The further conditions are where a declaration reads differently from a rule:
 

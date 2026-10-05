@@ -1256,21 +1256,108 @@
     (is (= #{(list 'genl bird_kind warm_blooded_kind) (list 'genl fatherX parentX)}
            (set (map #(nth % 2) (rule-macros kb)))))))
 
-(tu/deftest-kb a-default-rule-is-reported-only-as-a-default-generator
+(defn- default-rule
+  "The `set/defaultRule` `(implies (antecedent) (consequent))`, forward and backward."
+  [ante conseq]
+  (list 'set/defaultRule (list 'set/forwardRule (list 'implies ante conseq))))
+
+(defn- shaped-of
+  "`[declaration default-shaped?]` of each `:rule-macro` finding in `context`."
+  ([kb] (shaped-of kb 'CxUniverse))
+  ([kb context]
+   (mapv (juxt :declaration (comp boolean :default-shaped))
+         (:rule-macro (v/kb-integrity kb #{} context {:categories #{:rule-macro}})))))
+
+(tu/deftest-kb a-default-rule-is-a-generator-or-default-shaped
   (tu/with-terms [pet_kind ownedBy fatherX parentX Somebody]
-    (v/assert kb (list 'binary_predicate ownedBy) 'CxUniverse)
-    (v/assert kb (list 'binary_predicate fatherX) 'CxUniverse)
-    (v/assert kb (list 'binary_predicate parentX) 'CxUniverse)
-    (v/assert kb (list 'set/defaultRule
-                       (list 'set/forwardRule
-                             (list 'implies (list pet_kind '?x) (list ownedBy '?x Somebody))))
+    (doseq [p [ownedBy fatherX parentX]]
+      (v/assert kb (list 'binary_predicate p) 'CxUniverse))
+    (v/assert kb (default-rule (list pet_kind '?x) (list ownedBy '?x Somebody)) 'CxUniverse)
+    (v/assert kb (default-rule (list fatherX '?x '?y) (list parentX '?x '?y)) 'CxUniverse)
+    (is (= #{[(list 'predAllInstance ownedBy pet_kind Somebody) false]
+             [(list 'genl fatherX parentX) true]}
+           (set (shaped-of kb)))
+        "a generator stamps a default rule, so its shape is an ordinary finding; genl is
+         monotonic, so the default subsumption rule with no known exception is reported
+         as default-shaped")))
+
+(tu/deftest-kb a-default-with-a-known-exception-is-not-reported
+  (tu/with-terms [fatherX parentX relativeX penguin_kind bird_kind flies_kind CxLower Ann Bob]
+    (doseq [p [fatherX parentX relativeX]]
+      (v/assert kb (list 'binary_predicate p) 'CxUniverse))
+    (v/assert kb (list 'genlCx CxLower 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genl parentX relativeX) 'CxUniverse)
+    (v/assert kb (default-rule (list fatherX '?x '?y) (list parentX '?x '?y)) 'CxUniverse)
+    (v/assert kb (default-rule (list bird_kind '?x) (list flies_kind '?x)) 'CxUniverse)
+    (is (= 2 (count (shaped-of kb))))
+    (testing "a stored negation of a genl of the consequent, in a context below the rule's"
+      (let [h (v/assert kb (list 'not (list relativeX Ann Bob)) CxLower)]
+        (is (= [[(list 'genl bird_kind flies_kind) true]] (shaped-of kb)))
+        (v/retract! kb h)))
+    (testing "a rule concluding the negation of the consequent"
+      (v/assert kb (list 'implies (list penguin_kind '?x) (list 'not (list flies_kind '?x)))
+                'CxUniverse)
+      (is (= [[(list 'genl fatherX parentX) true]] (shaped-of kb))))))
+
+(tu/deftest-kb a-default-with-an-exceptWhen-is-not-reported
+  (tu/with-terms [bird_kind flies_kind penguin_kind]
+    (v/assert kb (list 'exceptWhen (list penguin_kind '?x)
+                       (default-rule (list bird_kind '?x) (list flies_kind '?x)))
               'CxUniverse)
-    (v/assert kb (list 'set/defaultRule
-                       (list 'implies (list fatherX '?x '?y) (list parentX '?x '?y)))
-              'CxUniverse)
-    (is (= [(list 'predAllInstance ownedBy pet_kind Somebody)]
-           (map #(nth % 2) (rule-macros kb)))
-        "genl is monotonic, so the default subsumption rule is not reported")))
+    (is (= [] (shaped-of kb)))))
+
+(tu/deftest-kb a-declined-suggestion-is-not-reported-until-the-record-goes
+  (tu/with-terms [livesInX locatedInX]
+    (doseq [p [livesInX locatedInX]]
+      (v/assert kb (list 'binary_predicate p) 'CxUniverse))
+    (v/assert kb (default-rule (list livesInX '?a '?p) (list locatedInX '?a '?p)) 'CxUniverse)
+    (let [decl (list 'genl livesInX locatedInX)]
+      (is (= [[decl true]] (shaped-of kb)))
+      (let [h (v/assert kb (list 'declined_rule_macro decl) 'CxUniverse)]
+        (is (= [] (shaped-of kb)) "a declined suggestion is not reported")
+        (v/retract! kb h)
+        (is (= [[decl true]] (shaped-of kb)) "retracting the record brings the finding back")))))
+
+(tu/deftest-kb a-declined-suggestion-is-read-from-the-rule-s-context
+  (tu/with-terms [livesInX locatedInX CxTheory]
+    (doseq [p [livesInX locatedInX]]
+      (v/assert kb (list 'binary_predicate p) 'CxUniverse))
+    (v/assert kb (list 'genlCx CxTheory 'CxUniverse) 'CxUniverse)
+    (v/assert kb (default-rule (list livesInX '?a '?p) (list locatedInX '?a '?p)) 'CxUniverse)
+    (v/assert kb (list 'declined_rule_macro (list 'genl livesInX locatedInX)) CxTheory)
+    (is (= 1 (count (shaped-of kb))) "a record below the rule's context does not decline it")))
+
+(defn- with-temp-dirs
+  "`(f dir-a dir-b)` on two new temp directory paths, removed afterwards."
+  [f]
+  (let [dirs (mapv (fn [i] (.toFile (java.nio.file.Files/createTempDirectory
+                                     (str "vaelii-declined-" i "-")
+                                     (into-array java.nio.file.attribute.FileAttribute []))))
+                   (range 2))
+        rm!  (fn [^java.io.File d] (doseq [^java.io.File x (reverse (file-seq d))] (.delete x)))]
+    (try (run! rm! dirs)
+         (apply f (map #(.getPath ^java.io.File %) dirs))
+         (finally (run! rm! dirs)))))
+
+(tu/deftest-kb a-declined-suggestion-survives-a-text-export
+  (tu/with-terms [livesInX locatedInX]
+    (with-temp-dirs
+      (fn [dir _]
+        (tu/with-cleared-kb [src tu/fresh]
+          (doseq [p [livesInX locatedInX]]
+            (v/assert src (list 'binary_predicate p) 'CxUniverse))
+          (v/assert src (default-rule (list livesInX '?a '?p) (list locatedInX '?a '?p))
+                    'CxUniverse)
+          (v/assert src (list 'declined_rule_macro (list 'genl livesInX locatedInX)) 'CxUniverse)
+          (is (zero? (:skipped (v/export-text! src dir)))))
+        (tu/with-cleared-kb [reloaded tu/fresh]
+          (v/load-text! reloaded dir)
+          (let [record (list 'declined_rule_macro (list 'genl livesInX locatedInX))]
+            (is (seq (v/sentexes-matching reloaded record 'CxUniverse)))
+            (is (= [] (shaped-of reloaded)) "the reloaded record still declines the suggestion")
+            (v/retract! reloaded (v/handle-of reloaded record 'CxUniverse))
+            (is (= 1 (count (shaped-of reloaded)))
+                "the reloaded rule is the one the record named")))))))
 
 (tu/deftest-kb a-monotonic-generator-shape-is-not-reported
   (tu/with-terms [pet_kind ownedBy Somebody]
