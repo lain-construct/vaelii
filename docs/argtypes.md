@@ -473,6 +473,16 @@ Both arrival orders reach that state, and neither remembers how it got there:
   (`special/subsumed-mint-blocks`) and the sweep that collects an excepted conclusion
   collects it.
 
+A withdrawn `genl` mint can be the witness of rule firings, and the sweep deletes those
+firings with the mint. Before the sweep, `special/withdrawn-edge-seeds` collects the
+facts and rules of each withdrawn edge that a rule firing names as its witness. After the
+sweep, `settle/apply-pass!` re-chains those seeds, so each firing is stored again over the
+stated route that made the mint redundant. The order that states the route after the mint
+therefore stores the same firings as the order that states the route first, which
+`late_route_test/a-stated-route-withdrawing-a-mint-keeps-the-firings-the-mint-carried`
+asks. [inference.md](inference.md#a-genl--genlcx-antecedent-reads-the-closure)
+describes the re-join beside the re-join a departing edge owes.
+
 The settle finds the stored mints a record it moved can displace in the **mint roster**,
 `:minted` on the `Reasoning` value: every record an argument declaration's justification
 concludes, by the term it is about and by its context.
