@@ -194,6 +194,11 @@ it — `git show v0.16.0:CHANGELOG.md`.
   sees is a disjointness clash, and two sibling contexts may disagree. `empty` does not
   contradict `orthogonal`. The vocabulary roster classifies both inert.
 
+  `(transitiveInArgInverse empty 1 genl)` and `(transitiveInArg nonempty 1 genl)` carry
+  the claims along `genl`: each subtype of an `empty` type reads `empty`, and each
+  supertype of a `nonempty` type reads `nonempty`. Both are read at query time and store
+  nothing.
+
   *Class:* **Additive** (shipped ontology content).
 
 - **The upper ontology divides `thing` by location in space, by time and by mass:

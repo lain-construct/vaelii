@@ -660,6 +660,10 @@
 (at_least_metatype empty)
 (at_least_metatype nonempty)
 (termsRelated empty nonempty disjoint orthogonal)
+;; Every instance of a subtype is an instance of its supertype, so emptiness descends genl
+;; and nonemptiness climbs it.
+(transitiveInArgInverse empty 1 genl)
+(transitiveInArg nonempty 1 genl)
 
 ;; ---- definitional collection relations -----------------------------------
 ;; Three relations tie a collection's membership to a defining condition on the member

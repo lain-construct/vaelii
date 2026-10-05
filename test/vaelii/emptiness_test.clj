@@ -13,8 +13,8 @@
 (def ^:private U 'CxUniverse)
 
 (defn- stored?
-  "Whether `sentence` is answered facts-only from CxUniverse, so a rule's conclusion counts
-  only once a forward firing has stored it."
+  "Whether `sentence` is answered facts-only from CxUniverse: stated, concluded by a forward
+  rule, or inherited along a `transitiveInArg` declaration."
   [kb sentence]
   (boolean (seq (v/query kb sentence U {:max-depth 0}))))
 
@@ -73,3 +73,26 @@
 
 (tu/deftest-kb empty-and-nonempty-are-related-to-the-disjointness-terms
   (is (stored? kb '(termsRelated empty nonempty disjoint orthogonal))))
+
+;; ---- along genl ------------------------------------------------------------
+
+(tu/deftest-kb an-empty-type-makes-each-subtype-empty
+  (tu/with-terms [outer_kind inner_kind leaf_kind]
+    (v/assert kb (list 'genl outer_kind 'thing) U)
+    (v/assert kb (list 'genl inner_kind outer_kind) U)
+    (v/assert kb (list 'genl leaf_kind inner_kind) U)
+    (v/assert kb (list 'empty outer_kind) U)
+    (is (stored? kb (list 'empty inner_kind)))
+    (is (stored? kb (list 'empty leaf_kind)))
+    (is (not (stored? kb (list 'empty 'thing))) "emptiness does not climb to a supertype")))
+
+(tu/deftest-kb a-nonempty-type-makes-each-supertype-nonempty
+  (tu/with-terms [top_kind outer_kind inner_kind leaf_kind]
+    (v/assert kb (list 'genl top_kind 'thing) U)
+    (v/assert kb (list 'genl outer_kind top_kind) U)
+    (v/assert kb (list 'genl inner_kind outer_kind) U)
+    (v/assert kb (list 'genl leaf_kind inner_kind) U)
+    (v/assert kb (list 'nonempty inner_kind) U)
+    (is (stored? kb (list 'nonempty outer_kind)))
+    (is (stored? kb (list 'nonempty top_kind)))
+    (is (not (stored? kb (list 'nonempty leaf_kind))) "nonemptiness does not descend to a subtype")))
