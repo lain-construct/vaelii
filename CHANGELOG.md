@@ -146,6 +146,23 @@ it — `git show v0.16.0:CHANGELOG.md`.
   KB that relied on `(genl organism tangible)` or `(genl body_part tangible)` being
   stated, rather than derived, reads it from `genl?` instead.
 
+- **An organism can be an artifact: `(disjoint organism artifact)` is replaced by
+  `(orthogonal biological artifact)`.** An artifact is anything intentionally made, so
+  an engineered bacterium or an organ grown in a lab is biological and an artifact at
+  once. The monotonic disjointness is removed from CxAbstract and the orthogonal stated
+  there, so an organism or a body part that is also an artifact is no longer a clash,
+  and neither is a kind below either — an `animal` that is a `tool`. `organism` and
+  `body_part` stay disjoint from `substance`. `ontology_test` asserts an organism and
+  a body part as artifacts and finds no clash.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that needs an organism kept apart from an artifact states the
+  separation over narrower kinds of its own, such as `(disjoint animal tool)`; a
+  `disjoint` of `biological` and `artifact` themselves is overridden wherever the
+  shipped `orthogonal` is seen.
+  *Breaks:* `(disjoint organism artifact)`
+
 ### Fixes: clashes and order independence
 
 - **A stated `genl` route that makes a minted edge redundant re-joins the rule firings

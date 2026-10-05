@@ -21,6 +21,9 @@
 (separating biological organism body_part)
 ;; A leg of lamb or a chicken wing is food and a body part at once.
 (orthogonal food body_part)
+;; An artifact is anything intentionally made, so an engineered bacterium or an organ grown
+;; in a lab is biological and an artifact at once.
+(orthogonal biological artifact)
 
 (comment building "An artifact that is a fixed structure enclosing space.")
 
@@ -87,8 +90,6 @@
 
 (comment liquid "A substance that flows and takes the structure of its container.")
 (genl liquid substance)
-
-(set/monotonic (disjoint organism artifact))
 
 (comment locatedIn
          "(locatedIn ?object ?place) means that ?object sits within ?place. Declared transitive, so a chain of containments is walked by the closure prover rather than materialized, and a joined rule carries location down parthood — a part is located wherever its whole is. Both arguments are physical objects: a region is CxSpace's business, and partOfRegion is the relation to reach for there.")

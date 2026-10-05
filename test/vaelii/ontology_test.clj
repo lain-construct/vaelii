@@ -884,3 +884,21 @@
         "a body part that is also food is no clash")
     (is (true? (v/ask? kb (list 'food Drumstick) 'CxUniverse)))
     (is (true? (v/ask? kb (list 'body_part Drumstick) 'CxUniverse)))))
+
+(tu/deftest-kb an-organism-or-a-body-part-can-be-an-artifact
+  ;; An artifact is something intentionally made, so an engineered bacterium or an organ
+  ;; grown in a lab is both.  The pair is declared orthogonal rather than disjoint.
+  (is (not (v/disjoint? kb 'biological 'artifact)))
+  (is (not (v/disjoint? kb 'organism 'artifact)))
+  (is (not (v/disjoint? kb 'body_part 'artifact)))
+  (tu/with-terms [Engineered LabKidney]
+    (v/assert kb (list 'organism Engineered) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'artifact Engineered) 'CxUniverse))
+        "an organism that is also an artifact is no clash")
+    (is (true? (v/ask? kb (list 'artifact Engineered) 'CxUniverse)))
+    (v/assert kb (list 'body_part LabKidney) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'artifact LabKidney) 'CxUniverse))
+        "a body part that is also an artifact is no clash"))
+  (testing "while a biological thing stays apart from a substance"
+    (is (true? (v/disjoint? kb 'organism 'substance)))
+    (is (true? (v/disjoint? kb 'body_part 'substance)))))
