@@ -828,8 +828,9 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   like `disjoint` (`:orthogonal-index`, reference-counted on the `(orthogonal X Y)` sentex)
   and read by `disjointness-test` behind each arm's guards. A Braille reading, both a
   `reading` and a `touch_perception`, is the case it exists for. The `disjoint` or roster
-  stays stored and believed; the KB integrity sweep is where a stated `disjoint` beside an
-  `orthogonal` of the same pair is reported.
+  stays stored and believed, and nothing reports a stated `disjoint` beside an
+  `orthogonal` of the same pair: the pair reads `:orthogonal`, so a KB that states both
+  drops whichever is wrong.
 
   **Pair-local, read against the separated pair.** The exemption spares `X`, `Y` alone,
   and each stays disjoint from everything else. A separation is found between a

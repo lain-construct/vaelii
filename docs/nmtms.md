@@ -1563,7 +1563,7 @@ held `:monotonic` too: the clash is a hard one `conflicts` lists, with the separ
 declarations under `:grounds`, every member left believed, and the pair reading both
 statuses (`:inconsistent`). The candidate index keeps every stored
 `orthogonal`, and those some reader can read contradicted — over the unscoped `genl`
-closure, or separated by `disjointness-test` with no exception read — under the `genl`
+closure, or separated by `disjointness-test` with no exemption read — under the `genl`
 generation and `tax/separation-stamp` (`:related-orth`); either moving reads every one
 again. A reader reads one it sees whose pair the `genl` edges stated in its ancestor set
 relate, or `tax/disjoint?` over that ancestor set separates.
