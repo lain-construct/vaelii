@@ -225,12 +225,17 @@
 (intersection spatiotemporal spatial temporal)
 (genl tangible spatiotemporal)
 (genl living_thing tangible)
-(genl capability intangible)
+(genl capability aspatial)
 ;; Mass entails a location in space and in time, so what has no location in any space,
 ;; or none in time, has no mass.
 (genl aspatial intangible)
 (genl atemporal intangible)
 (intersection nowhere_never aspatial atemporal)
+;; A context and a language are in no space and at no time.  CxAbstract places both below
+;; expression too; these two edges let a band context, which does not see CxAbstract, read
+;; either type as disjoint from spatial.
+(genl context nowhere_never)
+(genl language nowhere_never)
 
 ;; The expression kinds — what a sentence is BUILT OUT OF, named as collections so a
 ;; declaration can type an argument by the FORM of the expression written there rather

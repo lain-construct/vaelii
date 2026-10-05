@@ -98,24 +98,28 @@ it — `git show v0.16.0:CHANGELOG.md`.
   so that a region can be spatiotemporal and intangible at once. `nowhere_never` is in
   no space and at no time — an expression, a language — defined as the intersection of
   `aspatial` and `atemporal`; what has no location in space, or none in time, has no
-  mass, so `aspatial` and `atemporal` are both below `intangible`. Every stated `genl`
-  or `disjoint` that a partition, an intersection, a `genl` chain, a `disjoint_metatype`
-  or another disjointness already derives in the same context is removed — thirty-three
-  sentences across CxCore, CxAbstract and CxUniverse, which now states no axiom of its
-  own. `ontology_test` pins the divisions and every removal, and `spatial` and
-  `nowhere_never` are classified inert in the vocabulary roster.
+  mass, so `aspatial` and `atemporal` are both below `intangible`. `attribute`,
+  `capability`, `fluent`, `organization` and `relation_type` are below `aspatial`, and
+  CxCore places `context` and `language` below `nowhere_never`, so each stays disjoint
+  from `spatial` and `spatiotemporal` in every context that sees the kind's placement.
+  Every stated `genl` or `disjoint` that a partition, an intersection, a `genl` chain, a
+  `disjoint_metatype` or another disjointness already derives in the same context is
+  removed — thirty-eight sentences across CxCore, CxAbstract and CxUniverse, which now
+  states no axiom of its own. `ontology_test` pins the divisions and every removal, and
+  `spatial` and `nowhere_never` are classified inert in the vocabulary roster.
   [space.md](docs/space.md), [glossary.md](docs/glossary.md)
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
-  *Migration:* a KB that wrote `physical_object` renames to `tangible`. A KB that wrote
-  `spatial` for "located in the world" renames to `spatiotemporal`; the old spelling
-  still stores, and now places the thing in the broader collection, where nothing
-  concludes it has a location in the world. A KB that wrote `abstract` renames to
-  `nowhere_never`; the old spelling stores clean but attaches to nothing in the
-  taxonomy. A KB that relied on `(disjoint organization animal)` or another removed
-  sentence being stated, rather than derived, reads it from `disjoint?` or `genl?`
-  instead.
+  *Migration:* a KB that wrote `physical_object` renames to `tangible`; the old spelling
+  stores clean but attaches to nothing in the taxonomy, so its instance reaches neither
+  `tangible` nor `thing`. A KB that wrote `spatial` for "located in the world" renames to
+  `spatiotemporal`; the old spelling still stores, and now places the thing in the
+  broader collection, where nothing concludes it has a location in the world. A KB that
+  wrote `abstract` renames to `nowhere_never`; the old spelling stores clean but attaches
+  to nothing in the taxonomy. A KB that relied on `(disjoint organization animal)` or
+  another removed sentence being stated, rather than derived, reads it from `disjoint?`
+  or `genl?` instead.
   *Breaks:* `physical_object`, `spatial`, `abstract`
 
 ### Fixes: clashes and order independence
@@ -189,6 +193,27 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive**.
 
 ### Internal
+
+- **taxonomy.md documents the three partitions of `thing`, and the glossary defines
+  `intangible`.** The glossary entries for `aspatial`, `atemporal`, `tangible` and
+  `nowhere_never` link the section. `nm/advice`'s documented multi-word example is
+  `(isa Muffet LivingThing)`, a type the shipped ontology declares, and contexts.md lists
+  the head's ontology collections without a count.
+  [taxonomy.md](docs/taxonomy.md#the-three-partitions-of-thing)
+
+  *Class:* **Internal**.
+
+- **`full_kb_test`'s write probes borrow no type from a relation's membership.** A
+  function's name is spelled as an individual's, so the probe skips a sampled `(T x)`
+  whose `x` is a `relation` in its context.
+
+  *Class:* **Internal**.
+
+- **`ontology_test` fails a loaded membership in a type no other sentence names.** The
+  test reads every premise membership in the starter and the test-world, and names a
+  type that no `genl` edge, argument declaration or comment names.
+
+  *Class:* **Internal**.
 
 - **`vaelii.impl.violations/*report-sink*` collects the diagnostics a read files.** Bound
   to an atom, it receives the violations an evaluation would add to the ledger;

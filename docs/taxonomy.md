@@ -1138,6 +1138,30 @@ as every other `wff` arm does. A part disjoint from the whole is stored: the ref
 read the stored `disjoint`, and what is stored would depend on which of the two arrived
 first ([nmtms.md](nmtms.md#1-order-independence)).
 
+### The three partitions of `thing`
+
+CxCore divides `thing` three ways, each with a `partition`, so each pair is separated and
+covers `thing`:
+
+| partition | the first part | the second part |
+|---|---|---|
+| `(partition thing spatial aspatial)` | a location in some space, physical or mathematical | no location in any space |
+| `(partition thing temporal atemporal)` | a location in time | none |
+| `(partition thing tangible intangible)` | mass | no mass |
+
+`genl` edges and two intersections in CxCore relate the parts across the three
+divisions. `tangible` is below `spatiotemporal`, the intersection of `spatial` and
+`temporal`. `aspatial` and `atemporal` are below `intangible`, and `nowhere_never` is
+their intersection. No edge or disjointness relates `intangible` to `spatial`: a region
+of space is `spatiotemporal` and `intangible`.
+
+A kind with no location in any space sits below `aspatial`, which separates it from
+`spatial` and from every CxSpace argument. `capability` (CxCore) and `attribute`,
+`fluent`, `organization` and `relation_type` (CxAbstract) are below `aspatial`.
+`context` and `language` are below `nowhere_never` in CxCore, so a spindle member that
+does not see CxAbstract's `expression` lattice reads both as disjoint from `spatial`.
+`ontology_test` pins each separation from the contexts that read it.
+
 ## Predicate metadata
 
 Beyond types, the taxonomy caches predicate properties, declared as sentexes and
