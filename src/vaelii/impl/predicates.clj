@@ -414,14 +414,21 @@
      ['sibling_disjoint (enforced (mark :sibling-disjoint :facets #{:reach :convicts})
                                   (str "taxonomy/mark-sibling-disjoint — the specialization clique keyed off"
                                        " the genl closure, consulted like disjoint_metatype"))]
-     ['siblingDisjointException
-      (enforced (assoc (pair :sib-exception :type)
-                       :notes (str "its retract moves the separations a reader reads, which the"
-                                   " membership candidates read again (membership/sync-memberships);"
-                                   " that is a reach in the removal direction, which :reach (an"
-                                   " arriving declaration) does not name."))
-                (str "taxonomy/add-sib-exception — exempts one pair the sibling clique or a"
-                     " disjoint_metatype would separate; read at the reader in disjointness-test"))]
+     ['orthogonal
+      (enforced (assoc (pair :orthogonal :type)
+                       :notes (str "two readings, and no facet for either. Its retract moves the"
+                                   " separations a reader reads, which the membership candidates"
+                                   " read again (membership/sync-memberships); that is a reach in"
+                                   " the removal direction, which :reach (an arriving declaration)"
+                                   " does not name. And it is convicted rather than convicting:"
+                                   " the related-types family reads the stored declaration back"
+                                   " as a one-member nogood of itself whenever a genl edge or an"
+                                   " unexempted separation a reader sees contradicts it."))
+                (str "taxonomy/add-orthogonal — exempts one pair from every separation,"
+                     " read at the reader in disjointness-test; decide/related — a"
+                     " one-member nogood of the declaration over a pair a reader reads"
+                     " genl-related, or separated through supertypes it does not exempt; and core/subsumption-statuses — a stated pair reads"
+                     " :orthogonal with no shared instance"))]
 
      ;; ---- exhaustion: the parts that cover a whole ------------------------
      ;;

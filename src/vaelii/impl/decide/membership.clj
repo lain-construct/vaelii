@@ -18,7 +18,7 @@
 ;; under `::mem` as `{x {h [type context positive?]}}`, read off the term's unary roster
 ;; once and kept in step after.  `::tpairs` holds each pair of types some kept term
 ;; holds, `{[ta tb] #{x}}`, and `::sep` the pairs the unscoped taxonomy separates with no
-;; `siblingDisjointException` read, `::spared` those of them a stored exception exempts,
+;; `orthogonal` read, `::spared` those of them a stored `orthogonal` exempts,
 ;; both read again over `::tpairs` when `tax/separation-stamp` moves (`sync-memberships`),
 ;; which reads no membership.  A term holding a separated pair, or a membership under a cover
 ;; beside a denial, is live under `::live-mem`, and its memberships and denials there are
@@ -72,14 +72,14 @@
 
 (defn- separation-tests
   "`(fn [[a b]])` → how the unscoped taxonomy separates the types `a` and `b`: nil when
-  it does not with no `siblingDisjointException` read, `:spared` when it does and a stored
-  exception exempts the pair, `:sep` otherwise.  An exception exempts the pair only at a
-  reader that sees it, so a reader may read a `:spared` pair separated.  Each type's
+  it does not with no `orthogonal` read, `:spared` when it does and a stored `orthogonal`
+  exempts the pair, `:sep` otherwise.  An `orthogonal` exempts the pair only at a reader
+  that sees it, so a reader may read a `:spared` pair separated.  Each type's
   separation frame is read once per call (`tax/disjointness-test`), so a type no
   declaration reaches reads its supertype closure once and tests no partner."
   [tax]
   (let [strict (memoize #(tax/disjointness-test tax % nil (constantly false)))
-        exempt (when (tax/sib-exceptions? tax) (memoize #(tax/disjointness-test tax % nil)))
+        exempt (when (tax/orthogonals? tax) (memoize #(tax/disjointness-test tax % nil)))
         sep?   (fn [test a b] (or ((test a) b) ((test b) a)))]
     (fn [[a b]]
       (when (sep? strict a b)

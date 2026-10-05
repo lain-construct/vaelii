@@ -326,7 +326,7 @@ at roughly 35 ms an assert with 300 standing definitional clashes against under 
 50; `lein perf`'s `clash-arbitration` and `negation-arbitration` hold the per-assert cost
 against the standing set. The index is sound because it reads as **values** every input a
 separation reads — the separating and covering rosters, the disjoint metatypes' membership
-and the sibling-disjointness exceptions (`tax/separation-stamp`) — and the lower end of
+and the `orthogonal` exemptions (`tax/separation-stamp`) — and the lower end of
 every `genl` edge that moved (`tax/moves-since`), and reads the separations again over the
 type pairs a move can reach.
 

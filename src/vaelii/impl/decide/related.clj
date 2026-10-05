@@ -2,7 +2,8 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.decide.related
   "The declarations over related types: a `disjoint` over two types one reaches the other
-  of through `genl`, and a cover naming a part a `disjoint` separates from its whole.  See
+  of through `genl`, a cover naming a part a `disjoint` separates from its whole, and an
+  `orthogonal` over two types a `genl` edge or an unexempted separation contradicts.  See
   docs/reference.md, decision 8."
   (:require [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
@@ -21,6 +22,17 @@
 ;; (`tax/moves-since`); `::cvs` keeps every stored cover by handle, `::cv-by-whole` by its
 ;; whole, and `:cover-pairs` each `#{cover disjoint}` whose `disjoint` separates the whole
 ;; from a part.
+;;
+;; An `(orthogonal a b)` says the two types may overlap and neither subsumes the other.  It
+;; exempts its own pair from every separation (`tax/exemption`), so what contradicts it is
+;; a `genl` edge between the two, one type named twice, or a separation of two supertypes
+;; it does not exempt — an instance of both would be an instance of both separated
+;; supertypes: a one-member clash of the declaration, as a `disjoint` over related types
+;; is.  `::orths` keeps every stored `orthogonal` by handle, and `:related-orth` those whose
+;; pair some reader can read contradicted — related over the unscoped `genl` closure, or
+;; separated by `disjointness-test` with no exception read — under the `genl` generation and
+;; `tax/separation-stamp` it was read at (`::orth-seen`).  The `orthogonal`s are few, so a
+;; move of either reads every one again rather than tracking which a move touched.
 
 (defn- disjoint-args
   "`[a b]` for a stored fact `(disjoint a b)` over two distinct plain symbols, else nil."
@@ -35,6 +47,16 @@
   [sx]
   (when (nil? (:antecedent sx))
     (when-let [[w ps] (tax/cover-parts (:sentence sx))] [w (set ps)])))
+
+(defn- orthogonal-args
+  "`[a b]` for a stored fact `(orthogonal a b)` over two plain symbols, else nil.  `a` and
+  `b` may be one symbol: a type subsumes itself, so that declaration is contradicted
+  outright."
+  [sx]
+  (let [s (:sentence sx)]
+    (when (and (nil? (:antecedent sx)) (seq? s) (= 3 (count s)) (= 'orthogonal (first s)))
+      (let [[_ a b] s]
+        (when (and (sx/plain-symbol? a) (sx/plain-symbol? b)) [a b])))))
 
 (defn- related?
   "Does one of the types `a`, `b` reach the other over the unscoped `genl` closure (the
@@ -95,19 +117,66 @@
               (drop-cover-pairs h)))
         c))))
 
+(defn- note-orthogonal
+  "`c` with the stored `orthogonal` `sx` (`stored?`) or its removal read into `::orths`,
+  and `::orth-seen` cleared, so `sync-orthogonal` reads every one again."
+  [c sx stored?]
+  (let [h (:id sx)]
+    (-> (if stored?
+          (assoc-in c [::orths h] (orthogonal-args sx))
+          (-> c
+              (update ::orths dissoc h)
+              (update :related-orth #(some-> % (disj h)))))
+        (dissoc ::orth-seen))))
+
 (defn- note-declaration!
   "Keep the related-types rows in step with the fact `sx` arriving (`stored?`) or leaving
   (`note-declaration`).  Reads nothing for any other fact."
   [kb w sx stored?]
-  (when (or (disjoint-args sx) (cover-args sx))
-    (swap! (reasoning/nogood-candidates kb) #(note-declaration w % sx stored?))))
+  (cond
+    (or (disjoint-args sx) (cover-args sx))
+    (swap! (reasoning/nogood-candidates kb) #(note-declaration w % sx stored?))
+
+    (orthogonal-args sx)
+    (swap! (reasoning/nogood-candidates kb) #(note-orthogonal % sx stored?))))
+
+(defn- orth-key
+  "What `:related-orth` is read under: the `genl` generation and the separations."
+  [tax]
+  [(tax/relation-gen tax :genl) (tax/separation-stamp tax)])
 
 (defn- related-synced?
-  "Is `c`'s `:related-dj` read under the `genl` generation as it stands?"
+  "Is `c`'s `:related-dj` read under the `genl` generation as it stands, and its
+  `:related-orth` under that generation and the separations as they stand?"
   [tax c]
-  (or (empty? (::djs c)) (= (tax/relation-gen tax :genl) (::dj-seen c))))
+  (and (or (empty? (::djs c)) (= (tax/relation-gen tax :genl) (::dj-seen c)))
+       (or (empty? (::orths c)) (= (orth-key tax) (::orth-seen c)))))
 
-(defn- sync-related
+(defn- contradicted-somewhere?
+  "Can some reader read the `orthogonal` over `[a b]` contradicted?  One type twice, a
+  `genl` edge between the two over the unscoped closure, or a separation
+  `disjointness-test` reads with no `orthogonal` exempting it — the superset
+  over every reader that `related-nogoods` scopes."
+  [w [a b]]
+  (or (= a b)
+      (related? w [a b])
+      (boolean ((tax/disjointness-test (:tax w) a nil (constantly false)) b))))
+
+(defn- sync-orthogonal
+  "`c` with `:related-orth` read again over every stored `orthogonal`, unless it is read
+  under the `genl` generation and the separations as they stand."
+  [w c]
+  (let [k (orth-key (:tax w))]
+    (cond
+      (empty? (::orths c))  (-> c (dissoc :related-orth) (assoc ::orth-seen k))
+      (= k (::orth-seen c)) c
+      :else (assoc c
+                   :related-orth (into #{}
+                                       (keep (fn [[h ab]] (when (contradicted-somewhere? w ab) h)))
+                                       (::orths c))
+                   ::orth-seen k))))
+
+(defn- sync-disjoint
   "`c` with `:related-dj` read again under the `genl` closure as it stands: every
   `disjoint` when none was read or the relation was rebuilt from nothing, else those
   naming a type at or below the lower end of an edge that moved (`tax/moves-since`),
@@ -131,14 +200,23 @@
                      hs)]
     (assoc c :related-dj rel ::dj-seen g)))
 
+(defn- sync-related
+  "`c` with `:related-dj` and `:related-orth` read again where they moved."
+  [w c]
+  (->> c (sync-disjoint w) (sync-orthogonal w)))
+
 (defn- related-nogoods
   "The related-types clashes a reader with ancestor set `up` reads, among the declarations
   it sees, in `up` and not `hidden?`: a `disjoint` of `:related-dj` whose arguments one
   reaches the other of through the `genl` edges stated in `up` (`tax/genl-asserted-in?`),
-  `{:members #{h} :marks #{} :kind :disjoint}`, and a cover pair,
-  `{:members #{cover disjoint} :marks #{} :kind :cover}`."
+  `{:members #{h} :marks #{} :kind :disjoint}`, a cover pair,
+  `{:members #{cover disjoint} :marks #{} :kind :cover}`, and an `orthogonal` of
+  `:related-orth` over one type twice, over two types the `genl` edges stated in `up`
+  relate, or over two types `up` still separates (`tax/disjoint?` over the ancestor set,
+  which reads the declaration's own exemption),
+  `{:members #{h} :marks #{} :kind :orthogonal}`."
   [kb c up hidden?]
-  (when (or (seq (:related-dj c)) (seq (:cover-pairs c)))
+  (when (or (seq (:related-dj c)) (seq (:cover-pairs c)) (seq (:related-orth c)))
     (let [tax   (reasoning/taxonomy kb)
           recs  (:records kb)
           seen? (fn [h] (when-let [sx (p/get-sentex recs h)]
@@ -153,14 +231,22 @@
          {:members #{h} :marks #{} :kind :disjoint})
        (for [pr (:cover-pairs c)
              :when (every? seen? pr)]
-         {:members pr :marks #{} :kind :cover})))))
+         {:members pr :marks #{} :kind :cover})
+       (for [h (sort (:related-orth c))
+             :let [[a b] (get-in c [::orths h])]
+             :when (and a (seen? h)
+                        (or (= a b)
+                            (tax/genl-asserted-in? tax a b up)
+                            (tax/genl-asserted-in? tax b a up)
+                            (tax/disjoint? tax a b up)))]
+         {:members #{h} :marks #{} :kind :orthogonal})))))
 
 (def family
   "The related-types family's entry in `decide/registry`."
   {:note!     (fn [kb w sx stored? _] (note-declaration! kb w sx stored?))
    :synced?   related-synced?
    :sync      sync-related
-   :handles   (fn [c] (concat (:related-dj c) (apply concat (:cover-pairs c))))
-   :live?     (fn [_ c] (or (seq (:related-dj c)) (seq (:cover-pairs c))))
-   :unstamped #{::djs ::dj-by-type ::dj-seen ::cvs ::cv-by-whole}
+   :handles   (fn [c] (concat (:related-dj c) (apply concat (:cover-pairs c)) (:related-orth c)))
+   :live?     (fn [_ c] (or (seq (:related-dj c)) (seq (:cover-pairs c)) (seq (:related-orth c))))
+   :unstamped #{::djs ::dj-by-type ::dj-seen ::cvs ::cv-by-whole ::orths ::orth-seen}
    :nogoods   related-nogoods})

@@ -975,7 +975,7 @@
         (v/assert kb (list t1 Pip) CxB)
         (v/assert kb (list t2 Pip) CxB {:strength :monotonic})
         (when place
-          (v/assert kb (list 'siblingDisjointException t1 t2) ({:CxC CxC :CxE CxE} place)))
+          (v/assert kb (list 'orthogonal t1 t2) ({:CxC CxC :CxE CxE} place)))
         (let [cx {:CxB CxB :CxC CxC :CxE CxE}]
           (is (= dj (into {} (for [[k c] cx] [k (v/disjoint? kb t1 t2 c)]))) (pr-str place))
           (is (= believed (into {} (for [k [:CxB :CxC]]
