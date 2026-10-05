@@ -96,3 +96,50 @@
     (is (stored? kb (list 'nonempty outer_kind)))
     (is (stored? kb (list 'nonempty top_kind)))
     (is (not (stored? kb (list 'nonempty leaf_kind))) "nonemptiness does not descend to a subtype")))
+
+;; ---- below two disjoint types ---------------------------------------------
+
+(tu/deftest-kb a-type-below-two-disjoint-types-is-empty
+  (tu/with-terms [plant_kind mineral_kind both_kind mid_kind deep_kind]
+    (doseq [k [both_kind mid_kind deep_kind]] (v/assert kb (list 'unary_predicate k) U))
+    (v/assert kb (list 'genl plant_kind 'thing) U)
+    (v/assert kb (list 'genl mineral_kind 'thing) U)
+    (v/assert kb (list 'disjoint plant_kind mineral_kind) U)
+    (testing "a type directly below both"
+      (v/assert kb (list 'genl both_kind plant_kind) U)
+      (v/assert kb (list 'genl both_kind mineral_kind) U)
+      (is (stored? kb (list 'empty both_kind))))
+    (testing "a type below one of the two through an intermediate type"
+      (v/assert kb (list 'genl mid_kind plant_kind) U)
+      (v/assert kb (list 'genl deep_kind mid_kind) U)
+      (is (not (stored? kb (list 'empty deep_kind))))
+      (v/assert kb (list 'genl deep_kind mineral_kind) U)
+      (is (stored? kb (list 'empty deep_kind))))
+    (testing "the disjoint types themselves stay open"
+      (is (not (stored? kb (list 'empty plant_kind))))
+      (is (not (stored? kb (list 'empty mineral_kind)))))))
+
+(tu/deftest-kb a-type-below-subtypes-of-two-disjoint-types-is-empty
+  (tu/with-terms [plant_kind mineral_kind tree_kind crystal_kind both_kind]
+    (v/assert kb (list 'unary_predicate both_kind) U)
+    (v/assert kb (list 'genl plant_kind 'thing) U)
+    (v/assert kb (list 'genl mineral_kind 'thing) U)
+    (v/assert kb (list 'disjoint plant_kind mineral_kind) U)
+    (v/assert kb (list 'genl tree_kind plant_kind) U)
+    (v/assert kb (list 'genl crystal_kind mineral_kind) U)
+    (v/assert kb (list 'genl both_kind tree_kind) U)
+    (v/assert kb (list 'genl both_kind crystal_kind) U)
+    (is (stored? kb (list 'empty both_kind)))))
+
+(tu/deftest-kb emptiness-from-a-separation-is-concluded-in-the-context-of-the-separation
+  ;; a separation stated in CxCore concludes the emptiness in CxCore, and CxUniverse
+  ;; sees CxCore
+  (tu/with-terms [plant_kind mineral_kind both_kind]
+    (v/assert kb (list 'unary_predicate both_kind) 'CxCore)
+    (v/assert kb (list 'genl plant_kind 'thing) 'CxCore)
+    (v/assert kb (list 'genl mineral_kind 'thing) 'CxCore)
+    (v/assert kb (list 'disjoint plant_kind mineral_kind) 'CxCore)
+    (v/assert kb (list 'genl both_kind plant_kind) 'CxCore)
+    (v/assert kb (list 'genl both_kind mineral_kind) 'CxCore)
+    (is (= ['CxCore] (map :context (v/sentexes-matching kb (list 'empty both_kind) '?ctx))))
+    (is (stored? kb (list 'empty both_kind)))))

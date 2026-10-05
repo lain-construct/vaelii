@@ -664,6 +664,16 @@
 ;; and nonemptiness climbs it.
 (transitiveInArgInverse empty 1 genl)
 (transitiveInArg nonempty 1 genl)
+;; An instance of a type below two disjoint types would be an instance of both.  The rule
+;; reads a stored or inherited (disjoint ?type1 ?type2); a partition, a separating roster,
+;; a disjoint_metatype and a sibling_disjoint parent store no disjoint sentence, so a type
+;; below two types separated only by one of those four is not concluded empty.  genl also
+;; relates predicates of two or more arguments, so the rule requires a unary literal of
+;; the type it concludes about.  The rule-clash reading reads that literal as arity 1 and
+;; drops each pair with a rule concluding a binary class.
+(set/forwardRule (implies (and (genl ?type ?type1) (genl ?type ?type2) (disjoint ?type1 ?type2)
+                               (unary ?type))
+                          (empty ?type)))
 
 ;; ---- definitional collection relations -----------------------------------
 ;; Three relations tie a collection's membership to a defining condition on the member
