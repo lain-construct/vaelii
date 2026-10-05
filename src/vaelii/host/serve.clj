@@ -189,17 +189,18 @@
 
 (defn- with-opts-map
   "`args` padded out to the arity whose last argument is the option map: nothing to do
-  when the caller already sent one (or sent nothing at all, which is an arity refusal the
-  op itself owes), else the tail of `fill` the call is short by, and then an empty map for
-  `under-ceiling` to write the clock into."
+  when the caller already sent one, or when the call is short of an argument `fill` has
+  no default for (an arity refusal the op itself owes), else the tail of `fill` the call
+  is short by, and then an empty map for `under-ceiling` to write the clock into."
   [args {:keys [fill option-arity]}]
-  (cond
-    (empty? args) args
-    (map? (peek args)) args
-    (and (= option-arity (count args)) (nil? (peek args)))
-    (assoc args (dec option-arity) {})
-    :else
-    (conj (into args (subvec fill (min (count fill) (dec (count args))))) {})))
+  (let [first-fill (- option-arity 1 (count fill))]
+    (cond
+      (< (count args) first-fill) args
+      (map? (peek args)) args
+      (and (= option-arity (count args)) (nil? (peek args)))
+      (assoc args (dec option-arity) {})
+      :else
+      (conj (into args (subvec fill (min (count fill) (- (count args) first-fill)))) {}))))
 
 (defn- ceiling-for
   "The ceiling on `k`, or nil when the operator lifted it (`0`)."

@@ -11,7 +11,7 @@
 (genl artifact tangible)
 
 (comment attribute "A property an object can bear (a color, a size).")
-(genl attribute intangible)
+(genl attribute aspatial)
 
 (comment body_part "A physical part of a living thing (a wing, a heart).")
 (genl body_part tangible)
@@ -33,8 +33,8 @@
 (comment fin "A flat body part a fish steers and propels itself with.")
 (genl fin body_part)
 
-(comment fluent "A state of affairs that holds over some stretches of time and not others — a cat being asleep, a light being on. What an event starts and stops, and what holdsAt asks about at a moment; intangible, because it is a way the world is rather than a thing in it. See docs/time.md.")
-(genl fluent intangible)
+(comment fluent "A state of affairs that holds over some stretches of time and not others — a cat being asleep, a light being on. What an event starts and stops, and what holdsAt asks about at a moment; aspatial and so intangible, because it is a way the world is rather than a thing in it. See docs/time.md.")
+(genl fluent aspatial)
 
 (comment food "A physical object eaten by an animal for nourishment.")
 (genl food tangible)
@@ -106,7 +106,8 @@
 (genl metal substance)
 
 (comment organization "A group of people acting as one body — a company, a school, a team.")
-(genl organization intangible)
+;; An organization has no location in any space; its members and its buildings have one.
+(genl organization aspatial)
 
 (comment partOf
          "(partOf ?part ?whole) means that ?part is a component of ?whole. Declared transitive, so a part of a part is a part and the chain is answered by the closure prover rather than stored. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
@@ -130,7 +131,7 @@
 
 
 (comment relation_type "A type whose instances are relations between things.")
-(genl relation_type intangible)
+(genl relation_type aspatial)
 
 (comment root "The body part a plant anchors itself and draws water with.")
 (genl root body_part)
@@ -238,7 +239,6 @@
 (genl building container)
 (genl gas substance)
 (genl keyword unrepresented_term)
-(genl language nowhere_never)
 (genl number unrepresented_term)
 (genl plasma substance)
 (genl relation expression)

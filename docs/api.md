@@ -168,7 +168,8 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; :definition-inconsistencies, :genl-arg-widening,
                                                 ; :not-under-thing, :implicit-genl and
                                                 ; :orthogonal-over-separation. opts may bound :max-work,
-                                                ; :max-ms and :max-results; exhaustion is :truncated,
+                                                ; :max-ms and :max-results, and :categories names the
+                                                ; passes to run; exhaustion is :truncated,
                                                 ; never :audited. Work/time check between opaque callbacks
                                                 ; and result pulls (one callback/chunk may overrun);
                                                 ; :max-results absolutely caps returned findings.

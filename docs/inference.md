@@ -522,6 +522,18 @@ about the rule.
   re-derives the conclusion the departed edge's path licensed. Both are gated on the
   `:rule-antecedents` roster, so a KB whose rules read neither relation pays a map read
   per edge.
+- **A withdrawn mint re-joins the rule over the stated route.** The settle withdraws a
+  minted `genl` edge that a stated route has made redundant
+  (`special/subsumed-mint-blocks`), and the sweep deletes every rule firing that names
+  the minted edge as its witness. Before the sweep, `special/withdrawn-edge-seeds`
+  collects the facts and rules of each withdrawn edge that a rule firing names as its
+  witness. After the sweep, `settle/apply-pass!` re-chains those seeds, so each firing
+  is stored again over the stated route. The gate is a dependent justification whose
+  informant is a rule, not a dependent conclusion that went OUT, because the firing's
+  conclusion usually stands on another firing. Both arrival orders therefore store the
+  same firings, which
+  `late_route_test/a-stated-route-withdrawing-a-mint-keeps-the-firings-the-mint-carried`
+  asks.
 - **A rule concluding the relation it reads takes the matcher alone.** Its conclusions
   are edges of the closure it would read, so the path a firing names would depend on how
   far the rule had got; `chain/walks-its-own-conclusion?` is the test, shared with the

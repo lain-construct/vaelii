@@ -39,17 +39,19 @@ prover can reach.
 The optional budget has three independent bounds. `:max-work` meters direct audit rows,
 prover dispatches, and prover results, so a one-term candidate set cannot hide the cost
 of an aggregate condition over a large KB extent. `:max-ms` is a cooperative wall clock,
-checked at the same boundaries. `:max-results` caps findings. Reaching any bound returns
-`:status :truncated` with a reason and never labels a partial sweep `:audited`. The daemon
-fills all three when the map is absent, clamps callers to its ceilings, and refuses an
-over-ceiling request by type before acquiring the operation's work.
+checked at the same boundaries and inside the argument-preservation prover's claim walk
+([anytime.md](anytime.md)). `:max-results` caps findings. A `nil` bound is no bound.
+Reaching any bound returns `:status :truncated` with a reason and never labels a partial
+sweep `:audited`. The daemon fills all three when the map is absent, clamps callers to
+its ceilings, and refuses an over-ceiling request by type before acquiring the
+operation's work.
 
 Work and time are cooperative, not preemptive hard ceilings. The sweep checks immediately
 before and after every prover selection/dispatch callback and every result-stream pull.
 An opaque callback—or a chunked lazy stream that computes several answers in one pull—may
 overrun until it returns; the following checkpoint then truncates before another callback
-or pull begins. Changing the public `Prover` SPI to require one-answer yielding is outside
-this sweep. `:max-results` is different: it is an absolute bound on findings returned,
+or pull begins. The `Prover` protocol does not require a prover to yield one answer per
+pull. `:max-results` is different: it is an absolute bound on findings returned,
 including snapshots truncated for work or time.
 
 The definition pass performs one unavoidable open census of visible `defnSufficient`
@@ -63,6 +65,11 @@ either: one candidate term, then one visible cover over it, at a time. The
 `orthogonal` pass reads one census of visible `orthogonal` declarations, then one
 declaration at a time. These focused units are where
 cooperative checkpoints and partial-result preservation sit.
+
+`:categories`, a set of category keys, runs the passes of those categories alone and
+reads nothing for the others. On a large KB the census passes (the specified and widening
+categories) can spend the daemon's `:max-work` ceiling before a candidate pass starts; a
+caller names the candidate categories to reach them.
 
 An explicit `nil` options value means the same thing as omitting the options arity,
 in-process and through the generated daemon clients. The daemon still supplies its own
@@ -99,8 +106,8 @@ answer both `(Coll term)` and `(not (Coll term))`. The report preserves every pa
 failing declaration as evidence, including the collection on which an inherited
 sufficient was declared.
 
-This is deliberately narrower than `contradictions`. That reader reports settled,
-represented default dilemmas already present in the truth-maintenance state. A computed
+A definition finding is not one `contradictions` reports. `contradictions` reports
+settled, represented default dilemmas already present in the truth-maintenance state. A computed
 definition condition is evaluated only when queried, so its latent clash has no stored
 pair for `contradictions` to enumerate. `kb-integrity` asks the bounded definition
 question without changing the meaning or cost of the existing reader.
@@ -142,7 +149,7 @@ types is their intersection, so it is compatible as soon as one of them is subsu
 super-predicate the constraint inherits through `res/constraining-predicates`, the same
 closure `assert`'s argument check reads.
 
-The scope is deliberate:
+The pass has these limits:
 
 - **Declaration census, not candidate terms.** A widening is a fact about two
   predicates' declarations, not about any individual, so the caller's candidate set does
@@ -182,7 +189,7 @@ One finding is reported for each candidate term, in print order. The path is the
 transitive `genl` closure read from the audit context, so `(genl nested_kind placed_kind)`
 with `(genl placed_kind thing)` places `nested_kind` under `thing`.
 
-The scope is deliberate:
+The pass has these limits:
 
 - **Candidate terms, not a census.** The caller's candidate set bounds the pass, as it
   bounds the definition pass. A type declared `unary_predicate` but absent from the set
@@ -234,7 +241,7 @@ order of the term and then of the cover. The separation is `disjoint?`, so an ex
 separating cover all count, each inherited down the `genl` closure; `:grounds` names the
 believed declarations it rests on.
 
-The scope is deliberate:
+The pass has these limits:
 
 - **Candidate terms, not a census.** The caller's candidate set bounds the pass, as it
   bounds the `thing` pass. A candidate is read as a type when it is declared with arity
@@ -291,7 +298,7 @@ that some stated separation divides, in content order of the `orthogonal`.
 the pair, as `disjoint?` would read it with no `orthogonal` stated: for a
 `disjoint_metatype`, the mark and the two memberships.
 
-The scope is deliberate:
+The pass has these limits:
 
 - **Declaration census, not candidate terms.** A finding is a fact about two
   declarations, not about any individual, so the caller's candidate set does not bound
