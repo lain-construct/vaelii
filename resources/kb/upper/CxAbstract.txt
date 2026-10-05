@@ -1,5 +1,5 @@
 ;; CxAbstract — non-biological upper-ontology types (intangible, physical
-;; objects, substances, artifacts, body parts and their kinds), the
+;; objects, substances, made things, body parts and their kinds), the
 ;; physical-structure relations partOf/locatedIn/madeOf, the event-doer relations
 ;; doneBy/performedBy, and the two type-level relations largerThan/partType. Sees
 ;; CxCore; CxUniverse sees it, so any type or relation here is visible from every
@@ -7,9 +7,6 @@
 
 (genlCx CxAbstract CxCore)
 (genlCx CxUniverse CxAbstract)
-
-(comment artifact "A physical object made by an agent for a purpose.")
-(genl artifact tangible)
 
 (comment body_part "A part an organism grew — a wing, a heart, a leaf. It stays a body part once transplanted into another organism or shed from its own.")
 ;; An organism and a part it grew are both biological and never the same thing; nothing
@@ -19,18 +16,18 @@
 (separating biological organism body_part)
 ;; A leg of lamb or a chicken wing is food and a body part at once.
 (orthogonal food body_part)
-;; An artifact is anything intentionally made, so an engineered bacterium or an organ grown
-;; in a lab is biological and an artifact at once.
-(orthogonal biological artifact)
+;; Something made can be biological too: an engineered bacterium, an organ grown in a lab
+;; and a cloned sheep are biological and made at once.
+(orthogonal biological made)
 
 (comment building "An artifact that is a fixed structure enclosing space.")
 
 
 (comment clothing "An artifact worn on the body.")
-(genl clothing artifact)
+(genl clothing made)
 
 (comment container "An artifact whose function is to hold other objects — a cup, a box, a bag.")
-(genl container artifact)
+(genl container made)
 
 (comment context "A context: the second half of a sentex, and what a sentence holds in.")
 
@@ -50,7 +47,7 @@
 (genl fur body_part)
 
 (comment furniture "An artifact for use in a room — a chair, a table, a bed.")
-(genl furniture artifact)
+(genl furniture made)
 
 (comment glass_stuff "A hard, brittle, transparent substance.")
 (genl glass_stuff substance)
@@ -87,7 +84,10 @@
 (transitive locatedIn)
 
 (comment machine "An artifact with moving parts that does work under power.")
-(genl machine artifact)
+(genl machine made)
+
+(comment made "A tangible shaped by an agent's action, or by something made: a chair, a widget from a factory machine, steel, sawdust, a footprint, a beaver's dam, a cloned sheep. Contrast natural.")
+(genl made tangible)
 
 (comment madeOf
          "(madeOf ?object ?substance) means that ?object is made of ?substance. About one particular object and the stuff it is made of, so it is instance-level; what a whole kind is made of is a claim about that kind. Partial rather than exhaustive — a thing may be made of several substances, and saying it is made of one does not deny the others.")
@@ -217,10 +217,10 @@
 (genl performedBy doneBy)
 
 (comment tool "An artifact used to perform work.")
-(genl tool artifact)
+(genl tool made)
 
 (comment vehicle "An artifact for transporting people or goods.")
-(genl vehicle artifact)
+(genl vehicle made)
 
 (comment wing "A body part a bird or an insect flies with.")
 (genl wing body_part)
@@ -250,7 +250,7 @@
 (set/monotonic (disjoint formula relation))
 (set/monotonic (disjoint liquid stone))
 (set/monotonic (disjoint relation context))
-(set/monotonic (disjoint substance artifact))
+(set/monotonic (disjoint substance made))
 (set/monotonic (disjoint_metatype stuff_type_by_state_of_matter))
 (set/monotonic (disjoint_metatype stuff_type_by_substance))
 (metatype stuff_type_by_state_of_matter)

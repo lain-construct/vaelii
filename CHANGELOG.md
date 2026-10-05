@@ -484,6 +484,22 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive** (an `:unknown` pair gains a status, and audit entries gain two
   keys).
 
+- **`artifact` is renamed `made`.** The type names a tangible shaped by an agent's
+  action, or by something made: a chair, a widget from a factory machine, steel,
+  sawdust, a footprint, a beaver's dam, a cloned sheep. Every shipped use is renamed:
+  the `genl` edges of `building`'s parent `container`, `clothing`, `furniture`,
+  `machine`, `tool` and `vehicle`, the `(orthogonal biological artifact)` above, now
+  `(orthogonal biological made)`, the substance disjointness, the browser examples and
+  the docs. The seven kinds' own comments are unchanged. No `rewriteOf` alias is
+  shipped, as none was for `physical_object` or `living_thing`. `ontology_test` pins
+  that `artifact` is declared nowhere and that the seven kinds are kinds of `made`.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that wrote `artifact` renames to `made`; the old spelling stores
+  clean but attaches to nothing in the taxonomy.
+  *Breaks:* `artifact`
+
 ### Fixes: answers
 
 - **The browser front page's disjointness list holds the pairs a `separating` or

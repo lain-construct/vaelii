@@ -975,7 +975,7 @@
     [genl character intangible CxAbstract "character genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl context intangible CxAbstract "context genl expression genl nowhere_never genl intangible"]
     [genl language intangible CxAbstract "language genl nowhere_never genl intangible"]
-    [genl building artifact CxAbstract "building genl container genl artifact"]
+    [genl building made CxAbstract "building genl container genl made"]
     [genl asymmetric binary_predicate CxCore "asymmetric genl anti_symmetric genl binary_predicate"]
     [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
     [disjoint number predicate CxAbstract "number genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
@@ -1110,20 +1110,20 @@
     (is (true? (v/ask? kb (list 'food Drumstick) 'CxUniverse)))
     (is (true? (v/ask? kb (list 'body_part Drumstick) 'CxUniverse)))))
 
-(tu/deftest-kb an-organism-or-a-body-part-can-be-an-artifact
-  ;; An artifact is something intentionally made, so an engineered bacterium or an organ
-  ;; grown in a lab is both.  The pair is declared orthogonal rather than disjoint.
-  (is (not (v/disjoint? kb 'biological 'artifact)))
-  (is (not (v/disjoint? kb 'organism 'artifact)))
-  (is (not (v/disjoint? kb 'body_part 'artifact)))
+(tu/deftest-kb an-organism-or-a-body-part-can-be-made
+  ;; Something made can be biological too: an engineered bacterium, an organ grown in a
+  ;; lab, a cloned sheep.  The pair is declared orthogonal rather than disjoint.
+  (is (not (v/disjoint? kb 'biological 'made)))
+  (is (not (v/disjoint? kb 'organism 'made)))
+  (is (not (v/disjoint? kb 'body_part 'made)))
   (tu/with-terms [Engineered LabKidney]
     (v/assert kb (list 'organism Engineered) 'CxUniverse)
-    (is (not (tu/stored-in-clash? kb (list 'artifact Engineered) 'CxUniverse))
-        "an organism that is also an artifact is no clash")
-    (is (true? (v/ask? kb (list 'artifact Engineered) 'CxUniverse)))
+    (is (not (tu/stored-in-clash? kb (list 'made Engineered) 'CxUniverse))
+        "an organism that is also made is no clash")
+    (is (true? (v/ask? kb (list 'made Engineered) 'CxUniverse)))
     (v/assert kb (list 'body_part LabKidney) 'CxUniverse)
-    (is (not (tu/stored-in-clash? kb (list 'artifact LabKidney) 'CxUniverse))
-        "a body part that is also an artifact is no clash"))
+    (is (not (tu/stored-in-clash? kb (list 'made LabKidney) 'CxUniverse))
+        "a body part that is also made is no clash"))
   (testing "while a biological thing stays apart from a substance"
     (is (true? (v/disjoint? kb 'organism 'substance)))
     (is (true? (v/disjoint? kb 'body_part 'substance)))))
@@ -1261,3 +1261,16 @@
     (is (true? (v/ask? kb (list 'orthogonal 'dog tended) 'CxUniverse)))
     (is (= :orthogonal (v/subsumption-status kb 'dog tended)))
     (is (not-any? #(= :forced-conclusion (:violation %)) (v/violations kb)))))
+
+(tu/deftest-kb artifact-is-declared-nowhere-and-the-seven-kinds-are-made
+  ;; The KB declares no artifact term and no alias for one.  building, clothing,
+  ;; container, furniture, machine, tool and vehicle are kinds of made.
+  (is (empty? (v/sentexes-matching kb '(comment artifact ?text) '?ctx)))
+  (is (empty? (v/sentexes-matching kb '(genl artifact ?type) '?ctx)))
+  (is (empty? (v/sentexes-matching kb '(genl ?type artifact) '?ctx)))
+  (is (= 1 (count (v/sentexes-matching kb '(comment made ?text) 'CxAbstract))))
+  (doseq [t '[building clothing container furniture machine tool vehicle]]
+    (is (true? (v/genl? kb t 'made 'CxAbstract)) (str t " is made")))
+  (doseq [t '[clothing container furniture machine tool vehicle]]
+    (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl t 'made) 'CxAbstract))
+        (str "(genl " t " made) is stated"))))

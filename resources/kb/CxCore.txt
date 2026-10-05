@@ -206,7 +206,7 @@
 ;; Nothing in the engine reads any of them by name — they are classified inert in
 ;; vaelii.impl.predicates for that reason.  What they are is the top of the ontology,
 ;; and the grammar head is where every context can reach it.  The kinds hanging off them
-;; stay in the band: (genl artifact tangible) and the (separating biological organism
+;; stay in the band: (genl made tangible) and the (separating biological organism
 ;; body_part) that places body_part under biological are CxAbstract's, (separating
 ;; organism animal plant) is CxOrganism's, and all of them now resolve.  biological is here because
 ;; both organism and body_part extend it, so organism reaches tangible through it from
