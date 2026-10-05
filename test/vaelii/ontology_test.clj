@@ -1019,6 +1019,7 @@
     [genl causal thing CxAbstract "partition thing causal acausal"]
     [genl acausal thing CxAbstract "partition thing causal acausal"]
     [disjoint causal acausal CxAbstract "partition thing causal acausal"]
+    [genl sign_value thing CxMeasure "sign_value genl nowhere_never genl intangible genl thing"]
     [genl asymmetric binary_predicate CxCore "asymmetric genl anti_symmetric genl binary_predicate"]
     [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
     [disjoint number predicate CxAbstract "number genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
@@ -1421,3 +1422,10 @@
       (v/assert kb (list 'thing Footprint1) 'CxUniverse)
       (v/assert kb (list 'not (list 'causal Footprint1)) 'CxUniverse)
       (is (true? (v/ask? kb (list 'acausal Footprint1) 'CxUniverse))))))
+
+;; ---- signs, causes and situations in space and time --------------------------
+
+(tu/deftest-kb a-sign-value-is-in-no-space-and-at-no-time
+  (is (true? (v/genl? kb 'sign_value 'nowhere_never 'CxMeasure)))
+  (doseq [t '[aspatial atemporal intangible]]
+    (is (true? (v/ask? kb (list t 'SignPositive) 'CxMeasure)) (str "SignPositive is " t))))

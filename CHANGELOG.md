@@ -686,6 +686,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(genl acausal thing)` being stated, rather than derived, reads it from `disjoint?` or
   `genl?` instead.
 
+- **A sign value is in no space and at no time.** CxMeasure states
+  `(genl sign_value nowhere_never)` in place of `(genl sign_value thing)`, so
+  `SignNegative`, `SignZero` and `SignPositive` read `aspatial`, `atemporal` and
+  `intangible`. `ontology_test` pins the three readings and the removed edge as derived.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that relied on `(genl sign_value thing)` being stated, rather than
+  derived, reads it from `genl?` instead.
+
 ### Fixes: answers
 
 - **`check` reads a reifiable application in a quoting predicate's payload as a mention.**
