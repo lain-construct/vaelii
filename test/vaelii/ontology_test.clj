@@ -825,8 +825,7 @@
   "The kinds with no location in any space, each with the contexts that read it as
   aspatial.  `context` and `language` are read from two band contexts besides CxCore:
   their route through `expression` is CxAbstract's, which no band context sees."
-  '{attribute     [CxAbstract]
-    relation_type [CxAbstract]
+  '{relation_type [CxAbstract]
     fluent        [CxAbstract]
     capability    [CxCore CxLife]
     organization  [CxAbstract]
@@ -838,20 +837,20 @@
           ctx         (conj ctxs 'CxUniverse)
           located     '[spatial spatiotemporal]]
     (is (true? (v/disjoint? kb kind located ctx)) (str kind " and " located " in " ctx)))
-  (testing "a spatial relation between an attribute and an organization derives two clashes"
+  (testing "a spatial relation between a fluent and an organization derives two clashes"
     ;; The northOf is stated in CxSpace, whose own declaration mints (spatial X) there;
     ;; CxUniverse sees the mints beside the memberships.  Pinned to the entailing
     ;; reading: the clash sides are the minted (spatial X), which the constraint-only
     ;; reading does not mint.
     (tu/with-entailing
-      (tu/with-terms [Redness AcmeCo]
-        (v/assert kb (list 'attribute Redness) 'CxUniverse)
+      (tu/with-terms [LampLit AcmeCo]
+        (v/assert kb (list 'fluent LampLit) 'CxUniverse)
         (v/assert kb (list 'organization AcmeCo) 'CxUniverse)
-        (v/assert kb (list 'northOf Redness AcmeCo) 'CxSpace)
+        (v/assert kb (list 'northOf LampLit AcmeCo) 'CxSpace)
         (let [clashes (into #{} (comp (filter #(= :disjoint (:kind %)))
                                       (map #(into #{} (map :sentence) (:sides %))))
                             (v/contradictions kb))]
-          (is (contains? clashes #{(list 'attribute Redness) (list 'spatial Redness)}))
+          (is (contains? clashes #{(list 'fluent LampLit) (list 'spatial LampLit)}))
           (is (contains? clashes #{(list 'organization AcmeCo) (list 'spatial AcmeCo)}))))))
   (testing "and a dog stays disjoint from a number and a relation"
     (is (true? (v/disjoint? kb 'dog 'number)))
@@ -883,7 +882,6 @@
     [genl nowhere_never aspatial CxCore "intersection nowhere_never aspatial atemporal"]
     [genl nowhere_never atemporal CxCore "intersection nowhere_never aspatial atemporal"]
     [genl capability intangible CxCore "capability genl aspatial genl intangible"]
-    [genl attribute intangible CxAbstract "attribute genl aspatial genl intangible"]
     [genl relation_type intangible CxAbstract "relation_type genl aspatial genl intangible"]
     [genl fluent intangible CxAbstract "fluent genl aspatial genl intangible"]
     [genl organization intangible CxAbstract "organization genl aspatial genl intangible"]
@@ -898,10 +896,8 @@
     [disjoint substance body_part CxAbstract "body_part genl biological; disjoint biological substance"]
     [genl tangible temporal CxAbstract "tangible genl spatiotemporal genl temporal (intersection)"]
     [disjoint tangible intangible CxAbstract "partition thing tangible intangible"]
-    [disjoint attribute tangible CxAbstract "attribute genl aspatial genl intangible; partition thing tangible intangible"]
     [disjoint organization substance CxAbstract "organization genl aspatial genl intangible, substance genl tangible; partition thing tangible intangible"]
     [disjoint language substance CxAbstract "language genl nowhere_never genl aspatial genl intangible, substance genl tangible; partition thing tangible intangible"]
-    [disjoint attribute substance CxAbstract "attribute genl aspatial genl intangible, substance genl tangible; partition thing tangible intangible"]
     [disjoint organization animal CxUniverse "organization genl aspatial genl intangible, animal genl organism genl biological genl tangible; partition thing tangible intangible"]
     [genl string intangible CxAbstract "string genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl number intangible CxAbstract "number genl unrepresented_term genl expression genl nowhere_never genl intangible"]
