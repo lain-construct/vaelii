@@ -373,8 +373,7 @@
   purpose — each with the reason.  A term absent from this roster that only one member uses
   fails the test below; a term here that gains a second member user fails it too, so the
   roster stays a list of reasons rather than a list of debts."
-  '{nowhere_never "the intersection of aspatial and atemporal, held in the head beside intangible / spatiotemporal / temporal so any member can extend it; only CxAbstract does today"
-    capability "the upper-ontology skeleton collection CxLife extends (vaelii.impl.predicates); the head holds it so a member can place a capability under the root"
+  '{capability "the upper-ontology skeleton collection CxLife extends (vaelii.impl.predicates); the head holds it so a member can place a capability under the root"
     denotational_term "the logic sense of `term`, vocabulary the head documents; only CxAbstract links it into the expression lattice today"
     formula "the formula-ladder type the head documents beside the grammar sense; only CxAbstract places it under expression today"
     relation_application "an expression kind the head documents; only CxAbstract places it under expression today"
@@ -426,6 +425,20 @@
                                    (for [c loners]
                                      (str "  " (:term c) " — used only by " (:used-only-by c)
                                           ", so move it there"))))))))
+
+(tu/deftest-kb every-type-a-loaded-membership-names-is-named-by-another-sentence
+  ;; A membership in a type no other sentence names reaches no genl edge, argument
+  ;; declaration or comment, so a misspelled or retired type name stores clean and nothing
+  ;; reads it.  The starter and the test-world state no such membership.
+  (let [membership? (fn [t s] (and (seq? s) (= 2 (count s)) (= t (first s))))
+        types       (into #{} (comp (filter #(v/premise? kb (:id %)))
+                                    (map :sentence)
+                                    (keep #(when (and (seq? %) (= 2 (count %))) (first %)))
+                                    (filter symbol?))
+                          (v/sentexes-matching kb '(?p ?x) '?ctx))]
+    (is (< 50 (count types)) "the reading ran over the loaded memberships")
+    (is (= [] (filterv (fn [t] (every? #(membership? t (:sentence %)) (v/find-sentexes kb t)))
+                       (sort types))))))
 
 ;; ---- the shipped rules, read against each other --------------------------
 
@@ -710,6 +723,42 @@
     (is (true? (v/ask? kb (list 'intangible Prime) 'CxUniverse)))
     (is (true? (tu/stored-in-clash? kb (list 'tangible Prime) 'CxUniverse)))))
 
+(def ^:private aspatial-kinds
+  "The kinds with no location in any space, each with the contexts that read it as
+  aspatial.  `context` and `language` are read from two band contexts besides CxCore:
+  their route through `expression` is CxAbstract's, which no band context sees."
+  '{attribute     [CxAbstract]
+    relation_type [CxAbstract]
+    fluent        [CxAbstract]
+    capability    [CxCore CxLife]
+    organization  [CxAbstract]
+    context       [CxCore CxSpace CxSociety]
+    language      [CxCore CxSpace CxSociety]})
+
+(tu/deftest-kb a-kind-with-no-location-in-any-space-is-disjoint-from-spatial
+  (doseq [[kind ctxs] aspatial-kinds
+          ctx         (conj ctxs 'CxUniverse)
+          located     '[spatial spatiotemporal]]
+    (is (true? (v/disjoint? kb kind located ctx)) (str kind " and " located " in " ctx)))
+  (testing "a spatial relation between an attribute and an organization derives two clashes"
+    ;; The northOf is stated in CxSpace, whose own declaration mints (spatial X) there;
+    ;; CxUniverse sees the mints beside the memberships.  Pinned to the entailing
+    ;; reading: the clash sides are the minted (spatial X), which the constraint-only
+    ;; reading does not mint.
+    (tu/with-entailing
+      (tu/with-terms [Redness AcmeCo]
+        (v/assert kb (list 'attribute Redness) 'CxUniverse)
+        (v/assert kb (list 'organization AcmeCo) 'CxUniverse)
+        (v/assert kb (list 'northOf Redness AcmeCo) 'CxSpace)
+        (let [clashes (into #{} (comp (filter #(= :disjoint (:kind %)))
+                                      (map #(into #{} (map :sentence) (:sides %))))
+                            (v/contradictions kb))]
+          (is (contains? clashes #{(list 'attribute Redness) (list 'spatial Redness)}))
+          (is (contains? clashes #{(list 'organization AcmeCo) (list 'spatial AcmeCo)}))))))
+  (testing "and a dog stays disjoint from a number and a relation"
+    (is (true? (v/disjoint? kb 'dog 'number)))
+    (is (true? (v/disjoint? kb 'dog 'relation)))))
+
 (tu/deftest-kb a-region-is-spatiotemporal-and-intangible-at-once
   ;; A region of space has a location and no mass.  Nothing separates intangible from
   ;; spatial or from spatiotemporal, so the pair is consistent.
@@ -732,17 +781,22 @@
   '[[genl aspatial thing CxCore "partition thing spatial aspatial"]
     [genl intangible thing CxCore "partition thing tangible intangible"]
     [genl nowhere_never intangible CxCore "nowhere_never genl aspatial genl intangible"]
+    [genl capability intangible CxCore "capability genl aspatial genl intangible"]
+    [genl attribute intangible CxAbstract "attribute genl aspatial genl intangible"]
+    [genl relation_type intangible CxAbstract "relation_type genl aspatial genl intangible"]
+    [genl fluent intangible CxAbstract "fluent genl aspatial genl intangible"]
+    [genl organization intangible CxAbstract "organization genl aspatial genl intangible"]
     [genl temporal thing CxCore "partition thing temporal atemporal"]
     [genl atemporal thing CxCore "partition thing temporal atemporal"]
     [disjoint temporal atemporal CxCore "partition thing temporal atemporal"]
     [genl spatiotemporal thing CxCore "spatiotemporal genl spatial (intersection), spatial genl thing (partition)"]
     [genl tangible temporal CxAbstract "tangible genl spatiotemporal genl temporal (intersection)"]
     [disjoint tangible intangible CxAbstract "partition thing tangible intangible"]
-    [disjoint attribute tangible CxAbstract "attribute genl intangible; partition thing tangible intangible"]
-    [disjoint organization substance CxAbstract "organization genl intangible, substance genl tangible; partition thing tangible intangible"]
-    [disjoint language substance CxAbstract "language genl intangible, substance genl tangible; partition thing tangible intangible"]
-    [disjoint attribute substance CxAbstract "attribute genl intangible, substance genl tangible; partition thing tangible intangible"]
-    [disjoint organization animal CxUniverse "organization genl intangible, animal genl living_thing genl tangible; partition thing tangible intangible"]
+    [disjoint attribute tangible CxAbstract "attribute genl aspatial genl intangible; partition thing tangible intangible"]
+    [disjoint organization substance CxAbstract "organization genl aspatial genl intangible, substance genl tangible; partition thing tangible intangible"]
+    [disjoint language substance CxAbstract "language genl nowhere_never genl aspatial genl intangible, substance genl tangible; partition thing tangible intangible"]
+    [disjoint attribute substance CxAbstract "attribute genl aspatial genl intangible, substance genl tangible; partition thing tangible intangible"]
+    [disjoint organization animal CxUniverse "organization genl aspatial genl intangible, animal genl living_thing genl tangible; partition thing tangible intangible"]
     [genl string intangible CxAbstract "string genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl number intangible CxAbstract "number genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl keyword intangible CxAbstract "keyword genl unrepresented_term genl expression genl nowhere_never genl intangible"]

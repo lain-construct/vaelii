@@ -251,12 +251,14 @@
   (and (seq? sentence) (symbol? (first sentence)) (individual-name? (second sentence))))
 
 (defn- typed-literal
-  "A believed `(T x)` from `sample`, `T` a type and `x` an individual."
+  "A believed `(T x)` from `sample`, `T` a type and `x` an individual.  A function's name
+  is spelled as an individual's, so `x` must not be a `relation` in its context."
   [kb sample]
   (first (filter (fn [{:keys [id sentence context]}]
                    (and (= 2 (count sentence))
                         (type-name? (first sentence))
                         (about-an-individual? sentence)
+                        (not (v/isa? kb (second sentence) 'relation context))
                         (v/believed? kb id context)))
                  sample)))
 

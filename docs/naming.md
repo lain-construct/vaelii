@@ -331,7 +331,7 @@ What it proposes:
 | Written | Proposed |
 |---|---|
 | `(isa Muffet Dog)` | `(dog Muffet)` |
-| `(isa Muffet PhysicalObject)` | `(physical_object Muffet)` — snake_case, not `physicalobject` |
+| `(isa Muffet LivingThing)` | `(living_thing Muffet)` — snake_case, not `livingthing` |
 | `(isa Muffet <non-symbol>)` | the generic `(<type> <individual>)` form |
 
 **The table holds one entry.** The bar for adding a second is in `advice`'s own
