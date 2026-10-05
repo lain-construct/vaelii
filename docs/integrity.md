@@ -7,7 +7,7 @@
   path to `thing`, the `genl` edges a cover forces on a candidate type that the
   closure does not hold, the `orthogonal` declarations that lift a stated
   separation of their pair, the stored rules a declaration the engine implements
-  states, and three ontology-engineering smells for review: sibling
+  states, the `genl` nodes with no declared arity, and three ontology-engineering smells for review: sibling
   types with one direct `genl` set, stated edges that derive without themselves, and
   `disjoint` pairs a known cover exhausts, plus every declared argument position no
   declaration types.
@@ -69,7 +69,8 @@ census: it checks one candidate term at a time. The implicit-`genl` pass reads n
 either: one candidate term, then one visible cover over it, at a time. The
 `orthogonal` pass reads one census of visible `orthogonal` declarations, then one
 declaration at a time. The rule-macro pass reads one census of the stored
-rules, then one rule at a time. The three ontology-engineering passes read the taxonomy's types
+rules, then one rule at a time. The undeclared-arity pass reads one census of the
+visible `genl` edges, then one node at a time. The three ontology-engineering passes read the taxonomy's types
 once, or one census of stated `genl` and `disjoint` declarations, then one type or one
 declaration at a time. These focused units are where
 cooperative checkpoints and partial-result preservation sit.
@@ -103,7 +104,7 @@ A finding changes the top-level status and adds only the populated categories:
   {:status :audited :violations #{Bob}}}}
 ```
 
-`:status :audited` means all ten passes ran and none found a gap. `:status :gap` cannot
+`:status :audited` means all twelve passes ran and none found a gap. `:status :gap` cannot
 be confused with that clean shape even when only one sparse category is present. The
 specified category is exactly `all-specified-violations`, including its typed declaration
 gaps; it is composed, not reimplemented.
@@ -432,6 +433,49 @@ Reading each rule and unifying each shape spend one work unit, and so do the ari
 relation and the stated-declaration reads. `:max-results` counts these findings
 after the orthogonal-over-separation category.
 
+## What an undeclared-arity finding means
+
+Every type is a unary predicate, and a predicate `genl` edge relates two predicates of
+one arity. A term at either end of a `genl` edge with no arity the KB states is a type or
+a predicate nobody declared. A rule guarded on `(unary ?t)` or `(unary_predicate ?t)`
+reads such a term as no type and skips it, and nothing on the write path reports the
+missing declaration. So the sweep reads each node of the visible `genl` edges:
+
+```clojure
+;; (unary_predicate placed_kind)
+;; (genl stray_kind placed_kind)
+{:status :gap
+ :candidate-count 0
+ :undeclared-arity
+ [{:term stray_kind}]}
+```
+
+One finding is reported for each node, in print order. A node has an arity when the
+audit context sees one of the declarations `kb/relation-arity` reads, an `(arity P n)`
+declaration or a membership in an exact-arity class (`unary_predicate`,
+`binary_predicate`, `unary_function`, and the others of `tax/exact-arity-classes`), or a
+membership in `variable_arity`. A membership is read through the `genl` closure of its
+class, so a membership in a specialization of `unary_predicate` states arity one.
+
+The starter loader (`vaelii.host.starter/load-into`) asserts `(unary_predicate X)` in
+CxCore for every subtype `X` of `thing` after the KB files load, so the shipped starter
+has no finding. A KB that loads CxCore alone has 43 findings, each a subtype of `thing`,
+among them `thing`, `tangible` and `string`.
+
+The pass has these limits:
+
+- **Edge census, not candidate terms.** A missing arity is a fact about the KB's
+  vocabulary rather than about an individual, so the caller's candidate set does not
+  bound the pass. The pass reads every visible `genl` edge once, then each distinct node.
+- **`genl` nodes only.** A type that appears in no `genl` edge, and a predicate used only
+  in facts, is not read.
+- **Visible from the audit context.** An edge or an arity declaration asserted in a
+  context the audit context cannot see contributes nothing, so a type declared only
+  below the audit context is a finding there.
+
+Reading each edge and each node's two arity reads spend one work unit, and
+`:max-results` counts these findings after the rule-macro category.
+
 ## The ontology-engineering smells
 
 Three census passes flag how the `genl` and `disjoint` declarations arrange the taxonomy's
@@ -486,7 +530,7 @@ How each pass decides, and its limits:
 All three read from the audit context, so a declaration or edge it cannot see contributes
 nothing, and an edge stated for a narrower reader that cannot see the other path is
 still reported from a context that sees both. Their findings count against `:max-results`
-last, in the order above, after the rule-macro category.
+last, in the order above, after the undeclared-arity category.
 
 ## What a missing-arg finding means
 

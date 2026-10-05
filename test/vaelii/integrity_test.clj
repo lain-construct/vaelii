@@ -476,6 +476,12 @@
 
 ;; ---- genl-arg-widening ----------------------------------------------------
 
+(defn- declare-types!
+  "Declare each of `types` a `unary_predicate`, so the undeclared-arity category does
+  not report a fixture's types."
+  [kb & types]
+  (doseq [t types] (v/assert kb (list 'unary_predicate t) 'CxUniverse)))
+
 (defn- declare-binary! [kb pred t1 t2]
   (v/assert kb (list 'binary_predicate pred) 'CxUniverse)
   (v/assert kb (list 'arg pred 1 t1) 'CxUniverse)
@@ -499,6 +505,7 @@
 
 (tu/deftest-kb a-genl-edge-that-narrows-or-keeps-an-argument-type-is-not-reported
   (tu/with-terms [animal person fatherOf parentOf siblingOf relatedTo]
+    (declare-types! kb animal person)
     (v/assert kb (list 'genl person animal) 'CxUniverse)
     (declare-binary! kb fatherOf person person)
     (declare-binary! kb parentOf animal animal)
@@ -534,6 +541,7 @@
 
 (tu/deftest-kb widening-findings-respect-context-visibility
   (tu/with-terms [animal person parentOf originatorOf CxHidden]
+    (declare-types! kb animal person)
     (v/assert kb (list 'genl person animal) 'CxUniverse)
     (declare-binary! kb parentOf animal animal)
     (declare-binary! kb originatorOf person person)
@@ -545,6 +553,7 @@
 
 (tu/deftest-kb widening-findings-truncate-under-every-bound
   (tu/with-terms [animal person parentOf originatorOf]
+    (declare-types! kb animal person)
     (v/assert kb (list 'genl person animal) 'CxUniverse)
     (declare-binary! kb parentOf animal animal)
     (declare-binary! kb originatorOf person person)
@@ -581,6 +590,7 @@
 
 (tu/deftest-kb a-unary-predicate-under-thing-is-not-reported
   (tu/with-terms [placed_kind_fixture nested_kind_fixture]
+    (declare-types! kb 'thing)
     (v/assert kb (list 'unary_predicate placed_kind_fixture) 'CxUniverse)
     (v/assert kb (list 'unary_predicate nested_kind_fixture) 'CxUniverse)
     (v/assert kb (list 'genl placed_kind_fixture 'thing) 'CxUniverse)        ; directly
@@ -608,6 +618,7 @@
 
 (tu/deftest-kb not-under-thing-findings-respect-context-visibility
   (tu/with-terms [orphan_kind_fixture CxHidden]
+    (declare-types! kb 'thing)
     (v/assert kb (list 'genlCx CxHidden 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'unary_predicate orphan_kind_fixture) 'CxUniverse)
     (v/assert kb (list 'genl orphan_kind_fixture 'thing) CxHidden)
@@ -733,6 +744,7 @@
 
 (tu/deftest-kb implicit-genl-findings-truncate-under-every-bound
   (tu/with-terms [left_part right_part one_kind two_kind]
+    (declare-types! kb 'thing one_kind two_kind)
     (v/assert kb (list 'partition 'thing left_part right_part) 'CxUniverse)
     (doseq [k [one_kind two_kind]]
       (v/assert kb (list 'genl k 'thing) 'CxUniverse)
@@ -793,6 +805,7 @@
 
 (tu/deftest-kb an-orthogonal-over-an-unseparated-pair-is-not-reported
   (tu/with-terms [spatial_like temporal_like]
+    (declare-types! kb 'thing spatial_like temporal_like)
     (v/assert kb (list 'genl spatial_like 'thing) 'CxUniverse)
     (v/assert kb (list 'genl temporal_like 'thing) 'CxUniverse)
     (v/assert kb (list 'orthogonal spatial_like temporal_like) 'CxUniverse)
@@ -886,6 +899,7 @@
   ;; The four review-only passes run when `:categories` names them, so a smell alone never
   ;; turns a sweep without `:categories` into `:gap`.
   (tu/with-terms [temporal_like aspatial_like acausal_like point_kind interval_kind]
+    (declare-types! kb temporal_like aspatial_like acausal_like point_kind interval_kind)
     (doseq [k [point_kind interval_kind], g [temporal_like aspatial_like acausal_like]]
       (v/assert kb (list 'genl k g) 'CxUniverse))
     (is (= {:status :audited :candidate-count 0} (v/kb-integrity kb #{} 'CxUniverse))
@@ -1343,6 +1357,73 @@
         (let [report (run {:max-results 1})]
           (is (= [:truncated :max-results] ((juxt :status :reason) report)))
           (is (= (subvec in-order 0 1) (mapv :declaration (:rule-macro report))))))
+      (testing "work exhaustion is truncated, never audited"
+        (let [needed (first (filter #(= :gap (:status (run {:max-work %}))) (range 0 5000)))]
+          (is (some? needed))
+          (is (every? #(= [:truncated :max-work] ((juxt :status :reason) (run {:max-work %})))
+                      (range 0 (or needed 0)))))))))
+
+;; ---- undeclared-arity -----------------------------------------------------
+
+(defn- undeclared
+  "The `:undeclared-arity` terms a sweep run with that category alone reports in
+  `context`."
+  ([kb] (undeclared kb 'CxUniverse))
+  ([kb context]
+   (mapv :term (:undeclared-arity (v/kb-integrity kb #{} context
+                                                  {:categories #{:undeclared-arity}})))))
+
+(tu/deftest-kb a-genl-node-with-no-arity-is-reported
+  (tu/with-terms [stray_kind placed_kind]
+    (v/assert kb (list 'unary_predicate placed_kind) 'CxUniverse)
+    (v/assert kb (list 'genl stray_kind placed_kind) 'CxUniverse)
+    (let [before (state-snapshot kb)
+          report (v/kb-integrity kb #{} 'CxUniverse {:categories #{:undeclared-arity}})]
+      (is (= :gap (:status report)))
+      (is (= [{:term stray_kind}] (:undeclared-arity report))
+          "the declared supertype is not a finding, and the undeclared subtype is")
+      (is (= before (state-snapshot kb)) "the audit stores, believes and files nothing"))))
+
+(tu/deftest-kb a-genl-node-with-a-declared-arity-is-not-reported
+  (tu/with-terms [typed_kind upper_kind linksX relatesX listsX gathersX arityX aritiesX]
+    (v/assert kb (list 'unary_predicate typed_kind) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate upper_kind) 'CxUniverse)
+    (v/assert kb (list 'genl typed_kind upper_kind) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate linksX) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate relatesX) 'CxUniverse)
+    (v/assert kb (list 'genl linksX relatesX) 'CxUniverse)
+    (v/assert kb (list 'variable_arity listsX) 'CxUniverse)
+    (v/assert kb (list 'variable_arity gathersX) 'CxUniverse)
+    (v/assert kb (list 'genl listsX gathersX) 'CxUniverse)
+    (v/assert kb (list 'arity arityX 3) 'CxUniverse)
+    (v/assert kb (list 'arity aritiesX 3) 'CxUniverse)
+    (v/assert kb (list 'genl arityX aritiesX) 'CxUniverse)
+    (is (= [] (undeclared kb))
+        "a unary_predicate, a binary_predicate, a variable_arity and an (arity P n)
+         declaration each state an arity")))
+
+(tu/deftest-kb undeclared-arity-findings-respect-context-visibility
+  (tu/with-terms [CxHidden stray_kind placed_kind]
+    (v/assert kb (list 'genlCx CxHidden 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate placed_kind) 'CxUniverse)
+    (v/assert kb (list 'genl stray_kind placed_kind) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate stray_kind) CxHidden)
+    (is (= [stray_kind] (undeclared kb)) "a declaration below the audit context is not seen")
+    (is (= [] (undeclared kb CxHidden)))))
+
+(tu/deftest-kb undeclared-arity-findings-truncate-under-every-bound
+  (tu/with-terms [one_kind two_kind placed_kind]
+    (v/assert kb (list 'unary_predicate placed_kind) 'CxUniverse)
+    (doseq [k [one_kind two_kind]]
+      (v/assert kb (list 'genl k placed_kind) 'CxUniverse))
+    (let [run      #(v/kb-integrity kb #{} 'CxUniverse
+                                    (assoc % :categories #{:undeclared-arity}))
+          in-order (mapv (fn [t] {:term t}) (sort-by nm/print-key [one_kind two_kind]))]
+      (is (= in-order (:undeclared-arity (run {}))))
+      (testing "a result cap below the finding count keeps the completed prefix"
+        (let [report (run {:max-results 1})]
+          (is (= [:truncated :max-results] ((juxt :status :reason) report)))
+          (is (= (subvec in-order 0 1) (:undeclared-arity report)))))
       (testing "work exhaustion is truncated, never audited"
         (let [needed (first (filter #(= :gap (:status (run {:max-work %}))) (range 0 5000)))]
           (is (some? needed))

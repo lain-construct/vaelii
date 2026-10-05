@@ -612,7 +612,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `{:types [...] :genls [...]}` per direct `genl` set two visible types or more share. A
   finding is for review only. The pass reads every node of the `genl` relation once, not
   the candidate set, and its findings count against `:max-results` after the
-  `:rule-macro` category.
+  `:undeclared-arity` category.
   [integrity.md](docs/integrity.md#the-ontology-engineering-smells).
 
   *Class:* **Additive**.
@@ -730,6 +730,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   pass reads the stored rules, not the candidate terms. Findings count against
   `:max-results` after the `:implicit-genl` category and are kept on truncation.
   [integrity.md](docs/integrity.md#what-a-rule-macro-finding-means).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a `genl` node with no declared arity.** Every type is a unary
+  predicate, but nothing on the write path reports a term at an end of a `genl` edge that
+  states no arity, and a rule guarded on `(unary ?t)` skips such a term. The sweep adds a
+  twelfth sparse category, `:undeclared-arity`, with one `{:term X}` per node of a `genl`
+  edge the audit context sees for which that context sees no arity `kb/relation-arity`
+  reads (an `(arity X n)` declaration or an exact-arity class membership such as
+  `unary_predicate`) and no `variable_arity` membership, in print order. The pass reads
+  the visible `genl` edges, not the candidate terms. Findings count against
+  `:max-results` after the `:rule-macro` category and are kept on truncation.
+  [integrity.md](docs/integrity.md#what-an-undeclared-arity-finding-means).
 
   *Class:* **Additive**.
 

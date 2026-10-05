@@ -892,6 +892,45 @@
             (recur (conj findings finding) (rest units))))
         {:status :complete :findings findings}))))
 
+;; ---- undeclared-arity: a genl node with no arity the KB states ----
+
+(defn- genl-nodes
+  "The ground symbols at either end of a `genl` edge `context` sees, in print order: the
+  one open read of this pass, a census of the edges rather than of any extent."
+  [kb context]
+  (->> (res/matches-visible kb '(genl ?a ?b) context)
+       (mapcat (fn [[_ b]]
+                 (budget/spend!)
+                 [(get b '?a) (get b '?b)]))
+       (filter #(and (symbol? %) (not (sx/variable? %))))
+       distinct
+       (sort-by nm/print-key)))
+
+(defn- undeclared-arity?
+  "Does `context` see no arity for `term`: neither an exact arity `kb/relation-arity`
+  reads (an `(arity P n)` declaration or an exact-arity class membership such as
+  `unary_predicate`) nor a `variable_arity` membership?"
+  [kb term context]
+  (and (do (budget/spend!) (nil? (kb/relation-arity kb term context)))
+       (do (budget/spend!) (not (kb/isa? kb term 'variable_arity context)))))
+
+(defn- undeclared-arity-findings
+  "Audit each `genl` node `context` sees, in print order, one term at a time, stopping
+  after the first finding beyond `remaining` proves that the result bound truncated the
+  sweep."
+  [kb context remaining]
+  (loop [findings []
+         units    (for [term  (genl-nodes kb context)
+                        :when (undeclared-arity? kb term context)]
+                    {:term term})]
+    (if-let [finding (first units)]
+      (if (and remaining (>= (count findings) remaining))
+        {:status :truncated :reason :max-results :findings findings}
+        (do
+          (budget/record! :undeclared-arity finding)
+          (recur (conj findings finding) (rest units))))
+      {:status :complete :findings findings})))
+
 (def ^:private passes
   "The passes in run order, `[category audit]`: `audit` takes `kb candidate-terms context
   remaining` and answers `{:status :complete|:truncated :findings …}`.  `:max-results`
@@ -907,6 +946,8 @@
                                   (orthogonal-over-separation-findings kb context remaining))]
    [:rule-macro (fn [kb _ context remaining]
                   (rule-macro-findings kb context remaining))]
+   [:undeclared-arity (fn [kb _ context remaining]
+                        (undeclared-arity-findings kb context remaining))]
    [:twin-genls (fn [kb _ context remaining]
                   (twin-genls-findings kb context remaining))]
    [:derivable-stated-edge (fn [kb _ context remaining]
