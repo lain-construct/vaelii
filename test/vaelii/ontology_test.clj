@@ -1463,3 +1463,10 @@
   (located-or-not kb '[[situation spatial Party1] [situation aspatial Debt1]
                        [static_situation spatial CatOnMat1] [static_situation aspatial TreatyInForce1]
                        [situation spatiotemporal Battle1]]))
+
+(tu/deftest-kb an-event-is-temporal-and-may-or-may-not-be-located
+  ;; The battle of Waterloo is located; a contract expiring at midnight is not.
+  (is (true? (v/genl? kb 'event 'temporal 'CxAbstract)) "an event is temporal through situation")
+  (is (not-any? #(v/premise? kb (:id %)) (v/sentexes-matching kb '(genl event temporal) '?ctx))
+      "and the edge is not stated")
+  (located-or-not kb '[[event spatial Waterloo1] [event aspatial ContractExpiry1]]))

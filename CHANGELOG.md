@@ -718,6 +718,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
   far it moves an answer).
   *Migration:* a KB that states a situation tangible chooses one.
 
+- **An event is located or not.** CxAbstract states `event` orthogonal to `spatial` and
+  to `aspatial`: the battle of Waterloo is located, and a contract expiring at midnight
+  is not. An event stays temporal through `situation`. `ontology_test` pins both pairs
+  with a witness and the derived, unstated edge from `event` to `temporal`.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
 ### Fixes: answers
 
 - **`check` reads a reifiable application in a quoting predicate's payload as a mention.**
