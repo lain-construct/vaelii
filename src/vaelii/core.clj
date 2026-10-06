@@ -8216,7 +8216,7 @@
   the rest.
 
   Keywords, not vars.  The source identity (`vaelii.impl.source-identity`) walks every
-  symbol of a top-level form that defines no var, so a var here would put all 96 reads
+  symbol of a top-level form that defines no var, so a var here would put all 99 reads
   into the digest a reasoning image is stamped with, and an edit to `why` would discard every
   image.  A read that recover does call is reached through that call's own symbol."
   #{:all-functional-at-instant-violations :all-specified-violations :argue :ask
@@ -8225,7 +8225,7 @@
     :compare-tacticians :conflicts :context-down :context-up :contexts :contexts-of
     :contradictions :count-in-context :count-with-arg :count-with-functor
     :defeat-class :dependent-justifications :deprecated? :describe
-    :disjoint-metatypes :disjoint? :disjointness-audit :equiv-class :escalate
+    :direct-genls :direct-specs :disjoint-metatypes :disjoint? :disjointness-audit :equiv-class :escalate
     :explain-levels :export! :export-text! :exposed-clashes :find-sentexes
     :find-sentexes-all :find-terms :functional-at-instant-violations :genl? :genls
     :handle-of :handles :has-prop? :in? :inverse-of :isa? :ist :justification
