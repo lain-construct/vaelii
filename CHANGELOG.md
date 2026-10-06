@@ -252,6 +252,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
   *Class:* **Additive**.
 
+- **`disjointness-audit` sweeps types, not the relations a predicate `genl` edge names.**
+  `genl` also specializes one relation by another, as in `(genl performedBy doneBy)`,
+  and the audit swept every node of the `genl` closure, so each such relation entered
+  the sweep as a type and every pair it was in read `:unknown`. A node whose arity is two
+  or more, read from `(arity P n)` or an exact-arity class as the arity check reads it,
+  or that is declared `variable_arity`, is now left out, and `:types` counts the nodes
+  swept.
+  [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
+  *Class:* **Fix**.
+
 - **An `orthogonal` over a `genl`-related or still-separated pair is a clash of the
   declaration.** Wherever a reader reads a `genl` edge between the two, the two are one
   type, or the pair is still disjoint through a separation of two supertypes the
