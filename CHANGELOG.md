@@ -97,6 +97,26 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **`time` is a moment or a stretch of time as such, and `time_interval` is the
+  stretch.** A date is no cause: the year 2000 broke nothing, two-digit years did, at the
+  rollover. CxAbstract declares `time`, a time as in "at that time", with
+  `(genl time temporal)`, `(genl time aspatial)` and `(genl time acausal)`, and
+  `(partition time time_point time_interval)`, so a moment and a stretch are each
+  temporal, aspatial and acausal and never each other; `(disjoint time situation)` keeps
+  a time apart from what happens in it. `(genl time_point temporal)` is removed, since the
+  partition derives it. `YearFn`, `MonthFn` and `DayFn` declare `(result … time_interval)`
+  where they declared `temporal`, so a calendar term is admitted where an argument wants
+  `acausal` or `aspatial`, as is a `StartFn` moment. `ontology_test` pins the edges, the
+  disjointness and the calendar readings.
+  [time.md](docs/time.md)
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that read `(result YearFn temporal)`, `(result MonthFn temporal)` or
+  `(result DayFn temporal)` as stated reads `time_interval` instead; `temporal` still
+  derives through `time`. A KB that relied on `(genl time_point temporal)` being stated
+  reads it from `genl?`.
+
 - **`kb-integrity` runs a bounded, read-only integrity sweep in a context.** Over a finite
   set of ground candidate terms it reports the definition clashes a candidate meets (a
   passing `defnSufficient` beside a failing own `defnNecessary`), and it reports every
