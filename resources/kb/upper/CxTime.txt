@@ -131,6 +131,13 @@
 (arg contains 1 temporal)
 (arg contains 2 temporal)
 
+(comment DatetimeFn
+         "(DatetimeFn ?iso) means the interval a reduced-precision ISO 8601 string names, so (DatetimeFn \"2000\") is the year 2000, (DatetimeFn \"2000-01\") its January and (DatetimeFn \"2000-01-15T13\") one hour of its fifteenth day, down to the second. A time_interval, like YearFn, MonthFn and DayFn. An unreifiable_function application: it stays structural, so the string is readable inside the term and a reader can see which intervals contain which. (DatetimeFn \"2000-01\") and (MonthFn 2000 1) name the same interval and order against each other. See docs/context-nat.md and docs/time.md.")
+(unreifiable_function DatetimeFn)
+(unary_function DatetimeFn)
+(arg DatetimeFn 1 string)
+(result DatetimeFn time_interval)
+
 (comment DayFn
          "(DayFn ?year ?month ?day) means the calendar day, as an interval — so (DayFn 2000 1 15) is the fifteenth of January 2000. An unreifiable_function application like YearFn and MonthFn: it stays structural, so the three fields are readable inside the term and a reader can see that the day sits inside its month. One field per argument, coarsest first, so the arity is the precision. See docs/context-nat.md.")
 (unreifiable_function DayFn)

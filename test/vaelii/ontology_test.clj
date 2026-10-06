@@ -628,14 +628,19 @@
     (is (v/disjoint? kb 'time_interval 'event N)))
   (testing "and the collector relates a stretch to the dimension it is measured in"
     (is (v/ask? kb '(termsRelated time_interval Duration) 'CxUniverse)))
-  (tu/with-terms [acausalProbe aspatialProbe temporalProbe]
-    (doseq [[p t] [[acausalProbe 'acausal] [aspatialProbe 'aspatial] [temporalProbe 'temporal]]]
+  (tu/with-terms [acausalProbe aspatialProbe temporalProbe momentProbe]
+    (doseq [[p t] [[acausalProbe 'acausal] [aspatialProbe 'aspatial] [temporalProbe 'temporal]
+                   [momentProbe 'time_point]]]
       (v/assert kb (list 'unary_predicate p) 'CxUniverse)
       (v/assert kb (list 'arg p 1 t) 'CxUniverse))
     (testing "the year 2000, a month and a day read acausal"
       (is (= :stored (refusal kb (list acausalProbe '(YearFn 2000)) N)))
       (is (= :stored (refusal kb (list acausalProbe '(MonthFn 2000 1)) N)))
       (is (= :stored (refusal kb (list acausalProbe '(DayFn 2000 1 15)) N))))
+    (testing "the year 2000 spelled as an ISO string reads acausal, and is no moment"
+      (is (= :stored (refusal kb (list acausalProbe '(DatetimeFn "2000")) N)))
+      (is (= :stored (refusal kb (list acausalProbe '(DatetimeFn "2000-01-15T13")) N)))
+      (is (not= :stored (refusal kb (list momentProbe '(DatetimeFn "2000")) N))))
     (testing "the year 2000 reads aspatial and temporal"
       (is (= :stored (refusal kb (list aspatialProbe '(YearFn 2000)) N)))
       (is (= :stored (refusal kb (list temporalProbe '(YearFn 2000)) N))))
