@@ -75,6 +75,7 @@
     #(and (number? %) (not (neg? (double %))))]
    [:max-depth         "a non-negative integer" nat-int?]
    [:max-results       "a non-negative integer" nat-int?]
+   [:max-work          "a non-negative integer" nat-int?]
    [:max-derivations   "a non-negative integer" nat-int?]
    [:max-hypotheses    "a non-negative integer" nat-int?]
    [:node-budget       "a non-negative integer" nat-int?]
@@ -89,7 +90,7 @@
   whole table.  `check-values!` runs on the `assert` hot path (through
   `vaelii.core/check-assert-opts!`), where a bulk load calls it once per fact, so it reads
   the caller's `opts` — one or two keys — against this map rather than walking the table's
-  eleven entries per call."
+  twelve entries per call."
   (into {} (map (fn [[k what ok?]] [k [what ok?]])) bound-domains))
 
 (defn check-values!
@@ -109,7 +110,7 @@
   every value refusal carries."
   [opts subject]
   (when (map? opts)
-    ;; `reduce-kv` over the caller's map, not the eleven-entry table: on the `assert` hot
+    ;; `reduce-kv` over the caller's map, not the twelve-entry table: on the `assert` hot
     ;; path `opts` is a key or two and holds no bound at all, so the common case is two map
     ;; lookups that miss and the shared empty vector back — no lazy seq allocated per call.
     (let [bad (reduce-kv (fn [acc k v]

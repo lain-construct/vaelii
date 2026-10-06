@@ -5,6 +5,7 @@
   query-only definition clashes over a caller-owned finite ground term set."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.budget :as budget]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.predall :as predall]
             [vaelii.impl.resolution :as res]
@@ -20,17 +21,26 @@
      :belief  (into {} (map (fn [h] [h (v/believed? kb h 'CxUniverse)])) handles)
      :violations (v/violations kb)}))
 
-(defn- blocking-applicability-prover [block? entered release]
+(defn- clock-moving-prover
+  "A prover whose `applicable?` moves the clock past any deadline when `move?` holds of
+  the goal, then declines."
+  [move? skew]
   (reify prover-types/Prover
     (applicable? [_ _ goal _]
-      (when (block? goal)
-        (deliver entered true)
-        @release)
+      (when (move? goal) (swap! skew + 3600000000000))
       false)
     (est-bindings [_ _ _ _] 0)
     (cost [_ _ _ _] :lookup)
     (completeness [_ _ _ _] 0)
     (solve [_ _ _ _] [])))
+
+(defn- with-skewed-clock
+  "`(f skew)` with `budget/now` reading the real clock plus the nanoseconds in `skew`, so
+  a callback passes a deadline by moving `skew` and the test sleeps for nothing."
+  [f]
+  (let [skew (atom 0)]
+    (with-redefs [budget/now #(+ (System/nanoTime) (long @skew))]
+      (f skew))))
 
 (defn- observing-applicability-prover [observe? observed]
   (reify prover-types/Prover
@@ -42,7 +52,10 @@
     (completeness [_ _ _ _] 0)
     (solve [_ _ _ _] [])))
 
-(defn- chunked-answer-prover [pred entered release produced]
+(defn- chunked-answer-prover
+  "A prover answering `pred` from one 32-element chunk, whose first element moves the
+  clock past any deadline."
+  [pred skew produced]
   (reify prover-types/Prover
     (applicable? [_ _ goal _] (= pred (first goal)))
     (est-bindings [_ _ _ _] 32)
@@ -50,12 +63,15 @@
     (completeness [_ _ _ _] 100)
     (solve [_ _ _ _]
       (map (fn [n]
-             (when (zero? n)
-               (deliver entered true)
-               @release)
+             (when (zero? n) (swap! skew + 3600000000000))
              (swap! produced inc)
              {})
            (range 32)))))
+
+(defn- content-order
+  "Declaration tuples in the content order the specified pass reads them in."
+  [tuples]
+  (sort-by #(apply list %) nm/compare-form tuples))
 
 (tu/deftest-kb a-passing-sufficient-and-failing-necessary-is-reported
   (tu/with-terms [widget qualifies required]
@@ -127,14 +143,14 @@
       (v/kb-integrity kb bad 'CxUniverse)
       (is false "only an explicitly finite set is accepted")
       (catch clojure.lang.ExceptionInfo e
-        (is (= {:type :bad-args :op 'definition-inconsistencies
+        (is (= {:type :bad-args :op 'kb-integrity
                 :arg :candidate-terms}
                (ex-data e))))))
   (try
     (v/kb-integrity kb #{'?x} 'CxUniverse)
     (is false "an open term would turn the check into an enumerator")
     (catch clojure.lang.ExceptionInfo e
-      (is (= {:type :bad-args :op 'definition-inconsistencies
+      (is (= {:type :bad-args :op 'kb-integrity
               :arg :candidate-terms :term '?x}
              (ex-data e))))))
 
@@ -207,6 +223,16 @@
         (is (= reason (:reason report)) (pr-str options))
         (is (not= :audited (:status report)))))))
 
+(tu/deftest-kb a-nil-bound-is-no-bound-and-a-bad-one-is-refused
+  (is (= {:status :audited :candidate-count 0}
+         (v/kb-integrity kb #{} 'CxUniverse {:max-work nil :max-ms nil :max-results nil})))
+  (doseq [options [{:max-work -1} {:max-ms "5"} {:max-results 1.5}
+                   {:categories [:implicit-genl]} {:categories #{:not-a-category}}]]
+    (let [e (is (thrown? clojure.lang.ExceptionInfo
+                         (v/kb-integrity kb #{} 'CxUniverse options)))]
+      (is (= [:unknown-option :bad-value] ((juxt :type :mismatch) (ex-data e)))
+          (pr-str options)))))
+
 (tu/deftest-kb work-budget-reaches-inside-an-aggregate-condition
   (tu/with-terms [sized valueOf Subject]
     (doseq [n (range 100)]
@@ -223,35 +249,27 @@
 
 (tu/deftest-kb elapsed-applicability-stops-traversal-and-keeps-completed-definitions
   (tu/with-terms [widget qualifies required]
-    (let [entered  (promise)
-          release  (promise)
-          observed (atom 0)
+    (let [observed (atom 0)
           second-candidate? #(and (= qualifies (first %)) (= 8 (second %)))]
       (v/add-evaluatable kb qualifies (constantly true))
       (v/add-evaluatable kb required (constantly false))
       (v/assert kb (list 'defnSufficient widget (list qualifies '?x)) 'CxUniverse)
       (v/assert kb (list 'defnNecessary widget (list required '?x)) 'CxUniverse)
-      (v/add-prover kb (blocking-applicability-prover second-candidate? entered release))
-      (v/add-prover kb (observing-applicability-prover second-candidate? observed))
-      (let [audit (future (v/kb-integrity kb #{7 8} 'CxUniverse
-                                          {:max-results 1 :max-ms 200}))]
-        (try
-          (is (= true (deref entered 2000 ::timeout))
-              "the deliberately slow applicable? callback was reached")
-          (Thread/sleep 220)
-          (finally (deliver release true)))
-        (let [report (deref audit 2000 ::timeout)]
-          (is (not= ::timeout report))
-          (is (= :truncated (:status report)))
-          (is (= :max-ms (:reason report)))
-          (is (= [[widget 7]]
-                 (mapv (juxt :collection :term)
-                       (:definition-inconsistencies report)))
-              "the first candidate's completed finding survives the second's timeout")
-          (is (= 1 (count (:definition-inconsistencies report)))
-              "time exhaustion cannot leak progress beyond the full result allowance")
-          (is (zero? @observed)
-              "dispatch traversal stopped before the prover after the elapsed callback"))))))
+      (with-skewed-clock
+        (fn [skew]
+          (v/add-prover kb (clock-moving-prover second-candidate? skew))
+          (v/add-prover kb (observing-applicability-prover second-candidate? observed))
+          (let [report (v/kb-integrity kb #{7 8} 'CxUniverse {:max-results 1 :max-ms 200})]
+            (is (= :truncated (:status report)))
+            (is (= :max-ms (:reason report)))
+            (is (= [[widget 7]]
+                   (mapv (juxt :collection :term)
+                         (:definition-inconsistencies report)))
+                "the first candidate's completed finding survives the second's timeout")
+            (is (= 1 (count (:definition-inconsistencies report)))
+                "time exhaustion cannot leak progress beyond the full result allowance")
+            (is (zero? @observed)
+                "dispatch traversal stopped before the prover after the elapsed callback")))))))
 
 (tu/deftest-kb result-exhaustion-keeps-completed-definition-findings
   (tu/with-terms [widget qualifies required]
@@ -269,6 +287,11 @@
   (is (= {:status :audited :candidate-count 0}
          (v/kb-integrity kb #{} 'CxUniverse {:max-results 0}))
       "an empty result allowance is not exhaustion when the sweep finds nothing"))
+
+(tu/deftest-kb a-sweep-within-its-work-budget-finishes
+  (is (= {:status :audited :candidate-count 0}
+         (v/kb-integrity kb #{} 'CxUniverse {:categories #{:implicit-genl} :max-work 0}))
+      "a sweep that spends no unit finishes at a budget of none"))
 
 (tu/deftest-kb an-exact-definition-result-cap-is-complete
   (tu/with-terms [widget qualifies required]
@@ -293,26 +316,20 @@
 
 (tu/deftest-kb opaque-chunk-overrun-is-observed-before-another-pull
   (tu/with-terms [widget chunkAnswers required]
-    (let [entered  (promise)
-          release  (promise)
-          produced (atom 0)]
-      (v/add-prover kb (chunked-answer-prover chunkAnswers entered release produced))
+    (let [produced (atom 0)]
       (v/add-evaluatable kb required (constantly false))
       (v/assert kb (list 'defnSufficient widget (list chunkAnswers '?x)) 'CxUniverse)
       (v/assert kb (list 'defnNecessary widget (list required '?x)) 'CxUniverse)
-      (let [audit (future (v/kb-integrity kb #{7} 'CxUniverse {:max-ms 200}))]
-        (try
-          (is (= true (deref entered 2000 ::timeout)))
-          (Thread/sleep 220)
-          (finally (deliver release true)))
-        (let [report (deref audit 2000 ::timeout)]
-          (is (not= ::timeout report))
-          (is (= :truncated (:status report)))
-          (is (= :max-ms (:reason report)))
-          (is (= 32 @produced)
-              "one opaque chunk is one cooperative pull and may overrun before returning")
-          (is (empty? (:definition-inconsistencies report []))
-              "the elapsed post-pull checkpoint returns no unaudited answer"))))))
+      (with-skewed-clock
+        (fn [skew]
+          (v/add-prover kb (chunked-answer-prover chunkAnswers skew produced))
+          (let [report (v/kb-integrity kb #{7} 'CxUniverse {:max-ms 200})]
+            (is (= :truncated (:status report)))
+            (is (= :max-ms (:reason report)))
+            (is (= 32 @produced)
+                "one opaque chunk is one cooperative pull and may overrun before returning")
+            (is (empty? (:definition-inconsistencies report []))
+                "the elapsed post-pull checkpoint returns no unaudited answer")))))))
 
 (tu/deftest-kb sweep-decomposes-global-censuses-into-focused-audits
   (tu/with-terms [widget qualifies required likes person]
@@ -379,12 +396,12 @@
       (v/assert kb (list 'binary_predicate pred) 'CxUniverse))
     (doseq [coll [peopleA peopleB peopleC]]
       (v/assert kb (list 'unary_predicate coll) 'CxUniverse))
-    (v/assert kb (list 'predAllSpecified likesA peopleA) 'CxUniverse)
-    (v/assert kb (list 'predAllSpecified likesB peopleB) 'CxUniverse)
+    ;; Stored against content order, so a cut that kept arrival order keeps likesC.
     (v/assert kb (list 'predAllSpecified likesC peopleC) 'CxUniverse)
-    (let [[[first-pred first-indep]]
-          (mapv (juxt '?pred '?indep)
-                (v/ask kb '(predAllSpecified ?pred ?indep) 'CxUniverse))
+    (v/assert kb (list 'predAllSpecified likesB peopleB) 'CxUniverse)
+    (v/assert kb (list 'predAllSpecified likesA peopleA) 'CxUniverse)
+    (let [[first-pred first-indep]
+          (first (content-order [[likesA peopleA] [likesB peopleB] [likesC peopleC]]))
           original @#'predall/specified-violations
           calls    (atom [])]
       (with-redefs [predall/specified-violations
@@ -406,32 +423,24 @@
 
 (tu/deftest-kb elapsed-specified-audit-keeps-earlier-declaration-gaps
   (tu/with-terms [likesUntyped peopleA likesTyped peopleB person Alice]
-    (let [entered (promise)
-          release (promise)]
-      (v/assert kb (list 'binary_predicate likesUntyped) 'CxUniverse)
-      (v/assert kb (list 'binary_predicate likesTyped) 'CxUniverse)
-      (v/assert kb (list 'unary_predicate peopleA) 'CxUniverse)
-      (v/assert kb (list 'unary_predicate peopleB) 'CxUniverse)
-      (v/assert kb (list 'predAllSpecified likesUntyped peopleA) 'CxUniverse)
-      (v/assert kb (list 'predAllSpecified likesTyped peopleB) 'CxUniverse)
-      ;; Learn the audit's own stable declaration order, then make its first row a gap
-      ;; and its second row enter the timed callback. The oracle is about preservation,
-      ;; not an incidental index insertion order.
-      (let [[[first-pred first-indep] [second-pred second-indep]]
-            (mapv (juxt '?pred '?indep)
-                  (v/ask kb '(predAllSpecified ?pred ?indep) 'CxUniverse))
-            second-declaration? #(= second-indep (first %))]
-        (v/assert kb (list 'unary_predicate person) 'CxUniverse)
-        (v/assert kb (list 'arg second-pred 2 person) 'CxUniverse)
-        (v/assert kb (list second-indep Alice) 'CxUniverse)
-        (v/add-prover kb (blocking-applicability-prover second-declaration? entered release))
-        (let [audit (future (v/kb-integrity kb #{} 'CxUniverse {:max-ms 200}))]
-          (try
-            (is (= true (deref entered 2000 ::timeout)))
-            (Thread/sleep 220)
-            (finally (deliver release true)))
-          (let [report (deref audit 2000 ::timeout)]
-            (is (not= ::timeout report))
+    (with-skewed-clock
+      (fn [skew]
+        (v/assert kb (list 'binary_predicate likesUntyped) 'CxUniverse)
+        (v/assert kb (list 'binary_predicate likesTyped) 'CxUniverse)
+        (v/assert kb (list 'unary_predicate peopleA) 'CxUniverse)
+        (v/assert kb (list 'unary_predicate peopleB) 'CxUniverse)
+        (v/assert kb (list 'predAllSpecified likesUntyped peopleA) 'CxUniverse)
+        (v/assert kb (list 'predAllSpecified likesTyped peopleB) 'CxUniverse)
+        ;; The audit reads declarations in content order: make its first row a gap and its
+        ;; second row enter the clock-moving callback.
+        (let [[[first-pred first-indep] [second-pred second-indep]]
+              (content-order [[likesUntyped peopleA] [likesTyped peopleB]])
+              second-declaration? #(= second-indep (first %))]
+          (v/assert kb (list 'unary_predicate person) 'CxUniverse)
+          (v/assert kb (list 'arg second-pred 2 person) 'CxUniverse)
+          (v/assert kb (list second-indep Alice) 'CxUniverse)
+          (v/add-prover kb (clock-moving-prover second-declaration? skew))
+          (let [report (v/kb-integrity kb #{} 'CxUniverse {:max-ms 200})]
             (is (= :truncated (:status report)))
             (is (= :max-ms (:reason report)))
             (is (= {['predAllSpecified first-pred first-indep]
@@ -665,6 +674,23 @@
             "the exclusion names the separation it rests on")
         (is (= before (state-snapshot kb)) "a suggestion asserts nothing")))))
 
+(tu/deftest-kb categories-reach-a-candidate-pass-the-census-passes-would-starve
+  (tu/with-terms [tangible_like intangible_like spatiotemporal_like temporal_like
+                  atemporal_like novel_kind]
+    (two-partition-shape! kb {:tangible tangible_like :intangible intangible_like
+                              :spatiotemporal spatiotemporal_like :temporal temporal_like
+                              :atemporal atemporal_like :kind novel_kind})
+    (let [run    #(v/kb-integrity kb #{novel_kind} 'CxUniverse %)
+          only   #{:implicit-genl}
+          needed (first (filter #(not= :truncated (:status (run {:categories only :max-work %})))
+                                (range 0 2000)))]
+      (is (= [:implicit-genl] (keys (dissoc (run {:categories only}) :status :candidate-count)))
+          "the other categories' passes do not run")
+      (is (some? needed))
+      (is (= [novel_kind] (map :term (:implicit-genl (run {:categories only :max-work needed})))))
+      (is (= :truncated (:status (run {:max-work needed})))
+          "every category at the same budget spends it in the census passes ahead"))))
+
 (tu/deftest-kb a-stated-or-derivable-genl-is-not-suggested
   (tu/with-terms [tangible_like intangible_like spatiotemporal_like temporal_like
                   atemporal_like novel_kind abstract_kind]
@@ -725,3 +751,110 @@
                         partials))
             (is (some #(= (subvec in-order 0 1) (shown %)) partials)
                 "a budget exhausted between the two terms keeps the first finding")))))))
+
+;; ---- orthogonal-over-separation ---------------------------------------------
+
+(defn- shown-orthogonals
+  "Each `:orthogonal-over-separation` finding of `report` as its `orthogonal` sentence
+  and the set of the sentences separating the pair, unordered pairs read as sets."
+  [report]
+  (mapv (fn [{:keys [orthogonal separated-by]}]
+          [(set (:sentence orthogonal)) (into #{} (map (comp set :sentence)) separated-by)])
+        (:orthogonal-over-separation report)))
+
+(tu/deftest-kb an-orthogonal-over-a-partitioned-pair-is-reported
+  (tu/with-terms [tangible_like intangible_like]
+    (let [cover (list 'partition 'thing tangible_like intangible_like)
+          orth  (list 'orthogonal tangible_like intangible_like)]
+      (v/assert kb cover 'CxUniverse)
+      (v/assert kb orth 'CxUniverse)
+      (is (not (v/disjoint? kb tangible_like intangible_like))
+          "the orthogonal exempts the pair, so disjoint? cannot show the conflict")
+      (let [before (state-snapshot kb)
+            report (v/kb-integrity kb #{} 'CxUniverse)
+            [found & more] (:orthogonal-over-separation report)]
+        (is (= :gap (:status report)))
+        (is (nil? more) "exactly one finding")
+        (is (= [[(set orth) #{(set cover)}]] (shown-orthogonals report))
+            "the finding names the orthogonal and the partition it undoes")
+        (is (= (v/handle-of kb orth 'CxUniverse) (:handle (:orthogonal found)))
+            "the orthogonal is named by handle")
+        (is (= [(v/handle-of kb cover 'CxUniverse)] (map :handle (:separated-by found)))
+            "the separation is named by handle")
+        (is (= before (state-snapshot kb)) "the audit stores, believes and files nothing")))))
+
+(tu/deftest-kb an-orthogonal-over-an-unseparated-pair-is-not-reported
+  (tu/with-terms [spatial_like temporal_like]
+    (v/assert kb (list 'genl spatial_like 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl temporal_like 'thing) 'CxUniverse)
+    (v/assert kb (list 'orthogonal spatial_like temporal_like) 'CxUniverse)
+    (is (= {:status :audited :candidate-count 0} (v/kb-integrity kb #{} 'CxUniverse)))))
+
+(tu/deftest-kb every-form-of-stated-separation-is-reported
+  (tu/with-terms [left_kind right_kind upper_left upper_right parent_kind kind_metatype
+                  roster_a roster_b]
+    (testing "an explicit disjoint over the pair"
+      (v/assert kb (list 'disjoint left_kind right_kind) 'CxUniverse)
+      (v/assert kb (list 'orthogonal left_kind right_kind) 'CxUniverse)
+      (is (= [[(set (list 'orthogonal left_kind right_kind))
+               #{(set (list 'disjoint left_kind right_kind))}]]
+             (shown-orthogonals (v/kb-integrity kb #{} 'CxUniverse)))))
+    (v/retract! kb (v/handle-of kb (list 'disjoint left_kind right_kind) 'CxUniverse))
+    (testing "a separating roster naming a supertype of each"
+      (v/assert kb (list 'genl left_kind upper_left) 'CxUniverse)
+      (v/assert kb (list 'genl right_kind upper_right) 'CxUniverse)
+      (v/assert kb (list 'separating 'thing upper_left upper_right) 'CxUniverse)
+      (is (= [[(set (list 'orthogonal left_kind right_kind))
+               #{(set (list 'separating 'thing upper_left upper_right))}]]
+             (shown-orthogonals (v/kb-integrity kb #{} 'CxUniverse)))))
+    (v/retract! kb (v/handle-of kb (list 'separating 'thing upper_left upper_right)
+                                'CxUniverse))
+    (testing "a sibling_disjoint parent"
+      (v/assert kb (list 'genl roster_a parent_kind) 'CxUniverse)
+      (v/assert kb (list 'genl roster_b parent_kind) 'CxUniverse)
+      (v/assert kb (list 'sibling_disjoint parent_kind) 'CxUniverse)
+      (v/assert kb (list 'orthogonal roster_a roster_b) 'CxUniverse)
+      (is (some #(= [(set (list 'orthogonal roster_a roster_b))
+                     #{(set (list 'sibling_disjoint parent_kind))}] %)
+                (shown-orthogonals (v/kb-integrity kb #{} 'CxUniverse)))))
+    (testing "a disjoint_metatype holding both"
+      (v/assert kb (list 'disjoint_metatype kind_metatype) 'CxUniverse)
+      (v/assert kb (list kind_metatype left_kind) 'CxUniverse)
+      (v/assert kb (list kind_metatype right_kind) 'CxUniverse)
+      (is (some #(= [(set (list 'orthogonal left_kind right_kind))
+                     #{(set (list 'disjoint_metatype kind_metatype))
+                       (set (list kind_metatype left_kind))
+                       (set (list kind_metatype right_kind))}] %)
+                (shown-orthogonals (v/kb-integrity kb #{} 'CxUniverse)))))))
+
+(tu/deftest-kb orthogonal-over-separation-findings-respect-context-visibility
+  (tu/with-terms [tangible_like intangible_like CxHidden]
+    (v/assert kb (list 'genlCx CxHidden 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'orthogonal tangible_like intangible_like) 'CxUniverse)
+    (v/assert kb (list 'partition 'thing tangible_like intangible_like) CxHidden)
+    (is (= :audited (:status (v/kb-integrity kb #{} 'CxUniverse)))
+        "a separation asserted below the audit context is not seen from it")
+    (is (= 1 (count (:orthogonal-over-separation (v/kb-integrity kb #{} CxHidden)))))))
+
+(tu/deftest-kb orthogonal-over-separation-findings-truncate-under-every-bound
+  (tu/with-terms [left_part right_part middle_part]
+    (v/assert kb (list 'partition 'thing left_part middle_part right_part) 'CxUniverse)
+    (v/assert kb (list 'orthogonal left_part middle_part) 'CxUniverse)
+    (v/assert kb (list 'orthogonal middle_part right_part) 'CxUniverse)
+    (testing "a result cap below the finding count keeps the completed prefix"
+      (let [report (v/kb-integrity kb #{} 'CxUniverse {:max-results 1})]
+        (is (= :truncated (:status report)))
+        (is (= :max-results (:reason report)))
+        (is (= 1 (count (:orthogonal-over-separation report))))))
+    (testing "an exact result cap is complete"
+      (is (= 2 (count (:orthogonal-over-separation
+                       (v/kb-integrity kb #{} 'CxUniverse {:max-results 2}))))))
+    (testing "work exhaustion inside the pass is truncated, never audited, and keeps the
+              findings completed before it"
+      (let [run    #(v/kb-integrity kb #{} 'CxUniverse {:max-work %})
+            needed (first (filter #(= :gap (:status (run %))) (range 0 2000)))]
+        (is (some? needed) "some finite work budget completes the sweep")
+        (let [partials (map run (range 0 (or needed 0)))]
+          (is (every? #(and (= :truncated (:status %)) (= :max-work (:reason %))) partials))
+          (is (some #(= 1 (count (:orthogonal-over-separation %))) partials)
+              "a budget exhausted between the two orthogonals keeps the first finding"))))))

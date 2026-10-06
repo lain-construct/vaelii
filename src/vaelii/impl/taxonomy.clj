@@ -1089,9 +1089,8 @@
     ;; read off the genl closure (`separation-frame`), never materialized, exactly
     ;; as the metatype clique reads its members.
     :sib-disjoint (update t :sibling-disjoint conj a)              ; a = c
-    ;; `:orthogonal` exempts one pair the sibling clique or a `disjoint_metatype` would
-    ;; otherwise separate; stored as adjacency exactly as `:disjoint-index` is, so the read
-    ;; is one map lookup behind the `genl-related?` guard it sits beside.
+    ;; `:orthogonal` exempts one pair from every separation; stored as adjacency exactly
+    ;; as `:disjoint-index` is, so the read is one map lookup behind each arm's guards.
     :orthogonal (index-symmetric t :orthogonal-index a true)        ; a = #{x y}
     ;; `:cover` is one whole-and-parts declaration: `a` is `[whole parts]` with the parts
     ;; sorted and `b` is the `cover-kinds` keyword saying which of the two claims it
@@ -4301,8 +4300,8 @@
     (cache-entry-visible? tax k context)))
 
 (defn- exemption
-  "`(fn [x y])` → does an `orthogonal` over the pair `x`, `y` exempt it from the clique
-  marks for a reader at `context`: one with a supporter `context` reads
+  "`(fn [x y])` → does an `orthogonal` over the pair `x`, `y` exempt it from every
+  separation for a reader at `context`: one with a supporter `context` reads
   (`entry-visible-at?`), or, for an unscoped `context`, any stored one.  One map lookup
   when no `orthogonal` names `x`."
   [tax context]
@@ -4732,35 +4731,39 @@
   its two `[:member m _]` memberships, each `[:sib-disjoint c]` parent and each separating
   cover's `[:cover [whole parts] kind]`, over a supertype `x` of `a` and a different
   supertype `y` of `b`.  The entries `disjointness-test` answers true through, under its
-  guards, read off the same frame; empty when `a` and `b` are not disjoint at `context`."
-  [tax a b context]
-  (let [{:keys [seps metas sibs parts pair-vis? member-vis?]} (separation-frame tax a context)]
-    (if (and (empty? seps) (empty? metas) (empty? sibs) (empty? parts))
-      #{}
-      ;; global genl-relatedness, for the reason `disjointness-test` states
-      (let [bs      (genls-at tax b context)
-            exempt? (exemption tax context)
-            sep?    (fn [x y] (and (not= x y)
-                                   (not (genl?-global tax x y)) (not (genl?-global tax y x))
-                                   (not (exempt? x y))))]
-        (into #{}
-              cat
-              [(for [[x ys] seps, y ys
-                     :when (and (not= x y) (contains? bs y) (pair-vis? x y) (not (exempt? x y)))]
-                 [:disjoint #{x y}])
-               (for [[m ms in-a] metas
-                     x in-a
-                     y ms
-                     :when (and (contains? bs y) (member-vis? m y) (sep? x y))
-                     k [[:metatype m] [:member m x] [:member m y]]]
-                 k)
-               (for [[c under-c? below-a] sibs
-                     :when (some (fn [x] (some #(and (not= % c) (under-c? %) (sep? x %)) bs))
-                                 below-a)]
-                 [:sib-disjoint c])
-               (for [[ps in-a k] parts
-                     :when (some (fn [x] (some #(and (contains? bs %) (sep? x %)) ps)) in-a)]
-                 k)])))))
+  guards, read off the same frame; empty when `a` and `b` are not disjoint at `context`.
+
+  `exempt?` is the `orthogonal` read, as for `disjointness-test`: by default the pairs
+  `context` reads exempted; `(constantly false)` names every separation stated over the
+  pair, the ones an `orthogonal` lifts included."
+  ([tax a b context] (separating-keys tax a b context (exemption tax context)))
+  ([tax a b context exempt?]
+   (let [{:keys [seps metas sibs parts pair-vis? member-vis?]} (separation-frame tax a context)]
+     (if (and (empty? seps) (empty? metas) (empty? sibs) (empty? parts))
+       #{}
+       ;; global genl-relatedness, for the reason `disjointness-test` states
+       (let [bs      (genls-at tax b context)
+             sep?    (fn [x y] (and (not= x y)
+                                    (not (genl?-global tax x y)) (not (genl?-global tax y x))
+                                    (not (exempt? x y))))]
+         (into #{}
+               cat
+               [(for [[x ys] seps, y ys
+                      :when (and (not= x y) (contains? bs y) (pair-vis? x y) (not (exempt? x y)))]
+                  [:disjoint #{x y}])
+                (for [[m ms in-a] metas
+                      x in-a
+                      y ms
+                      :when (and (contains? bs y) (member-vis? m y) (sep? x y))
+                      k [[:metatype m] [:member m x] [:member m y]]]
+                  k)
+                (for [[c under-c? below-a] sibs
+                      :when (some (fn [x] (some #(and (not= % c) (under-c? %) (sep? x %)) bs))
+                                  below-a)]
+                  [:sib-disjoint c])
+                (for [[ps in-a k] parts
+                      :when (some (fn [x] (some #(and (contains? bs %) (sep? x %)) ps)) in-a)]
+                  k)]))))))
 
 (defn separating-pairs
   "Every **ordered** pair `[x y]`, `x` ≠ `y`, that a visible declaration separates —
