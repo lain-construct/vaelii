@@ -1501,3 +1501,21 @@
 ;; disjointness (vaelii#95, fix(quality)).
 (set/monotonic (partition thing spatial aspatial))
 (set/monotonic (partition thing temporal atemporal))
+;; The three partitions cut thing along three independent axes — location in some space,
+;; location in time, mass — so a part of one may overlap a part of another, and neither
+;; subsumes the other.  Stated, each pair reads :orthogonal without waiting for a shared
+;; instance.  A witness of the overlap per pair, and of neither side holding the other:
+;; a rock is spatial and temporal; the line y=x is only spatial; a fluent is only temporal.
+(set/monotonic (orthogonal spatial temporal))
+;; a number is aspatial and atemporal (nowhere_never); a fluent is aspatial and temporal.
+(set/monotonic (orthogonal aspatial atemporal))
+;; the line y=x is spatial and atemporal, located in the Cartesian plane and in no time.
+(set/monotonic (orthogonal spatial atemporal))
+;; a fluent is aspatial and temporal: it holds over time and is located in no space.
+(set/monotonic (orthogonal aspatial temporal))
+;; a region of space is intangible and spatial.
+(set/monotonic (orthogonal intangible spatial))
+;; a fluent is intangible and temporal.
+(set/monotonic (orthogonal intangible temporal))
+;; a region of space is intangible and spatiotemporal, occupying space without mass.
+(set/monotonic (orthogonal intangible spatiotemporal))

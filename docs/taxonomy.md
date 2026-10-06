@@ -988,7 +988,11 @@ The declaration stands alone; the shared instance settles only a pair the taxono
 the separations leave open.
 
 `disjointness-audit kb` runs the classification over every unordered pair of distinct
-types and returns `{:types :pairs :by-status :pairs-data}`. The `:unknown` pairs are the
+types and returns `{:types :pairs :by-status :pairs-data}`. A relation that a `genl`
+edge between relations names, such as `performedBy` under `doneBy`, is a node of the
+hierarchy and not a type, so the audit leaves it out. A node is such a relation by an
+arity of two or more, read from `(arity P n)` or an exact-arity class, or by a
+`variable_arity` declaration. The `:unknown` pairs are the
 candidates for a missing `disjoint` or `orthogonal` declaration: no subsumption relates
 them, no declaration separates them, and neither a declaration nor a shared instance
 shows they can overlap — so the modeller decides which they are. The audit reads only, and writes nothing.
