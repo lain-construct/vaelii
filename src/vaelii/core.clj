@@ -5379,8 +5379,9 @@
   `candidate-terms` is a finite set of ground terms (`:bad-args` otherwise).  Answers
   `{:status :audited :candidate-count n}` when no pass finds anything, `:status :gap` with
   the non-empty categories among `:definition-inconsistencies`,
-  `:all-specified-violations`, `:genl-arg-widening`, `:not-under-thing`, `:implicit-genl`
-  and `:orthogonal-over-separation`, or `:status :truncated` with its `:reason` and the
+  `:all-specified-violations`, `:genl-arg-widening`, `:not-under-thing`, `:implicit-genl`,
+  `:orthogonal-over-separation`, `:twin-genls`, `:derivable-stated-edge` and
+  `:disjoint-could-be-partition`, or `:status :truncated` with its `:reason` and the
   findings kept when a bound runs out.  `options` takes `:max-work`, `:max-ms` and
   `:max-results`, and `:categories`, a set of category keys to run.  Stores and files
   nothing.  See docs/integrity.md."

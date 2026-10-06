@@ -161,13 +161,19 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; thing, and a suggested (genl X P) for every candidate
                                                 ; type a visible cover forces under P that the closure
                                                 ; misses, and every visible (orthogonal a b) a stated
-                                                ; separation of the pair is lifted by. Returns
+                                                ; separation of the pair is lifted by, plus three
+                                                ; review-only smells: sibling types sharing one direct
+                                                ; genl set, stated genl/disjoint edges that derive
+                                                ; without themselves, and disjoint pairs a known cover
+                                                ; exhausts (a candidate partition). Returns
                                                 ; {:status :audited :candidate-count n}
                                                 ; when clean, or :status :gap plus any of the sparse
                                                 ; categories :all-specified-violations,
                                                 ; :definition-inconsistencies, :genl-arg-widening,
-                                                ; :not-under-thing, :implicit-genl and
-                                                ; :orthogonal-over-separation. opts may bound :max-work,
+                                                ; :not-under-thing, :implicit-genl,
+                                                ; :orthogonal-over-separation, :twin-genls,
+                                                ; :derivable-stated-edge and
+                                                ; :disjoint-could-be-partition. opts may bound :max-work,
                                                 ; :max-ms and :max-results, and :categories names the
                                                 ; passes to run; exhaustion is :truncated,
                                                 ; never :audited. Work/time check between opaque callbacks
