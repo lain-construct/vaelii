@@ -291,6 +291,28 @@
     (is (= (:edged (:taxonomy q)) (:rooted (:taxonomy q)))
         "every name with a genl edge reaches the root")))
 
+(def ^:private placed-unary-predicates
+  "Nine shipped `unary_predicate` terms each placed under `thing` by a stated `genl` edge,
+  so the `:not-under-thing` sweep (docs/integrity.md) reports none of them.  The seven
+  biology properties the sweep does report (alive, dead, mortal, asleep, awake,
+  breathes_air, warm_blooded) are held outside the hierarchy by
+  `a-type-is-a-noun-and-a-property-is-not-a-type`."
+  '#{initially functional_at_instant
+     abducible_predicate closed_extent_predicate decontextualized_predicate
+     target_following_predicate forced_decontextualized_predicate
+     sibling_disjoint not})
+
+(tu/deftest-kb every-placed-unary-predicate-reaches-thing
+  ;; `islands` above counts names WITH a genl edge, so a unary predicate carrying none is
+  ;; never an island.  The `:not-under-thing` sweep reads the declaration instead, over a
+  ;; caller-owned candidate set, from CxWell, which sees every upper and middle context.
+  (let [report (v/kb-integrity kb placed-unary-predicates 'CxWell)]
+    (is (= (count placed-unary-predicates) (:candidate-count report)))
+    (is (empty? (:not-under-thing report))
+        (str "each reaches thing by a genl path visible from CxWell; "
+             (count (:not-under-thing report)) " do not: "
+             (pr-str (mapv :term (:not-under-thing report)))))))
+
 (def ^:private type-relating-predicates
   "The predicates whose every argument is a TYPE (or a predicate) the claim relates, so the
   claim is meaningful only in a context that sees all of them at once.  A `genl`, `disjoint`,
