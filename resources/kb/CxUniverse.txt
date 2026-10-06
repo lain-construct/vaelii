@@ -65,12 +65,13 @@
 (typeGenl invertebrate_class invertebrate)
 
 (comment plant_class
-         "(plant_class ?type) means that ?type is one of the folk classes of plant, such as tree and flower. A disjoint_metatype, so its members are pairwise disjoint and an oak is never a rose.")
+         "(plant_class ?type) means that ?type is one of the folk classes of plant, such as tree, flower and grass. A disjoint_metatype, so its members are pairwise disjoint: an oak is never a rose, and grass is neither. Not a partition of plant, since a fern or a moss is none of the three.")
 (unary_predicate plant_class)
 (genlArg plant_class 1 plant)
 (metatype plant_class)
 (set/monotonic (disjoint_metatype plant_class))
 (plant_class flower)
+(plant_class grass)
 (plant_class tree)
 (typeGenl plant_class plant)
 

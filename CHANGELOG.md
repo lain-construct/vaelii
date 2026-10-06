@@ -247,9 +247,9 @@ it — `git show v0.16.0:CHANGELOG.md`.
   species, so no organism is of two species, and is disjoint from
   `folk_biological_class`. Both new metatypes are below `type`, since each member is a
   first-order type. The disjointness audit's unknown pairs among the types below
-  `organism` fall from 248 to 4, the four left being `grass` against the other plant
-  kinds. `ontology_test` pins the separations, the coverage half and the remaining
-  unknown pairs.
+  `organism` fall from 248 to 0: `grass` is a `plant_class` beside `tree` and `flower`.
+  `ontology_test` pins the separations, the coverage half and that no pair below
+  `organism` is left unknown.
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).

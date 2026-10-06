@@ -1062,17 +1062,16 @@
     (v/assert kb (list 'cow Bessie) 'CxUniverse)
     (is (true? (tu/stored-in-clash? kb (list 'horse Bessie) 'CxUniverse)))))
 
-(tu/deftest-kb the-folk-taxonomy-settles-every-organism-pair-but-grass
-  ;; Every pair of the types below organism is subsumption-related or separated, except
-  ;; grass against the other plant kinds: grass is a folk life-form that is neither a
-  ;; species nor one of the plant classes stated.
+(tu/deftest-kb the-folk-taxonomy-settles-every-organism-pair
+  ;; Every pair of the types below organism is subsumption-related or separated.  grass is
+  ;; a plant_class beside tree and flower, so it is apart from each and from oak and rose.
   (let [org     (set (filter #(v/genl? kb % 'organism) (v/types kb)))
         unknown (for [{:keys [a b status]} (:pairs-data (v/disjointness-audit kb))
                       :when (and (org a) (org b) (= :unknown status))]
                   (set [a b]))]
     (is (every? org folk-species) "every species is an organism")
-    (is (= #{#{'grass 'flower} #{'grass 'oak} #{'grass 'rose} #{'grass 'tree}}
-           (set unknown)))))
+    (is (true? (v/disjoint? kb 'grass 'oak)) "grass is not a tree, so not an oak")
+    (is (= [] (vec unknown)))))
 
 ;; ---- folk_species is on the forced-monotonic roster ------------------------
 ;; A species membership is definitional, so it is held :monotonic and a rule concluding a
