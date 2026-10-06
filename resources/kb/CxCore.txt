@@ -173,7 +173,6 @@
 (comment boolean "True or false, written out.")
 (comment character "A single character, written \\a. Not a one-letter string: the two are separate EDN kinds and neither is below the other.")
 (comment symbol  "A name — the term written in an argument position, whatever that term denotes. Mention-only: see the note above its declaration.")
-(genl string thing)
 (genl number thing)
 (genl integer number)
 (genl positive_integer integer)
@@ -1128,7 +1127,6 @@
 (variable_arity or)
 
 (comment relation            "The type of every operator that may be applied to arguments. function and truth_valued_relation partition it: an application of a function denotes or evaluates to a value, while an application of a truth_valued_relation is true or false.")
-(genl relation thing)
 
 (comment function            "The type of all functions — the reifiable and unreifiable heads a non-atomic term is built from. A function is a relation, and is not a predicate: it denotes or evaluates to a value where a predicate holds or fails.")
 

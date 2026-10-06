@@ -619,6 +619,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **CxCore no longer states `(genl string thing)` or `(genl relation thing)`.** Both
+  edges derive without the statement: from `CxUniverse` through CxAbstract's
+  `expression` chain, and from CxCore and every band context through the `genlArg`
+  declarations that take each type as an argument type. The other `thing` edges
+  `:derivable-stated-edge` reports stay stated, since CxCore and the band contexts reach
+  `thing` from those types only through them.
+
+  *Class:* **Internal**.
+
 ### Internal
 
 - **The `orthogonal` comments and taxonomy.md name every separation the declaration
