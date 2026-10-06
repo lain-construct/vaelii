@@ -108,7 +108,9 @@ it — `git show v0.16.0:CHANGELOG.md`.
   CxMeasure's. `(genl time_point temporal)` is removed, since the partition derives it.
   `YearFn`, `MonthFn` and `DayFn` declare `(result … time_interval)` where they declared
   `temporal`, so a calendar term is admitted where an argument wants `acausal` or
-  `aspatial`, as is a `StartFn` moment. `ontology_test` pins the edges, the
+  `aspatial`, as is a `StartFn` moment. CxTime declares `DatetimeFn`, the ISO-string
+  spelling of a calendar interval, a `unary_function` with `(arg DatetimeFn 1 string)`
+  and `(result DatetimeFn time_interval)`. `ontology_test` pins the edges, the
   disjointness and the calendar readings.
   [time.md](docs/time.md)
 
