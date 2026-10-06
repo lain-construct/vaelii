@@ -627,14 +627,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
-- **CxCore no longer states `(genl string thing)`.** The edge derives without the
-  statement: from `CxUniverse` through CxAbstract's `expression` chain, and from CxCore
-  and every band context through the `genlArg` declarations that take `string` as an
-  argument type. `(genl relation thing)` stays stated although `:derivable-stated-edge`
-  reports it: without the statement, CxCore loaded in authored order holds one more
-  justification of `(type binary_predicate)` than CxCore reloaded in content order. The
-  other `thing` edges `:derivable-stated-edge` reports stay stated, since CxCore and the
-  band contexts reach `thing` from those types only through them.
+- **CxCore no longer states eight `genl` edges the `expression` chain derives.** The
+  edges are `(genl string thing)`, `(genl number thing)`, `(genl keyword thing)`,
+  `(genl boolean thing)`, `(genl character thing)`, `(genl denotational_term thing)`,
+  `(genl formula thing)` and `(genl context nowhere_never)`. Each one derives without the
+  statement, from CxCore and from every band context, through `expression` and
+  `unrepresented_term` in CxCore. `:derivable-stated-edge` still reports three edges, which
+  stay stated. Without `(genl relation thing)`, CxCore loaded in authored order holds
+  different justifications from CxCore reloaded in content order. `(genl organism
+  biological)` is installed by a `separating` roster in CxAbstract, which CxOrganism does
+  not see. `(genl relation_application thing)` is the third.
 
   *Class:* **Internal**.
 
