@@ -658,6 +658,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **CxCore types `functionCorrespondingPredicate`'s optional third position.**
+  `(argAndRest functionCorrespondingPredicate 3 positive_integer)` types the argument
+  number of the predicate as `commutativeInArgs` types its positions, so `:missing-arg`
+  no longer reports `functionCorrespondingPredicate`.
+
+  *Class:* **Additive**.
+
 - **CxCore types every position of `termsRelated` with one `(args termsRelated thing)`.**
   The declaration replaces `arg` declarations for positions 1 and 2, which left the
   variable-arity tail untyped, so `:missing-arg` no longer reports `termsRelated`.
