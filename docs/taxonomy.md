@@ -1792,8 +1792,9 @@ Four restrictions keep the arm to what it can actually prove:
   separates it from every predicate, text and a number each being a thing no relation
   is, and `number` carrying `integer` with it.
   `symbol` deliberately carries neither: a name is exactly how a predicate is written, so
-  the disjointness would be false. CxCore adds `(disjoint function predicate)`, which is
-  what `function`'s own comment has always said in prose, and it is what refuses
+  the disjointness would be false. CxCore states `(partition relation function
+  predicate)`, whose separation half is what `function`'s own comment has always said
+  in prose, and it is what refuses
   `(implies (result ?f ?t) (genl ?f ?t))`: `?f` is asked for a function at one end and
   a kind at the other.
 - **Two constraint kinds of the four**, and the other two are a *result* rather than a

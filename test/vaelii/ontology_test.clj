@@ -824,7 +824,15 @@
     [disjoint metal stone CxAbstract "disjoint_metatype stuff_type_by_substance"]
     [disjoint metal wood CxAbstract "disjoint_metatype stuff_type_by_substance"]
     [disjoint wood glass_stuff CxAbstract "disjoint_metatype stuff_type_by_substance"]
-    [disjoint wood stone CxAbstract "disjoint_metatype stuff_type_by_substance"]])
+    [disjoint wood stone CxAbstract "disjoint_metatype stuff_type_by_substance"]
+    [genl function relation CxCore "partition relation function predicate"]
+    [genl predicate relation CxCore "partition relation function predicate"]
+    [disjoint function predicate CxCore "partition relation function predicate"]
+    [genl reifiable_function function CxCore "partition function reifiable_function unreifiable_function"]
+    [genl unreifiable_function function CxCore "partition function reifiable_function unreifiable_function"]
+    [genl fixed_order_type unary_predicate CxCore "partition unary_predicate fixed_order_type variable_order_type"]
+    [genl variable_order_type unary_predicate CxCore "partition unary_predicate fixed_order_type variable_order_type"]
+    [genl equivalence_relation binary_predicate CxCore "intersection equivalence_relation reflexive symmetric transitive; reflexive genl binary_predicate"]])
 
 (tu/deftest-kb the-kb-states-no-relation-it-already-derives
   ;; Each relation is read from the context that held the removed sentence, so a removal
@@ -959,3 +967,47 @@
   (testing "while a biological thing stays apart from a substance"
     (is (true? (v/disjoint? kb 'organism 'substance)))
     (is (true? (v/disjoint? kb 'body_part 'substance)))))
+
+;; ---- the relation vocabulary: what divides a relation ---------------------
+;; A relation is a function or a predicate, a function is reifiable or not, and a
+;; unary_predicate is of one fixed order or of variable order.  Each is a partition, so
+;; the parts are separated and cover their whole: a member denied every part but one is
+;; concluded the last.
+
+(tu/deftest-kb function-and-predicate-partition-relation
+  (is (true? (v/disjoint? kb 'function 'predicate 'CxCore)))
+  (testing "a relation that is not a predicate is a function — the coverage half"
+    (tu/with-terms [relatesTo]
+      (v/assert kb (list 'relation relatesTo) 'CxUniverse)
+      (v/assert kb (list 'not (list 'predicate relatesTo)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'function relatesTo) 'CxUniverse))))))
+
+(tu/deftest-kb reifiable-and-unreifiable-partition-function
+  (is (true? (v/disjoint? kb 'reifiable_function 'unreifiable_function 'CxCore)))
+  (is (true? (v/genl? kb 'reifiable_function 'function 'CxCore)))
+  (is (true? (v/genl? kb 'unreifiable_function 'function 'CxCore)))
+  (testing "the separation is not quoting_function's: that mark crosses both parts"
+    (is (not (v/disjoint? kb 'quoting_function 'reifiable_function)))
+    (is (not (v/disjoint? kb 'quoting_function 'unreifiable_function)))))
+
+(tu/deftest-kb fixed-and-variable-order-partition-unary-predicate
+  (is (true? (v/disjoint? kb 'fixed_order_type 'variable_order_type 'CxCore)))
+  (is (true? (v/genl? kb 'fixed_order_type 'unary_predicate 'CxCore)))
+  (is (true? (v/genl? kb 'variable_order_type 'unary_predicate 'CxCore)))
+  (testing "so a type of one order is never of variable order"
+    (is (true? (v/disjoint? kb 'metatype 'variable_order_type 'CxCore)))))
+
+(tu/deftest-kb an-equivalence-relation-is-the-intersection-of-its-three-marks
+  (is (true? (v/genl? kb 'equivalence_relation 'reflexive 'CxCore)))
+  (is (true? (v/genl? kb 'equivalence_relation 'symmetric 'CxCore)))
+  (is (true? (v/genl? kb 'equivalence_relation 'transitive 'CxCore)))
+  (testing "a predicate carrying all three marks is concluded an equivalence_relation"
+    (tu/with-terms [sameShadeAs]
+      (doseq [m '[reflexive symmetric transitive]]
+        (v/assert kb (list m sameShadeAs) 'CxUniverse))
+      (is (true? (v/ask? kb (list 'equivalence_relation sameShadeAs) 'CxUniverse)))))
+  (testing "and one carrying two of them is not"
+    (tu/with-terms [nearTo]
+      (v/assert kb (list 'reflexive nearTo) 'CxUniverse)
+      (v/assert kb (list 'symmetric nearTo) 'CxUniverse)
+      (is (not (v/ask? kb (list 'equivalence_relation nearTo) 'CxUniverse))))))

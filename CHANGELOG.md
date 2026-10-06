@@ -209,6 +209,25 @@ it — `git show v0.16.0:CHANGELOG.md`.
   shipped `orthogonal` is seen.
   *Breaks:* `(disjoint organism artifact)`
 
+- **CxCore divides the relation vocabulary by partitions and defines `equivalence_relation`
+  as an intersection.** `(partition relation function predicate)` replaces
+  `(disjoint function predicate)` and the two `genl` edges to `relation`, so a relation
+  denied being a predicate is concluded a function. `(partition function
+  reifiable_function unreifiable_function)` separates the two minting marks, which
+  nothing separated before, and installs their edges to `function`. `(partition
+  unary_predicate fixed_order_type variable_order_type)` separates the two order kinds
+  and installs their edges to `unary_predicate`, so a metatype is never of variable
+  order. `(intersection equivalence_relation reflexive symmetric transitive)` concludes
+  `(equivalence_relation P)` of a predicate carrying all three marks and places
+  `equivalence_relation` below each of them, so its stated edge to `binary_predicate` is
+  removed; the three forward rules that materialize the marks stay. `ontology_test`
+  pins each division and the eight removed sentences.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that declared one function both `reifiable_function` and
+  `unreifiable_function` now reads a clash; drop the wrong mark.
+
 ### Fixes: answers
 
 - **`query {:proof? true}` and `argue` return a proof when a rewrite's residual repeats

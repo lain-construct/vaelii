@@ -79,7 +79,9 @@ however atomic its value reads** — the shape is the trap, since a measure look
 thing you would want a name for.
 
 Both marks classify: `(reifiable_function F)` and `(unreifiable_function F)` each say F is a
-`function`, which is what `(disjoint function predicate)` reaches. The choice changes
+`function`, which is what `(partition relation function predicate)` separates from
+`predicate`, and `(partition function reifiable_function unreifiable_function)` makes the
+two marks exclusive: a function is one or the other. The choice changes
 where a declared result type is *stored*, not whether it holds — a reifiable application
 carries `result` materialized on its constant, an unreifiable one is typed from the
 declaration at check time, and the two say the same thing about the same function.
