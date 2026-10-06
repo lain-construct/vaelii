@@ -246,7 +246,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `abducible_predicate`, `closed_extent_predicate`, `decontextualized_predicate`,
   `forced_decontextualized_predicate` and `target_following_predicate` are placed under
   `predicate`, as `modal_predicate` already was; `sibling_disjoint` under
-  `unary_predicate`, since what it marks is a type; and `not` under `sentence`. In
+  `unary_predicate`, since what it marks is a type; and `not` under `formula`, since it
+  also wraps the open formulas of rule antecedents. In
   CxTime, `functional_at_instant` is placed under `function` and `initially` under
   `aspatial`, the nearest supertype of `fluent` CxTime sees, since `fluent` is
   CxAbstract's. `ontology_test` runs the sweep over the nine and finds none. The seven
