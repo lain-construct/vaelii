@@ -163,7 +163,7 @@
 
 
 (comment relation_type "A type whose instances are relations between things.")
-(genl relation_type aspatial)
+(genl relation_type nowhere_never)
 
 (comment root "The body part a plant anchors itself and draws water with.")
 (genl root body_part)
