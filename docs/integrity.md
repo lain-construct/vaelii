@@ -4,14 +4,16 @@
   `predAllSpecified` / `predSpecifiedAll` population, query-only definition clashes
   over a caller-owned finite set of ground candidate terms, the predicate `genl`
   edges that widen a declared argument type, the candidate types with no `genl`
-  path to `thing`, and the `genl` edges a cover forces on a candidate type that the
-  closure does not hold.
+  path to `thing`, the `genl` edges a cover forces on a candidate type that the
+  closure does not hold, and the `orthogonal` declarations that lift a stated
+  separation of their pair.
 - **Not here:** repairing findings, enumerating a domain, vocabulary completeness,
   generic constraint auditing, or the represented settled dilemmas returned by
   `contradictions`; how definitions infer membership → [defns.md](defns.md); what a
   specified declaration requires → [predall.md](predall.md); how an `arg` declaration
   descends a predicate `genl` edge → [argtypes.md](argtypes.md); what a cover
-  declares → [taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it); general
+  declares → [taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it); what an
+  `orthogonal` exempts → [taxonomy.md](taxonomy.md#disjointness); general
   knowledge-quality census readings → [quality.md](quality.md).
 - **Assumes:** sentex, context, ground term, `genl` → [glossary.md](glossary.md).
 
@@ -59,7 +61,9 @@ uses small declaration censuses only to identify its finite worklist, then audit
 declared predicate independently. The widening pass does the same: one census of visible
 `arg` declarations, then one direct `genl` edge at a time. The `thing` pass reads no
 census: it checks one candidate term at a time. The implicit-`genl` pass reads none
-either: one candidate term, then one visible cover over it, at a time. These focused units are where
+either: one candidate term, then one visible cover over it, at a time. The
+`orthogonal` pass reads one census of visible `orthogonal` declarations, then one
+declaration at a time. These focused units are where
 cooperative checkpoints and partial-result preservation sit.
 
 `:categories`, a set of category keys, runs the passes of those categories alone and
@@ -88,7 +92,7 @@ A finding changes the top-level status and adds only the populated categories:
   {:status :audited :violations #{Bob}}}}
 ```
 
-`:status :audited` means all five passes ran and none found a gap. `:status :gap` cannot
+`:status :audited` means all six passes ran and none found a gap. `:status :gap` cannot
 be confused with that clean shape even when only one sparse category is present. The
 specified category is exactly `all-specified-violations`, including its typed declaration
 gaps; it is composed, not reimplemented.
@@ -257,3 +261,59 @@ The pass has these limits:
 
 Reading the term's arity and edges, each cover and each part's disjointness test spend
 one work unit, and `:max-results` counts these findings last, after the `thing` category.
+
+## What an orthogonal-over-separation finding means
+
+`(orthogonal a b)` says the two types may share an instance, so it exempts the pair from
+every separation: an explicit `(disjoint a b)`, a `partition` or `separating` roster
+naming both, a `sibling_disjoint` parent and a shared `disjoint_metatype`, read over `a`
+and `b` or over a separated supertype of each
+([taxonomy.md](taxonomy.md#disjointness)). The exemption is what the declaration is for,
+and it is also why nothing on the read path can show the conflict when the separation
+was meant: `disjoint?` reads the pair apart, `conflicts` sees nothing to report, and one
+`orthogonal` silently undoes, say, a partition of `thing`. So the sweep reads every
+visible `orthogonal` against the separations stated over its pair with no exemption
+applied:
+
+```clojure
+;; (partition thing tangible intangible)
+;; (orthogonal tangible intangible)
+{:status :gap
+ :candidate-count 0
+ :orthogonal-over-separation
+ [{:orthogonal   {:handle 2 :sentence (orthogonal tangible intangible)
+                  :context CxUniverse}
+   :separated-by [{:handle 1 :sentence (partition thing intangible tangible)
+                   :context CxUniverse}]}]}
+```
+
+Both sides are named by handle, sentence and context, the shape `conflicts` names a
+clash's grounds in, so the author can drop whichever is wrong: the `orthogonal` when the
+separation was meant, the separating declaration when the overlap is. The sweep asserts
+and retracts nothing.
+
+One finding is reported for each visible, believed `orthogonal` over two ground symbols
+that some stated separation divides, in content order of the `orthogonal`.
+`:separated-by` holds every believed declaration the audit context sees that separates
+the pair, as `disjoint?` would read it with no `orthogonal` stated: for a
+`disjoint_metatype`, the mark and the two memberships.
+
+The pass has these limits:
+
+- **Declaration census, not candidate terms.** A finding is a fact about two
+  declarations, not about any individual, so the caller's candidate set does not bound
+  it. The pass reads every visible `orthogonal` once (they are few), then each one's
+  separations.
+- **Stated separations only.** The separations read are the four declaration forms
+  `disjoint?` reads; nothing else divides a pair for this pass.
+- **Every `orthogonal` lifted, not only the pair's own.** The separations are read with
+  no exemption at all, so a separation another `orthogonal` lifts still counts. An
+  `orthogonal` over two subtypes of a pair that stays separated is also a clash of the
+  declaration `conflicts` reports; the sweep names it here as well, beside the ones no
+  reader can see.
+- **Visible from the audit context.** The `orthogonal` and the separating declarations
+  are those the audit context sees, so a separation asserted below the audit context is
+  not a finding there.
+
+Each `orthogonal` row and each pair's separation read spend one work unit, and
+`:max-results` counts these findings last, after the implicit-`genl` category.

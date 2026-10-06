@@ -244,6 +244,73 @@
             (recur (conj findings finding) (rest units))))
         {:status :complete :findings findings}))))
 
+;; ---- orthogonal-over-separation: an orthogonal that lifts a stated separation ----
+
+(defn- stated-records
+  "The believed sentexes stating the flat-cache entries `ks` that `context` sees, as
+  `{:handle :sentence :context}` maps in content order — the shape `conflicts` names a
+  clash's grounds in, so a reader can drop one by its handle."
+  [kb tx ks context]
+  (let [tms  (reasoning/tms kb)
+        recs (:records kb)]
+    (->> ks
+         (into #{} (mapcat #(tax/visible-supporters tx % context)))
+         (into [] (comp (filter #(jtms/in? tms %))
+                        (keep #(p/get-sentex recs %))
+                        (map (fn [s] {:handle (:id s) :sentence (sx/sentence-of s)
+                                      :context (:context s)}))))
+         (sort-by (juxt :sentence :context) nm/compare-form)
+         vec)))
+
+(defn- visible-orthogonals
+  "Every believed `(orthogonal a b)` over two ground symbols that `context` sees, as
+  `[a b record]` in content order: the one open read of this pass, a census of
+  declarations, which are few, rather than of any extent."
+  [kb context]
+  (let [tms  (reasoning/tms kb)
+        recs (:records kb)]
+    (->> (res/matches-visible kb '(orthogonal ?a ?b) context)
+         (keep (fn [[h b]]
+                 (budget/spend!)
+                 (let [a (get b '?a) c (get b '?b)]
+                   (when (and (symbol? a) (not (sx/variable? a))
+                              (symbol? c) (not (sx/variable? c))
+                              (jtms/in? tms h))
+                     (when-let [s (p/get-sentex recs h)]
+                       [a c {:handle h :sentence (sx/sentence-of s) :context (:context s)}])))))
+         (into [] (distinct))
+         (sort-by (fn [[_ _ r]] [(:sentence r) (:context r)]) nm/compare-form))))
+
+(defn- orthogonal-separation
+  "The finding for one visible `(orthogonal a b)`, or nil: the stated separations
+  `context` sees over the pair with no `orthogonal` exempting any of them — an explicit
+  `disjoint`, a `partition` or `separating` roster, a `sibling_disjoint` parent or a
+  `disjoint_metatype` — over `a` and `b` or over a supertype of each.  The `orthogonal`
+  lifts exactly these, so `disjoint?` reads the pair apart and cannot show them."
+  [kb tx [a b orthogonal] context]
+  (budget/spend!)
+  (let [ks (tax/separating-keys tx a b context (constantly false))]
+    (when (seq ks)
+      (let [separated-by (stated-records kb tx ks context)]
+        (when (seq separated-by)
+          {:orthogonal orthogonal :separated-by separated-by})))))
+
+(defn- orthogonal-over-separation-findings
+  "Audit every visible `orthogonal` declaration, one at a time, stopping after the first
+  finding beyond `remaining` proves that the result bound truncated the sweep."
+  [kb context remaining]
+  (let [tx (reasoning/taxonomy kb)]
+    (loop [findings []
+           units    (keep #(orthogonal-separation kb tx % context)
+                          (visible-orthogonals kb context))]
+      (if-let [finding (first units)]
+        (if (and remaining (>= (count findings) remaining))
+          {:status :truncated :reason :max-results :findings findings}
+          (do
+            (budget/record! :orthogonal-over-separation finding)
+            (recur (conj findings finding) (rest units))))
+        {:status :complete :findings findings}))))
+
 (def ^:private passes
   "The passes in run order, `[category audit]`: `audit` takes `kb candidate-terms context
   remaining` and answers `{:status :complete|:truncated :findings …}`.  `:max-results`
@@ -254,7 +321,9 @@
    [:genl-arg-widening (fn [kb _ context remaining]
                          (widening-findings kb context remaining))]
    [:not-under-thing not-under-thing-findings]
-   [:implicit-genl implicit-genl-findings]])
+   [:implicit-genl implicit-genl-findings]
+   [:orthogonal-over-separation (fn [kb _ context remaining]
+                                  (orthogonal-over-separation-findings kb context remaining))]])
 
 (defn- check-args!
   "Refuse a `candidate-terms` that is not a set of ground terms (`:bad-args`), and a
