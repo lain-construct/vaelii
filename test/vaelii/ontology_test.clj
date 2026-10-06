@@ -714,6 +714,49 @@
       (v/assert kb (list 'not (list 'tangible Echo)) 'CxUniverse)
       (is (true? (v/ask? kb (list 'intangible Echo) 'CxUniverse))))))
 
+;; ---- the kinds of relation ----------------------------------------------
+;; (partition relation function truth_valued_relation), (partition truth_valued_relation
+;; logical_constant predicate) and (partition logical_constant quantifier
+;; logical_connective), after Cyc's TruthFunction: an application of a relation denotes a
+;; value or is true or false, and what is true or false is a predicate's application or a
+;; logical constant's.
+
+(tu/deftest-kb three-partitions-divide-relation
+  (testing "each part reaches relation and the root"
+    (doseq [t '[function truth_valued_relation predicate logical_constant quantifier
+                logical_connective]]
+      (is (true? (v/genl? kb t 'relation)) (str t " must reach relation"))
+      (is (true? (v/genl? kb t 'thing)) (str t " must reach thing"))))
+  (testing "predicate and the logical constants are truth-valued relations"
+    (doseq [t '[predicate logical_constant quantifier logical_connective]]
+      (is (true? (v/genl? kb t 'truth_valued_relation))
+          (str t " must be under truth_valued_relation"))))
+  (testing "quantifier and logical_connective are logical constants"
+    (doseq [t '[quantifier logical_connective]]
+      (is (true? (v/genl? kb t 'logical_constant)) (str t " must be under logical_constant"))))
+  (testing "the parts of each partition are disjoint, and the separation descends"
+    (doseq [[a b] '[[function truth_valued_relation] [logical_constant predicate]
+                    [quantifier logical_connective]
+                    [predicate function] [logical_connective function] [quantifier function]
+                    [logical_connective predicate] [quantifier predicate]]]
+      (is (true? (v/disjoint? kb a b)) (str a " and " b " must be disjoint")))))
+
+(tu/deftest-kb the-connectives-are-logical-connectives-and-not-predicates
+  (doseq [c '[and or not implies]]
+    (is (true? (v/isa? kb c 'logical_connective)) (str c " must be a logical_connective"))
+    (is (true? (v/isa? kb c 'truth_valued_relation)) (str c " must be a truth_valued_relation"))
+    (is (not (v/isa? kb c 'predicate)) (str c " must not be a predicate")))
+  (testing "neither connective keeps its old predicate arity class"
+    (is (not (v/isa? kb 'not 'unary_predicate)))
+    (is (not (v/isa? kb 'implies 'binary_predicate))))
+  (testing "and each states its arity with the relation-wide vocabulary"
+    (is (true? (v/isa? kb 'not 'unary)))
+    (is (true? (v/isa? kb 'implies 'binary)))
+    (is (true? (v/isa? kb 'and 'variable_arity)))
+    (is (true? (v/isa? kb 'or 'variable_arity))))
+  (testing "and so neither is a type the not-under-thing sweep asks to place"
+    (is (nil? (:not-under-thing (v/kb-integrity kb #{'not 'implies} 'CxWell))))))
+
 (tu/deftest-kb what-has-no-place-in-space-or-time-has-no-mass
   ;; Mass entails a location in space and time, so what lacks either lacks mass.
   (is (true? (v/genl? kb 'aspatial 'intangible)))

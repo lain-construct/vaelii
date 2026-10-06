@@ -93,6 +93,34 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **`relation` is divided into `function` and `truth_valued_relation`,
+  `truth_valued_relation` into `logical_constant` and `predicate`, and `logical_constant`
+  into `quantifier` and `logical_connective`; `and`, `or`, `not` and `implies` are logical
+  connectives.** CxCore states `(partition relation function truth_valued_relation)`,
+  `(partition truth_valued_relation logical_constant predicate)` and
+  `(partition logical_constant quantifier logical_connective)`, after Cyc's
+  `TruthFunction`, so a predicate, a quantifier and a logical connective reach `relation`
+  through `truth_valued_relation`, and each is disjoint from the others and from
+  `function`. `truth_valued_relation` is named apart from logic's truth function, a
+  connective whose value is fixed by its arguments' truth values, which a predicate and a
+  quantifier are not. `(unary_predicate not)` and `(binary_predicate implies)` are
+  replaced by `(logical_connective not)` and `(logical_connective implies)`, and the
+  connectives' arities are stated with the relation-wide vocabulary: `(unary not)`,
+  `(binary implies)`, `(variable_arity and)` and `(variable_arity or)`. An arity reader
+  (`kb/relation-arity`, the `checks` arity arm) reads 1 for `not` and 2 for `implies` as
+  before, and `arity_vocabulary_test`'s every-relation-has-exactly-one-arity-policy holds
+  over all four. No shipped term is a `quantifier` yet. `ontology_test` pins the three
+  partitions and the connectives' typing, and the four new types are classified inert in
+  the vocabulary roster.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a query that found `not` among the `unary_predicate`s or `predicate`s, or
+  `implies` among the `binary_predicate`s, asks `logical_connective` instead, or `unary` /
+  `binary` for the arity; a KB that states `(predicate not)` or a connective's membership
+  in any predicate type now contradicts the partition.
+  *Breaks:* `(unary_predicate not)`, `(binary_predicate implies)`
+
 - **The upper ontology divides `thing` by location in space, by time and by mass:
   `spatial` is a location in any space, `spatiotemporal` is a location in space and
   time, `physical_object` is renamed `tangible` and `abstract` is renamed

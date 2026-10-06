@@ -47,6 +47,8 @@
 
 (comment and
          "(and ?antecedent1 ?antecedent2 …) means the conjunction of the antecedents inside an implies rule. A syntactic connective rather than a predicate: it is never asserted on its own, and a rule with a single antecedent needs no and at all.")
+(logical_connective and)
+(variable_arity and)
 
 (comment genlArg
          "(genlArg ?relation ?position ?type) means that argument ?position of ?relation must be a subtype of ?type. The arg constraint one level up, for arguments naming kinds rather than instances: (genlArg partType 1 tangible) says the argument names a kind of physical object, where (arg partOf 1 tangible) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
@@ -1058,7 +1060,8 @@
 
 (comment implies
          "(implies (and ?antecedent …) ?consequent) means the rule concluding ?consequent from those antecedents. A rule is a sentex like any other, so it gets a handle, truth maintenance and retraction for free, and it is indexed by its antecedent and its consequent predicates alike. Used forward and backward unless a set/*Rule wrapper narrows it. Range-restricted: every variable in the consequent must appear in an antecedent.")
-(binary_predicate implies)
+(logical_connective implies)
+(binary implies)
 (arg implies 1 thing)
 (arg implies 2 thing)
 
@@ -1102,12 +1105,15 @@
 
 (comment not
          "(not ?sentence) means the negation of ?sentence, a first-class sentex. Believing a sentence and its negation at once is a soft contradiction resolved at settle time rather than a hard error: the weaker belief is defeated, and a defeasible tie is left standing as a represented dilemma. See docs/nmtms.md.")
-(unary_predicate not)
+(logical_connective not)
+(unary not)
 
 (comment or
          "(or ?disjunct1 ?disjunct2 …) means the disjunction of the disjuncts inside an implies rule's antecedent. A syntactic connective rather than a predicate: it is never asserted on its own, and it never reaches a stored sentence — the rule is polycanonicalized into one rule per alternative, exactly as a conjunctive consequent is split into one rule per conjunct. A disjunctive conclusion is a choice rather than a derivation, and is written with set/assumptionRule instead. See docs/canonicalization.md.")
+(logical_connective or)
+(variable_arity or)
 
-(comment relation            "The type of all predicates and functions — every operator that may be applied to arguments. Its two specializations remain disjoint: a predicate holds or fails, while a function denotes or evaluates to a value.")
+(comment relation            "The type of every operator that may be applied to arguments. function and truth_valued_relation partition it: an application of a function denotes or evaluates to a value, while an application of a truth_valued_relation is true or false.")
 (genl relation thing)
 
 (comment function            "The type of all functions — the reifiable and unreifiable heads a non-atomic term is built from. A function is a relation, and is not a predicate: it denotes or evaluates to a value where a predicate holds or fails.")
@@ -1122,6 +1128,19 @@
 ;; convicted one conclusion at a time. (implies (result ?f ?t) (genl ?f ?t)) is the
 ;; shape it catches.
 (set/monotonic (disjoint function predicate))
+
+(comment truth_valued_relation "The type of all relations whose applications are true or false: the predicates and the logical constants. The complement of function within relation. Cyc's TruthFunction, not logic's truth function: a truth function's value is fixed by the truth values of its arguments, which holds of and, or, not and implies and of no predicate or quantifier.")
+(comment logical_constant    "The type of all quantifiers and logical connectives — the relations whose meaning the logic fixes, where a predicate's meaning is the domain's. A logical constant is a truth_valued_relation and is not a predicate.")
+(comment logical_connective  "The type of all relations that build a formula from formulas: and, or, not and implies. A logical connective holds of nothing: (and P Q) is a formula, not a fact about P and Q. Logical rather than grammatical: a connective of a natural language, such as English and, is not one.")
+(comment quantifier          "The type of all relations that bind variables in a formula, the application being a formula in which those variables are no longer free. A quantifier is a logical constant and is not a logical connective.")
+;; function and truth_valued_relation reach relation, logical_constant and predicate reach
+;; truth_valued_relation, and quantifier and logical_connective reach logical_constant,
+;; through the three partitions below, each of which installs its parts' edges to the
+;; whole.  No shipped term is a quantifier yet: the engine reads forall and thereExists as
+;; query operators, and CxCore does not declare either.
+(set/monotonic (partition relation function truth_valued_relation))
+(set/monotonic (partition truth_valued_relation logical_constant predicate))
+(set/monotonic (partition logical_constant quantifier logical_connective))
 
 (comment reflexive
          "(reflexive ?predicate) means that ?predicate is reflexive, so (?predicate a a) holds for every a in its domain. Answered by a generic prover rather than materialized, the reflexive pairs of a large domain being a great many facts nobody wrote. Also a type: (reflexive P) classifies P as a binary_predicate.")
