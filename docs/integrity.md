@@ -328,8 +328,8 @@ Each `orthogonal` row and each pair's separation read spend one work unit, and
 
 ## The ontology-engineering smells
 
-Three census passes flag the shape of the taxonomy rather than a defect of any
-declaration. Each finding is a candidate for an author to review, never a refusal, and the
+Three census passes flag how the `genl` and `disjoint` declarations arrange the taxonomy's
+types, where no single declaration is a defect. Each finding is a candidate for an author to review, never a refusal, and the
 sweep asserts and retracts nothing. A sweep without `:categories` skips all three passes,
 and `:categories` names a pass to run it.
 
