@@ -627,12 +627,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
-- **CxCore no longer states `(genl string thing)` or `(genl relation thing)`.** Both
-  edges derive without the statement: from `CxUniverse` through CxAbstract's
-  `expression` chain, and from CxCore and every band context through the `genlArg`
-  declarations that take each type as an argument type. The other `thing` edges
-  `:derivable-stated-edge` reports stay stated, since CxCore and the band contexts reach
-  `thing` from those types only through them.
+- **CxCore no longer states `(genl string thing)`.** The edge derives without the
+  statement: from `CxUniverse` through CxAbstract's `expression` chain, and from CxCore
+  and every band context through the `genlArg` declarations that take `string` as an
+  argument type. `(genl relation thing)` stays stated although `:derivable-stated-edge`
+  reports it: without the statement, CxCore loaded in authored order holds one more
+  justification of `(type binary_predicate)` than CxCore reloaded in content order. The
+  other `thing` edges `:derivable-stated-edge` reports stay stated, since CxCore and the
+  band contexts reach `thing` from those types only through them.
 
   *Class:* **Internal**.
 
