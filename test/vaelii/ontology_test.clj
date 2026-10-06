@@ -313,6 +313,12 @@
              (count (:not-under-thing report)) " do not: "
              (pr-str (mapv :term (:not-under-thing report)))))))
 
+(tu/deftest-kb sibling-disjoint-is-an-at-least-metatype
+  ;; What sibling_disjoint marks is a type (genlArg 1 thing), so sibling_disjoint itself is
+  ;; a type of types.  It may mark a first-order type such as animal or a metatype, so it
+  ;; is at_least_metatype rather than metatype.
+  (is (v/isa? kb 'sibling_disjoint 'at_least_metatype)))
+
 (def ^:private type-relating-predicates
   "The predicates whose every argument is a TYPE (or a predicate) the claim relates, so the
   claim is meaningful only in a context that sees all of them at once.  A `genl`, `disjoint`,
