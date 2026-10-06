@@ -616,9 +616,9 @@
 (tu/deftest-kb a-time-is-in-time-and-in-no-space-and-causes-nothing
   ;; A date cannot be a cause: the year 2000 broke nothing — two-digit years did, at the
   ;; rollover.  `time` is temporal, aspatial and acausal, and time_point and time_interval
-  ;; partition it, so a moment and a stretch are all three and never each other.  A term
-  ;; that is never minted has its result type read where it is checked: an argument typed
-  ;; with a kind no result type reaches refuses it, one it reaches admits it.
+  ;; partition it, so a moment and a stretch are all three and never each other.  A
+  ;; calendar term is never minted, so its result type is read where it is checked: an
+  ;; argument typed with a kind no result type reaches refuses it, one it reaches admits it.
   (testing "both parts reach time, and time_point still reaches temporal through it"
     (is (v/genl? kb 'time_point 'time N))
     (is (v/genl? kb 'time_interval 'time N))
@@ -626,11 +626,18 @@
   (testing "an instant is not a stretch, and neither is something that happens in time"
     (is (v/disjoint? kb 'time_point 'time_interval N))
     (is (v/disjoint? kb 'time_interval 'event N)))
-  (tu/with-terms [acausalProbe aspatialProbe]
-    (doseq [[p t] [[acausalProbe 'acausal] [aspatialProbe 'aspatial]]]
+  (tu/with-terms [acausalProbe aspatialProbe temporalProbe]
+    (doseq [[p t] [[acausalProbe 'acausal] [aspatialProbe 'aspatial] [temporalProbe 'temporal]]]
       (v/assert kb (list 'unary_predicate p) 'CxUniverse)
       (v/assert kb (list 'arg p 1 t) 'CxUniverse))
-    (testing "the moment the year starts reads acausal and aspatial"
+    (testing "the year 2000, a month and a day read acausal"
+      (is (= :stored (refusal kb (list acausalProbe '(YearFn 2000)) N)))
+      (is (= :stored (refusal kb (list acausalProbe '(MonthFn 2000 1)) N)))
+      (is (= :stored (refusal kb (list acausalProbe '(DayFn 2000 1 15)) N))))
+    (testing "the year 2000 reads aspatial and temporal"
+      (is (= :stored (refusal kb (list aspatialProbe '(YearFn 2000)) N)))
+      (is (= :stored (refusal kb (list temporalProbe '(YearFn 2000)) N))))
+    (testing "the moment the year starts reads acausal and aspatial too"
       (is (= :stored (refusal kb (list acausalProbe '(StartFn (YearFn 2000))) N)))
       (is (= :stored (refusal kb (list aspatialProbe '(StartFn (YearFn 2000))) N))))))
 

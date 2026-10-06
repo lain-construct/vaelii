@@ -496,7 +496,7 @@ every other reasoner here (`add-reasoner kb :calendar`) and answering three fami
 ```
 
 **A moment is `(InstantFn Y M D h m s)` — six integer fields, always.** It is a
-`time_point` where the calendar constructors are `temporal`s, declared in `CxTime`
+`time_point` where the calendar constructors are `time_interval`s, declared in `CxTime`
 beside them and `unreifiable_function` for their reason: the fields are what the ordering
 reads. Six fields and not a reduced-precision spelling, because a term is identified by
 its shape and one moment must have exactly **one** term — `"2000-01-01T00:00:00"` and
