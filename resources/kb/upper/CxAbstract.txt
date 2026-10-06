@@ -31,9 +31,6 @@
 (comment clothing "An artifact worn on the body.")
 (genl clothing artifact)
 
-(comment container "An artifact whose function is to hold other objects — a cup, a box, a bag.")
-(genl container artifact)
-
 (comment context "A context: the second half of a sentex, and what a sentence holds in.")
 
 (comment feather "A light keratin body part covering a bird.")
@@ -57,6 +54,15 @@
 (comment glass_stuff "A hard, brittle, transparent substance.")
 (genl glass_stuff substance)
 
+(comment hollow "Has, at that time, an interior space that other things can occupy: a cup, a box, a building, a cave, a pitcher plant, a cupped hand. A solid Rubik's cube or an empty clenched fist is not hollow. A thing can stop being hollow and still exist: a box crushed flat stops being hollow, and a hand is hollow only while it is cupped. What a thing is shaped like, not what it is for, so a made hollow thing is (and (artifact x) (hollow x)). Spatiotemporal rather than tangible, since a cave is a space in rock and is made of nothing.")
+(genl hollow spatiotemporal)
+;; A cup is hollow and made, a pitcher plant hollow and alive, a cupped hand hollow and a
+;; part an organism grew; a bread bowl is hollow and food.  Stuff has no interior of its own.
+(orthogonal hollow artifact)
+(orthogonal hollow organism)
+(orthogonal hollow body_part)
+(orthogonal hollow food)
+(set/monotonic (disjoint hollow substance))
 
 ;; CxCore's literal types are placed in this lattice by their edges to unrepresented_term,
 ;; below.  Text and a number have no mass and no location, and neither of them is a
@@ -243,7 +249,8 @@
 (genl denotational_term expression)
 (genl expression nowhere_never)
 (genl formula expression)
-(genl building container)
+(genl building artifact)
+(genl building hollow)
 (genl gas substance)
 (genl keyword unrepresented_term)
 (genl number unrepresented_term)

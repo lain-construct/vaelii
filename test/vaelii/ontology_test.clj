@@ -18,6 +18,7 @@
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.io.text :as text]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
@@ -910,7 +911,6 @@
     [genl character intangible CxAbstract "character genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl context intangible CxAbstract "context genl expression genl nowhere_never genl intangible"]
     [genl language intangible CxAbstract "language genl nowhere_never genl intangible"]
-    [genl building artifact CxAbstract "building genl container genl artifact"]
     [genl asymmetric binary_predicate CxCore "asymmetric genl anti_symmetric genl binary_predicate"]
     [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
     [disjoint number predicate CxAbstract "number genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
@@ -1057,3 +1057,30 @@
   (testing "while a biological thing stays apart from a substance"
     (is (true? (v/disjoint? kb 'organism 'substance)))
     (is (true? (v/disjoint? kb 'body_part 'substance)))))
+
+;; ---- hollow: what a thing is, not what it is for -------------------------
+;; `container` named a kind by its purpose; `hollow` names the shape a thing has at a
+;; time.
+
+(tu/deftest-kb hollow-is-a-shape-located-in-space-and-time
+  (is (true? (v/genl? kb 'hollow 'spatiotemporal 'CxAbstract)))
+  (is (true? (v/genl? kb 'building 'hollow 'CxAbstract)))
+  (is (true? (v/genl? kb 'building 'artifact 'CxAbstract)))
+  (is (seq (core-context/comment-of kb 'hollow)))
+  (testing "a cup, a pitcher plant and a cupped hand are hollow; stuff is not"
+    (is (= :orthogonal (v/subsumption-status kb 'hollow 'artifact)))
+    (is (= :orthogonal (v/subsumption-status kb 'hollow 'organism)))
+    (is (= :orthogonal (v/subsumption-status kb 'hollow 'body_part)))
+    (is (true? (v/disjoint? kb 'hollow 'substance)))
+    (is (true? (v/disjoint? kb 'hollow 'nowhere_never))))
+  (testing "a made hollow thing is no clash"
+    (tu/with-terms [Cup PitcherPlant]
+      (v/assert kb (list 'artifact Cup) 'CxUniverse)
+      (is (not (tu/stored-in-clash? kb (list 'hollow Cup) 'CxUniverse)))
+      (v/assert kb (list 'organism PitcherPlant) 'CxUniverse)
+      (is (not (tu/stored-in-clash? kb (list 'hollow PitcherPlant) 'CxUniverse))))))
+
+(tu/deftest-kb container-is-retired
+  (is (empty? (core-context/comment-of kb 'container)))
+  (is (empty? (v/sentexes-matching kb '(genl container ?x) '?ctx)))
+  (is (empty? (v/sentexes-matching kb '(genl ?x container) '?ctx))))

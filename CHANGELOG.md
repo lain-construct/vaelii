@@ -34,6 +34,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   do.
   *Breaks:* `transitiveInArg`, `transitiveInArgInverse`
 
+- **`container` is retired; `hollow` names the shape.** `container` was defined by what
+  an artifact is for, and a type says what a thing is. CxAbstract mints `hollow` — has,
+  at that time, an interior space other things can occupy: a cup, a building, a cave, a
+  pitcher plant, a cupped hand — below `spatiotemporal`, orthogonal to `artifact`,
+  `organism`, `body_part` and `food`, and disjoint from `substance`. `building` now
+  states `(genl building artifact)` and `(genl building hollow)`.
+
+  *Class:* **Breaking** (a shipped type removed).
+  *Migration:* use `hollow`; a made container is `(and (artifact x) (hollow x))`;
+  containment relations are not modelled yet.
+  *Breaks:* `container`
+
 - **`siblingDisjointException` is retired; `orthogonal` is the exemption.** A stated
   `(orthogonal a b)` exempts the pair from a separation a `sibling_disjoint` parent or a
   `disjoint_metatype` would otherwise force, pair-local and read at the reader, as
