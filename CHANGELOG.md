@@ -634,6 +634,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **CxCore types every position of `termsRelated` with one `(args termsRelated thing)`.**
+  The declaration replaces `arg` declarations for positions 1 and 2, which left the
+  variable-arity tail untyped, so `:missing-arg` no longer reports `termsRelated`.
+
+  *Class:* **Additive**.
+
 ### Internal
 
 - **The `orthogonal` comments and taxonomy.md name every separation the declaration

@@ -1414,8 +1414,7 @@
 
 (comment termsRelated
          "(termsRelated ?term1 ?term2 …) means that the named terms form a related cluster — a curation grouping among vocabulary terms, so a reader meeting one is pointed at the rest. Variable arity, like lessThan: (termsRelated positiveExample negativeExample borderlineExample) groups the three example predicates as one family. Documentation only — nothing in the engine reads it and it draws no inference, the grouping being for a reader as comment's prose is.")
-(arg termsRelated 1 thing)
-(arg termsRelated 2 thing)
+(args termsRelated thing)
 (variable_arity_predicate termsRelated)
 (arityMin termsRelated 2)
 
