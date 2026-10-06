@@ -153,8 +153,22 @@
 ;; typeGenl requires this because the stuff metatypes classify it (typeGenl … substance).
 (type substance)
 
+;; --- time / time_point / time_interval: time itself --------------------------
+(comment time "A time, as in \"at that time\": a moment or a stretch of time as such, not something that happens in it. In time and in no space, and never a cause: the year 2000 broke nothing, two-digit years did, at the rollover. Parent of time_point (a moment) and time_interval (a stretch); a stretch's length is measured in the Duration dimension (CxMeasure).")
+(genl time temporal)
+(genl time aspatial)
+(genl time acausal)
+
 (comment time_point "A moment rather than a stretch — one of the two instants bounding an interval. What the point algebra relates, and what startOf and endOf reach from an interval.")
-(genl time_point temporal)
+
+(comment time_interval "A stretch of time as such, e.g. a year, a day, an hour — not something that happens in it. What the calendar constructors YearFn, MonthFn and DayFn name.")
+
+;; A time is a moment or a stretch, never both: an instant has no extent. The partition
+;; installs each part's genl edge to time, so neither is stated, and time_point reaches
+;; temporal through it.
+(set/monotonic (partition time time_point time_interval))
+;; A time is not a state of affairs in it.
+(set/monotonic (disjoint time situation))
 
 ;; --- situation / static_situation / event: the state-of-affairs hierarchy ------
 (comment situation "A state of affairs: objects bearing properties or relations over a time interval. Parent of static_situation (the state holds unchanged) and event (the world's state changes); change is the specialization axis.")

@@ -606,6 +606,34 @@
   (testing "and an animal reaches spatial, so a spatial relation admits one"
     (is (v/genl? kb 'dog 'spatial))))
 
+(defn- refusal
+  "The `:type` of the ex-info `assert` throws for `sentence`, or `:stored` when it takes
+  it (and then retracts it again, so the probe leaves nothing behind)."
+  [kb sentence context]
+  (try (some->> (v/assert kb sentence context) (v/retract! kb)) :stored
+       (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+
+(tu/deftest-kb a-time-is-in-time-and-in-no-space-and-causes-nothing
+  ;; A date cannot be a cause: the year 2000 broke nothing — two-digit years did, at the
+  ;; rollover.  `time` is temporal, aspatial and acausal, and time_point and time_interval
+  ;; partition it, so a moment and a stretch are all three and never each other.  A term
+  ;; that is never minted has its result type read where it is checked: an argument typed
+  ;; with a kind no result type reaches refuses it, one it reaches admits it.
+  (testing "both parts reach time, and time_point still reaches temporal through it"
+    (is (v/genl? kb 'time_point 'time N))
+    (is (v/genl? kb 'time_interval 'time N))
+    (is (v/genl? kb 'time_point 'temporal N)))
+  (testing "an instant is not a stretch, and neither is something that happens in time"
+    (is (v/disjoint? kb 'time_point 'time_interval N))
+    (is (v/disjoint? kb 'time_interval 'event N)))
+  (tu/with-terms [acausalProbe aspatialProbe]
+    (doseq [[p t] [[acausalProbe 'acausal] [aspatialProbe 'aspatial]]]
+      (v/assert kb (list 'unary_predicate p) 'CxUniverse)
+      (v/assert kb (list 'arg p 1 t) 'CxUniverse))
+    (testing "the moment the year starts reads acausal and aspatial"
+      (is (= :stored (refusal kb (list acausalProbe '(StartFn (YearFn 2000))) N)))
+      (is (= :stored (refusal kb (list aspatialProbe '(StartFn (YearFn 2000))) N))))))
+
 ;; ---- the upper divisions by location and by mass --------------------------
 ;; Two partitions of `thing`.  `spatial` / `aspatial` divides by a location in SOME space —
 ;; physical space, or a mathematical one, where a line or a square of an abstract board
@@ -959,3 +987,4 @@
   (testing "while a biological thing stays apart from a substance"
     (is (true? (v/disjoint? kb 'organism 'substance)))
     (is (true? (v/disjoint? kb 'body_part 'substance)))))
+
