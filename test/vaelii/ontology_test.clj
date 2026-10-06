@@ -270,7 +270,7 @@
   ;; them says whether a name belongs in the genl hierarchy.  That is a modelling
   ;; decision: a type is a kind of thing and wants a noun, while a property is something
   ;; a thing *is*, and putting one in the hierarchy would make "mortal" a kind that
-  ;; living things are a kind OF.  Were one wanted as a type it would be spelled for it —
+  ;; organisms are a kind OF.  Were one wanted as a type it would be spelled for it —
   ;; `mortal_being`, not `mortal`.
   (testing "the properties the biology theory concludes are outside the hierarchy"
     (doseq [p '[alive dead awake asleep mortal warm_blooded breathes_air]]
@@ -590,7 +590,7 @@
     (testing "so a social relation type-checks between two persons"
       (is (v/assert kb (list 'friendOf CmdrData Geordi) N))
       (is (v/ask? kb (list 'friendOf CmdrData Geordi) N)))
-    (testing "while a biological predicate refuses the non-animal person"
+    (testing "while a biological predicate refuses the person that is no organism"
       (is (thrown? clojure.lang.ExceptionInfo
                    (v/assert kb (list 'parentOf CmdrData Geordi) N))))
     (testing "and human, the biological half, reaches mammal, animal and person alike"
@@ -793,13 +793,18 @@
     [genl atemporal thing CxCore "partition thing temporal atemporal"]
     [disjoint temporal atemporal CxCore "partition thing temporal atemporal"]
     [genl spatiotemporal thing CxCore "spatiotemporal genl spatial (intersection), spatial genl thing (partition)"]
+    [genl organism tangible CxCore "organism genl biological genl tangible"]
+    [genl body_part tangible CxAbstract "body_part genl biological genl tangible"]
+    [genl body_part biological CxAbstract "separating biological organism body_part"]
+    [disjoint organism substance CxAbstract "organism genl biological; disjoint biological substance"]
+    [disjoint substance body_part CxAbstract "body_part genl biological; disjoint biological substance"]
     [genl tangible temporal CxAbstract "tangible genl spatiotemporal genl temporal (intersection)"]
     [disjoint tangible intangible CxAbstract "partition thing tangible intangible"]
     [disjoint attribute tangible CxAbstract "attribute genl aspatial genl intangible; partition thing tangible intangible"]
     [disjoint organization substance CxAbstract "organization genl aspatial genl intangible, substance genl tangible; partition thing tangible intangible"]
     [disjoint language substance CxAbstract "language genl nowhere_never genl aspatial genl intangible, substance genl tangible; partition thing tangible intangible"]
     [disjoint attribute substance CxAbstract "attribute genl aspatial genl intangible, substance genl tangible; partition thing tangible intangible"]
-    [disjoint organization animal CxUniverse "organization genl aspatial genl intangible, animal genl living_thing genl tangible; partition thing tangible intangible"]
+    [disjoint organization animal CxUniverse "organization genl aspatial genl intangible, animal genl organism genl biological genl tangible; partition thing tangible intangible"]
     [genl string intangible CxAbstract "string genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl number intangible CxAbstract "number genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl keyword intangible CxAbstract "keyword genl unrepresented_term genl expression genl nowhere_never genl intangible"]
@@ -883,3 +888,74 @@
   (tu/with-terms [Thing1]
     (v/assert kb (list 'string Thing1) 'CxUniverse)
     (is (tu/stored-in-clash? kb (list 'predicate Thing1) 'CxUniverse))))
+
+;; ---- what is biological ---------------------------------------------------
+;; An organism and a part it grew are both biological, and tangible through it.  The two
+;; are separated without being said to exhaust biological.
+
+(tu/deftest-kb an-organism-and-a-body-part-are-biological-and-tangible
+  (doseq [t '[organism body_part]]
+    (is (true? (v/genl? kb t 'biological)) (str t " is biological"))
+    (is (true? (v/genl? kb t 'tangible)) (str t " is tangible through biological")))
+  (is (true? (v/genl? kb 'biological 'tangible)))
+  (testing "a kind CxOrganism places reaches tangible from CxOrganism itself"
+    (is (true? (v/genl? kb 'animal 'tangible 'CxOrganism))))
+  (tu/with-terms [Gizzard]
+    (v/assert kb (list 'body_part Gizzard) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'biological Gizzard) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'tangible Gizzard) 'CxUniverse)))))
+
+(tu/deftest-kb a-biological-thing-is-not-a-substance
+  ;; Stated once, of biological and substance, and read down to both of biological's
+  ;; parts: neither an organism nor a part it grew is stuff.
+  (is (true? (v/disjoint? kb 'biological 'substance)))
+  (testing "the separation reaches organism and body_part, which state none of their own"
+    (is (true? (v/disjoint? kb 'organism 'substance)))
+    (is (true? (v/disjoint? kb 'body_part 'substance)))
+    (is (true? (v/disjoint? kb 'leaf 'wood)) "and the kinds below each"))
+  (tu/with-terms [Gristle]
+    (v/assert kb (list 'biological Gristle) 'CxUniverse)
+    (is (true? (tu/stored-in-clash? kb (list 'substance Gristle) 'CxUniverse))
+        "a biological thing that is also a substance is a clash")))
+
+(tu/deftest-kb an-organism-is-not-a-body-part
+  (is (true? (v/disjoint? kb 'organism 'body_part)))
+  (is (true? (v/disjoint? kb 'animal 'feather))
+      "the separation reaches the kinds below each part")
+  (tu/with-terms [Polyp]
+    (v/assert kb (list 'organism Polyp) 'CxUniverse)
+    (is (true? (tu/stored-in-clash? kb (list 'body_part Polyp) 'CxUniverse))))
+  (testing "and nothing says a biological thing is one or the other"
+    (tu/with-terms [Spore]
+      (v/assert kb (list 'biological Spore) 'CxUniverse)
+      (v/assert kb (list 'not (list 'organism Spore)) 'CxUniverse)
+      (is (not (v/ask? kb (list 'body_part Spore) 'CxUniverse))))))
+
+(tu/deftest-kb a-body-part-can-be-food
+  ;; A leg of lamb or a chicken wing is both, so the pair is declared orthogonal rather
+  ;; than disjoint.
+  (is (not (v/disjoint? kb 'food 'body_part)))
+  (tu/with-terms [Drumstick]
+    (v/assert kb (list 'body_part Drumstick) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'food Drumstick) 'CxUniverse))
+        "a body part that is also food is no clash")
+    (is (true? (v/ask? kb (list 'food Drumstick) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'body_part Drumstick) 'CxUniverse)))))
+
+(tu/deftest-kb an-organism-or-a-body-part-can-be-an-artifact
+  ;; An artifact is something intentionally made, so an engineered bacterium or an organ
+  ;; grown in a lab is both.  The pair is declared orthogonal rather than disjoint.
+  (is (not (v/disjoint? kb 'biological 'artifact)))
+  (is (not (v/disjoint? kb 'organism 'artifact)))
+  (is (not (v/disjoint? kb 'body_part 'artifact)))
+  (tu/with-terms [Engineered LabKidney]
+    (v/assert kb (list 'organism Engineered) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'artifact Engineered) 'CxUniverse))
+        "an organism that is also an artifact is no clash")
+    (is (true? (v/ask? kb (list 'artifact Engineered) 'CxUniverse)))
+    (v/assert kb (list 'body_part LabKidney) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'artifact LabKidney) 'CxUniverse))
+        "a body part that is also an artifact is no clash"))
+  (testing "while a biological thing stays apart from a substance"
+    (is (true? (v/disjoint? kb 'organism 'substance)))
+    (is (true? (v/disjoint? kb 'body_part 'substance)))))

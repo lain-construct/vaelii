@@ -131,6 +131,26 @@
   (testing "people without a recorded birth year are not ordered"
     (is (not (v/query? kb '(olderThan Dave Tom) '?ctx {:max-depth 2})))))
 
+(tu/deftest-kb a-plant-has-a-parent-a-birth-year-and-an-age
+  ;; Kinship and age are about being born, which every organism is, so a tree's parent
+  ;; is stored as a dog's is, the kinship theory reads on from it, and neither tree is
+  ;; taken for an animal on the way.
+  (tu/with-terms [OldOak Sapling]
+    (v/assert kb (list 'tree OldOak) N)
+    (v/assert kb (list 'tree Sapling) N)
+    (testing "parenthood and birth years between two plants are stored, not refused"
+      (is (= :stored (refusal kb (list 'parentOf OldOak Sapling) N)))
+      (is (= :stored (refusal kb (list 'birthYearOf OldOak 1900) N)))
+      (is (= :stored (refusal kb (list 'birthYearOf Sapling 1990) N))))
+    (testing "and the kinship and age theory reads on from them"
+      (is (true? (v/ask? kb (list 'childOf Sapling OldOak))))
+      (is (true? (v/ask? kb (list 'ancestorOf OldOak Sapling))))
+      (is (true? (v/query? kb (list 'olderThan OldOak Sapling) '?ctx {:max-depth 2}))))
+    (testing "with neither tree taken for an animal"
+      (is (not (v/isa? kb OldOak 'animal)))
+      (is (not (v/isa? kb Sapling 'animal)))
+      (is (not (tu/stored-in-clash? kb (list 'tree Sapling) N))))))
+
 ;; ---- defaults, and taking one back --------------------------------------
 
 (tu/deftest-kb a-default-conclusion-feeds-a-further-rule

@@ -1218,7 +1218,7 @@ Each member file wires itself to its own head and collector, so the topology is 
 CxCore-only KB is a head with no spindle under it, and a user adds a member to either
 spindle.
 The middle theories are the defeasible defaults that state their own exception with
-`exceptWhen` (birds fly except penguins; animals breathe air except fish; living things
+`exceptWhen` (birds fly except penguins; animals breathe air except fish; organisms
 are alive until they are dead and awake until they are asleep — four rules of one shape,
 differing in whether the exception names a species, a whole class, or a state that
 changes) and the rules with **connected conjunctive antecedents** (antecedents sharing

@@ -13,8 +13,17 @@
 (comment attribute "A property an object can bear (a color, a size).")
 (genl attribute aspatial)
 
-(comment body_part "A physical part of a living thing (a wing, a heart).")
-(genl body_part tangible)
+(comment body_part "A part an organism grew — a wing, a heart, a leaf. It stays a body part once transplanted into another organism or shed from its own.")
+;; An organism and a part it grew are both biological and never the same thing; nothing
+;; says every biological thing is one of the two.  The roster installs each part's genl
+;; edge to biological, so body_part's is not stated; organism's is stated in CxCore too,
+;; where CxOrganism can see it.
+(separating biological organism body_part)
+;; A leg of lamb or a chicken wing is food and a body part at once.
+(orthogonal food body_part)
+;; An artifact is anything intentionally made, so an engineered bacterium or an organ grown
+;; in a lab is biological and an artifact at once.
+(orthogonal biological artifact)
 
 (comment building "An artifact that is a fixed structure enclosing space.")
 
@@ -81,8 +90,6 @@
 
 (comment liquid "A substance that flows and takes the structure of its container.")
 (genl liquid substance)
-
-(set/monotonic (disjoint living_thing artifact))
 
 (comment locatedIn
          "(locatedIn ?object ?place) means that ?object sits within ?place. Declared transitive, so a chain of containments is walked by the closure prover rather than materialized, and a joined rule carries location down parthood — a part is located wherever its whole is. Both arguments are physical objects: a region is CxSpace's business, and partOfRegion is the relation to reach for there.")
@@ -207,19 +214,19 @@
 (comment stuff_type_by_state_of_matter "A disjoint_metatype classifying substances by physical state — solid, liquid, gas, plasma.")
 (comment stuff_type_by_substance "A disjoint_metatype classifying substances by material — wood, metal, glass_stuff, stone.")
 (comment unrepresented_term "An expression that cannot be further decomposed in the KB — strings, numbers, keywords, booleans, characters.")
+;; Neither an organism nor a part it grew is stuff; stated once of biological, it reaches
+;; both parts and every kind below them.
+(set/monotonic (disjoint biological substance))
 (set/monotonic (disjoint building furniture))
 (set/monotonic (disjoint building tool))
 (set/monotonic (disjoint building vehicle))
 (set/monotonic (disjoint clothing building))
 (set/monotonic (disjoint clothing furniture))
 (set/monotonic (disjoint clothing vehicle))
-(set/monotonic (disjoint food body_part))
 (set/monotonic (disjoint formula relation))
 (set/monotonic (disjoint liquid stone))
-(set/monotonic (disjoint living_thing substance))
 (set/monotonic (disjoint relation context))
 (set/monotonic (disjoint substance artifact))
-(set/monotonic (disjoint substance body_part))
 (set/monotonic (disjoint unrepresented_term context))
 (set/monotonic (disjoint unrepresented_term formula))
 (set/monotonic (disjoint unrepresented_term relation))

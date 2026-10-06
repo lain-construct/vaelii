@@ -15,8 +15,8 @@
 (genl amphibian animal)
 (vertebrate_class amphibian)
 
-(comment animal "A living thing that moves and senses; disjoint from plant.")
-(genl animal living_thing)
+(comment animal "An organism that moves and senses; disjoint from plant.")
+(genl animal organism)
 (set/monotonic (disjoint animal plant))
 
 (comment ant "An industrious insect that stores food for winter.")
@@ -106,8 +106,8 @@
 (comment person "An entity with social agency — a human, or any other agent that stands in social relations. Broader than human: a non-biological agent (a sentient construct) can be a person without being a mammal or an animal, which is what lets the social predicates (friendOf, knows, marriedTo, …) constrain their arguments to person and still admit it. A physical entity — an agent has a location and can act — but not, by itself, a living thing.")
 (genl person tangible)
 
-(comment plant "A living thing that photosynthesizes; disjoint from animal.")
-(genl plant living_thing)
+(comment plant "An organism that photosynthesizes; disjoint from animal.")
+(genl plant organism)
 
 (comment rabbit "A small burrowing mammal with long ears.")
 (genl rabbit mammal)

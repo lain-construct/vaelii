@@ -123,12 +123,12 @@
    ;; ---- defaults and their exceptions ---------------------------------
    {:id "default-alive" :group "Defaults and exceptions"
     :title "Alive until told otherwise"
-    :shows "Nobody said Rex was alive. A default rule concludes it of every living
-            thing, and nothing about being a dog mentions living things — the rule's
+    :shows "Nobody said Rex was alive. A default rule concludes it of every
+            organism, and nothing about being a dog mentions organisms — the rule's
             antecedent is matched by fanning it out over the subtype closure. The
             conclusion is defeasible, which the next card is about."
     :rests-on [['(exceptWhen (dead ?x)
-                             (set/defaultRule (implies (and (living_thing ?x)) (alive ?x))))
+                             (set/defaultRule (implies (and (organism ?x)) (alive ?x))))
                 'CxBiology]]
     :premises '[(dog RexEx)]
     :goal '(alive RexEx) :expect :yes}
@@ -258,7 +258,7 @@
             premise it would unify with any goal at all — a universal nobody licensed —
             so facts must be ground and universals are written as rules, where
             range-restriction governs the variables."
-    :rests-on [['(set/defaultRule (implies (and (living_thing ?x)) (mortal ?x)))
+    :rests-on [['(set/defaultRule (implies (and (organism ?x)) (mortal ?x)))
                 'CxBiology]]
     :kind :refusal
     :refuse '(mortal ?x)}])

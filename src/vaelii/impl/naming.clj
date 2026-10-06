@@ -781,7 +781,7 @@ The spelling is a **biconditional on arity**.  A functor carrying an underscore 
 
 (defn- type-spelling
   "The type name a CapitalCamelCase symbol was reaching for: `Dog` is `dog`, and
-  `LivingThing` is `living_thing` rather than `livingthing`.  A multi-word type is
+  `WarmBlooded` is `warm_blooded` rather than `warmblooded`.  A multi-word type is
   snake_case, and lower-casing alone names a different term."
   [s]
   (-> (nm s)

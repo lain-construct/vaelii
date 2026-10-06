@@ -136,6 +136,79 @@ it — `git show v0.16.0:CHANGELOG.md`.
   or `genl?` instead.
   *Breaks:* `physical_object`, `spatial`, `abstract`
 
+- **`living_thing` is renamed `organism`.** The type names something alive in its own
+  right — born, growing, reproducing, and dying by default — and every shipped use is
+  renamed: the `alive` and `mortal` defaults, the argument declarations of `alive`,
+  `dead` and `mortal`, the `animal` and `plant` edges, the vocabulary roster, the
+  browser examples and the docs. The default-alive and default-death rules are
+  unchanged. No `rewriteOf` alias is shipped, as none was for `physical_object`.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that wrote `living_thing` renames to `organism`; the old spelling
+  stores clean but attaches to nothing in the taxonomy, so no default reaches what it
+  types.
+  *Breaks:* `living_thing`
+
+- **Kinship and age relate organisms, not only animals.** A plant or a bacterium is born
+  and has a parent as an animal does, so `parentOf`, `childOf`, `siblingOf`, `ancestorOf`,
+  `grandparentOf`, `birthYearOf` and `olderThan` declare `organism` where they declared
+  `animal`, and the kinship and age rules read on from a tree's parent as from a dog's.
+  `fatherOf`, `motherOf`, `FatherFn` and `MotherFn` stay `animal`, as do the behaviour
+  predicates (`asleep`, `awake`, `breathes_air`, `eats`, `preysOn`, `warm_blooded`).
+  `common_sense_test` stores a parent and two birth years between two trees and derives
+  the rest, with neither tree taken for an animal.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that relied on a kinship or age fact refusing a plant, or on its
+  arguments being animals, states that narrower type of its own.
+
+- **`biological` is an organism or a part of one: `organism` and `body_part` are
+  separated under it, and `food` and `body_part` are orthogonal.** `biological` is a
+  tangible that is an organism or part of one, held in CxCore beside the other skeleton
+  collections so both CxCore's `organism` and CxAbstract's `body_part` extend it.
+  `(separating biological organism body_part)` places `body_part` under `biological`,
+  with no edge stated beside it, and keeps an organism and a part it grew apart without
+  claiming the two exhaust `biological`. The stated
+  `(genl organism tangible)` and `(genl body_part tangible)` are removed, since the
+  route through `biological` derives both. The monotonic `(disjoint food body_part)` is
+  replaced by `(orthogonal food body_part)` — a leg of lamb or a chicken wing is both —
+  so an instance of both is no longer a clash. `(disjoint biological substance)` is stated
+  monotonic in CxAbstract in place of `(disjoint organism substance)` and
+  `(disjoint substance body_part)`, which it derives, so a thing both biological and a
+  substance is a clash. `ontology_test` pins the separation, the derived edges and
+  disjointness, and the shared instance, and `biological` is classified inert in the
+  vocabulary roster.
+  [contexts.md](docs/contexts.md)
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that relied on `food` and `body_part` clashing has no stated
+  replacement below CxAbstract, since an `orthogonal` overrides a `disjoint` of the pair
+  wherever both are seen; it types the clash it needs on narrower kinds of its own. A
+  KB that relied on `(disjoint organism substance)` or `(disjoint substance body_part)`
+  being stated, rather than derived, reads it from `disjoint?` instead. A
+  KB that relied on `(genl organism tangible)` or `(genl body_part tangible)` being
+  stated, rather than derived, reads it from `genl?` instead.
+
+- **An organism can be an artifact: `(disjoint organism artifact)` is replaced by
+  `(orthogonal biological artifact)`.** An artifact is anything intentionally made, so
+  an engineered bacterium or an organ grown in a lab is biological and an artifact at
+  once. The monotonic disjointness is removed from CxAbstract and the orthogonal stated
+  there, so an organism or a body part that is also an artifact is no longer a clash,
+  and neither is a kind below either — an `animal` that is a `tool`. `organism` and
+  `body_part` stay disjoint from `substance`. `ontology_test` asserts an organism and
+  a body part as artifacts and finds no clash.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that needs an organism kept apart from an artifact states the
+  separation over narrower kinds of its own, such as `(disjoint animal tool)`; a
+  `disjoint` of `biological` and `artifact` themselves is overridden wherever the
+  shipped `orthogonal` is seen.
+  *Breaks:* `(disjoint organism artifact)`
+
 ### Fixes: clashes and order independence
 
 - **A stated `genl` route that makes a minted edge redundant re-joins the rule firings
@@ -235,7 +308,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
 - **taxonomy.md documents the three partitions of `thing`, and the glossary defines
   `intangible`.** The glossary entries for `aspatial`, `atemporal`, `tangible` and
   `nowhere_never` link the section. `nm/advice`'s documented multi-word example is
-  `(isa Muffet LivingThing)`, a type the shipped ontology declares, and contexts.md lists
+  `(isa Muffet WarmBlooded)`, a type the shipped ontology declares, and contexts.md lists
   the head's ontology collections without a count.
   [taxonomy.md](docs/taxonomy.md#the-three-partitions-of-thing)
 

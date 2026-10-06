@@ -32,7 +32,7 @@
     * middle (theory — between Universe and Well): how the definitional things
       *interrelate*, where several overlapping theories can coexist.
         - CxAnatomy.txt   — what kinds of thing have what kinds of part.
-        - CxBiology.txt   — birds fly by default except penguins; living things
+        - CxBiology.txt   — birds fly by default except penguins; organisms
                                  are mortal; flight enables travel; sleep is what the
                                  theory is willing to assume.
         - CxChange.txt    — a simple event calculus: a state persists until an

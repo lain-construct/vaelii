@@ -122,8 +122,8 @@
   ;; A spindle is a **head** every member sees, **members** that see the head and not
   ;; each other, and a **collector** that sees every member (docs/contexts.md).  So a
   ;; term defined in one member and extended from a second is a term the extending
-  ;; member cannot see, and that is a defect rather than untidiness: with `living_thing`
-  ;; defined in CxAbstract, `(genl animal living_thing)` written in CxOrganism left
+  ;; member cannot see, and that is a defect rather than untidiness: with `organism`
+  ;; defined in CxAbstract, `(genl animal organism)` written in CxOrganism left
   ;; `animal` unable to reach `thing` FROM CxOrganism, so every `arg` constraint written
   ;; there convicted nothing in its own context and `isa?` answered false about a type
   ;; the file defines.
@@ -195,7 +195,7 @@
 (tu/deftest-kb starter-documents-its-vocabulary
   (testing "every ontology type carries exactly one comment"
     (doseq [t '[thing intangible tangible attribute temporal relation_type
-                substance artifact body_part food living_thing vehicle tool building
+                substance artifact body_part food organism vehicle tool building
                 animal plant mammal bird fish reptile insect person human dog cat
                 lion mouse hare wolf tortoise ant grasshopper
                 penguin eagle sparrow tree flower]]

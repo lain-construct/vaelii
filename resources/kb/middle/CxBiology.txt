@@ -1,5 +1,5 @@
 ;; CxBiology — defeasible biology theory: birds fly by default except penguins,
-;; animals breathe air except fish, living things are alive until they are dead and
+;; animals breathe air except fish, organisms are alive until they are dead and
 ;; awake until they are asleep, and warm-bloodedness follows from the class. Sees the
 ;; shared upper ontology via CxUniverse; CxWell sees it.
 ;;
@@ -20,7 +20,7 @@
 ;; it, where "we never concluded it was alive" supports nothing at all.
 (set/forwardRule (implies (and (dead ?x)) (not (alive ?x))))
 (exceptWhen (dead ?x)
-  (set/defaultRule (set/forwardRule (implies (and (living_thing ?x)) (alive ?x)))))
+  (set/defaultRule (set/forwardRule (implies (and (organism ?x)) (alive ?x)))))
 
 ;; ---- awake until told otherwise ------------------------------------------
 ;; Sleep is what this theory is willing to assume. A proof that dead-ends on an animal
@@ -93,7 +93,7 @@
 ;; only until something says where it actually is.
 (set/defaultRule (set/forwardRule (implies (and (livesIn ?a ?p)) (locatedIn ?a ?p))))
 
-(set/defaultRule (set/forwardRule (implies (and (living_thing ?x)) (mortal ?x))))
+(set/defaultRule (set/forwardRule (implies (and (organism ?x)) (mortal ?x))))
 
 ;; ---- warm-bloodedness, read off the class --------------------------------
 ;; Never asserted of any particular animal: the five vertebrate classes are pairwise
