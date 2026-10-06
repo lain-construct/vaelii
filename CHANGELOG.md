@@ -241,6 +241,24 @@ it — `git show v0.16.0:CHANGELOG.md`.
   shipped `orthogonal` is seen.
   *Breaks:* `(disjoint organism artifact)`
 
+- **Fifteen shipped unary predicates gain a `genl` path to `thing`.** The `kb-integrity`
+  `:not-under-thing` sweep reported each from CxWell. In CxCore,
+  `abducible_predicate`, `closed_extent_predicate`, `decontextualized_predicate`,
+  `forced_decontextualized_predicate` and `target_following_predicate` are placed under
+  `predicate`, as `modal_predicate` already was; `sibling_disjoint` under
+  `unary_predicate`, since what it marks is a type. In CxTime, `functional_at_instant` is placed under `function`. CxUniverse states
+  `(genl initially fluent)`: `initially` is CxTime's and `fluent` is CxAbstract's, and
+  CxUniverse is the context that sees both. CxUniverse also places the seven
+  biology properties under the kind each is said of: `alive`, `dead` and `mortal` under
+  `organism`; `asleep`, `awake`, `breathes_air` and `warm_blooded` under `animal`.
+  `ontology_test` runs the sweep over those fifteen and finds none. The sweep also
+  reports `not`, which is left unplaced: a `genl` edge from a connective to `formula`
+  would make it a subtype of the formulas it builds, so its typing is punted to the
+  use/mention batch.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
 ### Fixes: answers
 
 - **`query {:proof? true}` and `argue` return a proof when a rewrite's residual repeats
