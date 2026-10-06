@@ -210,11 +210,23 @@
                 (re-find #"separated pairs" (:body r)))
             "the front page renders — either as pairs or as summary"))
       (testing "and so does the continuation that pages the same list"
-        (is (= 200 (:status (GET "/front/rows" "section=disjoint&offset=0"))))
-        (let [deep (GET "/front/rows" (str "section=disjoint&offset=50"))]
-          (is (= 200 (:status deep)))
-          (is (re-find #">nothing</a> ⊥ <a[^>]*>nothing</a>" (:body deep))
-              "the self-disjoint pair renders on a deeper page"))))))
+        ;; Every page is walked rather than one fixed offset read: the list is in name
+        ;; order, so which page the pair lands on moves whenever a pair that sorts before
+        ;; `nothing` is stated or retired, and a fixed offset tested the KB's pair count
+        ;; rather than the rendering.
+        (let [pages (loop [offset 0, acc []]
+                      (let [r   (GET "/front/rows" (str "section=disjoint&offset=" offset))
+                            acc (conj acc r)
+                            nxt (some->> (:body r)
+                                         (re-find #"section=disjoint&(?:amp;)?offset=(\d+)")
+                                         second parse-long)]
+                        (if (and nxt (> nxt offset) (< (count acc) 100))
+                          (recur (long nxt) acc)
+                          acc)))]
+          (is (< 1 (count pages)) "the list is long enough to page")
+          (is (every? #(= 200 (:status %)) pages))
+          (is (some #(re-find #">nothing</a> ⊥ <a[^>]*>nothing</a>" (:body %)) pages)
+              "the self-disjoint pair renders on a page of the continuation"))))))
 
 (deftest a-term-page-survives-a-compound-in-the-taxonomy
   ;; The second half of the same story as the test above: a **type node need not be a

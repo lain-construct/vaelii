@@ -265,19 +265,31 @@
 
 ;; ---- what is a type, and what is only a property ------------------------
 
+(def ^:private biology-properties
+  "The seven CxLife properties CxUniverse places under the kind each is said of."
+  '{alive organism, dead organism, mortal organism,
+    asleep animal, awake animal, breathes_air animal, warm_blooded animal})
+
 (tu/deftest-kb a-type-is-a-noun-and-a-property-is-not-a-type
   ;; The naming rules make `alive` and `mortal` legal unary predicates, and nothing in
   ;; them says whether a name belongs in the genl hierarchy.  That is a modelling
   ;; decision: a type is a kind of thing and wants a noun, while a property is something
-  ;; a thing *is*, and putting one in the hierarchy would make "mortal" a kind that
-  ;; organisms are a kind OF.  Were one wanted as a type it would be spelled for it —
-  ;; `mortal_being`, not `mortal`.
-  (testing "the properties the biology theory concludes are outside the hierarchy"
-    (doseq [p '[alive dead awake asleep mortal warm_blooded breathes_air]]
-      (is (empty? (v/sentexes-matching kb (list 'genl p '?super) '?ctx))
-          (str p " is a property, not a type — it must carry no genl edge"))
+  ;; a thing *is*.  A property may sit BELOW the kind it is said of — the alive
+  ;; organisms are some of the organisms — but never above a kind: that would make
+  ;; "mortal" a kind that organisms are a kind OF.  Were one wanted as a type in that
+  ;; sense it would be spelled for it — `mortal_being`, not `mortal`.
+  (testing "the properties the biology theory concludes are placed under their kind"
+    (doseq [[p kind] biology-properties]
+      (is (v/genl? kb p kind) (str p " is placed under " kind))
+      (is (v/genl? kb p 'thing) (str p " reaches thing"))
       (is (v/isa? kb p 'unary_predicate)
           (str p " is still a one-place predicate"))))
+  (testing "and no type sits below any of them"
+    (doseq [p (keys biology-properties)]
+      (is (= #{p} (v/specs kb p))
+          (str p " is a property, not a kind — nothing may be placed under it"))
+      (is (not (v/genl? kb (biology-properties p) p))
+          (str (biology-properties p) " is not a kind of " p))))
   (testing "while the kinds they are said of are types, and reach the root"
     (doseq [t '[animal bird penguin dog person tangible capability flying]]
       (is (v/genl? kb t 'thing) (str t " must reach thing")))))
@@ -290,6 +302,34 @@
         "a type with no path to thing answers nothing and is a type in spelling only")
     (is (= (:edged (:taxonomy q)) (:rooted (:taxonomy q)))
         "every name with a genl edge reaches the root")))
+
+(def ^:private placed-unary-predicates
+  "Fifteen shipped `unary_predicate` terms each placed under `thing` by a stated `genl`
+  edge, so the `:not-under-thing` sweep (docs/integrity.md) reports none of them.  The
+  seven biology properties among them are placed under the kind each is said of, and
+  `a-type-is-a-noun-and-a-property-is-not-a-type` holds that no kind sits below one."
+  '#{initially functional_at_instant
+     abducible_predicate closed_extent_predicate decontextualized_predicate
+     target_following_predicate forced_decontextualized_predicate
+     sibling_disjoint
+     alive dead mortal asleep awake breathes_air warm_blooded})
+
+(tu/deftest-kb every-placed-unary-predicate-reaches-thing
+  ;; `islands` above counts names WITH a genl edge, so a unary predicate carrying none is
+  ;; never an island.  The `:not-under-thing` sweep reads the declaration instead, over a
+  ;; caller-owned candidate set, from CxWell, which sees every upper and middle context.
+  (let [report (v/kb-integrity kb placed-unary-predicates 'CxWell)]
+    (is (= (count placed-unary-predicates) (:candidate-count report)))
+    (is (empty? (:not-under-thing report))
+        (str "each reaches thing by a genl path visible from CxWell; "
+             (count (:not-under-thing report)) " do not: "
+             (pr-str (mapv :term (:not-under-thing report)))))))
+
+(tu/deftest-kb sibling-disjoint-is-an-at-least-metatype
+  ;; What sibling_disjoint marks is a type (genlArg 1 thing), so sibling_disjoint itself is
+  ;; a type of types.  It may mark a first-order type such as animal or a metatype, so it
+  ;; is at_least_metatype rather than metatype.
+  (is (v/isa? kb 'sibling_disjoint 'at_least_metatype)))
 
 (def ^:private type-relating-predicates
   "The predicates whose every argument is a TYPE (or a predicate) the claim relates, so the
@@ -755,6 +795,64 @@
       (v/assert kb (list 'thing Echo) 'CxUniverse)
       (v/assert kb (list 'not (list 'tangible Echo)) 'CxUniverse)
       (is (true? (v/ask? kb (list 'intangible Echo) 'CxUniverse))))))
+
+;; ---- the kinds of relation ----------------------------------------------
+;; (partition relation function truth_valued_relation), (partition truth_valued_relation
+;; logical_constant predicate) and (partition logical_constant quantifier
+;; logical_connective), after Cyc's TruthFunction: an application of a relation denotes a
+;; value or is true or false, and what is true or false is a predicate's application or a
+;; logical constant's.
+
+(tu/deftest-kb three-partitions-divide-relation
+  (testing "each part reaches relation and the root"
+    (doseq [t '[function truth_valued_relation predicate logical_constant quantifier
+                logical_connective]]
+      (is (true? (v/genl? kb t 'relation)) (str t " must reach relation"))
+      (is (true? (v/genl? kb t 'thing)) (str t " must reach thing"))))
+  (testing "predicate and the logical constants are truth-valued relations"
+    (doseq [t '[predicate logical_constant quantifier logical_connective]]
+      (is (true? (v/genl? kb t 'truth_valued_relation))
+          (str t " must be under truth_valued_relation"))))
+  (testing "quantifier and logical_connective are logical constants"
+    (doseq [t '[quantifier logical_connective]]
+      (is (true? (v/genl? kb t 'logical_constant)) (str t " must be under logical_constant"))))
+  (testing "the parts of each partition are disjoint, and the separation descends"
+    (doseq [[a b] '[[function truth_valued_relation] [logical_constant predicate]
+                    [quantifier logical_connective]
+                    [predicate function] [logical_connective function] [quantifier function]
+                    [logical_connective predicate] [quantifier predicate]]]
+      (is (true? (v/disjoint? kb a b)) (str a " and " b " must be disjoint")))))
+
+(tu/deftest-kb what-the-partitions-entail-is-derived-and-not-stated
+  ;; Each of these was stated in CxCore before the partitions, and each is entailed by
+  ;; them: a part of a partition is under its whole, and the parts are disjoint, which
+  ;; descends to predicate through truth_valued_relation.  A fact entailed by a stated
+  ;; fact is not stated as well, so CxCore carries none of the three.
+  (let [stated (set (map (comp first text/peel-strength)
+                         (text/read-forms (io/file "resources/kb/CxCore.txt"))))]
+    (doseq [s '[(genl function relation) (genl predicate relation)
+                (disjoint function predicate) (disjoint predicate function)]]
+      (is (not (contains? stated s)) (str (pr-str s) " is entailed by the partitions"))))
+  (is (true? (v/genl? kb 'function 'relation)))
+  (is (true? (v/genl? kb 'predicate 'relation)))
+  (is (true? (v/disjoint? kb 'function 'predicate)))
+  (is (true? (v/disjoint? kb 'predicate 'function))))
+
+(tu/deftest-kb the-connectives-are-logical-connectives-and-not-predicates
+  (doseq [c '[and or not implies]]
+    (is (true? (v/isa? kb c 'logical_connective)) (str c " must be a logical_connective"))
+    (is (true? (v/isa? kb c 'truth_valued_relation)) (str c " must be a truth_valued_relation"))
+    (is (not (v/isa? kb c 'predicate)) (str c " must not be a predicate")))
+  (testing "neither connective keeps its old predicate arity class"
+    (is (not (v/isa? kb 'not 'unary_predicate)))
+    (is (not (v/isa? kb 'implies 'binary_predicate))))
+  (testing "and each states its arity with the relation-wide vocabulary"
+    (is (true? (v/isa? kb 'not 'unary)))
+    (is (true? (v/isa? kb 'implies 'binary)))
+    (is (true? (v/isa? kb 'and 'variable_arity)))
+    (is (true? (v/isa? kb 'or 'variable_arity))))
+  (testing "and so neither is a type the not-under-thing sweep asks to place"
+    (is (nil? (:not-under-thing (v/kb-integrity kb #{'not 'implies} 'CxWell))))))
 
 (tu/deftest-kb what-has-no-place-in-space-or-time-has-no-mass
   ;; Mass entails a location in space and time, so what lacks either lacks mass.
