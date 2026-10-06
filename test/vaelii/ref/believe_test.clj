@@ -378,12 +378,12 @@
       (is (not (contains? (:believed v) '(w X)))))))
 
 (deftest scenario-e-an-own-denial-under-a-vantage-claim-is-out-with-and-without-a-second-path
-  ;; CxLeft sees CxU. CxU :monotonic: (transitiveInArg pP 1 genl) (genl hauler animal)
+  ;; CxLeft sees CxU. CxU :monotonic: (transitiveInArgInverse pP 1 genl) (genl hauler animal)
   ;; (genl vehicle animal); CxU :default: (genl cart hauler) (not (pP cart Bone1));
   ;; CxLeft :monotonic: (genl cart vehicle) (pP vehicle Bone1). The second world adds
   ;; (pP hauler Bone1) :monotonic in CxU.
   (tu/with-requirement @reference-families "vaelii.ref.nogoods/families is not loadable"
-    (let [base  [['(transitiveInArg pP 1 genl) 'CxU :monotonic]
+    (let [base  [['(transitiveInArgInverse pP 1 genl) 'CxU :monotonic]
                  ['(genl hauler animal) 'CxU :monotonic]
                  ['(genl vehicle animal) 'CxU :monotonic]
                  ['(genl cart hauler) 'CxU :default]
@@ -402,7 +402,7 @@
 
 (deftest a-guarded-conclusion-a-defeat-releases-ties-with-a-default-edge-instead-of-defeating-it
   ;; D2 and D14. CxA: (genl chi dog) (chi Kit) :default; (disjoint dog cat) (cat Kit)
-  ;; (pp Kit) (transitiveInArg pP 1 genl) (pP dog Bone) :monotonic; a forward rule
+  ;; (pp Kit) (transitiveInArgInverse pP 1 genl) (pP dog Bone) :monotonic; a forward rule
   ;; pp ∧ unknown(chi) ⇒ ¬(pP chi Bone). Round 1 takes (chi Kit) OUT and the rule fires.
   ;; The conclusion is :default (D14), so round 2's inherited nogood ties it with the
   ;; :default edge. Before D14 the conclusion was :monotonic, round 2 took the edge OUT,
@@ -413,7 +413,7 @@
                            ['(disjoint dog cat) 'CxA :monotonic]
                            ['(cat Kit) 'CxA :monotonic]
                            ['(pp Kit) 'CxA :monotonic]
-                           ['(transitiveInArg pP 1 genl) 'CxA :monotonic]
+                           ['(transitiveInArgInverse pP 1 genl) 'CxA :monotonic]
                            ['(pP dog Bone) 'CxA :monotonic]
                            ['(set/forwardRule (implies (and (pp ?x) (unknown (chi ?x)))
                                                        (not (pP chi Bone)))) 'CxA])
@@ -431,7 +431,7 @@
   ;; types may be :default and may be denied
   (let [roster  '[(irreflexive likes) (anti_symmetric likes) (asymmetric likes)
                   (functional likes) (functionalInArg likes 2) (anti_transitive likes)
-                  (transitiveInArg likes 1 genl) (disjoint dog cat)
+                  (transitiveInArgInverse likes 1 genl) (disjoint dog cat)
                   (covering vehicle car boat) (genl partOf nearTo)]
         n       (count roster)
         refused (fn [triple] (unsupported? #(w/check-world (world triple))))
@@ -445,8 +445,8 @@
            [(stored ['(genl dog animal) 'CxA :default])
             (stored ['(not (genl dog animal)) 'CxA :default])
             (inert ['(not (genl dog animal)) 'CxA :default])]))
-    (is (refused ['(transitiveInArg likes 1 partOf) 'CxA :monotonic])
-        "a transitiveInArg over a relation other than genl")))
+    (is (refused ['(transitiveInArgInverse likes 1 partOf) 'CxA :monotonic])
+        "a transitiveInArgInverse over a relation other than genl")))
 
 (deftest a-mark-reaches-a-sub-predicate-over-a-predicate-edge-stored-monotonic
   ;; D7, D10. CxA: (functional ageOf) (ageAtDeath Bob 5) :monotonic; (genl ageAtDeath
@@ -471,7 +471,7 @@
 
 (def ^:private carrier
   "A load claim on `hauler` and the declaration that carries position 1 down `genl`."
-  [['(transitiveInArg carriesLoad 1 genl) 'CxA :monotonic]
+  [['(transitiveInArgInverse carriesLoad 1 genl) 'CxA :monotonic]
    ['(carriesLoad hauler Bone1) 'CxA :monotonic]])
 
 (defn- claim-at
@@ -484,7 +484,7 @@
     [(b/believed? wd s 'CxA families) ((:class v) s) (contains? (:inherited v) s)]))
 
 (deftest a-claim-is-inherited-down-a-believed-genl-edge-at-the-edge-s-class
-  ;; D5. CxA: (transitiveInArg carriesLoad 1 genl) (carriesLoad hauler Bone1)
+  ;; D5. CxA: (transitiveInArgInverse carriesLoad 1 genl) (carriesLoad hauler Bone1)
   ;; :monotonic, and (genl cart hauler) :monotonic, then :default
   (is (= [[true :monotonic true] [true :default true]]
          [(claim-at (conj carrier ['(genl cart hauler) 'CxA :monotonic]) [])
@@ -624,11 +624,11 @@
                                              ['(genlCx CxB CxA) 'CxUniverse])))
         "a genlCx cycle")
     (is (unsupported? #(w/check-world
-                        (world ['(transitiveInArg pP 1 genl) 'CxA :monotonic]
+                        (world ['(transitiveInArgInverse pP 1 genl) 'CxA :monotonic]
                                ['(set/forwardRule (implies (pP ?x Bone) (qq ?x))) 'CxA])))
         "a rule reading a preserved predicate")
     (is (unsupported? #(w/check-world
-                        (world ['(transitiveInArg pP 1 genl) 'CxA :monotonic]
+                        (world ['(transitiveInArgInverse pP 1 genl) 'CxA :monotonic]
                                ['(genl pP qQ) 'CxA :monotonic]
                                ['(set/forwardRule (implies (qQ ?x Bone) (qq ?x))) 'CxA])))
         "a rule reading a predicate above a preserved one")

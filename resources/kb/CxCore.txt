@@ -586,10 +586,10 @@
 (genlArg orthogonal 2 thing)
 ;; Not preserved along genl in either direction, at either position: a subtype of one side
 ;; may be disjoint from the other, and a supertype of one side may subsume the other.
-(not (transitiveInArg orthogonal 1 genl))
-(not (transitiveInArg orthogonal 2 genl))
 (not (transitiveInArgInverse orthogonal 1 genl))
 (not (transitiveInArgInverse orthogonal 2 genl))
+(not (transitiveInArg orthogonal 1 genl))
+(not (transitiveInArg orthogonal 2 genl))
 (termsRelated sibling_disjoint disjoint_metatype disjoint orthogonal)   ;; disjointness and exceptions thereto
 (seeAlso sibling_disjoint genl)   ;; exceptions to sibling disjointness
 (termsRelated genl disjoint orthogonal)   ;; the three basic taxonomic relations
@@ -868,8 +868,8 @@
 (forced_monotonic_predicate functional)
 (forced_monotonic_predicate functionalInArg)
 (forced_monotonic_predicate anti_transitive)
-(forced_monotonic_predicate transitiveInArg)
 (forced_monotonic_predicate transitiveInArgInverse)
+(forced_monotonic_predicate transitiveInArg)
 (forced_monotonic_predicate injection)
 (forced_monotonic_predicate surjection)
 (forced_monotonic_predicate bijection)
@@ -1249,19 +1249,19 @@
 (decontextualized_predicate anti_symmetric)
 (genl anti_symmetric binary_predicate)
 
-(comment transitiveInArg
-         "(transitiveInArg ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along the transitive ?relation. A stored (?predicate … W …) then licenses the same claim about A whenever (?relation A W) holds. With genl that is downward inheritance among kinds, so (largerThan dog cat) reaches a golden retriever — and stops at the kinds, since preservation moves an argument and never the level the predicate relates at. Whether a relation distributes over a kind's subkinds is a claim about that relation, so it is declared rather than assumed; a more specific claim undercuts an inherited default, and never an inherited monotonic one. Several declarations may name one position, and their reaches union. ?relation must be genl, genlCx, or a predicate already declared transitive: assert refuses the declaration otherwise, since the reach is walked to a fixpoint and would manufacture a transitivity nobody stated.")
-(ternary_predicate transitiveInArg)
-(arg transitiveInArg 1 predicate)
-(arg transitiveInArg 2 positive_integer)
-(arg transitiveInArg 3 predicate)
-
 (comment transitiveInArgInverse
-         "(transitiveInArgInverse ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along ?relation read backwards. A stored (?predicate … W …) licenses the claim about A whenever (?relation W A) holds, so with genl this is upward inheritance. It exists so that direction never requires declaring an inverse predicate with no other use. Same restriction on ?relation.")
+         "(transitiveInArgInverse ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved against the arrow of the transitive ?relation. A stored (?predicate … W …) then licenses the same claim about A whenever (?relation A W) holds. With genl that is downward inheritance among kinds, so (largerThan dog cat) reaches a golden retriever — and stops at the kinds, since preservation moves an argument and never the level the predicate relates at. Whether a relation distributes over a kind's subkinds is a claim about that relation, so it is declared rather than assumed; a more specific claim undercuts an inherited default, and never an inherited monotonic one. Several declarations may name one position, and their reaches union. ?relation must be genl, genlCx, or a predicate already declared transitive: assert refuses the declaration otherwise, since the reach is walked to a fixpoint and would manufacture a transitivity nobody stated.")
 (ternary_predicate transitiveInArgInverse)
 (arg transitiveInArgInverse 1 predicate)
 (arg transitiveInArgInverse 2 positive_integer)
 (arg transitiveInArgInverse 3 predicate)
+
+(comment transitiveInArg
+         "(transitiveInArg ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along the arrow of the transitive ?relation, the direction of Cyc's transitiveViaArg. A stored (?predicate … W …) licenses the same claim about A whenever (?relation W A) holds, so with genl this is upward inheritance: (capabilityType bird flying) with (genl flying travelling) reaches (capabilityType bird travelling). transitiveInArgInverse is the other direction, and the two names exist so neither direction requires declaring an inverse predicate with no other use. The same restriction on ?relation applies.")
+(ternary_predicate transitiveInArg)
+(arg transitiveInArg 1 predicate)
+(arg transitiveInArg 2 positive_integer)
+(arg transitiveInArg 3 predicate)
 
 (comment ternary_predicate    "A predicate of three arguments, such as arg.")
 

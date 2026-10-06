@@ -42,7 +42,7 @@
   roster, so it is held `:monotonic`."
   [kb {:keys [pred hauler cart]} & {:keys [edge?] :or {edge? true}}]
   (v/assert kb (list 'binary_predicate pred) U)
-  (v/assert kb (list 'transitiveInArg pred 1 'genl) U)
+  (v/assert kb (list 'transitiveInArgInverse pred 1 'genl) U)
   (v/assert kb (list 'genl hauler 'animal) U)
   (when edge? (v/assert kb (list 'genl cart hauler) U)))
 
@@ -88,7 +88,7 @@
                                            (:sides r)))))))
         (testing "and the genl path and the declaration, so `why` can explain the reach"
           (is (= (set (map #(v/handle-of kb % U)
-                           [(list 'transitiveInArg carriesLoad 1 'genl)
+                           [(list 'transitiveInArgInverse carriesLoad 1 'genl)
                             (list 'genl cart_kind hauler_kind)]))
                  (set (:via (:inherited r))))))
         (testing "the sides are the stored sentexes, and the stored claim is among them"
@@ -167,7 +167,7 @@
       (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}
             which {:src  (list carriesLoad hauler_kind 'Bone1)
                    :edge (list 'genl cart_kind hauler_kind)
-                   :decl (list 'transitiveInArg carriesLoad 1 'genl)
+                   :decl (list 'transitiveInArgInverse carriesLoad 1 'genl)
                    :neg  (list 'not (list carriesLoad cart_kind 'Bone1))}]
         (vocabulary! kb terms)
         (v/assert kb (which :src) U mono)
@@ -250,7 +250,7 @@
   ;; does not stop it.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
     (v/assert kb (list 'binary_predicate carriesLoad) U)
-    (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) U mono)
+    (v/assert kb (list 'transitiveInArgInverse carriesLoad 1 'genl) U mono)
     (v/assert kb (list 'genl hauler_kind 'animal) U mono)
     (v/assert kb (list 'genl cart_kind hauler_kind) U mono)
     (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
@@ -266,7 +266,7 @@
   ;; defeated, so it is a clash the engine hands back — a contradiction like any other.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
     (v/assert kb (list 'binary_predicate carriesLoad) U)
-    (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) U mono)
+    (v/assert kb (list 'transitiveInArgInverse carriesLoad 1 'genl) U mono)
     (v/assert kb (list 'genl hauler_kind 'animal) U mono)
     (v/assert kb (list 'genl cart_kind hauler_kind) U mono)
     (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
@@ -321,8 +321,8 @@
   ;; defeat refuses the default edge as a cycle instead.
   (let [writes (fn [kb P a b]
                  {:ab    #(v/assert kb (list 'genl a b) U)
-                  :decl2 #(v/assert kb (list 'transitiveInArg P 2 'genl) U mono)
-                  :decl1 #(v/assert kb (list 'transitiveInArg P 1 'genl) U)
+                  :decl2 #(v/assert kb (list 'transitiveInArgInverse P 2 'genl) U mono)
+                  :decl1 #(v/assert kb (list 'transitiveInArgInverse P 1 'genl) U)
                   :neg   #(v/assert kb (list 'not (list P b b)) U mono)
                   :claim #(v/assert kb (list P b a) U mono)
                   :ba    #(v/assert kb (list 'genl b a) U mono)})
@@ -459,7 +459,7 @@
     (is (empty? (v/conflicts kb)))))
 
 (tu/deftest-kb a-reader-below-a-one-context-inherited-clash-that-reads-it-released-believes-the-loser
-  ;;   CxUniverse  (transitiveInArg carriesLoad 1 genl) (genl cart hauler)
+  ;;   CxUniverse  (transitiveInArgInverse carriesLoad 1 genl) (genl cart hauler)
   ;;               (carriesLoad hauler Bone), each :monotonic
   ;;    └─ CxA     (not (carriesLoad cart Bone)) :default — loses at CxA
   ;;        └─ CxB (except (sentexHandle <(carriesLoad hauler Bone)>))
@@ -470,7 +470,7 @@
       (v/assert kb (list 'genlCx CxA U) U mono)
       (v/assert kb (list 'genlCx CxB CxA) U mono)
       (v/assert kb (list 'binary_predicate carriesLoad) U mono)
-      (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) U mono)
+      (v/assert kb (list 'transitiveInArgInverse carriesLoad 1 'genl) U mono)
       (v/assert kb (list 'genl hauler_kind 'animal) U mono)
       (v/assert kb (list 'genl cart_kind hauler_kind) U mono)
       (let [claim  (v/assert kb (list carriesLoad hauler_kind Bone) U mono)

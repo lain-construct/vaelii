@@ -210,7 +210,7 @@
   ;; back byte-identical.
   (let [base (doto (v/open-kb {:backend :memory :space [::preserve-base] :recover? false})
                (v/clear!))]
-    (v/assert base '(transitiveInArg tmpLargerThan 1 genl) 'CxUniverse)
+    (v/assert base '(transitiveInArgInverse tmpLargerThan 1 genl) 'CxUniverse)
     (v/assert base '(tmpLargerThan tmp_dog tmp_cat) 'CxUniverse)
     (v/assert base '(implies (tmpLargerThan ?x ?y) (tmpOutweighs ?x ?y)) 'CxUniverse {:direction :forward})
     (let [before (base-snapshot base)

@@ -280,7 +280,7 @@ re-check costs one query; a missed one is a conclusion that should have been swe
 wasn't.
 
 Preservation is the one of those that cannot be listed in the code, and the one where
-argument agreement is at its most misleading: `(transitiveInArg bigger n genl)` makes a
+argument agreement is at its most misleading: `(transitiveInArgInverse bigger n genl)` makes a
 stored `(bigger dog cat)` answer `(bigger poodle siamese)`, so the trigger and the
 conjunct agree on **no argument at all** while naming the same predicate — which reads
 to the filter exactly like an unrelated fact. Which predicates those are is a property

@@ -208,7 +208,7 @@
     (try
       (let [kb (open dir)]
         (v/assert kb '(binary_predicate carriesLoad) U)
-        (v/assert kb '(transitiveInArg carriesLoad 1 genl) U)
+        (v/assert kb '(transitiveInArgInverse carriesLoad 1 genl) U)
         (v/assert kb '(genl hauler_kind animal) U)
         (v/assert kb '(genl cart_kind hauler_kind) U)
         (v/assert kb '(carriesLoad hauler_kind Bone1) U mono)

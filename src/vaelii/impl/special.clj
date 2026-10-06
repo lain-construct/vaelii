@@ -185,8 +185,8 @@
     commutativeInArgs        [1]
     commutativeInArgAndRest  [1]
     inverse              [1 2]
-    transitiveInArg        [1]
-    transitiveInArgInverse [1]})
+    transitiveInArgInverse [1]
+    transitiveInArg        [1]})
 
 (def recheck-subjects
   "`declaration-subjects`' functors as a set — which declarations post to the exception
@@ -6210,8 +6210,8 @@
     ;; The two preservation declarations really are wff-only — read back per query, with
     ;; the transitivity of the relation they name checked here because `arg`'s open-world
     ;; reading cannot (docs/inherit.md).
-    'transitiveInArg        {:wff wff/arg-preserving-problems}
     'transitiveInArgInverse {:wff wff/arg-preserving-problems}
+    'transitiveInArg        {:wff wff/arg-preserving-problems}
     ;; the three definitional collection relations: stored as ordinary facts and expanded
     ;; into forward rules at assert (docs/defns.md), so the wff arm — the member-variable
     ;; check — is the whole table entry, exactly as it is for `transitiveInArg`, which is

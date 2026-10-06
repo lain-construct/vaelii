@@ -86,7 +86,7 @@
           (terms '[dog_t mid_t chi_t cat_t largerThan noted CxA CxB])]
       {:base    [[(list 'genlCx CxA 'CxUniverse) 'CxUniverse]
                  [(list 'genlCx CxB CxA) 'CxUniverse]
-                 [(list 'transitiveInArg largerThan 1 'genl) 'CxUniverse]
+                 [(list 'transitiveInArgInverse largerThan 1 'genl) 'CxUniverse]
                  [(list 'set/forwardRule (list 'implies (list largerThan '?x '?y) (list noted '?x '?y)))
                   'CxUniverse]]
        :named   [[(list 'genl mid_t dog_t) 'CxUniverse] [(list 'genl chi_t mid_t) 'CxUniverse]]
@@ -105,7 +105,7 @@
           (terms '[dog_t mid_t chi_t cat_t largerThan noted CxA CxB])]
       {:base    [[(list 'genlCx CxA 'CxUniverse) 'CxUniverse]
                  [(list 'genlCx CxB CxA) 'CxUniverse]
-                 [(list 'transitiveInArg largerThan 1 'genl) 'CxUniverse]
+                 [(list 'transitiveInArgInverse largerThan 1 'genl) 'CxUniverse]
                  [(list 'set/forwardRule (list 'implies (list largerThan '?x '?y) (list noted '?x '?y)))
                   'CxUniverse]]
        :named   [[(list 'genl chi_t dog_t) CxA]]
@@ -123,7 +123,7 @@
       {:base    [[(list 'genlCx CxA 'CxUniverse) 'CxUniverse]
                  [(list 'genlCx CxB CxA) 'CxUniverse]
                  [(list 'transitive partOf) 'CxUniverse]
-                 [(list 'transitiveInArg rel 1 partOf) 'CxUniverse]
+                 [(list 'transitiveInArgInverse rel 1 partOf) 'CxUniverse]
                  [(list 'set/forwardRule (list 'implies (list rel '?x '?y) (list noted '?x '?y)))
                   'CxUniverse]]
        :named   [[(list partOf B A) 'CxUniverse] [(list partOf C B) 'CxUniverse]]
@@ -142,7 +142,7 @@
     (let [{:syms [low_t mid_t high_t val_t aRel noted CxA CxB CxD]}
           (terms '[low_t mid_t high_t val_t aRel noted CxA CxB CxD])]
       {:base    (into (sibling-contexts CxA CxB CxD)
-                      [[(list 'transitiveInArg aRel 1 'genl) 'CxUniverse]
+                      [[(list 'transitiveInArgInverse aRel 1 'genl) 'CxUniverse]
                        [(list 'set/forwardRule (list 'implies (list aRel '?x '?y) (list noted '?x '?y)))
                         'CxUniverse]])
        :named   [[(list 'genl low_t mid_t) CxA] [(list 'genl mid_t high_t) CxA]]
@@ -159,7 +159,7 @@
           (terms '[partOf rel noted A B C Z CxA CxB CxD])]
       {:base    (into (sibling-contexts CxA CxB CxD)
                       [[(list 'transitive partOf) 'CxUniverse]
-                       [(list 'transitiveInArg rel 1 partOf) 'CxUniverse]
+                       [(list 'transitiveInArgInverse rel 1 partOf) 'CxUniverse]
                        [(list 'set/forwardRule (list 'implies (list rel '?x '?y) (list noted '?x '?y)))
                         'CxUniverse]])
        :named   [[(list partOf C B) CxA] [(list partOf B A) CxA]]
@@ -330,7 +330,7 @@
   (let [{:syms [low_t mid_t high_t val_t aRel noted alive_t partOf P1 P2 P3 Fido CxA CxB CxD]}
         (terms '[low_t mid_t high_t val_t aRel noted alive_t partOf P1 P2 P3 Fido CxA CxB CxD])
         ctxs    (sibling-contexts CxA CxB CxD)
-        pres    [[(list 'transitiveInArg aRel 1 'genl) 'CxUniverse]]
+        pres    [[(list 'transitiveInArgInverse aRel 1 'genl) 'CxUniverse]]
         noting  [[(list 'set/forwardRule (list 'implies (list aRel '?x '?y) (list noted '?x '?y)))
                   'CxUniverse]]
         long-a  [[:a1 [[(list 'genl low_t mid_t) CxA]]] [:a2 [[(list 'genl mid_t high_t) CxA]]]]
@@ -359,8 +359,8 @@
       ;; one declaration, stated in each sibling
       :declared-twice
       {:base  (concat ctxs noting [[(list 'genl low_t high_t) 'CxUniverse]])
-       :parts [[:da [[(list 'transitiveInArg aRel 1 'genl) CxA]]]
-               [:db [[(list 'transitiveInArg aRel 1 'genl) CxB]]]
+       :parts [[:da [[(list 'transitiveInArgInverse aRel 1 'genl) CxA]]]
+               [:db [[(list 'transitiveInArgInverse aRel 1 'genl) CxB]]]
                [:claim [[(list aRel high_t val_t) 'CxUniverse]]]]
        :goal  (list noted low_t val_t) :readers readers :expect [false true true true]}
 
@@ -372,7 +372,7 @@
 
       :fact-relation
       {:base  (concat ctxs noting [[(list 'transitive partOf) 'CxUniverse]
-                                   [(list 'transitiveInArg aRel 1 partOf) 'CxUniverse]])
+                                   [(list 'transitiveInArgInverse aRel 1 partOf) 'CxUniverse]])
        :parts [[:a1 [[(list partOf P3 P2) CxA]]] [:a2 [[(list partOf P2 P1) CxA]]]
                [:b [[(list partOf P3 P1) CxB]]] [:claim [[(list aRel P1 val_t) 'CxUniverse]]]]
        :goal  (list noted P3 val_t) :readers readers :expect [false true true true]}
@@ -401,7 +401,7 @@
       :transitive-twice
       {:base    (concat ctxs noting [[(list partOf P3 P1) 'CxUniverse]])
        :parts   [[:ta [[(list 'transitive partOf) CxA]]] [:tb [[(list 'transitive partOf) CxB]]]
-                 [:decl [[(list 'transitiveInArg aRel 1 partOf) 'CxUniverse]]]
+                 [:decl [[(list 'transitiveInArgInverse aRel 1 partOf) 'CxUniverse]]]
                  [:claim [[(list aRel P1 val_t) 'CxUniverse]]]]
        :admits  (fn [order]
                   (let [at #(.indexOf ^java.util.List order %)]
@@ -469,7 +469,7 @@
         m (mark-of aRel)]
     {:base    (concat (sibling-contexts CxA CxB CxD)
                       [[(list 'arity aRel 2) 'CxUniverse]
-                       [(list 'transitiveInArg aRel 1 'genl) 'CxUniverse]
+                       [(list 'transitiveInArgInverse aRel 1 'genl) 'CxUniverse]
                        [(list 'genl low_t zhigh_t) 'CxUniverse]
                        [(list 'set/forwardRule (list 'implies (list aRel '?x '?y) (list noted '?x '?y)))
                         'CxUniverse]])

@@ -959,13 +959,14 @@
                                 "checks/covering-genls-problem — position n onward typed as a subtype")]
 
      ;; ---- the argument-preserving declarations ---------------------------
-     ['transitiveInArg        (enforced (wff-only [:relation :position :relation-name]
-                                                  :facets #{:answers})
-                                        "inherit — the argument reach along a declared transitive relation")]
      ['transitiveInArgInverse (enforced (wff-only [:relation :position :relation-name]
                                                   :facets #{:answers}
-                                                  :notes "the same declaration, read backwards.")
-                                        "inherit — the same, read backwards")]
+                                                  :notes "the reach against the relation's arrow.")
+                                        "inherit — the argument reach against a declared transitive relation's arrow")]
+     ['transitiveInArg        (enforced (wff-only [:relation :position :relation-name]
+                                                  :facets #{:answers}
+                                                  :notes "the same declaration, along the relation's arrow.")
+                                        "inherit — the argument reach along a declared transitive relation's arrow")]
 
      ;; ---- the definitional collection relations --------------------------
      ['defnNecessary  (enforced (wff-only [:type :sentence] :facets #{:answers}

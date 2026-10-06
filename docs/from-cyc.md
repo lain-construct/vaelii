@@ -264,10 +264,12 @@ position. Nesting is not capped. → [generators.md](generators.md)
 - `negationPreds` above arity 1 — the paired rules above are the translation
 - Strict well-formedness mode
 
-`transitiveViaArg` is **not** on this list — it is spelled `transitiveInArg` here:
-`(transitiveInArg P n R)` and `(transitiveInArgInverse P n R)` carry a claim about argument
-`n` across any declared-transitive `R`, with the direction and the argument position
-declared separately → [inherit.md](inherit.md).
+`transitiveViaArg` is **not** on this list — it is spelled `transitiveInArg` here, in the
+same direction: `(transitiveInArg P n R)` carries a claim about argument `n` along `R`'s
+arrow, a stored `(P … X …)` and `(R X Y)` giving `(P … Y …)`, exactly as Cyc's
+`(transitiveViaArg P R n)` does. `transitiveViaArgInverse` is `transitiveInArgInverse`,
+against the arrow. The argument order differs: vaelii writes `(P n R)` where Cyc writes
+`(P R n)`. `R` is any declared-transitive relation → [inherit.md](inherit.md).
 
 ## What you gain
 
