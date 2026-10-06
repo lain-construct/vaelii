@@ -4183,8 +4183,9 @@
 
 (defn disjointness-audit
   "The `subsumption-status` of every unordered pair of distinct types in the genl
-  hierarchy. Returns `{:types n :pairs n :by-status {status count …} :pairs-data
-  [{:a t :b t :status s} …]}`. `genl?` and `disjoint?` read cached closures, and the
+  hierarchy — its nodes less the relations a `genl` edge between relations names, which
+  are not types: a declared arity of two or more, or `variable_arity`. Returns
+  `{:types n :pairs n :by-status {status count …} :pairs-data [{:a t :b t :status s} …]}`. `genl?` and `disjoint?` read cached closures, and the
   shared-instance query runs only for a pair the taxonomy and disjoint declarations
   leave open — pinned facts-only (`{:max-depth 0}`), so the N² sweep expands no rule.
   `context` is the vantage `disjoint?` and the `:orthogonal` witnesses are read from
@@ -4200,7 +4201,15 @@
    ;; is a list, and `compare` throws on one rather than ordering it, so the N² sweep threw
    ;; a bare `ClassCastException` on such a KB.  `disjoint-line` orders the same nodes the
    ;; same way.
-   (let [ts   (vec (nm/by-print-key (types kb)))
+   ;; A relation is a genl node when `genl` specializes it by another — (genl performedBy
+   ;; doneBy), (genl partition covering) — but it is not a type: it has no instances to
+   ;; share or keep apart, so every pair it entered could only read :unknown.  A node is
+   ;; such a relation by a declared arity of two or more, read as the arity check reads
+   ;; it from `(arity P n)` or an exact-arity class, or by a `variable_arity`
+   ;; declaration, which has no fixed length to read.
+   (let [rel? (fn [t] (or (some-> (kb/relation-arity kb t nil) (>= 2))
+                          (kb/isa-among? (kb/memberships kb t '?ctx) 'variable_arity)))
+         ts   (into [] (remove rel?) (nm/by-print-key (types kb)))
          n    (count ts)
          data (persistent!
                (reduce

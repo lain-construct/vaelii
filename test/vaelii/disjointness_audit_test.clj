@@ -85,6 +85,29 @@
         "only the defined statuses appear")
     (is (contains? (:by-status a) :disjoint) "the starter has some disjoint pairs")))
 
+(tu/deftest-kb the-audit-sweeps-types-not-the-relations-a-genl-edge-names
+  ;; `genl` also specializes one relation by another — (genl performedBy doneBy),
+  ;; (genl partition covering) — and such a relation is a node of the genl closure without
+  ;; being a type: it has no instances to share or keep apart, so every pair it entered
+  ;; read :unknown.  A declared arity of two or more says so, read from the same
+  ;; declarations the arity check reads, and so does a variable_arity declaration.
+  (tu/with-terms [doneBy performedBy coverOf partitionOf agentKind]
+    (v/assert kb (list 'binary_predicate doneBy) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate performedBy) 'CxUniverse)
+    (v/assert kb (list 'genl performedBy doneBy) 'CxUniverse)
+    (v/assert kb (list 'variable_arity_predicate coverOf) 'CxUniverse)
+    (v/assert kb (list 'variable_arity_predicate partitionOf) 'CxUniverse)
+    (v/assert kb (list 'genl partitionOf coverOf) 'CxUniverse)
+    (v/assert kb (list 'genl agentKind 'thing) 'CxUniverse)
+    (is (every? (set (v/types kb)) [doneBy coverOf]) "the relations are nodes of the genl closure")
+    (let [a     (v/disjointness-audit kb)
+          swept (into #{} (mapcat (juxt :a :b)) (:pairs-data a))]
+      (is (contains? swept agentKind) "a type is swept")
+      (is (not-any? swept [doneBy performedBy]) "a binary predicate is not")
+      (is (not-any? swept [coverOf partitionOf]) "a variable-arity predicate is not")
+      (is (= (:pairs a) (/ (* (:types a) (dec (:types a))) 2))
+          ":types counts the nodes swept, not every genl node"))))
+
 ;; ---- the shared-instance witness is read from a vantage context ----------
 
 (tu/deftest-kb orthogonal-witness-is-read-from-the-vantage-context
