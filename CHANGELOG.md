@@ -241,7 +241,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
   shipped `orthogonal` is seen.
   *Breaks:* `(disjoint organism artifact)`
 
-- **Nine shipped unary predicates gain a `genl` path to `thing`.** The `kb-integrity`
+- **Sixteen shipped unary predicates gain a `genl` path to `thing`.** The `kb-integrity`
   `:not-under-thing` sweep reported each from CxWell. In CxCore,
   `abducible_predicate`, `closed_extent_predicate`, `decontextualized_predicate`,
   `forced_decontextualized_predicate` and `target_following_predicate` are placed under
@@ -250,10 +250,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
   also wraps the open formulas of rule antecedents. In
   CxTime, `functional_at_instant` is placed under `function`. CxUniverse states
   `(genl initially fluent)`: `initially` is CxTime's and `fluent` is CxAbstract's, and
-  CxUniverse is the context that sees both. `ontology_test` runs the sweep over the nine
-  and finds none. The seven
-  biology properties (`alive`, `dead`, `mortal`, `asleep`, `awake`, `breathes_air`,
-  `warm_blooded`) stay outside the hierarchy, as `ontology_test` requires.
+  CxUniverse is the context that sees both. CxUniverse also places the seven
+  biology properties under the kind each is said of: `alive`, `dead` and `mortal` under
+  `organism`; `asleep`, `awake`, `breathes_air` and `warm_blooded` under `animal`.
+  `ontology_test` runs the sweep over all but `not` and finds none.
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).

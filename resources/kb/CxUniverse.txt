@@ -12,3 +12,15 @@
 ;; --- cross-member type placement ---
 ;; initially is CxTime's and fluent is CxAbstract's; neither member sees the other.
 (genl initially fluent)
+
+;; The seven biology properties are CxLife's; animal is CxOrganism's, which CxLife
+;; does not see.  Each is placed under the kind its arg 1 names, and the three over
+;; organism (CxCore's) are stated here beside the four over animal so the seven read
+;; as one decision.  No kind is placed under any of them.
+(genl alive organism)
+(genl dead organism)
+(genl mortal organism)
+(genl asleep animal)
+(genl awake animal)
+(genl breathes_air animal)
+(genl warm_blooded animal)
