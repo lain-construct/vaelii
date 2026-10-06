@@ -102,3 +102,14 @@
       "nothing with mass is acausal")
   (is (= :disjoint (v/subsumption-status kb 'tangible 'acausal))
       "the audit reads the pair disjoint"))
+
+;; ---- a body of people can be a cause --------------------------------------
+
+(tu/deftest-kb an-organization-is-causal
+  ;; a company hires; a court rules
+  (is (v/ask? kb (list 'genl 'organization 'causal) 'CxUniverse)
+      "organization is a kind of causal")
+  (tu/with-terms [Acme]
+    (v/assert kb (list 'organization 'Acme) 'CxUniverse)
+    (is (v/ask? kb (list 'causal 'Acme) 'CxUniverse)
+        "an organization reads causal")))

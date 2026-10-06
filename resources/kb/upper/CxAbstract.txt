@@ -198,6 +198,10 @@
 ;; keeps every tangible out of acausal.
 (genl tangible causal)
 
+;; A body of people can be a cause too: a company hires; a court rules. organization
+;; is aspatial, and nothing separates aspatial from causal.
+(genl organization causal)
+
 ;; --- causal_event / acausal_event: events by whether they can cause ------------
 ;; defined via intersection (CxCore); its rules derive the genls and membership.
 (comment causal_event "An event that is a cause: the intersection of causal and event.")

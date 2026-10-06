@@ -121,6 +121,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   derives through `time`. A KB that relied on `(genl time_point temporal)` being stated
   reads it from `genl?`.
 
+- **An organization is causal: `(genl organization causal)`.** A company hires; a court
+  rules. An instance of `organization` reads `causal`, and `organization` is disjoint
+  from `acausal` by the genl closure. `organization` stays below `aspatial`, which
+  nothing separates from `causal`. Both terms are in CxAbstract, where the edge is
+  stated. `causality_cluster_test` pins the edge and an organization reading `causal`.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
 - **`acausal`'s comment no longer calls records and evidence acausal as things.** The
   paper or the log file a record is written on is tangible, and so causal; what is
   acausal is the information a record or a piece of evidence carries. A reading of it
