@@ -193,6 +193,11 @@
 ;; genl closure of disjointness.
 (set/monotonic (disjoint causal acausal))
 
+;; Anything with mass can fill a cause slot: the rock dented the car. tangible is in
+;; CxCore, so the edge lives here beside causal; with the disjointness above it also
+;; keeps every tangible out of acausal.
+(genl tangible causal)
+
 ;; --- causal_event / acausal_event: events by whether they can cause ------------
 ;; defined via intersection (CxCore); its rules derive the genls and membership.
 (comment causal_event "An event that is a cause: the intersection of causal and event.")

@@ -121,6 +121,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
   derives through `time`. A KB that relied on `(genl time_point temporal)` being stated
   reads it from `genl?`.
 
+- **A tangible is causal: `(genl tangible causal)`.** Anything with mass can fill a cause
+  slot — the rock dented the car — so an instance of any tangible kind reads `causal`.
+  With the monotonic `(disjoint causal acausal)`, the genl closure of disjointness now
+  separates `tangible` from `acausal`, and every tangible kind from `acausal_event`, with
+  no declaration of its own. The edge is stated in CxAbstract beside `causal`, since
+  `tangible` is in CxCore. `causality_cluster_test` pins the edge, a rock reading
+  `causal`, and the derived disjointness.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that stated an instance of a tangible kind `acausal` now holds a
+  clash; a paper record or a log file is tangible, and what is acausal is the
+  information it carries.
+
 - **`kb-integrity` runs a bounded, read-only integrity sweep in a context.** Over a finite
   set of ground candidate terms it reports the definition clashes a candidate meets (a
   passing `defnSufficient` beside a failing own `defnNecessary`), and it reports every

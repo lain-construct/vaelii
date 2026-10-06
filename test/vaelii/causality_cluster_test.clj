@@ -83,3 +83,22 @@
     (is (some? (v/handle-of kb (list 'causal 'Thing) 'CxUniverse)) "the first membership holds")
     (is (tu/stored-in-clash? kb (list 'acausal 'Thing) 'CxUniverse)
         "the disjoint membership is stored as a contradiction the settle weighs")))
+
+;; ---- what has mass can be a cause ----------------------------------------
+
+(tu/deftest-kb a-tangible-is-causal
+  ;; the rock dented the car: anything with mass can fill a cause slot
+  (is (v/ask? kb (list 'genl 'tangible 'causal) 'CxUniverse)
+      "tangible is a kind of causal")
+  (tu/with-terms [Rock]
+    (v/assert kb (list 'stone 'Rock) 'CxUniverse)
+    (is (v/ask? kb (list 'causal 'Rock) 'CxUniverse)
+        "a rock, a tangible through stone and substance, reads causal")))
+
+(tu/deftest-kb a-tangible-cannot-be-acausal
+  ;; tangible below causal, and causal disjoint from acausal: the genl closure of
+  ;; disjointness separates tangible from acausal with no separate declaration
+  (is (v/disjoint? kb 'tangible 'acausal 'CxUniverse)
+      "nothing with mass is acausal")
+  (is (= :disjoint (v/subsumption-status kb 'tangible 'acausal))
+      "the audit reads the pair disjoint"))
