@@ -248,9 +248,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `predicate`, as `modal_predicate` already was; `sibling_disjoint` under
   `unary_predicate`, since what it marks is a type; and `not` under `formula`, since it
   also wraps the open formulas of rule antecedents. In
-  CxTime, `functional_at_instant` is placed under `function` and `initially` under
-  `aspatial`, the nearest supertype of `fluent` CxTime sees, since `fluent` is
-  CxAbstract's. `ontology_test` runs the sweep over the nine and finds none. The seven
+  CxTime, `functional_at_instant` is placed under `function`. CxUniverse states
+  `(genl initially fluent)`: `initially` is CxTime's and `fluent` is CxAbstract's, and
+  CxUniverse is the context that sees both. `ontology_test` runs the sweep over the nine
+  and finds none. The seven
   biology properties (`alive`, `dead`, `mortal`, `asleep`, `awake`, `breathes_air`,
   `warm_blooded`) stay outside the hierarchy, as `ontology_test` requires.
 
