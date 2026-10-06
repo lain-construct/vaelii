@@ -831,6 +831,38 @@
             "and none lands in the violations ledger")
         (is (empty? (v/violations kb)) "the ledger stays clean")))))
 
+(tu/deftest-kb a-symmetric-fact-mints-over-its-stored-spelling
+  ;; `(symmetric relates)` stores `(relates a b)` and `(relates b a)` as one sentex, so
+  ;; the declaration a mint rests on is read off that one spelling.  Read off the
+  ;; spelling written, the fact arriving after `(genlArg relates 1 kind)` drew
+  ;; `(genl b kind)` over position 2 or position 1 by how it was written, while the
+  ;; declarations arriving after the fact read the stored spelling — two justifications
+  ;; for one content, and a text export reloading in content order kept the other one.
+  (tu/with-terms [kind relates a_kind b_kind CxWorld]
+    (let [run (fn [fact-first? fact]
+                (tu/with-neutral-kb [kb tu/fresh]
+                  (with-entailing
+                    (a-context kb CxWorld)
+                    (a-type kb kind CxWorld)
+                    (v/assert kb (list 'symmetric relates) 'CxUniverse)
+                    (let [decls #(doseq [n [1 2]]
+                                   (v/assert kb (list 'genlArg relates n kind) CxWorld))
+                          state #(v/assert kb fact CxWorld)]
+                      (if fact-first? (do (state) (decls)) (do (decls) (state))))
+                    (into {}
+                          (for [t [a_kind b_kind]
+                                :let [h (v/handle-of kb (list 'genl t kind) CxWorld)]]
+                            [t (set (for [s (:support (v/why kb h))]
+                                      (set (map #(v/sentence-of (v/sentex kb (:handle %)))
+                                                (:because s)))))])))))
+          results (for [fact-first? [true false]
+                        fact [(list relates a_kind b_kind) (list relates b_kind a_kind)]]
+                    [[fact-first? fact] (run fact-first? fact)])]
+      (is (every? (fn [[_ r]] (every? seq (vals r))) results)
+          "each argument is minted a subtype of kind")
+      (is (= 1 (count (set (map second results))))
+          (str "the mints' justifications varied by spelling or order: " (pr-str results))))))
+
 ;; ---- order independence --------------------------------------------------
 
 (defn- permutations

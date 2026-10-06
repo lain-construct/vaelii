@@ -50,6 +50,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* pass the context that states the separation as `context`.
   *Breaks:* `subsumption-statuses`, `subsumption-status`, `disjointness-audit`
 
+- **CxCore states the upper ontology's axes orthogonal.** The three partitions of
+  `thing` cut it by location in some space, by location in time and by mass, and a part
+  of one overlaps a part of another without either subsuming it. CxCore now says so:
+  `(orthogonal spatial temporal)`, `(orthogonal aspatial atemporal)`,
+  `(orthogonal spatial atemporal)`, `(orthogonal aspatial temporal)`,
+  `(orthogonal intangible spatial)`, `(orthogonal intangible temporal)` and
+  `(orthogonal intangible spatiotemporal)`, each `set/monotonic` beside the partitions
+  and each with a witness (a rock, the line y=x, a fluent, a region of space). Each pair
+  now reads `:orthogonal` from `subsumption-status` without a shared instance, and
+  leaves `disjointness-audit`'s `:unknown` candidates. No stated separation divides any
+  of them, so the load adds no conflict and no contradiction.
+  [taxonomy.md](docs/taxonomy.md#disjointness). *Class:* **Additive**.
+
 - **`transitiveInArgInverse` is forced monotonic, as `transitiveInArg` is.** CxCore
   declares `(forced_monotonic_predicate transitiveInArgInverse)` and the engine's roster
   holds it on every KB beside `transitiveInArg`, under `:unforced-relation-mark`: a
@@ -220,6 +233,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Fix**.
 
 ### Fixes: clashes and order independence
+
+- **A symmetric fact's argument-type mints rest on the same declaration however it was
+  spelled.** A fact asserted or derived after its `arg` / `genlArg` / `interArg`
+  declarations drew its mints over the arguments as written, while a declaration
+  arriving after the fact, and a text export reloading it, drew them over the spelling
+  the store keeps. For a `(symmetric P)` fact written against that sorted order, such as
+  `(orthogonal spatial atemporal)` under `(genlArg orthogonal 1 thing)` and
+  `(genlArg orthogonal 2 thing)`, the minted `(genl spatial thing)` rested on the
+  position-1 declaration in one order and the position-2 one in the other, so authored
+  and content order stored different justifications. The entailment now reads the
+  stored spelling on every path, so every order stores the same justifications.
+  [argtypes.md](docs/argtypes.md).
+
+  *Class:* **Fix**.
 
 - **A stated `genl` route that makes a minted edge redundant re-joins the rule firings
   the mint carried.** The settle withdraws a `genl` mint a stated route has made

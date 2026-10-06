@@ -2317,6 +2317,26 @@
          :because (into [dh] (edge-support kb pred (declared-of d) context))
          :position m :kind 'interArg}))))
 
+(defn- stored-spelling
+  "`sentence` as the store keeps it in `context`: a `(symmetric P)` literal's arguments
+  sorted, a commuting component arranged (`res/kb-sentex`), anything else as written.
+
+  The entailments a fact meets its declarations with read their positions off this.
+  `entail-existing` and `entail-under-edge` hand them the stored sentence, while the
+  assert and derivation paths reach them before the sentex exists, with the spelling
+  as written — so read off that, `(orthogonal spatial atemporal)` arriving after
+  `(genlArg orthogonal 1 thing)` drew `(genl spatial thing)` over position 1, where the
+  declaration arriving after the fact, or the text export reloading it, drew it over
+  position 2: one content, two justifications by arrival order.  An unmarked predicate
+  pays two taxonomy reads and no canonicalization."
+  [kb sentence context]
+  (let [tax (reasoning/taxonomy kb)
+        f   (nm/functor sentence)]
+    (if (and (symbol? f)
+             (or (tax/has-prop? tax :symmetric f) (seq (tax/commuting-groups tax f))))
+      (:sentence (res/kb-sentex kb sentence context))
+      sentence)))
+
 (defn constraint-entailments
   "What `sentence`'s visible argument declarations entail about its arguments in
   `context` — a vec of `{:assert <sentence> :because [decl-handle edge-handle …]
@@ -2335,6 +2355,10 @@
   commentary above for why every candidate narrowing would make belief depend on
   arrival order.  Deduplication is the materializer's, where it is keyed on content.
 
+  Drawn over the spelling the store keeps (`stored-spelling`), not the one written: a
+  `(symmetric P)` fact names each argument at both positions, and which declaration a
+  mint rests on must not turn on how the fact was spelled.
+
   **Reads only.**  The caller decides whether to store, and the caller is
   `special/deduce-arg-types`, which mints each one as a derived sentex justified by
   `[the triggering fact, the declaration]` — so retracting either takes the type back."
@@ -2344,13 +2368,14 @@
                            (declaration-reader kb (nm/functor sentence) context)))
   ([kb sentence context types decls]
    (when *assertive-arg-types?*
-     (vec (concat (arg-entailments kb sentence context decls 'arg
-                                   checkable-term?
-                                   (fn [arg t] (list t arg)))
-                  (arg-entailments kb sentence context decls 'genlArg
-                                   #(and (checkable-term? %) (not (nm/individual? %)))
-                                   (fn [arg t] (list 'genl arg t)))
-                  (inter-arg-entailments kb sentence context types decls))))))
+     (let [sentence (stored-spelling kb sentence context)]
+       (vec (concat (arg-entailments kb sentence context decls 'arg
+                                     checkable-term?
+                                     (fn [arg t] (list t arg)))
+                    (arg-entailments kb sentence context decls 'genlArg
+                                     #(and (checkable-term? %) (not (nm/individual? %)))
+                                     (fn [arg t] (list 'genl arg t)))
+                    (inter-arg-entailments kb sentence context types decls)))))))
 
 (def ^:dynamic *prune-subsumed-mints?*
   "Does a minted type give way to a more specific one the KB believes?  With this on,
