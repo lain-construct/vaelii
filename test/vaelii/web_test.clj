@@ -1647,6 +1647,17 @@
       (is (re-find #"<link[^>]*vaelii\.css" body))
       (is (not (re-find #"<style" body))))))
 
+(deftest a-wheel-over-the-concept-graph-scrolls-the-page
+  ;; `overscroll-behavior: contain` on the graph's scroll box keeps every wheel turn inside
+  ;; the box, so a pointer resting on the picture left the page standing still.  The
+  ;; browser hands a wheel the box cannot use to the page only when the box leaves
+  ;; `overscroll-behavior` at its default.
+  (let [css  (slurp (io/resource web/stylesheet-resource))
+        rule (re-find #"\.kb-graph-box\s*\{[^}]*\}" css)]
+    (is rule "the stylesheet still styles the graph's box")
+    (is (str/includes? rule "overflow: auto") "a wide graph still scrolls inside its box")
+    (is (not (str/includes? rule "overscroll-behavior")))))
+
 (deftest unknown-ids-render-not-found
   (is (re-find #"No sentex" (:body (GET "/sentex/999999"))))
   (is (re-find #"No justification" (:body (GET "/justification/999999")))))

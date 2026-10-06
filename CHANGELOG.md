@@ -562,6 +562,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+### Fixes: the browser
+
+- **A mouse wheel over a term page's concept graph scrolls the page.** The graph's box
+  carried `overscroll-behavior: contain`, which kept every wheel turn inside the box, so
+  the page stood still until the pointer left the picture. The box leaves
+  `overscroll-behavior` at its default. A wheel the box cannot use now scrolls the page,
+  and a wide graph still scrolls sideways inside its box.
+
+  *Class:* **Fix**.
+
 ### Internal
 
 - **The `orthogonal` comments and taxonomy.md name every separation the declaration
