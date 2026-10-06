@@ -237,6 +237,25 @@ it — `git show v0.16.0:CHANGELOG.md`.
   far it moves an answer).
   *Migration:* none.
 
+- **The organisms carry a folk taxonomy: `vertebrate` and `invertebrate`, three class
+  metatypes under `folk_biological_class`, and `folk_species`.** CxUniverse states
+  `(partition animal vertebrate invertebrate)` and places the five vertebrate classes
+  and `insect` and `arachnid` below the two parts. `invertebrate_class` and
+  `plant_class` are `disjoint_metatype`s beside the shipped `vertebrate_class`, and
+  `(separating folk_biological_class vertebrate_class invertebrate_class plant_class)`
+  keeps the three apart. `folk_species` is a `disjoint_metatype` over the 27 shipped
+  species, so no organism is of two species, and is disjoint from
+  `folk_biological_class`. Both new metatypes are below `type`, since each member is a
+  first-order type. The disjointness audit's unknown pairs among the types below
+  `organism` fall from 248 to 4, the four left being `grass` against the other plant
+  kinds. `ontology_test` pins the separations, the coverage half and the remaining
+  unknown pairs.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that stated one organism of two shipped species, or an insect that is
+  a mammal, now reads a clash.
+
 ### Fixes: answers
 
 - **`query {:proof? true}` and `argue` return a proof when a rewrite's residual repeats

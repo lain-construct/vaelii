@@ -1020,3 +1020,56 @@
       (v/assert kb (list 'situation Drought) 'CxUniverse)
       (v/assert kb (list 'not (list 'event Drought)) 'CxUniverse)
       (is (true? (v/ask? kb (list 'static_situation Drought) 'CxUniverse))))))
+
+;; ---- the folk taxonomy of organisms ----------------------------------------
+;; Species under classes, classes under vertebrate, invertebrate and plant, and a
+;; disjoint_metatype at each level: the separations are consulted, not stated per pair.
+
+(def ^:private folk-species
+  '[ant bee cat cow crow dog duck eagle fox frog grasshopper hare horse human lion mouse
+    oak owl penguin rabbit rose sheep snake sparrow spider tortoise wolf])
+
+(tu/deftest-kb vertebrates-and-invertebrates-partition-animal
+  (is (true? (v/disjoint? kb 'vertebrate 'invertebrate)))
+  (doseq [c '[amphibian bird fish mammal reptile]]
+    (is (true? (v/genl? kb c 'vertebrate)) (str c " has a backbone")))
+  (doseq [c '[arachnid insect]]
+    (is (true? (v/genl? kb c 'invertebrate)) (str c " has none")))
+  (is (true? (v/disjoint? kb 'insect 'mammal)) "so an insect is never a mammal")
+  (is (true? (v/disjoint? kb 'spider 'owl)) "and the separation reaches the species")
+  (testing "an animal denied a backbone is an invertebrate — the coverage half"
+    (tu/with-terms [Limpet]
+      (v/assert kb (list 'animal Limpet) 'CxUniverse)
+      (v/assert kb (list 'not (list 'vertebrate Limpet)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'invertebrate Limpet) 'CxUniverse))))))
+
+(tu/deftest-kb the-folk-classes-separate-their-kinds
+  (is (true? (v/disjoint? kb 'tree 'flower)) "plant_class separates the plant classes")
+  (is (true? (v/disjoint? kb 'oak 'rose)) "and the kinds below them")
+  (is (true? (v/disjoint? kb 'insect 'arachnid)) "invertebrate_class separates its classes")
+  (doseq [m '[vertebrate_class invertebrate_class plant_class]]
+    (is (true? (v/genl? kb m 'folk_biological_class)) (str m " is a folk_biological_class")))
+  (is (true? (v/disjoint? kb 'vertebrate_class 'plant_class))
+      "and no class is of two of them"))
+
+(tu/deftest-kb no-organism-is-of-two-folk-species
+  (is (true? (v/disjoint? kb 'cat 'cow)))
+  (is (true? (v/disjoint? kb 'crow 'owl)))
+  (is (true? (v/disjoint? kb 'human 'horse)))
+  (is (true? (v/disjoint? kb 'folk_biological_class 'folk_species))
+      "and a species is never a class")
+  (tu/with-terms [Bessie]
+    (v/assert kb (list 'cow Bessie) 'CxUniverse)
+    (is (true? (tu/stored-in-clash? kb (list 'horse Bessie) 'CxUniverse)))))
+
+(tu/deftest-kb the-folk-taxonomy-settles-every-organism-pair-but-grass
+  ;; Every pair of the types below organism is subsumption-related or separated, except
+  ;; grass against the other plant kinds: grass is a folk life-form that is neither a
+  ;; species nor one of the plant classes stated.
+  (let [org     (set (filter #(v/genl? kb % 'organism) (v/types kb)))
+        unknown (for [{:keys [a b status]} (:pairs-data (v/disjointness-audit kb))
+                      :when (and (org a) (org b) (= :unknown status))]
+                  (set [a b]))]
+    (is (every? org folk-species) "every species is an organism")
+    (is (= #{#{'grass 'flower} #{'grass 'oak} #{'grass 'rose} #{'grass 'tree}}
+           (set unknown)))))
