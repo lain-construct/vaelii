@@ -1121,14 +1121,26 @@
     [['thing     (enforced (collection :notes "the hierarchy root the open-world floors test against by name.")
                            "checks — the hierarchy root the open-world floors test against by name")]
      ['relation  (enforced (collection :notes "the common arg target for predicates and functions.")
-                           (str "generic: the common parent of predicate and function, and the"
-                                " arg target for relation-wide arity vocabulary"))]
+                           (str "generic: the whole that function and truth_valued_relation partition,"
+                                " and the arg target for relation-wide arity vocabulary"))]
      ['predicate (enforced (collection :notes "the arg target CxCore constrains its own meta-level with.")
                            "generic: the predicate specialization of relation")]
      ['function  (enforced (collection :notes "the arg target the function-valued positions name.")
                            (str "generic: the function specialization of relation and the arg"
                                 " target the function-valued positions of result, genlResult"
                                 " and functionCorrespondingPredicate name"))]
+     ;; The other half of relation, and the three levels below it.  CxCore comments them
+     ;; and `vocabulary/audit` answers for every term CxCore comments; no engine check names
+     ;; any of the four.  The connectives are read by their own names (the `implies`, `and`,
+     ;; `or` and `not` entries above), never through `logical_connective`.
+     ['truth_valued_relation (inert (collection :notes "ontology, not grammar: a relation whose applications are true or false, the complement of function within relation. No engine check names it.")
+                                    "ontology, not grammar: a relation whose applications are true or false, the complement of function within relation. No engine check names it.")]
+     ['logical_constant      (inert (collection :notes "ontology, not grammar: a quantifier or a logical connective, the relations whose meaning the logic fixes. No engine check names it.")
+                                    "ontology, not grammar: a quantifier or a logical connective, the relations whose meaning the logic fixes. No engine check names it.")]
+     ['logical_connective    (inert (collection :notes "ontology, not grammar: a relation that builds a formula from formulas — and, or, not, implies. The connectives are read by their own names, never through this type.")
+                                    "ontology, not grammar: a relation that builds a formula from formulas — and, or, not, implies. The connectives are read by their own names, never through this type.")]
+     ['quantifier            (inert (collection :notes "ontology, not grammar: a relation that binds variables in a formula. No shipped term is one; the engine reads forall and thereExists by name.")
+                                    "ontology, not grammar: a relation that binds variables in a formula. No shipped term is one; the engine reads forall and thereExists by name.")]
 
      ['unary   (enforced (collection :facets #{:convicts :reach}
                                      :notes (str "the relation-wide exact-one-argument type, and"
