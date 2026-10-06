@@ -755,13 +755,16 @@
 
 (defn- disjoint-pairs
   "The disjointness pairs to display: the believed `(disjoint a b)` sentexes, plus the
-  pairs a `disjoint_metatype` induces.
+  pairs a `disjoint_metatype` induces, plus the pairs a believed `separating` or
+  `partition` roster separates.
 
   The induced ones are computed rather than read, because a metatype separates its
   members by being *consulted* rather than by materializing a clique of real
-  sentexes, so a page listing only stored pairs would silently under-report.  A member is
-  not separated from *itself* by belonging to one, which is why only that half filters
-  the diagonal out — a stated `(disjoint A A)` is content and is shown."
+  sentexes, so a page listing only stored pairs would silently under-report.  A roster
+  separates its parts the same way, so each roster contributes every pair of its named
+  parts.  A member is not separated from *itself* by belonging to one, which is why only
+  those halves filter the diagonal out — a stated `(disjoint A A)` is content and is
+  shown."
   [kb]
   (let [declared (into #{} (keep (fn [s] (let [[_ a b] (:sentence s)]
                                            (when (and a b (not (v/negative? s)))
@@ -775,8 +778,17 @@
                        a  ms
                        b  ms
                        :when (neg? (compare (str a) (str b)))]
+                   (disjoint-pair a b))
+        rostered (for [f    '[separating partition]
+                       s    (v/sentexes-with-functor kb f {:believed? true})
+                       :when (not (v/negative? s))
+                       :let [[_ _whole & parts] (:sentence s)
+                             ps (vec (distinct parts))]
+                       a    ps
+                       b    ps
+                       :when (neg? (compare (str a) (str b)))]
                    (disjoint-pair a b))]
-    (into declared induced)))
+    (-> declared (into induced) (into rostered))))
 
 (defn- term-class
   "The role class of a term, used to color it: type / individual / predicate /

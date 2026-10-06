@@ -311,6 +311,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Fixes: answers
 
+- **The browser front page's disjointness list holds the pairs a `separating` or
+  `partition` roster separates.** The list held the stored `(disjoint a b)` sentexes and
+  the pairs a `disjoint_metatype` induces. A roster stores no `disjoint` sentence for its
+  parts, so the pairs it separates were missing from the list.
+
+  *Class:* **Fix**.
+
 - **`query {:proof? true}` and `argue` return a proof when a rewrite's residual repeats
   a conjunct the goal already holds.** Where the repeat folded onto a literal left of the
   rewritten one they threw `IndexOutOfBoundsException`; where it folded onto one right of

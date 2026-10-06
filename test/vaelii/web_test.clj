@@ -260,6 +260,17 @@
           (is (contains? (set (:terms (:disjoint-maximal d))) nat))
           (is (contains? (set (:terms (:disjoint d))) nat)))))))
 
+(tu/deftest-kb the-disjointness-list-holds-the-pairs-a-roster-separates
+  ;; a `separating` roster stores no `(disjoint …)` sentence for its parts, and separates
+  ;; them as a disjoint_metatype separates its members — by being consulted — so the list
+  ;; computes its pairs as it computes a metatype's
+  (tu/with-terms [roster_whole roster_left roster_right]
+    (v/assert kb (list 'separating roster_whole roster_left roster_right) 'CxUniverse
+              {:chain? false})
+    (let [pairs (set (#'web/disjoint-pairs kb))]
+      (is (contains? pairs (#'web/disjoint-pair roster_left roster_right)))
+      (is (not-any? #(some #{roster_whole} %) pairs) "the whole is separated from nothing"))))
+
 (tu/deftest-kb a-term-past-the-probed-argument-positions-is-in-a-remainder-group
   ;; the page probes argument positions 1 to 12; a fact naming the term only at 13 has no
   ;; argument group, so the remainder groups hold it
