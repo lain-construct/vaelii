@@ -211,9 +211,18 @@
             "the front page renders — either as pairs or as summary"))
       (testing "and so does the continuation that pages the same list"
         (is (= 200 (:status (GET "/front/rows" "section=disjoint&offset=0"))))
-        (let [deep (GET "/front/rows" (str "section=disjoint&offset=50"))]
-          (is (= 200 (:status deep)))
-          (is (re-find #">nothing</a> ⊥ <a[^>]*>nothing</a>" (:body deep))
+        ;; Which page the pair lands on moves with the number of shipped separations, so
+        ;; every page past the first is read until the last, which offers no more rows.
+        (let [pages (loop [offset 50 acc []]
+                      (let [p   (GET "/front/rows" (str "section=disjoint&offset=" offset))
+                            acc (conj acc p)]
+                        (if (and (= 200 (:status p))
+                                 (re-find #"section=disjoint&(amp;)?offset=" (:body p))
+                                 (< offset 100000))
+                          (recur (+ offset 50) acc)
+                          acc)))]
+          (is (every? #(= 200 (:status %)) pages))
+          (is (some #(re-find #">nothing</a> ⊥ <a[^>]*>nothing</a>" (:body %)) pages)
               "the self-disjoint pair renders on a deeper page"))))))
 
 (deftest a-term-page-survives-a-compound-in-the-taxonomy
