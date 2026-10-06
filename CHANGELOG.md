@@ -628,6 +628,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Internal**.
 
+- **CxCore types `intersection`'s third and later positions as its first two.**
+  `(argAndRestGenl intersection 3 thing)` makes every position name a subtype of `thing`,
+  so `:missing-arg` no longer reports `intersection`.
+
+  *Class:* **Additive**.
+
 ### Internal
 
 - **The `orthogonal` comments and taxonomy.md name every separation the declaration

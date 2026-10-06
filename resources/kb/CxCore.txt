@@ -679,6 +679,7 @@
 (variable_arity_predicate intersection)
 (genlArg intersection 1 thing)
 (genlArg intersection 2 thing)
+(argAndRestGenl intersection 3 thing)
 (arityMin intersection 3)
 
 ;; intersection is the definitional twin of disjoint (which states two kinds do NOT overlap).
