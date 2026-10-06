@@ -107,6 +107,26 @@
     (is (not (v/ask? kb (list hasMemberSomewhere siamese_t Earth) 'CxUniverse))
         "but not back down to a sibling")))
 
+(tu/deftest-kb transitiveInArg-carries-a-claim-up-genl-and-the-inverse-carries-it-down
+  ;; The direction each name carries, pinned against Cyc's `transitiveViaArg`:
+  ;; `(transitiveInArg P n R)` moves a claim along R's arrow, so a stored `(P W)` with
+  ;; `(genl W S)` gives `(P S)` — up to a supertype — and `transitiveInArgInverse` moves
+  ;; it against the arrow, down to a subtype.  Neither name reaches the other way.
+  (tu/with-terms [animal_t dog_t poodle_t carriedUp carriedDown]
+    (v/with-deferred-settle kb
+      (v/assert kb (list 'genl dog_t animal_t) 'CxUniverse)
+      (v/assert kb (list 'genl poodle_t dog_t) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArg carriedUp 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse carriedDown 1 'genl) 'CxUniverse)
+      (v/assert kb (list carriedUp dog_t) 'CxUniverse)
+      (v/assert kb (list carriedDown dog_t) 'CxUniverse))
+    (testing "transitiveInArg: up to the supertype, and not down to the subtype"
+      (is (v/ask? kb (list carriedUp animal_t) 'CxUniverse))
+      (is (not (v/ask? kb (list carriedUp poodle_t) 'CxUniverse))))
+    (testing "transitiveInArgInverse: down to the subtype, and not up to the supertype"
+      (is (v/ask? kb (list carriedDown poodle_t) 'CxUniverse))
+      (is (not (v/ask? kb (list carriedDown animal_t) 'CxUniverse))))))
+
 (tu/deftest-kb the-preserved-relation-can-be-the-context-hierarchy
   ;; The other closure the engine owns: an argument that names a *context* can be
   ;; preserved along `genlCx`, so a claim about a wide context reaches the
