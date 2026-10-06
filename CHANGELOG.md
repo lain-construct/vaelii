@@ -607,6 +607,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **CxCore types the position of `forced_monotonic_between_predicates`.**
+  `forced_monotonic_between_predicates` declares `(arg forced_monotonic_between_predicates 1 predicate)`,
+  as `inverse` does, so `:missing-arg` no longer reports it. `abducible_predicate`,
+  `closed_extent_predicate`, `decontextualized_predicate`, `forced_decontextualized_predicate`
+  and `target_following_predicate` type their position through `(genl X predicate)`, which
+  `:missing-arg` already counts. `genl` and `forced_monotonic_predicate` stay undeclared on
+  purpose (CxCore says why beside each). The `forced_monotonic_predicate` roster names
+  `equals`, `sameAs` and `except`, and typing its position `predicate` would make each of
+  the three a relation with no arity policy.
+
+  *Class:* **Additive**.
+
 ### Internal
 
 - **The `orthogonal` comments and taxonomy.md name every separation the declaration

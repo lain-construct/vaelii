@@ -869,6 +869,10 @@
 (comment forced_monotonic_predicate
          "(forced_monotonic_predicate ?predicate) puts ?predicate on the forced-monotonic roster. Every (?predicate …) sentence is stored as written, and belief is computed with the roster applied: a premise of one is :monotonic whatever strength it was written at, a denial of one is never believed, forms no nogood and fires no rule, and a firing concluding one from a rule that is not all roster antecedents with no unknown, exceptWhen or set/defaultRule supports nothing and is reported as a :forced-conclusion violation. The declaration is a switch: asserting or retracting it recomputes belief over what ?predicate reaches, so a KB that retracted it believes what a KB that never held it believes. Declared of genlCx, the relation marks, the function classes, the definitional declarations, the arity bindings (arity, the exact-arity classes, variable_arity and its two specializations, arityMin), except and the equality relations; the retraction of every one of these but injection, surjection and bijection is refused. See docs/nmtms.md.")
 (unary_predicate forced_monotonic_predicate)
+;; forced_monotonic_predicate declares no arg type.  Its roster names equals, sameAs and
+;; except, grammar terms that carry no arity.  (arg forced_monotonic_predicate 1 predicate)
+;; would type each of the three a predicate, and so a relation that is neither fixed_arity
+;; nor variable_arity.
 (forced_monotonic_predicate genlCx)
 (forced_monotonic_predicate irreflexive)
 (forced_monotonic_predicate anti_symmetric)
@@ -908,6 +912,7 @@
 (comment forced_monotonic_between_predicates
          "(forced_monotonic_between_predicates ?predicate) puts on the forced-monotonic roster every (?predicate …) sentence whose arguments are all spelled as predicates of arity 2 or more. Declared of genl: a genl between two predicates is forced, and a genl between types stays defeasible, since the spelling of the arguments separates the two. Its retraction is refused. See docs/nmtms.md.")
 (unary_predicate forced_monotonic_between_predicates)
+(arg forced_monotonic_between_predicates 1 predicate)
 (forced_monotonic_between_predicates genl)
 
 (comment functional
