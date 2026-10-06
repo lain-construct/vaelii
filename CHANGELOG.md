@@ -564,16 +564,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   kind `?eventKind`, and `capabilityType` is the same claim about a kind. Both declare
   `(genlArg … 2 event)`, so an event kind nobody listed as an ability is accepted and a
   kind outside `event`, such as `metal`, is refused `:arg-genl` against `event`.
-  `travelling` and `flying` move from CxLife to CxUniverse, as `(genl travelling event)`
-  and `(genl flying travelling)`: a `genl` edge is read from the context that states it,
-  CxLife does not see CxAbstract's `event`, and CxUniverse sees both. CxCore no longer declares
+  `travelling` and `flying` move from CxLife to CxUniverse, as
+  `(genl travelling causal_event)` and `(genl flying travelling)`: a `genl` edge is read
+  from the context that states it, CxLife does not see CxAbstract's `causal_event`, and
+  CxUniverse sees both. `causal_event` is the intersection of `causal` and `event`, so
+  travelling and flying are each an `event` and `causal` without either edge being stated.
+  CxCore no longer declares
   `capability` or `(genl capability aspatial)`, and the vocabulary roster no longer
   lists it. Bird flight is unchanged: `(capabilityType bird flying)`, the penguin
   exception and the default descent rule load and derive as before, and
   `(transitiveInArg hasCapability 2 genl)` still answers
   `(hasCapability ?x travelling)` for anything believed to fly. The starter's
-  disjointness audit reads 167 types and 13,861 pairs, 8,969 of them `:disjoint` and
-  3,589 `:unknown`. `ontology_test` pins the event-kind placement, both `genlArg`
+  disjointness audit reads 191 types and 18,145 pairs, 12,760 of them `:disjoint` and
+  3,684 `:unknown`. `ontology_test` pins the event-kind placement, both `genlArg`
   declarations, the refusal, and the absence of `capability`.
   [inherit.md](docs/inherit.md)
 

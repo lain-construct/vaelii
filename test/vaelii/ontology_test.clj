@@ -39,6 +39,11 @@
     (is (v/genl? kb 'flying 'event))
     (is (v/genl? kb 'travelling 'event))
     (is (v/genl? kb 'flying 'travelling)))
+  (testing "travelling is a causal event, and event and causal both follow from causal_event"
+    (is (v/genl? kb 'travelling 'causal_event))
+    (is (v/genl? kb 'flying 'causal_event))
+    (doseq [k '[travelling flying] super '[event causal]]
+      (is (v/genl? kb k super) (str k " genl " super))))
   (testing "and no one-place flight predicate survives beside it"
     (is (empty? (v/sentexes-matching kb '(arity flies ?n) '?ctx)))
     (is (empty? (v/sentexes-matching kb '(arity can_travel ?n) '?ctx))))
