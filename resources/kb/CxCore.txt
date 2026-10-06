@@ -1155,7 +1155,7 @@
 
 (comment relation            "The type of every operator that may be applied to arguments. function and truth_valued_relation partition it: an application of a function denotes or evaluates to a value, while an application of a truth_valued_relation is true or false.")
 ;; Stated although (genl relation expression) derives it: with the edge stated, CxCore holds
-;; the same justifications in authored order and in content order.
+;; the same justifications in authored order and in content order (vaelii#140).
 (genl relation thing)
 
 (comment function            "The type of all functions — the reifiable and unreifiable heads a non-atomic term is built from. A function is a relation, and is not a predicate: it denotes or evaluates to a value where a predicate holds or fails.")
