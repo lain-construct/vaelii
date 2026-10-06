@@ -1163,7 +1163,8 @@ of space is `spatiotemporal` and `intangible`.
 
 A kind with no location in any space sits below `aspatial`, which separates it from
 `spatial` and from every CxSpace argument. `capability` (CxCore) and `attribute`,
-`fluent`, `organization` and `relation_type` (CxAbstract) are below `aspatial`.
+`fluent` and `organization` (CxAbstract) are below `aspatial`, and `relation_type`
+(CxAbstract) is below `nowhere_never`, so it is `aspatial` and `atemporal` both.
 `context` and `language` are below `nowhere_never` in CxCore, so a spindle member that
 does not see CxAbstract's `expression` lattice reads both as disjoint from `spatial`.
 `ontology_test` pins each separation from the contexts that read it.

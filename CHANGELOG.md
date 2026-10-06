@@ -109,6 +109,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **`relation_type` is below `nowhere_never`.** CxAbstract states
+  `(genl relation_type nowhere_never)` in place of `(genl relation_type aspatial)`, the
+  strongest true edge: a kind of relation is in no space and at no time, so it is
+  `atemporal` as well as `aspatial`, and the `aspatial` edge still derives through the
+  intersection. [taxonomy.md](docs/taxonomy.md)
+
+  *Class:* **Additive** (shipped ontology content).
+
 - **`kb-integrity` runs a bounded, read-only integrity sweep in a context.** Over a finite
   set of ground candidate terms it reports the definition clashes a candidate meets (a
   passing `defnSufficient` beside a failing own `defnNecessary`), and it reports every
