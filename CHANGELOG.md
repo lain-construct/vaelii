@@ -248,8 +248,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   so that a region can be spatiotemporal and intangible at once. `nowhere_never` is in
   no space and at no time — an expression, a language — defined as the intersection of
   `aspatial` and `atemporal`; what has no location in space, or none in time, has no
-  mass, so `aspatial` and `atemporal` are both below `intangible`. `capability`,
-  `fluent`, `organization` and `relation_type` are below `aspatial`, and
+  mass, so `aspatial` and `atemporal` are both below `intangible`. `fluent`,
+  `organization` and `relation_type` are below `aspatial`, and
   CxCore places `context` and `language` below `nowhere_never`, so each stays disjoint
   from `spatial` and `spatiotemporal` in every context that sees the kind's placement.
   Every stated `genl` or `disjoint` that a partition, an intersection, a `genl` chain, a
@@ -557,6 +557,36 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
+
+- **An ability is an event kind: `capability` is retired, and `hasCapability` and
+  `capabilityType` take an event kind as their second argument.**
+  `(hasCapability ?animal ?eventKind)` means the animal can be the doer of an event of
+  kind `?eventKind`, and `capabilityType` is the same claim about a kind. Both declare
+  `(genlArg … 2 event)`, so an event kind nobody listed as an ability is accepted and a
+  kind outside `event`, such as `metal`, is refused `:arg-genl` against `event`.
+  `travelling` and `flying` move from CxLife to CxAbstract, beside `event`, as
+  `(genl travelling event)` and `(genl flying travelling)`: a `genl` edge is read from
+  the context that states it, and CxLife does not see `event`. CxCore no longer declares
+  `capability` or `(genl capability aspatial)`, and the vocabulary roster no longer
+  lists it. Bird flight is unchanged: `(capabilityType bird flying)`, the penguin
+  exception and the default descent rule load and derive as before, and
+  `(transitiveInArg hasCapability 2 genl)` still answers
+  `(hasCapability ?x travelling)` for anything believed to fly. The starter's
+  disjointness audit reads 167 types and 13,861 pairs, 8,969 of them `:disjoint` and
+  3,589 `:unknown`. `ontology_test` pins the event-kind placement, both `genlArg`
+  declarations, the refusal, and the absence of `capability`.
+  [inherit.md](docs/inherit.md)
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* type ability arguments as event kinds. A KB that placed its own ability
+  under `capability`, as `(genl swimming capability)`, writes `(genl swimming event)`
+  in a context that sees CxAbstract; without that edge the kind is refused `:arg-genl`
+  as the second argument of `hasCapability` or `capabilityType`. A KB that relied on an
+  ability kind being `aspatial`, and so disjoint from `spatial`, states that placement
+  itself, since nothing places `event` in either half of `(partition thing spatial
+  aspatial)`.
+  *Breaks:* `capability`
 
 ### Fixes: answers
 

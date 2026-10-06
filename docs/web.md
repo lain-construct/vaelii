@@ -375,7 +375,7 @@ reader who reloads, navigates away, or resets lands on the line that is actually
 Two things it is careful to show rather than assert:
 
 - **The cascade.** All five sentences the script touches are rendered at every step. A
-  stored one shows its record and its live belief pill. The capability hierarchy answers
+  stored one shows its record and its live belief pill. The `genl` hierarchy of event kinds answers
   `(hasCapability Pingu travelling)` at retrieval and stores no record, so its row shows
   what `ask?` answers: answerable in step 1, unanswerable once the flight goes in step 2,
   and answerable again in step 3. `(not (hasCapability Pingu flying))` appears in step 2 —

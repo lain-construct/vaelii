@@ -1246,7 +1246,7 @@ exactly one — the unmarked are those whose two ends sit at different levels, o
 level at all (`implies` is a connective; `rewriteOf` takes either role so long as its two
 sides agree; `result` and `genlResult` relate a function to a type;
 `functionCorrespondingPredicate` relates a function to a predicate; `hasCapability`
-relates one animal to a capability kind). The mark is not decoration: it decides which
+relates one animal to an event kind). The mark is not decoration: it decides which
 argument-check family the predicate may use, one for **every** position, which is why a
 mixed predicate cannot carry one — `arg` on a `type_relation_predicate` and `genlArg` on
 an `instance_relation_predicate` are both refused `:arg-constraint-kind`. The distinction is
