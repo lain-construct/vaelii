@@ -299,6 +299,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Internal
 
+- **`disjointness-coverage-ratchet` requires at least 64.3% disjoint and at most 26.3%
+  unknown pairs in the starter KB.** The bounds were 63% and 29%; develop d779821
+  measures 64.45% and 26.24% over 14028 pairs.
+
+  *Class:* **Internal**.
+
 - **The `orthogonal` comments and taxonomy.md name every separation the declaration
   exempts.** The flat-cache comment and `tax/exemption`'s docstring named the clique marks
   alone. [taxonomy.md](docs/taxonomy.md#disjointness).

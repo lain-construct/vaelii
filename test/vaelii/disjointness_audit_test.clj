@@ -130,7 +130,8 @@
 ;; ---- coverage ratchet -------------------------------------------------------
 ;;
 ;; Every PR either maintains or improves the disjointness coverage of the starter
-;; KB.  These thresholds are the floor locked in after vaelii#94 (25%→64% disjoint).
+;; KB.  These thresholds are the floor locked in at develop d779821, which measures
+;; 64.45% disjoint and 26.24% unknown over 14028 pairs.
 ;; Raise them when new disjoint declarations land; never lower them
 ;; unless it's to add legitimately orthogonal collections to the upper ontology.
 
@@ -142,7 +143,7 @@
         unknown    (get by-status :unknown 0)
         disjoint-% (* 100.0 (/ disjoint pairs))
         unknown-%  (* 100.0 (/ unknown pairs))]
-    (is (>= disjoint-% 63.0)
-        (format "disjoint coverage must not regress below 63%% (got %.1f%%)" disjoint-%))
-    (is (<= unknown-% 29.0)
-        (format "unknown pairs must not grow above 29%% (got %.1f%%)" unknown-%))))
+    (is (>= disjoint-% 64.3)
+        (format "disjoint coverage must not regress below 64.3%% (got %.1f%%)" disjoint-%))
+    (is (<= unknown-% 26.3)
+        (format "unknown pairs must not grow above 26.3%% (got %.1f%%)" unknown-%))))
