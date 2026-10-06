@@ -626,6 +626,8 @@
   (testing "an instant is not a stretch, and neither is something that happens in time"
     (is (v/disjoint? kb 'time_point 'time_interval N))
     (is (v/disjoint? kb 'time_interval 'event N)))
+  (testing "and the collector relates a stretch to the dimension it is measured in"
+    (is (v/ask? kb '(termsRelated time_interval Duration) 'CxUniverse)))
   (tu/with-terms [acausalProbe aspatialProbe temporalProbe]
     (doseq [[p t] [[acausalProbe 'acausal] [aspatialProbe 'aspatial] [temporalProbe 'temporal]]]
       (v/assert kb (list 'unary_predicate p) 'CxUniverse)

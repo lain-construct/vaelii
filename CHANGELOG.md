@@ -103,10 +103,12 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(genl time temporal)`, `(genl time aspatial)` and `(genl time acausal)`, and
   `(partition time time_point time_interval)`, so a moment and a stretch are each
   temporal, aspatial and acausal and never each other; `(disjoint time situation)` keeps
-  a time apart from what happens in it. `(genl time_point temporal)` is removed, since the
-  partition derives it. `YearFn`, `MonthFn` and `DayFn` declare `(result … time_interval)`
-  where they declared `temporal`, so a calendar term is admitted where an argument wants
-  `acausal` or `aspatial`, as is a `StartFn` moment. `ontology_test` pins the edges, the
+  a time apart from what happens in it. CxUniverse states
+  `(termsRelated time_interval Duration)`, its one claim, since `Duration` is
+  CxMeasure's. `(genl time_point temporal)` is removed, since the partition derives it.
+  `YearFn`, `MonthFn` and `DayFn` declare `(result … time_interval)` where they declared
+  `temporal`, so a calendar term is admitted where an argument wants `acausal` or
+  `aspatial`, as is a `StartFn` moment. `ontology_test` pins the edges, the
   disjointness and the calendar readings.
   [time.md](docs/time.md)
 

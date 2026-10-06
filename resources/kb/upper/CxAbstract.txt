@@ -154,7 +154,7 @@
 (type substance)
 
 ;; --- time / time_point / time_interval: time itself --------------------------
-(comment time "A time, as in \"at that time\": a moment or a stretch of time as such, not something that happens in it. In time and in no space, and never a cause: the year 2000 broke nothing, two-digit years did, at the rollover. Parent of time_point (a moment) and time_interval (a stretch); a stretch's length is measured in the Duration dimension (CxMeasure).")
+(comment time "A time, as in \"at that time\": a moment or a stretch of time as such, not something that happens in it. In time and in no space, and never a cause: the year 2000 broke nothing, two-digit years did, at the rollover. Parent of time_point (a moment) and time_interval (a stretch).")
 (genl time temporal)
 (genl time aspatial)
 (genl time acausal)
