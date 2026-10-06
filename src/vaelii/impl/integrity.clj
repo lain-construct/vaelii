@@ -511,6 +511,106 @@
      (mapcat #(partition-candidates kb tx % context) (stated-pairs kb 'disjoint context))
      remaining)))
 
+;; ---- missing-arg: a declared argument position no declaration types ----
+
+(def ^:private positional-kinds
+  "The declarations that type one numbered position, `(K P n T)`."
+  '[arg genlArg quotedArg])
+
+(def ^:private rest-kinds
+  "The declarations that type position `n` and every later one, `(K P n T)`."
+  '[argAndRest argAndRestGenl])
+
+(def ^:private every-kinds
+  "The declarations that type every position, `(K P T)`."
+  '[args argsGenl])
+
+(defn- declared-rows
+  "The ground `[pos type]` rows of every `(kind q pos type)` (or `(kind q type)`, `pos`
+  nil, when `pos?` is false) visible from `context` over `pred` and each super-predicate
+  `res/constraining-predicates` reads for `kind`."
+  [kb kind pred pos? context]
+  (for [q     (distinct (cons pred (res/constraining-predicates kb kind pred context)))
+        [_ b] (res/matches-visible kb (if pos? (list kind q '?n '?t) (list kind q '?t))
+                                   context)
+        :let  [n (get b '?n) t (get b '?t)]
+        :when (and (some? t) (not (sx/variable? t))
+                   (or (not pos?) (integer? n)))]
+    (do (budget/spend!) [n t])))
+
+(defn- typed-positions
+  "`{:at #{n …} :from n-or-nil :every? bool}` for `pred` as `context` reads its
+  declarations: the positions one declaration types, the first position a rest form
+  types onward, and whether a form types them all.  The binary `arg1`/`arg2`/`arg3`
+  projections are read on `pred` itself."
+  [kb pred context]
+  {:at     (into (set (for [k positional-kinds [n _] (declared-rows kb k pred true context)] n))
+                 (for [[k n] '[[arg1 1] [arg2 2] [arg3 3]]
+                       :when (do (budget/spend!)
+                                 (seq (res/matches-visible kb (list k pred '?t) context)))]
+                   n))
+   :from   (some->> (for [k rest-kinds [n _] (declared-rows kb k pred true context)] n)
+                    seq (apply min))
+   :every? (boolean (some #(seq (declared-rows kb % pred false context)) every-kinds))})
+
+(defn- arity-census
+  "`{pred n-or-:variable}` over every predicate `context` sees declared an arity: an
+  `(arity P n)`, an exact-arity class membership, or `variable_arity_predicate`.  A
+  predicate told two different arities is skipped, as `kb/relation-arity` reads it."
+  [kb context]
+  (let [subjects (fn [pattern]
+                   (keep (fn [[_ b]]
+                           (budget/spend!)
+                           (let [p (get b '?p)]
+                             (when (and (symbol? p) (not (sx/variable? p))) p)))
+                         (res/matches-visible kb pattern context)))
+        fixed    (distinct (concat (subjects '(arity ?p ?n))
+                                   (mapcat #(subjects (list % '?p))
+                                           (keys tax/exact-arity-classes))))]
+    (merge (into {} (map (fn [p] [p :variable])) (subjects '(variable_arity_predicate ?p)))
+           (into {} (keep (fn [p]
+                            (budget/spend!)
+                            (when-let [n (kb/relation-arity kb p context)] [p n])))
+                 fixed))))
+
+(defn- arity-min
+  "The least `arityMin` `context` sees declared of `pred`, or 1."
+  [kb pred context]
+  (or (some->> (res/matches-visible kb (list 'arityMin pred '?n) context)
+               (keep (fn [[_ b]] (let [n (get b '?n)] (when (integer? n) n))))
+               seq (apply min))
+      1))
+
+(defn- missing-positions
+  "The finding for one predicate of declared arity `arity`, or nil: each position 1..n
+  (1..`arityMin` for a variable arity, and `:rest` for its tail) no declaration types.
+  A unary predicate's one position is typed by any visible `genl` edge out of it, which
+  says of its members what `(arg P 1 T)` would."
+  [kb tx pred arity context]
+  (budget/spend!)
+  (let [{:keys [at from every?]} (typed-positions kb pred context)
+        typed?  (fn [n] (or every? (contains? at n) (and from (>= n from))))
+        n       (if (= :variable arity) (arity-min kb pred context) arity)
+        missing (cond-> (vec (remove typed? (range 1 (inc n))))
+                  (and (= :variable arity) (not every?) (not (and from (<= from (inc n)))))
+                  (conj :rest))
+        missing (if (and (= 1 arity) (= [1] missing)
+                         (seq (disj (set (tax/direct-genls tx pred context)) pred)))
+                  []
+                  missing)]
+    (when (seq missing)
+      {:predicate pred :arity arity :missing missing})))
+
+(defn- missing-arg-findings
+  "Audit every predicate `context` sees declared an arity, one at a time, in print order."
+  [kb context remaining]
+  (let [tx (reasoning/taxonomy kb)]
+    (bounded-findings
+     :missing-arg
+     (keep (fn [[pred arity]] (missing-positions kb tx pred arity context))
+           (sort-by (comp nm/print-key key) (arity-census kb context)))
+     remaining)))
+
 (def ^:private passes
   "The passes in run order, `[category audit]`: `audit` takes `kb candidate-terms context
   remaining` and answers `{:status :complete|:truncated :findings …}`.  `:max-results`
@@ -529,7 +629,9 @@
    [:derivable-stated-edge (fn [kb _ context remaining]
                              (derivable-stated-edge-findings kb context remaining))]
    [:disjoint-could-be-partition (fn [kb _ context remaining]
-                                   (disjoint-could-be-partition-findings kb context remaining))]])
+                                   (disjoint-could-be-partition-findings kb context remaining))]
+   [:missing-arg (fn [kb _ context remaining]
+                   (missing-arg-findings kb context remaining))]])
 
 (defn- check-args!
   "Refuse a `candidate-terms` that is not a set of ground terms (`:bad-args`), and a

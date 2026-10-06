@@ -165,15 +165,16 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; review-only smells: sibling types sharing one direct
                                                 ; genl set, stated genl/disjoint edges that derive
                                                 ; without themselves, and disjoint pairs a known cover
-                                                ; exhausts (a candidate partition). Returns
+                                                ; exhausts (a candidate partition), and every declared
+                                                ; argument position no arg-type declaration types. Returns
                                                 ; {:status :audited :candidate-count n}
                                                 ; when clean, or :status :gap plus any of the sparse
                                                 ; categories :all-specified-violations,
                                                 ; :definition-inconsistencies, :genl-arg-widening,
                                                 ; :not-under-thing, :implicit-genl,
                                                 ; :orthogonal-over-separation, :twin-genls,
-                                                ; :derivable-stated-edge and
-                                                ; :disjoint-could-be-partition. opts may bound :max-work,
+                                                ; :derivable-stated-edge,
+                                                ; :disjoint-could-be-partition and :missing-arg. opts may bound :max-work,
                                                 ; :max-ms and :max-results, and :categories names the
                                                 ; passes to run; exhaustion is :truncated,
                                                 ; never :audited. Work/time check between opaque callbacks

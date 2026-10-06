@@ -68,6 +68,13 @@
              {})
            (range 32)))))
 
+(def ^:private without-missing-arg
+  "Every category but `:missing-arg`, for a fixture whose bare declarations would
+  otherwise report their untyped positions beside the finding under test."
+  #{:definition-inconsistencies :all-specified-violations :genl-arg-widening
+    :not-under-thing :implicit-genl :orthogonal-over-separation :twin-genls
+    :derivable-stated-edge :disjoint-could-be-partition})
+
 (defn- content-order
   "Declaration tuples in the content order the specified pass reads them in."
   [tuples]
@@ -309,7 +316,7 @@
     (v/assert kb (list 'binary_predicate likes) 'CxUniverse)
     (v/assert kb (list 'unary_predicate person) 'CxUniverse)
     (v/assert kb (list 'predAllSpecified likes person) 'CxUniverse)
-    (let [report (v/kb-integrity kb #{} 'CxUniverse {:max-results 1})]
+    (let [report (v/kb-integrity kb #{} 'CxUniverse {:max-results 1 :categories without-missing-arg})]
       (is (= :gap (:status report)))
       (is (= #{['predAllSpecified likes person]}
              (set (keys (:all-specified-violations report))))))))
@@ -587,7 +594,7 @@
   (tu/with-terms [orphan_kind_fixture]
     (v/assert kb (list 'unary_predicate orphan_kind_fixture) 'CxUniverse)
     (is (= {:status :audited :candidate-count 1}
-           (v/kb-integrity kb #{7} 'CxUniverse))
+           (v/kb-integrity kb #{7} 'CxUniverse {:categories without-missing-arg}))
         "the caller-owned term set is the bound; the sweep enumerates no types")))
 
 (tu/deftest-kb a-non-unary-term-is-not-reported
@@ -596,7 +603,8 @@
     (v/assert kb (list 'binary_predicate relatesFixture) 'CxUniverse)
     (v/assert kb (list 'genl linksFixture relatesFixture) 'CxUniverse)
     (is (= {:status :audited :candidate-count 2}
-           (v/kb-integrity kb #{linksFixture relatesFixture} 'CxUniverse)))))
+           (v/kb-integrity kb #{linksFixture relatesFixture} 'CxUniverse
+                           {:categories without-missing-arg})))))
 
 (tu/deftest-kb not-under-thing-findings-respect-context-visibility
   (tu/with-terms [orphan_kind_fixture CxHidden]
@@ -615,17 +623,17 @@
     (let [terms    #{orphan_kind_fixture stray_kind_fixture}
           in-order (mapv (fn [t] {:term t}) (sort-by nm/print-key terms))]
       (testing "a result cap below the finding count keeps the completed prefix"
-        (let [report (v/kb-integrity kb terms 'CxUniverse {:max-results 1})]
+        (let [report (v/kb-integrity kb terms 'CxUniverse {:max-results 1 :categories without-missing-arg})]
           (is (= :truncated (:status report)))
           (is (= :max-results (:reason report)))
           (is (= (subvec in-order 0 1) (:not-under-thing report)))))
       (testing "an exact result cap is complete"
-        (let [report (v/kb-integrity kb terms 'CxUniverse {:max-results 2})]
+        (let [report (v/kb-integrity kb terms 'CxUniverse {:max-results 2 :categories without-missing-arg})]
           (is (= :gap (:status report)))
           (is (= in-order (:not-under-thing report)))))
       (testing "work exhaustion inside the pass is truncated, never audited, and keeps the
                 findings completed before it"
-        (let [run    #(v/kb-integrity kb terms 'CxUniverse {:max-work %})
+        (let [run    #(v/kb-integrity kb terms 'CxUniverse {:max-work % :categories without-missing-arg})
               needed (first (filter #(= :gap (:status (run %))) (range 0 1000)))]
           (is (some? needed) "some finite work budget completes the sweep")
           (let [partials (map run (range 0 (or needed 0)))]
@@ -1102,3 +1110,43 @@
           (is (some? needed))
           (is (every? #(= [:truncated :max-work] [(:status %) (:reason %)])
                       (map #(run {:max-work %}) (range 0 (or needed 0))))))))))
+
+;; ---- missing-arg ------------------------------------------------------------
+
+(defn- shown-missing
+  "Each `:missing-arg` finding as `[predicate missing]`."
+  [report]
+  (mapv (juxt :predicate :missing) (:missing-arg report)))
+
+(tu/deftest-kb a-declared-position-with-no-argument-type-is-reported
+  (tu/with-terms [bareRel herdRel loose_kind]
+    (v/assert kb (list 'binary_predicate bareRel) 'CxUniverse)
+    (v/assert kb (list 'arg bareRel 1 'thing) 'CxUniverse)
+    (v/assert kb (list 'variable_arity_predicate herdRel) 'CxUniverse)
+    (v/assert kb (list 'arityMin herdRel 2) 'CxUniverse)
+    (v/assert kb (list 'arg herdRel 1 'thing) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate loose_kind) 'CxUniverse)
+    (let [before (state-snapshot kb)
+          report (v/kb-integrity kb #{} 'CxUniverse {:categories #{:missing-arg}})]
+      (is (= :gap (:status report)))
+      (is (= #{[bareRel [2]] [herdRel [2 :rest]] [loose_kind [1]]}
+             (set (shown-missing report)))
+          "each untyped position, and a variable-arity tail no rest form covers")
+      (is (= before (state-snapshot kb)) "the audit declares nothing"))))
+
+(tu/deftest-kb a-position-typed-by-any-declaration-form-is-not-reported
+  (tu/with-terms [typedRel subRel herdRel placed_kind]
+    (v/assert kb (list 'binary_predicate typedRel) 'CxUniverse)
+    (v/assert kb (list 'arg typedRel 1 'thing) 'CxUniverse)
+    (v/assert kb (list 'genlArg typedRel 2 'thing) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate subRel) 'CxUniverse)
+    (v/assert kb (list 'genl subRel typedRel) 'CxUniverse)
+    (v/assert kb (list 'variable_arity_predicate herdRel) 'CxUniverse)
+    (v/assert kb (list 'arityMin herdRel 2) 'CxUniverse)
+    (v/assert kb (list 'arg herdRel 1 'thing) 'CxUniverse)
+    (v/assert kb (list 'argAndRest herdRel 2 'thing) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate placed_kind) 'CxUniverse)
+    (v/assert kb (list 'genl placed_kind 'thing) 'CxUniverse)
+    (is (nil? (:missing-arg (v/kb-integrity kb #{} 'CxUniverse {:categories #{:missing-arg}})))
+        "arg, genlArg, an inherited declaration, argAndRest and a type's own genl edge
+         each type their positions")))

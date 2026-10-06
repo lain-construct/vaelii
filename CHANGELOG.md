@@ -595,6 +595,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **`kb-integrity` reports a declared argument position no declaration types.** The sweep
+  adds a tenth sparse category, `:missing-arg`, with one
+  `{:predicate P :arity n|:variable :missing [k ... :rest]}` per predicate the audit
+  context sees declared an arity. A position counts as typed when an `arg`, `genlArg`,
+  `quotedArg`, rest or `args` form covers it, stated or inherited from a super-predicate,
+  or, for a unary predicate, when a `genl` edge leaves it. A variable-arity predicate is
+  checked up to its `arityMin` and on its tail. Findings count after
+  `:disjoint-could-be-partition`.
+  [integrity.md](docs/integrity.md#what-a-missing-arg-finding-means).
+
+  *Class:* **Additive**.
+
 ### Internal
 
 - **The `orthogonal` comments and taxonomy.md name every separation the declaration

@@ -8,7 +8,8 @@
   closure does not hold, the `orthogonal` declarations that lift a stated
   separation of their pair, and three ontology-engineering smells for review: sibling
   types with one direct `genl` set, stated edges that derive without themselves, and
-  `disjoint` pairs a known cover exhausts.
+  `disjoint` pairs a known cover exhausts, plus every declared argument position no
+  declaration types.
 - **Not here:** repairing findings, enumerating a domain, vocabulary completeness,
   generic constraint auditing, or the represented settled dilemmas returned by
   `contradictions`; how definitions infer membership → [defns.md](defns.md); what a
@@ -96,7 +97,7 @@ A finding changes the top-level status and adds only the populated categories:
   {:status :audited :violations #{Bob}}}}
 ```
 
-`:status :audited` means all nine passes ran and none found a gap. `:status :gap` cannot
+`:status :audited` means all ten passes ran and none found a gap. `:status :gap` cannot
 be confused with that clean shape even when only one sparse category is present. The
 specified category is exactly `all-specified-violations`, including its typed declaration
 gaps; it is composed, not reimplemented.
@@ -376,3 +377,27 @@ All three read from the audit context, so a declaration or edge it cannot see co
 nothing, and an edge stated for a narrower reader that cannot see the other path is
 still reported from a context that sees both. Their findings count against `:max-results`
 last, in the order above, after the `orthogonal` category.
+
+## What a missing-arg finding means
+
+Every argument position of a predicate should say what fills it. `:missing-arg` reads every
+predicate the audit context sees declared an arity, through an `(arity P n)`, an
+exact-arity class such as `binary_predicate`, or `variable_arity_predicate`, and reports
+`{:predicate P :arity n|:variable :missing [k ... :rest]}` for the positions no declaration
+types:
+
+- **What types a position.** An `arg`, `genlArg` or `quotedArg` at that position, an
+  `argAndRest` or `argAndRestGenl` from that position or an earlier one, or an `args` or
+  `argsGenl`, each read on `P` and on every super-predicate
+  `res/constraining-predicates` reads, plus the `arg1`/`arg2`/`arg3` projections stated on
+  `P` itself. For a unary predicate, a visible `genl` edge out of it types its one position,
+  since `(genl P T)` says of P's members what `(arg P 1 T)` would. `interArg` and the
+  `type_relation_predicate` mark relate or classify positions and do not count.
+- **Variable arity.** Positions 1 to the least visible `arityMin` (1 when none) are
+  checked one by one, and `:rest` is reported when no rest form and no `args` form types
+  the tail beyond them.
+- **Arity conflicts.** A predicate told two different arities is skipped, as
+  `kb/relation-arity` reads it.
+
+The pass reads one census of arity declarations, then each predicate's declarations in
+print order. It counts against `:max-results` after `:disjoint-could-be-partition`.
