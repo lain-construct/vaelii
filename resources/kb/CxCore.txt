@@ -1107,7 +1107,6 @@
 (comment not
          "(not ?sentence) means the negation of ?sentence, a first-class sentex. Believing a sentence and its negation at once is a soft contradiction resolved at settle time rather than a hard error: the weaker belief is defeated, and a defeasible tie is left standing as a represented dilemma. See docs/nmtms.md.")
 (unary_predicate not)
-(genl not formula)
 
 (comment or
          "(or ?disjunct1 ?disjunct2 …) means the disjunction of the disjuncts inside an implies rule's antecedent. A syntactic connective rather than a predicate: it is never asserted on its own, and it never reaches a stored sentence — the rule is polycanonicalized into one rule per alternative, exactly as a conjunctive consequent is split into one rule per conjunct. A disjunctive conclusion is a choice rather than a derivation, and is written with set/assumptionRule instead. See docs/canonicalization.md.")
