@@ -228,6 +228,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* a KB that declared one function both `reifiable_function` and
   `unreifiable_function` now reads a clash; drop the wrong mark.
 
+- **A situation is static or an event.** CxUniverse states `(partition situation
+  static_situation event)`, which adds coverage to the separation CxAbstract states, so
+  a situation denied being an event is concluded a `static_situation`. `ontology_test`
+  pins the coverage.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none.
+
 ### Fixes: answers
 
 - **`query {:proof? true}` and `argue` return a proof when a rewrite's residual repeats

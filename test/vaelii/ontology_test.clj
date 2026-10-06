@@ -325,13 +325,12 @@
   ;; or above the collector that sees both.
   ;;
   ;; Read off the text files the starter actually loads — `CxCore.txt`, `upper/`, `middle/`
-  ;; (`vaelii.host.starter`) — because the claim is about what those contexts *write*, not
-  ;; what the engine derives or the starter publishes (`(unary_predicate T)` is asserted into
-  ;; CxCore for every subtype of `thing`, and the arity rules conclude from those in CxCore
-  ;; too; both are deliberate).  A top-level `CxUniverse.txt` is NOT among the loaded files,
-  ;; so a relating claim placed there would not be read at all — a separate defect this test
-  ;; is not the guard for.  The loaded KB still answers rooting, since `v/genl?` scoped to a
-  ;; context is the exact visibility the write side checks against.
+  ;; and the collector `CxUniverse.txt` (`vaelii.host.starter`) — because the claim is about
+  ;; what those contexts *write*, not what the engine derives or the starter publishes
+  ;; (`(unary_predicate T)` is asserted into CxCore for every subtype of `thing`, and the
+  ;; arity rules conclude from those in CxCore too; both are deliberate).  The loaded KB
+  ;; still answers rooting, since `v/genl?` scoped to a context is the exact visibility the
+  ;; write side checks against.
   (let [anywhere (fn [t]   (v/genl? kb t 'thing))          ; reaches the root from some context
         rooted?  (fn [t c] (v/genl? kb t 'thing c))        ; reaches it from context c
         up       (memoize (fn [c] (set (v/context-up kb c))))
@@ -345,9 +344,9 @@
                       [(nth form 2) (nth form 1)]
                       [form fctx]))
         names    (fn [sentence] (distinct (filter symbol? (tree-seq seq? seq sentence))))
-        files    (cons (io/file "resources/kb/CxCore.txt")
-                       (filter text/kb-file? (mapcat #(file-seq (io/file (str "resources/kb/" %)))
-                                                     ["upper" "middle"])))
+        files    (list* (io/file "resources/kb/CxCore.txt") (io/file "resources/kb/CxUniverse.txt")
+                        (filter text/kb-file? (mapcat #(file-seq (io/file (str "resources/kb/" %)))
+                                                      ["upper" "middle"])))
         forms    (->> files
                       (mapcat (fn [f] (let [c (text/context-of f)]
                                         (map #(vector % c) (text/read-forms f)))))
@@ -1011,3 +1010,13 @@
       (v/assert kb (list 'reflexive nearTo) 'CxUniverse)
       (v/assert kb (list 'symmetric nearTo) 'CxUniverse)
       (is (not (v/ask? kb (list 'equivalence_relation nearTo) 'CxUniverse))))))
+
+;; ---- situations: change divides them ---------------------------------------
+
+(tu/deftest-kb static-situations-and-events-partition-situation
+  (is (true? (v/disjoint? kb 'static_situation 'event)))
+  (testing "a situation that is not an event is a static_situation — the coverage half"
+    (tu/with-terms [Drought]
+      (v/assert kb (list 'situation Drought) 'CxUniverse)
+      (v/assert kb (list 'not (list 'event Drought)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'static_situation Drought) 'CxUniverse))))))

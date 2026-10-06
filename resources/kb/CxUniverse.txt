@@ -2,9 +2,17 @@
 ;; (CxAbstract, CxOrganism, CxSociety, CxLife, CxMeasure, CxSpace, CxTime),
 ;; so cross-member disjointness assertions that require both sides visible
 ;; live here rather than in CxCore (which cannot see the members) or in one
-;; member (which cannot see the other).
+;; member (which cannot see the other).  Definitional content added to the upper
+;; ontology lands here as well, rather than in a member: the members keep what they
+;; state, and the collector is where a claim can name the terms of any of them.
 
 ;; --- cross-member disjointness (upper spindle) ---
 ;; None is stated today.  organization and animal, the pair that stood here, are
 ;; separated by (partition thing tangible intangible) in CxCore: organization is
 ;; intangible and animal is tangible.
+
+;; --- situations: change divides them ----------------------------------------
+;; A situation either holds unchanged or changes, never both and never neither.  CxAbstract
+;; states the two genl edges and the separation; the partition adds the coverage, so a
+;; situation denied being an event is concluded a static_situation.
+(set/monotonic (partition situation static_situation event))
