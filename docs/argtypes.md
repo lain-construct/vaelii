@@ -131,7 +131,9 @@ a relation whose only stated type is `variable_arity` reaches `relation` and not
 `predicate`, so `(binary_predicate P)` written after `(variable_arity P)` would report the
 argument's type where the contradiction is the arity policy. The two are one
 contradiction and report `:disjoint` in either order. A relation classified into the
-wrong kind is caught by `(disjoint predicate function)` through the `genl` edges.
+wrong kind is caught by `(disjoint predicate function)` through the `genl` edges, a
+disjointness derived from `(partition relation function truth_valued_relation)` rather
+than stated.
 
 ## The covering constraints: typing a variable-arity tail
 

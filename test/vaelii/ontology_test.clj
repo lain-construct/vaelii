@@ -741,6 +741,21 @@
                     [logical_connective predicate] [quantifier predicate]]]
       (is (true? (v/disjoint? kb a b)) (str a " and " b " must be disjoint")))))
 
+(tu/deftest-kb what-the-partitions-entail-is-derived-and-not-stated
+  ;; Each of these was stated in CxCore before the partitions, and each is entailed by
+  ;; them: a part of a partition is under its whole, and the parts are disjoint, which
+  ;; descends to predicate through truth_valued_relation.  A fact entailed by a stated
+  ;; fact is not stated as well, so CxCore carries none of the three.
+  (let [stated (set (map (comp first text/peel-strength)
+                         (text/read-forms (io/file "resources/kb/CxCore.txt"))))]
+    (doseq [s '[(genl function relation) (genl predicate relation)
+                (disjoint function predicate) (disjoint predicate function)]]
+      (is (not (contains? stated s)) (str (pr-str s) " is entailed by the partitions"))))
+  (is (true? (v/genl? kb 'function 'relation)))
+  (is (true? (v/genl? kb 'predicate 'relation)))
+  (is (true? (v/disjoint? kb 'function 'predicate)))
+  (is (true? (v/disjoint? kb 'predicate 'function))))
+
 (tu/deftest-kb the-connectives-are-logical-connectives-and-not-predicates
   (doseq [c '[and or not implies]]
     (is (true? (v/isa? kb c 'logical_connective)) (str c " must be a logical_connective"))

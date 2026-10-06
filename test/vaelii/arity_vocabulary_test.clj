@@ -598,7 +598,8 @@
   ;;
   ;; Leaving the kind open is what lets a later classification decide it.  The refusals
   ;; that remain come from the `(arg fixed_arity 1 relation)` floor the marks inherit and
-  ;; from `(disjoint predicate function)`, neither of which asks about arrival order.
+  ;; from `(disjoint predicate function)`, which the partition of `relation` derives, neither
+  ;; of which asks about arrival order.
   (tu/with-terms [pairOf someThing someFn]
     (v/assert kb (list 'arity pairOf 2) 'CxUniverse)
     (testing "the arity places the relation without deciding its kind"

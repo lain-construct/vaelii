@@ -109,17 +109,27 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(binary implies)`, `(variable_arity and)` and `(variable_arity or)`. An arity reader
   (`kb/relation-arity`, the `checks` arity arm) reads 1 for `not` and 2 for `implies` as
   before, and `arity_vocabulary_test`'s every-relation-has-exactly-one-arity-policy holds
-  over all four. No shipped term is a `quantifier` yet. `ontology_test` pins the three
-  partitions and the connectives' typing, and the four new types are classified inert in
-  the vocabulary roster.
+  over all four. No shipped term is a `quantifier` yet. CxCore no longer states
+  `(genl function relation)`, `(genl predicate relation)` or `(disjoint function
+  predicate)`: the partitions entail all three, the disjointness descending to `predicate`
+  from `(disjoint function truth_valued_relation)`, so each is derived, and the rule-entry
+  refusal of `(implies (result ?f ?t) (genl ?f ?t))` reads the derived disjointness as it
+  read the stated one. `ontology_test` pins the three
+  partitions, the connectives' typing, and that the three entailed facts derive and are
+  not stated; the four new types are classified inert in the vocabulary roster.
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
   *Migration:* a query that found `not` among the `unary_predicate`s or `predicate`s, or
   `implies` among the `binary_predicate`s, asks `logical_connective` instead, or `unary` /
   `binary` for the arity; a KB that states `(predicate not)` or a connective's membership
-  in any predicate type now contradicts the partition.
-  *Breaks:* `(unary_predicate not)`, `(binary_predicate implies)`
+  in any predicate type now contradicts the partition. A query for `(genl function
+  relation)`, `(genl predicate relation)` or `(disjoint function predicate)` answers as
+  before; code that unasserts one of them, or reads it as a stated sentence (a dump, a
+  diff, a justification walked to its stated leaves), finds it derived from the
+  partitions instead, and retracts it by retracting the partition.
+  *Breaks:* `(unary_predicate not)`, `(binary_predicate implies)`,
+  `(genl function relation)`, `(genl predicate relation)`, `(disjoint function predicate)`
 
 - **The upper ontology divides `thing` by location in space, by time and by mass:
   `spatial` is a location in any space, `spatiotemporal` is a location in space and
