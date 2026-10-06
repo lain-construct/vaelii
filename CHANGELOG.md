@@ -121,6 +121,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   derives through `time`. A KB that relied on `(genl time_point temporal)` being stated
   reads it from `genl?`.
 
+- **`acausal`'s comment no longer calls records and evidence acausal as things.** The
+  paper or the log file a record is written on is tangible, and so causal; what is
+  acausal is the information a record or a piece of evidence carries. A reading of it
+  can cause, and the information itself causes nothing. The comment now names a time, a
+  property line, an attribute and that information. No sentence other than the comment
+  changes.
+
+  *Class:* **Additive**.
+
 - **A tangible is causal: `(genl tangible causal)`.** Anything with mass can fill a cause
   slot — the rock dented the car — so an instance of any tangible kind reads `causal`.
   With the monotonic `(disjoint causal acausal)`, the genl closure of disjointness now

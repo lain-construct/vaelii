@@ -185,7 +185,7 @@
 (comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. One side of the causal/acausal division of thing.")
 (genl causal thing)
 
-(comment acausal "A thing that cannot be a cause: evidence, data, attributes, records. The other side of the causal/acausal division of thing.")
+(comment acausal "A thing that cannot be a cause: a time, a property line, an attribute, the information a record or piece of evidence carries (a reading of it can cause; the information itself causes nothing). The other side of the causal/acausal division of thing.")
 (genl acausal thing)
 
 ;; The causal/acausal division: a thing either can be a cause or cannot, so the two
