@@ -80,9 +80,12 @@ nine exact-arity classes, `variable_arity` and its two specializations, `arityMi
 `genl` with the second: a `genl` between two predicates is on the roster and a `genl`
 between types stays defeasible, so a type edge admits exceptions. CxCore declares each of
 these, which moves no membership, and the function classes (`injection`, `surjection`,
-`bijection`), which are on the roster by declaration alone. `checks/on-roster?` is the one
-reader of membership, the baseline united with the two global properties the declarations
-maintain, and `checks/forced-monotonic?` reads a literal through it. The source digest
+`bijection`), which are on the roster by declaration alone. CxUniverse declares the
+metatype `folk_species` the same way, since a species membership is definitional: a rule
+concluding a roster literal from `(folk_species ?s)` alone is a roster rule.
+`checks/on-roster?` is the one reader of membership, the baseline united with the two
+global properties the declarations maintain, and `checks/forced-monotonic?` reads a
+literal through it. The source digest
 covers the baseline, so a reasoning image computed under another baseline is declined and
 the store recovers under the new one. The decisions that put each group on the roster are
 [reference.md](reference.md#decisions) 1, 7 and 10 to 13 and 17.

@@ -1073,3 +1073,27 @@
     (is (every? org folk-species) "every species is an organism")
     (is (= #{#{'grass 'flower} #{'grass 'oak} #{'grass 'rose} #{'grass 'tree}}
            (set unknown)))))
+
+;; ---- folk_species is on the forced-monotonic roster ------------------------
+;; A species membership is definitional, so it is held :monotonic and a rule concluding a
+;; roster literal from it alone fires as a roster rule.
+
+(tu/deftest-kb a-folk-species-membership-is-held-monotonic
+  (is (= :monotonic (v/defeat-class kb (v/handle-of kb '(folk_species dog) 'CxUniverse))))
+  (testing "a denial of one is held OUT"
+    (let [d (v/assert kb '(not (folk_species dog)) 'CxUniverse)]
+      (is (not (v/in? kb d)))
+      (is (true? (v/ask? kb '(folk_species dog) 'CxUniverse))))))
+
+(tu/deftest-kb a-rule-from-folk-species-to-orthogonal-is-a-roster-rule
+  ;; The shape of a rule declaring every species orthogonal to a kind of tangible thing:
+  ;; its one antecedent is a roster literal, so its firings are believed rather than held
+  ;; void and reported as a :forced-conclusion.
+  (tu/with-terms [tended]
+    (v/assert kb (list 'genl tended 'tangible) 'CxUniverse)
+    (v/assert kb (list 'set/forwardRule
+                       (list 'implies '(folk_species ?s) (list 'orthogonal '?s tended)))
+              'CxUniverse)
+    (is (true? (v/ask? kb (list 'orthogonal 'dog tended) 'CxUniverse)))
+    (is (= :orthogonal (v/subsumption-status kb 'dog tended)))
+    (is (not-any? #(= :forced-conclusion (:violation %)) (v/violations kb)))))

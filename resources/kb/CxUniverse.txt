@@ -110,3 +110,9 @@
 (folk_species spider)
 (folk_species tortoise)
 (folk_species wolf)
+
+;; A species membership is definitional, so folk_species is on the forced-monotonic
+;; roster: each membership is held :monotonic, a denial of one is inert, and a rule
+;; concluding a roster literal such as orthogonal from (folk_species ?s) alone is a roster
+;; rule whose firings are believed (docs/nmtms.md).
+(forced_monotonic_predicate folk_species)

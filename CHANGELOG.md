@@ -256,6 +256,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* a KB that stated one organism of two shipped species, or an insect that is
   a mammal, now reads a clash.
 
+- **`folk_species` is on the forced-monotonic roster.** CxUniverse declares
+  `(forced_monotonic_predicate folk_species)`: a species membership is definitional, so
+  it is held `:monotonic` whatever strength it was written at and a denial of one is held
+  OUT, and a rule concluding a roster literal such as `orthogonal` from
+  `(folk_species ?s)` alone is a roster rule rather than a `:forced-conclusion`.
+  [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none; a denial of a shipped species membership no longer moves belief.
+
 ### Fixes: answers
 
 - **`query {:proof? true}` and `argue` return a proof when a rewrite's residual repeats
