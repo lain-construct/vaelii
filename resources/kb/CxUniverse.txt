@@ -138,3 +138,14 @@
 ;; concluding a roster literal such as orthogonal from (folk_species ?s) alone is a roster
 ;; rule whose firings are believed (docs/nmtms.md).
 (forced_monotonic_predicate folk_species)
+
+;; --- travelling / flying: event kinds an ability names ------------------------
+;; CxLife's hasCapability and capabilityType take an event kind as their second argument:
+;; (hasCapability Tweety flying) says Tweety can be the doer of a flying event.  The event
+;; kinds are stated in the collector: they relate CxLife's abilities to CxAbstract's event,
+;; and only the collector sees both.
+(comment travelling "An event of getting from one place to another under the doer's own power. flying is a kind of travelling; another way of travelling is stated as its own event kind below travelling.")
+(genl travelling event)
+
+(comment flying "A travelling event through the air under the doer's own power. A kind of travelling, so whatever can fly can travel without that being stated twice.")
+(genl flying travelling)

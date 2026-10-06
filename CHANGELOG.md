@@ -564,9 +564,9 @@ it — `git show v0.16.0:CHANGELOG.md`.
   kind `?eventKind`, and `capabilityType` is the same claim about a kind. Both declare
   `(genlArg … 2 event)`, so an event kind nobody listed as an ability is accepted and a
   kind outside `event`, such as `metal`, is refused `:arg-genl` against `event`.
-  `travelling` and `flying` move from CxLife to CxAbstract, beside `event`, as
-  `(genl travelling event)` and `(genl flying travelling)`: a `genl` edge is read from
-  the context that states it, and CxLife does not see `event`. CxCore no longer declares
+  `travelling` and `flying` move from CxLife to CxUniverse, as `(genl travelling event)`
+  and `(genl flying travelling)`: a `genl` edge is read from the context that states it,
+  CxLife does not see CxAbstract's `event`, and CxUniverse sees both. CxCore no longer declares
   `capability` or `(genl capability aspatial)`, and the vocabulary roster no longer
   lists it. Bird flight is unchanged: `(capabilityType bird flying)`, the penguin
   exception and the default descent rule load and derive as before, and

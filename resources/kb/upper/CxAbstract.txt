@@ -197,17 +197,6 @@
 (comment event "Something that happens: an occurrence located in time whose state changes. The event-calculus slots (happens/initiates/terminates) are typed temporal and no event collection was declared; this names one.")
 (genl event situation)
 
-;; --- travelling / flying: event kinds an ability names ------------------------
-;; CxLife's hasCapability and capabilityType take an event kind as their second argument:
-;; (hasCapability Tweety flying) says Tweety can be the doer of a flying event.  The event
-;; kinds are defined here, beside event, because a genl edge is read from the context that
-;; states it, and CxLife does not see event.
-(comment travelling "An event of getting from one place to another under the doer's own power. flying is a kind of travelling; another way of travelling is stated as its own event kind below travelling.")
-(genl travelling event)
-
-(comment flying "A travelling event through the air under the doer's own power. A kind of travelling, so whatever can fly can travel without that being stated twice.")
-(genl flying travelling)
-
 ;; A situation either holds unchanged or changes, never both — the specialization axis
 ;; is a partition, so the two specializations are disjoint.
 (set/monotonic (disjoint static_situation event))
