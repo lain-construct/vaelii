@@ -638,6 +638,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Internal**.
 
+- **CxCore holds `expression` and `unrepresented_term`.** The two types and their
+  comments move from CxAbstract to CxCore, with the `genl` edges that place `expression`
+  below `nowhere_never` and place `unrepresented_term`, `context`, `relation`, `formula`,
+  `relation_application` and `denotational_term` below `expression`. The edges that place
+  `string`, `number`, `keyword`, `boolean` and `character` below `unrepresented_term` move
+  too, and so do the four `disjoint` declarations on `unrepresented_term`. CxCore and
+  every band context now read each of these kinds below `thing`, and read each value kind
+  as disjoint from `predicate`. `vaelii.impl.predicates` classifies `expression` and
+  `unrepresented_term` inert. [taxonomy.md](docs/taxonomy.md#the-three-partitions-of-thing).
+
+  *Class:* **Additive**.
+
 - **CxCore types `intersection`'s third and later positions as its first two.**
   `(argAndRestGenl intersection 3 thing)` makes every position name a subtype of `thing`,
   so `:missing-arg` no longer reports `intersection`.

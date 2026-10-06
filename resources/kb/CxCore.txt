@@ -239,9 +239,7 @@
 (genl aspatial intangible)
 (genl atemporal intangible)
 (intersection nowhere_never aspatial atemporal)
-;; A context and a language are in no space and at no time.  CxAbstract places both below
-;; expression too; these two edges let a band context, which does not see CxAbstract, read
-;; either type as disjoint from spatial.
+;; A context and a language are in no space and at no time.
 (genl context nowhere_never)
 (genl language nowhere_never)
 
@@ -289,6 +287,39 @@
 (genl atomic_sentence atomic_formula)
 (genl atomic_sentence sentence)
 (set/monotonic (disjoint atomic_formula non_atomic_term))
+
+;; expression is the root of the expression kinds and of the value kinds, and it is below
+;; nowhere_never, so every one of them is in no space and at no time.  The edges are here
+;; rather than in a spindle member so that CxCore and every band context read the value
+;; kinds, the expression kinds and context below thing.
+(comment expression "The abstract parent of all representable forms — relations, formulas, contexts, and unrepresented terms.")
+(comment unrepresented_term "An expression that cannot be further decomposed in the KB — strings, numbers, keywords, booleans, characters.")
+(genl expression nowhere_never)
+(genl unrepresented_term expression)
+(genl context expression)
+(genl denotational_term expression)
+(genl formula expression)
+(genl relation expression)
+(genl relation_application expression)
+;; The value kinds are placed in this lattice by their edges to unrepresented_term.  Text
+;; and a number have no mass and no location, and neither of them is a relation:
+;; unrepresented_term is an expression, so nowhere_never and so intangible, and it is
+;; disjoint from relation, so from predicate.  The second is what lets a rule be refused
+;; for feeding a text-valued argument into a position that holds a type: every type is a
+;; unary_predicate, so the type position asks for a predicate, and one variable cannot be
+;; both at once.  The disjointness on number carries integer with it.
+;;
+;; symbol gets no such edge, and the note above symbol's declaration says why: a name is
+;; exactly how a predicate is written, so (disjoint symbol predicate) would be false.
+(genl boolean unrepresented_term)
+(genl character unrepresented_term)
+(genl keyword unrepresented_term)
+(genl number unrepresented_term)
+(genl string unrepresented_term)
+(set/monotonic (disjoint unrepresented_term context))
+(set/monotonic (disjoint unrepresented_term formula))
+(set/monotonic (disjoint unrepresented_term relation))
+(set/monotonic (disjoint unrepresented_term relation_application))
 
 (comment interArg
          "(interArg ?relation ?position1 ?type1 ?position2 ?type2) means that whenever argument ?position1 of ?relation is a ?type1, argument ?position2 must be a ?type2. The conditional argument constraint, and it says what arg cannot: (interArg eats 1 carnivore 2 meat) types the second argument only for the eaters that are carnivores, where (arg eats 2 meat) would demand meat of every eater. Open-world in both directions, and they point opposite ways — silence about the trigger argument's type leaves the constraint dormant rather than firing it, while silence about the target argument's is what convicts. Checked through genl transitivity from the writing context, like arg, and it entails the same way under assertive argument types. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
