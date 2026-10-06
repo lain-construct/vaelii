@@ -1085,7 +1085,7 @@
       (is (true? (v/ask? kb '(folk_species dog) 'CxUniverse))))))
 
 (tu/deftest-kb a-rule-from-folk-species-to-orthogonal-is-a-roster-rule
-  ;; The shape of a rule declaring every species orthogonal to a kind of tangible thing:
+  ;; A rule that declares every species orthogonal to a kind of tangible thing:
   ;; its one antecedent is a roster literal, so its firings are believed rather than held
   ;; void and reported as a :forced-conclusion.
   (tu/with-terms [tended]
