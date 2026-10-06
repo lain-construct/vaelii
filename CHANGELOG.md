@@ -309,6 +309,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **`animal` and `plant` are placed under `organism` and separated by one
+  `(separating organism animal plant)` roster in CxOrganism.** The roster replaces the
+  stored `(genl animal organism)`, `(genl plant organism)` and `(disjoint animal plant)`
+  sentences. Every `genl?` and `disjoint?` answer about the three types is unchanged. A
+  `find-sentexes` for one of the three replaced sentences finds nothing, and `why` cites
+  the roster where it cited one of them.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
 ### Fixes: answers
 
 - **The browser front page's disjointness list holds the pairs a `separating` or

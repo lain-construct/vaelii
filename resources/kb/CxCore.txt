@@ -203,7 +203,7 @@
 ;; The upper-ontology skeleton: the collections a band context has to be able to
 ;; SEE in order to place its own types under the root.  They sit here rather than in
 ;; CxAbstract because the band's contexts are siblings and no sibling sees another: with
-;; organism defined in CxAbstract, (genl animal organism) written in CxOrganism
+;; organism defined in CxAbstract, the edge placing animal under organism in CxOrganism
 ;; left animal unable to reach thing FROM CXORGANISM, so every arg constraint written
 ;; there convicted nothing in its own context.  A term extended from more than one band
 ;; context belongs above them all, which is here.
@@ -212,8 +212,8 @@
 ;; vaelii.impl.predicates for that reason.  What they are is the top of the ontology,
 ;; and the grammar head is where every context can reach it.  The kinds hanging off them
 ;; stay in the band: (genl artifact tangible) and the (separating biological organism
-;; body_part) that places body_part under biological are CxAbstract's, (genl animal
-;; organism) is CxOrganism's, and all of them now resolve.  biological is here because
+;; body_part) that places body_part under biological are CxAbstract's, (separating
+;; organism animal plant) is CxOrganism's, and all of them now resolve.  biological is here because
 ;; both organism and body_part extend it, so organism reaches tangible through it from
 ;; every band context.
 (comment intangible "Something with no mass: a region, a shadow, a number, a relation, a time. It may have a location — a region of space is spatiotemporal and intangible both.")

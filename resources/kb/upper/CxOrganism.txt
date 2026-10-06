@@ -7,6 +7,11 @@
 ;; than by ten `disjoint` sentences. Nothing is stored for the pairs — the clique is
 ;; consulted — so retracting the metatype releases all ten at once, and retracting one
 ;; membership releases exactly that class's pairs and leaves the rest separated.
+;;
+;; animal and plant are placed under organism and separated from each other by one
+;; (separating organism animal plant) roster. The roster states both genl edges and the
+;; separation, so no (genl animal organism), (genl plant organism) or (disjoint animal
+;; plant) sentence is written beside it.
 
 (genlCx CxOrganism CxCore)
 (genlCx CxUniverse CxOrganism)
@@ -16,8 +21,7 @@
 (vertebrate_class amphibian)
 
 (comment animal "An organism that moves and senses; disjoint from plant.")
-(genl animal organism)
-(set/monotonic (disjoint animal plant))
+(set/monotonic (separating organism animal plant))
 
 (comment ant "An industrious insect that stores food for winter.")
 (genl ant insect)
@@ -107,7 +111,6 @@
 (genl person tangible)
 
 (comment plant "An organism that photosynthesizes; disjoint from animal.")
-(genl plant organism)
 
 (comment rabbit "A small burrowing mammal with long ears.")
 (genl rabbit mammal)

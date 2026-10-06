@@ -440,7 +440,7 @@ can end with the thing a commit otherwise leaves unsaid — and an extension tha
 renders the same ending through `stored-sentexes` ([Extensions](#extensions)):
 
 > **You didn't say this, but it follows**
-> `(mortal Muffet)` — because `(dog Muffet)`, `(genl animal organism)`, `(genl dog mammal)`, `(genl mammal animal)`, the `genlCx` edges from the sandbox up to the rule's context, and the rule `(implies (organism ?x) (mortal ?x))` · _proof_
+> `(mortal Muffet)` — because `(dog Muffet)`, `(separating organism animal plant)`, `(genl dog mammal)`, `(genl mammal animal)`, the `genlCx` edges from the sandbox up to the rule's context, and the rule `(implies (organism ?x) (mortal ?x))` · _proof_
 > `(mammal Muffet)` — because `(dog Muffet)`, and every `dog` is a `mammal`
 
 Those two lines come from **different mechanisms**, and the callout keeps them apart rather

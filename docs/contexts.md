@@ -146,8 +146,8 @@ Data hangs below CxWell.
 **A member sees no member, so a shared term belongs in the head.** That is what makes a
 spindle a spindle: `CxLife` does not see `CxOrganism` and `CxOrganism` does not see
 `CxAbstract`. A term defined in one member and *extended* from another is therefore
-invisible where it is extended, and the closure breaks — `(genl animal organism)` in
-`CxOrganism` against an `organism` defined in `CxAbstract` left `animal` unable to
+invisible where it is extended, and the closure breaks — an edge placing `animal` under
+`organism` in `CxOrganism` against an `organism` defined in `CxAbstract` left `animal` unable to
 reach `thing` from `CxOrganism` itself, so every `arg` constraint written there convicted
 nothing in its own context. So a term more than one member of a spindle defines or
 extends belongs at or above that spindle's head: CxCore for the upper spindle, and
