@@ -323,8 +323,8 @@
     ;; The trigger and the conjunct share no argument, so the argument-agreement filter
     ;; drops the firing unless preservation keeps it.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
-      (v/assert kb '(transitiveInArg pbigger 1 genl) ctx)
-      (v/assert kb '(transitiveInArg pbigger 2 genl) ctx)
+      (v/assert kb '(transitiveInArgInverse pbigger 1 genl) ctx)
+      (v/assert kb '(transitiveInArgInverse pbigger 2 genl) ctx)
       (v/assert kb '(genl ppoodle pdog) ctx)
       (v/assert kb '(genl psiamese pcat) ctx)
       (v/assert kb '(exceptWhen (pbigger ppoodle psiamese)
@@ -342,8 +342,8 @@
 (deftest a-preserved-argument-position-still-releases-the-conclusion
   (testing "and removing the inherited claim brings the conclusion back"
     (tu/with-cleared-kb [kb tu/isolated-fresh]
-      (v/assert kb '(transitiveInArg pbigger 1 genl) ctx)
-      (v/assert kb '(transitiveInArg pbigger 2 genl) ctx)
+      (v/assert kb '(transitiveInArgInverse pbigger 1 genl) ctx)
+      (v/assert kb '(transitiveInArgInverse pbigger 2 genl) ctx)
       (v/assert kb '(genl ppoodle pdog) ctx)
       (v/assert kb '(genl psiamese pcat) ctx)
       (v/assert kb '(exceptWhen (pbigger ppoodle psiamese)
@@ -429,7 +429,7 @@
            ["(transitiveInArg P n R) opens the inheritance over stored facts"
             '(gbigger gpoodle gsiamese)
             '[(genl gpoodle gdog) (genl gsiamese gcat) (gbigger gdog gcat)]
-            '[(transitiveInArg gbigger 1 genl) (transitiveInArg gbigger 2 genl)]]]]
+            '[(transitiveInArgInverse gbigger 1 genl) (transitiveInArgInverse gbigger 2 genl)]]]]
     (testing label
       (tu/with-cleared-kb [kb tu/isolated-fresh]
         (let [pfx  (subs (name (first goal)) 0 1)
@@ -459,8 +459,8 @@
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb '(genl nchi ndog) ctx)
       (v/assert kb '(genl nmc ncat) ctx)
-      (v/assert kb '(transitiveInArg nbigger 1 genl) ctx)
-      (v/assert kb '(transitiveInArg nbigger 2 genl) ctx)
+      (v/assert kb '(transitiveInArgInverse nbigger 1 genl) ctx)
+      (v/assert kb '(transitiveInArgInverse nbigger 2 genl) ctx)
       (v/assert kb '(nbigger ndog ncat) ctx)
       (v/assert kb '(nbigger nmc nchi) ctx)
       (v/assert kb '(exceptWhen (nbigger nchi nmc)
@@ -488,7 +488,7 @@
       (v/assert kb '(transitive wpartOf) ctx)
       (v/assert kb '(wpartOf WPiston WEngine) ctx)
       (v/assert kb '(wpartOf WEngine WCar) ctx)
-      (v/assert kb '(transitiveInArg wneeds_oil 1 wpartOf) ctx)
+      (v/assert kb '(transitiveInArgInverse wneeds_oil 1 wpartOf) ctx)
       (v/assert kb '(wneeds_oil WCar) ctx)
       (v/assert kb '(exceptWhen (wneeds_oil WPiston)
                                 (set/defaultRule (set/forwardRule (implies (and (wmark ?x)) (wseen ?x)))))

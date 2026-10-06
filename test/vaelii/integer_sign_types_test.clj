@@ -30,8 +30,8 @@
    ['interArg 2]
    ['interArg 4]
    ['contextArgSubrelation 2]
-   ['transitiveInArg 2]
-   ['transitiveInArgInverse 2]])
+   ['transitiveInArgInverse 2]
+   ['transitiveInArg 2]])
 
 (tu/deftest-kb each-sign-refined-integer-is-a-defn-pair-under-integer
   (doseq [[type condition] cases

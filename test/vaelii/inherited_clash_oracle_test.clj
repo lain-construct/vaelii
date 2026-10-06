@@ -61,7 +61,7 @@
         str8 #(if (zero? (.nextInt rng 2)) {:strength :monotonic} {})
         claim #(list 'ibig (pick types) (pick types))
         edge #(let [[a b] (pick edges)] (list 'genl a b))
-        decl #(list 'transitiveInArg 'ibig (inc (.nextInt rng 2)) 'genl)]
+        decl #(list 'transitiveInArgInverse 'ibig (inc (.nextInt rng 2)) 'genl)]
     (case (.nextInt rng 12)
       (0 1 2) [:assert (claim) (ctx) (str8)]
       3       [:assert (list 'not (claim)) (ctx) (str8)]
@@ -165,8 +165,8 @@
   ;; the claim read; `(ibig ic_mid ic_side)` arrives reaching the same tuple and sorts
   ;; before `(ibig ic_top ic_side)`, with nothing of the standing clash moving
   (is (nil? (run-stream
-             [[:assert '(transitiveInArg ibig 1 genl) 'CxIcBase {}]
-              [:assert '(transitiveInArg ibig 2 genl) 'CxIcBase {}]
+             [[:assert '(transitiveInArgInverse ibig 1 genl) 'CxIcBase {}]
+              [:assert '(transitiveInArgInverse ibig 2 genl) 'CxIcBase {}]
               [:assert '(genl ic_mid ic_top) 'CxIcBase {}]
               [:assert '(genl ic_low ic_mid) 'CxIcBase {}]
               [:assert '(ibig ic_side ic_low) 'CxIcBase {}]
@@ -182,8 +182,8 @@
   (is (nil? (run-stream
              [[:assert '(genlCx CxIcJoin CxIcLeft) 'CxUniverse {:strength :monotonic}]
               [:assert '(genlCx CxIcJoin CxIcRight) 'CxUniverse {:strength :monotonic}]
-              [:assert '(transitiveInArg ibig 1 genl) 'CxIcBase {:strength :monotonic}]
-              [:assert '(transitiveInArg ibig 2 genl) 'CxIcBase {:strength :monotonic}]
+              [:assert '(transitiveInArgInverse ibig 1 genl) 'CxIcBase {:strength :monotonic}]
+              [:assert '(transitiveInArgInverse ibig 2 genl) 'CxIcBase {:strength :monotonic}]
               [:assert '(genl ic_low ic_mid) 'CxIcLeft {}]
               [:assert '(genl ic_mid ic_top) 'CxIcLeft {:strength :monotonic}]
               [:assert '(genl ic_low ic_far) 'CxIcLeft {}]
@@ -197,8 +197,8 @@
   ;; the stored default in CxIcRight loses at CxIcJoin only, so every settle re-decides it
   ;; there while it stays believed in CxIcRight
   (is (nil? (run-stream
-             [[:assert '(transitiveInArg ibig 1 genl) 'CxIcBase {:strength :monotonic}]
-              [:assert '(transitiveInArg ibig 2 genl) 'CxIcBase {:strength :monotonic}]
+             [[:assert '(transitiveInArgInverse ibig 1 genl) 'CxIcBase {:strength :monotonic}]
+              [:assert '(transitiveInArgInverse ibig 2 genl) 'CxIcBase {:strength :monotonic}]
               [:assert '(genl ic_low ic_mid) 'CxIcLeft {:strength :monotonic}]
               [:assert '(genl ic_mid ic_top) 'CxIcLeft {:strength :monotonic}]
               [:assert '(ibig ic_side ic_low) 'CxIcRight {}]
@@ -213,8 +213,8 @@
   ;; the reading rests on the direct `:default` edge until the route through ic_mid is
   ;; raised to `:monotonic`; the claim then opposes the stored converse at that route, and
   ;; the dilemma becomes a defeat with no member of the carried entry changing class
-  (let [ops '[[:assert (transitiveInArg ibig 1 genl) CxIcBase {:strength :monotonic}]
-              [:assert (transitiveInArg ibig 2 genl) CxIcBase {:strength :monotonic}]
+  (let [ops '[[:assert (transitiveInArgInverse ibig 1 genl) CxIcBase {:strength :monotonic}]
+              [:assert (transitiveInArgInverse ibig 2 genl) CxIcBase {:strength :monotonic}]
               [:assert (genl ic_low ic_mid) CxIcBase {}]
               [:assert (genl ic_mid ic_top) CxIcBase {}]
               [:assert (genl ic_low ic_top) CxIcBase {}]
@@ -239,9 +239,9 @@
     [:assert (ibig ic_low ic_low) CxIcLeft {:strength :monotonic}]
     [:assert (icAgeOf IcI2 2) CxIcLeft {:strength :monotonic}]
     [:assert (genlCx CxIcJoin CxIcLeft) CxUniverse {:strength :monotonic}]
-    [:assert (transitiveInArg ibig 2 genl) CxIcBase {:strength :monotonic}]
+    [:assert (transitiveInArgInverse ibig 2 genl) CxIcBase {:strength :monotonic}]
     [:assert (anti_transitive icPrecedes) CxIcBase {:strength :monotonic}]
-    [:assert (transitiveInArg ibig 2 genl) CxIcBase {}]
+    [:assert (transitiveInArgInverse ibig 2 genl) CxIcBase {}]
     [:assert (anti_transitive icPrecedes) CxIcBase {:strength :monotonic}]
     [:assert (genlCx CxIcJoin CxIcRight) CxUniverse {:strength :monotonic}]])
 
@@ -257,7 +257,7 @@
   "A standing clash whose stored side a guarded rule concludes, beside a second entry.
   Blocking the firing sweeps the conclusion, so the settle's second pass reads a region
   handle with no record; the release derives it again."
-  '[[:assert (transitiveInArg ibig 1 genl) CxIcBase {}]
+  '[[:assert (transitiveInArgInverse ibig 1 genl) CxIcBase {}]
     [:assert (genl ic_mid ic_top) CxIcBase {}]
     [:assert (genl ic_low ic_mid) CxIcBase {}]
     [:assert (ibig ic_top ic_side) CxIcBase {:strength :monotonic}]
@@ -280,7 +280,7 @@
   "A standing clash beside a second entry, then the mark, the declaration and an edge the
   reading rests on retracted and the first two asserted again: each retraction's region
   holds a handle with no record."
-  '[[:assert (transitiveInArg ibig 1 genl) CxIcBase {}]
+  '[[:assert (transitiveInArgInverse ibig 1 genl) CxIcBase {}]
     [:assert (genl ic_mid ic_top) CxIcBase {}]
     [:assert (genl ic_low ic_mid) CxIcBase {}]
     [:assert (ibig ic_side ic_low) CxIcBase {}]
@@ -288,8 +288,8 @@
     [:assert (ibig ic_far ic_side) CxIcBase {}]
     [:retract (asymmetric ibig) CxIcBase]
     [:assert (asymmetric ibig) CxIcBase {:strength :monotonic}]
-    [:retract (transitiveInArg ibig 1 genl) CxIcBase]
-    [:assert (transitiveInArg ibig 1 genl) CxIcBase {}]
+    [:retract (transitiveInArgInverse ibig 1 genl) CxIcBase]
+    [:assert (transitiveInArgInverse ibig 1 genl) CxIcBase {}]
     [:retract (genl ic_low ic_mid) CxIcBase]])
 
 (deftest a-retracted-reason-leaves-the-clash-it-read
@@ -309,10 +309,10 @@
                 [:assert (genl icSub ibig) CxIcBase {}]
                 [:assert (icSub ic_top ic_side) CxIcBase {:strength :monotonic}]]
         drop  '[:retract (genl icSub ibig) CxIcBase]]
-    [(-> '[[:assert (transitiveInArg icSub 1 genl) CxIcBase {:strength :monotonic}]]
+    [(-> '[[:assert (transitiveInArgInverse icSub 1 genl) CxIcBase {:strength :monotonic}]]
          (into edges)
          (conj '[:assert (icSub ic_side ic_low) CxIcBase {}] drop))
-     (-> '[[:assert (transitiveInArg ibig 1 genl) CxIcBase {:strength :monotonic}]]
+     (-> '[[:assert (transitiveInArgInverse ibig 1 genl) CxIcBase {:strength :monotonic}]]
          (into edges)
          (conj '[:assert (ibig ic_side ic_low) CxIcBase {}] drop))]))
 
@@ -388,7 +388,7 @@
         (with-redefs [discovery/preserving-entry (fn [kb s] (swap! calls inc) (orig kb s))]
           (v/with-deferred-settle kb
             (run! #(apply-op! kb %)
-                  (concat [[:assert '(transitiveInArg ibig 1 genl) 'CxIcBase {}]
+                  (concat [[:assert '(transitiveInArgInverse ibig 1 genl) 'CxIcBase {}]
                            [:assert '(genl ic_mid ic_top) 'CxIcBase {}]
                            [:assert '(genl ic_low ic_mid) 'CxIcBase {}]
                            [:assert '(ibig ic_side ic_low) 'CxIcBase {}]
@@ -432,7 +432,7 @@
                   'CxIcBase)
         (v/with-deferred-settle kb
           (run! #(apply-op! kb %)
-                (concat [[:assert '(transitiveInArg ibig 1 genl) 'CxIcBase {}]
+                (concat [[:assert '(transitiveInArgInverse ibig 1 genl) 'CxIcBase {}]
                          [:assert '(genl ic_mid ic_top) 'CxIcBase {}]
                          [:assert '(genl ic_low ic_mid) 'CxIcBase {}]
                          [:assert '(ic_probe IcA) 'CxIcBase {}]

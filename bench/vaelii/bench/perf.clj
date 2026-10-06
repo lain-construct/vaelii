@@ -808,7 +808,7 @@
                      '[[CxPerf CxUniverse]])]
       (v/assert kb (list 'genlCx k up) 'CxUniverse M))
     (doseq [d '[(binary_predicate bigP) (type_relation_predicate bigP) (asymmetric bigP)
-                (transitiveInArg bigP 1 genl) (transitiveInArg bigP 2 genl)]]
+                (transitiveInArgInverse bigP 1 genl) (transitiveInArgInverse bigP 2 genl)]]
       (v/assert kb d 'CxUniverse G))
     (v/with-deferred-settle kb
       (doseq [i (range n)]
@@ -833,7 +833,7 @@
     (doseq [[k up] '[[CxPA CxUniverse] [CxPB CxUniverse]]]
       (v/assert kb (list 'genlCx k up) 'CxUniverse {:strength :monotonic}))
     (doseq [d '[(binary_predicate bigP) (type_relation_predicate bigP) (asymmetric bigP)
-                (transitiveInArg bigP 1 genl) (genl plow phigh)]]
+                (transitiveInArgInverse bigP 1 genl) (genl plow phigh)]]
       (v/assert kb d 'CxUniverse {}))
     (v/with-deferred-settle kb
       (doseq [i (range n)]
@@ -854,7 +854,7 @@
         t  (fn [s i] (symbol (str s i)))]
     (v/assert kb '(genlCx CxPA CxUniverse) 'CxUniverse M)
     (doseq [d '[(binary_predicate bigP) (type_relation_predicate bigP) (asymmetric bigP)
-                (transitiveInArg bigP 1 genl) (transitiveInArg bigP 2 genl)]]
+                (transitiveInArgInverse bigP 1 genl) (transitiveInArgInverse bigP 2 genl)]]
       (v/assert kb d 'CxUniverse M))
     (v/with-deferred-settle kb
       (doseq [j (range 60)]
@@ -877,7 +877,7 @@
         U  'CxUniverse
         t  (fn [s i] (symbol (str s i)))]
     (v/with-deferred-settle kb
-      (doseq [d '[(binary_predicate carryP) (transitiveInArg carryP 1 genl)
+      (doseq [d '[(binary_predicate carryP) (transitiveInArgInverse carryP 1 genl)
                   (genl hold_kind animal) (genl cartx_kind hold_kind)
                   (genl sepa_kind animal) (genl sepb_kind animal)]]
         (v/assert kb d U))
@@ -903,7 +903,7 @@
         U  'CxUniverse
         t  (fn [s i] (symbol (str s i)))]
     (v/with-deferred-settle kb
-      (doseq [d '[(binary_predicate carryP) (transitiveInArg carryP 1 genl)
+      (doseq [d '[(binary_predicate carryP) (transitiveInArgInverse carryP 1 genl)
                   (genl hold_kind animal) (genl cartx_kind hold_kind)]]
         (v/assert kb d U))
       (v/assert kb '(carryP hold_kind Bone0) U M)
@@ -2421,7 +2421,7 @@
         above (mapv #(symbol (str "PiAbove" %)) (range inherit-chain-depth))]
     (v/with-deferred-settle kb
       (v/assert kb '(transitive piPartOf) 'CxPerf {:strength :monotonic})
-      (v/assert kb '(transitiveInArg pi_needs_work 1 piPartOf) 'CxPerf {:strength :monotonic})
+      (v/assert kb '(transitiveInArgInverse pi_needs_work 1 piPartOf) 'CxPerf {:strength :monotonic})
       ;; the shared chain every claim-holder's reach runs up
       (doseq [[a b] (partition 2 1 above)]
         (v/assert kb (list 'piPartOf a b) 'CxPerf {}))
@@ -2451,7 +2451,7 @@
   [n]
   (let [kb (fresh-kb)]
     (v/with-deferred-settle kb
-      (v/assert kb '(transitiveInArg pwNeeds 1 genl) 'CxPerf {:strength :monotonic})
+      (v/assert kb '(transitiveInArgInverse pwNeeds 1 genl) 'CxPerf {:strength :monotonic})
       (v/assert kb '(pwNeeds pw_dog PwVal) 'CxPerf {})
       (doseq [i (range n)
               :let [m (symbol (str "pw_mid" i))]]
@@ -2485,7 +2485,7 @@
         (v/assert kb (list 'genl (t "b") (t "a")) 'CxPerf {})
         (v/assert kb (list 'genl (t "c") (t "b")) 'CxPerf {})
         (v/assert kb (list 'genl (t "c") (t "a")) 'CxPerfShort {})
-        (v/assert kb (list 'transitiveInArg pr 1 'genl) 'CxPerf {:strength :monotonic})
+        (v/assert kb (list 'transitiveInArgInverse pr 1 'genl) 'CxPerf {:strength :monotonic})
         (v/assert kb (list pr (t "a") 'PlVal) 'CxPerf {})
         (v/assert kb (list 'set/forwardRule (list 'implies (list pr '?x '?y) (list 'plNoted '?x '?y)))
                   'CxPerf {})))
@@ -2517,7 +2517,7 @@
         (doseq [x [(t "a") (t "b") (t "c")]] (v/assert kb (list 'genl x 'thing) 'CxPerf {}))
         (v/assert kb (list 'genl (t "b") (t "a")) 'CxPerf {})
         (v/assert kb (list 'genl (t "c") (t "b")) 'CxPerf {})
-        (v/assert kb (list 'transitiveInArg pr 1 'genl) 'CxPerf {:strength :monotonic})
+        (v/assert kb (list 'transitiveInArgInverse pr 1 'genl) 'CxPerf {:strength :monotonic})
         (v/assert kb (list pr (t "a") 'thing) 'CxPerf {})
         (v/assert kb (list 'set/forwardRule (list 'implies (list pr '?x '?y) (list 'gdNoted '?x '?y)))
                   'CxPerf {})))
@@ -2548,7 +2548,7 @@
         (doseq [x [(t "a") (t "b") (t "c")]] (v/assert kb (list 'genl x 'thing) 'CxPerf {}))
         (v/assert kb (list 'genl (t "b") (t "a")) 'CxPerf {})
         (v/assert kb (list 'genl (t "c") (t "b")) 'CxPerf {})
-        (v/assert kb (list 'transitiveInArg pr 1 'genl) 'CxPerf {:strength :monotonic})
+        (v/assert kb (list 'transitiveInArgInverse pr 1 'genl) 'CxPerf {:strength :monotonic})
         (v/assert kb (list pr (t "a") 'thing) 'CxPerf {})
         (v/assert kb (list 'set/forwardRule (list 'implies (list pr '?x '?y) (list 'gmNoted '?x '?y)))
                   'CxPerf {})))
@@ -2579,7 +2579,7 @@
       (v/assert kb '(genl gw_root thing) 'CxPerf {})
       (v/assert kb '(genl gw_top thing) 'CxPerf {})
       (doseq [j (range 50) :let [pr (symbol (str "gwRel" j))]]
-        (v/assert kb (list 'transitiveInArg pr 1 'genl) 'CxPerf {:strength :monotonic})
+        (v/assert kb (list 'transitiveInArgInverse pr 1 'genl) 'CxPerf {:strength :monotonic})
         (v/assert kb (list pr (symbol (str "gw_leaf" j)) 'thing) 'CxPerf {})
         (v/assert kb (list 'set/forwardRule (list 'implies (list pr '?x '?y) (list 'gwNoted '?x '?y)))
                   'CxPerf {})))

@@ -1189,10 +1189,11 @@ desugars to `S`'s conjuncts with `?x` a local matched variable. See
 hierarchy — every type reaches `thing` upward. See [taxonomy.md](taxonomy.md).
 
 **`transitiveInArg`** ![kb](../.github/badges/cat-kb.svg): `(transitiveInArg P n R)`
-licenses carrying a claim about `P`'s *n*-th argument across an `R`-related pair
-— what makes "the part of a wooden table is wooden" derivable without a rule per
-predicate. `transitiveInArgInverse` reads it the other way. See
-[inherit.md](inherit.md).
+licenses carrying a claim about `P`'s *n*-th argument across an `R`-related pair,
+along `R`'s arrow: a stored `(P … W …)` and `(R W A)` give `(P … A …)`, as Cyc's
+`transitiveViaArg` does. `transitiveInArgInverse` carries it against the arrow — what
+makes "the part of a wooden table is wooden" derivable from `partOf` without a rule per
+predicate. See [inherit.md](inherit.md).
 
 **Transitivity** ![kb](../.github/badges/cat-kb.svg): The lifeblood of common
 sense, done by cached closures rather than rules for `genl` / `genlCx`, and

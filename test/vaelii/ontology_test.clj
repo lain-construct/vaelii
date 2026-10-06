@@ -56,7 +56,7 @@
   (testing "and it climbs the capability hierarchy: what flies travels"
     (is (v/ask? kb '(capabilityType bird travelling) B))
     (is (v/ask? kb '(capabilityType eagle travelling) B)))
-  (testing "answered by transitiveInArgInverse, so the kind level stores no rule's output"
+  (testing "answered by transitiveInArg, so the kind level stores no rule's output"
     (is (empty? (v/sentexes-matching kb '(capabilityType bird travelling) '?ctx)))))
 
 (tu/deftest-kb a-nearer-claim-stops-an-inherited-default-at-itself
@@ -87,7 +87,7 @@
   (testing "travelling follows from the hierarchy, not a stored forward-rule conclusion"
     (is (v/ask? kb '(hasCapability Sam travelling) N))
     (is (empty? (v/sentexes-matching kb '(hasCapability Sam travelling) N))
-        "answered by transitiveInArgInverse, not stored — no redundant rule"))
+        "answered by transitiveInArg, not stored — no redundant rule"))
   (testing "and the flightless member gets neither"
     (is (not (v/ask? kb '(hasCapability Tweety flying) N)))
     (is (empty? (v/sentexes-matching kb '(hasCapability Tweety travelling) N)))))
@@ -206,13 +206,13 @@
 ;; ---- the exception mechanism itself, apart from birds --------------------
 
 (tu/deftest-kb an-inherited-default-is-undercut-and-an-inherited-monotonic-one-is-not
-  ;; `transitiveInArg`'s contract in one test, both halves.  A default yields to a nearer
+  ;; `transitiveInArgInverse`'s contract in one test, both halves.  A default yields to a nearer
   ;; claim; a monotonic claim does not, because yielding would make a stated certainty
   ;; depend on what else got said, and the strength is exactly the author saying it must
   ;; not.  Two independent hierarchies so neither answer can come from the other.
   (tu/with-terms [carriesLoad pack_animal mule_kind hauler_kind cart_kind]
     (v/assert kb (list 'binary_predicate carriesLoad) 'CxUniverse)
-    (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArgInverse carriesLoad 1 'genl) 'CxUniverse)
     (v/assert kb (list 'genl pack_animal 'animal) 'CxUniverse)
     (v/assert kb (list 'genl mule_kind pack_animal) 'CxUniverse)
     (v/assert kb (list 'genl hauler_kind 'animal) 'CxUniverse)
@@ -260,7 +260,7 @@
                        (list 'genl cart_kind hauler_kind))
             "and the genl edge it travelled, so `why` can explain the reach")
         (is (contains? (set (map :sentence (:sides r)))
-                       (list 'transitiveInArg carriesLoad 1 'genl))
+                       (list 'transitiveInArgInverse carriesLoad 1 'genl))
             "and the declaration that licensed the move")))))
 
 ;; ---- what is a type, and what is only a property ------------------------

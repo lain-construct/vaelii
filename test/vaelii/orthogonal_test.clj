@@ -350,10 +350,10 @@
 ;; so orthogonal is inherited neither way.
 
 (def ^:private preservation-denials
-  '[(not (transitiveInArg orthogonal 1 genl))
-    (not (transitiveInArg orthogonal 2 genl))
-    (not (transitiveInArgInverse orthogonal 1 genl))
-    (not (transitiveInArgInverse orthogonal 2 genl))])
+  '[(not (transitiveInArgInverse orthogonal 1 genl))
+    (not (transitiveInArgInverse orthogonal 2 genl))
+    (not (transitiveInArg orthogonal 1 genl))
+    (not (transitiveInArg orthogonal 2 genl))])
 
 (tu/deftest-kb cxcore-denies-preserving-orthogonal-along-genl
   (doseq [s preservation-denials

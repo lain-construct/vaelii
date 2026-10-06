@@ -645,7 +645,7 @@
 
 (deftest a-reader-that-disbelieves-a-genl-edge-stops-reaching-over-it
   ;;   CxUniverse    (genl chi thing) (genl dog thing) (chi Rex)
-  ;;                 (transitiveInArg largerThan 1 genl)  (largerThan dog cat)
+  ;;                 (transitiveInArgInverse largerThan 1 genl)  (largerThan dog cat)
   ;;     └─ CxA      (genl chi dog)                 :default
   ;;          └─ CxB (not (genl chi dog))           :monotonic  ← the vantage
   ;;     └─ CxC      a sibling of CxB, which sees neither the denial nor the vantage
@@ -660,7 +660,7 @@
           (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
           (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse)
           (v/assert kb (list 'genlCx CxC CxA) 'CxUniverse)
-          (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
+          (v/assert kb (list 'transitiveInArgInverse largerThan 1 'genl) 'CxUniverse)
           (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)
           (v/assert kb (list chi_t Rex) 'CxUniverse)
           (let [edge!   #(v/assert kb (list 'genl chi_t dog_t) CxA)
@@ -694,7 +694,7 @@
       (types! kb chi_t dog_t cat_t)
       (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse largerThan 1 'genl) 'CxUniverse)
       (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)
       (v/assert kb (list chi_t Rex) 'CxUniverse)
       (v/assert kb (list 'genl chi_t dog_t) CxA)
@@ -1269,7 +1269,7 @@
         (types! kb mammal_t insect_t dog_t ant_t canine_t)
         (doseq [d [(list 'binary_predicate bigP) (list 'type_relation_predicate bigP)
                    (list 'asymmetric bigP)
-                   (list 'transitiveInArg bigP 1 'genl) (list 'transitiveInArg bigP 2 'genl)]]
+                   (list 'transitiveInArgInverse bigP 1 'genl) (list 'transitiveInArgInverse bigP 2 'genl)]]
           (v/assert kb d 'CxUniverse G))
         (when detour
           (v/assert kb (list 'genl dog_t canine_t) (cx edges-in) G)

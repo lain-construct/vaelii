@@ -2806,7 +2806,7 @@
         (for [[missing preds]
               {:unforced-relation-mark
                '[irreflexive anti_symmetric asymmetric functional functionalInArg
-                 anti_transitive transitiveInArg transitiveInArgInverse]
+                 anti_transitive transitiveInArgInverse transitiveInArg]
                :unforced-definitional-declaration '[disjoint covering partition sibling_disjoint orthogonal]
                :unforced-arity-binding
                '[arity unary binary ternary unary_predicate binary_predicate

@@ -2350,7 +2350,7 @@
 
 (defn- preservation-pair
   "The `[P R]` an argument-preservation declaration states, or nil for any other
-  sentence — including `(not (transitiveInArg …))`, whose functor is `not`.  The one
+  sentence — including `(not (transitiveInArgInverse …))`, whose functor is `not`.  The one
   shape test the roster keys on, so an ordinary fact costs a map lookup on its functor
   and nothing else."
   [sentence]
@@ -2370,7 +2370,7 @@
   **nothing off the index**, so a bulk load whose backing atom is stale mid-load
   (`memory/*bulk-txn*`) is not a case this has to be correct across.
 
-  Counted, not a set: `(transitiveInArg largerThan 1 genl)` stated in two contexts is two
+  Counted, not a set: `(transitiveInArgInverse largerThan 1 genl)` stated in two contexts is two
   sentexes saying one thing, and retracting the first must not retire what the second
   still says.  The count is *storage* — belief is the reader's filter here exactly as it
   is for `:opposed`, since a defeated declaration is one `positions` will decline to read

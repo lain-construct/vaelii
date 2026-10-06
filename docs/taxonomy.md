@@ -1168,7 +1168,7 @@ does not see CxAbstract's `expression` lattice reads both as disjoint from `spat
 
 Beyond types, the taxonomy caches predicate properties, declared as sentexes and
 maintained by `integrate-sentex`. The relation marks `irreflexive`, `anti_symmetric`,
-`asymmetric`, `functional`, `functionalInArg`, `anti_transitive` and `transitiveInArg`,
+`asymmetric`, `functional`, `functionalInArg`, `anti_transitive`, `transitiveInArg` and `transitiveInArgInverse`,
 the function classes `injection`, `surjection` and `bijection`, and the declarations
 `disjoint`, `covering`, `partition` and `sibling_disjoint`, and the arity bindings
 ([Arity](#arity)), are on the forced-monotonic roster: each is held `:monotonic` whatever

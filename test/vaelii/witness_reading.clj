@@ -66,7 +66,7 @@
   [sentences]
   (into #{}
         (keep (fn [s]
-                (when (and (seq? s) (= 'transitiveInArg (nm/functor s)))
+                (when (and (seq? s) (= 'transitiveInArgInverse (nm/functor s)))
                   (last (nm/args s)))))
         sentences))
 
@@ -310,7 +310,7 @@
   kb)
 
 (defn generated
-  "A `transitiveInArg`-heavy corpus with two routes between each pair of ends: a long one
+  "A `transitiveInArgInverse`-heavy corpus with two routes between each pair of ends: a long one
   stated in the general context and a short one stated in a specific context, which is the
   shape a witness search can answer two ways.  `n` chains, each `depth` long.
   `tax/general-reach-supports` picks the witness here."
@@ -335,7 +335,7 @@
         (let [t (ts i), pr (prs i)]
           ;; the short route, specific: t(depth-1) → t(0) in one edge
           (v/assert kb (list 'genl (t (dec depth)) (t 0)) short)
-          (v/assert kb (list 'transitiveInArg pr 1 'genl) 'CxUniverse)
+          (v/assert kb (list 'transitiveInArgInverse pr 1 'genl) 'CxUniverse)
           (v/assert kb (list pr (t 0) 'thing) 'CxUniverse)
           (v/assert kb (list 'set/forwardRule
                              (list 'implies (list pr '?x '?y) (list noted '?x '?y)))
@@ -366,7 +366,7 @@
       (fn [i]
         (let [t (ts i), pt (pts i), pr (prs i)]
           (v/assert kb (list pt (t (dec depth)) (t 0)) short)
-          (v/assert kb (list 'transitiveInArg pr 1 pt) 'CxUniverse)
+          (v/assert kb (list 'transitiveInArgInverse pr 1 pt) 'CxUniverse)
           (v/assert kb (list pr (t 0) 'thing) 'CxUniverse)
           (v/assert kb (list 'set/forwardRule
                              (list 'implies (list pr '?x '?y) (list noted '?x '?y)))
@@ -403,7 +403,7 @@
         (let [t (ts i), pr (prs i)]
           ;; the covering route: t2 → t0 in one edge, in CxX
           (v/assert kb (list 'genl (t 2) (t 0)) x)
-          (v/assert kb (list 'transitiveInArg pr 1 'genl) 'CxUniverse)
+          (v/assert kb (list 'transitiveInArgInverse pr 1 'genl) 'CxUniverse)
           (v/assert kb (list pr (t 0) 'thing) 'CxUniverse)
           (v/assert kb (list 'set/forwardRule
                              (list 'implies (list pr '?x '?y) (list noted '?x '?y)))

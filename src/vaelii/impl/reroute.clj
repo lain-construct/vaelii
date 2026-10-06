@@ -20,13 +20,13 @@
 (defn- witness-paths
   "The witness edges among `sentences` (`{handle sentence}`, one justification's
   antecedents) joined into paths, as `{:rel :a :b :edges}`: the `genl` and `genlCx` edges,
-  and the edges of a relation some `transitiveInArg` among them preserves a claim along.
+  and the edges of a relation some `transitiveInArgInverse` among them preserves a claim along.
   A path is what the firing depends on, so its two ends are the reachability a second
   route can answer for."
   [sentences]
   (let [binary    (fn [s] (when (and (seq? s) (= 2 (count (nm/args s))))
                             [(nm/functor s) (first (nm/args s)) (second (nm/args s))]))
-        preserved (into #{} (keep (fn [s] (when (and (seq? s) (= 'transitiveInArg (nm/functor s)))
+        preserved (into #{} (keep (fn [s] (when (and (seq? s) (= 'transitiveInArgInverse (nm/functor s)))
                                             (last (nm/args s)))))
                         (vals sentences))
         edges     (into [] (keep (fn [[h s]]

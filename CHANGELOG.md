@@ -15,6 +15,25 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **`transitiveInArg` and `transitiveInArgInverse` swap names, so `transitiveInArg` takes
+  the direction of Cyc's `transitiveViaArg`.** `(transitiveInArg P n R)` now carries a
+  stored `(P … W …)` along `R`'s arrow: `(R W A)` gives `(P … A …)`, which with `genl`
+  is upward, to a supertype. `(transitiveInArgInverse P n R)` carries it against the
+  arrow: `(R A W)` gives `(P … A …)`, which with `genl` is downward, to a subtype. Before
+  this change each name carried the other direction. The argument order stays `(P n R)`
+  (Cyc writes `(P R n)`). The engine implements the same two walks it did; only the
+  functor naming each walk changed, and every declaration the shipped KB and the test
+  suite state was rewritten to the other name, so each one still licenses what it did:
+  `(transitiveInArg largerThan 1 genl)` is now `(transitiveInArgInverse largerThan 1
+  genl)`. [inherit.md](docs/inherit.md), [from-cyc.md](docs/from-cyc.md).
+
+  *Class:* **Breaking** (a stored declaration under either name now licenses the
+  opposite direction).
+  *Migration:* swap every `transitiveInArg` and `transitiveInArgInverse` in your KB: the
+  names now carry the directions Cyc's `transitiveViaArg` / `transitiveViaArgInverse`
+  do.
+  *Breaks:* `transitiveInArg`, `transitiveInArgInverse`
+
 - **`siblingDisjointException` is retired; `orthogonal` is the exemption.** A stated
   `(orthogonal a b)` exempts the pair from a separation a `sibling_disjoint` parent or a
   `disjoint_metatype` would otherwise force, pair-local and read at the reader, as

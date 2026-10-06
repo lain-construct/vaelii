@@ -64,7 +64,7 @@
 
 (tu/deftest-kb a-size-claim-about-two-kinds-reaches-the-kinds-beneath-them
   ;; (largerThan mammal insect) is stated; nothing is stated about dogs or ants.  The
-  ;; reach is licensed by `transitiveInArg` on both positions along genl, which is a
+  ;; reach is licensed by `transitiveInArgInverse` on both positions along genl, which is a
   ;; claim about largerThan and not about the world — declared, so it can be wrong,
   ;; rather than assumed, where it could not be.
   (testing "the stated claim, and one nobody stated"
@@ -155,7 +155,7 @@
 
 (tu/deftest-kb a-default-conclusion-feeds-a-further-rule
   ;; flying ⇒ can travel via the capability hierarchy: (genl flying travelling) +
-  ;; (transitiveInArgInverse hasCapability 2 genl).  An eagle flies by default, so it
+  ;; (transitiveInArg hasCapability 2 genl).  An eagle flies by default, so it
   ;; can travel; a penguin's flight is defeated, so the downstream query returns nothing.
   ;; No stored forward-rule conclusion — the hierarchy answers at retrieval.
   (testing "the eagle inherits can-travel through the flight default"

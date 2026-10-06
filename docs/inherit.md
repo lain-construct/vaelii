@@ -19,17 +19,23 @@ maine coon is bigger.
 So it is **declared**, per predicate, per argument position:
 
 ```clojure
-(transitiveInArg        P n R)   ; a stored (P … W …) licenses (P … A …) when (R A W)
-(transitiveInArgInverse P n R)   ; …licenses it when (R W A)
+(transitiveInArg        P n R)   ; a stored (P … W …) licenses (P … A …) when (R W A)
+(transitiveInArgInverse P n R)   ; …licenses it when (R A W)
 ```
+
+`transitiveInArg` carries the claim along `R`'s arrow, from `W` to every `A` that
+`(R W A)` reaches; `transitiveInArgInverse` carries it against the arrow. This is the
+direction Cyc's `transitiveViaArg` / `transitiveViaArgInverse` take
+([from-cyc.md](from-cyc.md)); the argument order is `(P n R)` where Cyc's is `(P R n)`.
 
 `R` is any **transitive** relation — `genl` and `genlCx` through their cached
 closures, or a predicate declared `(transitive R)` walked over the stored facts. With
-`R` = `genl`, `transitiveInArg` is downward inheritance and `transitiveInArgInverse` is
-upward. With `R` = `genlCx` the preserved argument **names a context**, and the
-same two directions read the lattice: a claim about a wide context reaches every
-context below it — a decree stated of a whole world holds in each of its scenarios —
-and the inverse form carries a claim about a narrow context up to the ones above it.
+`R` = `genl`, `transitiveInArg` is upward inheritance and `transitiveInArgInverse` is
+downward. With `R` = `genlCx` the preserved argument **names a context**, and the
+same two directions read the lattice: under `transitiveInArgInverse` a claim about a
+wide context reaches every context below it — a decree stated of a whole world holds
+in each of its scenarios — and under `transitiveInArg` a claim about a narrow context
+reaches the ones above it.
 
 Naming the relation is what keeps this from being a `genl` special case. An argument can
 be preserved along `partOf` just as readily:
@@ -37,13 +43,13 @@ be preserved along `partOf` just as readily:
 ```clojure
 (transitive partOf)
 (partOf Engine Car)  (partOf Piston Engine)
-(transitiveInArg needs_maintenance 1 partOf)
+(transitiveInArgInverse needs_maintenance 1 partOf)
 (needs_maintenance Car)
 ;; => (needs_maintenance Piston)   two hops, no types involved
 ```
 
-The inverse form exists so the other direction never requires declaring an inverse
-predicate that has no other purpose. Both are ordinary stored sentexes read through
+The two names exist so neither direction requires declaring an inverse predicate that
+has no other purpose. Both are ordinary stored sentexes read through
 `matches-visible`, exactly as `arg` and `genlArg` are — context-scoped and
 belief-following, with no cache of their own. Several declarations may name **one**
 position; their reaches union, since each independently licenses the claim.
@@ -63,8 +69,8 @@ and `hasCapability` in `resources/kb/upper/CxLife.txt`. The first two are worth 
 because they are declared **differently on purpose**:
 
 ```clojure
-(transitiveInArg largerThan 1 genl)   (transitiveInArg largerThan 2 genl)
-(transitiveInArg partType   1 genl)
+(transitiveInArgInverse largerThan 1 genl)   (transitiveInArgInverse largerThan 2 genl)
+(transitiveInArgInverse partType   1 genl)
 ```
 
 `largerThan` preserves on both positions, so `(largerThan mammal insect)` in
@@ -75,12 +81,12 @@ nothing about which *kinds of wing* they have, so position 2 preserves nothing. 
 position is a separate claim about the relation, and this is what that looks like when
 somebody has actually made both decisions.
 
-The capability pair is where the **inverse** form ships, and one predicate carries both
+The capability pair is where `transitiveInArg` ships, and one predicate carries both
 directions at once:
 
 ```clojure
-(transitiveInArg        capabilityType 1 genl)   (transitiveInArgInverse capabilityType 2 genl)
-(transitiveInArgInverse hasCapability  2 genl)
+(transitiveInArgInverse capabilityType 1 genl)   (transitiveInArg capabilityType 2 genl)
+(transitiveInArg        hasCapability  2 genl)
 ```
 
 Position 1 of `capabilityType` carries a claim about a kind *down* to its subkinds — a
@@ -108,9 +114,9 @@ manufacture transitivity for it — two hops of `begat` licensing a claim only o
 ever evidence for. `assert` refuses the declaration:
 
 ```clojure
-(transitiveInArg cursed 1 begat)
+(transitiveInArgInverse cursed 1 begat)
 ;; => throws :not-well-formed
-;;    "begat is not transitive, and transitiveInArg walks the relation it names to a
+;;    "begat is not transitive, and transitiveInArgInverse walks the relation it names to a
 ;;     fixpoint — declare (transitive begat) before the preservation, or name one of
 ;;     genl / genlCx"
 ```
@@ -205,7 +211,7 @@ asserted, with no second declaration:
 ```clojure
 ;; the declarations and the genl edges under dog and cat {:strength :monotonic}
 (asymmetric largerThan)
-(transitiveInArg largerThan 1 genl)  (transitiveInArg largerThan 2 genl)
+(transitiveInArgInverse largerThan 1 genl)  (transitiveInArgInverse largerThan 2 genl)
 
 (largerThan dog cat)                        {:strength :monotonic}
 (largerThan maine_coon chihuahua)           ; => stored, and not believed
@@ -218,7 +224,7 @@ edge the reading is capped at `:default`, and the pair is the dilemma of the nex
 
 ```clojure
 (asymmetric typicallyLargerThan)
-(transitiveInArg typicallyLargerThan 1 genl)  (transitiveInArg typicallyLargerThan 2 genl)
+(transitiveInArgInverse typicallyLargerThan 1 genl)  (transitiveInArgInverse typicallyLargerThan 2 genl)
 
 (typicallyLargerThan dog cat)               ; the default :default
 (typicallyLargerThan maine_coon chihuahua)  ; => accepted
@@ -257,7 +263,7 @@ of somebody else's tuple. So the nogood's members are the stored claim **and eve
 the reading rests on**:
 
 - the general claim actually stated — `(carriesLoad hauler_kind Bone1)`;
-- the declaration licensing the move — `(transitiveInArg carriesLoad 1 genl)`;
+- the declaration licensing the move — `(transitiveInArgInverse carriesLoad 1 genl)`;
 - the relation edges the reach travelled — `(genl cart_kind hauler_kind)`;
 - and, for a fact-relation, the `(transitive R)` `usable-relation?` reads at use; for a
   mirrored reading, the `(symmetric …)` behind the mirror.
@@ -277,7 +283,7 @@ stated at `(P b a)` itself is a stored converse, which the `asymmetric` family p
 ([nmtms.md](nmtms.md), "Nogoods decided at the reader").
 
 ```clojure
-(asymmetric touchesX)  (genl nudgesX touchesX)  (transitiveInArg nudgesX 1 genl)
+(asymmetric touchesX)  (genl nudgesX touchesX)  (transitiveInArgInverse nudgesX 1 genl)
 (genl chix dogx)
 (nudgesX dogx Fido)    {:strength :monotonic}  ; reaches (nudgesX chix Fido)
 (nudgesX Fido chix)                            ; => stored, and not believed
@@ -416,7 +422,7 @@ a registry where a prover claiming `completeness 100` runs alone, and a computed
 claim nobody stored. So `provers/sole-prover` asks `provers/shadowing-channels` before
 letting any claimant run alone, and a declared preserved position puts `:preserving` in
 that set, which sends the goal down the union path where this prover is consulted.
-Without it, declaring `(transitiveInArg partOfRegion 1 genl)` beside a registered `:rcc8`
+Without it, declaring `(transitiveInArgInverse partOfRegion 1 genl)` beside a registered `:rcc8`
 reasoner leaves the declaration inert and `query-plan` listing a prover that never runs.
 
 That read is on the hot path, and it is gated twice over. `positions` is asked by
@@ -448,7 +454,7 @@ entails ([qcn.md](qcn.md)). An inherited claim has no handle, but it was **read 
 things that do:
 
 - the **claim that was stated** — `(largerThan dog cat)`;
-- the **declaration** licensing the move — `(transitiveInArg largerThan 1 genl)`, one per
+- the **declaration** licensing the move — `(transitiveInArgInverse largerThan 1 genl)`, one per
   position that actually moved;
 - the **relation edges** the reach travelled — `(genl chihuahua dog)`, `(genl maine_coon
   cat)`, one path per position, the one that places the conclusion highest, or one per
@@ -464,7 +470,7 @@ goes, `why` names the actual reasons, and the conclusion is placed only where al
 them can be seen — the contract an ordinarily matched antecedent has.
 
 ```clojure
-(transitiveInArg largerThan 1 genl)  (transitiveInArg largerThan 2 genl)
+(transitiveInArgInverse largerThan 1 genl)  (transitiveInArgInverse largerThan 2 genl)
 (largerThan dog cat)
 (implies (largerThan ?x ?y) (outweighs ?x ?y))
 
@@ -588,7 +594,7 @@ Retracting either route leaves what a KB built without it holds, in either order
 of two siblings' routes cannot rank them, so neither placement is above the other:
 
 ```
-CxUniverse   (transitiveInArg aRel 1 genl)
+CxUniverse   (transitiveInArgInverse aRel 1 genl)
              forward rule (aRel ?x ?y) ⇒ (noted ?x ?y)
  ├─ CxA      (genl low mid) (genl mid high)  (aRel high val)
  ├─ CxB      (genl low high)

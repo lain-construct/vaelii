@@ -104,8 +104,8 @@
     (doseq [e (concat (chain-edges as) (chain-edges bs))]
       (v/assert kb e ctx {:strength :monotonic}))
     (when preserving?
-      (v/assert kb (list 'transitiveInArg rel 1 'genl) ctx {:strength :monotonic})
-      (v/assert kb (list 'transitiveInArg rel 2 'genl) ctx {:strength :monotonic})))
+      (v/assert kb (list 'transitiveInArgInverse rel 1 'genl) ctx {:strength :monotonic})
+      (v/assert kb (list 'transitiveInArgInverse rel 2 'genl) ctx {:strength :monotonic})))
   (v/assert kb (list 'implies (list rel '?x '?y) (list con '?x '?y)) ctx {:direction :forward})
   kb)
 
@@ -171,8 +171,8 @@
                    [(list 'genl (nth as 0) (nth as 2))
                     (list 'genl (nth bs 0) (nth bs 3))]
                    [(list 'asymmetric relOf)
-                    (list 'transitiveInArg relOf 1 'genl)
-                    (list 'transitiveInArg relOf 2 'genl)
+                    (list 'transitiveInArgInverse relOf 1 'genl)
+                    (list 'transitiveInArgInverse relOf 2 'genl)
                     ;; the general claim: it licenses the whole grid
                     (list relOf (nth as 3) (nth bs 3))
                     ;; its converse one level down, which undercuts the pair it names

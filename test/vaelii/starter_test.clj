@@ -98,7 +98,7 @@
      modal_predicate decontextualized_predicate forced_decontextualized_predicate
      instance_relation_predicate type_relation_predicate target_following_predicate
      reifiable_function unreifiable_function quoting_function context_denoting_function
-     result genlResult transitiveInArg transitiveInArgInverse inverse relation_kind})
+     result genlResult transitiveInArgInverse transitiveInArg inverse relation_kind})
 
 (defn- touched-terms
   "`term -> #{context}` over `sentences`, for the terms each one defines or extends."
