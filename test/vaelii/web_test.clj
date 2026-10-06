@@ -750,6 +750,26 @@
       (is (re-find #"Sentexes by index" body))
       (is (re-find #"Argument position 1" body)))))
 
+(tu/deftest-kb the-taxonomy-view-draws-a-genl-edge-a-roster-installs
+  ;; `(separating whole a b)` states `(genl a whole)` and `(genl b whole)` as covering
+  ;; does: the edges are in the closure, supported by the roster sentex, and no `genl`
+  ;; sentence is stored for either.  A direct parent the roster installs is a direct
+  ;; parent, so the picture draws it in both directions as it draws a stated edge
+  (tu/with-terms [roster_whole roster_left roster_right]
+    (v/assert kb (list 'separating roster_whole roster_left roster_right) 'CxUniverse
+              {:chain? false})
+    (is (empty? (v/find-sentexes kb {:pattern (list 'genl roster_left roster_whole)}))
+        "no genl sentence is stored for the part")
+    (testing "a part's picture draws the whole above it"
+      (let [svg (svg-of (:body (GET "/term" (str "q=" roster_left))))]
+        (is (some? svg))
+        (is (contains? (drawn-terms svg) (str roster_whole)))
+        (is (re-find #"class=\"g-edge g-genl\"" svg))))
+    (testing "and the whole's picture draws both parts below it"
+      (let [ts (drawn-terms (svg-of (:body (GET "/term" (str "q=" roster_whole)))))]
+        (is (contains? ts (str roster_left)))
+        (is (contains? ts (str roster_right)))))))
+
 (deftest a-context-page-draws-the-relation-a-context-has
   ;; `genl` says nothing about contexts, so the picture is the only thing on the page that
   ;; shows the lattice at all

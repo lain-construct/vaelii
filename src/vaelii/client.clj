@@ -439,6 +439,18 @@
   ([conn term context] (c/describe conn term context))
   ([conn term context opts] (c/describe conn term context opts)))
 
+(defn direct-genls
+  "The types `t` is a subtype of by **one** `genl` edge in the closure — its direct
+  parents, where `genls` is everything they reach."
+  ([conn t] (c/direct-genls conn t))
+  ([conn t context] (c/direct-genls conn t context)))
+
+(defn direct-specs
+  "The types that are a subtype of `t` by **one** `genl` edge in the closure — its direct
+  children."
+  ([conn t] (c/direct-specs conn t))
+  ([conn t context] (c/direct-specs conn t context)))
+
 (defn disjoint-metatypes
   "The declared disjoint metatypes — each a type whose member types are pairwise disjoint
   by `(disjoint_metatype M)`."

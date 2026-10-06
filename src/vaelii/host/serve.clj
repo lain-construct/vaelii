@@ -331,6 +331,8 @@
     :disjoint?    (op v/disjoint?)
     :genls        (op v/genls)
     :specs        (op v/specs)
+    :direct-genls (op v/direct-genls)
+    :direct-specs (op v/direct-specs)
     :types        (op v/types)
     :contexts     (op v/contexts)
     :sentex       (op v/sentex)

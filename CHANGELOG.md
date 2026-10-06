@@ -297,6 +297,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
 
+- **`direct-genls` and `direct-specs` read one `genl` step of the closure, and the
+  browser's taxonomy view and hierarchy tree draw from them.** `(direct-genls kb t
+  [context])` answers the types `t` is a subtype of by one edge, and `direct-specs` the
+  types one edge below `t`. An edge counts whatever installed it, so a part a `covering`,
+  `separating` or `partition` roster names is a direct subtype of the roster's whole. The
+  taxonomy view drew only stored `(genl sub super)` sentences, so a type whose parent edge
+  came from a roster was drawn with no parent. The daemon serves both reads as the
+  `:direct-genls` and `:direct-specs` ops, and `vaelii.client` gains both.
+  [api.md](docs/api.md), [web.md](docs/web.md).
+
+  *Class:* **Additive**.
+
 ### Fixes: answers
 
 - **`query {:proof? true}` and `argue` return a proof when a rewrite's residual repeats

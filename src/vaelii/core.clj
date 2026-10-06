@@ -780,6 +780,22 @@
   ([kb t] (tax/specs-global (reasoning/taxonomy kb) t))
   ([kb t context] (tax/specs (reasoning/taxonomy kb) t context)))
 
+(defn direct-genls
+  "The types `t` is a subtype of by **one** `genl` edge in the closure — its direct
+  parents, where `genls` is everything they reach.  Not reflexive.  An edge counts
+  whatever installed it: a stated `(genl t super)`, or a `covering`, `separating` or
+  `partition` roster naming `t` as a part of `super`.  O(degree).  A set; `#{}` when
+  `t` is not a node in the type hierarchy.  With a `context`, only edges visible from it
+  count."
+  ([kb t] (direct-genls kb t nil))
+  ([kb t context] (tax/direct-genls (reasoning/taxonomy kb) t context)))
+
+(defn direct-specs
+  "The types that are a subtype of `t` by **one** `genl` edge in the closure — its
+  direct children.  `direct-genls`, the other direction."
+  ([kb t] (direct-specs kb t nil))
+  ([kb t context] (tax/direct-specs (reasoning/taxonomy kb) t context)))
+
 (defn genl?
   "Is `sub` a (reflexive-transitive) subtype of `super`?  Types, not individuals —
   for an individual's type membership use `isa?`.  With a `context`, only edges

@@ -259,6 +259,12 @@ class on its edges says which. That is also what makes a context page worth open
 says nothing about contexts, so the picture is the only thing on the page that shows the
 lattice at all.
 
+**A `genl` row is one step of the closure.** The rows read `direct-genls` and
+`direct-specs`, so an edge a `covering`, `separating` or `partition` roster installs is
+drawn as a stated `(genl sub super)` is, with the same arrow. A roster stores no `genl`
+sentence for its parts, and a picture read off stored `genl` sentences alone would draw a
+part with no parent.
+
 **What is and is not an edge**, stated rather than left to fall out of the code. Binary
 facts only — a ternary `(arg parentOf 1 person)` relates three things and an arrow
 between two of them drops the position it was about. Positive only — `(not (P a b))` says
@@ -1375,13 +1381,16 @@ catalog will load an ontology with hundreds of thousands of `genl` edges — so 
 it may be proportional to the KB.
 
 The **hierarchy trees** open one level at a time. A node with children carries a caret
-that fetches them on its first `change`; a level is read by pinning the parent
-(`(genl ?sub node)`), which the index answers from the predicate-scoped argument root
-(`[:argument-root genl 2 node]`), so the cost is that node's own fan-out rather than the
-number of edges in the KB. Whether a node gets a disclosure at all is
-`count-with-arg 2 node`, a cheap upper bound (one O(1) count per predicate at the slot):
-it spans every binary predicate holding the node in second position, so it can offer a
-disclosure that opens to nothing, and can never hide a real child.
+that fetches them on its first `change`. A `genl` level is the closure's one-step
+adjacency (`direct-specs`), which includes the parts a cover roster installs; a `genlCx`
+level is read by pinning the parent (`(genlCx ?sub node)`), which the index answers from
+the predicate-scoped argument root (`[:argument-root genlCx 2 node]`). Either way the cost
+is that node's own fan-out rather than the number of edges in the KB. Whether a node gets
+a disclosure at all is `count-with-arg 2 node`, a cheap upper bound (one O(1) count per
+predicate at the slot): it spans every binary predicate holding the node in second
+position, so it can offer a disclosure that opens to nothing. A `genl` node the count
+puts at zero asks `direct-specs` too, because a roster names its whole first, and so a
+real child is never hidden.
 
 The caret is a **checkbox and its label**, not a `<details>`/`<summary>`. A `<summary>`
 consumes the click on whatever it contains, so the term inside one toggled the disclosure
