@@ -699,7 +699,11 @@ under **`{:proof? true}`** changes the result shape to `[{:bindings … :proof �
 hands back one justification tree per answer, reading the way `why` does (`:goal` /
 `:via` / `:because`). It needs a depth — without one no rule was expanded and there is
 no derivation to show — and the tree is a record of that search, not a stored
-justification anything else can read. `why` / `why-not` explain a **stored** belief by
+justification anything else can read. `proof-tree` replays the answering node's chain of
+rewrites from the query's conjuncts. Where the collapse folded two copies of a literal into
+one, the kept literal stands for both leaves, and a later rewrite of it grows each of them
+with the same rule node, so the tree's `:leaf` goals are exactly the answering node's
+literals. `why` / `why-not` explain a **stored** belief by
 reading the JTMS, which is a different question about a different object: what forward
 chaining and `assert` left behind, not what a query just computed.
 
@@ -844,8 +848,9 @@ conjunction that already holds it, and conjunction is idempotent, so the two spe
 are one question under two keys. The kept copy takes the **largest** depth of the copies
 folded onto it, because a deeper copy admits every rewrite a shallower copy admits. The
 rewrite window then reopens at the position a copy folded onto, which is what makes that
-depth reachable. Without the collapse a rule graph containing a cycle adds a conjunct
-per turn. `inference_test`'s three-rule cycle (`(alpha ?x) ∧ (beta ?x) ⇒ (paired ?x)`,
+depth reachable. The child's rewrite record keeps the collapse map (`:slots`, the kept
+position each spliced literal landed on), which the proof replay reads. Without the
+collapse a rule graph containing a cycle adds a conjunct per turn. `inference_test`'s three-rule cycle (`(alpha ?x) ∧ (beta ?x) ⇒ (paired ?x)`,
 and `paired` concluding each half) runs dry at depth 6 in under 200 nodes with the
 collapse, and the test pins that bound.
 

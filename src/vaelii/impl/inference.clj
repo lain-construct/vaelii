@@ -386,11 +386,12 @@
   refuse rewrites the conjunction admitted before the collapse and lose the answers
   under them.
 
-  Returns `[kept fold]`.  `fold` is the smallest index in `kept` that a later copy
-  folded onto, and nil when no sentence repeated."
+  Returns `[kept fold slots]`.  `fold` is the smallest index in `kept` that a later copy
+  folded onto, and `slots` the index in `kept` each of `literals` landed on; both are nil
+  when no sentence repeated."
   [literals]
   (if (< (count literals) 2)
-    [literals nil]
+    [literals nil nil]
     (let [acc (reduce (fn [{:keys [out idx fold] :as acc} l]
                         (if-let [j (get idx (:sentence l))]
                           (assoc acc
@@ -401,7 +402,8 @@
                                  :idx (assoc idx (:sentence l) (count out)))))
                       {:out [] :idx {} :fold nil}
                       literals)]
-      [(:out acc) (:fold acc)])))
+      [(:out acc) (:fold acc)
+       (when (:fold acc) (mapv #(get (:idx acc) (:sentence %)) literals))])))
 
 (defn- children
   "The nodes reachable from this one by rewriting one literal through one rule.
@@ -446,7 +448,7 @@
                  spliced (-> (mapv carry (take i literals))
                              (into resid)
                              (into (map carry) (drop (inc i) literals)))
-                 [mixed fold] (collapse-repeats spliced)
+                 [mixed fold slots] (collapse-repeats spliced)
                  ;; The child resumes rewriting at `i`, the first residual literal, except
                  ;; where a copy folded onto a literal left of that position.  The literal
                  ;; a copy folded onto carries a larger depth than the parent gave it, and
@@ -487,8 +489,10 @@
        ;; is a read of the search's state rather than a second structure beside it.
        ;; `:push` is the same pair every other term here travels through — two map
        ;; references, no new allocation, and what lets a proof replay put every level of
-       ;; the tree in one namespace instead of one per node
-       :rewrite      {:rule handle :at i :arity (count resid) :goal sentence
+       ;; the tree in one namespace instead of one per node.  `:slots` is the
+       ;; collapse's map from each spliced position to the literal it landed on, nil
+       ;; when nothing folded; `:arity` stays, since a nil `:slots` does not give it
+       :rewrite      {:rule handle :at i :arity (count resid) :slots slots :goal sentence
                       :push [b vm-inv]}
        :tree-depth   (inc (long tree-depth))
        :context      context})))
@@ -532,6 +536,11 @@
   unification is redone, and the search pays one small map per node whether or not
   anybody asks.
 
+  A literal of the node stands for **every** leaf the collapse folded onto it, so a
+  rewrite of that literal grows each of those leaves with the same rule node, and the
+  leaves of a node's proof are exactly that node's literals.  The rewrite's `:slots`
+  says where each spliced literal landed.
+
   A leaf is a literal the search handed to its leaf solver.  Which *prover* answered it
   is not recorded, because the leaf solver is a parameter and reports only bindings —
   the tree is the rewriting the engine did, and it stops where the engine stopped.
@@ -541,23 +550,25 @@
   [kb {:keys [nodes]} node]
   (let [ns    @nodes
         chain (node-chain ns node)
-        ;; `forest` is the proof so far, one tree per conjunct; `paths` says where in it
-        ;; each of the *current* node's literals lives, so a rewrite knows what to grow
+        ;; `forest` is the proof so far, one tree per conjunct; `paths` holds, per literal
+        ;; of the *current* node, the leaves in it that literal stands for, so a rewrite
+        ;; knows what to grow
         forest (mapv (fn [l] {:goal (:sentence l) :via :leaf})
                      (:literals (first chain)))
-        paths  (mapv vector (range (count forest)))]
+        paths  (mapv (fn [i] [[i]]) (range (count forest)))]
     (loop [forest forest, paths paths, cs (rest chain)]
       (if-let [c (first cs)]
-        (let [{:keys [rule at arity goal push]} (:rewrite c)
+        (let [{:keys [rule at arity slots goal push]} (:rewrite c)
               [b vm-inv] push
               at    (long at)
               arity (long arity)
               here  (nth paths at)
-              ;; the leaf being rewritten becomes a rule node — still in the *parent's*
+              lits  (:literals c)
+              ;; each leaf being rewritten becomes a rule node — still in the *parent's*
               ;; namespace, like everything else in the forest
-              grown (assoc-in forest here
-                              (cond-> {:goal goal :via :rule :rule rule :because []}
-                                rule (assoc :sentence (rule-display kb rule))))
+              node  (cond-> {:goal goal :via :rule :rule rule :because []}
+                      rule (assoc :sentence (rule-display kb rule)))
+              grown (reduce #(assoc-in %1 %2 node) forest here)
               ;; …then the whole forest moves into the child's, so one `?var0` means one
               ;; thing across the finished tree rather than one thing per level
               moved (walk/postwalk (fn [x]
@@ -565,11 +576,20 @@
                                        (update x :goal push-term b vm-inv)
                                        x))
                                    grown)
-              kids  (mapv (fn [j] {:goal (:sentence (nth (:literals c) j)) :via :leaf})
-                          (range at (+ at arity)))
-              kid-paths (mapv #(into here [:because %]) (range arity))]
-          (recur (assoc-in moved (conj here :because) kids)
-                 (into (into (subvec paths 0 at) kid-paths) (subvec paths (inc at)))
+              landed (fn [j] (if slots (nth slots j) j))
+              kids  (mapv (fn [k] {:goal (:sentence (nth lits (landed (+ at k)))) :via :leaf})
+                          (range arity))
+              ;; one entry per spliced position, then merged onto the literal each landed on
+              spliced (-> (subvec paths 0 at)
+                          (into (map (fn [k] (mapv #(into % [:because k]) here)))
+                                (range arity))
+                          (into (subvec paths (inc at))))]
+          (recur (reduce #(assoc-in %1 (conj %2 :because) kids) moved here)
+                 (if slots
+                   (reduce-kv (fn [acc j ps] (update acc (nth slots j) into ps))
+                              (vec (repeat (count lits) []))
+                              spliced)
+                   spliced)
                  (rest cs)))
         forest))))
 

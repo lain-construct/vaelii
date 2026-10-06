@@ -51,6 +51,20 @@
         (is (= (list has_fur Muffet) (:goal (first (:for-derivation r)))))
         (is (= :rule (:via (first (:for-derivation r)))))))))
 
+(tu/deftest-kb argue-derives-through-a-rewrite-whose-residual-repeats-a-conjunct
+  ;; (a K) rewrites to (b K) ∧ (e K), and (e K) to (b K) ∧ (f K): the second (b K) folds
+  ;; onto the first, left of the rewritten literal.
+  (tu/with-terms [qqa qqb qqe qqf FoldK]
+    (v/assert-rule kb [(list qqb '?x) (list qqe '?x)] (list qqa '?x) 'CxUniverse
+                   {:direction :backward})
+    (v/assert-rule kb [(list qqb '?x) (list qqf '?x)] (list qqe '?x) 'CxUniverse
+                   {:direction :backward})
+    (v/assert kb (list qqb FoldK) 'CxUniverse)
+    (v/assert kb (list qqf FoldK) 'CxUniverse)
+    (let [r (v/argue kb (list qqa FoldK) 'CxUniverse {:max-depth 2})]
+      (is (= :true (:verdict r)))
+      (is (= :rule (:via (first (:for-derivation r))))))))
+
 (tu/deftest-kb argue-a-stored-side-carries-the-jtms-why-and-no-derivation
   ;; the two explanations are a fallback, not a pair: where the JTMS answers, the search
   ;; is not run at all — a tree nobody reads costs a whole query

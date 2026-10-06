@@ -209,6 +209,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   shipped `orthogonal` is seen.
   *Breaks:* `(disjoint organism artifact)`
 
+### Fixes: answers
+
+- **`query {:proof? true}` and `argue` return a proof when a rewrite's residual repeats
+  a conjunct the goal already holds.** Where the repeat folded onto a literal left of the
+  rewritten one they threw `IndexOutOfBoundsException`; where it folded onto one right of
+  it the proof showed a derived literal as a `:leaf`. A proof's leaves are now exactly the
+  answering node's literals. [inference.md](docs/inference.md#the-two-side-by-side).
+
+  *Class:* **Fix**.
+
 ### Fixes: clashes and order independence
 
 - **A stated `genl` route that makes a minted edge redundant re-joins the rule firings
