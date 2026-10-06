@@ -581,11 +581,11 @@ it — `git show v0.16.0:CHANGELOG.md`.
   far it moves an answer).
   *Migration:* type ability arguments as event kinds. A KB that placed its own ability
   under `capability`, as `(genl swimming capability)`, writes `(genl swimming event)`
-  in a context that sees CxAbstract; without that edge the kind is refused `:arg-genl`
-  as the second argument of `hasCapability` or `capabilityType`. A KB that relied on an
-  ability kind being `aspatial`, and so disjoint from `spatial`, states that placement
-  itself, since nothing places `event` in either half of `(partition thing spatial
-  aspatial)`.
+  in a context that sees CxAbstract, such as CxUniverse; without that edge the kind is
+  refused `:arg-genl` as the second argument of `hasCapability` or `capabilityType`. A
+  KB that relied on an ability kind being `aspatial`, and so disjoint from `spatial`,
+  states that placement itself: `event` is orthogonal to both halves of
+  `(partition thing spatial aspatial)`, since some events are located and some are not.
   *Breaks:* `capability`
 
 ### Fixes: answers
