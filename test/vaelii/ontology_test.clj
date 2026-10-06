@@ -6,9 +6,9 @@
 
   What is pinned here is the structure of the mini-ontology rather than any one inference:
   which names are types and which are properties, that every type is placed under the
-  root, that a capability is related to a kind rather than spelled as a predicate of its
-  own, and how a claim about a kind reaches the kinds beneath it and stops where a nearer
-  claim contradicts it.  Those are decisions somebody made, and every one of them is
+  root, that an ability is an event kind related to a kind rather than spelled as a
+  predicate of its own, and how a claim about a kind reaches the kinds beneath it and
+  stops where a nearer claim contradicts it.  Those are decisions somebody made, and every one of them is
   invisible to a test that only asks whether the KB answers a question.
 
   The genl-level exception is the centre of it.  A rule states its exception with
@@ -28,19 +28,51 @@
 (def ^:private B 'CxBiology)
 (def ^:private N 'CxNaturalWorld)
 
-;; ---- capabilities are related to a kind, not spelled as predicates -------
+;; ---- an ability is an event kind related to a kind, not spelled as a predicate -------
 
-(tu/deftest-kb a-capability-is-a-noun-related-to-a-kind
+(tu/deftest-kb an-ability-is-an-event-kind-related-to-a-kind
   ;; `flies` as a one-place predicate says the same thing, and says it in a shape that
   ;; cannot be generalized: every further ability needs a further predicate, and nothing
-  ;; relates them.  As a capability it is a term, so the abilities form a hierarchy.
-  (testing "the capability names a kind of its own, under capability"
-    (is (v/genl? kb 'flying 'capability))
-    (is (v/genl? kb 'travelling 'capability))
+  ;; relates them.  An ability is named by the kind of event its holder can be the doer
+  ;; of, so the abilities form a hierarchy inside the event kinds.
+  (testing "each ability names a kind of event"
+    (is (v/genl? kb 'flying 'event))
+    (is (v/genl? kb 'travelling 'event))
     (is (v/genl? kb 'flying 'travelling)))
   (testing "and no one-place flight predicate survives beside it"
     (is (empty? (v/sentexes-matching kb '(arity flies ?n) '?ctx)))
-    (is (empty? (v/sentexes-matching kb '(arity can_travel ?n) '?ctx)))))
+    (is (empty? (v/sentexes-matching kb '(arity can_travel ?n) '?ctx))))
+  (testing "and the starter KB has no capability type beside the event kinds"
+    (is (not (contains? (set (v/terms kb)) 'capability)))
+    (is (empty? (v/find-sentexes kb 'capability)))))
+
+(tu/deftest-kb both-ability-predicates-type-their-second-argument-as-an-event-kind
+  (testing "the declarations"
+    (is (v/ask? kb '(genlArg hasCapability 2 event)))
+    (is (v/ask? kb '(genlArg capabilityType 2 event))))
+  (testing "an event kind nobody listed as an ability is accepted as one"
+    (tu/with-terms [swimming Wanda]
+      (v/assert kb (list 'genl swimming 'event) 'CxUniverse)
+      (v/assert kb (list 'animal Wanda) N)
+      (is (v/assert kb (list 'hasCapability Wanda swimming) N))
+      (is (v/assert kb (list 'capabilityType 'fish swimming) N))))
+  (testing "a kind that is not an event kind is refused by genlArg, against event"
+    (tu/with-terms [Wanda]
+      (v/assert kb (list 'animal Wanda) N)
+      (doseq [s [(list 'hasCapability Wanda 'metal) (list 'capabilityType 'fish 'metal)]]
+        (let [ex (try (v/assert kb s N) nil
+                      (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+          (is (= :arg-genl (:type ex)) (str (pr-str s) " is refused by genlArg"))
+          (is (= 'event (:expected ex)) (str (pr-str s) " is refused against event")))))))
+
+(tu/deftest-kb a-bird-that-flies-travels
+  ;; flying genl travelling, and (transitiveInArg hasCapability 2 genl) carries a
+  ;; claim about flying up to travelling at retrieval.
+  (tu/with-terms [Robin]
+    (v/assert kb (list 'bird Robin) N)
+    (v/assert kb (list 'hasCapability Robin 'flying) N)
+    (is (v/ask? kb (list 'hasCapability Robin 'flying) N))
+    (is (v/ask? kb (list 'hasCapability Robin 'travelling) N))))
 
 (tu/deftest-kb what-a-kind-can-do-reaches-the-kinds-beneath-it
   ;; One sentence is stored.  Everything else here is the taxonomy being read.
@@ -53,7 +85,7 @@
     (is (v/ask? kb '(capabilityType sparrow flying) B)))
   (testing "inherited rather than stored — one sentex carries all of it"
     (is (empty? (v/sentexes-matching kb '(capabilityType eagle flying) '?ctx))))
-  (testing "and it climbs the capability hierarchy: what flies travels"
+  (testing "and it climbs the genl hierarchy of event kinds: what can fly can travel"
     (is (v/ask? kb '(capabilityType bird travelling) B))
     (is (v/ask? kb '(capabilityType eagle travelling) B)))
   (testing "answered by transitiveInArg, so the kind level stores no rule's output"
@@ -100,12 +132,12 @@
   ;; named in prose because the predicate that names pairs cannot take a mixed half.
   (testing "the kind-level half relates kinds, and says so"
     (is (v/ask? kb '(type_relation_predicate capabilityType))))
-  (testing "the instance-level half is MIXED — one animal to one capability kind — so it
+  (testing "the instance-level half is MIXED — one animal to one event kind — so it
             carries no relation_kind, and its two positions take different checks"
     (is (not (v/ask? kb '(instance_relation_predicate hasCapability))))
     (is (not (v/ask? kb '(type_relation_predicate hasCapability))))
     (is (v/ask? kb '(arg hasCapability 1 animal)))
-    (is (v/ask? kb '(genlArg hasCapability 2 capability))))
+    (is (v/ask? kb '(genlArg hasCapability 2 event))))
   (testing "so the pairing cannot be declared — typeToInstancePred constrains its second
             argument to a marked instance half, and this one is mixed"
     (is (thrown? clojure.lang.ExceptionInfo
@@ -291,7 +323,7 @@
       (is (not (v/genl? kb (biology-properties p) p))
           (str (biology-properties p) " is not a kind of " p))))
   (testing "while the kinds they are said of are types, and reach the root"
-    (doseq [t '[animal bird penguin dog person tangible capability flying]]
+    (doseq [t '[animal bird penguin dog person tangible event flying]]
       (is (v/genl? kb t 'thing) (str t " must reach thing")))))
 
 (tu/deftest-kb every-shipped-type-is-placed-under-the-root
@@ -412,8 +444,7 @@
   purpose — each with the reason.  A term absent from this roster that only one member uses
   fails the test below; a term here that gains a second member user fails it too, so the
   roster stays a list of reasons rather than a list of debts."
-  '{capability "the upper-ontology skeleton collection CxLife extends (vaelii.impl.predicates); the head holds it so a member can place a capability under the root"
-    denotational_term "the logic sense of `term`, vocabulary the head documents; only CxAbstract links it into the expression lattice today"
+  '{denotational_term "the logic sense of `term`, vocabulary the head documents; only CxAbstract links it into the expression lattice today"
     formula "the formula-ladder type the head documents beside the grammar sense; only CxAbstract places it under expression today"
     relation_application "an expression kind the head documents; only CxAbstract places it under expression today"
     typeToInstancePred "a relation-linking predicate the head declares as vocabulary; only CxAbstract uses it (partType / partOf) today"})
@@ -868,7 +899,6 @@
   their route through `expression` is CxAbstract's, which no band context sees."
   '{relation_type [CxAbstract]
     fluent        [CxAbstract]
-    capability    [CxCore CxLife]
     organization  [CxAbstract]
     context       [CxCore CxSpace CxSociety]
     language      [CxCore CxSpace CxSociety]})
@@ -943,7 +973,6 @@
     [genl nowhere_never intangible CxCore "nowhere_never genl aspatial genl intangible"]
     [genl nowhere_never aspatial CxCore "intersection nowhere_never aspatial atemporal"]
     [genl nowhere_never atemporal CxCore "intersection nowhere_never aspatial atemporal"]
-    [genl capability intangible CxCore "capability genl aspatial genl intangible"]
     [genl number thing CxCore "number genl unrepresented_term genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
     [genl keyword thing CxCore "keyword genl unrepresented_term genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
     [genl boolean thing CxCore "boolean genl unrepresented_term genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
