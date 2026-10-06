@@ -988,7 +988,11 @@ The declaration stands alone; the shared instance settles only a pair the taxono
 the separations leave open.
 
 `disjointness-audit kb` runs the classification over every unordered pair of distinct
-types and returns `{:types :pairs :by-status :pairs-data}`. The `:unknown` pairs are the
+types and returns `{:types :pairs :by-status :pairs-data}`. A relation that a `genl`
+edge between relations names, such as `performedBy` under `doneBy`, is a node of the
+hierarchy and not a type, so the audit leaves it out. A node is such a relation by an
+arity of two or more, read from `(arity P n)` or an exact-arity class, or by a
+`variable_arity` declaration. The `:unknown` pairs are the
 candidates for a missing `disjoint` or `orthogonal` declaration: no subsumption relates
 them, no declaration separates them, and neither a declaration nor a shared instance
 shows they can overlap — so the modeller decides which they are. The audit reads only, and writes nothing.
@@ -1168,7 +1172,7 @@ does not see CxAbstract's `expression` lattice reads both as disjoint from `spat
 
 Beyond types, the taxonomy caches predicate properties, declared as sentexes and
 maintained by `integrate-sentex`. The relation marks `irreflexive`, `anti_symmetric`,
-`asymmetric`, `functional`, `functionalInArg`, `anti_transitive` and `transitiveInArg`,
+`asymmetric`, `functional`, `functionalInArg`, `anti_transitive`, `transitiveInArg` and `transitiveInArgInverse`,
 the function classes `injection`, `surjection` and `bijection`, and the declarations
 `disjoint`, `covering`, `partition` and `sibling_disjoint`, and the arity bindings
 ([Arity](#arity)), are on the forced-monotonic roster: each is held `:monotonic` whatever

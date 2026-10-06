@@ -356,7 +356,7 @@
   [kb rel pred base owners]
   (v/with-deferred-settle kb
     (v/assert kb (list 'transitive rel) 'CxUniverse)
-    (v/assert kb (list 'transitiveInArg pred 1 rel) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArgInverse pred 1 rel) 'CxUniverse)
     (doseq [o owners]
       (v/assert kb (list rel base o) 'CxUniverse)
       (v/assert kb (list pred o) 'CxUniverse))))

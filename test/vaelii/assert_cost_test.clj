@@ -422,7 +422,7 @@
       (let [pr (symbol (str "acPres" j))
             w  (symbol (str "acpw_t" j))]
         (v/assert kb (list 'genl w 'thing) 'CxPerf {:strength :monotonic})
-        (v/assert kb (list 'transitiveInArg pr 1 'genl) 'CxPerf {:strength :monotonic})
+        (v/assert kb (list 'transitiveInArgInverse pr 1 'genl) 'CxPerf {:strength :monotonic})
         (v/assert kb (list pr w 'thing) 'CxPerf {})
         (v/assert kb (list 'set/forwardRule (list 'implies (list pr '?x '?y) (list 'acPresNoted '?x '?y)))
                   'CxPerf {})))

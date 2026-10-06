@@ -59,12 +59,12 @@
    {:id "arg-preserving" :group "Taxonomy"
     :title "A claim about kinds, reaching kinds it never mentions"
     :shows "(largerThan mammal insect) is a claim about two kinds. Because largerThan is
-            declared transitiveInArg along genl on both positions, it answers about every
+            declared transitiveInArgInverse along genl on both positions, it answers about every
             pair of subkinds beneath it — here dogs and ants, about whose sizes the KB
             holds nothing whatever."
     :rests-on [['(largerThan mammal insect) 'CxSize]
-               ['(transitiveInArg largerThan 1 genl) 'CxAbstract]
-               ['(transitiveInArg largerThan 2 genl) 'CxAbstract]]
+               ['(transitiveInArgInverse largerThan 1 genl) 'CxAbstract]
+               ['(transitiveInArgInverse largerThan 2 genl) 'CxAbstract]]
     :goal '(largerThan dog ant) :context 'CxWell :expect :yes}
 
    {:id "arg-preserving-stops" :group "Taxonomy"
@@ -110,13 +110,13 @@
 
    {:id "part-type" :group "Predicates about predicates"
     :title "Preserved on one position and not the other"
-    :shows "Nobody wrote that penguins have wings. partType is declared transitiveInArg
+    :shows "Nobody wrote that penguins have wings. partType is declared transitiveInArgInverse
             along genl on its first position only, and that asymmetry is the claim: a
             kind of bird has whatever parts birds have, while birds having wings says
             nothing about which kinds of wing. Compare largerThan, which is declared on
             both — each position is a separate decision about the relation."
     :rests-on [['(partType bird wing) 'CxAnatomy]
-               ['(transitiveInArg partType 1 genl) 'CxAbstract]
+               ['(transitiveInArgInverse partType 1 genl) 'CxAbstract]
                ['(genl penguin bird) 'CxOrganism]]
     :goal '(partType penguin wing) :context 'CxWell :expect :yes}
 

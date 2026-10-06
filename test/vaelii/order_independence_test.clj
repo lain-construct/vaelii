@@ -1854,7 +1854,7 @@
    "preserved claim, genl edge"
    '[[CxRjA CxRjP] [CxRjA CxRjR]]
    '[[(genl rj_chi_t rj_dog_t) CxRjP]
-     [(transitiveInArg rjLarger 1 genl) CxRjR]
+     [(transitiveInArgInverse rjLarger 1 genl) CxRjR]
      [(rjLarger rj_dog_t rj_cat_t) CxRjR]
      [(implies (rjLarger rj_chi_t ?y) (rj_outw_p ?y)) CxRjR]]
    '(rj_outw_p rj_cat_t)
@@ -1864,7 +1864,7 @@
   (a-late-edge-reaches-what-the-view-licenses!
    "preserved claim, declaration"
    '[[CxRjA CxRjM] [CxRjA CxRjR]]
-   '[[(transitiveInArg rjLarger 1 genl) CxRjM]
+   '[[(transitiveInArgInverse rjLarger 1 genl) CxRjM]
      [(genl rj_chi_t rj_dog_t) CxRjR]
      [(rjLarger rj_dog_t rj_cat_t) CxRjR]
      [(implies (rjLarger rj_chi_t ?y) (rj_outw_p ?y)) CxRjR]]

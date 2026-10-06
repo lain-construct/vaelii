@@ -42,7 +42,7 @@
 ;; ---- what a kind can do, and the kind that cannot -----------------------
 ;; Flight is a claim about the KIND, so it is said with capabilityType — the type-level
 ;; reading — stated of bird once and reaching every kind of bird through
-;; (transitiveInArg capabilityType 1 genl): crow, eagle and every species added later, with
+;; (transitiveInArgInverse capabilityType 1 genl): crow, eagle and every species added later, with
 ;; nothing written about any of them.  hasCapability is the instance-level reading and
 ;; says nothing here; neither implies the other, and the descent below is what crosses
 ;; between them.
@@ -75,7 +75,7 @@
   (set/defaultRule (set/forwardRule (implies (and (bird ?x)) (hasCapability ?x flying)))))
 
 ;; Travelling follows from flying through the capability hierarchy, and no rule concludes
-;; it.  (transitiveInArgInverse hasCapability 2 genl) with (genl flying travelling)
+;; it.  (transitiveInArg hasCapability 2 genl) with (genl flying travelling)
 ;; answers (hasCapability ?x travelling) at retrieval for anything believed to fly, and
 ;; stores no record.  When a penguin's flight is defeated, the retrieval has no believed
 ;; flight to reach from, so travelling is unanswerable until the flight is believed again.

@@ -15,6 +15,25 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **`transitiveInArg` and `transitiveInArgInverse` swap names, so `transitiveInArg` takes
+  the direction of Cyc's `transitiveViaArg`.** `(transitiveInArg P n R)` now carries a
+  stored `(P … W …)` along `R`'s arrow: `(R W A)` gives `(P … A …)`, which with `genl`
+  is upward, to a supertype. `(transitiveInArgInverse P n R)` carries it against the
+  arrow: `(R A W)` gives `(P … A …)`, which with `genl` is downward, to a subtype. Before
+  this change each name carried the other direction. The argument order stays `(P n R)`
+  (Cyc writes `(P R n)`). The engine implements the same two walks it did; only the
+  functor naming each walk changed, and every declaration the shipped KB and the test
+  suite state was rewritten to the other name, so each one still licenses what it did:
+  `(transitiveInArg largerThan 1 genl)` is now `(transitiveInArgInverse largerThan 1
+  genl)`. [inherit.md](docs/inherit.md), [from-cyc.md](docs/from-cyc.md).
+
+  *Class:* **Breaking** (a stored declaration under either name now licenses the
+  opposite direction).
+  *Migration:* swap every `transitiveInArg` and `transitiveInArgInverse` in your KB: the
+  names now carry the directions Cyc's `transitiveViaArg` / `transitiveViaArgInverse`
+  do.
+  *Breaks:* `transitiveInArg`, `transitiveInArgInverse`
+
 - **`siblingDisjointException` is retired; `orthogonal` is the exemption.** A stated
   `(orthogonal a b)` exempts the pair from a separation a `sibling_disjoint` parent or a
   `disjoint_metatype` would otherwise force, pair-local and read at the reader, as
@@ -49,6 +68,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `:unknown` at the vantage).
   *Migration:* pass the context that states the separation as `context`.
   *Breaks:* `subsumption-statuses`, `subsumption-status`, `disjointness-audit`
+
+- **CxCore states the upper ontology's axes orthogonal.** The three partitions of
+  `thing` cut it by location in some space, by location in time and by mass, and a part
+  of one overlaps a part of another without either subsuming it. CxCore now says so:
+  `(orthogonal spatial temporal)`, `(orthogonal aspatial atemporal)`,
+  `(orthogonal spatial atemporal)`, `(orthogonal aspatial temporal)`,
+  `(orthogonal intangible spatial)`, `(orthogonal intangible temporal)` and
+  `(orthogonal intangible spatiotemporal)`, each `set/monotonic` beside the partitions
+  and each with a witness (a rock, the line y=x, a fluent, a region of space). Each pair
+  now reads `:orthogonal` from `subsumption-status` without a shared instance, and
+  leaves `disjointness-audit`'s `:unknown` candidates. No stated separation divides any
+  of them, so the load adds no conflict and no contradiction.
+  [taxonomy.md](docs/taxonomy.md#disjointness). *Class:* **Additive**.
 
 - **`transitiveInArgInverse` is forced monotonic, as `transitiveInArg` is.** CxCore
   declares `(forced_monotonic_predicate transitiveInArgInverse)` and the engine's roster
@@ -247,6 +279,24 @@ it — `git show v0.16.0:CHANGELOG.md`.
   shipped `orthogonal` is seen.
   *Breaks:* `(disjoint organism artifact)`
 
+- **Fifteen shipped unary predicates gain a `genl` path to `thing`.** The `kb-integrity`
+  `:not-under-thing` sweep reported each from CxWell. In CxCore,
+  `abducible_predicate`, `closed_extent_predicate`, `decontextualized_predicate`,
+  `forced_decontextualized_predicate` and `target_following_predicate` are placed under
+  `predicate`, as `modal_predicate` already was; `sibling_disjoint` under
+  `unary_predicate`, since what it marks is a type. In CxTime, `functional_at_instant` is placed under `function`. CxUniverse states
+  `(genl initially fluent)`: `initially` is CxTime's and `fluent` is CxAbstract's, and
+  CxUniverse is the context that sees both. CxUniverse also places the seven
+  biology properties under the kind each is said of: `alive`, `dead` and `mortal` under
+  `organism`; `asleep`, `awake`, `breathes_air` and `warm_blooded` under `animal`.
+  `ontology_test` runs the sweep over those fifteen and finds none. The sweep also
+  reports `not`, which is left unplaced: a `genl` edge from a connective to `formula`
+  would make it a subtype of the formulas it builds, so its typing is punted to the
+  use/mention batch.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
 ### Fixes: answers
 
 - **`query {:proof? true}` and `argue` return a proof when a rewrite's residual repeats
@@ -258,6 +308,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Fix**.
 
 ### Fixes: clashes and order independence
+
+- **A symmetric fact's argument-type mints rest on the same declaration however it was
+  spelled.** A fact asserted or derived after its `arg` / `genlArg` / `interArg`
+  declarations drew its mints over the arguments as written, while a declaration
+  arriving after the fact, and a text export reloading it, drew them over the spelling
+  the store keeps. For a `(symmetric P)` fact written against that sorted order, such as
+  `(orthogonal spatial atemporal)` under `(genlArg orthogonal 1 thing)` and
+  `(genlArg orthogonal 2 thing)`, the minted `(genl spatial thing)` rested on the
+  position-1 declaration in one order and the position-2 one in the other, so authored
+  and content order stored different justifications. The entailment now reads the
+  stored spelling on every path, so every order stores the same justifications.
+  [argtypes.md](docs/argtypes.md).
+
+  *Class:* **Fix**.
 
 - **A stated `genl` route that makes a minted edge redundant re-joins the rule firings
   the mint carried.** The settle withdraws a `genl` mint a stated route has made
@@ -289,6 +353,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   itself is exempted, so that pair reads `:orthogonal`.
   [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
   *Class:* **Additive**.
+
+- **`disjointness-audit` sweeps types, not the relations a predicate `genl` edge names.**
+  `genl` also specializes one relation by another, as in `(genl performedBy doneBy)`,
+  and the audit swept every node of the `genl` closure, so each such relation entered
+  the sweep as a type and every pair it was in read `:unknown`. A node whose arity is two
+  or more, read from `(arity P n)` or an exact-arity class as the arity check reads it,
+  or that is declared `variable_arity`, is now left out, and `:types` counts the nodes
+  swept.
+  [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
+  *Class:* **Fix**.
 
 - **An `orthogonal` over a `genl`-related or still-separated pair is a clash of the
   declaration.** Wherever a reader reads a `genl` edge between the two, the two are one

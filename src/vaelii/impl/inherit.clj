@@ -11,8 +11,8 @@
   emphatically do not (a chihuahua is a dog, a maine coon is a cat, and the maine coon
   is bigger).  So it is **declared**, per predicate, per argument position:
 
-      (transitiveInArg        P n R)   ; a stored (P … w …) licenses (P … a …) when (R a w)
-      (transitiveInArgInverse P n R)   ; …licenses it when (R w a)
+      (transitiveInArg        P n R)   ; a stored (P … w …) licenses (P … a …) when (R w a)
+      (transitiveInArgInverse P n R)   ; …licenses it when (R a w)
 
   `R` is any **transitive** relation — `genl` and `genlCx` through their cached
   closures, or a predicate declared `(transitive R)` walked over stored facts.  A
@@ -22,9 +22,10 @@
   `(arg transitiveInArg 3 transitive)` cannot say so — arg is
   open-world, and an untyped relation cannot violate it.  Naming the relation is what
   keeps this from being a `genl` special case: an argument can equally be preserved
-  along `partOf`, `connectedTo`, or anything else transitive.  The inverse form exists
-  so the *other* direction never requires declaring an inverse predicate that has no
-  other purpose.
+  along `partOf`, `connectedTo`, or anything else transitive.  `transitiveInArg` carries
+  the claim along `R`'s arrow and `transitiveInArgInverse` against it, the directions of
+  Cyc's `transitiveViaArg` / `transitiveViaArgInverse`; the two names exist so neither
+  direction requires declaring an inverse predicate that has no other purpose.
 
   Several declarations may name one argument position; their reaches **union**, since
   each independently licenses the claim.
@@ -96,8 +97,11 @@
             [vaelii.impl.types.reasoning :as reasoning]))
 
 (def declarations
-  "The two declaration functors, mapped to whether they read `R` backwards."
-  '{transitiveInArg false, transitiveInArgInverse true})
+  "The two declaration functors, mapped to the `inverse?` flag of the walk that serves
+  them.  `inverse?` names the walk, not the functor: false licenses `a` from `w` when
+  `(R a w)` (against `R`'s arrow, `transitiveInArgInverse`), true when `(R w a)` (along
+  it, `transitiveInArg`)."
+  '{transitiveInArgInverse false, transitiveInArg true})
 
 ;; ---- one question, one set of closure reads ------------------------------
 
@@ -352,8 +356,8 @@
 
 (defn witness-terms
   "The terms a claim's argument may be **stated of** for it to reach `x` at this
-  position: `{w : (rel x w)}` for `transitiveInArg`, `{w : (rel w x)}` for the inverse
-  form.  Reflexive, so `x` itself is always among them and a directly-stated claim is
+  position: `{w : (rel x w)}` for `transitiveInArgInverse`, `{w : (rel w x)}` for
+  `transitiveInArg`.  Reflexive, so `x` itself is always among them and a directly-stated claim is
   found by the same walk as an inherited one.
 
   One declaration's reach.  Callers want a *position's*, which is the union over the
@@ -1872,8 +1876,8 @@
   A walk through `a → b` runs from a term below `a` to a term above `b`, so a claim whose
   preserved argument lies in neither `specs-global` of `a` nor `genls-global` of `b` has no
   reach across the edge, before or after it changed.  Both declaration forms are covered:
-  `transitiveInArg` walks up from the conclusion's term to the claim's, the inverse walks
-  up from the claim's, and either walk crosses the edge from the first set into the
+  `transitiveInArgInverse` walks up from the conclusion's term to the claim's,
+  `transitiveInArg` walks up from the claim's, and either walk crosses the edge from the first set into the
   second.  The segments on either side are the edges still standing, so the closures
   read now contain every end a walk through the edge had or will have; a second edge on
   the same walk moving in the same block is asked about when it arrives.  The claim may be

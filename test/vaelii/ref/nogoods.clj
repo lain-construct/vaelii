@@ -53,7 +53,7 @@
 
   Left out, and for the world extraction to refuse rather than for this namespace to
   read: `disjoint_metatype`, `sibling_disjoint`, `separating`, `partition`,
-  `orthogonal`, `transitiveInArgInverse`, a `transitiveInArg` over any
+  `orthogonal`, `transitiveInArg`, a `transitiveInArgInverse` over any
   relation but `genl`, and an `asymmetric`, `anti_symmetric` or `anti_transitive` step
   reached only by argument preservation.")
 
@@ -383,7 +383,7 @@
                        (or (and (= a w) (some #{b} parts)) (and (= b w) (some #{a} parts))))]
         {:kind :covering :members #{cv d} :ground #{}})))))
 
-;; ---- inherited (transitiveInArg) --------------------------------------------
+;; ---- inherited (transitiveInArgInverse) --------------------------------------------
 
 (defn inherited
   "The `:inherited` nogoods at the view's context. docs/inherit.md, \"A contrary claim
@@ -391,7 +391,7 @@
   typical, from the strength that was already there\"; docs/nmtms.md, \"What qualifies as
   a nogood\" (the `preserving-nogoods` row).
 
-  The one-position downward form. A believed `(transitiveInArg P k genl)` and a believed
+  The one-position downward form. A believed `(transitiveInArgInverse P k genl)` and a believed
   general claim `(P ... sup ...)`, `sup` at position `k`, reach `(P ... sub ...)` for
   every `sub` below `sup` through believed `genl` edges, the other positions unchanged. A
   believed denial `(not (P ... sub ...))` clashes with the reached claim. Members: the
@@ -405,7 +405,7 @@
   denied tuple itself pairs with the denial as a negation nogood, which belongs to no
   family here.
 
-  Left out: `transitiveInArgInverse`; a relation other than `genl` (a `(transitive R)`
+  Left out: `transitiveInArg`; a relation other than `genl` (a `(transitive R)`
   relation, `genlCx`); a claim reached by moving two positions at once, as two
   declarations on one predicate license; a general claim spelled at a sub-predicate of
   `P`; the symmetric mirror, and an `asymmetric` converse as the denying side.
@@ -414,7 +414,7 @@
   the first in content order among equal ones (docs/inherit.md, \"A claim read over
   several routes opposes at its strongest reading\"); this family forms one nogood per
   reading. Smallest view where the two differ, every sentence `:monotonic` except the
-  three edges: `(transitiveInArg P 1 genl)`, `(P sup X)`, `(not (P sub X))`, and `(genl
+  three edges: `(transitiveInArgInverse P 1 genl)`, `(P sup X)`, `(not (P sub X))`, and `(genl
   sub mid)`, `(genl mid sup)`, `(genl sub sup)` each `:default`. The two-edge reading is
   a dilemma and the one-edge reading defeats `(genl sub sup)`. The engine defeats the edge
   only when the one-edge reading comes first in content order."
@@ -422,7 +422,7 @@
   (let [edges    (genl-edges view)
         believed (:believed view)]
     (collect
-     (for [[_ p k r :as d] (declarations view 'transitiveInArg 3)
+     (for [[_ p k r :as d] (declarations view 'transitiveInArgInverse 3)
            :when (and (= 'genl r) (integer? k) (pos? k))
            den    believed
            :let   [lit (denial-of den)]

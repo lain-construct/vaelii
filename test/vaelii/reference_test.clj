@@ -356,7 +356,7 @@
       (is (empty? fails) (failure-text "declaration below the pair" fails (count orders))))))
 
 (deftest a-vantage-below-a-dilemma-decides-its-stronger-inherited-reading-in-every-order
-  ;;   CxUniverse  (transitiveInArg heavierThan 1 genl) (genl hauler animal)
+  ;;   CxUniverse  (transitiveInArgInverse heavierThan 1 genl) (genl hauler animal)
   ;;               (genl vehicle animal) monotonic
   ;;               (genl cart hauler) default   (not (heavierThan cart Bone1)) default
   ;;               K1 (heavierThan hauler Bone1) monotonic, in one world of the two
@@ -369,7 +369,7 @@
     (doseq [k1? [false true]]
       (let [den      (list 'not (list heavierThan cart Bone1))
             claim    (list heavierThan cart Bone1)
-            wiring   [(w (list 'transitiveInArg heavierThan 1 'genl) U :monotonic)
+            wiring   [(w (list 'transitiveInArgInverse heavierThan 1 'genl) U :monotonic)
                       (w (list 'genl hauler animal) U :monotonic)
                       (w (list 'genl vehicle animal) U :monotonic)
                       (w (list 'genl cart hauler) U)
@@ -637,7 +637,7 @@
 ;; claim"):
 ;;
 ;;   CxUniverse  (asymmetric touchesX) or (asymmetric nudgesX)   (genl nudgesX touchesX)
-;;               (transitiveInArg nudgesX 1 genl)   (genl chix dogx)
+;;               (transitiveInArgInverse nudgesX 1 genl)   (genl chix dogx)
 ;;               (nudgesX dogx Fido) monotonic, which reaches (nudgesX chix Fido)
 ;;               (nudgesX Fido chix) default
 ;;
@@ -649,7 +649,7 @@
   `marked`: every order of the six writes when `all?`, else the declaration first and every
   order of the other five."
   [{:keys [touches nudges chi dog Fido]} marked all?]
-  (let [decl     (w (list 'transitiveInArg nudges 1 'genl) U :monotonic)
+  (let [decl     (w (list 'transitiveInArgInverse nudges 1 'genl) U :monotonic)
         content  [(w (list 'asymmetric marked) U :monotonic)
                   (w (list 'genl nudges touches) U :monotonic)
                   (w (list 'genl chi dog) U :monotonic)

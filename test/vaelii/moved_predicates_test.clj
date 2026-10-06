@@ -38,7 +38,7 @@
   (doseq [t [low mid high]] (v/assert kb (list 'genl t 'thing) 'CxUniverse))
   (v/assert kb (list 'genl low mid) 'CxUniverse)
   (v/assert kb (list 'genl mid high) 'CxUniverse)
-  (v/assert kb (list 'transitiveInArg rel 1 'genl) 'CxUniverse)
+  (v/assert kb (list 'transitiveInArgInverse rel 1 'genl) 'CxUniverse)
   (v/assert kb (list rel high 'thing) 'CxUniverse))
 
 (tu/deftest-kb a-genl-edge-moves-the-predicates-whose-claims-cross-it
@@ -60,7 +60,7 @@
       (is (= #{} (moved (list 'genl far_u far_v)))))
     (testing "a claim below the edge's lower term"
       (v/assert kb (list 'genl below_b low_b) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg cRel 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse cRel 1 'genl) 'CxUniverse)
       (v/assert kb (list cRel below_b 'thing) 'CxUniverse)
       (is (= #{bRel cRel} (moved (list 'genl low_b mid_b))))
       (is (= #{aRel} (moved (list 'genl low_a mid_a)))))
@@ -72,7 +72,7 @@
       (v/assert kb (list 'not (list bRel high_a 'thing)) 'CxUniverse)
       (is (= #{aRel bRel} (moved (list 'genl low_a mid_a)))))
     (testing "a symmetric predicate's claim is read at both arguments"
-      (v/assert kb (list 'transitiveInArg symRel 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse symRel 1 'genl) 'CxUniverse)
       (v/assert kb (list symRel far_u high_a) 'CxUniverse)
       (is (= #{aRel bRel} (moved (list 'genl low_a mid_a))))
       (v/assert kb (list 'symmetric symRel) 'CxUniverse)
@@ -93,7 +93,7 @@
   (let [{:syms [low_t mid_t high_t top_t val_t rel subRel noted]}
         (terms '[low_t mid_t high_t top_t val_t rel subRel noted])
         claim-on (if (= variant :sub) subRel rel)]
-    {:base  (cond-> [[(list 'transitiveInArg rel 1 'genl) 'CxUniverse]
+    {:base  (cond-> [[(list 'transitiveInArgInverse rel 1 'genl) 'CxUniverse]
                      [(list 'set/forwardRule (list 'implies (list rel '?x '?y) (list noted '?x '?y)))
                       'CxUniverse]]
               (= variant :sub) (conj [(list 'genl subRel rel) 'CxUniverse]))
@@ -120,7 +120,7 @@
 (deftest a-sub-predicate-claim-three-edges-away-fires-whichever-edge-arrives-last
   (holds-in-every-order :sub))
 
-;; ---- the permuting marks, the inverse form and the closure cap -------------
+;; ---- the permuting marks, transitiveInArg and the closure cap --------------
 
 (defn- chain-of!
   "`low → mid → high`, each also under `thing`."
@@ -135,7 +135,7 @@
         moved #(inherit/moved-predicates kb %)]
     (chain-of! kb low_c mid_c high_c)
     (doseq [t [k_t far_u far_v]] (v/assert kb (list 'genl t 'thing) 'CxUniverse))
-    (v/assert kb (list 'transitiveInArg comRel 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArgInverse comRel 1 'genl) 'CxUniverse)
     (v/assert kb (list comRel k_t high_c) 'CxUniverse)
     (testing "unmarked, the claim holds the edge's upper term at an unpreserved position"
       (is (= #{} (moved (list 'genl low_c mid_c)))))
@@ -153,7 +153,7 @@
         moved #(inherit/moved-predicates kb %)]
     (chain-of! kb low_d mid_d high_d)
     (doseq [t [k_t j_t far_u far_v]] (v/assert kb (list 'genl t 'thing) 'CxUniverse))
-    (v/assert kb (list 'transitiveInArg argRel 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArgInverse argRel 1 'genl) 'CxUniverse)
     (v/assert kb (list 'commutativeInArgs argRel 1 2) 'CxUniverse)
     (testing "position 3 is outside the component, so a claim holding the term there
               does not cross"
@@ -164,20 +164,20 @@
       (is (= #{argRel} (moved (list 'genl low_d mid_d))))
       (is (= #{} (moved (list 'genl far_u far_v)))))
     (testing "a mark on a sub-predicate widens the reading of that sub-predicate's claims"
-      (v/assert kb (list 'transitiveInArg supRel 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse supRel 1 'genl) 'CxUniverse)
       (v/assert kb (list 'genl subRel supRel) 'CxUniverse)
       (v/assert kb (list subRel k_t far_v j_t) 'CxUniverse)
       (is (= #{} (moved (list 'genl far_u far_v))))
       (v/assert kb (list 'commutativeInArgs subRel 2 1) 'CxUniverse)
       (is (= #{supRel} (moved (list 'genl far_u far_v)))))))
 
-(tu/deftest-kb an-inverse-declaration-crosses-an-edge-above-its-claim
+(tu/deftest-kb a-transitiveInArg-declaration-crosses-an-edge-above-its-claim
   (let [{:syms [invRel low_e mid_e high_e k_t far_u far_v]}
         (terms '[invRel low_e mid_e high_e k_t far_u far_v])
         moved #(inherit/moved-predicates kb %)]
     (chain-of! kb low_e mid_e high_e)
     (doseq [t [k_t far_u far_v]] (v/assert kb (list 'genl t 'thing) 'CxUniverse))
-    (v/assert kb (list 'transitiveInArgInverse invRel 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArg invRel 1 'genl) 'CxUniverse)
     (v/assert kb (list invRel low_e k_t) 'CxUniverse)
     (is (= #{invRel} (moved (list 'genl mid_e high_e))))
     (is (= #{invRel} (moved (list 'not (list 'genl low_e mid_e)))))
@@ -235,7 +235,7 @@
         (terms '[low_t mid_t z_top_t a_val_t k_t rel subRel noted])
         ternary? (= variant :in-args)
         claim-on (if (= variant :sub) subRel rel)]
-    {:base  (cond-> [[(list 'transitiveInArg rel 1 'genl) 'CxUniverse]
+    {:base  (cond-> [[(list 'transitiveInArgInverse rel 1 'genl) 'CxUniverse]
                      [(list 'set/forwardRule
                             (if ternary?
                               (list 'implies (list rel '?x '?y '?z) (list noted '?x '?y '?z))
@@ -254,12 +254,12 @@
               [(list noted low_t a_val_t k_t) (list noted mid_t a_val_t k_t)]
               [(list noted low_t a_val_t) (list noted mid_t a_val_t)])}))
 
-(defn- inverse-claim
-  "A claim two edges below the conclusion's term under `transitiveInArgInverse`."
+(defn- upward-claim
+  "A claim two edges below the conclusion's term under `transitiveInArg`."
   []
   (let [{:syms [low_t mid_t top_t val_t rel noted]}
         (terms '[low_t mid_t top_t val_t rel noted])]
-    {:base  [[(list 'transitiveInArgInverse rel 1 'genl) 'CxUniverse]
+    {:base  [[(list 'transitiveInArg rel 1 'genl) 'CxUniverse]
              [(list 'set/forwardRule (list 'implies (list rel '?x '?y) (list noted '?x '?y)))
               'CxUniverse]]
      :rest  [[(list 'genl low_t mid_t) 'CxUniverse]
@@ -281,8 +281,8 @@
 (deftest a-commutative-in-args-claim-fires-whichever-sentence-arrives-last
   (holds-in-every-order-of :in-args (marked-claim :in-args)))
 
-(deftest an-inverse-claim-fires-whichever-sentence-arrives-last
-  (holds-in-every-order-of :inverse (inverse-claim)))
+(deftest an-upward-claim-fires-whichever-sentence-arrives-last
+  (holds-in-every-order-of :upward (upward-claim)))
 
 (deftest an-unnarrowed-edge-still-fires-whichever-edge-arrives-last
   ;; the cap at zero takes every edge down the fallback

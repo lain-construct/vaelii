@@ -56,7 +56,7 @@
   (testing "and it climbs the capability hierarchy: what flies travels"
     (is (v/ask? kb '(capabilityType bird travelling) B))
     (is (v/ask? kb '(capabilityType eagle travelling) B)))
-  (testing "answered by transitiveInArgInverse, so the kind level stores no rule's output"
+  (testing "answered by transitiveInArg, so the kind level stores no rule's output"
     (is (empty? (v/sentexes-matching kb '(capabilityType bird travelling) '?ctx)))))
 
 (tu/deftest-kb a-nearer-claim-stops-an-inherited-default-at-itself
@@ -87,7 +87,7 @@
   (testing "travelling follows from the hierarchy, not a stored forward-rule conclusion"
     (is (v/ask? kb '(hasCapability Sam travelling) N))
     (is (empty? (v/sentexes-matching kb '(hasCapability Sam travelling) N))
-        "answered by transitiveInArgInverse, not stored — no redundant rule"))
+        "answered by transitiveInArg, not stored — no redundant rule"))
   (testing "and the flightless member gets neither"
     (is (not (v/ask? kb '(hasCapability Tweety flying) N)))
     (is (empty? (v/sentexes-matching kb '(hasCapability Tweety travelling) N)))))
@@ -206,13 +206,13 @@
 ;; ---- the exception mechanism itself, apart from birds --------------------
 
 (tu/deftest-kb an-inherited-default-is-undercut-and-an-inherited-monotonic-one-is-not
-  ;; `transitiveInArg`'s contract in one test, both halves.  A default yields to a nearer
+  ;; `transitiveInArgInverse`'s contract in one test, both halves.  A default yields to a nearer
   ;; claim; a monotonic claim does not, because yielding would make a stated certainty
   ;; depend on what else got said, and the strength is exactly the author saying it must
   ;; not.  Two independent hierarchies so neither answer can come from the other.
   (tu/with-terms [carriesLoad pack_animal mule_kind hauler_kind cart_kind]
     (v/assert kb (list 'binary_predicate carriesLoad) 'CxUniverse)
-    (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArgInverse carriesLoad 1 'genl) 'CxUniverse)
     (v/assert kb (list 'genl pack_animal 'animal) 'CxUniverse)
     (v/assert kb (list 'genl mule_kind pack_animal) 'CxUniverse)
     (v/assert kb (list 'genl hauler_kind 'animal) 'CxUniverse)
@@ -260,24 +260,36 @@
                        (list 'genl cart_kind hauler_kind))
             "and the genl edge it travelled, so `why` can explain the reach")
         (is (contains? (set (map :sentence (:sides r)))
-                       (list 'transitiveInArg carriesLoad 1 'genl))
+                       (list 'transitiveInArgInverse carriesLoad 1 'genl))
             "and the declaration that licensed the move")))))
 
 ;; ---- what is a type, and what is only a property ------------------------
+
+(def ^:private biology-properties
+  "The seven CxLife properties CxUniverse places under the kind each is said of."
+  '{alive organism, dead organism, mortal organism,
+    asleep animal, awake animal, breathes_air animal, warm_blooded animal})
 
 (tu/deftest-kb a-type-is-a-noun-and-a-property-is-not-a-type
   ;; The naming rules make `alive` and `mortal` legal unary predicates, and nothing in
   ;; them says whether a name belongs in the genl hierarchy.  That is a modelling
   ;; decision: a type is a kind of thing and wants a noun, while a property is something
-  ;; a thing *is*, and putting one in the hierarchy would make "mortal" a kind that
-  ;; organisms are a kind OF.  Were one wanted as a type it would be spelled for it —
-  ;; `mortal_being`, not `mortal`.
-  (testing "the properties the biology theory concludes are outside the hierarchy"
-    (doseq [p '[alive dead awake asleep mortal warm_blooded breathes_air]]
-      (is (empty? (v/sentexes-matching kb (list 'genl p '?super) '?ctx))
-          (str p " is a property, not a type — it must carry no genl edge"))
+  ;; a thing *is*.  A property may sit BELOW the kind it is said of — the alive
+  ;; organisms are some of the organisms — but never above a kind: that would make
+  ;; "mortal" a kind that organisms are a kind OF.  Were one wanted as a type in that
+  ;; sense it would be spelled for it — `mortal_being`, not `mortal`.
+  (testing "the properties the biology theory concludes are placed under their kind"
+    (doseq [[p kind] biology-properties]
+      (is (v/genl? kb p kind) (str p " is placed under " kind))
+      (is (v/genl? kb p 'thing) (str p " reaches thing"))
       (is (v/isa? kb p 'unary_predicate)
           (str p " is still a one-place predicate"))))
+  (testing "and no type sits below any of them"
+    (doseq [p (keys biology-properties)]
+      (is (= #{p} (v/specs kb p))
+          (str p " is a property, not a kind — nothing may be placed under it"))
+      (is (not (v/genl? kb (biology-properties p) p))
+          (str (biology-properties p) " is not a kind of " p))))
   (testing "while the kinds they are said of are types, and reach the root"
     (doseq [t '[animal bird penguin dog person tangible capability flying]]
       (is (v/genl? kb t 'thing) (str t " must reach thing")))))
@@ -290,6 +302,34 @@
         "a type with no path to thing answers nothing and is a type in spelling only")
     (is (= (:edged (:taxonomy q)) (:rooted (:taxonomy q)))
         "every name with a genl edge reaches the root")))
+
+(def ^:private placed-unary-predicates
+  "Fifteen shipped `unary_predicate` terms each placed under `thing` by a stated `genl`
+  edge, so the `:not-under-thing` sweep (docs/integrity.md) reports none of them.  The
+  seven biology properties among them are placed under the kind each is said of, and
+  `a-type-is-a-noun-and-a-property-is-not-a-type` holds that no kind sits below one."
+  '#{initially functional_at_instant
+     abducible_predicate closed_extent_predicate decontextualized_predicate
+     target_following_predicate forced_decontextualized_predicate
+     sibling_disjoint
+     alive dead mortal asleep awake breathes_air warm_blooded})
+
+(tu/deftest-kb every-placed-unary-predicate-reaches-thing
+  ;; `islands` above counts names WITH a genl edge, so a unary predicate carrying none is
+  ;; never an island.  The `:not-under-thing` sweep reads the declaration instead, over a
+  ;; caller-owned candidate set, from CxWell, which sees every upper and middle context.
+  (let [report (v/kb-integrity kb placed-unary-predicates 'CxWell)]
+    (is (= (count placed-unary-predicates) (:candidate-count report)))
+    (is (empty? (:not-under-thing report))
+        (str "each reaches thing by a genl path visible from CxWell; "
+             (count (:not-under-thing report)) " do not: "
+             (pr-str (mapv :term (:not-under-thing report)))))))
+
+(tu/deftest-kb sibling-disjoint-is-an-at-least-metatype
+  ;; What sibling_disjoint marks is a type (genlArg 1 thing), so sibling_disjoint itself is
+  ;; a type of types.  It may mark a first-order type such as animal or a metatype, so it
+  ;; is at_least_metatype rather than metatype.
+  (is (v/isa? kb 'sibling_disjoint 'at_least_metatype)))
 
 (def ^:private type-relating-predicates
   "The predicates whose every argument is a TYPE (or a predicate) the claim relates, so the

@@ -136,7 +136,7 @@ Data hangs below CxWell.
     deliberate: "birds have wings" to "Pingu has a wing" needs a quantifier reading.
   - `CxSize` — comparative size said the two ways it can be said: `largerThan`
     among kinds, and a comparison computed between two objects' measures. The worked
-    example of `transitiveInArg` ([inherit.md](inherit.md)).
+    example of `transitiveInArgInverse` ([inherit.md](inherit.md)).
   - `CxSocial` — what acquaintance follows from, and how employment relates to
     membership. Every rule runs one way only, because `knows` is deliberately not
     symmetric.

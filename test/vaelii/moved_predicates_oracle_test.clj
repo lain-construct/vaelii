@@ -12,8 +12,8 @@
   out has no claim there to lose.
 
   Each seed generates a small KB: two or three type chains, some with a second route
-  through a diamond; two to four predicates, each declared `transitiveInArg` or
-  `transitiveInArgInverse` along `genl` at one or two positions; a `symmetric`,
+  through a diamond; two to four predicates, each declared `transitiveInArgInverse` or
+  `transitiveInArg` along `genl` at one or two positions; a `symmetric`,
   `commutative`, `commutativeInArgs` or `commutativeInArgAndRest` mark on some of them; a
   sub-predicate holding some of the claims; claims in either polarity on arbitrary chain
   terms; one forward rule per preserved predicate; and on some seeds a monotonic denial of
@@ -84,7 +84,7 @@
         n-decl  (pick rng [1 1 2])
         decls   (distinct
                  (repeatedly n-decl
-                             #(list (pick rng '[transitiveInArg transitiveInArg transitiveInArgInverse])
+                             #(list (pick rng '[transitiveInArgInverse transitiveInArgInverse transitiveInArg])
                                     rel (inc (.nextInt rng arity)) 'genl)))
         claims  (vec
                  (repeatedly (+ 2 (.nextInt rng 3))

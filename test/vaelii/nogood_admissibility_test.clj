@@ -124,14 +124,14 @@
   ;; and withdrawing the reach withdraws exactly what the pair was about.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
     (v/assert kb (list 'binary_predicate carriesLoad) U)
-    (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) U)
+    (v/assert kb (list 'transitiveInArgInverse carriesLoad 1 'genl) U)
     (v/assert kb (list 'genl hauler_kind 'animal) U)
     (v/assert kb (list 'genl cart_kind hauler_kind) U)
     (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
     (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)
     (let [c     (the-clash kb)
           claim (v/handle-of kb (list carriesLoad hauler_kind 'Bone1) U)
-          decl  (v/handle-of kb (list 'transitiveInArg carriesLoad 1 'genl) U)
+          decl  (v/handle-of kb (list 'transitiveInArgInverse carriesLoad 1 'genl) U)
           edge  (v/handle-of kb (list 'genl cart_kind hauler_kind) U)
           deny  (v/handle-of kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)]
       (is (= :inherited (:kind c)))

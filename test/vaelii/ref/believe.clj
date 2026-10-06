@@ -15,7 +15,7 @@
      believed sentences, stratum by stratum, with `unknown` and `exceptWhen` evaluated
      at `C`. A sentence taken OUT is never re-derived.
   4. Classes: `class-fixpoint`.
-  5. Inherited claims: `inherit-at` adds the claims `transitiveInArg` carries down the
+  5. Inherited claims: `inherit-at` adds the claims `transitiveInArgInverse` carries down the
      believed `genl` edges, with their classes.
   6. Nogoods: `negation-nogoods` plus every family's output on the view.
   7. Decision: `decide`, then `resolve-at` applies the defeats and repeats from 2.
@@ -428,10 +428,10 @@
 ;; ---- inherited claims -------------------------------------------------------
 
 (defn- preserved-positions
-  "`{P #{k}}` over the `(transitiveInArg P k genl)` declarations in `believed`."
+  "`{P #{k}}` over the `(transitiveInArgInverse P k genl)` declarations in `believed`."
   [believed]
   (reduce (fn [m s]
-            (if (and (seq? s) (= 'transitiveInArg (first s)) (= 4 (count s)))
+            (if (and (seq? s) (= 'transitiveInArgInverse (first s)) (= 4 (count s)))
               (let [[_ p k r] s]
                 (if (and (= 'genl r) (integer? k) (pos? k) (world/ordinary-predicate? p))
                   (update m p (fnil conj #{}) k)
@@ -468,7 +468,7 @@
 
 (defn- reaches
   "`[T class]` for every claim `T` one preserved position moves a claim `G` of `claims`
-  to: `G` a tuple over a predicate `P` with `(transitiveInArg P k genl)` in `believed`,
+  to: `G` a tuple over a predicate `P` with `(transitiveInArgInverse P k genl)` in `believed`,
   and `T` the tuple `G` with the term at position `k` replaced by a term strictly below
   it over the `genl` sentences of `believed`. The class is the weakest of `G`'s class
   and the widest bottleneck of the routes (`bottlenecks`)."
@@ -486,7 +486,7 @@
   "`{:believed :class :inherited}` at a context, from the derivation `d`, its classes
   `cls` and the OUT set `out` (docs/reference.md D5; docs/inherit.md).
 
-  With `(transitiveInArg P k genl)` believed, a believed claim `(P … sup …)` and `sub`
+  With `(transitiveInArgInverse P k genl)` believed, a believed claim `(P … sup …)` and `sub`
   strictly below `sup` over believed `genl` sentences, `(P … sub …)` is believed, with
   the class the widest bottleneck over the routes (D9): the maximum over the routes of
   the minimum of the claim's class and the classes of the route's edges. The
