@@ -633,6 +633,11 @@
    [:missing-arg (fn [kb _ context remaining]
                    (missing-arg-findings kb context remaining))]])
 
+(def ^:private review-categories
+  "The review-only categories: a sweep runs their passes only when `:categories` names
+  them, so a finding of one never turns an otherwise clean default sweep into `:gap`."
+  #{:twin-genls :derivable-stated-edge :disjoint-could-be-partition :missing-arg})
+
 (defn- check-args!
   "Refuse a `candidate-terms` that is not a set of ground terms (`:bad-args`), and a
   `:categories` that is not a set of the categories `passes` names (`:unknown-option`)."
@@ -651,11 +656,14 @@
                        :option :categories :value categories})))))
 
 (defn- run-passes
-  "Run the `passes` that `categories` names (every one when nil) in order, each with what
-  is left of `max-results`: nil when every pass completed, `:max-results` when one
-  stopped at the cap."
+  "Run the `passes` that `categories` names (every one but the `review-categories` when
+  nil) in order, each with what is left of `max-results`: nil when every pass completed,
+  `:max-results` when one stopped at the cap."
   [kb candidate-terms context max-results categories]
-  (loop [[[_ audit] & more] (filter #(or (nil? categories) (categories (first %))) passes)
+  (loop [[[_ audit] & more] (filter #(if (nil? categories)
+                                       (not (review-categories (first %)))
+                                       (categories (first %)))
+                                    passes)
          remaining          max-results]
     (when audit
       (let [result (audit kb candidate-terms context remaining)]
@@ -678,7 +686,8 @@
   anything, `:status :gap` with the non-empty categories otherwise, and `:status
   :truncated` with its `:reason`, `:work`, `:elapsed-ms` and the findings kept before a
   bound in `options` (`integrity-opt-keys`) ran out.  `:categories`, a set of category
-  keys, runs those passes alone.  Reads only: a diagnostic raised by
+  keys, runs those passes alone; without it the sweep runs every pass but the
+  `review-categories`.  Reads only: a diagnostic raised by
   evaluating a condition goes to a sink local to the call.  See docs/integrity.md."
   ([kb candidate-terms context]
    (kb-integrity kb candidate-terms context nil))

@@ -607,6 +607,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **`kb-integrity` runs its four review-only passes only when `:categories` names them.**
+  `:twin-genls`, `:derivable-stated-edge`, `:disjoint-could-be-partition` and
+  `:missing-arg` report candidates for review. A sweep without `:categories` skips the four
+  passes, so a review finding never turns an otherwise clean sweep into `:gap`.
+  [integrity.md](docs/integrity.md#the-call).
+
+  *Class:* **Additive**.
+
 - **CxCore types the position of `forced_monotonic_between_predicates`.**
   `forced_monotonic_between_predicates` declares `(arg forced_monotonic_between_predicates 1 predicate)`,
   as `inverse` does, so `:missing-arg` no longer reports it. `abducible_predicate`,

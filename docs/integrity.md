@@ -72,7 +72,10 @@ declaration at a time. These focused units are where
 cooperative checkpoints and partial-result preservation sit.
 
 `:categories`, a set of category keys, runs the passes of those categories alone and
-reads nothing for the others. On a large KB the census passes (the specified and widening
+reads nothing for the others. Without `:categories`, the sweep runs every pass except
+the four review-only ones: `:twin-genls`, `:derivable-stated-edge`,
+`:disjoint-could-be-partition` and `:missing-arg`. A caller names a review-only category
+in `:categories` to run its pass, so a review finding never makes a default sweep `:gap`. On a large KB the census passes (the specified and widening
 categories) can spend the daemon's `:max-work` ceiling before a candidate pass starts; a
 caller names the candidate categories to reach them.
 
@@ -327,7 +330,8 @@ Each `orthogonal` row and each pair's separation read spend one work unit, and
 
 Three census passes flag the shape of the taxonomy rather than a defect of any
 declaration. Each finding is a candidate for an author to review, never a refusal, and the
-sweep asserts and retracts nothing.
+sweep asserts and retracts nothing. A sweep without `:categories` skips all three passes,
+and `:categories` names a pass to run it.
 
 - **`:twin-genls`**: two or more types whose direct `genl` sets are identical and name at
   least two types besides `thing`, as `{:types [...] :genls [...]}`, which suggests a
@@ -399,5 +403,6 @@ types:
 - **Arity conflicts.** A predicate told two different arities is skipped, as
   `kb/relation-arity` reads it.
 
-The pass reads one census of arity declarations, then each predicate's declarations in
-print order. It counts against `:max-results` after `:disjoint-could-be-partition`.
+`:missing-arg` is review-only: a sweep without `:categories` skips it, and `:categories`
+names it to run it. The pass reads one census of arity declarations, then each
+predicate's declarations in print order. It counts against `:max-results` after `:disjoint-could-be-partition`.

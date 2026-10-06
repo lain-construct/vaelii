@@ -176,7 +176,8 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; :derivable-stated-edge,
                                                 ; :disjoint-could-be-partition and :missing-arg. opts may bound :max-work,
                                                 ; :max-ms and :max-results, and :categories names the
-                                                ; passes to run; exhaustion is :truncated,
+                                                ; passes to run. The four review-only passes run only
+                                                ; when :categories names them; exhaustion is :truncated,
                                                 ; never :audited. Work/time check between opaque callbacks
                                                 ; and result pulls (one callback/chunk may overrun);
                                                 ; :max-results absolutely caps returned findings.

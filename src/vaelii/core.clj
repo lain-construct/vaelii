@@ -5383,8 +5383,10 @@
   `:orthogonal-over-separation`, `:twin-genls`, `:derivable-stated-edge`,
   `:disjoint-could-be-partition` and `:missing-arg`, or `:status :truncated` with its `:reason` and the
   findings kept when a bound runs out.  `options` takes `:max-work`, `:max-ms` and
-  `:max-results`, and `:categories`, a set of category keys to run.  Stores and files
-  nothing.  See docs/integrity.md."
+  `:max-results`, and `:categories`, a set of category keys to run.  The four review-only
+  categories `:twin-genls`, `:derivable-stated-edge`, `:disjoint-could-be-partition` and
+  `:missing-arg` run only when `:categories` names them.  Stores and files nothing.  See
+  docs/integrity.md."
   ([kb candidate-terms context]
    (integrity/kb-integrity kb candidate-terms context nil))
   ([kb candidate-terms context options]

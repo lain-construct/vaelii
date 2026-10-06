@@ -882,6 +882,17 @@
           "the group and the genl set it shares, suggesting a missing common parent")
       (is (= before (state-snapshot kb)) "a suggestion asserts nothing"))))
 
+(tu/deftest-kb a-default-sweep-skips-the-review-only-categories
+  ;; The four review-only passes run when `:categories` names them, so a smell alone never
+  ;; turns a sweep without `:categories` into `:gap`.
+  (tu/with-terms [temporal_like aspatial_like acausal_like point_kind interval_kind]
+    (doseq [k [point_kind interval_kind], g [temporal_like aspatial_like acausal_like]]
+      (v/assert kb (list 'genl k g) 'CxUniverse))
+    (is (= {:status :audited :candidate-count 0} (v/kb-integrity kb #{} 'CxUniverse))
+        "the twin pair is not read by a sweep without :categories")
+    (is (= :gap (:status (v/kb-integrity kb #{} 'CxUniverse {:categories #{:twin-genls}})))
+        "and is reported once :categories names :twin-genls")))
+
 (tu/deftest-kb types-sharing-fewer-than-two-genls-besides-thing-or-differing-are-not-twins
   (tu/with-terms [temporal_like aspatial_like acausal_like one_kind two_kind wide_kind
                   narrow_kind]
