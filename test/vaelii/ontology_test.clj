@@ -18,6 +18,7 @@
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.host.core-context :as core-context]
             [vaelii.impl.io.text :as text]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
@@ -1009,7 +1010,6 @@
     [genl character intangible CxAbstract "character genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl context intangible CxAbstract "context genl expression genl nowhere_never genl intangible"]
     [genl language intangible CxAbstract "language genl nowhere_never genl intangible"]
-    [genl building made CxAbstract "building genl container genl made"]
     [genl made tangible CxAbstract "partition tangible made natural"]
     [genl natural tangible CxAbstract "partition tangible made natural"]
     [genl formation tangible CxAbstract "formation genl natural genl tangible"]
@@ -1306,16 +1306,16 @@
     (is (= :orthogonal (v/subsumption-status kb 'dog tended)))
     (is (not-any? #(= :forced-conclusion (:violation %)) (v/violations kb)))))
 
-(tu/deftest-kb artifact-is-declared-nowhere-and-the-seven-kinds-are-made
+(tu/deftest-kb artifact-is-declared-nowhere-and-the-six-kinds-are-made
   ;; The KB declares no artifact term and no alias for one.  building, clothing,
-  ;; container, furniture, machine, tool and vehicle are kinds of made.
+  ;; furniture, machine, tool and vehicle are kinds of made.
   (is (empty? (v/sentexes-matching kb '(comment artifact ?text) '?ctx)))
   (is (empty? (v/sentexes-matching kb '(genl artifact ?type) '?ctx)))
   (is (empty? (v/sentexes-matching kb '(genl ?type artifact) '?ctx)))
   (is (= 1 (count (v/sentexes-matching kb '(comment made ?text) 'CxAbstract))))
-  (doseq [t '[building clothing container furniture machine tool vehicle]]
+  (doseq [t '[building clothing furniture machine tool vehicle]]
     (is (true? (v/genl? kb t 'made 'CxAbstract)) (str t " is made")))
-  (doseq [t '[clothing container furniture machine tool vehicle]]
+  (doseq [t '[building clothing furniture machine tool vehicle]]
     (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl t 'made) 'CxAbstract))
         (str "(genl " t " made) is stated"))))
 
@@ -1493,3 +1493,30 @@
 (tu/deftest-kb a-fluent-is-temporal
   (is (true? (v/genl? kb 'fluent 'temporal 'CxAbstract)))
   (is (true? (v/disjoint? kb 'fluent 'atemporal))))
+
+;; ---- hollow: what a thing is, not what it is for -------------------------
+;; `container` named a kind by its purpose; `hollow` names the shape a thing has at a
+;; time.
+
+(tu/deftest-kb hollow-is-a-shape-located-in-space-and-time
+  (is (true? (v/genl? kb 'hollow 'spatiotemporal 'CxAbstract)))
+  (is (true? (v/genl? kb 'building 'hollow 'CxAbstract)))
+  (is (true? (v/genl? kb 'building 'made 'CxAbstract)))
+  (is (seq (core-context/comment-of kb 'hollow)))
+  (testing "a cup, a pitcher plant and a cupped hand are hollow; stuff is not"
+    (is (= :orthogonal (v/subsumption-status kb 'hollow 'made)))
+    (is (= :orthogonal (v/subsumption-status kb 'hollow 'organism)))
+    (is (= :orthogonal (v/subsumption-status kb 'hollow 'body_part)))
+    (is (true? (v/disjoint? kb 'hollow 'substance)))
+    (is (true? (v/disjoint? kb 'hollow 'nowhere_never))))
+  (testing "a made hollow thing is no clash"
+    (tu/with-terms [Cup PitcherPlant]
+      (v/assert kb (list 'made Cup) 'CxUniverse)
+      (is (not (tu/stored-in-clash? kb (list 'hollow Cup) 'CxUniverse)))
+      (v/assert kb (list 'organism PitcherPlant) 'CxUniverse)
+      (is (not (tu/stored-in-clash? kb (list 'hollow PitcherPlant) 'CxUniverse))))))
+
+(tu/deftest-kb container-is-retired
+  (is (empty? (core-context/comment-of kb 'container)))
+  (is (empty? (v/sentexes-matching kb '(genl container ?x) '?ctx)))
+  (is (empty? (v/sentexes-matching kb '(genl ?x container) '?ctx))))

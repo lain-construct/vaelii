@@ -34,6 +34,22 @@ it — `git show v0.16.0:CHANGELOG.md`.
   do.
   *Breaks:* `transitiveInArg`, `transitiveInArgInverse`
 
+- **`container` is retired; `hollow` names the shape.** `container` was defined by what
+  a made thing is for, and a type says what a thing is. CxAbstract mints `hollow`: a
+  thing that has, at that time, an interior space other things can occupy, such as a
+  cup, a building, a cave, a pitcher plant or a cupped hand. `hollow` is below
+  `spatiotemporal`, orthogonal to `made`, `organism`, `body_part` and `food`, and
+  disjoint from `substance`. `building` states `(genl building made)` and
+  `(genl building hollow)` in place of its edge to `container`. The browser's refusal
+  example rests on `(genl building made)`. `ontology_test` pins the placement, the
+  orthogonals, a made hollow thing and a hollow organism as no clash, and the absence
+  of `container`.
+
+  *Class:* **Breaking** (a shipped type removed).
+  *Migration:* use `hollow`; a made container is `(and (made x) (hollow x))`;
+  containment relations are not modelled yet.
+  *Breaks:* `container`
+
 - **`siblingDisjointException` is retired; `orthogonal` is the exemption.** A stated
   `(orthogonal a b)` exempts the pair from a separation a `sibling_disjoint` parent or a
   `disjoint_metatype` would otherwise force, pair-local and read at the reader, as
