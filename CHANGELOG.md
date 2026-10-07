@@ -15,6 +15,21 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **`causes` ships in CxAbstract.** `(causes ?cause ?effect)` is a `binary_predicate` and
+  an `instance_relation_predicate`, declared `transitive`. Its cause slot is typed
+  `causal` and its effect slot `situation`, so a causal event, a tangible or an
+  organization can be a cause, and an `acausal` thing in the cause slot is refused
+  `:arg-type`. The test world's Fox and Crow story types its two stated causes `Flatter1`
+  and `CrowSings` as `causal_event`, and keeps its own narrower `(arg causes 1 event)` and
+  `(arg causes 2 event)` in CxStories. `causality_cluster_test` pins the declaration, a
+  chain of causes, and the refusal of an acausal cause.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB below CxAbstract that states `causes` with a first argument typed
+  outside `causal`, such as an `acausal_event`, is refused `:arg-type`; type the cause as
+  a `causal_event`, a tangible or an organization.
+
 - **CxNormalPhysicalConditions states the states of matter of stuff at ordinary room
   temperature and pressure.** The new theory in `kb/middle/` sees CxUniverse, and CxWell
   does not see it: a context opts in by placing itself under CxNormalPhysicalConditions, so

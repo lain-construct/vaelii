@@ -222,6 +222,15 @@
 (comment acausal_event "An event that is not a cause (an observation or receipt is one): the intersection of acausal and event.")
 (intersection acausal_event acausal event)
 
+;; --- causes: a causal thing brings a situation about ---------------------------
+(comment causes
+         "(causes ?cause ?effect) means that ?cause brings ?effect about: the flattery made the crow sing, the rock dented the car, the drought ruined the harvest. The cause is a causal thing: a causal event, a tangible or an organization. The effect is a situation: an event or a held state. Declared transitive, so a chain of causes is itself a cause and the chain is answered by the closure prover rather than stored.")
+(binary_predicate causes)
+(instance_relation_predicate causes)
+(arg causes 1 causal)
+(arg causes 2 situation)
+(transitive causes)
+
 ;; --- doneBy / performedBy: an event's doer -----------------------------------
 (comment doneBy
          "(doneBy ?event ?doer) means that ?doer brought about ?event, intentionally or not. The doer can be any thing — a person, an animal, a machine, a process — so the second position declares no type: agent names a registered participant rather than something that can act, and no type below thing covers every doer. performedBy is the intentional case.")
