@@ -1,7 +1,7 @@
 # Ontology defenses
 
 - **Covers:** why a piece of the shipped ontology is shaped the way it is, and why the representation a reader would reach for instead is worse.
-- **Not here:** the general rules every vocabulary change follows. Those are in the ontological engineering principles, and an entry here cites a principle rather than restating it.
+- **Not here:** the general rules every vocabulary change follows. Those are in [oe-principles.md](oe-principles.md), and an entry here cites a principle by its handle rather than restating it.
 - **Assumes:** you have read the vocabulary the entry defends, in the KB file it names.
 
 An entry names the alternative, says what the KB states instead, and gives the reason. A **Status** line says whether the form is on develop or ruled and not yet merged.
