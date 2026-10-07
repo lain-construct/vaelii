@@ -406,6 +406,7 @@
     :count-with-functor    (op v/count-with-functor)
     :disjoint-metatypes    (op v/disjoint-metatypes)
     :metatype-members      (op v/metatype-members)
+    :separating-covers     (op v/separating-covers)
     ;; what a reified term denotes (docs/nat.md).  A remote reader has no other way to
     ;; ask: the constant is opaque by construction, so a client that could not resolve it
     ;; would have to show a reader `nat/g17` — which is the one thing it must not do

@@ -756,7 +756,7 @@
 (defn- disjoint-pairs
   "The disjointness pairs to display: the believed `(disjoint a b)` sentexes, plus the
   pairs a `disjoint_metatype` induces, plus the pairs a believed `separating` or
-  `partition` roster separates.
+  `partition` roster separates (`separating-covers`, the table `disjoint?` reads).
 
   The induced ones are computed rather than read, because a metatype separates its
   members by being *consulted* rather than by materializing a clique of real
@@ -779,11 +779,8 @@
                        b  ms
                        :when (neg? (compare (str a) (str b)))]
                    (disjoint-pair a b))
-        rostered (for [f    '[separating partition]
-                       s    (v/sentexes-with-functor kb f {:believed? true})
-                       :when (not (v/negative? s))
-                       :let [[_ _whole & parts] (:sentence s)
-                             ps (vec (distinct parts))]
+        rostered (for [[_whole parts] (v/separating-covers kb)
+                       :let [ps (vec (distinct parts))]
                        a    ps
                        b    ps
                        :when (neg? (compare (str a) (str b)))]

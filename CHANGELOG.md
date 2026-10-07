@@ -503,8 +503,11 @@ it — `git show v0.16.0:CHANGELOG.md`.
   types one edge below `t`. An edge counts whatever installed it, so a part a `covering`,
   `separating` or `partition` roster names is a direct subtype of the roster's whole. The
   taxonomy view drew only stored `(genl sub super)` sentences, so a type whose parent edge
-  came from a roster was drawn with no parent. The daemon serves both reads as the
-  `:direct-genls` and `:direct-specs` ops, and `vaelii.client` gains both.
+  came from a roster was drawn with no parent. `(separating-covers kb)` answers the
+  believed `separating` and `partition` rosters as `[whole parts kind]`, the table
+  `disjoint?` reads, and the front page's disjointness list reads its roster pairs from
+  it. The daemon serves all three, as the `:direct-genls`, `:direct-specs` and
+  `:separating-covers` ops, and `vaelii.client` gains all three.
   [api.md](docs/api.md), [web.md](docs/web.md).
 
   *Class:* **Additive**.

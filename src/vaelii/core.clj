@@ -887,6 +887,12 @@
   holds of, closed under genl."
   [kb m] (tax/metatype-members (reasoning/taxonomy kb) m))
 
+(defn separating-covers
+  "The believed `separating` and `partition` rosters, as a set of `[whole parts kind]`:
+  every two distinct `parts` are disjoint, and `disjoint?` reads them from this table.
+  Like a metatype's clique, the pairs are consulted, never stored as `(disjoint a b)`."
+  [kb] (tax/separating-covers (reasoning/taxonomy kb)))
+
 ;; ---- what the engine does with its own grammar --------------------------
 ;; A declaration's shape says nothing about whether anything reads it: `(maxCardinality
 ;; parentOf 2)` is a well-formed ternary fact, storable and believed, and a KB author
@@ -8281,7 +8287,7 @@
     :explain-levels :export! :export-text! :exposed-clashes :find-sentexes
     :find-sentexes-all :find-terms :functional-at-instant-violations :genl? :genls
     :handle-of :handles :has-prop? :in? :inverse-of :isa? :ist :justification
-    :kb-integrity :kb-quality :last-program :lookup :metatype-members
+    :kb-integrity :kb-quality :last-program :lookup :metatype-members :separating-covers
     :possible-relations
     :premise? :props :provable? :prove :prove-within :provenance
     :qualitative-network :qualitative-scenario :qualitative-scenarios :query

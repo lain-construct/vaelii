@@ -740,6 +740,12 @@
   ([conn pred] (c/sentexes-with-functor conn pred))
   ([conn pred opts] (c/sentexes-with-functor conn pred opts)))
 
+(defn separating-covers
+  "The believed `separating` and `partition` rosters, as a set of `[whole parts kind]`:
+  every two distinct `parts` are disjoint, and `disjoint?` reads them from this table."
+  [conn]
+  (c/separating-covers conn))
+
 (defn settle-stats
   "Instrumentation for the `exceptWhen` fixpoint in `settle`."
   [conn]

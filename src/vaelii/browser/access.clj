@@ -91,7 +91,8 @@
   blocked-justifications
   lookup escalate count-in-context
   sentexes-in-context sentexes-with-arg sentexes-with-functor count-with-arg
-  count-with-functor disjoint-metatypes metatype-members conflicts contradictions
+  count-with-functor disjoint-metatypes metatype-members separating-covers conflicts
+  contradictions
   ;; what a reified term denotes, so a reified NAT is displayed as the expression it was
   ;; minted from rather than as its opaque constant (docs/nat.md).  Gated by the pure
   ;; `reified-term?` below, so a KB with no reified terms never sends it

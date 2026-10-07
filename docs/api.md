@@ -388,6 +388,8 @@ default-chain-opts                              ; the bounds a chain run takes w
 (disjoint-metatypes kb) / (metatype-members kb m) ; the declared `disjoint_metatype` cliques and one
                                                ; clique's members — consulted, never materialized,
                                                ; so no `(disjoint a b)` pair is stored to read back
+(separating-covers kb)                         ; the believed `separating` / `partition` rosters as
+                                               ; `[whole parts kind]`, consulted the same way
 (subsumption-status kb type-a type-b [context]); the pair's genl relationship as a keyword —
                                                ; :genl :spec :coextensional :disjoint :orthogonal
                                                ; :unknown, or :inconsistent when two of those hold

@@ -121,6 +121,7 @@
   sentexes-matching "[[conn sentence] [conn sentence context]]",
   sentexes-with-arg "[[conn pos term] [conn pos term opts]]",
   sentexes-with-functor "[[conn pred] [conn pred opts]]",
+  separating-covers "[[conn]]",
   settle-stats "[[conn]]",
   specified-violations
   "[[conn pred indep context] [conn pred indep context arg-pos]]",
@@ -316,6 +317,7 @@
   sentexes-matching "[[kb sentence] [kb sentence context]]",
   sentexes-with-arg "[[kb pos term] [kb pos term opts]]",
   sentexes-with-functor "[[kb pred] [kb pred opts]]",
+  separating-covers "[[kb]]",
   set-cache-limit "[[id n]]",
   set-cache-scale "[[x]]",
   set-log-level "[[level]]",
@@ -453,6 +455,7 @@
    :sentexes-matching
    :sentexes-with-arg
    :sentexes-with-functor
+   :separating-covers
    :settle-stats
    :specified-violations
    :specs
@@ -571,6 +574,7 @@
    :sentexes-matching
    :sentexes-with-arg
    :sentexes-with-functor
+   :separating-covers
    :settle-stats
    :specified-violations
    :specs

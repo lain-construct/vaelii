@@ -808,6 +808,12 @@
   ([conn pred] (call conn :sentexes-with-functor [pred]))
   ([conn pred opts] (call conn :sentexes-with-functor [pred opts])))
 
+(defn separating-covers
+  "The believed `separating` and `partition` rosters, as a set of `[whole parts kind]`:
+  every two distinct `parts` are disjoint, and `disjoint?` reads them from this table."
+  [conn]
+  (call conn :separating-covers []))
+
 (defn settle-stats
   "Instrumentation for the `exceptWhen` fixpoint in `settle`."
   [conn]

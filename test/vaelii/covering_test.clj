@@ -181,6 +181,22 @@
       (v/assert kb (list animal Rex) 'CxUniverse)
       (is (empty? (v/conflicts kb))))))
 
+(tu/deftest-kb a-roster-edge-is-one-genl-step-read-from-the-roster-s-context
+  (tu/with-terms [animal dog cat CxA CxB]
+    (doseq [c [CxA CxB]] (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+    (v/assert kb (list 'separating animal dog cat) CxA)
+    (testing "the parts are the whole's direct specs, and the whole each part's direct genl"
+      (is (= #{dog cat} (v/direct-specs kb animal CxA)))
+      (is (= #{animal} (v/direct-genls kb dog CxA))))
+    (testing "a context that does not see the roster reads no step"
+      (is (= #{} (v/direct-specs kb animal CxB)))
+      (is (= #{} (v/direct-genls kb dog CxB))))
+    (testing "the global arity reads every edge"
+      (is (= #{dog cat} (v/direct-specs kb animal))))
+    (testing "separating-covers lists the roster disjoint? reads"
+      (is (some (fn [[w ps]] (and (= animal w) (= #{dog cat} (set ps))))
+                (v/separating-covers kb))))))
+
 (tu/deftest-kb separating-licenses-no-coverage-inference
   (tu/with-terms [animal dog cat Rex]
     (v/assert kb (list 'separating animal dog cat) 'CxUniverse)
