@@ -92,7 +92,7 @@
     (let [g (gs 1)]
       (run-arm "positions" #(doall (inherit/positions kb (first g) ctx)) samples)
       (run-arm "witness-terms" #(inherit/witness-terms
-                                 kb {:rel 'genl :inverse? false} (second g) ctx)
+                                 kb {:rel 'genl :along? false} (second g) ctx)
                samples))
     (doseq [k [1 2 3]]
       (let [g (gs k)

@@ -97,17 +97,16 @@
             [vaelii.impl.types.reasoning :as reasoning]))
 
 (def declarations
-  "The two declaration functors, mapped to the `inverse?` flag of the walk that serves
-  them.  `inverse?` names the walk, not the functor: false licenses `a` from `w` when
-  `(R a w)` (against `R`'s arrow, `transitiveInArgInverse`), true when `(R w a)` (along
-  it, `transitiveInArg`)."
+  "The two declaration functors, mapped to the `along?` flag of the walk that serves
+  them: true licenses `a` from `w` when `(R w a)` (along `R`'s arrow, `transitiveInArg`),
+  false when `(R a w)` (against it, `transitiveInArgInverse`)."
   '{transitiveInArgInverse false, transitiveInArg true})
 
 ;; ---- one question, one set of closure reads ------------------------------
 
 (def ^:dynamic *memo*
   "A per-question cache for the two reads every layer here repeats — an atom of
-  `{[:positions pred context] -> …, [:reach rel inverse? x context] -> set}`, or nil
+  `{[:positions pred context] -> …, [:reach rel along? x context] -> set}`, or nil
   for no memoization.
 
   Answering one ground goal asks for a predicate's declared positions from
@@ -205,7 +204,7 @@
            declaration-functors))))
 
 (defn positions
-  "`[{:n :rel :inverse? :handle :in} …]` — the preserved argument positions declared for
+  "`[{:n :rel :along? :handle :in} …]` — the preserved argument positions declared for
   `pred`, visible from `context`, whose relation is one this may actually walk.  Empty
   (the overwhelmingly common case) means the predicate inherits nothing and every
   consumer here is a no-op.
@@ -220,7 +219,7 @@
 
   **`:in` is the context the declaration was asserted in**, and it is here because
   `move-supports` orders the declarations that may license a move by content:
-  `[rel, inverse?, n]` fixes the declaration's whole sentence, so two visible statements
+  `[rel, along?, n]` fixes the declaration's whole sentence, so two visible statements
   of it differ only in where they were said, and without `:in` the order would fall to
   `matches-visible`' answer set — handle order, which is arrival order.  It costs one
   record fetch per declaration, paid inside the memo rather than per firing, over a list
@@ -237,12 +236,12 @@
   [kb pred context]
   (when (and (symbol? pred) (declared-about? kb pred))
     (memoized [:positions pred context]
-              #(vec (for [[f inverse?] declarations
+              #(vec (for [[f along?] declarations
                           [h b] (res/matches-visible kb (list f pred '?n '?rel) context)
                           :let  [n (get b '?n) rel (get b '?rel)]
                           :when (and (integer? n) (pos? n) (symbol? rel)
                                      (usable-relation? (reasoning/taxonomy kb) rel context))]
-                      {:n n :rel rel :inverse? inverse? :handle h
+                      {:n n :rel rel :along? along? :handle h
                        :in (:context (p/get-sentex (:records kb) h))})))))
 
 (defn declarations-exist?
@@ -291,11 +290,11 @@
   "Reflexive-transitive reach of `x` over a declared-transitive `rel`, read from the
   believed facts.  The virtual relations never come here — their closures are the
   engine's own, which is the whole reason they are `virtual-relations`."
-  [kb rel inverse? x context]
+  [kb rel along? x context]
   (let [step (fn [n]
                (into #{} (keep #(get (second %) '?rv))
                      (res/matches-visible
-                      kb (if inverse? (list rel '?rv n) (list rel n '?rv)) context)))]
+                      kb (if along? (list rel '?rv n) (list rel n '?rv)) context)))]
     (loop [seen #{x}, frontier [x]]
       (if-let [n (peek frontier)]
         (let [fresh (remove seen (step n))]
@@ -345,12 +344,12 @@
   every stored claim, and building each through the closure cache overran it on a large
   KB: a closure built from its parents' held ones rebuilds whatever parents were
   evicted."
-  [kb inverse? x context]
+  [kb along? x context]
   (let [cx (when-not (unscoped? context) context)]
-    (memoized [:bounded-reach inverse? x cx]
+    (memoized [:bounded-reach along? x cx]
               #(let [tx (reasoning/taxonomy kb)]
                  (scoped (fn []
-                           (if inverse?
+                           (if along?
                              (tax/specs-within tx x cx bounded-reach-limit)
                              (tax/genls-within tx x cx bounded-reach-limit))))))))
 
@@ -370,23 +369,23 @@
   the stated exception), and a preservation along it is a claim about the topology,
   which is universal.
 
-  Memoized on `[rel inverse? x context]` for the life of one question.  The virtual
+  Memoized on `[rel along? x context]` for the life of one question.  The virtual
   relations read a cached closure and would survive without it; a **fact-relation** is
   the one that must not be re-walked, since each walk costs a `matches-visible` per
   node and `undercut?` asks for the same term's reach once per pair of claims."
-  [kb {:keys [rel inverse?]} x context]
-  (memoized [:reach rel inverse? x context]
+  [kb {:keys [rel along?]} x context]
+  (memoized [:reach rel along? x context]
             (fn []
               (let [tx (reasoning/taxonomy kb)]
                 (case rel
                   ;; a reach within the bound is walked and not built through the
                   ;; closure cache (`bounded-reach`): the same set
-                  genl        (or (bounded-reach kb inverse? x context)
-                                  (scoped #(if inverse?
+                  genl        (or (bounded-reach kb along? x context)
+                                  (scoped #(if along?
                                              (tax/specs tx x context)
                                              (tax/genls tx x context))))
-                  genlCx (if inverse? (tax/context-down tx x) (tax/context-up tx x)) ; global on purpose
-                  (fact-reach kb rel inverse? x context))))))
+                  genlCx (if along? (tax/context-down tx x) (tax/context-up tx x)) ; global on purpose
+                  (fact-reach kb rel along? x context))))))
 
 (defn- reach
   "The terms one argument may be stated of, over **every** declaration at its
@@ -406,11 +405,11 @@
   nothing.  The memo holds the reaches in a weighted LRU bounded by `whole-reach-budget`,
   so a discovery pass, which moves from goal term to goal term, keeps the recent ones
   where a budget spent once would leave every later term a walk per membership."
-  [kb inverse? x cx]
+  [kb along? x cx]
   (let [lru (memoized [:whole-reach]
                       #(caches/weighted-lru (constantly whole-reach-budget)
                                             (fn [r] (if (set? r) (max 1 (count r)) 1))))
-        k   [inverse? x cx]
+        k   [along? x cx]
         hit (caches/lru-get lru k)]
     (cond
       (identical? ::past hit) nil
@@ -418,7 +417,7 @@
       :else
       (let [tx (reasoning/taxonomy kb)
             r  (scoped (fn []
-                         (if inverse?
+                         (if along?
                            (tax/specs-within tx x cx whole-reach-limit)
                            (tax/genls-within tx x cx whole-reach-limit))))]
         (caches/lru-put! lru k (if (some? r) r ::past))
@@ -433,14 +432,14 @@
   few enough terms: a discovery pass tests every stored claim's argument against one goal
   term's reach, and a walk per argument climbs the same ancestry each time.  Every other
   reach is `witness-terms`."
-  [kb {:keys [rel inverse?] :as pos} x t context]
+  [kb {:keys [rel along?] :as pos} x t context]
   (if (= 'genl rel)
-    (if-some [r (bounded-reach kb inverse? x context)]
+    (if-some [r (bounded-reach kb along? x context)]
       (contains? r t)
       (let [cx (when-not (unscoped? context) context)
-            [sub super] (if inverse? [t x] [x t])
-            n  (memoized [:walks inverse? x cx] #(volatile! 0))]
-        (if-some [r (when (>= @n walks-before-reach) (whole-reach kb inverse? x cx))]
+            [sub super] (if along? [t x] [x t])
+            n  (memoized [:walks along? x cx] #(volatile! 0))]
+        (if-some [r (when (>= @n walks-before-reach) (whole-reach kb along? x cx))]
           (contains? r t)
           (memoized [:witness? sub super cx]
                     #(let [tx (reasoning/taxonomy kb)]
@@ -456,9 +455,9 @@
   holds more.  Read through the memo, so a pass walks each term's reach once."
   [kb poss x context]
   (let [cx  (when-not (unscoped? context) context)
-        one (fn [{:keys [rel inverse?] :as pos}]
+        one (fn [{:keys [rel along?] :as pos}]
               (if (= 'genl rel)
-                (or (bounded-reach kb inverse? x context) (whole-reach kb inverse? x cx))
+                (or (bounded-reach kb along? x context) (whole-reach kb along? x cx))
                 (witness-terms kb pos x context)))]
     (if (= 1 (count poss))
       (one (first poss))
@@ -479,11 +478,11 @@
   (let [tx  (reasoning/taxonomy kb)
         cx  (when-not (unscoped? context) context)
         lim (long (min limit Long/MAX_VALUE))]
-    (reduce (fn [n {:keys [rel inverse?] :as pos}]
+    (reduce (fn [n {:keys [rel along?] :as pos}]
               (let [m (if (= 'genl rel)
-                        (if-some [r (bounded-reach kb inverse? x context)]
+                        (if-some [r (bounded-reach kb along? x context)]
                           (count r)
-                          (if-let [c (if inverse?
+                          (if-let [c (if along?
                                        (tax/specs-within tx x cx lim)
                                        (tax/genls-within tx x cx lim))]
                             (count c)
@@ -991,8 +990,8 @@
   other way round, which is the same walk with the declaration's direction flipped.
   `witness-terms` asks what a *goal* may be stated of; the forward join asks what a
   *claim* licenses, and `(rel a w)` is one relation read from either end."
-  [kb {:keys [rel inverse?]} w context]
-  (witness-terms kb {:rel rel :inverse? (not inverse?)} w context))
+  [kb {:keys [rel along?]} w context]
+  (witness-terms kb {:rel rel :along? (not along?)} w context))
 
 (defn- fact-paths
   "The paths from `a` to `w` over the declared-transitive `rel` that `context` sees and
@@ -1014,12 +1013,12 @@
   here becomes an antecedent of the recorded justification — the same completeness
   `general-supporters` keys on just above.  Under `sclass` a step carries its fact's
   rank, so a route is labelled with its weakest fact as `tax/reach-supports` labels one."
-  [kb rel inverse? a w context sclass]
+  [kb rel along? a w context sclass]
   (let [tx    (reasoning/taxonomy kb)
         label (fn [[h c]] [(supporter-rank sclass h) (if (nil? c) #{} #{c})])
         step  (fn [n]
                 (->> (res/matches-visible
-                      kb (if inverse? (list rel '?rv n) (list rel n '?rv)) context)
+                      kb (if along? (list rel '?rv n) (list rel n '?rv)) context)
                      (keep (fn [[h b]]
                              (let [v (get b '?rv)]
                                (when (and v (not= v n))
@@ -1056,7 +1055,7 @@
   only in where they were said, and the one said more generally covers the other, while
   two said in contexts neither of which sees the other each license the move in a reader
   the other does not reach.  The declarations are taken in content order — `[rel,
-  inverse?]` alone fixes a declaration's sentence, so the asserting context separates
+  along?]` alone fixes a declaration's sentence, so the asserting context separates
   two visible statements of one declaration — and a tie keeps the earlier, so retracting
   one of two equivalent declarations does not withdraw a conclusion by coin-toss.
 
@@ -1069,8 +1068,8 @@
     (let [tx   (reasoning/taxonomy kb)
           alts (into []
                      (mapcat
-                      (fn [{:keys [rel inverse? handle in]}]
-                        (let [[sub super] (if inverse? [w a] [a w])]
+                      (fn [{:keys [rel along? handle in]}]
+                        (let [[sub super] (if along? [w a] [a w])]
                           (if (contains? virtual-relations rel)
                             (for [route (let [k (keyword rel) v (when (= 'genl rel) context)]
                                           (if sclass
@@ -1078,7 +1077,7 @@
                                             (tax/general-reach-supports tx k sub super v)))]
                               {:hs   (into [handle] (map first) route)
                                :ctxs (into [in] (map second) route)})
-                            (when-let [routes (seq (fact-paths kb rel inverse? a w context sclass))]
+                            (when-let [routes (seq (fact-paths kb rel along? a w context sclass))]
                               (with-supporters
                                 (mapv (fn [route]
                                         {:hs   (into [handle] (map first) route)
@@ -1086,7 +1085,7 @@
                                       routes)
                                 (general-supporters kb (list 'transitive rel) context sclass))))))
                       (nm/sort-by-content-key
-                       (juxt #(str (:rel %)) #(str (:inverse? %)) #(str (:in %))) compare poss)))]
+                       (juxt #(str (:rel %)) #(str (:along? %)) #(str (:in %))) compare poss)))]
       (tax/uncovered tx (fn [{:keys [hs ctxs]}]
                           [(reading-rank sclass hs) (tax/context-floor tx ctxs)])
                      alts))))
