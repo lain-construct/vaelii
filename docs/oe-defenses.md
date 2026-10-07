@@ -100,7 +100,7 @@ The objection behind the genl-free rule is that a property such as `alive` is no
 
 **Instead:** metal is a `solid` by default, and mercury is the stated exception.
 
-**Why:** a monotonic "every metal is solid" is false, because mercury is liquid at room temperature. Leaving the state unstated gives up a conclusion that is right for almost every metal anyone will mention. A default states the common case, and the exception keeps the one known counterexample from contradicting it. The choice between a default and a list of the known solid metals turns on new cases: a newly discovered metal, or a hypothesized one, should come out solid unless something says otherwise. A list would conclude nothing about either, so the default is the right form (principle 23).
+**Why:** a monotonic "every metal is solid" is false, because mercury is liquid at room temperature. Leaving the state unstated gives up a conclusion that is right for almost every metal anyone will mention. A default states the common case, and the exception keeps the one known counterexample from contradicting it. The choice between a default and a list of the known solid metals turns on new cases: a newly discovered metal, a hypothesized one, or one in a fictional or counterfactual context should come out solid unless something says otherwise. A list would conclude nothing about any of them, so the default is the right form (principle 23).
 
 **Status:** ruled; not yet merged.
 
