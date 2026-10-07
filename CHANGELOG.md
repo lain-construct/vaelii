@@ -205,8 +205,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   so that a region can be spatiotemporal and intangible at once. `nowhere_never` is in
   no space and at no time — an expression, a language — defined as the intersection of
   `aspatial` and `atemporal`; what has no location in space, or none in time, has no
-  mass, so `aspatial` and `atemporal` are both below `intangible`. `attribute`,
-  `capability`, `fluent`, `organization` and `relation_type` are below `aspatial`, and
+  mass, so `aspatial` and `atemporal` are both below `intangible`. `capability`,
+  `fluent`, `organization` and `relation_type` are below `aspatial`, and
   CxCore places `context` and `language` below `nowhere_never`, so each stays disjoint
   from `spatial` and `spatiotemporal` in every context that sees the kind's placement.
   Every stated `genl` or `disjoint` that a partition, an intersection, a `genl` chain, a
@@ -379,6 +379,22 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
+
+- **CxAbstract does not declare `attribute`.** The shipped KB has no type for a
+  property an object bears, such as a color or a size, and no shipped sentence names
+  `attribute`. The starter's disjointness audit reads 166 types and 13,695 pairs, 3,598
+  of them `:unknown`. `ontology_test` pins the aspatial-kind clash with a `fluent`, and
+  `starter_test` lists the documented types without `attribute`.
+  [taxonomy.md](docs/taxonomy.md).
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* no shipped type replaces `attribute`. A KB that wrote `(attribute X)`
+  declares its own type, for example `(genl attribute aspatial)` with a comment, in a
+  context that sees CxAbstract. Without that declaration the membership stores clean but
+  attaches to nothing in the taxonomy, so its instance reaches neither `aspatial` nor
+  `thing`.
+  *Breaks:* `attribute`
 
 - **`subsumption-statuses` reads a shared subtype that is not separated from itself as
   `:orthogonal`.** A pair neither subsuming the other nor disjoint, with a type below both

@@ -1180,7 +1180,7 @@ their intersection. No edge or disjointness relates `intangible` to `spatial`: a
 of space is `spatiotemporal` and `intangible`.
 
 A kind with no location in any space sits below `aspatial`, which separates it from
-`spatial` and from every CxSpace argument. `capability` (CxCore) and `attribute`,
+`spatial` and from every CxSpace argument. `capability` (CxCore) and
 `fluent`, `organization` and `relation_type` (CxAbstract) are below `aspatial`.
 `context` and `language` are below `nowhere_never` in CxCore, so a spindle member that
 does not see CxAbstract's `expression` lattice reads both as disjoint from `spatial`.
