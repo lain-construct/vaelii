@@ -304,7 +304,7 @@
 
 (def ^:private biology-properties
   "The seven CxLife properties CxUniverse places under the kind each is said of."
-  '{alive organism, dead organism, mortal organism,
+  '{alive biological, dead biological, mortal organism,
     asleep animal, awake animal, breathes_air animal, warm_blooded animal})
 
 (tu/deftest-kb a-type-is-a-noun-and-a-property-is-not-a-type
@@ -1266,7 +1266,7 @@
 (tu/deftest-kb the-folk-taxonomy-settles-every-pair-of-organism-kinds
   ;; Every pair of the kinds below organism is subsumption-related or separated.  grass is
   ;; a plant_class beside tree and flower, so it is apart from each and from oak and rose.
-  ;; The seven biology properties CxUniverse places under organism and animal are states
+  ;; The seven biology properties CxUniverse places under biological, organism and animal are states
   ;; and capacities of an organism rather than kinds of one, so they are left out: each
   ;; crosses the folk taxonomy, and its pairs with it stay unknown.
   (let [props   '#{alive dead mortal asleep awake breathes_air warm_blooded}

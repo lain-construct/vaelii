@@ -476,15 +476,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `abducible_predicate`, `closed_extent_predicate`, `decontextualized_predicate`,
   `forced_decontextualized_predicate` and `target_following_predicate` are placed under
   `predicate`, as `modal_predicate` already was; `sibling_disjoint` under
-  `unary_predicate`, since what it marks is a type. In CxTime, `functional_at_instant` is placed under `function`. CxUniverse states
-  `(genl initially fluent)`: `initially` is CxTime's and `fluent` is CxAbstract's, and
-  CxUniverse is the context that sees both. CxUniverse also places the seven
-  biology properties under the kind each is said of: `alive`, `dead` and `mortal` under
-  `organism`; `asleep`, `awake`, `breathes_air` and `warm_blooded` under `animal`.
-  `ontology_test` runs the sweep over those fifteen and finds none. The sweep also
-  reports `not`, which is left unplaced: a `genl` edge from a connective to `formula`
-  would make it a subtype of the formulas it builds, so its typing is punted to the
-  use/mention batch.
+  `unary_predicate`, since what it marks is a type. In CxTime, `functional_at_instant` is
+  placed under `function`. CxUniverse states `(genl initially fluent)`: `initially` is
+  CxTime's and `fluent` is CxAbstract's, and CxUniverse is the context that sees both.
+  CxUniverse also places the seven biology properties under the kind each is said of:
+  `alive` and `dead` under `biological`, `mortal` under `organism`, and `asleep`, `awake`,
+  `breathes_air` and `warm_blooded` under `animal`; `alive` and `dead` take a `biological`
+  argument, so a dead leaf is no organism. `ontology_test` runs the sweep over those
+  fifteen and finds none.
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).

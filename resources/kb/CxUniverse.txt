@@ -17,10 +17,10 @@
 
 ;; The seven biology properties are CxLife's; animal is CxOrganism's, which CxLife
 ;; does not see.  Each is placed under the kind its arg 1 names, and the three over
-;; organism (CxCore's) are stated here beside the four over animal so the seven read
-;; as one decision.  No kind is placed under any of them.
-(genl alive organism)
-(genl dead organism)
+;; biological and organism (CxCore's) are stated here beside the four over animal so
+;; the seven read as one decision.  No kind is placed under any of them.
+(genl alive biological)
+(genl dead biological)
 (genl mortal organism)
 (genl asleep animal)
 (genl awake animal)
