@@ -170,7 +170,9 @@ the reading means the same on a corpus that never heard of `thing`.
 The denominator (`:names`) is every type-shaped name in the vocabulary, and by
 [naming.md](naming.md) that includes a bare lowercase word: `likes` is a legal predicate
 *and* a legal type name. A unique declared arity other than one excludes a known
-non-unary predicate from both names and edges. Unknown or conflicting arities remain
+non-unary predicate from both names and edges, and so does a `variable_arity`
+declaration: a relation with no fixed length is not a type, so a sub-relation edge such
+as CxCore's `(genl partition covering)` is not an island. Unknown or conflicting arities remain
 candidates, so an untyped root or disconnected unary island is not silently dropped.
 This is why the gap is the finding rather than either fraction on its own.
 

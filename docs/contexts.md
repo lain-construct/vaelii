@@ -79,15 +79,15 @@ Data hangs below CxWell.
   spindle](#a-context-outside-the-spindle)). It also holds the collections at the top
   of the ontology — the parts of the three partitions of `thing`
   ([taxonomy.md](taxonomy.md#the-three-partitions-of-thing)), `spatiotemporal`,
-  `nowhere_never`, `biological`, `organism` and `capability` — which the engine reads by
-  no name (`vaelii.impl.predicates` classifies each inert) and which are here for the
+  `nowhere_never`, `expression`, `biological` and `organism` — which the engine reads
+  by no name (`vaelii.impl.predicates` classifies each inert) and which are here for the
   reason below: the members of a spindle see each other not at all, so a term two of
   them extend has to be defined in the head.
   `starter_test/a-term-two-spindle-members-touch-is-defined-in-the-head` holds that.
 - **the upper spindle's members** (`resources/kb/upper/`) — what things *are*, always
   true, like `genl`. One context per domain (`vaelii.host.starter`), each seeing CxCore
   and seen by CxUniverse:
-  - `CxAbstract` — the kinds hanging off the skeleton CxCore holds (`artifact`,
+  - `CxAbstract` — the kinds hanging off the skeleton CxCore holds (`made`,
     `food`, `substance`, `body_part`, `fluent`, `context`, …) plus the
     structural relations `partOf`/`locatedIn`.
   - `CxOrganism` — the biological taxonomy and its disjointness.

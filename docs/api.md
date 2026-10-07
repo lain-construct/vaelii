@@ -161,15 +161,23 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; thing, and a suggested (genl X P) for every candidate
                                                 ; type a visible cover forces under P that the closure
                                                 ; misses, and every visible (orthogonal a b) a stated
-                                                ; separation of the pair is lifted by. Returns
+                                                ; separation of the pair is lifted by, plus three
+                                                ; review-only smells: sibling types sharing one direct
+                                                ; genl set, stated genl/disjoint edges that derive
+                                                ; without themselves, and disjoint pairs a known cover
+                                                ; exhausts (a candidate partition), and every declared
+                                                ; argument position no arg-type declaration types. Returns
                                                 ; {:status :audited :candidate-count n}
                                                 ; when clean, or :status :gap plus any of the sparse
                                                 ; categories :all-specified-violations,
                                                 ; :definition-inconsistencies, :genl-arg-widening,
-                                                ; :not-under-thing, :implicit-genl and
-                                                ; :orthogonal-over-separation. opts may bound :max-work,
+                                                ; :not-under-thing, :implicit-genl,
+                                                ; :orthogonal-over-separation, :twin-genls,
+                                                ; :derivable-stated-edge,
+                                                ; :disjoint-could-be-partition and :missing-arg. opts may bound :max-work,
                                                 ; :max-ms and :max-results, and :categories names the
-                                                ; passes to run; exhaustion is :truncated,
+                                                ; passes to run. The four review-only passes run only
+                                                ; when :categories names them; exhaustion is :truncated,
                                                 ; never :audited. Work/time check between opaque callbacks
                                                 ; and result pulls (one callback/chunk may overrun);
                                                 ; :max-results absolutely caps returned findings.
@@ -1239,7 +1247,7 @@ exactly one — the unmarked are those whose two ends sit at different levels, o
 level at all (`implies` is a connective; `rewriteOf` takes either role so long as its two
 sides agree; `result` and `genlResult` relate a function to a type;
 `functionCorrespondingPredicate` relates a function to a predicate; `hasCapability`
-relates one animal to a capability kind). The mark is not decoration: it decides which
+relates one animal to an event kind). The mark is not decoration: it decides which
 argument-check family the predicate may use, one for **every** position, which is why a
 mixed predicate cannot carry one — `arg` on a `type_relation_predicate` and `genlArg` on
 an `instance_relation_predicate` are both refused `:arg-constraint-kind`. The distinction is

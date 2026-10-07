@@ -6,9 +6,9 @@
 
   What is pinned here is the structure of the mini-ontology rather than any one inference:
   which names are types and which are properties, that every type is placed under the
-  root, that a capability is related to a kind rather than spelled as a predicate of its
-  own, and how a claim about a kind reaches the kinds beneath it and stops where a nearer
-  claim contradicts it.  Those are decisions somebody made, and every one of them is
+  root, that an ability is an event kind related to a kind rather than spelled as a
+  predicate of its own, and how a claim about a kind reaches the kinds beneath it and
+  stops where a nearer claim contradicts it.  Those are decisions somebody made, and every one of them is
   invisible to a test that only asks whether the KB answers a question.
 
   The genl-level exception is the centre of it.  A rule states its exception with
@@ -28,19 +28,56 @@
 (def ^:private B 'CxBiology)
 (def ^:private N 'CxNaturalWorld)
 
-;; ---- capabilities are related to a kind, not spelled as predicates -------
+;; ---- an ability is an event kind related to a kind, not spelled as a predicate -------
 
-(tu/deftest-kb a-capability-is-a-noun-related-to-a-kind
+(tu/deftest-kb an-ability-is-an-event-kind-related-to-a-kind
   ;; `flies` as a one-place predicate says the same thing, and says it in a shape that
   ;; cannot be generalized: every further ability needs a further predicate, and nothing
-  ;; relates them.  As a capability it is a term, so the abilities form a hierarchy.
-  (testing "the capability names a kind of its own, under capability"
-    (is (v/genl? kb 'flying 'capability))
-    (is (v/genl? kb 'travelling 'capability))
+  ;; relates them.  An ability is named by the kind of event its holder can be the doer
+  ;; of, so the abilities form a hierarchy inside the event kinds.
+  (testing "each ability names a kind of event"
+    (is (v/genl? kb 'flying 'event))
+    (is (v/genl? kb 'travelling 'event))
     (is (v/genl? kb 'flying 'travelling)))
+  (testing "travelling is a causal event, and event and causal both follow from causal_event"
+    (is (v/genl? kb 'travelling 'causal_event))
+    (is (v/genl? kb 'flying 'causal_event))
+    (doseq [k '[travelling flying] super '[event causal]]
+      (is (v/genl? kb k super) (str k " genl " super))))
   (testing "and no one-place flight predicate survives beside it"
     (is (empty? (v/sentexes-matching kb '(arity flies ?n) '?ctx)))
-    (is (empty? (v/sentexes-matching kb '(arity can_travel ?n) '?ctx)))))
+    (is (empty? (v/sentexes-matching kb '(arity can_travel ?n) '?ctx))))
+  (testing "and the starter KB has no capability type beside the event kinds"
+    (is (not (contains? (set (v/terms kb)) 'capability)))
+    (is (empty? (v/find-sentexes kb 'capability)))))
+
+(tu/deftest-kb both-ability-predicates-type-their-second-argument-as-an-event-kind
+  (testing "the declarations"
+    (is (v/ask? kb '(genlArg hasCapability 2 event)))
+    (is (v/ask? kb '(genlArg capabilityType 2 event))))
+  (testing "an event kind nobody listed as an ability is accepted as one"
+    (tu/with-terms [swimming Wanda]
+      (v/assert kb (list 'genl swimming 'event) 'CxUniverse)
+      (v/assert kb (list 'animal Wanda) N)
+      (is (v/assert kb (list 'hasCapability Wanda swimming) N))
+      (is (v/assert kb (list 'capabilityType 'fish swimming) N))))
+  (testing "a kind that is not an event kind is refused by genlArg, against event"
+    (tu/with-terms [Wanda]
+      (v/assert kb (list 'animal Wanda) N)
+      (doseq [s [(list 'hasCapability Wanda 'metal) (list 'capabilityType 'fish 'metal)]]
+        (let [ex (try (v/assert kb s N) nil
+                      (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+          (is (= :arg-genl (:type ex)) (str (pr-str s) " is refused by genlArg"))
+          (is (= 'event (:expected ex)) (str (pr-str s) " is refused against event")))))))
+
+(tu/deftest-kb a-bird-that-flies-travels
+  ;; flying genl travelling, and (transitiveInArg hasCapability 2 genl) carries a
+  ;; claim about flying up to travelling at retrieval.
+  (tu/with-terms [Robin]
+    (v/assert kb (list 'bird Robin) N)
+    (v/assert kb (list 'hasCapability Robin 'flying) N)
+    (is (v/ask? kb (list 'hasCapability Robin 'flying) N))
+    (is (v/ask? kb (list 'hasCapability Robin 'travelling) N))))
 
 (tu/deftest-kb what-a-kind-can-do-reaches-the-kinds-beneath-it
   ;; One sentence is stored.  Everything else here is the taxonomy being read.
@@ -53,7 +90,7 @@
     (is (v/ask? kb '(capabilityType sparrow flying) B)))
   (testing "inherited rather than stored — one sentex carries all of it"
     (is (empty? (v/sentexes-matching kb '(capabilityType eagle flying) '?ctx))))
-  (testing "and it climbs the capability hierarchy: what flies travels"
+  (testing "and it climbs the genl hierarchy of event kinds: what can fly can travel"
     (is (v/ask? kb '(capabilityType bird travelling) B))
     (is (v/ask? kb '(capabilityType eagle travelling) B)))
   (testing "answered by transitiveInArg, so the kind level stores no rule's output"
@@ -100,12 +137,12 @@
   ;; named in prose because the predicate that names pairs cannot take a mixed half.
   (testing "the kind-level half relates kinds, and says so"
     (is (v/ask? kb '(type_relation_predicate capabilityType))))
-  (testing "the instance-level half is MIXED — one animal to one capability kind — so it
+  (testing "the instance-level half is MIXED — one animal to one event kind — so it
             carries no relation_kind, and its two positions take different checks"
     (is (not (v/ask? kb '(instance_relation_predicate hasCapability))))
     (is (not (v/ask? kb '(type_relation_predicate hasCapability))))
     (is (v/ask? kb '(arg hasCapability 1 animal)))
-    (is (v/ask? kb '(genlArg hasCapability 2 capability))))
+    (is (v/ask? kb '(genlArg hasCapability 2 event))))
   (testing "so the pairing cannot be declared — typeToInstancePred constrains its second
             argument to a marked instance half, and this one is mixed"
     (is (thrown? clojure.lang.ExceptionInfo
@@ -291,7 +328,7 @@
       (is (not (v/genl? kb (biology-properties p) p))
           (str (biology-properties p) " is not a kind of " p))))
   (testing "while the kinds they are said of are types, and reach the root"
-    (doseq [t '[animal bird penguin dog person tangible capability flying]]
+    (doseq [t '[animal bird penguin dog person tangible event flying]]
       (is (v/genl? kb t 'thing) (str t " must reach thing")))))
 
 (tu/deftest-kb every-shipped-type-is-placed-under-the-root
@@ -412,8 +449,7 @@
   purpose — each with the reason.  A term absent from this roster that only one member uses
   fails the test below; a term here that gains a second member user fails it too, so the
   roster stays a list of reasons rather than a list of debts."
-  '{capability "the upper-ontology skeleton collection CxLife extends (vaelii.impl.predicates); the head holds it so a member can place a capability under the root"
-    denotational_term "the logic sense of `term`, vocabulary the head documents; only CxAbstract links it into the expression lattice today"
+  '{denotational_term "the logic sense of `term`, vocabulary the head documents; only CxAbstract links it into the expression lattice today"
     formula "the formula-ladder type the head documents beside the grammar sense; only CxAbstract places it under expression today"
     relation_application "an expression kind the head documents; only CxAbstract places it under expression today"
     typeToInstancePred "a relation-linking predicate the head declares as vocabulary; only CxAbstract uses it (partType / partOf) today"})
@@ -868,7 +904,6 @@
   their route through `expression` is CxAbstract's, which no band context sees."
   '{relation_type [CxAbstract]
     fluent        [CxAbstract]
-    capability    [CxCore CxLife]
     organization  [CxAbstract]
     context       [CxCore CxSpace CxSociety]
     language      [CxCore CxSpace CxSociety]})
@@ -909,6 +944,27 @@
     (is (true? (v/ask? kb (list 'spatial Meadow) 'CxUniverse)))
     (is (not (v/ask? kb (list 'tangible Meadow) 'CxUniverse)))))
 
+(tu/deftest-kb a-partition-is-stated-a-cover-and-a-separation
+  ;; Every partition is a cover and a separation, so CxCore says so with two sub-relation
+  ;; edges.  What they add is a query for the weaker spelling answering the stronger one,
+  ;; and nothing the other way.
+  (doseq [super '[covering separating]]
+    (is (true? (v/ask? kb (list 'genl 'partition super) 'CxUniverse))
+        (str "(genl partition " super ") is believed"))
+    (is (true? (v/genl? kb 'partition super))))
+  (tu/with-terms [whole_kind part_a part_b part_c Item]
+    (v/assert kb (list 'partition whole_kind part_a part_b) 'CxUniverse)
+    (testing "a partition answers a covering query and a separating query"
+      (is (true? (v/ask? kb (list 'covering whole_kind part_a part_b) 'CxUniverse)))
+      (is (true? (v/ask? kb (list 'separating whole_kind part_a part_b) 'CxUniverse))))
+    (testing "and a cover is not read as a partition"
+      (v/assert kb (list 'covering whole_kind part_a part_c) 'CxUniverse)
+      (is (not (v/ask? kb (list 'partition whole_kind part_a part_c) 'CxUniverse))))
+    (testing "the coverage inference reads the partition as it did before"
+      (v/assert kb (list whole_kind Item) 'CxUniverse)
+      (v/assert kb (list 'not (list part_a Item)) 'CxUniverse)
+      (is (true? (v/ask? kb (list part_b Item) 'CxUniverse))))))
+
 (def ^:private derivable-and-unstated
   "Relations the shipped KB holds without stating them, each with the context that held
   the sentence before it was removed and the route it is derived by instead.  A
@@ -922,7 +978,13 @@
     [genl nowhere_never intangible CxCore "nowhere_never genl aspatial genl intangible"]
     [genl nowhere_never aspatial CxCore "intersection nowhere_never aspatial atemporal"]
     [genl nowhere_never atemporal CxCore "intersection nowhere_never aspatial atemporal"]
-    [genl capability intangible CxCore "capability genl aspatial genl intangible"]
+    [genl number thing CxCore "number genl unrepresented_term genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
+    [genl keyword thing CxCore "keyword genl unrepresented_term genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
+    [genl boolean thing CxCore "boolean genl unrepresented_term genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
+    [genl character thing CxCore "character genl unrepresented_term genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
+    [genl denotational_term thing CxCore "denotational_term genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
+    [genl formula thing CxCore "formula genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
+    [genl context nowhere_never CxCore "context genl expression genl nowhere_never"]
     [genl relation_type intangible CxAbstract "relation_type genl aspatial genl intangible"]
     [genl fluent intangible CxAbstract "fluent genl aspatial genl intangible"]
     [genl organization intangible CxAbstract "organization genl aspatial genl intangible"]
@@ -947,7 +1009,13 @@
     [genl character intangible CxAbstract "character genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl context intangible CxAbstract "context genl expression genl nowhere_never genl intangible"]
     [genl language intangible CxAbstract "language genl nowhere_never genl intangible"]
-    [genl building artifact CxAbstract "building genl container genl artifact"]
+    [genl building made CxAbstract "building genl container genl made"]
+    [genl made tangible CxAbstract "partition tangible made natural"]
+    [genl natural tangible CxAbstract "partition tangible made natural"]
+    [genl formation tangible CxAbstract "formation genl natural genl tangible"]
+    [disjoint formation made CxAbstract "formation genl natural; partition tangible made natural"]
+    [disjoint formation organism CxAbstract "organism genl biological; separating tangible formation biological"]
+    [disjoint formation body_part CxAbstract "body_part genl biological; separating tangible formation biological"]
     [genl asymmetric binary_predicate CxCore "asymmetric genl anti_symmetric genl binary_predicate"]
     [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
     [disjoint number predicate CxAbstract "number genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
@@ -1082,20 +1150,20 @@
     (is (true? (v/ask? kb (list 'food Drumstick) 'CxUniverse)))
     (is (true? (v/ask? kb (list 'body_part Drumstick) 'CxUniverse)))))
 
-(tu/deftest-kb an-organism-or-a-body-part-can-be-an-artifact
-  ;; An artifact is something intentionally made, so an engineered bacterium or an organ
-  ;; grown in a lab is both.  The pair is declared orthogonal rather than disjoint.
-  (is (not (v/disjoint? kb 'biological 'artifact)))
-  (is (not (v/disjoint? kb 'organism 'artifact)))
-  (is (not (v/disjoint? kb 'body_part 'artifact)))
+(tu/deftest-kb an-organism-or-a-body-part-can-be-made
+  ;; Something made can be biological too: an engineered bacterium, an organ grown in a
+  ;; lab, a cloned sheep.  The pair is declared orthogonal rather than disjoint.
+  (is (not (v/disjoint? kb 'biological 'made)))
+  (is (not (v/disjoint? kb 'organism 'made)))
+  (is (not (v/disjoint? kb 'body_part 'made)))
   (tu/with-terms [Engineered LabKidney]
     (v/assert kb (list 'organism Engineered) 'CxUniverse)
-    (is (not (tu/stored-in-clash? kb (list 'artifact Engineered) 'CxUniverse))
-        "an organism that is also an artifact is no clash")
-    (is (true? (v/ask? kb (list 'artifact Engineered) 'CxUniverse)))
+    (is (not (tu/stored-in-clash? kb (list 'made Engineered) 'CxUniverse))
+        "an organism that is also made is no clash")
+    (is (true? (v/ask? kb (list 'made Engineered) 'CxUniverse)))
     (v/assert kb (list 'body_part LabKidney) 'CxUniverse)
-    (is (not (tu/stored-in-clash? kb (list 'artifact LabKidney) 'CxUniverse))
-        "a body part that is also an artifact is no clash"))
+    (is (not (tu/stored-in-clash? kb (list 'made LabKidney) 'CxUniverse))
+        "a body part that is also made is no clash"))
   (testing "while a biological thing stays apart from a substance"
     (is (true? (v/disjoint? kb 'organism 'substance)))
     (is (true? (v/disjoint? kb 'body_part 'substance)))))
@@ -1233,3 +1301,109 @@
     (is (true? (v/ask? kb (list 'orthogonal 'dog tended) 'CxUniverse)))
     (is (= :orthogonal (v/subsumption-status kb 'dog tended)))
     (is (not-any? #(= :forced-conclusion (:violation %)) (v/violations kb)))))
+
+(tu/deftest-kb artifact-is-declared-nowhere-and-the-seven-kinds-are-made
+  ;; The KB declares no artifact term and no alias for one.  building, clothing,
+  ;; container, furniture, machine, tool and vehicle are kinds of made.
+  (is (empty? (v/sentexes-matching kb '(comment artifact ?text) '?ctx)))
+  (is (empty? (v/sentexes-matching kb '(genl artifact ?type) '?ctx)))
+  (is (empty? (v/sentexes-matching kb '(genl ?type artifact) '?ctx)))
+  (is (= 1 (count (v/sentexes-matching kb '(comment made ?text) 'CxAbstract))))
+  (doseq [t '[building clothing container furniture machine tool vehicle]]
+    (is (true? (v/genl? kb t 'made 'CxAbstract)) (str t " is made")))
+  (doseq [t '[clothing container furniture machine tool vehicle]]
+    (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl t 'made) 'CxAbstract))
+        (str "(genl " t " made) is stated"))))
+
+;; ---- made and natural ------------------------------------------------------
+;; made and natural partition tangible.  A formation is a natural tangible that nothing
+;; grew and nobody made.  biological is orthogonal to made and to natural.
+
+(tu/deftest-kb made-and-natural-partition-tangible
+  (is (true? (v/disjoint? kb 'made 'natural)))
+  (is (true? (v/genl? kb 'made 'tangible 'CxAbstract)))
+  (is (true? (v/genl? kb 'natural 'tangible 'CxAbstract)))
+  (is (= 1 (count (v/sentexes-matching kb '(comment natural ?text) 'CxAbstract))))
+  (testing "a tangible cannot be both"
+    (tu/with-terms [Hybrid1]
+      (v/assert kb (list 'made Hybrid1) 'CxUniverse)
+      (is (true? (tu/stored-in-clash? kb (list 'natural Hybrid1) 'CxUniverse)))))
+  (testing "and a tangible denied being made is natural — the coverage half"
+    (tu/with-terms [Pebble1]
+      (v/assert kb (list 'tangible Pebble1) 'CxUniverse)
+      (v/assert kb (list 'not (list 'made Pebble1)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'natural Pebble1) 'CxUniverse))))))
+
+(tu/deftest-kb a-formation-is-natural-and-never-made
+  (is (true? (v/genl? kb 'formation 'natural 'CxAbstract)))
+  (is (= 1 (count (v/sentexes-matching kb '(comment formation ?text) 'CxAbstract))))
+  (tu/with-terms [Rock1]
+    (v/assert kb (list 'formation Rock1) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'natural Rock1) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'tangible Rock1) 'CxUniverse)))
+    (is (true? (tu/stored-in-clash? kb (list 'made Rock1) 'CxUniverse))
+        "a formation that is also made is a clash, by the partition")))
+
+(tu/deftest-kb a-formation-is-not-biological
+  (is (true? (v/disjoint? kb 'formation 'biological)))
+  (is (true? (v/disjoint? kb 'formation 'organism)) "the separation reaches below biological")
+  (tu/with-terms [Crystal1]
+    (v/assert kb (list 'formation Crystal1) 'CxUniverse)
+    (is (true? (tu/stored-in-clash? kb (list 'biological Crystal1) 'CxUniverse)))))
+
+(tu/deftest-kb a-wild-sheep-is-natural-and-biological
+  ;; biological is orthogonal to made and to natural.  A wild sheep is natural and
+  ;; biological, and a cloned sheep is made and biological.
+  (is (not (v/disjoint? kb 'biological 'natural)))
+  (is (not (v/disjoint? kb 'sheep 'natural)))
+  (tu/with-terms [WildSheep1]
+    (v/assert kb (list 'sheep WildSheep1) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'natural WildSheep1) 'CxUniverse))
+        "a sheep that is natural is no clash")
+    (is (true? (v/ask? kb (list 'natural WildSheep1) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'biological WildSheep1) 'CxUniverse)))
+    (is (not (v/ask? kb (list 'made WildSheep1) 'CxUniverse)))))
+
+(tu/deftest-kb a-substance-can-be-made
+  ;; Steel is a made substance, so nothing separates substance from made.
+  (is (not (v/disjoint? kb 'substance 'made)))
+  (is (not-any? #(v/premise? kb (:id %)) (v/sentexes-matching kb '(disjoint substance made) '?ctx)))
+  (tu/with-terms [Steel1]
+    (v/assert kb (list 'substance Steel1) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'made Steel1) 'CxUniverse))
+        "a substance that is also made is no clash")
+    (is (true? (v/ask? kb (list 'made Steel1) 'CxUniverse)))))
+
+;; ---- orthogonal pairs across made and natural -------------------------------
+;; In each pair the two types overlap and neither subsumes the other.  An orthogonal is
+;; not inherited along genl, so the KB states each pair.  Each witness is an individual
+;; in both types.
+
+(def ^:private cross-cutting
+  '[[organism made Dolly1] [organism natural WildSheep1]
+    [body_part made LabBladder1] [body_part natural Heart1]
+    [substance made Steel1] [substance natural Water1] [substance formation Sand1]
+    [food made Bread1] [food natural Apple1] [food biological Apple2]
+    [food formation SeaSalt1]])
+
+(tu/deftest-kb what-cuts-across-made-and-natural-is-stated-orthogonal
+  (doseq [[a b witness] cross-cutting]
+    (testing (str a " and " b)
+      (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'orthogonal a b) 'CxAbstract))
+          (str "(orthogonal " a " " b ") is stated"))
+      (is (= :orthogonal (v/subsumption-status kb a b)) "the pair reads orthogonal")
+      (is (not (v/disjoint? kb a b)))
+      (let [w (tu/fresh-term :individual witness)]
+        (v/assert kb (list a w) 'CxUniverse)
+        (is (not (tu/stored-in-clash? kb (list b w) 'CxUniverse))
+            (str "a " a " that is " b " is no clash"))
+        (is (true? (v/ask? kb (list b w) 'CxUniverse)))))))
+
+(tu/deftest-kb a-body-part-is-made-of-a-substance
+  ;; Nothing is both biological and a substance.  madeOf relates a biological thing to the
+  ;; substance it is made of, so a trunk made of wood is no clash.
+  (tu/with-terms [Trunk1 WoodPortion1]
+    (v/assert kb (list 'body_part Trunk1) 'CxUniverse)
+    (v/assert kb (list 'substance WoodPortion1) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'madeOf Trunk1 WoodPortion1) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'madeOf Trunk1 WoodPortion1) 'CxUniverse)))))

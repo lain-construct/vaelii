@@ -1,7 +1,7 @@
 ;; CxLife — relations about organisms: kinship (parentOf/childOf/siblingOf/
 ;; ancestorOf/grandparentOf), age (birthYearOf/olderThan/mortal), and behaviour
-;; (eats, and the capabilityType/hasCapability pair over the capability kinds
-;; flying/travelling). Sees
+;; (eats, and the capabilityType/hasCapability pair, whose second argument is an
+;; event kind such as CxAbstract's flying or travelling). Sees
 ;; CxCore; CxUniverse sees it, so any relation here is visible from every
 ;; context.
 
@@ -78,10 +78,6 @@
 (arg fatherOf 2 animal)
 (set/monotonic (functional fatherOf))
 
-(comment flying
-         "Getting through the air under one's own power. A kind of travelling, so a kind that flies travels without that being written down twice.")
-(genl flying travelling)
-
 (comment grandparentOf
          "(grandparentOf ?grandparent ?grandchild) means that ?grandparent is a parent of a parent of ?grandchild. Derived by a joined rule over two parentOf facts rather than asserted, so it is believed exactly as long as both links are.")
 (binary_predicate grandparentOf)
@@ -90,19 +86,19 @@
 (arg grandparentOf 2 organism)
 
 (comment capabilityType
-         "(capabilityType ?kind ?capability) means that a ?kind can do ?capability. The type-level reading of hasCapability: (capabilityType bird flying) says the kind flies, where (hasCapability Tweety flying) says one bird does. Two predicates rather than one because they are two claims — a claim about a kind and a claim about a member — and one symbol read at both levels has to declare one position's argument check for both, which is a choice that convicts whichever half it was not written for. Declared transitiveInArgInverse along genl on the FIRST position, which carries a claim about a kind down to its subkinds: a kind of bird flies with nothing written about it. Declared transitiveInArg along genl on the second, which carries it UP the capability hierarchy: flying is a kind of travelling, so whatever flies travels. Paired with hasCapability, and the pairing moves no claim between the two: going from the kind to its members needs a quantifier reading (every bird, or some bird) that nothing here fixes, so the descent is a rule written where the kinds are. The comment below hasCapability says why that pairing is prose rather than a typeToInstancePred sentex.")
+         "(capabilityType ?kind ?eventKind) means that a ?kind can be the doer of an event of kind ?eventKind. The type-level reading of hasCapability: (capabilityType bird flying) says the kind flies, where (hasCapability Tweety flying) says one bird does. Two predicates rather than one because they are two claims — a claim about a kind and a claim about a member — and one symbol read at both levels has to declare one position's argument check for both, which is a choice that convicts whichever half it was not written for. Declared transitiveInArgInverse along genl on the FIRST position, which carries a claim about a kind down to its subkinds: a kind of bird flies with nothing written about it. Declared transitiveInArg along genl on the second, which carries it UP the genl hierarchy of event kinds: flying is a kind of travelling, so a kind that can fly can travel. Paired with hasCapability, and the pairing moves no claim between the two: going from the kind to its members needs a quantifier reading (every bird, or some bird) that nothing here fixes, so the descent is a rule written where the kinds are. The comment below hasCapability says why that pairing is prose rather than a typeToInstancePred sentex.")
 (binary_predicate capabilityType)
 (type_relation_predicate capabilityType)
 (genlArg capabilityType 1 animal)
-(genlArg capabilityType 2 capability)
+(genlArg capabilityType 2 event)
 (transitiveInArgInverse capabilityType 1 genl)
 (transitiveInArg capabilityType 2 genl)
 
 (comment hasCapability
-         "(hasCapability ?animal ?capability) means that ?animal can do ?capability. The instance-level reading: (hasCapability Tweety flying) says this bird flies and says nothing about birds, where the claim about the kind is capabilityType. The descent from the one to the other is a rule written where the kinds are, never an inference from the pairing. Carries no relation_kind because it is MIXED — the first position holds one animal and takes arg, the second names a capability KIND and takes genlArg — and the metatype classifies a predicate whose two ends sit at one level, so result and functionCorrespondingPredicate are left unmarked for the same reason. Declared transitiveInArg along genl on the second position, which carries a claim up the capability hierarchy: whatever flies travels.")
+         "(hasCapability ?animal ?eventKind) means that ?animal can be the doer of an event of kind ?eventKind. The instance-level reading: (hasCapability Tweety flying) says this bird can fly and says nothing about birds, where the claim about the kind is capabilityType. The descent from the one to the other is a rule written where the kinds are, never an inference from the pairing. Carries no relation_kind because it is MIXED — the first position holds one animal and takes arg, the second names an event KIND and takes genlArg — and the metatype classifies a predicate whose two ends sit at one level, so result and functionCorrespondingPredicate are left unmarked for the same reason. Declared transitiveInArg along genl on the second position, which carries a claim up the genl hierarchy of event kinds: flying is a kind of travelling, so whatever can fly can travel.")
 (binary_predicate hasCapability)
 (arg hasCapability 1 animal)
-(genlArg hasCapability 2 capability)
+(genlArg hasCapability 2 event)
 (transitiveInArg hasCapability 2 genl)
 
 ;; The pairing is stated in both comments above and NOT as (typeToInstancePred
@@ -110,7 +106,7 @@
 ;; second argument to an instance_relation_predicate, and hasCapability carries no
 ;; relation_kind because it is mixed.  So the one link that records a type/instance pair
 ;; cannot record a pair whose instance half is mixed.  Declaring the mark to satisfy it
-;; would cost (genlArg hasCapability 2 capability) — an argument check that convicts —
+;; would cost (genlArg hasCapability 2 event) — an argument check that convicts —
 ;; to gain a link the engine reads nothing from (vocabulary/roster calls it inert), so
 ;; the check stays and the pairing is prose.
 
@@ -172,10 +168,6 @@
 (arg siblingOf 1 organism)
 (arg siblingOf 2 organism)
 (symmetric siblingOf)
-
-(comment travelling
-         "Getting from one place to another under one's own power. The general capability flying is a kind of; a kind that can travel some other way states that way's capability under it too.")
-(genl travelling capability)
 
 (comment warm_blooded
          "(warm_blooded ?animal) means that ?animal holds its own body temperature rather than taking the temperature around it. Derived of the mammals and the birds and denied of the three cold-blooded classes, so it is never asserted of any particular animal — which is what makes it a worked example of a claim inherited from a kind rather than stated of a thing.")

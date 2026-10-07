@@ -83,3 +83,26 @@
                 (time_point ?instant)
                 (unknown (clippedBefore ?fluent ?instant)))
            (holdsAt ?fluent ?instant)))
+
+;; ---- when an input and an output exist, against their event ----------------
+;; Each rule concludes a point relation over (StartFn X) and (EndFn X), which the point
+;; network reads.  An output starts at or after its event's start and at or before its
+;; event's end.  A destroyed input ends at or after its event's start and at or before its
+;; event's end.  An input starts at or before its event's end.  A preserved input ends
+;; after its event's end.  The rules chain forward, so with the point reasoner registered
+;; a stated order that contradicts a conclusion is a qualitative inconsistency.  Each
+;; conjunctive consequent splits into one rule per conjunct.
+(set/forwardRule
+ (implies (and (output ?e ?x))
+          (and (instantNotBefore (StartFn ?x) (StartFn ?e))
+               (instantNotAfter (StartFn ?x) (EndFn ?e)))))
+(set/forwardRule
+ (implies (and (destroyedInput ?e ?x))
+          (and (instantNotBefore (EndFn ?x) (StartFn ?e))
+               (instantNotAfter (EndFn ?x) (EndFn ?e)))))
+(set/forwardRule
+ (implies (and (input ?e ?x))
+          (instantNotAfter (StartFn ?x) (EndFn ?e))))
+(set/forwardRule
+ (implies (and (preservedInput ?e ?x))
+          (instantAfter (EndFn ?x) (EndFn ?e))))

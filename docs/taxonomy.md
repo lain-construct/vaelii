@@ -1191,10 +1191,14 @@ their intersection. No edge or disjointness relates `intangible` to `spatial`: a
 of space is `spatiotemporal` and `intangible`.
 
 A kind with no location in any space sits below `aspatial`, which separates it from
-`spatial` and from every CxSpace argument. `capability` (CxCore) and
-`fluent`, `organization` and `relation_type` (CxAbstract) are below `aspatial`.
-`context` and `language` are below `nowhere_never` in CxCore, so a spindle member that
-does not see CxAbstract's `expression` lattice reads both as disjoint from `spatial`.
+`spatial` and from every CxSpace argument. `fluent`, `organization` and `relation_type`
+(CxAbstract) are below `aspatial`.
+The `expression` lattice is in CxCore. `expression` is below `nowhere_never`, and
+`context`, `relation`, `formula`, `relation_application`, `denotational_term` and
+`unrepresented_term` are below `expression`. The value kinds `string`, `number`,
+`keyword`, `boolean` and `character` are below `unrepresented_term`. `language` is below
+`nowhere_never` in CxCore too. Every spindle member therefore reads each of these kinds as
+disjoint from `spatial`.
 `ontology_test` pins each separation from the contexts that read it.
 
 ## Predicate metadata
@@ -1817,7 +1821,7 @@ Four restrictions keep the arm to what it can actually prove:
   its author meant; an existential is skipped because its variables are local.
 - **Declared disjointness only**, so the arm stays as open-world as the ground one. The
   value kinds carry the declaration that makes the case above bite — each is an
-  `unrepresented_term`, and `(disjoint unrepresented_term relation)` in CxAbstract
+  `unrepresented_term`, and `(disjoint unrepresented_term relation)` in CxCore
   separates it from every predicate, text and a number each being a thing no relation
   is, and `number` carrying `integer` with it.
   `symbol` deliberately carries neither: a name is exactly how a predicate is written, so

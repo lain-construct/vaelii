@@ -261,7 +261,7 @@
       (v/assert kb (list 'genlCx widgets 'CxCore)     'CxUniverse)
       (v/assert kb (list 'genlCx 'CxUniverse widgets) 'CxUniverse)
       ;; universal domain vocabulary defined once, in the sibling context
-      (v/assert kb (list 'genl widget 'artifact)  widgets)
+      (v/assert kb (list 'genl widget 'made)      widgets)
       (v/assert kb (list 'arg priceOf 1 widget) widgets)
       (v/assert kb (list widget gadget)            widgets)
       (testing "the sibling sits among the upper spindle's members"
@@ -270,7 +270,7 @@
         (is (tax/sees? (reasoning/taxonomy kb) 'CxNaturalWorld widgets)))   ; via Universe, through Well
       (testing "the sibling's vocabulary is visible from a data context"
         (is (v/isa? kb gadget widget     'CxNaturalWorld))
-        (is (v/isa? kb gadget 'artifact  'CxNaturalWorld)))          ; genl widget artifact
+        (is (v/isa? kb gadget 'made      'CxNaturalWorld)))          ; genl widget made
       (testing "a fact using the sibling's term is allowed from the data context"
         (v/assert kb (list priceOf gadget 10) 'CxNaturalWorld)      ; gadget is a widget: OK
         (is (seq (v/sentexes-matching kb (list priceOf gadget 10) 'CxNaturalWorld))))

@@ -188,7 +188,7 @@
     :rests-on [['(implies (and (partOf ?part ?whole) (locatedIn ?whole ?place))
                           (locatedIn ?part ?place))
                 'CxMereology]]
-    :premises '[(vehicle CarEx) (artifact WheelEx) (building GarageEx)
+    :premises '[(vehicle CarEx) (made WheelEx) (building GarageEx)
                 (partOf WheelEx CarEx) (locatedIn CarEx GarageEx)]
     :goal '(locatedIn WheelEx GarageEx) :expect :yes}
 
@@ -198,7 +198,7 @@
             rule, and every part of everything anyone owns follows."
     :rests-on [['(implies (and (owns ?p ?whole) (partOf ?part ?whole)) (owns ?p ?part))
                 'CxMereology]]
-    :premises '[(person AdaEx) (vehicle CarEx) (artifact WheelEx)
+    :premises '[(person AdaEx) (vehicle CarEx) (made WheelEx)
                 (owns AdaEx CarEx) (partOf WheelEx CarEx)]
     :goal '(owns AdaEx WheelEx) :expect :yes}
 
@@ -247,7 +247,7 @@
             what it has not been told."
     :rests-on [['(arg eats 2 food) 'CxLife]
                ['(genl building container) 'CxAbstract]
-               ['(genl container artifact) 'CxAbstract]]
+               ['(genl container made) 'CxAbstract]]
     :premises '[(dog RexEx) (building GarageEx)]
     :kind :refusal
     :refuse '(eats RexEx GarageEx)}

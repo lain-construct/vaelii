@@ -102,7 +102,7 @@ kind it had not yet stated — while the same pair written in the other order wa
 That asymmetry is not by itself the argument for dropping the row. The refusal half is
 order-sensitive wherever a declaration narrows a type the argument already holds, by the
 design stated below under "Three directions": it convicts on an absence, so a KB given
-`(arg ownsGadget 1 gadget)`, `(artifact Widget)` and `(ownsGadget Widget Widget)` in
+`(arg ownsGadget 1 gadget)`, `(made Widget)` and `(ownsGadget Widget Widget)` in
 different orders holds different facts, and no change here alters that. What these six
 marks had on top of it is a declared type their own `genl` parent already supplies — the
 declaration demanded its own conclusion — so the six declare no position:
