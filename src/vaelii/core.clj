@@ -4112,52 +4112,78 @@
   [kb result]
   (abduce/discard! kb (if (map? result) (:context result) result) abduce-ops))
 
+(defn- subsumption-reading
+  "`{:statuses ss :witness w :via t}` for types `a` and `b`: `ss` is the set
+  `subsumption-statuses` returns, and `w` names what put `:orthogonal` in it — `:declared`,
+  `:shared-instance` or `:shared-spec` — with `t` the instance or the subtype it found
+  (nil for `:declared`).  `w` and `t` are nil when `ss` holds no `:orthogonal`."
+  [kb a b context]
+  (let [a<b (genl? kb a b)
+        b<a (genl? kb b a)
+        sep (disjoint? kb a b context)
+        ;; the declaration, read facts-only like the shared instance below.  Asked in one
+        ;; spelling: `orthogonal` is symmetric, so the goal folds onto the stored order.
+        declared? (boolean (seq (query kb (list 'orthogonal a b) context {:max-depth 0})))
+        open?     (and (not a<b) (not b<a) (not sep))
+        ;; The shared-instance check is facts-only, pinned with `{:max-depth 0}` so it
+        ;; expands no rule under a caller's `*query-options*` depth: a node-engine search
+        ;; of `(a ?x)` over the whole starter, once per taxonomy-open pair, hangs.
+        instance  (when (and open? (not declared?))
+                    (some #(let [x (get % '?x)] (when (isa? kb x b context) x))
+                          (query kb (list a '?x) context {:max-depth 0})))
+        ;; A shared subtype counts only when it is not provably empty.  The one emptiness
+        ;; the engine proves is a type below two separated types, which `disjoint?` reads
+        ;; as the type separated from itself; `wff` refuses a stated `(disjoint c c)`.
+        ;; Of several, the one with the most subtypes is reported, so the audit names the
+        ;; widest shared subtype rather than a leaf below it.
+        spec      (when (and open? (not declared?) (nil? instance))
+                    (let [sb (specs kb b)
+                          cs (nm/by-print-key
+                              (filter #(and (contains? sb %) (not= % a) (not= % b)
+                                            (not (disjoint? kb % % context)))
+                                      (specs kb a)))]
+                      (when (seq cs) (apply max-key #(count (specs kb %)) cs))))
+        [w t]     (cond declared? [:declared nil]
+                        instance  [:shared-instance instance]
+                        spec      [:shared-spec spec])]
+    {:statuses (cond-> #{}
+                 (and a<b b<a)       (conj :coextensional)
+                 (and a<b (not b<a)) (conj :genl)
+                 (and b<a (not a<b)) (conj :spec)
+                 sep                 (conj :disjoint)
+                 w                   (conj :orthogonal))
+     :witness  w
+     :via      t}))
+
 (defn subsumption-statuses
   "The set of applicable subsumption relationships between types `a` and `b`: any subset
   of `#{:coextensional :genl :spec :disjoint :orthogonal}`. A consistent pair yields a
   singleton; an inconsistent pair (e.g. both genl-related and disjoint) yields multiple;
   a pair with no provable relationship yields the empty set.
 
-  `genl?` reads the global cached closure. `disjoint?` and the two `:orthogonal`
-  witnesses are read from `context` (default `CxUniverse`, the upper spindle's
-  collector), because a read sees only its own context and that context's `genlCx`
-  ancestors, and an `orthogonal` exempts its pair only where it is seen; a caller whose
-  declarations or instances live in a narrower context passes it so they are visible.
-  The witnesses are a stated `(orthogonal a b)` (either spelling, the predicate being
-  symmetric), and a member of `a` that is also a member of `b` where neither type
-  subsumes the other and the pair is not disjoint. Both are facts-only reads (`{:max-depth
-  0}`), so the status is the same under every query engine.
+  `genl?` reads the global cached closure. `disjoint?` and the `:orthogonal` witnesses
+  are read from `context` (default `CxUniverse`, the upper spindle's collector), because
+  a read sees only its own context and that context's `genlCx` ancestors, and an
+  `orthogonal` exempts its pair only where it is seen; a caller whose declarations or
+  instances live in a narrower context passes it so they are visible. `:orthogonal` has
+  three witnesses: a stated `(orthogonal a b)` (either spelling, the predicate being
+  symmetric); a member of `a` that is also a member of `b`; or a type that is a subtype
+  of both and is not separated from itself at `context` — a type below two separated
+  types is empty, so it shows no overlap. The declaration and the shared instance are
+  facts-only reads (`{:max-depth 0}`), so the status is the same under every query
+  engine. The shared subtypes are read from the global `specs` closures, as `genl?` is.
 
   The declaration stands alone: a declared pair that is also genl-related, or separated
   through two supertypes the declaration does not exempt, yields both statuses, which
   `subsumption-status` reads as `:inconsistent`. A declaration over the separated pair
-  itself exempts it, so that pair reads `:orthogonal` alone. The shared instance settles
-  only a pair the taxonomy and the separations leave open.
+  itself exempts it, so that pair reads `:orthogonal` alone. The shared instance and the
+  shared subtype each settle only a pair the taxonomy and the separations leave open.
 
   `:coextensional` is two distinct types each `genl` the other — a `genl` cycle, which
   `wff` refuses at assertion, so it appears only from a belief-state cycle or an equality
   merge, never from a plainly-asserted hierarchy."
   ([kb a b] (subsumption-statuses kb a b 'CxUniverse))
-  ([kb a b context]
-   (let [a<b (genl? kb a b)
-         b<a (genl? kb b a)
-         ;; the declaration, read facts-only like the shared instance below.  Asked in one
-         ;; spelling: `orthogonal` is symmetric, so the goal folds onto the stored order.
-         declared? (boolean (seq (query kb (list 'orthogonal a b) context {:max-depth 0})))]
-     (cond-> #{}
-       (and a<b b<a)                                        (conj :coextensional)
-       (and a<b (not b<a))                                  (conj :genl)
-       (and b<a (not a<b))                                  (conj :spec)
-       (disjoint? kb a b context)                           (conj :disjoint)
-       ;; The shared-instance check is facts-only, pinned with `{:max-depth 0}` so it
-       ;; expands no rule under a caller's `*query-options*` depth: a node-engine search
-       ;; of `(a ?x)` over the whole starter, once per taxonomy-open pair, hangs.
-       ;; `:orthogonal`'s witness is a shared instance the registry answers without rule
-       ;; expansion.
-       (or declared?
-           (and (not a<b) (not b<a) (not (disjoint? kb a b context))
-                (boolean (some #(isa? kb (get % '?x) b context)
-                               (query kb (list a '?x) context {:max-depth 0}))))) (conj :orthogonal)))))
+  ([kb a b context] (:statuses (subsumption-reading kb a b context))))
 
 (defn subsumption-status
   "The subsumption relationship of type `a` to type `b`, one of:
@@ -4165,7 +4191,7 @@
   subtype of `b`), `:spec` (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint`
   (provably no shared instance), `:orthogonal` (a stated `(orthogonal a b)`, or neither
   subsumes the other and not disjoint, but a shared instance the registry answers without
-  rule expansion exists),
+  rule expansion exists, or a shared subtype not separated from itself),
   `:unknown` (none of the above is provable), or `:inconsistent` (multiple contradictory
   relationships hold, e.g. both genl-related and disjoint).
 
@@ -4185,7 +4211,7 @@
   "The `subsumption-status` of every unordered pair of distinct types in the genl
   hierarchy — its nodes less the relations a `genl` edge between relations names, which
   are not types: a declared arity of two or more, or `variable_arity`. Returns
-  `{:types n :pairs n :by-status {status count …} :pairs-data [{:a t :b t :status s} …]}`. `genl?` and `disjoint?` read cached closures, and the
+  `{:types n :pairs n :by-status {status count …} :pairs-data [{:a t :b t :status s :statuses ss} …]}`. `genl?` and `disjoint?` read cached closures, and the
   shared-instance query runs only for a pair the taxonomy and disjoint declarations
   leave open — pinned facts-only (`{:max-depth 0}`), so the N² sweep expands no rule.
   `context` is the vantage `disjoint?` and the `:orthogonal` witnesses are read from
@@ -4193,7 +4219,9 @@
   the resolved `:status` keyword and the raw `:statuses` set from `subsumption-statuses`,
   so contradictions are visible without re-querying. The `:unknown` pairs are the
   candidates for a missing `disjoint` or `orthogonal` assertion; a declared `orthogonal`
-  pair reads `:orthogonal`, never `:unknown`."
+  pair reads `:orthogonal`, never `:unknown`. An entry whose `:statuses` holds
+  `:orthogonal` also carries `:witness` — `:declared`, `:shared-instance` or
+  `:shared-spec` — and, for the last two, `:via`, the instance or the subtype found."
   ([kb] (disjointness-audit kb 'CxUniverse))
   ([kb context]
    ;; `by-print-key`, never bare `sort`: a type node need not be a symbol.  A NAT — a
@@ -4216,14 +4244,17 @@
                 (fn [acc i]
                   (reduce
                    (fn [a j]
-                     (let [ss (subsumption-statuses kb (nth ts i) (nth ts j) context)]
-                       (conj! a {:a        (nth ts i)
-                                 :b        (nth ts j)
-                                 :statuses ss
-                                 :status   (case (count ss)
-                                             0 :unknown
-                                             1 (first ss)
-                                             :inconsistent)})))
+                     (let [{ss :statuses w :witness t :via}
+                           (subsumption-reading kb (nth ts i) (nth ts j) context)]
+                       (conj! a (cond-> {:a        (nth ts i)
+                                         :b        (nth ts j)
+                                         :statuses ss
+                                         :status   (case (count ss)
+                                                     0 :unknown
+                                                     1 (first ss)
+                                                     :inconsistent)}
+                                  w (assoc :witness w)
+                                  t (assoc :via t)))))
                    acc (range (inc i) n)))
                 (transient []) (range n)))]
      {:types     n
