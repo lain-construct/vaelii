@@ -56,7 +56,7 @@ An entry names the alternative, says what the KB states instead, and gives the r
 
 **Instead:** no such class.
 
-**Why:** a class earns its place by what inherits through it. `possibly_time_invariant_predicate` carries time-invariance up `genl`, and `time_varying_predicate` carries variation down. A "possibly time-varying" predicate carries nothing in either direction: its genls may be invariant and its specs may be invariant. It would be a class nothing reads.
+**Why:** a predicate class is useful only if some property inherits through it. `possibly_time_invariant_predicate` carries time-invariance up `genl`, and `time_varying_predicate` carries variation down. A "possibly time-varying" predicate carries nothing in either direction: its genls may be invariant and its specs may be invariant. It would be a class nothing reads.
 
 **Status:** ruled; not yet merged.
 
