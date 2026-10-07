@@ -1216,9 +1216,13 @@ ul.why summary:focus-visible { outline: 2px solid var(--accent); outline-offset:
 /* The picture is **never scaled**: one user unit is one CSS pixel, so its labels are the
    size the sheet set and not whatever a fit-to-height left of them.  A picture bigger than
    its box scrolls inside the box instead, which is what `overflow` and the height cap here
-   do; `max-height` on the <svg> scaled the whole scene down and took the text with it. */
+   do; `max-height` on the <svg> scaled the whole scene down and took the text with it.
+   The box leaves `overscroll-behavior` at its default so a wheel over the picture scrolls
+   the page.  A box that cannot scroll in the wheel's direction, or has reached its edge,
+   hands the scroll to the page; `contain` kept it, and the page stood still under a
+   pointer resting on the graph. */
 .kb-graph-fig { margin: .2rem 0 1rem; }
-.kb-graph-box { max-height: 28rem; overflow: auto; overscroll-behavior: contain; }
+.kb-graph-box { max-height: 28rem; overflow: auto; }
 .kb-graph { display: block; margin-inline: auto; }
 .kb-graph-fig figcaption { font-size: .86em; margin-top: .1rem; }
 
