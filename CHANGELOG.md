@@ -97,6 +97,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **CxCore declares the equality relations and the rule and strength wrappers the engine
+  reads by name.** `sameAs` and `equals` gain comments and `(binary_predicate …)` with
+  `thing` at both positions, as `rewriteOf` has. `set/forwardOnlyRule`, `set/solveRule`,
+  `set/assumptionRule`, `set/hardConstraint`, `set/softConstraint` and `set/monotonic`
+  gain comments beside the four rule wrappers CxCore already commented. Each term carries
+  enforced prose in the predicates roster, so the vocabulary audit classifies it.
+  `engine_vocabulary_test` pins the declarations and the classification. The query
+  operators `unknown`, `thereExists`, `forall`, `bravely` and `cautiously` stay
+  undeclared, since their place in the relation taxonomy is not settled.
+
+  *Class:* **Additive**.
+
 - **CxCore declares `different`.** `different` is the unique-name assumption the
   different prover answers from the equality closure, and CxCore now comments and types
   it: `(variable_arity_predicate different)`, `(arityMin different 2)`,

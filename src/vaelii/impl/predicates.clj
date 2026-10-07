@@ -340,8 +340,8 @@
   called inert by writing different prose beside it.
 
   Nil-tolerant, because the question is only asked about terms CxCore comments: the
-  grammar terms it does not comment (`equals`, `sameAs` and the query operators other
-  than `different`) pass through unchanged, and `vocabulary/audit` is what notices a
+  grammar terms it does not comment (the query operators other than `different`) pass
+  through unchanged, and `vocabulary/audit` is what notices a
   term the *ontology* names and this file answers for with nothing."
   [spec where]
   (cond-> spec where (assoc :enforced where)))
@@ -733,9 +733,6 @@
     ;; ---- the equality relations ------------------------------------------
     ;; Sorted, so the table is a function of the set rather than of set iteration
     ;; order — the same sort `special/entries` applies to `kb/equality-predicates`.
-    ;; Only `rewriteOf` carries vocabulary prose, because CxCore comments only it: the
-    ;; other two are grammar the audit is not asked about, which is a fact about the
-    ;; ontology rather than about what the engine does with them.
     (map (fn [f]
            [f (enforced
                (assoc (pair :equality :term :derived? false
@@ -746,7 +743,9 @@
                                   " a symbol merge and each arm dispatches on them — a"
                                   " NAT reify-to-term declaration, and a schematic"
                                   " equational rule."))
-               (get '{rewriteOf "nat for a compound right side, the equality partition for a symbol"}
+               (get '{rewriteOf "nat for a compound right side, the equality partition for a symbol"
+                      sameAs    "the equality partition — a merge of the two classes, answered from the closure by provers/EqualityProver"
+                      equals    "the equality partition — a merge of the two classes, answered from the closure by provers/EqualityProver"}
                     f))])
          '[equals rewriteOf sameAs])
 
@@ -1297,7 +1296,13 @@
          '[[set/forwardRule  "sentex/peel-rule-wrapper — sets the rule's direction"]
            [set/backwardRule "sentex/peel-rule-wrapper — sets the rule's direction"]
            [set/defaultRule  "sentex/peel-rule-wrapper — sets the conferred strength"]
-           [set/inertRule    "sentex/peel-rule-wrapper — stored, indexed for neither direction"]])
+           [set/inertRule    "sentex/peel-rule-wrapper — stored, indexed for neither direction"]
+           [set/forwardOnlyRule "sentex/peel-rule-wrapper — sets the rule's direction"]
+           [set/solveRule    "sentex/peel-rule-wrapper — adds :solve to the rule's engines"]
+           [set/assumptionRule "sentex/peel-rule-wrapper — sets the rule's effect to :choose"]
+           [set/hardConstraint "sentex/peel-rule-wrapper — sets the rule's effect to :forbid"]
+           [set/softConstraint "sentex/peel-rule-wrapper — sets the rule's effect to :penalize"]
+           [set/monotonic    "sentex/strength-wrapper — peeled at the entry point into :monotonic strength"]])
 
     ;; ---- the evaluable comparisons ---------------------------------------
     [['lessThan    (enforced {:shape   {:args [] :variadic :term}
