@@ -81,6 +81,9 @@
 (orthogonal hollow organism)
 (orthogonal hollow body_part)
 (orthogonal hollow food)
+;; A pitcher plant and a lab-grown bladder are biological and hollow.  A cup and a cave
+;; are hollow and not biological, and a leaf is biological and not hollow.
+(orthogonal biological hollow)
 (set/monotonic (disjoint hollow substance))
 
 (comment language "A system of signs a person speaks, writes or signs in.")

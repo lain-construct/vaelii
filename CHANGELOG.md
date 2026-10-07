@@ -710,6 +710,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(genl acausal thing)` being stated, rather than derived, reads it from `disjoint?` or
   `genl?` instead.
 
+- **`biological` and `hollow` are orthogonal.** A pitcher plant and a lab-grown bladder
+  are biological and hollow, a cup is hollow and not biological, and a leaf is
+  biological and not hollow. CxAbstract states `(orthogonal biological hollow)` beside
+  `hollow`'s orthogonals to `organism` and `body_part`, since an `orthogonal` is not
+  inherited along `genl`. `subsumption-status` reads the pair `:orthogonal`.
+  `ontology_test` pins the declaration and a hollow body part as no clash.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
 - **A sign value is in no space and at no time.** CxMeasure states
   `(genl sign_value nowhere_never)` in place of `(genl sign_value thing)`, so
   `SignNegative`, `SignZero` and `SignPositive` read `aspatial`, `atemporal` and

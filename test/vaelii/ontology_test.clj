@@ -1518,6 +1518,16 @@
       (v/assert kb (list 'organism PitcherPlant) 'CxUniverse)
       (is (not (tu/stored-in-clash? kb (list 'hollow PitcherPlant) 'CxUniverse))))))
 
+(tu/deftest-kb a-biological-thing-can-be-hollow
+  ;; A pitcher plant and a lab-grown bladder are biological and hollow.  A cup and a cave
+  ;; are hollow and not biological, and a leaf is biological and not hollow.
+  (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb '(orthogonal biological hollow) 'CxAbstract)))
+  (is (= :orthogonal (v/subsumption-status kb 'biological 'hollow)))
+  (tu/with-terms [LabBladder1]
+    (v/assert kb (list 'body_part LabBladder1) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'hollow LabBladder1) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'hollow LabBladder1) 'CxUniverse)))))
+
 (tu/deftest-kb container-is-retired
   (is (empty? (core-context/comment-of kb 'container)))
   (is (empty? (v/sentexes-matching kb '(genl container ?x) '?ctx)))
