@@ -66,7 +66,7 @@ An entry names the alternative, says what the KB states instead, and gives the r
 
 **Instead:** the two names are swapped so their direction matches Cyc's `transitiveViaArg`, and a test pins the direction each carries along `genl`.
 
-**Why:** readers arrive from Cyc's documentation. A predicate whose name matches Cyc's and whose direction is opposite gets used backwards, and the result is a KB that derives the wrong memberships with no error. The swap is a breaking change, made while few KBs depend on the old direction.
+**Why:** readers arrive from Cyc's documentation. A predicate whose name matches Cyc's and whose direction is opposite gets used backwards, and the result is a KB that derives the wrong memberships with no error. Apart from Cyc, the new direction is also the one most readers expect the name to mean. The swap is a breaking change, made while few KBs depend on the old direction.
 
 **Status:** on develop (#131).
 
