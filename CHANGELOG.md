@@ -11,6 +11,30 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Additions
+
+- **CxNormalPhysicalConditions states the states of matter of stuff at ordinary room
+  temperature and pressure.** The new middle-spindle theory sees CxUniverse and CxWell sees
+  it, as CxBiology is wired. It places `stone`, `wood` and `glass_stuff` under `solid` and
+  `mercury` under `liquid` with four `genl` edges. A metal is solid there by default:
+  `(exceptWhen (mercury ?x) (set/defaultRule (set/forwardRule (implies (and (metal ?x))
+  (solid ?x)))))`, so a metal the KB says nothing more about is concluded solid at
+  `:default`, and the rule concludes nothing for a portion of mercury. CxAbstract declares
+  `mercury`, a first-order `type` below `metal`, with its comment. The upper ontology states
+  no state of matter for any substance, so a context that does not see the theory concludes
+  none. `normal_physical_conditions_test` pins the solids, the default, the mercury
+  exception with no clash, and the absence of every state outside the theory; `seed_test`
+  pins the eight middle members.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none. A data context below CxWell now reads its stone, wood, glass and
+  metal solid and its mercury liquid. A KB that states another state for one of them
+  holds a disjointness nogood under `stuff_type_by_state_of_matter`, decided at each
+  reader that sees both memberships.
+
 ## 0.24.0 — 2026-10-07 — "Reified `contradicts` and `defeat` sentexes synced to KB, upper ontology improvements and more disjointness, indexing improvements"
 
 | Area | Change |

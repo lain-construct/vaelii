@@ -1249,7 +1249,8 @@ free for lifted universal facts.
 
 The **middle spindle** is headed by that same CxUniverse; its members are `kb/middle/`
 (`CxKinship`, `CxMereology`, `CxBiology`, `CxChange`, `CxSocial` — the rules;
-`CxAnatomy` and `CxSize` — claims about kinds); its collector is **CxWell**, which
+`CxAnatomy` and `CxSize` — claims about kinds; `CxNormalPhysicalConditions` — the states of
+matter at room temperature); its collector is **CxWell**, which
 transitively sees the whole ontology.
 
 The upper spindle's members say what things **are**, always true, like `genl`; the
@@ -1259,9 +1260,9 @@ CxCore-only KB is a head with no spindle under it, and a user adds a member to e
 spindle.
 The middle theories are the defeasible defaults that state their own exception with
 `exceptWhen` (birds fly except penguins; animals breathe air except fish; organisms
-are alive until they are dead and awake until they are asleep — four rules of one shape,
-differing in whether the exception names a species, a whole class, or a state that
-changes) and the rules with **connected conjunctive antecedents** (antecedents sharing
+are alive until they are dead and awake until they are asleep; a metal is solid at room
+temperature except mercury — five rules of one shape, differing in whether the exception
+names a species, a whole class, a kind of stuff, or a state that changes) and the rules with **connected conjunctive antecedents** (antecedents sharing
 a variable so they join — grandparentOf, part-location, owns-parts).
 
 **A binary predicate says which level it relates at, unless its two ends disagree.**
