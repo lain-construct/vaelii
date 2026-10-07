@@ -66,7 +66,7 @@ topology is **two spindles stacked**, most general (top) to most specific (botto
 | | head | members | collector |
 |---|---|---|---|
 | the upper spindle | CxCore | `resources/kb/upper/` — seven contexts | CxUniverse |
-| the middle spindle | CxUniverse | `kb/middle/` — eight contexts | CxWell |
+| the middle spindle | CxUniverse | `kb/middle/` — seven contexts, beside one opt-in theory | CxWell |
 
 CxUniverse is the joint, the first spindle's collector and the second's head, and it can
 be the second's head *because* it is the first's collector: a head is a context every
@@ -144,11 +144,17 @@ Data hangs below CxWell.
   - `CxSocial` — what acquaintance follows from, and how employment relates to
     membership. Every rule runs one way only, because `knows` is deliberately not
     symmetric.
-  - `CxNormalPhysicalConditions` — the states of matter of stuff at ordinary room
-    temperature and pressure: stone, wood and glass are solid, mercury is liquid, and a
-    metal is solid by default, with mercury the stated exception.
+- **CxNormalPhysicalConditions** — an **opt-in** theory in `kb/middle/` that sees
+  CxUniverse and that CxWell does **not** see: the states of matter of stuff at ordinary
+  room temperature and pressure. Stone, wood and glass are solid, mercury is liquid, and a
+  metal is solid by default, with mercury the stated exception. CxWell stays free of any
+  temperature, so a context below CxWell serves a story set on Mars as well as one set in a
+  kitchen. A context opts in by placing itself under CxNormalPhysicalConditions, and a
+  context under both CxWell and CxNormalPhysicalConditions reads the everyday theories at
+  room temperature.
 - **CxWell** — the middle spindle's *collector*: it sees every middle member, so it (and
-  any context hung beneath it) transitively sees the whole ontology.
+  any context hung beneath it) transitively sees the whole ontology except the opt-in
+  CxNormalPhysicalConditions.
 
 **A member sees no member, so a shared term belongs in the head.** That is what makes a
 spindle a spindle: `CxLife` does not see `CxOrganism` and `CxOrganism` does not see

@@ -1249,9 +1249,10 @@ free for lifted universal facts.
 
 The **middle spindle** is headed by that same CxUniverse; its members are `kb/middle/`
 (`CxKinship`, `CxMereology`, `CxBiology`, `CxChange`, `CxSocial` — the rules;
-`CxAnatomy` and `CxSize` — claims about kinds; `CxNormalPhysicalConditions` — the states of
-matter at room temperature); its collector is **CxWell**, which
-transitively sees the whole ontology.
+`CxAnatomy` and `CxSize` — claims about kinds); its collector is **CxWell**, which
+transitively sees the whole ontology but one opt-in theory. `CxNormalPhysicalConditions`,
+the states of matter at room temperature, also sits in `kb/middle/` and sees CxUniverse,
+and CxWell does not see it: a context opts in by placing itself under it.
 
 The upper spindle's members say what things **are**, always true, like `genl`; the
 middle spindle's members say how they **interrelate**, where several overlapping accounts can coexist.

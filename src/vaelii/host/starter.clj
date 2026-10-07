@@ -45,6 +45,8 @@
         - CxNormalPhysicalConditions.txt — the states of matter at room temperature
                                  and pressure: stone, wood and glass are solid,
                                  mercury is liquid, a metal is solid by default.
+                                 Opt-in: it sees CxUniverse and CxWell does not
+                                 see it.
         - CxSize.txt      — comparative size: stated between kinds, computed
                                  between objects from their measures.
         - CxSocial.txt    — what acquaintance follows from; employment as one way
