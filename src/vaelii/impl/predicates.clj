@@ -59,7 +59,7 @@
     :enforced prose naming the code path that reads the term — what a KB author is told
               by `core/interpreted` when they ask whether a declaration does anything.
               Carried by the terms CxCore comments and by no others, which is why an
-              entry without it is not a defect: the six grammar terms CxCore does not
+              entry without it is not a defect: the grammar terms CxCore does not
               comment are outside the question rather than unanswered.
     :inert    prose recording that nothing reads the term **and that this is a
               decision**.  Written by the `inert` constructor, which sets the facet with
@@ -340,8 +340,8 @@
   called inert by writing different prose beside it.
 
   Nil-tolerant, because the question is only asked about terms CxCore comments: the
-  six grammar terms it does not comment (`equals`, `sameAs` and the four query
-  operators) pass through unchanged, and `vocabulary/audit` is what notices a
+  grammar terms it does not comment (`equals`, `sameAs` and the query operators other
+  than `different`) pass through unchanged, and `vocabulary/audit` is what notices a
   term the *ontology* names and this file answers for with nothing."
   [spec where]
   (cond-> spec where (assoc :enforced where)))
@@ -998,11 +998,14 @@
                      " (binary and ternary; general arity pends list-membership vocabulary)"))]
 
      ;; ---- the query operators --------------------------------------------
-     ['different   (operator {:args [] :variadic :term}
-                             :notes (str "answered from the equality closure. Being"
-                                         " deferred is all it shares with the"
-                                         " comparisons: it is not transitive, so it"
-                                         " merges no chains."))]
+     ['different   (enforced (operator {:args [] :variadic :term}
+                                       :notes (str "answered from the equality closure. Being"
+                                                   " deferred is all it shares with the"
+                                                   " comparisons: it is not transitive, so it"
+                                                   " merges no chains."))
+                             (str "provers/DifferentProver — a ground goal of two or more terms,"
+                                  " answered from the equality closure under the unique-name"
+                                  " assumption"))]
      ['unknown     (operator {:args [:sentence]})]
      ['thereExists (operator {:args [:sentence]})]
      ['forall      (operator {:args [:term :sentence]}

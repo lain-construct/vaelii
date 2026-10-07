@@ -80,8 +80,8 @@
 
   **The population is still CxCore's**, and stays a question about the ontology rather
   than about the declaration: an entry carries prose iff CxCore comments the term, so the
-  six grammar terms it does not comment (`equals`, `sameAs` and the four query
-  operators) are simply not in here.  A term CxCore starts commenting and
+  grammar terms it does not comment (`equals`, `sameAs` and the query operators other
+  than `different`) are simply not in here.  A term CxCore starts commenting and
   nobody answers for lands in `audit`'s `:unclassified`, which is the whole mechanism and
   is untouched by the move."
   (into {}

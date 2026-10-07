@@ -97,6 +97,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **CxCore declares `different`.** `different` is the unique-name assumption the
+  different prover answers from the equality closure, and CxCore now comments and types
+  it: `(variable_arity_predicate different)`, `(arityMin different 2)`,
+  `(args different thing)` and `(commutative different)`, matching the ground goal of two
+  or more terms the prover answers. An assert of `different` is still refused. The
+  vocabulary audit classifies `different` as enforced, and `engine_vocabulary_test` pins
+  the declaration and both argument orders. [equality.md](docs/equality.md)
+
+  *Class:* **Additive**.
+
 - **`time` is a moment or a stretch of time as such, and `time_interval` is the
   stretch.** A date is no cause: the year 2000 broke nothing, two-digit years did, at the
   rollover. CxAbstract declares `time`, a time as in "at that time", with

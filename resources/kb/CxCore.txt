@@ -1066,6 +1066,17 @@
 (arg rewriteOf 1 thing)
 (arg rewriteOf 2 thing)
 
+;; different is the unique-name assumption read as a relation.  The engine answers it and
+;; never stores it: wff refuses an assert of it, and provers/DifferentProver answers a
+;; ground goal of two or more arguments.  So the declarations below type the relation the
+;; prover answers, at the arity the prover answers it.
+(comment different
+         "(different ?term1 ?term2 ...) means that no two of the named terms denote one thing. Answered by the different prover from the equality closure under the unique-name assumption: distinct names denote distinct things until a rewriteOf, sameAs or equals merges them, and a merge the reading context cannot see leaves the two names different there. The unique-name assumption is suspended for an unpinned indeterminate_term, so a goal naming one is not provable against a determinate term until a rewriteOf pins it. A query operator: an assert of it is refused, and only a ground goal of two or more arguments is answered. Commutative, since the answer does not depend on the order of the terms. See docs/equality.md.")
+(variable_arity_predicate different)
+(arityMin different 2)
+(args different thing)
+(commutative different)
+
 (comment result
          "(result ?function ?type) means that the output of ?function is an instance of ?type. Read for both kinds of function, and where the type is held is what the reifiability mark decides: a REIFIABLE function's application is minted, so the membership is materialized as (?type K) on the freshly minted constant K — a real sentex with a justification, rather than a rule that would have to run at read time — and an UNREIFIABLE one has no constant to hang it on, so its applications are typed from this declaration at check time instead. One declaration, one verdict, whichever kind of function wrote it. Named for what it says rather than for the check that reads it, as arg is: the instance reading, with genlResult one level up.")
 (binary_predicate result)
