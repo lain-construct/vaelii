@@ -1987,18 +1987,17 @@
          (distinct))))
 
 (defn- expandable?
-  "Whether a tree node gets a disclosure control.  `count-with-arg` at position 2
-  counts the facts holding `t` there — summed over the slot roster's predicates, every
-  `(pred sub t)` among them and anything else binary that mentions it there — so it is
-  a cheap *upper* bound on having stated children.  Wrong only in the safe direction: a node whose second-position facts are
-  all something else opens to \"none\", and no real child is ever hidden.
-
-  A `genl` child a cover roster installs is not a second-position fact — the roster
-  names its whole first — so a `genl` node with none of those asks the closure's
-  adjacency (`direct-specs`).  The second read is paid only where the count is zero."
+  "Whether a tree node gets a disclosure control.  For `genl`, whether the closure's
+  one-step adjacency (`direct-specs`) holds a child, which counts a child a cover roster
+  installs and costs the node's own fan-out.  For any other relation, `count-with-arg`
+  at position 2: the facts holding `t` there, summed over every binary predicate, so an
+  *upper* bound on having stated children.  Wrong only in the safe direction: a node
+  whose second-position facts are all something else opens to \"none\", and no real
+  child is ever hidden."
   [kb pred t]
-  (or (pos? (v/count-with-arg kb 2 t))
-      (and (= 'genl pred) (boolean (seq (v/direct-specs kb t))))))
+  (if (= 'genl pred)
+    (boolean (seq (v/direct-specs kb t)))
+    (pos? (v/count-with-arg kb 2 t))))
 
 (defn- tree-caret
   "The control that opens a node's children, and the id it is addressed by.  A checkbox
@@ -2023,13 +2022,13 @@
   or a disclosure that fetches its own children the first time it is opened.  Bare
   `<li>`s, so the same call answers the page and the continuation that extends it."
   [{:keys [kb] :as view} pred node offset]
-  (let [;; an upper bound on this level's width: `sortable?` is therefore decided without
-        ;; reading the level.  A node wide enough to be worth not sorting is a node whose
-        ;; children nobody is going to read alphabetically anyway.  One count per
-        ;; predicate holding `node` at argument 2 and never the extent (the shape
-        ;; `core/count-with-arg` states), paid once per rendered child by `expandable?`
-        width    (v/count-with-arg kb 2 node)
-        sortable (<= width sortable-cap)
+  (let [;; a `genl` level is the closure's realized adjacency set, so it is always
+        ;; sorted.  For another relation, an upper bound on the level's width decides
+        ;; `sortable` without reading the level: a node wide enough to be worth not
+        ;; sorting is a node whose children nobody reads alphabetically anyway.  One
+        ;; count per predicate holding `node` at argument 2 and never the extent (the
+        ;; shape `core/count-with-arg` states)
+        sortable (or (= 'genl pred) (<= (v/count-with-arg kb 2 node) sortable-cap))
         kids     (cond->> (child-terms kb pred node) sortable by-print-key)
         shown    (into [] (comp (drop offset) (take (inc tree-cap))) kids)
         ;; a child's disclosure asks for *its own* children; the sentinel asks for more

@@ -1385,12 +1385,12 @@ that fetches them on its first `change`. A `genl` level is the closure's one-ste
 adjacency (`direct-specs`), which includes the parts a cover roster installs; a `genlCx`
 level is read by pinning the parent (`(genlCx ?sub node)`), which the index answers from
 the predicate-scoped argument root (`[:argument-root genlCx 2 node]`). Either way the cost
-is that node's own fan-out rather than the number of edges in the KB. Whether a node gets
-a disclosure at all is `count-with-arg 2 node`, a cheap upper bound (one O(1) count per
-predicate at the slot): it spans every binary predicate holding the node in second
-position, so it can offer a disclosure that opens to nothing. A `genl` node the count
-puts at zero asks `direct-specs` too, because a roster names its whole first, and so a
-real child is never hidden.
+is that node's own fan-out rather than the number of edges in the KB. A `genl` level is
+always sorted, and a `genl` node gets a disclosure when `direct-specs` holds a child. A
+`genlCx` node gets one when `count-with-arg 2 node` is positive, an upper bound (one O(1)
+count per predicate at the slot) that spans every binary predicate holding the node in
+second position, so it can offer a disclosure that opens to nothing and never hides a
+real child.
 
 The caret is a **checkbox and its label**, not a `<details>`/`<summary>`. A `<summary>`
 consumes the click on whatever it contains, so the term inside one toggled the disclosure
