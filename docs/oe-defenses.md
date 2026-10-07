@@ -90,6 +90,8 @@ An entry names the alternative, says what the KB states instead, and gives the r
 
 **Why:** only a living kind of thing can be alive, asleep or warm-blooded. Without a genl, nothing stops `(warm_blooded Rock1)`, and every pair of these properties with the kinds below `organism` reads `:unknown` in the audit. With the genl, a misapplied property is caught as a type clash. `alive` and `dead` go under `biological` rather than `organism`, so a dead leaf is not concluded to be an organism.
 
+The objection behind the genl-free rule is that a property such as `alive` is not a kind: a thing can stop being alive and still exist, while it cannot stop being an organism. The time-invariance partition (see "No `rigid` term for users to learn") states that difference directly, as `(time_varying_predicate alive)`. With that difference stated on the predicate, the genl no longer blurs a property into a kind, and it can say what the property is true of.
+
 **Status:** on develop (#127).
 
 ### Metal is solid by default, and mercury is the stated exception
