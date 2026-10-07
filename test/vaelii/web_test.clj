@@ -123,12 +123,12 @@
       (is (re-find #"<input checked=\"checked\"[^>]*class=\"tree-tog\"" body))
       (is (re-find #"<a[^>]*href=\"/term\?q=thing\"" body)))
     (testing "a node with subtypes is a disclosure that fetches its own children"
-      ;; `formula` is a direct subtype of `thing`, so it is on the first level, and it has
-      ;; `atomic_formula` under it, so it is a node with children rather than a leaf.  It
+      ;; `acausal` is a direct subtype of `thing`, so it is on the first level, and it has
+      ;; `acausal_event` under it, so it is a node with children rather than a leaf.  It
       ;; also sorts early: the first level is paged at 50, and a node late in the
       ;; alphabet falls off that page whenever the vocabulary grows a direct subtype —
       ;; which `VAELII_ASSERTIVE_ARG_TYPES=1` does by minting one per declared type
-      (is (re-find #"<input[^>]*hx-get=\"/tree/rows\?rel=genl&amp;node=formula" body)))
+      (is (re-find #"<input[^>]*hx-get=\"/tree/rows\?rel=genl&amp;node=acausal&amp;" body)))
     (testing "and it selects nothing out of what it fetches"
       ;; `hx-select="#main"` is on the body and inherited; against a fragment of bare
       ;; rows it selects nothing, so an open would swap in nothing.  This is invisible
@@ -1704,6 +1704,17 @@
     (let [body (:body (GET "/"))]
       (is (re-find #"<link[^>]*vaelii\.css" body))
       (is (not (re-find #"<style" body))))))
+
+(deftest a-wheel-over-the-concept-graph-scrolls-the-page
+  ;; `overscroll-behavior: contain` on the graph's scroll box keeps every wheel turn inside
+  ;; the box, so a pointer resting on the picture left the page standing still.  The
+  ;; browser hands a wheel the box cannot use to the page only when the box leaves
+  ;; `overscroll-behavior` at its default.
+  (let [css  (slurp (io/resource web/stylesheet-resource))
+        rule (re-find #"\.kb-graph-box\s*\{[^}]*\}" css)]
+    (is rule "the stylesheet still styles the graph's box")
+    (is (str/includes? rule "overflow: auto") "a wide graph still scrolls inside its box")
+    (is (not (str/includes? rule "overscroll-behavior")))))
 
 (deftest unknown-ids-render-not-found
   (is (re-find #"No sentex" (:body (GET "/sentex/999999"))))

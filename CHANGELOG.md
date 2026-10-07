@@ -605,6 +605,125 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **`kb-integrity` reports sibling types with one direct `genl` set.** Two types told the
+  same two or more parents besides `thing` suggest a missing common parent, as a
+  `time_point` and a `time_interval` both placed under `temporal`, `aspatial` and
+  `acausal` would. The sweep adds a seventh sparse category, `:twin-genls`, with one
+  `{:types [...] :genls [...]}` per direct `genl` set two visible types or more share. A
+  finding is for review only. The pass reads every node of the `genl` relation once, not
+  the candidate set, and its findings count against `:max-results` after the
+  `:orthogonal-over-separation` category.
+  [integrity.md](docs/integrity.md#the-ontology-engineering-smells).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a stated `genl` or `disjoint` that derives without itself.** The
+  sweep adds an eighth sparse category, `:derivable-stated-edge`. A finding is a stated
+  `genl` whose edge has another believed supporter or another `genl` path (`:path`), or a
+  stated `disjoint` some other separation of the pair or of a supertype of each still
+  gives (`:separated-by`). The test is structural over the taxonomy, not a re-proof with
+  the premise set aside, and its limits are documented. Findings count after
+  `:twin-genls`. [integrity.md](docs/integrity.md#the-ontology-engineering-smells).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` suggests a `partition` for a `disjoint` a known cover exhausts.** The
+  sweep adds a ninth sparse category, `:disjoint-could-be-partition`, with one
+  `{:disjoint r :suggest (partition c ...) :basis ...}` per stated `(disjoint a b)` and
+  parent `c`. The basis is `:covering` when a visible `covering` names both and its parts
+  are pairwise disjoint, and `:sole-specs` when `a` and `b` are `c`'s only direct specs,
+  which leaves coverage for the author to confirm. Findings count after
+  `:derivable-stated-edge`.
+  [integrity.md](docs/integrity.md#the-ontology-engineering-smells).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a declared argument position no declaration types.** The sweep
+  adds a tenth sparse category, `:missing-arg`, with one
+  `{:predicate P :arity n|:variable :missing [k ... :rest]}` per predicate the audit
+  context sees declared an arity. A position counts as typed when an `arg`, `genlArg`,
+  `quotedArg`, rest or `args` form covers it, stated or inherited from a super-predicate,
+  or, for a unary predicate, when a `genl` edge leaves it. A variable-arity predicate is
+  checked up to its `arityMin` and on its tail. Findings count after
+  `:disjoint-could-be-partition`.
+  [integrity.md](docs/integrity.md#what-a-missing-arg-finding-means).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` runs its four review-only passes only when `:categories` names them.**
+  `:twin-genls`, `:derivable-stated-edge`, `:disjoint-could-be-partition` and
+  `:missing-arg` report candidates for review. A sweep without `:categories` skips the four
+  passes, so a review finding never turns an otherwise clean sweep into `:gap`.
+  [integrity.md](docs/integrity.md#the-call).
+
+  *Class:* **Additive**.
+
+- **CxCore types the position of `forced_monotonic_between_predicates`.**
+  `forced_monotonic_between_predicates` declares `(arg forced_monotonic_between_predicates 1 predicate)`,
+  as `inverse` does, so `:missing-arg` no longer reports it. `abducible_predicate`,
+  `closed_extent_predicate`, `decontextualized_predicate`, `forced_decontextualized_predicate`
+  and `target_following_predicate` type their position through `(genl X predicate)`, which
+  `:missing-arg` already counts. `genl` and `forced_monotonic_predicate` stay undeclared on
+  purpose (CxCore says why beside each). The `forced_monotonic_predicate` roster names
+  `equals`, `sameAs` and `except`, and typing its position `predicate` would make each of
+  the three a relation with no arity policy.
+
+  *Class:* **Additive**.
+
+- **CxCore no longer states eight `genl` edges the `expression` chain derives.** The
+  edges are `(genl string thing)`, `(genl number thing)`, `(genl keyword thing)`,
+  `(genl boolean thing)`, `(genl character thing)`, `(genl denotational_term thing)`,
+  `(genl formula thing)` and `(genl context nowhere_never)`. Each one derives without the
+  statement, from CxCore and from every band context, through `expression` and
+  `unrepresented_term` in CxCore. `:derivable-stated-edge` still reports three edges, which
+  stay stated. Without `(genl relation thing)`, CxCore loaded in authored order holds
+  different justifications from CxCore reloaded in content order. `(genl organism
+  biological)` is installed by a `separating` roster in CxAbstract, which CxOrganism does
+  not see. `(genl relation_application thing)` is the third.
+
+  *Class:* **Internal**.
+
+- **CxCore holds `expression` and `unrepresented_term`.** The two types and their
+  comments move from CxAbstract to CxCore, with the `genl` edges that place `expression`
+  below `nowhere_never` and place `unrepresented_term`, `context`, `relation`, `formula`,
+  `relation_application` and `denotational_term` below `expression`. The edges that place
+  `string`, `number`, `keyword`, `boolean` and `character` below `unrepresented_term` move
+  too, and so do the four `disjoint` declarations on `unrepresented_term`. CxCore and
+  every band context now read each of these kinds below `thing`, and read each value kind
+  as disjoint from `predicate`. `vaelii.impl.predicates` classifies `expression` and
+  `unrepresented_term` inert. [taxonomy.md](docs/taxonomy.md#the-three-partitions-of-thing).
+
+  *Class:* **Additive**.
+
+- **CxCore types `intersection`'s third and later positions as its first two.**
+  `(argAndRestGenl intersection 3 thing)` makes every position name a subtype of `thing`,
+  so `:missing-arg` no longer reports `intersection`.
+
+  *Class:* **Additive**.
+
+- **CxCore types `functionCorrespondingPredicate`'s optional third position.**
+  `(argAndRest functionCorrespondingPredicate 3 positive_integer)` types the argument
+  number of the predicate as `commutativeInArgs` types its positions, so `:missing-arg`
+  no longer reports `functionCorrespondingPredicate`.
+
+  *Class:* **Additive**.
+
+- **CxCore types every position of `termsRelated` with one `(args termsRelated thing)`.**
+  The declaration replaces `arg` declarations for positions 1 and 2, which left the
+  variable-arity tail untyped, so `:missing-arg` no longer reports `termsRelated`.
+
+  *Class:* **Additive**.
+
+### Fixes: the browser
+
+- **A mouse wheel over a term page's concept graph scrolls the page.** The graph's box
+  carried `overscroll-behavior: contain`, which kept every wheel turn inside the box, so
+  the page stood still until the pointer left the picture. The box leaves
+  `overscroll-behavior` at its default. A wheel the box cannot use now scrolls the page,
+  and a wide graph still scrolls sideways inside its box.
+
+  *Class:* **Fix**.
+
 ### Internal
 
 - **The `orthogonal` comments and taxonomy.md name every separation the declaration

@@ -173,8 +173,6 @@
 (comment boolean "True or false, written out.")
 (comment character "A single character, written \\a. Not a one-letter string: the two are separate EDN kinds and neither is below the other.")
 (comment symbol  "A name — the term written in an argument position, whatever that term denotes. Mention-only: see the note above its declaration.")
-(genl string thing)
-(genl number thing)
 (genl integer number)
 (genl positive_integer integer)
 (genl negative_integer integer)
@@ -195,9 +193,6 @@
 (defnNecessary  non_negative_integer (and (integer ?x) (greaterThan ?x -1)))
 (defnSufficient non_positive_integer (and (integer ?x) (lessThan ?x 1)))
 (defnNecessary  non_positive_integer (and (integer ?x) (lessThan ?x 1)))
-(genl keyword thing)
-(genl boolean thing)
-(genl character thing)
 (genl symbol thing)
 
 ;; The upper-ontology skeleton: the collections a band context has to be able to
@@ -233,6 +228,7 @@
 (intersection spatiotemporal spatial temporal)
 (genl tangible spatiotemporal)
 (genl biological tangible)
+;; Stated although CxAbstract's separating roster installs it: CxOrganism does not see CxAbstract.
 (genl organism biological)
 (genl capability aspatial)
 ;; Mass entails a location in space and in time, so what has no location in any space,
@@ -240,10 +236,7 @@
 (genl aspatial intangible)
 (genl atemporal intangible)
 (intersection nowhere_never aspatial atemporal)
-;; A context and a language are in no space and at no time.  CxAbstract places both below
-;; expression too; these two edges let a band context, which does not see CxAbstract, read
-;; either type as disjoint from spatial.
-(genl context nowhere_never)
+;; A language is in no space and at no time.
 (genl language nowhere_never)
 
 ;; The expression kinds — what a sentence is BUILT OUT OF, named as collections so a
@@ -279,8 +272,6 @@
 (comment sentence "A closed formula. Every stored sentex holds one — checks/check-ground refuses an open non-rule sentence, and a rule's variables are implicitly universal. A possibly-open goal is a pattern, not a sentence.")
 (comment non_atomic_term "A function applied to terms — (MotherFn Muffet). The NAT of docs/nat.md, named here as a collection so a declaration can say an argument is one.")
 (genl relation_application thing)
-(genl denotational_term thing)
-(genl formula thing)
 (genl atomic_formula relation_application)
 (genl non_atomic_term relation_application)
 (genl non_atomic_term denotational_term)
@@ -290,6 +281,39 @@
 (genl atomic_sentence atomic_formula)
 (genl atomic_sentence sentence)
 (set/monotonic (disjoint atomic_formula non_atomic_term))
+
+;; expression is the root of the expression kinds and of the value kinds, and it is below
+;; nowhere_never, so every one of them is in no space and at no time.  The edges are here
+;; rather than in a spindle member so that CxCore and every band context read the value
+;; kinds, the expression kinds and context below thing.
+(comment expression "The abstract parent of all representable forms — relations, formulas, contexts, and unrepresented terms.")
+(comment unrepresented_term "An expression that cannot be further decomposed in the KB — strings, numbers, keywords, booleans, characters.")
+(genl expression nowhere_never)
+(genl unrepresented_term expression)
+(genl context expression)
+(genl denotational_term expression)
+(genl formula expression)
+(genl relation expression)
+(genl relation_application expression)
+;; The value kinds are placed in this lattice by their edges to unrepresented_term.  Text
+;; and a number have no mass and no location, and neither of them is a relation:
+;; unrepresented_term is an expression, so nowhere_never and so intangible, and it is
+;; disjoint from relation, so from predicate.  The second is what lets a rule be refused
+;; for feeding a text-valued argument into a position that holds a type: every type is a
+;; unary_predicate, so the type position asks for a predicate, and one variable cannot be
+;; both at once.  The disjointness on number carries integer with it.
+;;
+;; symbol gets no such edge, and the note above symbol's declaration says why: a name is
+;; exactly how a predicate is written, so (disjoint symbol predicate) would be false.
+(genl boolean unrepresented_term)
+(genl character unrepresented_term)
+(genl keyword unrepresented_term)
+(genl number unrepresented_term)
+(genl string unrepresented_term)
+(set/monotonic (disjoint unrepresented_term context))
+(set/monotonic (disjoint unrepresented_term formula))
+(set/monotonic (disjoint unrepresented_term relation))
+(set/monotonic (disjoint unrepresented_term relation_application))
 
 (comment interArg
          "(interArg ?relation ?position1 ?type1 ?position2 ?type2) means that whenever argument ?position1 of ?relation is a ?type1, argument ?position2 must be a ?type2. The conditional argument constraint, and it says what arg cannot: (interArg eats 1 carnivore 2 meat) types the second argument only for the eaters that are carnivores, where (arg eats 2 meat) would demand meat of every eater. Open-world in both directions, and they point opposite ways — silence about the trigger argument's type leaves the constraint dormant rather than firing it, while silence about the target argument's is what convicts. Checked through genl transitivity from the writing context, like arg, and it entails the same way under assertive argument types. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
@@ -680,6 +704,7 @@
 (variable_arity_predicate intersection)
 (genlArg intersection 1 thing)
 (genlArg intersection 2 thing)
+(argAndRestGenl intersection 3 thing)
 (arityMin intersection 3)
 
 ;; intersection is the definitional twin of disjoint (which states two kinds do NOT overlap).
@@ -869,6 +894,10 @@
 (comment forced_monotonic_predicate
          "(forced_monotonic_predicate ?predicate) puts ?predicate on the forced-monotonic roster. Every (?predicate …) sentence is stored as written, and belief is computed with the roster applied: a premise of one is :monotonic whatever strength it was written at, a denial of one is never believed, forms no nogood and fires no rule, and a firing concluding one from a rule that is not all roster antecedents with no unknown, exceptWhen or set/defaultRule supports nothing and is reported as a :forced-conclusion violation. The declaration is a switch: asserting or retracting it recomputes belief over what ?predicate reaches, so a KB that retracted it believes what a KB that never held it believes. Declared of genlCx, the relation marks, the function classes, the definitional declarations, the arity bindings (arity, the exact-arity classes, variable_arity and its two specializations, arityMin), except and the equality relations; the retraction of every one of these but injection, surjection and bijection is refused. See docs/nmtms.md.")
 (unary_predicate forced_monotonic_predicate)
+;; forced_monotonic_predicate declares no arg type.  Its roster names equals, sameAs and
+;; except, grammar terms that carry no arity.  (arg forced_monotonic_predicate 1 predicate)
+;; would type each of the three a predicate, and so a relation that is neither fixed_arity
+;; nor variable_arity.
 (forced_monotonic_predicate genlCx)
 (forced_monotonic_predicate irreflexive)
 (forced_monotonic_predicate anti_symmetric)
@@ -908,6 +937,7 @@
 (comment forced_monotonic_between_predicates
          "(forced_monotonic_between_predicates ?predicate) puts on the forced-monotonic roster every (?predicate …) sentence whose arguments are all spelled as predicates of arity 2 or more. Declared of genl: a genl between two predicates is forced, and a genl between types stays defeasible, since the spelling of the arguments separates the two. Its retraction is refused. See docs/nmtms.md.")
 (unary_predicate forced_monotonic_between_predicates)
+(arg forced_monotonic_between_predicates 1 predicate)
 (forced_monotonic_between_predicates genl)
 
 (comment functional
@@ -966,6 +996,7 @@
 (arityMin functionCorrespondingPredicate 2)
 (arg functionCorrespondingPredicate 1 function)
 (arg functionCorrespondingPredicate 2 predicate)
+(argAndRest functionCorrespondingPredicate 3 positive_integer)
 
 (comment genl
          "(genl ?subtype ?supertype) means that every ?subtype is a ?supertype. Transitive, and cached as a closure rather than run as a rule, since transitivity is the lifeblood of common sense and far too hot to chain. The type hierarchy it builds is rooted at thing. Types are unary predicates, so membership is written (dog Muffet) and never (isa Muffet Dog). The same relation relates predicate specializations of any arity: every tuple of the subtype is a tuple of the supertype, which is what a type reading of it is the unary case of, so neither argument is declared a subtype of thing.")
@@ -1123,6 +1154,8 @@
 (variable_arity or)
 
 (comment relation            "The type of every operator that may be applied to arguments. function and truth_valued_relation partition it: an application of a function denotes or evaluates to a value, while an application of a truth_valued_relation is true or false.")
+;; Stated although (genl relation expression) derives it: with the edge stated, CxCore holds
+;; the same justifications in authored order and in content order (vaelii#140).
 (genl relation thing)
 
 (comment function            "The type of all functions — the reifiable and unreifiable heads a non-atomic term is built from. A function is a relation, and is not a predicate: it denotes or evaluates to a value where a predicate holds or fails.")
@@ -1410,8 +1443,7 @@
 
 (comment termsRelated
          "(termsRelated ?term1 ?term2 …) means that the named terms form a related cluster — a curation grouping among vocabulary terms, so a reader meeting one is pointed at the rest. Variable arity, like lessThan: (termsRelated positiveExample negativeExample borderlineExample) groups the three example predicates as one family. Documentation only — nothing in the engine reads it and it draws no inference, the grouping being for a reader as comment's prose is.")
-(arg termsRelated 1 thing)
-(arg termsRelated 2 thing)
+(args termsRelated thing)
 (variable_arity_predicate termsRelated)
 (arityMin termsRelated 2)
 

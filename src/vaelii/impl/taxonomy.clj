@@ -3305,6 +3305,16 @@
                               (or (nil? scope) (nil? c) (scope c)))))))
         (get (:support rel) e {})))
 
+(defn genl-edge-supporters
+  "The handles of the believed supporters of `genl` edge `[sub super]` a reader at
+  `context` can use: each `(genl sub super)` sentex, and each `covering`, `separating` or
+  `partition` roster that installs the edge, that `genl?` from `context` would walk the
+  edge through.  Empty when the edge is not active.  Belief is read as `:edge-ctxs` records it, so a caller wanting the
+  JTMS's word filters again."
+  [tax sub super context]
+  (into #{} (map first)
+        (visible-edge-supporters (:genl @tax) [sub super] (relation-scope tax :genl context))))
+
 (defn- most-general-of
   "The most general of `cands` (a non-empty vector of `[handle ctx]`), since its context is
   inherited by whatever depends on the edge; asserting-context name breaks a tie between
