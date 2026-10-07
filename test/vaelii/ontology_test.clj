@@ -909,6 +909,27 @@
     (is (true? (v/ask? kb (list 'spatial Meadow) 'CxUniverse)))
     (is (not (v/ask? kb (list 'tangible Meadow) 'CxUniverse)))))
 
+(tu/deftest-kb a-partition-is-stated-a-cover-and-a-separation
+  ;; Every partition is a cover and a separation, so CxCore says so with two sub-relation
+  ;; edges.  What they add is a query for the weaker spelling answering the stronger one,
+  ;; and nothing the other way.
+  (doseq [super '[covering separating]]
+    (is (true? (v/ask? kb (list 'genl 'partition super) 'CxUniverse))
+        (str "(genl partition " super ") is believed"))
+    (is (true? (v/genl? kb 'partition super))))
+  (tu/with-terms [whole_kind part_a part_b part_c Item]
+    (v/assert kb (list 'partition whole_kind part_a part_b) 'CxUniverse)
+    (testing "a partition answers a covering query and a separating query"
+      (is (true? (v/ask? kb (list 'covering whole_kind part_a part_b) 'CxUniverse)))
+      (is (true? (v/ask? kb (list 'separating whole_kind part_a part_b) 'CxUniverse))))
+    (testing "and a cover is not read as a partition"
+      (v/assert kb (list 'covering whole_kind part_a part_c) 'CxUniverse)
+      (is (not (v/ask? kb (list 'partition whole_kind part_a part_c) 'CxUniverse))))
+    (testing "the coverage inference reads the partition as it did before"
+      (v/assert kb (list whole_kind Item) 'CxUniverse)
+      (v/assert kb (list 'not (list part_a Item)) 'CxUniverse)
+      (is (true? (v/ask? kb (list part_b Item) 'CxUniverse))))))
+
 (def ^:private derivable-and-unstated
   "Relations the shipped KB holds without stating them, each with the context that held
   the sentence before it was removed and the route it is derived by instead.  A

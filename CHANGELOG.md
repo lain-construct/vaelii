@@ -412,6 +412,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
 
+- **CxCore states that every partition is a cover and a separation:
+  `(genl partition covering)` and `(genl partition separating)`.** A stated
+  `(partition W A B)` now answers a `(covering W A B)` or `(separating W A B)` query; a
+  cover is not read as a partition, and the coverage and disjointness inferences are
+  unchanged, since both already read the one roster. `kb-quality` no longer counts a
+  `variable_arity` relation as a type node, so a sub-relation edge between two of them is
+  not reported as an island in `:taxonomy`.
+
 - **`direct-genls` and `direct-specs` read one `genl` step of the closure, and the
   browser's taxonomy view and hierarchy tree draw from them.** `(direct-genls kb t
   [context])` answers the types `t` is a subtype of by one edge, and `direct-specs` the

@@ -656,12 +656,19 @@
 (argAndRestGenl partition 2 thing)
 (arityMin partition 3)
 (commutativeInArgAndRest partition 2)
-;; No (genl partition covering) edge, though every partition is a cover: a genl
-;; edge between two variable-arity predicates puts two unrooted nodes in the type graph,
-;; which is what kb-quality reports as an island.  The engine needs no edge — both
-;; declarations are recorded under one taxonomy roster, so the coverage inference reads a
-;; partition and a bare cover the same way — and what the edge would add is a query for
-;; one spelling answering the other.
+;; Every partition is a cover and a separation, so partition is a sub-relation of each.
+;; The engine does not need the edges — both declarations are recorded under one taxonomy
+;; roster, so the coverage inference reads a partition and a bare cover the same way — and
+;; what they add is a query for the weaker spelling answering a partition: (covering W A B)
+;; and (separating W A B) hold of a stated (partition W A B).  Nothing runs the other way:
+;; a cover and a separation over the same roster are a partition logically, but no rule
+;; concludes it, which is why this is two genl edges and not
+;; (intersection partition covering separating) — intersection reads its arguments as
+;; types, so it would place the relations under thing and stamp a membership rule over
+;; one-argument applications they never have.  kb-quality counts no variable-arity
+;; relation as a type node, so the edges are not an island (docs/quality.md).
+(genl partition covering)
+(genl partition separating)
 
 ;; `partition` is the exhaustive counterpart of the two clique marks, and `separating` is
 ;; their roster-shaped twin: the same separation over a named few rather than over a
