@@ -452,6 +452,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Fixes: clashes and order independence
 
+- **A capped concept-graph row is chosen by print order, not index order.** The
+  browser's taxonomy view draws at most eight neighbours of a node. A node with more
+  drew the first eight the index returned, so which subtypes a hub showed changed with
+  unrelated edits and between two knowledge bases holding the same edges. The view now
+  reads up to 501 of a node's direct supertypes or subtypes, sorts them, and draws the
+  first eight, with an exact count in the caption. A node with more than 500 draws none
+  of them, and the caption says it has too many to draw and that the rows below list
+  them.
+
+  *Class:* **Fix**.
+
 - **A symmetric fact's argument-type mints rest on the same declaration however it was
   spelled.** A fact asserted or derived after its `arg` / `genlArg` / `interArg`
   declarations drew its mints over the arguments as written, while a declaration

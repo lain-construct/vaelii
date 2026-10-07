@@ -2591,6 +2591,14 @@
   and the row stops being a row."
   8)
 
+(def ^:private graph-row-limit
+  "How many direct neighbours one node may have and still have some of them drawn.
+  `graph-step` reads at most one more than this and sorts what it read, so a row is
+  chosen by print order from the node's **whole** fan-out.  A node past the limit draws
+  none and the caption says so.  Five hundred is far past every node of the shipped
+  ontology, and is the same fixed read `ego-scan` makes."
+  500)
+
 (def ^:private graph-spread
   "How many neighbours **one** node contributes to the row below/above it, past the first
   row.  Three, so a row spreads across its parents instead of one prolific node eating
@@ -2694,29 +2702,25 @@
   "One expansion: the direct neighbours of `node` under `pred` going `:up` or `:down`, at
   most `cap` of them, and how many there are.
 
-  **One facade read in the common case.**  `(take (inc cap))` genuinely bounds it —
-  `query` is lazy and the pattern pins an argument, so this costs the node's own fan-out
-  and no more.  A node that fits under the cap is realized whole, and is therefore sorted
-  (a stable picture) and counted **exactly**; one that does not is left in index order and
-  the caption's count is the cheap `count-with-arg` bound, which spans every binary
-  predicate holding the term at that position and is therefore an over-count — so
-  `:exact?` travels with it and the caption words it as the bound it is.  The second read
-  is paid only where something was actually elided.  A `genl` step reads the closure's
-  one-step adjacency (`direct-genls` / `direct-specs`), so an edge a cover roster
-  installs is a neighbour as a stated edge is."
+  **The neighbours drawn are the first `cap` in print order, of every neighbour the node
+  has.**  The read realizes at most `graph-row-limit` + 1 of them, so it costs at most
+  that many records whatever the node's fan-out.  A node with no more than
+  `graph-row-limit` neighbours is realized whole, sorted, and counted exactly.  A node
+  with more contributes **no** neighbours: the index hands them back in an order that is
+  not the print order, so any `cap` of a partial read would be a sample of that order,
+  and two knowledge bases holding the same edges could draw different ones.  `:more?`
+  marks that case, `:total` is then the limit it exceeded, and the caption says the node
+  has too many to draw.  A `genl` step reads the closure's one-step adjacency
+  (`direct-genls` / `direct-specs`), so an edge a cover roster installs is a neighbour as
+  a stated edge is."
   [kb pred dir node cap]
-  (let [pos  (if (= :up dir) 1 2)
-        read (if (= :up dir) parent-terms child-terms)
-        all  (read kb pred node)
-        got  (into [] (take (inc cap)) all)]
-    (if (<= (count got) cap)
-      {:terms (by-print-key got) :total (count got) :exact? true}
-      ;; a roster's parts are not facts holding the whole at the counted position, so
-      ;; the count alone could fall below a `genl` read; that read is a realized set,
-      ;; and the larger of the two is still the bound the caption words it as
-      {:terms (into [] (take cap) got)
-       :total (cond-> (v/count-with-arg kb pos node) (counted? all) (max (count all)))
-       :exact? false})))
+  (let [read  (if (= :up dir) parent-terms child-terms)
+        got   (into [] (take (inc graph-row-limit)) (read kb pred node))
+        more? (> (count got) graph-row-limit)]
+    (if more?
+      {:terms [] :total graph-row-limit :exact? false :more? true}
+      {:terms (into [] (take cap) (by-print-key got)) :total (count got)
+       :exact? true :more? false})))
 
 (defn- fresh-neighbours
   "The neighbours a row is built from: what the expansions found, minus anything already
@@ -2763,15 +2767,18 @@
               row    (into [] (take graph-row-cap) fresh)
               short? (or (< (count probed) (count frontier))
                          (> (count fresh) (count row))
-                         (boolean (some (fn [[_ s]] (> (:total s) (count (:terms s)))) steps)))]
+                         (boolean (some (fn [[_ s]] (> (:total s) (count (:terms s)))) steps)))
+              ;; recorded before the empty-row exit: a centre with too many neighbours to
+              ;; draw has an empty row, and that is the row the caption must explain
+              direct (or direct
+                         (when (= 1 depth)
+                           (let [s (second (first steps))]
+                             {:shown (count row) :total (:total s)
+                              :exact? (:exact? s) :more? (:more? s)})))]
           (if (empty? row)
             {:rows rows :spent spent' :direct direct :deeper? deeper? :truncated? false}
             (recur (mapv :term row) (inc depth) (into seen (map :term) row)
-                   (conj rows row) spent'
-                   (or direct
-                       (when (= 1 depth)
-                         (let [s (second (first steps))]
-                           {:shown (count row) :total (:total s) :exact? (:exact? s)})))
+                   (conj rows row) spent' direct
                    (or deeper? (and (> depth 1) short?)))))))))
 
 (defn- subsumption-plan
@@ -3041,11 +3048,15 @@
 (defn- elision-note
   "How a row says what it left out.  A truncated picture that does not announce itself is
   worse than no picture, and worse here than in a list — a picture reads as complete.  The
-  count is exact where the row was small enough to be read whole, and the argument-root
-  bound otherwise, worded as the bound it is rather than passed off as an edge count."
-  [what {:keys [shown total exact?]}]
+  count is exact where the neighbours were read whole.  A relation flank's count is
+  otherwise the argument-root bound, worded as the bound it is rather than passed off as an
+  edge count.  A taxonomy node past `graph-row-limit` (`:more?`) draws no row, and the note
+  says so and points at the rows below, which list every neighbour."
+  [what {:keys [shown total exact? more?]}]
   (when (and total (> total shown))
-    (str "showing " shown " of " (when-not exact? "up to ") (commas total) " " what)))
+    (if more?
+      (str "more than " (commas total) " " what ", too many to draw; they are listed below")
+      (str "showing " shown " of " (when-not exact? "up to ") (commas total) " " what))))
 
 (def ^:private flank-sample-note
   "What the caption says a partial flank *is*.  A picture drawing eight of forty
