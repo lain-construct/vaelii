@@ -905,7 +905,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
-- **CxCore declares an arity for each of the 43 types it places under `thing`.** A KB that
+- **CxCore declares an arity for each of the 42 types it places under `thing`.** A KB that
   loads CxCore alone read no arity for `thing`, the value kinds (`string`, `integer`, …),
   the skeleton collections (`tangible`, `spatial`, `context`, …), `expression`,
   `unrepresented_term`, the expression kinds (`formula`, `sentence`, …),
@@ -916,7 +916,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `ternary_predicate` are declared `type`, as `binary_predicate` is; and `thing`,
   `relation`, `predicate`, `truth_valued_relation` and `unary_predicate`, which hold types
   and individuals alike, are declared `variable_order_type`. Each order class is a
-  specialization of `unary_predicate`, so `kb/relation-arity` reads arity one for all 43.
+  specialization of `unary_predicate`, so `kb/relation-arity` reads arity one for all 42.
   [integrity.md](docs/integrity.md#what-an-undeclared-arity-finding-means).
 
   *Class:* **Additive**.

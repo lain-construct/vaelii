@@ -260,7 +260,6 @@
 (unary_predicate tangible)
 (unary_predicate biological)
 (unary_predicate organism)
-(unary_predicate capability)
 (unary_predicate nowhere_never)
 (unary_predicate context)
 (unary_predicate language)
