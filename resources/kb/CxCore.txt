@@ -220,7 +220,6 @@
 (comment tangible "Something with mass. Having mass, it necessarily has a location in space and time too, so it is spatiotemporal.")
 (comment organism "Something alive in its own right: it is born, grows, reproduces, and (by default) dies.")
 (comment biological "A tangible that is an organism or part of one.")
-(comment capability "Something a kind of thing can do — flying, or travelling. A noun for an ability, so that what a kind can do is a term the KB relates it to rather than a verb-shaped predicate of its own.")
 (comment nowhere_never "In no space and at no time: no location in any space, physical or mathematical, and none in time. An expression, a language. The line y=x is not one: it is located in the Cartesian plane, so it is spatial.")
 ;; spatial, aspatial, temporal, atemporal, tangible and intangible reach thing through
 ;; the three partitions of thing below, each of which installs its parts' edges to the
@@ -230,7 +229,6 @@
 (genl biological tangible)
 ;; Stated although CxAbstract's separating roster installs it: CxOrganism does not see CxAbstract.
 (genl organism biological)
-(genl capability aspatial)
 ;; Mass entails a location in space and in time, so what has no location in any space,
 ;; or none in time, has no mass.
 (genl aspatial intangible)

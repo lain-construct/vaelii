@@ -91,8 +91,10 @@ directions at once:
 
 Position 1 of `capabilityType` carries a claim about a kind *down* to its subkinds — a
 kind of bird flies with nothing written about it — while position 2 of both predicates
-carries it *up* the capability hierarchy: flying is a kind of travelling, so whatever
-flies travels.
+carries it *up* the `genl` hierarchy of event kinds: `flying` is a kind of `travelling`, so
+whatever can fly can travel. The second position of both predicates is an event kind,
+`(genlArg hasCapability 2 event)`, so `(hasCapability Tweety flying)` says Tweety can be
+the doer of a flying event.
 
 The size claims are also where the sharp edge shows. Preservation runs downward, so
 `(largerThan mammal mouse)` reaches every pair below it and lands on `(largerThan mouse
@@ -175,7 +177,7 @@ argument to be marked, and a marked predicate takes one argument-check family fo
 position — `arg` throughout for an instance relation, `genlArg` throughout for a type
 one. A predicate relating one individual to a *kind* satisfies neither and is left
 unmarked, which `relation_kind`'s own comment says of `result` and
-`functionCorrespondingPredicate`. `hasCapability` is the third: one animal, one capability
+`functionCorrespondingPredicate`. `hasCapability` is the third: one animal, one event
 kind. So `capabilityType`/`hasCapability` are named as a pair in their comments and not by
 the predicate that exists to name pairs — declaring the mark to satisfy it would trade an
 argument check that convicts for a link nothing reads. `partType`/`partOf` is the pair the

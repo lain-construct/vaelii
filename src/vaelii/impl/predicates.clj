@@ -1081,7 +1081,7 @@
            [non_atomic_term "documentary: a function applied to terms — the NAT of docs/nat.md, named as a collection. Reification reads the declaration on the function, never this."]])
 
     ;; ---- the upper-ontology skeleton -------------------------------------
-    ;; The seven collections CxCore holds so that a spindle member can place its own types
+    ;; The six collections CxCore holds so that a spindle member can place its own types
     ;; under the root.  A spindle's members see the head and not each other, so a skeleton
     ;; term defined in one member is invisible to the member extending it — which left
     ;; `animal` unable to reach `thing` from CxOrganism, where it is defined.
@@ -1096,8 +1096,7 @@
            [spatiotemporal "ontology, not grammar: something with a location in space and time. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [tangible "ontology, not grammar: something with mass, and so with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [organism "ontology, not grammar: something alive in its own right. CxCore holds it so CxOrganism's kinds reach the root from CxOrganism; no engine check names it."]
-           [biological "ontology, not grammar: a tangible that is an organism or part of one. CxCore holds it so organism reaches tangible through it from CxOrganism and body_part from CxAbstract; no engine check names it."]
-           [capability "ontology, not grammar: something a kind of thing can do. CxCore holds it so CxLife can extend it; no engine check names it."]])
+           [biological "ontology, not grammar: a tangible that is an organism or part of one. CxCore holds it so organism reaches tangible through it from CxOrganism and body_part from CxAbstract; no engine check names it."]])
 
     ;; ---- the space/time complements, nowhere_never, and the metatype ladder ----
     ;; CxCore comments these too, beside their genl edges, so `vocabulary/audit` answers

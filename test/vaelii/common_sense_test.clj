@@ -154,7 +154,7 @@
 ;; ---- defaults, and taking one back --------------------------------------
 
 (tu/deftest-kb a-default-conclusion-feeds-a-further-rule
-  ;; flying ⇒ can travel via the capability hierarchy: (genl flying travelling) +
+  ;; flying ⇒ can travel via the event-kind hierarchy: (genl flying travelling) +
   ;; (transitiveInArg hasCapability 2 genl).  An eagle flies by default, so it
   ;; can travel; a penguin's flight is defeated, so the downstream query returns nothing.
   ;; No stored forward-rule conclusion — the hierarchy answers at retrieval.

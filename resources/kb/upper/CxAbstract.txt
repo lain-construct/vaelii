@@ -1,5 +1,5 @@
 ;; CxAbstract — non-biological upper-ontology types (intangible, physical
-;; objects, substances, made things, body parts and their kinds), the
+;; objects, substances, made things, body parts, events and their kinds), the
 ;; physical-structure relations partOf/locatedIn/madeOf, the event relations
 ;; doneBy/performedBy and input/output, and the two type-level relations
 ;; largerThan/partType. Sees CxCore; CxUniverse sees it, so any type or relation
