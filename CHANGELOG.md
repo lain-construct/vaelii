@@ -97,6 +97,51 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **CxCore declares `argN`.** `(argN ?term ?n ?formula)` states that `?term` is
+  argument `?n` of `?formula`, and position 0 is the relation or operator. It is a
+  `ternary_predicate` with `(arg argN 1 thing)`, `(arg argN 2 non_negative_integer)` and
+  `(quotedArg argN 3 formula)`. The `quotedArg` is documentary, because no reader
+  classifies a compound by its shape yet. Nothing in the engine derives or reads `argN`,
+  and the vocabulary audit classifies it inert. The prose that said `argN` for the
+  `arg1` / `arg2` / `arg3` projections names them instead. `engine_vocabulary_test` pins
+  the declaration and a stored fact at position 0.
+
+  *Class:* **Additive**.
+
+- **CxCore partitions `integer` by sign, twice.** CxCore states
+  `(partition integer positive_integer non_positive_integer)` and
+  `(partition integer negative_integer non_negative_integer)`, so each part of one
+  partition is disjoint from the other part and the two partitions cover `integer`. Zero
+  is in both `non_` types. The four `(genl … integer)` edges are removed, since the
+  partitions derive them. `engine_vocabulary_test` pins the edges, the disjointness and
+  the sign types a literal is admitted by. [argtypes.md](docs/argtypes.md)
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* a KB that relied on `(genl positive_integer integer)` or its three twins
+  being stated reads it from `genl?`.
+
+- **CxCore declares the equality relations and the rule and strength wrappers the engine
+  reads by name.** `sameAs` and `equals` gain comments and `(binary_predicate …)` with
+  `thing` at both positions, as `rewriteOf` has. `set/forwardOnlyRule`, `set/solveRule`,
+  `set/assumptionRule`, `set/hardConstraint`, `set/softConstraint` and `set/monotonic`
+  gain comments beside the four rule wrappers CxCore already commented. Each term carries
+  enforced prose in the predicates roster, so the vocabulary audit classifies it.
+  `engine_vocabulary_test` pins the declarations and the classification. The query
+  operators `unknown`, `thereExists`, `forall`, `bravely` and `cautiously` stay
+  undeclared, since their place in the relation taxonomy is not settled.
+
+  *Class:* **Additive**.
+
+- **CxCore declares `different`.** `different` is the unique-name assumption the
+  different prover answers from the equality closure, and CxCore now comments and types
+  it: `(variable_arity_predicate different)`, `(arityMin different 2)`,
+  `(args different thing)` and `(commutative different)`, matching the ground goal of two
+  or more terms the prover answers. An assert of `different` is still refused. The
+  vocabulary audit classifies `different` as enforced, and `engine_vocabulary_test` pins
+  the declaration and both argument orders. [equality.md](docs/equality.md)
+
+  *Class:* **Additive**.
+
 - **`time` is a moment or a stretch of time as such, and `time_interval` is the
   stretch.** A date is no cause: the year 2000 broke nothing, two-digit years did, at the
   rollover. CxAbstract declares `time`, a time as in "at that time", with

@@ -66,7 +66,7 @@
 (arg arg 2 positive_integer)
 (genlArg arg 3 thing)
 (comment arg1
-         "(arg1 ?relation ?type) means that argument 1 of ?relation must be of ?type — the binary projection of (arg ?relation 1 ?type), created so a positional argument constraint can itself stand in the subject position of a binary declaration such as (predAllSpecified arg1 relation). The projection and the ternary spelling derive each other, so asserting either keeps both believed and retracting the one that was actually asserted collapses the pair; both are held to the same declaration checks at assert, so neither spelling accepts a declaration the other refuses. The projection relates stored declarations only: a reading arg answers through genl generalization or super-predicate inheritance has no argN twin, so a generalized or inherited question must be asked of arg itself. arg2 and arg3 project positions 2 and 3 the same way.")
+         "(arg1 ?relation ?type) means that argument 1 of ?relation must be of ?type — the binary projection of (arg ?relation 1 ?type), created so a positional argument constraint can itself stand in the subject position of a binary declaration such as (predAllSpecified arg1 relation). The projection and the ternary spelling derive each other, so asserting either keeps both believed and retracting the one that was actually asserted collapses the pair; both are held to the same declaration checks at assert, so neither spelling accepts a declaration the other refuses. The projection relates stored declarations only: a reading arg answers through genl generalization or super-predicate inheritance has no arg1, arg2 or arg3 twin, so a generalized or inherited question must be asked of arg itself. arg2 and arg3 project positions 2 and 3 the same way.")
 (binary_predicate arg1)
 (arg arg1 1 relation)
 (genlArg arg1 2 thing)
@@ -174,10 +174,11 @@
 (comment character "A single character, written \\a. Not a one-letter string: the two are separate EDN kinds and neither is below the other.")
 (comment symbol  "A name — the term written in an argument position, whatever that term denotes. Mention-only: see the note above its declaration.")
 (genl integer number)
-(genl positive_integer integer)
-(genl negative_integer integer)
-(genl non_negative_integer integer)
-(genl non_positive_integer integer)
+;; An integer is positive or not, and negative or not: two partitions of integer, with
+;; zero in both non_ parts.  Each partition installs its parts' genl edges to integer, so
+;; none is stated.
+(set/monotonic (partition integer positive_integer non_positive_integer))
+(set/monotonic (partition integer negative_integer non_negative_integer))
 ;; The four sign-refined integer collections are defined by DEFNS, not rules, so
 ;; membership resolves by EVALUATION at query time (integer / greaterThan / lessThan are
 ;; computed, never stored) at zero sentex cost: DefnSufficientProver admits a member whose
@@ -304,6 +305,18 @@
 (genl atomic_formula literal)
 (genl sentence formula)
 (genl atomic_sentence atomic_formula)
+
+;; argN names a position inside a written formula.  Position 0 is the relation or
+;; operator, and the arguments count from 1, as arg's positions do.  The quotedArg at
+;; position 3 is documentary for the reason the note on the expression kinds above gives:
+;; no reader classifies a compound by its shape, so the declaration stores and convicts
+;; nothing.
+(comment argN
+         "(argN ?term ?n ?formula) means that ?term is argument ?n of ?formula. Position 0 is the relation or operator ?formula applies, and the arguments count from 1: (argN parentOf 0 (parentOf Tom Bob)) and (argN Bob 2 (parentOf Tom Bob)) both hold. ?formula is taken as written, which (quotedArg argN 3 formula) states. A compound's kind is not classified yet, so that declaration is documentary and checks nothing. Nothing in the engine derives or reads argN.")
+(ternary_predicate argN)
+(arg argN 1 thing)
+(arg argN 2 non_negative_integer)
+(quotedArg argN 3 formula)
 (genl atomic_sentence sentence)
 (set/monotonic (disjoint atomic_formula non_atomic_term))
 ;; Each expression kind is a type, a one-place predicate over expressions.
@@ -1139,6 +1152,29 @@
 (arg rewriteOf 1 thing)
 (arg rewriteOf 2 thing)
 
+(comment sameAs
+         "(sameAs ?individual1 ?individual2) means that the two named individuals are one, in OWL's sense: reflexive, symmetric, transitive and substitutive. The merge feeds the one equivalence closure rewriteOf and equals feed, and neither name is deprecated by it. The closure elects a representative by content rather than by arrival order. A goal of sameAs is answered from the closure. See docs/equality.md.")
+(binary_predicate sameAs)
+(arg sameAs 1 thing)
+(arg sameAs 2 thing)
+
+(comment equals
+         "(equals ?term1 ?term2) means that ?term1 and ?term2 denote one thing. Any two terms may be equated, where sameAs follows OWL in equating individuals. The merge feeds the one equivalence closure rewriteOf and sameAs feed. A goal of equals is answered from the closure. A collision under functional, functionalInArg or anti_symmetric between two monotonic symbols derives an equals. See docs/equality.md.")
+(binary_predicate equals)
+(arg equals 1 thing)
+(arg equals 2 thing)
+
+;; different is the unique-name assumption read as a relation.  The engine answers it and
+;; never stores it: wff refuses an assert of it, and provers/DifferentProver answers a
+;; ground goal of two or more arguments.  So the declarations below type the relation the
+;; prover answers, at the arity the prover answers it.
+(comment different
+         "(different ?term1 ?term2 ...) means that no two of the named terms denote one thing. Answered by the different prover from the equality closure under the unique-name assumption: distinct names denote distinct things until a rewriteOf, sameAs or equals merges them, and a merge the reading context cannot see leaves the two names different there. The unique-name assumption is suspended for an unpinned indeterminate_term, so a goal naming one is not provable against a determinate term until a rewriteOf pins it. A query operator: an assert of it is refused, and only a ground goal of two or more arguments is answered. Commutative, since the answer does not depend on the order of the terms. See docs/equality.md.")
+(variable_arity_predicate different)
+(arityMin different 2)
+(args different thing)
+(commutative different)
+
 (comment result
          "(result ?function ?type) means that the output of ?function is an instance of ?type. Read for both kinds of function, and where the type is held is what the reifiability mark decides: a REIFIABLE function's application is minted, so the membership is materialized as (?type K) on the freshly minted constant K — a real sentex with a justification, rather than a rule that would have to run at read time — and an UNREIFIABLE one has no constant to hang it on, so its applications are typed from this declaration at check time instead. One declaration, one verdict, whichever kind of function wrote it. Named for what it says rather than for the check that reads it, as arg is: the instance reading, with genlResult one level up.")
 (binary_predicate result)
@@ -1304,6 +1340,24 @@
 
 (comment set/inertRule
          "(set/inertRule ?rule) means that ?rule is asserted inert. Stored and documented but never used for inference in either direction, which is how a rule stating something the engine implements in code gets written down where a reader will find it. A virtual wrapper interpreted on assert.")
+
+(comment set/forwardOnlyRule
+         "(set/forwardOnlyRule ?rule) means that ?rule forward-chains and is never used in backward proof. It is indexed by its antecedent predicates, and its direction is :forward-only. A rule that forward-chains and also answers backward proof is set/forwardRule instead. A virtual wrapper interpreted on assert: it sets the direction field on the rule sentex and is never stored as a fact of its own.")
+
+(comment set/solveRule
+         "(set/solveRule ?rule) means that ?rule also runs in a solve, as a normal answer-set rule. A solve derives the head of ?rule in every answer set whose atoms satisfy its body, and a constraint may name that head. A direction wrapper beside set/solveRule says how the rule runs in base, and the rule runs backward when there is none. set/inertRule beside set/solveRule makes a rule that runs in a solve alone. A virtual wrapper interpreted on assert: it adds :solve to the engines of the rule sentex and is never stored as a fact of its own. See docs/solving.md.")
+
+(comment set/assumptionRule
+         "(set/assumptionRule ?rule) means that the head of ?rule is a choice offered to a solve, not a truth to derive. The rule chains in neither direction in base. A solve grounds it into one choice per ground head. A virtual wrapper interpreted on assert: it sets the effect of the rule sentex to :choose and is never stored as a fact of its own. See docs/solving.md.")
+
+(comment set/hardConstraint
+         "(set/hardConstraint ?rule) means that no answer set of a solve may satisfy the body of ?rule. The head of ?rule is a contradiction marker and is never derived. The body is a conjunctive nogood over background facts and choice-head patterns. The rule chains in neither direction in base. A virtual wrapper interpreted on assert: it sets the effect of the rule sentex to :forbid and is never stored as a fact of its own. See docs/solving.md.")
+
+(comment set/softConstraint
+         "(set/softConstraint ?rule) means that a solve minimizes the answer sets' violations of the body of ?rule. The head of ?rule is a contradiction marker and is never derived. The body is a conjunctive nogood over background facts and choice-head patterns, as a set/hardConstraint body is. A leading positive integer, (set/softConstraint P ?rule), places the violations at objective level P, and a constraint with none sits at level 1. The rule chains in neither direction in base. A virtual wrapper interpreted on assert: it sets the effect of the rule sentex to :penalize and is never stored as a fact of its own. See docs/solving.md.")
+
+(comment set/monotonic
+         "(set/monotonic ?sentence) means that ?sentence is asserted known-true, with :monotonic strength. The wrapper states how the sentence is asserted rather than anything the sentence says. The text KB format reads set/monotonic around a whole form. assert reads set/monotonic around the query of an exceptWhen, where it states the exception's own strength. A virtual wrapper interpreted on assert, never stored as a fact of its own. See docs/kbs.md.")
 
 (comment sibling_disjoint
          "(sibling_disjoint ?collection) means that any two specializations of ?collection — the types below it under genl — share no instance, unless one is itself a genl of the other. The clique is consulted rather than stored, exactly as disjoint_metatype's is: no (disjoint …) sentex per pair, dropping the mark releases every pair at once, and a specialization arriving as a later genl edge is separated the moment it is believed. The genl-relatedness exception is what keeps a specialization disjoint from its siblings without being separated from its own supertypes, which are specializations of ?collection too; it is read over the whole KB, the way (disjoint a b) refuses a genl-related pair. Whether those specializations cover ?collection is a separate claim this one does not make, and covering states it over a named roster.")

@@ -945,7 +945,7 @@
 
   **`value-kinds`, not `value-kind`, and the difference is the sign-refined
   integers.**  `syntactic-type?` admits any type below a syntactic root, so
-  `positive_integer` — `(genl positive_integer integer)` in CxCore — is inside this
+  `positive_integer` — a part of CxCore's partitions of `integer` — is inside this
   check's domain and always was.  Judged by EDN kind alone the comparison ran the wrong
   way round, asking whether `integer` is below `positive_integer`, and refused every
   integer written in such a position (#55).  The shared reader answers the
@@ -1289,7 +1289,7 @@
   sentence itself carries no position for the generic machinery to check, the bridge
   rule's ternary conclusion is convicted on the *derivation* path where a conviction
   is dropped and recorded rather than thrown, and the author is left holding a
-  believed `argN` fact whose real declaration the engine rejected — silently inert,
+  believed `arg1`/`arg2`/`arg3` fact whose real declaration the engine rejected — silently inert,
   the exact trap CxCore's `quotedArg` note names.
 
   Open-world throughout: each arm needs a declaration to contradict, so a predicate

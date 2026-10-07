@@ -59,7 +59,7 @@
     :enforced prose naming the code path that reads the term — what a KB author is told
               by `core/interpreted` when they ask whether a declaration does anything.
               Carried by the terms CxCore comments and by no others, which is why an
-              entry without it is not a defect: the six grammar terms CxCore does not
+              entry without it is not a defect: the grammar terms CxCore does not
               comment are outside the question rather than unanswered.
     :inert    prose recording that nothing reads the term **and that this is a
               decision**.  Written by the `inert` constructor, which sets the facet with
@@ -340,8 +340,8 @@
   called inert by writing different prose beside it.
 
   Nil-tolerant, because the question is only asked about terms CxCore comments: the
-  six grammar terms it does not comment (`equals`, `sameAs` and the four query
-  operators) pass through unchanged, and `vocabulary/audit` is what notices a
+  grammar terms it does not comment (the query operators other than `different`) pass
+  through unchanged, and `vocabulary/audit` is what notices a
   term the *ontology* names and this file answers for with nothing."
   [spec where]
   (cond-> spec where (assoc :enforced where)))
@@ -733,9 +733,6 @@
     ;; ---- the equality relations ------------------------------------------
     ;; Sorted, so the table is a function of the set rather than of set iteration
     ;; order — the same sort `special/entries` applies to `kb/equality-predicates`.
-    ;; Only `rewriteOf` carries vocabulary prose, because CxCore comments only it: the
-    ;; other two are grammar the audit is not asked about, which is a fact about the
-    ;; ontology rather than about what the engine does with them.
     (map (fn [f]
            [f (enforced
                (assoc (pair :equality :term :derived? false
@@ -746,7 +743,9 @@
                                   " a symbol merge and each arm dispatches on them — a"
                                   " NAT reify-to-term declaration, and a schematic"
                                   " equational rule."))
-               (get '{rewriteOf "nat for a compound right side, the equality partition for a symbol"}
+               (get '{rewriteOf "nat for a compound right side, the equality partition for a symbol"
+                      sameAs    "the equality partition — a merge of the two classes, answered from the closure by provers/EqualityProver"
+                      equals    "the equality partition — a merge of the two classes, answered from the closure by provers/EqualityProver"}
                     f))])
          '[equals rewriteOf sameAs])
 
@@ -782,7 +781,7 @@
                             :family nil :facets #{:convicts :reach}
                             :notes (str "the projection relates STORED declarations only — a"
                                         " reading arg generalizes up genl or inherits from a"
-                                        " super-predicate has no argN twin; ask arg for those."
+                                        " super-predicate has no arg1/arg2/arg3 twin; ask arg for those."
                                         " :family stays nil for arity's reason rather than for"
                                         " want of a family: mark-families rosters the lanes"
                                         " that must recognize one spelling set, and two"
@@ -998,11 +997,14 @@
                      " (binary and ternary; general arity pends list-membership vocabulary)"))]
 
      ;; ---- the query operators --------------------------------------------
-     ['different   (operator {:args [] :variadic :term}
-                             :notes (str "answered from the equality closure. Being"
-                                         " deferred is all it shares with the"
-                                         " comparisons: it is not transitive, so it"
-                                         " merges no chains."))]
+     ['different   (enforced (operator {:args [] :variadic :term}
+                                       :notes (str "answered from the equality closure. Being"
+                                                   " deferred is all it shares with the"
+                                                   " comparisons: it is not transitive, so it"
+                                                   " merges no chains."))
+                             (str "provers/DifferentProver — a ground goal of two or more terms,"
+                                  " answered from the equality closure under the unique-name"
+                                  " assumption"))]
      ['unknown     (operator {:args [:sentence]})]
      ['thereExists (operator {:args [:sentence]})]
      ['forall      (operator {:args [:term :sentence]}
@@ -1301,7 +1303,13 @@
          '[[set/forwardRule  "sentex/peel-rule-wrapper — sets the rule's direction"]
            [set/backwardRule "sentex/peel-rule-wrapper — sets the rule's direction"]
            [set/defaultRule  "sentex/peel-rule-wrapper — sets the conferred strength"]
-           [set/inertRule    "sentex/peel-rule-wrapper — stored, indexed for neither direction"]])
+           [set/inertRule    "sentex/peel-rule-wrapper — stored, indexed for neither direction"]
+           [set/forwardOnlyRule "sentex/peel-rule-wrapper — sets the rule's direction"]
+           [set/solveRule    "sentex/peel-rule-wrapper — adds :solve to the rule's engines"]
+           [set/assumptionRule "sentex/peel-rule-wrapper — sets the rule's effect to :choose"]
+           [set/hardConstraint "sentex/peel-rule-wrapper — sets the rule's effect to :forbid"]
+           [set/softConstraint "sentex/peel-rule-wrapper — sets the rule's effect to :penalize"]
+           [set/monotonic    "sentex/strength-wrapper — peeled at the entry point into :monotonic strength"]])
 
     ;; ---- the evaluable comparisons ---------------------------------------
     [['lessThan    (enforced {:shape   {:args [] :variadic :term}
@@ -1419,6 +1427,15 @@
              (str "a partition declaration (variable arity) documenting that the cell types"
                   " exhaustively and disjointly cover the whole. Nothing infers from it — the"
                   " disjoint_metatype and the explicit memberships carry the separation."))]
+     ['argN
+      (inert {:shape {:args [:term :integer :sentence]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "a position inside a written formula, 0 the relation or operator."
+                          " Nothing derives it, and its (quotedArg argN 3 formula) checks"
+                          " nothing, since no reader classifies a compound by its shape.")}
+             (str "a statement that a term is argument n of a written formula, position 0"
+                  " being the relation or operator. Nothing derives or reads it, and no reader"
+                  " classifies a compound by its shape yet."))]
      ['termsRelated
       (inert {:shape {:args [] :variadic :term} :storage [:none] :checked false
               :family nil :facets #{}
