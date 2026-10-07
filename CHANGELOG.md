@@ -52,6 +52,21 @@ it — `git show v0.16.0:CHANGELOG.md`.
   solid and its mercury liquid, and a state it states otherwise for one of them is a
   disjointness nogood under `stuff_type_by_state_of_matter`.
 
+- **CxCore states `(predAllSpecified typeGenl at_least_metatype)` and
+  `(predAllSpecified genl unary_predicate)`.** Every `at_least_metatype` is required to
+  name, through `typeGenl`, a type its instances specialize, and every `unary_predicate`
+  to name a `genl`. `all-specified-violations` and `kb-integrity` audit both requirements.
+  CxCore states `(typeGenl sibling_disjoint thing)`, matching
+  `(genlArg sibling_disjoint 1 thing)`. `empty` and `nonempty` are `at_least_metatype`
+  with no other type to specialize, so CxCore states `(typeGenl empty thing)` and
+  `(typeGenl nonempty thing)` beside their declaration; both facts are vacuous, since
+  `thing` is already a `genl` of every type, and inert, since `typeGenl` has no
+  inference path. Over the starter, the `genl` audit is clean and the `typeGenl` audit
+  reports `folk_species` and `folk_biological_class`, the two metatypes that state no
+  `typeGenl`.
+
+  *Class:* **Additive**.
+
 ### Internal
 
 - **`disjointness-coverage-ratchet` requires at least 13928 disjoint pairs, 69.98%
