@@ -219,6 +219,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Breaks:* `(unary_predicate not)`, `(binary_predicate implies)`,
   `(genl function relation)`, `(genl predicate relation)`, `(disjoint function predicate)`
 
+- **`doneBy` and `performedBy` relate an event to its doer.** CxAbstract declares both
+  binary `instance_relation_predicate`s with `event` in the first position and `thing` in
+  the second. `(doneBy ?event ?doer)` says the doer brought the event about,
+  intentionally or not, and `(performedBy ?event ?doer)` says it did so intentionally;
+  `(genl performedBy doneBy)` makes every performing a doing. The doer is typed `thing`
+  rather than `agent`, because `agent` names a registered participant, and a machine
+  or a process can bring an event about as well as a person can. `causality_cluster_test`
+  pins the declarations, the genl edge and the event-position constraint.
+
+  *Class:* **Additive**.
+
 - **The upper ontology divides `thing` by location in space, by time and by mass:
   `spatial` is a location in any space, `spatiotemporal` is a location in space and
   time, `physical_object` is renamed `tangible` and `abstract` is renamed

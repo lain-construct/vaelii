@@ -6,7 +6,7 @@
   can occupy a cause slot), and causal_event/acausal_event defined via `intersection`.
   The tests hold that the cluster loads and that the `intersection`-defined kinds get
   their genls and membership from the CxCore intersection rules."
-  (:require [clojure.test :refer [is use-fixtures]]
+  (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
 
@@ -113,3 +113,46 @@
     (v/assert kb (list 'organization 'Acme) 'CxUniverse)
     (is (v/ask? kb (list 'causal 'Acme) 'CxUniverse)
         "an organization reads causal")))
+
+;; ---- doneBy / performedBy: an event's doer --------------------------------
+;; performedBy specializes doneBy through a predicate genl edge, so every performing is a
+;; doing and not the other way round.  The doer position is typed `thing`: a machine or
+;; a process can bring an event about as well as a person can.
+
+(tu/deftest-kb done-by-and-performed-by-are-declared-binary-instance-relations
+  (doseq [p '[doneBy performedBy]]
+    (testing (str p)
+      (is (v/ask? kb (list 'binary_predicate p) 'CxUniverse))
+      (is (v/ask? kb (list 'instance_relation_predicate p) 'CxUniverse))
+      (is (v/ask? kb (list 'arg p 1 'event) 'CxUniverse) "the first position is the event")
+      (is (v/ask? kb (list 'arg p 2 'thing) 'CxUniverse) "and the doer is any thing")))
+  (is (v/ask? kb '(genl performedBy doneBy) 'CxUniverse)
+      "performedBy specializes doneBy"))
+
+(tu/deftest-kb every-performing-is-a-doing
+  (tu/with-terms [Launch Operator Spill Pump]
+    (v/assert kb (list 'performedBy Launch Operator) 'CxUniverse)
+    (is (v/ask? kb (list 'doneBy Launch Operator) 'CxUniverse)
+        "the genl edge carries a performedBy tuple up to doneBy")
+    (v/assert kb (list 'doneBy Spill Pump) 'CxUniverse)
+    (is (not (v/ask? kb (list 'performedBy Spill Pump) 'CxUniverse))
+        "and a doing is not concluded a performing")))
+
+(tu/deftest-kb the-event-position-is-typed-and-the-doer-position-admits-any-thing
+  (tu/with-terms [Stillness Flood Pump Drizzle]
+    (v/assert kb (list 'static_situation Stillness) 'CxUniverse)
+    (v/assert kb (list 'machine Pump) 'CxUniverse)
+    (let [ps (v/check kb (list 'doneBy Stillness Pump) 'CxUniverse)
+          p  (first (filter #(= :arg-type (:type %)) ps))]
+      (is (some? p) "a static situation is not an event, so it cannot be done")
+      (is (= 1 (:position p)))
+      (is (= 'event (:expected p))))
+    (testing "the constraint reaches performedBy through the genl edge"
+      (is (some #(= :arg-type (:type %))
+                (v/check kb (list 'performedBy Stillness Pump) 'CxUniverse))))
+    (v/assert kb (list 'event Flood) 'CxUniverse)
+    (is (= [] (v/check kb (list 'doneBy Flood Pump) 'CxUniverse))
+        "a machine can do an event")
+    (v/assert kb (list 'event Drizzle) 'CxUniverse)
+    (is (= [] (v/check kb (list 'doneBy Flood Drizzle) 'CxUniverse))
+        "and so can another event")))
