@@ -120,6 +120,13 @@
 (comment metal "A hard, dense, conducting substance — iron, copper, gold.")
 (genl metal substance)
 
+(comment mercury "The metallic element quicksilver, as stuff: the metal in an old thermometer, a barometer or a dental amalgam. Mercury is liquid at ordinary room temperature and pressure. Mercury freezes at about -39 °C, so its state of matter depends on the temperature a context assumes.")
+(genl mercury metal)
+;; A portion of mercury is an individual, so mercury is a first-order `type`.  Mercury is
+;; not a stuff_type_by_substance: that metatype separates its members, and mercury is
+;; below metal, one of them.
+(type mercury)
+
 (comment natural "A tangible whose form no living thing's action gave it: a wild sheep, a coral reef, a rock, a river, a star. Contrast made.")
 ;; A wild sheep is natural and biological.  A cloned sheep is made and biological.  So
 ;; biological is orthogonal to made and to natural.
