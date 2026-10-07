@@ -975,7 +975,13 @@
     [genl character intangible CxAbstract "character genl unrepresented_term genl expression genl nowhere_never genl intangible"]
     [genl context intangible CxAbstract "context genl expression genl nowhere_never genl intangible"]
     [genl language intangible CxAbstract "language genl nowhere_never genl intangible"]
-    [genl building artifact CxAbstract "building genl container genl artifact"]
+    [genl building made CxAbstract "building genl container genl made"]
+    [genl made tangible CxAbstract "partition tangible made natural"]
+    [genl natural tangible CxAbstract "partition tangible made natural"]
+    [genl formation tangible CxAbstract "formation genl natural genl tangible"]
+    [disjoint formation made CxAbstract "formation genl natural; partition tangible made natural"]
+    [disjoint formation organism CxAbstract "organism genl biological; separating tangible formation biological"]
+    [disjoint formation body_part CxAbstract "body_part genl biological; separating tangible formation biological"]
     [genl asymmetric binary_predicate CxCore "asymmetric genl anti_symmetric genl binary_predicate"]
     [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
     [disjoint number predicate CxAbstract "number genl unrepresented_term, predicate genl relation; disjoint unrepresented_term relation"]
@@ -1110,20 +1116,20 @@
     (is (true? (v/ask? kb (list 'food Drumstick) 'CxUniverse)))
     (is (true? (v/ask? kb (list 'body_part Drumstick) 'CxUniverse)))))
 
-(tu/deftest-kb an-organism-or-a-body-part-can-be-an-artifact
-  ;; An artifact is something intentionally made, so an engineered bacterium or an organ
-  ;; grown in a lab is both.  The pair is declared orthogonal rather than disjoint.
-  (is (not (v/disjoint? kb 'biological 'artifact)))
-  (is (not (v/disjoint? kb 'organism 'artifact)))
-  (is (not (v/disjoint? kb 'body_part 'artifact)))
+(tu/deftest-kb an-organism-or-a-body-part-can-be-made
+  ;; Something made can be biological too: an engineered bacterium, an organ grown in a
+  ;; lab, a cloned sheep.  The pair is declared orthogonal rather than disjoint.
+  (is (not (v/disjoint? kb 'biological 'made)))
+  (is (not (v/disjoint? kb 'organism 'made)))
+  (is (not (v/disjoint? kb 'body_part 'made)))
   (tu/with-terms [Engineered LabKidney]
     (v/assert kb (list 'organism Engineered) 'CxUniverse)
-    (is (not (tu/stored-in-clash? kb (list 'artifact Engineered) 'CxUniverse))
-        "an organism that is also an artifact is no clash")
-    (is (true? (v/ask? kb (list 'artifact Engineered) 'CxUniverse)))
+    (is (not (tu/stored-in-clash? kb (list 'made Engineered) 'CxUniverse))
+        "an organism that is also made is no clash")
+    (is (true? (v/ask? kb (list 'made Engineered) 'CxUniverse)))
     (v/assert kb (list 'body_part LabKidney) 'CxUniverse)
-    (is (not (tu/stored-in-clash? kb (list 'artifact LabKidney) 'CxUniverse))
-        "a body part that is also an artifact is no clash"))
+    (is (not (tu/stored-in-clash? kb (list 'made LabKidney) 'CxUniverse))
+        "a body part that is also made is no clash"))
   (testing "while a biological thing stays apart from a substance"
     (is (true? (v/disjoint? kb 'organism 'substance)))
     (is (true? (v/disjoint? kb 'body_part 'substance)))))
@@ -1261,3 +1267,109 @@
     (is (true? (v/ask? kb (list 'orthogonal 'dog tended) 'CxUniverse)))
     (is (= :orthogonal (v/subsumption-status kb 'dog tended)))
     (is (not-any? #(= :forced-conclusion (:violation %)) (v/violations kb)))))
+
+(tu/deftest-kb artifact-is-declared-nowhere-and-the-seven-kinds-are-made
+  ;; The KB declares no artifact term and no alias for one.  building, clothing,
+  ;; container, furniture, machine, tool and vehicle are kinds of made.
+  (is (empty? (v/sentexes-matching kb '(comment artifact ?text) '?ctx)))
+  (is (empty? (v/sentexes-matching kb '(genl artifact ?type) '?ctx)))
+  (is (empty? (v/sentexes-matching kb '(genl ?type artifact) '?ctx)))
+  (is (= 1 (count (v/sentexes-matching kb '(comment made ?text) 'CxAbstract))))
+  (doseq [t '[building clothing container furniture machine tool vehicle]]
+    (is (true? (v/genl? kb t 'made 'CxAbstract)) (str t " is made")))
+  (doseq [t '[clothing container furniture machine tool vehicle]]
+    (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl t 'made) 'CxAbstract))
+        (str "(genl " t " made) is stated"))))
+
+;; ---- made and natural ------------------------------------------------------
+;; made and natural partition tangible.  A formation is a natural tangible that nothing
+;; grew and nobody made.  biological is orthogonal to made and to natural.
+
+(tu/deftest-kb made-and-natural-partition-tangible
+  (is (true? (v/disjoint? kb 'made 'natural)))
+  (is (true? (v/genl? kb 'made 'tangible 'CxAbstract)))
+  (is (true? (v/genl? kb 'natural 'tangible 'CxAbstract)))
+  (is (= 1 (count (v/sentexes-matching kb '(comment natural ?text) 'CxAbstract))))
+  (testing "a tangible cannot be both"
+    (tu/with-terms [Hybrid1]
+      (v/assert kb (list 'made Hybrid1) 'CxUniverse)
+      (is (true? (tu/stored-in-clash? kb (list 'natural Hybrid1) 'CxUniverse)))))
+  (testing "and a tangible denied being made is natural — the coverage half"
+    (tu/with-terms [Pebble1]
+      (v/assert kb (list 'tangible Pebble1) 'CxUniverse)
+      (v/assert kb (list 'not (list 'made Pebble1)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'natural Pebble1) 'CxUniverse))))))
+
+(tu/deftest-kb a-formation-is-natural-and-never-made
+  (is (true? (v/genl? kb 'formation 'natural 'CxAbstract)))
+  (is (= 1 (count (v/sentexes-matching kb '(comment formation ?text) 'CxAbstract))))
+  (tu/with-terms [Rock1]
+    (v/assert kb (list 'formation Rock1) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'natural Rock1) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'tangible Rock1) 'CxUniverse)))
+    (is (true? (tu/stored-in-clash? kb (list 'made Rock1) 'CxUniverse))
+        "a formation that is also made is a clash, by the partition")))
+
+(tu/deftest-kb a-formation-is-not-biological
+  (is (true? (v/disjoint? kb 'formation 'biological)))
+  (is (true? (v/disjoint? kb 'formation 'organism)) "the separation reaches below biological")
+  (tu/with-terms [Crystal1]
+    (v/assert kb (list 'formation Crystal1) 'CxUniverse)
+    (is (true? (tu/stored-in-clash? kb (list 'biological Crystal1) 'CxUniverse)))))
+
+(tu/deftest-kb a-wild-sheep-is-natural-and-biological
+  ;; biological is orthogonal to made and to natural.  A wild sheep is natural and
+  ;; biological, and a cloned sheep is made and biological.
+  (is (not (v/disjoint? kb 'biological 'natural)))
+  (is (not (v/disjoint? kb 'sheep 'natural)))
+  (tu/with-terms [WildSheep1]
+    (v/assert kb (list 'sheep WildSheep1) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'natural WildSheep1) 'CxUniverse))
+        "a sheep that is natural is no clash")
+    (is (true? (v/ask? kb (list 'natural WildSheep1) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'biological WildSheep1) 'CxUniverse)))
+    (is (not (v/ask? kb (list 'made WildSheep1) 'CxUniverse)))))
+
+(tu/deftest-kb a-substance-can-be-made
+  ;; Steel is a made substance, so nothing separates substance from made.
+  (is (not (v/disjoint? kb 'substance 'made)))
+  (is (not-any? #(v/premise? kb (:id %)) (v/sentexes-matching kb '(disjoint substance made) '?ctx)))
+  (tu/with-terms [Steel1]
+    (v/assert kb (list 'substance Steel1) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'made Steel1) 'CxUniverse))
+        "a substance that is also made is no clash")
+    (is (true? (v/ask? kb (list 'made Steel1) 'CxUniverse)))))
+
+;; ---- orthogonal pairs across made and natural -------------------------------
+;; In each pair the two types overlap and neither subsumes the other.  An orthogonal is
+;; not inherited along genl, so the KB states each pair.  Each witness is an individual
+;; in both types.
+
+(def ^:private cross-cutting
+  '[[organism made Dolly1] [organism natural WildSheep1]
+    [body_part made LabBladder1] [body_part natural Heart1]
+    [substance made Steel1] [substance natural Water1] [substance formation Sand1]
+    [food made Bread1] [food natural Apple1] [food biological Apple2]
+    [food formation SeaSalt1]])
+
+(tu/deftest-kb what-cuts-across-made-and-natural-is-stated-orthogonal
+  (doseq [[a b witness] cross-cutting]
+    (testing (str a " and " b)
+      (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'orthogonal a b) 'CxAbstract))
+          (str "(orthogonal " a " " b ") is stated"))
+      (is (= :orthogonal (v/subsumption-status kb a b)) "the pair reads orthogonal")
+      (is (not (v/disjoint? kb a b)))
+      (let [w (tu/fresh-term :individual witness)]
+        (v/assert kb (list a w) 'CxUniverse)
+        (is (not (tu/stored-in-clash? kb (list b w) 'CxUniverse))
+            (str "a " a " that is " b " is no clash"))
+        (is (true? (v/ask? kb (list b w) 'CxUniverse)))))))
+
+(tu/deftest-kb a-body-part-is-made-of-a-substance
+  ;; Nothing is both biological and a substance.  madeOf relates a biological thing to the
+  ;; substance it is made of, so a trunk made of wood is no clash.
+  (tu/with-terms [Trunk1 WoodPortion1]
+    (v/assert kb (list 'body_part Trunk1) 'CxUniverse)
+    (v/assert kb (list 'substance WoodPortion1) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'madeOf Trunk1 WoodPortion1) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'madeOf Trunk1 WoodPortion1) 'CxUniverse)))))

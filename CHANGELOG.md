@@ -484,6 +484,80 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive** (an `:unknown` pair gains a status, and audit entries gain two
   keys).
 
+- **`artifact` is renamed `made`.** The type names a tangible shaped by an agent's
+  action, or by something made: a chair, a widget from a factory machine, steel,
+  sawdust, a footprint, a beaver's dam, a cloned sheep. Every shipped use is renamed:
+  the `genl` edges of `building`'s parent `container`, `clothing`, `furniture`,
+  `machine`, `tool` and `vehicle`, the `(orthogonal biological artifact)` above, now
+  `(orthogonal biological made)`, the substance disjointness, the browser examples and
+  the docs. The seven kinds' own comments are unchanged. No `rewriteOf` alias is
+  shipped, as none was for `physical_object` or `living_thing`. `ontology_test` pins
+  that `artifact` is declared nowhere and that the seven kinds are kinds of `made`.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that wrote `artifact` renames to `made`; the old spelling stores
+  clean but attaches to nothing in the taxonomy.
+  *Breaks:* `artifact`
+
+- **`made` and `natural` partition `tangible`; `formation` is natural and never
+  biological.** `natural` is a tangible whose form no living thing's action gave it: a
+  wild sheep, a coral reef, a rock, a river, a star. `(partition tangible made natural)` installs both
+  `genl` edges to `tangible`, so the stated `(genl artifact tangible)`, renamed
+  `(genl made tangible)`, is removed; a thing both made and natural is a clash, and a
+  tangible denied `made` is concluded `natural`. `formation` is a natural tangible whose
+  form came from physical processes, neither grown nor made: a rock, a crystal, a river,
+  a star, a dune. `(separating tangible formation biological)` keeps a formation from
+  being biological. `(orthogonal biological natural)` beside `(orthogonal biological
+  made)` lets a wild sheep and a cloned one each be biological. The monotonic
+  `(disjoint substance artifact)` is removed, since steel is a made substance.
+  `ontology_test` pins the partition both ways, the formation's placement and its clashes,
+  a natural sheep and a made substance as no clash, and the removed edges in its
+  derived-and-unstated table.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that relied on a substance and a made thing clashing states that
+  separation over narrower kinds of its own. A KB that relied on `(genl made tangible)`
+  being stated, rather than derived, reads it from `genl?` instead.
+  *Breaks:* `(disjoint substance artifact)`
+
+- **`input`, `destroyedInput`, `preservedInput`, `output`, `tangibleOutput` and
+  `intangibleOutput` relate an event to what went into it and what it left behind, and
+  two rules conclude `made`.** Each is a binary `instance_relation_predicate` in
+  CxAbstract that takes the event first. `(input ?event ?thing)` says the thing went into
+  the event; an instrument the event leaves unchanged, such as the knife, is not an
+  input. `destroyedInput` (the thing ceased to exist in the event) and `preservedInput`
+  (the thing still exists when the event ends) are each a `genl` of `input`.
+  `(output ?event ?thing)` says the event gave the thing the form or content it has.
+  `tangibleOutput` types its second position `tangible`, `intangibleOutput` types it
+  `intangible`, and each is a `genl` of `output`. A tangible output of an event something
+  `performedBy` is concluded `made`, and so is a tangible output of an event a made thing
+  `doneBy`. A calf its natural mother grew is not concluded `made`. In CxChange and the
+  contexts that see it, each relation places the thing's start or end against its
+  event's on the point network: with `:includes-instant` registered, the lettuce in a
+  salad exists the moment the making ends, and a smashed pot does not exist then or a
+  year later. With `:point` registered, an order that contradicts one of these placements
+  is a `:qualitative-inconsistency`. A three-place use of `doneBy`, `performedBy` or any
+  of the six is held out. `causality_cluster_test` and `input_output_timing_test` pin
+  each of these. [time.md](docs/time.md)
+
+  *Class:* **Additive**.
+
+- **Eleven pairs across `made` and `natural` are stated orthogonal.** An `orthogonal`
+  is not inherited along `genl`, so eleven pairs are stated in CxAbstract beside
+  `(orthogonal biological made)` and `(orthogonal biological natural)`: `organism` and
+  `body_part` each with `made` and with `natural` (a cloned sheep and a wild one, a
+  lab-grown bladder and a heart), `substance` with `made`, `natural` and `formation`
+  (steel, water, sand), and `food` with `made`, `natural`, `biological` and `formation`
+  (bread, an apple, sea salt). No stated separation covers any of the pairs.
+  `ontology_test` pins each pair as stated and read `:orthogonal`, an individual in both
+  types as no clash, a body part made of a substance as no clash, and a formation's
+  disjointness from `made`, `organism` and `body_part` as derived and unstated.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
 ### Fixes: answers
 
 - **The browser front page's disjointness list holds the pairs a `separating` or

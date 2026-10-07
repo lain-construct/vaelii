@@ -87,7 +87,7 @@ Data hangs below CxWell.
 - **the upper spindle's members** (`resources/kb/upper/`) — what things *are*, always
   true, like `genl`. One context per domain (`vaelii.host.starter`), each seeing CxCore
   and seen by CxUniverse:
-  - `CxAbstract` — the kinds hanging off the skeleton CxCore holds (`artifact`,
+  - `CxAbstract` — the kinds hanging off the skeleton CxCore holds (`made`,
     `food`, `substance`, `body_part`, `fluent`, `context`, …) plus the
     structural relations `partOf`/`locatedIn`.
   - `CxOrganism` — the biological taxonomy and its disjointness.
