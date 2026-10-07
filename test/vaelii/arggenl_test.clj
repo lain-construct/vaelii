@@ -550,6 +550,18 @@
     (v/assert kb (list 'arg 'termOfUnit 2 dog) 'CxUniverse)
     (is (v/assert kb (list 'termOfUnit K (list f 5)) 'CxUniverse))))
 
+(tu/deftest-kb check-reads-a-reifiable-payload-of-a-quoting-predicate-as-a-mention
+  ;; `check` reads a reifiable application as the constant `assert` would mint; in a
+  ;; quoting predicate's payload that reading would type the quotation by its referent
+  (let [msr (tu/tmp-type) dog (tu/tmp-type) f (tu/tmp-ind) K (tu/tmp-ind)]
+    (v/assert kb (list 'genl msr 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
+    (v/assert kb (list 'disjoint msr dog) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function f) 'CxUniverse)
+    (v/assert kb (list 'result f msr) 'CxUniverse)
+    (v/assert kb (list 'arg 'termOfUnit 2 dog) 'CxUniverse)
+    (is (empty? (v/check kb (list 'termOfUnit K (list f 5)) 'CxUniverse)))))
+
 (tu/deftest-kb a-result-declaration-a-context-cannot-see-does-not-refuse-it
   ;; the whole family judges from the asking context's vantage — a context is refused on
   ;; grounds it can see, and a declaration written in a sibling is not one of them

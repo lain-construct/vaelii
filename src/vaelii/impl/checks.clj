@@ -490,10 +490,13 @@
   where the constant's memberships would: a result type that reaches `t` admits the
   argument, one the taxonomy separates from `t` is the clash, and any other admits it,
   since the entailment would mint `t` there.  The consequences of minting `(t K)` past that
-  one membership are not read."
-  [kb tax x t context d]
+  one membership are not read.  A quoting predicate's or quoting function's argument is a
+  mention, which `convicting-result-type` leaves alone for the same reason, so nil."
+  [kb tax pred x t context d]
   (when (and *entry-mints?*
              *assertive-arg-types?*
+             (not (contains? nat/nat-quoting-predicates pred))
+             (not (tax/quoting-function? tax pred))
              (nat/reifiable-ground-nat? kb x)
              (mintable-type? tax t)
              (declares-locally? kb (nth d 0) context))
@@ -555,7 +558,7 @@
                     t     (get b '?type)
                     arg   (arg-at as n)
                     ;; a reifiable application, read as the constant `assert` mints
-                    clash (when arg (minted-application-clash kb tax arg t context m))
+                    clash (when arg (minted-application-clash kb tax pred arg t context m))
                     ;; the application arm — nil for every argument that is not one
                     r     (when-not clash
                             (convicting-result-type kb nat/result-types pred arg t context))]

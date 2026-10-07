@@ -672,6 +672,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Fixes: answers
 
+- **`check` reads a reifiable application in a quoting predicate's payload as a mention.**
+  `check` reads a ground application of a reifiable function as the constant `assert`
+  mints, and in `(termOfUnit K (AwakeFn Whiskers))` it typed the payload by the function's
+  `result`, so a stored `termOfUnit` read `:disjoint` once that result was separated from
+  `non_atomic_term`. `assert` never typed the payload, and `check` now agrees with it.
+  [nat.md](docs/nat.md).
+
+  *Class:* **Fix**.
+
 - **The browser front page's disjointness list holds the pairs a `separating` or
   `partition` roster separates.** The list held the stored `(disjoint a b)` sentexes and
   the pairs a `disjoint_metatype` induces. A roster stores no `disjoint` sentence for its
