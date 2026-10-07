@@ -80,7 +80,7 @@ nine exact-arity classes, `variable_arity` and its two specializations, `arityMi
 `genl` with the second: a `genl` between two predicates is on the roster and a `genl`
 between types stays defeasible, so a type edge admits exceptions. CxCore declares each of
 these, which moves no membership, and the function classes (`injection`, `surjection`,
-`bijection`), which are on the roster by declaration alone. CxUniverse declares the
+`bijection`), which are on the roster by declaration alone. CxOrganism declares the
 metatype `folk_species` the same way, since a species membership is definitional: a rule
 concluding a roster literal from `(folk_species ?s)` alone is a roster rule.
 `checks/on-roster?` is the one reader of membership, the baseline united with the two

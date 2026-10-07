@@ -116,8 +116,10 @@ Data hangs below CxWell.
   every upper member and is seen by every middle member. It also holds hand-authored
   cross-member axioms in `resources/kb/CxUniverse.txt`: a claim naming terms from two
   upper members belongs here, since no member sees a sibling and only the collector
-  sees both. Its one claim today is `(termsRelated time_interval Duration)`, which
-  names CxAbstract's time_interval beside CxMeasure's dimension; `organization` and
+  sees both. It holds `(genl initially fluent)`, the `genl` edges placing CxLife's seven
+  biology properties, `(termsRelated time_interval Duration)`, which names CxAbstract's
+  time_interval beside CxMeasure's dimension, and the `travelling` and `flying` event
+  kinds CxLife's abilities name; `organization` and
   `animal`, the pair it once separated, are already separated by `(partition thing
   tangible intangible)` in CxCore. Being the one context
   that sees the whole upper spindle is what makes it the head of the next.

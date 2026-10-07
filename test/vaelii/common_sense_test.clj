@@ -48,11 +48,11 @@
     (is (seq (v/sentexes-matching kb '(mortal Muffet) 'CxNaturalWorld)))))
 
 (tu/deftest-kb one-thing-cannot-be-two-kinds-that-exclude-each-other
-  ;; Common sense says a dog is not a cat.  The KB says it twice over: once from a
-  ;; stated `(disjoint dog cat)`, and once from the `vertebrate_class` metatype, which
+  ;; Common sense says a dog is not a cat.  The KB says it with two metatypes: the
+  ;; `folk_species` metatype separates every two species, and the `vertebrate_class` one
   ;; separates all five classes pairwise and hands the separation down to every
   ;; subtype — so a penguin is not a dog without a word being written about either.
-  (testing "the stated pair, and the pair a metatype separates"
+  (testing "the species pair, and the pair a class metatype separates"
     (is (v/disjoint? kb 'dog 'cat))
     (is (v/disjoint? kb 'penguin 'dog)))
   (testing "and the KB stores the membership as a contradiction the settle weighs"

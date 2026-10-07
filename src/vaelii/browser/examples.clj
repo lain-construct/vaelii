@@ -40,10 +40,10 @@
     :title "A chain nobody stored"
     :shows "Two stored edges, one question they never state. Transitivity is a cached
             closure rather than a rule, so the answer costs a set lookup and no chaining
-            at all — and no (genl penguin animal) sentex is ever materialized."
+            at all — and no (genl penguin vertebrate) sentex is ever materialized."
     :rests-on [['(genl penguin bird) 'CxOrganism]
-               ['(genl bird animal) 'CxOrganism]]
-    :goal '(genl penguin animal) :context 'CxWell :expect :yes}
+               ['(genl bird vertebrate) 'CxOrganism]]
+    :goal '(genl penguin vertebrate) :context 'CxWell :expect :yes}
 
    {:id "disjoint-metatype" :group "Taxonomy"
     :title "Ten separations from one declaration"

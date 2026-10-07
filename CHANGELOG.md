@@ -320,8 +320,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   from `spatial` and `spatiotemporal` in every context that sees the kind's placement.
   Every stated `genl` or `disjoint` that a partition, an intersection, a `genl` chain, a
   `disjoint_metatype` or another disjointness already derives in the same context is
-  removed — forty-two sentences across CxCore, CxAbstract and CxUniverse, which now
-  states no axiom of its own. `ontology_test` pins the divisions and every removal, and
+  removed — forty-two sentences across CxCore, CxAbstract and CxUniverse.
+  `ontology_test` pins the divisions and every removal, and
   `spatial`, `spatiotemporal`, `tangible` and `nowhere_never` are classified inert in the
   vocabulary roster.
   [space.md](docs/space.md), [glossary.md](docs/glossary.md)
@@ -440,7 +440,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none.
 
 - **The organisms carry a folk taxonomy: `vertebrate` and `invertebrate`, three class
-  metatypes under `folk_biological_class`, and `folk_species`.** CxUniverse states
+  metatypes under `folk_biological_class`, and `folk_species`.** CxOrganism states
   `(partition animal vertebrate invertebrate)` and places the five vertebrate classes
   and `insect` and `arachnid` below the two parts. `invertebrate_class` and
   `plant_class` are `disjoint_metatype`s beside the shipped `vertebrate_class`, and
@@ -448,19 +448,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
   keeps the three apart. `folk_species` is a `disjoint_metatype` over the 27 shipped
   species, so no organism is of two species, and is disjoint from
   `folk_biological_class`. Both new metatypes are below `type`, since each member is a
-  first-order type. The disjointness audit's unknown pairs among the types below
-  `organism` fall from 514 to 280, and the 248 among the kinds fall to 0: `grass` is a
-  `plant_class` beside `tree` and `flower`. Each of the 280 pairs one of the seven
-  biology properties placed under `organism` and `animal` (`alive`, `asleep`, …) with
-  another type. `ontology_test` pins the separations, the coverage half and that no
-  pair of kinds below `organism` is left unknown.
+  first-order type. The stated `(disjoint arachnid insect)` and `(disjoint dog cat)` are
+  removed, since `invertebrate_class` and `folk_species` derive them. The disjointness audit
+  leaves no unknown pair among the kinds below `organism`: `grass` is a `plant_class` beside
+  `tree` and `flower`. The 187 unknown pairs left below `organism` each pair one of the five
+  biology properties placed there (`mortal`, `asleep`, …) with another type.
+  `ontology_test` pins the separations, the coverage half and that no pair of kinds below
+  `organism` is left unknown.
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
   *Migration:* a KB that stated one organism of two shipped species, or an insect that is
   a mammal, now reads a clash.
 
-- **`folk_species` is on the forced-monotonic roster.** CxUniverse declares
+- **`folk_species` is on the forced-monotonic roster.** CxOrganism declares
   `(forced_monotonic_predicate folk_species)`: a species membership is definitional, so
   it is held `:monotonic` whatever strength it was written at and a denial of one is held
   OUT, and a rule concluding a roster literal such as `orthogonal` from

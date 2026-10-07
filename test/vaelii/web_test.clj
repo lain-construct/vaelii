@@ -151,13 +151,13 @@
 
 (deftest tree-rows-answers-one-node-and-checks-its-relation
   (testing "a node's children come back as bare rows"
-    (let [r (GET "/tree/rows" "rel=genl&node=animal")]
+    (let [r (GET "/tree/rows" "rel=genl&node=vertebrate")]
       (is (= 200 (:status r)))
       (is (re-find #"href=\"/term\?q=bird\"" (:body r)) "a direct subtype is there")
       (is (not (re-find #"<html" (:body r))) "a fragment, not a document")))
   (testing "the fetch reaches only that node — a grandchild is behind its own request"
-    (let [b (:body (GET "/tree/rows" "rel=genl&node=animal"))]
-      ;; `penguin` is under `bird`, which is under `animal`
+    (let [b (:body (GET "/tree/rows" "rel=genl&node=vertebrate"))]
+      ;; `penguin` is under `bird`, which is under `vertebrate`
       (is (not (re-find #"href=\"/term\?q=penguin\"" b)))
       (is (re-find #"hx-get=\"/tree/rows\?rel=genl&amp;node=bird" b)
           "the child carries the request that would reach it")))
@@ -1144,16 +1144,15 @@
       (is (re-find #"showing 8 of 12 direct subtypes" (:body fwd)))
       (is (re-find #"showing 8 of 12 direct subtypes" (:body bwd))))))
 
-(deftest animal-s-subtype-row-is-its-first-eight-children-in-sort-order
-  ;; `animal` has thirteen direct `genl` children in the shipped ontology, two of them
-  ;; installed by its `vertebrate` / `invertebrate` partition, so its row is capped.  The
-  ;; row is pinned exactly: the first eight in sort order, not whichever eight the index
-  ;; returned first.
+(deftest mammal-s-subtype-row-is-its-first-eight-children-in-sort-order
+  ;; `mammal` has twelve direct `genl` children in the shipped ontology, so its row is
+  ;; capped.  The row is pinned exactly: the first eight in sort order, not whichever
+  ;; eight the index returned first.
   (let [grow (ns-resolve 'vaelii.browser.web 'grow)
-        {:keys [rows direct]} (grow tu/*kb* 'genl :down 1 'animal 1)]
-    (is (= '#{amphibian arachnid asleep awake bird breathes_air fish insect}
+        {:keys [rows direct]} (grow tu/*kb* 'genl :down 1 'mammal 1)]
+    (is (= '#{cat cow dog fox hare horse human lion}
            (set (map :term (first rows)))))
-    (is (= {:shown 8 :total 13 :exact? true :more? false} direct))))
+    (is (= {:shown 8 :total 12 :exact? true :more? false} direct))))
 
 (deftest a-node-past-the-row-limit-draws-no-sample-whatever-the-assertion-order
   ;; Past `graph-row-limit` the read does not hold every neighbour, so any eight of it

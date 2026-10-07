@@ -1283,7 +1283,7 @@
 ;; roster literal from it alone fires as a roster rule.
 
 (tu/deftest-kb a-folk-species-membership-is-held-monotonic
-  (is (= :monotonic (v/defeat-class kb (v/handle-of kb '(folk_species dog) 'CxUniverse))))
+  (is (= :monotonic (v/defeat-class kb (v/handle-of kb '(folk_species dog) 'CxOrganism))))
   (testing "a denial of one is held OUT"
     (let [d (v/assert kb '(not (folk_species dog)) 'CxUniverse)]
       (is (not (v/in? kb d)))

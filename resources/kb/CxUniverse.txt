@@ -2,14 +2,8 @@
 ;; (CxAbstract, CxOrganism, CxSociety, CxLife, CxMeasure, CxSpace, CxTime),
 ;; so cross-member disjointness assertions that require both sides visible
 ;; live here rather than in CxCore (which cannot see the members) or in one
-;; member (which cannot see the other).  Definitional content added to the upper
-;; ontology lands here as well, rather than in a member: the members keep what they
-;; state, and the collector is where a claim can name the terms of any of them.
-
-;; --- cross-member disjointness (upper spindle) ---
-;; None is stated today.  organization and animal, the pair that stood here, are
-;; separated by (partition thing tangible intangible) in CxCore: organization is
-;; intangible and animal is tangible.
+;; member (which cannot see the other).  A claim whose terms one member sees belongs
+;; to that member.
 
 ;; --- cross-member type placement ---
 ;; initially is CxTime's and fluent is CxAbstract's; neither member sees the other.
@@ -27,111 +21,15 @@
 (genl breathes_air animal)
 (genl warm_blooded animal)
 
+;; --- cross-member disjointness (upper spindle) ---
+;; None is stated today.  organization and animal, the pair that stood here, are
+;; separated by (partition thing tangible intangible) in CxCore: organization is
+;; intangible and animal is tangible.
+
 ;; --- cross-member related clusters (upper spindle) ---
 ;; time_interval is CxAbstract's; Duration, the dimension a stretch of time is
 ;; measured in, is CxMeasure's.
 (termsRelated time_interval Duration)
-
-;; --- the folk taxonomy of organisms ------------------------------------------
-;; The kinds of organism as everyday speech sorts them: a species-level kind (cat, oak)
-;; under a class-level kind (mammal, tree), and an animal class either with a backbone or
-;; without one.  Each level is a disjoint_metatype, so its members are pairwise disjoint
-;; without a sentence per pair, and every kind below a member inherits the separation:
-;; the vertebrate classes, the invertebrate classes and the plant classes separate the
-;; kinds of each, and folk_species separates every two species, so no organism is a cat
-;; and a dog, and none is a spider and an owl.
-
-(comment vertebrate "An animal with a backbone: a mammal, a bird, a fish, a reptile or an amphibian.")
-(comment invertebrate "An animal without a backbone: an insect, a spider, a snail, a worm.")
-;; Every animal has a backbone or lacks one.  The partition installs both genl edges to
-;; animal.
-(set/monotonic (partition animal vertebrate invertebrate))
-(genl amphibian vertebrate)
-(genl bird vertebrate)
-(genl fish vertebrate)
-(genl mammal vertebrate)
-(genl reptile vertebrate)
-(genl arachnid invertebrate)
-(genl insect invertebrate)
-;; typeGenl requires its target to be a first-order type: (interArg typeGenl 1 metatype 2 type).
-(type vertebrate)
-(type invertebrate)
-(type plant)
-
-(comment folk_biological_class
-         "(folk_biological_class ?type) means that ?type is a class-level kind of organism as everyday speech names it, broader than a species: mammal, insect, tree. The parent of vertebrate_class, invertebrate_class and plant_class, which separating keeps apart, so no class is of two of them.")
-(unary_predicate folk_biological_class)
-(genlArg folk_biological_class 1 organism)
-(metatype folk_biological_class)
-;; Every member is a first-order type, whose instances are individual organisms.
-(genl folk_biological_class type)
-;; The roster installs each part's genl edge to folk_biological_class.
-(set/monotonic (separating folk_biological_class vertebrate_class invertebrate_class plant_class))
-(typeGenl vertebrate_class vertebrate)
-
-(comment invertebrate_class
-         "(invertebrate_class ?type) means that ?type is one of the classes of animal without a backbone. A disjoint_metatype, so its members are pairwise disjoint and every kind below one is separated from every kind below another.")
-(unary_predicate invertebrate_class)
-(genlArg invertebrate_class 1 invertebrate)
-(metatype invertebrate_class)
-(set/monotonic (disjoint_metatype invertebrate_class))
-(invertebrate_class arachnid)
-(invertebrate_class insect)
-(typeGenl invertebrate_class invertebrate)
-
-(comment plant_class
-         "(plant_class ?type) means that ?type is one of the folk classes of plant, such as tree, flower and grass. A disjoint_metatype, so its members are pairwise disjoint: an oak is never a rose, and grass is neither. Not a partition of plant, since a fern or a moss is none of the three.")
-(unary_predicate plant_class)
-(genlArg plant_class 1 plant)
-(metatype plant_class)
-(set/monotonic (disjoint_metatype plant_class))
-(plant_class flower)
-(plant_class grass)
-(plant_class tree)
-(typeGenl plant_class plant)
-
-(comment folk_species
-         "(folk_species ?type) means that ?type is a species-level kind of organism as everyday speech names it: cat, dog, oak, human. A disjoint_metatype, so no organism is of two species, and never a class-level kind: a species is not a folk_biological_class.")
-(unary_predicate folk_species)
-(genlArg folk_species 1 organism)
-(metatype folk_species)
-;; Every member is a first-order type, whose instances are individual organisms.
-(genl folk_species type)
-(set/monotonic (disjoint_metatype folk_species))
-(set/monotonic (disjoint folk_biological_class folk_species))
-(folk_species ant)
-(folk_species bee)
-(folk_species cat)
-(folk_species cow)
-(folk_species crow)
-(folk_species dog)
-(folk_species duck)
-(folk_species eagle)
-(folk_species fox)
-(folk_species frog)
-(folk_species grasshopper)
-(folk_species hare)
-(folk_species horse)
-(folk_species human)
-(folk_species lion)
-(folk_species mouse)
-(folk_species oak)
-(folk_species owl)
-(folk_species penguin)
-(folk_species rabbit)
-(folk_species rose)
-(folk_species sheep)
-(folk_species snake)
-(folk_species sparrow)
-(folk_species spider)
-(folk_species tortoise)
-(folk_species wolf)
-
-;; A species membership is definitional, so folk_species is on the forced-monotonic
-;; roster: each membership is held :monotonic, a denial of one is inert, and a rule
-;; concluding a roster literal such as orthogonal from (folk_species ?s) alone is a roster
-;; rule whose firings are believed (docs/nmtms.md).
-(forced_monotonic_predicate folk_species)
 
 ;; --- travelling / flying: event kinds an ability names ------------------------
 ;; CxLife's hasCapability and capabilityType take an event kind as their second argument:
