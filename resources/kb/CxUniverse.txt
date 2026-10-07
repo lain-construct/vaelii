@@ -24,3 +24,8 @@
 (genl awake animal)
 (genl breathes_air animal)
 (genl warm_blooded animal)
+
+;; --- cross-member related clusters (upper spindle) ---
+;; time_interval is CxAbstract's; Duration, the dimension a stretch of time is
+;; measured in, is CxMeasure's.
+(termsRelated time_interval Duration)
