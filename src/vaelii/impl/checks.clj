@@ -945,7 +945,7 @@
 
   **`value-kinds`, not `value-kind`, and the difference is the sign-refined
   integers.**  `syntactic-type?` admits any type below a syntactic root, so
-  `positive_integer` — `(genl positive_integer integer)` in CxCore — is inside this
+  `positive_integer` — a part of CxCore's partitions of `integer` — is inside this
   check's domain and always was.  Judged by EDN kind alone the comparison ran the wrong
   way round, asking whether `integer` is below `positive_integer`, and refused every
   integer written in such a position (#55).  The shared reader answers the

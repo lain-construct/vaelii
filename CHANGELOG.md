@@ -97,6 +97,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **CxCore partitions `integer` by sign, twice.** CxCore states
+  `(partition integer positive_integer non_positive_integer)` and
+  `(partition integer negative_integer non_negative_integer)`, so each part of one
+  partition is disjoint from the other part and the two partitions cover `integer`. Zero
+  is in both `non_` types. The four `(genl … integer)` edges are removed, since the
+  partitions derive them. `engine_vocabulary_test` pins the edges, the disjointness and
+  the sign types a literal is admitted by. [argtypes.md](docs/argtypes.md)
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* a KB that relied on `(genl positive_integer integer)` or its three twins
+  being stated reads it from `genl?`.
+
 - **CxCore declares the equality relations and the rule and strength wrappers the engine
   reads by name.** `sameAs` and `equals` gain comments and `(binary_predicate …)` with
   `thing` at both positions, as `rewriteOf` has. `set/forwardOnlyRule`, `set/solveRule`,

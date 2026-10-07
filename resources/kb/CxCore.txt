@@ -174,10 +174,11 @@
 (comment character "A single character, written \\a. Not a one-letter string: the two are separate EDN kinds and neither is below the other.")
 (comment symbol  "A name — the term written in an argument position, whatever that term denotes. Mention-only: see the note above its declaration.")
 (genl integer number)
-(genl positive_integer integer)
-(genl negative_integer integer)
-(genl non_negative_integer integer)
-(genl non_positive_integer integer)
+;; An integer is positive or not, and negative or not: two partitions of integer, with
+;; zero in both non_ parts.  Each partition installs its parts' genl edges to integer, so
+;; none is stated.
+(set/monotonic (partition integer positive_integer non_positive_integer))
+(set/monotonic (partition integer negative_integer non_negative_integer))
 ;; The four sign-refined integer collections are defined by DEFNS, not rules, so
 ;; membership resolves by EVALUATION at query time (integer / greaterThan / lessThan are
 ;; computed, never stored) at zero sentex cost: DefnSufficientProver admits a member whose

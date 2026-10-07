@@ -48,3 +48,21 @@
               set/forwardOnlyRule set/solveRule set/assumptionRule
               set/hardConstraint set/softConstraint set/monotonic]]
     (is (:enforced (v/interpreted w)) (str w " is classified enforced"))))
+
+;; ---- the signed integer types ----------------------------------------------
+
+(tu/deftest-kb integer-is-partitioned-by-sign-twice
+  (testing "each part is below integer through its partition"
+    (doseq [t '[positive_integer non_positive_integer negative_integer non_negative_integer]]
+      (is (true? (v/ask? kb (list 'genl t 'integer) U)) (str t " is below integer"))))
+  (testing "the parts of one partition are disjoint, and the two partitions cross"
+    (is (true? (v/ask? kb '(disjoint positive_integer non_positive_integer) U)))
+    (is (true? (v/ask? kb '(disjoint negative_integer non_negative_integer) U)))
+    (is (not (true? (v/ask? kb '(disjoint non_negative_integer non_positive_integer) U)))
+        "zero is in both non_ types"))
+  (testing "a literal is admitted by the sign types it has"
+    (is (true? (v/ask? kb '(non_negative_integer 0) U)))
+    (is (true? (v/ask? kb '(non_positive_integer 0) U)))
+    (is (true? (v/ask? kb '(negative_integer -3) U)))
+    (is (true? (v/ask? kb '(non_positive_integer -3) U)))
+    (is (false? (v/ask? kb '(non_negative_integer -3) U)))))
