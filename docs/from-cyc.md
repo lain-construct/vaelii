@@ -104,15 +104,24 @@ forward rule in three ways: it is stored under an unordered key so one declarati
 both directions, a predicate may declare **several** partners and all are live, and a
 partner declared on a sub-predicate answers the super-predicate's goal.
 
-## Well-formedness: lenient by default, assertive on request
+## Well-formedness: assertive where declared, constraining where inherited
 
 Cyc's three modes, and what each maps to:
 
 | mode | in Cyc | here |
 |---|---|---|
 | strict | constraints must be provable | no equivalent |
-| lenient | constraints must not be disjoint | **the default** — a demonstrated conflict is refused, an argument with no place in the hierarchy is excused |
-| assertive | that, plus eagerly concluding tighter `isa`s | `checks/*assertive-arg-types?*`, on by default (additive on top of lenient; `VAELII_ASSERTIVE_ARG_TYPES=0` opts out) |
+| lenient | constraints must not be disjoint | what `VAELII_ASSERTIVE_ARG_TYPES=0` leaves: a demonstrated conflict is refused, and an argument with no place in the hierarchy is excused |
+| assertive | that, plus eagerly concluding tighter `isa`s | **the default** for a declaration stated in the asserting context or in CxUniverse (`checks/*assertive-arg-types?*`): the argument is concluded a member of the declared type unless that membership clashes with one it holds |
+
+Which reading applies depends on where the declaration is stated, not on a KB-wide mode.
+A declaration stated in the asserting context, or in CxUniverse, concludes the declared
+type of an argument. A declaration **inherited** from an ancestor context constrains
+without concluding: it concludes no membership, and it refuses an argument that holds a
+type which does not reach the declared one. An argument with no type at all passes an
+inherited declaration. [argtypes.md](argtypes.md#local-declares-inherited-only-constrains)
+states the rule, and vaelii#153 tracks making the lenient and assertive readings hold
+under an inherited declaration.
 
 One naming collision to hold: `vaelii.impl.wff` is narrower than Cyc's "WFF". It is the
 **structural** check on the special predicates — `genl` and `genlCx` acyclicity, the
