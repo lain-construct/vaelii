@@ -1437,6 +1437,16 @@
                   " comment and by nobody for inference. Directional — (seeAlso a b)"
                   " does not imply (seeAlso b a); the reverse is a separate assertion."))]
 
+     ;; A reviewer's record that a rule-macro suggestion was read and declined.  It names
+     ;; the suggestion by content rather than the rule by handle, so a text export keeps it.
+     ['declined_rule_macro
+      (enforced {:shape {:args [:term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "an ordinary fact over a quoted declaration, read by one pass of"
+                             " the integrity sweep and by no inference.")}
+                (str "integrity/rule-macro-findings — a rule-macro suggestion the rule's"
+                     " context declines is not reported"))]
+
      ;; The three worked-example annotations name their example sentex by handle.  Each is
      ;; a `target_following_predicate` in CxCore, so retracting the example tears the
      ;; annotation down with it — that mark's enforcement, reached through a declaration

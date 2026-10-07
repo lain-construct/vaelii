@@ -6,7 +6,8 @@
   edges that widen a declared argument type, the candidate types with no `genl`
   path to `thing`, the `genl` edges a cover forces on a candidate type that the
   closure does not hold, the `orthogonal` declarations that lift a stated
-  separation of their pair, and three ontology-engineering smells for review: sibling
+  separation of their pair, the stored rules a declaration the engine implements
+  states, the `genl` nodes with no declared arity, and three ontology-engineering smells for review: sibling
   types with one direct `genl` set, stated edges that derive without themselves, and
   `disjoint` pairs a known cover exhausts, plus every declared argument position no
   declaration types.
@@ -16,8 +17,9 @@
   specified declaration requires → [predall.md](predall.md); how an `arg` declaration
   descends a predicate `genl` edge → [argtypes.md](argtypes.md); what a cover
   declares → [taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it); what an
-  `orthogonal` exempts → [taxonomy.md](taxonomy.md#disjointness); general
-  knowledge-quality census readings → [quality.md](quality.md).
+  `orthogonal` exempts → [taxonomy.md](taxonomy.md#disjointness); what
+  `transitiveInArg` licenses → [inherit.md](inherit.md); a rule another rule already
+  covers, and other general knowledge-quality census readings → [quality.md](quality.md).
 - **Assumes:** sentex, context, ground term, `genl` → [glossary.md](glossary.md).
 
 ## The call
@@ -66,7 +68,9 @@ declared predicate independently. The widening pass does the same: one census of
 census: it checks one candidate term at a time. The implicit-`genl` pass reads none
 either: one candidate term, then one visible cover over it, at a time. The
 `orthogonal` pass reads one census of visible `orthogonal` declarations, then one
-declaration at a time. The three ontology-engineering passes read the taxonomy's types
+declaration at a time. The rule-macro pass reads one census of the stored
+rules, then one rule at a time. The undeclared-arity pass reads one census of the
+visible `genl` edges, then one node at a time. The three ontology-engineering passes read the taxonomy's types
 once, or one census of stated `genl` and `disjoint` declarations, then one type or one
 declaration at a time. These focused units are where
 cooperative checkpoints and partial-result preservation sit.
@@ -100,7 +104,7 @@ A finding changes the top-level status and adds only the populated categories:
   {:status :audited :violations #{Bob}}}}
 ```
 
-`:status :audited` means all ten passes ran and none found a gap. `:status :gap` cannot
+`:status :audited` means all twelve passes ran and none found a gap. `:status :gap` cannot
 be confused with that clean shape even when only one sparse category is present. The
 specified category is exactly `all-specified-violations`, including its typed declaration
 gaps; it is composed, not reimplemented.
@@ -326,6 +330,184 @@ The pass has these limits:
 Each `orthogonal` row and each pair's separation read spend one work unit, and
 `:max-results` counts these findings last, after the implicit-`genl` category.
 
+## What a rule-macro finding means
+
+Several declarations the engine implements state exactly what a hand-written rule
+states. `(transitiveInArg empty 1 genl)` concludes `(empty d)` from `(empty c)` and
+`(genl d c)`, so a rule written as
+`(implies (and (empty ?c) (genl ?d ?c)) (empty ?d))` repeats the declaration in a longer
+form. The sweep reads each stored rule and reports every declaration whose rule shape
+the rule matches:
+
+```clojure
+;; (set/forwardRule (implies (and (empty ?c) (genl ?d ?c)) (empty ?d)))
+{:status :gap
+ :candidate-count 0
+ :rule-macro
+ [{:rule 812
+   :sentence (implies (and (empty ?c) (genl ?d ?c)) (empty ?d))
+   :context CxUniverse
+   :macro transitiveInArg
+   :declaration (transitiveInArg empty 1 genl)}]}
+```
+
+`:rule` is the rule's handle and `:sentence` the rule as stored. `:declaration` is the
+suggested declaration, to be asserted in the rule's `:context`. `:stated true` is
+present when that context already sees the declaration, so the rule repeats it. An
+`inverse` finding carries `:converse`, the handle, sentence and context of the rule
+that states the other direction. `:default-shaped true` marks a `set/defaultRule` whose
+shape is a monotonic declaration (below). The finding is a suggestion: the sweep asserts and
+retracts nothing.
+
+The match is structural. The rule's variables are renamed apart, and each shape is
+unified against the rule's consequent and, one to one, against its antecedents in any
+order. Each argument the shape leaves free must take a distinct variable of the rule,
+so a rule that fixes a constant there or repeats a variable is not the shape. The
+shapes, with `?o…` standing for the free arguments of a predicate of arity `n`:
+
+| Declaration | Rule shape | Further condition |
+|---|---|---|
+| `(transitiveInArg P i R)` | `(P … ?w …)`, `(R ?o ?w)` ⇒ `(P … ?o …)`, `?w` and `?o` at position `i` | `R` is `genl`, `genlCx` or declared `transitive` from the rule's context, and `R` is not `P` |
+| `(transitiveInArgInverse P i R)` | `(P … ?w …)`, `(R ?w ?o)` ⇒ `(P … ?o …)` | as `transitiveInArg` |
+| `(symmetric P)` | `(P ?a ?b)` ⇒ `(P ?b ?a)` | `P` declared with arity 2; the rule is visible from CxUniverse |
+| `(transitive P)` | `(P ?a ?w)`, `(P ?w ?b)` ⇒ `(P ?a ?b)` | as `symmetric` |
+| `(commutativeInArgs P i j)` | `(P ?o1 … ?on)` ⇒ the same with positions `i` and `j` exchanged, `n` ≥ 3 | `P` declared with arity `n`; the rule is visible from CxUniverse |
+| `(inverse P Q)` | `(P ?a ?b)` ⇒ `(Q ?b ?a)`, and a second rule `(Q ?a ?b)` ⇒ `(P ?b ?a)` | `P` and `Q` declared with arity 2; both rules are visible from CxUniverse |
+| `(genl P Q)` | `(P ?o1 … ?on)` ⇒ `(Q ?o1 … ?on)` | `Q` is not a term the engine interprets; neither `P` nor `Q` is declared with another arity or with variable arity |
+| `(predAllInstance P C K)` | `(C ?x)` ⇒ `(P ?x K)`, `K` ground | the rule is a `set/defaultRule`, and `P` is not declared with another arity |
+| `(predInstanceAll P K C)` | `(C ?y)` ⇒ `(P K ?y)`, `K` ground | as `predAllInstance` |
+
+The two generators stamp a `set/defaultRule`, so a monotonic rule of their shape is not
+reported as one. Every other declaration concludes at the class of its weakest premise,
+as a bare rule does, so a `set/defaultRule` of their shape is not the declaration. Such
+a rule is either a default its author meant, or a rule written as a default by accident,
+and the KB states no marker that tells the two apart. The sweep reads one sign instead:
+
+- A `set/defaultRule` with an `exceptWhen` is a default with a stated exception. Like
+  every rule with an `exceptWhen`, it is not read.
+- A `set/defaultRule` is **excused** when the KB holds a claim the default yields to: a
+  believed `(not (Q …))`, in a context that sees the rule's, or a believed rule
+  concluding `(not (Q …))`, in a context that sees the rule's or that the rule's context
+  sees, for `Q` the rule's consequent predicate or a `genl` of it. An excused default
+  is not reported.
+- Any other `set/defaultRule` of a monotonic shape is reported with
+  `:default-shaped true`, as a default nothing yet overrides, which may be a default by
+  accident.
+
+The heuristic is a sign, not a proof. A default may be deliberate before anything
+overrides it, and a contrary claim may override a default that was written by accident.
+
+A reviewer records a decision on any suggestion with `declined_rule_macro`, a CxCore
+predicate over the suggested declaration:
+
+```clojure
+;; (set/defaultRule (set/forwardRule (implies (livesIn ?a ?p) (locatedIn ?a ?p))))
+(declined_rule_macro (genl livesIn locatedIn))
+```
+
+The pass does not report a suggestion that the rule's context sees declined. The record
+quotes the suggestion rather than naming the rule by `(sentexHandle H)`: a handle belongs
+to one store, and `export-text!` skips a sentence that names one, so a handle-based record
+would not survive a reload. The suggestion is a function of the rule's sentence, so the
+record names the rule, and an edit to the rule that changes its shape changes the
+suggestion and brings the finding back. Retracting the record brings the finding back too.
+
+The further conditions are where a declaration reads differently from a rule:
+
+- **A relation mark is read from every context.** `symmetric`, `transitive`,
+  `commutativeInArgs` and `inverse` are lifted into CxUniverse
+  ([contexts.md](contexts.md#where-a-relation-property-is-read-from)), so a rule one
+  theory states is not the mark, and is reported only when CxUniverse sees it. `genl` and
+  the two preservation declarations are read where they are stated, in the rule's own
+  context.
+- **The preservation reach needs a transitive relation.** `assert` refuses
+  `(transitiveInArg P i R)` over an `R` nobody declared transitive
+  ([inherit.md](inherit.md#the-transitivity-has-to-have-been-declared)), so the rule over
+  such an `R` is not reported.
+- **A rule that concludes a term the engine interprets materializes it.** A stored
+  `(symmetric P)` sets the property the canonical argument order reads, and a membership
+  `genl` inherits does not, as the `equivalence_relation` comment in CxCore records. A
+  rule shaped as `genl` whose consequent predicate is in the engine's grammar
+  (`vaelii.impl.predicates`) is therefore not reported.
+- **A mark fixes an arity.** `symmetric` and `transitive` classify their predicate as a
+  `binary_predicate`, and a rule covers one arity only, so the predicate's arity must
+  be the rule's. A `genl` edge holds at every arity a predicate takes, so a variable-arity
+  predicate is not reported under it.
+- **One direction of an inverse is not `inverse`.** `genlInverse` states one direction,
+  and the engine draws no inference from it, so a single swapping rule is not reported.
+
+Three differences remain between a reported rule and its declaration, and the finding
+does not weigh them. `transitiveInArg` answers a ground goal only and leaves an open one
+to the fact and rule provers ([inherit.md](inherit.md#reading-it-back)), where a
+forward rule stores each conclusion and answers an open goal from the store. A more
+specific contrary claim undercuts a `:default` claim the declaration carries
+([inherit.md](inherit.md#specificity-and-why-it-is-not-the-deleted-axis)), where the
+rule's conclusion and the contrary claim form a nogood. A `genl` edge also places `P`
+under `Q` in the taxonomy, so `disjoint`, `arg` and the preservation declarations
+along `genl` read the edge; the rule's universal reading entails the same subsumption,
+and the engine draws none of it from the rule.
+
+The pass has these limits:
+
+- **Rule census, not candidate terms.** A rule is a fact about the KB rather than about
+  an individual, so the caller's candidate set does not bound the pass. The pass reads
+  every rule off the rule index once (80 on the shipped load), then each of the rule's
+  shapes.
+- **Premises only.** A rule a generator stamped is a conclusion of the generator, so it
+  is not reported, and the generator is.
+- **Rules a chainer runs.** An inert rule, a choice or constraint rule, and a rule with
+  an `exceptWhen`, `unknown`, aggregate or `different` condition are not read.
+- **Visible from the audit context.** A rule the audit context cannot see is not read, so
+  a rule a domain theory states is reported from that theory or below it.
+
+Reading each rule and unifying each shape spend one work unit, and so do the arity, the
+relation and the stated-declaration reads. `:max-results` counts these findings
+after the orthogonal-over-separation category.
+
+## What an undeclared-arity finding means
+
+Every type is a unary predicate, and a predicate `genl` edge relates two predicates of
+one arity. A term at either end of a `genl` edge with no arity the KB states is a type or
+a predicate nobody declared. A rule guarded on `(unary ?t)` or `(unary_predicate ?t)`
+reads such a term as no type and skips it, and nothing on the write path reports the
+missing declaration. So the sweep reads each node of the visible `genl` edges:
+
+```clojure
+;; (unary_predicate placed_kind)
+;; (genl stray_kind placed_kind)
+{:status :gap
+ :candidate-count 0
+ :undeclared-arity
+ [{:term stray_kind}]}
+```
+
+One finding is reported for each node, in print order. A node has an arity when the
+audit context sees one of the declarations `kb/relation-arity` reads, an `(arity P n)`
+declaration or a membership in an exact-arity class (`unary_predicate`,
+`binary_predicate`, `unary_function`, and the others of `tax/exact-arity-classes`), or a
+membership in `variable_arity`. A membership is read through the `genl` closure of its
+class, so a membership in a specialization of `unary_predicate` states arity one.
+
+CxCore declares an arity for every type it places under `thing`, so a KB that loads
+CxCore alone has no finding. The starter loader (`vaelii.host.starter/load-into`) asserts
+`(unary_predicate X)` in CxCore for every subtype `X` of `thing` after the KB files load,
+which declares the 87 types of the upper and middle files that state no arity of their
+own, so the shipped starter has no finding either.
+
+The pass has these limits:
+
+- **Edge census, not candidate terms.** A missing arity is a fact about the KB's
+  vocabulary rather than about an individual, so the caller's candidate set does not
+  bound the pass. The pass reads every visible `genl` edge once, then each distinct node.
+- **`genl` nodes only.** A type that appears in no `genl` edge, and a predicate used only
+  in facts, is not read.
+- **Visible from the audit context.** An edge or an arity declaration asserted in a
+  context the audit context cannot see contributes nothing, so a type declared only
+  below the audit context is a finding there.
+
+Reading each edge and each node's two arity reads spend one work unit, and
+`:max-results` counts these findings after the rule-macro category.
+
 ## The ontology-engineering smells
 
 Three census passes flag how the `genl` and `disjoint` declarations arrange the taxonomy's
@@ -380,7 +562,7 @@ How each pass decides, and its limits:
 All three read from the audit context, so a declaration or edge it cannot see contributes
 nothing, and an edge stated for a narrower reader that cannot see the other path is
 still reported from a context that sees both. Their findings count against `:max-results`
-last, in the order above, after the `orthogonal` category.
+last, in the order above, after the undeclared-arity category.
 
 ## What a missing-arg finding means
 

@@ -771,7 +771,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `{:types [...] :genls [...]}` per direct `genl` set two visible types or more share. A
   finding is for review only. The pass reads every node of the `genl` relation once, not
   the candidate set, and its findings count against `:max-results` after the
-  `:orthogonal-over-separation` category.
+  `:undeclared-arity` category.
   [integrity.md](docs/integrity.md#the-ontology-engineering-smells).
 
   *Class:* **Additive**.
@@ -870,6 +870,67 @@ it — `git show v0.16.0:CHANGELOG.md`.
 - **CxCore types every position of `termsRelated` with one `(args termsRelated thing)`.**
   The declaration replaces `arg` declarations for positions 1 and 2, which left the
   variable-arity tail untyped, so `:missing-arg` no longer reports `termsRelated`.
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a stored rule that a declaration the engine implements
+  states.** `(implies (and (empty ?c) (genl ?d ?c)) (empty ?d))` concludes what
+  `(transitiveInArg empty 1 genl)` concludes. The sweep adds an eleventh sparse category,
+  `:rule-macro`, with one `{:rule h :sentence S :context C :macro M :declaration D}` per
+  believed premise rule visible from the audit context and declaration shape the rule
+  matches, for `transitiveInArg`, `transitiveInArgInverse`, `symmetric`, `transitive`,
+  `commutativeInArgs`, `inverse` (a pair of rules), `genl`, `predAllInstance` and
+  `predInstanceAll`. The match unifies the shape with the rule's variables renamed apart,
+  and each free argument takes a distinct rule variable. A relation mark is suggested
+  only for a rule CxUniverse sees, a preservation only along a relation the rule's
+  context reads as transitive, `genl` never for a consequent the engine interprets, and
+  a generator shape only for a `set/defaultRule`, the class the generators stamp; a
+  default rule of a monotonic shape is the `:default-shaped` finding below. `:stated true` marks a rule whose context already sees the declaration. The
+  pass reads the stored rules, not the candidate terms. Findings count against
+  `:max-results` after the `:implicit-genl` category and are kept on truncation.
+  [integrity.md](docs/integrity.md#what-a-rule-macro-finding-means).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a `genl` node with no declared arity.** Every type is a unary
+  predicate, but nothing on the write path reports a term at an end of a `genl` edge that
+  states no arity, and a rule guarded on `(unary ?t)` skips such a term. The sweep adds a
+  twelfth sparse category, `:undeclared-arity`, with one `{:term X}` per node of a `genl`
+  edge the audit context sees for which that context sees no arity `kb/relation-arity`
+  reads (an `(arity X n)` declaration or an exact-arity class membership such as
+  `unary_predicate`) and no `variable_arity` membership, in print order. The pass reads
+  the visible `genl` edges, not the candidate terms. Findings count against
+  `:max-results` after the `:rule-macro` category and are kept on truncation.
+  [integrity.md](docs/integrity.md#what-an-undeclared-arity-finding-means).
+
+  *Class:* **Additive**.
+
+- **CxCore declares an arity for each of the 42 types it places under `thing`.** A KB that
+  loads CxCore alone read no arity for `thing`, the value kinds (`string`, `integer`, …),
+  the skeleton collections (`tangible`, `spatial`, `context`, …), `expression`,
+  `unrepresented_term`, the expression kinds (`formula`, `sentence`, …),
+  `indeterminate_term`, `relation`, `predicate`,
+  `truth_valued_relation`, `logical_constant`, `unary_predicate`, `function` and
+  `ternary_predicate`, so `kb-integrity` reported each under `:undeclared-arity`. The
+  first-order kinds are declared `unary_predicate`; `function`, `logical_constant` and
+  `ternary_predicate` are declared `type`, as `binary_predicate` is; and `thing`,
+  `relation`, `predicate`, `truth_valued_relation` and `unary_predicate`, which hold types
+  and individuals alike, are declared `variable_order_type`. Each order class is a
+  specialization of `unary_predicate`, so `kb/relation-arity` reads arity one for all 42.
+  [integrity.md](docs/integrity.md#what-an-undeclared-arity-finding-means).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a `set/defaultRule` of a monotonic declaration's shape, and
+  `declined_rule_macro` records a reviewed suggestion.** A default rule shaped as `genl`,
+  `transitiveInArg` or another monotonic declaration is a `:rule-macro` finding with
+  `:default-shaped true`, unless the KB holds a claim the default yields to: a believed
+  `(not (Q …))` in a context that sees the rule's, or a rule concluding one, for `Q` the
+  rule's consequent predicate or a `genl` of it. A default with an `exceptWhen` is not
+  read, as before. CxCore adds `(declined_rule_macro D)`, which quotes a suggested
+  declaration `D`; the pass does not report a suggestion the rule's context sees declined,
+  and the record survives `export-text!` and `load-text!`.
+  [integrity.md](docs/integrity.md#what-a-rule-macro-finding-means).
 
   *Class:* **Additive**.
 

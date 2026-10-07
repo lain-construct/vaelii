@@ -194,6 +194,20 @@
 (defnSufficient non_positive_integer (and (integer ?x) (lessThan ?x 1)))
 (defnNecessary  non_positive_integer (and (integer ?x) (lessThan ?x 1)))
 (genl symbol thing)
+;; Each value kind is a type: a one-place predicate whose instances are the values of
+;; that kind.  Stated here, beside the kinds, so a KB that loads CxCore alone reads their
+;; arity as kb/relation-arity reads it.
+(unary_predicate string)
+(unary_predicate number)
+(unary_predicate integer)
+(unary_predicate positive_integer)
+(unary_predicate negative_integer)
+(unary_predicate non_negative_integer)
+(unary_predicate non_positive_integer)
+(unary_predicate keyword)
+(unary_predicate boolean)
+(unary_predicate character)
+(unary_predicate symbol)
 
 ;; The upper-ontology skeleton: the collections a band context has to be able to
 ;; SEE in order to place its own types under the root.  They sit here rather than in
@@ -236,6 +250,19 @@
 (intersection nowhere_never aspatial atemporal)
 ;; A language is in no space and at no time.
 (genl language nowhere_never)
+;; Each skeleton collection is a type, a one-place predicate.
+(unary_predicate intangible)
+(unary_predicate spatial)
+(unary_predicate spatiotemporal)
+(unary_predicate temporal)
+(unary_predicate aspatial)
+(unary_predicate atemporal)
+(unary_predicate tangible)
+(unary_predicate biological)
+(unary_predicate organism)
+(unary_predicate nowhere_never)
+(unary_predicate context)
+(unary_predicate language)
 
 ;; The expression kinds — what a sentence is BUILT OUT OF, named as collections so a
 ;; declaration can type an argument by the FORM of the expression written there rather
@@ -279,6 +306,15 @@
 (genl atomic_sentence atomic_formula)
 (genl atomic_sentence sentence)
 (set/monotonic (disjoint atomic_formula non_atomic_term))
+;; Each expression kind is a type, a one-place predicate over expressions.
+(unary_predicate relation_application)
+(unary_predicate denotational_term)
+(unary_predicate atomic_formula)
+(unary_predicate atomic_sentence)
+(unary_predicate literal)
+(unary_predicate formula)
+(unary_predicate sentence)
+(unary_predicate non_atomic_term)
 
 ;; expression is the root of the expression kinds and of the value kinds, and it is below
 ;; nowhere_never, so every one of them is in no space and at no time.  The edges are here
@@ -293,6 +329,9 @@
 (genl formula expression)
 (genl relation expression)
 (genl relation_application expression)
+;; expression and unrepresented_term are types, one-place predicates over expressions.
+(unary_predicate expression)
+(unary_predicate unrepresented_term)
 ;; The value kinds are placed in this lattice by their edges to unrepresented_term.  Text
 ;; and a number have no mass and no location, and neither of them is a relation:
 ;; unrepresented_term is an expression, so nowhere_never and so intangible, and it is
@@ -888,6 +927,7 @@
 (comment indeterminate_term
          "(indeterminate_term ?term) means that ?term is an indeterminate filler: it stands for some object without pinning down which, so it is not a determinate filler for a predAllSpecified audit, and the unique-name assumption is suspended for it — neither (equals ?term x) nor (different ?term x) is provable against a determinate term x until a rewriteOf pins it. An extensible category the predAllSpecified audit and the different prover read through one implementation, so they cannot disagree about a term. Skolem constants are the built-in first member, detected by their SkolemFn minting expression rather than a stored membership; a further kind is added with (genl NewKind indeterminate_term). See docs/skolem.md.")
 (genl indeterminate_term thing)
+(unary_predicate indeterminate_term)
 
 ;; --- Specified class: integrity audit, no inference -----------------------
 ;; The antagonist of the *Exists* class.  Where *Exists* mints a placeholder to stand for
@@ -1190,15 +1230,29 @@
 ;; Stated although (genl relation expression) derives it: with the edge stated, CxCore holds
 ;; the same justifications in authored order and in content order (vaelii#140).
 (genl relation thing)
+;; relation holds functions, binary predicates and types alike, so its members are of
+;; more than one order: a variable_order_type, which is a unary_predicate.
+(variable_order_type relation)
 
 (comment function            "The type of all functions — the reifiable and unreifiable heads a non-atomic term is built from. A function is a relation, and is not a predicate: it denotes or evaluates to a value where a predicate holds or fails.")
+;; A function is an individual operator, never a type, so function is a first-order
+;; type, as binary_predicate is.
+(type function)
 
 (comment predicate           "The type of all predicates — the relations and types used in sentences. A predicate is a relation.")
+;; predicate holds binary predicates and types alike: a variable_order_type.
+(variable_order_type predicate)
 
 (comment truth_valued_relation "The type of all relations whose applications are true or false: the predicates and the logical constants. The complement of function within relation. Cyc's TruthFunction, not logic's truth function: a truth function's value is fixed by the truth values of its arguments, which holds of and, or, not and implies and of no predicate or quantifier.")
 (comment logical_constant    "The type of all quantifiers and logical connectives — the relations whose meaning the logic fixes, where a predicate's meaning is the domain's. A logical constant is a truth_valued_relation and is not a predicate.")
 (comment logical_connective  "The type of all relations that build a formula from formulas: and, or, not and implies. A logical connective holds of nothing: (and P Q) is a formula, not a fact about P and Q. Logical rather than grammatical: a connective of a natural language, such as English and, is not one.")
 (comment quantifier          "The type of all relations that bind variables in a formula, the application being a formula in which those variables are no longer free. A quantifier is a logical constant and is not a logical connective.")
+;; truth_valued_relation holds the predicates, and so binary predicates and types alike:
+;; a variable_order_type, as predicate is.
+(variable_order_type truth_valued_relation)
+;; A logical constant is an individual operator such as and or not, never a type, so
+;; logical_constant is a first-order type, as function is.
+(type logical_constant)
 ;; function and truth_valued_relation reach relation, logical_constant and predicate reach
 ;; truth_valued_relation, and quantifier and logical_connective reach logical_constant,
 ;; through the three partitions below, each of which installs its parts' edges to the
@@ -1366,6 +1420,9 @@
 
 (comment thing
          "The root type: every type genls up to thing, so every typed individual is a thing.")
+;; thing holds individuals and types alike: a variable_order_type, which is a
+;; unary_predicate.
+(variable_order_type thing)
 
 (comment transitive
          "(transitive ?predicate) means that ?predicate is transitive, so (?predicate a b) and (?predicate b c) imply (?predicate a c). Answered by a generic closure prover rather than materialized, since writing the closure out is quadratic in the extent and nobody asserted it. Declared of ancestorOf and partOf, for instance. Also a type: (transitive P) classifies P as a binary_predicate, so a KB can be queried for the transitive predicates.")
@@ -1445,11 +1502,17 @@
 (comment unary_predicate      "A predicate of one argument: every type (a snake_case unary predicate) and every one-place property such as flies.")
 (genl unary_predicate unary)
 (genl unary_predicate fixed_arity_predicate)
+;; unary_predicate holds first-order types such as dog and metatypes such as type: a
+;; variable_order_type, which is itself a specialization of unary_predicate.
+(variable_order_type unary_predicate)
 
 (genl binary_predicate binary)
 (genl binary_predicate fixed_arity_predicate)
 (genl ternary_predicate ternary)
 (genl ternary_predicate fixed_arity_predicate)
+;; ternary_predicate's instances are individual predicates, so it is a `type`, as
+;; binary_predicate is.
+(type ternary_predicate)
 
 (genl unary_function fixed_arity_function)
 (genl binary_function fixed_arity_function)
@@ -1526,6 +1589,15 @@
 (target_following_predicate borderlineExample)
 
 (termsRelated positiveExample negativeExample borderlineExample)
+
+;; A reviewer's record on a kb-integrity rule-macro suggestion.  It quotes the suggested
+;; declaration rather than naming the rule by (sentexHandle H): a handle is one store's,
+;; and a text export skips a sentence that names one, so the record would not survive a
+;; reload.  The suggestion is a function of the rule's sentence, so it names the rule.
+(comment declined_rule_macro
+         "(declined_rule_macro ?declaration) means that a reviewer read the kb-integrity rule-macro suggestion ?declaration and keeps the rule it was suggested for as written — most often a set/defaultRule that is meant to be a default. ?declaration is the suggested declaration as the sweep reports it, written as a quoted argument, for example (declined_rule_macro (genl livesIn locatedIn)). The rule-macro pass reads the record from the rule's context and does not report that suggestion; nothing else reads it and it draws no inference. See docs/integrity.md.")
+(unary_predicate declined_rule_macro)
+(quotedArg declined_rule_macro 1 thing)
 
 ;; --- Lacuna proposals (upper ontology overhaul) ---
 ;; Two predicates the engine does not yet act on (inert, no inference path — see

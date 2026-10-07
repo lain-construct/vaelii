@@ -6,14 +6,19 @@
   `predall` and `provers`, which also sit below `vaelii.core`.  See docs/integrity.md."
   (:require [clojure.string :as str]
             [vaelii.impl.budget :as budget]
+            [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.predall :as predall]
+            [vaelii.impl.predicates :as predicates]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
+            [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
+            [vaelii.impl.special :as special]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.impl.violations :as violations]))
@@ -611,6 +616,374 @@
            (sort-by (comp nm/print-key key) (arity-census kb context)))
      remaining)))
 
+;; ---- rule-macro: a stored rule a declaration the engine implements states ----
+
+(defn- positions-vars
+  "`n` distinct shape variables `?o1 … ?on`, the arguments a shape leaves free."
+  [n]
+  (mapv #(symbol (str "?o" %)) (range 1 (inc n))))
+
+(defn- swapped
+  "`xs` with the elements at the 0-based indexes `i` and `j` exchanged."
+  [xs i j]
+  (assoc xs i (nth xs j) j (nth xs i)))
+
+(defn- macro-shapes
+  "The macro shapes a rule whose consequent has `n` arguments can match, each
+  `{:macro m :antecedent [...] :consequent c :meta #{...} :declaration f}`.  A symbol in
+  `:meta` stands for a ground term of the rule (a predicate, a relation, a fixed filler);
+  every other shape variable stands for a variable of the rule, one for one.
+  `:declaration` builds the suggested declaration from the bindings of the meta symbols.
+  `:defeasible` is the rule class the macro's conclusions carry."
+  [n]
+  (let [os (positions-vars n)]
+    (concat
+     (for [i      (range n)
+           [m inv?] [['transitiveInArg false] ['transitiveInArgInverse true]]]
+       {:macro       m
+        :antecedent  [(list* '?mP (assoc os i '?w))
+                      (if inv? (list '?mR '?w (nth os i)) (list '?mR (nth os i) '?w))]
+        :consequent  (list* '?mP os)
+        :meta        '#{?mP ?mR}
+        :defeasible  false
+        :declaration (fn [b] (list m (b '?mP) (inc i) (b '?mR)))})
+     (when (= 2 n)
+       [{:macro       'symmetric
+         :antecedent  [(list* '?mP os)]
+         :consequent  (list* '?mP (swapped os 0 1))
+         :meta        '#{?mP}
+         :defeasible  false
+         :declaration (fn [b] (list 'symmetric (b '?mP)))}
+        {:macro       'transitive
+         :antecedent  ['(?mP ?o1 ?w) '(?mP ?w ?o2)]
+         :consequent  '(?mP ?o1 ?o2)
+         :meta        '#{?mP}
+         :defeasible  false
+         :declaration (fn [b] (list 'transitive (b '?mP)))}
+        {:macro       'inverse
+         :antecedent  [(list* '?mP os)]
+         :consequent  (list* '?mQ (swapped os 0 1))
+         :meta        '#{?mP ?mQ}
+         :defeasible  false
+         :declaration (fn [b] (list 'inverse (b '?mP) (b '?mQ)))}
+        {:macro       'predAllInstance
+         :antecedent  ['(?mC ?o1)]
+         :consequent  '(?mP ?o1 ?mK)
+         :meta        '#{?mP ?mC ?mK}
+         :defeasible  true
+         :declaration (fn [b] (list 'predAllInstance (b '?mP) (b '?mC) (b '?mK)))}
+        {:macro       'predInstanceAll
+         :antecedent  ['(?mC ?o1)]
+         :consequent  '(?mP ?mK ?o1)
+         :meta        '#{?mP ?mC ?mK}
+         :defeasible  true
+         :declaration (fn [b] (list 'predInstanceAll (b '?mP) (b '?mK) (b '?mC)))}])
+     (when (<= 3 n)
+       (for [i (range n) j (range (inc i) n)]
+         {:macro       'commutativeInArgs
+          :antecedent  [(list* '?mP os)]
+          :consequent  (list* '?mP (swapped os i j))
+          :meta        '#{?mP}
+          :defeasible  false
+          :declaration (fn [b] (list 'commutativeInArgs (b '?mP) (inc i) (inc j)))}))
+     [{:macro       'genl
+       :antecedent  [(list* '?mP os)]
+       :consequent  (list* '?mQ os)
+       :meta        '#{?mP ?mQ}
+       :defeasible  false
+       :declaration (fn [b] (list 'genl (b '?mP) (b '?mQ)))}])))
+
+(defn- freezing
+  "The rule's variables, each mapped to a namespaced symbol no sentence can spell.  The
+  match below is one-way, the shape's variables bound and the rule's held fixed, and
+  freezing the rule's variables into constants makes the two-way `res/unify` run that
+  way."
+  [forms]
+  (into {}
+        (map-indexed (fn [i v] [v (symbol "vaelii.impl.integrity" (str "frozen" i))]))
+        (sort (reduce into #{} (map sx/form-variables forms)))))
+
+(defn- frozen? [x] (and (symbol? x) (= "vaelii.impl.integrity" (namespace x))))
+
+(defn- freeze
+  "`form` with every variable `m` names replaced by its frozen symbol."
+  [form m]
+  (cond
+    (contains? m form) (get m form)
+    (sequential? form) (apply list (map #(freeze % m) form))
+    :else              form))
+
+(defn- antecedents-matched
+  "A binding extending `b` under which each of `shape-antes` unifies with a distinct
+  literal of `antes`, or nil.  Backtracking, since which literal one shape antecedent
+  takes decides what the next can take."
+  [shape-antes antes b]
+  (if (empty? shape-antes)
+    b
+    (some (fn [i]
+            (when-let [b' (res/unify (first shape-antes) (nth antes i) b)]
+              (antecedents-matched (rest shape-antes)
+                                   (vec (concat (subvec antes 0 i) (subvec antes (inc i))))
+                                   b')))
+          (range (count antes)))))
+
+(defn- shape-bindings
+  "The bindings of `shape`'s meta symbols when the frozen rule `antes` ⇒ `conseq` is the
+  shape with its variables renamed, or nil.  Each other shape variable must take a
+  frozen rule variable, and no two of them the same one, so a rule that repeats a
+  variable or fixes a constant where the shape has a free argument is not the shape.
+  Each meta symbol must take a ground term that is not a frozen rule variable."
+  [shape antes conseq]
+  (when (= (count antes) (count (:antecedent shape)))
+    (when-let [b (some->> (res/unify (:consequent shape) conseq {})
+                          (antecedents-matched (:antecedent shape) antes))]
+      (let [vars    (reduce into #{} (map sx/form-variables
+                                          (cons (:consequent shape) (:antecedent shape))))
+            objects (remove (:meta shape) vars)
+            value   #(res/substitute % b)
+            taken   (map value objects)]
+        (when (and (every? frozen? taken)
+                   (apply distinct? taken)
+                   (every? #(let [x (value %)]
+                              (and (sx/ground-term? x) (not (frozen? x))))
+                           (:meta shape)))
+          (into {} (map (juxt identity value)) (:meta shape)))))))
+
+(defn- arity-is?
+  "Does `pred`, read from `context`, take exactly `n` arguments: declared with arity `n`,
+  or, with `unknown-ok?`, declared with no arity and no variable arity?"
+  [kb pred n context unknown-ok?]
+  (budget/spend!)
+  (let [declared (kb/relation-arity kb pred context)]
+    (if declared
+      (= n declared)
+      (and unknown-ok?
+           (do (budget/spend!) (not (kb/isa? kb pred 'variable_arity context)))))))
+
+(defn- universal?
+  "Is a rule stored in `rule-ctx` read wherever a relation mark is: is it visible from
+  `special/universal-context`, the context a mark is lifted into?"
+  [kb rule-ctx]
+  (tax/sees? (reasoning/taxonomy kb) special/universal-context rule-ctx))
+
+(defn- converse-rule
+  "A believed premise rule visible from `context`, other than `handle`, of the class
+  `defeasible` names, stating `(Q ?y ?x)` ⇒ `(P ?x ?y)` with no other condition, or nil:
+  the other half of an `inverse`.  Read off the consequent index under `p`."
+  [kb rule-ok? handle p q defeasible]
+  (some (fn [h]
+          (budget/spend!)
+          (when-let [rsx (and (not= h handle) (p/get-sentex (:records kb) h))]
+            (when (and (rule-ok? h rsx) (= defeasible (boolean (:defeasible rsx))))
+              (let [m      (freezing (cons (:consequent rsx) (:antecedent rsx)))
+                    shape  {:antecedent [(list q '?o1 '?o2)] :consequent (list p '?o2 '?o1)
+                            :meta #{}}]
+                (when (shape-bindings shape (mapv #(freeze % m) (:antecedent rsx))
+                                      (freeze (:consequent rsx) m))
+                  {:rule h :sentence (sx/authored-sentence rsx) :context (:context rsx)})))))
+        (sort (reads/as-stored-rules-by-consequent (:index kb) p))))
+
+(defn- macro-holds?
+  "The conditions beside the shape under which the macro `m` bound by `b` says exactly
+  what the rule `rsx` says, read from the rule's context.  A relation mark is read from
+  every context, so the rule must be visible from the context marks are lifted into;
+  `genl` and the two preservation declarations are read where they are stated."
+  [kb rsx {m :macro} b n]
+  (let [ctx (:context rsx)
+        tx  (reasoning/taxonomy kb)
+        P   (b '?mP)]
+    (and (symbol? P)
+         (case m
+           (transitiveInArg transitiveInArgInverse)
+           (let [R (b '?mR)]
+             (and (symbol? R) (not= R P)
+                  (do (budget/spend!) (inherit/usable-relation? tx R ctx))))
+
+           (symmetric transitive)
+           (and (universal? kb ctx) (arity-is? kb P 2 ctx false))
+
+           commutativeInArgs
+           (and (universal? kb ctx) (arity-is? kb P n ctx false))
+
+           inverse
+           (let [Q (b '?mQ)]
+             (and (symbol? Q) (not= P Q) (universal? kb ctx)
+                  (arity-is? kb P 2 ctx false) (arity-is? kb Q 2 ctx false)))
+
+           (predAllInstance predInstanceAll)
+           (and (symbol? (b '?mC)) (arity-is? kb P 2 ctx true))
+
+           genl
+           (let [Q (b '?mQ)]
+             (and (symbol? Q) (not= P Q)
+                  (nil? (predicates/entry Q))
+                  (arity-is? kb P n ctx true) (arity-is? kb Q n ctx true)))))))
+
+(defn- macro-candidate?
+  "May the stored rule `rsx` at handle `h` be read as a macro's spelling: a believed
+  premise, visible from `context`, run by a chainer to derive its head, with no
+  `exceptWhen`, `unknown`, aggregate or other re-checked condition?  A rule a generator
+  stamped is a conclusion, not a premise, and is skipped."
+  [kb context h rsx]
+  (let [tms (reasoning/tms kb)]
+    (and (rules/rule? rsx)
+         (= :derive (:effect rsx))
+         (rules/chains? rsx)
+         (not (rules/rechecked? rsx))
+         (not (reads/watched-rule? (:index kb) h))
+         (jtms/premise? tms h)
+         (jtms/in? tms h)
+         (res/rule-visible-from? kb context (:context rsx)))))
+
+(defn- contrary-rule?
+  "Is the stored rule at `h` a believed rule concluding `(not (g …))` for a `g` of
+  `preds`, in a context that sees `ctx` or that `ctx` sees?"
+  [kb preds ctx h]
+  (budget/spend!)
+  (when-let [rsx (p/get-sentex (:records kb) h)]
+    (let [c  (:consequent rsx)
+          tx (reasoning/taxonomy kb)]
+      (and (rules/rule? rsx)
+           (sx/negation? c)
+           (contains? preds (nm/functor (second c)))
+           (res/rule-believed? kb h)
+           (or (tax/sees? tx (:context rsx) ctx) (tax/sees? tx ctx (:context rsx)))))))
+
+(defn- known-exception?
+  "Does the KB hold a claim that overrides the default rule `rsx`: a believed `(not (g …))`
+  in a context that sees the rule's, or a rule concluding one, for `g` the rule's
+  consequent predicate or a `genl` of it read from the rule's context?  A default with an
+  `exceptWhen` is not read at all (`macro-candidate?`)."
+  [kb rsx]
+  (let [ctx   (:context rsx)
+        tx    (reasoning/taxonomy kb)
+        c     (:consequent rsx)
+        vars  (positions-vars (nm/arity c))
+        preds (do (budget/spend!) (set (tax/genls tx (nm/functor c) ctx)))]
+    (or (some (fn [g]
+                (budget/spend!)
+                (some (fn [[_ _ sx']]
+                        (tax/sees? tx (:context sx') ctx))
+                      (res/matches-visible kb (list 'not (list* g vars)) '?ctx)))
+              (sort-by nm/print-key preds))
+        (some #(contrary-rule? kb preds ctx %)
+              (sort (reads/as-stored-rules-by-consequent (:index kb) sx/not-functor))))))
+
+(def ^:private declined-marker
+  "The predicate a reviewer states of a suggested declaration to record that the rule
+  it was suggested for stays as written."
+  'declined_rule_macro)
+
+(defn- declined?
+  "Does the rule's context see `(declined_rule_macro decl)`?"
+  [kb rsx decl]
+  (budget/spend!)
+  (seq (res/matches-visible kb (list declined-marker decl) (:context rsx))))
+
+(defn- rule-macro-units
+  "The findings for one rule `rsx` at handle `h`: one per macro shape the rule is, with
+  the conditions `macro-holds?` reads.  A shape matches a rule of its own class; a
+  `set/defaultRule` matching a monotonic shape is a `:default-shaped` finding unless
+  `known-exception?` holds.  A suggestion the rule's context declines is not a finding."
+  [kb context h rsx]
+  (let [m      (freezing (cons (:consequent rsx) (:antecedent rsx)))
+        antes  (mapv #(freeze % m) (:antecedent rsx))
+        conseq (freeze (:consequent rsx) m)
+        n      (nm/arity conseq)
+        dflt?  (boolean (:defeasible rsx))
+        ok?    #(macro-candidate? kb context %1 %2)
+        excused (delay (known-exception? kb rsx))]
+    (when (and (seq? conseq) (integer? n) (not (sx/negation? conseq)))
+      (for [shape (macro-shapes n)
+            :let  [shaped? (and dflt? (not (:defeasible shape)))]
+            :when (or (= dflt? (:defeasible shape)) shaped?)
+            :let  [b (do (budget/spend!) (shape-bindings shape antes conseq))]
+            :when (and b (macro-holds? kb rsx shape b n))
+            :let  [partner (when (= 'inverse (:macro shape))
+                             (converse-rule kb ok? h (b '?mP) (b '?mQ) dflt?))]
+            :when (or partner (not= 'inverse (:macro shape)))
+            :let  [decl ((:declaration shape) b)]
+            :when (not (declined? kb rsx decl))
+            :when (not (and shaped? @excused))]
+        (cond-> {:rule h
+                 :sentence (sx/authored-sentence rsx)
+                 :context (:context rsx)
+                 :macro (:macro shape)
+                 :declaration decl}
+          shaped? (assoc :default-shaped true)
+          partner (assoc :converse partner)
+          (do (budget/spend!) (seq (res/matches-visible kb decl (:context rsx))))
+          (assoc :stated true))))))
+
+(defn- rule-macro-findings
+  "Audit every stored rule `macro-candidate?` accepts from `context`, in print order of
+  its sentence, one rule at a time, stopping after the first finding beyond `remaining`
+  proves that the result bound truncated the sweep.  The rules are read off the
+  antecedent roster through the rule index, the census `chain/rule-firing-report` takes."
+  [kb context remaining]
+  (let [idx  (:index kb)
+        recs (:records kb)
+        rows (->> (keys @(reasoning/rule-antecedents kb))
+                  (into (sorted-set) (mapcat #(reads/as-stored-rules-by-antecedent idx %)))
+                  (keep (fn [h]
+                          (budget/spend!)
+                          (when-let [rsx (p/get-sentex recs h)]
+                            (when (macro-candidate? kb context h rsx)
+                              [h rsx]))))
+                  (sort-by (fn [[h rsx]]
+                             [(nm/print-key (sx/authored-sentence rsx))
+                              (nm/print-key (:context rsx)) h])))]
+    (loop [findings []
+           units    (for [[h rsx] rows
+                          finding (rule-macro-units kb context h rsx)]
+                      finding)]
+      (if-let [finding (first units)]
+        (if (and remaining (>= (count findings) remaining))
+          {:status :truncated :reason :max-results :findings findings}
+          (do
+            (budget/record! :rule-macro finding)
+            (recur (conj findings finding) (rest units))))
+        {:status :complete :findings findings}))))
+
+;; ---- undeclared-arity: a genl node with no arity the KB states ----
+
+(defn- genl-nodes
+  "The ground symbols at either end of a `genl` edge `context` sees, in print order: the
+  one open read of this pass, a census of the edges rather than of any extent."
+  [kb context]
+  (->> (res/matches-visible kb '(genl ?a ?b) context)
+       (mapcat (fn [[_ b]]
+                 (budget/spend!)
+                 [(get b '?a) (get b '?b)]))
+       (filter #(and (symbol? %) (not (sx/variable? %))))
+       distinct
+       (sort-by nm/print-key)))
+
+(defn- undeclared-arity?
+  "Does `context` see no arity for `term`: neither an exact arity `kb/relation-arity`
+  reads (an `(arity P n)` declaration or an exact-arity class membership such as
+  `unary_predicate`) nor a `variable_arity` membership?"
+  [kb term context]
+  (and (do (budget/spend!) (nil? (kb/relation-arity kb term context)))
+       (do (budget/spend!) (not (kb/isa? kb term 'variable_arity context)))))
+
+(defn- undeclared-arity-findings
+  "Audit each `genl` node `context` sees, in print order, one term at a time, stopping
+  after the first finding beyond `remaining` proves that the result bound truncated the
+  sweep."
+  [kb context remaining]
+  (loop [findings []
+         units    (for [term  (genl-nodes kb context)
+                        :when (undeclared-arity? kb term context)]
+                    {:term term})]
+    (if-let [finding (first units)]
+      (if (and remaining (>= (count findings) remaining))
+        {:status :truncated :reason :max-results :findings findings}
+        (do
+          (budget/record! :undeclared-arity finding)
+          (recur (conj findings finding) (rest units))))
+      {:status :complete :findings findings})))
+
 (def ^:private passes
   "The passes in run order, `[category audit]`: `audit` takes `kb candidate-terms context
   remaining` and answers `{:status :complete|:truncated :findings …}`.  `:max-results`
@@ -624,6 +997,10 @@
    [:implicit-genl implicit-genl-findings]
    [:orthogonal-over-separation (fn [kb _ context remaining]
                                   (orthogonal-over-separation-findings kb context remaining))]
+   [:rule-macro (fn [kb _ context remaining]
+                  (rule-macro-findings kb context remaining))]
+   [:undeclared-arity (fn [kb _ context remaining]
+                        (undeclared-arity-findings kb context remaining))]
    [:twin-genls (fn [kb _ context remaining]
                   (twin-genls-findings kb context remaining))]
    [:derivable-stated-edge (fn [kb _ context remaining]
