@@ -1218,13 +1218,16 @@ for path in clj_files():
 E17_GLOBAL = ("genls-global", "specs-global", "genl?-global", "context-up-global",
               "context-down-global",
               "genlCx?-global", "genls-global-within", "specs-global-within",
-              "genls-global-among", "genls-global-union", "specs-global-while")
+              "genls-global-among", "genls-global-union", "specs-global-while",
+              "direct-genls-global", "direct-specs-global")
 E17_ROSTER = {
     # The public API offers both readings, and its shorter arity IS the global one —
     # `vaelii.core/genls` documents the pair (docs/taxonomy.md).
     ("src/vaelii/core.clj", "genls"),
     ("src/vaelii/core.clj", "specs"),
     ("src/vaelii/core.clj", "genl?"),
+    ("src/vaelii/core.clj", "direct-genls"),
+    ("src/vaelii/core.clj", "direct-specs"),
     # Assert-time refusals. A refusal is a claim about the KB and not about a vantage:
     # a cycle refused when asked from one context and allowed from another is not a
     # refusal, it is a coin toss.  `disjoint-problems` is the deliberate exception and

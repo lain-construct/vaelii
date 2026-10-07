@@ -3177,21 +3177,32 @@
     (get-in @tax [:genl dir-key t] #{})))
 
 (defn direct-genls
-  "The types `t` is a subtype of by **one** declared `genl` edge — its direct parents,
-  where `genls` is everything those parents in turn reach.
+  "The types `t` is a subtype of by **one** `genl` edge of the closure — its direct
+  parents, where `genls` is everything those parents in turn reach.  An edge counts
+  whatever installed it: a stated `(genl t super)` or a cover roster naming `t` as a part.
 
   O(degree), off the `:fwd` adjacency the closure walk is built on, against a closure
-  read that is O(1) only because it is memoized.  The two answer different questions: the
-  closure is what a subsumption check needs, and the parents are what the term was
-  *told*, which is what a reader is shown and what an editor edits."
+  read that is O(1) only because it is memoized.  The closure is what a subsumption check
+  needs, and the parents are what a reader is shown."
   [tax t context]
   (direct-neighbours tax :fwd t context))
 
 (defn direct-specs
-  "The types that are a subtype of `t` by **one** declared `genl` edge — its direct
+  "The types that are a subtype of `t` by **one** `genl` edge of the closure — its direct
   children.  `direct-genls`' reasoning, the other direction."
   [tax t context]
   (direct-neighbours tax :rev t context))
+
+(defn direct-genls-global
+  "`direct-genls` through **every** active edge — no context scope.  `genls-global`'s
+  reasoning: a caller holding a context wants `direct-genls`."
+  [tax t]
+  (direct-neighbours tax :fwd t nil))
+
+(defn direct-specs-global
+  "`direct-specs` through **every** active edge — no context scope."
+  [tax t]
+  (direct-neighbours tax :rev t nil))
 
 (defn specs-of-all
   "The union of `specs` over every node in `nodes`, walked **once**.

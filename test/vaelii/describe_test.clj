@@ -75,7 +75,7 @@
 
 (tu/deftest-kb a-subsumption-is-answered-twice-as-the-closure-and-as-the-edge
   ;; `:genls` / `:specs` are the closures a membership check is against; `:genls-direct` /
-  ;; `:specs-direct` are the single `genl` edges the KB was told.  The closure restates one
+  ;; `:specs-direct` are its single `genl` steps, stated or roster-installed.  The closure restates one
   ;; fact as many — `thing` reaches 110,128 subtypes on the OpenCyc import — and it is
   ;; reflexive where the edge reading is not.
   (let [d (v/describe tu/*kb* 'dog '?ctx)]
