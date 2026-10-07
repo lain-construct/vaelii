@@ -4131,8 +4131,9 @@
 (defn- subsumption-reading
   "`{:statuses ss :witness w :via t}` for types `a` and `b`: `ss` is the set
   `subsumption-statuses` returns, and `w` names what put `:orthogonal` in it — `:declared`,
-  `:shared-instance` or `:shared-spec` — with `t` the instance or the subtype it found
-  (nil for `:declared`).  `w` and `t` are nil when `ss` holds no `:orthogonal`."
+  `:shared-instance`, `:shared-spec` (a shared subtype with a known `(nonempty t)`) or
+  `:unwitnessed-spec` (a shared subtype not known nonempty) — with `t` the instance or the
+  subtype it found (nil for `:declared`).  `w` and `t` are nil when `ss` holds no `:orthogonal`."
   [kb a b context]
   (let [a<b (genl? kb a b)
         b<a (genl? kb b a)
@@ -4147,21 +4148,31 @@
         instance  (when (and open? (not declared?))
                     (some #(let [x (get % '?x)] (when (isa? kb x b context) x))
                           (query kb (list a '?x) context {:max-depth 0})))
-        ;; A shared subtype counts only when it is not provably empty.  The one emptiness
-        ;; the engine proves is a type below two separated types, which `disjoint?` reads
-        ;; as the type separated from itself; `wff` refuses a stated `(disjoint c c)`.
-        ;; Of several, the one with the most subtypes is reported, so the audit names the
-        ;; widest shared subtype rather than a leaf below it.
-        spec      (when (and open? (not declared?) (nil? instance))
-                    (let [sb (specs kb b)
-                          cs (nm/by-print-key
-                              (filter #(and (contains? sb %) (not= % a) (not= % b)
-                                            (not (disjoint? kb % % context)))
-                                      (specs kb a)))]
-                      (when (seq cs) (apply max-key #(count (specs kb %)) cs))))
+        ;; A shared subtype counts only when it is not provably empty: a type below two
+        ;; separated types, which `disjoint?` reports separated from itself, or
+        ;; a type for which a facts-only read answers `(empty c)`.  `wff` refuses a stated
+        ;; `(disjoint c c)`.  A facts-only read answers a stated claim and one CxCore's
+        ;; `transitiveInArg` declarations carry along `genl`.  A shared subtype with a
+        ;; known `(nonempty c)` is the witness; the others mark
+        ;; the pair as an overlap with no witness.  Of several, the one with the most
+        ;; subtypes is reported, so the audit names the widest shared subtype rather than
+        ;; a leaf below it.
+        stored?   #(boolean (seq (query kb (list % %2) context {:max-depth 0})))
+        [spec ne] (when (and open? (not declared?) (nil? instance))
+                    (let [sb  (specs kb b)
+                          cs  (nm/by-print-key
+                               (filter #(and (contains? sb %) (not= % a) (not= % b)
+                                             (not (disjoint? kb % % context))
+                                             (not (stored? 'empty %)))
+                                       (specs kb a)))
+                          nes (filter #(stored? 'nonempty %) cs)
+                          pick #(apply max-key (fn [c] (count (specs kb c))) %)]
+                      (cond (seq nes) [(pick nes) true]
+                            (seq cs)  [(pick cs) false])))
         [w t]     (cond declared? [:declared nil]
                         instance  [:shared-instance instance]
-                        spec      [:shared-spec spec])]
+                        ne        [:shared-spec spec]
+                        spec      [:unwitnessed-spec spec])]
     {:statuses (cond-> #{}
                  (and a<b b<a)       (conj :coextensional)
                  (and a<b (not b<a)) (conj :genl)
@@ -4184,8 +4195,8 @@
   instances live in a narrower context passes it so they are visible. `:orthogonal` has
   three witnesses: a stated `(orthogonal a b)` (either spelling, the predicate being
   symmetric); a member of `a` that is also a member of `b`; or a type that is a subtype
-  of both and is not separated from itself at `context` — a type below two separated
-  types is empty, so it shows no overlap. The declaration and the shared instance are
+  of both and is not provably empty at `context` — a type separated from itself or with
+  a known `(empty t)` shows no overlap. The declaration and the shared instance are
   facts-only reads (`{:max-depth 0}`), so the status is the same under every query
   engine. The shared subtypes are read from the global `specs` closures, as `genl?` is.
 
@@ -4207,7 +4218,7 @@
   subtype of `b`), `:spec` (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint`
   (provably no shared instance), `:orthogonal` (a stated `(orthogonal a b)`, or neither
   subsumes the other and not disjoint, but a shared instance the registry answers without
-  rule expansion exists, or a shared subtype not separated from itself),
+  rule expansion exists, or a shared subtype not provably empty),
   `:unknown` (none of the above is provable), or `:inconsistent` (multiple contradictory
   relationships hold, e.g. both genl-related and disjoint).
 
@@ -4236,8 +4247,10 @@
   so contradictions are visible without re-querying. The `:unknown` pairs are the
   candidates for a missing `disjoint` or `orthogonal` assertion; a declared `orthogonal`
   pair reads `:orthogonal`, never `:unknown`. An entry whose `:statuses` holds
-  `:orthogonal` also carries `:witness` — `:declared`, `:shared-instance` or
-  `:shared-spec` — and, for the last two, `:via`, the instance or the subtype found."
+  `:orthogonal` also carries `:witness` — `:declared`, `:shared-instance`, `:shared-spec`
+  or `:unwitnessed-spec` — and, for the last three, `:via`, the instance or the subtype
+  found. A shared subtype with a known `(nonempty t)` is a `:shared-spec`, and a shared
+  subtype not known nonempty is an `:unwitnessed-spec`."
   ([kb] (disjointness-audit kb 'CxUniverse))
   ([kb context]
    ;; `by-print-key`, never bare `sort`: a type node need not be a symbol.  A NAT — a

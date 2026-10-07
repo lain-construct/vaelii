@@ -74,8 +74,8 @@
 (exceptWhen (penguin ?x)
   (set/defaultRule (set/forwardRule (implies (and (bird ?x)) (hasCapability ?x flying)))))
 
-;; Travelling follows from flying through the capability hierarchy, and no rule concludes
-;; it.  (transitiveInArg hasCapability 2 genl) with (genl flying travelling)
+;; Travelling follows from flying through the genl hierarchy of event kinds, and no rule
+;; concludes it.  (transitiveInArg hasCapability 2 genl) with (genl flying travelling)
 ;; answers (hasCapability ?x travelling) at retrieval for anything believed to fly, and
 ;; stores no record.  When a penguin's flight is defeated, the retrieval has no believed
 ;; flight to reach from, so travelling is unanswerable until the flight is believed again.

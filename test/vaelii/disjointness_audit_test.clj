@@ -57,8 +57,70 @@
     (is (= :orthogonal (v/subsumption-status kb 'temporalKind 'spatialKind)))
     (let [e (first (filter #(= #{'spatialKind 'temporalKind} (hash-set (:a %) (:b %)))
                            (:pairs-data (v/disjointness-audit kb))))]
+      (is (= [:orthogonal :unwitnessed-spec 'bothKind] ((juxt :status :witness :via) e))
+          "a subtype not known nonempty is an overlap with no witness"))))
+
+(tu/deftest-kb a-nonempty-shared-subtype-is-a-witness
+  (tu/with-terms [spatialKind temporalKind bothKind]
+    (v/assert kb (list 'genl 'spatialKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'temporalKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'spatialKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'temporalKind) 'CxUniverse)
+    (v/assert kb (list 'nonempty 'bothKind) 'CxUniverse)
+    (let [e (first (filter #(= #{'spatialKind 'temporalKind} (hash-set (:a %) (:b %)))
+                           (:pairs-data (v/disjointness-audit kb))))]
       (is (= [:orthogonal :shared-spec 'bothKind] ((juxt :status :witness :via) e))
           "the audit names the witness kind and the subtype"))))
+
+(tu/deftest-kb a-nonempty-shared-subtype-is-named-ahead-of-a-wider-one
+  ;; wideKind has a subtype of its own and is not known nonempty; narrowKind is nonempty
+  (tu/with-terms [spatialKind temporalKind wideKind wideLeaf narrowKind]
+    (v/assert kb (list 'genl 'spatialKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'temporalKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'wideKind 'spatialKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'wideKind 'temporalKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'wideLeaf 'wideKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'narrowKind 'spatialKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'narrowKind 'temporalKind) 'CxUniverse)
+    (v/assert kb (list 'nonempty 'narrowKind) 'CxUniverse)
+    (let [e (first (filter #(= #{'spatialKind 'temporalKind} (hash-set (:a %) (:b %)))
+                           (:pairs-data (v/disjointness-audit kb))))]
+      (is (= [:shared-spec 'narrowKind] ((juxt :witness :via) e))))))
+
+(tu/deftest-kb a-shared-subtype-with-a-nonempty-subtype-is-a-witness
+  ;; nonempty climbs genl, so a nonempty subtype below the shared subtype makes it nonempty
+  (tu/with-terms [spatialKind temporalKind bothKind leafKind]
+    (v/assert kb (list 'genl 'spatialKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'temporalKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'spatialKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'temporalKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'leafKind 'bothKind) 'CxUniverse)
+    (v/assert kb (list 'nonempty 'leafKind) 'CxUniverse)
+    (let [e (first (filter #(= #{'spatialKind 'temporalKind} (hash-set (:a %) (:b %)))
+                           (:pairs-data (v/disjointness-audit kb))))]
+      (is (= [:shared-spec 'bothKind] ((juxt :witness :via) e))))))
+
+(tu/deftest-kb a-shared-subtype-below-an-empty-type-is-no-witness
+  ;; empty descends genl, so a shared subtype below an empty type is empty
+  (tu/with-terms [spatialKind temporalKind bothKind emptyKind]
+    (v/assert kb (list 'genl 'spatialKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'temporalKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'emptyKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'empty 'emptyKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'spatialKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'temporalKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'emptyKind) 'CxUniverse)
+    (is (= :unknown (v/subsumption-status kb 'spatialKind 'temporalKind)))))
+
+(tu/deftest-kb a-shared-subtype-stated-empty-is-no-witness
+  (tu/with-terms [spatialKind temporalKind bothKind]
+    (v/assert kb (list 'genl 'spatialKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'temporalKind 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'spatialKind) 'CxUniverse)
+    (v/assert kb (list 'genl 'bothKind 'temporalKind) 'CxUniverse)
+    (v/assert kb (list 'empty 'bothKind) 'CxUniverse)
+    (is (= :unknown (v/subsumption-status kb 'spatialKind 'temporalKind))
+        "an empty subtype is below every pair, so it shows no overlap")))
 
 (tu/deftest-kb a-shared-subtype-with-an-instance-reads-as-a-shared-instance
   (tu/with-terms [spatialKind temporalKind both_kind Thing1]

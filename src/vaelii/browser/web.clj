@@ -4257,10 +4257,10 @@
   [pred] (list pred demo-subject))
 
 (defn- demo-cap
-  "`(hasCapability Pingu <capability>)` — what the walkthrough's conclusion is about.
-  Flight is a capability rather than a one-place property, so the conclusion under test is
-  a binary sentence and the demo builds it apart from `demo-claim`."
-  [capability] (list 'hasCapability demo-subject capability))
+  "`(hasCapability Pingu <event-kind>)` — what the walkthrough's conclusion is about.
+  Flight is an event kind Pingu can be the doer of rather than a one-place property, so the
+  conclusion under test is a binary sentence and the demo builds it apart from `demo-claim`."
+  [event-kind] (list 'hasCapability demo-subject event-kind))
 
 (def ^:private demo-script
   "The three steps.  `:from` is the state the KB has to be in for a step to be the next
@@ -4281,7 +4281,7 @@
 
 (def ^:private demo-watched
   "The five sentences the walkthrough touches, in the order they make sense in: the two
-  the reader asserts, the conclusion under test, what the capability hierarchy answers
+  the reader asserts, the conclusion under test, what the event-kind hierarchy answers
   from it, and the positive claim a penguin carries.  All five are rendered at every step, because the
   cascade is the part worth seeing — the conclusion does not go alone, and the KB does
   not merely fail to conclude flight, it concludes flightlessness, which is a different
@@ -4294,7 +4294,7 @@
     :note "derived — the conclusion under test"}
    {:form      (demo-cap 'travelling)
     :answered? true
-    :note      "answered through the capability hierarchy, never stored — it goes when the flight goes"}
+    :note      "answered through the event-kind hierarchy, never stored — it goes when the flight goes"}
    {:form (list 'not (demo-cap 'flying))
     :note "derived from (penguin Pingu) — a positive claim, not the absence of one"}])
 

@@ -387,8 +387,11 @@
 
   The denominator is every type-shaped name in the vocabulary, which by `docs/naming.md`
   includes a bare lowercase word (`likes` is a legal predicate *and* a legal type name).
-  A unique declared arity other than one excludes a known non-unary predicate; unknown
-  or conflicting arities remain candidates rather than hiding disconnected type islands.
+  A unique declared arity other than one excludes a known non-unary predicate, and a
+  `variable_arity` declaration excludes a relation with no fixed length at all, so a
+  sub-relation edge such as `(genl partition covering)` is not read as two unrooted
+  types; unknown or conflicting arities remain candidates rather than hiding disconnected
+  type islands.
   That is why the gap is the finding rather than either fraction on its own.
 
   Reachability is **reflexive**, as `genls` is: the root reaches itself, so `:rooted`
@@ -402,7 +405,9 @@
         type-candidate? (memoize
                          (fn [name]
                            (let [arity (kb/relation-arity kb name nil)]
-                             (or (nil? arity) (= 1 arity)))))
+                             (and (or (nil? arity) (= 1 arity))
+                                  (not (kb/isa-among? (kb/memberships kb name '?ctx)
+                                                      'variable_arity))))))
         nodes (into #{} (filter type-candidate?) (tax/types taxo))
         named (into #{} (filter type-candidate?) (:type-names pass))]
     (progress! {:phase :taxonomy :done 0 :total (count nodes)})

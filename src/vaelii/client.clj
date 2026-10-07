@@ -761,9 +761,9 @@
   (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint` (provably no shared
   instance), `:orthogonal` (a stated `(orthogonal a b)`, or neither subsumes the other and
   not disjoint, but a shared instance the registry answers without rule expansion exists,
-  or a shared subtype not separated from itself), `:unknown` (none of the above is
-  provable), or `:inconsistent` (multiple contradictory relationships hold, e.g. both
-  genl-related and disjoint)."
+  or a shared subtype not provably empty), `:unknown` (none of the above is provable), or
+  `:inconsistent` (multiple contradictory relationships hold, e.g. both genl-related and
+  disjoint)."
   ([conn a b] (c/subsumption-status conn a b))
   ([conn a b context] (c/subsumption-status conn a b context)))
 

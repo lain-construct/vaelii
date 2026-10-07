@@ -395,14 +395,15 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; a stated `(orthogonal a b)` reads :orthogonal,
                                                ; `context` is the vantage the declaration and the
                                                ; shared instance are read from (default CxUniverse)
-                                               ; a shared subtype not separated from itself, read
+                                               ; a shared subtype not provably empty, read
                                                ; from the global closures, also reads :orthogonal
 (disjointness-audit kb [context])              ; subsumption-status over every unordered type pair —
                                                ; {:types :pairs :by-status :pairs-data}; the
                                                ; :unknown pairs flag a candidate missing `disjoint`
                                                ; or `orthogonal`; an :orthogonal entry carries
-                                               ; :witness (:declared :shared-instance :shared-spec)
-                                               ; and :via, the instance or subtype found
+                                               ; :witness (:declared :shared-instance :shared-spec
+                                               ; :unwitnessed-spec) and :via, the instance or
+                                               ; subtype found
 ;; the taxonomy, read (thin delegations to vaelii.impl.taxonomy — reads only, since
 ;; edges and metadata are maintained by assert / retract! from the sentexes stating them)
 (genls kb t [context]) / (specs kb t [context])         ; genl up/down closure (scoped with a context)
@@ -1250,7 +1251,7 @@ exactly one — the unmarked are those whose two ends sit at different levels, o
 level at all (`implies` is a connective; `rewriteOf` takes either role so long as its two
 sides agree; `result` and `genlResult` relate a function to a type;
 `functionCorrespondingPredicate` relates a function to a predicate; `hasCapability`
-relates one animal to a capability kind). The mark is not decoration: it decides which
+relates one animal to an event kind). The mark is not decoration: it decides which
 argument-check family the predicate may use, one for **every** position, which is why a
 mixed predicate cannot carry one — `arg` on a `type_relation_predicate` and `genlArg` on
 an `instance_relation_predicate` are both refused `:arg-constraint-kind`. The distinction is
