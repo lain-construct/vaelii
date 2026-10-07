@@ -844,7 +844,7 @@
     (with-terms [dog Muffet parentOf CxStory]
       (v/assert kb (list dog Muffet) CxStory))
     ;; dog -> tmpdog17   Muffet -> TmpMuffet18
-    ;; parentOf -> tmpParentOf19   CxStory -> CxTmpStory20
+    ;; parentOf -> tmpparentof19   CxStory -> CxTmpStory20
 
   So the test's terms keep the spelling of the ontology it is about, while every term stays unique and
   disposable (see the net-neutrality guarantee above).  A bare base like `dog` stays
