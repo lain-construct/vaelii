@@ -638,6 +638,9 @@
    "wrap-body-limit"     "guard.clj — the HTTP request-body ceiling"
    "graph-side-budget"   "web.clj — how many expansions a term page's picture may spend"
    "matrix-node-limit"   "web.clj — how many nodes the network page will draw"
+   "graph-row-limit"     (str "web.clj — how many direct neighbours one node of a term "
+                              "page's picture may have and still have a row drawn; a "
+                              "per-read bound, nothing retained")
    "default-node-budget" (str "inference.clj — how many nodes the debugger's bounded "
                               "search-tree walk expands before it stops; a per-read "
                               "search bound, not a retained cache")

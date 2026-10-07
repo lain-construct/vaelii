@@ -1112,10 +1112,69 @@
           svg  (svg-of body)]
       (testing "the row is capped — 400 subtypes are not 400 nodes"
         (is (= 8 (count (filter #(str/includes? % "_kid") (drawn-terms svg))))))
-      (testing "and the caption says so, with the count and the fact that it is a bound"
-        (is (re-find #"showing 8 of up to 40[01] direct subtypes" body)))
+      (testing "and the caption says so, with the count it read"
+        (is (re-find #"showing 8 of 400 direct subtypes" body)))
       (testing "the centre is still in its own view"
         (is (contains? (drawn-terms svg) (str hub_type)))))))
+
+(def ^:private capped-kids
+  "Twelve subtype names, more than `graph-row-cap`, whose sort order is their alphabet
+  order: the eight a capped row draws are `kid_a` through `kid_h`."
+  (mapv #(str "kid_" %) "abcdefghijkl"))
+
+(deftest a-capped-row-draws-the-same-terms-whatever-order-they-were-asserted-in
+  ;; Two KBs holding the same twelve `genl` edges, asserted forwards and backwards.  The
+  ;; row draws eight of the twelve, and which eight is a property of the knowledge, not of
+  ;; the order the index hands the children back in.
+  (let [hub   'cap_hub
+        drawn (fn [kids]
+                (tu/with-cleared-kb [kb tu/isolated-fresh]
+                  (v/assert-many kb (for [k kids] (list 'genl (symbol k) hub))
+                                 'CxRowOrder {:chain? false})
+                  (let [body (:body ((web/app kb) {:request-method :get :uri "/term"
+                                                   :query-string (str "q=" hub)}))]
+                    {:kids (set (filter #(str/starts-with? % "kid_")
+                                        (drawn-terms (svg-of body))))
+                     :body body})))
+        fwd   (drawn capped-kids)
+        bwd   (drawn (rseq capped-kids))]
+    (is (= (set (take 8 capped-kids)) (:kids fwd)) "the first eight in sort order")
+    (is (= (:kids fwd) (:kids bwd)) "the same eight, asserted in the other order")
+    (testing "and the caption counts the twelve it read"
+      (is (re-find #"showing 8 of 12 direct subtypes" (:body fwd)))
+      (is (re-find #"showing 8 of 12 direct subtypes" (:body bwd))))))
+
+(deftest animal-s-subtype-row-is-its-first-eight-children-in-sort-order
+  ;; `animal` has thirteen direct `genl` children in the shipped ontology, two of them
+  ;; installed by its `vertebrate` / `invertebrate` partition, so its row is capped.  The
+  ;; row is pinned exactly: the first eight in sort order, not whichever eight the index
+  ;; returned first.
+  (let [grow (ns-resolve 'vaelii.browser.web 'grow)
+        {:keys [rows direct]} (grow tu/*kb* 'genl :down 1 'animal 1)]
+    (is (= '#{amphibian arachnid asleep awake bird breathes_air fish insect}
+           (set (map :term (first rows)))))
+    (is (= {:shown 8 :total 13 :exact? true :more? false} direct))))
+
+(deftest a-node-past-the-row-limit-draws-no-sample-whatever-the-assertion-order
+  ;; Past `graph-row-limit` the read does not hold every neighbour, so any eight of it
+  ;; would be eight of the index's order.  The node draws none, the same in both KBs, and
+  ;; the caption says why.
+  (let [hub   'wide_hub
+        kids  (mapv #(format "wkid_%04d" %) (range 520))
+        drawn (fn [kids]
+                (tu/with-cleared-kb [kb tu/isolated-fresh]
+                  (v/assert-many kb (for [k kids] (list 'genl (symbol k) hub))
+                                 'CxRowOrder {:chain? false})
+                  (let [body (:body ((web/app kb) {:request-method :get :uri "/term"
+                                                   :query-string (str "q=" hub)}))]
+                    {:kids (set (filter #(str/starts-with? % "wkid_")
+                                        (drawn-terms (svg-of body))))
+                     :body body})))
+        fwd   (drawn kids)
+        bwd   (drawn (rseq kids))]
+    (is (= #{} (:kids fwd) (:kids bwd)) "no sample of an order the reader cannot name")
+    (is (re-find #"more than 500 direct subtypes, too many to draw" (:body fwd)))
+    (is (re-find #"more than 500 direct subtypes, too many to draw" (:body bwd)))))
 
 ;; ---- the read is bounded, not just the render ---------------------------
 
@@ -1143,8 +1202,7 @@
 
 (def ^:private graph-read-budget
   "What the picture may cost a term page, in facade reads.  Twelve expansions — six a side
-  — plus, only where a row was actually elided, one O(1) count each; the radial view spends
-  at most twelve.  Stated here and asserted below, because a graph that renders without a click may
+  — and the radial view spends at most twelve.  Stated here and asserted below, because a graph that renders without a click may
   never be the reason a term page is slow."
   24)
 
@@ -1169,7 +1227,7 @@
       (testing "and does not grow with the fan-out — 400 subtypes cost exactly what 40 do"
         (is (= mid big) (str mid " vs " big)))
       (testing "the wide ones pay for their caption, the narrow one has nothing to caption"
-        (is (re-find #"showing 8 of up to" (:body (GET "/term" (str "q=" big_type)))))
+        (is (re-find #"showing 8 of 400" (:body (GET "/term" (str "q=" big_type)))))
         (is (not (re-find #"showing " (:body (GET "/term" (str "q=" tiny_type)))))))
       (testing "and the belief it needs rides the page's one batched read, not a read a node"
         (is (= 1 (get (drawn big_type) 'believed))))
