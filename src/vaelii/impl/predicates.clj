@@ -781,7 +781,7 @@
                             :family nil :facets #{:convicts :reach}
                             :notes (str "the projection relates STORED declarations only — a"
                                         " reading arg generalizes up genl or inherits from a"
-                                        " super-predicate has no argN twin; ask arg for those."
+                                        " super-predicate has no arg1/arg2/arg3 twin; ask arg for those."
                                         " :family stays nil for arity's reason rather than for"
                                         " want of a family: mark-families rosters the lanes"
                                         " that must recognize one spelling set, and two"
@@ -1420,6 +1420,15 @@
              (str "a partition declaration (variable arity) documenting that the cell types"
                   " exhaustively and disjointly cover the whole. Nothing infers from it — the"
                   " disjoint_metatype and the explicit memberships carry the separation."))]
+     ['argN
+      (inert {:shape {:args [:term :integer :sentence]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "a position inside a written formula, 0 the relation or operator."
+                          " Nothing derives it, and its (quotedArg argN 3 formula) checks"
+                          " nothing, since no reader classifies a compound by its shape.")}
+             (str "a statement that a term is argument n of a written formula, position 0"
+                  " being the relation or operator. Nothing derives or reads it, and no reader"
+                  " classifies a compound by its shape yet."))]
      ['termsRelated
       (inert {:shape {:args [] :variadic :term} :storage [:none] :checked false
               :family nil :facets #{}

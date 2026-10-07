@@ -66,3 +66,21 @@
     (is (true? (v/ask? kb '(negative_integer -3) U)))
     (is (true? (v/ask? kb '(non_positive_integer -3) U)))
     (is (false? (v/ask? kb '(non_negative_integer -3) U)))))
+
+;; ---- argN --------------------------------------------------------------------
+
+(tu/deftest-kb argN-is-declared-with-position-0-admitted
+  (is (:inert (v/interpreted 'argN)) "nothing in the engine derives or reads argN")
+  (is (true? (v/ask? kb '(ternary_predicate argN) U)))
+  (is (true? (v/ask? kb '(arg argN 1 thing) U)))
+  (is (true? (v/ask? kb '(arg argN 2 non_negative_integer) U))
+      "position 0, the relation or operator, is in the type")
+  (is (true? (v/ask? kb '(non_negative_integer 0) U)))
+  (is (true? (v/ask? kb '(quotedArg argN 3 formula) U))))
+
+(tu/deftest-kb an-argN-fact-at-position-0-is-admitted
+  (tu/with-terms [likes Fred Mary]
+    (v/assert kb (list 'argN likes 0 (list likes Fred Mary)) U)
+    (v/assert kb (list 'argN Mary 2 (list likes Fred Mary)) U)
+    (is (true? (v/ask? kb (list 'argN likes 0 (list likes Fred Mary)) U)))
+    (is (true? (v/ask? kb (list 'argN Mary 2 (list likes Fred Mary)) U)))))

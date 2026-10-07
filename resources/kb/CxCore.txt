@@ -66,7 +66,7 @@
 (arg arg 2 positive_integer)
 (genlArg arg 3 thing)
 (comment arg1
-         "(arg1 ?relation ?type) means that argument 1 of ?relation must be of ?type — the binary projection of (arg ?relation 1 ?type), created so a positional argument constraint can itself stand in the subject position of a binary declaration such as (predAllSpecified arg1 relation). The projection and the ternary spelling derive each other, so asserting either keeps both believed and retracting the one that was actually asserted collapses the pair; both are held to the same declaration checks at assert, so neither spelling accepts a declaration the other refuses. The projection relates stored declarations only: a reading arg answers through genl generalization or super-predicate inheritance has no argN twin, so a generalized or inherited question must be asked of arg itself. arg2 and arg3 project positions 2 and 3 the same way.")
+         "(arg1 ?relation ?type) means that argument 1 of ?relation must be of ?type — the binary projection of (arg ?relation 1 ?type), created so a positional argument constraint can itself stand in the subject position of a binary declaration such as (predAllSpecified arg1 relation). The projection and the ternary spelling derive each other, so asserting either keeps both believed and retracting the one that was actually asserted collapses the pair; both are held to the same declaration checks at assert, so neither spelling accepts a declaration the other refuses. The projection relates stored declarations only: a reading arg answers through genl generalization or super-predicate inheritance has no arg1, arg2 or arg3 twin, so a generalized or inherited question must be asked of arg itself. arg2 and arg3 project positions 2 and 3 the same way.")
 (binary_predicate arg1)
 (arg arg1 1 relation)
 (genlArg arg1 2 thing)
@@ -280,6 +280,18 @@
 (genl atomic_formula literal)
 (genl sentence formula)
 (genl atomic_sentence atomic_formula)
+
+;; argN names a position inside a written formula.  Position 0 is the relation or
+;; operator, and the arguments count from 1, as arg's positions do.  The quotedArg at
+;; position 3 is documentary for the reason the note on the expression kinds above gives:
+;; no reader classifies a compound by its shape, so the declaration stores and convicts
+;; nothing.
+(comment argN
+         "(argN ?term ?n ?formula) means that ?term is argument ?n of ?formula. Position 0 is the relation or operator ?formula applies, and the arguments count from 1: (argN parentOf 0 (parentOf Tom Bob)) and (argN Bob 2 (parentOf Tom Bob)) both hold. ?formula is taken as written, which (quotedArg argN 3 formula) states. A compound's kind is not classified yet, so that declaration is documentary and checks nothing. Nothing in the engine derives or reads argN.")
+(ternary_predicate argN)
+(arg argN 1 thing)
+(arg argN 2 non_negative_integer)
+(quotedArg argN 3 formula)
 (genl atomic_sentence sentence)
 (set/monotonic (disjoint atomic_formula non_atomic_term))
 

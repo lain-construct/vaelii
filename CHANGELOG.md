@@ -97,6 +97,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **CxCore declares `argN`.** `(argN ?term ?n ?formula)` states that `?term` is
+  argument `?n` of `?formula`, and position 0 is the relation or operator. It is a
+  `ternary_predicate` with `(arg argN 1 thing)`, `(arg argN 2 non_negative_integer)` and
+  `(quotedArg argN 3 formula)`. The `quotedArg` is documentary, because no reader
+  classifies a compound by its shape yet. Nothing in the engine derives or reads `argN`,
+  and the vocabulary audit classifies it inert. The prose that said `argN` for the
+  `arg1` / `arg2` / `arg3` projections names them instead. `engine_vocabulary_test` pins
+  the declaration and a stored fact at position 0.
+
+  *Class:* **Additive**.
+
 - **CxCore partitions `integer` by sign, twice.** CxCore states
   `(partition integer positive_integer non_positive_integer)` and
   `(partition integer negative_integer non_negative_integer)`, so each part of one

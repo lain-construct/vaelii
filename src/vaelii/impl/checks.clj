@@ -1289,7 +1289,7 @@
   sentence itself carries no position for the generic machinery to check, the bridge
   rule's ternary conclusion is convicted on the *derivation* path where a conviction
   is dropped and recorded rather than thrown, and the author is left holding a
-  believed `argN` fact whose real declaration the engine rejected — silently inert,
+  believed `arg1`/`arg2`/`arg3` fact whose real declaration the engine rejected — silently inert,
   the exact trap CxCore's `quotedArg` note names.
 
   Open-world throughout: each arm needs a declaration to contradict, so a predicate
