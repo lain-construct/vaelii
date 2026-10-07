@@ -780,6 +780,22 @@
   ([kb t] (tax/specs-global (reasoning/taxonomy kb) t))
   ([kb t context] (tax/specs (reasoning/taxonomy kb) t context)))
 
+(defn direct-genls
+  "The types `t` is a subtype of by **one** `genl` edge in the closure — its direct
+  parents, where `genls` is everything they reach.  Not reflexive.  An edge counts
+  whatever installed it: a stated `(genl t super)`, or a `covering`, `separating` or
+  `partition` roster naming `t` as a part of `super`.  O(degree).  A set; `#{}` when
+  `t` is not a node in the type hierarchy.  With a `context`, only edges visible from it
+  count."
+  ([kb t] (direct-genls kb t nil))
+  ([kb t context] (tax/direct-genls (reasoning/taxonomy kb) t context)))
+
+(defn direct-specs
+  "The types that are a subtype of `t` by **one** `genl` edge in the closure — its
+  direct children.  `direct-genls`, the other direction."
+  ([kb t] (direct-specs kb t nil))
+  ([kb t context] (tax/direct-specs (reasoning/taxonomy kb) t context)))
+
 (defn genl?
   "Is `sub` a (reflexive-transitive) subtype of `super`?  Types, not individuals —
   for an individual's type membership use `isa?`.  With a `context`, only edges
@@ -8231,7 +8247,7 @@
   the rest.
 
   Keywords, not vars.  The source identity (`vaelii.impl.source-identity`) walks every
-  symbol of a top-level form that defines no var, so a var here would put all 96 reads
+  symbol of a top-level form that defines no var, so a var here would put all 99 reads
   into the digest a reasoning image is stamped with, and an edit to `why` would discard every
   image.  A read that recover does call is reached through that call's own symbol."
   #{:all-functional-at-instant-violations :all-specified-violations :argue :ask
@@ -8240,7 +8256,7 @@
     :compare-tacticians :conflicts :context-down :context-up :contexts :contexts-of
     :contradictions :count-in-context :count-with-arg :count-with-functor
     :defeat-class :dependent-justifications :deprecated? :describe
-    :disjoint-metatypes :disjoint? :disjointness-audit :equiv-class :escalate
+    :direct-genls :direct-specs :disjoint-metatypes :disjoint? :disjointness-audit :equiv-class :escalate
     :explain-levels :export! :export-text! :exposed-clashes :find-sentexes
     :find-sentexes-all :find-terms :functional-at-instant-violations :genl? :genls
     :handle-of :handles :has-prop? :in? :inverse-of :isa? :ist :justification

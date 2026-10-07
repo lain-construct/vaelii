@@ -54,6 +54,8 @@
   deprecated? "[[conn term] [conn term context]]",
   describe
   "[[conn term] [conn term context] [conn term context opts]]",
+  direct-genls "[[conn t] [conn t context]]",
+  direct-specs "[[conn t] [conn t context]]",
   disjoint-metatypes "[[conn]]",
   disjoint? "[[conn a b] [conn a b context]]",
   edit! "[[conn batch]]",
@@ -219,6 +221,8 @@
   deprecated? "[[kb term] [kb term context]]",
   describe "[[kb term] [kb term context] [kb term context opts]]",
   describe-opt-keys [:limit],
+  direct-genls "[[kb t] [kb t context]]",
+  direct-specs "[[kb t] [kb t context]]",
   disjoint-metatypes "[[kb]]",
   disjoint? "[[kb a b] [kb a b context]]",
   disjointness-audit "[[kb] [kb context]]",
@@ -387,6 +391,8 @@
    :dependent-justifications
    :deprecated?
    :describe
+   :direct-genls
+   :direct-specs
    :disjoint-metatypes
    :disjoint?
    :edit
@@ -504,6 +510,8 @@
    :dependent-justifications
    :deprecated?
    :describe
+   :direct-genls
+   :direct-specs
    :disjoint-metatypes
    :disjoint?
    :edit

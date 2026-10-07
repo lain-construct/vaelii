@@ -380,6 +380,28 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
 
+- **`direct-genls` and `direct-specs` read one `genl` step of the closure, and the
+  browser's taxonomy view and hierarchy tree draw from them.** `(direct-genls kb t
+  [context])` answers the types `t` is a subtype of by one edge, and `direct-specs` the
+  types one edge below `t`. An edge counts whatever installed it, so a part a `covering`,
+  `separating` or `partition` roster names is a direct subtype of the roster's whole. The
+  taxonomy view drew only stored `(genl sub super)` sentences, so a type whose parent edge
+  came from a roster was drawn with no parent. The daemon serves both reads as the
+  `:direct-genls` and `:direct-specs` ops, and `vaelii.client` gains both.
+  [api.md](docs/api.md), [web.md](docs/web.md).
+
+  *Class:* **Additive**.
+
+- **`animal` and `plant` are placed under `organism` and separated by one
+  `(separating organism animal plant)` roster in CxOrganism.** The roster replaces the
+  stored `(genl animal organism)`, `(genl plant organism)` and `(disjoint animal plant)`
+  sentences. Every `genl?` and `disjoint?` answer about the three types is unchanged. A
+  `find-sentexes` for one of the three replaced sentences finds nothing, and `why` cites
+  the roster where it cited one of them.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
 - **CxAbstract does not declare `attribute`.** The shipped KB has no type for a
   property an object bears, such as a color or a size, and no shipped sentence names
   `attribute`. The starter's disjointness audit reads 166 types and 13,695 pairs, 3,598
@@ -412,6 +434,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
   keys).
 
 ### Fixes: answers
+
+- **The browser front page's disjointness list holds the pairs a `separating` or
+  `partition` roster separates.** The list held the stored `(disjoint a b)` sentexes and
+  the pairs a `disjoint_metatype` induces. A roster stores no `disjoint` sentence for its
+  parts, so the pairs it separates were missing from the list.
+
+  *Class:* **Fix**.
 
 - **`query {:proof? true}` and `argue` return a proof when a rewrite's residual repeats
   a conjunct the goal already holds.** Where the repeat folded onto a literal left of the

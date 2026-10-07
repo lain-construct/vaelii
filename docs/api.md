@@ -394,6 +394,8 @@ default-chain-opts                              ; the bounds a chain run takes w
 ;; the taxonomy, read (thin delegations to vaelii.impl.taxonomy — reads only, since
 ;; edges and metadata are maintained by assert / retract! from the sentexes stating them)
 (genls kb t [context]) / (specs kb t [context])         ; genl up/down closure (scoped with a context)
+(direct-genls kb t [context]) / (direct-specs kb t [context]) ; one genl step up/down, not reflexive;
+                                                        ; a cover roster's installed edges count
 (genl? kb sub super [context])                          ; subtype test, scoped the same way
 (types kb) / (contexts kb)                              ; the nodes of each hierarchy
 (context-up kb c) / (context-down kb c) / (sees? kb k y); genlCx closures + visibility test

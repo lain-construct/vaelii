@@ -755,13 +755,16 @@
 
 (defn- disjoint-pairs
   "The disjointness pairs to display: the believed `(disjoint a b)` sentexes, plus the
-  pairs a `disjoint_metatype` induces.
+  pairs a `disjoint_metatype` induces, plus the pairs a believed `separating` or
+  `partition` roster separates.
 
   The induced ones are computed rather than read, because a metatype separates its
   members by being *consulted* rather than by materializing a clique of real
-  sentexes, so a page listing only stored pairs would silently under-report.  A member is
-  not separated from *itself* by belonging to one, which is why only that half filters
-  the diagonal out — a stated `(disjoint A A)` is content and is shown."
+  sentexes, so a page listing only stored pairs would silently under-report.  A roster
+  separates its parts the same way, so each roster contributes every pair of its named
+  parts.  A member is not separated from *itself* by belonging to one, which is why only
+  those halves filter the diagonal out — a stated `(disjoint A A)` is content and is
+  shown."
   [kb]
   (let [declared (into #{} (keep (fn [s] (let [[_ a b] (:sentence s)]
                                            (when (and a b (not (v/negative? s)))
@@ -775,8 +778,17 @@
                        a  ms
                        b  ms
                        :when (neg? (compare (str a) (str b)))]
+                   (disjoint-pair a b))
+        rostered (for [f    '[separating partition]
+                       s    (v/sentexes-with-functor kb f {:believed? true})
+                       :when (not (v/negative? s))
+                       :let [[_ _whole & parts] (:sentence s)
+                             ps (vec (distinct parts))]
+                       a    ps
+                       b    ps
+                       :when (neg? (compare (str a) (str b)))]
                    (disjoint-pair a b))]
-    (into declared induced)))
+    (-> declared (into induced) (into rostered))))
 
 (defn- term-class
   "The role class of a term, used to color it: type / individual / predicate /
@@ -1940,40 +1952,56 @@
   5000)
 
 (defn- child-terms
-  "The direct sub-nodes of `node` under transitivity relation `pred`, lazily and deduped
-  (one edge asserted in two contexts is two sentexes and one child).
+  "The direct sub-nodes of `node` under transitivity relation `pred`, deduped (one edge
+  asserted in two contexts is two sentexes and one child).
 
-  One index read, not a walk: the pattern pins an argument *after* a variable, which
-  `query` answers from the predicate-scoped argument root (`[:argument-root pred 2
-  node]`, docs/indexing.md), so the cost is this node's own fan-out rather than the
-  number of edges in the KB."
+  For `genl` the answer is the closure's own one-step adjacency (`direct-specs`), so a
+  child a `covering`, `separating` or `partition` roster installs is a child as a stated
+  `(genl child node)` is.  The roster stores no `genl` sentence for its parts, so a read
+  of the stored edges alone would leave every one of them out.  The cost is this node's
+  own fan-out.
+
+  For any other relation, one index read, not a walk: the pattern pins an argument
+  *after* a variable, which `query` answers from the predicate-scoped argument root
+  (`[:argument-root pred 2 node]`, docs/indexing.md), so the cost is this node's own
+  fan-out rather than the number of edges in the KB."
   [kb pred node]
-  (->> (v/sentexes-matching kb (list pred '?sub node) '?ctx)
-       (keep (fn [s] (let [[_ sub super] (:sentence s)]
-                       (when (and sub (= super node)) sub))))
-       (distinct)))
+  (if (= 'genl pred)
+    (v/direct-specs kb node)
+    (->> (v/sentexes-matching kb (list pred '?sub node) '?ctx)
+         (keep (fn [s] (let [[_ sub super] (:sentence s)]
+                         (when (and sub (= super node)) sub))))
+         (distinct))))
 
 (defn- parent-terms
   "The direct super-nodes of `node` under transitivity relation `pred` — `child-terms`'
-  mirror, and bounded the same way: the pattern pins `node` in argument position **1**,
-  which `query` answers from the predicate-scoped argument root (`[:argument-root pred 1
-  node]`), so the cost is this node's own fan-*in* rather than the number of edges in the KB.
-  Deduped for the same reason — one edge asserted in two contexts is two sentexes and one
-  parent."
+  mirror.  For `genl` the closure's one-step adjacency (`direct-genls`), so a parent a
+  cover roster installs is drawn as a stated parent is.  For any other relation the
+  pattern pins `node` in argument position **1**, which `query` answers from the
+  predicate-scoped argument root (`[:argument-root pred 1 node]`), so the cost is this
+  node's own fan-*in* rather than the number of edges in the KB.  Deduped for the same
+  reason — one edge asserted in two contexts is two sentexes and one parent."
   [kb pred node]
-  (->> (v/sentexes-matching kb (list pred node '?super) '?ctx)
-       (keep (fn [s] (let [[_ sub super] (:sentence s)]
-                       (when (and super (= sub node)) super))))
-       (distinct)))
+  (if (= 'genl pred)
+    (v/direct-genls kb node)
+    (->> (v/sentexes-matching kb (list pred node '?super) '?ctx)
+         (keep (fn [s] (let [[_ sub super] (:sentence s)]
+                         (when (and super (= sub node)) super))))
+         (distinct))))
 
 (defn- expandable?
   "Whether a tree node gets a disclosure control.  `count-with-arg` at position 2
   counts the facts holding `t` there — summed over the slot roster's predicates, every
   `(pred sub t)` among them and anything else binary that mentions it there — so it is
-  a cheap *upper* bound on having children.  Wrong only in the safe direction: a node whose second-position facts are
-  all something else opens to \"none\", and no real child is ever hidden."
-  [kb t]
-  (pos? (v/count-with-arg kb 2 t)))
+  a cheap *upper* bound on having stated children.  Wrong only in the safe direction: a node whose second-position facts are
+  all something else opens to \"none\", and no real child is ever hidden.
+
+  A `genl` child a cover roster installs is not a second-position fact — the roster
+  names its whole first — so a `genl` node with none of those asks the closure's
+  adjacency (`direct-specs`).  The second read is paid only where the count is zero."
+  [kb pred t]
+  (or (pos? (v/count-with-arg kb 2 t))
+      (and (= 'genl pred) (boolean (seq (v/direct-specs kb t))))))
 
 (defn- tree-caret
   "The control that opens a node's children, and the id it is addressed by.  A checkbox
@@ -2013,7 +2041,7 @@
                                   "&node=" (url-enc (str n)) "&offset=" off))]
     (list
      (for [t (take tree-cap shown)]
-       (if (expandable? kb t)
+       (if (expandable? kb pred t)
          ;; `hx-select="#main"` is set on the body so every boosted link swaps the main
          ;; column, and it is **inherited** — against a fragment of bare rows it selects
          ;; nothing and the open would swap in nothing.  So a caret says explicitly that
@@ -2215,7 +2243,7 @@
             (panel 2 (list "Contexts " [:span.muted "(genlCx)"])
                    (if roots
                      [:ul.tree (for [r roots]
-                                 (if (expandable? kb r)
+                                 (if (expandable? kb 'genlCx r)
                                    ;; the root's children are already on the page, so its
                                    ;; caret opens the level rather than fetching it
                                    [:li (tree-caret 'genlCx r {:checked "checked"})
@@ -2673,14 +2701,22 @@
   the caption's count is the cheap `count-with-arg` bound, which spans every binary
   predicate holding the term at that position and is therefore an over-count — so
   `:exact?` travels with it and the caption words it as the bound it is.  The second read
-  is paid only where something was actually elided."
+  is paid only where something was actually elided.  A `genl` step reads the closure's
+  one-step adjacency (`direct-genls` / `direct-specs`), so an edge a cover roster
+  installs is a neighbour as a stated edge is."
   [kb pred dir node cap]
   (let [pos  (if (= :up dir) 1 2)
         read (if (= :up dir) parent-terms child-terms)
-        got  (into [] (take (inc cap)) (read kb pred node))]
+        all  (read kb pred node)
+        got  (into [] (take (inc cap)) all)]
     (if (<= (count got) cap)
       {:terms (by-print-key got) :total (count got) :exact? true}
-      {:terms (into [] (take cap) got) :total (v/count-with-arg kb pos node) :exact? false})))
+      ;; a roster's parts are not facts holding the whole at the counted position, so
+      ;; the count alone could fall below a `genl` read; that read is a realized set,
+      ;; and the larger of the two is still the bound the caption words it as
+      {:terms (into [] (take cap) got)
+       :total (cond-> (v/count-with-arg kb pos node) (counted? all) (max (count all)))
+       :exact? false})))
 
 (defn- fresh-neighbours
   "The neighbours a row is built from: what the expansions found, minus anything already
