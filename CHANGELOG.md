@@ -541,7 +541,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   shared instance stated. A type below two separated types is empty and is no witness, so
   a pair whose only shared subtypes are empty stays `:unknown`. `disjointness-audit` marks
   each `:orthogonal` entry with `:witness` (`:declared`, `:shared-instance` or
-  `:shared-spec`) and, for the last two, `:via`, the instance or the subtype found. On the
+  `:shared-spec`) and, for the last two, `:via`, the instance or the subtype found, the
+  content-least of several in every assertion order. On the
   starter KB, 18 of 13861 pairs move from `:unknown` to `:orthogonal`, among them
   `spatial` and `temporal` through `spatiotemporal`, and `injection` and `surjection`
   through `bijection`.

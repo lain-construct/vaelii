@@ -135,6 +135,18 @@
       (is (= [:shared-instance 'Thing1] ((juxt :witness :via) e))
           "the member found is reported ahead of the subtype it belongs to"))))
 
+(tu/deftest-kb the-shared-instance-reported-is-the-same-in-every-assertion-order
+  ;; two shared instances, asserted Zed first under one pair and Abe first under the
+  ;; other: both pairs report the content-least, whichever the index returns first
+  (tu/with-terms [one two three four Zed Abe]
+    (doseq [t [one two three four]]
+      (v/assert kb (list 'genl t 'thing) 'CxUniverse))
+    (doseq [[[a b] ms] [[[one two] [Zed Abe]] [[three four] [Abe Zed]]]
+            m ms t [a b]]
+      (v/assert kb (list t m) 'CxUniverse))
+    (let [via #(:via (#'v/subsumption-reading kb %1 %2 'CxUniverse))]
+      (is (= Abe (via one two) (via three four))))))
+
 (tu/deftest-kb a-shared-subtype-below-two-separated-types-is-no-witness
   ;; bothKind is also below upperX and upperY, which are disjoint, so it has no member
   (tu/with-terms [spatialKind temporalKind bothKind upperX upperY]

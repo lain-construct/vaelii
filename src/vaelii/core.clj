@@ -4144,10 +4144,14 @@
         open?     (and (not a<b) (not b<a) (not sep))
         ;; The shared-instance check is facts-only, pinned with `{:max-depth 0}` so it
         ;; expands no rule under a caller's `*query-options*` depth: a node-engine search
-        ;; of `(a ?x)` over the whole starter, once per taxonomy-open pair, hangs.
+        ;; of `(a ?x)` over the whole starter, once per taxonomy-open pair, hangs.  Of
+        ;; several shared instances the content-least is reported, not the first the
+        ;; index returns.
         instance  (when (and open? (not declared?))
-                    (some #(let [x (get % '?x)] (when (isa? kb x b context) x))
-                          (query kb (list a '?x) context {:max-depth 0})))
+                    (nm/min-by-content-key
+                     identity
+                     (keep #(let [x (get % '?x)] (when (isa? kb x b context) x))
+                           (query kb (list a '?x) context {:max-depth 0}))))
         ;; A shared subtype counts only when it is not provably empty: a type below two
         ;; separated types, which `disjoint?` reports separated from itself, or
         ;; a type for which a facts-only read answers `(empty c)`.  `wff` refuses a stated

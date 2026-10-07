@@ -1019,8 +1019,9 @@ arity of two or more, read from `(arity P n)` or an exact-arity class, or by a
 holds `:orthogonal` also carries `:witness` — `:declared`, `:shared-instance`,
 `:shared-spec` or `:unwitnessed-spec` — and, for the last three, `:via`, the instance or
 the subtype found. Of several shared subtypes it names a nonempty one ahead of the
-others, and among those the one with the most subtypes of its own. A shared
-instance is reported ahead of a shared subtype. The `:unknown` pairs are the candidates
+others, and among those the one with the most subtypes of its own. Of several shared
+instances it names the least in content order. A shared instance is reported ahead of a
+shared subtype. The `:unknown` pairs are the candidates
 for a missing `disjoint` or `orthogonal` declaration: no subsumption relates them, no
 declaration separates them, and neither a declaration, a shared instance nor a shared
 subtype shows they can overlap — so the modeller decides which they are. The audit reads
