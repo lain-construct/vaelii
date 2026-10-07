@@ -97,6 +97,62 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **`time` is a moment or a stretch of time as such, and `time_interval` is the
+  stretch.** A date is no cause: the year 2000 broke nothing, two-digit years did, at the
+  rollover. CxAbstract declares `time`, a time as in "at that time", with
+  `(genl time temporal)`, `(genl time aspatial)` and `(genl time acausal)`, and
+  `(partition time time_point time_interval)`, so a moment and a stretch are each
+  temporal, aspatial and acausal and never each other; `(disjoint time situation)` keeps
+  a time apart from what happens in it. CxUniverse states
+  `(termsRelated time_interval Duration)`, since `Duration` is CxMeasure's.
+  `(genl time_point temporal)` is removed, since the partition derives it.
+  `YearFn`, `MonthFn` and `DayFn` declare `(result … time_interval)` where they declared
+  `temporal`, so a calendar term is admitted where an argument wants `acausal` or
+  `aspatial`, as is a `StartFn` moment. CxTime declares `DatetimeFn`, the ISO-string
+  spelling of a calendar interval, a `unary_function` with `(arg DatetimeFn 1 string)`
+  and `(result DatetimeFn time_interval)`. `ontology_test` pins the edges, the
+  disjointness and the calendar readings.
+  [time.md](docs/time.md)
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that read `(result YearFn temporal)`, `(result MonthFn temporal)` or
+  `(result DayFn temporal)` as stated reads `time_interval` instead; `temporal` still
+  derives through `time`. A KB that relied on `(genl time_point temporal)` being stated
+  reads it from `genl?`.
+
+- **An organization is causal: `(genl organization causal)`.** A company hires; a court
+  rules. An instance of `organization` reads `causal`, and `organization` is disjoint
+  from `acausal` by the genl closure. `organization` stays below `aspatial`, which
+  nothing separates from `causal`. Both terms are in CxAbstract, where the edge is
+  stated. `causality_cluster_test` pins the edge and an organization reading `causal`.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
+- **`acausal`'s comment no longer calls records and evidence acausal as things.** The
+  paper or the log file a record is written on is tangible, and so causal; what is
+  acausal is the information a record or a piece of evidence carries. A reading of it
+  can cause, and the information itself causes nothing. The comment now names a time, a
+  property line, an attribute and that information. No sentence other than the comment
+  changes.
+
+  *Class:* **Additive**.
+
+- **A tangible is causal: `(genl tangible causal)`.** Anything with mass can fill a cause
+  slot — the rock dented the car — so an instance of any tangible kind reads `causal`.
+  With the monotonic `(disjoint causal acausal)`, the genl closure of disjointness now
+  separates `tangible` from `acausal`, and every tangible kind from `acausal_event`, with
+  no declaration of its own. The edge is stated in CxAbstract beside `causal`, since
+  `tangible` is in CxCore. `causality_cluster_test` pins the edge, a rock reading
+  `causal`, and the derived disjointness.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that stated an instance of a tangible kind `acausal` now holds a
+  clash; a paper record or a log file is tangible, and what is acausal is the
+  information it carries.
+
 - **`kb-integrity` runs a bounded, read-only integrity sweep in a context.** Over a finite
   set of ground candidate terms it reports the definition clashes a candidate meets (a
   passing `defnSufficient` beside a failing own `defnNecessary`), and it reports every
@@ -181,8 +237,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   so that a region can be spatiotemporal and intangible at once. `nowhere_never` is in
   no space and at no time — an expression, a language — defined as the intersection of
   `aspatial` and `atemporal`; what has no location in space, or none in time, has no
-  mass, so `aspatial` and `atemporal` are both below `intangible`. `attribute`,
-  `capability`, `fluent`, `organization` and `relation_type` are below `aspatial`, and
+  mass, so `aspatial` and `atemporal` are both below `intangible`. `capability`,
+  `fluent`, `organization` and `relation_type` are below `aspatial`, and
   CxCore places `context` and `language` below `nowhere_never`, so each stays disjoint
   from `spatial` and `spatiotemporal` in every context that sees the kind's placement.
   Every stated `genl` or `disjoint` that a partition, an intersection, a `genl` chain, a
@@ -279,6 +335,65 @@ it — `git show v0.16.0:CHANGELOG.md`.
   shipped `orthogonal` is seen.
   *Breaks:* `(disjoint organism artifact)`
 
+- **CxCore partitions `function` and `unary_predicate` and defines
+  `equivalence_relation` as an intersection.** `(partition function reifiable_function
+  unreifiable_function)` separates the two minting marks, which nothing separated
+  before, and installs their edges to `function`. `(partition unary_predicate
+  fixed_order_type variable_order_type)` separates the two order kinds and installs
+  their edges to `unary_predicate`, so a metatype is never of variable order.
+  `(intersection equivalence_relation reflexive symmetric transitive)` concludes
+  `(equivalence_relation P)` of a predicate carrying all three marks and places
+  `equivalence_relation` below each of them, so its stated edge to `binary_predicate` is
+  removed; the three forward rules that materialize the marks stay. `ontology_test`
+  pins each division, the coverage half of `(partition relation function
+  truth_valued_relation)`, and the five removed sentences.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that declared one function both `reifiable_function` and
+  `unreifiable_function` now reads a clash; drop the wrong mark.
+
+- **A situation is static or an event.** CxUniverse states `(partition situation
+  static_situation event)`, which adds coverage to the separation CxAbstract states, so
+  a situation denied being an event is concluded a `static_situation`. `ontology_test`
+  pins the coverage.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none.
+
+- **The organisms carry a folk taxonomy: `vertebrate` and `invertebrate`, three class
+  metatypes under `folk_biological_class`, and `folk_species`.** CxUniverse states
+  `(partition animal vertebrate invertebrate)` and places the five vertebrate classes
+  and `insect` and `arachnid` below the two parts. `invertebrate_class` and
+  `plant_class` are `disjoint_metatype`s beside the shipped `vertebrate_class`, and
+  `(separating folk_biological_class vertebrate_class invertebrate_class plant_class)`
+  keeps the three apart. `folk_species` is a `disjoint_metatype` over the 27 shipped
+  species, so no organism is of two species, and is disjoint from
+  `folk_biological_class`. Both new metatypes are below `type`, since each member is a
+  first-order type. The disjointness audit's unknown pairs among the types below
+  `organism` fall from 514 to 280, and the 248 among the kinds fall to 0: `grass` is a
+  `plant_class` beside `tree` and `flower`. Each of the 280 pairs one of the seven
+  biology properties placed under `organism` and `animal` (`alive`, `asleep`, …) with
+  another type. `ontology_test` pins the separations, the coverage half and that no
+  pair of kinds below `organism` is left unknown.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that stated one organism of two shipped species, or an insect that is
+  a mammal, now reads a clash.
+
+- **`folk_species` is on the forced-monotonic roster.** CxUniverse declares
+  `(forced_monotonic_predicate folk_species)`: a species membership is definitional, so
+  it is held `:monotonic` whatever strength it was written at and a denial of one is held
+  OUT, and a rule concluding a roster literal such as `orthogonal` from
+  `(folk_species ?s)` alone is a roster rule rather than a `:forced-conclusion`.
+  [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none; a denial of a shipped species membership no longer moves belief.
+
 - **Fifteen shipped unary predicates gain a `genl` path to `thing`.** The `kb-integrity`
   `:not-under-thing` sweep reported each from CxWell. In CxCore,
   `abducible_predicate`, `closed_extent_predicate`, `decontextualized_predicate`,
@@ -305,7 +420,67 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `variable_arity` relation as a type node, so a sub-relation edge between two of them is
   not reported as an island in `:taxonomy`.
 
+- **`direct-genls` and `direct-specs` read one `genl` step of the closure, and the
+  browser's taxonomy view and hierarchy tree draw from them.** `(direct-genls kb t
+  [context])` answers the types `t` is a subtype of by one edge, and `direct-specs` the
+  types one edge below `t`. An edge counts whatever installed it, so a part a `covering`,
+  `separating` or `partition` roster names is a direct subtype of the roster's whole. The
+  taxonomy view drew only stored `(genl sub super)` sentences, so a type whose parent edge
+  came from a roster was drawn with no parent. The daemon serves both reads as the
+  `:direct-genls` and `:direct-specs` ops, and `vaelii.client` gains both.
+  [api.md](docs/api.md), [web.md](docs/web.md).
+
+  *Class:* **Additive**.
+
+- **`animal` and `plant` are placed under `organism` and separated by one
+  `(separating organism animal plant)` roster in CxOrganism.** The roster replaces the
+  stored `(genl animal organism)`, `(genl plant organism)` and `(disjoint animal plant)`
+  sentences. Every `genl?` and `disjoint?` answer about the three types is unchanged. A
+  `find-sentexes` for one of the three replaced sentences finds nothing, and `why` cites
+  the roster where it cited one of them.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
+- **CxAbstract does not declare `attribute`.** The shipped KB has no type for a
+  property an object bears, such as a color or a size, and no shipped sentence names
+  `attribute`. The starter's disjointness audit reads 166 types and 13,695 pairs, 3,598
+  of them `:unknown`. `ontology_test` pins the aspatial-kind clash with a `fluent`, and
+  `starter_test` lists the documented types without `attribute`.
+  [taxonomy.md](docs/taxonomy.md).
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* no shipped type replaces `attribute`. A KB that wrote `(attribute X)`
+  declares its own type, for example `(genl attribute aspatial)` with a comment, in a
+  context that sees CxAbstract. Without that declaration the membership stores clean but
+  attaches to nothing in the taxonomy, so its instance reaches neither `aspatial` nor
+  `thing`.
+  *Breaks:* `attribute`
+
+- **`subsumption-statuses` reads a shared subtype that is not separated from itself as
+  `:orthogonal`.** A pair neither subsuming the other nor disjoint, with a type below both
+  for which `disjoint?` of the type with itself is false, reads `:orthogonal` with no
+  shared instance stated. A type below two separated types is empty and is no witness, so
+  a pair whose only shared subtypes are empty stays `:unknown`. `disjointness-audit` marks
+  each `:orthogonal` entry with `:witness` (`:declared`, `:shared-instance` or
+  `:shared-spec`) and, for the last two, `:via`, the instance or the subtype found. On the
+  starter KB, 18 of 13861 pairs move from `:unknown` to `:orthogonal`, among them
+  `spatial` and `temporal` through `spatiotemporal`, and `injection` and `surjection`
+  through `bijection`.
+  [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
+
+  *Class:* **Additive** (an `:unknown` pair gains a status, and audit entries gain two
+  keys).
+
 ### Fixes: answers
+
+- **The browser front page's disjointness list holds the pairs a `separating` or
+  `partition` roster separates.** The list held the stored `(disjoint a b)` sentexes and
+  the pairs a `disjoint_metatype` induces. A roster stores no `disjoint` sentence for its
+  parts, so the pairs it separates were missing from the list.
+
+  *Class:* **Fix**.
 
 - **`query {:proof? true}` and `argue` return a proof when a rewrite's residual repeats
   a conjunct the goal already holds.** Where the repeat folded onto a literal left of the
@@ -316,6 +491,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Fix**.
 
 ### Fixes: clashes and order independence
+
+- **A capped concept-graph row is chosen by print order, not index order.** The
+  browser's taxonomy view draws at most eight neighbours of a node. A node with more
+  drew the first eight the index returned, so which subtypes a hub showed changed with
+  unrelated edits and between two knowledge bases holding the same edges. The view now
+  reads up to 501 of a node's direct supertypes or subtypes, sorts them, and draws the
+  first eight, with an exact count in the caption. A node with more than 500 draws none
+  of them, and the caption says it has too many to draw and that the rows below list
+  them.
+
+  *Class:* **Fix**.
 
 - **A symmetric fact's argument-type mints rest on the same declaration however it was
   spelled.** A fact asserted or derived after its `arg` / `genlArg` / `interArg`
@@ -426,6 +612,125 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [integrity.md](docs/integrity.md#what-an-orthogonal-over-separation-finding-means).
 
   *Class:* **Additive**.
+
+- **`kb-integrity` reports sibling types with one direct `genl` set.** Two types told the
+  same two or more parents besides `thing` suggest a missing common parent, as a
+  `time_point` and a `time_interval` both placed under `temporal`, `aspatial` and
+  `acausal` would. The sweep adds a seventh sparse category, `:twin-genls`, with one
+  `{:types [...] :genls [...]}` per direct `genl` set two visible types or more share. A
+  finding is for review only. The pass reads every node of the `genl` relation once, not
+  the candidate set, and its findings count against `:max-results` after the
+  `:orthogonal-over-separation` category.
+  [integrity.md](docs/integrity.md#the-ontology-engineering-smells).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a stated `genl` or `disjoint` that derives without itself.** The
+  sweep adds an eighth sparse category, `:derivable-stated-edge`. A finding is a stated
+  `genl` whose edge has another believed supporter or another `genl` path (`:path`), or a
+  stated `disjoint` some other separation of the pair or of a supertype of each still
+  gives (`:separated-by`). The test is structural over the taxonomy, not a re-proof with
+  the premise set aside, and its limits are documented. Findings count after
+  `:twin-genls`. [integrity.md](docs/integrity.md#the-ontology-engineering-smells).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` suggests a `partition` for a `disjoint` a known cover exhausts.** The
+  sweep adds a ninth sparse category, `:disjoint-could-be-partition`, with one
+  `{:disjoint r :suggest (partition c ...) :basis ...}` per stated `(disjoint a b)` and
+  parent `c`. The basis is `:covering` when a visible `covering` names both and its parts
+  are pairwise disjoint, and `:sole-specs` when `a` and `b` are `c`'s only direct specs,
+  which leaves coverage for the author to confirm. Findings count after
+  `:derivable-stated-edge`.
+  [integrity.md](docs/integrity.md#the-ontology-engineering-smells).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a declared argument position no declaration types.** The sweep
+  adds a tenth sparse category, `:missing-arg`, with one
+  `{:predicate P :arity n|:variable :missing [k ... :rest]}` per predicate the audit
+  context sees declared an arity. A position counts as typed when an `arg`, `genlArg`,
+  `quotedArg`, rest or `args` form covers it, stated or inherited from a super-predicate,
+  or, for a unary predicate, when a `genl` edge leaves it. A variable-arity predicate is
+  checked up to its `arityMin` and on its tail. Findings count after
+  `:disjoint-could-be-partition`.
+  [integrity.md](docs/integrity.md#what-a-missing-arg-finding-means).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` runs its four review-only passes only when `:categories` names them.**
+  `:twin-genls`, `:derivable-stated-edge`, `:disjoint-could-be-partition` and
+  `:missing-arg` report candidates for review. A sweep without `:categories` skips the four
+  passes, so a review finding never turns an otherwise clean sweep into `:gap`.
+  [integrity.md](docs/integrity.md#the-call).
+
+  *Class:* **Additive**.
+
+- **CxCore types the position of `forced_monotonic_between_predicates`.**
+  `forced_monotonic_between_predicates` declares `(arg forced_monotonic_between_predicates 1 predicate)`,
+  as `inverse` does, so `:missing-arg` no longer reports it. `abducible_predicate`,
+  `closed_extent_predicate`, `decontextualized_predicate`, `forced_decontextualized_predicate`
+  and `target_following_predicate` type their position through `(genl X predicate)`, which
+  `:missing-arg` already counts. `genl` and `forced_monotonic_predicate` stay undeclared on
+  purpose (CxCore says why beside each). The `forced_monotonic_predicate` roster names
+  `equals`, `sameAs` and `except`, and typing its position `predicate` would make each of
+  the three a relation with no arity policy.
+
+  *Class:* **Additive**.
+
+- **CxCore no longer states eight `genl` edges the `expression` chain derives.** The
+  edges are `(genl string thing)`, `(genl number thing)`, `(genl keyword thing)`,
+  `(genl boolean thing)`, `(genl character thing)`, `(genl denotational_term thing)`,
+  `(genl formula thing)` and `(genl context nowhere_never)`. Each one derives without the
+  statement, from CxCore and from every band context, through `expression` and
+  `unrepresented_term` in CxCore. `:derivable-stated-edge` still reports three edges, which
+  stay stated. Without `(genl relation thing)`, CxCore loaded in authored order holds
+  different justifications from CxCore reloaded in content order. `(genl organism
+  biological)` is installed by a `separating` roster in CxAbstract, which CxOrganism does
+  not see. `(genl relation_application thing)` is the third.
+
+  *Class:* **Internal**.
+
+- **CxCore holds `expression` and `unrepresented_term`.** The two types and their
+  comments move from CxAbstract to CxCore, with the `genl` edges that place `expression`
+  below `nowhere_never` and place `unrepresented_term`, `context`, `relation`, `formula`,
+  `relation_application` and `denotational_term` below `expression`. The edges that place
+  `string`, `number`, `keyword`, `boolean` and `character` below `unrepresented_term` move
+  too, and so do the four `disjoint` declarations on `unrepresented_term`. CxCore and
+  every band context now read each of these kinds below `thing`, and read each value kind
+  as disjoint from `predicate`. `vaelii.impl.predicates` classifies `expression` and
+  `unrepresented_term` inert. [taxonomy.md](docs/taxonomy.md#the-three-partitions-of-thing).
+
+  *Class:* **Additive**.
+
+- **CxCore types `intersection`'s third and later positions as its first two.**
+  `(argAndRestGenl intersection 3 thing)` makes every position name a subtype of `thing`,
+  so `:missing-arg` no longer reports `intersection`.
+
+  *Class:* **Additive**.
+
+- **CxCore types `functionCorrespondingPredicate`'s optional third position.**
+  `(argAndRest functionCorrespondingPredicate 3 positive_integer)` types the argument
+  number of the predicate as `commutativeInArgs` types its positions, so `:missing-arg`
+  no longer reports `functionCorrespondingPredicate`.
+
+  *Class:* **Additive**.
+
+- **CxCore types every position of `termsRelated` with one `(args termsRelated thing)`.**
+  The declaration replaces `arg` declarations for positions 1 and 2, which left the
+  variable-arity tail untyped, so `:missing-arg` no longer reports `termsRelated`.
+
+  *Class:* **Additive**.
+
+### Fixes: the browser
+
+- **A mouse wheel over a term page's concept graph scrolls the page.** The graph's box
+  carried `overscroll-behavior: contain`, which kept every wheel turn inside the box, so
+  the page stood still until the pointer left the picture. The box leaves
+  `overscroll-behavior` at its default. A wheel the box cannot use now scrolls the page,
+  and a wide graph still scrolls sideways inside its box.
+
+  *Class:* **Fix**.
 
 ### Internal
 

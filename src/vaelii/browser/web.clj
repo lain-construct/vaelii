@@ -755,13 +755,16 @@
 
 (defn- disjoint-pairs
   "The disjointness pairs to display: the believed `(disjoint a b)` sentexes, plus the
-  pairs a `disjoint_metatype` induces.
+  pairs a `disjoint_metatype` induces, plus the pairs a believed `separating` or
+  `partition` roster separates.
 
   The induced ones are computed rather than read, because a metatype separates its
   members by being *consulted* rather than by materializing a clique of real
-  sentexes, so a page listing only stored pairs would silently under-report.  A member is
-  not separated from *itself* by belonging to one, which is why only that half filters
-  the diagonal out — a stated `(disjoint A A)` is content and is shown."
+  sentexes, so a page listing only stored pairs would silently under-report.  A roster
+  separates its parts the same way, so each roster contributes every pair of its named
+  parts.  A member is not separated from *itself* by belonging to one, which is why only
+  those halves filter the diagonal out — a stated `(disjoint A A)` is content and is
+  shown."
   [kb]
   (let [declared (into #{} (keep (fn [s] (let [[_ a b] (:sentence s)]
                                            (when (and a b (not (v/negative? s)))
@@ -775,8 +778,17 @@
                        a  ms
                        b  ms
                        :when (neg? (compare (str a) (str b)))]
+                   (disjoint-pair a b))
+        rostered (for [f    '[separating partition]
+                       s    (v/sentexes-with-functor kb f {:believed? true})
+                       :when (not (v/negative? s))
+                       :let [[_ _whole & parts] (:sentence s)
+                             ps (vec (distinct parts))]
+                       a    ps
+                       b    ps
+                       :when (neg? (compare (str a) (str b)))]
                    (disjoint-pair a b))]
-    (into declared induced)))
+    (-> declared (into induced) (into rostered))))
 
 (defn- term-class
   "The role class of a term, used to color it: type / individual / predicate /
@@ -1940,40 +1952,56 @@
   5000)
 
 (defn- child-terms
-  "The direct sub-nodes of `node` under transitivity relation `pred`, lazily and deduped
-  (one edge asserted in two contexts is two sentexes and one child).
+  "The direct sub-nodes of `node` under transitivity relation `pred`, deduped (one edge
+  asserted in two contexts is two sentexes and one child).
 
-  One index read, not a walk: the pattern pins an argument *after* a variable, which
-  `query` answers from the predicate-scoped argument root (`[:argument-root pred 2
-  node]`, docs/indexing.md), so the cost is this node's own fan-out rather than the
-  number of edges in the KB."
+  For `genl` the answer is the closure's own one-step adjacency (`direct-specs`), so a
+  child a `covering`, `separating` or `partition` roster installs is a child as a stated
+  `(genl child node)` is.  The roster stores no `genl` sentence for its parts, so a read
+  of the stored edges alone would leave every one of them out.  The cost is this node's
+  own fan-out.
+
+  For any other relation, one index read, not a walk: the pattern pins an argument
+  *after* a variable, which `query` answers from the predicate-scoped argument root
+  (`[:argument-root pred 2 node]`, docs/indexing.md), so the cost is this node's own
+  fan-out rather than the number of edges in the KB."
   [kb pred node]
-  (->> (v/sentexes-matching kb (list pred '?sub node) '?ctx)
-       (keep (fn [s] (let [[_ sub super] (:sentence s)]
-                       (when (and sub (= super node)) sub))))
-       (distinct)))
+  (if (= 'genl pred)
+    (v/direct-specs kb node)
+    (->> (v/sentexes-matching kb (list pred '?sub node) '?ctx)
+         (keep (fn [s] (let [[_ sub super] (:sentence s)]
+                         (when (and sub (= super node)) sub))))
+         (distinct))))
 
 (defn- parent-terms
   "The direct super-nodes of `node` under transitivity relation `pred` — `child-terms`'
-  mirror, and bounded the same way: the pattern pins `node` in argument position **1**,
-  which `query` answers from the predicate-scoped argument root (`[:argument-root pred 1
-  node]`), so the cost is this node's own fan-*in* rather than the number of edges in the KB.
-  Deduped for the same reason — one edge asserted in two contexts is two sentexes and one
-  parent."
+  mirror.  For `genl` the closure's one-step adjacency (`direct-genls`), so a parent a
+  cover roster installs is drawn as a stated parent is.  For any other relation the
+  pattern pins `node` in argument position **1**, which `query` answers from the
+  predicate-scoped argument root (`[:argument-root pred 1 node]`), so the cost is this
+  node's own fan-*in* rather than the number of edges in the KB.  Deduped for the same
+  reason — one edge asserted in two contexts is two sentexes and one parent."
   [kb pred node]
-  (->> (v/sentexes-matching kb (list pred node '?super) '?ctx)
-       (keep (fn [s] (let [[_ sub super] (:sentence s)]
-                       (when (and super (= sub node)) super))))
-       (distinct)))
+  (if (= 'genl pred)
+    (v/direct-genls kb node)
+    (->> (v/sentexes-matching kb (list pred node '?super) '?ctx)
+         (keep (fn [s] (let [[_ sub super] (:sentence s)]
+                         (when (and super (= sub node)) super))))
+         (distinct))))
 
 (defn- expandable?
   "Whether a tree node gets a disclosure control.  `count-with-arg` at position 2
   counts the facts holding `t` there — summed over the slot roster's predicates, every
   `(pred sub t)` among them and anything else binary that mentions it there — so it is
-  a cheap *upper* bound on having children.  Wrong only in the safe direction: a node whose second-position facts are
-  all something else opens to \"none\", and no real child is ever hidden."
-  [kb t]
-  (pos? (v/count-with-arg kb 2 t)))
+  a cheap *upper* bound on having stated children.  Wrong only in the safe direction: a node whose second-position facts are
+  all something else opens to \"none\", and no real child is ever hidden.
+
+  A `genl` child a cover roster installs is not a second-position fact — the roster
+  names its whole first — so a `genl` node with none of those asks the closure's
+  adjacency (`direct-specs`).  The second read is paid only where the count is zero."
+  [kb pred t]
+  (or (pos? (v/count-with-arg kb 2 t))
+      (and (= 'genl pred) (boolean (seq (v/direct-specs kb t))))))
 
 (defn- tree-caret
   "The control that opens a node's children, and the id it is addressed by.  A checkbox
@@ -2013,7 +2041,7 @@
                                   "&node=" (url-enc (str n)) "&offset=" off))]
     (list
      (for [t (take tree-cap shown)]
-       (if (expandable? kb t)
+       (if (expandable? kb pred t)
          ;; `hx-select="#main"` is set on the body so every boosted link swaps the main
          ;; column, and it is **inherited** — against a fragment of bare rows it selects
          ;; nothing and the open would swap in nothing.  So a caret says explicitly that
@@ -2215,7 +2243,7 @@
             (panel 2 (list "Contexts " [:span.muted "(genlCx)"])
                    (if roots
                      [:ul.tree (for [r roots]
-                                 (if (expandable? kb r)
+                                 (if (expandable? kb 'genlCx r)
                                    ;; the root's children are already on the page, so its
                                    ;; caret opens the level rather than fetching it
                                    [:li (tree-caret 'genlCx r {:checked "checked"})
@@ -2563,6 +2591,14 @@
   and the row stops being a row."
   8)
 
+(def ^:private graph-row-limit
+  "How many direct neighbours one node may have and still have some of them drawn.
+  `graph-step` reads at most one more than this and sorts what it read, so a row is
+  chosen by print order from the node's **whole** fan-out.  A node past the limit draws
+  none and the caption says so.  Five hundred is far past every node of the shipped
+  ontology, and is the same fixed read `ego-scan` makes."
+  500)
+
 (def ^:private graph-spread
   "How many neighbours **one** node contributes to the row below/above it, past the first
   row.  Three, so a row spreads across its parents instead of one prolific node eating
@@ -2666,21 +2702,25 @@
   "One expansion: the direct neighbours of `node` under `pred` going `:up` or `:down`, at
   most `cap` of them, and how many there are.
 
-  **One facade read in the common case.**  `(take (inc cap))` genuinely bounds it —
-  `query` is lazy and the pattern pins an argument, so this costs the node's own fan-out
-  and no more.  A node that fits under the cap is realized whole, and is therefore sorted
-  (a stable picture) and counted **exactly**; one that does not is left in index order and
-  the caption's count is the cheap `count-with-arg` bound, which spans every binary
-  predicate holding the term at that position and is therefore an over-count — so
-  `:exact?` travels with it and the caption words it as the bound it is.  The second read
-  is paid only where something was actually elided."
+  **The neighbours drawn are the first `cap` in print order, of every neighbour the node
+  has.**  The read realizes at most `graph-row-limit` + 1 of them, so it costs at most
+  that many records whatever the node's fan-out.  A node with no more than
+  `graph-row-limit` neighbours is realized whole, sorted, and counted exactly.  A node
+  with more contributes **no** neighbours: the index hands them back in an order that is
+  not the print order, so any `cap` of a partial read would be a sample of that order,
+  and two knowledge bases holding the same edges could draw different ones.  `:more?`
+  marks that case, `:total` is then the limit it exceeded, and the caption says the node
+  has too many to draw.  A `genl` step reads the closure's one-step adjacency
+  (`direct-genls` / `direct-specs`), so an edge a cover roster installs is a neighbour as
+  a stated edge is."
   [kb pred dir node cap]
-  (let [pos  (if (= :up dir) 1 2)
-        read (if (= :up dir) parent-terms child-terms)
-        got  (into [] (take (inc cap)) (read kb pred node))]
-    (if (<= (count got) cap)
-      {:terms (by-print-key got) :total (count got) :exact? true}
-      {:terms (into [] (take cap) got) :total (v/count-with-arg kb pos node) :exact? false})))
+  (let [read  (if (= :up dir) parent-terms child-terms)
+        got   (into [] (take (inc graph-row-limit)) (read kb pred node))
+        more? (> (count got) graph-row-limit)]
+    (if more?
+      {:terms [] :total graph-row-limit :exact? false :more? true}
+      {:terms (into [] (take cap) (by-print-key got)) :total (count got)
+       :exact? true :more? false})))
 
 (defn- fresh-neighbours
   "The neighbours a row is built from: what the expansions found, minus anything already
@@ -2727,15 +2767,18 @@
               row    (into [] (take graph-row-cap) fresh)
               short? (or (< (count probed) (count frontier))
                          (> (count fresh) (count row))
-                         (boolean (some (fn [[_ s]] (> (:total s) (count (:terms s)))) steps)))]
+                         (boolean (some (fn [[_ s]] (> (:total s) (count (:terms s)))) steps)))
+              ;; recorded before the empty-row exit: a centre with too many neighbours to
+              ;; draw has an empty row, and that is the row the caption must explain
+              direct (or direct
+                         (when (= 1 depth)
+                           (let [s (second (first steps))]
+                             {:shown (count row) :total (:total s)
+                              :exact? (:exact? s) :more? (:more? s)})))]
           (if (empty? row)
             {:rows rows :spent spent' :direct direct :deeper? deeper? :truncated? false}
             (recur (mapv :term row) (inc depth) (into seen (map :term) row)
-                   (conj rows row) spent'
-                   (or direct
-                       (when (= 1 depth)
-                         (let [s (second (first steps))]
-                           {:shown (count row) :total (:total s) :exact? (:exact? s)})))
+                   (conj rows row) spent' direct
                    (or deeper? (and (> depth 1) short?)))))))))
 
 (defn- subsumption-plan
@@ -3005,11 +3048,15 @@
 (defn- elision-note
   "How a row says what it left out.  A truncated picture that does not announce itself is
   worse than no picture, and worse here than in a list — a picture reads as complete.  The
-  count is exact where the row was small enough to be read whole, and the argument-root
-  bound otherwise, worded as the bound it is rather than passed off as an edge count."
-  [what {:keys [shown total exact?]}]
+  count is exact where the neighbours were read whole.  A relation flank's count is
+  otherwise the argument-root bound, worded as the bound it is rather than passed off as an
+  edge count.  A taxonomy node past `graph-row-limit` (`:more?`) draws no row, and the note
+  says so and points at the rows below, which list every neighbour."
+  [what {:keys [shown total exact? more?]}]
   (when (and total (> total shown))
-    (str "showing " shown " of " (when-not exact? "up to ") (commas total) " " what)))
+    (if more?
+      (str "more than " (commas total) " " what ", too many to draw; they are listed below")
+      (str "showing " shown " of " (when-not exact? "up to ") (commas total) " " what))))
 
 (def ^:private flank-sample-note
   "What the caption says a partial flank *is*.  A picture drawing eight of forty

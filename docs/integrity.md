@@ -5,8 +5,11 @@
   over a caller-owned finite set of ground candidate terms, the predicate `genl`
   edges that widen a declared argument type, the candidate types with no `genl`
   path to `thing`, the `genl` edges a cover forces on a candidate type that the
-  closure does not hold, and the `orthogonal` declarations that lift a stated
-  separation of their pair.
+  closure does not hold, the `orthogonal` declarations that lift a stated
+  separation of their pair, and three ontology-engineering smells for review: sibling
+  types with one direct `genl` set, stated edges that derive without themselves, and
+  `disjoint` pairs a known cover exhausts, plus every declared argument position no
+  declaration types.
 - **Not here:** repairing findings, enumerating a domain, vocabulary completeness,
   generic constraint auditing, or the represented settled dilemmas returned by
   `contradictions`; how definitions infer membership → [defns.md](defns.md); what a
@@ -63,11 +66,16 @@ declared predicate independently. The widening pass does the same: one census of
 census: it checks one candidate term at a time. The implicit-`genl` pass reads none
 either: one candidate term, then one visible cover over it, at a time. The
 `orthogonal` pass reads one census of visible `orthogonal` declarations, then one
+declaration at a time. The three ontology-engineering passes read the taxonomy's types
+once, or one census of stated `genl` and `disjoint` declarations, then one type or one
 declaration at a time. These focused units are where
 cooperative checkpoints and partial-result preservation sit.
 
 `:categories`, a set of category keys, runs the passes of those categories alone and
-reads nothing for the others. On a large KB the census passes (the specified and widening
+reads nothing for the others. Without `:categories`, the sweep runs every pass except
+the four review-only ones: `:twin-genls`, `:derivable-stated-edge`,
+`:disjoint-could-be-partition` and `:missing-arg`. A caller names a review-only category
+in `:categories` to run its pass, so a review finding never makes a default sweep `:gap`. On a large KB the census passes (the specified and widening
 categories) can spend the daemon's `:max-work` ceiling before a candidate pass starts; a
 caller names the candidate categories to reach them.
 
@@ -92,7 +100,7 @@ A finding changes the top-level status and adds only the populated categories:
   {:status :audited :violations #{Bob}}}}
 ```
 
-`:status :audited` means all six passes ran and none found a gap. `:status :gap` cannot
+`:status :audited` means all ten passes ran and none found a gap. `:status :gap` cannot
 be confused with that clean shape even when only one sparse category is present. The
 specified category is exactly `all-specified-violations`, including its typed declaration
 gaps; it is composed, not reimplemented.
@@ -317,3 +325,84 @@ The pass has these limits:
 
 Each `orthogonal` row and each pair's separation read spend one work unit, and
 `:max-results` counts these findings last, after the implicit-`genl` category.
+
+## The ontology-engineering smells
+
+Three census passes flag how the `genl` and `disjoint` declarations arrange the taxonomy's
+types, where no single declaration is a defect. Each finding is a candidate for an author to review, never a refusal, and the
+sweep asserts and retracts nothing. A sweep without `:categories` skips all three passes,
+and `:categories` names a pass to run it.
+
+- **`:twin-genls`**: two or more types whose direct `genl` sets are identical and name at
+  least two types besides `thing`, as `{:types [...] :genls [...]}`, which suggests a
+  missing common parent.
+- **`:derivable-stated-edge`**: a stated `genl` or `disjoint` that still holds with that
+  one statement removed, as `{:stated r :path [a … b]}`, `{:stated r :also-stated-by [r
+  ...]}` or `{:stated r :separated-by [r ...]}`, where each `r` is `{:handle :sentence
+  :context}`.
+- **`:disjoint-could-be-partition`**: a stated `(disjoint a b)` whose pair a known cover
+  exhausts, as `{:disjoint r :suggest (partition c ...) :basis :covering|:sole-specs}`,
+  where `:covering` adds the `:cover` sentences.
+
+How each pass decides, and its limits:
+
+- **Twin genls read direct edges.** A type's direct `genl` set is every visible edge one
+  step up: a stated `genl`, a `covering`, `separating` or `partition` roster installing its
+  part under its whole, or a
+  rule-derived edge such as an `intersection`'s. Every node of the `genl` relation is
+  read once and grouped by that set, so the pass costs one unit per node. A type is
+  read as the implicit-`genl` pass reads one, so a relation of two places or more is
+  never grouped. Sharing the set is the whole test: an existing type below every shared
+  genl, such as an `intersection` over them, is not looked for, and so it appears as a
+  member of the group rather than suppressing it.
+- **Derivable edges are structural, not a re-proof.** The engine has no query that asks
+  whether a goal derives with one premise set aside, so the pass reads the taxonomy. A
+  stated `(genl a b)` is redundant when the edge has another believed visible supporter
+  (the same edge stated again, a whole-and-parts roster installing it, a rule deriving
+  it), or when a
+  breadth-first walk over the visible direct edges reaches `b` from `a` without the edge
+  `a`→`b`; the walk runs only after a cheaper test finds a direct parent of `a` other
+  than `b` under `b`. A stated `(disjoint a b)` is redundant when the pair has another
+  believed visible supporter, or when `separating-keys` names any other separation of
+  `a`, or a supertype of it, from `b`, or a supertype of it: a `disjoint` over two
+  supertypes, a `partition` or `separating` roster, a `sibling_disjoint` parent or a
+  `disjoint_metatype`. Only premises are read as stated, so a rule's conclusion is never a
+  finding of its own. A supporter derived through the statement itself still counts as
+  another supporter, and a statement reached only through a backward rule is not seen.
+- **Partition candidates.** A `covering` declaration, which claims its parts exhaust the
+  whole, is the KB's coverage knowledge: a `covering` naming both `a` and `b` whose parts
+  `disjoint?` reads pairwise apart is basis `:covering`, and the suggested `partition` is
+  then entailed. With no such cover, a common direct parent whose only direct specs are
+  `a` and `b` is basis `:sole-specs`. Coverage is then a guess for the author to confirm,
+  since the parent may have instances in neither. A parent a visible `partition` already
+  divides into the pair is never suggested.
+
+All three read from the audit context, so a declaration or edge it cannot see contributes
+nothing, and an edge stated for a narrower reader that cannot see the other path is
+still reported from a context that sees both. Their findings count against `:max-results`
+last, in the order above, after the `orthogonal` category.
+
+## What a missing-arg finding means
+
+Every argument position of a predicate should say what fills it. `:missing-arg` reads every
+predicate the audit context sees declared an arity, through an `(arity P n)`, an
+exact-arity class such as `binary_predicate`, or `variable_arity_predicate`, and reports
+`{:predicate P :arity n|:variable :missing [k ... :rest]}` for the positions no declaration
+types:
+
+- **What types a position.** An `arg`, `genlArg` or `quotedArg` at that position, an
+  `argAndRest` or `argAndRestGenl` from that position or an earlier one, or an `args` or
+  `argsGenl`, each read on `P` and on every super-predicate
+  `res/constraining-predicates` reads, plus the `arg1`/`arg2`/`arg3` projections stated on
+  `P` itself. For a unary predicate, a visible `genl` edge out of it types its one position,
+  since `(genl P T)` says of P's members what `(arg P 1 T)` would. `interArg` and the
+  `type_relation_predicate` mark relate or classify positions and do not count.
+- **Variable arity.** Positions 1 to the least visible `arityMin` (1 when none) are
+  checked one by one, and `:rest` is reported when no rest form and no `args` form types
+  the tail beyond them.
+- **Arity conflicts.** A predicate told two different arities is skipped, as
+  `kb/relation-arity` reads it.
+
+`:missing-arg` is review-only: a sweep without `:categories` skips it, and `:categories`
+names it to run it. The pass reads one census of arity declarations, then each
+predicate's declarations in print order. It counts against `:max-results` after `:disjoint-could-be-partition`.

@@ -1124,7 +1124,8 @@ retracted. See [quality.md](quality.md); the matching-time relation it is built 
 to another in the genl hierarchy, as `subsumption-status` classifies it: `:genl` (the
 first type is a subtype of the second), `:spec` (the converse), `:coextensional` (each is
 `genl` the other), `:disjoint` (provably no shared instance), `:orthogonal` (a stated
-`orthogonal`, or a shared instance with neither subsumption nor disjointness),
+`orthogonal`, or a shared instance or a shared subtype not separated from itself, with
+neither subsumption nor disjointness),
 `:unknown` (none of these is provable), or `:inconsistent` (two or more of them at once).
 `disjointness-audit` runs the classification over every unordered type pair, and its
 `:unknown` pairs are the candidates for a missing `disjoint` or `orthogonal` declaration.

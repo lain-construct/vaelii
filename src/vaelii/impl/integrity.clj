@@ -311,6 +311,306 @@
             (recur (conj findings finding) (rest units))))
         {:status :complete :findings findings}))))
 
+;; ---- shared by the three ontology-engineering passes below ----
+
+(defn- bounded-findings
+  "Record each finding of the lazy `units` under `category`, one at a time, stopping
+  after the first finding beyond `remaining` proves that the result bound truncated
+  the sweep."
+  [category units remaining]
+  (loop [findings []
+         units    units]
+    (if-let [finding (first units)]
+      (if (and remaining (>= (count findings) remaining))
+        {:status :truncated :reason :max-results :findings findings}
+        (do
+          (budget/record! category finding)
+          (recur (conj findings finding) (rest units))))
+      {:status :complete :findings findings})))
+
+(defn- handle-records
+  "The believed sentexes among `handles`, as `{:handle :sentence :context}` maps in
+  content order — the shape `stated-records` names a declaration in."
+  [kb handles]
+  (let [tms  (reasoning/tms kb)
+        recs (:records kb)]
+    (->> handles
+         (into [] (comp (filter #(jtms/in? tms %))
+                        (keep #(p/get-sentex recs %))
+                        (map (fn [s] {:handle (:id s) :sentence (sx/sentence-of s)
+                                      :context (:context s)}))))
+         (sort-by (juxt :sentence :context) nm/compare-form)
+         vec)))
+
+(defn- stated-pairs
+  "Every believed **premise** `(functor a b)` over two distinct ground symbols that
+  `context` sees, as `[a b record]` in content order: the one open read of a pass over
+  stated declarations, a census of declarations rather than of any extent.  A sentence a
+  rule derived is no premise and is not read."
+  [kb functor context]
+  (let [tms  (reasoning/tms kb)
+        recs (:records kb)]
+    (->> (res/matches-visible kb (list functor '?a '?b) context)
+         (keep (fn [[h b]]
+                 (budget/spend!)
+                 (let [a (get b '?a) c (get b '?b)]
+                   (when (and (symbol? a) (not (sx/variable? a))
+                              (symbol? c) (not (sx/variable? c))
+                              (not= a c)
+                              (jtms/in? tms h)
+                              (jtms/premise? tms h))
+                     (when-let [s (p/get-sentex recs h)]
+                       [a c {:handle h :sentence (sx/sentence-of s) :context (:context s)}])))))
+         (into [] (distinct))
+         (sort-by (fn [[_ _ r]] [(:sentence r) (:context r)]) nm/compare-form))))
+
+;; ---- twin-genls: sibling types with one direct genl set, a missing common parent ----
+
+(defn- twin-groups
+  "`{genl-set #{type …}}` over every type the taxonomy holds whose direct `genl` set, as
+  `context` reads it, names two types or more besides `thing`.  A type is read as
+  `suggestible-type?` reads one."
+  [kb tx context]
+  (reduce (fn [groups t]
+            (budget/spend!)
+            (let [gs (when (symbol? t) (tax/direct-genls tx t context))]
+              (if (and (>= (count (disj (set gs) 'thing)) 2)
+                       (suggestible-type? kb tx t context))
+                (update groups (set gs) (fnil conj #{}) t)
+                groups)))
+          {}
+          (tax/types tx)))
+
+(defn- twin-genls-findings
+  "Group every type by its direct `genl` set, and report each set two types or more
+  share, in print order of the set and then of its types."
+  [kb context remaining]
+  (let [tx (reasoning/taxonomy kb)]
+    (bounded-findings
+     :twin-genls
+     (->> (twin-groups kb tx context)
+          (keep (fn [[gs ts]]
+                  (when (> (count ts) 1)
+                    {:types (vec (sort-by nm/print-key ts))
+                     :genls (vec (sort-by nm/print-key gs))})))
+          (sort-by (fn [{:keys [types genls]}]
+                     [(mapv nm/print-key genls) (mapv nm/print-key types)])))
+     remaining)))
+
+;; ---- derivable-stated-edge: a stated genl or disjoint that holds without itself ----
+
+(defn- path-avoiding
+  "The shortest visible `genl` path `[a … b]` from `a` to `b` that does not walk the
+  edge `a`→`b` itself, or nil."
+  [tx a b context]
+  (loop [frontier [a] parent {a nil}]
+    (when (seq frontier)
+      (let [step (for [n frontier
+                       g (sort-by nm/print-key (tax/direct-genls tx n context))
+                       :when (not (and (= n a) (= g b)))
+                       :when (not (contains? parent g))]
+                   (do (budget/spend!) [g n]))
+            parent' (reduce (fn [m [g n]] (if (contains? m g) m (assoc m g n))) parent step)]
+        (if (contains? parent' b)
+          (vec (reverse (take-while some? (iterate parent' b))))
+          (recur (vec (distinct (map first step))) parent'))))))
+
+(defn- derivable-genl
+  "The finding for one stated `(genl a b)`, or nil: another believed supporter of the
+  edge (the same sentence stated again, a rule's derivation, a roster installing it), or
+  another `genl` path from `a` to `b` that does not walk the edge."
+  [kb tx [a b stated] context]
+  (budget/spend!)
+  (let [others (handle-records kb (disj (tax/genl-edge-supporters tx a b context)
+                                        (:handle stated)))]
+    (if (seq others)
+      {:stated stated :also-stated-by others}
+      (when (some (fn [p]
+                    (budget/spend!)
+                    (and (not= p b) (tax/genl? tx p b context)))
+                  (tax/direct-genls tx a context))
+        (when-let [path (path-avoiding tx a b context)]
+          {:stated stated :path path})))))
+
+(defn- derivable-disjoint
+  "The finding for one stated `(disjoint a b)`, or nil: the separations `context` sees
+  over the pair, or over a supertype of each, besides this one statement — another
+  supporter of the same pair, a separation of two supertypes, a `partition` or
+  `separating` roster, a `sibling_disjoint` parent or a `disjoint_metatype`."
+  [kb tx [a b stated] context]
+  (budget/spend!)
+  (let [k    [:disjoint #{a b}]
+        same (handle-records kb (disj (tax/visible-supporters tx k context)
+                                      (:handle stated)))
+        apart (stated-records kb tx (disj (tax/separating-keys tx a b context) k) context)]
+    (when (or (seq same) (seq apart))
+      {:stated stated :separated-by (vec (concat same apart))})))
+
+(defn- derivable-stated-edge-findings
+  "Audit every visible stated `genl`, then every visible stated `disjoint`, one at a
+  time, in content order."
+  [kb context remaining]
+  (let [tx (reasoning/taxonomy kb)]
+    (bounded-findings
+     :derivable-stated-edge
+     (concat (keep #(derivable-genl kb tx % context) (stated-pairs kb 'genl context))
+             (keep #(derivable-disjoint kb tx % context) (stated-pairs kb 'disjoint context)))
+     remaining)))
+
+;; ---- disjoint-could-be-partition: a disjoint whose pair a known cover exhausts ----
+
+(defn- partition-sentence [whole parts]
+  (apply list 'partition whole (sort-by nm/print-key parts)))
+
+(defn- pairwise-disjoint?
+  "Does `context` read every two of `parts` apart?"
+  [tx parts context]
+  (every? (fn [[x y]] (budget/spend!) (tax/disjoint? tx x y context))
+          (for [x parts y parts :when (neg? (compare (nm/print-key x) (nm/print-key y)))]
+            [x y])))
+
+(defn- partition-candidates
+  "The suggestions one stated `(disjoint a b)` gives, in print order of the whole: each
+  visible `covering` naming both whose parts `context` reads pairwise apart (basis
+  `:covering`), and each common direct parent whose direct specs are exactly the pair
+  and that no visible cover already names them under (basis `:sole-specs`)."
+  [kb tx [a b stated] context]
+  (budget/spend!)
+  (let [covers   (tax/covers-naming-visible tx a context)
+        named?   (fn [whole kind]
+                   (some (fn [[w ps k]] (and (= w whole) (= k kind) (some #{b} ps)))
+                         covers))
+        covering (for [[whole parts kind] covers
+                       :when (and (= :covering kind) (some #{b} parts)
+                                  (not= whole a) (not= whole b)
+                                  (not (named? whole :partition))
+                                  (pairwise-disjoint? tx parts context))]
+                   {:disjoint stated :suggest (partition-sentence whole parts)
+                    :basis :covering
+                    :cover (cover-sentences kb tx whole parts context)})
+        covered  (into #{} (map #(second (:suggest %))) covering)
+        sole     (for [c (sort-by nm/print-key
+                                  (filter (set (tax/direct-genls tx b context))
+                                          (tax/direct-genls tx a context)))
+                       :when (and (not= c a) (not= c b)
+                                  (not (covered c))
+                                  (not (named? c :partition))
+                                  (do (budget/spend!)
+                                      (= #{a b} (disj (set (tax/direct-specs tx c context))
+                                                      c))))]
+                   {:disjoint stated :suggest (partition-sentence c [a b])
+                    :basis :sole-specs})]
+    (sort-by #(nm/print-key (second (:suggest %))) (concat covering sole))))
+
+(defn- disjoint-could-be-partition-findings
+  "Audit every visible stated `disjoint`, one at a time, in content order."
+  [kb context remaining]
+  (let [tx (reasoning/taxonomy kb)]
+    (bounded-findings
+     :disjoint-could-be-partition
+     (mapcat #(partition-candidates kb tx % context) (stated-pairs kb 'disjoint context))
+     remaining)))
+
+;; ---- missing-arg: a declared argument position no declaration types ----
+
+(def ^:private positional-kinds
+  "The declarations that type one numbered position, `(K P n T)`."
+  '[arg genlArg quotedArg])
+
+(def ^:private rest-kinds
+  "The declarations that type position `n` and every later one, `(K P n T)`."
+  '[argAndRest argAndRestGenl])
+
+(def ^:private every-kinds
+  "The declarations that type every position, `(K P T)`."
+  '[args argsGenl])
+
+(defn- declared-rows
+  "The ground `[pos type]` rows of every `(kind q pos type)` (or `(kind q type)`, `pos`
+  nil, when `pos?` is false) visible from `context` over `pred` and each super-predicate
+  `res/constraining-predicates` reads for `kind`."
+  [kb kind pred pos? context]
+  (for [q     (distinct (cons pred (res/constraining-predicates kb kind pred context)))
+        [_ b] (res/matches-visible kb (if pos? (list kind q '?n '?t) (list kind q '?t))
+                                   context)
+        :let  [n (get b '?n) t (get b '?t)]
+        :when (and (some? t) (not (sx/variable? t))
+                   (or (not pos?) (integer? n)))]
+    (do (budget/spend!) [n t])))
+
+(defn- typed-positions
+  "`{:at #{n …} :from n-or-nil :every? bool}` for `pred` as `context` reads its
+  declarations: the positions one declaration types, the first position a rest form
+  types onward, and whether a form types them all.  The binary `arg1`/`arg2`/`arg3`
+  projections are read on `pred` itself."
+  [kb pred context]
+  {:at     (into (set (for [k positional-kinds [n _] (declared-rows kb k pred true context)] n))
+                 (for [[k n] '[[arg1 1] [arg2 2] [arg3 3]]
+                       :when (do (budget/spend!)
+                                 (seq (res/matches-visible kb (list k pred '?t) context)))]
+                   n))
+   :from   (some->> (for [k rest-kinds [n _] (declared-rows kb k pred true context)] n)
+                    seq (apply min))
+   :every? (boolean (some #(seq (declared-rows kb % pred false context)) every-kinds))})
+
+(defn- arity-census
+  "`{pred n-or-:variable}` over every predicate `context` sees declared an arity: an
+  `(arity P n)`, an exact-arity class membership, or `variable_arity_predicate`.  A
+  predicate told two different arities is skipped, as `kb/relation-arity` reads it."
+  [kb context]
+  (let [subjects (fn [pattern]
+                   (keep (fn [[_ b]]
+                           (budget/spend!)
+                           (let [p (get b '?p)]
+                             (when (and (symbol? p) (not (sx/variable? p))) p)))
+                         (res/matches-visible kb pattern context)))
+        fixed    (distinct (concat (subjects '(arity ?p ?n))
+                                   (mapcat #(subjects (list % '?p))
+                                           (keys tax/exact-arity-classes))))]
+    (merge (into {} (map (fn [p] [p :variable])) (subjects '(variable_arity_predicate ?p)))
+           (into {} (keep (fn [p]
+                            (budget/spend!)
+                            (when-let [n (kb/relation-arity kb p context)] [p n])))
+                 fixed))))
+
+(defn- arity-min
+  "The least `arityMin` `context` sees declared of `pred`, or 1."
+  [kb pred context]
+  (or (some->> (res/matches-visible kb (list 'arityMin pred '?n) context)
+               (keep (fn [[_ b]] (let [n (get b '?n)] (when (integer? n) n))))
+               seq (apply min))
+      1))
+
+(defn- missing-positions
+  "The finding for one predicate of declared arity `arity`, or nil: each position 1..n
+  (1..`arityMin` for a variable arity, and `:rest` for its tail) no declaration types.
+  A unary predicate's one position is typed by any visible `genl` edge out of it, which
+  says of its members what `(arg P 1 T)` would."
+  [kb tx pred arity context]
+  (budget/spend!)
+  (let [{:keys [at from every?]} (typed-positions kb pred context)
+        typed?  (fn [n] (or every? (contains? at n) (and from (>= n from))))
+        n       (if (= :variable arity) (arity-min kb pred context) arity)
+        missing (cond-> (vec (remove typed? (range 1 (inc n))))
+                  (and (= :variable arity) (not every?) (not (and from (<= from (inc n)))))
+                  (conj :rest))
+        missing (if (and (= 1 arity) (= [1] missing)
+                         (seq (disj (set (tax/direct-genls tx pred context)) pred)))
+                  []
+                  missing)]
+    (when (seq missing)
+      {:predicate pred :arity arity :missing missing})))
+
+(defn- missing-arg-findings
+  "Audit every predicate `context` sees declared an arity, one at a time, in print order."
+  [kb context remaining]
+  (let [tx (reasoning/taxonomy kb)]
+    (bounded-findings
+     :missing-arg
+     (keep (fn [[pred arity]] (missing-positions kb tx pred arity context))
+           (sort-by (comp nm/print-key key) (arity-census kb context)))
+     remaining)))
+
 (def ^:private passes
   "The passes in run order, `[category audit]`: `audit` takes `kb candidate-terms context
   remaining` and answers `{:status :complete|:truncated :findings …}`.  `:max-results`
@@ -323,7 +623,20 @@
    [:not-under-thing not-under-thing-findings]
    [:implicit-genl implicit-genl-findings]
    [:orthogonal-over-separation (fn [kb _ context remaining]
-                                  (orthogonal-over-separation-findings kb context remaining))]])
+                                  (orthogonal-over-separation-findings kb context remaining))]
+   [:twin-genls (fn [kb _ context remaining]
+                  (twin-genls-findings kb context remaining))]
+   [:derivable-stated-edge (fn [kb _ context remaining]
+                             (derivable-stated-edge-findings kb context remaining))]
+   [:disjoint-could-be-partition (fn [kb _ context remaining]
+                                   (disjoint-could-be-partition-findings kb context remaining))]
+   [:missing-arg (fn [kb _ context remaining]
+                   (missing-arg-findings kb context remaining))]])
+
+(def ^:private review-categories
+  "The review-only categories: a sweep runs their passes only when `:categories` names
+  them, so a finding of one never turns an otherwise clean default sweep into `:gap`."
+  #{:twin-genls :derivable-stated-edge :disjoint-could-be-partition :missing-arg})
 
 (defn- check-args!
   "Refuse a `candidate-terms` that is not a set of ground terms (`:bad-args`), and a
@@ -343,11 +656,14 @@
                        :option :categories :value categories})))))
 
 (defn- run-passes
-  "Run the `passes` that `categories` names (every one when nil) in order, each with what
-  is left of `max-results`: nil when every pass completed, `:max-results` when one
-  stopped at the cap."
+  "Run the `passes` that `categories` names (every one but the `review-categories` when
+  nil) in order, each with what is left of `max-results`: nil when every pass completed,
+  `:max-results` when one stopped at the cap."
   [kb candidate-terms context max-results categories]
-  (loop [[[_ audit] & more] (filter #(or (nil? categories) (categories (first %))) passes)
+  (loop [[[_ audit] & more] (filter #(if (nil? categories)
+                                       (not (review-categories (first %)))
+                                       (categories (first %)))
+                                    passes)
          remaining          max-results]
     (when audit
       (let [result (audit kb candidate-terms context remaining)]
@@ -370,7 +686,8 @@
   anything, `:status :gap` with the non-empty categories otherwise, and `:status
   :truncated` with its `:reason`, `:work`, `:elapsed-ms` and the findings kept before a
   bound in `options` (`integrity-opt-keys`) ran out.  `:categories`, a set of category
-  keys, runs those passes alone.  Reads only: a diagnostic raised by
+  keys, runs those passes alone; without it the sweep runs every pass but the
+  `review-categories`.  Reads only: a diagnostic raised by
   evaluating a condition goes to a sink local to the call.  See docs/integrity.md."
   ([kb candidate-terms context]
    (kb-integrity kb candidate-terms context nil))

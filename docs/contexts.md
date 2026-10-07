@@ -79,16 +79,16 @@ Data hangs below CxWell.
   spindle](#a-context-outside-the-spindle)). It also holds the collections at the top
   of the ontology — the parts of the three partitions of `thing`
   ([taxonomy.md](taxonomy.md#the-three-partitions-of-thing)), `spatiotemporal`,
-  `nowhere_never`, `biological`, `organism` and `capability` — which the engine reads by
-  no name (`vaelii.impl.predicates` classifies each inert) and which are here for the
-  reason below: the members of a spindle see each other not at all, so a term two of
-  them extend has to be defined in the head.
+  `nowhere_never`, `expression`, `biological`, `organism` and `capability` — which the
+  engine reads by no name (`vaelii.impl.predicates` classifies each inert) and which are
+  here for the reason below: the members of a spindle see each other not at all, so a
+  term two of them extend has to be defined in the head.
   `starter_test/a-term-two-spindle-members-touch-is-defined-in-the-head` holds that.
 - **the upper spindle's members** (`resources/kb/upper/`) — what things *are*, always
   true, like `genl`. One context per domain (`vaelii.host.starter`), each seeing CxCore
   and seen by CxUniverse:
   - `CxAbstract` — the kinds hanging off the skeleton CxCore holds (`artifact`,
-    `attribute`, `food`, `substance`, `body_part`, `fluent`, `context`, …) plus the
+    `food`, `substance`, `body_part`, `fluent`, `context`, …) plus the
     structural relations `partOf`/`locatedIn`.
   - `CxOrganism` — the biological taxonomy and its disjointness.
   - `CxLife` — the organism relations (`parentOf`, `siblingOf`, `flies`, `mortal`,
@@ -116,9 +116,10 @@ Data hangs below CxWell.
   every upper member and is seen by every middle member. It also holds hand-authored
   cross-member axioms in `resources/kb/CxUniverse.txt`: a claim naming terms from two
   upper members belongs here, since no member sees a sibling and only the collector
-  sees both. It states none today — `organization` and `animal`, the pair it once
-  separated, are already separated by `(partition thing tangible intangible)` in
-  CxCore. Being the one context
+  sees both. Its one claim today is `(termsRelated time_interval Duration)`, which
+  names CxAbstract's time_interval beside CxMeasure's dimension; `organization` and
+  `animal`, the pair it once separated, are already separated by `(partition thing
+  tangible intangible)` in CxCore. Being the one context
   that sees the whole upper spindle is what makes it the head of the next.
 - **the middle spindle's members** (`kb/middle/`) — how the definitional things *interrelate*,
   where several overlapping theories can coexist. One context per theory, each seeing
@@ -146,8 +147,8 @@ Data hangs below CxWell.
 **A member sees no member, so a shared term belongs in the head.** That is what makes a
 spindle a spindle: `CxLife` does not see `CxOrganism` and `CxOrganism` does not see
 `CxAbstract`. A term defined in one member and *extended* from another is therefore
-invisible where it is extended, and the closure breaks — `(genl animal organism)` in
-`CxOrganism` against an `organism` defined in `CxAbstract` left `animal` unable to
+invisible where it is extended, and the closure breaks — an edge placing `animal` under
+`organism` in `CxOrganism` against an `organism` defined in `CxAbstract` left `animal` unable to
 reach `thing` from `CxOrganism` itself, so every `arg` constraint written there convicted
 nothing in its own context. So a term more than one member of a spindle defines or
 extends belongs at or above that spindle's head: CxCore for the upper spindle, and

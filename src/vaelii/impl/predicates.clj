@@ -1069,7 +1069,9 @@
     ;; vocabulary for stating that a pair of specs exhausts their parent, so a
     ;; covering claim could only be made in prose and nothing would enforce it.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
-         '[[relation_application "documentary: a relation applied to arguments, the shape atomic_formula and non_atomic_term share. No reader classifies a compound by its shape."]
+         '[[expression "documentary: the root of the expression kinds and of the value kinds, below nowhere_never. CxCore holds it so CxCore and every spindle member read those kinds below thing; nothing reads it by name."]
+           [unrepresented_term "documentary: the expression kind the value kinds sit under, disjoint from relation, formula, relation_application and context. The disjointness is read as any disjointness is; nothing reads the collection by name."]
+           [relation_application "documentary: a relation applied to arguments, the shape atomic_formula and non_atomic_term share. No reader classifies a compound by its shape."]
            [denotational_term "documentary: the logic sense of term — an expression that denotes. Named so a declaration can say an argument is one; nothing reads it."]
            [atomic_formula "documentary: a predicate applied to terms. Nothing reads it."]
            [atomic_sentence "documentary: a closed atomic_formula — what a stored LiteralSentex holds. Nothing reads it."]
@@ -1097,10 +1099,10 @@
            [biological "ontology, not grammar: a tangible that is an organism or part of one. CxCore holds it so organism reaches tangible through it from CxOrganism and body_part from CxAbstract; no engine check names it."]
            [capability "ontology, not grammar: something a kind of thing can do. CxCore holds it so CxLife can extend it; no engine check names it."]])
 
-    ;; ---- the space/time complements, the expression root, and the metatype ladder ----
-    ;; CxCore comments these too — the overhaul moved them here from CxAbstract, beside their
-    ;; genl edges — so `vocabulary/audit` answers for them and they are classified inert like
-    ;; the skeleton above: ontology the engine reads by no name.  `temporal` is `spatial`'s
+    ;; ---- the space/time complements, nowhere_never, and the metatype ladder ----
+    ;; CxCore comments these too, beside their genl edges, so `vocabulary/audit` answers
+    ;; for them and they are classified inert like the skeleton above: ontology the engine
+    ;; reads by no name.  `temporal` is `spatial`'s
     ;; time twin; `aspatial` / `atemporal` are the not-in-any-space / not-in-time collections
     ;; `nowhere_never` sits under; the ladder is the metatype-order theory that `typeGenl` reads,
     ;; and `typeGenl` is itself inert.
@@ -1108,7 +1110,7 @@
          '[[temporal "ontology, not grammar: something that exists in time. CxCore holds it so CxTime and CxAbstract can extend it; no engine check names it."]
            [aspatial "ontology, not grammar: not located in any space, the complement of spatial. CxCore holds it so every spindle member can place a kind under it; no engine check names it."]
            [atemporal "ontology, not grammar: not located in time, the complement of temporal. CxCore holds it so nowhere_never can sit under it; no engine check names it."]
-           [nowhere_never "ontology, not grammar: in no space and at no time, the intersection of aspatial and atemporal and the root of the expression kinds CxAbstract hangs beneath it; no engine check names it."]
+           [nowhere_never "ontology, not grammar: in no space and at no time, the intersection of aspatial and atemporal and the parent of expression; no engine check names it."]
            [type "ontology, not grammar: a first-order type, on the metatype-order ladder. No engine check names it — typeGenl, which reads the ladder, is inert."]
            [metatype "ontology, not grammar: a second-order type, on the metatype-order ladder. No engine check names it."]
            [meta_metatype "ontology, not grammar: a third-order type, on the metatype-order ladder. No engine check names it."]

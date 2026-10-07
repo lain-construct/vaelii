@@ -439,6 +439,18 @@
   ([conn term context] (call conn :describe [term context]))
   ([conn term context opts] (call conn :describe [term context opts])))
 
+(defn direct-genls
+  "The types `t` is a subtype of by **one** `genl` edge in the closure — its direct
+  parents, where `genls` is everything they reach."
+  ([conn t] (call conn :direct-genls [t]))
+  ([conn t context] (call conn :direct-genls [t context])))
+
+(defn direct-specs
+  "The types that are a subtype of `t` by **one** `genl` edge in the closure — its direct
+  children."
+  ([conn t] (call conn :direct-specs [t]))
+  ([conn t context] (call conn :direct-specs [t context])))
+
 (defn disjoint-metatypes
   "The declared disjoint metatypes — each a type whose member types are pairwise disjoint
   by `(disjoint_metatype M)`."
@@ -822,9 +834,10 @@
   `genl` the other), `:genl` (`(genl a b)` holds — `a` is a subtype of `b`), `:spec`
   (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint` (provably no shared
   instance), `:orthogonal` (a stated `(orthogonal a b)`, or neither subsumes the other and
-  not disjoint, but a shared instance the registry answers without rule expansion exists),
-  `:unknown` (none of the above is provable), or `:inconsistent` (multiple contradictory
-  relationships hold, e.g. both genl-related and disjoint)."
+  not disjoint, but a shared instance the registry answers without rule expansion exists,
+  or a shared subtype not separated from itself), `:unknown` (none of the above is
+  provable), or `:inconsistent` (multiple contradictory relationships hold, e.g. both
+  genl-related and disjoint)."
   ([conn a b] (call conn :subsumption-status [a b]))
   ([conn a b context] (call conn :subsumption-status [a b context])))
 

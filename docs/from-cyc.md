@@ -43,7 +43,7 @@ capital to arity 2 and above.
 declaration — refuses `(eats Fern Kibble)` where `Fern` is a `plant`: `ex-info` with
 `:type :arg-type`, exactly as Cyc's constraint would refuse it. What convicts is that the
 hierarchy **places** `Fern` and the place it puts him does not reach `animal`. The
-`(disjoint animal plant)` sitting beside those types is not what does the work — a type
+separation of `animal` from `plant` (`(separating organism animal plant)`) is not what does the work — a type
 the constraint's own type does not subsume is enough on its own.
 
 There is one open-world escape and it is deliberate: a **symbol** the `genl` hierarchy
