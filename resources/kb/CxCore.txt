@@ -792,6 +792,12 @@
 (variable_order_type nonempty)
 (at_least_metatype empty)
 (at_least_metatype nonempty)
+;; Vacuous by design: thing is already a genl of every type, so these name no new genl
+;; edge.  Inert, since typeGenl has no inference path (src/vaelii/impl/predicates.clj
+;; classifies it :storage [:none], :checked false) — a future typeGenl rule must not fire
+;; for a thing target.
+(typeGenl empty thing)
+(typeGenl nonempty thing)
 (termsRelated empty nonempty disjoint orthogonal)
 ;; Every instance of a subtype is an instance of its supertype, so emptiness descends genl
 ;; and nonemptiness climbs it.

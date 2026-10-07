@@ -19,6 +19,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.io.text :as text]
+            [vaelii.impl.predicates :as pr]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
@@ -395,6 +396,26 @@
     (let [r (v/specified-violations kb 'typeGenl 'at_least_metatype 'CxUniverse)]
       (is (= :audited (:status r)))
       (is (not (contains? (:violations r) 'sibling_disjoint))))))
+
+(tu/deftest-kb empty-and-nonempty-state-typeGenl-so-the-audit-does-not-report-them
+  ;; empty and nonempty are at_least_metatype (above) with no stated typeGenl until
+  ;; CxCore states (typeGenl empty thing) and (typeGenl nonempty thing) beside their
+  ;; declaration — vacuous, since thing is already a genl of every type, and inert,
+  ;; since typeGenl has no inference path.
+  (testing "the two typeGenl facts are present"
+    (is (v/ask? kb '(typeGenl empty thing) 'CxUniverse))
+    (is (v/ask? kb '(typeGenl nonempty thing) 'CxUniverse)))
+  (testing "the typeGenl audit no longer reports empty or nonempty"
+    (let [r (v/specified-violations kb 'typeGenl 'at_least_metatype 'CxUniverse)]
+      (is (= :audited (:status r)))
+      (is (not (contains? (:violations r) 'empty)))
+      (is (not (contains? (:violations r) 'nonempty)))))
+  (testing "typeGenl is read by nothing, so the two facts conclude no new genl edge"
+    (let [spec (pr/entry 'typeGenl)]
+      (is (= [:none] (:storage spec))
+          "typeGenl stores a fact for a reader only, never for inference")
+      (is (false? (:checked spec))
+          "typeGenl has no structural well-formedness arm — no engine reads it"))))
 
 (def ^:private type-relating-predicates
   "The predicates whose every argument is a TYPE (or a predicate) the claim relates, so the
