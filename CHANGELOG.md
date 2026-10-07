@@ -52,6 +52,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   solid and its mercury liquid, and a state it states otherwise for one of them is a
   disjointness nogood under `stuff_type_by_state_of_matter`.
 
+### Internal
+
+- **`disjointness-coverage-ratchet` requires at least 13928 disjoint pairs, 69.98%
+  disjoint and at most 20.55% unknown in the starter KB.** The bounds were 13762, 69.85%
+  and 20.66%. The starter KB that ships `causes` and CxNormalPhysicalConditions measures
+  13928 disjoint and 4089 unknown over 19900 pairs of 200 types.
+
+  *Class:* **Internal**.
+
 ## 0.24.0 — 2026-10-07 — "Reified `contradicts` and `defeat` sentexes synced to KB, upper ontology improvements and more disjointness, indexing improvements"
 
 | Area | Change |
