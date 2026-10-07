@@ -55,17 +55,6 @@
 (genl glass_stuff substance)
 
 
-;; CxCore's literal types are placed in this lattice by their edges to unrepresented_term,
-;; below.  Text and a number have no mass and no location, and neither of them is a
-;; relation: unrepresented_term is an expression, so nowhere_never and so intangible, and it
-;; is disjoint from relation, so from predicate.  The second is what lets a rule be
-;; refused for feeding a text-valued argument into a position that holds a type: every
-;; type is a unary_predicate, so the type position asks for a predicate, and one variable
-;; cannot be both at once.  The disjointness on number carries integer with it.
-;;
-;; symbol gets no such edge, and CxCore's note on it says why: a name is exactly how a
-;; predicate is written, so (disjoint symbol predicate) would be false.
-
 (comment language "A system of signs a person speaks, writes or signs in.")
 
 (comment largerThan
@@ -218,13 +207,11 @@
 ;; variable_order_type / fixed_order_type / type_type_by_order) and `nowhere_never` are declared
 ;; and commented in CxCore, the head, because that is where their genl edges are: a comment
 ;; belongs with the declaration it documents, visible from every context that sees the term.
-(comment expression "The abstract parent of all representable forms — relations, formulas, contexts, and unrepresented terms.")
 (comment gas "A substance in the gaseous state of matter.")
 (comment plasma "A substance in the plasma state of matter — an ionized gas.")
 (comment solid "A substance in the solid state of matter.")
 (comment stuff_type_by_state_of_matter "A disjoint_metatype classifying substances by physical state — solid, liquid, gas, plasma.")
 (comment stuff_type_by_substance "A disjoint_metatype classifying substances by material — wood, metal, glass_stuff, stone.")
-(comment unrepresented_term "An expression that cannot be further decomposed in the KB — strings, numbers, keywords, booleans, characters.")
 ;; Neither an organism nor a part it grew is stuff; stated once of biological, it reaches
 ;; both parts and every kind below them.
 (set/monotonic (disjoint biological substance))
@@ -238,32 +225,14 @@
 (set/monotonic (disjoint liquid stone))
 (set/monotonic (disjoint relation context))
 (set/monotonic (disjoint substance artifact))
-(set/monotonic (disjoint unrepresented_term context))
-(set/monotonic (disjoint unrepresented_term formula))
-(set/monotonic (disjoint unrepresented_term relation))
-(set/monotonic (disjoint unrepresented_term relation_application))
 (set/monotonic (disjoint_metatype stuff_type_by_state_of_matter))
 (set/monotonic (disjoint_metatype stuff_type_by_substance))
 (metatype stuff_type_by_state_of_matter)
 (metatype stuff_type_by_substance)
-(genl boolean unrepresented_term)
-(genl character unrepresented_term)
-(genl context expression)
-;; This edge lives here, not in CxCore, because CxAbstract sees both denotational_term
-;; (declared in CxCore) and expression (declared here).
-(genl denotational_term expression)
-(genl expression nowhere_never)
-(genl formula expression)
 (genl building container)
 (genl gas substance)
-(genl keyword unrepresented_term)
-(genl number unrepresented_term)
 (genl plasma substance)
-(genl relation expression)
-(genl relation_application expression)
 (genl solid substance)
-(genl string unrepresented_term)
-(genl unrepresented_term expression)
 (stuff_type_by_state_of_matter gas)
 (stuff_type_by_state_of_matter liquid)
 (stuff_type_by_state_of_matter plasma)
