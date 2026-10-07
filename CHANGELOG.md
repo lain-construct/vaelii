@@ -121,6 +121,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   derives through `time`. A KB that relied on `(genl time_point temporal)` being stated
   reads it from `genl?`.
 
+- **CxCore states `(predAllSpecified typeGenl at_least_metatype)` and
+  `(predAllSpecified genl unary_predicate)`.** Every `at_least_metatype` is required to
+  name, through `typeGenl`, a type its instances specialize, and every `unary_predicate`
+  to name a `genl`. `all-specified-violations` and `kb-integrity` audit both requirements.
+  CxCore states `(typeGenl sibling_disjoint thing)`, matching
+  `(genlArg sibling_disjoint 1 thing)`. Over the starter, the `genl` audit is clean and
+  the `typeGenl` audit reports `folk_species` and `folk_biological_class`, the two
+  metatypes that state no `typeGenl`.
+
+  *Class:* **Additive**.
+
 - **`kb-integrity` runs a bounded, read-only integrity sweep in a context.** Over a finite
   set of ground candidate terms it reports the definition clashes a candidate meets (a
   passing `defnSufficient` beside a failing own `defnNecessary`), and it reports every

@@ -1519,6 +1519,11 @@
 (typeGenl metatype type)
 (typeGenl relation_kind binary_predicate)
 (typeGenl type_type_by_order fixed_order_type)
+;; sibling_disjoint holds types of any kind, so its typeGenl names the root.
+(typeGenl sibling_disjoint thing)
+;; Every at_least_metatype names a type its instances specialize, and every unary_predicate names a genl.
+(predAllSpecified typeGenl at_least_metatype)
+(predAllSpecified genl unary_predicate)
 (variable_order_type at_least_metatype)
 (variable_order_type fixed_order_type)
 (variable_order_type variable_order_type)
