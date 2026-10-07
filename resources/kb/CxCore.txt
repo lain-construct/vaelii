@@ -676,6 +676,34 @@
 (termsRelated disjoint_metatype separating)
 (termsRelated sibling_disjoint separating)
 
+;; ---- empty and nonempty types ---------------------------------------------
+;; A unary predicate either has an instance or has none, so empty and nonempty partition
+;; unary_predicate.  Each holds types of any order, as variable_order_type does.
+(comment empty
+         "(empty ?type) means that ?type has no instance. An empty claim holds for the context it is stated in. Stated in CxUniverse, (empty ?type) means that ?type can have no instance. A claim that can change over time belongs in a context bounded to that time: (empty hobbit) holds in a context about the actual world, and (nonempty hobbit) holds in a context about Middle-earth during a period when hobbits exist. An extinct species is nonempty in a context about a period before its extinction. Emptiness does not contradict orthogonal: (orthogonal unicorn horse) says that the two types could share an instance, and (empty unicorn) says that unicorn has none.")
+(comment nonempty
+         "(nonempty ?type) means that ?type has at least one instance. A nonempty claim holds for the context it is stated in, as an empty claim does. empty and nonempty partition unary_predicate, so one type stated both empty and nonempty in contexts one reader sees is a disjointness clash.")
+(set/monotonic (partition unary_predicate empty nonempty))
+(variable_order_type empty)
+(variable_order_type nonempty)
+(at_least_metatype empty)
+(at_least_metatype nonempty)
+(termsRelated empty nonempty disjoint orthogonal)
+;; Every instance of a subtype is an instance of its supertype, so emptiness descends genl
+;; and nonemptiness climbs it.
+(transitiveInArgInverse empty 1 genl)
+(transitiveInArg nonempty 1 genl)
+;; An instance of a type below two disjoint types would be an instance of both.  The rule
+;; reads a stored or inherited (disjoint ?type1 ?type2); a partition, a separating roster,
+;; a disjoint_metatype and a sibling_disjoint parent store no disjoint sentence, so a type
+;; below two types separated only by one of those four is not concluded empty.  genl also
+;; relates predicates of two or more arguments, so the rule requires a unary literal of
+;; the type it concludes about.  The rule-clash reading reads that literal as arity 1 and
+;; drops each pair with a rule concluding a binary class.
+(set/forwardRule (implies (and (genl ?type ?type1) (genl ?type ?type2) (disjoint ?type1 ?type2)
+                               (unary ?type))
+                          (empty ?type)))
+
 ;; ---- definitional collection relations -----------------------------------
 ;; Three relations tie a collection's membership to a defining condition on the member
 ;; ?x, each expanded into ordinary forward rules at assert (docs/defns.md).  The fact is
@@ -1559,6 +1587,21 @@
 (variable_order_type at_least_metatype)
 (variable_order_type fixed_order_type)
 (variable_order_type variable_order_type)
+;; A type of any order may have no instance or may have one.
+(orthogonal empty type)
+(orthogonal empty metatype)
+(orthogonal empty meta_metatype)
+(orthogonal empty fixed_order_type)
+(orthogonal empty variable_order_type)
+(orthogonal at_least_metatype empty)
+(orthogonal disjoint_metatype empty)
+(orthogonal nonempty type)
+(orthogonal metatype nonempty)
+(orthogonal meta_metatype nonempty)
+(orthogonal fixed_order_type nonempty)
+(orthogonal nonempty variable_order_type)
+(orthogonal at_least_metatype nonempty)
+(orthogonal disjoint_metatype nonempty)
 
 ;; A thing has mass or it does not: tangible and intangible partition thing, which records
 ;; the separation and the coverage both.  Nothing separates intangible from spatial or

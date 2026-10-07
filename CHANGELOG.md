@@ -219,6 +219,27 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Breaks:* `(unary_predicate not)`, `(binary_predicate implies)`,
   `(genl function relation)`, `(genl predicate relation)`, `(disjoint function predicate)`
 
+- **CxCore declares `empty` and `nonempty`, which partition `unary_predicate`.** An
+  `(empty t)` says `t` has no instance in the context the sentence is stated in, and a
+  `(nonempty t)` says `t` has at least one. Both are `variable_order_type` and
+  `at_least_metatype`. A type stated both `empty` and `nonempty` in contexts one reader
+  sees is a disjointness clash, and two sibling contexts may disagree. `empty` does not
+  contradict `orthogonal`.
+
+  `(transitiveInArgInverse empty 1 genl)` and `(transitiveInArg nonempty 1 genl)` carry
+  the claims along `genl`: each subtype of an `empty` type reads `empty`, and each
+  supertype of a `nonempty` type reads `nonempty`. Both are read at query time and store
+  nothing. A forward rule concludes `empty` of a `unary` type below two types a stated or
+  inherited `disjoint` separates; a `partition`, `separating` roster, `disjoint_metatype`
+  or `sibling_disjoint` parent stores no `disjoint` sentence, so a type below two types
+  only one of those separates is not concluded `empty`. The conclusion lands in the
+  context the rule places it in, so a separation stated in CxCore concludes the emptiness
+  in CxCore. CxCore states `empty` and `nonempty` each `orthogonal` to `type`, `metatype`,
+  `meta_metatype`, `fixed_order_type`, `variable_order_type`, `at_least_metatype` and
+  `disjoint_metatype`.
+
+  *Class:* **Additive** (shipped ontology content).
+
 - **`doneBy` and `performedBy` relate an event to its doer.** CxAbstract declares both
   binary `instance_relation_predicate`s with `event` in the first position and `thing` in
   the second. `(doneBy ?event ?doer)` says the doer brought the event about,
@@ -483,6 +504,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive** (an `:unknown` pair gains a status, and audit entries gain two
   keys).
+
+- **`disjointness-audit` marks a shared subtype not known nonempty as
+  `:unwitnessed-spec`.** A shared subtype for which a facts-only read answers
+  `(nonempty c)`, stated or carried up `genl` from a nonempty subtype, keeps the
+  `:shared-spec` witness. A shared subtype with no known `(nonempty c)` still reads
+  `:orthogonal`, and its entry carries `:witness :unwitnessed-spec` and the subtype as
+  `:via`. A shared subtype with a known `(empty c)` is no witness, as one separated from
+  itself is not. Of several shared subtypes the audit names a nonempty one first. The
+  vocabulary roster classifies `empty` and `nonempty` as enforced, read by
+  `subsumption-reading`. [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
+
+  *Class:* **Additive** (an audit entry gains a `:witness` value).
 
 - **`artifact` is renamed `made`.** The type names a tangible shaped by an agent's
   action, or by something made: a chair, a widget from a factory machine, steel,

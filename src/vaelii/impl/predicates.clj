@@ -1118,6 +1118,14 @@
            [variable_order_type "ontology, not grammar: a type holding members of any order, on the metatype-order ladder. No engine check names it."]
            [type_type_by_order "ontology, not grammar: the disjoint_metatype partitioning fixed_order_type by order. No engine check names it."]])
 
+    ;; ---- the two halves of unary_predicate ---------------------------------
+    ;; `empty` and `nonempty` partition `unary_predicate`.  The disjointness audit reads
+    ;; both by name to decide whether a shared subtype witnesses an overlap.
+    [['empty    (enforced (collection :notes "a unary predicate with no instance in the context the claim is stated in.")
+                          "core/subsumption-reading — a shared subtype for which a facts-only read answers (empty c) is no overlap witness")]
+     ['nonempty (enforced (collection :notes "a unary predicate with at least one instance in the context the claim is stated in.")
+                          "core/subsumption-reading — a shared subtype for which a facts-only read answers (nonempty c) is the :shared-spec witness")]]
+
     ;; ---- the hierarchy roots and the meta-level targets -------------------
     [['thing     (enforced (collection :notes "the hierarchy root the open-world floors test against by name.")
                            "checks — the hierarchy root the open-world floors test against by name")]
