@@ -1497,8 +1497,8 @@
   (is (true? (v/disjoint? kb 'fluent 'atemporal))))
 
 ;; ---- hollow: what a thing is, not what it is for -------------------------
-;; `container` named a kind by its purpose; `hollow` names the shape a thing has at a
-;; time.
+;; `hollow` holds of a thing while it has an interior space that other things can occupy.
+;; It says nothing about what the thing is used for.
 
 (tu/deftest-kb hollow-is-a-shape-located-in-space-and-time
   (is (true? (v/genl? kb 'hollow 'spatiotemporal 'CxAbstract)))
