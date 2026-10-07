@@ -107,7 +107,7 @@
     (is (= #{:disjoint} (v/subsumption-statuses kb 'plantKind 'mineralKind)))))
 
 (tu/deftest-kb a-known-starter-disjoint-pair
-  ;; function and predicate are declared disjoint in CxCore.
+  ;; function and predicate are separated by (partition relation function predicate) in CxCore.
   (is (= :disjoint (v/subsumption-status kb 'function 'predicate))))
 
 ;; ---- subsumption-statuses and inconsistency --------------------------------

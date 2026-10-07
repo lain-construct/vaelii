@@ -80,10 +80,11 @@ thing you would want a name for.
 
 Both marks classify: `(reifiable_function F)` and `(unreifiable_function F)` each say F is a
 `function`, which is what `(disjoint function predicate)` — derived from the partition
-of `relation` — reaches. The choice changes where a declared result type is *stored*,
-not whether it holds — a reifiable application carries `result` materialized on its
-constant, an unreifiable one is typed from the declaration at check time, and the two say
-the same thing about the same function.
+of `relation` — reaches, and `(partition function reifiable_function unreifiable_function)`
+makes the two marks exclusive: a function is one or the other. The choice changes where a
+declared result type is *stored*, not whether it holds — a reifiable application carries
+`result` materialized on its constant, an unreifiable one is typed from the declaration at
+check time, and the two say the same thing about the same function.
 
 ## The reifiable gate
 
