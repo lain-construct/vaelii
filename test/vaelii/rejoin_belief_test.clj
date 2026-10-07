@@ -64,8 +64,8 @@
     ;; edge moves what it licenses — the preserving path, not the trigger index.  Its
     ;; conclusion `(pseen ?x)` is arity 1; declaring pseen arity 2 makes any firing of it
     ;; a dropped `:arity` report we can see.
-    (v/assert kb (list 'transitiveInArg pbigger 1 'genl) CxRB)
-    (v/assert kb (list 'transitiveInArg pbigger 2 'genl) CxRB)
+    (v/assert kb (list 'transitiveInArgInverse pbigger 1 'genl) CxRB)
+    (v/assert kb (list 'transitiveInArgInverse pbigger 2 'genl) CxRB)
     (v/assert kb (list 'arity pseen 2) CxRB)
     (v/assert kb (list 'implies (list pmark '?rel)
                        (list 'implies (list '?rel '?x '?y) (list pseen '?x)))

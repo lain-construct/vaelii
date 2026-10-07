@@ -57,7 +57,7 @@
     (doseq [k [1 2 3]]
       (let [p (pred-name k)]
         (doseq [n (range 1 (inc k))]
-          (v/assert kb (list 'transitiveInArg p n 'genl) ctx {:chain? false}))
+          (v/assert kb (list 'transitiveInArgInverse p n 'genl) ctx {:chain? false}))
         ;; the claims sit at the general end (index 0 is nearest `thing`)
         (doseq [c (range claims)]
           (v/assert kb (cons p (repeat k (type-name (min c (dec depth))))) ctx

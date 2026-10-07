@@ -33,7 +33,7 @@
     [(genlCx CxA CxUniverse) CxUniverse]
     [(genlCx CxB CxA) CxUniverse]
     [(largerThan dog cat) CxUniverse]
-    [(transitiveInArg largerThan 1 genl) CxUniverse]
+    [(transitiveInArgInverse largerThan 1 genl) CxUniverse]
     [(set/forwardRule (implies (largerThan ?x ?y) (noted ?x ?y))) CxUniverse]])
 
 (def ^:private lattice-long '[[(genl mid dog) CxUniverse] [(genl chi mid) CxUniverse]])

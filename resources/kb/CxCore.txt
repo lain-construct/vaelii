@@ -20,10 +20,12 @@
 (comment abducible_predicate
          "(abducible_predicate ?predicate) means that a (?predicate …) sentence may be hypothesized. When a backward proof dead-ends on one, abduce may assume it rather than fail. A grant, and the only thing that makes a predicate abducible: an undeclared one is never assumed, since an abducer that will hypothesize anything explains everything and is worth nothing. Read from the asking context's genlCx ancestor set rather than universally, so it is a policy of the context that gives it — one theory may be willing to assume what another, reading the same vocabulary, will not.")
 (unary_predicate abducible_predicate)
+(genl abducible_predicate predicate)
 
 (comment closed_extent_predicate
          "(closed_extent_predicate ?predicate) means that ?predicate's believed extent is complete: everything that holds of it is already derivable, so nothing answering (?predicate …) is what answers (not (?predicate …)). A grant, and the only thing that closes an extent — an undeclared predicate stays open-world, where an argument nobody has typed cannot violate a constraint and a fact nobody has stated is not thereby false. Read from the asking context's genlCx ancestor set rather than universally, so it is a policy of the theory that closes the extent: one may state the twelve months and read a thirteenth as refuted, while a sibling reading the same predicate answers only what it was told. Belief-following: a defeated or retracted member leaves the extent, and a closed (not (?predicate …)) rule antecedent is negation as failure, withdrawn when a member arrives.")
 (unary_predicate closed_extent_predicate)
+(genl closed_extent_predicate predicate)
 
 (comment agg/avg
          "(agg/avg ?mean ?value ?body) means that ?mean is the mean of the distinct numeric ?value satisfying ?body. No answer at all over an empty ?body, an average over nothing being a division by zero however it is dressed up. A query operator, never stored.")
@@ -47,6 +49,8 @@
 
 (comment and
          "(and ?antecedent1 ?antecedent2 …) means the conjunction of the antecedents inside an implies rule. A syntactic connective rather than a predicate: it is never asserted on its own, and a rule with a single antecedent needs no and at all.")
+(logical_connective and)
+(variable_arity and)
 
 (comment genlArg
          "(genlArg ?relation ?position ?type) means that argument ?position of ?relation must be a subtype of ?type. The arg constraint one level up, for arguments naming kinds rather than instances: (genlArg partType 1 tangible) says the argument names a kind of physical object, where (arg partOf 1 tangible) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
@@ -329,7 +333,8 @@
 ;; not predicate, so (binary_predicate P) after (variable_arity P) reads as :arg-type
 ;; "expected predicate" where the contradiction is the arity policy, which the
 ;; disjointness below reports as :disjoint.  A relation classified into the wrong kind is
-;; caught by (disjoint predicate function) through the genl edges instead.
+;; caught by (disjoint predicate function), which the partition of relation derives,
+;; through the genl edges instead.
 ;;
 ;; The rule that split states, in general: a unary predicate declares its one argument
 ;; position when the type it would declare is NOT already implied by its own genl parent,
@@ -344,8 +349,9 @@
 ;; in that second case and declare no position — equivalence_relation, injection,
 ;; surjection, bijection and the two relation_kind marks.  Each still refuses a term
 ;; outside the relation hierarchy through the (arg fixed_arity 1 relation) floor it
-;; inherits, and refuses a function :disjoint through (disjoint predicate function), which
-;; names the contradiction an argument declaration reported as a missing type.
+;; inherits, and refuses a function :disjoint through the derived (disjoint predicate
+;; function), which names the contradiction an argument declaration reported as a missing
+;; type.
 
 (comment fixed_arity
          "(fixed_arity ?relation) means that ?relation takes one exact number of arguments. Exact arity classes and numeric arity declarations specialize this relation-wide policy.")
@@ -566,6 +572,7 @@
 (comment decontextualized_predicate
          "(decontextualized_predicate ?predicate) means that every (?predicate …) sentence, asserted or concluded by a rule, is also deduced into CxUniverse. Every context sees CxUniverse, so the fact stops being a claim of one theory and becomes a claim of the KB. The copy is supported by the placement sentex and this declaration together, so retracting either withdraws it. The lift is implemented in code rather than stated as a rule, because it runs wherever content is stored and not only where it is asserted, and because a rule stating it would match every fact in the store.")
 (unary_predicate decontextualized_predicate)
+(genl decontextualized_predicate predicate)
 
 (comment disjoint
          "(disjoint ?type1 ?type2) means that the two types have no common instance. Inherited by subtypes through genl, so declaring it of dog and cat separates every breed from every breed. A hard constraint: a membership that violates it is refused where it is written, and one that only becomes visible from some descendant context is reported by exposed-clashes rather than thrown at whoever wrote the second half.")
@@ -586,10 +593,10 @@
 (genlArg orthogonal 2 thing)
 ;; Not preserved along genl in either direction, at either position: a subtype of one side
 ;; may be disjoint from the other, and a supertype of one side may subsume the other.
-(not (transitiveInArg orthogonal 1 genl))
-(not (transitiveInArg orthogonal 2 genl))
 (not (transitiveInArgInverse orthogonal 1 genl))
 (not (transitiveInArgInverse orthogonal 2 genl))
+(not (transitiveInArg orthogonal 1 genl))
+(not (transitiveInArg orthogonal 2 genl))
 (termsRelated sibling_disjoint disjoint_metatype disjoint orthogonal)   ;; disjointness and exceptions thereto
 (seeAlso sibling_disjoint genl)   ;; exceptions to sibling disjointness
 (termsRelated genl disjoint orthogonal)   ;; the three basic taxonomic relations
@@ -857,6 +864,7 @@
 (comment forced_decontextualized_predicate
          "(forced_decontextualized_predicate ?predicate) means that every (?predicate …) sentence is stored directly in CxUniverse by force. No separate deduction and no justification: the fact's extent simply lives there. Used for genlCx, so the context topology has one canonical home instead of a copy per context.")
 (unary_predicate forced_decontextualized_predicate)
+(genl forced_decontextualized_predicate predicate)
 
 (comment forced_monotonic_predicate
          "(forced_monotonic_predicate ?predicate) puts ?predicate on the forced-monotonic roster. Every (?predicate …) sentence is stored as written, and belief is computed with the roster applied: a premise of one is :monotonic whatever strength it was written at, a denial of one is never believed, forms no nogood and fires no rule, and a firing concluding one from a rule that is not all roster antecedents with no unknown, exceptWhen or set/defaultRule supports nothing and is reported as a :forced-conclusion violation. The declaration is a switch: asserting or retracting it recomputes belief over what ?predicate reaches, so a KB that retracted it believes what a KB that never held it believes. Declared of genlCx, the relation marks, the function classes, the definitional declarations, the arity bindings (arity, the exact-arity classes, variable_arity and its two specializations, arityMin), except and the equality relations; the retraction of every one of these but injection, surjection and bijection is refused. See docs/nmtms.md.")
@@ -868,8 +876,8 @@
 (forced_monotonic_predicate functional)
 (forced_monotonic_predicate functionalInArg)
 (forced_monotonic_predicate anti_transitive)
-(forced_monotonic_predicate transitiveInArg)
 (forced_monotonic_predicate transitiveInArgInverse)
+(forced_monotonic_predicate transitiveInArg)
 (forced_monotonic_predicate injection)
 (forced_monotonic_predicate surjection)
 (forced_monotonic_predicate bijection)
@@ -1061,7 +1069,8 @@
 
 (comment implies
          "(implies (and ?antecedent …) ?consequent) means the rule concluding ?consequent from those antecedents. A rule is a sentex like any other, so it gets a handle, truth maintenance and retraction for free, and it is indexed by its antecedent and its consequent predicates alike. Used forward and backward unless a set/*Rule wrapper narrows it. Range-restricted: every variable in the consequent must appear in an antecedent.")
-(binary_predicate implies)
+(logical_connective implies)
+(binary implies)
 (arg implies 1 thing)
 (arg implies 2 thing)
 
@@ -1105,26 +1114,40 @@
 
 (comment not
          "(not ?sentence) means the negation of ?sentence, a first-class sentex. Believing a sentence and its negation at once is a soft contradiction resolved at settle time rather than a hard error: the weaker belief is defeated, and a defeasible tie is left standing as a represented dilemma. See docs/nmtms.md.")
-(unary_predicate not)
+(logical_connective not)
+(unary not)
 
 (comment or
          "(or ?disjunct1 ?disjunct2 …) means the disjunction of the disjuncts inside an implies rule's antecedent. A syntactic connective rather than a predicate: it is never asserted on its own, and it never reaches a stored sentence — the rule is polycanonicalized into one rule per alternative, exactly as a conjunctive consequent is split into one rule per conjunct. A disjunctive conclusion is a choice rather than a derivation, and is written with set/assumptionRule instead. See docs/canonicalization.md.")
+(logical_connective or)
+(variable_arity or)
 
-(comment relation            "The type of all predicates and functions — every operator that may be applied to arguments. Its two specializations remain disjoint: a predicate holds or fails, while a function denotes or evaluates to a value.")
+(comment relation            "The type of every operator that may be applied to arguments. function and truth_valued_relation partition it: an application of a function denotes or evaluates to a value, while an application of a truth_valued_relation is true or false.")
 (genl relation thing)
 
 (comment function            "The type of all functions — the reifiable and unreifiable heads a non-atomic term is built from. A function is a relation, and is not a predicate: it denotes or evaluates to a value where a predicate holds or fails.")
 
 (comment predicate           "The type of all predicates — the relations and types used in sentences. A predicate is a relation.")
 
-;; What the comments of relation and function state in prose, as a fact the engine reads:
-;; a relation is a function or a predicate, and never both.  The partition installs both
-;; genl edges to relation and records the separation and the coverage at once.  Every type
-;; is a unary_predicate and so a predicate, which is what gives the separation its reach —
-;; a rule variable standing in a function-valued position and a type-level one at once is
-;; refused at the entry point rather than stored and convicted one conclusion at a time.
-;; (implies (result ?f ?t) (genl ?f ?t)) is the shape it catches.
-(set/monotonic (partition relation function predicate))
+(comment truth_valued_relation "The type of all relations whose applications are true or false: the predicates and the logical constants. The complement of function within relation. Cyc's TruthFunction, not logic's truth function: a truth function's value is fixed by the truth values of its arguments, which holds of and, or, not and implies and of no predicate or quantifier.")
+(comment logical_constant    "The type of all quantifiers and logical connectives — the relations whose meaning the logic fixes, where a predicate's meaning is the domain's. A logical constant is a truth_valued_relation and is not a predicate.")
+(comment logical_connective  "The type of all relations that build a formula from formulas: and, or, not and implies. A logical connective holds of nothing: (and P Q) is a formula, not a fact about P and Q. Logical rather than grammatical: a connective of a natural language, such as English and, is not one.")
+(comment quantifier          "The type of all relations that bind variables in a formula, the application being a formula in which those variables are no longer free. A quantifier is a logical constant and is not a logical connective.")
+;; function and truth_valued_relation reach relation, logical_constant and predicate reach
+;; truth_valued_relation, and quantifier and logical_connective reach logical_constant,
+;; through the three partitions below, each of which installs its parts' edges to the
+;; whole.  (genl function relation), (genl predicate relation) and (disjoint function
+;; predicate) are therefore derived rather than stated — the last descending from
+;; (disjoint function truth_valued_relation) — and are what function's comment says in
+;; prose, as facts the engine reads.  Every type is a unary_predicate and so a predicate,
+;; which is what gives the separation its reach: a rule variable standing in a
+;; function-valued position and a type-level one at once is refused at the entry point
+;; rather than stored and convicted one conclusion at a time.  (implies (result ?f ?t)
+;; (genl ?f ?t)) is the shape it catches.  No shipped term is a quantifier yet: the engine
+;; reads forall and thereExists as query operators, and CxCore does not declare either.
+(set/monotonic (partition relation function truth_valued_relation))
+(set/monotonic (partition truth_valued_relation logical_constant predicate))
+(set/monotonic (partition logical_constant quantifier logical_connective))
 
 (comment reflexive
          "(reflexive ?predicate) means that ?predicate is reflexive, so (?predicate a a) holds for every a in its domain. Answered by a generic prover rather than materialized, the reflexive pairs of a large domain being a great many facts nobody wrote. Also a type: (reflexive P) classifies P as a binary_predicate.")
@@ -1165,6 +1188,8 @@
 (comment sibling_disjoint
          "(sibling_disjoint ?collection) means that any two specializations of ?collection — the types below it under genl — share no instance, unless one is itself a genl of the other. The clique is consulted rather than stored, exactly as disjoint_metatype's is: no (disjoint …) sentex per pair, dropping the mark releases every pair at once, and a specialization arriving as a later genl edge is separated the moment it is believed. The genl-relatedness exception is what keeps a specialization disjoint from its siblings without being separated from its own supertypes, which are specializations of ?collection too; it is read over the whole KB, the way (disjoint a b) refuses a genl-related pair. Whether those specializations cover ?collection is a separate claim this one does not make, and covering states it over a named roster.")
 (unary_predicate sibling_disjoint)
+(at_least_metatype sibling_disjoint)
+(genl sibling_disjoint unary_predicate)
 (genlArg sibling_disjoint 1 thing)
 
 (comment symmetric
@@ -1252,25 +1277,26 @@
 (decontextualized_predicate anti_symmetric)
 (genl anti_symmetric binary_predicate)
 
-(comment transitiveInArg
-         "(transitiveInArg ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along the transitive ?relation. A stored (?predicate … W …) then licenses the same claim about A whenever (?relation A W) holds. With genl that is downward inheritance among kinds, so (largerThan dog cat) reaches a golden retriever — and stops at the kinds, since preservation moves an argument and never the level the predicate relates at. Whether a relation distributes over a kind's subkinds is a claim about that relation, so it is declared rather than assumed; a more specific claim undercuts an inherited default, and never an inherited monotonic one. Several declarations may name one position, and their reaches union. ?relation must be genl, genlCx, or a predicate already declared transitive: assert refuses the declaration otherwise, since the reach is walked to a fixpoint and would manufacture a transitivity nobody stated.")
-(ternary_predicate transitiveInArg)
-(arg transitiveInArg 1 predicate)
-(arg transitiveInArg 2 positive_integer)
-(arg transitiveInArg 3 predicate)
-
 (comment transitiveInArgInverse
-         "(transitiveInArgInverse ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along ?relation read backwards. A stored (?predicate … W …) licenses the claim about A whenever (?relation W A) holds, so with genl this is upward inheritance. It exists so that direction never requires declaring an inverse predicate with no other use. Same restriction on ?relation.")
+         "(transitiveInArgInverse ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved against the arrow of the transitive ?relation. A stored (?predicate … W …) then licenses the same claim about A whenever (?relation A W) holds. With genl that is downward inheritance among kinds, so (largerThan dog cat) reaches a golden retriever — and stops at the kinds, since preservation moves an argument and never the level the predicate relates at. Whether a relation distributes over a kind's subkinds is a claim about that relation, so it is declared rather than assumed; a more specific claim undercuts an inherited default, and never an inherited monotonic one. Several declarations may name one position, and their reaches union. ?relation must be genl, genlCx, or a predicate already declared transitive: assert refuses the declaration otherwise, since the reach is walked to a fixpoint and would manufacture a transitivity nobody stated.")
 (ternary_predicate transitiveInArgInverse)
 (arg transitiveInArgInverse 1 predicate)
 (arg transitiveInArgInverse 2 positive_integer)
 (arg transitiveInArgInverse 3 predicate)
+
+(comment transitiveInArg
+         "(transitiveInArg ?predicate ?position ?relation) means that argument ?position of ?predicate is preserved along the arrow of the transitive ?relation, the direction of Cyc's transitiveViaArg. A stored (?predicate … W …) licenses the same claim about A whenever (?relation W A) holds, so with genl this is upward inheritance: (capabilityType bird flying) with (genl flying travelling) reaches (capabilityType bird travelling). transitiveInArgInverse is the other direction, and the two names exist so neither direction requires declaring an inverse predicate with no other use. The same restriction on ?relation applies.")
+(ternary_predicate transitiveInArg)
+(arg transitiveInArg 1 predicate)
+(arg transitiveInArg 2 positive_integer)
+(arg transitiveInArg 3 predicate)
 
 (comment ternary_predicate    "A predicate of three arguments, such as arg.")
 
 (comment target_following_predicate
          "(target_following_predicate ?predicate) means a (?predicate … (sentexHandle H) …) sentence is a meta-sentex that names sentex H and must not outlive it: retracting H retracts the meta with it (core/retract-following-metas!). Opt-in and belief-following — the engine's own except / exceptWhen deliberately do not carry it, so their orphan-on-retraction behavior is unchanged. koinii's reply acts declare it, so retracting a claim cascades to the replies about it, which a message bus cannot do.")
 (unary_predicate target_following_predicate)
+(genl target_following_predicate predicate)
 
 (comment thing
          "The root type: every type genls up to thing, so every typed individual is a thing.")
@@ -1508,3 +1534,21 @@
 ;; disjointness (vaelii#95, fix(quality)).
 (set/monotonic (partition thing spatial aspatial))
 (set/monotonic (partition thing temporal atemporal))
+;; The three partitions cut thing along three independent axes — location in some space,
+;; location in time, mass — so a part of one may overlap a part of another, and neither
+;; subsumes the other.  Stated, each pair reads :orthogonal without waiting for a shared
+;; instance.  A witness of the overlap per pair, and of neither side holding the other:
+;; a rock is spatial and temporal; the line y=x is only spatial; a fluent is only temporal.
+(set/monotonic (orthogonal spatial temporal))
+;; a number is aspatial and atemporal (nowhere_never); a fluent is aspatial and temporal.
+(set/monotonic (orthogonal aspatial atemporal))
+;; the line y=x is spatial and atemporal, located in the Cartesian plane and in no time.
+(set/monotonic (orthogonal spatial atemporal))
+;; a fluent is aspatial and temporal: it holds over time and is located in no space.
+(set/monotonic (orthogonal aspatial temporal))
+;; a region of space is intangible and spatial.
+(set/monotonic (orthogonal intangible spatial))
+;; a fluent is intangible and temporal.
+(set/monotonic (orthogonal intangible temporal))
+;; a region of space is intangible and spatiotemporal, occupying space without mass.
+(set/monotonic (orthogonal intangible spatiotemporal))

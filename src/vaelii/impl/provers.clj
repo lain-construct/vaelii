@@ -2620,7 +2620,7 @@
 ;; than by declaring the meta-predicates `transitiveInArg`: that routes every one of the
 ;; KB's very many `arg`/`genlArg` lookups through the general preservation prover and
 ;; its chaining sweeps — a per-query tax the whole subsystem is gated to avoid, since
-;; almost no predicate is preserved.  A stored `(transitiveInArg arg …)` breaks that
+;; almost no predicate is preserved.  A stored `(transitiveInArgInverse arg …)` breaks that
 ;; gate for the most-queried predicates there are.
 ;;
 ;; The predicate position reaches DOWN (a constraint on a super binds its

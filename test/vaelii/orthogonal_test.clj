@@ -8,6 +8,8 @@
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.clashes :as clashes]
+            [vaelii.impl.taxonomy :as tax]
+            [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded tu/load-starter!))
@@ -350,10 +352,10 @@
 ;; so orthogonal is inherited neither way.
 
 (def ^:private preservation-denials
-  '[(not (transitiveInArg orthogonal 1 genl))
-    (not (transitiveInArg orthogonal 2 genl))
-    (not (transitiveInArgInverse orthogonal 1 genl))
-    (not (transitiveInArgInverse orthogonal 2 genl))])
+  '[(not (transitiveInArgInverse orthogonal 1 genl))
+    (not (transitiveInArgInverse orthogonal 2 genl))
+    (not (transitiveInArg orthogonal 1 genl))
+    (not (transitiveInArg orthogonal 2 genl))])
 
 (tu/deftest-kb cxcore-denies-preserving-orthogonal-along-genl
   (doseq [s preservation-denials
@@ -389,3 +391,31 @@
     (is (some? (v/handle-of kb s 'CxCore)) (str (pr-str s) " is stated in CxCore")))
   (is (nil? (v/handle-of kb '(termsRelated disjoint orthogonal) 'CxCore))
       "the pairwise link the two rosters cover is gone"))
+
+;; ---- the upper ontology's axes ---------------------------------------------------
+
+(def ^:private upper-axes
+  "The pairs of upper-ontology types CxCore states orthogonal: parts of the three
+  partitions of `thing` (by location in space, by location in time, by mass) that cut
+  across one another."
+  '[[spatial temporal] [aspatial atemporal] [spatial atemporal] [aspatial temporal]
+    [intangible spatial] [intangible temporal] [intangible spatiotemporal]])
+
+(tu/deftest-kb cxcore-states-the-upper-axes-orthogonal
+  (let [tx (reasoning/taxonomy kb)]
+    (doseq [[a b] upper-axes
+            :let [s (list 'orthogonal a b)]]
+      (testing (pr-str s)
+        (is (some? (v/handle-of kb s 'CxCore)) "stated in CxCore")
+        (is (true? (v/ask? kb s 'CxCore)) "believed")
+        (is (true? (v/ask? kb (list 'orthogonal b a) 'CxCore)) "in either spelling")
+        (is (= :orthogonal (v/subsumption-status kb a b))
+            "the two may overlap and neither subsumes the other")
+        (is (false? (v/genl? kb a b)))
+        (is (false? (v/genl? kb b a)))
+        (is (false? ((tax/disjointness-test tx a nil (constantly false)) b))
+            "no stated separation divides the pair, even with no orthogonal read")))))
+
+(tu/deftest-kb the-upper-axes-load-with-no-clash
+  (is (empty? (v/conflicts kb)) "no conflict")
+  (is (empty? (v/contradictions kb)) "no contradiction"))

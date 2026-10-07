@@ -188,11 +188,11 @@
          (member-sets (ng/covering (view-of '[(covering w p1 p2) (genl p1 q) (w X)
                                               (not (p1 X)) (not (q X)) (not (p2 X))]))))))
 
-;; ---- inherited (transitiveInArg) --------------------------------------------
+;; ---- inherited (transitiveInArgInverse) --------------------------------------------
 
 (def ^:private scenario-e
   "The review's scenario e, with `carriesLoad` for `P`."
-  '[(transitiveInArg carriesLoad 1 genl) (genl hauler animal) (genl vehicle animal)
+  '[(transitiveInArgInverse carriesLoad 1 genl) (genl hauler animal) (genl vehicle animal)
     (genl cart hauler) (genl cart vehicle) (carriesLoad vehicle Bone1)
     (carriesLoad hauler Bone1) (not (carriesLoad cart Bone1))])
 
@@ -201,11 +201,11 @@
   ;; edge the reach crosses; the edges up to `animal` carry no claim and stay out
   (is (= [{:kind    :inherited
            :members #{'(not (carriesLoad cart Bone1)) '(carriesLoad hauler Bone1)
-                      '(transitiveInArg carriesLoad 1 genl) '(genl cart hauler)}
+                      '(transitiveInArgInverse carriesLoad 1 genl) '(genl cart hauler)}
            :ground  #{}}
           {:kind    :inherited
            :members #{'(not (carriesLoad cart Bone1)) '(carriesLoad vehicle Bone1)
-                      '(transitiveInArg carriesLoad 1 genl) '(genl cart vehicle)}
+                      '(transitiveInArgInverse carriesLoad 1 genl) '(genl cart vehicle)}
            :ground  #{}}]
          (ng/inherited (view-of scenario-e
                                 '{(carriesLoad vehicle Bone1) :monotonic
@@ -213,15 +213,15 @@
 
 (deftest a-default-general-claim-is-undercut-and-forms-no-nogood
   (is (= #{#{'(not (carriesLoad cart Bone1)) '(carriesLoad vehicle Bone1)
-             '(transitiveInArg carriesLoad 1 genl) '(genl cart vehicle)}}
+             '(transitiveInArgInverse carriesLoad 1 genl) '(genl cart vehicle)}}
          (member-sets (ng/inherited (view-of scenario-e
                                              '{(carriesLoad vehicle Bone1) :monotonic})))))
   (is (= [] (ng/inherited (view-of scenario-e)))))
 
 (deftest an-inherited-clash-names-every-edge-of-a-two-hop-route
   (is (= #{#{'(not (carriesLoad cart Bone1)) '(carriesLoad animal Bone1)
-             '(transitiveInArg carriesLoad 1 genl) '(genl cart hauler) '(genl hauler animal)}}
-         (member-sets (ng/inherited (view-of '[(transitiveInArg carriesLoad 1 genl)
+             '(transitiveInArgInverse carriesLoad 1 genl) '(genl cart hauler) '(genl hauler animal)}}
+         (member-sets (ng/inherited (view-of '[(transitiveInArgInverse carriesLoad 1 genl)
                                                (genl cart hauler) (genl hauler animal)
                                                (carriesLoad animal Bone1)
                                                (not (carriesLoad cart Bone1))]
@@ -229,10 +229,10 @@
 
 (deftest two-routes-to-one-general-claim-form-one-nogood-each
   (is (= #{#{'(not (carriesLoad cart Bone1)) '(carriesLoad animal Bone1)
-             '(transitiveInArg carriesLoad 1 genl) '(genl cart hauler) '(genl hauler animal)}
+             '(transitiveInArgInverse carriesLoad 1 genl) '(genl cart hauler) '(genl hauler animal)}
            #{'(not (carriesLoad cart Bone1)) '(carriesLoad animal Bone1)
-             '(transitiveInArg carriesLoad 1 genl) '(genl cart animal)}}
-         (member-sets (ng/inherited (view-of '[(transitiveInArg carriesLoad 1 genl)
+             '(transitiveInArgInverse carriesLoad 1 genl) '(genl cart animal)}}
+         (member-sets (ng/inherited (view-of '[(transitiveInArgInverse carriesLoad 1 genl)
                                                (genl cart hauler) (genl hauler animal)
                                                (genl cart animal) (carriesLoad animal Bone1)
                                                (not (carriesLoad cart Bone1))]
@@ -245,10 +245,10 @@
            [(ng/inherited (view-of '[(genl cart hauler) (carriesLoad hauler Bone1)
                                      (not (carriesLoad cart Bone1))]
                                    known))
-            (ng/inherited (view-of '[(transitiveInArg carriesLoad 1 genl)
+            (ng/inherited (view-of '[(transitiveInArgInverse carriesLoad 1 genl)
                                      (carriesLoad cart Bone1) (not (carriesLoad cart Bone1))]
                                    known))
-            (ng/inherited (view-of '[(transitiveInArg carriesLoad 1 genl) (genl cart hauler)
+            (ng/inherited (view-of '[(transitiveInArgInverse carriesLoad 1 genl) (genl cart hauler)
                                      (carriesLoad hauler Bone2) (not (carriesLoad cart Bone1))]
                                    known))]))))
 

@@ -131,11 +131,18 @@
 (arg contains 1 temporal)
 (arg contains 2 temporal)
 
+(comment DatetimeFn
+         "(DatetimeFn ?iso) means the interval a reduced-precision ISO 8601 string names, so (DatetimeFn \"2000\") is the year 2000, (DatetimeFn \"2000-01\") its January and (DatetimeFn \"2000-01-15T13\") one hour of its fifteenth day, down to the second. A time_interval, like YearFn, MonthFn and DayFn. An unreifiable_function application: it stays structural, so the string is readable inside the term and a reader can see which intervals contain which. (DatetimeFn \"2000-01\") and (MonthFn 2000 1) name the same interval and order against each other. See docs/context-nat.md and docs/time.md.")
+(unreifiable_function DatetimeFn)
+(unary_function DatetimeFn)
+(arg DatetimeFn 1 string)
+(result DatetimeFn time_interval)
+
 (comment DayFn
          "(DayFn ?year ?month ?day) means the calendar day, as an interval — so (DayFn 2000 1 15) is the fifteenth of January 2000. An unreifiable_function application like YearFn and MonthFn: it stays structural, so the three fields are readable inside the term and a reader can see that the day sits inside its month. One field per argument, coarsest first, so the arity is the precision. See docs/context-nat.md.")
 (unreifiable_function DayFn)
 (ternary_function DayFn)
-(result DayFn temporal)
+(result DayFn time_interval)
 
 (comment during
          "(during ?interval1 ?interval2) means that ?interval1 falls wholly inside ?interval2, beginning strictly after it and ending strictly before it. The converse of contains.")
@@ -229,6 +236,7 @@
 (comment functional_at_instant
          "(functional_at_instant ?function) means that ?function, whose value is carried as a fluent, has at most one value for one subject at any single instant. A fluent (?function ?subject ?value) states a value that holds over a stretch of time; two fluents of ?function for one subject holding at one instant with different values is a per-instant clash, the fluent-lane counterpart of functional over a bare literal. It is read on demand by vaelii.core/functional-at-instant-violations rather than enforced at assert, because whether two fluents overlap at an instant follows from initiates, terminates and the clipping closure and is not known when a fluent is asserted; the audit mirrors functional's split, reporting two symbol values as a merge and two non-symbols as a contradiction. Values holding at different instants do not clash, which is what the fluent representation buys over a bare functional mark. See docs/time.md and docs/equality.md.")
 (unary_predicate functional_at_instant)
+(genl functional_at_instant function)
 
 (comment instantAfter
          "(instantAfter ?instant1 ?instant2) means that ?instant1 falls strictly later in time than ?instant2. A claim about moments rather than about intervals, which is why it is spelled apart from Allen's after. The converse of instantBefore.")
@@ -254,7 +262,7 @@
 (arg instantEqual 2 time_point)
 
 (comment InstantFn
-         "(InstantFn ?year ?month ?day ?hour ?minute ?second) means the moment those six calendar fields name, so (InstantFn 2000 1 1 0 0 0) is midnight at the start of 2000. A time_point and not a temporal: YearFn, MonthFn and DayFn name stretches, and this names the moments one of them lies between. Six fields always — its arity is not its precision — so every moment has exactly one spelling, which is what makes the end of one year and the start of the next the same term. An unreifiable_function application like the calendar constructors, structural so the fields stay readable. What startOf and endOf answer for a calendar term, computed and never stored. See docs/time.md.")
+         "(InstantFn ?year ?month ?day ?hour ?minute ?second) means the moment those six calendar fields name, so (InstantFn 2000 1 1 0 0 0) is midnight at the start of 2000. A time_point and not a time_interval: YearFn, MonthFn and DayFn name stretches, and this names the moments one of them lies between. Six fields always — its arity is not its precision — so every moment has exactly one spelling, which is what makes the end of one year and the start of the next the same term. An unreifiable_function application like the calendar constructors, structural so the fields stay readable. What startOf and endOf answer for a calendar term, computed and never stored. See docs/time.md.")
 (unreifiable_function InstantFn)
 (fixed_arity_function InstantFn)
 (arity InstantFn 6)
@@ -333,7 +341,7 @@
          "(MonthFn ?year ?month) means the calendar month, as an interval — so (MonthFn 2000 1) is January 2000, and ?month is 1 through 12. An unreifiable_function application like YearFn and DayFn, structural so the ordering can read its fields: January 2000 is inside 2000, and February is inside neither January nor itself twice over. See docs/context-nat.md.")
 (unreifiable_function MonthFn)
 (binary_function MonthFn)
-(result MonthFn temporal)
+(result MonthFn time_interval)
 
 (comment overlapDuration
          "(overlapDuration ?interval1 ?interval2 ?duration) means that ?duration is how long ?interval1 and ?interval2 overlap. Computed from their lengths and the Allen relations still possible between them: zero when they are temporallyDisjoint, the contained length when one is a subintervalOf the other, and the bounded (QuantityIntervalFn 0 shorter unit) otherwise, so an over-approximation renders as an interval and says as much. Computed by a prover, never stored.")
@@ -451,4 +459,4 @@
          "(YearFn ?year) means the calendar year, as an interval — so (YearFn 2000) is the whole of 2000. The coarsest of the three calendar constructors (with MonthFn and DayFn beneath it), and an unreifiable_function application: it stays structural rather than minting a constant, because its one field is what says which years contain which. A calendar term and the reduced-precision ISO string naming the same interval denote the same interval and order against each other. See docs/context-nat.md.")
 (unreifiable_function YearFn)
 (unary_function YearFn)
-(result YearFn temporal)
+(result YearFn time_interval)

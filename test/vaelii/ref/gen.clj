@@ -149,7 +149,7 @@
     a merge only when both are `:monotonic` (decision D6), which `merge-disagreements`
     reads through the engine's equality.
   - `:num` — two integers in 1..3; the same marks.  Two integers never merge.
-  - `:type-arg` — a type then an individual; marks `(transitiveInArg P 1 genl)`."
+  - `:type-arg` — a type then an individual; marks `(transitiveInArgInverse P 1 genl)`."
   [rng sizes]
   {:contexts    (vec (for [i (range (between rng (:contexts sizes)))]
                        (tu/fresh-term :context (str "Cx" (str/upper-case (str (letter i)))))))
@@ -208,7 +208,7 @@
       :functional        (list 'functional pred)
       :functional-in-arg (list 'functionalInArg pred (inc (.nextInt ^Random rng 2)))
       :anti-symmetric    (list 'anti_symmetric pred)
-      :transitive-in-arg (list 'transitiveInArg pred 1 'genl))))
+      :transitive-in-arg (list 'transitiveInArgInverse pred 1 'genl))))
 
 (defn- violation
   "A tuple a mark among the writes `acc` convicts, or nil when `acc` holds no
@@ -241,7 +241,7 @@
   "The functors of the writes `fact-write` draws that are on the forced-monotonic roster:
   the `genlCx` edge and every `declaration`."
   '#{genlCx disjoint covering functional functionalInArg anti_symmetric irreflexive
-     anti_transitive transitiveInArg})
+     anti_transitive transitiveInArgInverse})
 
 (defn- fact-write
   "One non-rule write drawn from the menu: a `genlCx` edge, a `genl` edge or its denial, a

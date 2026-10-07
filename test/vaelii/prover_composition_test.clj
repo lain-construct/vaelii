@@ -47,7 +47,7 @@
     (v/add-prover kb (space/spatial-prover))
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl library_t zone_t) ctx)
-      (v/assert kb (list 'transitiveInArg 'partOfRegion 1 'genl) ctx))
+      (v/assert kb (list 'transitiveInArgInverse 'partOfRegion 1 'genl) ctx))
     ;; the claim is stated of the *general* term and inherits down to the specific one
     (v/assert kb (list 'partOfRegion zone_t zone_t) ctx)
     (testing "the inherited claim is answered rather than discarded by the calculus"
@@ -86,7 +86,7 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl sub_a_t thing_a_t) ctx)
       ;; a declaration on `genl` itself: argument 2 of a genl claim inherits upwards
-      (v/assert kb (list 'transitiveInArg 'genl 2 'genl) ctx))
+      (v/assert kb (list 'transitiveInArgInverse 'genl 2 'genl) ctx))
     (v/assert kb (list 'genl thing_a_t thing_b_t) ctx)
     (let [goal (list 'genl sub_a_t thing_b_t)
           plan (v/query-plan kb goal ctx)]
@@ -117,7 +117,7 @@
     ;; `wff`, so no claim about it can exist and `TransitiveInArgProver` will find none.
     ;; The guard fires anyway — it reads the declaration, not the claims — and that is
     ;; the point being pinned.
-    (v/assert kb (list 'transitiveInArg 'different 1 'genl) ctx)
+    (v/assert kb (list 'transitiveInArgInverse 'different 1 'genl) ctx)
     (let [plan (v/query-plan kb (list 'different Ann Bob) ctx)]
       (is (= 100 (:completeness (prover-entry plan "DifferentProver")))
           "the prover's own claim is unchanged — it is about the sources it reads")
@@ -137,7 +137,7 @@
   (tu/with-terms [dog_t animal_t largerThan]
     (is (empty? (provers/shadowing-channels kb (list largerThan dog_t animal_t) ctx))
         "nothing shadows a computed answer in a KB that declares no preservation")
-    (v/assert kb (list 'transitiveInArg largerThan 1 'genl) ctx)
+    (v/assert kb (list 'transitiveInArgInverse largerThan 1 'genl) ctx)
     (is (= #{:preserving}
            (provers/shadowing-channels kb (list largerThan dog_t animal_t) ctx)))
     (testing "and it is scoped like every other declaration read"
@@ -154,7 +154,7 @@
     (v/add-prover kb (space/spatial-prover))
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl library_t zone_t) ctx)
-      (v/assert kb (list 'transitiveInArg 'partOfRegion 1 'genl) ctx))
+      (v/assert kb (list 'transitiveInArgInverse 'partOfRegion 1 'genl) ctx))
     (is (nil? (provers/est-goal kb (list 'partOfRegion library_t zone_t) ctx))
         "no complete prover, so no authoritative estimate — the planner uses its own
          count-aware model rather than a shadowed prover's number")))

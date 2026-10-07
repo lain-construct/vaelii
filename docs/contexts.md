@@ -116,9 +116,10 @@ Data hangs below CxWell.
   every upper member and is seen by every middle member. It also holds hand-authored
   cross-member axioms in `resources/kb/CxUniverse.txt`: a claim naming terms from two
   upper members belongs here, since no member sees a sibling and only the collector
-  sees both. It states none today — `organization` and `animal`, the pair it once
-  separated, are already separated by `(partition thing tangible intangible)` in
-  CxCore. Being the one context
+  sees both. Its one claim today is `(termsRelated time_interval Duration)`, which
+  names CxAbstract's time_interval beside CxMeasure's dimension; `organization` and
+  `animal`, the pair it once separated, are already separated by `(partition thing
+  tangible intangible)` in CxCore. Being the one context
   that sees the whole upper spindle is what makes it the head of the next.
 - **the middle spindle's members** (`kb/middle/`) — how the definitional things *interrelate*,
   where several overlapping theories can coexist. One context per theory, each seeing
@@ -136,7 +137,7 @@ Data hangs below CxWell.
     deliberate: "birds have wings" to "Pingu has a wing" needs a quantifier reading.
   - `CxSize` — comparative size said the two ways it can be said: `largerThan`
     among kinds, and a comparison computed between two objects' measures. The worked
-    example of `transitiveInArg` ([inherit.md](inherit.md)).
+    example of `transitiveInArgInverse` ([inherit.md](inherit.md)).
   - `CxSocial` — what acquaintance follows from, and how employment relates to
     membership. Every rule runs one way only, because `knows` is deliberately not
     symmetric.

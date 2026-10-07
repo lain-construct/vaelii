@@ -1823,7 +1823,7 @@ layer 0   region relabel, genl/genlCx closures, strength classes, recheck queue,
 | touched window | `jtms/touched`, and a reader's mark in it: `jtms/touch-mark`, `jtms/touched-since` | none | removes the published window; `preview`, the change feed and the cache reconcile diff the believed set instead, at O(KB) per write |
 | forward chaining | `vaelii.impl.chain` | `implies` `set/forwardRule` `set/defaultRule` `set/backwardRule` `set/assumptionRule` `set/inertRule` | removes generators; backward proof still answers |
 | generators | `vaelii.impl.chain` | `implies` `set/forwardRule` with a rule consequent | removes nothing |
-| nogood discovery | `decide/nogoods-at`, `discovery/preserving-nogoods` | `not` `disjoint` `disjoint_metatype` `sibling_disjoint` `orthogonal` `functional` `functionalInArg` `asymmetric` `anti_transitive` `covering` `partition` `transitiveInArg` `transitiveInArgInverse` | leaves `decide/verdict` with no nogood to decide |
+| nogood discovery | `decide/nogoods-at`, `discovery/preserving-nogoods` | `not` `disjoint` `disjoint_metatype` `sibling_disjoint` `orthogonal` `functional` `functionalInArg` `asymmetric` `anti_transitive` `covering` `partition` `transitiveInArgInverse` `transitiveInArg` | leaves `decide/verdict` with no nogood to decide |
 | `exceptWhen` · NAF | `recheck/exception-blocked-set` | `exceptWhen` `unknown` | removes nothing; `:blocked` stays empty |
 | supersession | `special/refresh-supersessions` | `rewriteOf` `sameAs` | removes nothing; `:superseded` stays empty |
 | visibility except | `res/withdrawal` | `except` `sentexHandle` | removes nothing |
@@ -2287,7 +2287,7 @@ holds the vocabulary and the page that owns each keyword.
 
   ```
   CxUniverse   (genl mid dog) (genl chi mid)   the long route, named
-               (largerThan dog cat)  (transitiveInArg largerThan 1 genl)
+               (largerThan dog cat)  (transitiveInArgInverse largerThan 1 genl)
                forward rule (largerThan ?x ?y) ⇒ (noted ?x ?y)
    └─ CxA      (genl chi dog)                  the short route
                (not (genl chi mid))  :monotonic
@@ -2301,7 +2301,7 @@ holds the vocabulary and the page that owns each keyword.
   named:
 
   ```
-  CxUniverse   (largerThan dog cat)  (transitiveInArg largerThan 1 genl)
+  CxUniverse   (largerThan dog cat)  (transitiveInArgInverse largerThan 1 genl)
                forward rule (largerThan ?x ?y) ⇒ (noted ?x ?y)
    └─ CxA      (genl chi dog)  and  (genl chi mid) (genl mid dog)   both routes
         └─ CxB (not (genl chi dog))  :monotonic
@@ -2331,7 +2331,7 @@ holds the vocabulary and the page that owns each keyword.
   routes, and each route places the conclusion in a reader the other does not reach:
 
   ```
-  CxUniverse   (aRel high val)  (transitiveInArg aRel 1 genl)
+  CxUniverse   (aRel high val)  (transitiveInArgInverse aRel 1 genl)
                forward rule (aRel ?x ?y) ⇒ (noted ?x ?y)
    ├─ CxA      (genl low mid) (genl mid high)
    ├─ CxB      (genl low high)

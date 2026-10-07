@@ -12,7 +12,7 @@
 
   Four shapes, each stated in CxUniverse at `:monotonic`: an argument-type entailment
   down a predicate chain, a forward rule over a type chain, the same rule over an edge a
-  `genlArg` mints, and a `transitiveInArg` preservation.  Then CxCore and the starter,
+  `genlArg` mints, and a `transitiveInArgInverse` preservation.  Then CxCore and the starter,
   authored order against the content order their own text export reloads in."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
@@ -55,7 +55,7 @@
        [:minted chain [(list 'genlArg kindUnder 1 animal) (list kindUnder dog Zoo)] (list noted Rex)]
        [:preservation
         [(list 'genl chi mid) (list 'genl mid dog) (list 'genl dog 'thing)
-         (list largerThan dog cat) (list 'transitiveInArg largerThan 1 'genl)
+         (list largerThan dog cat) (list 'transitiveInArgInverse largerThan 1 'genl)
          (list 'set/forwardRule (list 'implies (list largerThan '?x '?y) (list noted '?x '?y)))]
         [(list 'genl chi dog)]
         (list noted chi cat)]])))

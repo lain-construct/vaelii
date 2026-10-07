@@ -15,6 +15,25 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **`transitiveInArg` and `transitiveInArgInverse` swap names, so `transitiveInArg` takes
+  the direction of Cyc's `transitiveViaArg`.** `(transitiveInArg P n R)` now carries a
+  stored `(P … W …)` along `R`'s arrow: `(R W A)` gives `(P … A …)`, which with `genl`
+  is upward, to a supertype. `(transitiveInArgInverse P n R)` carries it against the
+  arrow: `(R A W)` gives `(P … A …)`, which with `genl` is downward, to a subtype. Before
+  this change each name carried the other direction. The argument order stays `(P n R)`
+  (Cyc writes `(P R n)`). The engine implements the same two walks it did; only the
+  functor naming each walk changed, and every declaration the shipped KB and the test
+  suite state was rewritten to the other name, so each one still licenses what it did:
+  `(transitiveInArg largerThan 1 genl)` is now `(transitiveInArgInverse largerThan 1
+  genl)`. [inherit.md](docs/inherit.md), [from-cyc.md](docs/from-cyc.md).
+
+  *Class:* **Breaking** (a stored declaration under either name now licenses the
+  opposite direction).
+  *Migration:* swap every `transitiveInArg` and `transitiveInArgInverse` in your KB: the
+  names now carry the directions Cyc's `transitiveViaArg` / `transitiveViaArgInverse`
+  do.
+  *Breaks:* `transitiveInArg`, `transitiveInArgInverse`
+
 - **`siblingDisjointException` is retired; `orthogonal` is the exemption.** A stated
   `(orthogonal a b)` exempts the pair from a separation a `sibling_disjoint` parent or a
   `disjoint_metatype` would otherwise force, pair-local and read at the reader, as
@@ -50,6 +69,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* pass the context that states the separation as `context`.
   *Breaks:* `subsumption-statuses`, `subsumption-status`, `disjointness-audit`
 
+- **CxCore states the upper ontology's axes orthogonal.** The three partitions of
+  `thing` cut it by location in some space, by location in time and by mass, and a part
+  of one overlaps a part of another without either subsuming it. CxCore now says so:
+  `(orthogonal spatial temporal)`, `(orthogonal aspatial atemporal)`,
+  `(orthogonal spatial atemporal)`, `(orthogonal aspatial temporal)`,
+  `(orthogonal intangible spatial)`, `(orthogonal intangible temporal)` and
+  `(orthogonal intangible spatiotemporal)`, each `set/monotonic` beside the partitions
+  and each with a witness (a rock, the line y=x, a fluent, a region of space). Each pair
+  now reads `:orthogonal` from `subsumption-status` without a shared instance, and
+  leaves `disjointness-audit`'s `:unknown` candidates. No stated separation divides any
+  of them, so the load adds no conflict and no contradiction.
+  [taxonomy.md](docs/taxonomy.md#disjointness). *Class:* **Additive**.
+
 - **`transitiveInArgInverse` is forced monotonic, as `transitiveInArg` is.** CxCore
   declares `(forced_monotonic_predicate transitiveInArgInverse)` and the engine's roster
   holds it on every KB beside `transitiveInArg`, under `:unforced-relation-mark`: a
@@ -64,6 +96,30 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Breaks:* `transitiveInArgInverse`
 
 ### Additions
+
+- **`time` is a moment or a stretch of time as such, and `time_interval` is the
+  stretch.** A date is no cause: the year 2000 broke nothing, two-digit years did, at the
+  rollover. CxAbstract declares `time`, a time as in "at that time", with
+  `(genl time temporal)`, `(genl time aspatial)` and `(genl time acausal)`, and
+  `(partition time time_point time_interval)`, so a moment and a stretch are each
+  temporal, aspatial and acausal and never each other; `(disjoint time situation)` keeps
+  a time apart from what happens in it. CxUniverse states
+  `(termsRelated time_interval Duration)`, since `Duration` is CxMeasure's.
+  `(genl time_point temporal)` is removed, since the partition derives it.
+  `YearFn`, `MonthFn` and `DayFn` declare `(result … time_interval)` where they declared
+  `temporal`, so a calendar term is admitted where an argument wants `acausal` or
+  `aspatial`, as is a `StartFn` moment. CxTime declares `DatetimeFn`, the ISO-string
+  spelling of a calendar interval, a `unary_function` with `(arg DatetimeFn 1 string)`
+  and `(result DatetimeFn time_interval)`. `ontology_test` pins the edges, the
+  disjointness and the calendar readings.
+  [time.md](docs/time.md)
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that read `(result YearFn temporal)`, `(result MonthFn temporal)` or
+  `(result DayFn temporal)` as stated reads `time_interval` instead; `temporal` still
+  derives through `time`. A KB that relied on `(genl time_point temporal)` being stated
+  reads it from `genl?`.
 
 - **`kb-integrity` runs a bounded, read-only integrity sweep in a context.** Over a finite
   set of ground candidate terms it reports the definition clashes a candidate meets (a
@@ -92,6 +148,44 @@ it — `git show v0.16.0:CHANGELOG.md`.
   gains `kb-integrity`. [operations.md](docs/operations.md).
 
   *Class:* **Additive**.
+
+- **`relation` is divided into `function` and `truth_valued_relation`,
+  `truth_valued_relation` into `logical_constant` and `predicate`, and `logical_constant`
+  into `quantifier` and `logical_connective`; `and`, `or`, `not` and `implies` are logical
+  connectives.** CxCore states `(partition relation function truth_valued_relation)`,
+  `(partition truth_valued_relation logical_constant predicate)` and
+  `(partition logical_constant quantifier logical_connective)`, after Cyc's
+  `TruthFunction`, so a predicate, a quantifier and a logical connective reach `relation`
+  through `truth_valued_relation`, and each is disjoint from the others and from
+  `function`. `truth_valued_relation` is named apart from logic's truth function, a
+  connective whose value is fixed by its arguments' truth values, which a predicate and a
+  quantifier are not. `(unary_predicate not)` and `(binary_predicate implies)` are
+  replaced by `(logical_connective not)` and `(logical_connective implies)`, and the
+  connectives' arities are stated with the relation-wide vocabulary: `(unary not)`,
+  `(binary implies)`, `(variable_arity and)` and `(variable_arity or)`. An arity reader
+  (`kb/relation-arity`, the `checks` arity arm) reads 1 for `not` and 2 for `implies` as
+  before, and `arity_vocabulary_test`'s every-relation-has-exactly-one-arity-policy holds
+  over all four. No shipped term is a `quantifier` yet. CxCore no longer states
+  `(genl function relation)`, `(genl predicate relation)` or `(disjoint function
+  predicate)`: the partitions entail all three, the disjointness descending to `predicate`
+  from `(disjoint function truth_valued_relation)`, so each is derived, and the rule-entry
+  refusal of `(implies (result ?f ?t) (genl ?f ?t))` reads the derived disjointness as it
+  read the stated one. `ontology_test` pins the three
+  partitions, the connectives' typing, and that the three entailed facts derive and are
+  not stated; the four new types are classified inert in the vocabulary roster.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a query that found `not` among the `unary_predicate`s or `predicate`s, or
+  `implies` among the `binary_predicate`s, asks `logical_connective` instead, or `unary` /
+  `binary` for the arity; a KB that states `(predicate not)` or a connective's membership
+  in any predicate type now contradicts the partition. A query for `(genl function
+  relation)`, `(genl predicate relation)` or `(disjoint function predicate)` answers as
+  before; code that unasserts one of them, or reads it as a stated sentence (a dump, a
+  diff, a justification walked to its stated leaves), finds it derived from the
+  partitions instead, and retracts it by retracting the partition.
+  *Breaks:* `(unary_predicate not)`, `(binary_predicate implies)`,
+  `(genl function relation)`, `(genl predicate relation)`, `(disjoint function predicate)`
 
 - **The upper ontology divides `thing` by location in space, by time and by mass:
   `spatial` is a location in any space, `spatiotemporal` is a location in space and
@@ -209,19 +303,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   shipped `orthogonal` is seen.
   *Breaks:* `(disjoint organism artifact)`
 
-- **CxCore divides the relation vocabulary by partitions and defines `equivalence_relation`
-  as an intersection.** `(partition relation function predicate)` replaces
-  `(disjoint function predicate)` and the two `genl` edges to `relation`, so a relation
-  denied being a predicate is concluded a function. `(partition function
-  reifiable_function unreifiable_function)` separates the two minting marks, which
-  nothing separated before, and installs their edges to `function`. `(partition
-  unary_predicate fixed_order_type variable_order_type)` separates the two order kinds
-  and installs their edges to `unary_predicate`, so a metatype is never of variable
-  order. `(intersection equivalence_relation reflexive symmetric transitive)` concludes
+- **CxCore partitions `function` and `unary_predicate` and defines
+  `equivalence_relation` as an intersection.** `(partition function reifiable_function
+  unreifiable_function)` separates the two minting marks, which nothing separated
+  before, and installs their edges to `function`. `(partition unary_predicate
+  fixed_order_type variable_order_type)` separates the two order kinds and installs
+  their edges to `unary_predicate`, so a metatype is never of variable order.
+  `(intersection equivalence_relation reflexive symmetric transitive)` concludes
   `(equivalence_relation P)` of a predicate carrying all three marks and places
   `equivalence_relation` below each of them, so its stated edge to `binary_predicate` is
   removed; the three forward rules that materialize the marks stay. `ontology_test`
-  pins each division and the eight removed sentences.
+  pins each division, the coverage half of `(partition relation function
+  truth_valued_relation)`, and the five removed sentences.
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
@@ -247,9 +340,11 @@ it — `git show v0.16.0:CHANGELOG.md`.
   species, so no organism is of two species, and is disjoint from
   `folk_biological_class`. Both new metatypes are below `type`, since each member is a
   first-order type. The disjointness audit's unknown pairs among the types below
-  `organism` fall from 248 to 0: `grass` is a `plant_class` beside `tree` and `flower`.
-  `ontology_test` pins the separations, the coverage half and that no pair below
-  `organism` is left unknown.
+  `organism` fall from 514 to 280, and the 248 among the kinds fall to 0: `grass` is a
+  `plant_class` beside `tree` and `flower`. Each of the 280 pairs one of the seven
+  biology properties placed under `organism` and `animal` (`alive`, `asleep`, …) with
+  another type. `ontology_test` pins the separations, the coverage half and that no
+  pair of kinds below `organism` is left unknown.
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
@@ -267,6 +362,24 @@ it — `git show v0.16.0:CHANGELOG.md`.
   far it moves an answer).
   *Migration:* none; a denial of a shipped species membership no longer moves belief.
 
+- **Fifteen shipped unary predicates gain a `genl` path to `thing`.** The `kb-integrity`
+  `:not-under-thing` sweep reported each from CxWell. In CxCore,
+  `abducible_predicate`, `closed_extent_predicate`, `decontextualized_predicate`,
+  `forced_decontextualized_predicate` and `target_following_predicate` are placed under
+  `predicate`, as `modal_predicate` already was; `sibling_disjoint` under
+  `unary_predicate`, since what it marks is a type. In CxTime, `functional_at_instant` is placed under `function`. CxUniverse states
+  `(genl initially fluent)`: `initially` is CxTime's and `fluent` is CxAbstract's, and
+  CxUniverse is the context that sees both. CxUniverse also places the seven
+  biology properties under the kind each is said of: `alive`, `dead` and `mortal` under
+  `organism`; `asleep`, `awake`, `breathes_air` and `warm_blooded` under `animal`.
+  `ontology_test` runs the sweep over those fifteen and finds none. The sweep also
+  reports `not`, which is left unplaced: a `genl` edge from a connective to `formula`
+  would make it a subtype of the formulas it builds, so its typing is punted to the
+  use/mention batch.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
 ### Fixes: answers
 
 - **`query {:proof? true}` and `argue` return a proof when a rewrite's residual repeats
@@ -278,6 +391,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Fix**.
 
 ### Fixes: clashes and order independence
+
+- **A symmetric fact's argument-type mints rest on the same declaration however it was
+  spelled.** A fact asserted or derived after its `arg` / `genlArg` / `interArg`
+  declarations drew its mints over the arguments as written, while a declaration
+  arriving after the fact, and a text export reloading it, drew them over the spelling
+  the store keeps. For a `(symmetric P)` fact written against that sorted order, such as
+  `(orthogonal spatial atemporal)` under `(genlArg orthogonal 1 thing)` and
+  `(genlArg orthogonal 2 thing)`, the minted `(genl spatial thing)` rested on the
+  position-1 declaration in one order and the position-2 one in the other, so authored
+  and content order stored different justifications. The entailment now reads the
+  stored spelling on every path, so every order stores the same justifications.
+  [argtypes.md](docs/argtypes.md).
+
+  *Class:* **Fix**.
 
 - **A stated `genl` route that makes a minted edge redundant re-joins the rule firings
   the mint carried.** The settle withdraws a `genl` mint a stated route has made

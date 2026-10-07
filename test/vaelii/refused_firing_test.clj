@@ -31,8 +31,8 @@
   "`(bigger dog cat)` inherited down to `[chi mc]` by argument preservation, with the
   predicate asymmetric so a specific converse can undercut it."
   [kb]
-  (v/assert kb '(transitiveInArg fbigger 1 genl) ctx)
-  (v/assert kb '(transitiveInArg fbigger 2 genl) ctx)
+  (v/assert kb '(transitiveInArgInverse fbigger 1 genl) ctx)
+  (v/assert kb '(transitiveInArgInverse fbigger 2 genl) ctx)
   (v/assert kb '(asymmetric fbigger) ctx)
   (v/assert kb '(genl fchi fdog) ctx)
   (v/assert kb '(genl fmc fcat) ctx)
@@ -89,8 +89,8 @@
     ;; Wiring the two contexts together is what brings the converse into view.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb (list 'genlCx 'CxFSub ctx) ctx {:strength :monotonic})
-      (v/assert kb '(transitiveInArg ebigger 1 genl) ctx)
-      (v/assert kb '(transitiveInArg ebigger 2 genl) ctx)
+      (v/assert kb '(transitiveInArgInverse ebigger 1 genl) ctx)
+      (v/assert kb '(transitiveInArgInverse ebigger 2 genl) ctx)
       (v/assert kb '(asymmetric ebigger) ctx)
       (v/assert kb '(genl echi edog) ctx)
       (v/assert kb '(genl emc ecat) ctx)

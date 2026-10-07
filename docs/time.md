@@ -45,10 +45,11 @@ The unit is an **interval**, not an instant. A meeting, a reign, a journey — s
 with a start and an end — so two of them can meet, overlap or nest, which is exactly the
 structure a point calculus throws away. The interval relations are declared `(arg …
 temporal)` and the instant relations `(arg … time_point)`, `time_point` sitting
-under `temporal`, so `startOf` and `endOf` bridge the two by declaration as well as
-by meaning. A temporal relation between two predicates is refused rather than stored.
-The algebra itself knows nothing of clocks or calendars — only order and containment; the
-calendar constructors below *name* intervals for it, and compute no relation of their own.
+under `temporal` (through `time`, which `time_point` and `time_interval` partition),
+so `startOf` and `endOf` bridge the two by declaration as well as by meaning. A
+temporal relation between two predicates is refused rather than stored. The algebra
+itself knows nothing of clocks or calendars — only order and containment; the calendar
+constructors below *name* intervals for it, and compute no relation of their own.
 
 How *long* an interval is, and how long two of them overlap, is the quantitative half:
 [duration.md](duration.md), which consumes the relation sets this page produces.
@@ -495,7 +496,7 @@ every other reasoner here (`add-reasoner kb :calendar`) and answering three fami
 ```
 
 **A moment is `(InstantFn Y M D h m s)` — six integer fields, always.** It is a
-`time_point` where the calendar constructors are `temporal`s, declared in `CxTime`
+`time_point` where the calendar constructors are `time_interval`s, declared in `CxTime`
 beside them and `unreifiable_function` for their reason: the fields are what the ordering
 reads. Six fields and not a reduced-precision spelling, because a term is identified by
 its shape and one moment must have exactly **one** term — `"2000-01-01T00:00:00"` and

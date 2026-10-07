@@ -73,7 +73,7 @@ believed?(W, S, C) = S is in believed(W, C)
    The question is asked at `C`, so a fact only `C` sees blocks the conclusion at `C`
    (decision 4).
 4. **Inherited claims.** An inherited claim `(P … sub …)` is believed at `C` when a
-   believed `(transitiveInArg P k genl)`, a believed general claim `(P … sup …)` and every
+   believed `(transitiveInArgInverse P k genl)`, a believed general claim `(P … sup …)` and every
    `genl` edge on some route from `sub` to `sup` are believed at `C`, and no believed
    denial of the claim undercuts that reading (decision 5). A denial undercuts a reading
    of class `:default`; against a `:monotonic` reading it forms the inherited nogood of
@@ -112,7 +112,7 @@ believed?(W, S, C) = S is in believed(W, C)
      believed `(covering W A …)`; grounds the declaration and the `genl` route
      ([taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it));
    - **inherited**: a stored `(not (P … A …))` beside a claim `(P … W …)` that a believed
-     `(transitiveInArg P n genl)` carries down a `genl` path from `W` to `A`, when every
+     `(transitiveInArgInverse P n genl)` carries down a `genl` path from `W` to `A`, when every
      part of that reading is `:monotonic`; the members are the denial, the general claim,
      the declaration and each edge of the path, and a reading with a `:default` part is
      undercut and forms no nogood
@@ -166,7 +166,7 @@ builders of `vaelii.ref.*` wrote are now citations of these decisions by number.
    ```
    :default    (genl chi dog)  (chi Kit)
    :monotonic  (disjoint dog cat)  (cat Kit)  (pp Kit)
-               (transitiveInArg pP 1 genl)  (pP dog Bone)
+               (transitiveInArgInverse pP 1 genl)  (pP dog Bone)
                (set/forwardRule (implies (and (pp ?x) (unknown (chi ?x))) (not (pP chi Bone))))
    ```
 
@@ -448,7 +448,7 @@ by the world extractor with `:unsupported`, so the generator cannot produce one.
 | a rule concluding a forced-monotonic predicate | yes, its firings stored and held void (decision 17) | [taxonomy.md](taxonomy.md#what-a-rule-may-conclude-and-what-it-reaches) |
 | `anti_transitive` | yes | [nmtms.md](nmtms.md#a-nogood-is-a-set-anti_transitive-has-three-members) |
 | `covering` | yes, forced monotonic (invariant 6) | [taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it) |
-| `transitiveInArg` along `genl`, one position | yes, decision 5 | [inherit.md](inherit.md) |
+| `transitiveInArgInverse` along `genl`, one position | yes, decision 5 | [inherit.md](inherit.md) |
 | equality: `rewriteOf`, `sameAs`, `equals` | no | [equality.md](equality.md) |
 | supersession | no | [equality.md](equality.md), [nmtms.md](nmtms.md#the-set-membership-states-a-node-can-hold) |
 | visibility `except` | no | [contexts.md](contexts.md#except-removing-visibility-down-a-context-subtree) |
