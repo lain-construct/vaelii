@@ -289,7 +289,7 @@ every argument position is declared `(arg … spatial)`, the type a location in 
 space — physical or mathematical — makes something an instance of. None of the four
 calculi needs time, so they relate regions of a plane, squares of an abstract board or a
 line such as y=x as readily as fields and rooms. `tangible` sits under it, so every
-animal, artifact and substance qualifies without a further declaration, while a region or
+animal, made thing and substance qualifies without a further declaration, while a region or
 a frame of reference — which occupy space without being made of anything — is declared
 into it directly. The context keeps two spaces apart, as it keeps two frames of
 reference apart: a prover's network is built per context, so facts about an abstract

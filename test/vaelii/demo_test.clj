@@ -170,7 +170,7 @@
 
 (tu/deftest-kb the-cascade-is-visible-at-every-step
   ;; The page renders every watched sentence at every step: a stored one with its record,
-  ;; and travelling with what `ask?` answers, because the capability hierarchy answers it
+  ;; and travelling with what `ask?` answers, because the event-kind hierarchy answers it
   ;; at retrieval and stores no record.
   (testing "the page shows what moved, stored and answered alike"
     (let [app (web/app kb)

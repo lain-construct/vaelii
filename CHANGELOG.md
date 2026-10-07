@@ -166,6 +166,38 @@ it — `git show v0.16.0:CHANGELOG.md`.
   derives through `time`. A KB that relied on `(genl time_point temporal)` being stated
   reads it from `genl?`.
 
+- **An organization is causal: `(genl organization causal)`.** A company hires; a court
+  rules. An instance of `organization` reads `causal`, and `organization` is disjoint
+  from `acausal` by the genl closure. `organization` stays below `aspatial`, which
+  nothing separates from `causal`. Both terms are in CxAbstract, where the edge is
+  stated. `causality_cluster_test` pins the edge and an organization reading `causal`.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
+- **`acausal`'s comment no longer calls records and evidence acausal as things.** The
+  paper or the log file a record is written on is tangible, and so causal; what is
+  acausal is the information a record or a piece of evidence carries. A reading of it
+  can cause, and the information itself causes nothing. The comment now names a time, a
+  property line, an attribute and that information. No sentence other than the comment
+  changes.
+
+  *Class:* **Additive**.
+
+- **A tangible is causal: `(genl tangible causal)`.** Anything with mass can fill a cause
+  slot — the rock dented the car — so an instance of any tangible kind reads `causal`.
+  With the monotonic `(disjoint causal acausal)`, the genl closure of disjointness now
+  separates `tangible` from `acausal`, and every tangible kind from `acausal_event`, with
+  no declaration of its own. The edge is stated in CxAbstract beside `causal`, since
+  `tangible` is in CxCore. `causality_cluster_test` pins the edge, a rock reading
+  `causal`, and the derived disjointness.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that stated an instance of a tangible kind `acausal` now holds a
+  clash; a paper record or a log file is tangible, and what is acausal is the
+  information it carries.
+
 - **`kb-integrity` runs a bounded, read-only integrity sweep in a context.** Over a finite
   set of ground candidate terms it reports the definition clashes a candidate meets (a
   passing `defnSufficient` beside a failing own `defnNecessary`), and it reports every
@@ -232,6 +264,38 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Breaks:* `(unary_predicate not)`, `(binary_predicate implies)`,
   `(genl function relation)`, `(genl predicate relation)`, `(disjoint function predicate)`
 
+- **CxCore declares `empty` and `nonempty`, which partition `unary_predicate`.** An
+  `(empty t)` says `t` has no instance in the context the sentence is stated in, and a
+  `(nonempty t)` says `t` has at least one. Both are `variable_order_type` and
+  `at_least_metatype`. A type stated both `empty` and `nonempty` in contexts one reader
+  sees is a disjointness clash, and two sibling contexts may disagree. `empty` does not
+  contradict `orthogonal`.
+
+  `(transitiveInArgInverse empty 1 genl)` and `(transitiveInArg nonempty 1 genl)` carry
+  the claims along `genl`: each subtype of an `empty` type reads `empty`, and each
+  supertype of a `nonempty` type reads `nonempty`. Both are read at query time and store
+  nothing. A forward rule concludes `empty` of a `unary` type below two types a stated or
+  inherited `disjoint` separates; a `partition`, `separating` roster, `disjoint_metatype`
+  or `sibling_disjoint` parent stores no `disjoint` sentence, so a type below two types
+  only one of those separates is not concluded `empty`. The conclusion lands in the
+  context the rule places it in, so a separation stated in CxCore concludes the emptiness
+  in CxCore. CxCore states `empty` and `nonempty` each `orthogonal` to `type`, `metatype`,
+  `meta_metatype`, `fixed_order_type`, `variable_order_type`, `at_least_metatype` and
+  `disjoint_metatype`.
+
+  *Class:* **Additive** (shipped ontology content).
+
+- **`doneBy` and `performedBy` relate an event to its doer.** CxAbstract declares both
+  binary `instance_relation_predicate`s with `event` in the first position and `thing` in
+  the second. `(doneBy ?event ?doer)` says the doer brought the event about,
+  intentionally or not, and `(performedBy ?event ?doer)` says it did so intentionally;
+  `(genl performedBy doneBy)` makes every performing a doing. The doer is typed `thing`
+  rather than `agent`, because `agent` names a registered participant, and a machine
+  or a process can bring an event about as well as a person can. `causality_cluster_test`
+  pins the declarations, the genl edge and the event-position constraint.
+
+  *Class:* **Additive**.
+
 - **The upper ontology divides `thing` by location in space, by time and by mass:
   `spatial` is a location in any space, `spatiotemporal` is a location in space and
   time, `physical_object` is renamed `tangible` and `abstract` is renamed
@@ -250,8 +314,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   so that a region can be spatiotemporal and intangible at once. `nowhere_never` is in
   no space and at no time — an expression, a language — defined as the intersection of
   `aspatial` and `atemporal`; what has no location in space, or none in time, has no
-  mass, so `aspatial` and `atemporal` are both below `intangible`. `capability`,
-  `fluent`, `organization` and `relation_type` are below `aspatial`, and
+  mass, so `aspatial` and `atemporal` are both below `intangible`. `fluent`,
+  `organization` and `relation_type` are below `aspatial`, and
   CxCore places `context` and `language` below `nowhere_never`, so each stays disjoint
   from `spatial` and `spatiotemporal` in every context that sees the kind's placement.
   Every stated `genl` or `disjoint` that a partition, an intersection, a `genl` chain, a
@@ -425,6 +489,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
 
+- **CxCore states that every partition is a cover and a separation:
+  `(genl partition covering)` and `(genl partition separating)`.** A stated
+  `(partition W A B)` now answers a `(covering W A B)` or `(separating W A B)` query; a
+  cover is not read as a partition, and the coverage and disjointness inferences are
+  unchanged, since both already read the one roster. `kb-quality` no longer counts a
+  `variable_arity` relation as a type node, so a sub-relation edge between two of them is
+  not reported as an island in `:taxonomy`.
+
 - **`direct-genls` and `direct-specs` read one `genl` step of the closure, and the
   browser's taxonomy view and hierarchy tree draw from them.** `(direct-genls kb t
   [context])` answers the types `t` is a subtype of by one edge, and `direct-specs` the
@@ -477,6 +549,125 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive** (an `:unknown` pair gains a status, and audit entries gain two
   keys).
+
+- **`disjointness-audit` marks a shared subtype not known nonempty as
+  `:unwitnessed-spec`.** A shared subtype for which a facts-only read answers
+  `(nonempty c)`, stated or carried up `genl` from a nonempty subtype, keeps the
+  `:shared-spec` witness. A shared subtype with no known `(nonempty c)` still reads
+  `:orthogonal`, and its entry carries `:witness :unwitnessed-spec` and the subtype as
+  `:via`. A shared subtype with a known `(empty c)` is no witness, as one separated from
+  itself is not. Of several shared subtypes the audit names a nonempty one first. The
+  vocabulary roster classifies `empty` and `nonempty` as enforced, read by
+  `subsumption-reading`. [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
+
+  *Class:* **Additive** (an audit entry gains a `:witness` value).
+
+- **`artifact` is renamed `made`.** The type names a tangible shaped by an agent's
+  action, or by something made: a chair, a widget from a factory machine, steel,
+  sawdust, a footprint, a beaver's dam, a cloned sheep. Every shipped use is renamed:
+  the `genl` edges of `building`'s parent `container`, `clothing`, `furniture`,
+  `machine`, `tool` and `vehicle`, the `(orthogonal biological artifact)` above, now
+  `(orthogonal biological made)`, the substance disjointness, the browser examples and
+  the docs. The seven kinds' own comments are unchanged. No `rewriteOf` alias is
+  shipped, as none was for `physical_object` or `living_thing`. `ontology_test` pins
+  that `artifact` is declared nowhere and that the seven kinds are kinds of `made`.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that wrote `artifact` renames to `made`; the old spelling stores
+  clean but attaches to nothing in the taxonomy.
+  *Breaks:* `artifact`
+
+- **`made` and `natural` partition `tangible`; `formation` is natural and never
+  biological.** `natural` is a tangible whose form no living thing's action gave it: a
+  wild sheep, a coral reef, a rock, a river, a star. `(partition tangible made natural)` installs both
+  `genl` edges to `tangible`, so the stated `(genl artifact tangible)`, renamed
+  `(genl made tangible)`, is removed; a thing both made and natural is a clash, and a
+  tangible denied `made` is concluded `natural`. `formation` is a natural tangible whose
+  form came from physical processes, neither grown nor made: a rock, a crystal, a river,
+  a star, a dune. `(separating tangible formation biological)` keeps a formation from
+  being biological. `(orthogonal biological natural)` beside `(orthogonal biological
+  made)` lets a wild sheep and a cloned one each be biological. The monotonic
+  `(disjoint substance artifact)` is removed, since steel is a made substance.
+  `ontology_test` pins the partition both ways, the formation's placement and its clashes,
+  a natural sheep and a made substance as no clash, and the removed edges in its
+  derived-and-unstated table.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that relied on a substance and a made thing clashing states that
+  separation over narrower kinds of its own. A KB that relied on `(genl made tangible)`
+  being stated, rather than derived, reads it from `genl?` instead.
+  *Breaks:* `(disjoint substance artifact)`
+
+- **`input`, `destroyedInput`, `preservedInput`, `output`, `tangibleOutput` and
+  `intangibleOutput` relate an event to what went into it and what it left behind, and
+  two rules conclude `made`.** Each is a binary `instance_relation_predicate` in
+  CxAbstract that takes the event first. `(input ?event ?thing)` says the thing went into
+  the event; an instrument the event leaves unchanged, such as the knife, is not an
+  input. `destroyedInput` (the thing ceased to exist in the event) and `preservedInput`
+  (the thing still exists when the event ends) are each a `genl` of `input`.
+  `(output ?event ?thing)` says the event gave the thing the form or content it has.
+  `tangibleOutput` types its second position `tangible`, `intangibleOutput` types it
+  `intangible`, and each is a `genl` of `output`. A tangible output of an event something
+  `performedBy` is concluded `made`, and so is a tangible output of an event a made thing
+  `doneBy`. A calf its natural mother grew is not concluded `made`. In CxChange and the
+  contexts that see it, each relation places the thing's start or end against its
+  event's on the point network: with `:includes-instant` registered, the lettuce in a
+  salad exists the moment the making ends, and a smashed pot does not exist then or a
+  year later. With `:point` registered, an order that contradicts one of these placements
+  is a `:qualitative-inconsistency`. A three-place use of `doneBy`, `performedBy` or any
+  of the six is held out. `causality_cluster_test` and `input_output_timing_test` pin
+  each of these. [time.md](docs/time.md)
+
+  *Class:* **Additive**.
+
+- **Eleven pairs across `made` and `natural` are stated orthogonal.** An `orthogonal`
+  is not inherited along `genl`, so eleven pairs are stated in CxAbstract beside
+  `(orthogonal biological made)` and `(orthogonal biological natural)`: `organism` and
+  `body_part` each with `made` and with `natural` (a cloned sheep and a wild one, a
+  lab-grown bladder and a heart), `substance` with `made`, `natural` and `formation`
+  (steel, water, sand), and `food` with `made`, `natural`, `biological` and `formation`
+  (bread, an apple, sea salt). No stated separation covers any of the pairs.
+  `ontology_test` pins each pair as stated and read `:orthogonal`, an individual in both
+  types as no clash, a body part made of a substance as no clash, and a formation's
+  disjointness from `made`, `organism` and `body_part` as derived and unstated.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+
+- **An ability is an event kind: `capability` is retired, and `hasCapability` and
+  `capabilityType` take an event kind as their second argument.**
+  `(hasCapability ?animal ?eventKind)` means the animal can be the doer of an event of
+  kind `?eventKind`, and `capabilityType` is the same claim about a kind. Both declare
+  `(genlArg … 2 event)`, so an event kind nobody listed as an ability is accepted and a
+  kind outside `event`, such as `metal`, is refused `:arg-genl` against `event`.
+  `travelling` and `flying` move from CxLife to CxUniverse, as
+  `(genl travelling causal_event)` and `(genl flying travelling)`: a `genl` edge is read
+  from the context that states it, CxLife does not see CxAbstract's `causal_event`, and
+  CxUniverse sees both. `causal_event` is the intersection of `causal` and `event`, so
+  travelling and flying are each an `event` and `causal` without either edge being stated.
+  CxCore no longer declares
+  `capability` or `(genl capability aspatial)`, and the vocabulary roster no longer
+  lists it. Bird flight is unchanged: `(capabilityType bird flying)`, the penguin
+  exception and the default descent rule load and derive as before, and
+  `(transitiveInArg hasCapability 2 genl)` still answers
+  `(hasCapability ?x travelling)` for anything believed to fly. The starter's
+  disjointness audit reads 191 types and 18,145 pairs, 12,760 of them `:disjoint` and
+  3,684 `:unknown`. `ontology_test` pins the event-kind placement, both `genlArg`
+  declarations, the refusal, and the absence of `capability`.
+  [inherit.md](docs/inherit.md)
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* type ability arguments as event kinds. A KB that placed its own ability
+  under `capability`, as `(genl swimming capability)`, writes `(genl swimming event)`
+  in a context that sees CxAbstract, such as CxUniverse; without that edge the kind is
+  refused `:arg-genl` as the second argument of `hasCapability` or `capabilityType`. A
+  KB that relied on an ability kind being `aspatial`, and so disjoint from `spatial`,
+  states that placement itself: `event` is orthogonal to both halves of
+  `(partition thing spatial aspatial)`, since some events are located and some are not.
+  *Breaks:* `capability`
 
 ### Fixes: answers
 
@@ -625,7 +816,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `{:types [...] :genls [...]}` per direct `genl` set two visible types or more share. A
   finding is for review only. The pass reads every node of the `genl` relation once, not
   the candidate set, and its findings count against `:max-results` after the
-  `:orthogonal-over-separation` category.
+  `:undeclared-arity` category.
   [integrity.md](docs/integrity.md#the-ontology-engineering-smells).
 
   *Class:* **Additive**.
@@ -724,6 +915,67 @@ it — `git show v0.16.0:CHANGELOG.md`.
 - **CxCore types every position of `termsRelated` with one `(args termsRelated thing)`.**
   The declaration replaces `arg` declarations for positions 1 and 2, which left the
   variable-arity tail untyped, so `:missing-arg` no longer reports `termsRelated`.
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a stored rule that a declaration the engine implements
+  states.** `(implies (and (empty ?c) (genl ?d ?c)) (empty ?d))` concludes what
+  `(transitiveInArg empty 1 genl)` concludes. The sweep adds an eleventh sparse category,
+  `:rule-macro`, with one `{:rule h :sentence S :context C :macro M :declaration D}` per
+  believed premise rule visible from the audit context and declaration shape the rule
+  matches, for `transitiveInArg`, `transitiveInArgInverse`, `symmetric`, `transitive`,
+  `commutativeInArgs`, `inverse` (a pair of rules), `genl`, `predAllInstance` and
+  `predInstanceAll`. The match unifies the shape with the rule's variables renamed apart,
+  and each free argument takes a distinct rule variable. A relation mark is suggested
+  only for a rule CxUniverse sees, a preservation only along a relation the rule's
+  context reads as transitive, `genl` never for a consequent the engine interprets, and
+  a generator shape only for a `set/defaultRule`, the class the generators stamp; a
+  default rule of a monotonic shape is the `:default-shaped` finding below. `:stated true` marks a rule whose context already sees the declaration. The
+  pass reads the stored rules, not the candidate terms. Findings count against
+  `:max-results` after the `:implicit-genl` category and are kept on truncation.
+  [integrity.md](docs/integrity.md#what-a-rule-macro-finding-means).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a `genl` node with no declared arity.** Every type is a unary
+  predicate, but nothing on the write path reports a term at an end of a `genl` edge that
+  states no arity, and a rule guarded on `(unary ?t)` skips such a term. The sweep adds a
+  twelfth sparse category, `:undeclared-arity`, with one `{:term X}` per node of a `genl`
+  edge the audit context sees for which that context sees no arity `kb/relation-arity`
+  reads (an `(arity X n)` declaration or an exact-arity class membership such as
+  `unary_predicate`) and no `variable_arity` membership, in print order. The pass reads
+  the visible `genl` edges, not the candidate terms. Findings count against
+  `:max-results` after the `:rule-macro` category and are kept on truncation.
+  [integrity.md](docs/integrity.md#what-an-undeclared-arity-finding-means).
+
+  *Class:* **Additive**.
+
+- **CxCore declares an arity for each of the 42 types it places under `thing`.** A KB that
+  loads CxCore alone read no arity for `thing`, the value kinds (`string`, `integer`, …),
+  the skeleton collections (`tangible`, `spatial`, `context`, …), `expression`,
+  `unrepresented_term`, the expression kinds (`formula`, `sentence`, …),
+  `indeterminate_term`, `relation`, `predicate`,
+  `truth_valued_relation`, `logical_constant`, `unary_predicate`, `function` and
+  `ternary_predicate`, so `kb-integrity` reported each under `:undeclared-arity`. The
+  first-order kinds are declared `unary_predicate`; `function`, `logical_constant` and
+  `ternary_predicate` are declared `type`, as `binary_predicate` is; and `thing`,
+  `relation`, `predicate`, `truth_valued_relation` and `unary_predicate`, which hold types
+  and individuals alike, are declared `variable_order_type`. Each order class is a
+  specialization of `unary_predicate`, so `kb/relation-arity` reads arity one for all 42.
+  [integrity.md](docs/integrity.md#what-an-undeclared-arity-finding-means).
+
+  *Class:* **Additive**.
+
+- **`kb-integrity` reports a `set/defaultRule` of a monotonic declaration's shape, and
+  `declined_rule_macro` records a reviewed suggestion.** A default rule shaped as `genl`,
+  `transitiveInArg` or another monotonic declaration is a `:rule-macro` finding with
+  `:default-shaped true`, unless the KB holds a claim the default yields to: a believed
+  `(not (Q …))` in a context that sees the rule's, or a rule concluding one, for `Q` the
+  rule's consequent predicate or a `genl` of it. A default with an `exceptWhen` is not
+  read, as before. CxCore adds `(declined_rule_macro D)`, which quotes a suggested
+  declaration `D`; the pass does not report a suggestion the rule's context sees declined,
+  and the record survives `export-text!` and `load-text!`.
+  [integrity.md](docs/integrity.md#what-a-rule-macro-finding-means).
 
   *Class:* **Additive**.
 

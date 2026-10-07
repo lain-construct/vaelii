@@ -158,10 +158,13 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; predicate genl edge whose spec declares an arg type its
                                                 ; genl's constraint does not subsume, every candidate
                                                 ; term declared unary_predicate with no genl path to
-                                                ; thing, and a suggested (genl X P) for every candidate
+                                                ; thing, a suggested (genl X P) for every candidate
                                                 ; type a visible cover forces under P that the closure
-                                                ; misses, and every visible (orthogonal a b) a stated
-                                                ; separation of the pair is lifted by, plus three
+                                                ; misses, every visible (orthogonal a b) a stated
+                                                ; separation of the pair is lifted by, the suggested
+                                                ; declaration for every stored rule that a declaration the
+                                                ; engine implements states, every genl node with no
+                                                ; declared arity, plus three
                                                 ; review-only smells: sibling types sharing one direct
                                                 ; genl set, stated genl/disjoint edges that derive
                                                 ; without themselves, and disjoint pairs a known cover
@@ -172,7 +175,8 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; categories :all-specified-violations,
                                                 ; :definition-inconsistencies, :genl-arg-widening,
                                                 ; :not-under-thing, :implicit-genl,
-                                                ; :orthogonal-over-separation, :twin-genls,
+                                                ; :orthogonal-over-separation, :rule-macro,
+                                                ; :undeclared-arity, :twin-genls,
                                                 ; :derivable-stated-edge,
                                                 ; :disjoint-could-be-partition and :missing-arg. opts may bound :max-work,
                                                 ; :max-ms and :max-results, and :categories names the
@@ -391,14 +395,15 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; a stated `(orthogonal a b)` reads :orthogonal,
                                                ; `context` is the vantage the declaration and the
                                                ; shared instance are read from (default CxUniverse)
-                                               ; a shared subtype not separated from itself, read
+                                               ; a shared subtype not provably empty, read
                                                ; from the global closures, also reads :orthogonal
 (disjointness-audit kb [context])              ; subsumption-status over every unordered type pair —
                                                ; {:types :pairs :by-status :pairs-data}; the
                                                ; :unknown pairs flag a candidate missing `disjoint`
                                                ; or `orthogonal`; an :orthogonal entry carries
-                                               ; :witness (:declared :shared-instance :shared-spec)
-                                               ; and :via, the instance or subtype found
+                                               ; :witness (:declared :shared-instance :shared-spec
+                                               ; :unwitnessed-spec) and :via, the instance or
+                                               ; subtype found
 ;; the taxonomy, read (thin delegations to vaelii.impl.taxonomy — reads only, since
 ;; edges and metadata are maintained by assert / retract! from the sentexes stating them)
 (genls kb t [context]) / (specs kb t [context])         ; genl up/down closure (scoped with a context)
@@ -1246,7 +1251,7 @@ exactly one — the unmarked are those whose two ends sit at different levels, o
 level at all (`implies` is a connective; `rewriteOf` takes either role so long as its two
 sides agree; `result` and `genlResult` relate a function to a type;
 `functionCorrespondingPredicate` relates a function to a predicate; `hasCapability`
-relates one animal to a capability kind). The mark is not decoration: it decides which
+relates one animal to an event kind). The mark is not decoration: it decides which
 argument-check family the predicate may use, one for **every** position, which is why a
 mixed predicate cannot carry one — `arg` on a `type_relation_predicate` and `genlArg` on
 an `instance_relation_predicate` are both refused `:arg-constraint-kind`. The distinction is

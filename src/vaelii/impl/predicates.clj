@@ -1083,7 +1083,7 @@
            [non_atomic_term "documentary: a function applied to terms — the NAT of docs/nat.md, named as a collection. Reification reads the declaration on the function, never this."]])
 
     ;; ---- the upper-ontology skeleton -------------------------------------
-    ;; The seven collections CxCore holds so that a spindle member can place its own types
+    ;; The six collections CxCore holds so that a spindle member can place its own types
     ;; under the root.  A spindle's members see the head and not each other, so a skeleton
     ;; term defined in one member is invisible to the member extending it — which left
     ;; `animal` unable to reach `thing` from CxOrganism, where it is defined.
@@ -1098,8 +1098,7 @@
            [spatiotemporal "ontology, not grammar: something with a location in space and time. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [tangible "ontology, not grammar: something with mass, and so with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [organism "ontology, not grammar: something alive in its own right. CxCore holds it so CxOrganism's kinds reach the root from CxOrganism; no engine check names it."]
-           [biological "ontology, not grammar: a tangible that is an organism or part of one. CxCore holds it so organism reaches tangible through it from CxOrganism and body_part from CxAbstract; no engine check names it."]
-           [capability "ontology, not grammar: something a kind of thing can do. CxCore holds it so CxLife can extend it; no engine check names it."]])
+           [biological "ontology, not grammar: a tangible that is an organism or part of one. CxCore holds it so organism reaches tangible through it from CxOrganism and body_part from CxAbstract; no engine check names it."]])
 
     ;; ---- the space/time complements, nowhere_never, and the metatype ladder ----
     ;; CxCore comments these too, beside their genl edges, so `vocabulary/audit` answers
@@ -1120,6 +1119,14 @@
            [fixed_order_type "ontology, not grammar: a type whose members are all of one order, on the metatype-order ladder. No engine check names it."]
            [variable_order_type "ontology, not grammar: a type holding members of any order, on the metatype-order ladder. No engine check names it."]
            [type_type_by_order "ontology, not grammar: the disjoint_metatype partitioning fixed_order_type by order. No engine check names it."]])
+
+    ;; ---- the two halves of unary_predicate ---------------------------------
+    ;; `empty` and `nonempty` partition `unary_predicate`.  The disjointness audit reads
+    ;; both by name to decide whether a shared subtype witnesses an overlap.
+    [['empty    (enforced (collection :notes "a unary predicate with no instance in the context the claim is stated in.")
+                          "core/subsumption-reading — a shared subtype for which a facts-only read answers (empty c) is no overlap witness")]
+     ['nonempty (enforced (collection :notes "a unary predicate with at least one instance in the context the claim is stated in.")
+                          "core/subsumption-reading — a shared subtype for which a facts-only read answers (nonempty c) is the :shared-spec witness")]]
 
     ;; ---- the hierarchy roots and the meta-level targets -------------------
     [['thing     (enforced (collection :notes "the hierarchy root the open-world floors test against by name.")
@@ -1446,6 +1453,16 @@
              (str "a documentation 'see also' cross-reference between two terms; read like"
                   " comment and by nobody for inference. Directional — (seeAlso a b)"
                   " does not imply (seeAlso b a); the reverse is a separate assertion."))]
+
+     ;; A reviewer's record that a rule-macro suggestion was read and declined.  It names
+     ;; the suggestion by content rather than the rule by handle, so a text export keeps it.
+     ['declined_rule_macro
+      (enforced {:shape {:args [:term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "an ordinary fact over a quoted declaration, read by one pass of"
+                             " the integrity sweep and by no inference.")}
+                (str "integrity/rule-macro-findings — a rule-macro suggestion the rule's"
+                     " context declines is not reported"))]
 
      ;; The three worked-example annotations name their example sentex by handle.  Each is
      ;; a `target_following_predicate` in CxCore, so retracting the example tears the

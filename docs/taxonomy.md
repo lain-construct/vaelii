@@ -976,7 +976,7 @@ returning `:genl` / `:spec` (one subsumes the other), `:coextensional` (each is 
 the other), `:disjoint` (a declaration, closed under `genl`), `:orthogonal` (a stated
 `(orthogonal a b)`, or, where neither subsumption nor disjointness holds, a shared
 instance the registry answers without rule expansion or a shared subtype that is not
-separated from itself), `:unknown` (none of these is provable), or `:inconsistent` (two
+provably empty), `:unknown` (none of these is provable), or `:inconsistent` (two
 or more hold at once, such as genl-related and disjoint, or a stated `orthogonal` beside
 a `genl` edge or a separation of two supertypes it does not exempt).
 `genl?` reads the global closure. `disjoint?` and the `:orthogonal` witnesses are read
@@ -993,12 +993,22 @@ the separations leave open.
 subtype of both `a` and `b` is a member of both, so a subtype with a member puts one in
 the overlap. An empty type is a subtype of every type, so an empty shared subtype shows
 nothing, and nothing in the KB refuses an empty type
-([below](#and-against-the-variables-of-a-rule)). The one emptiness the engine proves is a
-type below two separated types, which `disjoint?` reports as the type separated from
-itself; a stated `(disjoint c c)` is refused by `wff`. A shared subtype is therefore a
-witness when `(disjoint? kb c c context)` is false, including one with no stated member: the
-reading takes every type the KB does not prove empty to have members. A pair whose only
-shared subtypes are separated from themselves stays `:unknown`.
+([below](#and-against-the-variables-of-a-rule)). The engine proves a type below two
+separated types empty, and `disjoint?` reports such a type as separated from itself; a
+stated `(disjoint c c)` is refused by `wff`. A known `(empty c)` is the other proof of
+emptiness the reading accepts. A shared subtype for which `(disjoint? kb c c context)` is false
+and no `(empty c)` is known shows that the two types can overlap. A pair whose only
+shared subtypes are provably empty stays `:unknown`.
+
+**A shared subtype is a witness only when it is known nonempty.** A known
+`(nonempty c)` makes the shared subtype a `:shared-spec` witness. A claim is known when a
+facts-only query answers it: stated, concluded by a forward rule, or carried along
+`genl` by `(transitiveInArg nonempty 1 genl)` from a nonempty subtype, and
+`(transitiveInArgInverse empty 1 genl)` carries `empty` down the same way. A shared subtype with
+no known `(nonempty c)` still
+reads `:orthogonal`, and the audit marks the pair `:unwitnessed-spec`: the two types can
+overlap, and the KB names no instance in the overlap. Both reads are facts-only, from
+the same `context` as the shared instance.
 
 `disjointness-audit kb` runs the classification over every unordered pair of distinct
 types and returns `{:types :pairs :by-status :pairs-data}`. A relation that a `genl`
@@ -1006,9 +1016,10 @@ edge between relations names, such as `performedBy` under `doneBy`, is a node of
 hierarchy and not a type, so the audit leaves it out. A node is such a relation by an
 arity of two or more, read from `(arity P n)` or an exact-arity class, or by a
 `variable_arity` declaration. An entry whose `:statuses`
-holds `:orthogonal` also carries `:witness` — `:declared`, `:shared-instance` or
-`:shared-spec` — and, for the last two, `:via`, the instance or the subtype found; of
-several shared subtypes it names the one with the most subtypes of its own. A shared
+holds `:orthogonal` also carries `:witness` — `:declared`, `:shared-instance`,
+`:shared-spec` or `:unwitnessed-spec` — and, for the last three, `:via`, the instance or
+the subtype found. Of several shared subtypes it names a nonempty one ahead of the
+others, and among those the one with the most subtypes of its own. A shared
 instance is reported ahead of a shared subtype. The `:unknown` pairs are the candidates
 for a missing `disjoint` or `orthogonal` declaration: no subsumption relates them, no
 declaration separates them, and neither a declaration, a shared instance nor a shared
@@ -1180,8 +1191,8 @@ their intersection. No edge or disjointness relates `intangible` to `spatial`: a
 of space is `spatiotemporal` and `intangible`.
 
 A kind with no location in any space sits below `aspatial`, which separates it from
-`spatial` and from every CxSpace argument. `capability` (CxCore) and
-`fluent`, `organization` and `relation_type` (CxAbstract) are below `aspatial`.
+`spatial` and from every CxSpace argument. `fluent`, `organization` and `relation_type`
+(CxAbstract) are below `aspatial`.
 The `expression` lattice is in CxCore. `expression` is below `nowhere_never`, and
 `context`, `relation`, `formula`, `relation_application`, `denotational_term` and
 `unrepresented_term` are below `expression`. The value kinds `string`, `number`,

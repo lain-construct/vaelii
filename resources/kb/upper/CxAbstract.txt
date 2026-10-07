@@ -1,14 +1,12 @@
 ;; CxAbstract — non-biological upper-ontology types (intangible, physical
-;; objects, substances, artifacts, body parts and their kinds), the
-;; physical-structure relations partOf/locatedIn/madeOf, and the two type-level
-;; relations largerThan/partType. Sees CxCore; CxUniverse sees it, so any
-;; type or relation here is visible from every context.
+;; objects, substances, made things, body parts, events and their kinds), the
+;; physical-structure relations partOf/locatedIn/madeOf, the event relations
+;; doneBy/performedBy and input/output, and the two type-level relations
+;; largerThan/partType. Sees CxCore; CxUniverse sees it, so any type or relation
+;; here is visible from every context.
 
 (genlCx CxAbstract CxCore)
 (genlCx CxUniverse CxAbstract)
-
-(comment artifact "A physical object made by an agent for a purpose.")
-(genl artifact tangible)
 
 (comment body_part "A part an organism grew — a wing, a heart, a leaf. It stays a body part once transplanted into another organism or shed from its own.")
 ;; An organism and a part it grew are both biological and never the same thing; nothing
@@ -18,18 +16,34 @@
 (separating biological organism body_part)
 ;; A leg of lamb or a chicken wing is food and a body part at once.
 (orthogonal food body_part)
-;; An artifact is anything intentionally made, so an engineered bacterium or an organ grown
-;; in a lab is biological and an artifact at once.
-(orthogonal biological artifact)
+;; Something made can be biological too: an engineered bacterium, an organ grown in a lab
+;; and a cloned sheep are biological and made at once.
+(orthogonal biological made)
+;; An orthogonal is not inherited along genl, so each overlapping pair is stated.  A cloned
+;; sheep is a made organism and a wild sheep a natural one.  A lab-grown bladder is a made
+;; body part and a heart a natural one.  Steel, water and sand are a made, a natural and a
+;; formation substance.  Bread, an apple and sea salt are a made, a natural and a
+;; formation food, and an apple is biological food.
+(orthogonal organism made)
+(orthogonal organism natural)
+(orthogonal body_part made)
+(orthogonal body_part natural)
+(orthogonal substance made)
+(orthogonal substance natural)
+(orthogonal substance formation)
+(orthogonal food made)
+(orthogonal food natural)
+(orthogonal food biological)
+(orthogonal food formation)
 
 (comment building "An artifact that is a fixed structure enclosing space.")
 
 
 (comment clothing "An artifact worn on the body.")
-(genl clothing artifact)
+(genl clothing made)
 
 (comment container "An artifact whose function is to hold other objects — a cup, a box, a bag.")
-(genl container artifact)
+(genl container made)
 
 (comment context "A context: the second half of a sentex, and what a sentence holds in.")
 
@@ -45,11 +59,17 @@
 (comment food "A physical object eaten by an animal for nourishment.")
 (genl food tangible)
 
+(comment formation "A natural tangible whose form came from physical processes, neither grown nor made: a rock, a crystal, a river, a star, a dune.")
+(genl formation natural)
+;; Nothing grown is a formation.  The roster also installs (genl formation tangible), and
+;; formation's edge to natural derives the same edge.
+(separating tangible formation biological)
+
 (comment fur "The hair covering a mammal.")
 (genl fur body_part)
 
 (comment furniture "An artifact for use in a room — a chair, a table, a bed.")
-(genl furniture artifact)
+(genl furniture made)
 
 (comment glass_stuff "A hard, brittle, transparent substance.")
 (genl glass_stuff substance)
@@ -86,7 +106,13 @@
 (transitive locatedIn)
 
 (comment machine "An artifact with moving parts that does work under power.")
-(genl machine artifact)
+(genl machine made)
+
+(comment made "A tangible shaped by an agent's action, or by something made: a chair, a widget from a factory machine, steel, sawdust, a footprint, a beaver's dam, a cloned sheep. Contrast natural.")
+;; Every tangible is made or natural, and no tangible is both.  The partition installs
+;; the genl edges from made and from natural to tangible, so neither edge is stated.  A
+;; tangible denied made is concluded natural.
+(partition tangible made natural)
 
 (comment madeOf
          "(madeOf ?object ?substance) means that ?object is made of ?substance. About one particular object and the stuff it is made of, so it is instance-level; what a whole kind is made of is a claim about that kind. Partial rather than exhaustive — a thing may be made of several substances, and saying it is made of one does not deny the others.")
@@ -97,6 +123,11 @@
 
 (comment metal "A hard, dense, conducting substance — iron, copper, gold.")
 (genl metal substance)
+
+(comment natural "A tangible whose form no living thing's action gave it: a wild sheep, a coral reef, a rock, a river, a star. Contrast made.")
+;; A wild sheep is natural and biological.  A cloned sheep is made and biological.  So
+;; biological is orthogonal to made and to natural.
+(orthogonal biological natural)
 
 (comment organization "A group of people acting as one body — a company, a school, a team.")
 ;; An organization has no location in any space; its members and its buildings have one.
@@ -174,13 +205,22 @@
 (comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. One side of the causal/acausal division of thing.")
 (genl causal thing)
 
-(comment acausal "A thing that cannot be a cause: evidence, data, attributes, records. The other side of the causal/acausal division of thing.")
+(comment acausal "A thing that cannot be a cause: a time, a property line, an attribute, the information a record or piece of evidence carries (a reading of it can cause; the information itself causes nothing). The other side of the causal/acausal division of thing.")
 (genl acausal thing)
 
 ;; The causal/acausal division: a thing either can be a cause or cannot, so the two
 ;; sides are disjoint. This also makes causal_event and acausal_event disjoint, by the
 ;; genl closure of disjointness.
 (set/monotonic (disjoint causal acausal))
+
+;; Anything with mass can fill a cause slot: the rock dented the car. tangible is in
+;; CxCore, so the edge lives here beside causal; with the disjointness above it also
+;; keeps every tangible out of acausal.
+(genl tangible causal)
+
+;; A body of people can be a cause too: a company hires; a court rules. organization
+;; is aspatial, and nothing separates aspatial from causal.
+(genl organization causal)
 
 ;; --- causal_event / acausal_event: events by whether they can cause ------------
 ;; defined via intersection (CxCore); its rules derive the genls and membership.
@@ -190,11 +230,87 @@
 (comment acausal_event "An event that is not a cause (an observation or receipt is one): the intersection of acausal and event.")
 (intersection acausal_event acausal event)
 
+;; --- doneBy / performedBy: an event's doer -----------------------------------
+(comment doneBy
+         "(doneBy ?event ?doer) means that ?doer brought about ?event, intentionally or not. The doer can be any thing — a person, an animal, a machine, a process — so the second position is typed thing rather than agent, which names a registered participant rather than something that can act. performedBy is the intentional case.")
+(binary_predicate doneBy)
+(instance_relation_predicate doneBy)
+(arg doneBy 1 event)
+(arg doneBy 2 thing)
+
+(comment performedBy
+         "(performedBy ?event ?doer) means that ?doer intentionally initiated ?event. Specializes doneBy through a genl edge, so every performing is a doing and a doing is not concluded a performing.")
+(binary_predicate performedBy)
+(instance_relation_predicate performedBy)
+(arg performedBy 1 event)
+(arg performedBy 2 thing)
+(genl performedBy doneBy)
+
+;; --- input / output: what went into an event and what it left behind -----------
+;; Each relation takes the event first, as every relation over an event does.  Each states
+;; binary_predicate beside instance_relation_predicate.  The arity check holds out a fact
+;; of the wrong length only where binary_predicate is stated, and the genl edge from
+;; instance_relation_predicate does not reach that check.  CxChange states when an input
+;; and an output exist relative to their event, because CxChange sees CxTime's point
+;; relations.
+(comment input "(input ?event ?thing) means that ?thing went into ?event: the lettuce in a salad, the ore in smelting, the plank in sawing. An instrument the event used and left unchanged, like the knife or the saw, is not an input. Contrast output.")
+(binary_predicate input)
+(instance_relation_predicate input)
+(arg input 1 event)
+(arg input 2 thing)
+(termsRelated input output)
+
+(comment destroyedInput "(destroyedInput ?event ?thing) means that ?thing went into ?event and ceased to exist there: the ore in smelting, the plank in sawing, the egg in an omelet. The lettuce in a salad is an input but not a destroyed one.")
+(binary_predicate destroyedInput)
+(instance_relation_predicate destroyedInput)
+(arg destroyedInput 1 event)
+(arg destroyedInput 2 thing)
+(genl destroyedInput input)
+
+(comment preservedInput "(preservedInput ?event ?thing) means that ?thing went into ?event and still exists when ?event ends: the lettuce in a salad, the thread in a woven cloth.")
+(binary_predicate preservedInput)
+(instance_relation_predicate preservedInput)
+(arg preservedInput 1 event)
+(arg preservedInput 2 thing)
+(genl preservedInput input)
+;; No thing is both a destroyed and a preserved input of one event.  The KB does not
+;; state the disjointness, because a separation over two relations constrains no tuple.
+
+(comment output
+         "(output ?event ?thing) means that ?event gave ?thing the form or content it has, as something it left behind: a chair from its making, sawdust from sawing, a footprint from a step, a file from a program run. Whether that was the point of the event does not matter.")
+(binary_predicate output)
+(instance_relation_predicate output)
+(arg output 1 event)
+(arg output 2 thing)
+
+(comment tangibleOutput
+         "(tangibleOutput ?event ?thing) means that ?thing is a tangible output of ?event: a chair from its making, steel from smelting, sawdust from sawing, a footprint from a step.")
+(binary_predicate tangibleOutput)
+(instance_relation_predicate tangibleOutput)
+(arg tangibleOutput 1 event)
+(arg tangibleOutput 2 tangible)
+(genl tangibleOutput output)
+
+(comment intangibleOutput
+         "(intangibleOutput ?event ?thing) means that ?thing is an intangible output of ?event: a file from a program run, a receipt from a tool call, a recorded measurement from an observation.")
+(binary_predicate intangibleOutput)
+(instance_relation_predicate intangibleOutput)
+(arg intangibleOutput 1 event)
+(arg intangibleOutput 2 intangible)
+(genl intangibleOutput output)
+
+;; A tangible output of an intentionally initiated event is made.  Growth is never
+;; intentionally initiated, so a calf is not made by its mother.
+(set/forwardRule (implies (and (tangibleOutput ?e ?x) (performedBy ?e ?d)) (made ?x)))
+;; A tangible output of an event a made thing did is made: a widget a factory machine
+;; stamped is made.
+(set/forwardRule (implies (and (tangibleOutput ?e ?x) (doneBy ?e ?d) (made ?d)) (made ?x)))
+
 (comment tool "An artifact used to perform work.")
-(genl tool artifact)
+(genl tool made)
 
 (comment vehicle "An artifact for transporting people or goods.")
-(genl vehicle artifact)
+(genl vehicle made)
 
 (comment wing "A body part a bird or an insect flies with.")
 (genl wing body_part)
@@ -224,7 +340,6 @@
 (set/monotonic (disjoint formula relation))
 (set/monotonic (disjoint liquid stone))
 (set/monotonic (disjoint relation context))
-(set/monotonic (disjoint substance artifact))
 (set/monotonic (disjoint_metatype stuff_type_by_state_of_matter))
 (set/monotonic (disjoint_metatype stuff_type_by_substance))
 (metatype stuff_type_by_state_of_matter)

@@ -91,7 +91,7 @@
 (tu/deftest-kb type-inferred-from-how-a-thing-is-used
   ;; Bone1 is never given a type; it is only ever eaten by Muffet. Because
   ;; (arg eats 2 food), we can infer Bone1 is food — and, by genl, a
-  ;; tangible and a thing — without ever storing those memberships.
+  ;; tangible, a causal and a thing — without ever storing those memberships.
   (testing "the type is not stored, only inferable"
     (is (empty? (v/sentexes-matching kb '(food Bone1) '?ctx))))
   (testing "the individual's type follows from the relation's arg"
@@ -99,7 +99,7 @@
     (is (v/ask? kb '(tangible Bone1)))            ; a supertype of food
     (is (not (v/ask? kb '(vehicle Bone1)))))            ; but only what actually follows
   (testing "asking for all of an individual's inferred types"
-    (is (= '#{food tangible spatial spatiotemporal temporal thing}
+    (is (= '#{food tangible causal spatial spatiotemporal temporal thing}
            (set (map #(get % '?t) (v/ask kb '(?t Bone1) '?ctx)))))))
 
 ;; ---- arithmetic, and the ordering derived from it ------------------------
@@ -154,7 +154,7 @@
 ;; ---- defaults, and taking one back --------------------------------------
 
 (tu/deftest-kb a-default-conclusion-feeds-a-further-rule
-  ;; flying ⇒ can travel via the capability hierarchy: (genl flying travelling) +
+  ;; flying ⇒ can travel via the event-kind hierarchy: (genl flying travelling) +
   ;; (transitiveInArg hasCapability 2 genl).  An eagle flies by default, so it
   ;; can travel; a penguin's flight is defeated, so the downstream query returns nothing.
   ;; No stored forward-rule conclusion — the hierarchy answers at retrieval.
