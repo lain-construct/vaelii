@@ -1201,10 +1201,10 @@
       (let [before (state-snapshot kb)
             report (v/kb-integrity kb #{} 'CxUniverse {:categories #{:rule-macro}})]
         (is (= :gap (:status report)))
-        (is (= #{[(v/handle-of kb down 'CxUniverse) 'CxUniverse 'transitiveInArg
-                  (list 'transitiveInArg empty_kind 1 'genl)]
-                 [(v/handle-of kb up 'CxUniverse) 'CxUniverse 'transitiveInArgInverse
-                  (list 'transitiveInArgInverse nonempty_kind 1 'genl)]}
+        (is (= #{[(v/handle-of kb down 'CxUniverse) 'CxUniverse 'transitiveInArgInverse
+                  (list 'transitiveInArgInverse empty_kind 1 'genl)]
+                 [(v/handle-of kb up 'CxUniverse) 'CxUniverse 'transitiveInArg
+                  (list 'transitiveInArg nonempty_kind 1 'genl)]}
                (set (map (juxt :rule :context :macro :declaration) (:rule-macro report)))))
         (is (= 2 (count (:rule-macro report))) "one finding per rule")
         (is (every? #(v/sentexes-matching kb (:sentence %) 'CxUniverse) (:rule-macro report))
@@ -1221,9 +1221,29 @@
     (v/assert kb (list 'implies (list 'and (list needs_care '?w) (list partOfX '?p '?w))
                        (list needs_care '?p))
               'CxUniverse)
-    (is (= #{(list 'transitiveInArgInverse rankedAt 2 partOfX)
-             (list 'transitiveInArg needs_care 1 partOfX)}
+    (is (= #{(list 'transitiveInArg rankedAt 2 partOfX)
+             (list 'transitiveInArgInverse needs_care 1 partOfX)}
            (set (map #(nth % 2) (rule-macros kb)))))))
+
+(tu/deftest-kb a-suggested-preservation-declaration-concludes-what-its-rule-concluded
+  (doseq [[rule-of fact-of goal-of]
+          [[#(list 'implies (list 'and (list % '?c) '(genl ?d ?c)) (list % '?d))
+            (fn [p _ super] (list p super)) (fn [p sub _] (list p sub))]
+           [#(list 'implies (list 'and (list % '?d) '(genl ?d ?c)) (list % '?c))
+            (fn [p sub _] (list p sub)) (fn [p _ super] (list p super))]]]
+    (tu/with-terms [marked_kind sub_kind super_kind]
+      (let [rule (rule-of marked_kind)]
+        (v/assert kb (list 'genl sub_kind super_kind) 'CxUniverse)
+        (v/assert kb (fact-of marked_kind sub_kind super_kind) 'CxUniverse)
+        (v/assert kb (list 'set/forwardRule rule) 'CxUniverse)
+        (let [[decl & more] (map #(nth % 2) (rule-macros kb))
+              goal          (goal-of marked_kind sub_kind super_kind)]
+          (is (nil? more))
+          (is (v/ask? kb goal 'CxUniverse) "the rule concludes the goal")
+          (v/retract! kb (v/handle-of kb rule 'CxUniverse))
+          (is (not (v/ask? kb goal 'CxUniverse)) "with the rule gone nothing concludes it")
+          (v/assert kb decl 'CxUniverse)
+          (is (v/ask? kb goal 'CxUniverse) (str decl " concludes it in the rule's place")))))))
 
 (tu/deftest-kb relation-algebra-rules-are-reported-as-their-marks
   (tu/with-terms [likesX partX betweenX childX parentX]
@@ -1402,7 +1422,7 @@
                        (list empty_kind '?d))
               CxTheory)
     (is (= [] (rule-macros kb)) "a rule CxUniverse cannot see is not visible from it")
-    (is (= [(list 'transitiveInArg empty_kind 1 'genl)]
+    (is (= [(list 'transitiveInArgInverse empty_kind 1 'genl)]
            (map #(nth % 2) (rule-macros kb CxTheory)))
         "a mark is read from every context, so a theory's own symmetry rule stays a rule;
          a preservation declaration is read where it is stated")))

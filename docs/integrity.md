@@ -333,7 +333,7 @@ Each `orthogonal` row and each pair's separation read spend one work unit, and
 ## What a rule-macro finding means
 
 Several declarations the engine implements state exactly what a hand-written rule
-states. `(transitiveInArg empty 1 genl)` concludes `(empty d)` from `(empty c)` and
+states. `(transitiveInArgInverse empty 1 genl)` concludes `(empty d)` from `(empty c)` and
 `(genl d c)`, so a rule written as
 `(implies (and (empty ?c) (genl ?d ?c)) (empty ?d))` repeats the declaration in a longer
 form. The sweep reads each stored rule and reports every declaration whose rule shape
@@ -347,8 +347,8 @@ the rule matches:
  [{:rule 812
    :sentence (implies (and (empty ?c) (genl ?d ?c)) (empty ?d))
    :context CxUniverse
-   :macro transitiveInArg
-   :declaration (transitiveInArg empty 1 genl)}]}
+   :macro transitiveInArgInverse
+   :declaration (transitiveInArgInverse empty 1 genl)}]}
 ```
 
 `:rule` is the rule's handle and `:sentence` the rule as stored. `:declaration` is the
@@ -367,8 +367,8 @@ shapes, with `?o…` standing for the free arguments of a predicate of arity `n`
 
 | Declaration | Rule shape | Further condition |
 |---|---|---|
-| `(transitiveInArg P i R)` | `(P … ?w …)`, `(R ?o ?w)` ⇒ `(P … ?o …)`, `?w` and `?o` at position `i` | `R` is `genl`, `genlCx` or declared `transitive` from the rule's context, and `R` is not `P` |
-| `(transitiveInArgInverse P i R)` | `(P … ?w …)`, `(R ?w ?o)` ⇒ `(P … ?o …)` | as `transitiveInArg` |
+| `(transitiveInArg P i R)` | `(P … ?w …)`, `(R ?w ?o)` ⇒ `(P … ?o …)`, `?w` and `?o` at position `i` | `R` is `genl`, `genlCx` or declared `transitive` from the rule's context, and `R` is not `P` |
+| `(transitiveInArgInverse P i R)` | `(P … ?w …)`, `(R ?o ?w)` ⇒ `(P … ?o …)` | as `transitiveInArg` |
 | `(symmetric P)` | `(P ?a ?b)` ⇒ `(P ?b ?a)` | `P` declared with arity 2; the rule is visible from CxUniverse |
 | `(transitive P)` | `(P ?a ?w)`, `(P ?w ?b)` ⇒ `(P ?a ?b)` | as `symmetric` |
 | `(commutativeInArgs P i j)` | `(P ?o1 … ?on)` ⇒ the same with positions `i` and `j` exchanged, `n` ≥ 3 | `P` declared with arity `n`; the rule is visible from CxUniverse |

@@ -640,9 +640,10 @@
     (concat
      (for [i      (range n)
            [m inv?] [['transitiveInArg false] ['transitiveInArgInverse true]]]
+       ;; transitiveInArg carries (P … W …) along R's arrow, (R W A); the inverse against it
        {:macro       m
         :antecedent  [(list* '?mP (assoc os i '?w))
-                      (if inv? (list '?mR '?w (nth os i)) (list '?mR (nth os i) '?w))]
+                      (if inv? (list '?mR (nth os i) '?w) (list '?mR '?w (nth os i)))]
         :consequent  (list* '?mP os)
         :meta        '#{?mP ?mR}
         :defeasible  false
