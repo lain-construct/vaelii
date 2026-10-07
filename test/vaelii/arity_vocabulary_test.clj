@@ -210,6 +210,7 @@
     (doseq [[function type] '[[FatherFn unary_function]
                               [MotherFn unary_function]
                               [YearFn unary_function]
+                              [DatetimeFn unary_function]
                               [MonthFn binary_function]
                               [QuantityFn binary_function]
                               [DayFn ternary_function]

@@ -862,7 +862,7 @@ Three mechanisms declare that types share no instance; all are closed under `gen
   one-member nogood wherever a reader reads that
   ([nmtms.md](nmtms.md#declarations-over-related-types)).
 
-  **And it is the `:orthogonal` witness** `subsumption-status` reads
+  **And it is one of the `:orthogonal` witnesses** `subsumption-status` reads
   ([below](#auditing-the-hierarchy-for-missing-disjointness)).
 
 **All three separating mechanisms — `disjoint`, `disjoint_metatype` and `sibling_disjoint` — separate any term, not only individuals.** `checks/checkable-term?`
@@ -974,28 +974,46 @@ halves decide it ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)).
 `subsumption-status kb a b` classifies one type pair against the whole hierarchy at once,
 returning `:genl` / `:spec` (one subsumes the other), `:coextensional` (each is `genl`
 the other), `:disjoint` (a declaration, closed under `genl`), `:orthogonal` (a stated
-`(orthogonal a b)`, or a shared instance the registry answers without rule expansion
-where neither subsumption nor disjointness holds), `:unknown` (none of these is
-provable), or `:inconsistent` (two or more hold at once, such as genl-related and
-disjoint, or a stated `orthogonal` beside a `genl` edge or a separation of two
-supertypes it does not exempt).
-`genl?` reads the global closure. `disjoint?` and the two `:orthogonal` witnesses are
-read from a `context` (default `CxUniverse`), because a read sees only that context and
-its `genlCx` ancestors and an `orthogonal` exempts its pair only where it is seen. The
-witnesses are facts-only queries (`{:max-depth 0}`): for the `(orthogonal a b)`
-declaration in either spelling, and for a member of `a` that is also a member of `b`.
-The declaration stands alone; the shared instance settles only a pair the taxonomy and
+`(orthogonal a b)`, or, where neither subsumption nor disjointness holds, a shared
+instance the registry answers without rule expansion or a shared subtype that is not
+separated from itself), `:unknown` (none of these is provable), or `:inconsistent` (two
+or more hold at once, such as genl-related and disjoint, or a stated `orthogonal` beside
+a `genl` edge or a separation of two supertypes it does not exempt).
+`genl?` reads the global closure. `disjoint?` and the `:orthogonal` witnesses are read
+from a `context` (default `CxUniverse`), because a read sees only that context and its
+`genlCx` ancestors and an `orthogonal` exempts its pair only where it is seen. Two of
+the three witnesses are facts-only queries (`{:max-depth 0}`): for the
+`(orthogonal a b)` declaration in either spelling, and for a member of `a` that is also
+a member of `b`. The third, a type in both `specs` closures, is read from the global
+closures as `genl?` is, and its self-separation from `context`. The declaration stands
+alone; the shared instance and the shared subtype settle only a pair the taxonomy and
 the separations leave open.
+
+**A shared subtype counts only when it is not provably empty.** Every member of a
+subtype of both `a` and `b` is a member of both, so a subtype with a member puts one in
+the overlap. An empty type is a subtype of every type, so an empty shared subtype shows
+nothing, and nothing in the KB refuses an empty type
+([below](#and-against-the-variables-of-a-rule)). The one emptiness the engine proves is a
+type below two separated types, which `disjoint?` reports as the type separated from
+itself; a stated `(disjoint c c)` is refused by `wff`. A shared subtype is therefore a
+witness when `(disjoint? kb c c context)` is false, including one with no stated member: the
+reading takes every type the KB does not prove empty to have members. A pair whose only
+shared subtypes are separated from themselves stays `:unknown`.
 
 `disjointness-audit kb` runs the classification over every unordered pair of distinct
 types and returns `{:types :pairs :by-status :pairs-data}`. A relation that a `genl`
 edge between relations names, such as `performedBy` under `doneBy`, is a node of the
 hierarchy and not a type, so the audit leaves it out. A node is such a relation by an
 arity of two or more, read from `(arity P n)` or an exact-arity class, or by a
-`variable_arity` declaration. The `:unknown` pairs are the
-candidates for a missing `disjoint` or `orthogonal` declaration: no subsumption relates
-them, no declaration separates them, and neither a declaration nor a shared instance
-shows they can overlap — so the modeller decides which they are. The audit reads only, and writes nothing.
+`variable_arity` declaration. An entry whose `:statuses`
+holds `:orthogonal` also carries `:witness` — `:declared`, `:shared-instance` or
+`:shared-spec` — and, for the last two, `:via`, the instance or the subtype found; of
+several shared subtypes it names the one with the most subtypes of its own. A shared
+instance is reported ahead of a shared subtype. The `:unknown` pairs are the candidates
+for a missing `disjoint` or `orthogonal` declaration: no subsumption relates them, no
+declaration separates them, and neither a declaration, a shared instance nor a shared
+subtype shows they can overlap — so the modeller decides which they are. The audit reads
+only, and writes nothing.
 
 ### What a declaration reaches back over
 
@@ -1162,7 +1180,7 @@ their intersection. No edge or disjointness relates `intangible` to `spatial`: a
 of space is `spatiotemporal` and `intangible`.
 
 A kind with no location in any space sits below `aspatial`, which separates it from
-`spatial` and from every CxSpace argument. `capability` (CxCore) and `attribute`,
+`spatial` and from every CxSpace argument. `capability` (CxCore) and
 `fluent`, `organization` and `relation_type` (CxAbstract) are below `aspatial`.
 `context` and `language` are below `nowhere_never` in CxCore, so a spindle member that
 does not see CxAbstract's `expression` lattice reads both as disjoint from `spatial`.

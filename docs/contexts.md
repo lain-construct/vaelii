@@ -88,7 +88,7 @@ Data hangs below CxWell.
   true, like `genl`. One context per domain (`vaelii.host.starter`), each seeing CxCore
   and seen by CxUniverse:
   - `CxAbstract` — the kinds hanging off the skeleton CxCore holds (`artifact`,
-    `attribute`, `food`, `substance`, `body_part`, `fluent`, `context`, …) plus the
+    `food`, `substance`, `body_part`, `fluent`, `context`, …) plus the
     structural relations `partOf`/`locatedIn`.
   - `CxOrganism` — the biological taxonomy and its disjointness.
   - `CxLife` — the organism relations (`parentOf`, `siblingOf`, `flies`, `mortal`,
@@ -116,9 +116,10 @@ Data hangs below CxWell.
   every upper member and is seen by every middle member. It also holds hand-authored
   cross-member axioms in `resources/kb/CxUniverse.txt`: a claim naming terms from two
   upper members belongs here, since no member sees a sibling and only the collector
-  sees both. It states none today — `organization` and `animal`, the pair it once
-  separated, are already separated by `(partition thing tangible intangible)` in
-  CxCore. Being the one context
+  sees both. Its one claim today is `(termsRelated time_interval Duration)`, which
+  names CxAbstract's time_interval beside CxMeasure's dimension; `organization` and
+  `animal`, the pair it once separated, are already separated by `(partition thing
+  tangible intangible)` in CxCore. Being the one context
   that sees the whole upper spindle is what makes it the head of the next.
 - **the middle spindle's members** (`kb/middle/`) — how the definitional things *interrelate*,
   where several overlapping theories can coexist. One context per theory, each seeing

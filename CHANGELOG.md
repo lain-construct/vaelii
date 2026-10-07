@@ -97,6 +97,30 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **`time` is a moment or a stretch of time as such, and `time_interval` is the
+  stretch.** A date is no cause: the year 2000 broke nothing, two-digit years did, at the
+  rollover. CxAbstract declares `time`, a time as in "at that time", with
+  `(genl time temporal)`, `(genl time aspatial)` and `(genl time acausal)`, and
+  `(partition time time_point time_interval)`, so a moment and a stretch are each
+  temporal, aspatial and acausal and never each other; `(disjoint time situation)` keeps
+  a time apart from what happens in it. CxUniverse states
+  `(termsRelated time_interval Duration)`, since `Duration` is CxMeasure's.
+  `(genl time_point temporal)` is removed, since the partition derives it.
+  `YearFn`, `MonthFn` and `DayFn` declare `(result … time_interval)` where they declared
+  `temporal`, so a calendar term is admitted where an argument wants `acausal` or
+  `aspatial`, as is a `StartFn` moment. CxTime declares `DatetimeFn`, the ISO-string
+  spelling of a calendar interval, a `unary_function` with `(arg DatetimeFn 1 string)`
+  and `(result DatetimeFn time_interval)`. `ontology_test` pins the edges, the
+  disjointness and the calendar readings.
+  [time.md](docs/time.md)
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that read `(result YearFn temporal)`, `(result MonthFn temporal)` or
+  `(result DayFn temporal)` as stated reads `time_interval` instead; `temporal` still
+  derives through `time`. A KB that relied on `(genl time_point temporal)` being stated
+  reads it from `genl?`.
+
 - **`kb-integrity` runs a bounded, read-only integrity sweep in a context.** Over a finite
   set of ground candidate terms it reports the definition clashes a candidate meets (a
   passing `defnSufficient` beside a failing own `defnNecessary`), and it reports every
@@ -181,8 +205,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   so that a region can be spatiotemporal and intangible at once. `nowhere_never` is in
   no space and at no time — an expression, a language — defined as the intersection of
   `aspatial` and `atemporal`; what has no location in space, or none in time, has no
-  mass, so `aspatial` and `atemporal` are both below `intangible`. `attribute`,
-  `capability`, `fluent`, `organization` and `relation_type` are below `aspatial`, and
+  mass, so `aspatial` and `atemporal` are both below `intangible`. `capability`,
+  `fluent`, `organization` and `relation_type` are below `aspatial`, and
   CxCore places `context` and `language` below `nowhere_never`, so each stays disjoint
   from `spatial` and `spatiotemporal` in every context that sees the kind's placement.
   Every stated `genl` or `disjoint` that a partition, an intersection, a `genl` chain, a
@@ -279,6 +303,65 @@ it — `git show v0.16.0:CHANGELOG.md`.
   shipped `orthogonal` is seen.
   *Breaks:* `(disjoint organism artifact)`
 
+- **CxCore partitions `function` and `unary_predicate` and defines
+  `equivalence_relation` as an intersection.** `(partition function reifiable_function
+  unreifiable_function)` separates the two minting marks, which nothing separated
+  before, and installs their edges to `function`. `(partition unary_predicate
+  fixed_order_type variable_order_type)` separates the two order kinds and installs
+  their edges to `unary_predicate`, so a metatype is never of variable order.
+  `(intersection equivalence_relation reflexive symmetric transitive)` concludes
+  `(equivalence_relation P)` of a predicate carrying all three marks and places
+  `equivalence_relation` below each of them, so its stated edge to `binary_predicate` is
+  removed; the three forward rules that materialize the marks stay. `ontology_test`
+  pins each division, the coverage half of `(partition relation function
+  truth_valued_relation)`, and the five removed sentences.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that declared one function both `reifiable_function` and
+  `unreifiable_function` now reads a clash; drop the wrong mark.
+
+- **A situation is static or an event.** CxUniverse states `(partition situation
+  static_situation event)`, which adds coverage to the separation CxAbstract states, so
+  a situation denied being an event is concluded a `static_situation`. `ontology_test`
+  pins the coverage.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none.
+
+- **The organisms carry a folk taxonomy: `vertebrate` and `invertebrate`, three class
+  metatypes under `folk_biological_class`, and `folk_species`.** CxUniverse states
+  `(partition animal vertebrate invertebrate)` and places the five vertebrate classes
+  and `insect` and `arachnid` below the two parts. `invertebrate_class` and
+  `plant_class` are `disjoint_metatype`s beside the shipped `vertebrate_class`, and
+  `(separating folk_biological_class vertebrate_class invertebrate_class plant_class)`
+  keeps the three apart. `folk_species` is a `disjoint_metatype` over the 27 shipped
+  species, so no organism is of two species, and is disjoint from
+  `folk_biological_class`. Both new metatypes are below `type`, since each member is a
+  first-order type. The disjointness audit's unknown pairs among the types below
+  `organism` fall from 514 to 280, and the 248 among the kinds fall to 0: `grass` is a
+  `plant_class` beside `tree` and `flower`. Each of the 280 pairs one of the seven
+  biology properties placed under `organism` and `animal` (`alive`, `asleep`, …) with
+  another type. `ontology_test` pins the separations, the coverage half and that no
+  pair of kinds below `organism` is left unknown.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that stated one organism of two shipped species, or an insect that is
+  a mammal, now reads a clash.
+
+- **`folk_species` is on the forced-monotonic roster.** CxUniverse declares
+  `(forced_monotonic_predicate folk_species)`: a species membership is definitional, so
+  it is held `:monotonic` whatever strength it was written at and a denial of one is held
+  OUT, and a rule concluding a roster literal such as `orthogonal` from
+  `(folk_species ?s)` alone is a roster rule rather than a `:forced-conclusion`.
+  [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none; a denial of a shipped species membership no longer moves belief.
+
 - **Fifteen shipped unary predicates gain a `genl` path to `thing`.** The `kb-integrity`
   `:not-under-thing` sweep reported each from CxWell. In CxCore,
   `abducible_predicate`, `closed_extent_predicate`, `decontextualized_predicate`,
@@ -318,6 +401,37 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
+
+- **CxAbstract does not declare `attribute`.** The shipped KB has no type for a
+  property an object bears, such as a color or a size, and no shipped sentence names
+  `attribute`. The starter's disjointness audit reads 166 types and 13,695 pairs, 3,598
+  of them `:unknown`. `ontology_test` pins the aspatial-kind clash with a `fluent`, and
+  `starter_test` lists the documented types without `attribute`.
+  [taxonomy.md](docs/taxonomy.md).
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* no shipped type replaces `attribute`. A KB that wrote `(attribute X)`
+  declares its own type, for example `(genl attribute aspatial)` with a comment, in a
+  context that sees CxAbstract. Without that declaration the membership stores clean but
+  attaches to nothing in the taxonomy, so its instance reaches neither `aspatial` nor
+  `thing`.
+  *Breaks:* `attribute`
+
+- **`subsumption-statuses` reads a shared subtype that is not separated from itself as
+  `:orthogonal`.** A pair neither subsuming the other nor disjoint, with a type below both
+  for which `disjoint?` of the type with itself is false, reads `:orthogonal` with no
+  shared instance stated. A type below two separated types is empty and is no witness, so
+  a pair whose only shared subtypes are empty stays `:unknown`. `disjointness-audit` marks
+  each `:orthogonal` entry with `:witness` (`:declared`, `:shared-instance` or
+  `:shared-spec`) and, for the last two, `:via`, the instance or the subtype found. On the
+  starter KB, 18 of 13861 pairs move from `:unknown` to `:orthogonal`, among them
+  `spatial` and `temporal` through `spatiotemporal`, and `injection` and `surjection`
+  through `bijection`.
+  [taxonomy.md](docs/taxonomy.md#auditing-the-hierarchy-for-missing-disjointness).
+
+  *Class:* **Additive** (an `:unknown` pair gains a status, and audit entries gain two
+  keys).
 
 ### Fixes: answers
 
