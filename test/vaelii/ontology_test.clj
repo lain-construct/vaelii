@@ -365,13 +365,12 @@
   ;; or above the collector that sees both.
   ;;
   ;; Read off the text files the starter actually loads — `CxCore.txt`, `upper/`, `middle/`
-  ;; (`vaelii.host.starter`) — because the claim is about what those contexts *write*, not
-  ;; what the engine derives or the starter publishes (`(unary_predicate T)` is asserted into
-  ;; CxCore for every subtype of `thing`, and the arity rules conclude from those in CxCore
-  ;; too; both are deliberate).  A top-level `CxUniverse.txt` is NOT among the loaded files,
-  ;; so a relating claim placed there would not be read at all — a separate defect this test
-  ;; is not the guard for.  The loaded KB still answers rooting, since `v/genl?` scoped to a
-  ;; context is the exact visibility the write side checks against.
+  ;; and the collector `CxUniverse.txt` (`vaelii.host.starter`) — because the claim is about
+  ;; what those contexts *write*, not what the engine derives or the starter publishes
+  ;; (`(unary_predicate T)` is asserted into CxCore for every subtype of `thing`, and the
+  ;; arity rules conclude from those in CxCore too; both are deliberate).  The loaded KB
+  ;; still answers rooting, since `v/genl?` scoped to a context is the exact visibility the
+  ;; write side checks against.
   (let [anywhere (fn [t]   (v/genl? kb t 'thing))          ; reaches the root from some context
         rooted?  (fn [t c] (v/genl? kb t 'thing c))        ; reaches it from context c
         up       (memoize (fn [c] (set (v/context-up kb c))))
@@ -385,9 +384,9 @@
                       [(nth form 2) (nth form 1)]
                       [form fctx]))
         names    (fn [sentence] (distinct (filter symbol? (tree-seq seq? seq sentence))))
-        files    (cons (io/file "resources/kb/CxCore.txt")
-                       (filter text/kb-file? (mapcat #(file-seq (io/file (str "resources/kb/" %)))
-                                                     ["upper" "middle"])))
+        files    (list* (io/file "resources/kb/CxCore.txt") (io/file "resources/kb/CxUniverse.txt")
+                        (filter text/kb-file? (mapcat #(file-seq (io/file (str "resources/kb/" %)))
+                                                      ["upper" "middle"])))
         forms    (->> files
                       (mapcat (fn [f] (let [c (text/context-of f)]
                                         (map #(vector % c) (text/read-forms f)))))
@@ -964,7 +963,12 @@
     [disjoint metal stone CxAbstract "disjoint_metatype stuff_type_by_substance"]
     [disjoint metal wood CxAbstract "disjoint_metatype stuff_type_by_substance"]
     [disjoint wood glass_stuff CxAbstract "disjoint_metatype stuff_type_by_substance"]
-    [disjoint wood stone CxAbstract "disjoint_metatype stuff_type_by_substance"]])
+    [disjoint wood stone CxAbstract "disjoint_metatype stuff_type_by_substance"]
+    [genl reifiable_function function CxCore "partition function reifiable_function unreifiable_function"]
+    [genl unreifiable_function function CxCore "partition function reifiable_function unreifiable_function"]
+    [genl fixed_order_type unary_predicate CxCore "partition unary_predicate fixed_order_type variable_order_type"]
+    [genl variable_order_type unary_predicate CxCore "partition unary_predicate fixed_order_type variable_order_type"]
+    [genl equivalence_relation binary_predicate CxCore "intersection equivalence_relation reflexive symmetric transitive; reflexive genl binary_predicate"]])
 
 (tu/deftest-kb the-kb-states-no-relation-it-already-derives
   ;; Each relation is read from the context that held the removed sentence, so a removal
@@ -1100,3 +1104,136 @@
     (is (true? (v/disjoint? kb 'organism 'substance)))
     (is (true? (v/disjoint? kb 'body_part 'substance)))))
 
+;; ---- the relation vocabulary: what divides a relation ---------------------
+;; A relation is a function or a truth_valued_relation, a function is reifiable or not,
+;; and a unary_predicate is of one fixed order or of variable order.  Each is a partition, so
+;; the parts are separated and cover their whole: a member denied every part but one is
+;; concluded the last.
+
+(tu/deftest-kb a-relation-that-is-not-truth-valued-is-a-function
+  ;; The coverage half of (partition relation function truth_valued_relation);
+  ;; three-partitions-divide-relation pins the separation half.
+  (tu/with-terms [relatesTo]
+    (v/assert kb (list 'relation relatesTo) 'CxUniverse)
+    (v/assert kb (list 'not (list 'truth_valued_relation relatesTo)) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'function relatesTo) 'CxUniverse)))))
+
+(tu/deftest-kb reifiable-and-unreifiable-partition-function
+  (is (true? (v/disjoint? kb 'reifiable_function 'unreifiable_function 'CxCore)))
+  (is (true? (v/genl? kb 'reifiable_function 'function 'CxCore)))
+  (is (true? (v/genl? kb 'unreifiable_function 'function 'CxCore)))
+  (testing "the separation is not quoting_function's: that mark crosses both parts"
+    (is (not (v/disjoint? kb 'quoting_function 'reifiable_function)))
+    (is (not (v/disjoint? kb 'quoting_function 'unreifiable_function)))))
+
+(tu/deftest-kb fixed-and-variable-order-partition-unary-predicate
+  (is (true? (v/disjoint? kb 'fixed_order_type 'variable_order_type 'CxCore)))
+  (is (true? (v/genl? kb 'fixed_order_type 'unary_predicate 'CxCore)))
+  (is (true? (v/genl? kb 'variable_order_type 'unary_predicate 'CxCore)))
+  (testing "so a type of one order is never of variable order"
+    (is (true? (v/disjoint? kb 'metatype 'variable_order_type 'CxCore)))))
+
+(tu/deftest-kb an-equivalence-relation-is-the-intersection-of-its-three-marks
+  (is (true? (v/genl? kb 'equivalence_relation 'reflexive 'CxCore)))
+  (is (true? (v/genl? kb 'equivalence_relation 'symmetric 'CxCore)))
+  (is (true? (v/genl? kb 'equivalence_relation 'transitive 'CxCore)))
+  (testing "a predicate carrying all three marks is concluded an equivalence_relation"
+    (tu/with-terms [sameShadeAs]
+      (doseq [m '[reflexive symmetric transitive]]
+        (v/assert kb (list m sameShadeAs) 'CxUniverse))
+      (is (true? (v/ask? kb (list 'equivalence_relation sameShadeAs) 'CxUniverse)))))
+  (testing "and one carrying two of them is not"
+    (tu/with-terms [nearTo]
+      (v/assert kb (list 'reflexive nearTo) 'CxUniverse)
+      (v/assert kb (list 'symmetric nearTo) 'CxUniverse)
+      (is (not (v/ask? kb (list 'equivalence_relation nearTo) 'CxUniverse))))))
+
+;; ---- situations: change divides them ---------------------------------------
+
+(tu/deftest-kb static-situations-and-events-partition-situation
+  (is (true? (v/disjoint? kb 'static_situation 'event)))
+  (testing "a situation that is not an event is a static_situation — the coverage half"
+    (tu/with-terms [Drought]
+      (v/assert kb (list 'situation Drought) 'CxUniverse)
+      (v/assert kb (list 'not (list 'event Drought)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'static_situation Drought) 'CxUniverse))))))
+
+;; ---- the folk taxonomy of organisms ----------------------------------------
+;; Species under classes, classes under vertebrate, invertebrate and plant, and a
+;; disjoint_metatype at each level: the separations are consulted, not stated per pair.
+
+(def ^:private folk-species
+  '[ant bee cat cow crow dog duck eagle fox frog grasshopper hare horse human lion mouse
+    oak owl penguin rabbit rose sheep snake sparrow spider tortoise wolf])
+
+(tu/deftest-kb vertebrates-and-invertebrates-partition-animal
+  (is (true? (v/disjoint? kb 'vertebrate 'invertebrate)))
+  (doseq [c '[amphibian bird fish mammal reptile]]
+    (is (true? (v/genl? kb c 'vertebrate)) (str c " has a backbone")))
+  (doseq [c '[arachnid insect]]
+    (is (true? (v/genl? kb c 'invertebrate)) (str c " has none")))
+  (is (true? (v/disjoint? kb 'insect 'mammal)) "so an insect is never a mammal")
+  (is (true? (v/disjoint? kb 'spider 'owl)) "and the separation reaches the species")
+  (testing "an animal denied a backbone is an invertebrate — the coverage half"
+    (tu/with-terms [Limpet]
+      (v/assert kb (list 'animal Limpet) 'CxUniverse)
+      (v/assert kb (list 'not (list 'vertebrate Limpet)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'invertebrate Limpet) 'CxUniverse))))))
+
+(tu/deftest-kb the-folk-classes-separate-their-kinds
+  (is (true? (v/disjoint? kb 'tree 'flower)) "plant_class separates the plant classes")
+  (is (true? (v/disjoint? kb 'oak 'rose)) "and the kinds below them")
+  (is (true? (v/disjoint? kb 'insect 'arachnid)) "invertebrate_class separates its classes")
+  (doseq [m '[vertebrate_class invertebrate_class plant_class]]
+    (is (true? (v/genl? kb m 'folk_biological_class)) (str m " is a folk_biological_class")))
+  (is (true? (v/disjoint? kb 'vertebrate_class 'plant_class))
+      "and no class is of two of them"))
+
+(tu/deftest-kb no-organism-is-of-two-folk-species
+  (is (true? (v/disjoint? kb 'cat 'cow)))
+  (is (true? (v/disjoint? kb 'crow 'owl)))
+  (is (true? (v/disjoint? kb 'human 'horse)))
+  (is (true? (v/disjoint? kb 'folk_biological_class 'folk_species))
+      "and a species is never a class")
+  (tu/with-terms [Bessie]
+    (v/assert kb (list 'cow Bessie) 'CxUniverse)
+    (is (true? (tu/stored-in-clash? kb (list 'horse Bessie) 'CxUniverse)))))
+
+(tu/deftest-kb the-folk-taxonomy-settles-every-pair-of-organism-kinds
+  ;; Every pair of the kinds below organism is subsumption-related or separated.  grass is
+  ;; a plant_class beside tree and flower, so it is apart from each and from oak and rose.
+  ;; The seven biology properties CxUniverse places under organism and animal are states
+  ;; and capacities of an organism rather than kinds of one, so they are left out: each
+  ;; crosses the folk taxonomy, and its pairs with it stay unknown.
+  (let [props   '#{alive dead mortal asleep awake breathes_air warm_blooded}
+        org     (set (remove props (filter #(v/genl? kb % 'organism) (v/types kb))))
+        unknown (for [{:keys [a b status]} (:pairs-data (v/disjointness-audit kb))
+                      :when (and (org a) (org b) (= :unknown status))]
+                  (set [a b]))]
+    (is (every? org folk-species) "every species is an organism")
+    (is (true? (v/disjoint? kb 'grass 'oak)) "grass is not a tree, so not an oak")
+    (is (= [] (vec unknown)))))
+
+;; ---- folk_species is on the forced-monotonic roster ------------------------
+;; A species membership is definitional, so it is held :monotonic and a rule concluding a
+;; roster literal from it alone fires as a roster rule.
+
+(tu/deftest-kb a-folk-species-membership-is-held-monotonic
+  (is (= :monotonic (v/defeat-class kb (v/handle-of kb '(folk_species dog) 'CxUniverse))))
+  (testing "a denial of one is held OUT"
+    (let [d (v/assert kb '(not (folk_species dog)) 'CxUniverse)]
+      (is (not (v/in? kb d)))
+      (is (true? (v/ask? kb '(folk_species dog) 'CxUniverse))))))
+
+(tu/deftest-kb a-rule-from-folk-species-to-orthogonal-is-a-roster-rule
+  ;; A rule that declares every species orthogonal to a kind of tangible thing:
+  ;; its one antecedent is a roster literal, so its firings are believed rather than held
+  ;; void and reported as a :forced-conclusion.
+  (tu/with-terms [tended]
+    (v/assert kb (list 'genl tended 'tangible) 'CxUniverse)
+    (v/assert kb (list 'set/forwardRule
+                       (list 'implies '(folk_species ?s) (list 'orthogonal '?s tended)))
+              'CxUniverse)
+    (is (true? (v/ask? kb (list 'orthogonal 'dog tended) 'CxUniverse)))
+    (is (= :orthogonal (v/subsumption-status kb 'dog tended)))
+    (is (not-any? #(= :forced-conclusion (:violation %)) (v/violations kb)))))

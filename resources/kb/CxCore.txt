@@ -992,13 +992,16 @@
          "(reifiable_function ?function) means that ?function denotes an object. A ground application of it is a non-atomic term, and reifies to an opaque nat/-namespaced constant before it reaches the index, so it autoindexes like an atomic symbol while every page still renders it as the expression it was minted from. Declare it when the applications are BOUNDED — one value per argument tuple, over a domain that does not run away: (FatherFn Muffet) is one constant per animal, and an AdultFn one per individual. That is the criterion the two marks are chosen by, reification storing a constant per distinct application and keeping it. Also a type: (reifiable_function F) classifies F as a function, so a KB can be queried for the functions it holds. See docs/nat.md.")
 (unary_predicate reifiable_function)
 (arg reifiable_function 1 function)
-(genl reifiable_function function)
 
 (comment unreifiable_function
          "(unreifiable_function ?function) means that ?function is evaluated rather than denoting an object. Its application stays structural and is computed by a prover instead of being minted into a constant, so (QuantityFn 5 Meter) keeps its magnitude and its unit readable inside the sentence. The mark to reach for whenever the applications are UNBOUNDED, which is the other half of reifiable_function's criterion: (QuantityFn 5 Meter), (QuantityFn 5.001 Meter) and every magnitude between them run over the reals, and a minted constant apiece is a store nothing bounds. A measure function is the standing example, and is never reifiable however atomic its value reads. Also a type: (unreifiable_function F) classifies F as a function. See docs/nat.md.")
 (unary_predicate unreifiable_function)
 (arg unreifiable_function 1 function)
-(genl unreifiable_function function)
+
+;; A function is evaluated or denotes an object, never both and never neither: the two
+;; marks are the two answers to whether an application is minted.  The partition installs
+;; each genl edge to function.  quoting_function is a separate axis and crosses both parts.
+(set/monotonic (partition function reifiable_function unreifiable_function))
 
 (comment quoting_function
          "(quoting_function ?function) means that ?function's arguments are a mention — a term named as syntax rather than used. They are held opaque to identity congruence: an equality merge rewrites them by a rewriteOf spelling rename only, never by a sameAs or equals coreference, so a quoted term does not fold onto its referent's class. Orthogonal to reifiable_function/unreifiable_function, which decide whether the application is minted: Quote is reifiable and quoting, Quasiquote is unreifiable and quoting. Declared before use, like reifiable_function: opacity is applied when a mention is reified and again in the equality congruence, each gated on the mark being present then. So mark ?function quoting before the mentions it governs are asserted and before any identity merge over their referents: a reify or merge processed while the mark is absent — before it is declared, or after it is retracted — is not held opaque and folds the mention onto its referent's class. See docs/nat.md.")
@@ -1329,10 +1332,13 @@
 (genl anti_transitive binary_predicate)
 
 (comment equivalence_relation
-         "(equivalence_relation ?predicate) means that ?predicate is reflexive, symmetric and transitive at once — an equivalence. Declared once, it stands in for the three: forward rules derive (symmetric ?p), (transitive ?p) and (reflexive ?p), each a real mark the engine enforces in turn — the symmetric canonical-order fold, the transitive closure prover, the reflexive prover. A subsumption edge such as (genl equivalence_relation symmetric) would classify P as symmetric for a query but would not set the :symmetric property the engine reads to enforce, since a genl-inherited membership is not a stored (symmetric P) sentex and never reaches the mark ingestion; the rule materializes that sentex, which both classifies and enforces, so the rules are the minimal correct expression and the subsumption edges would be redundant with them. Also a type: (equivalence_relation P) classifies P as a binary_predicate. Declared of a relation such as sameAgeAs, for instance.")
+         "(equivalence_relation ?predicate) means that ?predicate is reflexive, symmetric and transitive at once — an equivalence. Declared once, it stands in for the three: forward rules derive (symmetric ?p), (transitive ?p) and (reflexive ?p), each a real mark the engine enforces in turn — the symmetric canonical-order fold, the transitive closure prover, the reflexive prover. It is also definitionally the intersection of the three, stated below: the intersection installs (genl equivalence_relation symmetric) and the other two edges, and concludes (equivalence_relation P) of a predicate that carries all three marks. The edges classify and do not enforce: a genl-inherited membership is not a stored (symmetric P) sentex and never reaches the mark ingestion, so the forward rules stay and materialize each mark as a sentex, which both classifies and enforces. Also a type: (equivalence_relation P) classifies P as a binary_predicate, through any one of the three marks. Declared of a relation such as sameAgeAs, for instance.")
 (unary_predicate equivalence_relation)
 (decontextualized_predicate equivalence_relation)
-(genl equivalence_relation binary_predicate)
+;; The definition read in the other direction: a predicate reflexive, symmetric and
+;; transitive at once is an equivalence.  Its genl edges to the three marks place
+;; equivalence_relation below binary_predicate, so that edge is not stated.
+(intersection equivalence_relation reflexive symmetric transitive)
 
 ;; the three marks an equivalence stands in for, derived so each is a real property the
 ;; engine enforces exactly as a directly written one is
@@ -1493,8 +1499,9 @@
 (genl disjoint_metatype at_least_metatype)
 (genl meta_metatype at_least_metatype)
 (genl metatype at_least_metatype)
-(genl fixed_order_type unary_predicate)
-(genl variable_order_type unary_predicate)
+;; A unary predicate holds members of one order or of any order: the partition separates
+;; fixed_order_type from variable_order_type and installs each genl edge to unary_predicate.
+(set/monotonic (partition unary_predicate fixed_order_type variable_order_type))
 (interArg typeGenl 1 meta_metatype 2 metatype)
 (interArg typeGenl 1 metatype 2 type)
 (partitionedByType fixed_order_type type_type_by_order type metatype meta_metatype)

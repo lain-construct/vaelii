@@ -303,6 +303,65 @@ it — `git show v0.16.0:CHANGELOG.md`.
   shipped `orthogonal` is seen.
   *Breaks:* `(disjoint organism artifact)`
 
+- **CxCore partitions `function` and `unary_predicate` and defines
+  `equivalence_relation` as an intersection.** `(partition function reifiable_function
+  unreifiable_function)` separates the two minting marks, which nothing separated
+  before, and installs their edges to `function`. `(partition unary_predicate
+  fixed_order_type variable_order_type)` separates the two order kinds and installs
+  their edges to `unary_predicate`, so a metatype is never of variable order.
+  `(intersection equivalence_relation reflexive symmetric transitive)` concludes
+  `(equivalence_relation P)` of a predicate carrying all three marks and places
+  `equivalence_relation` below each of them, so its stated edge to `binary_predicate` is
+  removed; the three forward rules that materialize the marks stay. `ontology_test`
+  pins each division, the coverage half of `(partition relation function
+  truth_valued_relation)`, and the five removed sentences.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that declared one function both `reifiable_function` and
+  `unreifiable_function` now reads a clash; drop the wrong mark.
+
+- **A situation is static or an event.** CxUniverse states `(partition situation
+  static_situation event)`, which adds coverage to the separation CxAbstract states, so
+  a situation denied being an event is concluded a `static_situation`. `ontology_test`
+  pins the coverage.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none.
+
+- **The organisms carry a folk taxonomy: `vertebrate` and `invertebrate`, three class
+  metatypes under `folk_biological_class`, and `folk_species`.** CxUniverse states
+  `(partition animal vertebrate invertebrate)` and places the five vertebrate classes
+  and `insect` and `arachnid` below the two parts. `invertebrate_class` and
+  `plant_class` are `disjoint_metatype`s beside the shipped `vertebrate_class`, and
+  `(separating folk_biological_class vertebrate_class invertebrate_class plant_class)`
+  keeps the three apart. `folk_species` is a `disjoint_metatype` over the 27 shipped
+  species, so no organism is of two species, and is disjoint from
+  `folk_biological_class`. Both new metatypes are below `type`, since each member is a
+  first-order type. The disjointness audit's unknown pairs among the types below
+  `organism` fall from 514 to 280, and the 248 among the kinds fall to 0: `grass` is a
+  `plant_class` beside `tree` and `flower`. Each of the 280 pairs one of the seven
+  biology properties placed under `organism` and `animal` (`alive`, `asleep`, …) with
+  another type. `ontology_test` pins the separations, the coverage half and that no
+  pair of kinds below `organism` is left unknown.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB that stated one organism of two shipped species, or an insect that is
+  a mammal, now reads a clash.
+
+- **`folk_species` is on the forced-monotonic roster.** CxUniverse declares
+  `(forced_monotonic_predicate folk_species)`: a species membership is definitional, so
+  it is held `:monotonic` whatever strength it was written at and a denial of one is held
+  OUT, and a rule concluding a roster literal such as `orthogonal` from
+  `(folk_species ?s)` alone is a roster rule rather than a `:forced-conclusion`.
+  [nmtms.md](docs/nmtms.md#the-forced-monotonic-roster).
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none; a denial of a shipped species membership no longer moves belief.
+
 - **Fifteen shipped unary predicates gain a `genl` path to `thing`.** The `kb-integrity`
   `:not-under-thing` sweep reported each from CxWell. In CxCore,
   `abducible_predicate`, `closed_extent_predicate`, `decontextualized_predicate`,
