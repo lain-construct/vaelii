@@ -746,6 +746,22 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **CxCore declares an arity for each of the 43 types it places under `thing`.** A KB that
+  loads CxCore alone read no arity for `thing`, the value kinds (`string`, `integer`, …),
+  the skeleton collections (`tangible`, `spatial`, `context`, …), `expression`,
+  `unrepresented_term`, the expression kinds (`formula`, `sentence`, …),
+  `indeterminate_term`, `relation`, `predicate`,
+  `truth_valued_relation`, `logical_constant`, `unary_predicate`, `function` and
+  `ternary_predicate`, so `kb-integrity` reported each under `:undeclared-arity`. The
+  first-order kinds are declared `unary_predicate`; `function`, `logical_constant` and
+  `ternary_predicate` are declared `type`, as `binary_predicate` is; and `thing`,
+  `relation`, `predicate`, `truth_valued_relation` and `unary_predicate`, which hold types
+  and individuals alike, are declared `variable_order_type`. Each order class is a
+  specialization of `unary_predicate`, so `kb/relation-arity` reads arity one for all 43.
+  [integrity.md](docs/integrity.md#what-an-undeclared-arity-finding-means).
+
+  *Class:* **Additive**.
+
 ### Fixes: the browser
 
 - **A mouse wheel over a term page's concept graph scrolls the page.** The graph's box

@@ -457,10 +457,11 @@ declaration or a membership in an exact-arity class (`unary_predicate`,
 membership in `variable_arity`. A membership is read through the `genl` closure of its
 class, so a membership in a specialization of `unary_predicate` states arity one.
 
-The starter loader (`vaelii.host.starter/load-into`) asserts `(unary_predicate X)` in
-CxCore for every subtype `X` of `thing` after the KB files load, so the shipped starter
-has no finding. A KB that loads CxCore alone has 43 findings, each a subtype of `thing`,
-among them `thing`, `tangible` and `string`.
+CxCore declares an arity for every type it places under `thing`, so a KB that loads
+CxCore alone has no finding. The starter loader (`vaelii.host.starter/load-into`) asserts
+`(unary_predicate X)` in CxCore for every subtype `X` of `thing` after the KB files load,
+which declares the 87 types of the upper and middle files that state no arity of their
+own, so the shipped starter has no finding either.
 
 The pass has these limits:
 

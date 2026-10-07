@@ -204,13 +204,9 @@
   ;; definition check.  These are known ground candidates exercised by CxCore's numeric
   ;; definitions, not a request for the query engine to enumerate a domain.
   (every-believed-example-holds-as-stated)
-  (let [report (v/kb-integrity kb #{-212 0 212} 'CxUniverse)
-        others (dissoc report :status :candidate-count :undeclared-arity)]
-    (is (empty? others) (pr-str report))
-    (is (= 3 (:candidate-count report)))
-    (is (every? (set (v/specs kb 'thing)) (map :term (:undeclared-arity report)))
-        "CxCore alone states no arity for some subtypes of thing; the starter loader's
-         closing batch declares every subtype of thing unary_predicate")))
+  (let [report (v/kb-integrity kb #{-212 0 212} 'CxUniverse)]
+    (is (= :audited (:status report)) (pr-str report))
+    (is (= 3 (:candidate-count report)))))
 
 ;; ---- borderline carries no obligation ------------------------------------
 
