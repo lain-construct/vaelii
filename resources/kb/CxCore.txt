@@ -280,8 +280,7 @@
 ;; A RELATION_APPLICATION is the shape an atomic_formula and a non_atomic_term share: a
 ;; relation applied to arguments.  Which of the two it is depends on whether the relation
 ;; is a predicate or a function, and the two specializations below say so.  They are
-;; disjoint and the pair is not declared covering — the KB has no vocabulary for stating
-;; exhaustive coverage, only sibling_disjoint and disjoint, neither of which says it.
+;; disjoint, and the pair is not declared a covering of relation_application.
 ;;
 ;; DOCUMENTARY: nothing in the engine reads these.  An argument declaration over one
 ;; stores and convicts nothing, because a compound argument has no knowable kind —
@@ -1299,7 +1298,7 @@
 ;; which is what gives the separation its reach: a rule variable standing in a
 ;; function-valued position and a type-level one at once is refused at the entry point
 ;; rather than stored and convicted one conclusion at a time.  (implies (result ?f ?t)
-;; (genl ?f ?t)) is the shape it catches.  No shipped term is a quantifier yet: the engine
+;; (genl ?f ?t)) is the shape it catches.  No shipped term is a quantifier: the engine
 ;; reads forall and thereExists as query operators, and CxCore does not declare either.
 (set/monotonic (partition relation function truth_valued_relation))
 (set/monotonic (partition truth_valued_relation logical_constant predicate))
@@ -1740,10 +1739,11 @@
 ;; disjointness (vaelii#95, fix(quality)).
 (set/monotonic (partition thing spatial aspatial))
 (set/monotonic (partition thing temporal atemporal))
-;; The three partitions cut thing along three independent axes — location in some space,
-;; location in time, mass — so a part of one may overlap a part of another, and neither
-;; subsumes the other.  Stated, each pair reads :orthogonal without waiting for a shared
-;; instance.  A witness of the overlap per pair, and of neither side holding the other:
+;; The three partitions cut thing along three axes — location in some space, location in
+;; time, mass — so a part of one may overlap a part of another.  The pairs below each
+;; overlap with neither side subsuming the other; not every cross-axis pair does, since
+;; tangible is below spatiotemporal and aspatial below intangible.  Stated, each pair reads
+;; :orthogonal without waiting for a shared instance.  A witness of the overlap per pair, and of neither side holding the other:
 ;; a rock is spatial and temporal; the line y=x is only spatial; a fluent is only temporal.
 (set/monotonic (orthogonal spatial temporal))
 ;; a number is aspatial and atemporal (nowhere_never); a fluent is aspatial and temporal.

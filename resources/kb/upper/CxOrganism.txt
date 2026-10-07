@@ -77,7 +77,7 @@
 (genl fish vertebrate)
 (vertebrate_class fish)
 
-(comment flower "A flowering plant.")
+(comment flower "A plant grown or picked for its blooms: a rose, a daisy, a tulip. A flowering tree such as an oak, and a grass, are not flowers in this folk sense; tree and grass are separate folk classes.")
 (genl flower plant)
 (plant_class flower)
 
@@ -150,7 +150,7 @@
 (set/monotonic (disjoint_metatype invertebrate_class))
 (typeGenl invertebrate_class invertebrate)
 
-(comment lion "A large wild cat — the strong animal of the Lion-and-Mouse fable.")
+(comment lion "A large wild feline — the strong animal of the Lion-and-Mouse fable.")
 (genl lion mammal)
 (folk_species lion)
 
