@@ -32,12 +32,6 @@
 ;; measured in, is CxMeasure's.
 (termsRelated time_interval Duration)
 
-;; --- situations: change divides them ----------------------------------------
-;; A situation either holds unchanged or changes, never both and never neither.  CxAbstract
-;; states the two genl edges and the separation; the partition adds the coverage, so a
-;; situation denied being an event is concluded a static_situation.
-(set/monotonic (partition situation static_situation event))
-
 ;; --- the folk taxonomy of organisms ------------------------------------------
 ;; The kinds of organism as everyday speech sorts them: a species-level kind (cat, oak)
 ;; under a class-level kind (mammal, tree), and an animal class either with a backbone or

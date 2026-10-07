@@ -192,14 +192,13 @@
 (genl situation temporal)
 
 (comment static_situation "A situation extended in time but unchanged, a held state, e.g. a file existing. Contrast event, the kind whose state changes.")
-(genl static_situation situation)
 
 (comment event "Something that happens: an occurrence located in time whose state changes. The event-calculus slots (happens/initiates/terminates) are typed temporal and no event collection was declared; this names one.")
-(genl event situation)
 
-;; A situation either holds unchanged or changes, never both — the specialization axis
-;; is a partition, so the two specializations are disjoint.
-(set/monotonic (disjoint static_situation event))
+;; A situation either holds unchanged or changes, never both and never neither.  The
+;; partition installs both genl edges and the separation, and adds the coverage, so a
+;; situation denied being an event is concluded a static_situation.
+(set/monotonic (partition situation static_situation event))
 
 ;; --- causal / acausal: whether a thing can occupy a cause slot -----------------
 (comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. One side of the causal/acausal division of thing.")
