@@ -2324,14 +2324,10 @@
   "`sentence` as the store keeps it in `context`: a `(symmetric P)` literal's arguments
   sorted, a commuting component arranged (`res/kb-sentex`), anything else as written.
 
-  The entailments a fact meets its declarations with read their positions off this.
-  `entail-existing` and `entail-under-edge` hand them the stored sentence, while the
-  assert and derivation paths reach them before the sentex exists, with the spelling
-  as written — so read off that, `(orthogonal spatial atemporal)` arriving after
-  `(genlArg orthogonal 1 thing)` drew `(genl spatial thing)` over position 1, where the
-  declaration arriving after the fact, or the text export reloading it, drew it over
-  position 2: one content, two justifications by arrival order.  An unmarked predicate
-  pays two taxonomy reads and no canonicalization."
+  The entailments a fact meets its declarations with read their positions off this on
+  every path, so the assert and derivation paths, which reach them before the sentex
+  exists, draw the justifications a later declaration or a reload draws.  An unmarked
+  predicate pays two taxonomy reads and no canonicalization."
   [kb sentence context]
   (let [tax (reasoning/taxonomy kb)
         f   (nm/functor sentence)]
