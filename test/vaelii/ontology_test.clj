@@ -382,6 +382,20 @@
   ;; is at_least_metatype rather than metatype.
   (is (v/isa? kb 'sibling_disjoint 'at_least_metatype)))
 
+(tu/deftest-kb the-starter-states-its-typeGenl-and-genl-requirements
+  ;; CxCore requires every at_least_metatype to name a typeGenl and every unary_predicate
+  ;; to name a genl.
+  (doseq [[pred indep] '[[typeGenl at_least_metatype] [genl unary_predicate]]]
+    (is (v/ask? kb (list 'predAllSpecified pred indep) 'CxUniverse)
+        (str "(predAllSpecified " pred " " indep ") is stated")))
+  (testing "every unary_predicate the starter and the test world ship names a genl"
+    (is (= {:status :audited :violations #{}}
+           (v/specified-violations kb 'genl 'unary_predicate 'CxUniverse))))
+  (testing "sibling_disjoint names its typeGenl, so the audit does not report it"
+    (let [r (v/specified-violations kb 'typeGenl 'at_least_metatype 'CxUniverse)]
+      (is (= :audited (:status r)))
+      (is (not (contains? (:violations r) 'sibling_disjoint))))))
+
 (def ^:private type-relating-predicates
   "The predicates whose every argument is a TYPE (or a predicate) the claim relates, so the
   claim is meaningful only in a context that sees all of them at once.  A `genl`, `disjoint`,
