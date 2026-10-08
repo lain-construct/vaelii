@@ -10,9 +10,9 @@
 ;;
 ;; Two positions declare no type and are rows of ontology_test's untyped-positions
 ;; roster. Position 1 of agentHasTool holds whatever can invoke a tool, and the upper
-;; ontology ships no type for that: agent names a registered koinii participant
-;; (resources/kb/koinii/CxRegistry.txt). Position 3 of toolArgType holds a type of any
-;; kind.
+;; ontology ships no type for that: registered_agent names a registered koinii
+;; participant (resources/kb/koinii/CxRegistry.txt). Position 3 of toolArgType holds a
+;; type of any kind.
 
 (genlCx CxComputing CxUniverse)
 
