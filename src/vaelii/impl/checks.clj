@@ -1022,7 +1022,7 @@
 
 (defn- formula-head?
   "Does the compound `x`, written in an argument position, have a head the KB knows as a
-  predicate — is it an `atomic_formula`, the other half of `non_atomic_expression`
+  predicate — is it an `predication`, the other half of `non_atomic_expression`
   (CxCore), rather than a function applied to terms?  A formula written as an argument is
   a sentence about its predicate's tuples, which that predicate's declarations do not
   type from here.  A head the KB has not classified is read as a function: its

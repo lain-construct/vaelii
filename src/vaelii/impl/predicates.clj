@@ -1072,20 +1072,20 @@
     ;; nothing, and so does the `arg` form.  The vocabulary is one vocabulary and
     ;; the classifier that would give it enforcement does not exist.
     ;;
-    ;; `atomic_formula` and `non_atomic_term` are declared disjoint under
+    ;; `predication` and `non_atomic_term` are declared disjoint under
     ;; `non_atomic_expression` and deliberately NOT declared covering: the KB has no
     ;; vocabulary for stating that a pair of specs exhausts their parent, so a
     ;; covering claim could only be made in prose and nothing would enforce it.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
          '[[expression "documentary: the root of the expression kinds and of the value kinds, below nowhere_never. CxCore holds it so CxCore and every spindle member read those kinds below thing; nothing reads it by name."]
            [unrepresented_term "documentary: the expression kind the value kinds sit under, disjoint from relation, formula and context (and, by the partition, from non_atomic_expression). The disjointness is read as any disjointness is; nothing reads the collection by name."]
-           [non_atomic_expression "documentary: an expression with parts, (op a1 a2 ...), the shape atomic_formula and non_atomic_term share. No reader classifies a compound by its shape."]
+           [non_atomic_expression "documentary: an expression with parts, (op a1 a2 ...), the shape predication and non_atomic_term share. No reader classifies a compound by its shape."]
            [atomic_expression "documentary: an expression with no parts, a symbol or an unrepresented_term; with non_atomic_expression it partitions expression."]
            [denotational_term "documentary: the logic sense of term — an expression that denotes. Named so a declaration can say an argument is one; nothing reads it."]
-           [atomic_formula "documentary: a predicate applied to terms. Nothing reads it."]
-           [atomic_sentence "documentary: a closed atomic_formula — what a stored LiteralSentex holds. Nothing reads it."]
-           [literal "documentary: an atomic_formula or its negation, which is what the LiteralSentex record holds. The record is machinery; this is the collection, and nothing reads it."]
-           [formula "documentary: an atomic_formula, an operator applied to formulas, or a quantifier binding variables in one. Nothing reads it."]
+           [predication "documentary: a predicate applied to terms. Nothing reads it."]
+           [closed_predication "documentary: a closed predication — what a stored LiteralSentex holds. Nothing reads it."]
+           [literal "documentary: a predication or its negation, which is what the LiteralSentex record holds. The record is machinery; this is the collection, and nothing reads it."]
+           [formula "documentary: a predication, an operator applied to formulas, or a quantifier binding variables in one. Nothing reads it."]
            [sentence "documentary: a closed formula, which checks/check-ground is what actually enforces on the way in. The collection itself is read by nothing."]
            [non_atomic_term "documentary: a function applied to terms — the NAT of docs/nat.md, named as a collection. Reification reads the declaration on the function, never this."]])
 

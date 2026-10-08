@@ -132,11 +132,11 @@ a reified constant. What a **NAT** is *non*-atomic with respect to. See [nat.md]
 
 **Atomic formula** ![kb](../.github/badges/cat-kb.svg): A predicate applied to terms — `(dog Muffet)`, `(P ?x)`. The
 base of the formula ladder, and open or closed alike, since the definition says nothing
-about variables. A CxCore collection too, `atomic_formula`. See [naming.md](naming.md).
+about variables. A CxCore collection too, `predication`. See [naming.md](naming.md).
 
 **Atomic sentence** ![kb](../.github/badges/cat-kb.svg): A closed **Atomic formula** — one with no free variables.
 What a stored `LiteralSentex` holds in its `:sentence` slot, since `checks/check-ground`
-refuses an open one. A CxCore collection too, `atomic_sentence`. See
+refuses an open one. A CxCore collection too, `closed_predication`. See
 [canonicalization.md](canonicalization.md).
 
 ## B
@@ -1002,7 +1002,7 @@ own, which is why a new calculus is a table and a prover. See [qcn.md](qcn.md).
 
 **`relation_application`** ![kb](../.github/badges/cat-kb.svg): The CxCore collection of
 expressions shaped `(R a…)` — a relation applied to arguments — specializing into
-`atomic_formula` where `R` is a predicate and `non_atomic_term` where it is a function,
+`predication` where `R` is a predicate and `non_atomic_term` where it is a function,
 the two disjoint. Documentary: no reader classifies a compound argument by its shape, so
 an `arg` or `quotedArg` declaration naming it stores and convicts nothing. See
 [argtypes.md](argtypes.md).

@@ -306,15 +306,15 @@
 ;; than by what it denotes.  The value kinds above name a leaf; these name a compound.
 ;;
 ;; The ladder is the standard one, and the docs are held to it (docs/naming.md's reserved
-;; words).  An ATOMIC_FORMULA is a predicate applied to terms.  An ATOMIC_SENTENCE is a
-;; closed atomic_formula.  A LITERAL is an atomic_formula or its negation.  A FORMULA is
-;; an atomic_formula, a logical operator applied to formulas, or a quantifier binding
+;; words).  A PREDICATION is a predicate applied to terms.  A CLOSED_PREDICATION is a
+;; closed predication.  A LITERAL is a predication or its negation.  A FORMULA is
+;; a predication, a logical operator applied to formulas, or a quantifier binding
 ;; variables in one.  A SENTENCE is a closed formula — which is what every stored sentex
 ;; holds, since checks/check-ground refuses an open non-rule sentence and a rule's
 ;; variables are implicitly universal.
 ;;
 ;; A NON_ATOMIC_EXPRESSION is an expression with parts: an operator applied to arguments,
-;; (op a1 a2 ...), the one compound form KB text writes.  An atomic_formula and a
+;; (op a1 a2 ...), the one compound form KB text writes.  A predication and a
 ;; non_atomic_term are both one, depending on whether the operator is a predicate or a
 ;; function, and the two specializations below say so.  They are disjoint, and the pair is
 ;; not declared a covering of non_atomic_expression.
@@ -328,21 +328,21 @@
 ;; sentence or a condition (believes, ist, implies, the defn family) read
 ;; the same way.  The vocabulary is here because it should be one vocabulary when a
 ;; shape classifier does exist; the classifier itself does not.
-(comment non_atomic_expression "An expression with parts. KB text writes one as an operator applied to zero or more arguments, (op a1 a2 ...), whatever op is. Specializes into atomic_formula when op is a predicate and non_atomic_term when op is a function, and the two are disjoint. The complement of atomic_expression within expression.")
+(comment non_atomic_expression "An expression with parts. KB text writes one as an operator applied to zero or more arguments, (op a1 a2 ...), whatever op is. Specializes into predication when op is a predicate and non_atomic_term when op is a function, and the two are disjoint. The complement of atomic_expression within expression.")
 (comment denotational_term "An expression that DENOTES an entity: an atomic_term (a symbol or a value) or a non_atomic_term. The logic sense of 'term', spelled in full because plain 'term' is the vocabulary sense — a name the term index is keyed by.")
-(comment atomic_formula "A predicate applied to terms — (dog Muffet), (parentOf ?x Tom). Open or closed alike: the definition says nothing about variables.")
-(comment atomic_sentence "A closed atomic_formula — one with no free variables. What a stored LiteralSentex holds in its sentence slot.")
-(comment literal "An atomic_formula or its negation. What a LiteralSentex holds, with the record's polarity slot saying which of the two it is. A rule's antecedent is a vector of literals.")
-(comment formula "An atomic_formula; a logical operator applied to formulas; or a quantifier binding variables in a formula. Open when it has free variables, closed when it does not.")
+(comment predication "A predicate applied to terms — (dog Muffet), (parentOf ?x Tom). Open or closed alike: the definition says nothing about variables.")
+(comment closed_predication "A closed predication — one with no free variables. What a stored LiteralSentex holds in its sentence slot.")
+(comment literal "A predication or its negation. What a LiteralSentex holds, with the record's polarity slot saying which of the two it is. A rule's antecedent is a vector of literals.")
+(comment formula "A predication; a logical operator applied to formulas; or a quantifier binding variables in a formula. Open when it has free variables, closed when it does not.")
 (comment sentence "A closed formula. Every stored sentex holds one — checks/check-ground refuses an open non-rule sentence, and a rule's variables are implicitly universal. A possibly-open goal is a pattern, not a sentence.")
 (comment non_atomic_term "A function applied to terms — (MotherFn Muffet). The NAT of docs/nat.md, named here as a collection so a declaration can say an argument is one.")
 (genl non_atomic_expression thing)
-(genl atomic_formula non_atomic_expression)
+(genl predication non_atomic_expression)
 (genl non_atomic_term non_atomic_expression)
 (genl literal formula)
-(genl atomic_formula literal)
+(genl predication literal)
 (genl sentence formula)
-(genl atomic_sentence atomic_formula)
+(genl closed_predication predication)
 
 ;; argN names a position inside a written formula.  Position 0 is the relation or
 ;; operator, and the arguments count from 1, as arg's positions do.  The quotedArg at
@@ -354,13 +354,13 @@
 (ternary_predicate argN)
 (arg argN 2 non_negative_integer)
 (quotedArg argN 3 formula)
-(genl atomic_sentence sentence)
-(set/monotonic (disjoint atomic_formula non_atomic_term))
+(genl closed_predication sentence)
+(set/monotonic (disjoint predication non_atomic_term))
 ;; Each expression kind is a type, a one-place predicate over expressions.
 (unary_predicate non_atomic_expression)
 (unary_predicate denotational_term)
-(unary_predicate atomic_formula)
-(unary_predicate atomic_sentence)
+(unary_predicate predication)
+(unary_predicate closed_predication)
 (unary_predicate literal)
 (unary_predicate formula)
 (unary_predicate sentence)
@@ -389,7 +389,7 @@
 (comment open_non_atomic_term "A non_atomic_term with a free variable, such as (MotherFn ?x). It denotes nothing in particular until ?x has a value, so it is not a denotational_term.")
 (comment closed_non_atomic_term "A non_atomic_term with no free variable, such as (MotherFn Muffet). The non-atomic case of denotational_term.")
 (comment open_formula "A formula with a free variable, such as (dog ?x). It is true or false only once its free variables have values. The closed formulas are the sentences.")
-(comment open_atomic_formula "An atomic_formula with a free variable, such as (dog ?x). The closed ones are the atomic_sentences.")
+(comment open_predication "A predication with a free variable, such as (dog ?x). The closed ones are the closed_predications.")
 (comment open_literal "A literal with a free variable.")
 (comment closed_literal "A literal with no free variable.")
 (comment wff_expression "An expression the language can read: well formed by its grammar.")
@@ -435,8 +435,8 @@
 ;; Open and closed cross every kind that is not necessarily closed.  An expression is OPEN
 ;; when a variable occurs free in it and CLOSED otherwise; each such kind splits into its
 ;; open and closed halves, each half the intersection of the kind with the matching half
-;; of expression.  sentence and atomic_sentence are the closed halves of formula and
-;; atomic_formula under the names they already had.  denotational_term is closed by
+;; of expression.  sentence and closed_predication are the closed halves of formula and
+;; predication under the names they already had.  denotational_term is closed by
 ;; definition: a variable, or a term with one free, denotes nothing in particular.
 (genl open_expression expression)
 (genl closed_expression expression)
@@ -470,8 +470,8 @@
 (genl closed_non_atomic_term closed_expression)
 (genl open_formula open_expression)
 (genl sentence closed_expression)
-(genl open_atomic_formula open_expression)
-(genl atomic_sentence closed_expression)
+(genl open_predication open_expression)
+(genl closed_predication closed_expression)
 (genl open_literal open_expression)
 (genl closed_literal closed_expression)
 (genl denotational_term wff_expression)
@@ -479,10 +479,10 @@
 (partition formula open_formula sentence)
 (intersection open_formula formula open_expression)
 (intersection sentence formula closed_expression)
-(genl open_atomic_formula atomic_formula)
-(partition atomic_formula open_atomic_formula atomic_sentence)
-(intersection open_atomic_formula atomic_formula open_expression)
-(intersection atomic_sentence atomic_formula closed_expression)
+(genl open_predication predication)
+(partition predication open_predication closed_predication)
+(intersection open_predication predication open_expression)
+(intersection closed_predication predication closed_expression)
 (genl open_literal literal)
 (genl closed_literal literal)
 (partition literal open_literal closed_literal)
@@ -498,7 +498,7 @@
 (unary_predicate open_non_atomic_term)
 (unary_predicate closed_non_atomic_term)
 (unary_predicate open_formula)
-(unary_predicate open_atomic_formula)
+(unary_predicate open_predication)
 (unary_predicate open_literal)
 (unary_predicate closed_literal)
 (unary_predicate atomic_term)
