@@ -69,6 +69,103 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **CxSocial states the general relationship and dwelling vocabulary over two
+  persons.** `relativeOf`, `coworkerOf` and `roommateOf` each specialize `knows`, the
+  way `friendOf` and `marriedTo` already do; `romanticPartnerOf` specializes
+  `friendOf`. `originatorOf` is read by a rule from `parentOf`, guarded to two
+  persons, since the shipped `parentOf` relates any two organisms. `relationshipLabel`
+  is a perspectival, ternary label. `dwelling` is a residential unit, genl `building`,
+  and `dwellsIn`, a spec of `livesIn` restricted to a human and a dwelling, derives
+  `roommateOf` by a rule for two different people who dwell in the same one. No edge
+  relates `marriedTo` to `romanticPartnerOf`: this theory already reaches `knows`
+  from `friendOf` and `marriedTo` by separate rules because it does not claim every
+  marriage is a friendship, and the edge would carry `marriedTo`'s rule under
+  `friendOf`'s and leave it covered. CxUniverse states `dwelling` disjoint from
+  `organism`, `substance` and `person` — a dwelling is an artifact, never alive,
+  never a raw substance and never a person — which the starter's disjointness audit
+  requires to hold its coverage ratchet. `social_test` pins the specialization edges
+  and both red-before-green derivations, `originatorOf` from `parentOf` and
+  `roommateOf` from co-dwelling. [contexts.md](docs/contexts.md)
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none. CxSocial is a starter theory: every context below CxWell reads
+  the new relations as declared here, as it already reads `knows`/`friendOf`/`marriedTo`.
+
+- **CxUniverse states the arity of a middle-spindle relation with no
+  relation-algebra mark, so disjointness-audit reads it as a relation rather than
+  an untyped type.** `symmetric`, `asymmetric`, `transitive` and the rest of the
+  relation-algebra marks are `decontextualized_predicate`s, lifted to CxUniverse
+  wherever they are stated; a plain `binary_predicate`/`ternary_predicate`
+  declaration is not, so a middle theory's relation that carries none of those
+  marks is invisible to `relation?` at CxUniverse, `disjointness-audit`'s default
+  vantage, and its node enters the audit as an untyped type instead of being
+  excluded as a relation. `(arity … n)` stated here is visible there directly:
+  CxSocial's `dwellsIn` and `relationshipLabel`, and CxPerception's `perceives`,
+  `sees`, `seeImage` and `watchVideo`.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none.
+
+- **CxSocialExtension states nestingPartnerOf and chosenSiblingOf, as a new
+  opt-in theory below CxSocial.** `nestingPartnerOf` is read by a rule from
+  CxSocial's `romanticPartnerOf` and `roommateOf` together; `chosenSiblingOf` is a
+  sibling relation by choice rather than by birth, unrelated to the shipped
+  `siblingOf` in either direction. Neither carries a `genl` edge to the CxSocial term
+  its rule reads from: `romanticPartnerOf`, `roommateOf` and `relativeOf` are
+  CxSocial's own middle-spindle terms, and a term two middle members touch must sit at
+  or above the spindle's head
+  (`starter_test`/`a-term-two-spindle-members-touch-is-defined-in-the-head`). The
+  theory sees CxSocial, and through it CxUniverse, and CxWell does not see it: a
+  context opts in by placing itself under CxSocialExtension. **`<Theory>Extension`
+  names a theory that extends an existing starter theory with vocabulary most
+  contexts under the base theory have no occasion to see**: the base theory ships
+  to every context below CxWell, and the extension only to a context placed under
+  it. `social_extension_test` pins the theory's visibility, both red-before-green
+  derivations, and the absence of the carried `genl` edges.
+  [contexts.md](docs/contexts.md)
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none. A context below CxWell reads none of this theory, as before. A
+  context placed under CxSocialExtension reads `nestingPartnerOf` and
+  `chosenSiblingOf` as declared there.
+
+- **CxPerception states the perception relations, as an opt-in theory in
+  `kb/middle/`.** `perceives` is the general relation an entity taking in a located
+  thing through some sense; `sees`, a spec of it, is the same through sight; `seeImage`
+  and `watchVideo`, each a spec of `sees`, take in a static image and a video. Arg 1 of
+  each is typed `thing`: the upper ontology ships no general type for an entity with
+  agency, and vaelii's `agent` names a registered koinii participant, not that. The new
+  theory sees CxUniverse, and CxWell does not see it: a context opts in by placing
+  itself under CxPerception. `perception_test` pins the specialization chain and the
+  absence of every perception relation in a context that does not see the theory.
+  [contexts.md](docs/contexts.md)
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none. A context below CxWell reads no perception relation, as before. A
+  context placed under CxPerception reads `perceives`, `sees`, `seeImage` and
+  `watchVideo` as declared there.
+
+- **CxUniverse states `image_viewing` as an event kind, beside travelling and
+  flying.** `hasCapability` takes an event kind as its second argument (#126), so
+  the ability to view a static image is read through it rather than through the
+  retired `capability`: `(hasCapability ?x image_viewing)` means `?x` can be the
+  doer of one. `(genl image_viewing acausal_event)` pairs it with CxPerception's
+  `seeImage`, the relation stating who is looking: taking in an image changes
+  nothing about what it depicts, so the event is a kind of `acausal_event`,
+  CxAbstract's intersection of `acausal` and `event`. Stated in CxUniverse rather
+  than in the opt-in CxPerception, as travelling and flying already are, so every
+  vantage sees the placement — `disjointness-audit`'s default included.
+  `perception_test` pins the placement at every vantage and the derivation of the
+  ability's causal class with no opt-in step.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none.
+
 - **`causes` ships in CxAbstract.** `(causes ?cause ?effect)` is a `binary_predicate` and
   an `instance_relation_predicate`, declared `transitive`. Its cause slot is typed
   `causal` and its effect slot `situation`, so a causal event, a tangible or an
