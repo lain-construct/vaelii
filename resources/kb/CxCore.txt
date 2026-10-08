@@ -511,23 +511,26 @@
 (unary_predicate wff_sentence)
 (unary_predicate ill_formed_sentence)
 (unary_predicate unrepresented_term)
-;; The value kinds are placed in this lattice by their edges to unrepresented_term.  Text
-;; and a number have no mass and no location, and neither of them is a relation:
-;; unrepresented_term is an expression, so nowhere_never and so intangible, and it is
-;; disjoint from relation, so from predicate.  The second is what lets a rule be refused
-;; for feeding a text-valued argument into a position that holds a type: every type is a
-;; unary_predicate, so the type position asks for a predicate, and one variable cannot be
-;; both at once.  The disjointness on number carries integer with it.
+;; expression is disjoint from relation and from context.  No written form is itself a
+;; relation or a context: a relation or a context is what an expression NAMES, not what an
+;; expression IS.  unrepresented_term reaches both disjoints through genl: unrepresented_term
+;; is an atomic_term, an atomic_term is an atomic_expression, and an atomic_expression is an
+;; expression.  The relation disjoint is what lets a rule be refused for feeding a
+;; text-valued argument into a position that holds a type: every type is a unary_predicate,
+;; so the type position asks for a predicate, and one variable cannot be both at once.  The
+;; disjointness on number carries integer with it.
 ;;
-;; symbol gets no such edge, and the note above symbol's declaration says why: a name is
-;; exactly how a predicate is written, so (disjoint symbol predicate) would be false.
+;; symbol reaches the relation disjoint the same route, an atomic_term being an
+;; atomic_expression being an expression, so (disjoint symbol predicate) holds: a symbol
+;; is what (Quote dog) denotes, not what dog denotes, and dog written plainly in a
+;; sentence denotes the predicate dog.
 (genl boolean unrepresented_term)
 (genl character unrepresented_term)
 (genl keyword unrepresented_term)
 (genl number unrepresented_term)
 (genl string unrepresented_term)
-(set/monotonic (disjoint unrepresented_term context))
-(set/monotonic (disjoint unrepresented_term relation))
+(set/monotonic (disjoint expression relation))
+(set/monotonic (disjoint expression context))
 
 (comment interArg
          "(interArg ?relation ?position1 ?type1 ?position2 ?type2) means that whenever argument ?position1 of ?relation is a ?type1, argument ?position2 must be a ?type2. The conditional argument constraint, and it says what arg cannot: (interArg eats 1 carnivore 2 meat) types the second argument only for the eaters that are carnivores, where (arg eats 2 meat) would demand meat of every eater. Silence about the trigger argument's type leaves the constraint dormant rather than firing it. Once the trigger holds, the target is derived a ?type2 under assertive argument types, and under the constraint-only reading it is convicted when the KB places it outside ?type2. Read through genl transitivity from the writing context, like arg. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
