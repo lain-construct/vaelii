@@ -1497,3 +1497,44 @@
     (v/assert kb (list 'substance WoodPortion1) 'CxUniverse)
     (is (not (tu/stored-in-clash? kb (list 'madeOf Trunk1 WoodPortion1) 'CxUniverse)))
     (is (true? (v/ask? kb (list 'madeOf Trunk1 WoodPortion1) 'CxUniverse)))))
+
+;; ---- the use/mention vocabulary: proposition, means, denotes, expresses -----
+
+(tu/deftest-kb a-sentence-denoting-symbol-is-well-formed-in-expresses
+  ;; MuffetsFavoriteSentence stands for a wff_sentence without spelling one out.  Arg 2 of
+  ;; expresses asks for a proposition — what a sentence EXPRESSES, not a sentence itself —
+  ;; and (number 212) is itself a wff_sentence (number is a unary_predicate, and (number
+  ;; 212) holds because 212 is one): a formula written where the vocabulary asks for its
+  ;; semantic content, not its shape.
+  (v/assert kb (list 'wff_sentence 'MuffetsFavoriteSentence) 'CxUniverse)
+  (let [sentence (list 'expresses 'MuffetsFavoriteSentence (list 'number 212))
+        h        (v/assert kb sentence 'CxUniverse)]
+    (is (some? h) "the write is accepted, not refused for a formula in a term position")
+    (is (true? (v/ask? kb sentence 'CxUniverse)) "and believed, not merely stored and convicted")))
+
+(tu/deftest-kb two-sentences-express-one-proposition
+  ;; MuffetEstUnChien stands for the French sentence "Muffet est un chien" without
+  ;; spelling it out.  It and (Quote (dog Muffet)) are two different wff sentences, and
+  ;; both express the one proposition that Muffet is a dog.
+  (v/assert kb (list 'wff_sentence 'MuffetEstUnChien) 'CxUniverse)
+  (v/assert kb (list 'proposition 'MuffetIsADog) 'CxUniverse)
+  (let [english (list 'expresses (list 'Quote (list 'dog 'Muffet)) 'MuffetIsADog)
+        french  (list 'expresses 'MuffetEstUnChien 'MuffetIsADog)]
+    (v/assert kb english 'CxUniverse)
+    (v/assert kb french 'CxUniverse)
+    (is (true? (v/ask? kb english 'CxUniverse)))
+    (is (true? (v/ask? kb french 'CxUniverse)))
+    (is (= 2 (count (v/sentexes-matching kb (list 'expresses '?s 'MuffetIsADog) 'CxUniverse)))
+        "(expresses ?s MuffetIsADog) finds both sentences")))
+
+(tu/deftest-kb means-is-functional-and-its-specs-inherit-it
+  ;; (functional means) constrains argument 2 of means — and, through props-over's walk
+  ;; up genl (taxonomy.clj: "a genl edge between predicates says the sub's tuples ARE the
+  ;; super's"), of every sub-predicate too.  denotes genl's to means, so two monotonic,
+  ;; distinct-symbol fillers of one denotes should derive (equals ...) the way two
+  ;; fillers of means itself would.
+  (tu/with-terms [X Y]
+    (v/assert kb (list 'denotes (list 'Quote 'Muffet) X) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'denotes (list 'Quote 'Muffet) Y) 'CxUniverse {:strength :monotonic})
+    (is (true? (v/ask? kb (list 'equals X Y) 'CxUniverse))
+        "functional on means reaches denotes through its genl edge")))
