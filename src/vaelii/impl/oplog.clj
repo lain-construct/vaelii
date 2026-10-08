@@ -65,9 +65,14 @@
   ## Durability
 
   One file, `<dir>/oplog/ops.log`, of length-prefixed nippy frames in
-  `vaelii.impl.disk.files`' format.  The durability daemon fsyncs it on its tick and
-  closes it on shutdown.  An open truncates a torn trailing frame, as the record logs'
-  opens do."
+  `vaelii.impl.disk.files`' format.  An open truncates a torn trailing frame, as the
+  record logs' opens do.  The log's `:fsync` mode decides when a frame reaches the disk:
+  `:each` fsyncs each operation's frame before the operation runs, and `:tick` leaves it
+  to the durability daemon's tick.  The daemon closes the log on shutdown.
+
+  A failed append, fsync or truncation latches the log's fault (`files/latch-fault!`),
+  as it does a record store's: every later operation is refused with `:store-unusable`
+  before it runs, so no write lands that the log does not describe."
   (:require [taoensso.trove :as trove]
             [vaelii.impl.capabilities :as cap]
             [vaelii.impl.disk.durability :as dur]
@@ -102,8 +107,15 @@
 
 (defn- log-path ^String [dir] (str dir "/oplog/ops.log"))
 
-(defn- fresh-state [generation]
-  {:ops 0 :synced 0 :guard-checks 0 :unusable nil :generation generation :seal-due? false})
+(defn- fresh-state [generation fsync]
+  {:ops 0 :synced 0 :guard-checks 0 :unusable nil :generation generation :seal-due? false
+   :fsync fsync})
+
+(defn- force-guarded!
+  "fsync `log`'s file, latching its fault and throwing `:store-unusable` when the fsync
+  fails.  Caller holds the lock."
+  [{:keys [raf fault path]}]
+  (f/with-io-guard fault path :fsync (f/force! raf false)))
 
 (defn- header [generation] {:oplog format-version :generation generation})
 
@@ -133,7 +145,8 @@
 (defn open-log
   "Open the operation log under `dir` and register it with the durability daemon.  A torn
   trailing frame is truncated.  A log with no header — a new one, or one a crash emptied
-  — starts at `generation`.
+  — starts at `generation`.  `opts` takes `:fsync`: `:each` fsyncs each operation's frame
+  before the operation runs, `:tick` (the default) leaves it to the durability daemon.
 
   A frame inside the log that does not thaw (`f/scan-log`'s `:damaged-frame`) ends what
   can be replayed: the log is truncated at it, and a `{:unusable [:damaged-frame
@@ -141,47 +154,53 @@
   frames before it would miss the writes after it, and the watermark check catches a
   missed write only when it allocated a handle — a deletion below the watermark leaves
   nothing to find."
-  [dir generation]
-  (let [path (log-path dir)
-        raf  (f/open-log path)
-        [frames end damaged-at] (scan raf path)
-        _    (f/truncate-log! raf end)
-        lock (Object.)
-        log  (store-types/->Oplog path raf lock (atom nil) (atom nil) (atom nil))]
-    (if (empty? frames)
-      (do (locking lock (f/append-record! raf (header generation)))
-          (reset! (:state log) (fresh-state generation)))
-      (let [ops (count (filter :op (rest frames)))]
-        (reset! (:state log) (assoc (fresh-state (:generation (first frames)))
-                                    :ops ops :synced ops
-                                    :unusable (unusable-reason frames)))))
-    (when (and damaged-at (nil? (:unusable @(:state log))))
-      (let [reason [:damaged-frame damaged-at]]
-        (locking lock (f/append-record! raf {:unusable reason}))
-        (swap! (:state log) assoc :unusable reason)
-        (trove/log! {:level :warn :id ::damaged-frame
-                     :msg  (str "operation log " path " holds a frame at byte offset "
-                                damaged-at " that does not decode, with frames after it —"
-                                " truncated there and marked unusable")
-                     :data {:reason reason}})))
-    (reset! (:reg log)
-            (dur/register! {:label (str "oplog " path)
-                            :fsync (fn [_]
-                                     (locking lock
-                                       (let [n (:ops @(:state log))]
-                                         (f/force! raf false)
-                                         (swap! (:state log) assoc :synced n))))
-                            :close (fn [] (locking lock (.close raf)))}))
-    log))
+  ([dir generation] (open-log dir generation nil))
+  ([dir generation {:keys [fsync] :or {fsync :tick}}]
+   (let [path (log-path dir)
+         raf  (f/open-log path)
+         [frames end damaged-at] (scan raf path)
+         _    (f/truncate-log! raf end)
+         lock (Object.)
+         log  (store-types/->Oplog path raf lock (atom nil) (atom nil) (atom nil) (atom nil))]
+     (if (empty? frames)
+       (do (locking lock (f/append-record! raf (header generation)))
+           (reset! (:state log) (fresh-state generation fsync)))
+       (let [ops (count (filter :op (rest frames)))]
+         (reset! (:state log) (assoc (fresh-state (:generation (first frames)) fsync)
+                                     :ops ops :synced ops
+                                     :unusable (unusable-reason frames)))))
+     (when (and damaged-at (nil? (:unusable @(:state log))))
+       (let [reason [:damaged-frame damaged-at]]
+         (locking lock (f/append-record! raf {:unusable reason}))
+         (swap! (:state log) assoc :unusable reason)
+         (trove/log! {:level :warn :id ::damaged-frame
+                      :msg  (str "operation log " path " holds a frame at byte offset "
+                                 damaged-at " that does not decode, with frames after it —"
+                                 " truncated there and marked unusable")
+                      :data {:reason reason}})))
+     (reset! (:reg log)
+             (dur/register! {:label (str "oplog " path)
+                             ;; a failed tick latches the fault, which logs it once, and
+                             ;; a latched log's tick does nothing
+                             :fsync (fn [_]
+                                      (locking lock
+                                        (when-not @(:fault log)
+                                          (let [n (:ops @(:state log))]
+                                            (try (force-guarded! log)
+                                                 (swap! (:state log) assoc :synced n)
+                                                 (catch clojure.lang.ExceptionInfo _ nil))))))
+                             :close (fn [] (locking lock (.close raf)))}))
+     log)))
 
 (defn close-log!
-  "Fsync and close `log`, and withdraw its durability registration."
-  [{:keys [^RandomAccessFile raf lock reg]}]
+  "Fsync and close `log`, withdraw its durability registration, and latch it `:closed`."
+  [{:keys [^RandomAccessFile raf lock reg fault path]}]
   (dur/deregister! @reg)
   (locking lock
     (when (.. raf getChannel isOpen)
-      (f/force! raf false)
-      (.close raf))))
+      (try (when-not @fault (f/force! raf false))
+           (finally (.close raf))))
+    (f/latch-closed! fault path)))
 
 (defn read-frames
   "The frames of `log` after its header, in append order, `:unusable` marks included."
@@ -198,11 +217,28 @@
   [log]
   (:unusable @(:state log)))
 
+(defn fsync-mode
+  "When `log` fsyncs an operation's frame, `:each` or `:tick` (`open-log`)."
+  [log]
+  (:fsync @(:state log)))
+
+(defn note-opened!
+  "Record `report`, what the open that attached `log` did (`vaelii.impl.seal/open!`)."
+  [log report]
+  (swap! (:state log) assoc :opened report))
+
+(defn opened
+  "What the open that attached `log` did, or nil when no `open-kb` attached it."
+  [log]
+  (:opened @(:state log)))
+
 (defn mark-unusable!
-  "Record that `log` cannot be replayed, for `reason`.  The first reason is the one kept."
-  [{:keys [raf lock state path]} reason]
+  "Record that `log` cannot be replayed, for `reason`.  The first reason is the one kept.
+  A log whose fault is latched appends nothing."
+  [{:keys [raf lock state path fault]} reason]
   (when-not (:unusable @state)
-    (locking lock (f/append-record! raf {:unusable reason}))
+    (when-not @fault
+      (locking lock (f/with-io-guard fault path true (f/append-record! raf {:unusable reason}))))
     (swap! state assoc :unusable reason)
     (trove/log! {:level :info :id ::unusable
                  :msg  (str "operation log " path " is unusable from here: " (pr-str reason))
@@ -210,13 +246,17 @@
 
 (defn rotate!
   "Start `log` again at generation `gen`: truncate the file to a header naming `gen`,
-  fsync it, and reset the state, the unusable mark included."
-  [{:keys [^RandomAccessFile raf lock state]} gen]
+  fsync it, and reset the state, the unusable mark included.  The fsync mode and the open's
+  report carry over."
+  [{:keys [^RandomAccessFile raf lock state fault path]} gen]
   (locking lock
-    (f/truncate-log! raf 0)
-    (f/append-record! raf (header gen))
-    (f/force! raf true)
-    (reset! state (fresh-state gen))))
+    (f/check-fault! fault)
+    (f/with-io-guard fault path true
+      (f/truncate-log! raf 0)
+      (f/append-record! raf (header gen)))
+    (f/with-io-guard fault path :fsync (f/force! raf true))
+    (swap! state (fn [{:keys [fsync opened]}]
+                   (assoc (fresh-state gen fsync) :opened opened)))))
 
 (defn request-seal!
   "Ask for a seal when the running operation returns."
@@ -229,22 +269,37 @@
   (reset! (:seal-fn log) f))
 
 (defn- append-op!
-  "Append the frame for one operation.  A frame nippy cannot freeze marks the log
-  unusable instead, and the write it describes still runs."
-  [{:keys [raf lock state] :as log} op args inputs]
-  (try
-    (locking lock (f/append-record! raf {:op op :args args :in inputs}))
-    (swap! state update :ops inc)
-    (catch Throwable t
-      (mark-unusable! log [:unfreezable op (.getName (class t))]))))
+  "Append the frame for one operation, and under `:each` fsync it.  A frame nippy cannot
+  freeze marks the log unusable instead, and the write it describes still runs.  A failed
+  append or fsync latches the log's fault and throws `:store-unusable`, so the write does
+  not run."
+  [{:keys [raf lock state fault path] :as log} op args inputs]
+  (when (try
+          (locking lock
+            (f/with-io-guard fault path true (f/append-record! raf {:op op :args args :in inputs})))
+          true
+          (catch clojure.lang.ExceptionInfo e
+            (when (= :store-unusable (:type (ex-data e))) (throw e))
+            (mark-unusable! log [:unfreezable op (.getName (class e))])
+            false)
+          (catch Throwable t
+            (mark-unusable! log [:unfreezable op (.getName (class t))])
+            false))
+    (locking lock
+      (let [n (:ops (swap! state update :ops inc))]
+        (when (= :each (:fsync @state))
+          (force-guarded! log)
+          (swap! state assoc :synced n))))))
 
 (defn- seal-if-due!
-  "Run the installed seal function on `kb` when a seal was requested."
+  "Run the installed seal function on `kb` when a seal was requested.  A seal declined
+  because a settle is pending (`vaelii.impl.seal/busy`) stays requested."
   [kb]
-  (let [{:keys [state seal-fn]} (:oplog kb)]
+  (let [{:keys [state seal-fn] :as log} (:oplog kb)]
     (when (:seal-due? @state)
       (swap! state assoc :seal-due? false)
-      (when-let [sf @seal-fn] (sf kb)))))
+      (when-let [sf @seal-fn]
+        (when (:busy (sf kb)) (request-seal! log))))))
 
 (defn run-op
   "Run `f` as write operation `op` of class `class` on `kb` over `args`.
@@ -269,7 +324,8 @@
         (f *replay-inputs*))
 
       :else
-      (let [inputs (inputs-fn)]
+      (let [_      (f/check-fault! (:fault log))
+            inputs (inputs-fn)]
         (case class
           :replay         (append-op! log op args inputs)
           (:seal :config) (mark-unusable! log [class op]))
@@ -318,11 +374,11 @@
 
 (defn- sync-frame!
   "Fsync `log` when it holds a frame no fsync has covered yet."
-  [{:keys [^RandomAccessFile raf lock state]}]
+  [{:keys [lock state] :as log}]
   (locking lock
     (let [n (:ops @state)]
       (when (> (long n) (long (:synced @state)))
-        (f/force! raf false)
+        (force-guarded! log)
         (swap! state assoc :synced n)))))
 
 (defn- before-write!

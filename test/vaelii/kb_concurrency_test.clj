@@ -40,8 +40,6 @@
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.literal-cache :as literal-cache]
             [vaelii.impl.observe :as observe]
-            [vaelii.impl.readings :as readings]
-            [vaelii.impl.resolution :as res]
             [vaelii.impl.settle :as settle]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
@@ -152,51 +150,6 @@
   (doseq [tms [:dense :reference]]
     (check! (name tms) (stress tms))))
 
-(deftest a-withdrawal-computed-before-a-settle-is-not-installed-after-it
-  ;; A reader thread computes what `CxSubA` reads as withdrawn while a second support of
-  ;; `(drvp Anne)` stands, and is held there while the writer retracts that support and
-  ;; settles.  Installed afterwards, its answer would tell the writer's own next read that
-  ;; the conclusion is still believed from `CxSubA`, where its one remaining support is
-  ;; hidden by an `except`.
-  (doseq [tms [:dense :reference]]
-    (let [kb      (v/open-kb {:backend :memory :space [::withdrawn-stamp tms]
-                              :tms tms :recover? false})
-          _       (tu/clear-kb! kb)
-          _       (v/assert kb '(genlCx CxSubA CxUniverse) 'CxUniverse)
-          _       (v/assert kb '(set/forwardRule (implies (srcp ?x) (drvp ?x))) 'CxUniverse
-                            {:strength :monotonic})
-          _       (v/assert kb '(set/forwardRule (implies (altp ?x) (drvp ?x))) 'CxUniverse
-                            {:strength :monotonic})
-          src     (v/assert kb '(srcp Anne) 'CxUniverse {:strength :monotonic})
-          _       (v/assert kb (list 'except (list 'sentexHandle src)) 'CxSubA
-                            {:strength :monotonic})
-          alt     (v/assert kb '(altp Anne) 'CxUniverse {:strength :monotonic})
-          drv     (v/handle-of kb '(drvp Anne) 'CxUniverse)
-          ;; the settles above keep the entry they computed for `CxSubA`; emptied so the
-          ;; reader thread computes one
-          _       (res/clear-withdrawn! kb)
-          reader  (promise)
-          parked  (promise)
-          release (promise)
-          compute @#'res/withdrawal*]
-      (with-redefs [res/withdrawal* (fn [& args]
-                                      (let [w (apply compute args)]
-                                        (when (identical? (Thread/currentThread) @reader)
-                                          (deliver parked true)
-                                          @release)
-                                        w))]
-        (let [f (future (deliver reader (Thread/currentThread))
-                        (v/believed? kb drv 'CxSubA))]
-          (is (true? (deref parked 10000 false)) (str (name tms) ": the reader never computed"))
-          (v/retract! kb alt)
-          (deliver release true)
-          (is (true? (deref f 10000 ::timeout))
-              (str (name tms) ": the reader answers for the state it read"))
-          (is (false? (v/believed? kb drv 'CxSubA))
-              (str (name tms) ": the writer read the reader's answer about the state before"
-                   " its retraction"))))
-      (tu/clear-kb! kb))))
-
 (deftest a-match-computed-across-a-tms-call-is-not-served-after-it
   ;; A TMS call moves the change clock and then the network.  The writer's call is parked
   ;; between the two, and a reader on this thread computes `(perch ?x)` there: it reads the
@@ -275,7 +228,7 @@
   ;; reads the loser there, and must read what it read before the settle.
   (doseq [tms   [:dense :reference]
           scoped? [false true]
-          park  [#'settle/drain-recheck! #'readings/reader-moves]]
+          park  [#'settle/drain-recheck! #'settle/defeat-moves]]
     (let [[kb loser vantage home] (standing-contradiction! tms scoped?)
           label   (str (name tms) (if scoped? " scoped" " global") " at " (:name (meta park)))
           before  (loser-reading kb loser vantage home)

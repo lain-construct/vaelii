@@ -226,9 +226,8 @@ config_owed_for_path() {
     |src/vaelii/impl/settle.clj \
     |src/vaelii/impl/clashes.clj \
     |src/vaelii/impl/discovery.clj \
-    |src/vaelii/impl/readings.clj \
+    |src/vaelii/impl/except.clj \
     |src/vaelii/impl/recheck.clj \
-    |src/vaelii/impl/reroute.clj \
     |src/vaelii/impl/taxonomy.clj \
     |src/vaelii/impl/inherit.clj \
     |src/vaelii/impl/rewrite.clj \

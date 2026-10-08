@@ -276,7 +276,7 @@
       (is (= :malformed-entry (:type (refused [:not-a-pair]))) "a frame that is not a pair")
       (is (= :malformed-entry (:type (refused [[:k 1 2]]))) "a triple is not a pair either")
       (testing "the whole batch is checked before any of it is installed"
-        (is (= :malformed-entry (:type (refused [[[:functor-root 'dog] #{1}] :not-a-pair]))))
+        (is (= :malformed-entry (:type (refused [[[:context-root 'dog] #{1}] :not-a-pair]))))
         (is (empty? (entries-of kb))
             "a refused batch left nothing behind for the caller's rebuild to double")))))
 

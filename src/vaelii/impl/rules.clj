@@ -66,7 +66,7 @@
   negated antecedent on `p` — and, through `trigger-keys`' genl walk, those on a genl of
   `p`, which is the direction subsumption runs in under a negation.  A vector, so the key
   can never collide with a predicate, which is always a symbol.  The same spelling on the
-  index side (`antecedent-predicates`, every writer) and the trigger side
+  index side (`antecedent-keys`, every writer) and the trigger side
   (`trigger-keys`)."
   [literal]
   (let [f (nm/functor literal)]
@@ -77,14 +77,16 @@
 
 (defn antecedent-keys
   "`antecedent-key` of each of `antes` — a rule record's `:antecedent`, or the antecedents
-  `antecedent-predicates` splits off a sentence."
+  `antecedent-predicates` splits off a sentence.  Every writer of the antecedent index
+  passes the record's `:antecedent` here, the add (`special/index-rule-sentex`,
+  `reindex`) and the removal (`special/disintegrate-sentex!`) alike, so the two compute
+  their keys from one input."
   [antes]
   (keep antecedent-key antes))
 
 (defn antecedent-predicates
-  "The antecedent-index keys of a rule `sentence` — each antecedent's `antecedent-key`.
-  What `p/index-rule` files a rule under and what the `:rule-antecedents` roster counts;
-  a positive literal's key is its predicate, a negated one's is `[:not pred]`."
+  "The antecedent-index keys of a rule `sentence` — each antecedent's `antecedent-key`; a
+  positive literal's key is its predicate, a negated one's is `[:not pred]`."
   [sentence]
   (antecedent-keys (antecedents sentence)))
 
@@ -96,9 +98,9 @@
   The two spellings differ on one shape and only one: an `antecedent-key` distinguishes
   negations by their body's predicate (`[:not flies]`, so an arriving `(not (p a))`
   reaches the rules that read a negation on `p` and not every rule that reads any
-  negation), while a *conclusion* `(not (flies ?x))` is filed by its functor root, which
-  is `not`.  So a reader looking a dependency up among the concluders has to ask for
-  `not`; asking for `[:not flies]` reads an empty bucket, and an edge that is silently
+  negation), while a *conclusion* `(not (flies ?x))` is filed under its outermost
+  functor, which is `not`.  So a reader looking a dependency up among the concluders has
+  to ask for `not`; asking for `[:not flies]` reads an empty bucket, and an edge that is silently
   not there is a negation cycle `checks/check-stratified` accepts instead of refusing.
 
   Coarser than the index key, deliberately: every negated antecedent depends on every
@@ -118,24 +120,26 @@
   entails `(not (q a))` for every *spec* `q` of `p` — so it triggers `[:not q]` for each
   spec of its body's predicate.
 
-  **Enumerated from `roster` rather than from the spec closure**, `roster` being the live
-  `:rule-antecedents` map of keys some stored rule reads.  The two sides of the mirror
+  **Enumerated from `roster` rather than from the spec closure**, `roster` being the set
+  of keys some stored rule reads (`reads/as-stored-rule-keys`).  The two sides of the mirror
   are not the same size: the positive fan walks the *up* set, which a hierarchy bounds by
   its depth, while the negative one walks the *down* set, which on a broad ontology is
   most of it — an arriving `(not (thing X))` would cost one index probe per type in the
   KB.  Keeping the negated keys some rule actually reads costs one `genls` membership
-  test per such key, and rules reading a negation are few; a KB with none pays a map
-  read.  Complete because the roster is bumped from `antecedent-predicates` at the same
-  choke point that files the index keys (`special/index-rule-sentex`), so the keys a rule
-  is filed under are exactly the keys the roster holds."
+  test per such key, and rules reading a negation are few.  The positive side is the up
+  set intersected with the roster, walking the smaller of the two.  Complete because the
+  roster is the rule index's own root level, written in the batch that files the keys."
   [tax sentence roster]
   (let [k (antecedent-key sentence)]
     (if (vector? k)
       (let [g (second k)]
         (into [] (comp (filter vector?)
                        (filter #(contains? (tax/genls-global tax (second %)) g)))
-              (keys roster)))
-      (tax/genls-global tax k))))
+              roster))
+      (let [up (tax/genls-global tax k)]
+        (if (< (count roster) (count up))
+          (into [] (filter #(contains? up %)) roster)
+          (into [] (filter #(contains? roster %)) up))))))
 
 (defn consequent-key
   "`consequent-predicate` of a rule whose consequent pattern is `c0`, read off the
@@ -294,7 +298,8 @@
 
   So each frame yields what it reads: an `unknown` its conjuncts (recursively — a
   conjunction is watched conjunct by conjunct, since it starts holding when the *last*
-  of them does), a `thereExists` its body, an aggregate its census body.  An `(and …)`
+  of them does), a `thereExists` its body, a `forall` its desugared NAF, an aggregate
+  its census body.  An `(and …)`
   is peeled for the same reason and reached the same way: nothing is stored under `and`,
   and a conjunction under a quantifier is a **joined** query (docs/naf.md) whose every
   conjunct can be the one that completes it.  Anything else is a literal a fact can
@@ -312,6 +317,8 @@
   (cond
     (sx/unknown? q)      (mapcat watched-literals (sx/naf-query-conjuncts q))
     (sx/there-exists? q) (watched-literals (nth q 2))
+    ;; a nested one, which no entry point desugars: what it reads is its NAF form's
+    (and (sx/forall? q) (sx/implies? (nth q 2))) (watched-literals (sx/desugar-forall-literal q))
     (sx/aggregate? q)    (watched-literals (sx/aggregate-body q))
     (sx/conjunction? q)  (mapcat watched-literals (sx/conjuncts q))
     :else                [q]))
@@ -465,6 +472,27 @@
   (boolean (some (fn [unk] (sx/some-form #(or (sx/unknown? %) (sx/aggregate? %))
                                          (second unk)))
                  (naf-antecedents sentex))))
+
+(defn exception-arrival-releasable?
+  "Can an arriving fact both impose and lift the exception `queries` (a rule's
+  `provers/rule-exceptions`)?  An exception blocks while it holds, so a literal it reads
+  under an even number of `unknown`s is one an arrival makes hold, and one under an odd
+  number is one an arrival makes fail.  With both, a block one arrival imposed is swept
+  rather than refused, and a later arrival can lift it with no refusal to read, so the
+  rule is owed a re-join as `arrival-releasable?` owes one.  An aggregate moves either way
+  on its own.  An exception of one polarity is not: a block an arrival imposes is never
+  lifted by one, and a block a retraction imposed is re-chained by the sweep."
+  [queries]
+  (let [pols (volatile! #{})]
+    (letfn [(walk [q pos?]
+              (cond
+                (sx/unknown? q)      (run! #(walk % (not pos?)) (sx/naf-query-conjuncts q))
+                (sx/there-exists? q) (walk (nth q 2) pos?)
+                (sx/conjunction? q)  (run! #(walk % pos?) (sx/conjuncts q))
+                (sx/aggregate? q)    (vswap! pols conj :aggregate)
+                :else                (vswap! pols conj pos?)))]
+      (run! (fn [conjs] (run! #(walk % true) conjs)) queries))
+    (or (contains? @pols :aggregate) (and (contains? @pols true) (contains? @pols false)))))
 
 (defn arrival-releasable?
   "Can an arriving fact *release* one of this rule's re-check conditions rather than

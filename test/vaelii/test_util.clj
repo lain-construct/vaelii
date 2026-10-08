@@ -26,25 +26,34 @@
 
     ;; an inline KB inside one deftest (varied baselines in one file)
     (tu/with-neutral-kb [kb tu/fresh] ...)"
-  (:require [clojure.set :as set]
+  (:require [clojure.java.io :as io]
+            [clojure.java.shell :as shell]
+            [clojure.set :as set]
             [clojure.string :as str]
             [clojure.test :refer [is]]
+            [clojure.walk :as walk]
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
             [vaelii.host.seed :as seed]
             [vaelii.host.starter :as starter]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.config :as config]
+            [vaelii.impl.disk.index-snapshot :as index-snapshot]
+            [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.memory :as mem]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.overlay.mount :as mount]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.sentex :as sx]
+            [vaelii.impl.special :as special]
             [vaelii.impl.types.reasoning :as reasoning])
   (:import [java.io File]
            [java.nio.file Files]
-           [java.nio.file.attribute FileAttribute]))
+           [java.nio.file.attribute FileAttribute]
+           [java.util.concurrent ExecutionException FutureTask]))
 
 ;; ---- the switches, and the pin that hands their defaults back -----------
 ;;
@@ -220,6 +229,32 @@
   [vars & body]
   `((pinning ~vars) (fn [] ~@body)))
 
+(def windows?
+  "Is this JVM on Windows?  For a test that execs a `#!` stub, which Windows cannot.  Pair
+  it with `with-requirement`, so the skip is printed rather than passed."
+  (str/starts-with? (str/lower-case (str (System/getProperty "os.name"))) "windows"))
+
+(def bash
+  "The bash a test runs a script with: the one the `lein` aliases run (`bash` in
+  project.clj, handed on by the `:test` profile), else `bash`."
+  (or (not-empty (System/getProperty "vaelii.test.bash")) "bash"))
+
+(def host-bash?
+  "Does `bash` see this JVM's files and environment?  Everywhere but Windows, yes.  On
+  Windows it is Git's (MSYS), which does given a `/`-separated path (`posix-path`), or
+  WSL's, which does not: it runs in another filesystem and receives none of this JVM's
+  environment.  Asked once, of `uname`."
+  (delay (or (not windows?)
+             (try (boolean (re-find #"(?i)mingw|msys|cygwin"
+                                    (:out (shell/sh bash "-c" "uname -s"))))
+                  (catch java.io.IOException _ false)))))
+
+(defn posix-path
+  "`f`'s absolute path with `/` separators — what a script under `host-bash?` takes on
+  every OS, since MSYS reads `C:/x` and would read `C:\\x` as escapes."
+  ^String [f]
+  (str/replace (.getAbsolutePath (io/file f)) \\ \/))
+
 (defmacro with-requirement
   "`body` when `ready?`; otherwise one `SKIP <test>: <why>` line on stdout, so a run that
   could not assert a claim says so rather than passing with nothing asserted.
@@ -229,6 +264,16 @@
   `(if ~ready?
      (do ~@body)
      (println (str "SKIP " (some-> (first clojure.test/*testing-vars*) symbol) ": " ~why))))
+
+(defmacro with-snapshot-platform
+  "`body` where a `:snapshot` index can publish; otherwise a printed SKIP.  The platform
+  question is the engine's own (`index-snapshot/publishable-platform?`, the check behind
+  `enabled?`), so the skip follows the refusal.  For a test that opens a `:disk-snapshot`
+  KB, or one built on it — the reasoning image, the oplog's seal, the background rebuild."
+  [& body]
+  `(with-requirement (#'index-snapshot/publishable-platform?)
+     "the :snapshot index is refused on this platform (index-snapshot/enabled?)"
+     ~@body))
 
 ;; Run the *whole* suite through the incremental forward-chaining matcher
 ;; (`vaelii.impl.rete`) rather than the reference `chain` when `VAELII_RETE` is set.
@@ -608,11 +653,17 @@
   databases a previous run may have populated, and a write into a KB whose belief was
   never built is refused (`:type :unrecovered-kb`).  The directory is deleted on JVM exit,
   deepest entry first, since `deleteOnExit` runs its queue in reverse insertion order and
-  will not remove a directory holding files."
+  will not remove a directory holding files.
+
+  `load` runs on a thread of its own, so it reads every dynamic var at its root: the
+  dump is built once per JVM by whichever fixture asks first, and a binding that caller
+  holds (`without-entailing` around a namespace) would otherwise reach every restore."
   [prefix space load]
   (let [dir (temp-dump-dir prefix)
-        kb  (doto (v/open-kb space) (clear-kb!))]
-    (load kb)
+        kb  (doto (v/open-kb space) (clear-kb!))
+        run (FutureTask. ^Callable (fn [] (load kb)))]
+    (.start (Thread. run))
+    (try (.get run) (catch ExecutionException e (throw (.getCause e))))
     (v/export! kb (.getPath dir) {:variant :records+index})
     (clear-kb! kb)
     (.deleteOnExit dir)
@@ -844,7 +895,7 @@
     (with-terms [dog Muffet parentOf CxStory]
       (v/assert kb (list dog Muffet) CxStory))
     ;; dog -> tmpdog17   Muffet -> TmpMuffet18
-    ;; parentOf -> tmpParentOf19   CxStory -> CxTmpStory20
+    ;; parentOf -> tmpparentof19   CxStory -> CxTmpStory20
 
   So the test's terms keep the spelling of the ontology it is about, while every term stays unique and
   disposable (see the net-neutrality guarantee above).  A bare base like `dog` stays
@@ -892,6 +943,55 @@
            (or (some #(contains? (:nogood %) h)
                      (concat (v/contradictions kb) (v/conflicts kb)))
                (not (v/ask? kb sentence context))))))))
+
+(defn defeat-vantages
+  "The contexts of the placed defeats of `h` in force at `ctx` (`exc/defeats-of`), sorted
+  and distinct; empty for a variable `ctx`, which names no reader."
+  [kb h ctx]
+  (if (sx/variable? ctx)
+    []
+    (into [] (distinct) (sort (keep #(:context (p/get-sentex (:records kb) %))
+                                    (exc/defeats-of kb h ctx))))))
+
+(defn handle-free
+  "`form` with each `(sentexHandle n)` term replaced by `[sentence context]` of the sentex
+  at `n`, so two KBs holding the same content compare equal whatever handles they
+  allocated.  A placed nogood's sentences name their members by handle."
+  [kb form]
+  (walk/postwalk #(if-let [h (v/handle-id %)]
+                    (let [s (p/get-sentex (:records kb) h)] [(:sentence s) (:context s)])
+                    %)
+                 form))
+
+(defn- content-key
+  "`sentence` printed with each `(sentexHandle n)` term replaced by the sentence stored at
+  `n`.  Two KBs holding the same content agree on the key whatever handles they allocated."
+  [kb sentence]
+  (pr-str (walk/postwalk #(if-let [h (v/handle-id %)] (:sentence (p/get-sentex (:records kb) h)) %)
+                         sentence)))
+
+(defn fact-sample
+  "Up to `n` distinct ground-fact bodies of `kb` (no rules), spread evenly over the stored
+  facts in content order (`content-key`), so two KBs holding the same facts give the same
+  sample on every backend and in every configuration.  An even spread spans more functors
+  than the first `n`, which cluster by predicate.  A record the argument entailment alone
+  holds up is left out: the constraint-only reading stores none, and proves its sentence
+  from the rest (`starter_test/the-constraint-only-reading-proves-every-sentence-the-entailment-derives`)."
+  [kb n]
+  (let [mint-only? #'special/mint-only?
+        all (->> (p/sentex-ids (:records kb))
+                 (remove #(mint-only? kb %))
+                 (keep #(p/get-sentex (:records kb) %))
+                 (remove #(some? (:antecedent %)))
+                 (keep sx/body)
+                 (filter #(and (sequential? %) (symbol? (nm/functor %))))
+                 distinct
+                 (sort-by #(content-key kb %))
+                 vec)
+        m   (count all)]
+    (if (<= m n)
+      all
+      (mapv #(nth all (quot (* % m) n)) (range n)))))
 
 ;; ---- content snapshots + auto-teardown ----------------------------------
 
@@ -1122,3 +1222,36 @@
     (with-cleared-kb [kb starter-kb] …)"
   [[sym build-fn] & body]
   `(cleared-kb* ~build-fn (fn [~sym] ~@body)))
+
+(defn recovered-readings
+  "`[source recovered written]`, each `{:placed :loser}`: the believed `contradicts` and
+  `defeat` sentexes as `[sentence context]` with their handles resolved (`handle-free`),
+  and the belief of `[s ctx]` at `ctx`.  `source` reads `kb`; the others read a KB on the
+  isolated space holding `kb`'s dump imported records-only (`{:belief? false}`, a store
+  written with no belief) and recovered, before any write and after `(write! target)`.
+  The recover runs in place, or, with `reopen?`, as the `:recover? :auto` open of a second
+  KB over the store once the first is closed.  The open rebuilds a derived index before it
+  recovers, which `recover` alone does not do."
+  [kb reopen? [s ctx] write!]
+  (let [dir  (temp-dump-dir "vaelii-recovered-")
+        read (fn [k] {:placed (into #{} (comp (mapcat #(v/sentexes-with-functor k %))
+                                              (filter #(v/in? k (:id %)))
+                                              (map #(handle-free k [(:sentence %) (:context %)])))
+                                    '[contradicts defeat])
+                      :loser  (v/believed? k (v/handle-of k s ctx) ctx)})]
+    (try
+      (.delete dir)
+      (v/export! kb (.getPath dir) {:compression :none})
+      (into [(read kb)]
+            (cleared-kb* (fn []
+                           (let [k (isolated-fresh)]
+                             (v/import! k (.getPath dir) {:belief? false})
+                             (if reopen?
+                               (do (v/close! k) (v/open-kb (assoc (isolated-space) :recover? :auto)))
+                               k)))
+                         (fn [target]
+                           (when-not reopen? (v/recover target))
+                           (let [r (read target)]
+                             (write! target)
+                             [r (read target)]))))
+      (finally (run! #(.delete ^File %) (reverse (file-seq dir)))))))

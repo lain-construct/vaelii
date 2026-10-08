@@ -29,6 +29,7 @@
   asserted widens it exactly as much as one somebody did (vaelii#56); the merge it
   yields is handed back up to `core`, which owns the follow-through."
   (:require [vaelii.impl.datetime :as datetime]
+            [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
@@ -87,11 +88,13 @@
 
 (defn- subrelation-declarations
   "Believed `(contextArgSubrelation F pos R)` declarations as `[F pos R handle]`, kept
-  where `(pred? F)` — all of them, or only those for one function."
+  where `(pred? F)` — all of them, or only those for one function.  A declaration is read
+  as its own context believes it (`exc/believed-own?`): a computed edge is seen from every
+  context, so a declaration a defeat hides where it is stated builds none."
   [kb pred?]
   (for [sx  (kb/sentexes-matching kb '(contextArgSubrelation ?f ?pos ?r) '?ctx)
         :let [[_ f pos r] (:sentence sx)]
-        :when (pred? f)]
+        :when (and (pred? f) (exc/believed-own? kb (:id sx)))]
     [f pos r (:id sx)]))
 
 (defn- context-nats-of

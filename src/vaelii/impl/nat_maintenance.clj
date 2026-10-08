@@ -53,7 +53,7 @@
     (when (seq (:superseded mig))
       (special/refresh-supersessions kb (:superseded mig)))
     (when (and (:chain? opts true) (seq (:new mig)))
-      (chain/chain-all kb (vec (:new mig)) opts))
+      (chain/chain-all kb (special/minted-seeds kb (:new mig)) opts))
     (violations/report kb (:violations mig))
     (when-not *defer-settle?* (settle/settle kb)))
   nil)

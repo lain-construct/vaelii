@@ -825,6 +825,35 @@
                        (res/believed-at? kb % (:context sx))))
         (p/sentex-ids (:records kb))))
 
+(defn- step-disagreements
+  "Each step `[label f]` of `steps`, `f` taking the KB, run under a listener on a KB of its
+  own after the writes of `order`, as one entry per step whose events differ from the diff
+  of `own-belief` around it.  An entry also names a step delivering one handle twice."
+  [order steps]
+  (let [loaded (gen/load-world! nil [] {})
+        kb     (:kb loaded)
+        seen   (atom [])
+        out    (atom [])]
+    (try
+      (v/watch kb #(swap! seen conj %))
+      (doseq [{:keys [sentence context strength]} order]
+        (v/assert kb (gen/engine-form sentence) context {:strength (or strength :default)}))
+      (doseq [[label f] steps]
+        (let [before (own-belief kb)]
+          (reset! seen [])
+          (try (f kb) (catch clojure.lang.ExceptionInfo _ nil))
+          (let [after  (own-belief kb)
+                stored (set (p/sentex-ids (:records kb)))
+                want   [(into #{} (remove before) after)
+                        (into #{} (comp (remove after) (filter stored)) before)]
+                hs     (fn [half] (into [] (comp (mapcat half) (map :handle)) @seen))
+                named  (concat (hs :believed-added) (hs :believed-removed))
+                got    [(set (hs :believed-added)) (set (hs :believed-removed))]]
+            (when-not (and (= want got) (or (empty? named) (apply distinct? named)))
+              (swap! out conj {:step label :want want :got got :named named})))))
+      @out
+      (finally (gen/close-kb! loaded)))))
+
 (defn- window-disagreements
   "Each write of `world` in `order`, then each retraction in `removals` (`order` when
   not given), made under a listener on a KB of its own, as one entry per step whose event
@@ -888,6 +917,52 @@
                          (w '(functional relb) :monotonic) (w '(relb IndA IndA) :monotonic)]
                         writes)]
         (is (= [] (window-disagreements {:contexts #{'CxA}} order [removal])) label)))))
+
+(deftest a-deferred-batch-reports-against-the-belief-before-its-first-write
+  ;; (cat Rex) loses to the :monotonic (dog Rex) in CxA.  An except of the winner hides it
+  ;; when it is stored, before the batch's settle; a retraction inside a batch settles at
+  ;; once, and the batch's closing settle has nothing left to report.
+  (let [w     (fn [s st] {:sentence s :context 'CxA :strength st})
+        order [{:sentence '(genlCx CxA CxUniverse) :context 'CxUniverse :strength :monotonic}
+               (w '(disjoint dog cat) :monotonic) (w '(dog Rex) :monotonic) (w '(cat Rex) :default)]
+        dog   #(v/handle-of % '(dog Rex) 'CxA)]
+    (doseq [[label f]
+            [["an except of the winner, deferred"
+              #(v/with-deferred-settle %
+                 (v/assert % (list 'except (v/sentex-handle (dog %))) 'CxA {:strength :monotonic}))]
+             ["the winner retracted inside a batch"
+              #(v/with-deferred-settle % (v/retract! % (dog %)))]
+             ["a fact beside the winner's retraction, in one batch"
+              #(v/with-deferred-settle %
+                 (v/assert % '(color Sky Blue) 'CxA)
+                 (v/retract! % (dog %)))]]]
+      (is (= [] (step-disagreements order [[label f]])) label))))
+
+(deftest a-write-moving-a-conflict-a-reader-s-excepts-decide-reports-its-member-s-consequences
+  ;;   CxUniverse  (disjoint dog cat)
+  ;;     ├─ CxA     (cat Rex) default, and :monotonic through (cat_src Rex)
+  ;;     ├─ CxB     (dog Rex) :monotonic
+  ;;     └─ CxHide  (except (cat_src Rex)), in the steps that store it
+  ;;   CxW sees CxA and CxB: the conflict's placement, no defeat
+  ;;   CxZ sees CxW and CxHide: (cat ?x) => (meows ?x), and (meows Rex) rests on (cat Rex),
+  ;;   whose class at CxZ is :default while the except is stored, so the conflict defeats it there
+  (let [m     (fn [s c] {:sentence s :context c :strength :monotonic})
+        order (-> (mapv (fn [[c up]] (m (list 'genlCx c up) 'CxUniverse))
+                        [['CxA 'CxUniverse] ['CxB 'CxUniverse] ['CxHide 'CxUniverse]
+                         ['CxW 'CxA] ['CxW 'CxB] ['CxZ 'CxW] ['CxZ 'CxHide]])
+                  (into [(m '(disjoint dog cat) 'CxUniverse)
+                         (m '(set/forwardRule (implies (cat_src ?x) (cat ?x))) 'CxA)
+                         (m '(cat_src Rex) 'CxA)
+                         {:sentence '(cat Rex) :context 'CxA :strength :default}
+                         (m '(dog Rex) 'CxB)
+                         (m '(set/forwardRule (implies (cat ?x) (meows ?x))) 'CxZ)]))
+        hide  (fn [kb] (v/assert kb (list 'except (v/sentex-handle (v/handle-of kb '(cat_src Rex) 'CxA)))
+                                 'CxHide {:strength :monotonic}))
+        shown #(v/retract! % (v/handle-of % (list 'except (v/sentex-handle (v/handle-of % '(cat_src Rex) 'CxA)))
+                                          'CxHide))]
+    (is (= [] (step-disagreements order [["the except stored" hide] ["the except retracted" shown]])))
+    (is (= [] (step-disagreements order [["the except stored" hide]
+                                         ["the winner retracted" #(v/retract! % (v/handle-of % '(dog Rex) 'CxB))]])))))
 
 (deftest every-event-is-the-diff-of-own-context-belief-in-random-worlds
   (random-window-check (range 40)))

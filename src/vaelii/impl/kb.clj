@@ -13,6 +13,7 @@
   (:refer-clojure :exclude [isa?])
   (:require [clojure.string :as str]
             [taoensso.trove :as trove]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.capabilities :as cap]
             [vaelii.impl.columnar :as columnar]
             [vaelii.impl.config :as config]
@@ -22,8 +23,8 @@
             [vaelii.impl.disk.files :as dfiles]
             [vaelii.impl.disk.index-snapshot :as snapshot]
             [vaelii.impl.disk.record-store :as drs]
+            [vaelii.impl.except :as exc]
             [vaelii.impl.feed :as feed]
-            [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.memory :as mem]
@@ -33,6 +34,7 @@
             [vaelii.impl.overlay.mount :as mount]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
@@ -812,7 +814,7 @@
   "Every key `open-kb` reads.  Public because it is the answer to \"is this a real
   option?\", and a caller that can ask does not have to find out from a wrong answer."
   #{:backend :records :index :space :dir :pg :tms :recover?
-    :naming :base :base-stores :overlay})
+    :naming :base :base-stores :overlay :oplog?})
 
 (defn- check-constraints-opt!
   "Refuse `:constraints` with the reading that replaces it.  No `open-kb` option chooses
@@ -1082,6 +1084,43 @@
                     {:type :unknown-option :mismatch :bad-value :recover? recover?
                      :options [:auto true :background :warn false]}))))
 
+;; ---- the operation log -----------------------------------------------------
+
+(def oplog-modes
+  "What `:oplog?` may say, and the fsync mode each one means (`vaelii.impl.oplog`): `true`
+  and `:each` fsync each operation's frame before the operation runs, `:tick` leaves the
+  frame to the durability daemon's tick, `false` attaches no log."
+  {true :each, :each :each, :tick :tick, false nil})
+
+(defn oplog-mode
+  "The fsync mode `opts`' `:oplog?` asks for, nil for no log, or a refusal
+  (`:unknown-option`): a value `oplog-modes` does not name, a log on a backend other than
+  `:disk-snapshot`, or a log with a `:recover?` other than `:auto`.  A log restores into a
+  built KB or rebuilds one, so it has no reading for a KB left unrecovered."
+  [opts]
+  (let [v (:oplog? opts false)]
+    (when-not (contains? oplog-modes v)
+      (throw (ex-info (str "unknown :oplog? setting " (pr-str v)
+                           " — open-kb reads true (or :each), :tick, and false")
+                      {:type :unknown-option :mismatch :bad-value :oplog? v
+                       :options [true :each :tick false]})))
+    (when-let [mode (oplog-modes v)]
+      (let [{rkind :records ikind :index} (backend-axes opts)]
+        (when-not (and (= :disk rkind) (= :snapshot ikind))
+          (throw (ex-info (str "open-kb was given :oplog? " (pr-str v) " over records "
+                               (pr-str rkind) " and index " (pr-str ikind) " — an"
+                               " operation log restores into the images a :disk-snapshot"
+                               " KB keeps, so it is read on {:backend :disk-snapshot} only")
+                          {:type :unknown-option :mismatch :conflict :unknown [:oplog?]
+                           :records rkind :index ikind})))
+        (when-not (#{:auto true} (:recover? opts :auto))
+          (throw (ex-info (str "open-kb was given :oplog? " (pr-str v) " with :recover? "
+                               (pr-str (:recover? opts)) " — an open with an operation log"
+                               " restores belief or rebuilds it, so it takes :recover? :auto")
+                          {:type :unknown-option :mismatch :conflict :unknown [:oplog? :recover?]
+                           :records rkind :index ikind})))
+        mode))))
+
 ;; ---- the write side of an unbuilt derived state --------------------------
 ;;
 ;; "Unrecovered" names one condition on the read side and two on the write side, and the
@@ -1282,35 +1321,12 @@
     :refused   (atom {})
     :settle-stats (atom {:iterations 0 :passes 0 :histogram {}})
     :chain-stats  (atom {:runs 0 :last nil})
-    :opposed   (atom #{})
     ;; the read-decided families' candidates (`decide/note-candidate!`), kept at the
-    ;; same two choke points as `:opposed` and rebuilt by `recover`, and the inherited
+    ;; store and removal choke points and rebuilt by `recover`, and the inherited
     ;; clashes each settle re-finds (`inherited/install-inherited!`).  A held atom: while a
     ;; settle re-finds them, the other threads read the index it began from
     ;; (`observe/hold-atom!`).
     :nogood-candidates (observe/held-atom {})
-    ;; what the last settle read at each context holding a handle of their consequence
-    ;; closure (`readings/reader-moves`)
-    :own-readings (atom nil)
-    ;; the last reading's reports of the families a reader decides, reused where
-    ;; nothing a report reads moved (`clashes/read-clashes`)
-    :read-reports (atom {})
-    ;; `{[P R] -> how many sentexes declare it}` — the argument-preservation
-    ;; declarations, as storage.  `discovery/preserving-nogoods` reads it as
-    ;; its gate and as its vocabulary, `inherit/moved-predicates` reads its
-    ;; pairs for every sentence the chainer, the re-check triggers and the
-    ;; settle ask about, and `inherit/positions-along` keys its cache on the
-    ;; value.  The point of the roster is that these reads cost **nothing off
-    ;; the index**: a KB that declares no preservation — which is nearly
-    ;; every KB — is told so by one `empty?`, where
-    ;; `inherit/declarations-exist?` is two cardinality reads and would land
-    ;; on the assert path once per datum.  Kept at
-    ;; the same two choke points as `:opposed`, from the sentence's shape
-    ;; alone, and rebuilt by `recover` for the same reason.
-    ;; Reference-counted rather than a set: one declaration stated in two
-    ;; contexts is two sentexes, and the first retraction must not retire
-    ;; what the second still says.
-    :preserving (atom {})
     ;; The inherited clashes `discovery/preserving-nogoods` found, keyed on
     ;; the stored claim, with what each was read under
     ;; (`discovery/preserving-entries`), so a standing report survives an
@@ -1318,93 +1334,95 @@
     ;; handle rather than a pair, since the other side of an inherited
     ;; clash is not a sentex.
     :preserved-clashes (atom {})
-    ;; `{context -> {except-handle -> hidden-handle}}` — which stored
-    ;; `(except (sentexHandle H))` facts sit in which context, so a
-    ;; reader takes the visible ones off the map rather than fetching
-    ;; every except record in the KB.  Kept at the same two choke
-    ;; points as `:opposed`, and rebuilt by `recover` for the same
-    ;; reason: it is derived from storage and no store holds it
-    :excepted  (atom {})
-    ;; How many stored excepts target another except's handle.  When
-    ;; zero, `except-in-force?` is trivially true for every except
-    ;; and `excepted-handles` can skip the cascade entirely.  Maintained
-    ;; at the same choke points as `:excepted` and rebuilt by `recover`.
-    :meta-except-count (atom 0)
-    ;; `{reader -> #{handle}}` — what each reader reads as withdrawn:
-    ;; hidden by an except, a loser of a nogood it decides, or resting
-    ;; only on those (`res/withdrawn-set`).  A cache: a network move
-    ;; drops the entries it reaches (`res/reconcile-withdrawn!`), a roster
-    ;; move empties it, and a generation stamps each install
-    ;; (`res/install-withdrawn!`).
-    :withdrawn (atom {})
-    ;; `{antecedent-key -> how many rules take it}` — the roster
-    ;; `special/visibility-seeds` enumerates instead of walking a context
-    ;; ancestor set.  A key is a predicate, or `[:not pred]` for a negated
-    ;; antecedent (`rules/antecedent-key`).  Kept O(1) at the rule
-    ;; index/unindex choke points, exactly as `:opposed` is kept at the
-    ;; store's, and rebuilt by `rebuild-rule-roster!` — recovery replays
-    ;; belief and the taxonomy, never rule indexing, so nothing else puts
-    ;; it back.  Reference-counted rather than a set: two rules on one
-    ;; antecedent must not have the first retraction retire the predicate
-    ;; the second still reads.
-    :rule-antecedents (atom {})
-    ;; `{context -> how many rules are stated there}` — the other half
-    ;; of the same question: an edge only needs seeding when one side
-    ;; holds a rule that could newly reach the other side's facts, and
-    ;; wiring an empty context under a full one holds none.  Kept and
-    ;; rebuilt with the roster above, in the same two places.
-    :rule-contexts (atom {})
-    ;; `{context -> #{handle}}` — the rules a solve reads, kept and rebuilt with
-    ;; the two rosters above.  A set, not a count: a handle is posted once.
-    :solve-rules (atom {})
-    ;; the argument-declaration mints by term and by context, described
-    ;; beside the `Reasoning` record
-    :minted    (atom {:by-term {} :by-context {}})
+    ;; the mint withdrawal's two queues, described beside the `Reasoning`
+    ;; record
+    :mint-queues (atom {})
     ;; the datums whose supersession entry the write path's reconciles
     ;; moved since the last settle, each with its entry before the first
     ;; move, for the settle to publish (`special/take-supersession-moves!`)
     :supersessions (atom nil)
     ;; `#{pred}` — the predicates whose permuting marks moved by a
     ;; removal or a relabel since the last settle (`special/note-permuting-moves!`),
-    ;; for `chain/reconcile-spellings!` to bring their stored rows to.
+    ;; for `chain/reconcile-spellings!` to bring their stored rows to, and
+    ;; `[:reifiable f]` for a function whose reifiable mark moved, for
+    ;; `chain/reconcile-reified!`.
     ;; Empty at rest: the settle that follows a move drains it, and a
     ;; rebuild clears it, since a store recovered is already spelled
     :respell   (atom #{})
-    ;; `{:pending {handle #{context}} :extra [[datum reason]] :region
-    ;; #{datum}}` — the handles a visibility `except` began or stopped
-    ;; hiding since the last settle, with the contexts the excepts are
-    ;; stated in (`special/note-except-move!`), the supersessions the
-    ;; settle's sweep of them owes (`special/except-move-sweeps`), and the
+    ;; `{:pending {handle #{context}} :whole #{handle} :scoped {handle
+    ;; #{[sub super]}} :extra [[datum reason]] :region #{datum}}` — the
+    ;; handles a visibility `except` began or stopped hiding since the last
+    ;; settle, with the contexts the excepts are stated in and whether the
+    ;; except or a `genlCx` edge moved (`special/note-except-move!`), the
+    ;; supersessions the settle's sweep of them owes
+    ;; (`special/except-move-sweeps`), and the
     ;; superseded data the moves can change, which join the settle's
     ;; supersession region (`special/except-move-region`).  Empty at rest:
     ;; the settle that follows a move drains it, and a rebuild clears it
     :except-moves (atom {})
-    :qcn       (atom {})
+    :qcn       (caches/tallied (atom {}) [:R3])
     ;; the join baselines beside the network cache, never inside it:
     ;; the resident cache clears wholesale at its bound, and a baseline
     ;; is bookkeeping whose loss degrades every later delta join to a
     ;; full one — bounded by (calculi × reader contexts), not by reads
     :qcn-joined (atom {})
-    :matches   (atom {})
+    :matches   (caches/tallied (atom {}) [:R1])
     ;; one shape, not a map of stamped entries: every entry in it is
     ;; retired by the same clock move, so the stamp belongs to the map
     ;; (`provers/closure-hit`)
-    :closures  (atom {})}))
+    :closures  (caches/tallied (atom {}) [:R2])}))
+
+(defn supporter-reaches?
+  "Does a stored supporter of a relation rest on a target of the supporter `roster`
+  (`exc/supporter-roster`, entries `[key #{target}]`), the placed defeats' targets counted
+  only with `defeats?`: the taxonomy's reach callback (`tax/install-supporter-visibility!`).
+  `view` is the taxonomy's view of the relation's supporters: `:supports?` tests a handle,
+  `:count` counts them and `:handles` lists them.
+  Walks forward from the targets over the justifications resting on them while they are
+  no more than the supporters, else up each supporter's support (`exc/support`); either
+  stops at the first hit.  A target that is a supporter itself answers before either."
+  [kb roster view defeats?]
+  (let [tms       (reasoning/tms kb)
+        supports? (:supports? view)
+        entries   (remove #(and (not defeats?) (= ::exc/defeated (key %))) roster)
+        targets   (delay (into #{} (mapcat val) entries))]
+    (cond
+      (some (fn [e] (some supports? (val e))) entries) true
+      (empty? @targets) false
+      (<= (count @targets) (long (:count view)))
+      (loop [seen #{}, stack (vec @targets)]
+        (if-let [d (peek stack)]
+          (let [stack (pop stack)]
+            (cond (supports? d)      true
+                  (contains? seen d) (recur seen stack)
+                  :else (recur (conj seen d)
+                               (into stack (comp (keep #(jtms/justification tms %)) (map :consequence))
+                                     (jtms/dependents tms d)))))
+          false))
+      :else
+      (boolean (some (fn [h] (some #(contains? @targets %) (exc/support tms h (constantly false))))
+                     ((:handles view)))))))
 
 (defn- attach-visibility!
   "Install the taxonomy's two visibility callbacks (`tax/install-supporter-visibility!`)
-  on the `Reasoning` value `b`, which `kb` holds.  The callbacks read a copy of `kb` whose
-  `:reasoning` volatile holds `b` and is never reset, so they read `b`'s network and roster
-  even after an install replaces `kb`'s belief."
+  and `kb`'s index store (`tax/install-index!`) on the `Reasoning` value `b`, which `kb`
+  holds.  The callbacks read a copy of `kb` whose `:reasoning` volatile holds `b` and is
+  never reset, so they read `b`'s network and roster even after an install replaces `kb`'s
+  belief."
   [kb b]
+  (tax/install-index! (:taxonomy b) (:index kb))
   (let [view (assoc kb :reasoning (volatile! b))]
     ;; Both read live under a settle's hold (`observe/live`): the closures they decide
     ;; are memoized where the writer reads them, so they describe the network the writer
     ;; holds now, and a reader beside a settle reads the taxonomy as the writer moves it.
     (tax/install-supporter-visibility! (:taxonomy b)
-                                       #(observe/live (res/supporter-filter-roster view))
+                                       #(observe/live (exc/supporter-roster view))
                                        (fn [handle context]
-                                         (observe/live (res/supporter-believed? view handle context))))))
+                                         (observe/live (res/supporter-believed? view handle context)))
+                                       #(observe/live (exc/except-roster view))
+                                       (fn [handle context]
+                                         (observe/live (res/supporter-believed? view handle context false)))
+                                       (fn [roster sv defeats?] (observe/live (supporter-reaches? view roster sv defeats?))))))
 
 (def rebuild-shared
   "The KB fields a rebuild KB (`rebuild-kb`) takes from the KB it rebuilds: the two
@@ -1456,7 +1474,7 @@
   namespace exists to break.  `reindex-fn` is `core/reindex` — rebuild the index from
   the records, *then* recover — which is what a derived index over a durable record
   store needs: `recover` alone reads the index it is recovering from
-  (`special/rebuild-taxonomy` reads the functor root), so over an empty one it would
+  (`special/rebuild-taxonomy` reads the predicate extents), so over an empty one it would
   rebuild an empty taxonomy and report nothing wrong."
   ;; `:recover? :auto` is the default because the alternative is a wrong answer rather
   ;; than an error: under `:warn` a reopened store hands back a fully functional KB whose
@@ -1956,22 +1974,18 @@
         true        (filter some?)
         (seq cmpds) (filter (fn [sx] (every? #(sx/mentions? sx %) cmpds)))))))
 
-(defn types-of
-  "The types asserted of term `x` — functors of unary sentexes (T x), found via the
-  argument root.  Scoped to memberships visible from `context` (default: any context).
-
-  `x` is any term, not only an individual: a predicate carries the meta-ontology's
-  types (`binary_predicate`, `instance_relation_predicate`, …) the same way `Muffet`
-  carries `dog`.
+(defn type-memberships
+  "The membership sentexes `(T x)` of term `x` that `types-of` reads its types off, as
+  records: believed, asserted in a context `context` sees, and not hidden from it by an
+  `except` (default: any context, each membership read at its own).  A caller that names
+  the membership a type rests on reads this; `types-of` is its functors.
 
   The same three filters `matches-visible` applies, since this *is* the retrieval
   `isa?` and the disjointness check are built on and the two must not disagree about
-  what the KB holds: believed, asserted in a context `context` sees, and not hidden
-  from it by an `except`.  With no context, a membership is believed as its own context
-  reads it (`res/own-hidden-fn`).  A negative membership is excluded by the argument test
-  rather than by a truth filter — a `(not (T x))` sentex has `not` for its functor and
-  `(T x)` for its lone argument, so it is not a unary sentence *about* `x` at all."
-  ([kb x] (types-of kb x '?ctx))
+  what the KB holds.  A negative membership is excluded by the argument test rather than
+  by a truth filter — a `(not (T x))` sentex has `not` for its functor and `(T x)` for
+  its lone argument, so it is not a unary sentence *about* `x` at all."
+  ([kb x] (type-memberships kb x '?ctx))
   ([kb x context]
    (let [recs     (:records kb)
          tms      (reasoning/tms kb)
@@ -1979,7 +1993,7 @@
                     (constantly true)
                     (let [up (tax/context-up (reasoning/taxonomy kb) context)] #(contains? up %)))
          ;; a read with no reader reads each membership at its own context
-         hidden?  (or (if (sx/variable? context) (res/own-hidden-fn kb) (res/hidden-fn kb context))
+         hidden?  (or (if (sx/variable? context) (exc/own-hidden-fn kb) (exc/hidden-fn kb context))
                       (constantly false))]
      ;; the unary roster goes straight to the sentexes holding x as their LONE
      ;; argument, instead of every sentex mentioning x anywhere (any position, any
@@ -1987,7 +2001,7 @@
      ;; assert, via disjoint-problem, and a term at argument 1 of n binary facts cost n
      ;; record fetches here to find the handful of types it holds
      ;; (`protocols/unary-sentexes-with-arg`).  The read is a superset, so the arity and
-     ;; argument tests below stay exactly as they were and decide the answer.
+     ;; argument tests below decide the answer.
      ;;
      ;; The filters are one `keep` rather than a stack of threaded stages: every
      ;; definitional check bottoms out here, the postings are short, and a chain of
@@ -2003,8 +2017,19 @@
                                  (visible? (:context s)))
                         (let [sen (:sentence s)]
                           (when (and (= 1 (nm/arity sen)) (= x (first (nm/args sen))))
-                            (nm/functor sen))))))))
-          distinct))))
+                            s)))))))))))
+
+(defn types-of
+  "The types asserted of term `x` — functors of unary sentexes (T x), found via the
+  argument root.  Scoped to memberships visible from `context` (default: any context),
+  under `type-memberships`' filters.
+
+  `x` is any term, not only an individual: a predicate carries the meta-ontology's
+  types (`binary_predicate`, `instance_relation_predicate`, …) the same way `Muffet`
+  carries `dog`."
+  ([kb x] (types-of kb x '?ctx))
+  ([kb x context]
+   (distinct (map #(nm/functor (:sentence %)) (type-memberships kb x context)))))
 
 (defn memberships
   "What a term is, as the checks need to ask it: `{:types [t …] …}` — the types asserted
@@ -2036,6 +2061,11 @@
         (vswap! isa assoc t a)
         a))))
 
+(defn- membership-arity
+  "The arity the first exact-arity class a `memberships` read `ms` is under says, or nil."
+  [ms]
+  (first (for [[t n] tax/exact-arity-classes :when (isa-among? ms t)] n)))
+
 (defn relation-arity
   "The exact arity `pred` itself is declared with, visible from `context` (nil: every
   believed declaration), or nil: its `(arity P n)` declaration (`tax/declared-arity`, a
@@ -2045,10 +2075,21 @@
   [kb pred context]
   (or (let [n (tax/declared-arity (reasoning/taxonomy kb) pred context)]
         (when (and (integer? n) (pos? n)) n))
-      (let [ms (memberships kb pred (or context '?ctx))]
-        (first (for [[t n] tax/exact-arity-classes
-                     :when (isa-among? ms t)]
-                 n)))))
+      (membership-arity (memberships kb pred (or context '?ctx)))))
+
+(defn relation?
+  "Is `term` a relation of two or more places by its stored content, visible from
+  `context` (nil: every believed declaration): a `relation-arity` of two or more, or a
+  `variable_arity` membership.  A `genl` edge between two relations makes each a node of
+  the `genl` hierarchy; such a node is not a type, and a node with an arity of one or
+  none is.  No spelling is read."
+  [kb term context]
+  (let [n (tax/declared-arity (reasoning/taxonomy kb) term context)]
+    (if (and (integer? n) (pos? n))
+      (>= n 2)
+      (let [ms (memberships kb term (or context '?ctx))]
+        (boolean (or (some-> (membership-arity ms) (>= 2))
+                     (isa-among? ms 'variable_arity)))))))
 
 (defn isa?
   "Is individual `x` (transitively) of type `t`?  Considers only type memberships
@@ -2171,7 +2212,7 @@
 ;; nothing ever roots under — read zero every time, and declare the cache authoritative
 ;; for a body the store may well hold, skipping the trie into a duplicate sentex.  So
 ;; the key is `(sx/body built)`'s functor, computed exactly as `root-keys` does; a rule
-;; has no body and no functor-root posting, so the memo declines it and the trie answers.
+;; has no body and no predicate-extent posting, so the memo declines it and the trie answers.
 (def ^:dynamic *chain-authoritative-functors* nil)
 
 (def chain-authority-min-frontier
@@ -2199,7 +2240,7 @@
   since the verdicts were recorded means the cache was emptied, so the verdicts are
   dropped and each functor is re-probed against a store that now counts what the run
   stored.  A nil var (no run, or no cache) answers falsey, leaving the caller on the
-  trie — as does a `built` with no functor-root posting (a rule, or a non-symbol-headed
+  trie — as does a `built` with no predicate-extent posting (a rule, or a non-symbol-headed
   body)."
   [kb stamp built]
   (when-let [^java.util.Map memo *chain-authoritative-functors*]
@@ -2263,8 +2304,10 @@
   before it (`integrate/commute-existing`), so the store holds the spelling this probe
   builds."
   [kb sentence context]
-  (let [stamp (canon-stamp kb)]
-    (or (observe/cached-handle stamp sentence context)
+  ;; a spelling one reader reads (`res/*spelled-by*`) is looked up past the cache, which
+  ;; holds the store's own spelling of a sentence
+  (let [stamp (when-not res/*spelled-by* (canon-stamp kb))]
+    (or (when stamp (observe/cached-handle stamp sentence context))
         (let [built  (res/kb-sentex kb sentence context)]
           ;; The run cache already answered "no", and for a chain-authoritative functor
           ;; that "no" is final — skip the trie.  Guarded on the queried spelling being
@@ -2272,7 +2315,7 @@
           ;; an α-rename, a fold), the cache was consulted under a different key than the
           ;; store holds, so its miss proves nothing and the trie must answer.  That one
           ;; equality subsumes every special-predicate storage rule at once.
-          (if (and (= sentence (sx/sentence-of built))
+          (if (and stamp (= sentence (sx/sentence-of built))
                    (functor-cache-authoritative? kb stamp built))
             nil
             (let [direct (stored-at kb built (p/leaf-at (:index kb) (sx/path built)))]
@@ -2283,16 +2326,11 @@
                 ;; canonical key (`integrate/sentex-removed!`), so an entry keyed on a
                 ;; spelling canonicalization rewrites — a sorted symmetric literal, a folded
                 ;; comparison — would outlive its sentex as a stale handle
-                (if (= sentence (sx/sentence-of built))
+                (if (and stamp (= sentence (sx/sentence-of built)))
                   (observe/cache-handle! stamp sentence context direct)
                   direct))))))))
 
-;; ---- the P/¬P coincidence set --------------------------------------------
-;; A negation nogood needs a body stored in *both* polarities, and most negative facts
-;; have no positive twin.  `:opposed` holds exactly the bodies stored both ways,
-;; maintained O(1) from two `count-at` probes at the store primitive below and the
-;; removal choke point (`integrate/sentex-removed!`), and `decide/note-candidate!` reads
-;; a body's pairs only when the body is in it.
+;; ---- the body under a negation --------------------------------------------
 
 (defn body-under-not
   "A fact's body with a single leading `not` stripped — the form both polarities key
@@ -2304,128 +2342,19 @@
     (second sentence)
     sentence))
 
-(defn- opposed?
-  "Is `body` stored in **both** polarities — some positive fact under it and some
-  `(not body)` under `[:false body]`?  Storage only (belief-blind).  The `:false` probe
-  runs first: it is 0 for the overwhelmingly common body with no negative twin, so the
-  positive `key-stream` walk is never built."
-  [idx body]
-  (let [b (sx/canon body)]
-    (and (pos? (p/count-at idx [:false b]))
-         (pos? (p/count-at idx (vec (sx/key-stream b)))))))
-
-(defn note-opposed!
-  "Update the `:opposed` coincidence set for a sentence whose fact just arrived or
-  left: add its body when both polarities are now stored, drop it otherwise.  Runs at
-  the store primitive (`create-sentex`, every add) and the removal choke point
-  (`integrate/sentex-removed!`, every remove), so no store path can bypass it; recover
-  rebuilds the set with `rebuild-opposed!`.  The write is skipped for a body that is
-  opposed neither before this store nor after it, which on a positive corpus is every
-  fact of it."
-  [kb sentence]
-  (let [b   (sx/canon (body-under-not sentence))
-        now (opposed? (:index kb) b)]
-    (when (or now (contains? @(reasoning/opposed kb) b))
-      (swap! (reasoning/opposed kb) (if now conj disj) b))))
-
-(defn rebuild-opposed!
-  "Recompute `:opposed` from storage — the scan `recover` needs, since the set is
-  derived state no store holds.  Enumerates the stored negated bodies (the `:false`
-  node's children, deduped across contexts) and keeps those with a stored positive
-  twin."
-  [kb]
-  (let [idx (:index kb)]
-    (reset! (reasoning/opposed kb)
-            (into #{} (comp (filter #(opposed? idx %)) (map sx/canon))
-                  (p/children idx [:false])))))
-
-;; ---- the argument-preservation roster --------------------------------------
-;; `discovery/preserving-nogoods` has to decide, once per settle, whether this KB declares
-;; any argument preservation at all — and the exact read of that (`inherit/declarations-
-;; exist?`) is a set-cardinality read per declaration functor, on the path every assert
-;; runs.  `assert_cost_test` prices exactly that kind of constant.  So the declarations
-;; are kept here as storage instead: `:preserving`'s bargain is `:opposed`'s, except that
-;; nothing is read off the index to maintain it either, because a declaration is
-;; recognized from the sentence's own functor.
-
-(defn- preservation-pair
-  "The `[P R]` an argument-preservation declaration states, or nil for any other
-  sentence — including `(not (transitiveInArg …))`, whose functor is `not`.  The one
-  shape test the roster keys on, so an ordinary fact costs a map lookup on its functor
-  and nothing else."
-  [sentence]
-  (when (and (sequential? sentence) (= 4 (count sentence))
-             (contains? inherit/declarations (first sentence)))
-    (let [[_ pred _ rel] sentence]
-      (when (and (symbol? pred) (symbol? rel)) [pred rel]))))
-
-(defn note-preserving!
-  "Record (`true`) or drop (`false`) an argument-preservation declaration in the
-  `:preserving` roster.  Called at the store primitive (`create-sentex`, every add) and
-  the removal choke point (`integrate/sentex-removed!`, every remove), so no store path
-  can bypass it; `recover` rebuilds the roster with `rebuild-preserving!`.
-
-  A no-op for every sentence that is not a declaration, which on any corpus is all but a
-  handful — and like `note-excepted!` beside it, and unlike `note-opposed!`, it reads
-  **nothing off the index**, so a bulk load whose backing atom is stale mid-load
-  (`memory/*bulk-txn*`) is not a case this has to be correct across.
-
-  Counted, not a set: `(transitiveInArg largerThan 1 genl)` stated in two contexts is two
-  sentexes saying one thing, and retracting the first must not retire what the second
-  still says.  The count is *storage* — belief is the reader's filter here exactly as it
-  is for `:opposed`, since a defeated declaration is one `positions` will decline to read
-  and not one the roster should forget."
-  [kb sentence add?]
-  (when-let [pr (preservation-pair sentence)]
-    (swap! (reasoning/preserving kb)
-           (fn [m] (let [n (+ (get m pr 0) (if add? 1 -1))]
-                     (if (pos? n) (assoc m pr n) (dissoc m pr)))))))
-
-(defn rebuild-preserving!
-  "Recompute `:preserving` from storage — the scan `recover` needs, since the roster is
-  derived state no store holds.  One functor-root walk per declaration functor, both
-  empty for nearly every KB.
-
-  Counts what is **stored**, negations included as non-declarations: `preservation-pair`
-  is the same shape test the choke points apply, so a rebuilt roster and an incrementally
-  maintained one cannot disagree about what a declaration is."
-  [kb]
-  (let [idx (:index kb) recs (:records kb)]
-    (reset! (reasoning/preserving kb)
-            (reduce (fn [m h]
-                      (if-let [pr (some-> (p/get-sentex recs h) :sentence preservation-pair)]
-                        (update m pr (fnil inc 0))
-                        m))
-                    {}
-                    (mapcat #(p/sentexes-with-functor idx %) (keys inherit/declarations))))))
-
-;; ---- the visibility roster ------------------------------------------------
-;; `res/excepted-handles` answers which handles a believed `(except (sentexHandle H))`
-;; hides from a view context, and it is asked **per placement** and per candidate
-;; justification during a chaining run.  Read off the index it is E record fetches, E
-;; `jtms/in?` calls and a `tax/context-up` per call, for E excepts anywhere in the KB —
-;; measured at 89% of a chaining run's wall clock at E=1,000 (`lein bench-hotreads`).
-;;
-;; What the roster removes is the *fetches*: which except sits in which context, and what
-;; each hides, are facts about storage, so they are maintained here at the two choke
-;; points and read as a map.  What stays a read is belief — `jtms/in?` on the except's own
-;; handle — and the `context-up` walk, both of which move without a sentex arriving or
-;; leaving.  This is `:opposed`'s bargain exactly (belief-blind storage, filtered by the
-;; reader), and it is the second idiom rather than a stamped memo because the scope that
-;; asks is the scope that writes: forward chaining moves the change clock per conclusion,
-;; so a clock-stamped memo would be retired between one placement and the next
-;; (`literal-cache/lookup`).
+;; ---- the excepts and defeats ---------------------------------------------
+;; Which stored `(except (sentexHandle H))` or `(defeat (sentexHandle H))` names which
+;; handle, in which context, is read off the trie by target (`reads/as-stored-naming`);
+;; belief, `jtms/in?` on the except's or defeat's own handle, is the reader's filter.
 
 (defn except-target
   "The handle a visibility `(except (sentexHandle H))` sentence hides, or nil for any
-  other sentence — including `(not (except …))`, whose functor is `not`.  The one shape
-  test the roster keys on, so a sentence that is not an `except` costs a `=` on its
-  functor at the store choke point and nothing else.
+  other sentence — including `(not (except …))`, whose functor is `not`.
 
   A **meta-exception** — `(except (sentexHandle E))` where E is itself an `(except …)` —
   cascades: hiding an except suppresses its effect, restoring visibility of the target
   the inner except was hiding.  The cascade is evaluated at read time by
-  `resolution/excepted-handles`, which checks whether each except-handle is itself
+  `exc/excepted-handles`, which checks whether each except-handle is itself
   hidden before counting it as active."
   [sentence]
   (when (and (sequential? sentence)
@@ -2433,163 +2362,91 @@
              (= 2 (count sentence)))
     (sx/handle-id (second sentence))))
 
-(defn- roster-add
-  "`m` with the except stored at `eh` in `ctx`, hiding `target`, recorded."
-  [m ctx target eh]
-  (update-in m [ctx target] (fnil conj #{}) eh))
+(defn defeat-target
+  "The handle a `(defeat (sentexHandle H))` sentence removes from belief, or nil for any
+  other sentence.  The shape test of `except-target`, on the `defeat` functor."
+  [sentence]
+  (when (and (sequential? sentence)
+             (= sx/defeat-functor (first sentence))
+             (= 2 (count sentence)))
+    (sx/handle-id (second sentence))))
 
-(defn- roster-drop
-  "`m` with that entry gone, and any level it emptied gone with it — so an entry means
-  *something is hidden here*, and the roster's own emptiness is the read's O(1) gate."
-  [m ctx target eh]
-  (let [ehs   (disj (get-in m [ctx target] #{}) eh)
-        inner (if (empty? ehs)
-                (dissoc (get m ctx) target)
-                (assoc (get m ctx) target ehs))]
-    (if (empty? inner) (dissoc m ctx) (assoc m ctx inner))))
+(defn placed-targets
+  "The handles the placed sentence `s` moves with no relabel: a `defeat`'s target, and,
+  while an except is stored, the members of a `(contradicts …)`, one of which a reader
+  whose excepts lower its class reads as defeated (`exc/conflicts-naming`)."
+  [kb s]
+  (if-let [t (defeat-target s)]
+    [t]
+    (when (and (seq? s) (= 'contradicts (first s)) (reads/stores-any? (:index kb) sx/except-functor))
+      (keep sx/handle-id (rest s)))))
 
-(defn note-excepted!
-  "Record (`true`) or drop (`false`) a visibility `except` in the `:excepted` roster,
-  from the sentex itself: the context it holds in, the handle it hides, and its own
-  handle.  Called
-  at the store primitive (`create-sentex`, every add) and the removal choke point
-  (`integrate/sentex-removed!`, every remove), so no store path can bypass it; `recover`
-  rebuilds the roster with `rebuild-excepted!`.
+(defn- defeat-walk
+  "Walk forward from `seeds` over the justifications resting on each handle met, and from
+  each placed sentex met (a handle with a `nogood` or `guard` justification) to the
+  handles it moves (`placed-targets`): a defeat resting on a moved handle can move in
+  force, which moves its target with no relabel, and a cycle of defeats is walked once
+  (docs/nmtms.md, \"A defeat-dependency cycle\").  Answers the first handle `hit?` holds
+  of, or with `hit?` nil the set walked.  Stores nothing."
+  [kb seeds hit?]
+  (let [recs    (:records kb)
+        tms     (reasoning/tms kb)
+        placed? (fn [d] (some #(contains? #{exc/nogood-informant exc/guard-informant}
+                                          (:informant (jtms/justification tms %)))
+                              (jtms/supports tms d)))]
+    (loop [seen #{}, stack (vec seeds)]
+      (if-let [d (peek stack)]
+        (let [stack (pop stack)]
+          (cond (contains? seen d)  (recur seen stack)
+                (and hit? (hit? d)) d
+                :else
+                (recur (conj seen d)
+                       (cond-> (into stack (comp (keep #(jtms/justification tms %)) (map :consequence))
+                                     (jtms/dependents tms d))
+                         (placed? d)
+                         (into (some->> (p/get-sentex recs d) :sentence (placed-targets kb)))))))
+        (when-not hit? seen)))))
 
-  A no-op for every sentence that is not an `except`, which on any corpus is all but a
-  handful — and unlike `note-opposed!` beside it this reads **nothing off the index**, so
-  a bulk load whose backing atom is stale mid-load (`memory/*bulk-txn*`) is not a case
-  this has to be correct across.
+(defn defeat-reach
+  "The handles the placed sentexes `stored` move (`placed-targets`) and those of `removed`
+  (`[target …]` pairs), and every handle walked forward from them (`defeat-walk`): the
+  handles whose belief those moves can change with no relabel."
+  [kb stored removed]
+  (let [recs  (:records kb)
+        seeds (-> (into #{} (mapcat #(some->> (p/get-sentex recs %) :sentence (placed-targets kb))) stored)
+                  (into (map first) removed))]
+    (defeat-walk kb seeds nil)))
 
-  **Target outside, except handles inside**, because that is the question the hot caller
-  asks: `chain/antecedent-hidden?` wants to know whether *these two or three* handles are
-  hidden, and this shape answers it with a lookup per handle instead of materializing
-  every handle hidden anywhere in the ancestor set.  A **set** of except handles under each
-  target, since two excepts in one context may name one target and the first removal must
-  not retire what the second still hides — the same non-interference `special/bump-roster!`
-  keeps with a count, done with identities because an except has exactly one."
+(defn moved-reach
+  "The handles `seeds` and every handle walked forward from them (`defeat-walk`): the
+  handles whose belief a write naming `seeds` can change with no relabel."
+  [kb seeds]
+  (defeat-walk kb seeds nil))
+
+(defn retire-defeated-reads!
+  "Evict the scoped `genl` closures the `defeat` sentex `d`, stored, removed or relabelled,
+  can move (`tax/retire-scoped-genl!`): the `genl` edges whose supporters a forward walk
+  from its target meets (`defeat-walk`), read at the readers that see its context.  Only
+  while the `genl` filter is on (`tax/defeat-moves-scoped?`); otherwise no scoped closure
+  can hold a defeat, and the filter gate reads the roster's identity."
+  [kb d]
+  (let [tax (reasoning/taxonomy kb)]
+    (when-let [target (and (tax/defeat-moves-scoped? tax) (defeat-target (:sentence d)))]
+      (tax/retire-scoped-genl! tax (tax/supported-edges tax :genl (defeat-walk kb [target] nil))
+                               (:context d) false))))
+
+(defn note-defeat!
+  "Evict the scoped `genl` closures a `defeat` stored (`add?` true) or removed can move
+  (`retire-defeated-reads!`), from the sentex itself.  Called at the store primitive
+  (`create-sentex`) and the removal choke point (`integrate/sentex-removed!`); a no-op
+  for every other sentence.  A placed defeat is stored before its justification, OUT, and
+  the relabel that takes it IN evicts (`special/reconcile-belief-change`)."
   [kb sentex add?]
-  (when-let [target (except-target (:sentence sentex))]
-    (let [ctx (:context sentex)
-          eh  (:id sentex)]
-      (swap! (reasoning/excepted kb) (if add? roster-add roster-drop) ctx target eh)
-      ;; Maintain the meta-except counter so it always equals what `rebuild-excepted!`
-      ;; computes: the number of stored excepts whose target resolves to a stored except.
-      ;; Two roles change that when this except is stored or removed.
-      ;;
-      ;; (1) This except *as a referencer*.  If its own target resolves to a stored
-      ;; except, this except is a meta-except: count it on add, discount it on a remove
-      ;; whose target still resolves.  A remove whose target is already gone is a no-op
-      ;; here — role (2) discounted it when that target left.
-      (when-let [target-sentex (p/get-sentex (:records kb) target)]
-        (when (except-target (:sentence target-sentex))
-          (swap! (reasoning/meta-except-count kb) (if add? inc dec))))
-      ;; (2) This except *as a target*.  Removing it strands every meta-except that named
-      ;; it — each stops resolving to a stored except — so discount them here, while the
-      ;; roster still holds them (they live in records this removal does not touch).  This
-      ;; is the leak's fix: their own later removal reads *this* record for the target and
-      ;; finds it gone, so the decrement can only happen now.  Add never needs it — a
-      ;; target outlives the excepts that name it, so nothing waits on its arrival.
-      ;;
-      ;; Gated on the counter itself: a KB with no meta-except (all but a handful) can
-      ;; strand nothing, so it skips the roster scan entirely and the common except
-      ;; removal stays O(1) — only a KB that actually holds a meta-except pays the walk.
-      (when (and (not add?) (pos? @(reasoning/meta-except-count kb)))
-        (let [stranded (reduce-kv (fn [n _ctx targets] (+ n (count (get targets eh))))
-                                  0 @(reasoning/excepted kb))]
-          (when (pos? stranded)
-            (swap! (reasoning/meta-except-count kb) - stranded)))))))
-
-(defn rebuild-excepted!
-  "Recompute `:excepted` from storage — the scan `recover` needs, since the roster is
-  derived state no store holds, and the one a **fork** needs for the same reason: a fork's
-  belief is rebuilt over the merged view rather than inherited, so its own roster starts
-  empty over a base full of excepts (docs/overlay.md).
-
-  Enumerates the stored `except` facts through the functor root, which spans both
-  polarities — a `(not (except H))` roots there too and `except-target` drops it."
-  [kb]
-  (let [recs (:records kb)
-        roster (reduce (fn [m h]
-                         (if-let [s (p/get-sentex recs h)]
-                           (if-let [target (except-target (:sentence s))]
-                             (roster-add m (:context s) target h)
-                             m)
-                           m))
-                       {}
-                       (p/sentexes-with-functor (:index kb) sx/except-functor))
-        ;; Count meta-exceptions: excepts whose target is itself an except
-        meta-count (reduce (fn [n h]
-                             (if-let [s (p/get-sentex recs h)]
-                               (if-let [target (except-target (:sentence s))]
-                                 (if-let [ts (p/get-sentex recs target)]
-                                   (if (except-target (:sentence ts))
-                                     (inc n) n)
-                                   n)
-                                 n)
-                               n))
-                           0
-                           (p/sentexes-with-functor (:index kb) sx/except-functor))]
-    ;; Two atoms, one logical value — and they may be written in two steps because this
-    ;; runs only where nothing else can read them: `recover` and `fork` both build the KB
-    ;; before handing it to anybody, and the maintenance path (`note-except!`) keeps the
-    ;; count in step one write at a time.  A reader beside the writer reads them only
-    ;; through the query path (`resolution/excepted?`), which is after both.
-    (reset! (reasoning/excepted kb) roster)
-    (reset! (reasoning/meta-except-count kb) meta-count)))
+  (when (and (defeat-target (:sentence sentex))
+             (or (not add?) (jtms/in? (reasoning/tms kb) (:id sentex))))
+    (retire-defeated-reads! kb sentex)))
 
 ;; ---- the rule rosters ----------------------------------------------------
-
-(def rule-key-pattern
-  "The trie pattern every stored rule — and nothing else — matches.
-
-  A rule keys as `[:rule <antecedents> <consequent> <assumption> <constraint> <context>]`
-  and at **that** depth always: `:assumption` and `:constraint` are constant slots,
-  present as nil on a rule that is neither a choice nor a contradiction rule, precisely so
-  no rule keys shallower than another (`sentex/key-tokens`).  So one fixed-length pattern
-  of variables under the `:rule` root enumerates the rule extent through the trie, at the
-  cost of the rule subtree rather than of the fact extent — which is what makes rebuilding
-  the rosters below O(rules)."
-  '[:rule ?antecedents ?consequent ?assumption ?constraint ?context])
-
-(defn rebuild-rule-roster!
-  "Recompute `:rule-antecedents`, `:rule-contexts` and `:solve-rules` from storage — the
-  scan a **recover** needs, since all three are derived state no store holds, and the one a **fork**
-  needs for the same reason: a fork's derived state is rebuilt over the merged view
-  rather than inherited, so its own rosters start empty over a base full of rules.
-
-  Neither is put back by anything else.  Recovery replays justifications and the stored
-  special-predicate sentexes; it does not replay rule *indexing*, which is where
-  `special/note-rule!` bumps these — so without this a recovered KB answers
-  `chain/rule-firing-report` with nothing, and `special/visibility-seeds` seeds nothing,
-  leaving a `genlCx` edge asserted after a restart to re-join no rules.  That is exactly
-  the arrival-order dependence the seeds exist to remove.
-
-  The keys are the ones the live path writes (`rules/antecedent-predicates`): a positive
-  antecedent's predicate, and `[:not pred]` for a negated one.  Reference counts, so the
-  rebuilt roster is entry-for-entry equal to the one a KB that never restarted holds.
-
-  The two atoms are reset one after the other rather than as one step, and that is
-  enough: this runs inside `recover` and inside a fork, on the writer, before the KB
-  reaches any reader — the same footing as `rebuild-excepted!` above."
-  [kb]
-  (let [recs (:records kb)
-        [antes ctxs solve]
-        (reduce (fn [acc h]
-                  (if-let [sx (p/get-sentex recs h)]
-                    (cond-> (-> acc
-                                (update 0 (fn [m]
-                                            (reduce (fn [m k] (update m k (fnil inc 0)))
-                                                    m
-                                                    (rules/antecedent-keys (:antecedent sx)))))
-                                (update 1 update (:context sx) (fnil inc 0)))
-                      (rules/solve-sentex? sx) (update 2 update (:context sx) (fnil conj #{}) h))
-                    acc))
-                [{} {} {}]
-                (p/lookup (:index kb) rule-key-pattern))]
-    (reset! (reasoning/rule-antecedents kb) antes)
-    (reset! (reasoning/rule-contexts kb) ctxs)
-    (reset! (reasoning/solve-rules kb) solve)))
 
 (defn create-sentex
   "Store `sentence` in `context` as a new sentex, index it, and return `[handle sentex]`.
@@ -2646,15 +2503,10 @@
      ;; store holds; a caller looking it up by some other spelling misses and fills its
      ;; own key off the index, since a miss costs exactly the trie walk and no more
      (observe/cache-handle! (canon-stamp kb) (sx/sentence-of s) (:context s) h)
-     ;; maintain the P/¬P coincidence set for settle (this store may have completed an
-     ;; opposing pair); the remove mirror is `integrate/sentex-removed!`
-     (note-opposed! kb (sx/sentence-of s))
-     ;; ...and the visibility roster, at the same point and with the same mirror
-     (note-excepted! kb s true)
-     ;; ...and the argument-preservation roster, third of the same kind: settle's gate on
-     ;; whether preservation can clash with anything is an `empty?` on it
-     (note-preserving! kb (sx/sentence-of s) true)
-     ;; ...and the candidates of the nogood families a reader decides
+     ;; a defeat moves what a scoped read memoized; the remove mirror is
+     ;; `integrate/sentex-removed!`
+     (note-defeat! kb s true)
+     ;; ...and the candidates of the nogood families the settle places
      (decide/note-candidate! kb s true)
      [h s])))
 
@@ -2666,7 +2518,7 @@
   arriving after `(P b a)` was stored is the case, and telling the two apart is what
   `integrate/commute-existing` sweeps on."
   [kb sentence context]
-  (:sentence (res/kb-sentex kb sentence context)))
+  (sx/sentence-of (res/kb-sentex kb sentence context)))
 
 (defn respell-sentex!
   "Store the sentex at `sx`'s handle under `sentence` instead — the **same** handle, the
@@ -2676,37 +2528,39 @@
   The store's third mutation, and the only one that moves a record without moving a
   handle.  `create-sentex` and `integrate/sentex-removed!` are the two that add and drop
   one; this pairs their store-side halves back to back, so everything keyed on the
-  *sentence* (the trie path, the alpha memories, the handle cache, the P/¬P coincidence
-  set, the visibility and preservation rosters) is dropped under the old spelling and
+  *sentence* (the trie path, the alpha memories, the handle cache, the visibility
+  roster) is dropped under the old spelling and
   rebuilt under the new one, while everything keyed on the *handle* is not consulted at
   all and therefore cannot drift.  The caller owes the cache-effect walk on either side
   (`special/disintegrate-sentex!`, then `special/integrate-sentex`), the way
   `sentex-removed!` owes it around its own delete.
 
-  **For a re-canonicalization, not for a rewrite.**  The one caller is a late `(symmetric
+  **For a re-canonicalization, not for a rewrite.**  The callers are a late `(symmetric
   P)` mark bringing a stored fact into the argument order the declaration puts every later
-  one in (`integrate/commute-existing`): same predicate, same arguments, same truth, so
-  nothing a justification or a premise records about the handle stops being true.  A
-  caller changing what the sentex *says* would be lying to the TMS about what its
-  supporters support, and the assert entry point is the way to say something else.
+  one in (`integrate/commute-existing`), and a `reifiable_function` mark moving, which
+  spells an application as its constant or a constant as its application
+  (`chain/reconcile-reified!`): the same proposition in another spelling, so nothing a
+  justification or a premise records about the handle stops being true.  A caller
+  changing what the sentex *says* would be lying to the TMS about what its supporters
+  support, and the assert entry point is the way to say something else.
 
   The new sentence goes back through `res/kb-sentex` rather than being `assoc`ed on, so
   the record the store ends up holding is canonical by construction under the taxonomy as
-  it now reads — which for the one caller is the whole point, and for any other is the
-  invariant `create-sentex` holds too."
+  it now reads, which is the invariant `create-sentex` holds too.  A rule keeps its
+  `:engines`, `:defeasible` and `:effect`, which its sentence does not carry."
   [kb sx sentence]
   (let [h   (:id sx)
         idx (:index kb)
-        s'  (assoc (res/kb-sentex kb sentence (:context sx))
+        s'  (assoc (merge (res/kb-sentex kb sentence (:context sx))
+                          (when (some? (:antecedent sx))
+                            (select-keys sx [:engines :defeasible :effect])))
                    :id h :strength (:strength sx))]
     ;; the old spelling out — `integrate/sentex-removed!`'s store-side half, minus the
     ;; record delete and the re-check the caller's integrate half posts for the new one
     (p/unindex-sentex! idx sx h)
     (observe/notify-remove kb sx)
-    (observe/forget-handle! (:sentence sx) (:context sx))
-    (note-opposed! kb (:sentence sx))
-    (note-excepted! kb sx false)
-    (note-preserving! kb (:sentence sx) false)
+    (observe/forget-handle! (sx/sentence-of sx) (:context sx))
+    (note-defeat! kb sx false)
     (decide/note-candidate! kb sx false)
     ;; ...and the new spelling in — `create-sentex`'s half, with the handle it already has
     (p/put-sentex (:records kb) s')
@@ -2715,10 +2569,8 @@
       (disk/maybe-refresh-index-snapshot! d (p/count-at idx [])))
     (observe/notify-add kb s' h)
     (observe/note-change)
-    (observe/cache-handle! (canon-stamp kb) (:sentence s') (:context s') h)
-    (note-opposed! kb (:sentence s'))
-    (note-excepted! kb s' true)
-    (note-preserving! kb (:sentence s') true)
+    (observe/cache-handle! (canon-stamp kb) (sx/sentence-of s') (:context s') h)
+    (note-defeat! kb s' true)
     (decide/note-candidate! kb s' true)
     s'))
 
@@ -3017,8 +2869,8 @@
   **Only a literal that can duplicate pays for it.**  The arrangement fan is the only
   thing that answers one handle twice, and `raw-match` runs it for a symmetric literal or
   a commuting one alone — so for every other sentence the set would be built, grown per
-  element and never consulted to any purpose.  That is not free where it matters: `settle`'s walk over the P/¬P
-  coincidence set reads this twice per opposed body, and paying a set insert per member
+  element and never consulted to any purpose.  That is not free where it matters: `settle`'s walk over the bodies
+  stored in both polarities reads this twice per opposed body, and paying a set insert per member
   there turns an arbitration that is bookkeeping into one that allocates with the standing
   set (`negation-arbitration`)."
   [symmetric? ms]
@@ -3042,9 +2894,9 @@
   *question* — a caller who has not heard about a merge still gets its answer — and wrong
   for an iteration, because it silently redirects: asking about a body an equality has
   retired hands back the *representative's* sentexes, and the caller then reports them
-  under the spelling it asked with.  `settle`'s walk over the P/¬P coincidence set is that
-  caller, and a superseded body has to answer *nothing* there, which is what it does here:
-  its own sentexes are no longer believed, so the belief filter empties it and the
+  under the spelling it asked with.  `settle`'s walk over the bodies stored in both
+  polarities is that caller, and a superseded body has to answer *nothing* there, which
+  is what it does here: its own sentexes are no longer believed, so the belief filter empties it and the
   representative's body reports the pair once, under its own name.
 
   Everything else is `sentexes-matching`'s: literal (no subtype expansion), both
@@ -3058,13 +2910,14 @@
    ;; through it (rather than a bare `p/lookup`) shares `match-one`'s argument-root
    ;; retrieval: a pattern pinning an argument *after* a variable — `(parentOf ?x
    ;; Tom)` — is answered from the predicate-scoped argument root
-   ;; (`[:argument-root parentOf 2 Tom]`), not a full leading-variable trie fan-out.  `without-excepted` then drops
+   ;; (the node `[parentOf 2 Tom]`), not a full leading-variable trie fan-out.  `without-excepted` then drops
    ;; what a visible `except` hides here (docs/contexts.md).  Both halves are
    ;; belief-following; the stored record already fetched to unify against rides
    ;; along as the third element, so this costs no extra round trip.
    (->> (res/raw-match kb sentence context)
-        (res/without-excepted kb context)
+        (exc/without-excepted kb context)
         (res/without-retired kb context)
+        (res/without-unbelieved-spellings kb context sentence)
         (stored-once-per-handle (permuting-literal? kb sentence)))))
 
 (defn sentexes-matching
@@ -3077,3 +2930,16 @@
    ;; representative first — the retired spelling stays a usable *question* even
    ;; though it is no longer a usable *answer* (docs/equality.md)
    (sentexes-matching-as-stored kb (rewrite-goal kb sentence context) context)))
+
+;; ---- derived state (docs/caches.md, "The derived-state register") ----------------
+
+(caches/register-derived
+ {:id :S7 :label "Last edge program" :kind :index :keyed-by :global :reads [:records :S5]
+  :retired-by {:image-install :R}
+  :computed :write :imaged? :state :at [[:program]]
+  :note "the last Program handed to the solver, with its classification (`vaelii.impl.asp.label`); registered here because that namespace loads on its first `do/label`"})
+
+(caches/register-derived
+ {:id :R12 :label "Call-scoped memos" :kind :pass :keyed-by :value :reads [:index :T1]
+  :retired-by {} :computed :pass :imaged? false
+  :note "volatiles and memoized fns one call holds: `memberships`, `membership-reader` here; `checks/declaration-reader`, `stratification-readers`; `plan/memoizing`, `plan-pairs`; `special/visibility-seeds`, `supersession-map`, `lift-statements`; `inherit/rejoin-rules`; `asp.label/local-analysis`, `component-classifier`"})

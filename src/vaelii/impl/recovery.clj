@@ -290,10 +290,7 @@
         stored? (fn [h] (or (not (integer? h))
                             (contains? live h)
                             (some? (p/get-sentex rec h))))
-        skipped (volatile! 0)
-        ;; the records an argument declaration's justification concludes, for the mint
-        ;; roster (`special/rebuild-minted!`), collected on this walk rather than another
-        minted  (volatile! (transient #{}))]
+        skipped (volatile! 0)]
     ;; The replay is `settle-phases`' `:belief` centre for a `recover`: `add-justification`
     ;; relabels each consequence's region as it lands, and the region relabels compose to
     ;; the fixpoint (no closing whole-graph pass and no chaining), so this is the belief
@@ -312,11 +309,8 @@
               :let [d (p/get-justification rec id)] :when d]
         (check-abandoned!)
         (if (and (stored? (:consequence d)) (every? stored? (jtms/rests-on d)))
-          (do (jtms/add-justification tms d)
-              (when (special/mint-informant? (:informant d))
-                (vswap! minted conj! (:consequence d))))
+          (jtms/add-justification tms d)
           (vswap! skipped inc))))
-    (special/rebuild-minted! kb (persistent! @minted))
     (when (pos? (long @skipped))
       (trove/log! {:level :warn :id ::justifications-unrooted
                    :msg  (str @skipped " stored justifications name a sentex this store"
@@ -330,12 +324,11 @@
 
   What the taxonomy ends up holding is a **composition**, and the contract is the whole
   of it rather than either half.  The JTMS is rebuilt first, so there is belief to read.
-  The taxonomy then replays every **stored** special-predicate sentex rather than the
-  believed ones — `:support` must record every asserting sentex, or a disbelieved
-  supporter would be lost and its coming back IN could never revive the entry
-  (docs/taxonomy.md) — so that replay over-reads by construction, and the reconcile
-  against belief immediately after it is what narrows the caches to what the KB entails.
-  Belief is settled last."
+  The taxonomy then installs the believed side of every key the index's supporter
+  families hold (`special/rebuild-taxonomy`), which reads labels and no record but the
+  equality declarations; the supporters, believed or not, stay in the index, so a
+  supporter coming back IN later revives its entry (docs/taxonomy.md).  Belief is settled
+  last."
   [kb]
   ;; The taxonomy's closures are one weighted LRU (`tax/closure-memo-limit`), so a cold
   ;; rebuild that reads the corpus from every context at once keeps its hot closures —
@@ -345,7 +338,7 @@
     (step! :network)
     (rebuild-tms kb)
     (check-abandoned!)
-    ;; The rebuild replays every stored `genl` / `genlCx` edge, so it is a bulk load
+    ;; The rebuild installs every believed `genl` / `genlCx` edge, so it is a bulk load
     ;; and pays what one pays: repairing the depth potential per edge costs that edge's
     ;; descendants.  Defer it and repair once, exactly as `with-deferred-settle` does —
     ;; and repair *here* rather than leaning on the settle below, so the intervening
@@ -359,24 +352,20 @@
               tax/*defer-cycle-scc?* true]
       (step! :taxonomy)
       (special/rebuild-taxonomy kb)
-      ;; The replay rebuilt the roster properties, and the network replayed above holds
+      ;; The rebuild installed the roster properties, and the network replayed above holds
       ;; every premise at the strength it was written at: the forced memberships the
       ;; roster gives the stored content go in now, before anything reads belief
       ;; (docs/nmtms.md, "The forced-monotonic roster").
       (checks/force-roster! kb)
-      ;; Now narrow the replayed caches to belief, and **unconditionally**.  The
-      ;; region-scoped arm of `refresh-beliefs` reconciles what a settle moved, and the
-      ;; unsupported edge moves nothing: a record carrying no premise mark and no
-      ;; justification is OUT from the moment `rebuild-tms` makes its node, so no block
-      ;; or supersession ever names it and no region ever reaches it — while the replay
-      ;; has already made it answer `genls`.  (An edge a verdict withdraws at its own
-      ;; context leaves the caches in the settle's own-context reconcile.)  Recovery is
-      ;; exactly the caller holding no region that the `nil` arm exists for, and it costs
-      ;; one belief lookup per stored declaration — what the replay above just paid.
+      ;; Now reconcile the caches with belief again, and **unconditionally**: the forced
+      ;; memberships just written move labels, and no settle event records them.  The
+      ;; region-scoped arm of `refresh-beliefs` reconciles what a settle moved; recovery
+      ;; is the caller holding no region that the `nil` arm exists for, and it costs one
+      ;; belief lookup per stored supporter — what the rebuild above just paid.
       ;; Before the settle rather than after it, so everything the settle reads — nogoods,
       ;; placement, exception queries — reads a taxonomy that already agrees with belief;
       ;; the settle's own reconcile then keeps the two together across whatever it moves.
-      (tax/refresh-beliefs (reasoning/taxonomy kb) #(jtms/in? (reasoning/tms kb) %)))
+      (tax/refresh-beliefs (reasoning/taxonomy kb) (partial jtms/in? (reasoning/tms kb))))
     (step! :depths)
     (tax/restore-depths (reasoning/taxonomy kb))
     ;; Nothing about an exception is stored, so blocking cannot be read back: recovery lands
@@ -391,24 +380,7 @@
     ;; is likewise not readable back from the store.  Seeded before the settle, since
     ;; `refresh-supersessions` only re-examines the entries it already holds.
     (special/refresh-supersessions kb (recovered-supersessions kb) nil)
-    ;; the P/¬P coincidence set is derived from storage and no store holds it, so rebuild
-    ;; it before the candidate index below reads it (`decide/rebuild-candidates!`)
-    (kb/rebuild-opposed! kb)
-    ;; ...and the visibility roster, for the same reason and one more: a **fork** rebuilds
-    ;; its belief over the merged view rather than inheriting it (`fork`), so without this
-    ;; a fork would answer its base's excepts off a roster of its own that nothing filled.
-    ;; Before the settle for the same reason too — `justification-excepted?` reads it.
-    (kb/rebuild-excepted! kb)
-    ;; ...and the two rule rosters, third of the same kind: nothing above replays rule
-    ;; *indexing*, which is where they are bumped, so a KB that did not build them as
-    ;; the rules arrived has none.  Before the settle, which reads them for the
-    ;; visibility seeds.
-    (kb/rebuild-rule-roster! kb)
-    ;; ...and the argument-preservation roster, fourth of the same kind: it is what
-    ;; `discovery/preserving-nogoods` reads instead of the index, and a KB that came up
-    ;; without it would report no inherited clash until a declaration next moved.
-    (kb/rebuild-preserving! kb)
-    ;; ...and the candidates of the nogood families a reader decides, which no store
+    ;; ...and the candidates of the nogood families the settle places, which no store
     ;; holds either (`vaelii.impl.decide`)
     (decide/rebuild-candidates! kb)
     ;; The first cache reconcile ran before the visibility roster existed, so it
@@ -442,6 +414,10 @@
         ;; which that re-fire does not reach
         (special/rebuild-pending! kb)
         (when (pos? (long (or derived 0))) (settle/settle kb))))
+    ;; the settle above places the inherited clashes and stands aside from the other
+    ;; families, and a store written with no belief holds none placed: the nogoods the
+    ;; rebuilt index queued are placed where they stand (`chain/place-nogoods!`)
+    (when (chain/placement-queued? kb) (settle/settle kb))
     (step! nil)
     kb))
 
@@ -511,17 +487,18 @@
   "Log the throw that ended `kb`'s belief rebuild, and file it under `:rebuild` as
   `:failed`, where `rebuild-progress` reports it: a failed rebuild leaves `:stale-belief`
   standing, and without the record a caller polling progress reads the failure as no
-  rebuild at all."
+  rebuild at all.  The log comes first, so a caller that reads `:failed` reads it after
+  the log line is written."
   [kb ^Throwable t]
-  (swap! (:unrecovered kb) update :rebuild assoc
-         :failed {:at      (System/currentTimeMillis)
-                  :class   (.getName (class t))
-                  :message (.getMessage t)})
   (trove/log! {:level :error :id ::belief-rebuild-failed :error t
                :msg (str "the belief rebuild for " (:snapshot-dir kb) " failed ("
                          (.getMessage t) "). The KB answers from the image an earlier build"
                          " wrote and refuses writes; (recover kb) rebuilds belief under this"
-                         " build in place.")}))
+                         " build in place.")})
+  (swap! (:unrecovered kb) update :rebuild assoc
+         :failed {:at      (System/currentTimeMillis)
+                  :class   (.getName (class t))
+                  :message (.getMessage t)}))
 
 (defn- start-rebuild!
   "Rebuild belief under this build for `kb`, whose open installed an image written under

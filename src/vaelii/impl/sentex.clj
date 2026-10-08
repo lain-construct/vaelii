@@ -484,35 +484,6 @@
       (throw (ex-info (:message problem) (dissoc problem :message))))
     (if mono? [peeled true] [sentence false])))
 
-(defn exception-conjuncts
-  "Normalize an `exceptWhen` query to its one internal shape — a vector of literals,
-  *all* of which must hold.  A conjunction is written as a vector, the way
-  `core/prove` spells one; a single literal may be written bare."
-  [form]
-  (if (vector? form) (mapv canon form) [(canon form)]))
-
-(defn peel-rule-wrapper
-  "Strip the virtual rule wrappers, returning
-  [direction defeasible exception assumption constraint inner].  Wrappers may nest in
-  any order — a defeasible forward rule with an exception, an assumption rule, a hard
-  constraint — and two `exceptWhen`s conjoin.  `exception` is nil or a vector of
-  literals; `assumption` is true or nil; `constraint` is `:hard` / `:soft` or nil.  A
-  `set/solveRule` is stripped too, and `solve-wrapped?` reports it."
-  [form]
-  (loop [f form, dir nil, def? nil, exc nil, assum nil, con nil]
-    (if (and (sequential? f) (seq f))
-      (let [h (first f)]
-        (cond
-          (= h default-rule-wrapper)    (recur (second f) dir true exc assum con)
-          (= h assumption-rule-wrapper) (recur (second f) dir def? exc true con)
-          (constraint-rule-wrappers h)  (recur (second f) dir def? exc assum (constraint-rule-wrappers h))
-          (rule-direction-wrappers h)   (recur (second f) (rule-direction-wrappers h) def? exc assum con)
-          (= h solve-rule-wrapper)      (recur (second f) dir def? exc assum con)
-          (and (= h except-wrapper) (= 3 (count f)))
-          (recur (nth f 2) dir def? (into (or exc []) (exception-conjuncts (second f))) assum con)
-          :else                         [dir def? exc assum con f]))
-      [dir def? exc assum con f])))
-
 (defn- wrapper-stack
   "The `set/*` wrapper heads around one rule, outermost first, read through any
   `exceptWhen` and past a constraint wrapper's leading priority.  Stops at the first form
@@ -604,6 +575,12 @@
   that *sees* it).  A ground fact — the handle is ground — belief-following like any
   other, so retracting or defeating the `except` restores the hidden sentex."
   'except)
+
+(def defeat-functor
+  "`(defeat <handle>)` — a meta-sentex the engine derives that removes the sentex the handle
+  names from belief at the context it is stored in and every context that sees it, read at
+  read time.  `assert` refuses it in every literal (`checks/check-no-defeat`)."
+  'defeat)
 
 (defn sentex-handle
   "The handle term naming the sentex stored at id `n`."
@@ -1159,6 +1136,41 @@
                        (conj (vec (rule-antecedents inner))
                              (list unknown-functor (rule-consequent inner))))))))
 
+(defn exception-conjuncts
+  "Normalize an `exceptWhen` query to its one internal shape — a vector of literals,
+  *all* of which must hold.  A conjunction is written as a vector, the way
+  `core/prove` spells one; a single literal may be written bare.
+
+  A `forall` conjunct is the nested NAF it is (`desugar-forall-literal`), as a `forall`
+  antecedent is, so the re-check index and the stratification graph read the
+  predicates under it.  A malformed one is left for `check-exception-closed` to refuse:
+  this runs inside `peel-rule-wrapper`, which reports rather than throws."
+  [form]
+  (mapv #(canon (if (and (forall? %) (implies? (nth % 2))) (desugar-forall-literal %) %))
+        (if (vector? form) form [form])))
+
+(defn peel-rule-wrapper
+  "Strip the virtual rule wrappers, returning
+  [direction defeasible exception assumption constraint inner].  Wrappers may nest in
+  any order — a defeasible forward rule with an exception, an assumption rule, a hard
+  constraint — and two `exceptWhen`s conjoin.  `exception` is nil or a vector of
+  literals; `assumption` is true or nil; `constraint` is `:hard` / `:soft` or nil.  A
+  `set/solveRule` is stripped too, and `solve-wrapped?` reports it."
+  [form]
+  (loop [f form, dir nil, def? nil, exc nil, assum nil, con nil]
+    (if (and (sequential? f) (seq f))
+      (let [h (first f)]
+        (cond
+          (= h default-rule-wrapper)    (recur (second f) dir true exc assum con)
+          (= h assumption-rule-wrapper) (recur (second f) dir def? exc true con)
+          (constraint-rule-wrappers h)  (recur (second f) dir def? exc assum (constraint-rule-wrappers h))
+          (rule-direction-wrappers h)   (recur (second f) (rule-direction-wrappers h) def? exc assum con)
+          (= h solve-rule-wrapper)      (recur (second f) dir def? exc assum con)
+          (and (= h except-wrapper) (= 3 (count f)))
+          (recur (nth f 2) dir def? (into (or exc []) (exception-conjuncts (second f))) assum con)
+          :else                         [dir def? exc assum con f]))
+      [dir def? exc assum con f])))
+
 (defn desugar-forall-rule
   "`rule-form` with every `(forall …)` antecedent replaced by the nested NAF it is
   (`desugar-forall-literal`), or the form unchanged when it carries none.
@@ -1187,6 +1199,8 @@
   (`:quantifier-not-local`): one the antecedents also name would be substituted with
   the rule's binding before the query runs, leaving a quantifier over a constant."
   [antecedents exception]
+  ;; a well-formed `forall` was desugared by `exception-conjuncts`; this refuses the rest
+  (run! desugar-forall-literal (filter forall? exception))
   ;; `_` is an anonymous wildcard: two occurrences are two *different* variables, so
   ;; an antecedent can never bind one for the exception to read.
   (when-let [w (seq (filter #(= '_ %) (mapcat form-vars exception)))]
@@ -2625,7 +2639,7 @@
 
 (defn key-stream
   "The structural token stream for a fact body: the functor at the top level (no
-  leading marker, so the `[pred …]` prefix and the `[:functor-root pred]` functor root stay
+  leading marker, so the `[pred …]` prefix and the predicate extent's node `[pred]` stay
   the trie's first level), then each argument linearized.  Deterministic and
   compound-blind, so it composes with α-rename and dedup unchanged — an atom body
   degenerates to `[body]`."
@@ -2838,3 +2852,9 @@
   [sentex term]
   (boolean (some (fn [form] (some #(= % term) (subterms form)))
                  (content-forms sentex))))
+
+(caches/register-derived
+ {:id :K1 :label "Symbol pool" :cache :symbol-pool :kind :cache :keyed-by :value :reads []
+  :retired-by {} :computed :read :imaged? false :var #'symbol-pool-generations
+  :value (fn [_] @symbol-pool-generations)
+  :note "content-keyed: two generations, the older dropped at half the bound"})

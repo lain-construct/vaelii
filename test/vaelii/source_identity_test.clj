@@ -262,8 +262,7 @@
     (is (contains? c 'vaelii.core) "reached through wiring's quoted entry points")
     (is (contains? c 'vaelii.impl.dense-jtms)
         "named only by kb's quoted requiring-resolve and by imports")
-    (is (not (contains? c 'vaelii.impl.seal))
-        "a namespace that requires the reasoning image and that nothing on the path requires")
+    (is (contains? c 'vaelii.impl.seal) "open-kb restores a KB with an operation log through it")
     (is (every? #(or (= 'vaelii.core %) (.startsWith (str %) "vaelii.impl.")) c)
         "the walk never leaves the engine"))
   (let [d (si/definitions)]

@@ -170,6 +170,8 @@ machine is. Neither `lein browser` nor `lein run -m vaelii.web` sets `-Xmx`, so 
 get that default; a profile that pins a smaller heap wants the `:dir` instead. The
 three `scripts/start-vaelii*.sh` set `-Xmx` from `VAELII_HEAP`, default `40g`, sized for
 a full recover of a store of millions of sentexes, whose TMS and taxonomy grow with it.
+The recover's heap peak is about twice the import's
+([storage.md](storage.md#what-a-recover-spends-its-time-and-heap-on)).
 
 ## Text you exported yourself
 

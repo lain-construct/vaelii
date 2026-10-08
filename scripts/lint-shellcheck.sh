@@ -42,6 +42,7 @@ SCRIPTS=(
   scripts/coverage.sh
   scripts/gate.sh
   scripts/perf.sh
+  scripts/perf-ab.sh
   scripts/test-backends.sh
   scripts/test-sweeps.sh
   scripts/test-matrix.sh
@@ -89,7 +90,10 @@ done
 # them: nothing tracked outside this directory ends in .sh, and a new one added
 # elsewhere is a decision to state here rather than one to infer.
 while IFS= read -r f; do
-  printf '%s\n' "${SCRIPTS[@]}" | grep -qxF "$f" && continue
+  # A process substitution, not a pipe: grep -q exits at its first match, printf's
+  # next write then fails with SIGPIPE, and under pipefail that fails the test even
+  # though the name matched.
+  grep -qxF "$f" < <(printf '%s\n' "${SCRIPTS[@]}") && continue
   echo "lint-shellcheck: $f is a shell script nothing checks — add it to the roster in $0." >&2
   drift=1
 done < <(find scripts -name '*.sh' | sort)

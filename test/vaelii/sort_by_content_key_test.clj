@@ -150,7 +150,7 @@
 (defn- clj-sources []
   (->> (file-seq (io/file "src/vaelii"))
        (filter #(.isFile ^File %))
-       (map #(.getPath ^File %))
+       (map #(str/replace (.getPath ^File %) \\ \/))
        (filter #(str/ends-with? % ".clj"))
        sort))
 
@@ -162,7 +162,7 @@
   []
   (->> (file-seq (io/file "test/vaelii"))
        (filter #(.isFile ^File %))
-       (map #(.getPath ^File %))
+       (map #(str/replace (.getPath ^File %) \\ \/))
        (filter #(str/ends-with? % ".clj"))
        (remove #(str/ends-with? % "sort_by_content_key_test.clj"))
        sort))

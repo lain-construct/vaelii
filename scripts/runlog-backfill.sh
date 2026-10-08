@@ -51,7 +51,7 @@ KNOWN=""
 [[ -r "$RUNLOG_FILE" ]] && KNOWN=$(awk -F'\t' 'NR>1 { print $11 }' "$RUNLOG_FILE")
 
 known() {                      # known <log path>
-  printf '%s\n' "$KNOWN" | grep -qxF "$1"
+  grep -qxF "$1" <<<"$KNOWN"
 }
 
 # `date` parses a fixed timestamp two incompatible ways: BSD (macOS) wants

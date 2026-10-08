@@ -12,6 +12,7 @@
             [vaelii.impl.clashes :as clashes]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.rules :as vr]
+            [vaelii.impl.sentex :as sx]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
@@ -185,7 +186,7 @@
       (v/assert kb (list cat_t Kit) 'CxUniverse {:strength :monotonic})
       (is (not (v/ask? kb (list chi_t Kit) 'CxUniverse)) "decided against the membership")
       (v/assert kb (list 'not (list 'genl chi_t dog_t)) 'CxUniverse {:strength :monotonic})
-      (is (not (v/disjoint? kb chi_t cat_t)))
+      (is (not (v/disjoint? kb chi_t cat_t 'CxUniverse)))
       (is (v/ask? kb (list chi_t Kit) 'CxUniverse))
       (is (v/ask? kb (list cat_t Kit) 'CxUniverse)))))
 
@@ -268,21 +269,23 @@
     (testing "and ranks below a definitional clash"
       (is (every? #(<= (:priority %) 2) (v/contradictions kb))))))
 
-(tu/deftest-kb a-clash-is-reported-never-stored
-  ;; `(contradicts X Y)` is a report form; CxCore says so of the predicate
+(tu/deftest-kb a-dilemma-is-stored-as-one-contradicts-naming-its-members
+  ;; the membership nogood is placed where both memberships and the separation are seen:
+  ;; one `contradicts` naming the two members, and no `defeat`, since both are `:default`
   (tu/with-terms [dog_t cat_t Muffet]
     (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
-    (v/assert kb (list dog_t Muffet) 'CxUniverse)
-    (let [before (v/sentex-count kb)]
+    (let [dog    (v/assert kb (list dog_t Muffet) 'CxUniverse)
+          before (v/sentex-count kb)]
       (v/assert kb (fwd [(list dog_t '?x)] (list cat_t '?x)) 'CxUniverse)
-      (let [reported (:sentence (first (v/contradictions kb)))]
-        (is (= 'contradicts (first reported)) "the report is a sentence")
-        (is (zero? (count (v/sentexes-with-functor kb 'contradicts)))
-            "and is stored nowhere")
-        (is (nil? (v/handle-of kb reported 'CxUniverse)))
-        (is (empty? (v/sentexes-matching kb (list 'contradicts '?a '?b) '?ctx)))
-        (is (= (+ 2 before) (v/sentex-count kb))
-            "the rule and its conclusion, and nothing for the clash")))))
+      (let [cat (v/handle-of kb (list cat_t Muffet) 'CxUniverse)
+            [c] (v/sentexes-matching kb (list 'contradicts '?a '?b) '?ctx)]
+        (is (= (set (map sx/sentex-handle [dog cat])) (set (rest (:sentence c)))))
+        (is (= 'CxUniverse (:context c)))
+        (is (= 'contradicts (first (:sentence (first (v/contradictions kb)))))
+            "the report names the clash in the stored form's functor")
+        (is (empty? (v/sentexes-with-functor kb 'defeat)))
+        (is (= (+ 3 before) (v/sentex-count kb))
+            "the rule, its conclusion and the contradicts")))))
 
 (def ^:private report-keys
   "Every key a standing clash is reported with, whichever reading found it."
@@ -1192,3 +1195,236 @@
         (is (= #{#{decl} #{cover decl}} (clashes)) "the cover states the part's edge")
         (v/retract! kb c))
       (is (= #{} (clashes)) "the cover leaving takes both"))))
+
+;;; ── placed membership and related-types nogoods ──────────────────────
+
+(defn- placed
+  "The stored `contradicts` and `defeat` sentexes, each as `[sentence context]` with its
+  `sentexHandle` arguments resolved."
+  [kb]
+  (into #{} (for [f '[contradicts defeat]
+                  s (v/sentexes-with-functor kb f)]
+              (tu/handle-free kb [(:sentence s) (:context s)]))))
+
+(tu/deftest-kb a-membership-nogood-is-placed-and-no-reader-decides-it
+  ;;   CxUniverse  (genl mammal_t thing) (genl dog_t mammal_t) (disjoint mammal_t reptile_t)
+  ;;     ├─ CxL    (reptile_t Rex) default
+  ;;     └─ CxR    (dog_t Rex) monotonic
+  ;;   CxJ sees CxL and CxR
+  (tu/with-terms [mammal_t dog_t reptile_t Rex CxL CxR CxJ]
+    (doseq [[c up] [[CxL 'CxUniverse] [CxR 'CxUniverse] [CxJ CxL] [CxJ CxR]]]
+      (v/assert kb (list 'genlCx c up) 'CxUniverse))
+    (v/assert kb (list 'genl mammal_t 'thing) 'CxUniverse)
+    (let [edge (v/assert kb (list 'genl dog_t mammal_t) 'CxUniverse)
+          decl (v/assert kb (list 'disjoint mammal_t reptile_t) 'CxUniverse)
+          los  (v/assert kb (list reptile_t Rex) CxL)
+          win  (v/assert kb (list dog_t Rex) CxR {:strength :monotonic})
+          L    [(list reptile_t Rex) CxL]
+          W    [(list dog_t Rex) CxR]]
+      (testing "the contradicts and the defeat of the default member are stored at CxJ"
+        (is (= #{[(list 'contradicts W L) CxJ] [(list 'defeat L) CxJ]} (placed kb))))
+      (testing "the declaration and the genl edge the reading climbed are grounds"
+        (let [[c] (v/sentexes-with-functor kb 'contradicts)]
+          (is (every? (set (mapcat :antecedents (v/supporting-justifications kb (:id c))))
+                      [los win decl edge]))))
+      (testing "no reader decides the pair, and the defeat hides the loser at CxJ alone"
+        (is (false? (v/believed? kb los CxJ)))
+        (is (true? (v/believed? kb los CxL))))
+      (testing "retracting the edge the reading climbed takes the placed sentexes out"
+        (v/retract! kb edge)
+        (is (empty? (placed kb)))
+        (is (true? (v/believed? kb los CxJ)))))))
+
+(def ^:private merge-orders
+  "The merge first, the merge last, and two interleavings of the four writes."
+  [[:merge :pos :neg :rule] [:pos :neg :rule :merge] [:pos :merge :neg :rule] [:rule :neg :merge :pos]])
+
+(defn- merged-membership-reading
+  "In a fresh KB where CxB sees CxA, CxA sees CxUniverse and CxUniverse states
+  (disjoint dog_t cat_t), the writes `ops` in order: `:pos` (dog_t Zz) default in CxA,
+  `:neg` (cat_t Zz) monotonic in N, `:rule` (dog_t ?x) => (barks ?x) forward in CxA, and
+  `:merge` (rewriteOf Aa Zz) monotonic in N, where N is CxA for `:same` and CxB for
+  `:split`.  Returns the placed sentences and the belief at N of (dog_t Zz) in CxA,
+  (dog_t Aa) in N and (barks Aa) in N (nil when not stored)."
+  [{:keys [dog_t cat_t barks Zz Aa CxA CxB]} shape ops]
+  (tu/with-neutral-kb [kb tu/fresh]
+    (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse {:strength :monotonic})
+    (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse {:strength :monotonic})
+    (let [n (if (= shape :split) CxB CxA)]
+      (doseq [op ops]
+        (case op
+          :pos   (v/assert kb (list dog_t Zz) CxA)
+          :neg   (v/assert kb (list cat_t Zz) n {:strength :monotonic})
+          :rule  (v/assert kb (list 'implies (list dog_t '?x) (list barks '?x)) CxA {:direction :forward})
+          :merge (v/assert kb (list 'rewriteOf Aa Zz) n {:strength :monotonic})))
+      (let [bel (fn [s c] (when-let [h (v/handle-of kb s c)] (v/believed? kb h n)))]
+        {:placed    (placed kb)
+         :at-reader [(bel (list dog_t Zz) CxA) (bel (list dog_t Aa) n) (bel (list barks Aa) n)]}))))
+
+(deftest a-membership-nogood-with-a-superseded-member-is-placed-alike-in-every-arrival-order
+  (tu/with-terms [dog_t cat_t barks Zz Aa CxA CxB]
+    (let [terms {:dog_t dog_t :cat_t cat_t :barks barks :Zz Zz :Aa Aa :CxA CxA :CxB CxB}]
+      (doseq [shape [:same :split]]
+        (testing shape
+          (let [rs (mapv #(merged-membership-reading terms shape %) merge-orders)]
+            (is (= 1 (count (into #{} (map :placed) rs))) "the placed sentences")
+            (is (= 1 (count (into #{} (map :at-reader) rs))) "belief at the merging reader")
+            (is (every? #(some #{Zz} (tree-seq coll? seq (:placed %))) rs)
+                "the superseded spelling's nogood stays placed")
+            (is (= [false false false] (:at-reader (first rs))) "the defeat of (dog_t Zz) hides (barks Aa)")))))))
+
+(defn- unmerged-reader-reading
+  "In a fresh KB where CxB sees CxA and CxA sees CxUniverse, CxA states (genl dog mammal),
+  (genl mammal animal), (disjoint animal plant) and (canine ?x) => (dog ?x), and the
+  writes `ops` arrive in order: `:merge` (sameAs CI1 CI5) monotonic in CxA with an
+  `except` of it in CxB, `:plant` (plant CI5) default in CxA, `:canine` (canine CI5)
+  default in CxA.  Returns what CxB, which does not believe the merge, answers about CI5
+  and CI1, and the sides of the clashes it reports."
+  [{:keys [canine dog mammal animal plant CI1 CI5 CxA CxB]} ops]
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [m {:strength :monotonic}]
+      (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse m)
+      (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse m)
+      (v/assert kb (list 'genl dog mammal) CxA m)
+      (v/assert kb (list 'genl mammal animal) CxA m)
+      (v/assert kb (list 'disjoint animal plant) CxA m)
+      (v/assert kb (list 'implies (list canine '?x) (list dog '?x)) CxA {:direction :forward})
+      (doseq [op ops]
+        (case op
+          :merge  (let [h (v/assert kb (list 'sameAs CI1 CI5) CxA m)]
+                    (v/assert kb (list 'except (list 'sentexHandle h)) CxB m))
+          :plant  (v/assert kb (list plant CI5) CxA)
+          :canine (v/assert kb (list canine CI5) CxA)))
+      {:asks    (mapv #(v/ask? kb % CxB)
+                      [(list canine CI5) (list dog CI5) (list animal CI5) (list plant CI5) (list dog CI1)])
+       :reports (into #{} (map #(into #{} (map (juxt :sentence :context)) (:sides %)))
+                      (v/contradictions kb CxB))})))
+
+(deftest a-context-that-excepts-the-merge-reads-the-superseded-spelling-alike-in-both-orders
+  ;; CxA supersedes the CI5 spellings, and only the merge-last order stores (dog CI5) in
+  ;; CxA, fired before the merge; CxB restates CI5 for itself in both orders
+  (tu/with-terms [canine dog mammal animal plant CI1 CI5 CxA CxB]
+    (let [terms {:canine canine :dog dog :mammal mammal :animal animal :plant plant
+                 :CI1 CI1 :CI5 CI5 :CxA CxA :CxB CxB}
+          early (unmerged-reader-reading terms [:merge :plant :canine])
+          late  (unmerged-reader-reading terms [:canine :plant :merge])]
+      (is (= early late))
+      (is (= [true true true true false] (:asks early)))
+      (is (= #{#{[(list dog CI5) CxB] [(list plant CI5) CxB]}} (:reports early))))))
+
+(tu/deftest-kb a-disjoint-over-related-types-is-placed-as-a-contradicts
+  ;; the declaration is its nogood's one member and the edge its ground; the declaration is
+  ;; on the forced-monotonic roster, so nothing is defeated
+  (tu/with-terms [animal_w dog_w CxRelSide]
+    (v/assert kb (list 'genl animal_w 'thing) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxRelSide 'CxUniverse) 'CxUniverse)
+    (let [decl (list 'disjoint dog_w animal_w)
+          _    (v/assert kb decl 'CxUniverse {:strength :monotonic})
+          e    (v/assert kb (list 'genl dog_w animal_w) CxRelSide)]
+      (is (= #{[(list 'contradicts [decl 'CxUniverse]) CxRelSide]} (placed kb)))
+      (v/retract! kb e)
+      (is (empty? (placed kb))))))
+
+(tu/deftest-kb a-separated-pair-among-many-types-gives-one-nogood-in-every-arrival-order
+  ;; the pair's two memberships arrive first, last and apart among 200 memberships of
+  ;; types no separation reaches, in both orders; each order is retracted before the next
+  (tu/with-terms [dog_t cat_t Rex]
+    (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse {:strength :monotonic})
+    (let [rest  (mapv (fn [_] [(list (tu/tmp-type "other") Rex) {}]) (range 200))
+          pair  [[(list dog_t Rex) {:strength :monotonic}] [(list cat_t Rex) {}]]
+          ;; members in content order: tmp_cat… before tmp_dog…
+          want  #{[(list 'contradicts [(list cat_t Rex) 'CxUniverse] [(list dog_t Rex) 'CxUniverse])
+                   'CxUniverse]
+                  [(list 'defeat [(list cat_t Rex) 'CxUniverse]) 'CxUniverse]}
+          order (fn [[p q] [a b]]
+                  (concat (subvec rest 0 p) [a] (subvec rest p q) [b] (subvec rest q)))
+          seen  (for [pq [[0 0] [0 200] [100 100] [200 200] [1 150]]
+                      ab [pair (rseq pair)]]
+                  (let [hs (mapv (fn [[s o]] (v/assert kb s 'CxUniverse o)) (order pq ab))
+                        got (placed kb)]
+                    (run! #(v/retract! kb %) (rseq hs))
+                    [got (placed kb)]))]
+      (is (= [[want #{}]] (distinct (doall seen)))))))
+
+;;; ── the reports read the placed sentexes ─────────────────────────────
+
+(defn- reports-nogood?
+  "Does one of `reports` name the members `hs`?"
+  [reports hs]
+  (boolean (some #(= (set hs) (:nogood %)) reports)))
+
+(tu/deftest-kb a-reader-reports-no-dilemma-whose-ground-it-excepts
+  ;;   CxUniverse   (disjoint dog cat)
+  ;;     ├─ CxA     (cat Rex) default
+  ;;     └─ CxB     (dog Rex) default
+  ;;   CxW sees CxA and CxB: the dilemma's placement
+  ;;   CxR sees CxW and excepts the declaration
+  (tu/with-terms [CxA CxB CxW CxR cat dog Rex]
+    (doseq [t [cat dog]] (v/assert kb (list 'genl t 'thing) 'CxUniverse))
+    (doseq [[k up] [[CxA 'CxUniverse] [CxB 'CxUniverse] [CxW CxA] [CxW CxB] [CxR CxW]]]
+      (v/assert kb (list 'genlCx k up) 'CxUniverse))
+    (let [c (v/assert kb (list cat Rex) CxA)
+          d (v/assert kb (list dog Rex) CxB)
+          j (v/assert kb (list 'disjoint dog cat) 'CxUniverse {:strength :monotonic})]
+      (v/assert kb (list 'except (sx/sentex-handle j)) CxR {:strength :monotonic})
+      (is (reports-nogood? (v/contradictions kb CxW) [c d]))
+      (testing "the reader excepting the separation believes both members and reads no dilemma"
+        (is (not (reports-nogood? (v/contradictions kb CxR) [c d])))
+        (is (true? (v/believed? kb c CxR)))
+        (is (true? (v/believed? kb d CxR)))))))
+
+(tu/deftest-kb a-conflict-a-reader-s-excepts-lower-to-a-tie-is-its-dilemma
+  ;;   CxUniverse   (disjoint dog cat)
+  ;;     ├─ CxA     (cat Rex) default, and monotonic through (cat_src Rex)
+  ;;     ├─ CxB     (dog Rex) default, and monotonic through (dog_src Rex)
+  ;;     └─ CxHide  (except (cat_src Rex)), (except (dog_src Rex))
+  ;;   CxW sees CxA and CxB: the placement, a conflict there
+  ;;   CxZ sees CxW and CxHide: both members are defaults there, and tie
+  (tu/with-terms [CxA CxB CxHide CxW CxZ cat dog cat_src dog_src Rex]
+    (doseq [t [cat dog]] (v/assert kb (list 'genl t 'thing) 'CxUniverse))
+    (doseq [[k up] [[CxA 'CxUniverse] [CxB 'CxUniverse] [CxHide 'CxUniverse]
+                    [CxW CxA] [CxW CxB] [CxZ CxW] [CxZ CxHide]]]
+      (v/assert kb (list 'genlCx k up) 'CxUniverse))
+    (let [M   {:strength :monotonic}
+          c   (v/assert kb (list cat Rex) CxA)
+          d   (v/assert kb (list dog Rex) CxB)
+          srcs (for [[t src cx] [[cat cat_src CxA] [dog dog_src CxB]]]
+                 (do (v/assert kb (fwd [(list src '?x)] (list t '?x)) cx M)
+                     (v/assert kb (list src Rex) cx M)))]
+      (doseq [s srcs] (v/assert kb (list 'except (sx/sentex-handle s)) CxHide M))
+      (v/assert kb (list 'disjoint dog cat) 'CxUniverse M)
+      (is (reports-nogood? (v/conflicts kb) [c d]) "a conflict where it is placed")
+      (is (not (reports-nogood? (v/contradictions kb CxW) [c d])))
+      (testing "the reader below reads two defaults, believes both, and reports the tie"
+        (is (true? (v/believed? kb c CxZ)))
+        (is (true? (v/believed? kb d CxZ)))
+        (is (reports-nogood? (v/contradictions kb CxZ) [c d]))))))
+
+(tu/deftest-kb a-dilemma-over-a-member-resting-on-a-loser-is-not-reported-where-the-member-is-not-believed
+  ;;   CxUniverse   (disjoint dog cat)
+  ;;     ├─ CxA     (feline Rex) default, and (feline ?x) ⇒ (cat ?x): (cat Rex) rests on it
+  ;;     ├─ CxB     (dog Rex) default
+  ;;     └─ CxN     (not (feline Rex)) monotonic
+  ;;   CxAB sees CxA and CxB: the dilemma {(cat Rex), (dog Rex)} is placed there
+  ;;   CxAN sees CxA and CxN: the negation pair is placed there, defeating (feline Rex)
+  ;;   CxZ sees CxAB and CxAN: (cat Rex) rests on a loser there
+  (tu/with-terms [CxA CxB CxN CxAB CxAN CxZ cat dog feline Rex]
+    (doseq [t [cat dog feline]] (v/assert kb (list 'genl t 'thing) 'CxUniverse))
+    (doseq [[k up] [[CxA 'CxUniverse] [CxB 'CxUniverse] [CxN 'CxUniverse]
+                    [CxAB CxA] [CxAB CxB] [CxAN CxA] [CxAN CxN] [CxZ CxAB] [CxZ CxAN]]]
+      (v/assert kb (list 'genlCx k up) 'CxUniverse))
+    (v/assert kb (fwd [(list feline '?x)] (list cat '?x)) CxA)
+    (v/assert kb (list feline Rex) CxA)
+    (v/assert kb (list 'not (list feline Rex)) CxN {:strength :monotonic})
+    (v/assert kb (list dog Rex) CxB)
+    (v/assert kb (list 'disjoint dog cat) 'CxUniverse {:strength :monotonic})
+    (let [c (v/handle-of kb (list cat Rex) CxA)
+          d (v/handle-of kb (list dog Rex) CxB)]
+      (testing "the placement context believes both members and reports the dilemma"
+        (is (reports-nogood? (v/contradictions kb CxAB) [c d]))
+        (is (reports-nogood? (v/contradictions kb) [c d])))
+      (testing "below the defeat, the member resting on the loser is not believed"
+        (is (false? (v/believed? kb c CxZ)))
+        (is (true? (v/believed? kb d CxZ)))
+        (is (not (reports-nogood? (v/contradictions kb CxZ) [c d])))))))

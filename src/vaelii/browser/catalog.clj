@@ -307,15 +307,17 @@
   (not-empty (str/trim (str v))))
 
 (defn search-path
-  "The directories discovery walks: `VAELII_KB_PATH` (`:`-separated) when set, else the
-  `vaelii.kb.path` system property, else `./kbs` and `~/.vaelii/kbs`.  A path entry that
+  "The directories discovery walks: `VAELII_KB_PATH` when set, else the
+  `vaelii.kb.path` system property, else `./kbs` and `~/.vaelii/kbs`.  The list is
+  separated as the platform's `PATH` is — `:`, and `;` on Windows, where `:` is part of
+  every absolute path.  A path entry that
   *is* a KB directory counts as one source; otherwise its children are probed, one level
   down.  (The property mirrors `vaelii.disk.dir`, and is what a test sets — a JVM cannot
   change its own environment.)  Either spelling **blank** is unset — `set-to` for why."
   []
   (if-let [p (or (set-to (System/getenv "VAELII_KB_PATH"))
                  (set-to (System/getProperty "vaelii.kb.path")))]
-    (remove str/blank? (str/split p #":"))
+    (remove str/blank? (str/split p (re-pattern (java.util.regex.Pattern/quote File/pathSeparator))))
     [(str (System/getProperty "user.dir") "/kbs")
      (str (System/getProperty "user.home") "/.vaelii/kbs")]))
 

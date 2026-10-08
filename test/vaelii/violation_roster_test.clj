@@ -104,11 +104,16 @@
   `{:violation <entry>}`, which wraps a filing rather than being one."
   #"\{:violation\s+([(a-zA-Z][^\s]*)")
 
+(defn- slash-path
+  "`f`'s path with `/` separators, which is how the rosters here cite a file on every OS."
+  ^String [^File f]
+  (str/replace (.getPath f) \\ \/))
+
 (defn- sources []
   (->> (file-seq (io/file "src"))
        (filter #(.isFile ^File %))
        (filter #(str/ends-with? (.getPath ^File %) ".clj"))
-       (remove #(= doc-file (.getPath ^File %)))))
+       (remove #(= doc-file (slash-path %)))))
 
 (defn- site-name
   "`<file>/<def>` for the top-level definition enclosing character `pos` — the citation
@@ -140,7 +145,7 @@
   []
   (reduce
    (fn [acc ^File f]
-     (let [path (.getPath f)
+     (let [path (slash-path f)
            code (code-only (slurp f))]
        (as-> acc acc
          (reduce (fn [acc [kw site pos]]
@@ -162,7 +167,7 @@
   that safe — the builder is named a dozen times in prose explaining itself, and a scan
   over the raw source would read its own documentation as a caller."
   [rx]
-  (into #{} (comp (mapcat (fn [^File f] (matches rx (.getPath f) (code-only (slurp f)))))
+  (into #{} (comp (mapcat (fn [^File f] (matches rx (slash-path f) (code-only (slurp f)))))
                   (map (comp keyword first)))
         (sources)))
 

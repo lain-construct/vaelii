@@ -59,7 +59,7 @@
     :enforced prose naming the code path that reads the term — what a KB author is told
               by `core/interpreted` when they ask whether a declaration does anything.
               Carried by the terms CxCore comments and by no others, which is why an
-              entry without it is not a defect: the six grammar terms CxCore does not
+              entry without it is not a defect: the grammar terms CxCore does not
               comment are outside the question rather than unanswered.
     :inert    prose recording that nothing reads the term **and that this is a
               decision**.  Written by the `inert` constructor, which sets the facet with
@@ -203,7 +203,7 @@
   **`:functional`** is acted on by the *merge* lane (`special`'s `equate-*` entry points, where
   two fillers of a functional slot are equated) and by the *candidate* lane
   (`decide`'s candidate index and `special/offer-marked-existing`, where two unmergeable
-  fillers form a nogood a reader decides).  Both lanes have to recognize the same spellings, and neither fails loudly
+  fillers form a nogood the settle places).  Both lanes have to recognize the same spellings, and neither fails loudly
   when it does not — the merge simply does not happen, or the clash simply is not
   reported, in the one arrival order that route was the only way into.  Enrolling
   `functionalInArg` by name in each place is what left #52 (the declaration-last merge
@@ -340,8 +340,8 @@
   called inert by writing different prose beside it.
 
   Nil-tolerant, because the question is only asked about terms CxCore comments: the
-  six grammar terms it does not comment (`equals`, `sameAs` and the four query
-  operators) pass through unchanged, and `vocabulary/audit` is what notices a
+  grammar terms it does not comment (the query operators other than `different`) pass
+  through unchanged, and `vocabulary/audit` is what notices a
   term the *ontology* names and this file answers for with nothing."
   [spec where]
   (cond-> spec where (assoc :enforced where)))
@@ -362,7 +362,7 @@
   a sentence written nine times is a sentence that drifts in eight of them."
   (str " — tax/exact-arity-classes — plus the disjointness that separates the"
        " relation-wide three, which the kind specializations inherit through their genl"
-       " edges. Read as storage by the arity nogoods a reader decides."))
+       " edges. Read as storage by the arity nogoods the settle places."))
 
 ;; ---- the entries ---------------------------------------------------------
 
@@ -402,7 +402,7 @@
                                       " declaration the conviction is read through is not a member of"
                                       " it — so whichever membership is defeated, the disjointness"
                                       " table the next pass reads is the one that convicted."))
-                          "taxonomy/add-disjoint, read by decide/nogoods-at and checks/disjoint-problems")]
+                          "taxonomy/add-disjoint, read by chain/place-memberships! and checks/disjoint-problems")]
      ['disjoint_metatype
       (enforced (mark :disjoint-metatype :facets #{:reach :convicts}
                       :notes (str "the members already asserted are recorded by the integrate arm"
@@ -414,14 +414,27 @@
      ['sibling_disjoint (enforced (mark :sibling-disjoint :facets #{:reach :convicts})
                                   (str "taxonomy/mark-sibling-disjoint — the specialization clique keyed off"
                                        " the genl closure, consulted like disjoint_metatype"))]
+     ['orthogonal
+      (enforced (wff-only [:type :type]
+                          :notes (str "convicted rather than convicting: the related-types family"
+                                      " reads the stored declaration, or a stored"
+                                      " siblingDisjointException through the predicate genl edge,"
+                                      " back as a one-member nogood of itself whenever a genl"
+                                      " edge or a separation a reader sees contradicts it."))
+                (str "decide/related — a one-member nogood of the declaration over a pair a"
+                     " reader reads genl-related or separated; and core/subsumption-statuses —"
+                     " a stated pair reads :orthogonal with no shared instance"))]
      ['siblingDisjointException
       (enforced (assoc (pair :sib-exception :type)
                        :notes (str "its retract moves the separations a reader reads, which the"
                                    " membership candidates read again (membership/sync-memberships);"
                                    " that is a reach in the removal direction, which :reach (an"
-                                   " arriving declaration) does not name."))
-                (str "taxonomy/add-sib-exception — exempts one pair the sibling clique or a"
-                     " disjoint_metatype would separate; read at the reader in disjointness-test"))]
+                                   " arriving declaration) does not name. A genl of orthogonal,"
+                                   " so the related-types family reads it as the orthogonal it"
+                                   " entails."))
+                (str "taxonomy/add-sib-exception — exempts one pair from the separation marks"
+                     " (sibling_disjoint, disjoint_metatype, a partition or separating roster),"
+                     " read at the reader in disjointness-test"))]
 
      ;; ---- exhaustion: the parts that cover a whole ------------------------
      ;;
@@ -510,7 +523,7 @@
                                                 " loudly: the *merge* entry point, where two fillers of"
                                                 " a functional slot are equated, and the"
                                                 " *candidate* offer, where two unmergeable"
-                                                " fillers form a nogood a reader decides. Deriving"
+                                                " fillers form a nogood the settle places. Deriving"
                                                 " an equality is not"
                                                 " :migrates — that facet is for a relation whose"
                                                 " own assertion is the merge."))
@@ -519,21 +532,21 @@
      ['irreflexive (enforced (prop :irreflexive :facets #{:reach :convicts}
                                    :notes (str "convicts a *self* tuple (P a a), a one-member nogood"
                                                " no settle weighs, so it is not :arbitrable:"
-                                               " each reader decides it"
+                                               " the settle places it"
                                                " from the candidate index, whichever of the mark"
                                                " and the tuple arrived first."))
-                             (str "decide/nogoods-at and decide/losers — a reader that reads the mark"
-                                  " decides a stored self tuple; also a binary_predicate type"))]
+                             (str "chain/place-tuples! — a stored self tuple under the mark is placed"
+                                  " as a nogood; also a binary_predicate type"))]
      ['anti_symmetric (enforced (prop :anti-symmetric :facets #{:reach :convicts}
                                       :notes (str "derives (equals a b) from a believed converse of"
                                                   " two symbols rather than convicting either — so it"
                                                   " merges where the other pairwise marks separate,"
                                                   " and no facet names deriving. A converse no merge"
-                                                  " can reconcile is a nogood each reader decides,"
+                                                  " can reconcile is a nogood the settle places,"
                                                   " irreflexive's reading, and not :arbitrable."))
                                 (str "special/derive-antisymmetric-equalities merging two symbols a"
-                                     " believed converse forces equal, and decide/nogoods-at and"
-                                     " decide/losers deciding a converse no merge reconciles; also a"
+                                     " believed converse forces equal, and chain/place-tuples! placing a"
+                                     " converse no merge reconciles; also a"
                                      " binary_predicate type"))]
      ['anti_transitive (enforced (assoc
                                   (prop :anti-transitive :facets #{:reach :convicts :arbitrable}
@@ -562,18 +575,18 @@
                         :family  nil
                         :notes   (str "binds a relation's length, read as storage beside the"
                                       " exact-arity classes: a tuple breaking it is a one-member"
-                                      " nogood each reader decides, and two related predicates"
+                                      " nogood the settle places, and two related predicates"
                                       " whose bindings differ are a nogood of the bindings.  Not"
                                       " :arbitrable: no settle weighs it.")}
-                       (str "decide/nogoods-at and decide/losers — a reader decides a stored tuple"
-                            " whose length breaks the binding"))]
+                       (str "chain/place-arities! — a stored tuple whose length breaks the binding"
+                            " is placed as a nogood"))]
      ['arityMin
       (enforced {:shape {:args [:relation :integer]} :storage [:none] :checked false
                  :family nil :facets #{:reach :convicts}
                  :notes (str "floors a variable_arity relation: a shorter tuple is a one-member"
-                             " nogood each reader decides. Ordinary CxCore rules"
+                             " nogood the settle places. Ordinary CxCore rules"
                              " also derive the at_least_*_relation classifications.")}
-                "decide/nogoods-at floors a variable-arity tuple at the minimum")]
+                "chain/place-arities! floors a variable-arity tuple at the minimum")]
      ['relationTypeByArity
       (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
                  :family nil :facets #{}
@@ -673,10 +686,10 @@
      ['forced_decontextualized_predicate (enforced (prop :forced-decontextualized)
                                                    "special — storage straight into CxUniverse")]
      ['forced_monotonic_predicate (enforced (prop :forced-monotonic)
-                                            (str "checks/force-sentex! and the labeller's forced sets —"
-                                                 " a premise held :monotonic, a denial held OUT and a"
-                                                 " firing concluding one from a non-roster ground held"
-                                                 " void"))]
+                                            (str "decide/verdict, which never takes a literal of the"
+                                                 " predicate OUT, and the labeller's forced sets — a"
+                                                 " denial held OUT and a firing concluding one from a"
+                                                 " non-roster ground held void"))]
      ['forced_monotonic_between_predicates
       (enforced (prop :forced-between-predicates)
                 (str "checks/forced-monotonic? — a literal of the predicate whose arguments are all"
@@ -726,9 +739,6 @@
     ;; ---- the equality relations ------------------------------------------
     ;; Sorted, so the table is a function of the set rather than of set iteration
     ;; order — the same sort `special/entries` applies to `kb/equality-predicates`.
-    ;; Only `rewriteOf` carries vocabulary prose, because CxCore comments only it: the
-    ;; other two are grammar the audit is not asked about, which is a fact about the
-    ;; ontology rather than about what the engine does with them.
     (map (fn [f]
            [f (enforced
                (assoc (pair :equality :term :derived? false
@@ -739,7 +749,9 @@
                                   " a symbol merge and each arm dispatches on them — a"
                                   " NAT reify-to-term declaration, and a schematic"
                                   " equational rule."))
-               (get '{rewriteOf "nat for a compound right side, the equality partition for a symbol"}
+               (get '{rewriteOf "nat for a compound right side, the equality partition for a symbol"
+                      sameAs    "the equality partition — a merge of the two classes, answered from the closure by provers/EqualityProver"
+                      equals    "the equality partition — a merge of the two classes, answered from the closure by provers/EqualityProver"}
                     f))])
          '[equals rewriteOf sameAs])
 
@@ -775,7 +787,7 @@
                             :family nil :facets #{:convicts :reach}
                             :notes (str "the projection relates STORED declarations only — a"
                                         " reading arg generalizes up genl or inherits from a"
-                                        " super-predicate has no argN twin; ask arg for those."
+                                        " super-predicate has no arg1/arg2/arg3 twin; ask arg for those."
                                         " :family stays nil for arity's reason rather than for"
                                         " want of a family: mark-families rosters the lanes"
                                         " that must recognize one spelling set, and two"
@@ -832,10 +844,10 @@
                                    (str "genlArg's reason, at the conditional form: each"
                                         " inference it licenses is a stored sentex, and reaches"
                                         " an exception through that sentex's own fact trigger.")}
-                                  :notes (str "entail-existing reaches two of its three arrival"
-                                              " orders; the third — the trigger's type arriving"
-                                              " after both the fact and the declaration — is the"
-                                              " family's documented open-world non-reach. The only"
+                                  :notes (str "entail-existing reaches the facts stored before"
+                                              " the declaration, and special/triggered-mints the"
+                                              " trigger's type arriving after both, in the settle."
+                                              " The only"
                                               " constraint whose trigger position is contravariant:"
                                               " a stored supertype answers a subtype query there,"
                                               " where every other type position reads up genl."))
@@ -952,13 +964,14 @@
                                 "checks/covering-genls-problem — position n onward typed as a subtype")]
 
      ;; ---- the argument-preserving declarations ---------------------------
-     ['transitiveInArg        (enforced (wff-only [:relation :position :relation-name]
-                                                  :facets #{:answers})
-                                        "inherit — the argument reach along a declared transitive relation")]
      ['transitiveInArgInverse (enforced (wff-only [:relation :position :relation-name]
                                                   :facets #{:answers}
-                                                  :notes "the same declaration, read backwards.")
-                                        "inherit — the same, read backwards")]
+                                                  :notes "the reach against the relation's arrow.")
+                                        "inherit — the argument reach against a declared transitive relation's arrow")]
+     ['transitiveInArg        (enforced (wff-only [:relation :position :relation-name]
+                                                  :facets #{:answers}
+                                                  :notes "the same declaration, along the relation's arrow.")
+                                        "inherit — the argument reach along a declared transitive relation's arrow")]
 
      ;; ---- the definitional collection relations --------------------------
      ['defnNecessary  (enforced (wff-only [:type :sentence] :facets #{:answers}
@@ -990,11 +1003,14 @@
                      " (binary and ternary; general arity pends list-membership vocabulary)"))]
 
      ;; ---- the query operators --------------------------------------------
-     ['different   (operator {:args [] :variadic :term}
-                             :notes (str "answered from the equality closure. Being"
-                                         " deferred is all it shares with the"
-                                         " comparisons: it is not transitive, so it"
-                                         " merges no chains."))]
+     ['different   (enforced (operator {:args [] :variadic :term}
+                                       :notes (str "answered from the equality closure. Being"
+                                                   " deferred is all it shares with the"
+                                                   " comparisons: it is not transitive, so it"
+                                                   " merges no chains."))
+                             (str "provers/DifferentProver — a ground goal of two or more terms,"
+                                  " answered from the equality closure under the unique-name"
+                                  " assumption"))]
      ['unknown     (operator {:args [:sentence]})]
      ['thereExists (operator {:args [:sentence]})]
      ['forall      (operator {:args [:term :sentence]}
@@ -1061,7 +1077,9 @@
     ;; vocabulary for stating that a pair of specs exhausts their parent, so a
     ;; covering claim could only be made in prose and nothing would enforce it.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
-         '[[relation_application "documentary: a relation applied to arguments, the shape atomic_formula and non_atomic_term share. No reader classifies a compound by its shape."]
+         '[[expression "documentary: the root of the expression kinds and of the value kinds, below nowhere_never. CxCore holds it so CxCore and every spindle member read those kinds below thing; nothing reads it by name."]
+           [unrepresented_term "documentary: the expression kind the value kinds sit under, disjoint from relation, formula, relation_application and context. The disjointness is read as any disjointness is; nothing reads the collection by name."]
+           [relation_application "documentary: a relation applied to arguments, the shape atomic_formula and non_atomic_term share. No reader classifies a compound by its shape."]
            [denotational_term "documentary: the logic sense of term — an expression that denotes. Named so a declaration can say an argument is one; nothing reads it."]
            [atomic_formula "documentary: a predicate applied to terms. Nothing reads it."]
            [atomic_sentence "documentary: a closed atomic_formula — what a stored LiteralSentex holds. Nothing reads it."]
@@ -1071,8 +1089,9 @@
            [non_atomic_term "documentary: a function applied to terms — the NAT of docs/nat.md, named as a collection. Reification reads the declaration on the function, never this."]])
 
     ;; ---- the upper-ontology skeleton -------------------------------------
-    ;; The five collections CxCore holds so that a spindle member can place its own types
-    ;; under the root.  A spindle's members see the head and not each other, so a skeleton
+    ;; The collections CxCore holds so that a spindle member can place its own types
+    ;; under the root, or declare a position over a type a second member declares one
+    ;; over.  A spindle's members see the head and not each other, so a skeleton
     ;; term defined in one member is invisible to the member extending it — which left
     ;; `animal` unable to reach `thing` from CxOrganism, where it is defined.
     ;;
@@ -1081,24 +1100,26 @@
     ;; check names one, and the kinds hanging off them are the members'.  `inert` is the
     ;; class, and the note is what a KB author asking `interpreted` is told.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
-         '[[intangible "ontology, not grammar: something with no mass or location. CxCore holds it so every spindle member can extend it; no engine check names it."]
-           [spatial "ontology, not grammar: something with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
-           [physical_object "ontology, not grammar: something with mass and a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
-           [living_thing "ontology, not grammar: an organism. CxCore holds it so CxOrganism's kinds reach the root from CxOrganism; no engine check names it."]
-           [capability "ontology, not grammar: something a kind of thing can do. CxCore holds it so CxLife can extend it; no engine check names it."]])
+         '[[intangible "ontology, not grammar: something with no mass, the complement of tangible. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [spatial "ontology, not grammar: something with a location in some space, physical or mathematical. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [spatiotemporal "ontology, not grammar: something with a location in space and time. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [tangible "ontology, not grammar: something with mass, and so with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [organism "ontology, not grammar: something alive in its own right. CxCore holds it so CxOrganism's kinds reach the root from CxOrganism; no engine check names it."]
+           [biological "ontology, not grammar: a tangible that is an organism or part of one. CxCore holds it so organism reaches tangible through it from CxOrganism and body_part from CxAbstract; no engine check names it."]
+           [measure "ontology, not grammar: what a QuantityFn or QuantityIntervalFn application denotes. CxCore holds it so CxMeasure and CxTime can both declare a position over it; no engine check names it."]])
 
-    ;; ---- the space/time complements, the expression root, and the metatype ladder ----
-    ;; CxCore comments these too — the overhaul moved them here from CxAbstract, beside their
-    ;; genl edges — so `vocabulary/audit` answers for them and they are classified inert like
-    ;; the skeleton above: ontology the engine reads by no name.  `temporal` is `spatial`'s
-    ;; time twin; `aspatial` / `atemporal` are the not-in-space / not-in-time collections
-    ;; `abstract` sits under; the ladder is the metatype-order theory that `typeGenl` reads,
+    ;; ---- the space/time complements, nowhere_never, and the metatype ladder ----
+    ;; CxCore comments these too, beside their genl edges, so `vocabulary/audit` answers
+    ;; for them and they are classified inert like the skeleton above: ontology the engine
+    ;; reads by no name.  `temporal` is `spatial`'s
+    ;; time twin; `aspatial` / `atemporal` are the not-in-any-space / not-in-time collections
+    ;; `nowhere_never` sits under; the ladder is the metatype-order theory that `typeGenl` reads,
     ;; and `typeGenl` is itself inert.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
          '[[temporal "ontology, not grammar: something that exists in time. CxCore holds it so CxTime and CxAbstract can extend it; no engine check names it."]
-           [aspatial "ontology, not grammar: not located in space. CxCore holds it so abstract kinds can sit under it; no engine check names it."]
-           [atemporal "ontology, not grammar: not located in time. CxCore holds it so abstract kinds can sit under it; no engine check names it."]
-           [abstract "ontology, not grammar: an entity outside space and time, the root of the expression kinds CxAbstract hangs beneath it; no engine check names it."]
+           [aspatial "ontology, not grammar: not located in any space, the complement of spatial. CxCore holds it so every spindle member can place a kind under it; no engine check names it."]
+           [atemporal "ontology, not grammar: not located in time, the complement of temporal. CxCore holds it so nowhere_never can sit under it; no engine check names it."]
+           [nowhere_never "ontology, not grammar: in no space and at no time, below aspatial and atemporal and the parent of expression; no engine check names it."]
            [type "ontology, not grammar: a first-order type, on the metatype-order ladder. No engine check names it — typeGenl, which reads the ladder, is inert."]
            [metatype "ontology, not grammar: a second-order type, on the metatype-order ladder. No engine check names it."]
            [meta_metatype "ontology, not grammar: a third-order type, on the metatype-order ladder. No engine check names it."]
@@ -1107,18 +1128,38 @@
            [variable_order_type "ontology, not grammar: a type holding members of any order, on the metatype-order ladder. No engine check names it."]
            [type_type_by_order "ontology, not grammar: the disjoint_metatype partitioning fixed_order_type by order. No engine check names it."]])
 
+    ;; ---- the two halves of unary_predicate ---------------------------------
+    ;; `empty` and `nonempty` partition `unary_predicate`.  The disjointness audit reads
+    ;; both by name to decide whether a shared subtype witnesses an overlap.
+    [['empty    (enforced (collection :notes "a unary predicate with no instance in the context the claim is stated in.")
+                          "core/subsumption-reading — a shared subtype for which a facts-only read answers (empty c) is no overlap witness")]
+     ['nonempty (enforced (collection :notes "a unary predicate with at least one instance in the context the claim is stated in.")
+                          "core/subsumption-reading — a shared subtype for which a facts-only read answers (nonempty c) is the :shared-spec witness")]]
+
     ;; ---- the hierarchy roots and the meta-level targets -------------------
     [['thing     (enforced (collection :notes "the hierarchy root the open-world floors test against by name.")
                            "checks — the hierarchy root the open-world floors test against by name")]
      ['relation  (enforced (collection :notes "the common arg target for predicates and functions.")
-                           (str "generic: the common parent of predicate and function, and the"
-                                " arg target for relation-wide arity vocabulary"))]
+                           (str "generic: the whole that function and truth_valued_relation partition,"
+                                " and the arg target for relation-wide arity vocabulary"))]
      ['predicate (enforced (collection :notes "the arg target CxCore constrains its own meta-level with.")
                            "generic: the predicate specialization of relation")]
      ['function  (enforced (collection :notes "the arg target the function-valued positions name.")
                            (str "generic: the function specialization of relation and the arg"
                                 " target the function-valued positions of result, genlResult"
                                 " and functionCorrespondingPredicate name"))]
+     ;; The other half of relation, and the three levels below it.  CxCore comments them
+     ;; and `vocabulary/audit` answers for every term CxCore comments; no engine check names
+     ;; any of the four.  The connectives are read by their own names (the `implies`, `and`,
+     ;; `or` and `not` entries above), never through `logical_connective`.
+     ['truth_valued_relation (inert (collection :notes "ontology, not grammar: a relation whose applications are true or false, the complement of function within relation. No engine check names it.")
+                                    "ontology, not grammar: a relation whose applications are true or false, the complement of function within relation. No engine check names it.")]
+     ['logical_constant      (inert (collection :notes "ontology, not grammar: a quantifier or a logical connective, the relations whose meaning the logic fixes. No engine check names it.")
+                                    "ontology, not grammar: a quantifier or a logical connective, the relations whose meaning the logic fixes. No engine check names it.")]
+     ['logical_connective    (inert (collection :notes "ontology, not grammar: a relation that builds a formula from formulas — and, or, not, implies. The connectives are read by their own names, never through this type.")
+                                    "ontology, not grammar: a relation that builds a formula from formulas — and, or, not, implies. The connectives are read by their own names, never through this type.")]
+     ['quantifier            (inert (collection :notes "ontology, not grammar: a relation that binds variables in a formula. No shipped term is one; the engine reads forall and thereExists by name.")
+                                    "ontology, not grammar: a relation that binds variables in a formula. No shipped term is one; the engine reads forall and thereExists by name.")]
 
      ['unary   (enforced (collection :facets #{:convicts :reach}
                                      :notes (str "the relation-wide exact-one-argument type, and"
@@ -1176,12 +1217,12 @@
                                                 " all: every lane in this vocabulary names something"
                                                 " a term causes, and none names something it"
                                                 " prevents."))
-                                   "decide/nogoods-at — the one exemption from the arity nogoods")]
+                                   "chain/place-arities! — the one exemption from the arity nogoods")]
      ['variable_arity_predicate
       (enforced (collection
                  :notes (str "the predicate specialization of variable_arity; the arity"
                              " nogoods read it as a variable_arity membership."))
-                "decide/nogoods-at — the variable_arity exemption, spelled for a predicate")]
+                "chain/place-arities! — the variable_arity exemption, spelled for a predicate")]
      ['variable_arity_function
       (enforced (collection
                  :notes (str "the function specialization of variable_arity; it shares the"
@@ -1270,7 +1311,13 @@
          '[[set/forwardRule  "sentex/peel-rule-wrapper — sets the rule's direction"]
            [set/backwardRule "sentex/peel-rule-wrapper — sets the rule's direction"]
            [set/defaultRule  "sentex/peel-rule-wrapper — sets the conferred strength"]
-           [set/inertRule    "sentex/peel-rule-wrapper — stored, indexed for neither direction"]])
+           [set/inertRule    "sentex/peel-rule-wrapper — stored, indexed for neither direction"]
+           [set/forwardOnlyRule "sentex/peel-rule-wrapper — sets the rule's direction"]
+           [set/solveRule    "sentex/peel-rule-wrapper — adds :solve to the rule's engines"]
+           [set/assumptionRule "sentex/peel-rule-wrapper — sets the rule's effect to :choose"]
+           [set/hardConstraint "sentex/peel-rule-wrapper — sets the rule's effect to :forbid"]
+           [set/softConstraint "sentex/peel-rule-wrapper — sets the rule's effect to :penalize"]
+           [set/monotonic    "sentex/strength-wrapper — peeled at the entry point into :monotonic strength"]])
 
     ;; ---- the evaluable comparisons ---------------------------------------
     [['lessThan    (enforced {:shape   {:args [] :variadic :term}
@@ -1337,14 +1384,23 @@
                          (str "gloss, core-context/comment-of, and the browser's term pages —"
                               " ordinary sentexes, queried like any fact"))]
 
+     ;; ---- engine-derived meta-sentexes ---------------------------------------
+     ['defeat (enforced {:shape {:args [:term]} :storage [:none] :checked false
+                         :family nil :facets #{}
+                         :notes (str "derived by the engine only: checks/check-no-defeat refuses it"
+                                     " in every asserted literal.")}
+                        (str "reads/as-stored-naming — the trie read by the handle each defeat"
+                             " removes from belief"))]
+
+     ['contradicts (enforced {:shape {:args [:term] :variadic :term} :storage [:none] :checked false
+                              :family nil :facets #{}
+                              :notes (str "derived by the engine for a placed nogood, one argument per"
+                                          " member by handle; the reports compose the same functor"
+                                          " over the member sentences.")}
+                             (str "chain/place-nogood! — stored at the maximal common descendants of"
+                                  " a nogood's members and grounds, justified by them"))]
+
      ;; ---- declared and read by nothing, on purpose -------------------------
-     ['contradicts (inert (collection
-                           :notes (str "a report form the engine *writes*. Nothing"
-                                       " reads it as input, and asserting one would"
-                                       " put a stale claim under truth maintenance."))
-                          (str "a report form the engine *writes*: conflicts and contradictions"
-                               " compose it per settle. Nothing reads it as input, and asserting one"
-                               " would put a stale claim under truth maintenance."))]
      ['typeToInstancePred
       (inert (collection
               :notes (str "a link, not a rule. Moving a claim between the type and"
@@ -1388,6 +1444,15 @@
              (str "a partition declaration (variable arity) documenting that the cell types"
                   " exhaustively and disjointly cover the whole. Nothing infers from it — the"
                   " disjoint_metatype and the explicit memberships carry the separation."))]
+     ['argN
+      (inert {:shape {:args [:term :integer :sentence]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "a position inside a written formula, 0 the relation or operator."
+                          " Nothing derives it, and its (quotedArg argN 3 formula) checks"
+                          " nothing, since no reader classifies a compound by its shape.")}
+             (str "a statement that a term is argument n of a written formula, position 0"
+                  " being the relation or operator. Nothing derives or reads it, and no reader"
+                  " classifies a compound by its shape yet."))]
      ['termsRelated
       (inert {:shape {:args [] :variadic :term} :storage [:none] :checked false
               :family nil :facets #{}
@@ -1405,6 +1470,16 @@
              (str "a documentation 'see also' cross-reference between two terms; read like"
                   " comment and by nobody for inference. Directional — (seeAlso a b)"
                   " does not imply (seeAlso b a); the reverse is a separate assertion."))]
+
+     ;; A reviewer's record that a rule-macro suggestion was read and declined.  It names
+     ;; the suggestion by content rather than the rule by handle, so a text export keeps it.
+     ['declined_rule_macro
+      (enforced {:shape {:args [:term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "an ordinary fact over a quoted declaration, read by one pass of"
+                             " the integrity sweep and by no inference.")}
+                (str "integrity/rule-macro-findings — a rule-macro suggestion the rule's"
+                     " context declines is not reported"))]
 
      ;; The three worked-example annotations name their example sentex by handle.  Each is
      ;; a `target_following_predicate` in CxCore, so retracting the example tears the

@@ -53,8 +53,8 @@
       (try! (list 'genl (v i) (v (.nextInt rnd i))) 'CxUniverse {})
       (when (< (.nextInt rnd 3) 1) (try! (list 'genl (v i) (v (.nextInt rnd i))) 'CxUniverse {}))
       (when (< (.nextInt rnd 4) 1) (try! (list 'genl (v i) (v (.nextInt rnd i))) child {})))
-    (try! (list 'transitiveInArg pred 1 'genl) 'CxUniverse {})
-    (try! (list (if (zero? (.nextInt rnd 2)) 'transitiveInArg 'transitiveInArgInverse) pred 2 'genl)
+    (try! (list 'transitiveInArgInverse pred 1 'genl) 'CxUniverse {})
+    (try! (list (if (zero? (.nextInt rnd 2)) 'transitiveInArgInverse 'transitiveInArg) pred 2 'genl)
           'CxUniverse {})
     (when (zero? (.nextInt rnd 2)) (try! (list 'asymmetric pred) 'CxUniverse {}))
     (dotimes [_ 14]
@@ -81,7 +81,7 @@
                        :surviving (into {} (for [from ['CxUniverse child], g goals]
                                              [[from g] (comparable (inherit/surviving kb g from))]))
                        :denials   (into {} (for [g goals, s [g (list 'not g)]]
-                                             [s (inherit/denial-contexts kb s)]))})
+                                             [s (inherit/denial-readings kb s)]))})
               now   (ask)
               ;; every reach past the bound, so each membership is a walk
               walks (with-redefs [inherit/bounded-reach-limit 1] (ask))
@@ -117,8 +117,8 @@
           pred (tu/fresh-term :predicate 'relOf)]
       (doseq [v [as bs], i (range 1 (count v))]
         (v/assert kb (list 'genl (v i) (v (dec i))) 'CxUniverse))
-      (v/assert kb (list 'transitiveInArg pred 1 'genl) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg pred 2 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 2 'genl) 'CxUniverse)
       (v/assert kb (list pred (as 3) (bs 5)) 'CxUniverse)
       (v/assert kb (list 'not (list pred (as 30) (bs 30))) 'CxUniverse)
       ;; the matcher still reads predicates' closures for its fan; an argument's reach
@@ -132,7 +132,7 @@
           (with-redefs [tax/genls (fn [t x c] (note! x) (genls t x c))
                         tax/specs (fn [t x c] (note! x) (specs t x c))
                         inherit/bounded-reach-limit limit]
-            (is (seq (inherit/denial-contexts kb (list pred (as 39) (bs 39))))
+            (is (seq (inherit/denial-readings kb (list pred (as 39) (bs 39))))
                 "the leaves are denied by the negated claim above them")))
         (is (zero? @reads) "and no argument's closure is built to find that")))))
 
@@ -171,8 +171,8 @@
       (doseq [v [as bs], i (range 1 (count v))]
         (v/assert kb (list 'genl (v i) (v (dec i))) 'CxUniverse))
       (v/assert kb (list 'genl (as 39) (as 2)) child)
-      (v/assert kb (list 'transitiveInArg pred 1 'genl) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg pred 2 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 2 'genl) 'CxUniverse)
       (v/assert kb (list pred (as 3) (bs 5)) 'CxUniverse)
       (v/assert kb (list 'not (list pred (as 30) (bs 30))) 'CxUniverse)
       (let [terms (into (set as) bs)
@@ -204,8 +204,8 @@
       ;; the child excepts an edge elsewhere, so its genl scope filters
       (let [h (v/assert kb (list 'genl u w) 'CxUniverse)]
         (v/assert kb (list 'except (list 'sentexHandle h)) child))
-      (v/assert kb (list 'transitiveInArg pred 1 'genl) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg pred 2 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 2 'genl) 'CxUniverse)
       (doseq [i (range 0 30 3)]
         (v/assert kb (list pred (as i) (bs i)) 'CxUniverse))
       (let [filters (atom 0)
@@ -227,8 +227,8 @@
           pred (tu/fresh-term :predicate 'relOf)]
       (doseq [v [as bs], i (range 1 (count v))]
         (v/assert kb (list 'genl (v i) (v (dec i))) 'CxUniverse))
-      (v/assert kb (list 'transitiveInArg pred 1 'genl) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg pred 2 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 2 'genl) 'CxUniverse)
       (doseq [i (range 20)]
         (v/assert kb (list pred (as i) (bs 0)) 'CxUniverse))
       (let [walks  (atom 0)
@@ -252,8 +252,8 @@
           pred (tu/fresh-term :predicate 'relOf)]
       (doseq [v [as bs], i (range 1 (count v))]
         (v/assert kb (list 'genl (v i) (v (dec i))) 'CxUniverse))
-      (v/assert kb (list 'transitiveInArg pred 1 'genl) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg pred 2 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 2 'genl) 'CxUniverse)
       (doseq [i (range 20)]
         (v/assert kb (list pred (as i) (bs 0)) 'CxUniverse))
       (let [walks  (atom 0)
@@ -280,8 +280,8 @@
           pred (tu/fresh-term :predicate 'relOf)]
       (doseq [v [as bs], i (range 1 (count v))]
         (v/assert kb (list 'genl (v i) (v (dec i))) 'CxUniverse))
-      (v/assert kb (list 'transitiveInArg pred 1 'genl) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg pred 2 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 2 'genl) 'CxUniverse)
       (doseq [i (range 20)]
         (v/assert kb (list pred (as i) (bs 0)) 'CxUniverse))
       (let [walks  (atom 0)
@@ -308,8 +308,8 @@
           pred (tu/fresh-term :predicate 'relOf)]
       (doseq [v [as bs], i (range 1 (count v))]
         (v/assert kb (list 'genl (v i) (v (dec i))) 'CxUniverse))
-      (v/assert kb (list 'transitiveInArg pred 1 'genl) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg pred 2 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse pred 2 'genl) 'CxUniverse)
       (doseq [i (range 20)]
         (v/assert kb (list pred (as i) (bs 0)) 'CxUniverse))
       (let [walks  (atom 0)

@@ -252,7 +252,7 @@
   ;; is the bug this whole test is about.  So the roster is pinned: it shrinks on purpose.
   (testing "and the roster is exactly the vocabulary"
     (is (= #{:backend :records :index :space :dir :pg :tms :recover?
-             :naming :base :base-stores :overlay}
+             :naming :base :base-stores :overlay :oplog?}
            kb/opt-keys))))
 
 (deftest a-store-value-outside-its-domain-is-refused
@@ -488,7 +488,7 @@
 
 (deftest a-restart-is-recoverable-only-because-the-reindex-runs-first
   ;; This is the ordering the mixed modes turn on.  `recover` rebuilds the TMS and
-  ;; taxonomy *by reading the index* (`rebuild-taxonomy` reads the functor root), so over
+  ;; taxonomy *by reading the index* (`rebuild-taxonomy` reads the predicate extents), so over
   ;; a derived index that opened empty it recovers an empty KB and reports nothing wrong.
   (with-restart
     (fn [dir] (observations (populate! (v/open-kb {:backend :disk-memory :dir dir :recover? false}))))

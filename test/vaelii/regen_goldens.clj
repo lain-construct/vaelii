@@ -3,9 +3,10 @@
 (ns vaelii.regen-goldens
   "`lein regen-goldens` — rewrite every checked-in golden from the live tree.
 
-  Three surfaces are frozen against a golden, and each one's test owns its own
-  `regenerate-golden!`.  This is the headless way to call all three: no REPL, and so no
-  browser or profiler server booting behind it.
+  Three surfaces are frozen against a golden, docs/caches.md holds the generated
+  derived-state register, and each one's test owns its own `regenerate-golden!`.  This
+  is the headless way to call all four: no REPL, and so no browser or profiler server
+  booting behind it.
 
   **Regeneration is the deliberate half of a two-part step, never the fix for a red
   suite.**  A golden goes red to say a published surface moved; running this makes the
@@ -19,13 +20,15 @@
   caller can tell a rewrite from a failure."
   (:require [vaelii.api-surface-test :as api-surface]
             [vaelii.config-surface-test :as config-surface]
+            [vaelii.derived-state-test :as derived-state]
             [vaelii.spi-surface-test :as spi]))
 
 (def ^:private goldens
   "`[label regenerate-fn file]`, in the order they are written."
   [["public API surface" #(api-surface/regenerate-golden!)    "test/golden/api-surface.edn"]
    ["extension points"    #(spi/regenerate-golden!)            "test/golden/spi-protocols.edn"]
-   ["config surface"     #(config-surface/regenerate-golden!) "test/golden/config-surface.edn"]])
+   ["config surface"     #(config-surface/regenerate-golden!) "test/golden/config-surface.edn"]
+   ["derived-state register" #(derived-state/regenerate-golden!) "docs/caches.md"]])
 
 (defn -main [& _]
   (let [failed (reduce (fn [failed [label f file]]

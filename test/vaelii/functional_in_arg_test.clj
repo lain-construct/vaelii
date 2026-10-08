@@ -415,6 +415,40 @@
             (is (zero? (count (v/conflicts kb)))
                 "as a dilemma, not a conflict")))))))
 
+;; ---- the pair placed, and a reader that merges its fillers ------------------
+
+(tu/deftest-kb a-functional-pair-is-placed-and-a-reader-merging-its-fillers-reads-no-defeat
+  ;;   CxUniverse  (functional p)
+  ;;     ├─ CxLeft    (p Tom ThingOne) default
+  ;;     ├─ CxRight   (p Tom ThingTwo) monotonic
+  ;;     └─ CxBottom  sees both
+  ;;          └─ CxMerge  (sameAs ThingOne ThingTwo)
+  ;; The pair is placed at CxBottom with the default filler's defeat; CxMerge reads the
+  ;; two fillers as one class, so it reads no nogood and believes both.
+  (tu/with-terms [p Tom ThingOne ThingTwo CxLeft CxRight CxBottom CxMerge]
+    (contexts! kb {:left CxLeft :right CxRight :bottoms [CxBottom]})
+    (v/assert kb (list 'genlCx CxMerge CxBottom) U)
+    (let [mark (v/assert kb (list 'functional p) U {:strength :monotonic})
+          los  (v/assert kb (list p Tom ThingOne) CxLeft)
+          win  (v/assert kb (list p Tom ThingTwo) CxRight {:strength :monotonic})
+          L    [(list p Tom ThingOne) CxLeft]
+          W    [(list p Tom ThingTwo) CxRight]
+          at   (fn [ctx] (into #{} (comp (filter #(= ctx (:context %)))
+                                         (map #(tu/handle-free kb [(:sentence %) (:context %)])))
+                               (concat (v/sentexes-with-functor kb 'contradicts)
+                                       (v/sentexes-with-functor kb 'defeat))))]
+      (testing "the contradicts and the defeat are stored at CxBottom, the mark a ground"
+        (is (= #{[(list 'contradicts L W) CxBottom] [(list 'defeat L) CxBottom]} (at CxBottom)))
+        (let [[c] (filter #(= CxBottom (:context %)) (v/sentexes-with-functor kb 'contradicts))]
+          (is (every? (set (mapcat :antecedents (v/supporting-justifications kb (:id c))))
+                      [los win mark]))))
+      (testing "no reader decides the pair"
+        (check (false? (v/believed? kb los CxBottom)) "CxBottom does not believe the default filler"))
+      (testing "a reader below that merges the fillers reads no defeat"
+        (v/assert kb (list 'sameAs ThingOne ThingTwo) CxMerge {:strength :monotonic})
+        (check (true? (v/believed? kb los CxMerge)) "CxMerge believes the default filler")
+        (check (false? (v/believed? kb los CxBottom)) "and CxBottom still does not")))))
+
 ;; ---- row 4: two bottoms, same verdict ------------------------------------
 
 ;; vaelii#43 closed the gap, and this row is what pins the fix has no favorite

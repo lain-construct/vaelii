@@ -200,8 +200,8 @@
         (->> (file-seq (io/file "src"))
              (filter #(.isFile ^File %))
              (filter #(str/ends-with? (.getPath ^File %) ".clj"))
-             (remove #(str/includes? (.getPath ^File %) "/koinii/"))
-             (remove #(= self-file (.getPath ^File %))))))
+             (remove #(str/includes? (str/replace (.getPath ^File %) \\ \/) "/koinii/"))
+             (remove #(= self-file (str/replace (.getPath ^File %) \\ \/))))))
 
 (deftest every-protocol-in-the-tree-is-classified
   ;; What makes the pinned set trustworthy. Without this, `extension-points` is a list somebody

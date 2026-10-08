@@ -51,6 +51,20 @@
         (is (= (list has_fur Muffet) (:goal (first (:for-derivation r)))))
         (is (= :rule (:via (first (:for-derivation r)))))))))
 
+(tu/deftest-kb argue-derives-through-a-rewrite-whose-residual-repeats-a-conjunct
+  ;; (a K) rewrites to (b K) ∧ (e K), and (e K) to (b K) ∧ (f K): the second (b K) folds
+  ;; onto the first, left of the rewritten literal.
+  (tu/with-terms [qqa qqb qqe qqf FoldK]
+    (v/assert-rule kb [(list qqb '?x) (list qqe '?x)] (list qqa '?x) 'CxUniverse
+                   {:direction :backward})
+    (v/assert-rule kb [(list qqb '?x) (list qqf '?x)] (list qqe '?x) 'CxUniverse
+                   {:direction :backward})
+    (v/assert kb (list qqb FoldK) 'CxUniverse)
+    (v/assert kb (list qqf FoldK) 'CxUniverse)
+    (let [r (v/argue kb (list qqa FoldK) 'CxUniverse {:max-depth 2})]
+      (is (= :true (:verdict r)))
+      (is (= :rule (:via (first (:for-derivation r))))))))
+
 (tu/deftest-kb argue-a-stored-side-carries-the-jtms-why-and-no-derivation
   ;; the two explanations are a fallback, not a pair: where the JTMS answers, the search
   ;; is not run at all — a tree nobody reads costs a whole query
@@ -115,17 +129,21 @@
     (v/assert kb (list hungry Muffet) 'CxUniverse {:strength :monotonic})
     (is (= :true (:verdict (v/argue kb (list hungry Muffet) 'CxUniverse))))))
 
-(tu/deftest-kb argue-reads-the-default-side-withdrawn-inside-a-deferred-batch
-  ;; the reader decides the pair when it reads it, so a deferred settle holds no moment
-  ;; where both sides stand
+(tu/deftest-kb argue-reads-both-sides-inside-a-deferred-batch-and-the-winner-after-it
+  ;; the closing settle places the pair, so inside the batch both sides stand and the
+  ;; known-true one outranks the default; after it the default side is withdrawn
   (tu/with-terms [hungry Muffet]
     (let [r (v/with-deferred-settle kb
               (v/assert kb (list hungry Muffet) 'CxUniverse {:strength :monotonic})
               (v/assert kb (list 'not (list hungry Muffet)) 'CxUniverse {:strength :default})
-              (v/argue kb (list hungry Muffet) 'CxUniverse))]
-      (is (= [:monotonic nil] [(:defeat-class (:for-why r)) (:defeat-class (:against-why r))])
-          "the known-true side answers with its class, and the default side is withdrawn")
-      (is (= :true (:verdict r))))))
+              (v/argue kb (list hungry Muffet) 'CxUniverse))
+          after (v/argue kb (list hungry Muffet) 'CxUniverse)]
+      (is (= [:monotonic :default] [(:defeat-class (:for-why r)) (:defeat-class (:against-why r))])
+          "inside the batch each side answers with its class")
+      (is (= :true (:verdict r)))
+      (is (= [:monotonic nil] [(:defeat-class (:for-why after)) (:defeat-class (:against-why after))])
+          "after the settle the default side is withdrawn")
+      (is (= :true (:verdict after))))))
 
 (tu/deftest-kb argue-with-proofs-asked-reads-the-derivation-off-its-own-answers
   (tu/with-terms [dog has_fur Muffet]

@@ -5,7 +5,7 @@
   is built.
 
   The index's handle-set families (trie leaves `[:trie :handles …]`, and the roots/indexes
-  `[:context-root]` `[:functor-root]` `[:argument-root]` `[:term-index]` `[:rule-index]` `[:exception-index]`) are today
+  `[:context-root]` `[:predicate-extent]` `[:argument-root]` `[:term-index]` `[:rule-antecedent]` `[:rule-consequent]` `[:exception-index]`) are today
   `PersistentHashSet`s of **boxed `Long`** handles, which the scale harness measured as
   the fattest resident component.  The obvious replacement is `RoaringBitmap` — but this
   project has a cautionary tale: substrate.md *predicted* native structures ~10× denser and
@@ -91,10 +91,10 @@
     (case (first k)
       :idx  (when (= :l (second k)) :leaf)       ; :c is a counter, :s a label set — skip
       :context-root :ctx
-      :functor-root :functor
+      :predicate-extent :functor
       :argument-root :arg
       :term-index :term
-      (:rule-index :exception-index) :rule
+      (:rule-antecedent :rule-consequent :exception-index) :rule
       nil)))
 
 (defn- ms [t0] (/ (- (System/nanoTime) t0) 1e6))
@@ -176,7 +176,7 @@
                      (/ (- idx-total val-total) 1048576.0)
                      (* 100.0 (/ (double (- idx-total val-total)) idx-total))))
     (let [measured (into {} (map (fn [[f ps]] [f (measure-family f ps)])) by-fam)
-          ;; TOTAL: baseline deduped across ALL families (a handle shared by :functor-root/:argument-root/
+          ;; TOTAL: baseline deduped across ALL families (a handle shared by :predicate-extent/:argument-root/
           ;; :term-index is one boxed Long counted once), vs the primitive encodings summed (no
           ;; cross-posting sharing).  The fair "heap to hold every posting".
           all-sets (mapcat :sets (vals measured))

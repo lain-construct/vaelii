@@ -79,10 +79,12 @@ however atomic its value reads** — the shape is the trap, since a measure look
 thing you would want a name for.
 
 Both marks classify: `(reifiable_function F)` and `(unreifiable_function F)` each say F is a
-`function`, which is what `(disjoint function predicate)` reaches. The choice changes
-where a declared result type is *stored*, not whether it holds — a reifiable application
-carries `result` materialized on its constant, an unreifiable one is typed from the
-declaration at check time, and the two say the same thing about the same function.
+`function`, which is what `(disjoint function predicate)` — derived from the partition
+of `relation` — reaches, and `(partition function reifiable_function unreifiable_function)`
+makes the two marks exclusive: a function is one or the other. The choice changes where a
+declared result type is *stored*, not whether it holds — a reifiable application carries
+`result` materialized on its constant, an unreifiable one is typed from the declaration at
+check time, and the two say the same thing about the same function.
 
 ## The reifiable gate
 
@@ -477,6 +479,62 @@ and the loop ends on the round that removes nothing.
 ([preview.md](preview.md)) and reaches the orphan sweep at no point, so the claim it owes
 — the KB is as it was found — is about all of it rather than about one teardown's region.
 
+## A reifiable mark moving
+
+The write path spells a sentence by the marks believed when it is written, so a
+`(reifiable_function F)` mark that starts or stops holding after sentences naming `F` are
+stored changes how those sentences would be written. The settle that follows the move
+re-spells them (`chain/reconcile-reified!`), so the store holds what a KB told the same
+sentences with the mark already in place holds:
+
+| The mark | What the settle re-spells |
+|---|---|
+| arrives: asserted, derived, or revived from OUT | each stored ground application of `F` becomes its term, minted as `assert` mints it |
+| leaves: retracted, or OUT | each use of a constant minted for `F` names the application again |
+| is defeated or excepted at or above a use's context, so no reader of the use believes it | the use is spelled as written, and its constant is collected |
+| is defeated or excepted below a use's context, so the use's readers disagree | the use stays as written, and the reified use is stored beside it, justified `respell` by the use and the mark |
+
+The move is noted where the mark changes in the taxonomy (`special/note-permuting-moves!`,
+beside the permuting marks), on the `:respell` queue the settle drains. The region is read
+off the inverted term index (`nat/respell-region`): every stored sentex holding an
+application of `F`, and every use of a constant whose expression holds one, at any
+nesting. A constant's own bookkeeping is not a use and does not move. A quoting
+predicate's payload is a mention and does not move either. Each row is re-spelled by
+expanding its constants and reifying again (`nat/respelled`), which is the write path's
+own walk. A rule's antecedent and consequent move the same way.
+
+- **A row moves in place** when no row holds its new spelling, keeping its handle,
+  premise mark and justifications (`integrate/move-row!`, the move a late `symmetric`
+  mark makes). Otherwise it folds into that row. A re-asserted use therefore dedups to
+  the moved row instead of storing a second one.
+- **A nested application is re-keyed.** A constant's name hashes its expression, and the
+  expression holds its inner applications already reified. A use stored while the inner
+  function was undeclared names the constant of the raw inner application. When the inner
+  mark arrives, that use moves to the constant of the re-keyed expression, and the first
+  constant is left with its bookkeeping alone.
+- **The constants the moved rows stop naming are collected** by the orphan rule of
+  [Rename and remove](#rename-and-remove--keeping-the-11-invariant), over the spellings
+  the rows moved off. A settle has no teardown entry point, so each bookkeeping handle is
+  taken out through `integrate/take-out!`.
+
+A reader that does not believe the mark reads no row naming a constant minted for `F`,
+the mint and its result types included, and a reader that believes it reads no row holding
+an application of `F` unreified (`res/without-unbelieved-spellings`). A goal is reified
+with the marks its reader believes (`nat/maybe-reify-for-read` given the reader). The
+readers are found as for a permuting mark
+([canonicalization.md](canonicalization.md#a-mark-a-reader-does-not-believe)), and a write
+naming such an application queues the function for the settle (`nat/queue-split-uses!`).
+
+The settle reaches stored rows, believed or not, so a use sitting OUT is spelled as the KB
+spells it when its defeat lifts. A declaration written before any application finds only
+its own declarations about `F`, and a KB declaring no reifiable function queues nothing.
+A store recovered from rows written before this re-spelling existed keeps them: `recover`
+re-spells nothing, and retracting the declaration and asserting it again runs the sweep.
+
+A `(result F T)` or `(genlResult F T)` asserted after constants were minted for `F`
+materializes `(T K)` or `(genl K T)` on each of them, as the mint does when the declaration
+comes first (`nat/reconcile-nats!`).
+
 ## Where it lives
 
 - `vaelii.impl.nat` — detectors (`reified-nat-symbol?`, `reifiable-function?`,
@@ -500,7 +558,8 @@ and the loop ends on the round that removes nothing.
   `vaelii.impl.nat-maintenance` per maintenance site.
 - `vaelii.impl.chain` — `reify-conclusion`, the derivation-path reify `place-conclusion`
   runs on a fired conclusion, with the checks asked before the mint. It gates on
-  `nat/names-reifiable-nat?`, a walk that rebuilds nothing.
+  `nat/names-reifiable-nat?`, a walk that rebuilds nothing. Also `reconcile-reified!`, the
+  settle's re-spelling when a reifiable mark moves.
 - `vaelii.impl.integrate` — `*removed-sink*`, the removal choke point's record of what a
   teardown took away, which is the region the orphan sweep runs over.
 - `vaelii.impl.special` — the two function-kind prop marks, the correspondence's
@@ -521,6 +580,9 @@ and the loop ends on the round that removes nothing.
 - **A backward rule's application is not reified.** A proof stores nothing, so its answer
   carries the compound, and a goal naming the constant does not unify with the
   application in the rule's head (Derivation path, above).
+- **A reifiable mark leaving does not re-spell a use whose application resolved to a real
+  term.** A `rewriteOf` target, a correspondence value and a placeholder an equality
+  retired stand where a KB that never declared the function holds the application.
 
 The **measure-evaluating quantity prover** — measure comparison over a `dimensionOf` /
 `conversionFactor` table — reads the structural measures this gate preserves. It lives

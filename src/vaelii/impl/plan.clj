@@ -247,7 +247,7 @@
 (defn- variable-functor?
   "A literal whose *functor* is open — `(?type Muffet)`.  It names no predicate, so
   neither of the two functor-keyed models below means anything for it: there is no
-  subtype closure to fan over and no functor root to count.  The argument roots are
+  subtype closure to fan over and no predicate extent to count.  The argument roots are
   what is left — and for the plain `(?type Muffet)` shape they are exactly what the
   matcher reads for it (`res/candidate-handles`), so the estimate is the candidate
   set.  A dotted rest has not even those."
@@ -334,8 +334,8 @@
 (defn- arg-root-estimate
   "The tightest count from the secondary argument roots.  These reach what the trie
   cannot: a ground argument sitting *after* a variable is on no prefix, so the trie
-  can only count up to that variable, while the argument roots (`[:argument-root pred
-  pos term]`, summed over the slot roster's predicates) index it directly.
+  can only count up to that variable, while the argument roots (the node `[pred pos term]`'s
+  count, summed over the slot roster's predicates) index it directly.
   Each is an upper bound on the literal's matches (it ignores the other positions),
   so the smallest is the tightest.
 
@@ -418,8 +418,8 @@
 
        ;; A negative literal keys under [:false <body>], so no prefix built from its
        ;; own tokens reaches it and `count-at` would answer 0 — a *lower* bound, which
-       ;; would rank the most expensive literal cheapest.  The functor root is the one
-       ;; count that spans both polarities (a negative fact roots under its positive
+       ;; would rank the most expensive literal cheapest.  The predicate extent's count
+       ;; is the one that spans both polarities (a negative fact roots under its positive
        ;; body's functor), so it is the whole model here — unless the functor is open,
        ;; when it roots nothing and answers 0, the very trap this branch exists to
        ;; avoid.  The argument roots span both polarities too, so a ground argument
@@ -430,7 +430,7 @@
            (or (arg-root-estimate ix body count-with-arg) unbounded)
            (count-with-functor ix (functor-of goal))))
 
-       ;; A dotted rest pattern pins no argument position at all, so the functor root
+       ;; A dotted rest pattern pins no argument position at all, so the predicate extent
        ;; is the only real bound on it — and an open functor has not even that.
        (dotted? goal)
        (if (variable-functor? goal)
@@ -637,7 +637,7 @@
 
                ;; The three shapes the trie cannot walk at all — a negative literal
                ;; (keyed under [:false …]), a dotted rest (no fixed positions), an open
-               ;; functor (no functor root).  `est-matches`'s fallbacks give the row
+               ;; functor (no predicate extent).  `est-matches`'s fallbacks give the row
                ;; count; no column is counted, so a join with one of these divides by
                ;; whatever the other side knows and by nothing otherwise.
                (or (negative? goal) (dotted? goal) (variable-functor? goal))

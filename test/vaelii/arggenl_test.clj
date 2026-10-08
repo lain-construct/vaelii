@@ -45,13 +45,15 @@
     [rel sub other root]))
 
 (tu/deftest-kb a-subtype-satisfies-genlArg-and-a-sibling-does-not
-  (let [[rel sub other root] (type-relation kb)]
-    (testing "a subtype of the constraint type is what the position wants"
-      (is (v/assert kb (list rel sub (tu/tmp-type)) 'CxUniverse)))
-    (testing "the constraint type itself satisfies it — genl is reflexive"
-      (is (v/assert kb (list rel root (tu/tmp-type)) 'CxUniverse)))
-    (testing "a type outside the constraint's down-closure does not"
-      (is (= :arg-genl (ex-type #(v/assert kb (list rel other (tu/tmp-type)) 'CxUniverse)))))))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   (let [[rel sub other root] (type-relation kb)]
+     (testing "a subtype of the constraint type is what the position wants"
+       (is (v/assert kb (list rel sub (tu/tmp-type)) 'CxUniverse)))
+     (testing "the constraint type itself satisfies it — genl is reflexive"
+       (is (v/assert kb (list rel root (tu/tmp-type)) 'CxUniverse)))
+     (testing "a type outside the constraint's down-closure does not"
+       (is (= :arg-genl (ex-type #(v/assert kb (list rel other (tu/tmp-type)) 'CxUniverse))))))))
 
 (tu/deftest-kb genlArg-wants-a-subtype-where-arg-wants-an-instance
   ;; the whole point of having both: the same type symbol passes one and fails the other
@@ -100,16 +102,18 @@
                                              'CxUniverse))))))))
 
 (tu/deftest-kb a-derived-genlArg-violation-is-recorded-not-thrown
-  ;; the derivation path must not abort a fixpoint, so it drops and ledgers instead
-  (let [[rel _ other] (type-relation kb)
-        trigger (tu/tmp-pred)]
-    (v/clear-violations! kb)
-    (v/assert kb (list 'set/forwardRule
-                       (list 'implies (list trigger '?x) (list rel '?x other)))
-              'CxUniverse)
-    (v/assert kb (list trigger other) 'CxUniverse)
-    (is (some #(= :arg-genl (:violation %)) (v/violations kb))
-        "the conclusion is dropped into the ledger")))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   ;; the derivation path must not abort a fixpoint, so it drops and ledgers instead
+   (let [[rel _ other] (type-relation kb)
+         trigger (tu/tmp-pred)]
+     (v/clear-violations! kb)
+     (v/assert kb (list 'set/forwardRule
+                        (list 'implies (list trigger '?x) (list rel '?x other)))
+               'CxUniverse)
+     (v/assert kb (list trigger other) 'CxUniverse)
+     (is (some #(= :arg-genl (:violation %)) (v/violations kb))
+         "the conclusion is dropped into the ledger"))))
 
 ;; ---- the constraint declarations, checked against each other -------------
 
@@ -125,32 +129,34 @@
       (is (v/assert kb (list 'arg (tu/tmp-pred) 9 'thing) 'CxUniverse)))))
 
 (tu/deftest-kb both-constraints-on-one-position-narrow-it-rather-than-emptying-it
-  ;; The two constraints ask different questions about the same slot — one *what kind
-  ;; of thing* it holds, one *where in the hierarchy* — and a type answers both.  This
-  ;; is how an imported ontology routinely declares a type-valued position, so refusing
-  ;; the pair on the grounds that nothing satisfies both would be refusing knowledge on
-  ;; a premise that is false.
-  (tu/with-terms [rel a_collection an_animal a_dog Rex]
-    (v/assert kb (list 'genl a_collection 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl an_animal 'thing) 'CxUniverse)
-    (v/assert kb (list 'genl a_dog an_animal) 'CxUniverse)
-    (v/assert kb (list a_collection a_dog) 'CxUniverse)  ; a_dog *is* a collection
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   ;; The two constraints ask different questions about the same slot — one *what kind
+   ;; of thing* it holds, one *where in the hierarchy* — and a type answers both.  This
+   ;; is how an imported ontology routinely declares a type-valued position, so refusing
+   ;; the pair on the grounds that nothing satisfies both would be refusing knowledge on
+   ;; a premise that is false.
+   (tu/with-terms [rel a_collection an_animal a_dog Rex]
+     (v/assert kb (list 'genl a_collection 'thing) 'CxUniverse)
+     (v/assert kb (list 'genl an_animal 'thing) 'CxUniverse)
+     (v/assert kb (list 'genl a_dog an_animal) 'CxUniverse)
+     (v/assert kb (list a_collection a_dog) 'CxUniverse)  ; a_dog *is* a collection
 
-    (testing "both may be declared of one position"
-      (is (v/assert kb (list 'arg rel 1 a_collection) 'CxUniverse))
-      (is (v/assert kb (list 'genlArg rel 1 an_animal) 'CxUniverse)))
+     (testing "both may be declared of one position"
+       (is (v/assert kb (list 'arg rel 1 a_collection) 'CxUniverse))
+       (is (v/assert kb (list 'genlArg rel 1 an_animal) 'CxUniverse)))
 
-    (testing "and a term satisfying both is admitted — an instance of the one, a subtype of the other"
-      (is (v/assert kb (list rel a_dog (tu/tmp-ind)) 'CxUniverse)))
+     (testing "and a term satisfying both is admitted — an instance of the one, a subtype of the other"
+       (is (v/assert kb (list rel a_dog (tu/tmp-ind)) 'CxUniverse)))
 
-    (testing "each is still enforced on its own"
-      (tu/with-terms [a_plant]
-        (v/assert kb (list 'genl a_plant 'thing) 'CxUniverse)
-        (v/assert kb (list a_collection a_plant) 'CxUniverse)
-        (is (= :arg-genl (ex-type #(v/assert kb (list rel a_plant (tu/tmp-ind)) 'CxUniverse)))
-            "a collection, but not a kind of animal — genlArg convicts"))
-      (is (= :arg-genl (ex-type #(v/assert kb (list rel Rex (tu/tmp-ind)) 'CxUniverse)))
-          "an individual can never be a subtype, so it is convicted rather than excused"))))
+     (testing "each is still enforced on its own"
+       (tu/with-terms [a_plant]
+         (v/assert kb (list 'genl a_plant 'thing) 'CxUniverse)
+         (v/assert kb (list a_collection a_plant) 'CxUniverse)
+         (is (= :arg-genl (ex-type #(v/assert kb (list rel a_plant (tu/tmp-ind)) 'CxUniverse)))
+             "a collection, but not a kind of animal — genlArg convicts"))
+       (is (= :arg-genl (ex-type #(v/assert kb (list rel Rex (tu/tmp-ind)) 'CxUniverse)))
+           "an individual can never be a subtype, so it is convicted rather than excused")))))
 
 (tu/deftest-kb the-constraint-must-agree-with-the-declared-relation-kind
   (let [instRel (tu/tmp-pred) typeRel (tu/tmp-pred)]
@@ -364,23 +370,25 @@
 ;; reach them must excuse, not convict.
 
 (tu/deftest-kb an-argument-whose-edges-are-out-of-sight-is-excused-not-convicted
-  (let [rel (tu/tmp-pred) root (tu/tmp-type) kind (tu/tmp-type)
-        reified (tu/tmp-ind) plain (tu/tmp-ind)
-        ctx (tu/tmp-ctx)]
-    ;; ctx is deliberately unwired: it cannot see CxUniverse
-    (v/assert kb (list 'genl root 'thing) ctx)
-    (v/assert kb (list 'genlArg rel 1 root) ctx)
-    ;; a reified NAT-shaped constant minted with real genl edges into CxUniverse —
-    ;; the raw writer stands in for nat/mint-nat!, whose edges are exactly this
-    (tax/add-genl (reasoning/taxonomy kb) reified root 999901 'CxUniverse)
-    (testing "globally in the hierarchy, invisibly from ctx: open world excuses"
-      (is (v/assert kb (list rel reified (tu/tmp-type)) ctx)))
-    (testing "a plain individual with no edges anywhere is still convicted"
-      (is (= :arg-genl (ex-type #(v/assert kb (list rel plain (tu/tmp-type)) ctx)))))
-    (testing "visible evidence reaching the wrong place still convicts"
-      (v/assert kb (list 'genl kind 'thing) ctx)     ; visible, but not under root
-      (is (= :arg-genl (ex-type #(v/assert kb (list rel kind (tu/tmp-type)) ctx)))))
-    (tax/del-genl! (reasoning/taxonomy kb) reified root 999901)))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   (let [rel (tu/tmp-pred) root (tu/tmp-type) kind (tu/tmp-type)
+         reified (tu/tmp-ind) plain (tu/tmp-ind)
+         ctx (tu/tmp-ctx)]
+     ;; ctx is deliberately unwired: it cannot see CxUniverse
+     (v/assert kb (list 'genl root 'thing) ctx)
+     (v/assert kb (list 'genlArg rel 1 root) ctx)
+     ;; a reified NAT-shaped constant minted with real genl edges into CxUniverse —
+     ;; the raw writer stands in for nat/mint-nat!, whose edges are exactly this
+     (tax/add-genl (reasoning/taxonomy kb) reified root 999901 'CxUniverse)
+     (testing "globally in the hierarchy, invisibly from ctx: open world excuses"
+       (is (v/assert kb (list rel reified (tu/tmp-type)) ctx)))
+     (testing "a plain individual with no edges anywhere is still convicted"
+       (is (= :arg-genl (ex-type #(v/assert kb (list rel plain (tu/tmp-type)) ctx)))))
+     (testing "visible evidence reaching the wrong place still convicts"
+       (v/assert kb (list 'genl kind 'thing) ctx)     ; visible, but not under root
+       (is (= :arg-genl (ex-type #(v/assert kb (list rel kind (tu/tmp-type)) ctx)))))
+     (tax/del-genl! (reasoning/taxonomy kb) reified root 999901))))
 
 ;; ---- a literal is typed by what it is ------------------------------------
 ;; `arg` is open-world about a **symbol** — an untyped one violates nothing — and closed
@@ -539,9 +547,9 @@
 (tu/deftest-kb a-quoting-predicates-payload-is-a-mention-and-is-not-typed-by-its-function
   ;; `(termOfUnit K E)` carries the NAT expression as a literal payload rather than as a
   ;; term used in that position, so what `E`'s function yields says nothing about the
-  ;; argument — typing it would type a quotation by its referent.  The declaration here is
-  ;; narrower than the shipped `(arg termOfUnit 2 thing)` on purpose, so the admission
-  ;; rests on the exemption rather than on a type nothing can miss.
+  ;; argument — typing it would type a quotation by its referent.  The declaration here
+  ;; names a type the function's result does not reach, so the admission rests on the
+  ;; exemption and not on the shipped `(arg termOfUnit 2 non_atomic_term)`.
   (let [msr (tu/tmp-type) dog (tu/tmp-type) f (tu/tmp-ind) K (tu/tmp-ind)]
     (v/assert kb (list 'genl msr 'thing) 'CxUniverse)
     (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
@@ -549,6 +557,18 @@
     (v/assert kb (list 'result f msr) 'CxUniverse)
     (v/assert kb (list 'arg 'termOfUnit 2 dog) 'CxUniverse)
     (is (v/assert kb (list 'termOfUnit K (list f 5)) 'CxUniverse))))
+
+(tu/deftest-kb check-reads-a-reifiable-payload-of-a-quoting-predicate-as-a-mention
+  ;; `check` reads a reifiable application as the constant `assert` would mint; in a
+  ;; quoting predicate's payload that reading would type the quotation by its referent
+  (let [msr (tu/tmp-type) dog (tu/tmp-type) f (tu/tmp-ind) K (tu/tmp-ind)]
+    (v/assert kb (list 'genl msr 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl dog 'thing) 'CxUniverse)
+    (v/assert kb (list 'disjoint msr dog) 'CxUniverse)
+    (v/assert kb (list 'reifiable_function f) 'CxUniverse)
+    (v/assert kb (list 'result f msr) 'CxUniverse)
+    (v/assert kb (list 'arg 'termOfUnit 2 dog) 'CxUniverse)
+    (is (empty? (v/check kb (list 'termOfUnit K (list f 5)) 'CxUniverse)))))
 
 (tu/deftest-kb a-result-declaration-a-context-cannot-see-does-not-refuse-it
   ;; the whole family judges from the asking context's vantage — a context is refused on

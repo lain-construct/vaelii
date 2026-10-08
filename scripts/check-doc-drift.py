@@ -147,10 +147,39 @@ import os
 import re
 import sys
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-SRC = os.path.join(ROOT, "src")
-TEST_SRC = os.path.join(ROOT, "test")
-RESOURCES = os.path.join(ROOT, "resources")
+# Every path this script builds is spelled with `/`, which Python accepts on Windows
+# too.  Left to `os.path` there, a path joined from a namespace (`src\vaelii/impl`)
+# and the same file found by `os.walk` (`src\vaelii\impl`) are two keys, and every
+# lookup between them misses; spelled one way, the checks read the same everywhere.
+def _slash(p):
+    return p.replace(os.sep, "/")
+
+
+def pjoin(*parts):
+    return _slash(os.path.join(*parts))
+
+
+def prel(path, start):
+    return _slash(os.path.relpath(path, start))
+
+
+def pnorm(path):
+    return _slash(os.path.normpath(path))
+
+
+def pabs(path):
+    return _slash(os.path.abspath(path))
+
+
+def pwalk(top):
+    for dirpath, dirs, names in os.walk(top):
+        yield _slash(dirpath), dirs, names
+
+
+ROOT = os.path.dirname(os.path.dirname(pabs(__file__)))
+SRC = pjoin(ROOT, "src")
+TEST_SRC = pjoin(ROOT, "test")
+RESOURCES = pjoin(ROOT, "resources")
 FENCE = re.compile(r"^\s*(```|~~~)")
 
 # Conventional alias -> namespace map (harvested from the `:as` requires across
@@ -216,7 +245,7 @@ MIME_PREFIXES = {"application", "text", "multipart", "image", "audio", "video"}
 
 def load_allowlist():
     allow = set()
-    p = os.path.join(ROOT, "scripts", "check-doc-drift-allowlist.txt")
+    p = pjoin(ROOT, "scripts", "check-doc-drift-allowlist.txt")
     if os.path.exists(p):
         for line in open(p):
             line = line.strip()
@@ -226,13 +255,13 @@ def load_allowlist():
 
 
 def md_files():
-    p = os.path.join(ROOT, "README.md")
+    p = pjoin(ROOT, "README.md")
     if os.path.exists(p):
         yield p
-    for dirpath, _, names in os.walk(os.path.join(ROOT, "docs")):
+    for dirpath, _, names in pwalk(pjoin(ROOT, "docs")):
         for n in sorted(names):
             if n.endswith(".md"):
-                yield os.path.join(dirpath, n)
+                yield pjoin(dirpath, n)
 
 
 def extra_md_files():
@@ -252,21 +281,21 @@ def extra_md_files():
     claims about the engine, and these files describe the project around it.
     """
     for rel in ("CHANGELOG.md", "CONTRIBUTING.md", "CLAUDE.md"):
-        p = os.path.join(ROOT, rel)
+        p = pjoin(ROOT, rel)
         if os.path.exists(p):
             yield p
-    rules = os.path.join(ROOT, ".claude", "rules")
+    rules = pjoin(ROOT, ".claude", "rules")
     if os.path.isdir(rules):
         for n in sorted(os.listdir(rules)):
             if n.endswith(".md"):
-                yield os.path.join(rules, n)
+                yield pjoin(rules, n)
 
 
 def clj_files():
-    for dirpath, _, names in os.walk(SRC):
+    for dirpath, _, names in pwalk(SRC):
         for n in names:
             if n.endswith(".clj"):
-                yield os.path.join(dirpath, n)
+                yield pjoin(dirpath, n)
 
 
 # The opening line of a fence, with its info string. Separate from FENCE (which
@@ -339,7 +368,7 @@ def sexp_imbalance(src):
 
 
 def ns_to_path(ns):
-    return os.path.join(SRC, ns.replace(".", "/").replace("-", "_") + ".clj")
+    return pjoin(SRC, ns.replace(".", "/").replace("-", "_") + ".clj")
 
 
 def parse_field_vector(text, start):
@@ -385,11 +414,11 @@ for path in clj_files():
 # docs cite test vars by their test-ns alias. clj_files() only walks src/, so
 # harvest the test tree's def names separately.
 if os.path.isdir(TEST_SRC):
-    for dirpath, _, names in os.walk(TEST_SRC):
+    for dirpath, _, names in pwalk(TEST_SRC):
         for n in names:
             if n.endswith(".clj"):
                 try:
-                    t = open(os.path.join(dirpath, n)).read()
+                    t = open(pjoin(dirpath, n)).read()
                 except (UnicodeDecodeError, OSError):
                     continue
                 for m in re.finditer(DEF_RE + r"([\w*+!?<>=.'-]+)", t):
@@ -405,11 +434,11 @@ def kb_corpus():
     if _kb_corpus is None:
         chunks = list(src_text.values())
         for root in (RESOURCES,):
-            for dirpath, _, names in os.walk(root):
+            for dirpath, _, names in pwalk(root):
                 for n in names:
                     if n.endswith((".clj", ".txt", ".edn")):
                         try:
-                            chunks.append(open(os.path.join(dirpath, n)).read())
+                            chunks.append(open(pjoin(dirpath, n)).read())
                         except (UnicodeDecodeError, OSError):
                             pass
         _kb_corpus = "\n".join(chunks)
@@ -426,7 +455,7 @@ def flag(kind, doc, token, msg):
         allow_used.add(token)
         return
     (errors if kind.startswith("E") else warnings).append(
-        f"{kind} {os.path.relpath(doc, ROOT)}: {msg}")
+        f"{kind} {prel(doc, ROOT)}: {msg}")
 
 
 # nsish words that are directory/language names, not aliases.
@@ -466,7 +495,7 @@ for doc in md_files():
             if doc_fields and real_fields and doc_fields != real_fields:
                 flag("E1", doc, name,
                      f"(defrecord {name}) fields drifted: doc {doc_fields} "
-                     f"vs code {real_fields} ({os.path.relpath(hits[0], ROOT)})")
+                     f"vs code {real_fields} ({prel(hits[0], ROOT)})")
 
     # E2: backticked var refs.
     for m in re.finditer(r"`([A-Za-z][\w.-]*)/([\w*+!?<>=.'-]+)`", whole):
@@ -490,7 +519,7 @@ for doc in md_files():
                     or ("defprotocol" in t and re.search(r"^\s+\(" + re.escape(name) + r"\s+\[", t, re.M))
                 if not defined:
                     flag("E2", doc, token,
-                         f"`{token}` not defined in {os.path.relpath(path, ROOT)}")
+                         f"`{token}` not defined in {prel(path, ROOT)}")
             # ns file absent: skip (nothing to verify against).
         else:
             if nsish in MIME_PREFIXES:
@@ -519,8 +548,8 @@ for doc in md_files():
         found = any(var in t or kw in t for t in src_text.values())
         if not found:
             # test/ carries the VAELII_TEST_* knobs; scan it too.
-            roots = [os.path.join(ROOT, "project.clj"),
-                     os.path.join(ROOT, "scripts"), RESOURCES, TEST_SRC]
+            roots = [pjoin(ROOT, "project.clj"),
+                     pjoin(ROOT, "scripts"), RESOURCES, TEST_SRC]
             for p in roots:
                 if os.path.isfile(p):
                     t = open(p).read()
@@ -529,10 +558,10 @@ for doc in md_files():
                         break
                     continue
                 if os.path.isdir(p):
-                    for dp, _, ns in os.walk(p):
+                    for dp, _, ns in pwalk(p):
                         for n in ns:
                             try:
-                                t = open(os.path.join(dp, n)).read()
+                                t = open(pjoin(dp, n)).read()
                                 if var in t or kw in t:
                                     found = True
                                     break
@@ -552,7 +581,7 @@ for doc in md_files():
         if any(ch in rel for ch in "*<>{") or rel.endswith("/") \
            or "..." in rel or re.search(r"/[A-Z]($|/)", rel):
             continue
-        if not os.path.exists(os.path.join(ROOT, rel)):
+        if not os.path.exists(pjoin(ROOT, rel)):
             flag("E4", doc, rel, f"path `{rel}` does not exist")
 
     # W1: line-number citations into clj files.
@@ -563,7 +592,7 @@ for doc in md_files():
     # name the switch. W1's argument is that line numbers rot silently, and a
     # citation a test resolves does not — so the exemption is the rows of that
     # table, not the file around them.
-    exempt_rows = os.path.relpath(doc, ROOT) in W1_CHECKED_BY_TEST
+    exempt_rows = prel(doc, ROOT) in W1_CHECKED_BY_TEST
     for pline in prose_lines:
         if exempt_rows and pline.lstrip().startswith("|"):
             continue
@@ -577,31 +606,31 @@ for doc in md_files():
 # one is a dead end for anyone who clones this repo.  This file names them to
 # check for them, so it excludes itself.
 AGENT_FILE = re.compile(r"CLAUDE(\.local)?\.md|\.claude/")
-SELF = os.path.abspath(__file__)
+SELF = pabs(__file__)
 
 
 def repo_text_files():
     yield from md_files()
     for sub in ("src", "test", "bench"):
-        for dirpath, _, names in os.walk(os.path.join(ROOT, sub)):
+        for dirpath, _, names in pwalk(pjoin(ROOT, sub)):
             for n in sorted(names):
                 if n.endswith(".clj"):
-                    yield os.path.join(dirpath, n)
-    scripts = os.path.join(ROOT, "scripts")
-    for dirpath, _, names in os.walk(scripts):
+                    yield pjoin(dirpath, n)
+    scripts = pjoin(ROOT, "scripts")
+    for dirpath, _, names in pwalk(scripts):
         for n in sorted(names):
             if n.endswith((".sh", ".py", ".clj")):
-                yield os.path.join(dirpath, n)
-    yield os.path.join(ROOT, "project.clj")
+                yield pjoin(dirpath, n)
+    yield pjoin(ROOT, "project.clj")
 
 
 for path in repo_text_files():
-    if os.path.abspath(path) == SELF or not os.path.exists(path):
+    if pabs(path) == SELF or not os.path.exists(path):
         continue
     for i, line in enumerate(open(path, errors="replace"), 1):
         m = AGENT_FILE.search(line)
         if m:
-            rel = os.path.relpath(path, ROOT)
+            rel = prel(path, ROOT)
             flag("E5", path, m.group(0),
                  f"{rel}:{i} references `{m.group(0)}` — an agent instruction "
                  f"file, gitignored here; state the fact in docs/ instead")
@@ -618,11 +647,11 @@ for doc in md_files():
         target = m.group(1).strip()
         if target.startswith(("http:", "https:", "mailto:")):
             continue
-        resolved = os.path.normpath(os.path.join(os.path.dirname(doc), target))
-        linked.add(os.path.relpath(resolved, ROOT))
+        resolved = pnorm(pjoin(os.path.dirname(doc), target))
+        linked.add(prel(resolved, ROOT))
 
 for doc in md_files():
-    rel = os.path.relpath(doc, ROOT)
+    rel = prel(doc, ROOT)
     if rel == "README.md" or rel in UNLINKED_OK or rel in linked:
         continue
     flag("E6", doc, rel, f"`{rel}` is linked from no other doc — add it to the "
@@ -637,7 +666,7 @@ for doc in md_files():
 #
 # Fenced blocks are skipped: an example link is not a claim about the tree.
 for doc in extra_md_files():
-    rel_doc = os.path.relpath(doc, ROOT)
+    rel_doc = prel(doc, ROOT)
     in_fence = False
     for i, line in enumerate(open(doc, errors="replace"), 1):
         if FENCE.match(line):
@@ -649,7 +678,7 @@ for doc in extra_md_files():
             target = m.group(1).strip().split("?")[0]
             if not target or target.startswith(("http:", "https:", "mailto:")):
                 continue
-            resolved = os.path.join(os.path.dirname(doc), target)
+            resolved = pjoin(os.path.dirname(doc), target)
             if not os.path.exists(resolved):
                 flag("E4", doc, target,
                      f"{rel_doc}:{i} link `{target}` resolves to nothing")
@@ -658,7 +687,7 @@ for doc in extra_md_files():
             if any(ch in p for ch in "*<>{") or p.endswith("/") \
                or "..." in p or re.search(r"/[A-Z]($|/)", p):
                 continue
-            if not os.path.exists(os.path.join(ROOT, p)):
+            if not os.path.exists(pjoin(ROOT, p)):
                 flag("E4", doc, p, f"{rel_doc}:{i} path `{p}` does not exist")
 
 # ── E7/W7: no archaeology — the present is the only tense ──────────────────
@@ -699,9 +728,9 @@ AMBIGUOUS = re.compile(r"(?<!be )(?<!,)\b[a-z0-9`)\]*]+ used to [a-z]")
 E7_STATES_THE_RULE = {"CONTRIBUTING.md", ".claude/rules/conventions.md"}
 
 for path in itertools.chain(repo_text_files(), extra_md_files()):
-    if os.path.abspath(path) == SELF or not os.path.exists(path):
+    if pabs(path) == SELF or not os.path.exists(path):
         continue
-    rel = os.path.relpath(path, ROOT)
+    rel = prel(path, ROOT)
     if rel.startswith("docs/design/complete/") or rel.startswith("resources/") \
        or rel in E7_STATES_THE_RULE:
         continue          # dated reviews quote as-of; resources/ is third-party
@@ -756,9 +785,9 @@ FUTUROLOGY = re.compile(
     re.I | re.M)
 
 for path in repo_text_files():
-    if os.path.abspath(path) == SELF or not os.path.exists(path):
+    if pabs(path) == SELF or not os.path.exists(path):
         continue
-    rel = os.path.relpath(path, ROOT)
+    rel = prel(path, ROOT)
     # docs/design/ briefs unbuilt work by definition — that whole tree is the
     # place plans are allowed to live, and it does not ship. resources/ is
     # third-party. CONTRIBUTING.md states this rule, so it quotes the
@@ -816,7 +845,7 @@ E8_OK_TARGETS = {"vaelii.impl.dense-jtms/create-dense-tms",
 E8_LITERAL = re.compile(r"\(requiring-resolve\s+'([^\s()]+)")
 
 for path in clj_files():
-    rel = os.path.relpath(path, ROOT)
+    rel = prel(path, ROOT)
     if rel in E8_OK_FILES:
         continue
     for i, line in enumerate(open(path, errors="replace"), 1):
@@ -838,7 +867,7 @@ for path in clj_files():
 # below-core solver reaches while the teardown orchestration stays core-private; a
 # fourth target is an inversion to relocate, not to add here.  Reuses E8_LITERAL, so a
 # computed `(requiring-resolve sym)` is invisible to it exactly as it is to E8.
-E19_WIRING = os.path.join(ROOT, "src/vaelii/impl/wiring.clj")
+E19_WIRING = pjoin(ROOT, "src/vaelii/impl/wiring.clj")
 E19_OK_TARGETS = {"vaelii.core/assert",
                   "vaelii.impl.provers/solve-goal",
                   "vaelii.core/retract!"}
@@ -904,7 +933,7 @@ def blank_strings(text):
 
 
 for path in clj_files():
-    rel = os.path.relpath(path, ROOT)
+    rel = prel(path, ROOT)
     raw = open(path, errors="replace").read().splitlines()
     code = blank_strings("\n".join(raw)).splitlines()
     for i, line in enumerate(code):
@@ -968,17 +997,17 @@ def kb_text_files():
     prose about vaelii's own vocabulary, so the naming rules bind it. The rest
     of `resources/` is vendored (`public/htmx.min.js`) and is not read.
     """
-    for dirpath, _, names in os.walk(os.path.join(RESOURCES, "kb")):
+    for dirpath, _, names in pwalk(pjoin(RESOURCES, "kb")):
         for n in sorted(names):
             if n.endswith(".txt"):
-                yield os.path.join(dirpath, n)
+                yield pjoin(dirpath, n)
 
 
 for path in itertools.chain(repo_text_files(), extra_md_files(),
                             kb_text_files()):
-    if os.path.abspath(path) == SELF or not os.path.exists(path):
+    if pabs(path) == SELF or not os.path.exists(path):
         continue
-    rel = os.path.relpath(path, ROOT)
+    rel = prel(path, ROOT)
     if rel in E11_STATES_THE_RULE:
         continue
     for i, line in enumerate(open(path, errors="replace"), 1):
@@ -1002,8 +1031,8 @@ ORIENTATION = ("- **Covers:**", "- **Not here:**", "- **Assumes:**")
 ORIENTATION_EXEMPT = {"docs/README.md", "docs/dependencies.md"}
 
 for doc in md_files():
-    rel = os.path.relpath(doc, ROOT)
-    if not rel.startswith("docs" + os.sep) or rel in ORIENTATION_EXEMPT:
+    rel = prel(doc, ROOT)
+    if not rel.startswith("docs/") or rel in ORIENTATION_EXEMPT:
         continue
     lines = open(doc, errors="replace").read().splitlines()
     # The block sits between the title and the first section heading. A bullet
@@ -1037,7 +1066,7 @@ for doc in md_files():
 SEXP_FENCES = ("clojure", "edn")
 
 for doc in itertools.chain(md_files(), extra_md_files()):
-    rel = os.path.relpath(doc, ROOT)
+    rel = prel(doc, ROOT)
     for lang, start, body in fenced_blocks(doc):
         if lang not in SEXP_FENCES or not body.strip():
             continue
@@ -1066,14 +1095,14 @@ LICENCE_HEADER = ("SPDX-License-Identifier: SSPL-1.0",
 
 def licensed_clj_files():
     for sub in ("src", "test", "bench"):
-        for dirpath, _, names in os.walk(os.path.join(ROOT, sub)):
+        for dirpath, _, names in pwalk(pjoin(ROOT, sub)):
             for n in sorted(names):
                 if n.endswith(".clj"):
-                    yield os.path.join(dirpath, n)
+                    yield pjoin(dirpath, n)
 
 
 for path in licensed_clj_files():
-    rel = os.path.relpath(path, ROOT)
+    rel = prel(path, ROOT)
     with open(path, errors="replace") as fh:
         head = [next(fh, "").strip(), next(fh, "").strip()]
     for want, got in zip(LICENCE_HEADER, head):
@@ -1107,7 +1136,7 @@ for path in licensed_clj_files():
 # `*Class:* Breaking` line say the same thing.
 BREAKING_ENTRY = re.compile(r"\*\*Breaking:|\*Class:\*\s*\**Breaking")
 
-changelog = os.path.join(ROOT, "CHANGELOG.md")
+changelog = pjoin(ROOT, "CHANGELOG.md")
 if os.path.exists(changelog):
     sections = re.split(r"^## ", open(changelog, errors="replace").read(), flags=re.M)
     if len(sections) > 1:
@@ -1182,7 +1211,7 @@ E16_BACKTICKED = re.compile(r"`[^`]*`")
 E16_CALL = re.compile(r"\bp/(" + "|".join(re.escape(r) for r in E16_READS) + r")(?![\w?-])")
 
 for path in clj_files():
-    rel = os.path.relpath(path, ROOT)
+    rel = prel(path, ROOT)
     if rel in E16_OK_FILES:
         continue
     for i, line in enumerate(open(path, errors="replace"), 1):
@@ -1215,16 +1244,20 @@ for path in clj_files():
 #
 # `vaelii.impl.taxonomy` itself is not on the roster and needs no entry: it calls its
 # own readers unqualified, and this rule is about reaching one through the alias.
-E17_GLOBAL = ("genls-global", "specs-global", "genl?-global", "context-up-global",
+E17_GLOBAL = ("genls-global", "specs-global", "genl?-global", "genl?-global-held",
+              "context-up-global",
               "context-down-global",
               "genlCx?-global", "genls-global-within", "specs-global-within",
-              "genls-global-among", "genls-global-union", "specs-global-while")
+              "genls-global-among", "genls-global-union", "specs-global-while",
+              "genls-global-while", "direct-genls-global", "direct-specs-global")
 E17_ROSTER = {
     # The public API offers both readings, and its shorter arity IS the global one —
     # `vaelii.core/genls` documents the pair (docs/taxonomy.md).
     ("src/vaelii/core.clj", "genls"),
     ("src/vaelii/core.clj", "specs"),
     ("src/vaelii/core.clj", "genl?"),
+    ("src/vaelii/core.clj", "direct-genls"),
+    ("src/vaelii/core.clj", "direct-specs"),
     # Assert-time refusals. A refusal is a claim about the KB and not about a vantage:
     # a cycle refused when asked from one context and allowed from another is not a
     # refusal, it is a coin toss.  `disjoint-problems` is the deliberate exception and
@@ -1260,6 +1293,10 @@ E17_ROSTER = {
     ("src/vaelii/impl/inherit.clj", "witness?"),
     ("src/vaelii/impl/inherit.clj", "licensing-functors"),
     ("src/vaelii/impl/inherit.clj", "crossings"),
+    # The backward claim search weighs its two seeds by the unscoped reach, an upper
+    # bound on the scoped one; the search itself reads the scoped `genl?`.
+    ("src/vaelii/impl/inherit.clj", "stated-reached?"),
+    ("src/vaelii/impl/inherit.clj", "goal-reached?"),
     ("src/vaelii/impl/vantage.clj", "subsumption-support"),
     # Re-check triggers. A trigger must over-approximate in the direction the answer
     # is: a declaration this edge cannot see still qualifies a rule in some context
@@ -1281,6 +1318,10 @@ E17_ROSTER = {
     ("src/vaelii/impl/special.clj", "withdrawal-candidates"),
     ("src/vaelii/impl/special.clj", "released-terms"),
     ("src/vaelii/impl/special.clj", "super-reaches-declaration?"),
+    # The predicates a declaration binds, read across every context the facts are stored
+    # in; each fact is then asked its own context's declarations.
+    ("src/vaelii/impl/special.clj", "declared-functors"),
+    ("src/vaelii/impl/special.clj", "trigger-entailments"),
     ("src/vaelii/impl/special.clj", "negative-subsumption-seeds"),
     ("src/vaelii/impl/inherit.clj", "moved-goal-test"),
     ("src/vaelii/impl/qcn_kb.clj", "governing-contexts"),
@@ -1289,55 +1330,37 @@ E17_ROSTER = {
     ("src/vaelii/impl/special.clj", "subsumption-seeds"),
     ("src/vaelii/impl/special.clj", "rule-reads-above?"),
     ("src/vaelii/impl/special.clj", "roster-antecedent-functors"),
+    ("src/vaelii/impl/special.clj", "under-seen-edges"),
     # Settle's candidate discovery. An over-approximated candidate merely checks and
     # yields nothing, and the arbitration that follows is context-scoped anyway.
     ("src/vaelii/impl/recheck.clj", "reachable-predicates"),
     ("src/vaelii/impl/clashes.clj", "exposed-clashes-for-term"),
-    # The nogoods a reader decides are found over the unfiltered ancestor set, the one
-    # `res/withdrawal` reads, since a scoped read re-enters the reader's own withdrawal
-    # through the supporter callback; the reports read the same set so they agree.
-    ("src/vaelii/impl/clashes.clj", "read-clashes*"),
     ("src/vaelii/impl/clashes.clj", "clash-grounds"),
-    # The published window reads again the readers whose ancestor set, the unfiltered one
-    # `res/withdrawal` decides over, holds a moved candidate's context.
-    ("src/vaelii/impl/readings.clj", "readers-seeing"),
     # A nogood family keeps its candidate rows, a superset over every reader, where no
     # reader exists: at the store and removal choke points, at a replay's end and in a
     # sync.  It reads the unscoped closures there through the one view this builds, and
     # its reader half is handed none.
     ("src/vaelii/impl/decide.clj", "write-view"),
-    # Three reader-side reads: a reader's binding above a functor reads the unscoped
-    # closure cut to the bound predicates, one cut for every reader, and scopes each member
-    # it keeps; a reader reads a tuple's converses under the unscoped functors and keeps
-    # each it sees under a mark it sees; a membership nogood's vantages are the maximal
-    # contexts over the unscoped ancestor sets the readers decide over.
+    # Reader-side reads: a reader's binding above a functor reads the unscoped closure cut
+    # to the bound predicates and scopes each member it keeps; a membership nogood's
+    # vantages are the maximal contexts over the unscoped ancestor sets the readers decide
+    # over.
     ("src/vaelii/impl/decide/arity.clj", "bound-above"),
-    ("src/vaelii/impl/decide/tuple.clj", "converse-nogoods"),
     ("src/vaelii/impl/decide/membership.clj", "membership-vantages"),
     ("src/vaelii/impl/discovery.clj", "preserving-moves"),
+    # A memo's re-ask test names every entry a moved separation can reach from some
+    # reader, so it reads the union of what every context reads.
+    ("src/vaelii/impl/discovery.clj", "separated?"),
     # The visibility filter cannot be scoped by the filter it derives — asking
     # `context-up` here would make except evaluation recursive on itself.
-    ("src/vaelii/impl/resolution.clj", "visible-exception-index"),
-    ("src/vaelii/impl/resolution.clj", "except-hidden-fn"),
-    # The per-reader withdrawal reads the same raw ancestor set for the same reason: it
-    # takes the except targets and the standing nogoods a reader sees, and the scoped
-    # `context-up` is itself filtered by what the except targets hide.
-    ("src/vaelii/impl/resolution.clj", "withdrawal*"),
-    # The diagnostic that reports that withdrawal reads the same raw ancestor set as
-    # `withdrawal*`: a scoped read would name no vantage for a handle belief withdraws
-    # through the unscoped one, so `belief-status` would answer `:withdrawn? true` with an
-    # empty `:scoped-vantages` and `why-not` an empty `:withdrawn-by`.
-    ("src/vaelii/impl/resolution.clj", "losers-seen"),
-    # The guard reading reads the same raw ancestor set as `withdrawal*`, before a reader's
-    # withdrawal and at each entry it may drop, and the readers below a guarded rule's
-    # context, since `genlCx` is universal.  A rule's watched predicates are read through
-    # the unscoped genls, as `special/recheck-on-fact` reads an arrival's: an entry dropped
-    # for a rule that could not move is recomputed, and one kept for a rule that moved is
-    # stale.
-    ("src/vaelii/impl/resolution.clj", "withdrawal"),
-    ("src/vaelii/impl/resolution.clj", "guard-moves"),
-    ("src/vaelii/impl/resolution.clj", "newly-guarded"),
-    ("src/vaelii/impl/resolution.clj", "guard-closure"),
+    ("src/vaelii/impl/except.clj", "visible-exception-index"),
+    ("src/vaelii/impl/except.clj", "except-hidden-fn"),
+    ("src/vaelii/impl/except.clj", "excepts-seen"),
+    ("src/vaelii/impl/except.clj", "reader-state"),
+    # A `genlCx` edge's re-check trigger queues a guarded rule whose firing is placed in a
+    # context a context under the edge's lower end sees; a trigger reads a superset over
+    # every reader, as `special/recheck-on-fact` reads the unscoped genls.
+    ("src/vaelii/impl/special.clj", "recheck-genlCx-edge"),
     # A report on the whole taxonomy, which has no vantage to read from.
     ("src/vaelii/impl/quality.clj", "taxonomy-coverage"),
     # The clash reading's candidate fan. A rule pair is decided from a common descendant
@@ -1350,7 +1373,7 @@ E17_CALL = re.compile(r"\btax/(" + "|".join(re.escape(n) for n in E17_GLOBAL) + 
 E17_DEF = re.compile(r"\(def[\w-]*\s+(?:\^[^\s]+\s+)*([^\s\)]+)")
 
 for path in clj_files():
-    rel = os.path.relpath(path, ROOT)
+    rel = prel(path, ROOT)
     enclosing = "?"
     for i, line in enumerate(open(path, errors="replace"), 1):
         if line.startswith("(def"):
@@ -1381,7 +1404,7 @@ for path in clj_files():
 # `src/vaelii/…`, the path relative to that header) or by name in the closing block,
 # and a name in either list must still be a file. The count in the prose is checked
 # against the same two sets, so it cannot be updated to a number nobody measured.
-E18_DOC = os.path.join(ROOT, "docs", "namespaces.md")
+E18_DOC = pjoin(ROOT, "docs", "namespaces.md")
 E18_COUNT = re.compile(r"The map covers (\d+) of the (\d+) namespaces under `src/`")
 
 
@@ -1422,7 +1445,7 @@ def e18_lists(text):
 if os.path.exists(E18_DOC):
     e18_text = open(E18_DOC, errors="replace").read()
     e18_glossed, e18_named = e18_lists(e18_text)
-    e18_actual = {os.path.relpath(p, os.path.join(SRC, "vaelii")) for p in clj_files()}
+    e18_actual = {prel(p, pjoin(SRC, "vaelii")) for p in clj_files()}
     for ns in sorted(e18_actual - e18_glossed - e18_named):
         flag("E18", E18_DOC, ns,
              f"src/vaelii/{ns} is in neither list in docs/namespaces.md — give it a "

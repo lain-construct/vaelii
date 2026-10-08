@@ -6,16 +6,16 @@
   content, dilemmas and conflicts with a second KB holding the stream's net writes, the
   sentences stored and not retracted at their strongest strength, written in content
   order after the ontology.  A divergence names the operation after which the two
-  readings differ (docs/nmtms.md, \"Nogoods decided at the reader\").  The streams draw
+  readings differ (docs/nmtms.md, \"The nogood families\").  The streams draw
   the membership families alone: the tuple marks' nogoods are compared with the belief
   reference by `reference_test`'s random worlds, which cover `disjoint` and `covering`
   too.
 
   No `transitiveInArg` declaration is made, since a claim read through argument
   preservation convicts one way only (docs/nmtms.md, \"Where conviction is one-sided\").
-  A `sameAs` merge of two individuals arrives and leaves, so a clash also forms across
-  two spellings of one term.  A pair across a visibility edge is covered: individuals are
-  written in either context."
+  A `sameAs` merge of two individuals and a `rewriteOf` merge of two types arrive and
+  leave, so a clash also forms across two spellings of one term.  A pair across a
+  visibility edge is covered: individuals are written in either context."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is]]
             [vaelii.core :as v]
@@ -23,6 +23,7 @@
             [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as vr]
+            [vaelii.impl.sentex :as sx]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
@@ -31,7 +32,7 @@
 (def ^:private ctxs '[CxClashBase CxClashSub])
 
 (def ^:private types
-  '[animal mammal reptile dog cat snake plant])
+  '[animal mammal reptile dog cat snake wolf plant])
 
 (def ^:private inds
   "One pool of individuals for both contexts, so a term routinely holds one membership
@@ -45,30 +46,36 @@
   for the stream,
   so declarations also arrive over stored content.  Two rules conclude `(dog ?x)`, so a
   second route from a `:monotonic` premise can lift a standing pair's `:priority` while
-  both its handles sit still."
+  both its handles sit still.  A third reads `animal`, a clash member a defeat can hide,
+  above the `genl` chain `wolf`, `canid`, `animal` that a `(rewriteOf canis canid)` merge
+  restates.  No membership names `canid`, so the type merge restates edges alone."
   [kb]
   (v/with-deferred-settle kb
     (v/assert kb (list 'genlCx (second ctxs) (first ctxs)) 'CxUniverse)
-    (doseq [[sub sup] '[[mammal animal] [reptile animal] [dog mammal] [cat mammal]]]
+    (doseq [[sub sup] '[[mammal animal] [reptile animal] [dog mammal] [cat mammal]
+                        [wolf canid] [canid animal]]]
       (v/assert kb (list 'genl sub sup) (first ctxs) {:strength :monotonic}))
     (v/assert kb '(disjoint mammal reptile) (first ctxs) {:strength :monotonic})
     (v/assert kb '(disjoint animal plant)   (first ctxs) {:strength :monotonic})
     (doseq [from '[pet canine]]
       (v/assert kb (list 'set/forwardRule (vr/rule-sentence [(list from '?x)] '(dog ?x)))
-                (first ctxs) {:strength :monotonic}))))
+                (first ctxs) {:strength :monotonic}))
+    (v/assert kb (list 'set/forwardRule (vr/rule-sentence ['(animal ?x)] '(breather ?x)))
+              (first ctxs) {:strength :monotonic})))
 
 ;; ---- the operation stream -----------------------------------------------
 
 (defn- rand-op
   "One write, drawn over every route a membership clash arrives by: a membership, a
   retraction, a premise a rule derives a membership from, a declaration arriving after the content it convicts, a
-  sibling-disjointness exception arriving and leaving, a merge arriving and leaving."
+  sibling-disjoint exception arriving and leaving, an individual or a type merge arriving
+  and leaving."
   [^java.util.Random rng]
   (let [ctx  (nth ctxs (.nextInt rng (count ctxs)))
         ind  #(nth inds  (.nextInt rng (count inds)))
         typ  #(nth types (.nextInt rng (count types)))
         str8 #(if (zero? (.nextInt rng 3)) {:strength :monotonic} {})]
-    (case (.nextInt rng 20)
+    (case (.nextInt rng 22)
       (0 1 2 3 4 5 6) [:assert (list (typ) (ind)) ctx (str8)]
       7       [:retract (list (typ) (ind)) ctx]
       8       [:assert '(disjoint dog cat) (first ctxs) {:strength :monotonic}]
@@ -80,7 +87,9 @@
       16      [:assert '(siblingDisjointException dog cat) (first ctxs) {:strength :monotonic}]
       17      [:retract '(siblingDisjointException dog cat) (first ctxs)]
       18      [:assert (list 'sameAs (ind) (ind)) (first ctxs) {:strength :monotonic}]
-      19      [:retract (list 'sameAs (ind) (ind)) (first ctxs)])))
+      19      [:retract (list 'sameAs (ind) (ind)) (first ctxs)]
+      20      [:assert '(rewriteOf canis canid) (first ctxs) {:strength :monotonic}]
+      21      [:retract '(rewriteOf canis canid) (first ctxs)])))
 
 (defn- apply-op!
   "Run one op, returning a refusal as an observation the two KBs must agree on."
@@ -102,14 +111,26 @@
   [(:kind e) (:priority e) (:sentence e)
    (into #{} (map (juxt :sentence :context :defeat-class)) (:sides e))])
 
-(defn- snapshot [kb]
-  {:believed   (into #{}
-                     (comp (keep #(p/get-sentex (:records kb) %))
-                           (map (juxt v/sentence-of :context)))
-                     (jtms/in-datums (reasoning/tms kb)))
-   :dilemmas   (into #{} (map clash-key) (v/contradictions kb))
-   :conflicts  (into #{} (map clash-key) (v/conflicts kb))
-   :violations (into #{} (map :violation) (v/violations kb))})
+(defn- snapshot
+  "The network's believed sentexes, which of the stream's own a reader believes at read
+  time (`[sentence context reader]`, each reader seeing the context), the reports and the
+  violations ledger.  `keep?` filters the handles both belief sets read."
+  ([kb] (snapshot kb (constantly true)))
+  ([kb keep?]
+   (let [in   (filterv keep? (jtms/in-datums (reasoning/tms kb)))
+         sxs  (keep #(p/get-sentex (:records kb) %) in)
+         free #(tu/handle-free kb %)]
+     {:believed   (into #{} (map (comp free (juxt v/sentence-of :context))) sxs)
+      :read       (into #{}
+                        (for [sx sxs
+                              :let [c (:context sx)]
+                              :when (some #{c} ctxs)
+                              r (if (= c (first ctxs)) ctxs [c])
+                              :when (v/believed? kb (:id sx) r)]
+                          (free [(v/sentence-of sx) c r])))
+      :dilemmas   (into #{} (map clash-key) (v/contradictions kb))
+      :conflicts  (into #{} (map clash-key) (v/conflicts kb))
+      :violations (into #{} (map :violation) (v/violations kb))})))
 
 (defn- diff [a b]
   (into {} (keep (fn [k]
@@ -149,24 +170,39 @@
       :retract (assoc net [sentence context] :gone))))
 
 (defn- from-scratch
-  "The reading of a KB holding `net`'s writes: the ontology, its retracted sentences
-  retracted, then every stored sentence of `net` in content order."
-  [net]
-  (let [kb (tu/isolated-fresh)]
-    (try
-      (build-ontology! kb)
-      (doseq [[[s c] opts] (sort-by (comp pr-str key) net)]
-        (if (= :gone opts)
-          (when-let [h (v/handle-of kb s c)] (v/retract! kb h))
-          (v/assert kb s c opts)))
-      (snapshot kb)
-      (finally (tu/clear-kb! kb)))))
+  "The reading `read` (`snapshot` by default) of a KB holding `net`'s writes: the
+  ontology, its retracted sentences retracted, then every stored sentence of `net` in
+  content order."
+  ([net] (from-scratch net snapshot))
+  ([net read]
+   (let [kb (tu/isolated-fresh)]
+     (try
+       (build-ontology! kb)
+       (doseq [[[s c] opts] (sort-by (comp pr-str key) net)]
+         (if (= :gone opts)
+           (when-let [h (v/handle-of kb s c)] (v/retract! kb h))
+           (v/assert kb s c opts)))
+       (read kb)
+       (finally (tu/clear-kb! kb))))))
 
 (defn- reading
   "A reading compared across the two KBs: `snapshot` without the violations ledger,
   which records the order the writes arrived in."
   [kb]
   (dissoc (snapshot kb) :violations))
+
+(defn- trial-snapshot
+  "`snapshot` without the placed `contradicts` and `defeat` sentexes that name a superseded
+  member.  Whether such a member is stored depends on whether a firing or a restatement
+  over its spelling was made before the merge, so for it the trial compares the belief of
+  every other sentex and the reports, which leave it out."
+  [kb]
+  (let [tms  (reasoning/tms kb)
+        sup? (fn [h]
+               (when-let [s (:sentence (p/get-sentex (:records kb) h))]
+                 (and (seq? s) (contains? #{'contradicts 'defeat} (first s))
+                      (some #(jtms/superseded? tms %) (keep sx/handle-id (rest s))))))]
+    (snapshot kb (complement sup?))))
 
 (defn- run-trial
   "`ops` into one KB, comparing its reading with `from-scratch` after every `every`th
@@ -180,8 +216,8 @@
         (when op
           (let [net (step-net net op (apply-op! kb op))]
             (if (or (empty? more) (zero? (mod (inc step) every)))
-              (let [si (reading kb)
-                    se (dissoc (from-scratch net) :violations)]
+              (let [si (dissoc (trial-snapshot kb) :violations)
+                    se (dissoc (from-scratch net trial-snapshot) :violations)]
                 (if (= si se)
                   (recur (inc step) net more)
                   [step op si se]))
@@ -247,10 +283,11 @@
                (pr-str (diff si se)))))))
 
 (deftest a-seeded-stream-reads-as-its-writes-loaded-from-scratch
-  ;; one seed of the `^:slow` sweep, so `:default` runs the harness
-  (let [[step op si se] (run-trial (trial-ops 0 45 0) 15)]
+  ;; one seed of the `^:slow` sweep, so `:default` runs the harness: its stream merges
+  ;; `canid` after a firing of the `animal` rule climbed `(genl wolf canid)`
+  (let [[step op si se] (run-trial (trial-ops 11 45 1) 15)]
     (is (nil? step)
-        (str "seed 0 diverged at step " step " on " (pr-str op) "\n" (pr-str (diff si se))))))
+        (str "seed 11 diverged at step " step " on " (pr-str op) "\n" (pr-str (diff si se))))))
 
 ;; ---- a declaration arriving over stored content ---------------------------
 ;;

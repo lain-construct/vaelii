@@ -54,7 +54,7 @@
   (t-children  [t prefix]      "Decoded child edge tokens at a prefix (a vector, [] if absent).")
   (t-child-count [t prefix]    "How many child edges sit at a prefix — the width, without decoding it.")
   (t-leaves-at [t prefix]      "Leaf handles exactly at a prefix (a set, #{} if absent).")
-  (t-lookup    [t pattern]     "Handles whose full path matches `pattern` (variables fan out; markers skip).")
+  (t-lookup    [t pattern] [t pattern ctxs] "Handles whose full path matches `pattern` (variables fan out; markers skip), its last level kept to the set `ctxs` when one is given.")
   (t-clear!    [t]             "Reset to a single empty root (the dict is wiped by the store).")
   (t-compact!  [t]             "Freeze the mutable trie into flat CSR arrays (read-optimized, dense).")
   ;; internal node helpers (field access lives only inside the deftype)
@@ -69,6 +69,7 @@
   (^:private -dec-count!    [t node])
   (^:private -detach!       [t node tok-id])
   (^:private -edges         [t node])
+  (^:private -edge-count    [t node])
   (^:private -leaves-of     [t node])
   (^:private -leaf-postings [t node])
   (^:private -node-at       [t prefix])
@@ -412,15 +413,17 @@
   ;; per call, and the planner asks this once per literal per plan.
   (t-child-count [this prefix]
     (let [nd (int (-node-at this prefix))]
-      (if (neg? nd)
-        0
-        (if frozen?
-          (- (aget ^ints foffsets (inc nd)) (aget ^ints foffsets nd))
-          (let [ch (aget ^objects toks nd)]
-            (cond
-              (nil? ch)                          0
-              (instance? Int2IntOpenHashMap ch)  (.size ^Int2IntOpenHashMap ch)
-              :else                              (alength ^ints ch)))))))
+      (if (neg? nd) 0 (-edge-count this nd))))
+
+  (-edge-count [_ node]
+    (let [nd (int node)]
+      (if frozen?
+        (- (aget ^ints foffsets (inc nd)) (aget ^ints foffsets nd))
+        (let [ch (aget ^objects toks nd)]
+          (cond
+            (nil? ch)                          0
+            (instance? Int2IntOpenHashMap ch)  (.size ^Int2IntOpenHashMap ch)
+            :else                              (alength ^ints ch))))))
 
   (t-leaves-at [this prefix]
     (let [nd (-node-at this prefix)] (if (neg? nd) #{} (-leaves-of this nd))))
@@ -429,7 +432,11 @@
   ;; ids instead of prefix vectors: a variable fans over a node's whole child set
   ;; (`skip-one`), skipping the subtree a `[::subterm k]` marker spans; a concrete token
   ;; advances one edge; markers/handles never mix (edges are tokens, leaves are separate).
-  (t-lookup [this pattern]
+  ;; With a `ctxs` set the last level, the context, keeps only the edges in `ctxs`:
+  ;; the node's edges filtered by membership, or each of `ctxs` probed as an edge,
+  ;; whichever side is smaller.
+  (t-lookup [this pattern] (t-lookup this pattern nil))
+  (t-lookup [this pattern ctxs]
     (letfn [(skip-one [node]
               (mapcat (fn [[tok-val child]]
                         (if (sentex-types/subterm-mark? tok-val)
@@ -442,13 +449,20 @@
         (if (nil? qs)
           (into #{} (mapcat #(-leaves-of this %)) frontier)
           (let [q (first qs)
+                ctx-level? (and ctxs (nil? (next qs)))
+                live (fn [c] (when (and (>= c 0) (pos? (-count-of this c))) c))
                 frontier' (into []
                                 (mapcat
                                  (fn [node]
-                                   (if (sentex-types/variable? q)
-                                     (skip-one node)
-                                     (let [c (-child-of this node q)]
-                                       (if (and (>= c 0) (pos? (-count-of this c))) [c] [])))))
+                                   (cond
+                                     (and ctx-level? (sentex-types/variable? q))
+                                     (if (<= (long (-edge-count this node)) (count ctxs))
+                                       (keep (fn [[tok c]] (when (contains? ctxs tok) c))
+                                             (-edges this node))
+                                       (keep #(live (-child-of this node %)) ctxs))
+                                     (sentex-types/variable? q) (skip-one node)
+                                     (and ctx-level? (not (contains? ctxs q))) []
+                                     :else (if-some [c (live (-child-of this node q))] [c] []))))
                                 frontier)]
             (recur frontier' (next qs)))))))
 

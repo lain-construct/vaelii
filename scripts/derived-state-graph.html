@@ -1,0 +1,869 @@
+<title>Settle Dependency Graph</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&display=swap">
+<style>
+  /* Layout: one reading column; the graph and the matrix scroll sideways in their own frames, the readout sits under the graph. */
+  :root{
+    --bg:#eef1f0; --surface:#fbfcfc; --sunk:#e4e9e8;
+    --ink:#12191c; --muted:#5a696e; --faint:#8d9a9e;
+    --line:#ccd6d5; --line-strong:#aab8b7;
+    --core:#3c5a63; --free:#1f7a6c; --bundle:#93670f; --collapse:#a8442a;
+    --accent:#1f7a6c;
+    --c-never:#9aa6a8; --c-key:#1f7a6c; --c-stamp:#2f8299; --c-drain:#6b5a9e;
+    --c-ident:#3c5a8f; --c-gen:#b07d12; --c-whole:#c2602e; --c-clock:#a32d3a;
+    --size:#3c5a63;
+    --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+    --disp:"IBM Plex Sans Condensed","IBM Plex Sans",system-ui,sans-serif;
+    --body:"IBM Plex Sans",system-ui,-apple-system,sans-serif;
+  }
+  @media (prefers-color-scheme:dark){
+    :root:not([data-theme="light"]){
+      --bg:#0d1214; --surface:#151d20; --sunk:#101719;
+      --ink:#e4ebe9; --muted:#95a5a9; --faint:#6d7d81;
+      --line:#273437; --line-strong:#3a4b4f;
+      --core:#83a7b1; --free:#45bda9; --bundle:#d7a63f; --collapse:#e5805f;
+      --accent:#45bda9;
+      --c-never:#62716f; --c-key:#45bda9; --c-stamp:#5fb3c8; --c-drain:#a493d6;
+      --c-ident:#8aa4d6; --c-gen:#d7a63f; --c-whole:#e88a5a; --c-clock:#e5707c;
+      --size:#83a7b1;
+      color-scheme:dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0d1214; --surface:#151d20; --sunk:#101719;
+    --ink:#e4ebe9; --muted:#95a5a9; --faint:#6d7d81;
+    --line:#273437; --line-strong:#3a4b4f;
+    --core:#83a7b1; --free:#45bda9; --bundle:#d7a63f; --collapse:#e5805f;
+    --accent:#45bda9;
+    --c-never:#62716f; --c-key:#45bda9; --c-stamp:#5fb3c8; --c-drain:#a493d6;
+    --c-ident:#8aa4d6; --c-gen:#d7a63f; --c-whole:#e88a5a; --c-clock:#e5707c;
+    --size:#83a7b1;
+    color-scheme:dark;
+  }
+
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--ink); font-family:var(--body); font-size:15px; line-height:1.55; -webkit-font-smoothing:antialiased}
+  .wrap{max-width:1180px; margin:0 auto; padding-inline:20px; padding-block:40px 64px}
+  @media (max-width:520px){ .wrap{padding-inline:16px} }
+
+  header{border-bottom:2px solid var(--ink); padding-bottom:18px; margin-bottom:28px}
+  .eyebrow{font-family:var(--mono); font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--muted); margin:0 0 10px; overflow-wrap:anywhere}
+  h1{font-family:var(--disp); font-weight:700; font-size:clamp(30px,5.2vw,46px); line-height:1.02; letter-spacing:-.015em; margin:0 0 12px; text-wrap:balance}
+  .lede{max-width:70ch; margin:0; color:var(--muted); font-size:16px}
+  .lede strong{color:var(--ink); font-weight:600}
+  .stats{display:flex; flex-wrap:wrap; gap:10px 28px; margin:20px 0 0; padding:0}
+  .stats div{min-width:0}
+  .stats dt{font-family:var(--mono); font-size:10.5px; letter-spacing:.09em; text-transform:uppercase; color:var(--muted)}
+  .stats dd{margin:0; font-family:var(--disp); font-weight:700; font-size:26px; line-height:1.1; font-variant-numeric:tabular-nums}
+  .toc{display:flex; flex-wrap:wrap; gap:6px 16px; margin:18px 0 0; padding:0; list-style:none; font-family:var(--mono); font-size:12px}
+  .toc a{color:var(--muted); text-decoration:none; border-bottom:1px dotted var(--line-strong)}
+  .toc a:hover{color:var(--ink)}
+  a:focus-visible, button:focus-visible, select:focus-visible, input:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+
+  h2{font-family:var(--disp); font-weight:600; font-size:22px; letter-spacing:-.01em; margin:48px 0 6px; text-wrap:balance}
+  h3{font-family:var(--disp); font-weight:700; font-size:17px; margin:0 0 4px; text-wrap:balance}
+  .sub{margin:0 0 16px; color:var(--muted); font-size:14px; max-width:72ch}
+  p.body{color:var(--muted); font-size:14px; max-width:72ch; margin:12px 0 0}
+  p.body strong{color:var(--ink)}
+  code{font-family:var(--mono); font-size:.88em; background:var(--sunk); padding:1px 4px; border-radius:2px}
+
+  .controls{display:flex; flex-wrap:wrap; gap:10px 18px; margin:0 0 12px; align-items:end}
+  .controls label{display:flex; flex-direction:column; gap:3px; font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); min-width:0}
+  .controls select{font-family:var(--mono); font-size:12.5px; color:var(--ink); background:var(--surface); border:1px solid var(--line-strong); border-radius:2px; padding:5px 8px; max-width:100%}
+  .controls select:disabled{color:var(--faint)}
+  .legend{display:flex; flex-wrap:wrap; gap:6px 16px; margin:0 0 12px; font-size:12.5px; color:var(--muted); font-family:var(--mono)}
+  .legend span{display:inline-flex; align-items:center; gap:6px}
+  .sw{width:12px; height:12px; border-radius:2px; flex:none; border:1.5px solid}
+  .ln{display:inline-block; width:22px; height:0; border-top:2px solid}
+  .ramp{display:inline-block; width:90px; height:10px; border:1px solid var(--line-strong); background:linear-gradient(90deg, var(--surface), var(--c-clock))}
+
+  .figwrap{background:var(--surface); border:1px solid var(--line); border-radius:4px; overflow-x:auto; min-width:0}
+  svg.graph{display:block; height:auto}
+  .colhead{font-family:var(--disp); font-weight:700; font-size:12px; letter-spacing:.1em; text-transform:uppercase; fill:var(--faint)}
+  .node{cursor:pointer}
+  .node rect{stroke-width:1.4; transition:opacity .15s ease}
+  .node .nid{font-family:var(--mono); font-weight:600; font-size:10.5px; fill:var(--ink); pointer-events:none}
+  .node .nlb{font-family:var(--mono); font-size:9.5px; fill:var(--muted); pointer-events:none}
+  .node:hover rect{stroke-width:2.4}
+  .node:focus{outline:none}
+  .node:focus-visible rect{stroke:var(--accent); stroke-width:3}
+  .node.is-picked rect{stroke-width:3}
+  .node.is-dim{opacity:.35}
+  .node circle.sz{fill:var(--size); fill-opacity:.42; stroke:var(--size); stroke-width:1; pointer-events:none}
+  .rd{fill:none; stroke-width:1.2; opacity:.32; transition:opacity .15s}
+  .rd.on{opacity:1; stroke-width:1.8}
+  .rd.off{opacity:.05}
+  .ev{fill:none; stroke-width:1.1; opacity:.85}
+  .ev.faint{opacity:.09}
+  .evlbl{font-family:var(--mono); font-size:9px; font-weight:600}
+
+  .readout{background:var(--surface); border:1px solid var(--line); border-top:0; border-radius:0 0 4px 4px; padding:16px 18px; display:grid; gap:4px 28px; grid-template-columns:repeat(auto-fit,minmax(260px,1fr))}
+  .readout > div{min-width:0}
+  .readout p{margin:0 0 10px; font-size:14px; color:var(--muted)}
+  .tag{font-family:var(--mono); font-size:10px; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); display:block; margin:12px 0 4px}
+  .kv{display:grid; grid-template-columns:auto minmax(0,1fr); gap:2px 12px; margin:6px 0 0; font-size:13px}
+  .kv dt{font-family:var(--mono); font-size:11px; color:var(--muted)}
+  .kv dd{margin:0; font-family:var(--mono); font-size:12px; overflow-wrap:anywhere}
+  .chips{display:flex; flex-wrap:wrap; gap:5px; margin:4px 0 0}
+  .chip{font-family:var(--mono); font-size:11px; line-height:1.5; padding:1px 6px; border:1px solid var(--line-strong); border-radius:2px; color:var(--ink); background:var(--sunk); white-space:nowrap; cursor:pointer}
+  button.chip{font:inherit; font-family:var(--mono); font-size:11px}
+  .chip.none{border-style:dashed; color:var(--faint); background:transparent; font-style:italic; cursor:default; white-space:normal}
+  .chip .cd{font-weight:600; margin-left:4px}
+  .badge{display:inline-block; font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; padding:2px 7px; border-radius:2px; border:1px solid; margin:2px 0 8px}
+
+  .tablewrap{overflow-x:auto; border:1px solid var(--line); border-radius:4px; background:var(--surface); max-width:100%}
+  .tablewrap.tall{max-height:640px; overflow:auto}
+  table{border-collapse:collapse; width:100%; font-size:13px}
+  th,td{text-align:left; padding:7px 11px; border-bottom:1px solid var(--line); vertical-align:top}
+  thead th{font-family:var(--mono); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); font-weight:500; background:var(--sunk); position:sticky; top:0; z-index:1}
+  tbody tr:last-child td{border-bottom:0}
+  td.id{font-family:var(--mono); font-weight:600; white-space:nowrap}
+  td.id button{font:inherit; color:var(--ink); background:none; border:0; padding:0; cursor:pointer; border-bottom:1px dotted var(--line-strong)}
+  td.mono{font-family:var(--mono); font-size:12px}
+  td.num{font-family:var(--mono); font-size:12px; font-variant-numeric:tabular-nums; text-align:right; white-space:nowrap}
+  td.nm{font-family:var(--disp); font-weight:600; font-size:14px}
+  td .own{display:block; font-family:var(--mono); font-size:11px; color:var(--faint); margin-top:2px}
+  .pill{font-family:var(--mono); font-size:10.5px; padding:1px 6px; border-radius:2px; white-space:nowrap; border:1px solid; letter-spacing:.03em}
+
+  table.matrix{font-size:11.5px; width:auto}
+  table.matrix th, table.matrix td{padding:3px 4px; text-align:center; border-right:1px solid var(--line)}
+  table.matrix thead th{letter-spacing:0; text-transform:none; font-size:10.5px}
+  table.matrix th.rowh, table.matrix td.rowh{position:sticky; left:0; background:var(--surface); text-align:left; z-index:2; white-space:nowrap; font-family:var(--mono); font-weight:600}
+  table.matrix thead th.rowh{background:var(--sunk); z-index:3}
+  table.matrix td.rowh small{font-weight:400; color:var(--muted); margin-left:6px}
+  table.matrix td.c{font-family:var(--mono); font-weight:600; min-width:30px}
+  table.matrix td.c small{display:block; font-weight:400; font-size:9.5px; color:var(--ink)}
+  table.matrix tr.grp td{background:var(--sunk); font-family:var(--disp); font-weight:700; letter-spacing:.1em; text-align:left; color:var(--faint); position:static}
+
+  .notes{list-style:none; padding:0; margin:12px 0 0; display:grid; gap:8px}
+  .notes li{border-left:3px solid var(--collapse); padding:1px 0 1px 12px; font-size:14px; color:var(--muted); max-width:72ch}
+  footer{margin-top:52px; padding-top:18px; border-top:1px solid var(--line); font-size:12.5px; color:var(--faint); font-family:var(--mono); display:grid; gap:10px}
+  footer p{margin:0; overflow-wrap:anywhere}
+  footer label{color:var(--muted)}
+  .err{color:var(--collapse)}
+
+  @media (prefers-reduced-motion:reduce){ *{transition:none!important} }
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow" id="eyebrow">vaelii · derived-state register</p>
+  <h1>Settle Dependency Graph</h1>
+  <p class="lede">Every structure the engine keeps between writes, what each one is computed from, and the write events that retire it,
+    drawn from the derived-state register (<code>caches/derived-state</code>). Nothing here is drawn by hand: a register change is a new export and a regeneration.
+    <strong>Click a box</strong> to see what it reads, what reads it and which events retire it; <strong>click an event</strong> to see every structure it retires and how.</p>
+  <dl class="stats" id="stats"></dl>
+  <ul class="toc">
+    <li><a href="#graph">the graph</a></li>
+    <li><a href="#features">features and removability</a></li>
+    <li><a href="#register">the register</a></li>
+    <li><a href="#matrix">event × structure</a></li>
+    <li><a href="#events">the write events</a></li>
+  </ul>
+</header>
+
+<h2 id="graph">The graph</h2>
+<p class="sub">Events on the left, then the stores and the network labels (M1) as sources, then every row grouped by its letter.
+  A read edge runs from the structure read to its reader and takes the colour of the reader's coarsest retirement code under an
+  ordinary write (the lifecycle events that rebuild or wipe every structure are left out of that choice).</p>
+
+<div class="controls">
+  <label for="o-size">node size<select id="o-size"></select></label>
+  <label for="o-colour">node colour<select id="o-colour"></select></label>
+  <label for="o-events">event edges<select id="o-events">
+    <option value="picked">for the picked box or event</option>
+    <option value="all">all, faint</option>
+  </select></label>
+  <label for="o-width">edge width<select id="o-width"></select></label>
+</div>
+<div class="legend" id="legend"></div>
+<div class="figwrap" id="graph-host" role="img" aria-label="The derived-state dependency graph: write events, sources and register rows with their read edges."></div>
+<aside class="readout" id="readout" aria-live="polite"></aside>
+
+<h2 id="features">Features and removability</h2>
+<p class="sub">The features the settle graph has named, each with its removability and the register rows that hold its state
+  (<code>scripts/derived-state-features.edn</code>). A feature's namespaces are the owners of its rows plus the owners of the rows outside it that read them.</p>
+<div class="tablewrap"><table id="t-features"></table></div>
+<ul class="notes" id="feature-notes"></ul>
+
+<h2 id="register">The register</h2>
+<p class="sub">One line per row, in the register's order. The count columns appear when the export carries them: <code>held</code> is the number of entries a row held when the export was taken, and any other count is a counter the register reports.</p>
+<div class="tablewrap tall"><table id="t-rows"></table></div>
+
+<h2 id="matrix">Event × structure</h2>
+<p class="sub">Each cell is the code with which the event retires the row; with a reading that carries one, the number under it is the entries that event retired there.</p>
+<div class="legend" id="code-legend"></div>
+<div class="tablewrap tall"><table class="matrix" id="t-matrix"></table></div>
+
+<h2 id="events">The write events</h2>
+<p class="sub">The closed event set, <code>caches/events</code>: each event, the vars it passes through, and how many rows it retires.</p>
+<div class="tablewrap"><table id="t-events"></table></div>
+
+<footer id="footer">
+  <p id="f-source"></p>
+  <p>Regenerate from the vaelii root: <code>lein derived-state -- --edn testbench/derived-state.edn</code>, then
+    <code>python3 scripts/derived-state-graph.py testbench/derived-state.edn testbench/derived-state.html</code>.</p>
+  <p><label for="f-open">Open another export (.edn): </label><input type="file" id="f-open" accept=".edn,.txt"> <span id="f-err" class="err"></span></p>
+</footer>
+</div>
+
+<script type="application/edn" id="export-edn" data-name="/*EXPORT-NAME*/">/*EXPORT*/</script>
+<script type="application/edn" id="features-edn">/*FEATURES*/</script>
+<script>
+(function(){
+  "use strict";
+
+  // ---- an EDN reader: keywords and symbols read as their names, maps as objects ----
+  function readEdn(src){
+    var i = 0, n = src.length, SKIP = {};
+    var DELIM = /[\s,;()\[\]{}"]/;
+    function ws(){
+      while(i < n){
+        var c = src[i];
+        if(c === ";"){ while(i < n && src[i] !== "\n") i++; }
+        else if(c === "," || /\s/.test(c)) i++;
+        else break;
+      }
+    }
+    function token(){ var s = i; while(i < n && !DELIM.test(src[i])) i++; return src.slice(s, i); }
+    function str(){
+      i++; var out = "";
+      while(i < n){
+        var c = src[i++];
+        if(c === "\"") return out;
+        if(c === "\\"){
+          var e = src[i++];
+          if(e === "n") out += "\n"; else if(e === "t") out += "\t"; else if(e === "r") out += "\r";
+          else if(e === "u"){ out += String.fromCharCode(parseInt(src.substr(i, 4), 16)); i += 4; }
+          else out += e;
+        } else out += c;
+      }
+      throw new Error("a string is not closed");
+    }
+    function seq(close){
+      var out = [];
+      for(;;){
+        ws();
+        if(i >= n) throw new Error("a collection is not closed");
+        if(src[i] === close){ i++; return out; }
+        var v = form();
+        if(v !== SKIP) out.push(v);
+      }
+    }
+    function form(){
+      ws();
+      var c = src[i];
+      if(c === "(" ){ i++; return seq(")"); }
+      if(c === "[" ){ i++; return seq("]"); }
+      if(c === "{" ){ i++; var xs = seq("}"), m = {}; for(var k = 0; k < xs.length; k += 2) m[String(xs[k])] = xs[k+1]; return m; }
+      if(c === "\""){ return str(); }
+      if(c === "#"){
+        i++;
+        if(src[i] === "{"){ i++; return seq("}"); }
+        if(src[i] === "_"){ i++; form(); return SKIP; }
+        token(); return form();
+      }
+      if(c === "\\"){ i++; return token(); }
+      var t = token();
+      if(t === "") throw new Error("unexpected " + JSON.stringify(c) + " at " + i);
+      if(t === "nil") return null;
+      if(t === "true") return true;
+      if(t === "false") return false;
+      if(t[0] === ":") return t.slice(1);
+      if(/^[+-]?\d/.test(t)){
+        var num = t.replace(/[NM]$/, "");
+        if(num.indexOf("/") > 0){ var p = num.split("/"); return +p[0] / +p[1]; }
+        return +num;
+      }
+      return t;
+    }
+    var v = form();
+    return v;
+  }
+
+  // ---- fixed vocabulary: how coarse each code is, and the colour classes ----
+  var COARSE = ["C","P","K","S","Q","I","G","W","R","G*"];
+  var CODE_VAR = {C:"--c-never", P:"--c-never", K:"--c-key", S:"--c-stamp", Q:"--c-drain", I:"--c-ident",
+                  G:"--c-gen", W:"--c-whole", R:"--c-whole", "G*":"--c-clock"};
+  var LIFECYCLE = ["recover","image-install","cleared","closed","caches-cleared"];
+  var KIND_VAR = {index:"--c-ident", cache:"--c-whole", journal:"--c-stamp", queue:"--c-drain", counter:"--c-gen", pass:"--c-never"};
+  var REMOVE = {core:["cannot remove","--core"], free:["independently removable","--free"],
+                speed:["speed only","--collapse"], none:["no feature","--faint"]};
+  var GROUPS = "STMJNXWDQRK".split("");
+  var NS = "http://www.w3.org/2000/svg";
+
+  var EX, FEATURES, M = {};   // M: the model the page draws from EX
+  var state = {picked:null, size:"none", colour:"code", events:"picked", width:"none"};
+
+  function v(name){ return "var(" + name + ")"; }
+  function codeColour(c){ return v(CODE_VAR[c] || "--faint"); }
+  function short(ns){ return String(ns || "").replace(/^vaelii\.impl\./, ""); }
+  function fmt(x){ return typeof x === "number" ? (Math.abs(x) >= 1000 ? Math.round(x).toLocaleString("en-US") : String(Math.round(x * 1000) / 1000)) : String(x); }
+  function el(tag, attrs, text){
+    var e = document.createElementNS(NS, tag);
+    for(var k in attrs) if(Object.prototype.hasOwnProperty.call(attrs, k)) e.setAttribute(k, attrs[k]);
+    if(text != null) e.textContent = text;
+    return e;
+  }
+  function h(tag, cls, text){
+    var e = document.createElement(tag);
+    if(cls) e.className = cls;
+    if(text != null) e.textContent = text;
+    return e;
+  }
+  function isCountMap(x, keys){
+    if(!x || typeof x !== "object" || Array.isArray(x)) return false;
+    var ks = Object.keys(x);
+    return ks.length > 0 && ks.every(function(k){ return typeof x[k] === "number" && (!keys || keys[k]); });
+  }
+
+  // ---- the model ----
+  function build(ex, features){
+    var m = {ex:ex};
+    m.rows = ex.rows || [];
+    m.events = (ex.events || []).slice().sort(function(a, b){ return a.n - b.n; });
+    m.byId = {}; m.rows.forEach(function(r){ m.byId[r.id] = r; });
+    m.evByName = {}; m.events.forEach(function(e){ m.evByName[e.event] = e; });
+    m.stores = ex.stores || [];
+    m.edges = (ex.edges || []).filter(function(e){ return Array.isArray(e) && e.length === 2; });
+    m.readers = {}; m.reads = {};
+    m.edges.forEach(function(e){
+      (m.readers[e[1]] = m.readers[e[1]] || []).push(e[0]);
+      (m.reads[e[0]] = m.reads[e[0]] || []).push(e[1]);
+    });
+    // features
+    m.feature = {}; m.missing = [];
+    m.features = (features || []).map(function(f){
+      var rows = (f.rows || []);
+      rows.forEach(function(id){ if(m.byId[id]) m.feature[id] = f; else m.missing.push(f.feature + ": " + id); });
+      return f;
+    });
+    // the coarsest code each row is retired with under an ordinary write
+    m.coarse = {};
+    m.rows.forEach(function(r){
+      var rb = r["retired-by"] || {}, best = null, any = null;
+      Object.keys(rb).forEach(function(e){
+        var c = rb[e];
+        if(any === null || COARSE.indexOf(c) > COARSE.indexOf(any)) any = c;
+        if(LIFECYCLE.indexOf(e) < 0 && (best === null || COARSE.indexOf(c) > COARSE.indexOf(best))) best = c;
+      });
+      m.coarse[r.id] = best || any || (r.kind === "pass" ? "P" : "C");
+    });
+    // numbers a row or event carries, and the per-event counts
+    var evKeys = {}; m.events.forEach(function(e){ evKeys[e.event] = true; });
+    var rowKeys = {}; m.rows.forEach(function(r){ rowKeys[r.id] = true; });
+    var rowNum = {}, fanSrc = [];
+    m.rows.forEach(function(r){
+      Object.keys(r).forEach(function(k){
+        if(typeof r[k] === "number") rowNum[k] = true;
+        else if(isCountMap(r[k], evKeys) && !fanSrc.some(function(s){ return s.side === "row" && s.key === k; })) fanSrc.push({side:"row", key:k});
+      });
+    });
+    var evNum = {};
+    m.events.forEach(function(e){
+      Object.keys(e).forEach(function(k){
+        if(k === "n") return;
+        if(typeof e[k] === "number") evNum[k] = true;
+        else if(isCountMap(e[k], rowKeys) && !fanSrc.some(function(s){ return s.side === "event" && s.key === k; })) fanSrc.push({side:"event", key:k});
+      });
+    });
+    m.rowNum = Object.keys(rowNum).sort(function(a, b){ return a === "held" ? -1 : b === "held" ? 1 : a < b ? -1 : 1; });
+    m.evNum = Object.keys(evNum).sort();
+    m.fanSrc = fanSrc;
+    // ratios a reading can carry
+    m.ratios = [];
+    var miss = m.rowNum.filter(function(k){ return /miss/i.test(k) && !/spurious/i.test(k); })[0];
+    var spur = m.rowNum.filter(function(k){ return /spurious/i.test(k); })[0];
+    var hit = m.rowNum.filter(function(k){ return /hit/i.test(k); })[0];
+    if(spur && miss) m.ratios.push({id:"spurious", label:"spurious fraction (" + spur + " / " + miss + ")",
+      f:function(r){ return r[miss] > 0 && typeof r[spur] === "number" ? r[spur] / r[miss] : null; }});
+    if(hit && miss) m.ratios.push({id:"hitrate", label:"hit rate (" + hit + " / " + hit + " + " + miss + ")",
+      f:function(r){ var t = (r[hit] || 0) + (r[miss] || 0); return t > 0 ? (r[hit] || 0) / t : null; }});
+    return m;
+  }
+
+  function fan(src, eventName, rowId){
+    if(!src) return null;
+    if(src.side === "row"){ var r = M.byId[rowId], x = r && r[src.key]; return x && typeof x[eventName] === "number" ? x[eventName] : null; }
+    var e = M.evByName[eventName], y = e && e[src.key];
+    return y && typeof y[rowId] === "number" ? y[rowId] : null;
+  }
+  function fanSource(){ return state.width === "none" ? null : M.fanSrc.filter(function(s){ return s.side + ":" + s.key === state.width; })[0] || null; }
+
+  // ---- layout ----
+  var EW = 150, NW = 112, NH = 22, PITCH = 28, COLW = 136, TOP = 46, X0 = 12;
+  function layout(){
+    var pos = {}, cols = [], maxRows = M.events.length;
+    M.events.forEach(function(e, k){ pos["ev:" + e.event] = {x:X0, y:TOP + k * PITCH, w:EW}; });
+    var srcIds = M.stores.map(function(s){ return "st:" + s; });
+    if(M.byId.M1) srcIds.push("M1");
+    var colX = X0 + EW + 44;
+    cols.push({label:"sources", x:colX});
+    srcIds.forEach(function(id, k){ pos[id] = {x:colX, y:TOP + k * PITCH, w:NW}; });
+    maxRows = Math.max(maxRows, srcIds.length);
+    var groups = {}, extra = [];
+    M.rows.forEach(function(r){
+      if(r.id === "M1") return;
+      var g = (String(r.id).match(/^([A-Z]+)\d+$/) || [])[1];
+      if(g && GROUPS.indexOf(g) >= 0) (groups[g] = groups[g] || []).push(r.id); else extra.push(r.id);
+    });
+    var order = GROUPS.filter(function(g){ return groups[g]; });
+    if(extra.length){ order.push("other"); groups.other = extra; }
+    order.forEach(function(g, k){
+      var x = colX + (k + 1) * COLW;
+      cols.push({label:g + " · " + groups[g].length, x:x});
+      groups[g].forEach(function(id, j){ pos[id] = {x:x, y:TOP + j * PITCH, w:NW}; });
+      maxRows = Math.max(maxRows, groups[g].length);
+    });
+    var W = colX + (order.length + 1) * COLW + 4, H = TOP + maxRows * PITCH + 10;
+    return {pos:pos, cols:cols, W:W, H:H, evX:X0};
+  }
+
+  // ---- overlays ----
+  function sizeValue(r){
+    if(state.size === "none" || !r) return null;
+    var x = r[state.size];
+    return typeof x === "number" ? x : null;
+  }
+  function nodeColour(id){
+    var r = M.byId[id];
+    if(!r) return v("--line-strong");
+    if(state.colour === "code") return codeColour(M.coarse[id]);
+    if(state.colour === "kind") return v(KIND_VAR[r.kind] || "--faint");
+    if(state.colour === "removability"){ var f = M.feature[id]; return v(REMOVE[f ? f.removability : "none"][1]); }
+    var ratio = M.ratios.filter(function(q){ return q.id === state.colour; })[0];
+    if(ratio){
+      var x = ratio.f(r);
+      if(x === null) return v("--line");
+      var p = Math.round(Math.max(0, Math.min(1, x)) * 100);
+      return "color-mix(in srgb, var(--c-clock) " + p + "%, var(--line-strong))";
+    }
+    return v("--line-strong");
+  }
+
+  // ---- drawing ----
+  var L, svg, gRead, gEv, gNodes;
+  function edgePath(a, b){
+    var x1 = a.x + a.w, y1 = a.y + NH / 2, x2 = b.x, y2 = b.y + NH / 2;
+    var dx = Math.max(36, Math.abs(x2 - x1) / 2);
+    return "M" + x1 + "," + y1 + " C" + (x1 + dx) + "," + y1 + " " + (x2 - dx) + "," + y2 + " " + x2 + "," + y2;
+  }
+  function draw(){
+    L = layout();
+    var host = document.getElementById("graph-host");
+    host.innerHTML = "";
+    svg = el("svg", {"class":"graph", viewBox:"0 0 " + L.W + " " + L.H, width:L.W, height:L.H});
+    svg.appendChild(el("text", {"class":"colhead", x:L.evX, y:24}, "events · " + M.events.length));
+    L.cols.forEach(function(c){ svg.appendChild(el("text", {"class":"colhead", x:c.x, y:24}, c.label)); });
+    gRead = el("g", {}); gEv = el("g", {}); gNodes = el("g", {});
+    svg.appendChild(gRead); svg.appendChild(gEv); svg.appendChild(gNodes);
+    M.edges.forEach(function(e){
+      var a = L.pos[M.byId[e[1]] ? e[1] : "st:" + e[1]], b = L.pos[e[0]];
+      if(!a || !b) return;
+      gRead.appendChild(el("path", {"class":"rd", d:edgePath(a, b), stroke:codeColour(M.coarse[e[0]]), "data-from":e[1], "data-to":e[0]}));
+    });
+    M.events.forEach(function(e){ addNode("ev:" + e.event, "E" + e.n, e.event, null); });
+    M.stores.forEach(function(s){ addNode("st:" + s, "store", s, null); });
+    M.rows.forEach(function(r){ addNode(r.id, r.id, r.label, r); });
+    host.appendChild(svg);
+  }
+  function addNode(key, idText, label, row){
+    var p = L.pos[key];
+    if(!p) return;
+    var g = el("g", {"class":"node", "data-id":key, tabindex:"0", role:"button", "aria-label":idText + " " + label});
+    g.appendChild(el("rect", {x:p.x, y:p.y, width:p.w, height:NH, rx:2}));
+    var idw = idText.length * 6.6 + 8;
+    g.appendChild(el("text", {"class":"nid", x:p.x + 5, y:p.y + 15}, idText));
+    var room = Math.floor((p.w - idw - 4) / 5.8);
+    var lbl = String(label || "");
+    if(lbl.length > room) lbl = lbl.slice(0, Math.max(1, room - 1)) + "…";
+    g.appendChild(el("text", {"class":"nlb", x:p.x + idw, y:p.y + 15}, lbl));
+    g.appendChild(el("title", {}, idText + " · " + label));
+    g.addEventListener("click", function(){ pick(key); });
+    g.addEventListener("keydown", function(ev){ if(ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); pick(key); } });
+    gNodes.appendChild(g);
+  }
+
+  function paint(){
+    var picked = state.picked, related = {};
+    if(picked){
+      related[picked] = true;
+      var id = picked.replace(/^st:/, "");
+      (M.reads[id] || []).forEach(function(x){ related[M.byId[x] ? x : "st:" + x] = true; });
+      (M.readers[id] || []).forEach(function(x){ related[x] = true; });
+      if(picked.indexOf("ev:") === 0){
+        var en = picked.slice(3);
+        M.rows.forEach(function(r){ if((r["retired-by"] || {})[en]) related[r.id] = true; });
+      } else if(M.byId[picked]){
+        Object.keys(M.byId[picked]["retired-by"] || {}).forEach(function(en){ related["ev:" + en] = true; });
+      }
+    }
+    var maxSize = 0;
+    M.rows.forEach(function(r){ var s = sizeValue(r); if(s !== null && s > maxSize) maxSize = s; });
+    Array.prototype.forEach.call(gNodes.querySelectorAll(".node"), function(g){
+      var key = g.getAttribute("data-id"), rect = g.querySelector("rect");
+      var col = key.indexOf("ev:") === 0 ? v("--ink") : key.indexOf("st:") === 0 ? v("--core") : nodeColour(key);
+      rect.setAttribute("stroke", col);
+      rect.setAttribute("fill", "color-mix(in srgb, " + col + " " + (key === picked ? 26 : 10) + "%, var(--surface))");
+      g.classList.toggle("is-picked", key === picked);
+      g.classList.toggle("is-dim", !!picked && !related[key]);
+      g.setAttribute("aria-pressed", key === picked ? "true" : "false");
+      var old = g.querySelector("circle.sz"); if(old) g.removeChild(old);
+      var s = sizeValue(M.byId[key]);
+      if(s !== null && maxSize > 0){
+        var p = L.pos[key];
+        g.appendChild(el("circle", {"class":"sz", cx:p.x + p.w, cy:p.y + NH / 2, r:(2 + 10 * Math.sqrt(s / maxSize)).toFixed(1)}));
+      }
+    });
+    var pid = picked ? picked.replace(/^st:/, "") : null;
+    Array.prototype.forEach.call(gRead.querySelectorAll(".rd"), function(p){
+      var on = !!pid && (p.getAttribute("data-from") === pid || p.getAttribute("data-to") === pid);
+      p.classList.toggle("on", on);
+      p.classList.toggle("off", !!picked && !on);
+    });
+    drawEventEdges();
+    readout();
+  }
+
+  function drawEventEdges(){
+    gEv.innerHTML = "";
+    var src = fanSource(), maxFan = 0, pairs = [];
+    M.rows.forEach(function(r){
+      Object.keys(r["retired-by"] || {}).forEach(function(en){
+        var f = fan(src, en, r.id);
+        if(f !== null && f > maxFan) maxFan = f;
+        pairs.push([en, r.id, r["retired-by"][en], f]);
+      });
+    });
+    var picked = state.picked;
+    pairs.forEach(function(q){
+      var en = q[0], id = q[1], code = q[2], f = q[3];
+      var mine = picked === "ev:" + en || picked === id;
+      if(!mine && state.events !== "all") return;
+      var a = L.pos["ev:" + en], b = L.pos[id];
+      if(!a || !b) return;
+      var w = src && f !== null && maxFan > 0 ? 1 + 4 * Math.log1p(f) / Math.log1p(maxFan) : 1.1;
+      gEv.appendChild(el("path", {"class":"ev" + (mine ? "" : " faint"), d:edgePath(a, b), stroke:codeColour(code), "stroke-width":w.toFixed(2)}));
+      if(mine){
+        var lx = picked === id ? a.x + a.w + 4 : b.x - 3, ly = (picked === id ? a.y : b.y) + NH / 2 + 3;
+        gEv.appendChild(el("text", {"class":"evlbl", x:lx, y:ly, fill:codeColour(code), "text-anchor":picked === id ? "start" : "end"},
+          code + (f !== null && src ? " " + fmt(f) : "")));
+      }
+    });
+  }
+
+  // ---- readout ----
+  function chip(id, code, onClick){
+    var b = h("button", "chip", id);
+    b.type = "button";
+    if(code){ var s = h("span", "cd", code); s.style.color = codeColour(code); b.appendChild(s); }
+    b.addEventListener("click", onClick || function(){ pick(M.byId[id] ? id : "st:" + id); });
+    return b;
+  }
+  function chipList(parent, items, empty){
+    var box = h("div", "chips");
+    if(!items.length) box.appendChild(h("span", "chip none", empty));
+    items.forEach(function(x){ box.appendChild(x); });
+    parent.appendChild(box);
+  }
+  function kv(parent, pairs){
+    var dl = h("dl", "kv");
+    pairs.forEach(function(p){ if(p[1] === null || p[1] === undefined || p[1] === "") return; dl.appendChild(h("dt", null, p[0])); dl.appendChild(h("dd", null, String(p[1]))); });
+    parent.appendChild(dl);
+  }
+  function badge(parent, text, colourVar){
+    var b = h("span", "badge", text); b.style.color = v(colourVar); b.style.borderColor = v(colourVar); parent.appendChild(b);
+  }
+  function readout(){
+    var box = document.getElementById("readout");
+    box.innerHTML = "";
+    var key = state.picked;
+    var a = h("div"), b = h("div"), c = h("div");
+    box.appendChild(a); box.appendChild(b); box.appendChild(c);
+    if(!key){
+      a.appendChild(h("h3", null, "Nothing picked"));
+      a.appendChild(h("p", null, "Pick a box or an event in the graph, a chip here, or an id in the tables below."));
+      return;
+    }
+    if(key.indexOf("ev:") === 0){
+      var e = M.evByName[key.slice(3)];
+      a.appendChild(h("h3", null, "E" + e.n + " · " + e.event));
+      a.appendChild(h("p", null, "Names: " + e.names));
+      a.appendChild(h("span", "tag", "choke points"));
+      chipList(a, (e.at || []).map(function(s){ var x = h("span", "chip", short(s)); x.style.cursor = "default"; return x; }), "none");
+      var nums = M.evNum.filter(function(k){ return typeof e[k] === "number"; }).map(function(k){ return [k, fmt(e[k])]; });
+      if(nums.length){ a.appendChild(h("span", "tag", "counts")); kv(a, nums); }
+      var byCode = {};
+      M.rows.forEach(function(r){ var cd = (r["retired-by"] || {})[e.event]; if(cd) (byCode[cd] = byCode[cd] || []).push(r.id); });
+      var codes = Object.keys(byCode).sort(function(x, y){ return COARSE.indexOf(y) - COARSE.indexOf(x); });
+      var total = codes.reduce(function(s, cd){ return s + byCode[cd].length; }, 0);
+      b.appendChild(h("span", "tag", "retires " + total + " rows, coarsest code first"));
+      codes.forEach(function(cd){
+        var t = h("p", null, (M.ex.codes || {})[cd] || cd); t.style.margin = "8px 0 0"; t.style.fontSize = "12.5px";
+        b.appendChild(t);
+        chipList(b, byCode[cd].map(function(id){ var f = fan(fanSource(), e.event, id); return chip(id, cd + (f !== null && fanSource() ? " " + fmt(f) : "")); }), "");
+      });
+      return;
+    }
+    if(key.indexOf("st:") === 0){
+      var s = key.slice(3);
+      a.appendChild(h("h3", null, s));
+      badge(a, "store", "--core");
+      a.appendChild(h("p", null, "A store the register names as a source. No write event retires it."));
+      b.appendChild(h("span", "tag", "read by"));
+      chipList(b, (M.readers[s] || []).map(function(id){ return chip(id, M.coarse[id]); }), "no row reads it");
+      return;
+    }
+    var r = M.byId[key], f = M.feature[key], rem = REMOVE[f ? f.removability : "none"];
+    a.appendChild(h("h3", null, r.id + " · " + r.label));
+    badge(a, rem[0], rem[1]);
+    if(r.note) a.appendChild(h("p", null, r.note));
+    kv(a, [["feature", f ? f.feature : "none"], ["kind", r.kind], ["keyed by", r["keyed-by"]], ["computed", r.computed],
+           ["image", r["imaged?"] === false ? "no" : r["imaged?"]], ["cache", r.cache], ["bound", r.bound],
+           ["owner", short(r.owner)], ["site", r.site], ["var", r["var"]], ["at", (r.at || []).join(" · ")]]);
+    b.appendChild(h("span", "tag", "reads"));
+    chipList(b, (M.reads[r.id] || []).map(function(id){ return chip(id, M.byId[id] ? M.coarse[id] : null); }), "reads no row or store");
+    b.appendChild(h("span", "tag", "read by"));
+    chipList(b, (M.readers[r.id] || []).map(function(id){ return chip(id, M.coarse[id]); }), "no row reads it");
+    var rb = r["retired-by"] || {}, evs = Object.keys(rb).sort(function(x, y){ return (M.evByName[x] || {}).n - (M.evByName[y] || {}).n; });
+    c.appendChild(h("span", "tag", "retired by " + evs.length + " events · coarsest under a write: " + M.coarse[r.id]));
+    chipList(c, evs.map(function(en){
+      var ev = M.evByName[en] || {n:"?"}, fv = fan(fanSource(), en, r.id);
+      return chip("E" + ev.n + " " + en, rb[en] + (fv !== null && fanSource() ? " " + fmt(fv) : ""), function(){ pick("ev:" + en); });
+    }), r.kind === "pass" ? "P: garbage when its pass returns" : "C: no event retires it");
+    var nums = M.rowNum.filter(function(k){ return typeof r[k] === "number"; }).map(function(k){ return [k, fmt(r[k])]; });
+    M.ratios.forEach(function(q){ var x = q.f(r); if(x !== null) nums.push([q.id, fmt(x)]); });
+    if(nums.length){ c.appendChild(h("span", "tag", "counts")); kv(c, nums); }
+  }
+
+  function pick(key){
+    state.picked = state.picked === key ? null : key;
+    paint();
+  }
+
+  // ---- controls and legends ----
+  function fillSelect(id, opts, value){
+    var s = document.getElementById(id);
+    s.innerHTML = "";
+    opts.forEach(function(o){ var op = h("option", null, o[1]); op.value = o[0]; s.appendChild(op); });
+    s.value = opts.some(function(o){ return o[0] === value; }) ? value : opts[0][0];
+    s.disabled = opts.length < 2;
+    return s.value;
+  }
+  function controls(){
+    state.size = fillSelect("o-size", [["none", "uniform"]].concat(M.rowNum.map(function(k){ return [k, k]; })), state.size);
+    state.colour = fillSelect("o-colour", [["code", "coarsest retirement code"], ["kind", "kind"], ["removability", "removability"]]
+      .concat(M.ratios.map(function(q){ return [q.id, q.label]; })), state.colour);
+    state.width = fillSelect("o-width", [["none", M.fanSrc.length ? "uniform" : "uniform (no fan-out in this export)"]]
+      .concat(M.fanSrc.map(function(s){ return [s.side + ":" + s.key, "fan-out, " + s.side + " " + s.key]; })), state.width);
+    document.getElementById("o-events").value = state.events;
+  }
+  function legend(){
+    var box = document.getElementById("legend");
+    box.innerHTML = "";
+    function sw(colour, text){ var s = h("span"); var i = h("i", "sw"); i.style.borderColor = colour; i.style.background = "color-mix(in srgb, " + colour + " 18%, transparent)"; s.appendChild(i); s.appendChild(document.createTextNode(text)); box.appendChild(s); }
+    if(state.colour === "code"){
+      [["C P","--c-never","never / pass"],["K","--c-key","per key"],["S","--c-stamp","per stamp part"],["Q","--c-drain","drained"],
+       ["I","--c-ident","identity"],["G","--c-gen","generation"],["W R","--c-whole","wholesale / rebuilt"],["G*","--c-clock","change clock"]]
+        .forEach(function(x){ sw(v(x[1]), x[0] + " " + x[2]); });
+    } else if(state.colour === "kind"){
+      Object.keys(KIND_VAR).forEach(function(k){ sw(v(KIND_VAR[k]), k); });
+    } else if(state.colour === "removability"){
+      Object.keys(REMOVE).forEach(function(k){ sw(v(REMOVE[k][1]), REMOVE[k][0]); });
+    } else {
+      var s = h("span"); s.appendChild(document.createTextNode("0")); s.appendChild(h("i", "ramp")); s.appendChild(document.createTextNode("1")); box.appendChild(s);
+      sw(v("--line"), "no reading");
+    }
+    var e = h("span"); var ln = h("i", "ln"); ln.style.borderColor = v("--line-strong"); e.appendChild(ln);
+    e.appendChild(document.createTextNode("read edge, in the reader's colour")); box.appendChild(e);
+    if(state.size !== "none"){ var z = h("span"); var c = h("i", "sw"); c.style.borderRadius = "50%"; c.style.borderColor = v("--size"); z.appendChild(c); z.appendChild(document.createTextNode("area ∝ " + state.size)); box.appendChild(z); }
+  }
+  function codeLegend(){
+    var box = document.getElementById("code-legend");
+    box.innerHTML = "";
+    var codes = M.ex.codes || {};
+    Object.keys(codes).sort(function(a, b){ return COARSE.indexOf(a) - COARSE.indexOf(b); }).forEach(function(cd){
+      var s = h("span"); var i = h("i", "sw"); i.style.borderColor = codeColour(cd); i.style.background = "color-mix(in srgb, " + codeColour(cd) + " 22%, transparent)";
+      s.appendChild(i); s.appendChild(document.createTextNode(cd + " " + codes[cd])); box.appendChild(s);
+    });
+  }
+
+  // ---- tables ----
+  function idCell(tr, id){
+    var td = h("td", "id"), b = h("button", null, id);
+    b.type = "button";
+    b.addEventListener("click", function(){ state.picked = null; pick(M.byId[id] ? id : "ev:" + id); document.getElementById("graph").scrollIntoView({behavior:"smooth"}); });
+    td.appendChild(b); tr.appendChild(td);
+  }
+  function head(table, cols){
+    var thead = h("thead"), tr = h("tr");
+    cols.forEach(function(c){ tr.appendChild(typeof c === "string" ? h("th", null, c) : c); });
+    thead.appendChild(tr); table.appendChild(thead);
+  }
+  function pill(text, colourVar){ var p = h("span", "pill", text); p.style.color = v(colourVar); p.style.borderColor = v(colourVar); return p; }
+
+  function featureTable(){
+    var t = document.getElementById("t-features");
+    t.innerHTML = "";
+    head(t, ["feature", "removability", "rows", "spans", "owners", "read from"]);
+    var tb = h("tbody"), wide = 0;
+    M.features.forEach(function(f){
+      var ids = (f.rows || []).filter(function(id){ return M.byId[id]; });
+      var own = {}, from = {}, inF = {};
+      ids.forEach(function(id){ inF[id] = true; own[short(M.byId[id].owner)] = true; });
+      ids.forEach(function(id){ (M.readers[id] || []).forEach(function(rd){ if(!inF[rd]) from[short(M.byId[rd].owner)] = true; }); });
+      var all = {}; Object.keys(own).concat(Object.keys(from)).forEach(function(x){ all[x] = true; });
+      var spans = Object.keys(all).length;
+      if(spans > 2) wide++;
+      var tr = h("tr");
+      tr.appendChild(h("td", "nm", f.feature));
+      var rem = REMOVE[f.removability] || REMOVE.none, td = h("td"); td.appendChild(pill(rem[0], rem[1])); tr.appendChild(td);
+      var tdr = h("td"); chipList(tdr, ids.map(function(id){ return chip(id, M.coarse[id], function(){ state.picked = null; pick(id); document.getElementById("graph").scrollIntoView({behavior:"smooth"}); }); }), "no row: no state between writes"); tr.appendChild(tdr);
+      tr.appendChild(h("td", "num", String(spans)));
+      tr.appendChild(h("td", "mono", Object.keys(own).sort().join(" ")));
+      tr.appendChild(h("td", "mono", Object.keys(from).filter(function(x){ return !own[x]; }).sort().join(" ")));
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+    var notes = document.getElementById("feature-notes");
+    notes.innerHTML = "";
+    var li = h("li"); li.textContent = wide + " of " + M.features.length + " features span more than two namespaces.";
+    notes.appendChild(li);
+    var none = M.rows.filter(function(r){ return !M.feature[r.id]; }).map(function(r){ return r.id; });
+    var l2 = h("li"); l2.textContent = none.length + " rows are in no feature: " + (none.join(" ") || "none") + ".";
+    notes.appendChild(l2);
+    if(M.missing.length){ var l3 = h("li"); l3.textContent = "The feature map names rows the register lacks: " + M.missing.join(", ") + "."; notes.appendChild(l3); }
+  }
+
+  function rowTable(){
+    var t = document.getElementById("t-rows");
+    t.innerHTML = "";
+    head(t, ["id", "structure", "removability", "kind", "keyed by", "computed", "image", "reads", "read by", "site"].concat(M.rowNum));
+    var tb = h("tbody");
+    M.rows.forEach(function(r){
+      var tr = h("tr"), f = M.feature[r.id], rem = REMOVE[f ? f.removability : "none"];
+      idCell(tr, r.id);
+      var nm = h("td", "nm", r.label); if(f) nm.appendChild(h("span", "own", f.feature)); tr.appendChild(nm);
+      var td = h("td"); td.appendChild(pill(rem[0], rem[1])); tr.appendChild(td);
+      tr.appendChild(h("td", "mono", r.kind));
+      tr.appendChild(h("td", "mono", r["keyed-by"]));
+      tr.appendChild(h("td", "mono", r.computed));
+      tr.appendChild(h("td", "mono", r["imaged?"] === false ? "no" : r["imaged?"]));
+      tr.appendChild(h("td", "mono", (M.reads[r.id] || []).join(" ")));
+      tr.appendChild(h("td", "mono", (M.readers[r.id] || []).join(" ")));
+      tr.appendChild(h("td", "mono", r.site || ""));
+      M.rowNum.forEach(function(k){ tr.appendChild(h("td", "num", typeof r[k] === "number" ? fmt(r[k]) : "")); });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+  }
+
+  function matrixTable(){
+    var t = document.getElementById("t-matrix");
+    t.innerHTML = "";
+    var src = M.fanSrc[0] || null;
+    var cols = [h("th", "rowh", "row")];
+    M.events.forEach(function(e){ var th = h("th", null, "E" + e.n); th.title = e.event; cols.push(th); });
+    cols.push(h("th", null, "events"));
+    head(t, cols);
+    var tb = h("tbody"), last = null;
+    M.rows.forEach(function(r){
+      var g = (String(r.id).match(/^([A-Z]+)/) || [])[1] || "";
+      if(g !== last){ var gr = h("tr", "grp"), gc = h("td", null, g); gc.colSpan = M.events.length + 2; gr.appendChild(gc); tb.appendChild(gr); last = g; }
+      var tr = h("tr"), rh = h("td", "rowh", r.id); rh.appendChild(h("small", null, r.label)); tr.appendChild(rh);
+      var rb = r["retired-by"] || {}, k = 0;
+      M.events.forEach(function(e){
+        var cd = rb[e.event], td = h("td", "c");
+        if(cd){
+          k++;
+          td.textContent = cd;
+          td.style.color = codeColour(cd);
+          td.style.background = "color-mix(in srgb, " + codeColour(cd) + " 16%, var(--surface))";
+          td.title = r.id + " · E" + e.n + " " + e.event + " · " + ((M.ex.codes || {})[cd] || cd);
+          var f = fan(src, e.event, r.id);
+          if(f !== null) td.appendChild(h("small", null, fmt(f)));
+        }
+        tr.appendChild(td);
+      });
+      tr.appendChild(h("td", "num", String(k)));
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+  }
+
+  function eventTable(){
+    var t = document.getElementById("t-events");
+    t.innerHTML = "";
+    head(t, ["id", "event", "choke points", "names", "rows retired"].concat(M.evNum));
+    var tb = h("tbody");
+    M.events.forEach(function(e){
+      var tr = h("tr");
+      var td = h("td", "id"), b = h("button", null, "E" + e.n); b.type = "button";
+      b.addEventListener("click", function(){ state.picked = null; pick("ev:" + e.event); document.getElementById("graph").scrollIntoView({behavior:"smooth"}); });
+      td.appendChild(b); tr.appendChild(td);
+      tr.appendChild(h("td", "mono", e.event));
+      tr.appendChild(h("td", "mono", (e.at || []).map(short).join(", ")));
+      tr.appendChild(h("td", null, e.names));
+      tr.appendChild(h("td", "num", String(M.rows.filter(function(r){ return (r["retired-by"] || {})[e.event]; }).length)));
+      M.evNum.forEach(function(k){ tr.appendChild(h("td", "num", typeof e[k] === "number" ? fmt(e[k]) : "")); });
+      tb.appendChild(tr);
+    });
+    t.appendChild(tb);
+  }
+
+  function header(name){
+    var ex = M.ex;
+    document.getElementById("eyebrow").textContent = "vaelii · derived-state register · at " + (ex.revision || "?") + (ex.dirty ? " (+" + ex.dirty + " dirty)" : "");
+    var pairs = M.rows.reduce(function(s, r){ return s + Object.keys(r["retired-by"] || {}).length; }, 0);
+    var counted = M.rows.filter(function(r){ return M.rowNum.some(function(k){ return typeof r[k] === "number"; }); }).length;
+    var st = document.getElementById("stats");
+    st.innerHTML = "";
+    [["rows", M.rows.length], ["events", M.events.length], ["read edges", M.edges.length], ["(event, row) pairs", pairs], ["rows with a count", counted]]
+      .forEach(function(x){ var d = h("div"); d.appendChild(h("dt", null, x[0])); d.appendChild(h("dd", null, fmt(x[1]))); st.appendChild(d); });
+    document.getElementById("f-source").textContent = "Drawn from " + name + " · vaelii " + (ex.revision || "?") +
+      " · " + (ex.dirty || 0) + " files under src/ and test/ differ from it · taken " + (ex.taken || "?") + " · " + (ex.source || "source not named") +
+      " · export format " + (ex.format || "?");
+  }
+
+  function render(ex, name){
+    M = build(ex, FEATURES);
+    if(state.picked && !(M.byId[state.picked] || L && L.pos[state.picked])) state.picked = null;
+    header(name);
+    controls(); legend(); codeLegend();
+    draw();
+    if(state.picked === null && M.byId.M1) state.picked = "M1";
+    paint();
+    featureTable(); rowTable(); matrixTable(); eventTable();
+  }
+
+  ["o-size", "o-colour", "o-events", "o-width"].forEach(function(id){
+    document.getElementById(id).addEventListener("change", function(ev){
+      var k = {"o-size":"size", "o-colour":"colour", "o-events":"events", "o-width":"width"}[id];
+      state[k] = ev.target.value;
+      legend(); paint();
+      if(k === "width") matrixTable();
+    });
+  });
+  document.getElementById("f-open").addEventListener("change", function(ev){
+    var file = ev.target.files && ev.target.files[0], err = document.getElementById("f-err");
+    if(!file) return;
+    var rd = new FileReader();
+    rd.onload = function(){
+      try { var ex = readEdn(String(rd.result)); if(!ex || !Array.isArray(ex.rows)) throw new Error("no :rows vector"); err.textContent = ""; state.picked = null; render(ex, file.name); }
+      catch(e){ err.textContent = file.name + " is not a derived-state export: " + e.message; }
+    };
+    rd.readAsText(file);
+  });
+
+  var node = document.getElementById("export-edn");
+  try {
+    FEATURES = readEdn(document.getElementById("features-edn").textContent) || [];
+    render(readEdn(node.textContent), node.getAttribute("data-name") || "the embedded export");
+  } catch(e){
+    document.getElementById("graph-host").textContent = "The embedded export could not be read: " + e.message;
+  }
+})();
+</script>

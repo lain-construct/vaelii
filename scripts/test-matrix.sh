@@ -72,9 +72,10 @@
 # at all.
 #
 # **Do not edit the tree while this is running**, and the revision a config compiled is
-# not the whole of why.  A namespace is compiled once at boot, so an edit after that
-# cannot reach a run already going — but a test that reads a file at RUN time does see
-# it: `config_surface_test` slurps `docs/operations.md` while its own roster is already
+# not the whole of why.  A namespace is compiled at boot, but `reload_test` reloads
+# nearly the whole engine from disk when it runs, so an edit made before then reaches
+# every test after it; and a test that reads a file at RUN time sees it too:
+# `config_surface_test` slurps `docs/operations.md` while its own roster is already
 # compiled, so editing that doc mid-matrix moved one run's failure count and not
 # another's.  The failing set stayed identical, which is the property that matters, and
 # the count is what somebody reads first.  The dirty-by-the-end line says this happened;

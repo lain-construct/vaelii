@@ -15,7 +15,7 @@
      believed sentences, stratum by stratum, with `unknown` and `exceptWhen` evaluated
      at `C`. A sentence taken OUT is never re-derived.
   4. Classes: `class-fixpoint`.
-  5. Inherited claims: `inherit-at` adds the claims `transitiveInArg` carries down the
+  5. Inherited claims: `inherit-at` adds the claims `transitiveInArgInverse` carries down the
      believed `genl` edges, with their classes.
   6. Nogoods: `negation-nogoods` plus every family's output on the view.
   7. Decision: `decide`, then `resolve-at` applies the defeats and repeats from 2.
@@ -42,7 +42,7 @@
   declarations and edges the clash is read through. The ground takes no part in the
   weighing (docs/nmtms.md, \"What qualifies as a nogood\": a definitional clash's members
   are the clashing sentexes alone, and the declaration and the `genl` closure are read
-  through). A declaration is stored `:monotonic` (docs/reference.md D11), and no
+  through). A declaration keeps the strength it was written at (docs/reference.md D11), and no
   decision reads its class.
 
   **A relation mark's reach follows belief and not class** (docs/reference.md D7). A
@@ -51,11 +51,9 @@
   which `decide` never weighs. An edge OUT at `C` carries no mark there, and a
   `:default` edge on the reach leaves the verdict a `:monotonic` edge would give. The
   view had this shape before D7, and D7 changed no code in this namespace.
-  `world/check-world` stores a write of a mark, of a declaration and of a predicate `genl`
-  edge `:monotonic` whatever it was written at and sets a denial of one aside as inert
-  (D10, D11, D17), so every read of one is `:monotonic` and no decision takes one OUT: a
-  mark's reach at `C`
-  is the stored predicate edges visible at `C`.
+  `world/check-world` sets a denial of a mark, of a declaration and of a predicate `genl`
+  edge aside as inert (D10, D11, D17), and `decide` never takes a roster member OUT, so a
+  mark's reach at `C` is the stored predicate edges visible at `C`.
 
   **A verdict does not bind a reader against its own view** (docs/reference.md D3). A
   context below a vantage decides from its own view, and believes what the vantage took
@@ -428,10 +426,10 @@
 ;; ---- inherited claims -------------------------------------------------------
 
 (defn- preserved-positions
-  "`{P #{k}}` over the `(transitiveInArg P k genl)` declarations in `believed`."
+  "`{P #{k}}` over the `(transitiveInArgInverse P k genl)` declarations in `believed`."
   [believed]
   (reduce (fn [m s]
-            (if (and (seq? s) (= 'transitiveInArg (first s)) (= 4 (count s)))
+            (if (and (seq? s) (= 'transitiveInArgInverse (first s)) (= 4 (count s)))
               (let [[_ p k r] s]
                 (if (and (= 'genl r) (integer? k) (pos? k) (world/ordinary-predicate? p))
                   (update m p (fnil conj #{}) k)
@@ -468,7 +466,7 @@
 
 (defn- reaches
   "`[T class]` for every claim `T` one preserved position moves a claim `G` of `claims`
-  to: `G` a tuple over a predicate `P` with `(transitiveInArg P k genl)` in `believed`,
+  to: `G` a tuple over a predicate `P` with `(transitiveInArgInverse P k genl)` in `believed`,
   and `T` the tuple `G` with the term at position `k` replaced by a term strictly below
   it over the `genl` sentences of `believed`. The class is the weakest of `G`'s class
   and the widest bottleneck of the routes (`bottlenecks`)."
@@ -486,7 +484,7 @@
   "`{:believed :class :inherited}` at a context, from the derivation `d`, its classes
   `cls` and the OUT set `out` (docs/reference.md D5; docs/inherit.md).
 
-  With `(transitiveInArg P k genl)` believed, a believed claim `(P … sup …)` and `sub`
+  With `(transitiveInArgInverse P k genl)` believed, a believed claim `(P … sup …)` and `sub`
   strictly below `sup` over believed `genl` sentences, `(P … sub …)` is believed, with
   the class the widest bottleneck over the routes (D9): the maximum over the routes of
   the minimum of the claim's class and the classes of the route's edges. The
@@ -573,17 +571,17 @@
     `:anti-symmetric` nogood whose members differ only in symbol arguments: `:merge`,
     nobody OUT (docs/reference.md D6: the engine merges the two terms, and equality is
     outside the reference);
-  - every member `:monotonic` otherwise: `:hard`, nobody OUT;
-  - exactly one member at the weakest class, and it `:default`: `:defeat`, that member
-    is the `:loser`;
-  - two or more members tied at `:default`: `:dilemma`, nobody OUT.
+  - no `:default` member off the forced-monotonic roster (`world/forced?`) otherwise:
+    `:hard`, nobody OUT, since a roster member is never a loser (D7, D10–D13);
+  - exactly one `:default` member off the roster: `:defeat`, that member is the `:loser`;
+  - two or more `:default` members off the roster: `:dilemma`, nobody OUT.
 
   The ground is not weighed. Defeat-class is the only axis (docs/nmtms.md, \"There is
   no second axis\"), so nothing breaks a tie."
   [class ng]
   (let [cs   (into {} (map (juxt identity class)) (:members ng))
-        weak (keep (fn [[s c]] (when (= :default c) s)) cs)]
-    (cond (and (empty? weak) (symbol-merge? ng)) (assoc ng :verdict :merge)
+        weak (keep (fn [[s c]] (when (and (= :default c) (not (world/forced? s))) s)) cs)]
+    (cond (and (every? #{:monotonic} (vals cs)) (symbol-merge? ng)) (assoc ng :verdict :merge)
           (empty? weak)      (assoc ng :verdict :hard)
           (= 1 (count weak)) (assoc ng :verdict :defeat :loser (first weak))
           :else              (assoc ng :verdict :dilemma))))
@@ -623,8 +621,8 @@
 
   Each round derives from the premises minus OUT, computes the classes and the inherited
   claims, gathers every nogood (negation plus `families`), and decides each. A defeat
-  only adds to OUT, and a round never takes a sentence back (docs/nmtms.md, \"The
-  resolution rounds\": nothing in the resolution revives one). A round with any defeat
+  only adds to OUT, and a round never takes a sentence back (docs/reference.md, \"The
+  function\", item 8: nothing in the resolution revives one). A round with any defeat
   whose loser is a ground (`ground-sentence?`) applies those defeats alone and
   re-enters, so a clash read through an edge the same round withdraws is re-asked before
   it convicts. The loop stops at the round with no defeat. OUT grows by at least one

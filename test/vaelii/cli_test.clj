@@ -303,74 +303,78 @@
     dir))
 
 (deftest dir-opens-a-store-under-the-backend-its-files-name
-  ;; `--dir` opened every directory as `:disk-log`. A `:disk-snapshot` store opened that way
-  ;; finds no index log, so every read answered nothing although the records were on disk.
-  (let [dir (snapshot-store!)]
-    (try
-      (let [kb (cli/open-kb-from {:dir dir})]
-        (try
-          (is (= ['(genl dog animal)]
-                 (mapv v/sentence-of (v/sentexes-matching kb '(genl dog ?x) 'CxUniverse))))
-          (finally (v/close! kb))))
-      (finally (rm-rf! (io/file dir))))))
-
-(deftest upgrade-rebuilds-a-stale-reasoning-image-and-leaves-a-current-one
-  (let [dir      (snapshot-store!)
-        manifest (io/file dir "reasoning" "manifest.edn")]
-    (try
-      (is (.exists manifest) "closing a KB built assert by assert writes its first image")
-      (testing "an image this build wrote is installed, and the manifest is left as it was"
-        (let [before (slurp manifest)
-              r      (cli/upgrade! dir)]
-          (is (= :disk-snapshot (:backend r)))
-          (is (= :current (:reasoning r)))
-          (is (= before (slurp manifest)))))
-      (testing "an image stamped with other engine source is declined, rebuilt and restamped"
-        (spit manifest (pr-str (assoc (edn/read-string (slurp manifest)) :source "stale")))
-        (let [r (cli/upgrade! dir)]
-          (is (= :rebuilt (:reasoning r)))
-          (is (not= "stale" (:source (edn/read-string (slurp manifest)))))
-          (is (= :current (:reasoning (cli/upgrade! dir)))
-              "the restamped image is current for the next upgrade")))
-      (finally (rm-rf! (io/file dir)))))
-  (testing "a directory holding no store is refused, and no store is created in it"
-    (let [dir (str (Files/createTempDirectory "vaelii-cli-empty" (make-array FileAttribute 0)))]
+  (tu/with-snapshot-platform
+    ;; `--dir` opened every directory as `:disk-log`. A `:disk-snapshot` store opened that way
+    ;; finds no index log, so every read answered nothing although the records were on disk.
+    (let [dir (snapshot-store!)]
       (try
-        (let [e (is (thrown? clojure.lang.ExceptionInfo (cli/upgrade! dir)))]
-          (is (= :unknown-source (:type (ex-data e))))
-          (is (empty? (.list (io/file dir)))))
+        (let [kb (cli/open-kb-from {:dir dir})]
+          (try
+            (is (= ['(genl dog animal)]
+                   (mapv v/sentence-of (v/sentexes-matching kb '(genl dog ?x) 'CxUniverse))))
+            (finally (v/close! kb))))
         (finally (rm-rf! (io/file dir)))))))
 
+(deftest upgrade-rebuilds-a-stale-reasoning-image-and-leaves-a-current-one
+  (tu/with-snapshot-platform
+    (let [dir      (snapshot-store!)
+          manifest (io/file dir "reasoning" "manifest.edn")]
+      (try
+        (is (.exists manifest) "closing a KB built assert by assert writes its first image")
+        (testing "an image this build wrote is installed, and the manifest is left as it was"
+          (let [before (slurp manifest)
+                r      (cli/upgrade! dir)]
+            (is (= :disk-snapshot (:backend r)))
+            (is (= :current (:reasoning r)))
+            (is (= before (slurp manifest)))))
+        (testing "an image stamped with other engine source is declined, rebuilt and restamped"
+          (spit manifest (pr-str (assoc (edn/read-string (slurp manifest)) :source "stale")))
+          (let [r (cli/upgrade! dir)]
+            (is (= :rebuilt (:reasoning r)))
+            (is (not= "stale" (:source (edn/read-string (slurp manifest)))))
+            (is (= :current (:reasoning (cli/upgrade! dir)))
+                "the restamped image is current for the next upgrade")))
+        (finally (rm-rf! (io/file dir)))))
+    (testing "a directory holding no store is refused, and no store is created in it"
+      (let [dir (str (Files/createTempDirectory "vaelii-cli-empty" (make-array FileAttribute 0)))]
+        (try
+          (let [e (is (thrown? clojure.lang.ExceptionInfo (cli/upgrade! dir)))]
+            (is (= :unknown-source (:type (ex-data e))))
+            (is (empty? (.list (io/file dir)))))
+          (finally (rm-rf! (io/file dir))))))))
+
 (deftest upgrade-trusts-a-restamped-source-or-verifies-it-by-a-recover
-  (let [dir      (snapshot-store!)
-        manifest (io/file dir "reasoning" "manifest.edn")
-        stale!   #(spit manifest (pr-str (assoc (edn/read-string (slurp manifest)) :source "stale")))]
-    (try
-      (stale!)
-      (is (= :rebuilt (:reasoning (cli/upgrade! dir)))
-          "a recover writes the image the cases below start from")
-      (testing "an image this build wrote is left as it was"
-        (is (= :current (:reasoning (cli/upgrade! dir)))))
-      (testing "--verify recovers under this build and compares the two images"
+  (tu/with-snapshot-platform
+    (let [dir      (snapshot-store!)
+          manifest (io/file dir "reasoning" "manifest.edn")
+          stale!   #(spit manifest (pr-str (assoc (edn/read-string (slurp manifest)) :source "stale")))]
+      (try
         (stale!)
-        (let [r (cli/upgrade! dir {:verify true})]
-          (is (= :rebuilt (:reasoning r)))
-          (is (= {:labels :same :against "stale"} (select-keys (:verify r) [:labels :against])))
-          (is (not (.exists (io/file dir "reasoning.prev"))) "the old image is deleted once compared")))
-      (finally (rm-rf! (io/file dir))))))
+        (is (= :rebuilt (:reasoning (cli/upgrade! dir)))
+            "a recover writes the image the cases below start from")
+        (testing "an image this build wrote is left as it was"
+          (is (= :current (:reasoning (cli/upgrade! dir)))))
+        (testing "--verify recovers under this build and compares the two images"
+          (stale!)
+          (let [r (cli/upgrade! dir {:verify true})]
+            (is (= :rebuilt (:reasoning r)))
+            (is (= {:labels :same :against "stale"} (select-keys (:verify r) [:labels :against])))
+            (is (not (.exists (io/file dir "reasoning.prev"))) "the old image is deleted once compared")))
+        (finally (rm-rf! (io/file dir)))))))
 
 (deftest compare-images-reads-a-belief-change-off-the-labels
-  (let [a (snapshot-store!)
-        b (snapshot-store!)]
-    (try
-      (let [kb (v/open-kb {:backend :disk-snapshot :dir b})]
-        (v/assert kb '(dog Fido) 'CxUniverse)
-        (v/close! kb))
-      (is (= {:labels :same :network :same :state :same}
-             (ri/compare-images (io/file a "reasoning") (io/file a "reasoning"))))
-      (is (= :differs (:labels (ri/compare-images (io/file a "reasoning") (io/file b "reasoning"))))
-          "a store with one more believed sentex believes a different set")
-      (finally (rm-rf! (io/file a)) (rm-rf! (io/file b))))))
+  (tu/with-snapshot-platform
+    (let [a (snapshot-store!)
+          b (snapshot-store!)]
+      (try
+        (let [kb (v/open-kb {:backend :disk-snapshot :dir b})]
+          (v/assert kb '(dog Fido) 'CxUniverse)
+          (v/close! kb))
+        (is (= {:labels :same :network :same :state :same}
+               (ri/compare-images (io/file a "reasoning") (io/file a "reasoning"))))
+        (is (= :differs (:labels (ri/compare-images (io/file a "reasoning") (io/file b "reasoning"))))
+            "a store with one more believed sentex believes a different set")
+        (finally (rm-rf! (io/file a)) (rm-rf! (io/file b)))))))
 
 (tu/deftest-kb the-repl-loop-survives-a-stack-overflowing-line
   ;; A deeply nested EDN line raises StackOverflowError out of `read-forms` — past

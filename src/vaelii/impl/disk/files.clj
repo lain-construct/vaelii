@@ -708,14 +708,14 @@
   empty, or unreadable (a rare torn blob thaws to default + a warning rather than
   throwing — these blobs hold reconstructible metadata).
 
-  **The file's bytes first, then the thaw over those.**  A `DataInput` has no known
-  remaining length, so a thaw straight off the file's stream reads a torn blob's next
-  four bytes as a count and allocates for it: a truncated file whose tail happens to
-  leave a large one is a gigabyte allocation before anything is checked.  Reading the
-  file into an array first bounds every such allocation by the file's own length, which
-  adds no work here — these blobs are whole-file values being read into heap either
-  way.  The thaw is still `thaw-from-in!`, because `write-nippy-atomic!` writes with
-  `freeze-to-out!`: a headerless typed stream, not a `freeze`d array."
+  **The file's bytes first, then the thaw over those.**  A torn blob is a prefix of one
+  `write-nippy-atomic!` wrote, so every count it holds is one the writer wrote, and the
+  thaw ends on the missing tail.  Bytes that are no prefix of a nippy stream can decode a
+  count of any size; the `OutOfMemoryError` its allocation raises is rethrown, as every
+  `VirtualMachineError` is, since a default read after a heap failure would hand a caller
+  `{:seq 1}` for its counters.  The thaw is `thaw-from-in!`, because
+  `write-nippy-atomic!` writes with `freeze-to-out!`: a headerless typed stream, not a
+  `freeze`d array."
   ([path] (read-nippy-file path nil))
   ([^String path default]
    (let [f (File. path)]
@@ -764,6 +764,14 @@
                                "commit marker.  Reported once.")
                      :data {:path path}}))
       nil)))
+
+(defn fsync-file!
+  "fsync the file at `path`, then the directory holding it (`fsync-dir!`)."
+  [^String path]
+  (with-open [ch (FileChannel/open (.toPath (File. path))
+                                   (into-array OpenOption [StandardOpenOption/WRITE]))]
+    (.force ch true))
+  (fsync-dir! path))
 
 (defn write-nippy-atomic!
   "Write a value to `path` by writing a unique temp file, fsyncing it, atomic-renaming

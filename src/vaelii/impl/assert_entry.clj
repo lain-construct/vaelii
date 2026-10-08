@@ -151,16 +151,19 @@
   capability (`join-engines` is a join, never a meet), backward capability is read
   off the record at query time, and new forward capability is the `chain-all` below.
 
-  The trie key does not carry these slots, and `index-rule-sentex` indexes predicates
-  rather than direction, so nothing is re-indexed."
+  The index files a rule under its engines too (the rule extent's `[:solve]` node holds
+  the rules whose `:engines` take `:solve`), so a join that changes the engines takes the
+  record out of the index under the stored engines and back in under the joined ones."
   [kb h stored sentence context opts]
   (let [incoming (res/kb-sentex kb sentence context)
         engines  (join-engines (:engines stored) (:engines incoming))
-        def?     (when (and (:defeasible stored) (:defeasible incoming)) true)]
-    (when (or (not= engines (:engines stored))
-              (not= (boolean def?) (boolean (:defeasible stored))))
+        def?     (when (and (:defeasible stored) (:defeasible incoming)) true)
+        moved?   (not= engines (:engines stored))]
+    (when (or moved? (not= (boolean def?) (boolean (:defeasible stored))))
       (let [s' (assoc stored :engines engines :defeasible def?)]
+        (when moved? (p/unindex-sentex! (:index kb) stored h))
         (p/put-sentex (:records kb) s')
+        (when moved? (p/index-sentex (:index kb) s' h))
         (when (not= (boolean def?) (boolean (:defeasible stored)))
           (special/restrength-firings! kb h)
           ;; a rule's defeasibility decides whether it is a roster rule
@@ -307,6 +310,7 @@
         ;; entry point refuses is the structure of corruption these checks exist to stop.
         (run! #(nm/check! (:naming kb) % context) aligned)
         (checks/check-no-imperative meta-s)
+        (checks/check-no-defeat meta-s)
         (checks/check-exceptWhen-stratified kb rule-handle (rules/watched-predicates aligned) context)
         (let [strength   (get opts :strength :default)
               [h s new?] (kb/find-or-create-sentex kb meta-s context strength)]
@@ -407,6 +411,9 @@
           pred     (nm/functor sentence)
           context  (storage-context kb pred context)
           strength (get opts :strength :default)]
+      ;; a `defeat` is refused on the sentence alone, bulk or not: a premise defeat is
+      ;; content only the engine writes
+      (checks/check-no-defeat sentence)
       ;; Bulk load skips every check below: each only *validates* (none writes), and
       ;; the caller has guaranteed the corpus is well-formed — including the arg
       ;; store query in `constraint-checks`, the dominant per-fact cost (`:bulk?`).
@@ -463,7 +470,7 @@
             ;; than the one written, and the row has to remember which, for the mark's
             ;; leaving to hand it back (`integrate/spellings-key`) — read before the mark
             ;; below moves the class the record starts from
-            permuted? (integrate/permuting? kb (integrate/permuted-functor sentence))
+            permuted? (integrate/permuting? kb (res/permuted-functor sentence))
             prior    (when permuted? (jtms/premise-strength (reasoning/tms kb) h))]
         ;; the labeller's forced memberships go in before the mark, so a denial of a
         ;; roster literal is never IN (docs/nmtms.md, "The forced-monotonic roster")
@@ -505,7 +512,7 @@
               asym (special/derive-antisymmetric-equalities kb sentence context h)
               axe  (special/antisym-equate-existing kb sentence)
               axd  (special/antisym-equate-under-edge kb sentence)
-              ;; ...and the nogoods a reader decides under a tuple mark, in the two
+              ;; ...and the nogoods the settle places under a tuple mark, in the two
               ;; arrival orders a fact's own store does not read: the mark meeting the
               ;; facts, and the edge bringing them under a mark above
               _    (special/offer-marked-existing kb sentence)
@@ -579,7 +586,8 @@
               (chain/chain-all
                kb
                (-> [h]
-                   (into (:new mig))
+                   ;; a twin `genl` edge is an edge arriving, whichever merge restated it
+                   (into (special/minted-seeds kb (:new mig)))
                    (into (:new lift))
                    (into (special/minted-seeds kb (:new down)))
                    ;; the companion rule goes on the agenda so it fires over the

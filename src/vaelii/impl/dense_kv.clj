@@ -52,10 +52,15 @@
 ;; ---- the backend --------------------------------------------------------
 
 (defn- handle-key?
-  "Does `k` name a HANDLE set (int postings)?  Handle sets: trie leaves `[:trie :handles …]`, and
-  the roots/indexes under `:context-root` `:functor-root` `:argument-root` `:term-index` `:rule-index` `:exception-index`.  The trie
-  child-token set `[:trie :children …]` (tokens, incl. numbers), the counter `[:trie :count …]`
-  and the term roster `[:term-roster]` (term *names*) are not — they stay an ordinary set / a Long.
+  "Does `k` name a HANDLE set (int postings)?  Handle sets: the leaves of the trie and of
+  the count tries ending in the context (`[:trie :handles …]`, `[:argument-root :handles
+  …]`, `[:predicate-extent :handles …]`, `[:rule-antecedent :handles …]`, `[:rule-consequent
+  :handles …]`, `[:rule-extent :handles …]`, `[:opposed :handles …]`, `[:self-tuple
+  :handles …]`, `[:tax-support :handles …]`, `[:mint :handles …]`, `[:mint-in :handles …]`),
+  and the flat sets under `:context-root` `:term-index` `:exception-index` `:opposed-in`.
+  The child sets (`[:trie :children …]` holds tokens, incl. numbers; a count trie's holds
+  contexts), the counters, the term roster `[:term-roster]` (term *names*) and the opposed
+  bodies `[:opposed-bodies]` are not — they stay an ordinary set / a Long.
 
   A key this fails to recognize is stored boxed and answers every read identically, so
   nothing behavioural can catch a spelling that drifts from the one `vaelii.impl.kv`
@@ -63,8 +68,10 @@
   [k]
   (and (vector? k)
        (case (first k)
-         :trie (= :handles (second k))
-         (:context-root :functor-root :argument-root :term-index :rule-index :exception-index) true
+         (:trie :argument-root :predicate-extent :rule-antecedent :rule-consequent :rule-extent
+                :opposed :tax-support :mint :mint-in :self-tuple)
+         (= :handles (second k))
+         (:context-root :term-index :exception-index :opposed-in) true
          false)))
 
 (defrecord TieredKvBackend [state]

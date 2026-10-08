@@ -500,16 +500,23 @@
   closure-cache
   (atom {}))
 
+(defn- inconsistency-detail
+  "What makes the metric network `net` unsatisfiable: `{:pairs #{[p q]} :cycle #{instant}}`,
+  the pairs unsatisfiable as written and the instants on a negative cycle.  Either set is
+  empty when the other holds the whole clash."
+  [net]
+  (let [node-vec (nm/by-print-key (nodes net))]
+    {:pairs (unsatisfiable-pairs net)
+     :cycle (negative-cycle-nodes
+             (shortest-paths! (distance-matrix net node-vec) (count node-vec))
+             node-vec)}))
+
 (defn- report-inconsistency!
   "File `:metric-temporal-inconsistency` for `prob` in the violations ledger, naming any
   pair unsatisfiable as written and the instants on a negative cycle, and log it at :warn.
   docs/stp.md gives the reasons this is a report and not a `wff` check."
   [kb context {:keys [net unit]}]
-  (let [bad         (unsatisfiable-pairs net)
-        node-vec    (nm/by-print-key (nodes net))
-        cycle-nodes (negative-cycle-nodes
-                     (shortest-paths! (distance-matrix net node-vec) (count node-vec))
-                     node-vec)
+  (let [{bad :pairs cycle-nodes :cycle} (inconsistency-detail net)
         entry {:violation :metric-temporal-inconsistency
                :context   context
                :sentence  nil
@@ -667,16 +674,37 @@
   unsatisfiable as given, so the interval network it is folded into is unsatisfiable and
   answers nothing.  nil for fewer than two intervals.
 
+  `:unsatisfiable-sources` carries `source`, the description of the clash in the source
+  network, with the emptied pair as its `:stand-in`: the pair stands in for the source's
+  clash and is not one any interval fact contradicts (`qcn-kb/unsatisfiable-sources`).
+
   An unsatisfiable source admits no endpoint ordering, so reading it pair by pair would
   empty every pair; one emptied pair gives the same verdict.  Answering nil instead would
   widen the interval network when a fact arrives, and an entailment drawn through the
   narrowing would stop holding while the firing that rested on it stayed believed
   (docs/qcn.md, \"A network can have a second reader\")."
-  [intervals support]
+  [intervals support source]
   (let [[i j] (nm/by-print-key (set intervals))]
     (when j
-      {:net     {[i j] #{} [j i] #{}}
-       :support {[i j] support [j i] support}})))
+      {:net                   {[i j] #{} [j i] #{}}
+       :support               {[i j] support [j i] support}
+       :unsatisfiable-sources [(assoc source :stand-in #{[i j] [j i]})]})))
+
+(defn- inconsistency-source
+  "The `:metric` source description of unsatisfiable `prob`: the pairs unsatisfiable as
+  written, the instants on a negative cycle, and as `:support` the handles behind the
+  constraints among those pairs and instants (`stated-constraints`' support)."
+  [{:keys [net support]}]
+  (let [{:keys [pairs cycle]} (inconsistency-detail net)]
+    {:source  :metric
+     :pairs   (nm/by-print-key pairs)
+     :cycle   (nm/by-print-key cycle)
+     :support (into #{}
+                    (mapcat (fn [[[p q :as pair] hs]]
+                              (when (or (contains? pairs pair)
+                                        (and (contains? cycle p) (contains? cycle q)))
+                                hs)))
+                    support)}))
 
 (defn allen-narrowing-with-support
   "What the metric constraints pin down about the interval relations, as
@@ -684,14 +712,16 @@
   shape.  A pair's support is both intervals' endpoint facts and the chains behind the four
   `endpoint-gaps`.  Only narrowed pairs are recorded.  nil with no constraints or fewer
   than two intervals with both endpoints.  An inconsistent network answers
-  `unsatisfiable-narrowing`, supported by every constraint read."
+  `unsatisfiable-narrowing`, supported by every constraint read, its source described by
+  `inconsistency-source`."
   [kb context]
   (when-let [{:keys [net support] :as prob} (problem kb context)]
     (let [ends (intervals-with-endpoints kb context)]
       (when (>= (count ends) 2)
         (let [closed (closure kb context prob (mapcat (comp first val) ends))]
           (if (= :inconsistent closed)
-            (unsatisfiable-narrowing (keys ends) (into #{} (mapcat val) support))
+            (unsatisfiable-narrowing (keys ends) (into #{} (mapcat val) support)
+                                     (inconsistency-source prob))
             (reduce
              (fn [acc [[i [ei hi]] [j [ej hj]]]]
                (let [rels (relations-from-endpoints closed ei ej)]
@@ -818,3 +848,10 @@
   :read     (fn [_] {:entries (count @via-cache)})
   :clear    (fn [_] (let [n (count @via-cache)] (reset! via-cache {}) n))
   :trim     (fn [_ target] (caches/trim-map! via-cache target))})
+
+(caches/register-derived
+ {:id :K5 :label "Metric closures and reconstructions" :cache :metric-closures :kind :cache
+  :keyed-by :value :reads [] :retired-by {:caches-cleared :W} :computed :read
+  :imaged? false :var [#'closure-cache #'via-cache]
+  :value (fn [_] [@closure-cache @via-cache])
+  :note "content-keyed by network and tolerance (also registered as `:metric-reconstructions`); cleared at the bound"})

@@ -28,5 +28,6 @@
 ;; `raf` is the log file, written and forced under `lock` because a `RandomAccessFile`
 ;; shares one file pointer (`vaelii.impl.disk.files`, the shared-pointer invariant).
 ;; `state` is `fresh-state`'s map; `reg` the durability registration; `seal-fn` the
-;; function `run-op` calls when a seal is due.
-(defrecord Oplog [path ^RandomAccessFile raf lock state reg seal-fn])
+;; function `run-op` calls when a seal is due; `fault` the latch a failed write, fsync or
+;; close sets (`files/latch-fault!`).
+(defrecord Oplog [path ^RandomAccessFile raf lock state reg seal-fn fault])

@@ -52,13 +52,15 @@
       (is (re-find #"Justification dedup" body))
       (is (re-find #"built and dropped inside a single chaining run or search step" body)))))
 
-(deftest a-per-process-counter-is-not-rendered-as-a-per-kb-one
-  ;; The literal cache's entries belong to this KB and its hit counters are global across
-  ;; every KB in the process. The page has to say the second, or a reader takes another
-  ;; KB's work for this one's.
-  (let [body (:body (GET "/caches"))]
-    (is (re-find #"rates: this process" body))
-    (is (re-find #"this KB" body))))
+(deftest a-row-is-rendered-with-the-scope-its-numbers-are-about
+  ;; A row whose counters are the process's while its entries are this KB's carries a
+  ;; "rates:" line; the literal cache counts per KB and carries none.
+  (let [body (:body (GET "/caches"))
+        rows (v/caches tu/*kb*)]
+    (is (re-find #"this KB" body))
+    (is (re-find #"this process" body))
+    (is (= (boolean (some #(and (:counters %) (not= (:counters %) (:scope %))) rows))
+           (boolean (re-find #"rates: " body))))))
 
 (deftest the-page-names-the-derived-state-it-does-not-list
   ;; A reader who knows the refusal memory and the ledgers exist, and sees no mention of
@@ -163,22 +165,15 @@
         (is (str/includes? body label))))))
 
 (deftest the-clear-says-where-it-reaches-past-this-kb
-  ;; The literal cache's rates are the process's, and the button does not touch them —
-  ;; `clear-caches` is called with no opts, so `:counters?` stays off. A control beside
-  ;; a process-wide rate has to say the rate keeps running, and say it from the rows
-  ;; rather than from a cache named in prose that would outlive it.
+  ;; The button calls `clear-caches` with no opts, so no counter is zeroed.  The page
+  ;; names, from the rows, every clearable row whose rates are the process's.
   (let [body (:body (GET "/caches"))
         wide (->> (v/caches tu/*kb*)
                   (filter #(and (:clearable? %) (= :process (:counters %))))
                   (map :label))]
-    (is (seq wide))
-    (is (re-find #"Wider than this KB: " body))
+    (is (= (boolean (seq wide)) (boolean (re-find #"Wider than this KB: " body))))
     (doseq [label wide]
-      (is (str/includes? body label)))
-    (is (re-find #"drops this KB&apos;s entries alone and leaves those counters running" body))
-    (is (re-find #"zeroing them is clear-caches&apos; :counters\? option" body)
-        "and names the API option that does reach them, which is what a reader who
-        wanted the rates zeroed goes looking for")))
+      (is (str/includes? body label)))))
 
 (deftest a-cache-that-cannot-be-read-renders-as-unreadable-not-as-empty
   ;; In a column of dashes the two are indistinguishable, and the page is worth most

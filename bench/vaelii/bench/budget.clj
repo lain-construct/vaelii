@@ -313,7 +313,7 @@
   handful of vars and a feed's listeners are the caller's objects, so neither grows with
   the corpus, which is the only property this table is about."
   [:conflicts :program :violations :contradictions :recheck :refused
-   :settle-stats :chain-stats :opposed :excepted :supersessions
+   :settle-stats :chain-stats :excepted :supersessions
    :reports :qcn :qcn-joined :matches :closures :naming :constraints :rule-antecedents
    :rule-contexts :unrecovered])
 

@@ -22,7 +22,8 @@ iff `Y ∈ context-up(K)`.
 
 **A `genlCx` edge is `:monotonic` and undeniable.** `genlCx` is on the forced-monotonic
 roster ([nmtms.md](nmtms.md#the-forced-monotonic-roster)): every edge is held
-`:monotonic` whatever strength it was written at, and a denial of one is held OUT.
+`:monotonic` whatever strength it was written at, so it caps no firing's class, and a
+denial of one is held OUT.
 
 **A `genlCx` cycle is refused at assert, like a `genl` cycle.** The context hierarchy
 is a partial order: `wff/genlCx-problems` reads the global `genlCx` closure and refuses
@@ -76,17 +77,19 @@ Data hangs below CxWell.
   special predicate the engine interprets), asserted by `vaelii.host.core-context`. The
   root — every context in the spindle sees it, and a context no `genlCx` edge names
   sees nothing but itself ([A context outside the
-  spindle](#a-context-outside-the-spindle)). It also holds the five collections at the
-  top of the ontology — `intangible`, `spatial`, `physical_object`, `living_thing`,
-  `capability` — which the engine reads by no name and which are here for the reason
-  below: the members of a spindle see each other not at all, so a term two of them
-  extend has to be defined in the head.
+  spindle](#a-context-outside-the-spindle)). It also holds the collections at the top
+  of the ontology — the parts of the three partitions of `thing`
+  ([taxonomy.md](taxonomy.md#the-three-partitions-of-thing)), `spatiotemporal`,
+  `nowhere_never`, `expression`, `biological`, `organism` and `measure` — which the
+  engine reads by no name (`vaelii.impl.predicates` classifies each inert) and which are
+  here for the reason below: the members of a spindle see each other not at all, so a
+  term two of them extend has to be defined in the head.
   `starter_test/a-term-two-spindle-members-touch-is-defined-in-the-head` holds that.
 - **the upper spindle's members** (`resources/kb/upper/`) — what things *are*, always
   true, like `genl`. One context per domain (`vaelii.host.starter`), each seeing CxCore
   and seen by CxUniverse:
-  - `CxAbstract` — the kinds hanging off the skeleton CxCore holds (`artifact`,
-    `attribute`, `food`, `substance`, `body_part`, `fluent`, `context`, …) plus the
+  - `CxAbstract` — the kinds hanging off the skeleton CxCore holds (`made`,
+    `food`, `substance`, `body_part`, `context`, …) plus the
     structural relations `partOf`/`locatedIn`.
   - `CxOrganism` — the biological taxonomy and its disjointness.
   - `CxLife` — the organism relations (`parentOf`, `siblingOf`, `flies`, `mortal`,
@@ -112,10 +115,14 @@ Data hangs below CxWell.
 - **CxUniverse** — the upper spindle's *collector* and the middle spindle's *head*, left free for **lifting**: universally-true facts collect here
   (`decontextualized_predicate` justifications and the forced `genlCx` extent). It sees
   every upper member and is seen by every middle member. It also holds hand-authored
-  cross-member axioms: `resources/kb/CxUniverse.txt` states `(disjoint organization
-  animal)`, whose `organization` and `animal` come from different upper members. No
-  member sees a sibling, so only the collector sees both terms, and a cross-member
-  `disjoint` belongs here. Being the one context
+  cross-member axioms in `resources/kb/CxUniverse.txt`: a claim naming terms from two
+  upper members belongs here, since no member sees a sibling and only the collector
+  sees both. It holds `(termsRelated time_interval Duration)`, which names CxAbstract's
+  `time_interval` beside CxMeasure's dimension, and the `travelling` and `flying` event
+  kinds CxLife's abilities name, whose `genl` edges reach CxAbstract's `causal_event`. It
+  also states each shipped context's `context` membership, since it stores every
+  `genlCx` edge. `organization` and `animal`, the pair it once separated, are already
+  separated by `(partition thing tangible intangible)` in CxCore. Being the one context
   that sees the whole upper spindle is what makes it the head of the next.
 - **the middle spindle's members** (`kb/middle/`) — how the definitional things *interrelate*,
   where several overlapping theories can coexist. One context per theory, each seeing
@@ -123,7 +130,7 @@ Data hangs below CxWell.
   - `CxKinship` — grandparentOf, ancestorOf, olderThan.
   - `CxMereology` — a part is located where its whole is; owning a whole entails
     owning its parts.
-  - `CxBiology` — birds fly by default except penguins; living things are mortal;
+  - `CxBiology` — birds fly by default except penguins; organisms are mortal;
     flight enables travel.
   - `CxChange` — a simple event calculus: a state persists until an event ends it,
     so `holdsAt` is inertia over what `initiates` and `terminates` say
@@ -133,7 +140,7 @@ Data hangs below CxWell.
     deliberate: "birds have wings" to "Pingu has a wing" needs a quantifier reading.
   - `CxSize` — comparative size said the two ways it can be said: `largerThan`
     among kinds, and a comparison computed between two objects' measures. The worked
-    example of `transitiveInArg` ([inherit.md](inherit.md)).
+    example of `transitiveInArgInverse` ([inherit.md](inherit.md)).
   - `CxSocial` — what acquaintance follows from, and how employment relates to
     membership. Every rule runs one way only, because `knows` is deliberately not
     symmetric.
@@ -143,8 +150,8 @@ Data hangs below CxWell.
 **A member sees no member, so a shared term belongs in the head.** That is what makes a
 spindle a spindle: `CxLife` does not see `CxOrganism` and `CxOrganism` does not see
 `CxAbstract`. A term defined in one member and *extended* from another is therefore
-invisible where it is extended, and the closure breaks — `(genl animal living_thing)` in
-`CxOrganism` against a `living_thing` defined in `CxAbstract` left `animal` unable to
+invisible where it is extended, and the closure breaks — an edge placing `animal` under
+`organism` in `CxOrganism` against an `organism` defined in `CxAbstract` left `animal` unable to
 reach `thing` from `CxOrganism` itself, so every `arg` constraint written there convicted
 nothing in its own context. So a term more than one member of a spindle defines or
 extends belongs at or above that spindle's head: CxCore for the upper spindle, and
@@ -379,8 +386,8 @@ from C **and every context that sees C** — its `context-down` closure — whil
 the more general contexts C sees untouched. It is a **meta-sentex**: `(sentexHandle H)`
 is the term form of a stored sentex's handle (`sentex/sentex-handle`), so the except
 names the sentex it hides rather than restating it. `except` is on the forced-monotonic
-roster where CxCore declares it ([nmtms.md](nmtms.md#the-forced-monotonic-roster)): an
-except is held `:monotonic` and a denial of one is held OUT, so retracting the except is
+roster's engine baseline ([nmtms.md](nmtms.md#the-forced-monotonic-roster)): an except is
+never the loser of a nogood and a denial of one is held OUT, so retracting the except is
 what restores
 the hidden sentex. It rides the ordinary `genlCx` up-closure, visible from exactly the
 contexts where it hides its target.
@@ -393,21 +400,36 @@ acyclic. A target retracted after its except leaves the except naming nothing, a
 handle is never reissued. A store written by import or recovery may still hold a cycle;
 the cascade reads an except it meets a second time on one walk as not in force.
 
+**The meta-except cascade.** An except can itself be excepted. `(except H)` hides H;
+`(except E)`, where E is that except, takes E out of force and H is visible again;
+`(except M)`, where M is the meta-except, takes M out of force and H is hidden again. The
+toggle repeats at each depth, and is read at query time off the index
+(`exc/exception-status` returns the forest for one handle). A read follows the cascade
+from the excepts naming the asked handle, one trie read per except it meets, so the
+cascade costs the excepts on that handle and none elsewhere.
+
 The removal is **total**, not just for reads:
 
 - **Reads.** `res/matches-visible` and `sentexes-matching` drop a handle hidden from the
   view context — the believed excepts visible from there, resolved through `context-up`.
-- **Derivations.** A rule firing that used `H` as an antecedent and placed its
-  conclusion in the ancestor set rests on a fact that context can no longer see, so the
-  conclusion is **blocked and swept** — the derivation-side twin of `exceptWhen`, run
-  through the same block/sweep/revive machinery (`chain/justification-excepted?` and
-  `place-conseq` ask per placement). A firing that arrives *after* the
-  except is never placed in the ancestor set; a late except sweeps what already fired; and
-  retracting the except **re-derives** what it was hiding. A conclusion placed *above*
+- **Derivations.** A rule firing whose antecedent is `H`, or rests on `H` through any
+  chain of justifications, and that placed its conclusion in the ancestor set rests on a
+  fact that context can no longer see, so the conclusion is **blocked and swept** — the
+  derivation-side twin of `exceptWhen`, run through the same block/sweep/revive machinery
+  (`chain/justification-excepted?` and `place-conseq` ask per placement). A placed nogood
+  is swept the same way. A firing that arrives *after* the except is never placed in the
+  ancestor set; a late except sweeps what already fired; and retracting the except
+  **re-derives** what it was hiding, in every arrival order. A firing is blocked on the
+  excepts alone (`exc/except-closure-hidden-fn`: an except in force names the antecedent or
+  a handle every route of it rests on), never on a placed `defeat` (below). The except re-checks the firings over `H`'s consequence closure and re-joins from
+  that closure when it leaves (`special/recheck-except`, `special/drain-except-moves!`),
+  so its cost is the consequences of `H` and not the extent of the rules they use
+  (`lein perf`'s `except-beside-unrelated-firings`). A conclusion placed *above*
   the ancestor set (a context that does not see the except) stays stored and believed
   there. A read from a context that sees the except does not find that conclusion when
-  every justification it has rests on a hidden handle (`res/withdrawal`,
-  [nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)).
+  every justification it has rests on a hidden handle (the read walk, `exc/hidden-fn`,
+  [nmtms.md](nmtms.md#a-nogood-placed-as-a-conclusion)). An argument-type derivation
+  is dropped and drawn again the same way ([argtypes.md](argtypes.md#an-except-of-an-ingredient)).
 - **Rules.** `H` may itself be a rule — a firing rests on its rule exactly as it
   rests on its facts (the rule handle is in the stored justification), so excepting a
   rule sweeps its conclusions from the ancestor set, blocks late firings there, and revives
@@ -416,28 +438,52 @@ The removal is **total**, not just for reads:
   `provers/candidate-rules` drops a rule the asking context cannot see, so `query`
   and `prove` do not rebuild through a hidden rule what forward chaining swept.
 
-**What the two of them read.** Both go through the KB's `:excepted` roster —
-`{context → {hidden-handle → #{except-handle}}}`, maintained O(1) at the store and
-removal choke points (`kb/note-excepted!`) exactly as the `:opposed` coincidence set is,
-and rebuilt by `recover` because it is derived from storage and no store holds it. A KB
-that excepts nothing has an empty roster, and that is the gate: a deref, and no index
-read. A KB that excepts something pays one map lookup per context stating an except, plus
-a `jtms/in?` per except naming the handle asked about — **belief stays a read**, since an
-except can be defeated or revived with no sentex arriving or leaving, which is the same
-line `:opposed` draws.
+**`defeat` beside `except`.** `(defeat (sentexHandle H))` has the same shape and is read
+the same way, by target off the trie, and differs in what it removes and when:
+
+| | `except` | `defeat` |
+|---|---|---|
+| written by | a user's `assert` | the engine alone: a placed nogood for its unique weakest member, a guard below a firing's placement for the firing's conclusion; `assert` refuses it in any literal (`:derived-only`) |
+| removes `H` from | visibility at the excepting context and below | belief at the defeat's context and below |
+| applied | at read time, and by sweeping the firings resting on `H` placed at or below it | at read time only; it sweeps nothing, and `chain` reads no `defeat` |
+| read by a placement | yes: a firing or a nogood is not placed where an except hides an ingredient | no |
+
+Both are applied by one walk over the asked handle's support (`exc/hidden-fn`), and a
+meta-except of a `defeat` takes it out of force at the excepting context and below. A
+placed nogood's `defeat` rests on the loser it hides, so the walk reads that loser at its
+label for the nogood's own placed sentexes (the **exemption**,
+[nmtms.md](nmtms.md#a-nogood-placed-as-a-conclusion)); an `except` of the loser, the
+winner, a ground or the defeat takes the defeat out of force below the except. A placed
+`defeat` and `contradicts` are stored sentexes: `why` names the members and grounds they
+rest on, `why-not` of a hidden target names the defeat, and `sentexes-matching` answers
+`(defeat ?h)` and `(contradicts ?a ?b)` at the contexts that believe them.
+
+**What the two of them read.** Both are read off the index. The trie keys a positive
+`(except (sentexHandle H))` as `[except m sentexHandle H context]`, `m` the handle term's
+arity marker, so the level above the context lists the contexts stating an except of H
+and each leaf holds their handles (`reads/as-stored-naming`); the `except` predicate
+extent lists the contexts stating one (`reads/stores-in?`). A KB that excepts nothing
+reads 0 off the trie's `[except]` count, and that is the gate: one count read. A KB that
+excepts something pays one membership test per context stating an except of the handle
+asked about, plus a `jtms/in?` per except naming it — **belief stays a read**, since an
+except can be defeated or revived with no sentex arriving or leaving. `recover` and a
+fork rebuild nothing for either.
 
 Callers with particular handles in hand — a firing's two or three antecedents, or matches
-arriving one at a time — take `res/hidden-fn`, a predicate over one view context, rather
-than `res/excepted-handles`, which materializes every handle hidden anywhere in the ancestor set.
+arriving one at a time — take `exc/hidden-fn`, a predicate over one view context, rather
+than `exc/excepted-handles`, which materializes every handle hidden anywhere in the ancestor set.
 The set costs one pass over the reader's excepts however few handles will be asked about;
 the predicate costs a lookup per question, and the questions are bounded by the answer set
 while the excepts are not. On a chaining run over a KB with 1,000 excepts the difference
 is 16× the whole run (`lein bench-hotreads`).
 
 The re-check triggers are the except arriving or leaving (`special/recheck-except`,
-keyed on the handle it names rather than a predicate) and any `genlCx` edge change
+keyed on the handle it names rather than a predicate) and a `genlCx` edge change
 (`special/recheck-except-ancestors` — a visibility move changes which contexts see the
-excepting context, hence what each hides).
+excepting context, hence what each hides). A `(genlCx sub super)` edge re-checks only the
+excepts stated in a context `super` sees, read off the `except` extent, and the
+derivations under `sub`: `lein perf`'s `genlcx-edge-beside-excepted-declarations` holds
+an edge flat in the excepts it does not move.
 
 ## ist: find or create in a context
 
@@ -588,7 +634,7 @@ lift, and only that case pays anything more). A sweep over stored facts, the one
 declaration arriving last runs and the one `recover` runs, asks `sees?` once per stating
 context. The copy is asked what a rule's
 conclusion is asked (`checks/derivation-violation`): a clash with a believed member is
-stored and decided at each reader, and only an inadmissible copy, an argument
+stored and placed as a nogood, and only an inadmissible copy, an argument
 conviction or a malformed form, is dropped, recording a `violations` entry that names
 the context it was lifted from.
 
@@ -682,8 +728,10 @@ arrived before the facts it governs or after them.
 
 **The four permuting marks are lifted by the engine itself.** `symmetric`, `commutative`,
 `commutativeInArgs` and `commutativeInArgAndRest` decide the order a `(P …)` sentex's
-arguments are stored in, and a sentex has one key for every context (`res/kb-sentex`), so
-the store reads a permuting mark globally from the moment one is stated anywhere. Every
+arguments are stored in, and the store sorts a fact by a mark stated in any context
+(`res/kb-sentex`) from the moment one is stated anywhere. A `defeat` or an `except` of
+every statement takes the mark away from the readers that see it, which read the fact as
+written ([canonicalization.md](canonicalization.md#a-mark-a-reader-does-not-believe)). Every
 other reader reads it where its sentex is visible, so a KB with no lift answered the
 mirror of a fact from a sibling through the store and denied it through `has-prop?`, the
 symmetric prover and the supporter a mirrored firing names. `special/deduce-lifts`
@@ -698,8 +746,8 @@ them, so every reader reads `(transitive R)` stated in `CxA` from `CxA` and belo
 and `a-permuting-mark-is-read-from-every-context-on-this-kb-too` beside it pins the four
 permuting marks. Such a KB still holds the forced-monotonic roster's engine baseline, so a
 `genlCx` edge, a `functional` or `irreflexive` mark, a definitional declaration, an arity
-binding, an `except` or an equality stated `:default` is held `:monotonic` and a denial of
-one OUT, as under CxCore ([nmtms.md](nmtms.md#the-forced-monotonic-roster)).
+binding, an `except` or an equality stated `:default` is never a loser and a denial of
+one is held OUT, as under CxCore ([nmtms.md](nmtms.md#the-forced-monotonic-roster)).
 
 Measured on a lattice of two siblings `CxA` and `CxB` under CxUniverse and `CxD` below
 both, with the mark stated in `CxA` and the facts it governs in CxUniverse, each in both
@@ -713,7 +761,7 @@ arrival orders:
 | `commutativeInArgAndRest` | every context | every context | the `:commuting` table |
 | `transitive` | every context | `CxA`, `CxD` | `:props :transitive` — the closure prover, `usable-relation?` |
 | `reflexive` | every context | `CxA`, `CxD` | `:props :reflexive` — the reflexive prover |
-| `irreflexive` | every context | `CxA`, `CxD` | the mark's supporters and their contexts — the nogood a reader decides |
+| `irreflexive` | every context | `CxA`, `CxD` | the mark's supporters and their contexts — the placed nogood's ground |
 | `asymmetric` | every context | `CxA`, `CxD` | `:props :asymmetric` — the refusal and the settle's nogood |
 | `anti_symmetric` | every context | `CxA`, `CxD` | `:props :anti-symmetric` — the merge, placed where the mark is visible |
 | `anti_transitive` | every context | `CxA`, `CxD` | `:props :anti-transitive` — the refusal and the settle's nogood |
@@ -750,13 +798,14 @@ means every context that sees CxUniverse. A context that does not:
 - gets no CxCore rule firing over its facts, since no context sees both the rule and the
   fact. Each such firing files a `:no-placement` entry.
 
-The four permuting marks are the exception, because of the stored key. A sentex has one
-key for every context, so a fact stated in such a context is sorted by a mark stated
+The four permuting marks are the exception, because of the stored key. The store sorts a
+fact by a mark stated in any context, so a fact stated in such a context is sorted by a mark stated
 anywhere, and its reader answers the fact's mirror. Every other reader of the property
 reads it where the store does:
 
-- `has-prop?` answers `:symmetric` and `:commutative` from any context as it answers them
-  with no context (`tax/has-prop?`), and the symmetric prover reads the property through it.
+- `has-prop?` answers `:symmetric` and `:commutative` from any context as whether that
+  context believes a statement, every statement read as visible from it (`tax/has-prop?`),
+  and the symmetric prover reads the property through it.
 - A forward firing that read a fact through its mirror names the mark statement, so
   retracting the mark withdraws the firing, and is placed by the rule and the facts it
   matched alone (`chain/placement-antecedents`). Were the statement's context to
@@ -989,15 +1038,35 @@ just as well when the feature is broken outright.
   sentexes of the sets a pairing needs a fact from. The equality twins read the same
   union for the same trigger (`special/context-edge-reader-ancestors`).
 
+  **A `genl` edge is an ingredient too.** A match through a subtype reads the `genl`
+  edges on a route from the fact's type to the antecedent's, and a route edge stated on
+  the other side of the new edge from both the rule and the fact makes a pairing new that
+  the three placements above do not name: `(dog Rex)` and a rule on `(animal ?x)` in
+  `CxHigh`, `(genl dog animal)` in `CxLow`, and `(genlCx CxLow CxHigh)` last. An edge
+  stated in `seen` meets the facts of `up` as it would on arriving there. An edge stated
+  in `fresh` meets the facts of `seen`, which are seeded whatever rule `fresh` states,
+  and, when `seen` states a rule, the facts of the rest of `up`. Each half runs only when
+  its side states a `genl` edge or a cover (`taxonomy/supporter-count-in`, one census read
+  per context).
+
+  **The `seen` half reads the cheaper of two sides** (`special/under-seen-edges`). A
+  context wired under a new parent usually already sees `CxCore`, so `seen` holds the
+  whole ontology's edges while `up` holds a handful of facts. When the facts of `up`
+  under the roster's fan cost no more postings than `seen` states edges, those facts are
+  the seeds; otherwise each edge `seen` states seeds the facts of `up` under it, with the
+  functors `subsumption-seeds` reads. The cost is the smaller of the edges `seen` states
+  and the rule-relevant postings of `up`, and `perf`'s `genlcx-edge-under-a-seen-taxonomy`
+  holds it flat in the edges `seen` states.
+
   **It is enumerated from the rules, and each half is gated on where a rule is stated.**
   Both are about cost, and the cost is asymptotic rather than constant. Walking the ancestor set
   and keeping the facts a rule could match is a record fetch per sentex *in the ancestor set*, so
   wiring N contexts under a `CxUniverse` holding K facts is O(N·K) against
   O(N+K) without it, and a spindle D deep is O(D²) because each edge's ancestor set is the
-  whole chain above. Two ref-counted rosters maintained at the rule index/unindex choke
-  points — `:rule-antecedents`, the predicates some rule takes as an antecedent, and
-  `:rule-contexts`, the contexts rules are stated in, both beside `:opposed` and both
-  replayed by `recover` — turn it around: walk those predicates' extents and keep what
+  whole chain above. Measured: 3.9x on the first shape, 5x and climbing with depth on the
+  second, and 1.8x on the starter load. Two reads of the rule index turn it around: the
+  antecedent keys some stored rule takes (`reads/as-stored-rule-keys`), and the contexts
+  a rule is stated in (the rule extent, `reads/stores-rule-in?`): walk those predicates' extents and keep what
   falls in the sets to seed, or walk those sets' own contents when they hold fewer
   postings (`special/seeds-in`). `fresh` is seeded when a rule is stated in `seen`, and
   `seen` when one is stated in `fresh`; when neither holds but a rule is stated in the
@@ -1047,7 +1116,10 @@ just as well when the feature is broken outright.
   edge is deleted with it, so a conclusion that survived kept a second justification and
   needs nothing, while one that did not is in the swept set. Retracting an edge that
   licensed nothing — the common case — is therefore one functor read per removed record
-  and no chaining at all. Where it does run the re-join is **unconditional**, and
+  and no chaining at all. The edge's own argument-type mint does not count as more: its
+  justification takes the edge as the fact typed, not as a route
+  (`special/edge-own-mints`), so `(genlCx CxA CxUniverse)` with `(arg genlCx 1 context)`
+  in view retracts without re-joining CxUniverse's ancestor set. Where it does run the re-join is **unconditional**, and
   `visibility-seeds` is called in the **ungated** arity it keeps for this caller: the
   rule-holding gate two paragraphs up is skipped on purpose, not inherited. That gate is
   sound for an *arriving* edge because an arriving edge is the only new reachability there

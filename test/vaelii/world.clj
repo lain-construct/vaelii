@@ -36,6 +36,11 @@
   '[(genlCx CxNaturalWorld CxWell)
     (genlCx CxSocialWorld  CxWell)])
 
+(def contexts
+  "The memberships `genlCx`'s argument declarations require of the data contexts, in
+  CxUniverse, where every `genlCx` edge is stored."
+  '[(context CxNaturalWorld) (context CxSocialWorld)])
+
 (def individuals
   "The cast's type memberships — in CxNaturalWorld, so the biology and kinship
   conclusions over them land there for the tests to query."
@@ -43,7 +48,8 @@
     (human Eve) (human Nancy)
     (dog Muffet) (cat Whiskers) (penguin Tweety) (eagle Sam) (sparrow Jack)
     (fish Nemo) (tree Oak1) (flower Rose1) (vehicle Car1) (food Kibble)
-    (building Garage1) (building House1)])
+    (building Garage1) (building House1)
+    (food Bone1) (tangible Engine1) (tangible Piston1)])
 
 (def natural-facts
   '[(parentOf Tom Bob) (parentOf Bob Ann) (parentOf Bob Carol) (parentOf Dave Eve)
@@ -85,6 +91,8 @@
     (initially (AwakeFn Whiskers))
     (initially (IndoorsFn Whiskers))
 
+    (temporal CatFallsAsleep) (temporal CatWakes)
+
     (happens CatFallsAsleep ThreeOClock)
     (initiates CatFallsAsleep (AsleepFn Whiskers) ThreeOClock)
     (terminates CatFallsAsleep (AwakeFn Whiskers) ThreeOClock)
@@ -94,7 +102,11 @@
     (terminates CatWakes (AsleepFn Whiskers) FiveOClock)])
 
 (def social-facts
-  '[(marriedTo Bob Nancy)
+  '[(person Ann) (person Bob) (person Nancy) (person Tom)
+    (animal Bob) (animal Tom)
+    (tangible Car1) (tangible Chimney1) (tangible House1) (tangible Roof1)
+
+    (marriedTo Bob Nancy)
     (owns Tom Car1) (owns Tom House1)
     (partOf Roof1 House1) (partOf Chimney1 House1)
     (likes Ann Muffet)
@@ -105,6 +117,7 @@
   carrying the starter schema). Returns kb."
   [kb]
   (doseq [s topology]         (v/assert kb s 'CxWell))
+  (doseq [s contexts]         (v/assert kb s 'CxUniverse))
   (doseq [s fluent-functions] (v/assert kb s 'CxWell))
   (doseq [s individuals]      (v/assert kb s 'CxNaturalWorld))
   (doseq [s natural-facts]    (v/assert kb s 'CxNaturalWorld))

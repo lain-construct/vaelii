@@ -104,7 +104,7 @@
                [(io/file "project.clj")])
        (filter #(.isFile ^File %))
        (filter #(str/ends-with? (.getPath ^File %) ".clj"))
-       (remove #(= self-file (.getPath ^File %)))))
+       (remove #(= self-file (str/replace (.getPath ^File %) \\ \/)))))
 
 (defn- shell-sources []
   (->> (file-seq (io/file "scripts"))

@@ -10,7 +10,8 @@
   (:require [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]])
+            [clojure.test :refer [deftest is testing]]
+            [vaelii.test-util :as tu])
   (:import [java.io File]
            [java.nio.file Files StandardCopyOption]
            [java.nio.file.attribute FileAttribute]))
@@ -36,19 +37,20 @@
 (defn- with-repo
   "Call `f` with a scratch repository holding two commits, and delete it after."
   [f]
-  (let [dir (.toFile (Files/createTempDirectory "vaelii-matrix-" (into-array FileAttribute [])))]
-    (try (git! dir "init" "-q")
-         (git! dir "commit" "-q" "--allow-empty" "-m" "one")
-         (git! dir "commit" "-q" "--allow-empty" "-m" "two")
-         (f dir)
-         (finally (doseq [^File x (reverse (file-seq dir))] (.delete x))))))
+  (tu/with-requirement @tu/host-bash? "the bash on PATH is WSL's, which sees neither this checkout nor the scratch repository"
+    (let [dir (.toFile (Files/createTempDirectory "vaelii-matrix-" (into-array FileAttribute [])))]
+      (try (git! dir "init" "-q")
+           (git! dir "commit" "-q" "--allow-empty" "-m" "one")
+           (git! dir "commit" "-q" "--allow-empty" "-m" "two")
+           (f dir)
+           (finally (doseq [^File x (reverse (file-seq dir))] (.delete x)))))))
 
 (defn- slots
   "Run `body` in `dir` with `scripts/lib/slots.sh` sourced; its trimmed stdout."
   ([dir body] (slots dir {} body))
   ([dir extra body]
-   (let [{:keys [exit out err]} (run dir extra "bash" "-c"
-                                     (str ". " checkout "/scripts/lib/slots.sh && " body))]
+   (let [{:keys [exit out err]} (run dir extra tu/bash "-c"
+                                     (str ". " (tu/posix-path checkout) "/scripts/lib/slots.sh && " body))]
      (assert (zero? exit) err)
      (str/trim out))))
 
@@ -117,11 +119,11 @@
         (spit (io/file run-dir "failures.tsv") (str t "\tdisk-snapshot\n" t "\trete\n"))
         (spit (io/file run-dir "requested-by") "session:s1\n")
         (spit (io/file run-dir "queue-dropped") "0123456789ab :default session:s2,user:u\n")
-        (slots dir (str "matrix_red_mark " (.getPath run-dir)))
-        (let [{:keys [exit out]} (run dir {} "bash" "scripts/test-matrix.sh" "--no-tty" "memory")]
+        (slots dir (str "matrix_red_mark " (tu/posix-path run-dir)))
+        (let [{:keys [exit out]} (run dir {} tu/bash "scripts/test-matrix.sh" "--no-tty" "memory")]
           (is (= 75 exit) "the refusal is exit 75, the not-started status")
           (testing "the notice names the red run and whose it was"
-            (is (str/includes? out (.getPath run-dir)))
+            (is (str/includes? out (tu/posix-path run-dir)))
             (is (str/includes? out "revision:   abc12345"))
             (is (str/includes? out "in charge:  session:s1")))
           (testing "the requests the red run dropped are named"

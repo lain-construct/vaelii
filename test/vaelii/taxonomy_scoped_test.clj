@@ -9,8 +9,8 @@
   integers, belief is whatever set `refresh-beliefs` is handed.  The oracle at the
   end is the reference: filter the active edge set by visibility *first*, hand it
   to the materialized `closures` build, and every scoped read must agree — after
-  every edit of a random sequence, from every reader, so a stale memo or vis-index
-  entry has nowhere to hide.
+  every edit of a random sequence, from every reader, so a stale memo entry has
+  nowhere to hide.
 
   The context lattice used throughout ((genlCx Sub Super) = Sub sees Super):
 
@@ -65,22 +65,30 @@
     (testing "an empty census is unscoped: nothing to filter by"
       (is (nil? (tax/visible-ctxs (tax/create-taxonomy) :genl 'CxA))))))
 
-(deftest visible-ctxs-is-interned-per-epoch
+(deftest visible-ctxs-follows-the-census-and-the-ancestor-set
   (let [t (lattice)]
     (tax/add-genl t 'dog 'animal 1 'CxA)
-    (testing "two reads from one context share one set object"
-      (is (identical? (tax/visible-ctxs t :genl 'CxA)
-                      (tax/visible-ctxs t :genl 'CxA))))
-    (testing "a new asserting context re-stamps and recomputes"
-      (let [before (tax/visible-ctxs t :genl 'CxW)]
-        (is (nil? before) "W saw every asserting context")
-        (tax/add-genl t 'fish 'animal 2 'CxE)
-        (is (= '#{CxA} (tax/visible-ctxs t :genl 'CxW))
-            "E asserts now, W does not see it, so W is scoped")))
-    (testing "a genlCx edge re-stamps too — the ancestor set itself moved"
+    (testing "a new asserting context the reader does not see scopes it"
+      (is (nil? (tax/visible-ctxs t :genl 'CxW)) "W saw every asserting context")
+      (tax/add-genl t 'fish 'animal 2 'CxE)
+      (is (= '#{CxA} (tax/visible-ctxs t :genl 'CxW))
+          "E asserts now, W does not see it, so W is scoped"))
+    (testing "a genlCx edge moves the ancestor set"
       (tax/add-genlCx t 'CxW 'CxE 907)
       (is (nil? (tax/visible-ctxs t :genl 'CxW))
           "W sees CxE now, so it sees every asserting context again"))))
+
+(deftest the-filtered-descendant-sets-hold-the-contexts-read-since-the-visibility-moved
+  ;; `context-down` memoizes one filtered set per context under the visibility
+  ;; generation, and a move of that generation starts the map again
+  (let [t     (lattice)
+        by-ctx #(get-in @(:closure-memo @t) [:genlCx :down-vis :by-ctx])]
+    (tax/install-supporter-visibility! t (constantly (seq {:excepted #{903}})) (fn [_ _] true))
+    (doseq [c '[CxU CxA CxB CxW CxE]] (tax/context-down t c))
+    (is (= 5 (count (by-ctx))) "the premise: one set per context read")
+    (tax/note-supporter-visibility-change! t)
+    (tax/context-down t 'CxA)
+    (is (= '[CxA] (keys (by-ctx))))))
 
 ;; ---- the scoped closures --------------------------------------------------
 
@@ -278,6 +286,26 @@
       (is (<= (caches/lru-weight (:closure-lru @t)) 16)))
     (finally (caches/set-limit :taxonomy-closures nil))))
 
+(deftest the-closure-cache-counts-hits-misses-evictions-and-builds
+  (caches/set-limit :taxonomy-closures 3)
+  (try
+    (let [t     (tax/create-taxonomy)
+          lru   (:closure-lru @t)
+          count #(get (caches/tally-map (:tally lru)) %)
+          walk  #(.get ^java.util.concurrent.atomic.AtomicLongArray (:walks lru) (int %))]
+      (tax/add-genl t 'dog 'animal 1)
+      (tax/add-genl t 'animal 'thing 2)
+      (is (= '#{thing} (tax/genls-global t 'thing)))
+      (is (= [0 1] [(count :hits) (count :misses)]) "a cold read misses")
+      (is (= '#{thing} (tax/genls-global t 'thing)))
+      (is (= 1 (count :hits)) "and its repeat hits")
+      (is (= '#{dog animal thing} (tax/genls-global t 'dog)))
+      (is (pos? (count :evicted)) "a closure past the bound evicts the colder ones")
+      (is (pos? (count :recompute-ns)))
+      (is (= [2 0] [(walk 0) (walk 1)])
+          "each up-closure read built from its parents' is a build, and none fell back"))
+    (finally (caches/set-limit :taxonomy-closures nil))))
+
 (deftest a-scope-seeing-every-context-a-closure-rests-on-reads-the-global-closure
   ;; `closure-needs`: the scoped walk is skipped, and the global set itself is the answer,
   ;; when the reader sees the context of every edge the global closure walks.  CxA is a
@@ -348,7 +376,7 @@
                           (tax/genl-edges t)))))
 
 (deftest scoped-reads-agree-with-the-filtered-reference-after-random-edits
-  ;; edits and scoped reads interleave, so a memo or vis-index entry surviving an
+  ;; edits and scoped reads interleave, so a memo entry surviving an
   ;; edit it should not is caught at the very next read.  Deterministic seed;
   ;; edges point up the node order, so the graph stays a DAG.
   (let [t       (lattice)

@@ -107,6 +107,35 @@
                true)))                                    ; unreadable conjunct: keep
          except)))
 
+(defn- firing-test
+  "A `bindings -> boolean` fn answering `firing-reachable?` for the block literals
+  `except` against the trigger `shapes`, for one rule.  With no equality class
+  (`norm` nil) and every literal flat, on a named predicate `cross?` refuses and with a
+  variable argument, a literal agrees with a trigger only when a variable of it is bound
+  to a trigger argument.  So the fn first looks each variable up in `bindings`, and
+  rejects a firing that binds every one to an atom and none to a trigger argument: a
+  firing the trigger does not name costs a lookup per variable, not a substitution per
+  literal."
+  [kb except shapes cross? norm]
+  (let [args  (into #{} (mapcat (comp keys second)) shapes)
+        var?  #(and (symbol? %) (sx/variable? %))
+        flat? (fn [lit]
+                (let [b (peel-negation lit)]
+                  (and (sequential? b) (symbol? (nm/functor b)) (not (var? (nm/functor b)))
+                       (not (cross? (nm/functor b)))
+                       (not-any? sequential? (nm/args b)) (some var? (nm/args b)))))
+        vars  (when (and (nil? norm) (seq except) (every? flat? except))
+                (into [] (comp (mapcat #(nm/args (peel-negation %))) (filter var?) (distinct))
+                      except))]
+    (if vars
+      ;; a variable left unbound (a query's own) or bound to a compound gives a literal
+      ;; the shape test cannot read, so it goes to the full test
+      (fn [bindings] (and (some #(let [x (res/substitute % bindings)]
+                                   (or (sequential? x) (var? x) (contains? args x)))
+                                vars)
+                          (firing-reachable? kb except bindings shapes cross? norm)))
+      (fn [bindings] (firing-reachable? kb except bindings shapes cross? norm)))))
+
 (defn withdrawal-marker?
   "Is queued trigger `t` one of `special`'s withdrawal markers rather than a sentence?"
   [t]
@@ -156,13 +185,25 @@
                   false))
               firings))))
 
-(defn- exception-candidates
+(defn- except-candidates
+  "The firings of the rule at `rh` resting on a handle of one of `closures`, the
+  consequence closures of the targets an `except` moved (`{::except-closure c}`
+  markers): read off each handle's dependents, so they cost the closure and not the
+  rule's extent."
+  [tms rh closures]
+  (into #{}
+        (comp cat
+              (mapcat #(jtms/dependents tms %))
+              (filter #(= rh (:informant (jtms/justification tms %)))))
+        closures))
+
+(defn exception-candidates
   "The justifications of the queued rules whose block condition the queued triggers could
   have flipped.  One record fetch per rule, and none for a rule queued `:all`, which
   keeps every firing.  The block literals are the exception conjuncts read through
   their query frames (`rules/watched-literals`), the NAF inner queries and the aggregate
   bodies (docs/naf.md).  A withdrawal marker adds the firings its own test keeps
-  (`entailment-candidates`, `preserving-candidates`)."
+  (`entailment-candidates`, `preserving-candidates`, `except-candidates`)."
   [kb queued]
   (let [tms      (reasoning/tms kb)
         cross?   (memoize #(cross-argument-predicate? kb %))
@@ -194,32 +235,34 @@
                              (when (seq sens)
                                ;; the bindings are on the record: the network keeps only
                                ;; what belief is computed from (`jtms/graph-just`)
-                               (filter (fn [jid]
-                                         (if-let [j (p/get-justification (:records kb) jid)]
-                                           (firing-reachable? kb block-lits (:bindings j) shapes
-                                                              cross? norm)
-                                           false))
-                                       firings))
+                               (let [reach? (firing-test kb block-lits shapes cross? norm)]
+                                 (filter (fn [jid]
+                                           (if-let [j (p/get-justification (:records kb) jid)]
+                                             (reach? (:bindings j))
+                                             false))
+                                         firings)))
                              (when (some #{::special/entailment} marks)
                                (entailment-candidates kb rsx firings block-lits blocked))
                              (when (seq pres)
                                (preserving-candidates kb rsx firings pres test-for
-                                                      norm)))))))))
+                                                      norm))
+                             (except-candidates tms rh (keep ::special/except-closure marks)))))))))
           queued)))
 
 (defn exception-blocked-set
   "The blocked set after re-deciding the exceptions of `exception-candidates`' firings:
   a block outside the candidates is carried forward, and every candidate is re-decided
-  from scratch.  The whole set, since `jtms/set-blocked` replaces rather than adds."
-  [kb queued]
-  (let [tms   (reasoning/tms kb)
-        cands (exception-candidates kb queued)
-        held  (into #{} (remove cands) (jtms/blocked tms))]
-    (into held
-          (filter (fn [jid]
-                    (when-let [j (p/get-justification (:records kb) jid)]
-                      (chain/justification-excepted? kb j))))
-          cands)))
+  from scratch.  The whole set, since `jtms/set-blocked` replaces rather than adds.
+  `cands` is `exception-candidates`' answer for `queued`, when the caller holds it."
+  ([kb queued] (exception-blocked-set kb queued (exception-candidates kb queued)))
+  ([kb _queued cands]
+   (let [tms   (reasoning/tms kb)
+         held  (into #{} (remove cands) (jtms/blocked tms))]
+     (into held
+           (filter (fn [jid]
+                     (when-let [j (p/get-justification (:records kb) jid)]
+                       (chain/justification-excepted? kb j))))
+           cands))))
 
 (defn released-refusals
   "The recorded refusals the queued triggers may have released: `{:free [[rule-handle
@@ -257,9 +300,8 @@
                              acc))
                          acc
                          (if (seq lits)
-                           (filter #(firing-reachable? kb lits (:bindings %) shapes cross?
-                                                       norm)
-                                   recs)
+                           (let [reach? (firing-test kb lits shapes cross? norm)]
+                             (filter #(reach? (:bindings %)) recs))
                            recs))))))
          {:free [] :overflow []}
          queued)))))

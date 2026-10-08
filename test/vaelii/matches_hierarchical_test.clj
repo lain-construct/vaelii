@@ -19,13 +19,11 @@
   agreeing about nothing, which is what an oracle looks like when it has stopped
   oracling. `probed` is the standing check against that: it counts the non-empty
   comparisons and fails when a run makes none."
-  (:require [clojure.test :refer [deftest is use-fixtures]]
+  (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.literal-cache :as lc]
-            [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
-            [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
@@ -67,26 +65,6 @@
      :auto     (binding [res/*hierarchical-retrieval* true, res/*lead-side* :auto]     (proj (f)))
      :agnostic (binding [res/*hierarchical-retrieval* true, res/*lead-side* :agnostic] (proj (f)))}))
 
-(defn- fact-sentences
-  "Up to `n` distinct positive ground-fact bodies (no rules), sampled *evenly* across
-  the world's stored facts rather than taking the first `n` — the leading facts
-  cluster by predicate, so an even spread spans more functors for the same cost.
-  The handles are sorted first: `sentex-ids` is a set in the store's own order, so the
-  same world gives the same sample on every backend.  This is an equivalence oracle, so
-  the sample is a regression net over the fact space, not an exhaustive sweep of it."
-  [kb n]
-  (let [all (->> (sort (p/sentex-ids (:records kb)))
-                 (keep #(p/get-sentex (:records kb) %))
-                 (remove #(some? (:antecedent %)))
-                 (keep sx/body)
-                 (filter #(and (sequential? %) (symbol? (nm/functor %))))
-                 distinct
-                 vec)
-        m   (count all)]
-    (if (<= m n)
-      all
-      (mapv #(nth all (quot (* % m) n)) (range n)))))
-
 (defn- var-patterns [fact]
   (let [[pred & args] fact
         n     (count args)
@@ -112,7 +90,7 @@
   ;; comparing the two retrieval paths.  64 sampled facts rather than the first 200:
   ;; the exhaustive sweep was ~38s for a per-fact equivalence a spread already pins.
   (tu/with-kb [kb]
-    (let [pats (mapcat var-patterns (fact-sentences kb 64))]
+    (let [pats (mapcat var-patterns (tu/fact-sample kb 64))]
       (is (seq pats))
       (doseq [pat pats, ctx ctxs]
         (let [[off on] (both-ways #(res/matches-visible kb pat ctx))]
@@ -127,7 +105,7 @@
   ;; other three builds its visibility closure, about 0.35 s apiece, which is what leaving
   ;; them out saves.
   (tu/with-kb [kb]
-    (let [pats (mapcat var-patterns (fact-sentences kb 2))]
+    (let [pats (mapcat var-patterns (tu/fact-sample kb 2))]
       (is (seq pats))
       (doseq [pat pats, ctx '[?ctx CxMantle CxUniverse]]
         (let [[off on] (both-ways #(res/matches-visible kb pat ctx))]
@@ -203,13 +181,13 @@
 (tu/deftest-kb small-side-lead-agrees-with-scoped-and-reference
   ;; The one cost decision in `lead-candidates` a flag reaches (`res/*lead-side*`): a
   ;; concrete predicate with a spec closure, a ground argument, and a term holding fewer
-  ;; postings than there are specs — so `:auto` leads from the predicate-AGNOSTIC bucket
+  ;; postings than there are specs — so `:auto` leads from the slot roster
   ;; (`[:argument-slot pos term]`, every functor holding the term), the cold-rebuild small
   ;; side, which the shallow test-world never forces on its own.  Build the
   ;; deep hierarchy here and pin that :scoped, :auto, :agnostic and the matches-visible
   ;; fan-out return the identical set — through the predicate filter (an unrelated
-  ;; predicate holds the same term at the same position, so the agnostic bucket returns it
-  ;; and `pred-ok?` must drop it) and the context ancestor set (a sibling-context fact the global
+  ;; predicate holds the same term at the same position, so the roster lists it and the
+  ;; lead must keep it out) and the context ancestor set (a sibling-context fact the global
   ;; roster sees but a scoped read must not).  This is the form a wrong small side would
   ;; leak on, where the shallow oracle above would stay green.
   (tu/with-terms [broadRel otherRel A B1 B2 Bother CxSib Bsib]
@@ -244,6 +222,88 @@
                        (res/matches-visible kb (list broadRel A '?y) 'CxSocialWorld)))]
         (is (= #{B1 B2} ys) (str "the agnostic lead's answer set is wrong: " (pr-str ys)))))))
 
+(tu/deftest-kb a-match-stored-where-the-reader-cannot-see-is-no-candidate
+  ;; The argument roots and the predicate extent end in the context, so a scoped read
+  ;; keeps the contexts at the node that the reader's ancestor set holds and reads only
+  ;; their leaves.  A matching fact in a context the reader does not see is then no
+  ;; candidate, and the answer set is the reference fan-out's on every lead path: one
+  ;; scoped column, two intersected columns, a variable functor's slot-roster union, the
+  ;; predicate extent of a literal with no bound argument, and the trie walk under a
+  ;; ground prefix, whose context level keeps the contexts the reader sees.
+  (tu/with-terms [rel rel3 A B C Chid Bhid CxHidden]
+    (let [seen  (v/assert kb (list rel A B) 'CxSocialWorld {:strength :monotonic})
+          hid   (v/assert kb (list rel A Bhid) CxHidden {:strength :monotonic})
+          seen3 (v/assert kb (list rel3 A B C) 'CxSocialWorld {:strength :monotonic})
+          hid3  (v/assert kb (list rel3 A B Chid) CxHidden {:strength :monotonic})
+          up    '#{CxSocialWorld CxUniverse}]
+      (v/assert kb (list rel3 A Bhid C) CxHidden {:strength :monotonic})
+      (probed "a-match-stored-where-the-reader-cannot-see-is-no-candidate"
+              (for [pat (list (list rel A '?y) (list rel '?x Bhid) (list rel3 A '?y C)
+                              (list '?fn A '?y) (list rel '?x '?y) (list rel3 A B '?z))
+                    ctx '[CxSocialWorld ?ctx]]
+                (let [{:keys [ref scoped auto agnostic]} (lead-sides #(res/matches-visible kb pat ctx))]
+                  (is (= ref scoped auto agnostic) (str "diverged on " (pr-str pat) " @ " ctx))
+                  (when (= 'CxSocialWorld ctx)
+                    (is (not-any? #(or (= Bhid (get (second %) '?y)) (= Chid (get (second %) '?z))) ref)
+                        (str (pr-str pat) " answered from a context the reader does not see")))
+                  [ref auto])))
+      (let [ix (:index kb)]
+        (is (= #{seen} (set (p/sentexes-with-args ix rel {1 A} '#{CxSocialWorld CxUniverse})))
+            "the scoped read returns the visible leaf alone")
+        (is (= #{seen hid} (set (p/sentexes-with-args ix rel {1 A} nil)))
+            "and the unscoped read every context's")
+        (is (= #{} (set (p/sentexes-with-args ix nil {2 Bhid} '#{CxSocialWorld})))
+            "the slot-roster union is scoped the same way")
+        (is (= #{seen} (set (p/sentexes-with-args ix rel [] '#{CxSocialWorld CxUniverse})))
+            "and so is the predicate extent")
+        (is (= #{seen hid} (set (p/sentexes-with-functor ix rel))))
+        (is (#'res/trie-prefix? [A B '?z]) "the literal takes the trie-prefix lead")
+        (is (= #{seen3} (set (#'res/lead-candidates kb #{rel3} [A B '?z] nil up)))
+            "the trie walk's context level keeps the contexts the reader sees")
+        (is (= #{seen3} (p/lookup ix [rel3 A B '?z '?ctx] up)))
+        (is (= #{seen3 hid3} (p/lookup ix [rel3 A B '?z '?ctx])) "and nil keeps every context"))
+      (testing "an open literal in a ground context reads the predicate extent's leaf there"
+        (let [pat (list rel '?x '?y)]
+          (is (= (v/sentexes-matching kb pat 'CxSocialWorld)
+                 (binding [res/*arg-root-retrieval* false] (v/sentexes-matching kb pat 'CxSocialWorld))))
+          (is (= [seen] (map :id (v/sentexes-matching kb pat 'CxSocialWorld)))))))))
+
+(tu/deftest-kb a-ground-prefix-leads-from-the-argument-roots-when-they-hold-fewer-facts-than-the-walk-visits
+  ;; `arg-lead` compares the trie count under `[rel3 A B]` with each bound argument's
+  ;; facts in the reader's ancestor set.  Four of the five tuples under the prefix sit in
+  ;; a context the reader does not see, so the argument roots lead.  A reader that sees
+  ;; every tuple, beside `arg-lead-ratio` times as many facts on each argument, keeps the
+  ;; walk.  A variable context counts every fact and compares with the argument's own
+  ;; contexts, and `B`, stated in fewer contexts than `A`, leads the intersection.  The
+  ;; answer set is the reference fan-out's under both leads.
+  (tu/with-terms [rel3 A B C CxHidden]
+    (let [ix    (:index kb)
+          path  [rel3 A B '?z '?ctx]
+          g     [[1 A] [2 B]]
+          up    '#{CxSocialWorld CxUniverse}
+          seen3 (v/assert kb (list rel3 A B C) 'CxSocialWorld {:strength :monotonic})
+          pat   (list rel3 A B '?z)
+          same? (fn [ctx]
+                  (= (proj (binding [lc/*enabled* false res/*hierarchical-retrieval* false]
+                             (res/matches-visible kb pat ctx)))
+                     (proj (binding [lc/*enabled* false] (res/matches-visible kb pat ctx)))))]
+      (dotimes [i 4]
+        (v/assert kb (list rel3 A B (symbol (str C "H" i))) CxHidden {:strength :monotonic}))
+      (v/assert kb (list rel3 A (symbol (str B "X")) C) 'CxUniverse {:strength :monotonic})
+      (is (= g (#'res/arg-lead ix rel3 path g up)))
+      (is (= [[2 B] [1 A]] (#'res/arg-lead ix rel3 path g nil)))
+      (is (= #{seen3} (set (#'res/lead-candidates kb #{rel3} [A B '?z] nil up))))
+      (is (same? 'CxSocialWorld))
+      (is (same? '?ctx))
+      (dotimes [i (* 5 @#'res/arg-lead-ratio)]
+        (v/assert kb (list rel3 A (symbol (str B "W" i)) C) CxHidden {:strength :monotonic})
+        (v/assert kb (list rel3 (symbol (str A "W" i)) B C) CxHidden {:strength :monotonic}))
+      (is (nil? (#'res/arg-lead ix rel3 path g (conj up CxHidden))))
+      (is (nil? (#'res/arg-lead ix rel3 path g nil)))
+      (is (= g (#'res/arg-lead ix rel3 path g up)) "the facts the reader cannot see count for nothing")
+      (is (same? 'CxSocialWorld))
+      (is (same? '?ctx)))))
+
 (tu/deftest-kb end-to-end-ask-and-backward-unchanged
   ;; the consumers of matches-visible must be invariant under the flag
   (tu/with-kb [kb]
@@ -255,3 +315,21 @@
                     ask-on  (binding [res/*hierarchical-retrieval* true]  (set (v/ask kb goal ctx)))]
                 (is (= ask-off ask-on) (str "ask diverged on " (pr-str goal) " @ " ctx))
                 [ask-off ask-on])))))
+
+(tu/deftest-kb a-literal-whose-spec-folds-onto-its-comparison-sibling-matches-the-stored-spelling
+  ;; `greaterThan` is stored as `lessThan` with its arguments reversed, so a literal on
+  ;; `greaterThan`, or on a predicate `greaterThan` is a spec of, matches a stored
+  ;; `lessThan` fact.  Every lead and the reference fan-out return the same set.
+  (tu/with-terms [A B C relGt]
+    (let [h2 (v/assert kb (list 'lessThan B A) 'CxSocialWorld {:strength :monotonic})
+          h3 (v/assert kb (list 'lessThan A B C) 'CxSocialWorld {:strength :monotonic})]
+      (v/assert kb (list 'genl 'greaterThan relGt) 'CxSocialWorld {:strength :monotonic})
+      (doseq [[pat want] [[(list 'greaterThan A B) #{[h2 {}]}]
+                          [(list 'greaterThan A '?x) #{[h2 {'?x B}]}]
+                          [(list 'greaterThan C B '?z) #{[h3 {'?z A}]}]
+                          [(list relGt A B) #{[h2 {}]}]
+                          [(list relGt C B A) #{[h3 {}]}]]]
+        (is (= {:ref want :scoped want :auto want :agnostic want}
+               (lead-sides #(res/matches-visible kb pat 'CxSocialWorld)))
+            (pr-str pat)))
+      (is (v/ask? kb (list 'greaterThan A B) 'CxSocialWorld)))))

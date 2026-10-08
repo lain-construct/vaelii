@@ -14,7 +14,7 @@
 
   **A separation derivable only below the members' maximal common descendant is decided
   too**: the context under it that reads the whole clash decides it
-  (`decide/nogoods-at`), so `deep-separation!`'s lattice is decided where the separation
+  (`chain/place-memberships!`), so `deep-separation!`'s lattice is decided where the separation
   comes into view.  The settle files no `:disjoint` ledger entry, and `exposed-clashes`
   answers the standing question of every jointly-visible pair, decided or not."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
@@ -588,7 +588,7 @@
   ;; whose halves are already stored and already believed becomes jointly visible without
   ;; either half being relabelled. Neither is in the moved region, so the `genlCx`
   ;; edge moves the reader's view, and the reader reads the pair off the candidate index
-  ;; (`decide/nogoods-at`).
+  ;; (`chain/place-memberships!`).
   (tu/with-terms [CxA CxB CxW birthYear Tom]
     (let [one (list birthYear Tom 1970)
           two (list birthYear Tom 1980)]

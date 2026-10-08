@@ -12,6 +12,8 @@
   the whole closure gives."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
+            [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.settle :as settle]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
@@ -108,15 +110,23 @@
 (defn- cycle!
   "Make `x` and `y` subtypes of each other, the `x` → `y` edge stated in `cx` and the
   `y` → `x` one in `cy`.  `wff` refuses the edge closing a cycle, so it is formed the way
-  a belief race forms one (docs/taxonomy.md): the first edge is defeated while the second
-  arrives, then revived.  Answers the two edges' handles, nil for one refused."
+  a belief race forms one (docs/taxonomy.md): the first edge's premise is suspended, as
+  `preview` suspends a removal, while the second arrives, then restored.  Answers the two
+  edges' handles, nil for one refused."
   [kb x y cx cy]
-  (let [try! (fn [s c o] (try (v/assert kb s c o) (catch clojure.lang.ExceptionInfo _)))
-        h1   (try! (list 'genl x y) cx {})
-        d    (try! (list 'not (list 'genl x y)) cx {:strength :monotonic})
-        h2   (try! (list 'genl y x) cy {})]
-    (when d (v/retract! kb d))
-    [h1 h2]))
+  (let [try!   (fn [s c o] (try (v/assert kb s c o) (catch clojure.lang.ExceptionInfo _)))
+        tms    (reasoning/tms kb)
+        settle #(binding [settle/*relabelled-before?* true] (settle/settle kb))
+        h1     (try! (list 'genl x y) cx {})]
+    (if-not h1
+      [nil (try! (list 'genl y x) cy {})]
+      (let [strength (jtms/premise-strength tms h1)]
+        (jtms/suspend-premise tms h1)
+        (settle)
+        (let [h2 (try! (list 'genl y x) cy {})]
+          (jtms/add-premise tms h1 strength)
+          (settle)
+          [h1 h2])))))
 
 (deftest a-scoped-frame-answers-what-the-whole-scoped-closure-answers
   ;; the forest above, `genl` edges only a child context sees, and `except`s in a context

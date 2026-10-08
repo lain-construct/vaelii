@@ -64,7 +64,7 @@
 (tu/deftest-kb a-taxonomy-read-inside-the-batch-is-the-unsettled-one
   ;; `tax/add-edge` activates an edge on the assert path, before any settle labels it, so
   ;; a mid-batch unscoped `genl?` / `isa?` reads a superset of the believed edges
-  ;; (docs/taxonomy.md), while a reader decides the pair it reads when it reads it
+  ;; (docs/taxonomy.md), and the negation pair is placed by the closing settle
   (tu/with-terms [dog_t mammal_t Muffet CxD]
     (v/assert kb (list dog_t Muffet) CxD {:strength :monotonic})
     (v/with-deferred-settle kb
@@ -73,8 +73,8 @@
       (testing "mid-batch the edge is active — this batch's unscoped belief is not computed yet"
         (is (v/genl? kb dog_t mammal_t))
         (is (v/isa? kb Muffet mammal_t)))
-      (testing "and the reader already decides the pair"
-        (is (not (v/genl? kb dog_t mammal_t CxD)))))
+      (testing "and no reader decides the pair before the settle places it"
+        (is (v/genl? kb dog_t mammal_t CxD))))
     (testing "and the closing settle defeats the default supporter and drops the edge"
       (is (not (v/genl? kb dog_t mammal_t CxD)))
       (is (not (v/isa? kb Muffet mammal_t CxD)))
@@ -115,7 +115,7 @@
 
       (testing "same stored sentexes — one per fact on each side"
         (is (= n (p/count-in-context idx CxBulk) (p/count-in-context idx CxSlow))))
-      (testing "same count-with-functor — the functor root took both halves"
+      (testing "same count-with-functor — the predicate extent took both halves"
         (is (= (* 2 n) (v/count-with-functor kb edgeOf)))
         (is (= (* 2 n) (p/count-at idx [edgeOf]))))
       (testing "same beliefs — every fact matches and is IN on both sides"

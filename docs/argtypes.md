@@ -1,7 +1,9 @@
 # Assertive argument types: `arg` as an entailment
 
-- **Covers:** how, by default, an `arg` / `genlArg` / `interArg`
-  declaration also mints the type it constrains as a derived, justified, retractable sentex.
+- **Covers:** how, by default, an argument constraint — `arg`, `genlArg`, `interArg`, the
+  covering and the homogeneity forms — derives the type it names as a derived, justified,
+  retractable sentex and refuses nothing on a membership; the pass that records those
+  derivations over a store loaded without them.
 - **Not here:** `arg` / `genlArg` read as a constraint that rejects a wrongly-typed
   argument (the opt-out `VAELII_ASSERTIVE_ARG_TYPES=0` reading) → [taxonomy.md](taxonomy.md); `transitiveInArg`,
   which carries a stated claim rather than a declared type across an argument →
@@ -41,13 +43,14 @@ The refusal carries the arm's own `:type`, `:arg`, `:expected` and `:position` (
 position in the function), plus `:application`, the innermost application whose input
 failed. The boundary of the inner reading:
 
-- **The constraint reading only.** A nested input is convicted when its visible types
-  reach `thing` and miss the declared type; an input with no visible type is no evidence,
-  as at the top level. No entailment is drawn for a nested input, under
-  `*assertive-arg-types?*` or off it: a declaration arriving after the fact mints over
-  the facts it finds by predicate, and nothing finds the applications of a function
-  inside stored facts, so a nested mint would be drawn in one arrival order and not the
-  other. A refusal stores nothing, so it is the reading the nested level can take.
+- **No derivation, and a symbol convicted only under the constraint-only reading.** No
+  entailment is drawn for a nested input: a declaration arriving after the fact derives
+  over the facts it finds by predicate, and nothing finds the applications of a function
+  inside stored facts, so a nested derivation would be drawn in one arrival order and not
+  the other. Under the entailing reading a nested symbol is therefore neither derived nor
+  convicted, as at the top level; a nested value or application is convicted. Under the
+  constraint-only reading a nested input is convicted when its visible types reach
+  `thing` and miss the declared type, and an input with no visible type is no evidence.
 - **Terms, not formulas.** A connective's argument (a genuine `(not (P …))`) and a
   compound whose head the KB knows as a predicate are formulas, not applications, and
   are not read as one. A head the KB has not classified is read as a function.
@@ -78,60 +81,44 @@ the declaration names.
 
 `fixed_arity` carries `(arg fixed_arity 1 relation)` and `(genl fixed_arity relation)`
 names that same type. The edge concludes `(relation 5)` from `(fixed_arity 5)` and
-nothing is disjoint from `relation` for a number, so the declaration is the only refusal
-there is; drop it and `(fixed_arity 5)` is accepted. `variable_arity` and the function
-marks are in the same position and keep theirs.
+nothing is disjoint from `relation` for a number, so the declaration's value conviction
+is the only refusal there is; drop it and `(fixed_arity 5)` is accepted. `variable_arity`
+and the function marks are in the same position and keep theirs.
 
 `instance_relation_predicate` is the other case. Its parent is `binary_predicate`, which
-sits **below** `predicate`, so `(arg instance_relation_predicate 1 predicate)` restated
-in a weaker form what the edge already concludes, and turned that conclusion into a
-precondition — the declaration demanded of the argument the very type the assertion
-supplies:
-
-```clojure
-(assert kb '(arity pairOf 2) 'CxUniverse)
-(assert kb '(instance_relation_predicate pairOf) 'CxUniverse)  ; was :arg-type
-```
-
-`(arity R 2)` derives `fixed_arity` and the relation-wide `binary`, so `R` is a
-`relation`; it says nothing about predicate or function, two arguments being a shape
-either kind has. `outside-declared-type?` convicts an argument whose closure reaches
-`thing` and does not reach the declared type, so the classification was refused for a
-kind it had not yet stated — while the same pair written in the other order was accepted.
-
-That asymmetry is not by itself the argument for dropping the row. The refusal half is
-order-sensitive wherever a declaration narrows a type the argument already holds, by the
-design stated below under "Three directions": it convicts on an absence, so a KB given
-`(arg ownsGadget 1 gadget)`, `(artifact Widget)` and `(ownsGadget Widget Widget)` in
-different orders holds different facts, and no change here alters that. What these six
-marks had on top of it is a declared type their own `genl` parent already supplies — the
-declaration demanded its own conclusion — so the six declare no position:
+sits **below** `predicate`, so `(arg instance_relation_predicate 1 predicate)` would
+restate in a weaker form what the edge already concludes, and under the constraint-only
+reading it would turn that conclusion into a precondition: `(instance_relation_predicate
+pairOf)` after `(arity pairOf 2)`, which places `pairOf` under `relation` and not under
+`predicate`, would be refused for a kind the sentence itself states. So the six marks whose
+own `genl` parent supplies the declared type declare no position:
 `instance_relation_predicate`, `type_relation_predicate`, `equivalence_relation`,
 `injection`, `surjection` and `bijection`.
 
-Both refusals the rows carried survive the drop, and one of them sharpens:
-
-| argument | with the row | without it |
-|---|---|---|
-| a term reaching only `thing`, or a number | `:arg-type` | `:arg-type`, through the `(arg fixed_arity 1 relation)` floor the mark inherits |
-| a `function` | `:arg-type: must be a predicate` | `:disjoint: cannot be both instance_relation_predicate and function` |
-| a relation whose kind is not yet stated | `:arg-type` | accepted, and the mark supplies the kind |
+| argument | what happens |
+|---|---|
+| a number | `:arg-type`, through the `(arg fixed_arity 1 relation)` floor the mark inherits |
+| a term reaching only `thing` | stored; the floor derives `relation` and the mark's edges place it under `predicate` |
+| a `function` | stored, with `instance_relation_predicate` and `function` a placed clash |
+| a relation whose kind is not yet stated | stored, and the mark supplies the kind |
 
 `arity_vocabulary_test/a-predicate-only-classification-is-order-independent-of-the-arity`
 compares the two orders on the whole closure rather than on an acceptance, and
-`an-arity-alone-leaves-the-relation-kind-open` asserts the two refusals that remain.
+`an-arity-alone-leaves-the-relation-kind-open` asserts the rows of the table.
 
 ### The policy classes declare one position and their specializations declare none
 
 `fixed_arity` and `variable_arity` each carry `(arg C 1 relation)`. Nothing below them
 carries one. The parent's declaration descends the predicate hierarchy, so
-`(fixed_arity_predicate Fred)` with `Fred` a person is refused `:arg-type` all the same,
-while a narrower `(arg fixed_arity_predicate 1 predicate)` would refuse the wrong thing:
-a relation whose only stated type is `variable_arity` reaches `relation` and not
-`predicate`, so `(binary_predicate P)` written after `(variable_arity P)` would report the
-argument's type where the contradiction is the arity policy. The two are one
-contradiction and report `:disjoint` in either order. A relation classified into the
-wrong kind is caught by `(disjoint predicate function)` through the `genl` edges.
+`(fixed_arity_predicate Fred)` with `Fred` a person derives `(relation Fred)`, a clash
+with `person`, while a narrower `(arg fixed_arity_predicate 1 predicate)` would derive the
+wrong thing: a relation whose only stated type is `variable_arity` would be derived a
+`predicate`, so `(binary_predicate P)` written after `(variable_arity P)` would carry a
+second derived type where the contradiction is the arity policy. The two are one
+contradiction and are stored as a clash in either order. A relation classified into the
+wrong kind is caught by `(disjoint predicate function)` through the `genl` edges, a
+disjointness derived from `(partition relation function truth_valued_relation)` rather
+than stated.
 
 ## The covering constraints: typing a variable-arity tail
 
@@ -144,8 +131,8 @@ whose head positions carry their own `arg` declarations and whose tail repeats o
 typed exactly. `(args R T)` states what `(argAndRest R 1 T)` states.
 
 A valid unbounded tail: a `variable_arity` `herd` with `(arityMin herd 2)` and `(args herd
-animal)` accepts `(herd Rex Bossy)` and `(herd Rex Bossy Clarabelle)` while refusing a
-member the KB places outside `animal`, at whatever length the tail reaches.
+animal)` accepts `(herd Rex Bossy)` and `(herd Rex Bossy Clarabelle)` and derives
+`(animal X)` of every member, at whatever length the tail reaches.
 
 Not every variable-arity relation has a homogeneous tail. `functionCorrespondingPredicate`
 relates a function, its corresponding predicate, and an argument count — three positions of
@@ -161,15 +148,14 @@ Three properties hold, each of them `arg`'s:
 - **Descends the predicate hierarchy.** A covering declaration on a super-predicate binds a
   sub-predicate's tuples, read through the same declaration reader `arg` uses
   (`res/constraining-predicates`).
-- **Convict-only, and open-world.** A covering constraint convicts a tail value it places
-  outside the type; an unknown argument is no evidence and passes. It mints nothing and
-  stops short of the retroactive reach `arg` runs under the entailment toggle, so a covering
-  declaration arriving after the facts convicts none of them — the same open-world
-  stop-short `arityMin` records, and order-sensitive in the way every constraint's refusal
-  half is.
+- **Derives, and convicts only a value.** Under the entailment toggle a covering
+  constraint derives `(T x)` (or, for the subtype forms, `(genl x T)`) of every symbol in
+  the tail, with `arg`'s four arrival directions, and convicts only a value or an
+  application whose type misses. Under the constraint-only reading it derives nothing and
+  convicts a tail symbol the KB places outside the type, with no retroactive reach.
 
 The walk is over the positions a sentence has, not a re-counted tail. A tuple of a length
-its relation's binding denies is stored and each reader decides it as an arity nogood
+its relation's binding denies is stored and placed as an arity nogood
 ([taxonomy.md](taxonomy.md#arity)); the covering check walks every position such a tuple
 has.
 
@@ -203,6 +189,19 @@ entailment is a derived, justified, retractable sentex under truth maintenance.
 constraint-only reading). Entailing changes what a KB *contains*, not only what it
 answers, so the constraint-only reading stays one `binding` away.
 
+**No shipped `arg`-family declaration types an argument `thing`.** Such a declaration
+rejects nothing under the constraint-only reading, and under the entailing one it derives
+only `(thing X)` (`starter_test/no-shipped-declaration-makes-an-argument-a-thing`). A
+`(genlArg P n thing)` declaration says position `n` holds a type, and the constraint-only
+reading convicts an individual there.
+
+**Both readings prove the same sentences over the shipped ontology.** A membership or
+`genl` edge an argument declaration in `resources/kb/` derives is written in a KB file
+where the constraint-only reading could not prove it otherwise, so a derivation the
+entailment stores is a copy of a sentence a context it sees already holds, or a
+membership `provers/ArgTypeProver` answers
+(`starter_test/the-constraint-only-reading-proves-every-sentence-the-entailment-derives`).
+
 ## What this is not
 
 `provers/ArgTypeProver` already answers a ground `(animal Fred)` goal from exactly this
@@ -212,81 +211,63 @@ taxonomy that `isa?` / `types-of` and the definitional checks read, and a datum 
 agenda fires rules on. A prover's answer is none of those, and it is confined to a
 CapitalCamelCase individual; `genlArg` entails a `genl` edge, which no prover can.
 
-## One reading, not two
+## An argument constraint only adds support
 
-With the toggle on, `args-problem`'s **symbol arm yields** to the entailment
-(`checks/entailment-covers?`). A declaration read as an entailment says Fred *is* an
-animal, so there is no state of the KB in which Fred fills the slot and fails it: the
-conviction and the entailment are two readings of one declaration, and only the second
-one holds. The condition is `arg-entailments`' condition term for term — an eligible
-argument, a type the hierarchy holds, a declaration that speaks for this context — so
-the two arms cannot disagree about which declarations mint.
+With the toggle on, an argument constraint derives the membership it names and never
+refuses a sentence on the memberships its argument holds (`checks/entailment-covers?`).
+A declaration read as an entailment says Fred *is* an animal, so there is no state of the
+KB in which Fred fills the slot and fails it. The same holds of every kind that types a
+symbol: `arg`, `genlArg`, `interArg`, the covering forms and the homogeneity forms, from a
+declaration written in the asking context or inherited by it, and for a declared type the
+hierarchy does not hold yet, which derives nothing until it does.
 
-Three things still convict, because no mint can answer them:
+A mint is stored in the fact's own context, so a declaration stated in a context below
+the fact's draws no stored mint: with `(P a b)` in CxTop and `(arg P 1 T)` in CxMid below
+it, no `(T a)` is stored, and `ask?` answers it at CxMid and below by a backward proof.
 
-- a **value**, which carries its type in its syntax — `5` is not a `string`, and no
-  membership can be asserted of it;
-- a **function application**, typed by its function's declared `result`;
-- an **inherited** declaration, which constrains a descendant context without minting
-  there (`declares-locally?`) — so in that context the constraint reading is the only
-  reading there is.
+A membership the declared type does not reach is a second membership beside the derived
+one, not evidence against the sentence. `(achieves Ann Bee)` under `(arg accomplishes 2
+tt)` and `(genl achieves accomplishes)` derives `(tt Bee)`; with `(genl tt assoc)` and an
+inherited `(arg assoc 1 sub)` it derives `(sub Bee)` from that; and a second fact deriving
+`(tt Bee)` adds a second justification. Each arrives as the first did, and re-asserting
+the stored `(tt Bee)` stores it again
+(`argtype_entail_test/two-facts-deriving-one-membership-are-both-stored-in-either-order`).
 
-Running both readings at once stops the cascade, which is the reason only one of them
-holds. A minted `(t1 Fred)` re-enters the check; a conviction arm reading `t1`'s own
-declaration convicts it for Fred not yet being a `t2`, and the conclusion `(t2 Fred)` is
-drawn from is dropped. Such a cascade closes only for an argument holding **no** type at
-all, since one unrelated membership — or a unary triggering sentence, which types its own
-argument — convicts every mint after the first.
+Two things still convict, because no membership can be derived of them:
 
-## The entry point refuses what the sentence entails
+- a **value**, which carries its type in its syntax — `5` is not a `string`;
+- a **function application**, typed by its function's declared `result`.
 
-The refusal did not disappear with the symbol arm; it moved one step along the
-derivation. `checks/entailment-check` walks the whole cascade of prospective mints before
-anything is stored and reports the first the KB could not admit, so **the entry point
-refuses a sentence exactly when it would refuse what the sentence entails**: a mint an
-inherited declaration convicts. The violation is the **mint's own**, with the sentence
-that entailed it in `:entailed-from`.
+The constraint-only reading (`VAELII_ASSERTIVE_ARG_TYPES=0`) derives nothing and convicts a
+symbol whose memberships reach `thing` and miss the declared type, as
+[taxonomy.md](taxonomy.md) describes.
 
-A mint at an arity its type denies is not refused. With `t` declared binary, `(arg rel 1
-t)` and `(rel Rex Mary)` store the fact and its entailment `(t Rex)`, and a reader that
-sees the binding reads `(t Rex)` OUT as an arity nogood
+**A real conflict is a clash, decided by belief.** A derived membership disjoint from one
+the term holds is placed and weighed at settle, as a rule's conclusion is
+(`checks/derivation-violation`): the stronger class wins, and an equal `:default` pair both
+stay believed and are listed by `contradictions`. With `(disjoint relation collection)` and
+`(arg p 1 relation)`, `(collection Foo)` and `(p Foo)` at `:default` leave both memberships
+believed and the pair listed in every arrival order, and a `:monotonic` `(collection Foo)`
+takes `(relation Foo)` OUT in every order. A declaration arriving over both, including one
+a rule derives, derives and is weighed the same way
+(`argtype_entail_test/a-minted-membership-clashing-with-a-believed-one-is-weighed-at-settle`).
+A clash between two derivations of one cascade — `(p1 Fred)` and the `(p2 Fred)` it
+entails — is found by the settle from the stored records in the same way.
+
+A derivation at an arity its type denies is stored too. With `t` declared binary, `(arg rel
+1 t)` and `(rel Rex Mary)` store the fact and `(t Rex)`, and a reader that sees the binding
+reads `(t Rex)` OUT as an arity nogood
 (`argtype_entail_test/an-entailment-of-a-length-its-type-denies-is-read-out`,
 [taxonomy.md](taxonomy.md#arity)).
 
-A mint whose violation names the other stored members of a clash is not refused: a
-disjointness clash with a stored membership, or between two mints of one cascade, is
-stored and weighed as below.
-
-Asked before the store, which is the whole point of asking here.
-`special/entail-arg-type` asks the same question of each mint as it materializes, but it
-runs *after* the triggering sentex exists — so a mint whose violation names no opposing
-sentex is dropped and recorded, leaving the KB believing a fact whose declared
-consequence it rejects. Asked at the entry point, the refusal reaches the writer and
-nothing is stored.
-
-**A mint that clashes with a believed membership is placed and weighed at settle**, as a
-rule's conclusion is (`checks/derivation-violation`): the stronger class wins, and an
-equal `:default` pair both stay believed and are listed by `contradictions`. With
-`(disjoint relation collection)` and `(arg p 1 relation)`, `(collection Foo)` and
-`(p Foo)` at `:default` leave both memberships believed and the pair listed in every
-arrival order, and a `:monotonic` `(collection Foo)` takes `(relation Foo)` OUT in every
-order. A declaration arriving over both, including one a rule derives, mints and is weighed
-the same way
-(`argtype_entail_test/a-minted-membership-clashing-with-a-believed-one-is-weighed-at-settle`).
-
-**A clash between two mints of one cascade** — `(p1 Fred)` and the `(p2 Fred)` it
-entails — has no second record when the check runs. The materializer places both, and the
-settle finds the pair from the stored mints, as it finds a clash with a stored membership.
-
-**The derivation path still reports.** A rule firing has no caller to refuse and may not
-throw mid-fixpoint, so `constraint-admission` leaves the conclusion standing and a mint
-whose violation names no opposing sentex is recorded in the violations ledger. That is the
-split every other check already draws.
-
-Three convictions are **not** asked at the entry point — naming, well-formedness and edge
-stratification. Those three live above `checks` (`special/inadmissible` is where the four
-are one question), and a mint they convict is still dropped and reported by the
-materializer.
+**What the entry point still asks of the derivations.** `checks/entailment-check` walks the
+whole cascade before anything is stored and refuses the sentence when a derivation is one
+a definitional check refuses on its own syntax, with the derivation's violation and the
+sentence in `:entailed-from`. Naming, well-formedness and edge stratification are asked of
+each derivation as it is stored (`special/inadmissible`): a derived `(genl X T)` that closes
+a taxonomy cycle is dropped and reported in `(violations kb)`, since the derivation runs
+after the triggering sentex is stored and inside a fixpoint, neither of which may abort
+halfway.
 
 ## Where it lives
 
@@ -298,6 +279,10 @@ The **check computes it; the post-store slot materializes it.**
 | `checks/entailment-check` | walks the cascade of prospective mints at the entry point and refuses the first the KB could not admit — **writes nothing** |
 | `special/deduce-arg-types` | materializes them, beside `deduce-lifts`, in `assert-entry/assert-one` and `chain/place-conclusion` |
 | `special/entail-existing` | the retroactive direction: a declaration arriving over facts already stored |
+| `special/entail-under-edge`, `special/entail-under-context-edge` | a `genl` or `genlCx` edge arriving over a fact and a declaration already stored |
+| `special/triggered-mints` | a trigger membership of `interArg` or a homogeneity form arriving over a fact and a declaration already stored |
+| `special/except-move-sweeps` | an `except` of an ingredient arriving or leaving |
+| `special/record-arg-types` (`v/record-arg-types`) | the pass over a store loaded without the derivations |
 
 Not because a check may not cause a write — `special/deduce-lifts` is a check-shaped
 declaration read that causes a justified write on this very path. The reason is
@@ -321,8 +306,10 @@ per-fact cost.
 * `kb/find-or-create-sentex` for the implied `(T arg)` in the asserting context;
 * `derived-sentex-added` when it is new, so it reaches the closures and posts its
   exception re-check trigger exactly as a rule conclusion does;
-* `jtms/->just` with antecedents **`[source-handle decl-handle & genl-edge-handles]`**
-  and the declaring predicate as the informant, guarded by `has-justification?`;
+* `jtms/->just` with antecedents **`[source-handle decl-handle & route-edge-handles]`**
+  — the `genl` edges the declaration descends through and the `genlCx` edges the
+  context sees it through — and the declaring predicate as the informant, guarded by
+  `has-justification?`;
 * depth one past the deepest of them;
 * strength `:monotonic` conferred — the entailment adds no defeasibility of its own, so
   `conferred-class` caps it at the weaker of the fact and the declaration.
@@ -356,35 +343,46 @@ on it; where none does, nothing is drawn. The descended `functional` and `anti_s
 equalities ([equality.md](equality.md)) name their routes the same way and are drawn again
 by the same two arms.
 
-## Three directions, or belief depends on arrival order
+## Four directions, or belief depends on arrival order
 
 A declaration has to reach back over content already stored, or belief depends on which
 of the ingredients arrived first. `decontextualized_predicate` lifts the facts already
-present when it arrives, so `arg` has to as well — and with the descension the
-ingredients are three rather than two, so there are three entry points:
+present when it arrives, so `arg` has to as well — and with the descension and the
+context hierarchy the ingredients are four rather than two, so there are four entry
+points:
 
 * **fact meets declaration** — `deduce-arg-types`, on `assert` *and* on
   `place-conclusion`, because what a declaration says is a claim about the predicate and
   not about how a sentence arrived;
-* **declaration meets facts** — `entail-existing`, walking the functor roots of the
+* **declaration meets facts** — `entail-existing`, walking the predicate extents of the
   declared predicate's whole `genl` **spec** subtree, since the declaration binds every
   predicate beneath the one it names;
 * **edge meets both** — `entail-under-edge`, walking the same subtree under the arriving
   edge's sub-predicate. It is the taxonomy twin of `entail-existing`, and there for the
   reason `subsumption-seeds` beside it is: the arriving datum is the *edge*, and nothing
-  else on the assert path re-examines the facts it just brought under a declaration.
+  else on the assert path re-examines the facts it just brought under a declaration;
+* **context edge meets both** — `entail-under-context-edge`, from
+  `special/reconcile-context-edge`, re-deriving the facts stored in the arriving
+  `(genlCx sub super)` edge's `sub` and every context under it, since the edge makes the
+  declarations above `super` visible to them. It reads the smaller of that extent and the
+  extent of the declared predicates, by index counts, which `lein perf`'s
+  `genlcx-edge-beside-declared-facts` holds.
 
 Every order of {declaration, fact} reaches the identical KB, and so does every order of
 {declaration, fact, edge}. That is the gate:
 `every-arrival-order-reaches-the-same-belief` runs all six orders of {declaration, fact,
-a competing type}, and `every-arrival-order-of-the-three-ingredients-mints-the-same-type`
-runs all six of {declaration, fact, edge}.
+a competing type}, `every-arrival-order-of-the-three-ingredients-mints-the-same-type`
+runs all six of {declaration, fact, edge}, and
+`every-arrival-order-derives-through-an-inherited-declaration` runs all 120 of {local
+declaration, inherited declaration, predicate edge, context edge, fact}, with a sampled
+twin at the default selector.
 
-The *refusal* half has no such reach and is not meant to: it convicts on an absence, so
-there is no second sentex to weigh and no pair to arbitrate ([taxonomy.md](taxonomy.md),
-"What each constraint does in each arrival order"). A KB given the three ingredients in
-different orders can therefore hold different **facts** and must hold the same
-**entailments**.
+No member of the family refuses on a membership under the entailing reading, so the
+**facts** a KB holds are the same in every order as well as the derivations. The
+constraint-only reading keeps a refusal half with no such reach: it convicts on an
+absence, so a KB given the ingredients in different orders under
+`VAELII_ASSERTIVE_ARG_TYPES=0` can hold different facts ([taxonomy.md](taxonomy.md),
+"What each constraint does in each arrival order").
 
 **A declared type the hierarchy does not hold yet mints nothing, and then everything.**
 `mintable-type?` asks whether the type reaches `thing`, and it reads the hierarchy as it
@@ -392,38 +390,60 @@ stands, so a declaration and its facts stored before that edge minted nothing. T
 declaration is kept in the refusal record, and the settle that sees a `genl` generation
 move re-asks it; once the type is mintable, `entail-existing` runs for it again and mints
 over every fact stored meanwhile ([exceptions.md](exceptions.md), "A refused firing is
-remembered as bindings").
+remembered as bindings"). Until then the declaration reads none of its facts: every arm
+asks `mintable-type?` of the declaration's own type before it draws, so the extent would
+yield nothing. The answer is held per `genl` generation (`tax/genl?-global-held`), so a
+sweep over n facts walks the type's ancestors once rather than n times.
 
 `entail-existing` puts each stored sentex back through `constraint-entailments` in its
-*own* context and narrows the answers to the arriving declaration, rather than
-re-deciding the conditions. The two directions must agree about what a declaration
-entails, and the only way to be sure of that is for them to ask the same function — it
-buys the local/inherited rule below for free.
+*own* context, narrowed to the arriving declaration (`checks/declaration-entailments`),
+rather than re-deciding the conditions. The directions must agree about what a
+declaration entails, and the only way to be sure of that is for them to ask the same
+function. The narrowing hands the arms the arriving declaration's match alone, so the
+other declarations on the predicate are not read per fact; `lein perf`'s
+`arg-declaration-over-facts` holds a declaration over n facts to a cost per fact flat in
+n beside a declared type whose ancestor set grows with n.
 
-## The two rules that govern what is drawn
+## The rules that govern what is drawn
 
-### Local declares, inherited only constrains
+### A declaration derives wherever it is visible
 
-A declaration is *inherited* by every descendant of the context it was written in, and
-there it constrains: an ancestor schema enforces its argument types in every context
-below it. It does not **entail** there. An upper-band schema would otherwise spray
-derived `(T x)` memberships across every context that inherits it — claims no author of
-that context made.
+A declaration is visible in the context it is written in and in every context below it,
+and it derives in each of them: a derivation is drawn in the context of the fact it is
+drawn over, from every declaration that context sees. A declaration the context inherits
+rests on the `genlCx` edges through which the context sees it, as a declaration on a
+super-predicate rests on the `genl` edges it descends through, so the justification is
+`[fact, declaration, genl edges…, genlCx edges…]` (`checks/entailment-support`).
+Retracting a `genlCx` edge on that path takes the derivation back, and a second path draws
+it again (`special/rederive-descended`), as for a `genl` route.
 
-So only a declaration written in the context being checked, or in `CxUniverse`
-(which speaks for every context by construction), draws the entailment. Pure can express
-this because every supporter records the context it asserts from.
+The starter's `(arg parentOf 1 organism)` lives in `CxLife` while the individuals live in
+`CxNaturalWorld`, below it, so a `parentOf` fact there derives `(organism X)` in
+`CxNaturalWorld`. Every argument position in the shipped ontology is declared, so a
+toggle-on starter load derives a membership per declared position, less the ones
+pruning withholds (the table under [Cost](#cost)). The root's own `genl` supertype
+position is the single undeclared one, and `CxCore` says why beside it: `thing` cannot be
+a proper subtype of itself, so the constraint the root would fail is the wrong constraint
+rather than a missing one.
 
-This is also what keeps the **cast** quiet: the starter's `(arg parentOf 1 animal)`
-lives in `CxLife` while the individuals live in `CxNaturalWorld`, so nothing is
-minted over them however the toggle is set. The schema's own contexts are the other case
-and mint freely, because there a declaration and the facts it constrains are written side
-by side — `(genl animal thing)` sits in `CxCore` beside `(genlArg genl 1 thing)`.
-Every argument position in the shipped ontology is declared, so a toggle-on starter load
-mints a membership per declared position (the table under [Cost](#cost)). The root's own
-`genl` supertype position is the single undeclared one, and `CxCore` says why beside
-it: `thing` cannot be a proper subtype of itself, so the constraint the root would fail is
-the wrong constraint rather than a missing one.
+### An except of an ingredient
+
+A derivation is not drawn in a context from which an `except` hides one of its
+ingredients: the fact, the declaration, a trigger membership or an edge on the route
+(`entail-arg-type` asks `exc/except-hidden-fn`), as a rule firing is not placed there
+([contexts.md](contexts.md#except-removing-visibility-down-a-context-subtree)). The
+`except` moving reaches the derivations in either direction through the settle
+(`special/except-move-sweeps`). An `except` arriving drops each derivation resting on its
+target that the derivation's context no longer sees, so the KB holds what the `except`
+arriving first leaves. An `except` leaving draws again what its target's arrival draws:
+`entail-existing` for a declaration, the fact's own entailments for a fact, and the
+trigger arm for a membership or a `genl` edge (`special/trigger-entailments`). A target
+that is itself an `except` adds its own target. A `genlCx` edge that moves an `except`
+moves it only for the contexts under the edge's `sub`, so there the sweep reads the
+derivations stored under `sub` and draws the edge's own sweep (`entail-under-context-edge`)
+rather than the target's. `order_independence_test`'s
+`a-trigger-derives-in-every-order-and-its-retraction-takes-the-derivation` runs an
+`except` of each ingredient in every order, standing and retracted.
 
 ### Nothing is withheld for redundancy
 
@@ -473,9 +493,21 @@ Both arrival orders reach that state, and neither remembers how it got there:
   (`special/subsumed-mint-blocks`) and the sweep that collects an excepted conclusion
   collects it.
 
-The settle finds the stored mints a record it moved can displace in the **mint roster**,
-`:minted` on the `Reasoning` value: every record an argument declaration's justification
-concludes, by the term it is about and by its context.
+A withdrawn `genl` mint can be the witness of rule firings, and the sweep deletes those
+firings with the mint. Before the sweep, `special/withdrawn-edge-seeds` collects the
+facts and rules of each withdrawn edge that a rule firing names as its witness. After the
+sweep, `settle/apply-pass!` re-chains those seeds, so each firing is stored again over the
+stated route that made the mint redundant. The order that states the route after the mint
+therefore stores the same firings as the order that states the route first, which
+`late_route_test/a-stated-route-withdrawing-a-mint-keeps-the-firings-the-mint-carried`
+asks. [inference.md](inference.md#a-genl--genlcx-antecedent-reads-the-closure)
+describes the re-join beside the re-join a departing edge owes.
+
+The settle finds the stored mints a record it moved can displace in the **mint family**,
+an index family ([indexing.md](indexing.md#10-the-mint-family)) that files every record a
+stored justification of an argument declaration concludes, by the term it is about and by
+its context.  The family is keyed by the justification and not by the sentence: a minted
+`(person A)` and an authored `(person A)` in one context are one sentex.
 
 | the record the settle moved | the mints it asks about |
 |---|---|
@@ -489,10 +521,15 @@ edges it moved (`special/edge-route-candidates`, one `tax/specs-of-all` walk), n
 edge: a `recover` moves every edge together, and per edge it would walk a subtree as many
 times as edges leave it.
 
-The roster over-approximates: a record stays in it until it leaves the store, whatever
-else comes to support it, and `mint-only?` rejects the ones that are not the entailment's
-own. `recover` refills it from the justification walk that rebuilds the network, one
-record read per minted handle.
+The family holds exactly the records a stored mint justification concludes.
+`special/entail-arg-type` files a record as it stores the justification, from the sentence
+in hand.  A record leaving the store leaves the family (`special/retire-mint!`), and a
+removal that takes a record's last mint justification while the record stays takes it out
+(`special/retire-unjustified-mints!`), read off the network's report of what it removed
+rather than off the stored justifications.  A filed record can still hold other support,
+and `mint-only?` rejects it.  `reindex` rebuilds the family from the stored
+justifications; `recover` and a fork read it and rebuild nothing for it
+(`mint_candidates_test/the-mint-family-files-the-records-a-stored-mint-justification-concludes`).
 
 Two conditions keep the withdrawal from eating what holds it up: the record has to be the
 entailment's own (no premise support, every justification an argument declaration's), and
@@ -511,8 +548,9 @@ re-deriving the mints that departure can have released (`special/withheld-releas
 | a `genlCx` edge `(genlCx sub super)` | every fact stored in a context under `sub` |
 
 A departure reaches the settle from the network when a record goes OUT, and from
-`integrate/sentex-removed!`, which queues each removed record of those four shapes on the
-roster's `:departed`; a mint the same settle withdrew is left out, since what subsumed it
+`integrate/sentex-removed!`, which queues each removed record of those four shapes on
+`:departed`, one of the `Reasoning` value's two mint queues; a mint the same settle
+withdrew is left out, since what subsumed it
 subsumes what it did. The release is therefore a function of the store: a KB rebuilt by
 `recover` releases what the KB that withheld the mint releases, which
 `recovery_test/a-recovered-kb-releases-a-withheld-mint-as-the-live-one-does` asks of each
@@ -525,8 +563,8 @@ one sentence, and each whose mint of it was withheld adds its justification.
 
 The KB **answers** the same either way: `isa?`, matching and the definitional checks all
 read the taxonomy, which reaches `animal` from `dog` with or without a record in between.
-Storage differs — the shipped starter holds 3,702 sentexes against 4,142, CxCore 1,256
-against 1,544 — and so does `why`, which shows the subsumption route rather than a minted
+Storage differs — the shipped starter holds 2,568 sentexes against 3,561, CxCore 932
+against 1,234 — and so does `why`, which shows the subsumption route rather than a minted
 record.
 
 ## The minted type is ordinary content
@@ -568,14 +606,13 @@ declarations; the target materialized those entailments when it first became bel
 
 | case | what happens instead |
 |---|---|
-| the argument is disjoint with the declared type | `entailment-check` refuses the assert with the mint's own `:disjoint` violation — no type is minted on the way to it |
 | an **individual** in an `genlArg` position | `genls-problem` convicts; an individual can never acquire `genl` edges |
-| the declared type is not one the hierarchy holds | nothing — a name that does not reach `thing` is not a type we invent a membership in. This is where a structural constraint lands without needing a list of exemptions to keep in step |
-| a `genlArg` position filled by the declared type itself | nothing — `(genl t t)` is a reflexive edge `wff` refuses, so `arg-entailments` never draws it. This is what keeps `(genlArg arg 3 thing)` / `(genlArg genlArg 3 thing)` from minting `(genl thing thing)` over every `(arg P n thing)` the ontology carries — a violation per genl edge naming `thing`, otherwise, on the shipped load |
+| the declared type is not one the hierarchy holds | nothing, and no conviction either — a name that does not reach `thing` is not a type we invent a membership in. This is where a structural constraint lands without needing a list of exemptions to keep in step |
+| a `genlArg` position filled by the declared type itself | nothing — `(genl t t)` is a reflexive edge `wff` refuses, so `arg-entailments` never draws it. A `(genlArg P n thing)` declaration over a sentence whose position `n` holds `thing` would otherwise store a violation |
 | a **function application** in the position | `args-problem` / `genls-problem` check it against the function's declared `result` / `genlResult` and refuse where the result misses ([nat.md](nat.md)) — but nothing is minted, a declared result being a claim about the *function* and not about this application, and a compound having no membership to mint |
 | a genuine negation, or a rule | not argument-checked, so not entailed from either |
 | a **query** | nothing, ever. The entailment is on the store path alone |
-| bulk load | skipped with the rest of the checks (`*bulk-load?*`) |
+| a bulk or dump load | skipped: the fact-direction derivations ride on the checks `*bulk-load?*` skips, and a dump import writes records directly. `v/record-arg-types`, run once after the load on the recovered KB, records what the stored facts derive, so the store then holds what a per-fact load holds (`argtype_entail_test/a-bulk-loaded-store-records-its-derivations-once`) |
 
 ## Cost
 
@@ -655,23 +692,28 @@ eater where `(interArg eats 1 carnivore 2 meat)` demands it only of carnivores. 
 entails the same way and just as strongly: `(meat Chunk)` from `(eats Rex Chunk)` and the
 declaration, justified by both, once `Rex` is known to be a carnivore.
 
-It reads open-world **twice, in opposite directions**, and that is the whole of it. The
-trigger side must be *positively established* — silence about argument `n`'s type is not
-evidence that it is a `T`, so an unknown trigger leaves the constraint dormant rather than
-firing it. The target side is convicted by *absence*, exactly as `arg`'s is. Getting
-either backwards inverts the constraint: demand the trigger's absence and every untyped
-argument fires it, excuse the target's absence and it never convicts anybody.
+The trigger side must be *positively established* — silence about argument `n`'s type is
+not evidence that it is a `T`, so an unknown trigger leaves the declaration dormant. Once
+the trigger holds, the target is derived a `U` and is not convicted, whatever else it
+holds. Under the constraint-only reading the target is convicted by *absence*, exactly as
+`arg`'s is there.
 
-**One arrival order is not covered, and it is the family's, not this constraint's.** The
-fact and the declaration each reach the other (at the entry point, and through
-`special/entail-existing`), but the *trigger's type* arriving third does not reach back:
-`(eats Rex Chunk)` and the declaration both stored, then `(carnivore Rex)`, and the
-entailment is not drawn — nor is the violation reported, had `Chunk` been a `grass`.
-`arg` has the same gap from the other side (an argument that acquires its first type
-after the fact was admitted), and it is the same open-world non-reach
-[taxonomy.md](taxonomy.md#what-each-constraint-does-in-each-arrival-order) records for the
-whole family: a retroactive pass over it would have to decide whether pre-existing silence
-about a type is a violation, which is the policy question nobody has answered.
+**The trigger is an ingredient.** The derivation names the membership that makes `Rex` a
+carnivore, the `genl` edges from its type up to `carnivore` and the `genlCx` edges the
+fact's context sees it through (`checks/trigger-supports`), one justification per such
+membership. Retracting `(carnivore Rex)`, or an edge on its route, takes `(meat Chunk)`
+back unless another membership still makes `Rex` a carnivore. The fact and the
+declaration each reach the other (at the entry point, and through
+`special/entail-existing`). The trigger arriving after both reaches back through the
+settle: a membership that comes IN, or a `genl` edge that makes a held type reach a
+trigger type, puts the stored facts naming its terms back through the derivation
+(`special/triggered-mints`). It reads the smaller of the term's postings and the extent
+of the declared predicates, which `lein perf`'s `trigger-membership-beside-declared-facts`
+holds. A trigger defeated when the fact arrived and believed later is the same
+transition. `order_independence_test`'s
+`a-trigger-derives-in-every-order-and-its-retraction-takes-the-derivation` runs every
+order of the three ingredients and each retraction. The homogeneity forms below read the
+trigger the same way.
 
 ## Suffix homogeneity: `interArgs` and `interArgAndRest`
 
@@ -683,20 +725,21 @@ each spelling from the other, the way `arg1` and `(arg R 1 T)` derive each other
 
 The reading is `interArg`'s with one type in both roles. The trigger is an argument in the
 suffix that the KB knows to be a `T`; the target is an argument in the suffix that the KB
-places in the hierarchy outside `T`. An application with a trigger and a target is refused
+places in the hierarchy outside `T`. Under the entailing reading a trigger derives `T` of
+every other symbol in the suffix (`checks/homogeneity-entailments`), so `(sameKindAs Rex
+Oak)` with `Rex` an animal stores and derives `(animal Oak)` beside `Oak`'s own type. Under
+the constraint-only reading an application with a trigger and a target is refused
 `:inter-arg-type`, the `interArg` refusal, carrying the trigger's position and the
-target's. An application with no trigger is unconstrained, so a suffix whose arguments all
-lie outside `T` stores. An argument with no type is neither trigger nor target. A value or
-a compound is neither trigger nor target either, which is the reading `interArg` gives
-both of its positions. The forms convict as `interArg` does and do not entail: where
-`interArg` under the entailment toggle mints the target type for an untyped target, these
-mint nothing.
+target's. An application with no trigger is unconstrained in both readings, so a suffix
+whose arguments all lie outside `T` stores and derives nothing. An argument with no type is
+no trigger. A value or a compound is neither trigger nor target, which is the reading
+`interArg` gives both of its positions.
 
-With `(interArgs sameKindAs animal)`, `(sameKindAs Rex Fido)` and `(sameKindAs Oak Elm)`
-store and `(sameKindAs Rex Oak)` is refused once `Rex` is an animal and `Oak` a plant.
-`(interArgAndRest groupedUnder 2 animal)` refuses `(groupedUnder Farm Rex Oak)` and stores
-`(groupedUnder Rex Oak Elm)`: position 1 is below the start, so the animal there triggers
-nothing.
+Under the constraint-only reading, with `(interArgs sameKindAs animal)`, `(sameKindAs Rex
+Fido)` and `(sameKindAs Oak Elm)` store and `(sameKindAs Rex Oak)` is refused once `Rex` is
+an animal and `Oak` a plant. `(interArgAndRest groupedUnder 2 animal)` refuses
+`(groupedUnder Farm Rex Oak)` and stores `(groupedUnder Rex Oak Elm)`: position 1 is below
+the start, so the animal there triggers nothing.
 
 - **One constraint, read once.** `checks/inter-args-homogeneity-problem` reads both
   spellings through the shared declaration reader and keys each on its start, type and
@@ -711,18 +754,17 @@ nothing.
   neither direction: `(interArgs R animal)` refuses a reptile beside a plant that
   `(interArgs R mammal)` stores, and `(interArgs R mammal)` refuses a mammal beside a
   reptile that `(interArgs R animal)` stores.
-- **Convict-only.** Nothing is minted, so the entailment toggle does not change the
-  reading, and the check is behind the taxonomy `:props` gate the covering forms use.
+- **Behind a gate.** Both readings sit behind the taxonomy `:props` gate the covering
+  forms use.
 
-**Arrival order.** The declaration and both memberships stored before the application is
-the covered order, in any of their six orders; `inter_args_test` runs all six. Three
-orders are not covered. A declaration arriving after the applications convicts none of
-them, the stop-short the covering forms record. A trigger's membership arriving after
-the application is `interArg`'s documented non-reach (above). A target's membership
-arriving after the application is `arg`'s non-reach, an argument that acquires its first
-type after the fact was admitted. `entry_point_and_report_test` holds all three beside the
-family's other cells that read "nothing": the application stays stored and believed, no
-violation or pair is filed, and the identical claim one line later is refused.
+**Arrival order.** Under the entailing reading a declaration arriving after the
+applications derives over them (`entail-existing`), and a trigger's membership arriving
+after them derives through the settle, as `interArg`'s does (above). Under the
+constraint-only reading the declaration and both memberships stored before the application
+is the covered order, in any of their six orders, which `inter_args_test` runs; a
+declaration, a trigger's membership or a target's membership arriving after the
+application convicts nothing, and `entry_point_and_report_test` holds the three beside the
+family's other cells that read "nothing".
 
 ## The quoted twin
 
@@ -779,9 +821,11 @@ no disjointness: a use-level claim about it would be false of every predicate na
 
 ## Scope
 
-**In:** `arg`, `genlArg` and `interArg`, both directions, justified and retractable;
-the local/inherited rule; the toggle; and the closure reading of all four spellings on the
-query surface, which is neither direction of the entailment.
+**In:** `arg`, `genlArg`, `interArg`, the covering forms and the homogeneity forms, in
+all four directions, justified and retractable, from a declaration written in a context or
+inherited by it; `record-arg-types` over a store loaded without them; the toggle; and the
+closure reading of the four singular spellings on the query surface, which is neither
+direction of the entailment.
 
 **Out:** entailing `quotedArg`, which is checked and never entailed (above), there being
 nothing to mint about a term that already is what it is — it is *answered* along the `genl`
@@ -790,10 +834,6 @@ disjoint-check-only so a `(ListOfType thing)` slot refuses nothing and sprays no
 making `checks` write, for the sequencing reason above; and a dry-run mode, since
 `preview` has its own machinery and the two are not wired together.
 
-**On by default,** and what changed to allow it: the shipped ontology loads under the
-entailment without a `(genl thing thing)` violation, because `arg-entailments` refuses the
-reflexive `genl` mint (the table under "Where it does not mint") the `(genlArg arg 3
-thing)` / `(genlArg genlArg 3 thing)` meta-declarations would otherwise draw from every
-`(arg P n thing)` the ontology carries. The constraint-only reading stays available under
+**On by default.** The constraint-only reading stays available under
 `VAELII_ASSERTIVE_ARG_TYPES=0`, and the tests that assert it pin it there
 (`tu/without-entailing`).

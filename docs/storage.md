@@ -443,8 +443,8 @@ spelling.
 
 The records open populated and the index opens empty, so such a KB needs its index
 rebuilt before it can answer anything. `recover` alone is **not** that: it rebuilds the
-TMS and taxonomy *by reading the index* (`special/rebuild-taxonomy` reads the functor
-root), so over an empty one it would recover an empty KB and report nothing wrong. The
+TMS and taxonomy *by reading the index* (`special/rebuild-taxonomy` reads the supporter
+families), so over an empty one it would recover an empty KB and report nothing wrong. The
 repair is `reindex` — rebuild the index from the records, *then* recover — and
 `{:recover? :auto}`, the default, runs it and logs how long it took.
 
@@ -644,8 +644,9 @@ and the next open installs it in place of the recover (`vaelii.impl.reasoning-im
 - `network.bin` — the dense network: every node, justification column, label,
   defeat-class, block, forced set and supersession (`dense-jtms/write-image`), keys in sorted
   order so two images of one network are equal bytes;
-- `state.nippy` — the taxonomy's relations and caches, and the KB atoms recovery fills or
-  the closing settle leaves (`reasoning-image/state-atoms`);
+- `state.nippy` — the taxonomy's relations and caches, less the slots the live KB owns
+  (`reasoning-image/taxonomy-side-slots`), and the KB atoms recovery fills or the closing
+  settle leaves (`reasoning-image/state-atoms`), the placed nogoods' rosters among them;
 - `manifest.edn` — the stamp, written last, so a directory with no manifest holds no image.
 
 **The stamp** holds the two layout numbers, the records' `record-store/reasoning-fingerprint`,
@@ -669,6 +670,15 @@ open without an image runs. `lein cli upgrade --dir <path>` (and `scripts/upgrad
 performs that open and a close for a store, so the recover a changed engine owes is paid
 once, ahead of the next open ([operations.md](operations.md)). Its `--verify` recovers
 anyway and compares the new image's believed sets with the old one's.
+
+**A heap failure fails the open and declines nothing.** A `VirtualMachineError` while
+either image is read, an `OutOfMemoryError` above all, is rethrown as itself, including
+one nippy wrapped as a failed thaw (`io.thaw/vm-error`). The image may be sound, and the
+recover or reindex a declined image starts needs more heap than the read that ran out. A
+cache in `state.nippy` that runs out of heap fails the open the same way. An open that
+throws closes the directories it opened without writing either image
+(`disk.backend/close-dir!`'s `:images? false`), so the next open reads the images the
+failed one found.
 
 Nothing installs an image whose source digest differs from the running engine's, except
 `:recover? :background` (below), which rebuilds belief behind the image it installs. A caller
@@ -767,6 +777,74 @@ recover rebuilds from the records instead of reading. Why an image is installed 
 discarded whole, and never reconciled against the records:
 [defenses.md](defenses.md#a-reasoning-image-is-installed-whole-or-not-at-all).
 
+#### The operation log
+
+`open-kb` with `:oplog?` attaches an **operation log** to a `:disk-snapshot` KB
+(`vaelii.impl.oplog`, `vaelii.impl.seal`). Each outermost public write is appended to
+`<dir>/oplog/ops.log` as the call that made it, and a **seal** writes the index image and
+the reasoning image and starts the log's next generation. An open after a crash installs
+the images the last seal wrote and replays the operations logged since, in place of the
+index rebuild and the recover the records would otherwise need.
+
+| `:oplog?` | log | an operation's frame reaches the disk |
+|---|---|---|
+| `false` (the default) | none | — |
+| `true`, `:each` | attached | fsynced before the operation runs |
+| `:tick` | attached | on the durability daemon's tick (`vaelii.disk.sync-ms`), and before the operation writes a record the log's generation began with |
+
+The log is read on `{:backend :disk-snapshot}` with `:recover? :auto` only. Another
+backend, a `:recover?` of `:background`, `:warn` or `false`, and a value outside the table
+are refused with `:unknown-option`: a restore installs the images only a `:disk-snapshot`
+KB keeps, and an open with a log builds belief one way or the other.
+
+**An open.** A directory holding a seal (`<dir>/oplog/seal.nippy`) is opened `{:recover? false}`
+and restored (`seal/restore!`): both images install against the fingerprints the seal
+records, and the frames of the current generation replay through the public write entry
+points, each replayed write checked against the record stored at its handle. A clean close
+seals, so the open after it replays no frame. The restore declines when the log is
+unusable, an image does not install, a replayed write differs from the stored record, or
+the store holds a record no replayed frame accounts for. The directory is then closed
+without writing an image, opened again with `:recover? :auto`, and sealed. A directory with
+no seal is opened and sealed the same way. The open logs which path ran, at `:info` for a
+restore or a directory with no seal and at `:warn` for a decline with its reason, and the
+log keeps the report (`oplog/opened`): `{:restored true :frames n :ms t}` or `{:restored
+false :reason r :ms t}`.
+
+**A seal** runs when `vaelii.core/seal` is called, when the directory closes, when the
+index drifts past `vaelii.index.snapshot-drift`, and when a `:seal`-class operation
+returns (`import!`, `clear!`, `recover`, `reindex`, `load-text!`). It writes both images,
+then `seal.nippy` naming the generation, the records watermark and the two fingerprints,
+then truncates the log to a header for the new generation. `vaelii.impl.seal`'s namespace
+docstring lists what a crash between those writes leaves. A seal is declined, and the log
+left as it is, inside an operation, inside `with-deferred-settle` and while a settle holds
+the network; a declined drift or `:seal`-class seal runs after the next operation returns.
+
+**A log becomes unusable**, and the next open rebuilds from the records, on a
+`:seal`-class operation until its seal runs, a configuration call (`set-solver`,
+`add-prover`, `add-evaluatable`, `add-reasoner`) until the next seal, an argument nippy
+cannot freeze, a write a change-feed listener makes, a record write outside every
+operation, and a frame inside the log that does not decode. A KB with a registered prover
+or solver cannot be sealed, so its log stays unusable and the next open rebuilds.
+
+**A log that cannot take a frame stops.** A failed append, fsync or truncation latches the
+log's fault, as a record store's does ("A store that stops"): the operation is refused
+with `:store-unusable` before it runs, and so is every later write and `seal`, until the
+directory is opened again. Under `:each`, a frame whose fsync failed can be on disk
+although its operation was refused, so the next restore can replay it.
+
+**What it costs**, measured on a synthetic store of 600,300 sentexes (300,000 facts and the
+conclusion a forward rule draws from each) on an APFS SSD, where one fsync takes 5.5–6 ms:
+
+| | no log | `:tick` | `:each` |
+|---|---|---|---|
+| an assert of a new fact | 0.35–0.48 ms | 0.32–0.59 ms | 6.4–7.2 ms |
+| a retraction of a fact older than the log's generation | 0.30–0.44 ms | 5.7–5.9 ms | 5.7–6.1 ms |
+
+A seal took 3.0–4.7 s at that size. An open of a copy of the live directory, which holds
+what a killed process leaves, restored in 5.5 s with 100
+operations logged since the seal, 8.0 s with 10,000 and 34.9 s with 100,000, against 20.9 s
+for the open without a log that rebuilt the index and belief from the records at 10,000.
+
 ### The index is written once — `KvBackend`
 
 `KvIndexStore` (`vaelii.impl.kv`) is the **generic** `IndexStore`: the whole trie /
@@ -807,7 +885,11 @@ contract-tested by `kv_backend_test` (every adapter satisfies one spec). The one
 `IndexStore` that is *not* a `KvBackend` is `ColumnarIndexStore`
 (`vaelii.impl.columnar`), which implements the trie natively over CSR arrays and
 delegates the flat families — roots, term index — to an embedded `KvIndexStore` on the
-same keys, so the two answer alike. The **record store** stays per-backend
+same keys, so the two answer alike. An `IndexStore` that is neither a `KvIndexStore`
+nor embeds one as `:embedded` holds none of the families `vaelii.impl.kv` reads past the
+protocol (the argument-root census, the rule extent, the opposed bodies, the taxonomy's
+supporters, the mints, the shape roster): each of those reads answers nil, so such a store
+installs no taxonomy edge and files no mint, and no check refuses it. The **record store** stays per-backend
 (`MemoryRecordStore` / `DiskRecordStore`) — a handle→blob map is simple enough that
 sharing it buys nothing.
 
@@ -1312,7 +1394,9 @@ the close was not clean.  Within one process, stores are shared per canonical
 directory (`disk.backend`, a registry mirroring the memory backend's db registry), so
 two KBs over one directory share the durable store — the restart contract the recovery
 tests rely on — and the lock, file handles, and durability registration are taken once;
-closing either KB closes both.
+closing either KB closes both. `close!` also empties the process-wide memos the nogood
+readers fill (`decide/drop-memos`), which hold the last KB read, so a closed KB's records
+and index are collectable once its caller drops the KB value.
 
 ### A store that stops
 
@@ -1324,7 +1408,7 @@ caller as a failed write.  The next open's coverage gate indexes such a record, 
 recovery then believes it as a premise whose forward rules never fired for it, since
 `recover` rebuilds belief from the stored justifications and does not chain.  An index
 can also refuse part-way through its write: the columnar index writes the trie posting
-before the argument roots, and a (predicate, position) pair past the argument-scope
+before the argument roots, and an argument-root scope past the argument-scope
 ceiling refuses in the second step, so the posting would name a handle with no record.
 So the postings the write landed are taken out (`unindex-sentex!`) and the record is
 deleted before the throw travels, and the store holds what it held before the call.  A justification is one record and no index write, so the justification writers
@@ -1332,8 +1416,8 @@ have no second store to fall out of step with.  A crash between the two writes i
 coverage gate's to repair, as above.
 
 **A disk store stops at its first fault, and says so on every call after it.**  Each
-store — the record store, the index's `kv.log`, an overlay's metadata log — holds one
-fault latch, and five things set it, named by the refusal's `:reason`:
+store — the record store, the index's `kv.log`, an overlay's metadata log, the operation
+log — holds one fault latch, and five things set it, named by the refusal's `:reason`:
 
 - `:interrupted` — a thread interrupt closed a channel the store was reading or writing.
   A `FileChannel` closes itself when the thread blocked in it is interrupted, and the
@@ -1608,14 +1692,15 @@ name is refused (`:unknown-option`) rather than read as the warn branch, since a
 silently took `:warn` answers `[]` to everything and is indistinguishable from an empty store. Either
 way recovery is these two steps:
 
-- **taxonomy** — re-integrate the special-predicate sentexes (`rebuild-taxonomy`
-  queries `genl`/`genlCx`/`disjoint`/`disjoint_metatype`/predicate-props/`inverse`). A
-  `genl`/`genlCx` sentex is read positionally for its two endpoints, so one an older or
-  foreign writer left under that functor root without a well-formed edge — a two-element
-  sentence whose super reads nil — is **dropped** and counted, logged once at `:warn`
-  under `::edges-malformed`. Replaying it would activate a null closure node, which the
-  `strong-components` condensation cannot walk; the drop is the taxonomy's twin of the
-  JTMS's unrooted-justification skip below.
+- **taxonomy** — install the believed side of every key the index's supporter families
+  hold (`rebuild-taxonomy`, [taxonomy.md](taxonomy.md#the-supporters-are-index-families-and-a-cache-holds-what-the-reconcile-reads)),
+  and replay the stored equality declarations. The families are posted by the writers
+  and by `reindex`, which reads each `genl`/`genlCx` sentex positionally for its two
+  endpoints, so one an older or foreign writer left in either predicate's extent without a
+  well-formed edge — a two-element sentence whose super reads nil — is **dropped** and
+  counted, logged once at `:warn` under `::edges-malformed`. Posting it would activate a
+  null closure node, which the `strong-components` condensation cannot walk; the drop is
+  the taxonomy's twin of the JTMS's unrooted-justification skip below.
 - **JTMS** — the record store tracks live sentex ids, justification ids, and premise
   ids; each premise's assumption strength rides on its own sentex record (the
   `:strength` field, no side hash). `rebuild-tms` recreates a node per sentex, marks
@@ -1628,18 +1713,15 @@ way recovery is these two steps:
   a justification *concluding* the phantom would make it IN — a KB believing a handle it
   cannot show anyone. The informant is deliberately not checked; it is not a node
   reference. `recover` rebuilds the JTMS
-  *before* the taxonomy (`rebuild-taxonomy` reads **stored**, not believed,
-  sentexes, so `:support` / `:cache-support` record every asserting sentex —
-  belief-filtering the replay would drop a disbelieved supporter, and its return
-  could never revive the entry), then narrows the replayed caches to
-  belief with its own unconditional `refresh-beliefs` — inside the same depth
-  deferral, and *before* the settle, so everything the settle reads answers
-  through a taxonomy that already agrees with belief. The replay reads stored,
-  the reconcile narrows to believed, and the contract is the composition: an edge
-  supported by nothing was never in a region for the settle to reach, having been
-  OUT from the moment its node was made, while the replay had already made it
-  answer `genls`. Strengths, verdicts, and reported conflicts are re-derived on
-  restart and match either side of it.
+  *before* the taxonomy, since the taxonomy installs what the labels admit, then
+  reconciles again with its own unconditional `refresh-beliefs` after the forced
+  memberships go in — inside the same depth deferral, and *before* the settle, so
+  everything the settle reads answers through a taxonomy that already agrees with
+  belief. An edge supported by nothing was never in a region for the settle to reach,
+  having been OUT from the moment its node was made. The supporters stay stored whatever
+  their belief, so a disbelieved one revives its entry when it comes back IN.
+  Strengths, verdicts, and reported conflicts are re-derived on restart and match either
+  side of it.
 
 Derivation depths reset to 0 on recovery (they only bound future chaining).
 
@@ -1680,9 +1762,9 @@ not that it resists it.
 
 Two numbers to keep apart before acting on this. The Phase 0 "taxonomy ≈ 0" figure is
 **residency** — 0.0 MB, 0 bytes/fact — and says nothing about rebuild *time*:
-`rebuild-taxonomy` does a `sentexes-with-functor` per declaring functor plus a record
-fetch per hit, and on a corpus where `genl` is a top predicate that is a great many
-fetches. And `recover`'s ~8 s at 313k records is one number; `lein bench-recoverphase decomp`
+`rebuild-taxonomy` reads the predicate extent of each declaring functor and an
+installed-key read per stored fact of one, with a supporter read per key, and on a corpus
+where `genl` is a top predicate that is a great many reads. And `recover`'s ~8 s at 313k records is one number; `lein bench-recoverphase decomp`
 splits a recover into its steps, the taxonomy rebuild among them.
 
 **Atomicity.** All validation (naming, wff, arg/disjoint/functional/negation
@@ -1702,8 +1784,8 @@ indexing and believing, and this is where that time goes.
 the instrument. It loads one corpus repeatedly through the same entry point, each run with one more
 phase stubbed out from the outside in, so the difference between two consecutive runs is
 that phase's cost and the deltas **sum to the baseline by construction** — there is no
-unattributed residue. The peel order puts a phase before anything it reads: the
-coincidence probe reads the index, so it is peeled before the index write, which is
+unattributed residue. The peel order puts a phase before anything it reads: the nogood
+candidate note reads the index, so it is peeled before the index write, which is
 peeled before the record write, which is peeled before canonicalization.
 
 **1,000,000 distinct binary ground facts, `:memory` pair, one context, no rules.**
@@ -1751,7 +1833,7 @@ The ranges are two independent runs; the split arms are whole loads too, so thei
 difference carries the same ±1 µs/fact.
 
 Postings dominate because two of them are `conj` into sets that grow with the corpus: the
-functor root holds every fact with that predicate and the context root every fact in that
+predicate extent holds every fact with that predicate and the context root every fact in that
 context, which is exactly what makes `count-with-functor` and `sentexes-in-context` O(1)
 reads. **The load rate is the price of those roots plus the trie**, and it is not a
 defect: the alternative to a write per family is a scan per read.
@@ -1765,8 +1847,7 @@ conjuncts by those counts. The counts stay where they are.
 **Two write-side tricks measured worse and are not on this path.** Accumulating the
 in-memory index's map on a transient for the whole load
 (`vaelii.impl.memory/with-bulk-writes`) ran **5–7% slower** than the plain path at 1M: it
-removes the per-fact HAMT path copy of the *map*, which is not where the time is, and its
-batch arm allocates an aligned reply vector per fact that the plain arm does not. Sorting
+removes the per-fact HAMT path copy of the *map*, which is not where the time is. Sorting
 the corpus by trie key before inserting is unpriced here for a reason rather than an
 oversight — its benefit is locality, and the in-memory trie is a hash map keyed by whole
 path vectors, where there is no contiguity to hit.
@@ -1775,6 +1856,28 @@ path vectors, where there is no contiguity to hit.
 single-writer contract below it has to be. So a rate is only comparable against another
 rate taken at the same writer count, and a wall-clock load comparison between two engines
 is a comparison of thread counts until both are pinned to one.
+
+### What a recover spends its time and heap on
+
+`:last-recover`'s `:steps` split a recover's wall time by phase. A converted ontology
+store carried through `import!`, `reindex`, `export!` and a reimport on `:disk-columnar`
+(`{:records :disk :index :columnar}`) splits its recover as follows:
+
+| step | share of the recover |
+|---|---:|
+| `:settle` | about 50% |
+| `:rosters` | about 25% |
+| `:taxonomy` | about 15% |
+| `:network` | about 6% |
+| `:depths` | about 4% |
+| `:refusals` | under 1% |
+
+The recover's heap peak is about twice the import's, so the recover sets the heap a store
+needs (`VAELII_HEAP`). A `:disk-snapshot` open that installs the reasoning image takes
+about a twentieth of the recover's wall time. An open declines the image when the engine
+source has changed, and then pays the full recover
+([The reasoning image](#the-reasoning-image)). `scripts/upgrade-kb.sh` pays the recover
+once, ahead of the next open.
 
 ## The single-writer contract
 
@@ -1803,7 +1906,7 @@ writes:
   the belief it began from (`vaelii.impl.settle/settle`): the network records each label
   a relabel moves as it was when the settle began, the standing nogoods keep their
   value, and a thread other than the writer reads those — belief, a defeat class, the
-  blocked and superseded sets, and the nogoods each reader decides. When the
+  blocked and superseded sets, and the placed nogoods. When the
   settle ends it publishes what it decided in one step, which is one swap of the open
   holds (`vaelii.impl.observe`). A reader beside the writer therefore reads, for every
   settle, the belief before it and then the belief after it, and never one in between
@@ -1811,8 +1914,7 @@ writes:
   - **The caches.** A thread reading a hold's belief reads the change clock as
     `-1 - clock` (`observe/change-clock`), so no clock-stamped cache hands it an entry the
     writer derived from the network it is deciding, and none hands the writer one derived
-    from the belief the reader holds. The per-reader withdrawal cache is neither read nor
-    filled under a hold (`jtms/through-cache`).
+    from the belief the reader holds.
   - **The taxonomy is read live.** Its closures are memoized where the writer reads them,
     so the two visibility callbacks read what the writer holds now (`observe/live`), and
     `genl?`, `isa?` and the scoped closures answer a reader beside a settle from the

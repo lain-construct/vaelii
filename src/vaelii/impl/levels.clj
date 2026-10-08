@@ -59,7 +59,8 @@
   them, and a transitive closure has no partial answer.  The property that does
   hold everywhere is that per-result work — a record fetch, an expensive prover, a
   rule expansion — is paid per result consumed."
-  (:require [vaelii.impl.kb :as kb]
+  (:require [vaelii.impl.except :as exc]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.nat :as nat]
             [vaelii.impl.protocols :as p]
@@ -169,8 +170,8 @@
 
 (defn- root-refs
   "The secondary roots that constrain a level-1 lookup, each with its O(1)
-  cardinality: the context root when the context is concrete, the functor root when
-  the goal has one."
+  cardinality: the context root when the context is concrete, the predicate extent
+  when the goal has one."
   [kb goal context]
   (let [idx  (:index kb)
         pred (when (sequential? goal) (nm/functor goal))]
@@ -208,12 +209,12 @@
   kind — the context is an exact trie token and a type predicate is not fanned out.
 
   Belief is read as `context` reads it: a handle scoped-defeated at a vantage `context`
-  sees, or resting only on one, is dropped (`res/defeat-withdrawn-set`)."
+  sees, or resting only on one, is dropped (`exc/belief-hidden-fn`)."
   [kb goal context]
-  (let [w (res/defeat-withdrawn-set kb context)]
+  (let [hid (exc/belief-hidden-fn kb context)]
     (map (fn [[h b s]] (stored-result 2 h b s))
-         (cond->> (res/raw-match kb goal context)
-           w (remove #(contains? w (first %)))))))
+         (cond->> (res/without-unbelieved-spellings kb context goal (res/raw-match kb goal context))
+           hid (remove #(hid (first %)))))))
 
 (defn- level-3
   "Level 2 plus **context inheritance**: the goal is matched in every context the
@@ -236,16 +237,17 @@
 
   A scoped defeat **is** here, because it is belief and not visibility: the view context
   is the reader, and a handle defeated at a vantage it sees, or resting only on one, is
-  dropped from every ancestor's answer (`res/defeat-withdrawn-set`)."
+  dropped from every ancestor's answer (`exc/belief-hidden-fn`)."
   [kb goal context]
   (map (fn [[h b s]] (stored-result 3 h b s))
        (if (sx/variable? context)
          (res/raw-match kb goal context)
-         (let [w (res/defeat-withdrawn-set kb context)]
-           (cond->> (res/without-retired kb context
-                                         (res/lazy-mapcat #(res/raw-match kb goal %)
-                                                          (tax/context-up (reasoning/taxonomy kb) context)))
-             w (remove #(contains? w (first %))))))))
+         (let [hid (exc/belief-hidden-fn kb context)]
+           (cond->> (->> (tax/context-up (reasoning/taxonomy kb) context)
+                         (res/lazy-mapcat #(res/raw-match kb goal %))
+                         (res/without-retired kb context)
+                         (res/without-unbelieved-spellings kb context goal))
+             hid (remove #(hid (first %))))))))
 
 (defn- level-4
   "Level 3 plus **predicate inheritance**: a unary type predicate is matched over its
@@ -298,7 +300,7 @@
   rather than about storage: levels 2-5 match the goal as written, which is what makes
   them a legible account of what the index and the two hierarchies hold."
   [kb goal context]
-  (kb/rewrite-goal kb (nat/maybe-reify-for-read kb goal) context))
+  (kb/rewrite-goal kb (nat/maybe-reify-for-read kb goal context) context))
 
 (defn- solved
   "Level 6: the real engine over a prover list, so dispatch, cost estimates and the

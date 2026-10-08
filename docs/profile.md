@@ -90,7 +90,7 @@ same question:
   secondary argument roots, which answer it.
 - **An open compound after an open one** — an `F` with an `f` or `F` to its left. This
   one is answered by nothing. The trie narrows left to right, so the compound's tokens sit
-  behind a fan, and `[:argument-root pred pos term]` keys a *ground* argument whole, so a
+  behind a fan, and the argument-root node `[pred pos term]` keys a *ground* argument whole, so a
   compound holding a variable is not one of its keys either.
 - **An open compound at any position** — an `F` anywhere, the same reading with the
   position rule dropped. It exists because a zero on the row above has two causes that
@@ -107,12 +107,13 @@ second by construction and is read as a bound, not added to anything.
 ## The access paths, named
 
 Two matchers decide where candidates come from, and each names its decision so the tally
-can count it. `res/candidate-handles` yields one of six:
+can count it. `res/candidate-handles` yields one of seven:
 
 | path | taken when |
 |---|---|
 | `:trie` | a left prefix, a fully-ground test, or after-a-variable selectivity that is only a `n` token |
 | `:arg-roots` | a ground argument sits after an open one — the scoped argument roots, intersected |
+| `:context-extent` | every argument open in a ground context — the predicate extent's leaf there |
 | `:structural` | a positive pattern with a compound argument, narrowed on the compound's interior |
 | `:functor-extent` | the same shape with `res/*structural-index*` false — the correct looser superset |
 | `:negative-roots` | an open negative with a functor or a ground argument pinned |
@@ -123,10 +124,10 @@ makes its own choice and never consults `candidate-handles`:
 
 | path | taken when |
 |---|---|
-| `:hier-trie-prefix` | a left prefix of ground atoms, two of them indexable, then only variables, and no permuting spec — the trie under the prefix, per spec |
-| `:hier-scoped-roots` | something indexable to lead with, and a spec closure to scope by |
+| `:hier-trie-prefix` | a left prefix of ground atoms, two of them indexable, then only variables, and no permuting spec — the trie under the prefix, or that spec's argument roots where `res/arg-lead` finds them smaller, per spec |
+| `:hier-scoped-roots` | something indexable to lead with, and a spec closure to scope by — each spec's node, or the node of each slot-roster predicate in the closure (`res/*lead-side*`) |
 | `:hier-agnostic-roots` | something indexable to lead with and no predicate — a variable functor |
-| `:hier-functor-extent` | nothing indexable to lead with, so the sub-predicates' extents |
+| `:hier-functor-extent` | nothing indexable to lead with, so the sub-predicates' extents in the reader's ancestor set |
 
 A tally over these is **retrievals, not questions**: a matcher that fans over a
 predicate's spec closure records one entry per sub-predicate, so a total is index traffic

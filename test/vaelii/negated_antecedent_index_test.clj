@@ -25,7 +25,7 @@
 
 (deftest the-dependency-spelling-is-the-one-a-conclusion-is-filed-under
   ;; The index key and the graph key part company on a negation, and only there: a
-  ;; conclusion `(not (flies ?x))` is filed by its functor root, so a reader looking a
+  ;; conclusion `(not (flies ?x))` is filed under its outermost functor, so a reader looking a
   ;; dependency up among the concluders has to ask for `not`.
   (is (= 'not (rules/consequent-predicate '(implies (bird ?x) (not (flies ?x))))))
   (is (= ['bird 'not]

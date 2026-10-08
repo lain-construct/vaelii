@@ -14,6 +14,7 @@
             [clojure.walk :as walk]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
+            [vaelii.impl.decide :as decide]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
@@ -149,11 +150,11 @@
     (is (v/ask? kb '(functional birthYearOf)))
     (is (not (v/ask? kb '(symmetric parentOf)))))
   (testing "and enumerated"
-    ;; the domain relations and siblingDisjointException are the symmetric marks,
-    ;; decontextualized like the other algebraic marks, so they answer the enumeration
-    ;; wherever CxUniverse is seen.  seeAlso is NOT among them — it is a directional
-    ;; cross-reference, not symmetric.
-    (is (= '#{siblingOf marriedTo friendOf siblingDisjointException}
+    ;; the domain relations and orthogonal are the symmetric marks, decontextualized like
+    ;; the other algebraic marks, so they answer the enumeration wherever CxUniverse is
+    ;; seen.  seeAlso is NOT among them — it is a directional cross-reference, not
+    ;; symmetric.
+    (is (= '#{siblingOf marriedTo friendOf orthogonal siblingDisjointException}
            (set (map #(get % '?p) (v/ask kb '(symmetric ?p) '?ctx)))))
     ;; `genl` and `genlCx` are in the enumeration because CxCore asserts (transitive genl)
     ;; / (transitive genlCx) outright.  They *are* transitive; answering them from cached
@@ -190,29 +191,30 @@
   [base]
   (gensym (str "tmp" base)))
 
-(tu/deftest-kb a-default-write-of-each-roster-group-is-stored-monotonic
+(tu/deftest-kb a-default-write-of-each-roster-group-keeps-its-strength
   (tu/with-terms [CxLow parentOf dog_kind cat_kind bird_kind Ann Bob Cal Dan]
     (let [fatherOf (predicate-spelled "FatherOf")
           kinOf    (predicate-spelled "KinOf")
           fact     (v/assert kb (list parentOf Ann Bob) CxLow)
-          rows     [["genlCx"          (list 'genlCx CxLow 'CxUniverse)       'CxUniverse]
-                    ["a relation mark" (list 'functional parentOf)             'CxUniverse]
+          rows     [["a relation mark" (list 'functional parentOf)             'CxUniverse]
                     ["predicate genl"  (list 'genl fatherOf kinOf)             'CxUniverse]
                     ["a declaration"   (list 'disjoint dog_kind cat_kind)      'CxUniverse]
                     ["except"          (list 'except (sx/sentex-handle fact))  CxLow]
                     ["equality"        (list 'sameAs Cal Dan)                  CxLow]]]
       (doseq [[group s c] rows]
         (testing group
-          (is (= :monotonic (v/defeat-class kb (v/assert kb s c)))))))
-    (testing "a genl between types stays defeasible"
-      (is (= :default (v/defeat-class kb (v/assert kb (list 'genl bird_kind cat_kind) 'CxUniverse)))))))
+          (is (= :default (v/defeat-class kb (v/assert kb s c)))))))
+    (testing "and so does a genl between types"
+      (is (= :default (v/defeat-class kb (v/assert kb (list 'genl bird_kind cat_kind) 'CxUniverse)))))
+    (testing "a genlCx edge is read :monotonic, so it caps no firing's class"
+      (is (= :monotonic (v/defeat-class kb (v/assert kb (list 'genlCx CxLow 'CxUniverse) 'CxUniverse)))))))
 
-(tu/deftest-kb a-late-declaration-restrengthens-the-premises-before-it
+(tu/deftest-kb a-late-declaration-leaves-the-premises-before-it-at-their-strength
   (tu/with-terms [likes Ann Bob Cal]
     (let [hs (mapv #(v/assert kb (list likes Ann %) 'CxUniverse) [Bob Cal Ann])]
       (is (= [:default :default :default] (mapv #(v/defeat-class kb %) hs)))
       (v/assert kb (list 'forced_monotonic_predicate likes) 'CxUniverse)
-      (is (= [:monotonic :monotonic :monotonic] (mapv #(v/defeat-class kb %) hs))))))
+      (is (= [:default :default :default] (mapv #(v/defeat-class kb %) hs))))))
 
 (defn- inert?
   "Is handle `h` stored, not believed, and reported `:inert` by `why-not`."
@@ -259,12 +261,12 @@
                 'CxUniverse)
       (v/assert kb (list strict_kind parentOf) 'CxUniverse)
       (is (= [false true] (concluded? kb (list 'asymmetric parentOf)))))
-    (testing "roster antecedents: the rule is stored :monotonic and its conclusion is believed"
+    (testing "roster antecedents: the conclusion is believed at its antecedents' class"
       (let [r (v/assert kb (list 'set/forwardRule
                                  (list 'implies (list 'anti_transitive '?p) (list 'irreflexive '?p)))
                         'CxUniverse)]
-        (is (= :monotonic (v/defeat-class kb r)))
-        (v/assert kb (list 'anti_transitive siblingOf) 'CxUniverse)
+        (is (= :default (v/defeat-class kb r)) "the rule keeps the strength it was written at")
+        (v/assert kb (list 'anti_transitive siblingOf) 'CxUniverse {:strength :monotonic})
         (is (= [true false] (concluded? kb (list 'irreflexive siblingOf))))
         (is (= :monotonic (v/defeat-class kb (v/handle-of kb (list 'irreflexive siblingOf)
                                                           'CxUniverse))))))
@@ -292,19 +294,95 @@
             (str "exception first: " exception-first?))))))
 
 (tu/deftest-kb a-denied-except-still-hides
-  ;; CxCore puts `except` on the forced-monotonic roster: an except is held `:monotonic`
-  ;; whatever it was written at, and a denial of one is held OUT, so it keeps hiding
+  ;; `except` is on the forced-monotonic roster: an except keeps the strength it was
+  ;; written at and is never a loser, and a denial of one is held OUT, so it keeps hiding
   ;; (docs/nmtms.md, "The forced-monotonic roster").
   (let [ctx (tu/tmp-ctx "Sub") shiny (tu/tmp-pred) gold (tu/tmp-ind)]
     (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list shiny gold) ctx {:strength :monotonic})
           x (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :default})]
-      (is (= :monotonic (v/defeat-class kb x)))
+      (is (= :default (v/defeat-class kb x)))
       (is (not (v/ask? kb (list shiny gold) ctx)) "the except hides it")
       (let [d (v/assert kb (list 'not (list 'except (sx/sentex-handle h))) ctx
                         {:strength :monotonic})]
         (is (not (v/in? kb d)) "the denial is held OUT")
         (is (not (v/ask? kb (list shiny gold) ctx)) "and the target stays hidden")))))
+
+(deftest the-verdict-weighs-only-the-members-off-the-roster
+  ;; handles 1 and 2 are roster literals: whatever their class, neither is a loser, and a
+  ;; nogood with no defeasible member off the roster is `:hard`
+  (let [class-of {1 :default 2 :default 3 :default 4 :default 5 :monotonic}
+        roster?  #{1 2}]
+    (is (= :hard (decide/verdict class-of roster? #{1 2})))
+    (is (= :hard (decide/verdict class-of roster? #{1 5})))
+    (is (= {:defeat 3} (decide/verdict class-of roster? #{1 3})))
+    (is (= :dilemma (decide/verdict class-of roster? #{1 3 4})))))
+
+(deftest a-roster-member-is-never-a-loser-whatever-its-strength
+  ;; decide/verdict weighs only the members off the roster: two arity-class memberships
+  ;; separated by a `:default` `disjoint` form a `:hard` clash and both stay believed, in
+  ;; either order and at either strength.  A bare KB, so no CxCore declaration of the
+  ;; separation is re-asserted at `:monotonic`.
+  (doseq [membership-strength [:monotonic :default] disjoint-first? [true false]]
+    (tu/with-neutral-kb [kb tu/isolated-fresh]
+      (let [p    (predicate-spelled "RosterRel")
+            decl #(v/assert kb '(disjoint unary binary) 'CxUniverse {:strength :default})
+            why  (str membership-strength " memberships, disjoint first: " disjoint-first?)]
+        (v/assert kb '(genl unary_predicate unary) 'CxUniverse {:strength :monotonic})
+        (v/assert kb '(genl binary_predicate binary) 'CxUniverse {:strength :monotonic})
+        (when disjoint-first? (decl))
+        (let [ms (mapv #(v/assert kb (list % p) 'CxUniverse {:strength membership-strength})
+                       '[unary_predicate binary_predicate])]
+          (when-not disjoint-first? (decl))
+          (is (every? #(v/ask? kb (:sentence (v/sentex kb %)) 'CxUniverse) ms) why)
+          (is (some #(= (set ms) (set (:nogood %))) (v/conflicts kb)) why))))))
+
+(defn- own-ground?
+  "Is `literal` among `grounds`, a family's `:grounds` map, read as `decide/roster-literal?`
+  reads the roster."
+  [grounds literal]
+  (let [[f & args] literal]
+    (boolean (or (contains? (:forced-monotonic grounds) f)
+                 (and (contains? (:forced-between-predicates grounds) f)
+                      (every? #(re-matches #"[a-z][a-zA-Z0-9]*[A-Z][a-zA-Z0-9]*" (name %)) args))))))
+
+(deftest a-family-names-its-own-ground-as-a-member-only-beside-other-grounds
+  ;; A family reads its `:grounds` as stored marks.  The one nogood that names them as
+  ;; members is the arity family's `:arity-descension`, two bindings and nothing else,
+  ;; which `decide/verdict` reads `:hard`.  Every family with grounds places its nogoods,
+  ;; so each is read off the placed `contradicts`.
+  (tu/with-neutral-kb [kb tu/isolated-fresh]
+    (tu/with-terms [Ann Bob Cal dog_kind cat_kind Rex]
+      (let [[shortRel longRel irrRel antiRel ageRel beatsRel nextRel]
+            (mapv predicate-spelled ["Short" "Long" "Irr" "Anti" "Age" "Beats" "Next"])
+            U 'CxUniverse]
+        (doseq [s [(list 'binary_predicate shortRel) (list shortRel Ann Bob Cal)
+                   (list 'ternary_predicate longRel) (list 'genl longRel shortRel)
+                   (list 'irreflexive irrRel) (list irrRel Ann Ann)
+                   (list 'anti_symmetric antiRel) (list antiRel Ann Bob) (list antiRel Bob Ann)
+                   (list 'functional ageRel) (list ageRel Ann 1) (list ageRel Ann 2)
+                   (list 'asymmetric beatsRel) (list beatsRel Ann Bob) (list beatsRel Bob Ann)
+                   (list 'anti_transitive nextRel) (list nextRel Ann Bob) (list nextRel Bob Cal)
+                   (list nextRel Ann Cal)
+                   (list 'disjoint dog_kind cat_kind) (list dog_kind Rex) (list cat_kind Rex)]]
+          (v/assert kb s U))
+        (let [sen     #(:sentence (v/sentex kb %))
+              grounds (keep :grounds decide/registry)
+              placed  (for [c (v/sentexes-with-functor kb 'contradicts)
+                            :let [ms (into #{} (map v/handle-id) (rest (:sentence c)))]]
+                        [ms (decide/placed-kind kb ms)])]
+          (is (= #{:arity :arity-descension :irreflexive :anti-symmetric :functional :asymmetric
+                   :anti-transitive :disjoint}
+                 (into #{} (map second) placed))
+              "every family with grounds places a nogood here")
+          (is (= #{(list cat_kind Rex) (list dog_kind Rex)}
+                 (into #{} (comp (filter #(= :disjoint (second %))) (mapcat first) (map sen)) placed))
+              "the placed membership nogood names the memberships and not the declaration")
+          (doseq [[ms kind] placed
+                  :let [own (filterv (fn [h] (some #(own-ground? % (sen h)) grounds)) ms)]
+                  :when (seq own)]
+            (is (and (= :arity-descension kind) (= (count own) (count ms)))
+                (pr-str kind (mapv sen ms)))))))))
 
 (tu/deftest-kb an-except-hides-the-derivation-it-blocks-in-either-order-beside-its-denial
   ;; A denial held OUT moves no belief, so the except and its denial end in one state
@@ -451,19 +529,20 @@
 
 (deftest a-declaration-of-a-baseline-member-runs-no-switch
   ;; a bare KB: the engine's baseline already holds `sameAs`, so its declaration moves no
-  ;; membership, while `likes` joins and leaves the roster by its declaration
+  ;; membership, while `likes` joins and leaves the roster by its declaration, which a
+  ;; stored denial of each reads: held OUT while its literal is on the roster
   (tu/with-neutral-kb [kb tu/isolated-fresh]
-    (tu/with-terms [likes Ann Bob]
-      (let [same  (v/assert kb (list 'sameAs Ann Bob) 'CxUniverse)
-            fact  (v/assert kb (list likes Ann Bob) 'CxUniverse)
+    (tu/with-terms [likes Ann Bob Cal Dan]
+      (let [same  (v/assert kb (list 'not (list 'sameAs Ann Bob)) 'CxUniverse)
+            fact  (v/assert kb (list 'not (list likes Cal Dan)) 'CxUniverse)
             decl  (list 'forced_monotonic_predicate likes)
-            class #(mapv (partial v/defeat-class kb) [same fact])]
-        (is (= [:monotonic :default] (class)))
+            in    #(mapv (partial v/in? kb) [same fact])]
+        (is (= [false true] (in)))
         (is (= 0 (switches #(v/assert kb '(forced_monotonic_predicate sameAs) 'CxUniverse))))
         (is (= 1 (switches #(v/assert kb decl 'CxUniverse))))
-        (is (= [:monotonic :monotonic] (class)))
+        (is (= [false false] (in)))
         (is (= 1 (switches #(v/retract! kb (v/handle-of kb decl 'CxUniverse)))))
-        (is (= [:monotonic :default] (class)))))))
+        (is (= [false true] (in)))))))
 
 (tu/deftest-kb an-uncleared-declaration-is-not-retracted
   (testing "genlCx is always forced: its declaration stays"

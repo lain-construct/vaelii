@@ -24,7 +24,7 @@ fix. The mechanism stays in the subsystem's own page and is linked, never restat
 | [Both `P` and `not P` are believed](#both-p-and-not-p-are-believed) | `:default` strength on something known true |
 | [`assert` refused it](#assert-refused-it) | a naming invariant — the `:type` says which |
 | [My batch half-landed](#my-batch-half-landed) | it no longer can — `edit!` is all-or-nothing; the other batch entry points are not |
-| [An `arg` constraint never convicts](#an-arg-constraint-never-convicts) | the argument's type is outside the hierarchy |
+| [An `arg` constraint never convicts](#an-arg-constraint-never-convicts) | it derives instead; under the constraint-only reading, the argument's type is outside the hierarchy |
 | [`prove` returns more than I count](#prove-returns-more-solutions-than-there-are-answers) | one solution per derivation, not per answer |
 | [`do/label` refuses to re-run](#dolabel-refuses-to-re-run) | a previous run's labeling context has been written into, or has lost its marker |
 | [A foreign KB will not load](#a-foreign-kb-will-not-load) | no reader on the classpath |
@@ -44,7 +44,7 @@ term and no idea what the KB will accept about it.  One read answers it.
 ```clojure
 (v/describe kb 'parentOf 'CxWell)
 ;; {:role :predicate :arity 2
-;;  :arg-declarations [{:kind :arg :sentence (arg parentOf 1 animal) :context CxLife} …]
+;;  :arg-declarations [{:kind :arg :sentence (arg parentOf 1 organism) :context CxLife} …]
 ;;  :props #{} :inverse childOf :extent-count 0 :comment ["(parentOf ?parent ?child) …"]
 ;;  :genls {…} :specs {…} :disjoint {…}
 ;;  :genls-direct {…} :specs-direct {…} :disjoint-maximal {…}}
@@ -266,19 +266,24 @@ because it judges each `:add` against the KB as it stands.
 
 ## An `arg` constraint never convicts
 
-`(arg parentOf 1 person)` plus `(disjoint dog person)` plus `(dog Muffet)` accepts
-`(parentOf Muffet Bob)` without complaint. That is open-world and deliberate: the check
-convicts only when the argument's own type closure reaches `thing`, and `dog` reaches it
-only once something says so. Add the edge and the identical assertion throws `:arg-type`:
+By default an argument constraint convicts no symbol: `(arg parentOf 1 person)` over
+`(parentOf Muffet Bob)` derives `(person Muffet)`, and with `(dog Muffet)` and `(disjoint
+dog person)` the two memberships are a clash `contradictions` lists, not a refusal. Only a
+value (`(parentOf 212 Bob)`) or an application whose function's `result` misses is
+refused ([argtypes.md](argtypes.md)).
+
+Under the constraint-only reading (`VAELII_ASSERTIVE_ARG_TYPES=0`) a symbol is convicted
+only when its own type closure reaches `thing`, and `dog` reaches it only once something
+says so. There the same three sentences store `(parentOf Muffet Bob)`, and adding the
+edge makes the identical assertion throw `:arg-type`:
 
 ```clojure
 (v/assert kb '(genl dog thing) 'CxUniverse)
 ```
 
-So a type that appears only as a fact's functor and never as a `genl` node leaves every
-constraint naming it dormant. The same precondition governs the entailment reading —
-[argtypes.md](argtypes.md), whose "Where it does not mint" table is the full list of cases
-where nothing is derived.
+In either reading a declared type that never reaches `thing` leaves the constraint
+dormant: [argtypes.md](argtypes.md)'s "Where it does not mint" table is the full list of
+cases where nothing is derived.
 
 ## A `functionalInArg` clash is not reported
 
@@ -289,7 +294,7 @@ argument 2 and are two slots, not one — nothing is owed. Check the determinant
 declaration.
 
 **No context sees both tuples.** Two tuples in two contexts are a clash only for a reader
-that sees both ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)); ask
+that sees both ([nmtms.md](nmtms.md#the-nogood-families)); ask
 `(contradictions kb context)` from such a reader.
 
 [taxonomy.md](taxonomy.md) has the shape table; [equality.md](equality.md) has the merge
@@ -495,7 +500,7 @@ so one vocabulary reads both.
 | `:arg-constraint-kind` | `genlArg` on a predicate declared `instance_relation_predicate`, or `arg` on a `type_relation_predicate` | [argtypes.md](argtypes.md) |
 | `:arg-genl` | a `genlArg` constraint convicted the sentence — see [An `arg` constraint never convicts](#an-arg-constraint-never-convicts) | [argtypes.md](argtypes.md) |
 | `:arg-position` | an argument constraint names a position the predicate's declared arity does not have | [argtypes.md](argtypes.md) |
-| `:arg-type` | an `arg` constraint convicted the sentence — see [`assert` refused it](#assert-refused-it) | [argtypes.md](argtypes.md) |
+| `:arg-type` | an `arg` constraint convicted a value or an application in the sentence, or any argument under the constraint-only reading — see [`assert` refused it](#assert-refused-it) | [argtypes.md](argtypes.md) |
 | `:arg-variable` | two argument constraints demand disjoint types of one rule variable | [taxonomy.md](taxonomy.md) |
 | `:asymmetric` | a definitional clash with a predicate declared `asymmetric` | [exceptions.md](exceptions.md) |
 | `:bad-algebra` | a two-axis projection table does not cover all nine `[x y]` pairs exactly once | [space.md](space.md) |
@@ -522,6 +527,7 @@ so one vocabulary reads both.
 | `:daemon-error` | the daemon refused and its reply carried no `:type` of its own — the client's fallback | [operations.md](operations.md) |
 | `:damaged-dictionary` | a tokenized frame cites a token id the dictionary has no entry for | [storage.md](storage.md) |
 | `:damaged-frame` | a frame inside a log the open reads whole — `tokens.log`, the index's `kv.log`, the operation log — does not decode, and frames follow it; the refusal names the file, the byte offset and the frame | [storage.md](storage.md) |
+| `:derived-only` | a `defeat` literal in an asserted sentence, its negation, a rule or an `exceptWhen` query; only the engine derives a defeat | [glossary.md](glossary.md#d) |
 | `:disjoint` | a definitional clash between two disjoint types — see [`assert` refused it](#assert-refused-it) | [exceptions.md](exceptions.md) |
 | `:disjunction-too-wide` | a disjunctive antecedent over the alternative cap | [canonicalization.md](canonicalization.md) |
 | `:disk-locked` | another JVM holds the directory's single-writer lock — see [The disk KB will not open](#the-disk-kb-will-not-open) | [storage.md](storage.md) |
@@ -536,7 +542,7 @@ so one vocabulary reads both.
 | `:handle-ceiling` | a handle past the dense TMS's int-keyed ceiling | [density.md](density.md) |
 | `:argument-family-ceiling` | more distinct `(predicate, position)` pairs than the packed root key's 24-bit scope field holds; take `:index :memory` | [indexing.md](indexing.md) |
 | `:incomplete-racer` | a portfolio was handed a strategy with `:first-result?` on, which stops the search rather than steering it | [inference.md](inference.md) |
-| `:inter-arg-type` | an `interArg`, `interArgs` or `interArgAndRest` constraint convicted one argument because of what another one is | [argtypes.md](argtypes.md) |
+| `:inter-arg-type` | under the constraint-only reading, an `interArg`, `interArgs` or `interArgAndRest` constraint convicted one argument because of what another one is | [argtypes.md](argtypes.md) |
 | `:internal-error` | the daemon caught a throwable carrying no `:type` of its own | [operations.md](operations.md) |
 | `:job-busy` | a job holding this process's one writer is already running | [operations.md](operations.md) |
 | `:labeling-inconsistent` | a labeling disagrees with the brave/cautious classification of the same program | [labeling.md](labeling.md) |

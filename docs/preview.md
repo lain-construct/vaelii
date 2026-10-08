@@ -200,6 +200,19 @@ Belief **before** is read *after* the rollback, on the restored KB, so the two r
 need no snapshot: a candidate believed now was believed before, and a handle the rollback
 took away reads as not believed.
 
+`:contradictions` is read off the touched window. With the batch in force,
+`clashes/opened` takes the placed `(contradicts …)` sentexes among the handles the batch
+relabelled, stored or suspended, and reads the report of each of their nogoods over every
+placement of its sentence (`clashes/placements-of`, off the term index), as
+`contradictions` reads it. After the rollback, `clashes/standing-removed` reads the same
+sentences' placements again and subtracts the reports standing then. A batch that places,
+removes or relabels no `contradicts` reads no nogood
+(`preview_test/a-preview-reads-no-placed-nogood-its-window-does-not-touch`). `perf`'s
+`preview-beside-standing-dilemmas` holds a preview of a fact no nogood reads flat in the
+dilemmas standing in its context, and
+`preview_test/a-preview-opens-the-dilemmas-the-full-read-opens-over-a-random-stream`
+compares the answer with the reading over every stored `contradicts`.
+
 A batch whose conclusions cascade costs what the cascade costs; `:max-depth` and
 `:max-derivations` bound the chaining, and `:max-results` caps each half of the answer but
 not the walk, since every datum in the region gets an entry. `:bounded?` is true when any

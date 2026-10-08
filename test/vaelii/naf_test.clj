@@ -10,6 +10,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.sentex :as sx]
+            [vaelii.order-independence-test :as oi]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded tu/load-starter!))
@@ -1176,6 +1177,358 @@
         (is (= [true false] (at)) "the blocker alone still withdraws it at CxB")
         (v/retract! kb blk))
       (is (= [true true] (at))))))
+
+;; ---- a guard below the placement places a defeat ------------------------
+;; CxB sees CxA.  CxA holds (pp Zed) and the guarded rule G, which fires (rr Zed) = F at
+;; CxA; (qq Zed) in CxB blocks G there.  G guards with `exceptWhen` or with `unknown`.
+;; H, (pp ?x) & (tt ?x) => (rr ?x) over (tt Zed) in CxA, is a second justification of F
+;; that no guard blocks.
+
+(defn- guard-rule
+  "Rule G of the lattice above, guarded by `kind`."
+  [kind pp qq rr]
+  (case kind
+    :except  (list 'exceptWhen (list qq '?x)
+                   (list 'set/forwardRule (list 'implies (list pp '?x) (list rr '?x))))
+    :unknown (list 'implies (list 'and (list pp '?x) (list 'unknown (list qq '?x))) (list rr '?x))))
+
+(defn- guard-reading
+  "Build the lattice above in `kb` with the steps `ops` in order (`:pp`, `:qq`, `:g`, `:h`,
+  `:uu`, `:g2`, `:premise`, `:retract-qq`), read `[CxA believes F, CxB believes F, the
+  defeats of F stored at CxA, and at CxB]`, and retract what it asserted."
+  [kb kind ops]
+  (tu/with-terms [pp qq rr tt uu Zed CxA CxB]
+    (let [as  (fn [s c] (v/assert kb s c (if (= 'implies (first s)) {:direction :forward} {})))
+          hs  (volatile! [(v/assert kb (list 'genlCx CxB CxA) 'CxUniverse {:strength :monotonic})
+                          (as (list tt Zed) CxA)])
+          qqh (volatile! nil)]
+      (doseq [op ops]
+        (let [h (case op
+                  :pp      (as (list pp Zed) CxA)
+                  :qq      (vreset! qqh (as (list qq Zed) CxB))
+                  :g       (as (guard-rule kind pp qq rr) CxA)
+                  :h       (as (list 'implies (list 'and (list pp '?x) (list tt '?x)) (list rr '?x)) CxA)
+                  :g2      (as (list 'implies (list 'and (list pp '?x) (list 'unknown (list uu '?x)))
+                                     (list rr '?x))
+                               CxA)
+                  :uu      (as (list uu Zed) CxB)
+                  :premise (as (list rr Zed) CxA)
+                  :retract-qq (do (v/retract! kb @qqh) nil))]
+          (when h (vswap! hs conj h))))
+      (let [f       (v/handle-of kb (list rr Zed) CxA)
+            defeats (fn [c] (count (filter #(= (list 'defeat (list 'sentexHandle f)) (:sentence %))
+                                           (v/sentexes-matching kb (list 'defeat '?h) c))))
+            r       [(v/believed? kb f CxA) (v/believed? kb f CxB) (defeats CxA) (defeats CxB)]]
+        (doseq [h (rseq @hs)] (when (v/sentex kb h) (v/retract! kb h)))
+        r))))
+
+(tu/deftest-kb a-guard-below-the-placement-places-a-defeat-and-a-second-justification-keeps-f
+  (doseq [kind [:except :unknown]]
+    (testing kind
+      (is (= #{[true false 0 1]}
+             (into #{} (map #(guard-reading kb kind %)) (oi/permutations [:pp :qq :g])))
+          "without H, CxB does not believe F, and the defeat is stored at CxB alone")
+      (is (= #{[true true 0 1]}
+             (into #{} (map #(guard-reading kb kind %)) (oi/permutations [:pp :qq :g :h])))
+          "H's justification is not covered at CxB"))))
+
+(tu/deftest-kb a-second-guarded-justification-keeps-f-until-its-guard-holds-too
+  (doseq [kind [:except :unknown]]
+    (testing kind
+      (is (= [true true 0 1] (guard-reading kb kind [:pp :qq :g :g2])))
+      (is (= [true false 0 1] (guard-reading kb kind [:pp :qq :g :g2 :uu])))
+      (is (= [true true 0 1] (guard-reading kb kind [:pp :qq :g :premise]))
+          "a premise is a justification no guard defeat covers"))))
+
+(tu/deftest-kb retracting-the-blocker-takes-the-guard-defeat-out
+  (doseq [kind [:except :unknown]]
+    (testing kind
+      (is (= [true true 0 0] (guard-reading kb kind [:pp :qq :g :retract-qq])))
+      (is (= [true true 0 0] (guard-reading kb kind [:pp :qq :g :h :retract-qq]))))))
+
+;; ---- a guard met through a genl edge ---------------------------------------
+;; G's guard (mammal_t ?x) is met by (dog_t Zed) over (genl dog_t mammal_t).  The guard
+;; defeat of F = (rr Zed) rests on that edge as it rests on the blocker.
+
+(defn- climbed-guard-rule
+  "Rule G guarded by `kind` on the type `mammal_t`."
+  [kind pp rr mammal_t]
+  (case kind
+    :except  (list 'exceptWhen (list mammal_t '?x)
+                   (list 'set/forwardRule (list 'implies (list pp '?x) (list rr '?x))))
+    :unknown (list 'implies (list 'and (list pp '?x) (list 'unknown (list mammal_t '?x)))
+                   (list rr '?x))))
+
+(defn- guard-defeats-at
+  "The stored `(defeat (sentexHandle f))` sentexes whose own context is `c`."
+  [kb f c]
+  (filterv #(and (= c (:context %)) (= (list 'defeat (sx/sentex-handle f)) (:sentence %)))
+           (v/sentexes-with-functor kb 'defeat)))
+
+(defn- edge-below-reading
+  "CxB sees CxA.  CxA holds (dog_t Zed), (pp Zed) and G; CxB holds (genl dog_t mammal_t).
+  Assert the steps `ops` in order, read [CxA believes F, CxB believes F, the defeats of F
+  stored at CxB, whether the edge is an antecedent of one of them], and retract."
+  [kb kind ops]
+  (tu/with-terms [pp rr dog_t mammal_t Zed CxA CxB]
+    (let [as   (fn [s c] (v/assert kb s c (if (= 'implies (first s)) {:direction :forward} {})))
+          hs   (volatile! [(v/assert kb (list 'genlCx CxB CxA) 'CxUniverse {:strength :monotonic})
+                           (as (list 'genl mammal_t 'thing) 'CxUniverse)])
+          edge (volatile! nil)]
+      (doseq [op ops]
+        (vswap! hs conj (case op
+                          :dog  (as (list dog_t Zed) CxA)
+                          :pp   (as (list pp Zed) CxA)
+                          :g    (as (climbed-guard-rule kind pp rr mammal_t) CxA)
+                          :edge (vreset! edge (as (list 'genl dog_t mammal_t) CxB)))))
+      (let [f  (v/handle-of kb (list rr Zed) CxA)
+            ds (guard-defeats-at kb f CxB)
+            r  [(v/believed? kb f CxA) (v/believed? kb f CxB) (count ds)
+                (boolean (some #(some #{@edge} (:antecedents %))
+                               (mapcat #(v/supporting-justifications kb (:id %)) ds)))]]
+        (doseq [h (rseq @hs)] (when (v/sentex kb h) (v/retract! kb h)))
+        r))))
+
+(tu/deftest-kb a-guard-met-through-a-genl-edge-below-the-placement-places-a-defeat-resting-on-the-edge
+  (doseq [kind [:except :unknown]]
+    (testing kind
+      (is (= #{[true false 1 true]}
+             (into #{} (map #(edge-below-reading kb kind %)) (oi/permutations [:dog :pp :g :edge])))
+          "CxA does not see the edge and believes F; CxB sees it and does not"))))
+
+(defn- edge-hidden-reading
+  "CxC sees CxB, which sees CxA.  CxA holds (pp Zed), G and (genl dog_t mammal_t); CxB
+  holds (dog_t Zed); CxC hides the edge by `hide`: `:except`, an except of it, or
+  `:denial`, `(not (genl dog_t mammal_t))` at `:monotonic`, whose placed defeat hides the
+  edge there.  Read [F at CxA, at CxB, at CxC, (mammal_t Zed) asked at CxC], and
+  retract."
+  [kb kind hide]
+  (tu/with-terms [pp rr dog_t mammal_t Zed CxA CxB CxC]
+    (let [as   (fn [s c] (v/assert kb s c (if (= 'implies (first s)) {:direction :forward} {})))
+          hs   (volatile! [(v/assert kb (list 'genlCx CxB CxA) 'CxUniverse {:strength :monotonic})
+                           (v/assert kb (list 'genlCx CxC CxB) 'CxUniverse {:strength :monotonic})
+                           (as (list 'genl mammal_t 'thing) 'CxUniverse)])
+          edge (as (list 'genl dog_t mammal_t) CxA)]
+      (vswap! hs into [edge
+                       (as (list pp Zed) CxA)
+                       (as (climbed-guard-rule kind pp rr mammal_t) CxA)
+                       (as (list dog_t Zed) CxB)])
+      (vswap! hs conj (case hide
+                        :except (as (list 'except (sx/sentex-handle edge)) CxC)
+                        :denial (v/assert kb (list 'not (list 'genl dog_t mammal_t)) CxC
+                                          {:strength :monotonic})))
+      (let [f (v/handle-of kb (list rr Zed) CxA)
+            r [(v/believed? kb f CxA) (v/believed? kb f CxB) (v/believed? kb f CxC)
+               (v/ask? kb (list mammal_t Zed) CxC)]]
+        (doseq [h (rseq @hs)] (when (v/sentex kb h) (v/retract! kb h)))
+        r))))
+
+(tu/deftest-kb a-guard-met-by-a-genl-closure-pair-places-a-defeat-resting-on-the-path
+  ;; G's guard (genl ?k mammal_t) holds of dog_t over (genl dog_t canine_t) in CxA and
+  ;; (genl canine_t mammal_t) in CxB below: no stored edge states the pair, the closure does
+  (doseq [kind [:except :unknown]]
+    (testing kind
+      (tu/with-terms [pp rr dog_t canine_t mammal_t Zed CxA CxB]
+        (let [as  (fn [s c] (v/assert kb s c (if (= 'implies (first s)) {:direction :forward} {})))
+              g   (case kind
+                    :except  (list 'exceptWhen (list 'genl '?k mammal_t)
+                                   (list 'set/forwardRule (list 'implies (list pp '?x '?k) (list rr '?x))))
+                    :unknown (list 'implies (list 'and (list pp '?x '?k) (list 'unknown (list 'genl '?k mammal_t)))
+                                   (list rr '?x)))
+              hs  [(v/assert kb (list 'genlCx CxB CxA) 'CxUniverse {:strength :monotonic})
+                   (as (list 'genl mammal_t 'thing) 'CxUniverse)
+                   (as (list 'genl canine_t 'thing) 'CxUniverse)
+                   (as (list pp Zed dog_t) CxA)
+                   (as g CxA)]
+              e1  (as (list 'genl dog_t canine_t) CxA)
+              e2  (as (list 'genl canine_t mammal_t) CxB)
+              f   (v/handle-of kb (list rr Zed) CxA)
+              ds  (guard-defeats-at kb f CxB)
+              as' (into #{} (comp (mapcat #(v/supporting-justifications kb (:id %))) (mapcat :antecedents)) ds)]
+          (is (= [true false 1 true]
+                 [(v/believed? kb f CxA) (v/believed? kb f CxB) (count ds) (every? as' [e1 e2])]))
+          (v/retract! kb e2)
+          (is (= [true true] [(v/believed? kb f CxA) (v/believed? kb f CxB)])
+              "the defeat rests on the lower edge, so retracting it takes the defeat OUT")
+          (doseq [h (concat [e1] (rseq hs))] (when (v/sentex kb h) (v/retract! kb h))))))))
+
+(tu/deftest-kb hiding-the-genl-edge-a-guard-climbed-below-its-defeat-gives-the-firing-back-there
+  (doseq [kind [:except :unknown]
+          hide [:except :denial]]
+    (testing [kind hide]
+      (is (= [true false true false] (edge-hidden-reading kb kind hide))
+          "the guard holds at CxB and not at CxC, which does not see dog_t under mammal_t"))))
+
+;; ---- a blocker an except hides and a meta-except restores below --------------
+
+(defn- restored-blocker-reading
+  "CxB sees CxA.  CxA holds (pp Zed), G (guarded by `kind` on (qq ?x)), (qq Zed), and X =
+  (except (qq Zed)); CxB holds M = (except X).  Assert the steps `ops` in order, read [F at
+  CxA, F at CxB, the defeats of F stored at CxB, (qq Zed) asked at CxA, at CxB], and
+  retract."
+  [kb kind ops]
+  (tu/with-terms [pp qq rr Zed CxA CxB]
+    (let [as (fn [s c] (v/assert kb s c (if (= 'implies (first s)) {:direction :forward} {})))
+          hs (volatile! [(v/assert kb (list 'genlCx CxB CxA) 'CxUniverse {:strength :monotonic})])
+          at (volatile! {})]
+      (doseq [op ops]
+        (let [h (case op
+                  :pp (as (list pp Zed) CxA)
+                  :g  (as (guard-rule kind pp qq rr) CxA)
+                  :qq (as (list qq Zed) CxA)
+                  :x  (as (list 'except (sx/sentex-handle (:qq @at))) CxA)
+                  :m  (as (list 'except (sx/sentex-handle (:x @at))) CxB))]
+          (vswap! at assoc op h)
+          (vswap! hs conj h)))
+      (let [f (v/handle-of kb (list rr Zed) CxA)
+            r [(v/believed? kb f CxA) (v/believed? kb f CxB) (count (guard-defeats-at kb f CxB))
+               (v/ask? kb (list qq Zed) CxA) (v/ask? kb (list qq Zed) CxB)]]
+        (doseq [h (rseq @hs)] (when (v/sentex kb h) (v/retract! kb h)))
+        r))))
+
+(defn- meta-orders
+  "The orders of `[:pp :g :qq :x :m]` that state the blocker before its except and the
+  except before the meta-except."
+  []
+  (filter (fn [o] (let [i #(.indexOf ^java.util.List (vec o) %)]
+                    (< (i :qq) (i :x) (i :m))))
+          (oi/permutations [:pp :g :qq :x :m])))
+
+(tu/deftest-kb a-blocker-a-meta-except-restores-below-the-placement-places-a-guard-defeat-there
+  (doseq [kind [:except :unknown]]
+    (testing kind
+      (is (= #{[true false 1 false true]}
+             (into #{} (map #(restored-blocker-reading kb kind %)) (meta-orders)))
+          "CxA reads the blocker hidden and believes F; CxB reads it restored and does not"))))
+
+(tu/deftest-kb a-blocker-hidden-at-the-join-and-restored-below-it-places-a-guard-defeat-below
+  ;; CxJ sees CxA (pp Zed, G) and CxQ ((qq Zed) and its except X); CxB sees CxJ and holds
+  ;; M = (except X).  `exception-aware-placements` places a firing over these handles at
+  ;; CxB; the guard defeat owes the same placement
+  (doseq [kind [:except :unknown]]
+    (testing kind
+      (tu/with-terms [pp qq rr Zed CxA CxQ CxJ CxB]
+        (let [as (fn [s c] (v/assert kb s c (if (= 'implies (first s)) {:direction :forward} {})))
+              es (mapv (fn [[lo hi]] (v/assert kb (list 'genlCx lo hi) 'CxUniverse {:strength :monotonic}))
+                       [[CxJ CxA] [CxJ CxQ] [CxB CxJ]])
+              p  (as (list pp Zed) CxA)
+              g  (as (guard-rule kind pp qq rr) CxA)
+              q  (as (list qq Zed) CxQ)
+              x  (as (list 'except (sx/sentex-handle q)) CxQ)
+              m  (as (list 'except (sx/sentex-handle x)) CxB)
+              f  (v/handle-of kb (list rr Zed) CxA)]
+          (is (= [true true false] [(v/believed? kb f CxA) (v/believed? kb f CxJ) (v/believed? kb f CxB)]))
+          (is (= 1 (count (guard-defeats-at kb f CxB))))
+          (v/retract! kb m)
+          (is (= [true true true] [(v/believed? kb f CxA) (v/believed? kb f CxJ) (v/believed? kb f CxB)])
+              "the meta-except leaving hides the blocker at CxB again")
+          (doseq [h (concat [x q g p] (rseq es))] (when (v/sentex kb h) (v/retract! kb h))))))))
+
+(tu/deftest-kb a-guard-defeat-beside-a-released-nogood-covers-only-its-firing
+  ;;   CxUniverse  (disjoint dog cat)
+  ;;     ├─ CxA    (pp Zed) (tt Zed), G: (pp ?x) exceptWhen (qq ?x) ⇒ (cat ?x),
+  ;;     │         H: (pp ?x) & (tt ?x) ⇒ (cat ?x)          F = (cat Zed), placed in CxA
+  ;;     └─ CxB    (dog Zed) monotonic, (qq Zed)
+  ;;   CxD sees CxA and CxB: the nogood {F (dog Zed)} and G's guard each place
+  ;;       (defeat F) there, one handle with a justification each
+  ;;     └─ CxR sees CxD   (except (disjoint dog cat))
+  ;;
+  ;; At CxR the nogood is released, and the guard covers G's justification alone, so F
+  ;; is believed there through H's.
+  (tu/with-terms [pp qq tt cat dog Zed CxA CxB CxD CxR]
+    (doseq [t [cat dog]] (v/assert kb (list 'genl t 'thing) 'CxUniverse))
+    (doseq [[lo hi] [[CxA 'CxUniverse] [CxB 'CxUniverse] [CxD CxA] [CxD CxB] [CxR CxD]]]
+      (v/assert kb (list 'genlCx lo hi) 'CxUniverse {:strength :monotonic}))
+    (let [dj (v/assert kb (list 'disjoint dog cat) 'CxUniverse)]
+      (v/assert kb (guard-rule :except pp qq cat) CxA)
+      (v/assert kb (list 'implies (list 'and (list pp '?x) (list tt '?x)) (list cat '?x)) CxA
+                {:direction :forward})
+      (v/assert kb (list pp Zed) CxA)
+      (v/assert kb (list tt Zed) CxA)
+      (v/assert kb (list dog Zed) CxB {:strength :monotonic})
+      (v/assert kb (list qq Zed) CxB)
+      (v/assert kb (list 'except (list 'sentexHandle dj)) CxR)
+      (let [f (v/handle-of kb (list cat Zed) CxA)
+            d (v/handle-of kb (list 'defeat (list 'sentexHandle f)) CxD)]
+        (is (= 2 (count (:support (v/why kb d)))))
+        (is (= [true false true] (mapv #(v/believed? kb f %) [CxA CxD CxR])))))))
+
+;; ---- a guard a prover answers below the placement ---------------------------
+
+(defn- transitive-guard-reading
+  "CxB sees CxA.  CxA holds (transitive ancestorOf), (pp Bob), (ancestorOf Bob Al) and G,
+  guarded by `kind` on (ancestorOf ?x Zed); CxB holds (ancestorOf Al Zed), so the guard
+  holds at CxB through the transitive closure and no stored sentex states it.  Assert the
+  steps `ops` in order, read [F at CxA, F at CxB, the defeats of F stored at CxB, whether
+  one rests on both hops], and retract."
+  [kb kind ops]
+  (tu/with-terms [pp rr ancestorOf Bob Al Zed CxA CxB]
+    (let [as   (fn [s c] (v/assert kb s c (if (= 'implies (first s)) {:direction :forward} {})))
+          hs   (volatile! [(v/assert kb (list 'genlCx CxB CxA) 'CxUniverse {:strength :monotonic})
+                           (as (list 'transitive ancestorOf) CxA)])
+          hops (volatile! [])
+          hop  (fn [s c] (let [h (as s c)] (vswap! hops conj h) h))]
+      (doseq [op ops]
+        (vswap! hs conj (case op
+                          :pp   (as (list pp Bob) CxA)
+                          :g    (as (case kind
+                                      :except  (list 'exceptWhen (list ancestorOf '?x Zed)
+                                                     (list 'set/forwardRule
+                                                           (list 'implies (list pp '?x) (list rr '?x))))
+                                      :unknown (list 'implies
+                                                     (list 'and (list pp '?x)
+                                                           (list 'unknown (list ancestorOf '?x Zed)))
+                                                     (list rr '?x)))
+                                    CxA)
+                          :hop1 (hop (list ancestorOf Bob Al) CxA)
+                          :hop2 (hop (list ancestorOf Al Zed) CxB))))
+      (let [f  (v/handle-of kb (list rr Bob) CxA)
+            ds (guard-defeats-at kb f CxB)
+            r  [(v/believed? kb f CxA) (v/believed? kb f CxB) (count ds)
+                (boolean (some #(every? (set (:antecedents %)) @hops)
+                               (mapcat #(v/supporting-justifications kb (:id %)) ds)))]]
+        (doseq [h (rseq @hs)] (when (v/sentex kb h) (v/retract! kb h)))
+        r))))
+
+(tu/deftest-kb a-guard-a-transitive-closure-meets-below-the-placement-places-a-defeat-resting-on-the-hops
+  (doseq [kind [:except :unknown]]
+    (testing kind
+      (is (= #{[true false 1 true]}
+             (into #{} (map #(transitive-guard-reading kb kind %))
+                   (oi/permutations [:pp :g :hop1 :hop2])))
+          "CxA does not reach Zed from Bob and believes F; CxB does and does not"))))
+
+(defn- nested-guard-reading
+  "CxB and CxC see CxA.  CxA holds (pp Zed) and G, guarded by `kind` on (and (qq ?x)
+  (unknown (ss ?x))); CxB holds (qq Zed); CxC holds (ss Zed) when `ss?`, stated first or
+  last by `ss-at`.  Read [F at CxA, F at CxB, the defeats of F stored at CxB], and
+  retract."
+  [kb kind ss? ss-at]
+  (tu/with-terms [pp qq rr ss Zed CxA CxB CxC]
+    (let [as   (fn [s c] (v/assert kb s c (if (= 'implies (first s)) {:direction :forward} {})))
+          cnd  (list 'and (list qq '?x) (list 'unknown (list ss '?x)))
+          g    (case kind
+                 :except  (list 'exceptWhen cnd
+                                (list 'set/forwardRule (list 'implies (list pp '?x) (list rr '?x))))
+                 :unknown (list 'implies (list 'and (list pp '?x) (list 'unknown cnd)) (list rr '?x)))
+          ss!  #(when ss? [(as (list ss Zed) CxC)])
+          hs   (-> [(v/assert kb (list 'genlCx CxB CxA) 'CxUniverse {:strength :monotonic})
+                    (v/assert kb (list 'genlCx CxC CxA) 'CxUniverse {:strength :monotonic})]
+                   (into (when (= :first ss-at) (ss!)))
+                   (into [(as (list pp Zed) CxA) (as g CxA) (as (list qq Zed) CxB)])
+                   (into (when (= :last ss-at) (ss!))))
+          f    (v/handle-of kb (list rr Zed) CxA)
+          r    [(v/believed? kb f CxA) (v/believed? kb f CxB) (count (guard-defeats-at kb f CxB))]]
+      (doseq [h (rseq hs)] (when (v/sentex kb h) (v/retract! kb h)))
+      r)))
+
+(tu/deftest-kb a-guard-with-an-inner-unknown-is-decided-at-the-placed-context-not-in-a-sibling
+  (doseq [kind [:except :unknown]]
+    (testing kind
+      (is (= #{[true false 1]}
+             (into #{} (for [ss? [false true] ss-at [:first :last]]
+                         (nested-guard-reading kb kind ss? ss-at))))
+          "CxB does not see (ss Zed) in CxC, so the guard holds at CxB whatever CxC holds"))))
 
 ;; ---- thereExists with a vector of quantified variables ------------------
 

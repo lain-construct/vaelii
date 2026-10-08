@@ -30,7 +30,8 @@
   is punted (Pace): a plain individual, a literal and an *Exists* placeholder alike are
   all treated as determinate here, which is what makes `predAllSpecified` the exact
   antagonist of `predAllExists`."
-  (:require [vaelii.impl.provers :as provers]
+  (:require [vaelii.impl.naming :as nm]
+            [vaelii.impl.provers :as provers]
             [vaelii.impl.quasiquote :as quasiquote]
             [vaelii.impl.resolution :as res]))
 
@@ -199,24 +200,58 @@
                     (remove #(admissible-filler? kb pred % typings n ctx)))
               (quasiquote/ask-prepared kb (list indep '?x) ctx))}))))
 
+(defn- content-ordered
+  "The distinct tuples `xs` in content order, so a sweep cut short keeps the same prefix
+  in every arrival order."
+  [xs]
+  (sort-by #(apply list %) nm/compare-form (distinct xs)))
+
 (defn- declaration-args
   "Read the stored binary `(functor pred indep)` declarations in `ctx` as
-  `[pred indep]` tuples."
+  `[pred indep]` tuples, in content order."
   [kb functor ctx]
-  (for [b (quasiquote/ask-prepared kb (list functor '?pred '?indep) ctx)]
-    [(get b '?pred) (get b '?indep)]))
+  (content-ordered
+   (for [b (quasiquote/ask-prepared kb (list functor '?pred '?indep) ctx)]
+     [(get b '?pred) (get b '?indep)])))
 
 (defn- legacy-ternary-declarations
   "The retired ternary `(functor pred a b)` sentexes still believed in `ctx`, as
-  `[pred a b]` tuples.  A fresh assert of the shape is refused (the functors are
-  `binary_predicate`s and the arity classes are disjoint), but the bulk import path
+  `[pred a b]` tuples in content order.  A fresh assert of the shape is refused (the
+  functors are `binary_predicate`s and the arity classes are disjoint), but the bulk import path
   builds records without the assert-time checks, so a pre-migration dump's ternary
   declarations load intact — and, matching neither the binary ask pattern nor any
   audit, would otherwise vanish from the sweep entirely, turning an unmigrated KB
   into a fake clean sweep."
   [kb functor ctx]
-  (for [b (quasiquote/ask-prepared kb (list functor '?pred '?a '?b) ctx)]
-    [(get b '?pred) (get b '?a) (get b '?b)]))
+  (content-ordered
+   (for [b (quasiquote/ask-prepared kb (list functor '?pred '?a '?b) ctx)]
+     [(get b '?pred) (get b '?a) (get b '?b)])))
+
+(defn specified-declaration-audits
+  "Every declaration audit as a lazy stream of `[declaration result]` entries.
+
+  The open reads are only the unavoidable declaration censuses. Each expensive audit
+  after that is focused on one declared predicate and independent collection. Keeping
+  the units lazy lets the integrity sweep checkpoint and retain progress between them."
+  [kb ctx]
+  (concat
+   (res/lazy-mapcat
+    (fn [[functor arg-pos]]
+      (res/lazy-mapcat
+       (fn [[pred indep]]
+         (list [[functor pred indep]
+                (specified-violations kb pred indep ctx arg-pos)]))
+       (declaration-args kb functor ctx)))
+    [['predAllSpecified :second] ['predSpecifiedAll :first]])
+   (res/lazy-mapcat
+    (fn [functor]
+      (res/lazy-mapcat
+       (fn [[pred a b]]
+         (list [[functor pred a b]
+                {:status :gap :gap :legacy-ternary-declaration
+                 :pred pred :sentence (list functor pred a b)}]))
+       (legacy-ternary-declarations kb functor ctx)))
+    '[predAllSpecified predSpecifiedAll])))
 
 (defn all-specified-violations
   "Audit every `predAllSpecified` and `predSpecifiedAll` declaration visible in `ctx`
@@ -231,20 +266,10 @@
   predicate: an unmigrated KB carries both spellings at once, and a key off the
   first two arguments alone let the stale one replace the migrated declaration's
   violation set.  Declarations that hold are omitted; a gap never is, so a clean
-  sweep is an empty map and a gap cannot pass as one.  The one call an integrity
-  sweep makes; `specified-violations` is the per-declaration reader it is built
-  from."
+  sweep is an empty map and a gap cannot pass as one.  This public aggregate and
+  `kb-integrity` both fold the same focused per-declaration audit stream; only this
+  function returns its complete aggregate map."
   [kb ctx]
   (into {}
-        cat
-        [(for [[functor arg-pos] [['predAllSpecified :second]
-                                  ['predSpecifiedAll :first]]
-               [pred indep] (declaration-args kb functor ctx)
-               :let [r (specified-violations kb pred indep ctx arg-pos)]
-               :when (or (= :gap (:status r)) (seq (:violations r)))]
-           [[functor pred indep] r])
-         (for [functor '[predAllSpecified predSpecifiedAll]
-               [pred a b] (legacy-ternary-declarations kb functor ctx)]
-           [[functor pred a b]
-            {:status :gap :gap :legacy-ternary-declaration
-             :pred pred :sentence (list functor pred a b)}])]))
+        (filter (fn [[_ r]] (or (= :gap (:status r)) (seq (:violations r)))))
+        (specified-declaration-audits kb ctx)))

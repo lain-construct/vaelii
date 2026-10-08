@@ -86,7 +86,7 @@
   []
   (->> (file-seq (io/file "src/vaelii"))
        (filter #(.isFile ^File %))
-       (map #(.getPath ^File %))
+       (map #(str/replace (.getPath ^File %) \\ \/))
        (filter #(str/ends-with? % ".clj"))
        (remove #(str/includes? % "/impl/"))
        (remove #(str/includes? % "/host/"))

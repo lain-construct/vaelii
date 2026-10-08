@@ -57,6 +57,7 @@
    [vaelii.impl.asp.solver :as solver]
    [vaelii.impl.clashes :as clashes]
    [vaelii.impl.config :as config]
+   [vaelii.impl.except :as exc]
    [vaelii.impl.jtms :as jtms]
    [vaelii.impl.kb :as kb]
    [vaelii.impl.naming :as nm]
@@ -207,8 +208,14 @@
             moved  (fn [extra]
                      (let [{:keys [region in]} (gir extra)]
                        (into #{} (filter #(and (in? %) (not (contains? in %)))) region)))
-            ;; every believed datum some dilemma moves, and the datums each dilemma moves
-            dependent (moved (reduce into #{} nogoods))
+            ;; every believed datum some dilemma moves, and the datums each dilemma moves;
+            ;; a sentex placed for a nogood records the dilemma and is classified with none
+            placed?   (fn [d] (let [ss (jtms/supports tms d)]
+                                (and (seq ss)
+                                     (every? #(= exc/nogood-informant
+                                                 (:informant (jtms/justification tms %)))
+                                             ss))))
+            dependent (into #{} (remove placed?) (moved (reduce into #{} nogoods)))
             dep       (mapv moved nogoods)
             ;; datum -> the nogood indices whose forcing moves it (a nogood's own members
             ;; among them, since forcing a nogood OUT moves its members)
@@ -314,7 +321,7 @@
   `VAELII_CLASSIFY_MAX_CLUSTER_MEMBERS`, is left `:supportable` — sound, and a backend
   refines it only when it is `:refinable`.  So the cost is the clusters'
   consequence closures: linear in the number of **independent** dilemmas
-  (`grounded_forcing_out_test`), exponential only inside one interacting cluster or across the
+  (`grounded_in_region_test`), exponential only inside one interacting cluster or across the
   clusters one datum joins, and capped at both.  See docs/labeling.md."
   [kb]
   (:classification (local-analysis kb)))

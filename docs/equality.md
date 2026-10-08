@@ -176,9 +176,9 @@ leaf ([inference.md](inference.md)).
 ## What a merge does
 
 `rewriteOf`, `sameAs` and `equals` are on the forced-monotonic roster's engine baseline,
-so on every KB, CxCore or not, an equation premise is held `:monotonic` whatever strength
-it was written at ([nmtms.md](nmtms.md#the-forced-monotonic-roster)), and no reader's
-decision defeats a merge ([reference.md](reference.md#decisions), decision 13). A denial of one is held OUT: it is
+so on every KB, CxCore or not, an equation premise is never the loser of a nogood whatever
+strength it was written at ([nmtms.md](nmtms.md#the-forced-monotonic-roster)), and no
+placed `defeat` hides a merge ([reference.md](reference.md#decisions), decision 13). A denial of one is held OUT: it is
 never believed, so it undoes no merge and blocks no rewrite.
 
 Four parts, all reusing machinery that already exists:
@@ -218,6 +218,14 @@ Four parts, all reusing machinery that already exists:
    the chaining agenda beside the retired spelling, so the firing is made once at the
    elected name; and when the merge goes away the spelling comes back through `settle`'s
    un-merge channel and fires then. `chain/process-datum` is where that gate sits.
+
+   A firing made over the spelling **before** the merge arrived is withdrawn at the
+   merge, so the store holds the firings the merge-first order holds. With `(pp Zz)`,
+   `(not (pp Aa))` known-true, `(pp ?x) => (rr ?x)` and `(rewriteOf Aa Zz)`, the firing
+   over `(pp Zz)` would otherwise leave `(rr Aa)` justified by `[(rr Zz) (rewriteOf Aa
+   Zz)]`, a restatement no defeat names, and `(rr Aa)` believed in the merge-last orders
+   only. The settle drops the firing ([nmtms.md](nmtms.md#the-other-half-a-spelling-an-un-merge-gives-back)),
+   and `(rr Aa)` is not believed in any of the 24 orders.
 3. **Rewrite goals.** A query naming a non-representative is rewritten before
    lookup, since its own sentexes are no longer believed.
 4. **Queue the re-check.** Steps 2 and 3 are exactly what a closed-world condition —
@@ -450,8 +458,9 @@ functional declaration]`. Every other collision is a nogood the settle decides: 
 numbers, two strings or a compound, because no merge can make two numbers one thing, and
 a pair with a `:default` fact, because a merge is never defeated and is undone only by
 retracting a premise it rests on, so it rests on `:monotonic` evidence alone
-([reference.md](reference.md#decisions), decisions 6 and 13). The unique `:default` fact
-of such a pair is OUT and two `:default` facts are a dilemma. A defeasible identity is
+([reference.md](reference.md#decisions), decisions 6 and 13). The settle places the
+`defeat` of the unique `:default` fact of such a pair, and two `:default` facts are a
+dilemma. A defeasible identity is
 written with a predicate that does not merge.
 
 **The merge follows each member's class, not only its arrival.** A member's class moves
@@ -512,7 +521,7 @@ reaches the facts that follow, and so does either edge that can bring a slot's f
 into view.**
 `special/derive-functional-equalities` is a fact meeting the declaration — it runs on
 every asserted fact and on every derived conclusion — `special/equate-existing` is the
-declaration meeting the facts, sweeping the functor roots of `P`'s whole `genl` spec
+declaration meeting the facts, sweeping the predicate extents of `P`'s whole `genl` spec
 subtree when `(functional P)` itself arrives, `special/equate-under-edge` is the `genl`
 edge meeting both, sweeping the arriving `(genl sub super)`'s own subtree when a mark
 stands at or above `super`, and
@@ -636,9 +645,10 @@ since none of their antecedent-building reaches for a context edge either. Closi
 ## Storage
 
 The closure is a fourth cached relation in `vaelii.impl.taxonomy`, beside `genl`,
-`genlCx` and the predicate metadata, and inherits their belief-following
-`:support` discipline: an edge is active only while some sentex asserting it is
-believed, and `refresh-beliefs` reconciles at the end of every `settle`.
+`genlCx` and the predicate metadata, and inherits their `:support` discipline: an edge
+is active only while some sentex asserting it is IN in the network, a scoped read filters
+each supporter through the read walk ([nmtms.md](nmtms.md#a-read-with-no-reader)), and
+`refresh-beliefs` reconciles at the end of every `settle`.
 
 It is an **equivalence**, not a partial order, so it is stored as a partition —
 member → class, class → members and representative — rather than as up/down
@@ -674,10 +684,13 @@ displaced it.
 - **Disjointness.** A merge can *create* a clash: `(dog Rex)` + `(cat Fluffy)` + merge
   makes one individual both. Migration asks each twin what `place-conclusion` asks a
   rule's conclusion (`checks/derivation-violation`), so the twin is stored, supersedes
-  its original, and the clash is decided at each reader and reported in
+  its original, and the clash is placed as a nogood and reported in
   `contradictions` or `conflicts` like any stored clash. A member OUT when the merge
   arrives is restated too, with a twin labelled OUT beside it, so which spellings are
-  stored does not depend on which member the clash had defeated.
+  stored does not depend on which member the clash had defeated. A nogood placed over
+  the originals before the merge keeps its placement, since the families detect over
+  the network's IN label, and the reports leave out its `contradicts`, which names a
+  superseded member ([nmtms.md](nmtms.md#a-nogood-placed-as-a-conclusion)).
 - **Stratification.** `different` in a rule antecedent is a **negative
   dependency**, so it joins the rule dependency graph beside `exceptWhen`
   ([exceptions.md](exceptions.md)). A rule concluding an equality from a
@@ -784,10 +797,13 @@ individual merging:
 - **Facts and declarations** headed by the retired term are re-canonicalized under
   the representative and stored as justified twins, exactly as an argument-position
   occurrence is. So `(birthplaceOf Ada London)` becomes `(bornIn Ada London)`, and
-  the functor root `[:functor-root birthplaceOf]` no longer answers a believed query.
+  the predicate extent of `birthplaceOf` no longer answers a believed query.
 - **The `genl` closure** moves with a merged type: `(genl dog animal)` migrates to
   `(genl canine animal)` and `isa?` / `genls` / `specs` answer under the
   representative, the retired type's edge dropping as its declaration is superseded.
+  A twin edge brings the facts under it to the rules above it, as an asserted edge does
+  (`special/minted-seeds`), whichever path stored the twin: the merge, a fact or edge
+  arriving after it, or an `except` of the merge leaving.
 - **The flat caches** — `disjoint`, the predicate metadata (`transitive`,
   `symmetric`, `inverse`, `functional`, …), metatype membership — follow, since each
   declaration is a sentex the merge re-canonicalizes.

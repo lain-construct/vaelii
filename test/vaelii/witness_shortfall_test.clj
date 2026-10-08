@@ -62,7 +62,7 @@
 
 (tu/deftest-kb a-reader-below-a-scoped-defeat-keeps-each-firing-over-its-own-route
   ;; One long-route edge per chain scoped-defeated in the short route's context, which
-  ;; still reaches each chain's ends over its own edge (reroute/lost-firing-seeds).
+  ;; still reaches each chain's ends over its own edge (exc/rerouted).
   (let [r (wr/report (wr/generated kb tu/fresh-term chains depth {:defeated? true}))]
     (none-silent r)
     (is (pos? (get-in r ['genl/preserve :lost] 0)) "the corpus withdraws a firing at all"))

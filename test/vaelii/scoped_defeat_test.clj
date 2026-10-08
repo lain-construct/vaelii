@@ -23,6 +23,13 @@
 (defn- types! [kb & ts]
   (doseq [t ts] (v/assert kb (list 'genl t 'thing) 'CxUniverse)))
 
+(defn- status
+  "`belief-status`' `:withdrawn?` and `:believed?` for `h` at `c`, with the contexts of the
+  placed defeats of `h` in force there under `:defeat-vantages`."
+  [kb h c]
+  (assoc (select-keys (v/belief-status kb h c) [:withdrawn? :believed?])
+         :defeat-vantages (tu/defeat-vantages kb h c)))
+
 (deftest a-clash-seen-only-below-leaves-the-general-context-believing
   ;;   CxUniverse
   ;;     └─ CxA        (cat Rex) default
@@ -160,15 +167,13 @@
         (testing "a reader below both takes neither verdict"
           (is (v/ask? kb (list cat Rex) CxZ))
           (is (v/ask? kb (list dog Rex) CxZ))
-          (is (= {:withdrawn? false :scoped-vantages [] :believed? true}
-                 (select-keys (v/belief-status kb cat-h CxZ)
-                              [:withdrawn? :scoped-vantages :believed?])))
-          (is (= {:withdrawn? false :scoped-vantages [] :believed? true}
-                 (select-keys (v/belief-status kb dog-h CxZ)
-                              [:withdrawn? :scoped-vantages :believed?]))))
+          (is (= {:withdrawn? false :defeat-vantages [] :believed? true}
+                 (status kb cat-h CxZ)))
+          (is (= {:withdrawn? false :defeat-vantages [] :believed? true}
+                 (status kb dog-h CxZ))))
         (testing "each vantage still names its own verdict"
-          (is (= [CxW1] (:scoped-vantages (v/belief-status kb cat-h CxW1))))
-          (is (= [CxW2] (:scoped-vantages (v/belief-status kb dog-h CxW2)))))
+          (is (= [CxW1] (tu/defeat-vantages kb cat-h CxW1)))
+          (is (= [CxW2] (tu/defeat-vantages kb dog-h CxW2))))
         (testing "the KB-wide reading reports the nogood and names what each vantage decided"
           (let [entry (first (filter #(= #{cat-h dog-h} (:nogood %)) (v/contradictions kb)))]
             (is (some? entry))
@@ -196,13 +201,13 @@
         (testing "two vantages that decided alike convict the member they both defeated"
           (is (not (v/ask? kb (list cat Rex) CxY)))
           (is (v/ask? kb (list dog Rex) CxY))
-          (is (= [CxW1 CxW3] (sort (:scoped-vantages (v/belief-status kb cat-h CxY)))))
-          (is (= [] (:scoped-vantages (v/belief-status kb cat-h '?ctx)))
+          (is (= [CxW1 CxW3] (sort (tu/defeat-vantages kb cat-h CxY))))
+          (is (= [] (tu/defeat-vantages kb cat-h '?ctx))
               "a variable context names no reader, so it sees neither vantage"))
         (testing "a reader seeing the third vantage as well sees the disagreement"
           (is (v/ask? kb (list cat Rex) CxZ))
           (is (v/ask? kb (list dog Rex) CxZ))
-          (is (= [] (:scoped-vantages (v/belief-status kb cat-h CxZ)))))
+          (is (= [] (tu/defeat-vantages kb cat-h CxZ))))
         (testing "the clash is a dilemma for the reader that sees the disagreement only"
           (is (some #(= #{cat-h dog-h} (:nogood %)) (v/contradictions kb CxZ)))
           (is (not-any? #(= #{cat-h dog-h} (:nogood %)) (v/contradictions kb CxY))))))))
@@ -227,14 +232,14 @@
         (v/assert kb (list fish Rex) CxF {:strength :monotonic})
         (v/assert kb (list 'disjoint fish cat) 'CxUniverse)
         (testing "the second clash defeats cat at a vantage outside the disagreement"
-          (is (= [CxV4] (:scoped-vantages (v/belief-status kb cat-h CxV4)))))
+          (is (= [CxV4] (tu/defeat-vantages kb cat-h CxV4))))
         (testing "a reader seeing that vantage reads cat as withdrawn, disagreement or not"
           (is (not (v/ask? kb (list cat Rex) CxZ)))
-          (is (= [CxV4] (:scoped-vantages (v/belief-status kb cat-h CxZ))))
+          (is (= [CxV4] (tu/defeat-vantages kb cat-h CxZ)))
           (is (true? (:withdrawn? (v/belief-status kb cat-h CxZ)))))
         (testing "and dog, whose only verdict came from the disagreement, stays believed"
           (is (v/ask? kb (list dog Rex) CxZ))
-          (is (= [] (:scoped-vantages (v/belief-status kb dog-h CxZ)))))))))
+          (is (= [] (tu/defeat-vantages kb dog-h CxZ))))))))
 
 (deftest a-reader-below-a-vantage-decides-the-pair-from-its-own-view
   ;;   CxW1 sees CxHide1 only, so it reads cat as a default against a monotonic dog and
@@ -265,40 +270,41 @@
           (is (some #(= #{cat-h dog-h} (:nogood %)) (v/contradictions kb CxW3))))))))
 
 (deftest a-disagreement-survives-the-reasoning-image-it-is-written-into
-  ;; The candidate index is derived state, and it rides in the reasoning image.  A store closed with a disagreement standing and reopened on its
-  ;; image reads what it read before the close.
-  (let [dir (str (Files/createTempDirectory "vaelii-disagreement-"
-                                            (into-array FileAttribute [])))
-        read-all (fn [kb CxZ CxW1 cat dog Rex cat-h dog-h]
-                   {:cat-z  (v/ask? kb (list cat Rex) CxZ)
-                    :dog-z  (v/ask? kb (list dog Rex) CxZ)
-                    :cat-w1 (v/ask? kb (list cat Rex) CxW1)
-                    :vant-z (:scoped-vantages (v/belief-status kb cat-h CxZ))
-                    :dilemma-z (boolean (some #(= #{cat-h dog-h} (:nogood %))
-                                              (v/contradictions kb CxZ)))
-                    :vantages (:vantages (first (filter #(= #{cat-h dog-h} (:nogood %))
-                                                        (v/contradictions kb))))})]
-    (try
-      (tu/with-terms [CxA CxB CxHide1 CxHide2 CxW1 CxW2 CxZ
-                      cat dog mono_cat_src mono_dog_src Rex]
-        (let [terms {:CxA CxA :CxB CxB :CxHide1 CxHide1 :CxHide2 CxHide2 :cat cat :dog dog
-                     :mono_cat_src mono_cat_src :mono_dog_src mono_dog_src :Rex Rex}
-              kb    (v/open-kb {:backend :disk-snapshot :dir dir})
-              {cat-h :cat dog-h :dog} (disagreement-world! kb terms {CxW1 [CxHide1]
-                                                                     CxW2 [CxHide2]})]
-          (doseq [up [CxW1 CxW2]] (v/assert kb (list 'genlCx CxZ up) 'CxUniverse))
-          (let [before (read-all kb CxZ CxW1 cat dog Rex cat-h dog-h)]
-            (is (= {:cat-z true :dog-z true :cat-w1 false :vant-z []
-                    :dilemma-z true :vantages {CxW1 cat-h CxW2 dog-h}}
-                   before)
-                "the disagreement stands before the close")
-            (v/close! kb)
-            (let [kb2   (v/open-kb {:backend :disk-snapshot :dir dir})
-                  after (read-all kb2 CxZ CxW1 cat dog Rex cat-h dog-h)]
-              (is (= before after) "and the reopened store reads it the same way")
-              (v/close! kb2)))))
-      (finally
-        (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^File f))))))
+  (tu/with-snapshot-platform
+    ;; The candidate index is derived state, and it rides in the reasoning image.  A store closed with a disagreement standing and reopened on its
+    ;; image reads what it read before the close.
+    (let [dir (str (Files/createTempDirectory "vaelii-disagreement-"
+                                              (into-array FileAttribute [])))
+          read-all (fn [kb CxZ CxW1 cat dog Rex cat-h dog-h]
+                     {:cat-z  (v/ask? kb (list cat Rex) CxZ)
+                      :dog-z  (v/ask? kb (list dog Rex) CxZ)
+                      :cat-w1 (v/ask? kb (list cat Rex) CxW1)
+                      :vant-z (tu/defeat-vantages kb cat-h CxZ)
+                      :dilemma-z (boolean (some #(= #{cat-h dog-h} (:nogood %))
+                                                (v/contradictions kb CxZ)))
+                      :vantages (:vantages (first (filter #(= #{cat-h dog-h} (:nogood %))
+                                                          (v/contradictions kb))))})]
+      (try
+        (tu/with-terms [CxA CxB CxHide1 CxHide2 CxW1 CxW2 CxZ
+                        cat dog mono_cat_src mono_dog_src Rex]
+          (let [terms {:CxA CxA :CxB CxB :CxHide1 CxHide1 :CxHide2 CxHide2 :cat cat :dog dog
+                       :mono_cat_src mono_cat_src :mono_dog_src mono_dog_src :Rex Rex}
+                kb    (v/open-kb {:backend :disk-snapshot :dir dir})
+                {cat-h :cat dog-h :dog} (disagreement-world! kb terms {CxW1 [CxHide1]
+                                                                       CxW2 [CxHide2]})]
+            (doseq [up [CxW1 CxW2]] (v/assert kb (list 'genlCx CxZ up) 'CxUniverse))
+            (let [before (read-all kb CxZ CxW1 cat dog Rex cat-h dog-h)]
+              (is (= {:cat-z true :dog-z true :cat-w1 false :vant-z []
+                      :dilemma-z true :vantages {CxW1 cat-h CxW2 dog-h}}
+                     before)
+                  "the disagreement stands before the close")
+              (v/close! kb)
+              (let [kb2   (v/open-kb {:backend :disk-snapshot :dir dir})
+                    after (read-all kb2 CxZ CxW1 cat dog Rex cat-h dog-h)]
+                (is (= before after) "and the reopened store reads it the same way")
+                (v/close! kb2)))))
+        (finally
+          (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^File f)))))))
 
 (deftest a-disagreement-is-still-reported-after-an-unrelated-settle
   ;; Every settle re-finds the standing nogoods, so a later settle whose region does not
@@ -470,15 +476,14 @@
         (v/assert kb (list dog Rex) CxD {:strength :monotonic})
         (v/assert kb (list 'disjoint dog cat) 'CxUniverse)
         (let [h (v/handle-of kb (list cat Rex) CxA)]
-          (is (= [CxD] (:scoped-vantages (v/belief-status kb h CxR))) "before the except")
+          (is (= [CxD] (tu/defeat-vantages kb h CxR)) "before the except")
           (v/assert kb (list 'except (list 'sentexHandle edge)) CxR {:strength :monotonic})
           (testing "the except holes the filtered read of the edge"
             (is (not (v/ask? kb (list dog Rex) CxR))))
           (testing "belief withdraws the member from CxR, and the status names the vantage"
             (is (false? (v/believed? kb h CxR)))
-            (is (= {:withdrawn? true :scoped-vantages [CxD] :believed? false}
-                   (select-keys (v/belief-status kb h CxR)
-                                [:withdrawn? :scoped-vantages :believed?])))))))))
+            (is (= {:withdrawn? true :defeat-vantages [CxD] :believed? false}
+                   (status kb h CxR)))))))))
 
 (deftest every-read-with-a-reader-applies-the-scoped-defeat
   ;;   CxUniverse
@@ -502,10 +507,10 @@
           (is (not (v/ask? kb (list cat Rex) CxD)))
           (is (v/ask? kb (list cat Rex) CxA)))
         (testing "belief-status names the withdrawal and its vantage"
-          (is (= {:withdrawn? true :scoped-vantages [CxD] :believed? false}
-                 (select-keys (v/belief-status kb h CxD) [:withdrawn? :scoped-vantages :believed?])))
-          (is (= {:withdrawn? false :scoped-vantages [] :believed? true}
-                 (select-keys (v/belief-status kb h CxA) [:withdrawn? :scoped-vantages :believed?]))))
+          (is (= {:withdrawn? true :defeat-vantages [CxD] :believed? false}
+                 (status kb h CxD)))
+          (is (= {:withdrawn? false :defeat-vantages [] :believed? true}
+                 (status kb h CxA))))
         (testing "a firing stored below the vantage on the member is stored and not believed"
           (is (some #(= (list purrs Rex) (:sentence %)) (v/sentexes-in-context kb CxD)))
           (is (not-any? #(= (list purrs Rex) (:sentence %))
@@ -645,7 +650,7 @@
 
 (deftest a-reader-that-disbelieves-a-genl-edge-stops-reaching-over-it
   ;;   CxUniverse    (genl chi thing) (genl dog thing) (chi Rex)
-  ;;                 (transitiveInArg largerThan 1 genl)  (largerThan dog cat)
+  ;;                 (transitiveInArgInverse largerThan 1 genl)  (largerThan dog cat)
   ;;     └─ CxA      (genl chi dog)                 :default
   ;;          └─ CxB (not (genl chi dog))           :monotonic  ← the vantage
   ;;     └─ CxC      a sibling of CxB, which sees neither the denial nor the vantage
@@ -660,7 +665,7 @@
           (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
           (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse)
           (v/assert kb (list 'genlCx CxC CxA) 'CxUniverse)
-          (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
+          (v/assert kb (list 'transitiveInArgInverse largerThan 1 'genl) 'CxUniverse)
           (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)
           (v/assert kb (list chi_t Rex) 'CxUniverse)
           (let [edge!   #(v/assert kb (list 'genl chi_t dog_t) CxA)
@@ -694,7 +699,7 @@
       (types! kb chi_t dog_t cat_t)
       (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse largerThan 1 'genl) 'CxUniverse)
       (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)
       (v/assert kb (list chi_t Rex) 'CxUniverse)
       (v/assert kb (list 'genl chi_t dog_t) CxA)
@@ -950,6 +955,48 @@
         (doseq [k [:wiring :chi]] ((steps k)))
         (v/assert kb (list 'except (list 'sentexHandle ((:cat steps)))) CxC)
         (is (= {:CxB [false true true] :CxC [true false true]} (release-reading kb ts)))))))
+
+(defn- shared-defeat-reading
+  "Build the lattice of the test below with its four writes in `order`, then `(except
+  winner)` in CxR, where `winner` is `:dog` or `:not`.  Answers `[CxD believes L, CxR
+  believes L, the defeats of L stored at CxD]`."
+  [order winner]
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [CxD CxR cat dog Rex]
+      (types! kb cat dog)
+      (v/assert kb (list 'genlCx CxD 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxR CxD) 'CxUniverse)
+      (let [hs (into {} (for [w order]
+                          [w (case w
+                               :cat      (v/assert kb (list cat Rex) CxD)
+                               :dog      (v/assert kb (list dog Rex) CxD {:strength :monotonic})
+                               :not      (v/assert kb (list 'not (list cat Rex)) CxD
+                                                   {:strength :monotonic})
+                               :disjoint (v/assert kb (list 'disjoint dog cat) 'CxUniverse))]))
+            l  (hs :cat)]
+        (v/assert kb (list 'except (list 'sentexHandle (hs winner))) CxR)
+        [(v/believed? kb l CxD) (v/believed? kb l CxR)
+         (count (v/sentexes-matching kb (list 'defeat (list 'sentexHandle l)) CxD))]))))
+
+(defn- shared-defeat-orders-agree [orders]
+  (doseq [winner [:dog :not]]
+    (is (= #{[false false 1]} (into #{} (map #(shared-defeat-reading % winner)) orders))
+        (pr-str winner))))
+
+;;   CxUniverse  (disjoint dog cat)
+;;     └─ CxD    L (cat Rex) default, W1 (dog Rex) monotonic, W2 (not (cat Rex)) monotonic
+;;          └─ CxR   (except W1) or (except W2), written last
+;;
+;; The membership nogood {W1 L} and the negation nogood {W2 L} store one defeat of L at
+;; CxD with one justification each.  CxR excepts one winner; the other nogood still
+;; convicts L there, whichever nogood is placed first.  The sample takes every fourth of
+;; the 24 orders, which places each nogood first at least once.
+
+(deftest a-defeat-two-nogoods-share-is-in-force-through-either-one
+  (shared-defeat-orders-agree (take-nth 4 (permutations [:cat :dog :not :disjoint]))))
+
+(deftest ^:slow a-defeat-two-nogoods-share-is-in-force-through-either-one-in-every-order
+  (shared-defeat-orders-agree (permutations [:cat :dog :not :disjoint])))
 
 (deftest a-sibling-exception-releases-the-pair-at-the-readers-that-see-it
   ;;   CxUniverse  (genl t1 col) (genl t2 col) (sibling_disjoint col)
@@ -1269,7 +1316,7 @@
         (types! kb mammal_t insect_t dog_t ant_t canine_t)
         (doseq [d [(list 'binary_predicate bigP) (list 'type_relation_predicate bigP)
                    (list 'asymmetric bigP)
-                   (list 'transitiveInArg bigP 1 'genl) (list 'transitiveInArg bigP 2 'genl)]]
+                   (list 'transitiveInArgInverse bigP 1 'genl) (list 'transitiveInArgInverse bigP 2 'genl)]]
           (v/assert kb d 'CxUniverse G))
         (when detour
           (v/assert kb (list 'genl dog_t canine_t) (cx edges-in) G)
@@ -1326,15 +1373,15 @@
                       :detour detour}]]
     (is (= expected (inherit-run tu/fresh opts)) (pr-str opts))))
 
-(deftest an-inherited-converse-over-default-grounds-is-one-dilemma-in-every-order
-  ;; The declarations and the edges `:default`: the reading is capped at `:default`, so
-  ;; the stored default shares the floor with it, and the reader that sees the whole clash
-  ;; reads a dilemma whichever claim arrives first — one context or split across two
-  ;; (docs/inherit.md, "A contrary claim against a known-true one").
+(deftest an-inherited-converse-over-default-grounds-opposes-nothing-in-every-order
+  ;; The declarations and the edges `:default`: the reading is `:default`, so the stored
+  ;; claim undercuts it, and the reader that sees the whole reach believes the stored
+  ;; claim and reads no clash whichever claim arrives first — one context or split across
+  ;; two (docs/inherit.md, "A contrary claim against a known-true one").
   (doseq [stored [:converse :denial]
           [stored-in reader] [[:CxA :CxA] [:CxB :CxW]]
           first? [true false]
           :let [opts {:stored stored :stored-in stored-in :edges-in :CxA :claim-first? first?
                       :grounds :default}]]
-    (is (= [true false true] (get (inherit-run tu/fresh opts) reader))
+    (is (= [true false false] (get (inherit-run tu/fresh opts) reader))
         (pr-str opts))))

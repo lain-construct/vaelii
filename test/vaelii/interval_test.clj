@@ -17,6 +17,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.interval :as iv]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
@@ -310,11 +311,24 @@
     (testing "the rule fires on a relation only the point network entails"
       (is (seq (v/sentexes-matching kb (list finishedFirst A) '?ctx))))
     ;; the cycle names neither A nor B
-    (let [h (v/assert kb (list 'instantBefore X Y) C)]
-      (v/assert kb (list 'instantBefore Y X) C)
+    (let [h  (v/assert kb (list 'instantBefore X Y) C)
+          h2 (v/assert kb (list 'instantBefore Y X) C)]
       (testing "an instant cycle makes the interval network that reads the points unsatisfiable"
         (is (false? (:consistent? (v/qualitative-network kb :allen C))))
         (is (not (v/ask? kb (list 'before A B) C))))
+      (testing "the network names the point clash as its source, not the pair it emptied"
+        (let [net (v/qualitative-network kb :allen C)]
+          (is (empty? (:unsatisfiable net)))
+          (is (= [{:source  :point
+                   :pairs   (nm/by-print-key #{[X Y] [Y X]})
+                   :support (vec (sort [h h2]))}]
+                 (:unsatisfiable-sources net)))
+          (let [entry (last (filter #(and (= :qualitative-inconsistency (:violation %))
+                                          (= :allen (:calculus %))
+                                          (= C (:context %)))
+                                    (v/violations kb)))]
+            (is (nil? (get-in entry [:detail :pairs])) "the ledger blames no interval pair")
+            (is (= (:unsatisfiable-sources net) (get-in entry [:detail :sources]))))))
       (testing "so the firing is withdrawn, though the fact it listed is still believed"
         (is (empty? (v/sentexes-matching kb (list finishedFirst A) '?ctx))))
       (testing "and retracting the cycle revives it"

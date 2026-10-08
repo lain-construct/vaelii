@@ -168,7 +168,7 @@
       (is (empty? (v/conflicts kb)))
       (is (= #{t1 t2} (set (v/types-of kb Pip CxA)))))))
 
-;;; ── siblingDisjointException: an escape hatch exempting one pair ──
+;;; ── siblingDisjointException: an exemption of one pair from the clique ──
 
 (tu/deftest-kb an-exception-exempts-one-pair-and-only-that-pair
   ;; the exemption spares x,y while the mark still separates every other sibling —
@@ -223,6 +223,47 @@
     (testing "and a term holding sub_a cannot also hold b"
       (v/assert kb (list sub_a x) 'CxUniverse)
       (is (tu/stored-in-clash? kb (list b x) 'CxUniverse)))))
+
+(tu/deftest-kb an-exception-exempts-a-pair-from-every-mark-and-not-from-a-stated-disjoint
+  ;; the marks are a sibling_disjoint parent, a partition (which keeps its cover), a
+  ;; separating roster and a disjoint_metatype; a stated disjoint names its pair, and the
+  ;; exception lifts nothing there
+  (doseq [[mark decls]
+          {:sibling    (fn [w a b _] [(list 'genl a w) (list 'genl b w) (list 'sibling_disjoint w)])
+           :partition  (fn [w a b _] [(list 'partition w a b)])
+           :separating (fn [w a b _] [(list 'separating w a b)])
+           :metatype   (fn [_ a b m] [(list m a) (list m b) (list 'disjoint_metatype m)])
+           :disjoint   (fn [_ a b _] [(list 'disjoint a b)])}]
+    (tu/with-terms [whole alpha beta kind_type]
+      (doseq [d (decls whole alpha beta kind_type)] (v/assert kb d 'CxUniverse))
+      (is (true? (v/disjoint? kb alpha beta)) (str mark ": separated before the exception"))
+      (v/assert kb (list 'siblingDisjointException alpha beta) 'CxUniverse)
+      (is (= (= :disjoint mark) (v/disjoint? kb alpha beta))
+          (str mark (if (= :disjoint mark) ": still separated" ": exempted")))
+      (when (= :partition mark)
+        (is (true? (v/genl? kb alpha whole)) "the cover's part edges stand")))))
+
+(tu/deftest-kb an-exempted-pair-of-parts-lifts-what-the-roster-separated-below-it
+  ;; a roster names its parts, so the separated pair of supertypes is the exempted one; a
+  ;; sibling_disjoint parent separates every pair of its specializations, so a subtype
+  ;; stays separated there (an-exemption-does-not-leak-to-a-subtype)
+  (tu/with-terms [whole upperA upperB subA subB]
+    (v/assert kb (list 'partition whole upperA upperB) 'CxUniverse)
+    (v/assert kb (list 'genl subA upperA) 'CxUniverse)
+    (v/assert kb (list 'genl subB upperB) 'CxUniverse)
+    (is (true? (v/disjoint? kb subA subB)))
+    (v/assert kb (list 'siblingDisjointException upperA upperB) 'CxUniverse)
+    (is (false? (v/disjoint? kb subA subB)))))
+
+(tu/deftest-kb the-exemption-is-read-where-the-exception-is-seen
+  (tu/with-terms [whole alpha beta CxBelow]
+    (v/assert kb (list 'genlCx CxBelow 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'genl alpha whole) 'CxUniverse)
+    (v/assert kb (list 'genl beta whole) 'CxUniverse)
+    (v/assert kb (list 'sibling_disjoint whole) 'CxUniverse)
+    (v/assert kb (list 'siblingDisjointException alpha beta) CxBelow)
+    (is (false? (v/disjoint? kb alpha beta CxBelow)) "spared where it is stated")
+    (is (true? (v/disjoint? kb alpha beta 'CxUniverse)) "separated above it")))
 
 (tu/deftest-kb an-exception-admits-a-membership-the-mark-would-refuse
   (let [collection (tu/tmp-type) a (tu/tmp-type) b (tu/tmp-type) x (tu/tmp-ind)]
@@ -337,8 +378,8 @@
       (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException Fido a) 'CxUniverse)))
       (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException a Fido) 'CxUniverse))))
     (testing "the wrong arity is refused"
-      ;; :naming rather than :not-well-formed — a camelCase functor at arity 1 is a unary
-      ;; predicate wearing a relation's spelling, and the naming check is upstream of `wff`
-      (is (= :naming (assert-outcome kb (list 'siblingDisjointException a) 'CxUniverse))))
-    (testing "a self-pair is refused"
-      (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException a a) 'CxUniverse))))))
+      (is (= :not-well-formed (assert-outcome kb (list 'siblingDisjointException a a a) 'CxUniverse))))
+    (testing "a self-pair is not refused: a type subsumes itself, so it is the related-types
+              family's clash of the entailed orthogonal (orthogonal_test), not a malformed
+              sentence"
+      (is (= :ok (assert-outcome kb (list 'siblingDisjointException a a) 'CxUniverse))))))

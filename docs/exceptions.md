@@ -110,6 +110,16 @@ refused `:quantifier-not-local`, because the rule's binding would replace it bef
 query runs. Binders are numbered past the rule's variables when the exception is
 stored, so two exceptions that differ only in a binder's name are one meta-sentex.
 
+A `forall` conjunct is stored as the nested NAF it is, as a `forall` antecedent is
+([naf.md](naf.md)), so it and its `(unknown (thereExists …))` spelling are one
+meta-sentex. A count is compared inside a quantifier that binds it, since the conjuncts
+of a vector share no variable:
+
+```clojure
+(exceptWhen (thereExists ?n (and (agg/count ?n ?c (childOf ?b ?c)) (lessThan 1 ?n)))
+            (implies (bird ?b) (flies ?b)))
+```
+
 **No backchaining.** An exception that is only derivable by running rules (level 7)
 does not hold. This bounds the cost and keeps an exception from silently invoking
 an unbounded proof search inside the relabel loop.
@@ -121,10 +131,14 @@ missing fact silently suppress knowledge.
 
 **The exception is evaluated in the conclusion's placement context**, not the
 rule's. The conclusion is what the exception is about, and an exception invisible
-from where the conclusion would live has no business blocking it. A reader below the
-placement asks it again against what it sees, and reads the firing as withdrawn where it
-holds, as an `unknown` antecedent is read
-([naf.md](naf.md#evaluated-in-the-placement-context-not-the-join)). Backward chaining
+from where the conclusion would live has no business blocking it. Where the exception
+holds below the placement and not at it, the firing stores a guard `defeat` of its
+conclusion there, as an `unknown` antecedent does, and a reader that sees the defeat does
+not believe the conclusion through that firing
+([naf.md](naf.md#evaluated-in-the-placement-context-not-the-join)). The defeat is placed
+at the contexts that see the placement, the blockers and the `genl` edges the query
+climbed, and at the context of each `except` that takes a blocker's own defeat out of
+force there. Backward chaining
 places nothing, so it has no placement context; there the exception is evaluated in
 the query's context instead, the backward analogue of the same rule.
 
@@ -132,8 +146,9 @@ the query's context instead, the backward analogue of the same rule.
 a sentex, so a context reads the exceptions its `genlCx` ancestor set holds and no
 others, as it reads the rules (`provers/exception-visible-from?`). An exception stated
 in a context below the conclusion's blocks nothing in the conclusion's context, even
-when its query holds there; a reader that sees it asks it, and withdraws the firing
-where its query holds. A `genlCx` edge that brings the exception into the ancestor
+when its query holds there. The firing stores a guard `defeat` at the contexts that see
+its placement, the exception and the blockers, where the query holds, as for a blocker
+below the placement (`chain/place-guard-defeats!`). A `genlCx` edge that brings the exception into the ancestor
 set re-checks the firings placed below the edge, the same re-check any `genlCx` edge
 queues (the re-check index, below).
 
@@ -269,6 +284,13 @@ firings are filtered before a single query is paid for:
   go through the same function, so a class the reader cannot see collapses on both or on
   neither and the answer can only broaden. A KB that has merged nothing skips the
   rewrite outright, one deref at the top of the pass.
+- With no merge, and every conjunct flat over a named predicate the filter does not wave
+  through, with a variable argument, a conjunct agrees with a trigger only when one of
+  its variables is bound to a trigger argument. The filter looks the variables up in the
+  firing's bindings first and drops a firing that binds none of them to one
+  (`recheck/firing-test`), so a firing the trigger does not name costs a lookup per
+  variable and no substitution. `lein perf`'s `except-of-a-guard-blocker` holds the
+  re-check flat in the rule's firings the trigger does not name.
 - Only the survivors run the level-6 query.
 
 **Every "cannot tell" answers keep.** A literal that is not flat and ground, a nested
@@ -280,7 +302,7 @@ re-check costs one query; a missed one is a conclusion that should have been swe
 wasn't.
 
 Preservation is the one of those that cannot be listed in the code, and the one where
-argument agreement is at its most misleading: `(transitiveInArg bigger n genl)` makes a
+argument agreement is at its most misleading: `(transitiveInArgInverse bigger n genl)` makes a
 stored `(bigger dog cat)` answer `(bigger poodle siamese)`, so the trigger and the
 conjunct agree on **no argument at all** while naming the same predicate — which reads
 to the filter exactly like an unrelated fact. Which predicates those are is a property
@@ -375,7 +397,11 @@ whose released firing queues a rule beside that rule's firings.
 A pass is **productive** when the blocked set moved. Three things force one that did not.
 An **aggregate** antecedent binds a *value*, so a count going 1 ⇒ 2 licenses a firing no
 block ever suppressed — and a **nested** NAF joins it there, since an arriving fact can
-remove the witness its inner query found ([naf.md](naf.md)). A released **refusal** — the next section — is a firing that never
+remove the witness its inner query found ([naf.md](naf.md)). An exception an arrival
+can move both ways joins them too — an aggregate, or a literal under an odd number of
+`unknown`s beside one under an even number, as in "a child not vaccinated": one arrival
+imposes the block, which is swept rather than refused, and a later one lifts it with no
+refusal to record it (`rules/exception-arrival-releasable?`). A released **refusal** — the next section — is a firing that never
 held a justification for the blocked set to have said anything about. And a **revived**
 datum is one whose firing was never attempted, because the join ran while it was OUT and
 the matcher is belief filtered; that one is not an exception mechanism at all, and it is
@@ -406,7 +432,7 @@ and enough to place the conclusion from when the answer moves. A release is then
 by **re-evaluating the record**: one query per recorded refusal, in place of a join over
 the fact extent.
 
-**Two of the four refusal reasons are recorded**, and the other two are covered
+**Three of the five reasons are recorded**, and the other two are covered
 elsewhere rather than forgotten:
 
 | reason | recorded | why |
@@ -414,6 +440,7 @@ elsewhere rather than forgotten:
 | the rule's exception holds | yes | re-askable from the bindings alone |
 | an `(unknown S)` antecedent — or a closed-extent negative one — blocks | yes | likewise, and the same evaluator |
 | a post-join literal had no answer | no | an aggregate is a *value* that moved, and a queued aggregate rule is re-joined whatever the blocked set did (`settle/rejoin-on-arrival-rules`) |
+| the settle blocks a placed firing, and the sweep deletes it | yes, by `chain/record-swept-firing!` | the conclusion is gone from the store, so the record is what a trigger lifting the block re-derives it from, as for a firing refused at its placement |
 | a visibility `except` hides an antecedent | no | an `except` arriving or leaving queues every rule that could fire on the hidden fact (`special/recheck-except`), and queues it with **`:all`** — so it takes the coarse re-join and the refusal is re-derived there. An entry would be one nothing reads |
 
 The record holds three more kinds of entry, none of them a refusal by an exception. Each
@@ -424,6 +451,12 @@ is kept because the thing that refused it was an **absence** that later content 
 | `:constraint` | the rule | `place-fact-conclusion` dropped the conclusion on an `arg` / `genlArg` / `interArg` / `interArgs` / `interArgAndRest` / `quotedArg` conviction: the argument's types had no path to the declared one | a `genl` or `genlCx` generation moved since the entry was decided, or a settle relabelled a sentex naming the convicted term |
 | `:lift` | the source fact | a `decontextualized_predicate` copy from a context that does not see CxUniverse failed the same argument check there | the same two |
 | `:mint` | the declaration | the declared type did not yet reach `thing` (`checks/mintable-type?`), so the declaration minted nothing over its facts | a `genl` or `genlCx` generation moved |
+
+The generations an entry is stamped with carry the taxonomy's rebuild epoch
+(`special/taxonomy-generations`). A `recover` restarts each generation at 0 and replays
+the stored edges, so a generation can return to a number it held under another hierarchy.
+The recover moves the epoch, so a stamp taken before the recover never compares equal
+after it.
 
 `settle` re-asks them each pass (`released-constraint-refusals`, `released-lifts`,
 `released-mints`): a conclusion now admissible is placed from the entry, a copy lifted, a
@@ -637,7 +670,7 @@ an answer differently.
   widened ancestor set that releases it would otherwise reach nothing.
 
   **A rule an arrival can release is waved through that narrowing**
-  (`rules/arrival-releasable?`), because for it the absence is not a gap but a wrong
+  (`special/arrival-releasable-rule?`), because for it the absence is not a gap but a wrong
   answer. Most re-check conditions are a block, so whatever a widened ancestor set can change
   always left a firing to find. Two are not. An aggregate binds a **value**, and a census
   that rises licenses a firing that never existed — no placed conclusion, no context to
@@ -648,7 +681,7 @@ an answer differently.
   the settle loop re-joins such a rule for, met the same way.
 
   The narrowing is what that exemption is measured against, and it is not free: one
-  record fetch per excepted rule to ask the exemption, and then one per **firing** for
+  record fetch and one exception read per excepted rule to ask the exemption, and then one per **firing** for
   the ancestor set test. `some` short-circuits on a hit, so a rule the edge reaches costs the
   firings up to the first one in the ancestor set, and a rule it reaches through none costs every
   firing that rule ever made. That is the price of narrowing on placement rather than
@@ -723,7 +756,8 @@ exception is about another, so the sentence could not narrow the right firings a
   which normalizes terms rather than merging symbols, so there is no class to test
   against. And the whole **removal** side, where the narrowing is not imprecise but
   blind: what a released condition owes a re-derivation to includes the firings the
-  block already swept, and a swept firing holds no bindings to test.
+  block already swept, and the refusal record holds those only where no except hid an
+  antecedent (`chain/record-swept-firing!`).
 
 - **Composition, where a calculus answers the exception.** A registered calculus answers
   `(spatiallyDisconnected Canary Room)` from `(spatiallyDisconnected Cage Room)` and
@@ -736,11 +770,11 @@ exception is about another, so the sentence could not narrow the right firings a
   queues every rule with a block literal on a predicate the calculus claims or on a
   super-predicate of one, with the `::entailment` marker, which keeps every firing of such
   a rule and re-asks every refusal ("Two withdrawals a firing carries"). A `genl` edge
-  under a calculus predicate queues the same rules `:all` from `recheck-genl-edge`, and
-  `special/rules-watching` names them for a defeat.
+  under a calculus predicate queues the same rules `:all` from `recheck-genl-edge`, and a
+  defeat queues them as the target's arrival does (`special/recheck-on-sentence`).
 
 All five are free for a KB not using the feature: the declarations are read off the
-functor roots behind an O(1) cardinality gate, the declaration roster is a map lookup on
+predicate extents behind an O(1) cardinality gate, the declaration roster is a map lookup on
 the functor, and the whole path sits behind the `[:exception-index :rules]` roster being
 non-empty — which is what a KB that merges but carries no re-check condition pays, once
 per merge, and the fifth tests the registered calculi against the arriving predicate's
@@ -823,7 +857,11 @@ retraction released: when a retraction causes an exception to stop holding, the
 conclusions it was blocking must be **re-derived**, which is forward chaining. So
 `settle-after-teardown!` settles, re-chains from the rules whose exceptions were
 released, and settles again — the revival is visible by the time `retract!` returns
-rather than on the next unrelated assert.
+rather than on the next unrelated assert. A rule queued only by sentences, whose re-check
+conditions are `exceptWhen` exceptions and `unknown` antecedents, is not re-chained over
+its extent (`settle/rechain-owed`): the settle releases each firing its block refused or
+swept from the refusal record. `lein perf`'s `except-of-a-guard-blocker` holds an except
+of a blocker, and its retraction, flat in the rule's other firings.
 
 ## What surfaces where
 

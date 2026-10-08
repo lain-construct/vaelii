@@ -429,7 +429,7 @@
         (let [data   (fn [] (set (->> (file-seq (io/file dir))
                                       (filter #(.isFile ^java.io.File %))
                                       (map #(.getPath ^java.io.File %))
-                                      (remove #(re-find #"/dirty\.marker$" %))
+                                      (remove #(re-find #"[/\\]dirty\.marker$" %))
                                       (remove #(re-find #"\.compact(-commit)?$" %)))))
               before (data)]
           (is (seq before))

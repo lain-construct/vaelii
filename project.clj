@@ -6,7 +6,35 @@
   (Integer/parseInt
    (second (re-find #"^(?:1\.)?(\d+)" (System/getProperty "java.specification.version")))))
 
-(defproject com.vaelii/vaelii "0.23.0"
+;; The bash every script alias runs, and the one the suite runs scripts with (the
+;; `:test` profile hands it on as `vaelii.test.bash`).  `VAELII_BASH` when set; else, on
+;; Windows, Git's, when it is installed; else whatever `bash` resolves to.  Windows needs
+;; the middle step because it resolves a bare `bash` in System32 *before* `PATH`, so
+;; where WSL is installed `bash` is WSL's whatever `PATH` says — a Linux that sees
+;; neither this JVM's paths nor its environment, and needs its own copy of every tool.
+;; Git's bash runs the Windows ones.  `VAELII_BASH=bash` asks for WSL's regardless.
+;; Git's is looked for beside a `git.exe` on `PATH` (an install's `cmd\`, next to its
+;; `bin\`), then where the machine-wide, per-user and Scoop installs put it.
+(def bash
+  (or (some-> (System/getenv "VAELII_BASH") .trim not-empty)
+      (when (.startsWith (.toLowerCase (System/getProperty "os.name")) "windows")
+        ;; the OS's own variables, read through `env`: config_surface_test's scan is
+        ;; for vaelii's switches, and none of these is one
+        (let [env      #(some-> (System/getenv %) not-empty)
+              on-path  (for [d (.split (str (env "PATH")) java.io.File/pathSeparator)
+                             :when (and (not-empty d) (.isFile (java.io.File. d "git.exe")))]
+                         (some-> (java.io.File. d) .getParentFile (java.io.File. "bin/bash.exe")))
+              installs (keep (fn [[base sub]] (some-> (env base) (java.io.File. sub)))
+                             [["ProgramFiles" "Git/bin/bash.exe"]
+                              ["LOCALAPPDATA" "Programs/Git/bin/bash.exe"]
+                              ["SCOOP" "apps/git/current/bin/bash.exe"]
+                              ["USERPROFILE" "scoop/apps/git/current/bin/bash.exe"]])]
+          ;; `/`-separated: lein-shell reads `\` as its escape and would drop each one
+          (some #(when (.isFile ^java.io.File %) (.replace (.getPath ^java.io.File %) \\ \/))
+                (concat on-path installs))))
+      "bash"))
+
+(defproject com.vaelii/vaelii "0.24.0"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
@@ -186,6 +214,8 @@
              ;; property-based tests, in :test rather than :dev because a local
              ;; gitignored profiles.clj may redefine :dev and replace it wholesale
              :test {:dependencies [[org.clojure/test.check "1.1.3"]]
+                    ;; the bash a test drives a script with: `bash` above, and why
+                    :jvm-opts [~(str "-Dvaelii.test.bash=" bash)]
                     ;; Quiet the engine's own logging under test. Trove's default
                     ;; backend is the console one at `:info` and nothing sets it, so
                     ;; a GREEN run printed 777 lines of `:warn`/`:info` — two thirds
@@ -325,34 +355,38 @@
   ;; from the child's environment (leiningen.core.eval/overridden-env).
   :shell {:env {"CLASSPATH" nil}}
   ;; `lein lint` is the unified report; the lint-* aliases run one check each, and
-  ;; `lein fix` reformats in place.
-  :aliases {"lint"            ["shell" "bash" "scripts/lint.sh"]
-            "lint-glossary"   ["shell" "bash" "scripts/lint-glossary.sh"]
-            "lint-versions"   ["shell" "bash" "scripts/lint-versions.sh"]
-            "lint-links"      ["shell" "python3" "scripts/check-doc-links.py" "--public-view"]
-            "lint-drift"      ["shell" "python3" "scripts/check-doc-drift.py"]
-            "lint-kondo"      ["shell" "clj-kondo" "--lint" "src" "test" "bench"]
-            "lint-cljfmt"     ["shell" "env" "LEIN_JVM_OPTS=-XX:+TieredCompilation" "lein" "cljfmt" "check"]
+  ;; `lein fix` reformats in place.  Every tool is reached through `bash` (the def at
+  ;; the top of this file), never exec'd by name: it is that bash's PATH the tools are
+  ;; found on, and `env` is no Windows program.  `"\\$@"` passes an alias's own
+  ;; arguments through (`lein lint-prose -- --update`); the backslash is lein-shell's
+  ;; escape, which would otherwise read the `$` as one of its own `${...}` expansions.
+  :aliases {"lint"            ["shell" ~bash "scripts/lint.sh"]
+            "lint-glossary"   ["shell" ~bash "scripts/lint-glossary.sh"]
+            "lint-versions"   ["shell" ~bash "scripts/lint-versions.sh"]
+            "lint-links"      ["shell" ~bash "-c" "PYTHONUTF8=1 python3 scripts/check-doc-links.py --public-view \"\\$@\"" "--"]
+            "lint-drift"      ["shell" ~bash "-c" "PYTHONUTF8=1 python3 scripts/check-doc-drift.py \"\\$@\"" "--"]
+            "lint-kondo"      ["shell" ~bash "-c" "clj-kondo --lint src test bench \"\\$@\"" "--"]
+            "lint-cljfmt"     ["shell" ~bash "-c" "env LEIN_JVM_OPTS=-XX:+TieredCompilation lein cljfmt check \"\\$@\"" "--"]
             ;; the script owns the roster, so this alias and scripts/lint.sh check
             ;; the same list — restating it here is how one of them goes short
-            "lint-shellcheck" ["shell" "bash" "scripts/lint-shellcheck.sh"]
+            "lint-shellcheck" ["shell" ~bash "scripts/lint-shellcheck.sh"]
             ;; the two ratchets: a compile pass whose warnings fail, and a public var
             ;; nothing references.  Both are in scripts/lint.sh too, so `lein gate`
             ;; picks them up inside the suite's wall clock; these are the one-offs.
-            "lint-reflect"    ["shell" "bash" "scripts/check-reflection.sh"]
-            "lint-unused"     ["shell" "python3" "scripts/check-unused-publics.py"]
+            "lint-reflect"    ["shell" ~bash "scripts/check-reflection.sh"]
+            "lint-unused"     ["shell" ~bash "-c" "PYTHONUTF8=1 python3 scripts/check-unused-publics.py \"\\$@\"" "--"]
             ;; the prose budget: metaphor and aphorism against scripts/prose-baseline.txt.
             ;; `lein lint-prose -- --update` lowers a stale budget; it never raises one
-            "lint-prose"      ["shell" "python3" "scripts/check-prose.py"]
-            ;; the `authorship` CI gate's rules, against synthetic commits — the gate
-            ;; runs only on a pull request, so this is where they are exercised first
+            "lint-prose"      ["shell" ~bash "-c" "PYTHONUTF8=1 python3 scripts/check-prose.py \"\\$@\"" "--"]
+            ;; a stateful def or Reasoning field with no derived-state register row
+            "lint-derived"    ["shell" ~bash "-c" "PYTHONUTF8=1 python3 scripts/check-derived-state.py"]
             ;; lint, the suite and the perf claims in one run, not fail-fast
             ;; (scripts/gate.sh says why)
-            "gate"            ["shell" "bash" "scripts/gate.sh"]
+            "gate"            ["shell" ~bash "scripts/gate.sh"]
             ;; the release gate: `gate` (lint + test) plus the perf stage, for a tag
             ;; or a perf-sensitive land.  The fast `gate` drops perf and only asks
             ;; for it; this always runs it.  See scripts/gate.sh's PERF header.
-            "release-gate"    ["shell" "bash" "scripts/gate.sh" "--release"]
+            "release-gate"    ["shell" ~bash "scripts/gate.sh" "--release"]
             ;; rewrite the three goldens — the published API surface, the extension
             ;; seams, the config surface — from the live tree.  `test` is already on a
             ;; plain `run`'s classpath here, so no profile is needed.  Read
@@ -366,10 +400,14 @@
             ;; engine, and read `vaelii.regen-client` before reaching for it: a red
             ;; `client_surface_test` is an op somebody added, not a chore
             "regen-client"    ["run" "-m" "vaelii.regen-client"]
+            ;; print the derived-state register's two tables, or `-- --edn <path>` for the
+            ;; export scripts/derived-state-graph.py draws (docs/caches.md, "The
+            ;; derived-state register")
+            "derived-state"   ["run" "-m" "vaelii.derived-state-test"]
             ;; the suite across JVMs — what the gate's test stage runs.  Memory stores
             ;; only: a durable half is one lock and three usable space blocks, so the
             ;; script refuses one rather than sharding into it.
-            "test-parallel"   ["shell" "bash" "scripts/test-parallel.sh"]
+            "test-parallel"   ["shell" ~bash "scripts/test-parallel.sh"]
             ;; the cross-process tests, which run only when named — `:multi-jvm` is
             ;; opt-in, so `lein test`, `lein test :all` and the gate all pass over
             ;; them.  An alias because a selector nothing types is a selector nothing
@@ -377,33 +415,33 @@
             ;; through scripts/test-selector.sh, so a selector no gate reaches still
             ;; leaves a report and a row in the run ledger — a run nothing recorded is
             ;; one nobody can say happened, which for these two is the whole question
-            "test-multi-jvm"  ["shell" "bash" "scripts/test-selector.sh" ":multi-jvm"]
+            "test-multi-jvm"  ["shell" ~bash "scripts/test-selector.sh" ":multi-jvm"]
             ;; the exhaustive truncation sweep, opt-in for a different reason than
             ;; `:multi-jvm`: it is not that no other selector *can* run it, it is that
             ;; no configuration *varies* it — the sweep names its own four backends, so
             ;; a matrix row would repeat identical work.  Once, not once per row.  Set
             ;; `VAELII_TEST_TMPDIR` to a tmpfs: a couple of minutes rather than ten.
-            "test-fuzz"       ["shell" "bash" "scripts/test-selector.sh" ":fuzz"]
+            "test-fuzz"       ["shell" ~bash "scripts/test-selector.sh" ":fuzz"]
             ;; the `^:full-kb` probes, opt-in because they need a full-size KB on disk and
             ;; a 44g heap beside nothing else large: KB-DIR (default checkouts/kb) upgraded
             ;; to this engine, then a clone of it probed (scripts/test-full-kb.sh)
-            "test-full-kb"    ["shell" "bash" "scripts/test-full-kb.sh"]
+            "test-full-kb"    ["shell" ~bash "scripts/test-full-kb.sh"]
             ;; feeds the README deps badge, via scripts/update-badges.sh --deps
             "antq"            ["with-profile" "+antq" "run" "-m" "antq.core" "--skip=pom"]
-            ;; the whole suite once per backend — seven record×index pairs plus the
+            ;; the whole suite once per backend — eight record×index pairs plus the
             ;; overlay decorator (scripts/test-backends.sh).  The trailing `~(…)` hands
             ;; the script leiningen's terminal state, because lein-shell pipes its
             ;; stdout and the script cannot otherwise tell whether the real output is a
             ;; terminal — the compact marks under one, greppable lines into a pipe
             ;; (scripts/lib/suite-marks.sh).  test-sweeps and test-shuffle carry it too.
-            "test-backends"   ["shell" "bash" "scripts/test-backends.sh"
+            "test-backends"   ["shell" ~bash "scripts/test-backends.sh"
                                ~(if (System/console) "--tty" "--no-tty")]
             ;; and once per sweep — the reference TMS, the sweep chainer, the node
             ;; engine, one of its tacticians, the reference context retrieval, the
             ;; planner off, the constraint-only argument reading
             ;; (scripts/test-sweeps.sh).  The other axis, and
             ;; together with the line above it is what `deep.yml` runs
-            "test-sweeps"     ["shell" "bash" "scripts/test-sweeps.sh"
+            "test-sweeps"     ["shell" ~bash "scripts/test-sweeps.sh"
                                ~(if (System/console) "--tty" "--no-tty")]
             ;; ...and both at once, one JVM per configuration, as many at a time as
             ;; the box has cores for: ~13 minutes against the ~55 the two scripts
@@ -411,7 +449,7 @@
             ;; matrix (scripts/test-matrix.sh).  The launch order is shuffled and the
             ;; seed printed, so a run stopped early covers a random subset of the
             ;; roster; `--ordered` schedules the longest configuration first instead
-            "test-matrix"     ["shell" "bash" "scripts/test-matrix.sh"
+            "test-matrix"     ["shell" ~bash "scripts/test-matrix.sh"
                                ~(if (System/console) "--tty" "--no-tty")]
             ;; the whole matrix in a random order, memory first, stopping at the
             ;; first configuration that fails — the smoke test the full matrix is
@@ -420,13 +458,13 @@
             ;; `~(…)` hands the script leiningen's terminal state so the graph is the
             ;; compact marks under a terminal and the greppable lines into a pipe,
             ;; the same as the two matrix scripts above (scripts/lib/suite-marks.sh).
-            "test-shuffle"    ["shell" "bash" "scripts/test-shuffle.sh"
+            "test-shuffle"    ["shell" ~bash "scripts/test-shuffle.sh"
                                ~(if (System/console) "--tty" "--no-tty")]
             ;; a release step, not a gate: who does this release's Breaking
             ;; entries break?  Reads each entry's `*Breaks:*` tokens and greps
             ;; the sibling checkouts for them (scripts/check-breaking-siblings.sh)
-            "check-siblings"  ["shell" "bash" "scripts/check-breaking-siblings.sh"]
-            "fix"             ["shell" "env" "LEIN_JVM_OPTS=-XX:+TieredCompilation" "lein" "cljfmt" "fix"]
+            "check-siblings"  ["shell" ~bash "scripts/check-breaking-siblings.sh"]
+            "fix"             ["shell" ~bash "-c" "env LEIN_JVM_OPTS=-XX:+TieredCompilation lein cljfmt fix \"\\$@\"" "--"]
             "bench-memory"    ["with-profile" "+bench" "run" "-m" "vaelii.bench.memory"]
             "bench-memconjoin" ["with-profile" "+bench" "run" "-m" "vaelii.bench.memconjoin"]
             "bench-scale"     ["with-profile" "+bench" "run" "-m" "vaelii.bench.scale"]
@@ -500,9 +538,12 @@
             ;; script rather than pointing straight at the harness so the report is
             ;; kept and one row lands in the run ledger — scripts/perf.sh says why
             ;; the ledger writer is shell for every runner and not Clojure for this
-            ;; one.  Arguments pass through: `lein perf --quick`, `--only <name>`,
+            ;; one.  Arguments pass through: `lein perf --quick`, `--only <name>[,<name>…]`,
             ;; `--tolerance <x>` are unchanged
-            "perf"            ["shell" "bash" "scripts/perf.sh"]
+            "perf"            ["shell" ~bash "scripts/perf.sh"]
+            ;; the cost `perf` cannot see: the working tree against an older revision in
+            ;; absolute time, paired JVMs alternating (scripts/perf-ab.sh says how)
+            "perf-ab"         ["shell" ~bash "scripts/perf-ab.sh"]
             "browser"         ["with-profile" "+browser" "repl"]
             ;; the daemon and the CLI (docs/operations.md)
             "serve"           ["run" "-m" "vaelii.serve"]

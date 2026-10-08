@@ -287,7 +287,7 @@
             (let [dir (tmpdir)]
               (try
                 (let [b (dkv/open-kv-backend dir)]
-                  (try (dotimes [i n] (p/kv-add-to-set b [:functor-root 'p] i))
+                  (try (dotimes [i n] (p/kv-add-to-set b [:context-root 'p] i))
                        (log-bytes dir)
                        (finally (dkv/close! b))))
                 (finally (rm-rf! dir)))))]

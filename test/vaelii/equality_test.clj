@@ -297,6 +297,45 @@
         (testing "exactly one believed sentex carries the predicate"
           (is (= 1 (count (v/sentexes-with-functor kb bornIn {:believed? true})))))))))
 
+(defn- climbed-reading
+  "Whether CxName believes `(alive Rex)` once `ops` run in order: `:ground` `(dog Rex)` and
+  the forward rule `(animal ?x) => (alive ?x)`, `:e1` `(genl dog mammal)`, `:e2`
+  `(genl <upper> animal)`, `:merge` `(rewriteOf mammalia mammal)`, and `:except` /
+  `:unexcept` an `except` of the merge stored / retracted."
+  [upper ops]
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [dog mammal mammalia animal alive Rex CxName]
+      (let [hs (volatile! {})]
+        (doseq [op ops]
+          (case op
+            :ground   (do (v/assert kb (list dog Rex) CxName)
+                          (v/assert kb (list 'implies (list animal '?x) (list alive '?x)) CxName
+                                    {:direction :forward}))
+            :e1       (v/assert kb (list 'genl dog mammal) CxName)
+            :e2       (v/assert kb (list 'genl ({:mammal mammal :mammalia mammalia} upper) animal)
+                                CxName)
+            :merge    (vswap! hs assoc :merge (v/assert kb (list 'rewriteOf mammalia mammal) CxName
+                                                        {:strength :monotonic}))
+            :except   (v/assert kb (list 'except (list 'sentexHandle (:merge @hs))) CxName
+                                {:strength :monotonic})
+            :unexcept (v/retract! kb (v/handle-of kb (list 'except (list 'sentexHandle (:merge @hs)))
+                                                  CxName))))
+        (boolean (some->> (v/handle-of kb (list alive Rex) CxName) (#(v/believed? kb % CxName))))))))
+
+;; A merge restates a `genl` edge as a twin, and a twin edge brings the facts under it to
+;; the rules above it as an asserted edge does.  A firing that climbed the retired edge
+;; is withdrawn at the merge and drawn again over the twin, so `(alive Rex)` is believed
+;; in every order: the merge last, an edge after the merge, and the merge's twins made
+;; when an `except` of it leaves.
+(deftest a-firing-that-climbed-a-merged-type-s-edge-holds-in-every-arrival-order
+  (doseq [upper [:mammal :mammalia]]
+    (is (= #{true} (into #{} (map #(climbed-reading upper %))
+                         (permutations [:ground :e1 :e2 :merge])))
+        (str upper)))
+  (is (= #{true} (into #{} (map #(climbed-reading :mammalia (concat [:merge :except] % [:unexcept])))
+                       (permutations [:ground :e1 :e2])))
+      "the except leaves"))
+
 ;; ---- 3. congruence -------------------------------------------------------
 ;; DECISION (Congruence comes free): "The inverted term index locates a term at **any
 ;; nesting depth**, and migration rewrites it there, so merging performs congruence
@@ -881,6 +920,38 @@
       (is (believed? kb (list devotedTo lo Tom) CxAlias)
           "the twin never reached the agenda: nothing fired off the restated fact"))))
 
+(defn- stated-and-derived-merge-reading
+  "The sentences CxAlias believes once `ops` run in order, with `lo` and `hi` read back as
+  `Lo` and `Hi`: `:fact` `(aliasOf lo hi)`, `:rule` `(aliasOf ?x ?y) => (sameAs ?x ?y)`,
+  `:merge` the premise `(sameAs lo hi)`, `:unmerge` its retraction, all `:monotonic`."
+  [ops]
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [aliasOf CxAlias]
+      (let [[lo hi] (sort [(tu/tmp-ind "Ann") (tu/tmp-ind "Ann")])
+            m       {:strength :monotonic}]
+        (v/assert kb (list 'forced_monotonic_predicate aliasOf) 'CxUniverse)
+        (doseq [op ops]
+          (case op
+            :fact    (v/assert kb (list aliasOf lo hi) CxAlias m)
+            :rule    (v/assert-rule kb [(list aliasOf '?x '?y)] (list 'sameAs '?x '?y) CxAlias
+                                    (assoc m :direction :forward))
+            :merge   (v/assert kb (list 'sameAs lo hi) CxAlias m)
+            :unmerge (v/retract! kb (v/handle-of kb (list 'sameAs lo hi) CxAlias))))
+        (into #{} (comp (filter #(believed? kb % CxAlias))
+                        (map #(replace {lo 'Lo hi 'Hi aliasOf 'aliasOf} %)))
+              (for [r [aliasOf 'sameAs], [a b] [[lo lo] [lo hi] [hi hi]]] (list r a b)))))))
+
+(deftest a-merge-stated-and-derived-reads-alike-in-every-arrival-order
+  ;; With the premise last, the firing over `(aliasOf Lo Hi)` is stored as a second
+  ;; justification of the merge, which the withdrawal at the merge keeps
+  ;; (`settle/merge-support`); with the premise first, the spelling is superseded on
+  ;; arrival and that firing is made only once the premise leaves.  Belief agrees.
+  (doseq [tail [[] [:unmerge]]]
+    (is (= #{#{'(aliasOf Lo Lo) '(sameAs Lo Hi) '(sameAs Lo Lo)}}
+           (into #{} (map #(stated-and-derived-merge-reading (concat % tail)))
+                 (permutations [:fact :rule :merge])))
+        (pr-str tail))))
+
 ;; ---- 8. disjointness -----------------------------------------------------
 ;; DECISION (Interactions — Disjointness): a merge can *create* a clash, `(dog Rex)` +
 ;; `(cat Fluffy)` + merge makes one individual both.  The twin is stored, supersedes its
@@ -1082,7 +1153,8 @@
 
 (tu/deftest-kb a-denial-of-an-equality-leaves-a-default-merge-standing-in-either-order
   ;; the equality relations are on the engine's baseline roster, so on this bare KB too
-  ;; the merge is held `:monotonic` and a denial of it OUT (decision 13)
+  ;; the merge is never a loser and a denial of it is held OUT (decision 13); the merge
+  ;; keeps the strength it was written at
   (doseq [denial-first? [false true]]
     (tu/with-terms [A B]
       (let [deny  #(v/assert kb (list 'not (list 'sameAs A B)) 'CxUniverse {:strength :monotonic})
@@ -1090,7 +1162,7 @@
             merge (v/assert kb (list 'sameAs A B) 'CxUniverse)
             d     (if denial-first? (v/handle-of kb (list 'not (list 'sameAs A B)) 'CxUniverse) (deny))]
         (is (v/same-class? kb A B) (str "denial first: " denial-first?))
-        (is (= :monotonic (v/defeat-class kb merge)))
+        (is (= :default (v/defeat-class kb merge)))
         (is (not (v/in? kb d)) "the denial is held OUT")))))
 
 (deftest the-mention-set-mirrors-the-canonical-equality-predicate-set

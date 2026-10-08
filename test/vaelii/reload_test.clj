@@ -21,7 +21,8 @@
             [vaelii.core :as v]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.types.reasoning :as reasoning])
+            [vaelii.impl.types.reasoning :as reasoning]
+            [vaelii.test-util :as tu])
   (:import [java.io File]
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
@@ -73,33 +74,34 @@
   (doseq [f (reverse (file-seq (io/file dir)))] (.delete ^File f)))
 
 (deftest an-engine-reload-leaves-a-loaded-kb-answering
-  (let [dir     (str (Files/createTempDirectory "vaelii-reload-" (into-array FileAttribute [])))
-        kbs     {:memory        (v/open-kb {:backend :memory :space [::memory] :recover? false})
-                 :disk-snapshot (v/open-kb {:backend :disk-snapshot :dir dir})}
-        entries (reload/scan ["src"])]
-    (try
-      (doseq [kb (vals kbs)] (content! kb))
-      (let [baseline (update-vals kbs belief)
-            loaded   (update-vals kbs classes)]
-        (doseq [edited '[vaelii.impl.sentex vaelii.impl.protocols vaelii.impl.dense-jtms]]
-          (let [nss (reload/affected entries [edited])]
-            (testing (str "an edit to " edited)
-              (case edited
-                vaelii.impl.protocols (is (empty? nss) "a held namespace reloads nothing")
-                vaelii.impl.sentex    (is (< 50 (count (filter find-ns nss)))
-                                          "nearly every loaded engine namespace requires sentex")
-                (is (some #{edited} nss) "the edited namespace reloads"))
-              (let [skipped (reload/reload! nss)]
-                (when (= 'vaelii.impl.dense-jtms edited)
-                  (is (contains? (get skipped edited) 'DenseTms)
-                      "the network's deftype is left as loaded")))
-              (doseq [[backend kb] kbs]
-                (testing (str "on " backend)
-                  (is (= (loaded backend) (classes kb)) "no class the KB holds is redefined")
-                  (is (instance? (resolve 'vaelii.impl.dense_jtms.DenseTms) (reasoning/tms kb))
-                      "the reloaded namespace still names the network's class")
-                  (is (= (baseline backend) (belief kb)) "belief is unchanged by the reload")
-                  (exercise! kb)))))))
-      (finally
-        (doseq [kb (vals kbs)] (v/close! kb))
-        (rm-rf! dir)))))
+  (tu/with-snapshot-platform
+    (let [dir     (str (Files/createTempDirectory "vaelii-reload-" (into-array FileAttribute [])))
+          kbs     {:memory        (v/open-kb {:backend :memory :space [::memory] :recover? false})
+                   :disk-snapshot (v/open-kb {:backend :disk-snapshot :dir dir})}
+          entries (reload/scan ["src"])]
+      (try
+        (doseq [kb (vals kbs)] (content! kb))
+        (let [baseline (update-vals kbs belief)
+              loaded   (update-vals kbs classes)]
+          (doseq [edited '[vaelii.impl.sentex vaelii.impl.protocols vaelii.impl.dense-jtms]]
+            (let [nss (reload/affected entries [edited])]
+              (testing (str "an edit to " edited)
+                (case edited
+                  vaelii.impl.protocols (is (empty? nss) "a held namespace reloads nothing")
+                  vaelii.impl.sentex    (is (< 50 (count (filter find-ns nss)))
+                                            "nearly every loaded engine namespace requires sentex")
+                  (is (some #{edited} nss) "the edited namespace reloads"))
+                (let [skipped (reload/reload! nss)]
+                  (when (= 'vaelii.impl.dense-jtms edited)
+                    (is (contains? (get skipped edited) 'DenseTms)
+                        "the network's deftype is left as loaded")))
+                (doseq [[backend kb] kbs]
+                  (testing (str "on " backend)
+                    (is (= (loaded backend) (classes kb)) "no class the KB holds is redefined")
+                    (is (instance? (resolve 'vaelii.impl.dense_jtms.DenseTms) (reasoning/tms kb))
+                        "the reloaded namespace still names the network's class")
+                    (is (= (baseline backend) (belief kb)) "belief is unchanged by the reload")
+                    (exercise! kb)))))))
+        (finally
+          (doseq [kb (vals kbs)] (v/close! kb))
+          (rm-rf! dir))))))

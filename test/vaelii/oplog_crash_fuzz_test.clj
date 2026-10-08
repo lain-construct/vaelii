@@ -39,7 +39,8 @@
             [vaelii.impl.disk.backend :as backend]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.seal :as seal]
-            [vaelii.impl.source-identity :as si])
+            [vaelii.impl.source-identity :as si]
+            [vaelii.test-util :as tu])
   (:import [java.io File RandomAccessFile]
            [java.nio.file CopyOption Files StandardCopyOption]
            [java.nio.file.attribute FileAttribute]
@@ -296,7 +297,8 @@
   3)
 
 (deftest a-sampled-crash-cut-of-a-logged-directory-restores-or-declines
-  (check! (sweep sample-cuts)))
+  (tu/with-snapshot-platform
+    (check! (sweep sample-cuts))))
 
 (deftest ^:fuzz every-crash-cut-of-a-logged-directory-restores-or-declines
   (let [r (sweep nil)]

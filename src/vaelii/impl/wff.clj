@@ -133,12 +133,16 @@
     (not= 2 (count s)) (conj "sibling_disjoint takes one argument")
     (nm/individual? c) (conj (str c " is an individual; sibling_disjoint marks a collection"))))
 
-(defn siblingDisjointException-problems [_ [_ a b :as s] _context]
+(defn type-pair-problems
+  "`(orthogonal a b)` and `(siblingDisjointException a b)` — two arguments, neither an
+  individual.  One type named twice is not refused here: a type subsumes itself, so the
+  declaration contradicts the taxonomy, and `decide.related` reports that clash as it
+  reports one over two genl-related types."
+  [_ [f a b :as s] _context]
   (cond-> []
-    (not= 3 (count s)) (conj "siblingDisjointException takes two arguments")
-    (nm/individual? a) (conj (str a " is an individual; siblingDisjointException relates types"))
-    (nm/individual? b) (conj (str b " is an individual; siblingDisjointException relates types"))
-    (= a b)            (conj (str a " siblingDisjointException with itself"))))
+    (not= 3 (count s)) (conj (str f " takes two arguments"))
+    (nm/individual? a) (conj (str a " is an individual; " f " relates types"))
+    (nm/individual? b) (conj (str b " is an individual; " f " relates types"))))
 
 (defn arg-constraint-problems
   "`arg` and `genlArg` — the two argument constraints — are structurally identical:
@@ -483,7 +487,7 @@
   type-with-type, individual-with-individual (`roles-clash?`): rewriting a term of
   one kind into another is meaningless (merging `Muffet` into `dog`) and a likely
   import bug.  A predicate or a type *is* a legal `rewriteOf`
-  target — the merge moves its trie keys, functor root, rule-index postings and
+  target — the merge moves its trie keys, predicate extent, rule-index postings and
   `genl` closure with it (docs/equality.md).  `sameAs` / `equals` stay
   individuals-only (OWL); `rewriteOf` is the spelling relation, so it is the one
   that carries vocabulary alignment across predicates and types.  `(sameAs A A)` is

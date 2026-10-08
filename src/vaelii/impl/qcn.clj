@@ -714,3 +714,17 @@
                  "count here is the total across all of them.")
   :read     (fn [_] {:entries (reduce + 0 (map #(count @(:decode-cache %))
                                                (vals @compiled-cache)))})})
+
+(caches/register-derived
+ {:id :K2 :label "Compiled algebras" :cache :compiled-algebras :kind :cache :keyed-by :value
+  :reads [] :retired-by {} :computed :read :imaged? false :var #'compiled-cache
+  :value (fn [_] (set (keys @compiled-cache)))
+  :note "content-keyed by algebra value; cleared at the bound"})
+
+(caches/register-derived
+ {:id :K3 :label "Relation decode tables" :cache :relation-decode :kind :cache
+  :keyed-by :value :reads [:K2] :retired-by {:caches-cleared :W} :computed :read
+  :imaged? false :var #'compiled-cache
+  :value (fn [_] (into {} (map (fn [[a c]] [a (some-> (:decode-cache c) deref)]))
+                       @compiled-cache))
+  :note "content-keyed by mask, per algebra; cleared at the bound"})

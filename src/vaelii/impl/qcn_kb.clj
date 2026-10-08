@@ -64,6 +64,7 @@
   (:require [clojure.set :as set]
             [taoensso.trove :as trove]
             [vaelii.impl.caches :as caches]
+            [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
@@ -183,11 +184,11 @@
   "Every `[handle a b]` for which `(not (pred a b))` is believed and visible from
   `context` — the negative half of the read, and the same shape as `asserted-pairs`.
 
-  Read from the **functor root** rather than through a `(not (pred ?a ?b))` pattern.  A
+  Read from the **predicate extent** rather than through a `(not (pred ?a ?b))` pattern.  A
   negative fact's trie key carries its whole body as a single token (`[:false (pred a b)
   ctx]`), so the trie answers a *ground* negative lookup and nothing else: an open one
   compares the token `(pred ?0 ?1)` against `(pred A B)` and matches nothing.  The
-  functor root indexes either polarity under the positive body's functor, so it is the
+  predicate extent indexes either polarity under the positive body's functor, so it is the
   one index that enumerates them, and belief, context visibility and `except` removal are
   applied here exactly as `matches-visible` applies them to the positive read.
 
@@ -221,7 +222,7 @@
                                 (not (retired? s)))
                        (let [[_ a c] b]
                          (when (and (node? a) (node? c)) [h a c])))))))
-         (res/without-excepted kb context))))
+         (exc/without-excepted kb context))))
 
 (defn nodes
   "Every term named by a constraint in `net`."
@@ -252,22 +253,32 @@
   Each direction is taken **as given** rather than mirrored through the algebra's
   converse, which is what separates this from `narrow`.  A narrowing answers ordered
   pairs and answers both — it reads `[i j]` and `[j i]` off the same closure — so
-  mirroring here would intersect a pair with the converse of a claim about itself."
+  mirroring here would intersect a pair with the converse of a claim about itself.
+
+  A narrowing's `:unsatisfiable-sources` are appended to `state`'s, each source's
+  `:stand-in` cut to the pairs `state` had not already emptied."
   [state narrowed universe]
   (if-let [net (:net narrowed)]
-    (let [support (:support narrowed)]
-      (reduce-kv (fn [st pair rels]
-                   (let [hs (get support pair #{})]
-                     (-> st
-                         (update-in [:net pair] (fnil set/intersection universe) rels)
-                         (update-in [:support pair] (fnil into #{}) hs)
-                         (update :handles (fnil into #{}) hs))))
-                 state net))
+    (let [support (:support narrowed)
+          sources (for [src (:unsatisfiable-sources narrowed)]
+                    (update src :stand-in
+                            (fn [pairs]
+                              (into #{} (filter #(seq (get-in state [:net %] universe)))
+                                    pairs))))]
+      (cond-> (reduce-kv (fn [st pair rels]
+                           (let [hs (get support pair #{})]
+                             (-> st
+                                 (update-in [:net pair] (fnil set/intersection universe) rels)
+                                 (update-in [:support pair] (fnil into #{}) hs)
+                                 (update :handles (fnil into #{}) hs))))
+                         state net)
+        (seq sources) (update :unsatisfiable-sources (fnil into []) sources)))
     state))
 
 (defn- build-network
   "The read itself: `{:net <network> :support <{[a b] → #{handle}} :handles #{handle}}`,
-  `:handles` being the union of the support.  Support is collected on the way past rather
+  `:handles` being the union of the support, plus `:unsatisfiable-sources` when a
+  narrowing's source is unsatisfiable (`absorb-narrowing`).  Support is collected on the way past rather
   than on demand — the reader is already holding the handle it matched, and finding it
   again later would mean a second read.
 
@@ -343,7 +354,9 @@
                     (let [read (build-network kb calc context)]
                       (if (and stale
                                (= (:net read) (:net stale))
-                               (= (:support read) (:support stale)))
+                               (= (:support read) (:support stale))
+                               (= (:unsatisfiable-sources read)
+                                  (:unsatisfiable-sources stale)))
                         stale
                         read)))))
 
@@ -376,6 +389,30 @@
   starts from, and what an entailed relation's support is ultimately unioned out of."
   [kb calc context]
   (:support (read-network kb calc context)))
+
+(defn unsatisfiable-sources
+  "The unsatisfiable sources a narrowing of `calc` read in `context`, each
+  `{:source kw :pairs [[p q] …] :support #{handle} :stand-in #{[a b]}}`, a `:metric` source
+  adding `:cycle [instant …]`.  `:stand-in` is the pair of this network the narrowing
+  emptied for the source and no stored fact emptied.  nil when no source is unsatisfiable."
+  [kb calc context]
+  (:unsatisfiable-sources (read-network kb calc context)))
+
+(defn reported-sources
+  "`unsatisfiable-sources` as a report names them: no `:stand-in`, and `:support` as a
+  sorted vector of handles.  nil when no source is unsatisfiable."
+  [kb calc context]
+  (when-let [srcs (unsatisfiable-sources kb calc context)]
+    (mapv #(-> % (dissoc :stand-in) (update :support (comp vec sort))) srcs)))
+
+(defn unsatisfiable-as-written
+  "`qcn/unsatisfiable-pairs` of the network of `calc` in `context`, less the stand-in pairs
+  of its unsatisfiable sources: the pairs whose stored facts no model satisfies."
+  [kb calc context]
+  (let [{:keys [net unsatisfiable-sources]} (read-network kb calc context)]
+    (reduce #(set/difference %1 (:stand-in %2))
+            (qcn/unsatisfiable-pairs net (:algebra calc))
+            unsatisfiable-sources)))
 
 ;; ---- which readers there are ---------------------------------------------
 ;; There is one network per **reader**, not one per context that holds a fact.  A
@@ -444,7 +481,8 @@
   ledger.  A query loop still reports once, and a change of belief reports again."
   [kb calc context net]
   (when (reasoning/violations kb)
-    (let [bad   (qcn/unsatisfiable-pairs net (:algebra calc))
+    (let [bad   (unsatisfiable-as-written kb calc context)
+          srcs  (reported-sources kb calc context)
           entry {:violation :qualitative-inconsistency
                  :calculus  (:name calc)
                  :context   context
@@ -456,7 +494,8 @@
                                      ;; a node may be a NAT and a pair always is a vector,
                                      ;; so both are keyed through the guarded printer
                                      :nodes (nm/by-print-key (nodes net))}
-                              (seq bad) (assoc :pairs (nm/by-print-key bad)))}]
+                              (seq bad)  (assoc :pairs (nm/by-print-key bad))
+                              (seq srcs) (assoc :sources srcs))}]
       (trove/log! {:level :warn :id ::qualitative-inconsistency :data entry})
       (violations/report-unstamped kb entry))))
 
@@ -888,7 +927,7 @@
     (some? (claimed-literal calculus goal)))
   ;; O(1) reads and an upper bound: the node count bounds an open enumeration, and the number of
   ;; stored facts of this calculus bounds the node count.  That is a sum of O(1)
-  ;; functor-root reads, where actually building the network is a query per predicate —
+  ;; predicate-extent reads, where actually building the network is a query per predicate —
   ;; an estimate must not cost what it estimates.
   (est-bindings [_ kb goal _]
     (let [[_ a b] (claimed-literal calculus goal)
@@ -1084,7 +1123,8 @@
   :note     (str "One tightened network per network value a calculus has been asked "
                  "about. Keyed on the value rather than on the KB or the context, so a "
                  "change to the believed facts is a different key and never a stale "
-                 "answer.")
+                 "answer. Held per calculus, so the limit is per calculus and the count "
+                 "here is the total across them.")
   :read     (fn [_] {:entries (calculus-cache-total :pc-cache)})
   :clear    (fn [_] (clear-calculus-cache :pc-cache))
   :trim     (fn [_ target] (trim-calculus-cache :pc-cache target))})
@@ -1098,7 +1138,35 @@
   :counters nil
   :note     (str "The same pass carrying the stored facts each entailment rests on — a "
                  "separate cache because support is asked for rarely and every query "
-                 "would otherwise pay to propagate what nothing reads.")
+                 "would otherwise pay to propagate what nothing reads. Held per calculus, "
+                 "so the limit is per calculus and the count here is the total across "
+                 "them.")
   :read     (fn [_] {:entries (calculus-cache-total :support-cache)})
   :clear    (fn [_] (clear-calculus-cache :support-cache))
   :trim     (fn [_ target] (trim-calculus-cache :support-cache target))})
+
+(caches/register-derived
+ {:id :R4 :label "QCN join baselines" :kind :cache :keyed-by :context :reads [:R3]
+  :retired-by {:cleared :W} :computed :write :imaged? false :at [[:qcn-joined]]
+  :note "one re-join baseline per calculus and reader context, compared by identity; never trimmed"})
+
+(caches/register-derived
+ {:id :K4 :label "Path-consistency and support passes" :cache :path-consistency
+  :kind :cache :keyed-by :value :reads []
+  :retired-by {:caches-cleared :W} :computed :read :imaged? false :var #'built-calculi
+  :value (fn [_] (into {} (map (fn [[nm c]] [nm [(some-> (:pc-cache c) deref)
+                                                 (some-> (:support-cache c) deref)]]))
+                       @built-calculi))
+  :note "per calculus, keyed by network value (also registered as `:network-support`); cleared at the bound"})
+
+(caches/register-derived
+ {:id :K11 :label "Calculus registry memo" :kind :cache :keyed-by :value :reads []
+  :retired-by (caches/on-every :I) :computed :read :imaged? false :var #'registry-calculi
+  :value (fn [_] @registry-calculi)
+  :note "one slot, compared by identity against the prover registry of the KB read; a read of a KB holding another registry replaces it"})
+
+(caches/register-derived
+ {:id :K12 :label "Built calculi" :kind :cache :keyed-by :value :reads []
+  :retired-by {} :computed :read :imaged? false :var #'built-calculi
+  :value (fn [_] (set (keys @built-calculi)))
+  :note "the calculi built in this process by name, each holding the K4 caches; replaced by name"})

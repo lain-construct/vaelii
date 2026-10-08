@@ -73,7 +73,7 @@ believed?(W, S, C) = S is in believed(W, C)
    The question is asked at `C`, so a fact only `C` sees blocks the conclusion at `C`
    (decision 4).
 4. **Inherited claims.** An inherited claim `(P … sub …)` is believed at `C` when a
-   believed `(transitiveInArg P k genl)`, a believed general claim `(P … sup …)` and every
+   believed `(transitiveInArgInverse P k genl)`, a believed general claim `(P … sup …)` and every
    `genl` edge on some route from `sub` to `sup` are believed at `C`, and no believed
    denial of the claim undercuts that reading (decision 5). A denial undercuts a reading
    of class `:default`; against a `:monotonic` reading it forms the inherited nogood of
@@ -112,7 +112,7 @@ believed?(W, S, C) = S is in believed(W, C)
      believed `(covering W A …)`; grounds the declaration and the `genl` route
      ([taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it));
    - **inherited**: a stored `(not (P … A …))` beside a claim `(P … W …)` that a believed
-     `(transitiveInArg P n genl)` carries down a `genl` path from `W` to `A`, when every
+     `(transitiveInArgInverse P n genl)` carries down a `genl` path from `W` to `A`, when every
      part of that reading is `:monotonic`; the members are the denial, the general claim,
      the declaration and each edge of the path, and a reading with a `:default` part is
      undercut and forms no nogood
@@ -121,19 +121,24 @@ believed?(W, S, C) = S is in believed(W, C)
    The grounds of a definitional family are read through and never weighed. The inherited
    family is the one whose reasons are members
    ([nmtms.md](nmtms.md#what-qualifies-as-a-nogood)).
-7. **Decision.** Read each member's class at `C`. A unique weakest member at `:default`
-   goes OUT at `C`. Two or more members tied at the weakest class, and that class
-   `:default`, are a dilemma, and every member stays believed. Every member `:monotonic`
-   is a hard clash, and every member stays believed
+7. **Decision.** Read each member's class at `C`, and weigh the members off the
+   forced-monotonic roster alone: a roster member is never a loser
+   ([nmtms.md](nmtms.md#the-forced-monotonic-roster)). A unique weakest weighed member at
+   `:default` goes OUT at `C`. Two or more weighed members tied at `:default` are a
+   dilemma, and every member stays believed. No weighed member at `:default` is a hard
+   clash, and every member stays believed
    ([nmtms.md](nmtms.md#soft-prioritized-contradictions-the-settle-layer)); the clash is
    stored and reported, never refused (invariant 3). An all-`:monotonic` `functional`,
    `functionalInArg` or `anti_symmetric` nogood over two symbols is a merge, and every
    member stays believed (invariant 4). Defeat-class is the only axis
    ([nmtms.md](nmtms.md#there-is-no-second-axis)).
 8. **The OUT set.** `O` starts empty. Each round recomputes `derived(C, O)`, finds the
-   nogoods over it, decides each, and adds the losers to `O`. A round that defeats a
+   nogoods over it, decides each, and adds each nogood's loser to `O`. A round that defeats a
    ground applies those defeats first and alone. The rounds stop at the first round that
-   adds nothing, and no round removes from `O` (decision 2).
+   adds nothing, and no round removes from `O` (decision 2). The engine reaches the same
+   set without rounds: the settle places each nogood's `defeat`, and a read applies the
+   defeats over the asked sentence's support
+   ([nmtms.md](nmtms.md#why-a-read-runs-no-rounds)).
 
 **Per-context computation turns four properties into consequences of the definition.**
 Context scoping holds because nothing outside `up(C)` is an input to `believed(W, C)`.
@@ -148,13 +153,13 @@ two is a defect in the engine.
 
 ### Decisions
 
-Each entry states the question in one sentence, the decision, the engine change it
-implies, and the section of another page it changes. The `TODO(spec)` markers the
+Each entry states the question in one sentence, the decision, how the engine holds it,
+and the section of another page that describes it. The `TODO(spec)` markers the
 builders of `vaelii.ref.*` wrote are now citations of these decisions by number.
 
 1. **Whose belief of a `genlCx` edge decides `up(C)`?** Nobody's: every `genlCx` edge is
    universal and `:monotonic`, and a denial of one is inert (invariant 1), so `up(C)`
-   reads the stored edges. The engine change is invariant 1's. Section to change:
+   reads the stored edges. The engine holds it through invariant 1. Section:
    [contexts.md](contexts.md#genlcx-the-context-hierarchy).
 2. **Does a defeat decided in round 1 stand when its ground goes OUT in a later round?**
    Yes. The OUT set grows round by round, a defeat that withdraws a ground is applied
@@ -166,7 +171,7 @@ builders of `vaelii.ref.*` wrote are now citations of these decisions by number.
    ```
    :default    (genl chi dog)  (chi Kit)
    :monotonic  (disjoint dog cat)  (cat Kit)  (pp Kit)
-               (transitiveInArg pP 1 genl)  (pP dog Bone)
+               (transitiveInArgInverse pP 1 genl)  (pP dog Bone)
                (set/forwardRule (implies (and (pp ?x) (unknown (chi ?x))) (not (pP chi Bone))))
    ```
 
@@ -175,74 +180,80 @@ builders of `vaelii.ref.*` wrote are now citations of these decisions by number.
    states. Under decision 14 the conclusion is `:default`, round 2 reads a dilemma
    between the conclusion and the `:default` edge, and both readings stop with
    `(chi Kit)` OUT. No v1 world is known on which the two readings differ under decision
-   14, and the rounds stay the semantics. The engine decides in these rounds at every
-   reader and clears the standing nogoods before each discovery, so a settle's answer does
-   not depend on its pass count
+   14, and the rounds stay the semantics. The engine places each nogood with the verdict
+   the network's classes give, and a placed sentex rests on the grounds its verdict read,
+   so a `defeat` of a ground hides what rests on that ground where the defeat is in force.
+   A settle's answer does not depend on its pass count
    ([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)).
 3. **Does a verdict bind a context below its vantage that reads the clash released?**
    No. Each context decides from its own view: a context that sees what the vantage sees
    reaches the vantage's verdict, and a context that sees a denial or an edge dissolving
-   the clash believes what the vantage took OUT. The engine decides every nogood at every
-   reader, and the network records no defeat
+   the clash believes what the vantage hides. The engine places the `defeat` at the
+   vantage, where it hides the loser there and below; a denial or an edge a context below
+   sees places its own `defeat` of the ground there, which hides the vantage's placement.
+   The network keeps the loser IN
    ([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)).
 4. **Is an `exceptWhen` or `unknown` question asked from `C` or from the conclusion's
    placement context?** From both. The question is asked at the placement context when
-   the justification is made, and again at every reader below it; a reader at which the
-   exception holds reads the conclusion as withdrawn, which equals asking at `C`. The
-   engine's withdrawal re-asks each guarded firing at each reader below its placement
-   ([naf.md](naf.md#evaluated-in-the-placement-context-not-the-join)). A blocker the
-   placement context sees and a reader withdraws still blocks the firing there.
+   the justification is made. Where it holds below the placement, the firing places a
+   guard defeat where a firing over the placement, the blockers and the `genl` edges the
+   query climbed is placed, and at the context of each `except` that takes a blocker's
+   own defeat out of force; a reader that sees the defeat does not believe the conclusion
+   through that firing, which equals asking at `C` ([naf.md](naf.md#evaluated-in-the-placement-context-not-the-join)). A
+   blocker the placement context sees and a context below does not believe still blocks
+   the firing there.
 5. **Is a claim reached by argument preservation a member of `believed(W, C)`?** Yes, as
    item 4 of the definition derives it, at the class decision 9 gives. The engine
-   answers such a claim through `core/ask?`, and no engine change is owed. Section:
+   answers such a claim through `core/ask?`, and holds it. Section:
    [inherit.md](inherit.md#forward-chaining-on-a-claim-nobody-stored) states the engine
    side and needs no change.
 6. **Is a `functional` clash between two symbol fillers a nogood?** Yes, unless every
    member is `:monotonic`, which is a merge (invariant 4). The engine holds it
    ([taxonomy.md](taxonomy.md#predicate-metadata)).
 7. **What does the reference do with `irreflexive` and `anti_symmetric`?** Both marks
-   are forced monotonic, and a violation of either is a nogood decided like any other
-   (invariant 2). The engine decides both at the reader under decision 16
-   ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)), and a converse pair of two
+   are on the forced-monotonic roster, never a loser and never coerced, and a violation of either is a nogood decided like any other
+   (invariant 2). The engine places both as nogoods (decision 16,
+   [nmtms.md](nmtms.md#the-nogood-families)), and a converse pair of two
    symbols whose members are both `:monotonic` merges (decision 6). Section:
    [taxonomy.md](taxonomy.md#what-each-constraint-does-in-each-arrival-order).
 8. **Is `W` the writes offered or the writes stored?** Offered: no clash is refused
-   (invariant 3). The engine change is invariant 3's. Section to change:
+   (invariant 3). The engine holds it through invariant 3. Section:
    [nmtms.md](nmtms.md#1-order-independence), which claims order independence over what
    was stored.
 9. **Which path caps a derivation's class?** The widest bottleneck: the maximum over
    routes of the minimum class along each route, for a derivation and for an inherited
-   claim. The `genlCx` half of the question has no case left under invariant 1, so no
-   engine change is owed beyond invariant 1's. Section to change:
+   claim. The `genlCx` half of the question has no case left under invariant 1, which the
+   engine holds. Section:
    [nmtms.md](nmtms.md#strength-propagates-from-the-antecedents).
 10. **Can a `genl` edge between two predicates be `:default`, denied or derived?** No. A
     `(genl P Q)` whose two arguments are predicates of arity 2 or more, which their
-    camelCase spelling decides ([naming.md](naming.md)), is forced monotonic
-    (invariant 5): a `:default` write is held `:monotonic`, a denial is held OUT,
+    camelCase spelling decides ([naming.md](naming.md)), is on the forced-monotonic roster
+    (invariant 5): a `:default` write keeps its strength and is never a loser, a denial is
+    held OUT,
     and it is derived only from roster antecedents (decision 17). A `genl` between types stays defeasible, so a type edge admits
     exceptions. A mark's reach through predicate `genl` reads the stored edges and no
-    belief. The engine change is invariant 5's. Section to change:
+    belief. The engine holds it through invariant 5. Section:
     [taxonomy.md](taxonomy.md#predicate-metadata).
 11. **Can a definitional declaration be `:default`, denied or derived?** No. `disjoint`,
-    `covering`, `partition`, `sibling_disjoint` and `arity` are forced monotonic
-    (invariant 6), a denial of one is held OUT and it is derived only from roster
+    `covering`, `partition`, `sibling_disjoint`, `orthogonal`, `siblingDisjointException` and `arity` are on the forced-monotonic
+    roster, never a loser and never coerced (invariant 6), a denial of one is held OUT and it is derived only from roster
     antecedents (decision 17), so a ground goes OUT only by retraction and no verdict is re-asked
-    because its ground moved. Four spellings bind an arity and each is forced monotonic:
+    because its ground moved. Four spellings bind an arity and each is on the roster:
     `(arity P n)`, an exact-arity class membership, a `variable_arity` membership and
     `(arityMin P m)`. An `arity` violation is a one-member nogood, the tuple,
-    with the binding as its ground, decided as an `irreflexive` violation is; the engine
-    decides it at the reader under decision 16 ([taxonomy.md](taxonomy.md#arity)). A
+    with the binding as its ground, placed as an `irreflexive` violation is (decision 16,
+    [taxonomy.md](taxonomy.md#arity)). A
     defeasible disjointness is written as a `:default` rule concluding a denial, which
-    forms a negation nogood. The engine change is invariant 6's. Sections to change:
+    forms a negation nogood. The engine holds it through invariant 6. Sections:
     [taxonomy.md](taxonomy.md#disjointness), [taxonomy.md](taxonomy.md#arity) and
     [taxonomy.md](taxonomy.md#what-each-constraint-does-in-each-arrival-order).
 12. **Can an `except` be derived or defeated?** No. An `except` is asserted and
     retracted, derived only from roster antecedents and never defeated (invariant 7). An `except`
     that targets an `except` still hides it. The reference leaves `except` outside v1.
-    The engine change is invariant 7's. Section to change:
+    The engine holds it through invariant 7. Section:
     [contexts.md](contexts.md#except-removing-visibility-down-a-context-subtree).
-13. **Can a merge be defeated?** No. `rewriteOf`, `sameAs` and `equals` are monotonic
-    (invariant 8): a merge rests only on `:monotonic` evidence (decision 6), is never
+13. **Can a merge be defeated?** No. `rewriteOf`, `sameAs` and `equals` are on the
+    forced-monotonic roster, never a loser and never coerced (invariant 8): a merge rests only on `:monotonic` evidence (decision 6), is never
     defeated, and is undone only by retracting a premise it rests on. A defeasible
     identity is written with a predicate that does not merge. The reference leaves
     equality outside v1. The engine holds it
@@ -252,42 +263,35 @@ builders of `vaelii.ref.*` wrote are now citations of these decisions by number.
     conclusion goes OUT when a blocker arrives (invariant 9). A sentence first believed
     after a defeat through such a rule is therefore `:default` and cannot defeat a
     `:monotonic` member, which bounds the rounds; decision 2's world is the case. The
-    engine change is invariant 9's. Sections to change:
+    engine holds it through invariant 9. Sections:
     [nmtms.md](nmtms.md#strength-propagates-from-the-antecedents) and
     [naf.md](naf.md#in-a-rule-antecedent).
 15. **Does a caller choose whether a clash is refused?** No. The `:constraints` option
     (`:refuse` and `:arbitrate`) is removed, with the walk that reads the class of a
     clash's grounds at the entry point. The engine stores a clash, decides it and reports
-    it (invariant 3). A caller that passed `{:constraints :refuse}` reads `conflicts`
-    instead, which is a Breaking change. The engine change removes the walk over a
-    clash's grounds and the classes it read, the policy readers, the configuration key,
-    the image policy stamp and the policy's test namespace (a new prompt). Section to
-    change:
+    it (invariant 3). A caller reads `conflicts` for a hard clash. The engine holds it:
+    `assert` takes no `:constraints` option, and no walk reads a clash's grounds at the
+    entry point. Section:
     [nmtms.md](nmtms.md#which-entry-point-the-content-came-through).
-16. **Is a nogood decided when a settle runs, or when a reader asks?** When a reader
-    asks. The negation, definitional and inherited families are found from the asked
-    sentence's arguments and decided at the reader, memoized per reader under the
-    withdrawal cache's watch (`resolution/withdrawal`, `stale-keys`). Forward firings,
-    the `genl` and `genlCx` closures, merges and mints stay at write time. An `unknown`
-    or `exceptWhen` keeps its block at the placement context, with a per-reader
-    withdrawal below it, and the refusal record and its cap stay. The
-    reference already computes belief this way, and the cost model under
-    [What the engine has to equal](#what-the-engine-has-to-equal) is the engine's
-    obligation. The engine decides `irreflexive`, `anti_symmetric`, `arity`, the tuple
-    marks `functional`, `functionalInArg`, `asymmetric` and `anti_transitive`, and the
-    membership families `disjoint` and `covering` this way, the pattern the other families
-    take
-    ([nmtms.md](nmtms.md#nogoods-decided-at-the-reader)). The justification network keeps
-    support labels (`:in`) alone: it records no defeat, and the inherited family, which
-    the settle finds, is decided at each reader as well
-    ([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)).
+16. **Is a nogood decided when a settle runs, or when a reader asks?** Placed when a
+    settle runs, applied when a reader asks. Every family's nogoods are found off the
+    write-time candidate index or the inherited discovery, and the settle places each at
+    its vantages with the verdict the network's classes give: a `contradicts`, and for a
+    unique weakest member its `defeat`. A read at `C` applies the defeats in force at `C`
+    by a walk over the asked sentence's support, and the two reads that stay per reader,
+    whether two fillers are one equality class and which arity bindings bind a functor,
+    are made there. Forward firings, the `genl` and `genlCx` closures, merges and mints
+    stay at write time. An `unknown` or `exceptWhen` keeps its block at the placement
+    context, with a guard `defeat` below it, and the refusal record and its cap stay. The
+    justification network keeps support labels (`:in`) alone, and a placed `defeat` moves
+    no label ([nmtms.md](nmtms.md#a-nogood-placed-as-a-conclusion)).
 17. **Can a rule conclude a forced-monotonic predicate?** Only from roster antecedents.
     No rule is refused for its consequent, since a refusal would make the stored set
     depend on whether the roster declaration or the rule arrived first. A rule whose
     antecedents are all roster literals, with no `unknown`, `exceptWhen` or
-    `set/defaultRule`, is held `:monotonic` and its conclusion is an ordinary
-    `:monotonic` belief, which goes OUT only when a roster premise it rests on is
-    retracted; CxCore's `injection`, `surjection` and `bijection` rules are the case, and
+    `set/defaultRule`, keeps the strength it was written at, and its conclusion is an
+    ordinary belief at its antecedents' class, never a loser, which goes OUT only when a
+    roster premise it rests on is retracted; CxCore's `injection`, `surjection` and `bijection` rules are the case, and
     those three are on the roster. Any other rule is stored, and each firing whose
     conclusion is a roster literal or its denial is convicted: stored, held void and
     reported as a `:forced-conclusion` violation. Forcing is applied when belief is
@@ -304,29 +308,29 @@ strength does not cap its conclusions; its defeasibility and its guards do.
 
 ## Invariants the reference states
 
-The world check stores every roster write `:monotonic` and sets every inert write aside
+The world check reads every `genlCx` write `:monotonic`, leaves every other roster write at
+its strength, and sets every inert write aside
 (`vaelii.ref.world/inert-write?`: a denial of a roster literal, a rule decision 17 makes
 inert), so no world breaks invariant 1, 2, 5 or 6, and no write the roster rules out is
-refused. The engine does not yet hold all nine; each entry names the engine change and
-the prompt that owes it.
+refused. Each entry states how the engine holds it.
 
 1. **`genlCx` is universal and monotonic.** A `genlCx` edge holds at every context
    whatever context stores it, every write of one is `:monotonic` whatever strength
    it was written at, and a `(not (genlCx …))` is inert, so `up(C)` is a function of the
    stored edges. The engine holds it: `genlCx` is on the
    forced-monotonic roster ([nmtms.md](nmtms.md#the-forced-monotonic-roster)).
-2. **The relation marks are forced monotonic.** The roster is `irreflexive`,
-   `anti_symmetric`, `asymmetric`, `functional`, `functionalInArg`, `anti_transitive`,
-   `transitiveInArg` and `genlCx`, and invariants 5 to 8 extend it. Every write of a
-   roster predicate is read `:monotonic` whatever strength it was written at, and a
-   denial of one is inert. A mark's reach, the
+2. **The relation marks are on the forced-monotonic roster.** The roster is `irreflexive`,
+   `anti_symmetric`, `asymmetric`, `functional`, `functionalInArg`, `anti_transitive` and
+   `genlCx`, and invariants 5 to 8 extend it. A write of a roster predicate keeps the
+   strength it was written at and is never the loser of a nogood, and a denial of one is
+   inert. A mark's reach, the
    sub-predicates it convicts through predicate `genl`, reads the edges believed at `C`
-   and never their class. Under invariant 5 those edges are `:monotonic` and never OUT,
-   so the reach is the stored edges visible at `C`. The engine stores every roster write
-   as written, holds it `:monotonic` and holds a denial of one OUT
-   ([nmtms.md](nmtms.md#the-forced-monotonic-roster)). Engine change: the constraint
-   check decides a violation as a nogood without capping it by an edge's class (a new
-   prompt).
+   and never their class. Under invariant 5 those edges are never OUT, so the reach is
+   the stored edges visible at `C`. The engine stores every roster write as written,
+   never takes one OUT through a nogood, and holds a denial of one OUT
+   ([nmtms.md](nmtms.md#the-forced-monotonic-roster)). A nogood's verdict reads its
+   members' classes alone, and the predicate `genl` edges a mark's route climbs are its
+   grounds, so no edge's class caps a violation.
 3. **No clash is refused.** `W` is the writes offered, and the reference judges every
    one of them. A hard clash is stored and reported, as a `:monotonic` `S` beside
    `(not S)` already is. A refusal remains only where it reads the sentence alone:
@@ -337,7 +341,7 @@ the prompt that owes it.
    every declaration over `genl`-related types, and the settle reports a hard clash in
    `conflicts` (`checks/refuses-assert?`), and stores a tuple an `irreflexive` or
    `anti_symmetric` mark convicts, or whose length breaks its predicate's arity binding,
-   for each reader to decide. A declaration over `genl`-related types is a one-member
+   for the settle to place as a nogood. A declaration over `genl`-related types is a one-member
    hard clash of the declaration, and a cover naming a part a `disjoint` separates from
    its whole a two-member one of the cover and the `disjoint`, listed by `conflicts`
    ([nmtms.md](nmtms.md#declarations-over-related-types)).
@@ -350,37 +354,38 @@ the prompt that owes it.
    comparison at a context holding one and compares the pairs it merges with the pairs
    the engine's equality holds there (`vaelii.ref.gen/merge-disagreements`, the kind
    `:merge-differs`). The engine holds it: a collision derives the equality only when
-   every member is `:monotonic`, and any other is a nogood, which each reader finds for
+   every member is `:monotonic`, and any other is a nogood, which the settle places for
    `functional` and `anti_symmetric` (`vaelii.impl.decide`).
-5. **A `genl` edge between predicates is forced monotonic.** A `(genl P Q)` whose two
-   arguments are camelCase predicates is `:monotonic` whatever strength it was
+5. **A `genl` edge between predicates is on the roster.** A `(genl P Q)` whose two
+   arguments are camelCase predicates is never a loser whatever strength it was
    written at, its denial is inert, and it is derived only from roster antecedents
    (decision 17). A `genl` between types stays defeasible.
    `vaelii.ref.world/predicate-genl?` reads the spelling. The engine holds such an edge
-   `:monotonic` and its denial OUT under CxCore's `(forced_monotonic_between_predicates
-   genl)`. Engine change: the un-merge by edge defeat in
-   `equate-under-edge` and the predicate arm of `preserving-moves` go (a new prompt).
-6. **Every definitional declaration is forced monotonic.** `disjoint`, `covering`,
-   `partition`, `sibling_disjoint` and `arity` are `:monotonic`, a denial of one is
+   never a loser and its denial OUT under CxCore's `(forced_monotonic_between_predicates
+   genl)`, so a merge `special/equate-under-edge` derives over such an edge, and a claim
+   `discovery/preserving-moves` re-opens through it, move only when the edge is stored or
+   retracted.
+6. **Every definitional declaration is on the roster.** `disjoint`, `covering`,
+   `partition`, `sibling_disjoint` and `arity` are never a loser, a denial of one is
    inert, and one is derived only from roster antecedents, so a ground goes OUT only by
    retraction. An `arity` violation is a
    one-member nogood with the declaration as its ground. v1 admits `disjoint` and
    `covering`; `partition`, `sibling_disjoint` and `arity` stay outside it. The engine
-   holds a declaration `:monotonic` and its denial OUT, and no rule concludes an
+   holds a declaration never a loser and its denial OUT, and no rule concludes an
    `arity` from a classification: every reader of one reads the exact-arity class. The
-   engine decides an arity violation at the reader, and two predicates a `genl` edge
+   engine places an arity violation as a nogood, and two predicates a `genl` edge
    relates whose bindings differ are a hard clash ([taxonomy.md](taxonomy.md#arity)).
-   Engine change: prompt 42's related-type declarations become one-member or two-member
-   hard clashes (a new prompt).
-7. **`except` is forced monotonic.** An `except` is asserted and retracted, derived only
+   The related-type declarations are one-member or two-member hard clashes
+   ([nmtms.md](nmtms.md#declarations-over-related-types)).
+7. **`except` is on the roster.** An `except` is asserted and retracted, derived only
    from roster antecedents and never defeated, and an `except` that targets an `except`
-   still hides it. `except` is outside v1. The engine holds an `except` `:monotonic` and
-   its denial OUT under CxCore's declaration, and no settle resolution defeats one, so
+   still hides it. `except` is outside v1. The engine holds an `except` never a loser and
+   its denial OUT on every KB, and no settle resolution defeats one, so
    the settle watches no `except` for a belief flip.
 8. **Equality is monotonic.** A `rewriteOf`, `sameAs` or `equals` merge rests only on
    `:monotonic` evidence, is never defeated, and is undone only by retracting a premise
    it rests on. Equality is outside v1. The engine holds an equation premise
-   `:monotonic` and a denial of one OUT, and `refresh-supersessions` runs on the write
+   never a loser and a denial of one OUT, and `refresh-supersessions` runs on the write
    path; a settle calls it only after an `except` moved, or an equality edge moved in
    belief.
 9. **A guarded firing confers `:default`.** A firing whose rule has an `unknown`
@@ -402,27 +407,25 @@ reference's, sentence by sentence: a stored sentence through `core/believed?` on
 handle, and an inherited claim, which has no handle, through `core/ask?` at the context.
 A context whose view holds a merge verdict is not compared, and the harness counts it.
 
-**Under decision 16 the engine decides at the reader.** The negation, definitional and
-inherited families are found from the arguments of the asked sentence `S`, by the keys
-[The function](#the-function) lists, and decided at the reader `C`; forward firings, the
-`genl` and `genlCx` closures, merges and mints stay at write time. The costs the engine
-is held to:
+**Under decision 16 the engine places at write time and applies at the reader.** The
+nogoods are found by the keys [The function](#the-function) lists and placed when a
+settle runs; forward firings, the `genl` and `genlCx` closures, merges and mints stay at
+write time too. The costs the engine is held to:
 
-- a write costs the forward chain, the closure updates, the support relabel and the memo
-  invalidation, O(touched × degree);
-- a first read of `S` at `C` costs O(|support ancestor set of `S`| × postings under the
-  key arguments of `S`);
-- a warm read costs O(1) until a handle the memo watches moves.
+- a write costs the forward chain, the closure updates, the support relabel and the
+  placement of the nogoods its move reaches, O(touched × degree + nogoods reached);
+- a read of `S` at `C` costs O(|support ancestor set of `S`|) plus the members of each
+  placed nogood the walk meets there, and keeps nothing after it returns
+  ([nmtms.md](nmtms.md#a-nogood-placed-as-a-conclusion)).
 
 **Every disagreement has a kind.** `gen/check-world` classifies each disagreement by the
 shape of the minimal shrunk world, and a disagreement it cannot classify is
 `:unclassified`. `vaelii.reference-test`'s `known-divergences` map names each known kind
-with the decision it follows from and the prompt it waits on. The test fails on a kind
-outside the map, `:unclassified` included, and counts and prints every known one. A write
+with the decision it departs from, and is empty. The test fails on a kind outside the
+map, `:unclassified` included, and counts and prints every known one. A write
 the engine refuses and the reference stores is an `:engine-refused-*` divergence: the
 reference judges `W` as offered, the engine side is read without the refused write, and
-the run is reported under that divergence rather than as a belief disagreement. An entry
-leaves the map when the prompt it waits on lands.
+the run is reported under that divergence rather than as a belief disagreement.
 
 ## The fragment
 
@@ -439,15 +442,15 @@ by the world extractor with `:unsupported`, so the generator cannot produce one.
 | `unknown` in a rule antecedent | yes | [naf.md](naf.md) |
 | `exceptWhen` | yes | [exceptions.md](exceptions.md) |
 | negation nogoods | yes | [nmtms.md](nmtms.md#soft-prioritized-contradictions-the-settle-layer) |
-| `disjoint` | yes, forced monotonic (invariant 6) | [taxonomy.md](taxonomy.md#disjointness) |
+| `disjoint` | yes, on the roster (invariant 6) | [taxonomy.md](taxonomy.md#disjointness) |
 | `functional`, `functionalInArg` | yes, symbol fillers included, except the all-`:monotonic` merge (invariant 4) | [taxonomy.md](taxonomy.md#predicate-metadata) |
 | `irreflexive`, `anti_symmetric` | yes, as nogoods (invariant 2) | [taxonomy.md](taxonomy.md#predicate-metadata) |
-| a `:default` write of a mark, `disjoint`, `covering` or a predicate `genl` | yes, held `:monotonic` (invariants 2, 5 and 6) | [taxonomy.md](taxonomy.md#predicate-metadata) |
+| a `:default` write of a mark, `disjoint`, `covering` or a predicate `genl` | yes, kept `:default` and never a loser (invariants 2, 5 and 6) | [taxonomy.md](taxonomy.md#predicate-metadata) |
 | a denial of `genlCx`, a mark, a declaration or a predicate `genl` | yes, stored and held OUT (invariants 1, 2, 5 and 6) | [nmtms.md](nmtms.md#the-forced-monotonic-roster) |
 | a rule concluding a forced-monotonic predicate | yes, its firings stored and held void (decision 17) | [taxonomy.md](taxonomy.md#what-a-rule-may-conclude-and-what-it-reaches) |
 | `anti_transitive` | yes | [nmtms.md](nmtms.md#a-nogood-is-a-set-anti_transitive-has-three-members) |
-| `covering` | yes, forced monotonic (invariant 6) | [taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it) |
-| `transitiveInArg` along `genl`, one position | yes, decision 5 | [inherit.md](inherit.md) |
+| `covering` | yes, on the roster (invariant 6) | [taxonomy.md](taxonomy.md#covering-a-whole-and-the-parts-named-against-it) |
+| `transitiveInArgInverse` along `genl`, one position | yes, decision 5 | [inherit.md](inherit.md) |
 | equality: `rewriteOf`, `sameAs`, `equals` | no | [equality.md](equality.md) |
 | supersession | no | [equality.md](equality.md), [nmtms.md](nmtms.md#the-set-membership-states-a-node-can-hold) |
 | visibility `except` | no | [contexts.md](contexts.md#except-removing-visibility-down-a-context-subtree) |
@@ -457,66 +460,50 @@ by the world extractor with `:unsupported`, so the generator cannot produce one.
 | the qualitative calculi | no | [qcn.md](qcn.md) |
 | NATs | no | [nat.md](nat.md) |
 | quantities | no | [quantity.md](quantity.md) |
-| `disjoint_metatype`, `sibling_disjoint` | no; `sibling_disjoint` is forced monotonic (invariant 6) | [taxonomy.md](taxonomy.md#disjointness) |
-| `partition`, `separating` | no; `partition` is forced monotonic (invariant 6) | [taxonomy.md](taxonomy.md#partition-and-separating-add-no-separation-mechanism-of-their-own) |
-| `arity` | no; forced monotonic, and a violation is a one-member nogood (invariant 6) | [taxonomy.md](taxonomy.md#arity) |
+| `disjoint_metatype`, `sibling_disjoint` | no; `sibling_disjoint` is on the roster (invariant 6) | [taxonomy.md](taxonomy.md#disjointness) |
+| `partition`, `separating` | no; `partition` is on the roster (invariant 6) | [taxonomy.md](taxonomy.md#partition-and-separating-add-no-separation-mechanism-of-their-own) |
+| `arity` | no; on the roster, and a violation is a one-member nogood (invariant 6) | [taxonomy.md](taxonomy.md#arity) |
 | the ASP solver | no | [asp.md](asp.md), [labeling.md](labeling.md) |
-| `asymmetric` | yes, as the `asymmetric` family; forced monotonic (invariant 2) | [inherit.md](inherit.md#asymmetric-p) |
-| `genl` between predicates of arity 2 or more | yes, forced monotonic (invariant 5); the generator writes none | [taxonomy.md](taxonomy.md#predicate-metadata) |
+| `asymmetric` | yes, as the `asymmetric` family; on the roster (invariant 2) | [inherit.md](inherit.md#asymmetric-p) |
+| `genl` between predicates of arity 2 or more | yes, on the roster (invariant 5); the generator writes none | [taxonomy.md](taxonomy.md#predicate-metadata) |
 
 ## The standing state
 
 One row per atom the KB keeps between settles, ordered by the settle step that writes
 it. The steps are the ones [nmtms.md](nmtms.md#the-runtime-view) numbers: *write* is the
-assert and retract path with its store and removal choke points, 1–8 are `settle*`'s
-steps, F1–F8 are `settle-finish`'s, and *read* is a cache a read fills. The last column
+assert and retract path with its store and removal choke points, 2–9 are `settle*`'s
+steps, F1–F6 are `settle-finish`'s, and *read* is a cache a read fills. The last column
 states the inputs whose change invalidates the atom, as the docstrings and the code state
 them; **not stated** means no docstring, comment or stamp comparison says. **Partial**
 marks a cell where the stated rule and the code disagree.
 
 | atom | step | holds | written by | read by | invalidated by |
 |---|---|---|---|---|---|
-| `:opposed` | write | the bodies stored in both polarities | `kb/note-opposed!`; `kb/rebuild-opposed!` on recover | `decide/note-candidate!` | a store or removal of either polarity. Partial: a bulk load with denials owes a `rebuild-opposed!`, because the choke point reads the index mid-load |
-| `:nogood-candidates` | write | per family a reader decides, the stored sentences that could be a member of one of its nogoods: the ground binary self tuples, the ground binary tuples with a stored converse, the tuples of a shape a stored arity binding breaks, the bindings of two related predicates whose lengths differ, per opposed body the handles and contexts of both polarities, the determinants under a tuple mark holding two fillers, the `anti_transitive` chains and the converse pairs, and per term holding two memberships or a membership and a denial its entries, its type pairs and the nogoods the unscoped taxonomy reads; the arity bindings and tuple shapes those read; every stored `disjoint` and cover, the `disjoint`s over `genl`-related types and the covers paired with a `disjoint` separating their whole from a part; and under `:inherited`, every inherited nogood the settle found with its vantages | `decide/note-candidate!`; `decide/rebuild-candidates!` on recover; `inherited/install-inherited!` and `inherited/clear-inherited!` at step 4 | `decide/nogoods-at`, `decide/stamp`, `decide/candidate-handles`, `clashes/read-clashes` | a store or removal of a tuple, a membership, a denial, a binding, a `genl` edge or either polarity of an opposed body, a tuple mark or a predicate `genl` edge under one (`special/offer-marked-existing`), a move of `tax/separation-stamp` for the membership separations, and a `genlCx` edge for the live determinant members; the inherited nogoods are emptied before each discovery and re-found at step 4, every settle; belief and the marks are read at the reader |
-| `:preserving` | write | `{[P R] count}` of the `transitiveInArg` declarations stored | `kb/note-preserving!` | `discovery/preserving-nogoods`, `vaelii.impl.inherit` | a store or removal of a declaration; belief is the reader's filter |
-| `:excepted` | write | `{context {target #{except-handle}}}`, storage only | `kb/note-excepted!` | `vaelii.impl.resolution`, `special`, `settle` | a store or removal of an `except`; an except's belief is read live. Partial: the record comment gives the shape as `{except-handle hidden-handle}` |
-| `:meta-except-count` | write | how many stored excepts target an except | `kb/note-excepted!` | `res/withdrawal-stamp` | a store or removal of an `except` |
-| `:rule-antecedents`, `:rule-contexts`, `:solve-rules` | write | per antecedent key and per context, the rules indexed | `special/note-rule!`; `kb/rebuild-rule-roster!` | `special/visibility-seeds`, the chainer, `do/label` | a rule indexed or unindexed |
-| `:minted` | write | the stored mint conclusions by term and by context, and the departed records owed a re-check | `special/entail-arg-type`, `integrate/sentex-removed!` | the mint re-checks beside step 6 | a mint justification added, a record leaving the store; the mint's belief is not tracked |
-| `:recheck` | write, 2, 4 | `{rule-handle triggers}`, the rules whose block conditions owe a re-evaluation | `special/mark-recheck` | step 5 | a queue: step 5 drains it. Partial: the record comment names fact moves on an exception's predicates and taxonomy edges; the code also posts on declarations, preserving extents, calculus entailments, `except` moves and rule indexing |
-| `:except-moves` | write, 2, 4 | the handles an `except` began or stopped hiding | `special/note-except-move!` | the loop beside step 6, F3 | a queue: F3 takes it, and a leftover forces a full supersession pass |
+| `:nogood-candidates` | write | per family, the stored sentences that could be a member of one of its nogoods: the ground binary tuples under a converse mark with a stored converse, the tuples of a shape a stored arity binding breaks, the bindings of two related predicates whose lengths differ, the determinants under a tuple mark holding two fillers, the `anti_transitive` chains and the converse pairs, and per term holding two memberships or a membership and a denial its entries, its type pairs and the nogoods the unscoped taxonomy reads; the arity bindings and tuple shapes those read; the `disjoint`s over `genl`-related types, the contradicted `orthogonal`s and the covers paired with a `disjoint` separating their whole from a part; and under `:inherited`, every inherited nogood the settle found with its vantages; and every candidate by the context its record is stated in, read again off the journal by `decide/synced` | `decide/note-candidate!`; `decide/rebuild-candidates!` on recover; `inherited/install-inherited!` at step 4 | `chain/place-nogoods!`, `chain/place-inherited!`, `decide/candidate-handles`, `decide/handles-at` (the journal, [nmtms.md](nmtms.md#the-candidate-journal)) | a store or removal of a tuple, a membership, a denial, a binding or a `genl` edge, a tuple mark or a predicate `genl` edge under one (`special/offer-marked-existing`), a move of `tax/separation-stamp` for the membership separations, and a `genlCx` edge for the live determinant members; the inherited nogoods are installed again at step 4, every settle; belief is read by the placement |
+| `:mint-queues` | write | the removed records that can have subsumed a mint (`:departed`), and the records a retraction left standing on a derivation alone (`:unpremised`) | `special/note-departure!`, `special/note-unpremised!` | the mint re-checks beside step 7 | two queues: the mint re-checks drain both, every settle |
+| `:recheck` | write, 2, 5 | `{rule-handle triggers}`, the rules whose block conditions owe a re-evaluation | `special/mark-recheck` | step 6 | a queue: step 6 drains it. Partial: the record comment names fact moves on an exception's predicates and taxonomy edges; the code also posts on declarations, preserving extents, calculus entailments, `except` moves and rule indexing |
+| `:except-moves` | write, 2, 5 | the handles an `except` began or stopped hiding | `special/note-except-move!` | the loop beside step 7, F3 | a queue: F3 takes it, and a leftover forces a full supersession pass |
 | `:respell` | write | the predicates whose permuting marks moved | `special/note-permuting-moves!` | the re-seed after `settle*` | a queue, posted when the permuting-mark pair changes identity at a removal or a relabel |
-| `:refused` | write, 8 | `{rule-handle #{refusal}}`, the firings a block condition declined, plus pending mints and lifts | `chain/record-refusal!`, `special/note-pending!` | steps 7–8 | a refusal dies when it fires, its rule goes, or its antecedents stop being believed; a rule's entries are re-asked only while the rule is on `:recheck`; constraint and lift entries on a move of the `genl` or `genlCx` generation or a region naming the term; mint entries on the generation alone |
-| `:qcn-joined` | write, 8 | per calculus and context, the network the rules were last joined over | the chainer's qualitative re-join | the next join | none by design: a missing baseline makes the next join a full one |
-| `:violations` | write, F5 | the ledger of dropped conclusions and sweep cuts, newest 1000 | `vaelii.impl.violations` | `core/violations` | not a belief input: a retraction does not withdraw an entry, `clear-violations!` empties it, and a refused firing placed later withdraws its entry |
-| `:preserved-clashes` | 4 | per stored claim, its inherited nogoods, the askers and the classes read | `discovery/preserving-nogoods` | step 4 | a member OUT or reclassed, a vocabulary move, a moved claim that reaches it, a retraction in the region, and the stamp of the `genlCx` generation, `tax/flat-contexts` and `:excepted` ([nmtms.md](nmtms.md#the-inherited-clash-memo)) |
-| network `:blocked` | 8 | the justification ids whose block condition holds at the placement context | `jtms/set-blocked`, from `recheck/exception-blocked-set` | `valid?` | the `:recheck` triggers. Partial: `set-blocked` says the caller re-evaluates every exception, and `exception-blocked-set` carries every block outside the queued candidates forward |
+| `:refused` | write, 9 | `{rule-handle #{refusal}}`, the firings a block condition declined, plus pending mints and lifts | `chain/record-refusal!`, `special/note-pending!` | steps 8–9 | a refusal dies when it fires, its rule goes, or its antecedents stop being believed; a rule's entries are re-asked only while the rule is on `:recheck`; constraint and lift entries on a move of the `genl` or `genlCx` generation or a region naming the term; mint entries on the generation alone |
+| `:qcn-joined` | write, 9 | per calculus and context, the network the rules were last joined over | the chainer's qualitative re-join | the next join | none by design: a missing baseline makes the next join a full one |
+| `:violations` | write, F2 | the ledger of dropped conclusions and sweep cuts, newest 1000 | `vaelii.impl.violations` | `core/violations` | not a belief input: a retraction does not withdraw an entry, `clear-violations!` empties it, and a refused firing placed later withdraws its entry |
+| `:preserved-clashes` | 4 | per stored claim, its inherited nogoods, the askers and the classes read | `discovery/preserving-nogoods` | step 4 | a member OUT or reclassed, a vocabulary move, a moved claim that reaches it, a retraction in the region, a moved flat-cache entry it reads (`tax/flat-moves`), and the `genlCx` generation and the excepts that moved (`special/except-moved`) ([nmtms.md](nmtms.md#the-inherited-clash-memo)) |
+| network `:blocked` | 9 | the justification ids whose block condition holds at the placement context | `jtms/set-blocked`, from `recheck/exception-blocked-set` | `valid?` | the `:recheck` triggers. Partial: `set-blocked` says the caller re-evaluates every exception, and `exception-blocked-set` carries every block outside the queued candidates forward |
 | taxonomy relations | write, 2, F2, F4 | per relation, the supporters, the active edges and a generation | `tax/add-edge` and its removal twin, `tax/refresh-beliefs` | every closure read | an edge change moves the generation; `refresh-beliefs` after a relabel re-activates an edge exactly when some supporter is believed ([taxonomy.md](taxonomy.md#the-closures-are-derived-state)) |
-| taxonomy `::own-out` | 4, F5 | the handles IN in the network and withdrawn at their own context, which the unscoped caches leave out | `special/reconcile-own-withdrawals!` | the next reconcile, the settle's belief-moved gate | a move of `:own-readings`' `:own-out`, read each pass and at the finish ([nmtms.md](nmtms.md#a-read-with-no-reader)) |
-| taxonomy side caches | read | `:closure-memo`, `:closure-lru`, `:vis-index`, `:rewrite-order` | the closure reads | every closure read | the relation's generation, plus the `genlCx` generation, the census generation and the supporter-visibility generation for `:vis-index`. Partial: `:rewrite-order` is stamped on the identity of the active rewrite map, not a generation |
+| taxonomy side caches | read | `:closure-memo`, `:closure-lru`, `:rewrite-order` | the closure reads | every closure read | the relation's generation. Partial: `:rewrite-order` is stamped on the identity of the active rewrite map, not a generation |
 | network `:superseded` | write, F3 | the displaced spelling of each merged datum | `special/refresh-supersessions` | `in?` | a store or removal that moves an equality edge, a displaced datum, a restatement, a rewrite rule or a `genlCx` edge; an `except` move; an equality edge off the roster moving in belief |
 | `:supersessions` | write, F3 | the datums whose supersession entry moved since the last settle, each with its entry before | `special/refresh-supersessions` | `settle-finish` (`special/take-supersession-moves!`) | a queue: F3 takes it |
-| `:feed` | F7 | the change feed's listeners and the region filed for them | `feed/note-region!` | the delivery at the end of `settle` | not a cache: delivery claims and empties the region |
-| `:withdrawn` | read, F6 | per reader, what it reads as withdrawn, the losers it decides and the guarded firings it asks again included, with a watch per entry | `res/install-withdrawn!` | `res/withdrawal`, the scoped taxonomy reads, `clashes/read-clashes` | the stamp of the network, `:excepted`, the superseded map, `:meta-except-count`, the `genlCx` generation, `decide/stamp` and the guarded rules stored empties it; a watch meeting what the touched window recorded since the cache's mark drops an entry, and so does a move of a guarded rule the entry asked ([nmtms.md](nmtms.md#the-withdrawal-cache)). Partial: the record comment names two of the six stamp parts |
-| `:read-reports` | read | the reports of the last reading of the clashes every reader decides | `clashes/read-clashes` | the next reading, which `core/conflicts` and `core/contradictions` read | a report is reused while its members' classes and supports and its vantages are the ones it was built from |
-| `:own-readings` | F7 | per context holding a handle of the closure of `decide/reach-handles`, the part of its withdrawal stored there and IN and the watch it read, with the closure | `readings/reader-moves`, each pass and at the finish | the next call's `reader-moves`, the own-context reconcile | a reader is read again when its watch meets the touched window, it sees a handle that entered or left `reach-handles`, or the closure gained a handle it holds; every reader when the rest of `res/withdrawal-stamp` moved ([nmtms.md](nmtms.md#the-published-window)) |
-| `:settle-stats` | after F8 | counts of passes and blocked-set moves | `settle/settle-finish` | `core/settle-stats` | a counter; belief reads none of it |
+| `:feed` | F5 | the change feed's listeners and the region filed for them | `feed/note-region!` | the delivery at the end of `settle` | not a cache: delivery claims and empties the region |
+| `:settle-stats` | after F6 | counts of passes and blocked-set moves | `settle/settle-finish` | `core/settle-stats` | a counter; belief reads none of it |
 | `:closures` | read | the reach sets the provers walked | `provers/cached-reach` | the provers | `observe/change-clock`, which every store, removal, relabel and taxonomy change moves |
 | `:matches` | read | what `res/matches-visible` answered | `vaelii.impl.literal-cache` | `res/matches-visible` | `observe/change-clock` |
 | `:qcn` | read | each calculus's network per context, and other clock-stamped readings | `vaelii.impl.qcn-kb` and its neighbours | the calculus provers | `observe/change-clock` |
 | `:program` | none | the last Program handed to a solver | the labeling solver, a batch rollback | the labeling readers, `core/last-program` | **not stated.** No settle writes it, and no content or belief change invalidates it; `core/last-program`'s docstring says it is nil until a tie is arbitrated, and a settle's arbitration never writes it |
-| `:chain-stats` | write, 8 | the run count and the last run's result | `chain/chain-all` | `core/chain-stats`, `core/preview`, the violation run id | **not stated**; nothing resets it |
+| `:chain-stats` | write, 9 | the run count and the last run's result | `chain/chain-all` | `core/chain-stats`, `core/preview`, the violation run id | **not stated**; nothing resets it |
 | `:unrecovered` | open, recover | the write hazards declared and not yet retired | `kb/note-hazards!` and the recovery path | `kb/write-hazards`, `kb/read-view` | history rather than a derivation: `recover` and `reindex` retire what they rebuilt |
 
 Four atoms are counters, queues or history rather than caches of belief: `:settle-stats`,
 `:chain-stats`, `:violations` and `:unrecovered`. Belief reads none of them.
-
-**Under decision 16.** Decisions 10 to 16 remove these atoms or reduce them to a lookup
-per read:
-
-- the `:recheck` queue loses its `unknown` half, and `:except-moves` and `:respell` lose
-  their relabel halves;
-- `:withdrawn`'s stamp drops from six parts to five.
 
 ## What the reference does not tell you
 

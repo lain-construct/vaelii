@@ -218,17 +218,48 @@
        (not (reified-nat-symbol? head))
        (tax/has-prop? (reasoning/taxonomy kb) :context-denoting head)))
 
+(def ^:dynamic *withheld*
+  "The `reifiable_function` functions whose ground applications stay as written while
+  bound: the ones a reader does not believe the mark of (`withheld-at`), so the reconcile
+  stores, and a read looks up, the spelling that reader reads (`chain/reconcile-reified!`)."
+  #{})
+
 (defn reifiable-function?
   "True iff `head` reifies its ground applications — either `(reifiable_function head)`
-  (object → `nat/`) or `(context_denoting_function head)` (context → `cx/`).  Read straight
-  off the taxonomy metadata, so it is context-independent — deliberately, since reification
-  decides *term identity*, which cannot vary by reader — and belief-following: a defeated
-  or retracted declaration stops the function reifying."
+  (object → `nat/`) or `(context_denoting_function head)` (context → `cx/`).  Read off the
+  taxonomy metadata and belief-following: a retracted declaration stops the function
+  reifying.  A function in `*withheld*` does not reify while it is bound."
   [kb head]
   (and (symbol? head)
        (not (reified-nat-symbol? head))
+       (not (contains? *withheld* head))
        (or (tax/has-prop? (reasoning/taxonomy kb) :reifiable head)
            (tax/has-prop? (reasoning/taxonomy kb) :context-denoting head))))
+
+(defn reifiable-entries
+  "`{[:prop :reifiable f] {handle context}}`, the `reifiable_function` mark of `f` and its
+  supporters, in `res/mark-entries`' shape."
+  [kb f]
+  (let [k [:prop :reifiable f]]
+    {k (tax/supporters (reasoning/taxonomy kb) k)}))
+
+(defn split-reifiable?
+  "Does some reader not believe `f`'s stored `reifiable_function` mark
+  (`res/uniform-marks?`)?"
+  [kb f]
+  (let [e (reifiable-entries kb f)]
+    (boolean (and (seq (val (first e))) (not (res/uniform-marks? kb e))))))
+
+(defn withheld-at
+  "The reifiable functions `reader` does not believe the mark of while another reader
+  does, as a set: what `*withheld*` holds to spell a sentence as `reader` reads it.
+  Empty for a variable or nil `reader`."
+  [kb reader]
+  (if (and (symbol? reader) (not (sx/variable? reader)))
+    (into #{} (filter #(and (split-reifiable? kb %)
+                            (empty? (res/entries-at kb (reifiable-entries kb %) reader))))
+          (tax/props (reasoning/taxonomy kb) :reifiable))
+    #{}))
 
 (defn reifiable-ground-nat?
   "True iff `form` is a ground `(F …)` whose head F is an **object** reifiable_function — a
@@ -410,7 +441,7 @@
   "Believed correspondence declarations as `[function predicate position-or-nil]`
   triples, kept where `match?` holds of the triple.
 
-  Read from the **functor root alone** and filtered in memory rather than narrowed on
+  Read from the **predicate extent alone** and filtered in memory rather than narrowed on
   an argument root: the declarations number one per reified function and so are few,
   where the position-2 argument roots hold every fact ever asserted about `P` — and this is
   asked once per assert, which is the last place to make a cost a function of the
@@ -499,17 +530,19 @@
   (`(color (FruitFn AppleTree) Red)`, never a raw `nat/` symbol).  Returns `form`
   UNCHANGED (same identity) when it holds no reified NAT, so content holding no reified NAT is
   untouched; only reified NAT-bearing forms are rebuilt.  A vector rebuilds as a
-  vector — an antecedent list stays the shape its record stores."
-  [kb form]
-  (cond
-    (reified-nat-symbol? form) (if-let [e (nat-expression kb form)]
-                                 (expand-expression kb e)
-                                 form)
-    (and (seq? form) (contains-reified-nat? form))
-    (apply list (map #(expand-expression kb %) form))
-    (and (vector? form) (contains-reified-nat? form))
-    (mapv #(expand-expression kb %) form)
-    :else form))
+  vector — an antecedent list stays the shape its record stores.  `expand?` narrows which
+  constants are expanded."
+  ([kb form] (expand-expression kb form reified-nat-symbol?))
+  ([kb form expand?]
+   (cond
+     (expand? form) (if-let [e (nat-expression kb form)]
+                      (expand-expression kb e expand?)
+                      form)
+     (and (seq? form) (contains-reified-nat? form))
+     (apply list (map #(expand-expression kb % expand?) form))
+     (and (vector? form) (contains-reified-nat? form))
+     (mapv #(expand-expression kb % expand?) form)
+     :else form)))
 
 ;; ---- the reify walk (parameterized over the leaf action) -----------------
 ;; The sentence/literal walk is shared by the write path (mint) and the read path
@@ -558,6 +591,22 @@
   [kb s]
   (and (any-reifiable-functions? kb) (names-reifiable-nat-in? kb s)))
 
+(defn queue-split-uses!
+  "Queue `[:reifiable f]` on `:respell` for each function `f` a ground application in
+  `sentence` names whose mark some reader does not believe (`split-reifiable?`): the
+  write stores the use reified, and the settle's reconcile stores the spelling each
+  reader reads (`chain/reconcile-reified!`).  One walk and no index read on a KB whose
+  reifiable marks every reader believes."
+  [kb sentence]
+  (when (names-reifiable-nat? kb sentence)
+    (let [fs (into #{} (comp (filter #(and (sequential? %) (seq %) (symbol? (first %))))
+                             (map first)
+                             (filter #(tax/has-prop? (reasoning/taxonomy kb) :reifiable %)))
+                   (tree-seq sequential? seq sentence))
+          split (filter #(split-reifiable? kb %) fs)]
+      (when (seq split)
+        (swap! (reasoning/respell kb) into (map #(vector :reifiable %)) split)))))
+
 (defn- reify-nat-for-read
   "Read-mode leaf:reify nested NAT args, then resolve the whole expression to its
   EXISTING term (a `rewriteOf` target, the value its corresponding predicate names,
@@ -597,11 +646,18 @@
   "Reify every reifiable ground NAT subterm of a QUERY `sentence` to its existing
   constant (dedup, never mint) so the query matches the stored atomic form.  A
   never-minted NAT resolves to `no-match`, so an unknown-NAT query matches nothing.
-  Cheap no-op when the KB declares no `reifiable_function`."
-  [kb sentence]
-  (if (any-reifiable-functions? kb)
-    (reify-in kb sentence reify-nat-for-read)
-    sentence))
+  Cheap no-op when the KB declares no `reifiable_function`.  Given a `reader`, an
+  application of a function the reader does not believe reifiable stays as written
+  (`withheld-at`)."
+  ([kb sentence]
+   (if (any-reifiable-functions? kb)
+     (reify-in kb sentence reify-nat-for-read)
+     sentence))
+  ([kb sentence reader]
+   (if (any-reifiable-functions? kb)
+     (binding [*withheld* (withheld-at kb reader)]
+       (reify-in kb sentence reify-nat-for-read))
+     sentence)))
 
 (defn- has-no-match?
   "Does the read-mode reify of a sentence carry the `no-match` sentinel anywhere — i.e.
@@ -746,6 +802,24 @@
     (or (and (= 'termOfUnit (nm/functor s)) (= k (first (nm/args s))))
         (and (= universal-context (:context sx)) (contains? @minted s)))))
 
+(defn- derived-from-map?
+  "Is `sx` a record the argument-type entailment derives from `k`'s own map alone — not a
+  premise, and every justification an argument declaration's
+  (`tax/arg-declaration-props`) whose source fact is one of `map-handles`?  An argument
+  declaration on `termOfUnit` derives such a record about every constant it maps, and the
+  record is gone when the map is, so it keeps the constant alive no more than the map
+  does."
+  [kb map-handles sx]
+  (let [tms (reasoning/tms kb)
+        h   (:id sx)
+        js  (keep #(jtms/justification tms %) (jtms/supports tms h))]
+    (and (not (jtms/premise? tms h))
+         (seq js)
+         (every? #(and (symbol? (:informant %))
+                       (contains? tax/arg-declaration-props (:informant %))
+                       (contains? map-handles (first (:antecedents %))))
+                 js))))
+
 (defn- mapped-expressions
   "The expressions `k`'s own `termOfUnit` sentexes map it to, read off `sentexes` — the
   term-index answer for `k`, which holds its map beside its uses.  Normally one; a
@@ -758,6 +832,25 @@
                        (= k (second s)))
               (nth s 2 nil))))
         sentexes))
+
+(defn- own-sentex-test
+  "A test of whether a stored sentex naming constant `k` is `k`'s own rather than a use:
+  its bookkeeping (`nat-bookkeeping-of?`), a record the argument-type entailment derives
+  from its map alone (`derived-from-map?`), or for a context a `genlCx` edge the
+  structural producer computed (`computed-genlCx-edge?`).  `E` is the expression `k`
+  maps to, and `sentexes` the term-index answer for `k`."
+  [kb k E sentexes]
+  (let [minted (delay (minted-for kb k E))
+        maps   (into #{} (comp (filter #(let [s (:sentence %)]
+                                          (and (= 'termOfUnit (nm/functor s))
+                                               (= k (second s)))))
+                               (map :id))
+                     sentexes)
+        ctx?   (reified-context-symbol? k)]
+    (fn [sx]
+      (or (nat-bookkeeping-of? k minted sx)
+          (and ctx? (computed-genlCx-edge? kb sx))
+          (derived-from-map? kb maps sx)))))
 
 (defn orphan?
   "Is the reified constant `k` orphaned — is every **stored** sentex naming it one of
@@ -806,10 +899,7 @@
             live (filterv #(jtms/in? (reasoning/tms kb) (:id %)) all)]
         (boolean
          (when-let [E (authoritative-expression (mapped-expressions k live))]
-           (let [minted (delay (minted-for kb k E))]
-             (every? #(or (nat-bookkeeping-of? k minted %)
-                          (and ctx? (computed-genlCx-edge? kb %)))
-                     all))))))))
+           (every? (own-sentex-test kb k E all) all)))))))
 
 (defn orphaned-constants
   "Every reified constant in the KB that no live use references any more.  Removing the
@@ -1122,9 +1212,25 @@
         (reconcile-declared-correspondence! kb (second sentence)))
       (merge-corresponding-nat! kb sentence))))
 
+(defn- reconcile-declared-result!
+  "Materialize a `(result F T)` or `(genlResult F T)` that arrived *after* constants were
+  minted for `F`: each one gets the `(T K)` or `(genl K T)` the mint writes when the
+  declaration comes first, at the mint's strength in CxUniverse.  A no-op for any other
+  sentence, and for a function nothing has been minted for."
+  [kb sentence]
+  (when (and (contains? '#{result genlResult} (first sentence))
+             (= 3 (count sentence)))
+    (let [[p f t] sentence]
+      (when (and (symbol? f) (symbol? t) (reifiable-function? kb f)
+                 (not (context-denoting-function? kb f)))
+        (doseq [[_ k] (minted-applications kb f)]
+          (wiring/assert-sentence kb (if (= 'result p) (list t k) (list 'genl k t))
+                                  universal-context {:strength :monotonic}))))))
+
 (defn reconcile-nats!
   "The reified-constant maintenance a just-asserted `sentence` owes, in the order the
-  assert path runs it: the collision merge first, then the correspondence.
+  assert path runs it: the collision merge first, then the correspondence, then a result
+  declaration reaching the constants minted before it.
 
   An equality assert is a rename, and its migration can collapse two reified constants
   onto one expression — so `merge-colliding-nats!` restores the 1:1
@@ -1139,4 +1245,64 @@
   [kb sentence]
   (when (kb/equality-sentence? sentence)
     (merge-colliding-nats! kb sentence))
-  (reconcile-correspondence! kb sentence))
+  (reconcile-correspondence! kb sentence)
+  (reconcile-declared-result! kb sentence))
+
+;; ---- a reifiable mark moving ---------------------------------------------
+;; `(reifiable_function F)` arriving after a ground `(F a)` was stored, or leaving after
+;; constants were minted for `F`, changes how the write path spells sentences already
+;; stored.  `chain/reconcile-reified!` brings them to the spelling the write path gives
+;; them now; these are the reads it runs on (docs/nat.md, "A reifiable mark moving").
+
+(defn respelled
+  "`sentence` as the write path spells it under the marks believed now: every object
+  constant expanded to the expression it maps to, then every ground reifiable application
+  reified again (`maybe-reify-nats`), minting what has no term yet.  Equal to `sentence`
+  when no mark it depends on has moved."
+  [kb sentence]
+  (maybe-reify-nats kb (expand-expression kb sentence reified-object-symbol?)))
+
+(defn- applies?
+  "Does `sentence` hold an application of `f`, at any nesting?"
+  [f sentence]
+  (boolean (some #(and (sequential? %) (= f (first %))) (tree-seq sequential? seq sentence))))
+
+(defn respell-region
+  "The stored sentexes a `reifiable_function` mark on `f` moving can re-spell: each one
+  holding an application of `f`, and each use of an object constant whose expression
+  holds one, at any nesting (a constant whose expression names such a constant
+  included).  Left out: a quoting predicate's row, whose payload is a mention, a
+  constant's own sentexes (`own-sentex-test`), which the orphan sweep collects once the
+  uses have moved, and the uses of a constant an equality retired.  Stored, not believed: a use sitting OUT moves as a believed one does,
+  so its revival finds it spelled as the KB spells it.
+
+  One term-index read for `f` and one per constant reached, so the cost is the size of
+  `f`'s applications and their constants' uses."
+  [kb f]
+  (loop [todo [f] seen #{f} rows {}]
+    (if (empty? todo)
+      (vals rows)
+      (let [t    (peek todo)
+            sxs  (vec (kb/find-sentexes kb t))
+            maps (fn [sx] (let [s (:sentence sx)]
+                            (when (and (= 'termOfUnit (nm/functor s))
+                                       (= universal-context (:context sx))
+                                       (reified-object-symbol? (second s))
+                                       (some #{t} (tree-seq sequential? seq (nth s 2 nil))))
+                              (second s))))
+            ;; a constant an equality retired names its class's term now, which the
+            ;; mark moving does not re-spell (docs/nat.md, "What reification does not
+            ;; cover")
+            rep  #(tax/representative (reasoning/taxonomy kb) %)
+            ks   (into [] (comp (keep maps) (remove seen) (filter #(= % (rep %))) (distinct)) sxs)
+            own? (if (= t f)
+                   (constantly false)
+                   (if-let [E (authoritative-expression
+                               (mapped-expressions t (filter #(jtms/in? (reasoning/tms kb) (:id %)) sxs)))]
+                     (own-sentex-test kb t E sxs)
+                     (constantly false)))
+            uses (into [] (remove #(or (contains? nat-quoting-predicates (nm/functor (sx/sentence-of %)))
+                                       (own? %)
+                                       (and (= t f) (not (applies? f (sx/sentence-of %))))))
+                       sxs)]
+        (recur (into (pop todo) ks) (into seen ks) (into rows (map (juxt :id identity)) uses))))))

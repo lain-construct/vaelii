@@ -1,8 +1,9 @@
 # Operational surface
 
 - **Covers:** the five surfaces that drive a KB — CLI, daemon, client, access facade
-  and the browser's launch path — the single-writer contract across them, and every
-  environment variable or system property with where it is read.
+  and the browser's launch path — the single-writer contract across them, what to do
+  after a crash, and every environment variable or system property with where it is
+  read.
 - **Not here:** the browser's own pages, panels and editing UI → [web.md](web.md); which
   KB a process has loaded, and how one is found → [catalog.md](catalog.md).
 - **Assumes:** sentex, context, handle → [glossary.md](glossary.md).
@@ -43,6 +44,36 @@ enforces it with a fail-fast file lock. That shapes how the surfaces coexist:
   operator never typed, so neither refusal repeats them as its subject.
 - An in-memory KB (no `--dir`) has no lock and no persistence — fine for a REPL session
   or a one-shot check, useless for one-shot commands that expect earlier facts.
+
+## After a crash
+
+A process that ended without `close!` (killed, out of memory, a machine crash) leaves its
+directory for the next open to repair. Open it again with the options it was opened with,
+and delete nothing in it: the open truncates torn log tails, tombstones slots past the end
+of their log, and checks the index against the records
+([storage.md](storage.md#the-on-disk-backend-disk)). The OS lock dies with the process, so
+a `:disk-locked` refusal names a process that is still running.
+
+- **Without `:oplog?`**, the open rebuilds the index and belief from the records, which
+  is the `reindex` and `recover` the backend otherwise skips. A machine crash loses the
+  writes after the durability daemon's last fsync (`vaelii.disk.sync-ms`); a killed
+  process loses none, since the page cache keeps what it wrote.
+- **With `:oplog?`**, the open restores from the last seal and logs at `:info`:
+  `restored <dir> from its seal, replaying n operations, in t ms`. Nothing is left to do.
+  Under `:oplog? true` a machine crash loses no write whose call returned.
+- **A declined restore** logs at `:warn`: `opened <dir> from its records and sealed it in
+  t ms: the restore declined, <reason>`. The KB holds what the records hold, and its log
+  starts again at a new generation. The reason says which write the log could not
+  describe ([storage.md](storage.md#the-operation-log)):
+
+  | reason | what happened | what to do |
+  |---|---|---|
+  | `[:unusable [:config op]]` | a prover, evaluatable, reasoner or solver was registered | nothing; a KB that registers one cannot be sealed, so each crash of it rebuilds |
+  | `[:unusable [:seal op]]` | the crash came inside `import!`, `clear!`, `recover`, `reindex` or `load-text!`, before its seal | check what that operation stored, and run it again if it did not finish |
+  | `[:unusable [:unfreezable op cls]]`, `[:unusable [:listener-write op]]`, `[:unusable [:unlogged-write kind]]` | a write the log could not record ran | nothing; writes from a change-feed listener are the usual source |
+  | `[:unusable [:damaged-frame offset]]` | a frame inside the log does not decode | check the disk; the records are intact |
+  | `[:index r]`, `[:reasoning r]` | the crash came inside a seal, or an image was changed | nothing |
+  | `[:diverged …]`, `:extra-records` | a replayed write differs from the record stored at its handle, or a record has no frame | under `:tick` after a machine crash, nothing; otherwise report it, with the directory |
 
 ## CLI — `vaelii.cli`
 
@@ -285,9 +316,12 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   — and for the four backward-search entry points that holds even when the request sent no
   option map, since the alternative is an unbounded search on the write monitor. `0` on
   either variable lifts that ceiling. The ceilings hold the search bounds of reads, and
-  apply to fourteen ops — `:query`, `:query?`, `:query-status`, `:argue`, `:why`, `:why-not`,
+  apply to fifteen ops — `:query`, `:query?`, `:query-status`, `:argue`, `:why`, `:why-not`,
   `:search-tree`, `:compare-tacticians`, `:ask`, `:ask?`, `:prove`, `:provable?`,
-  `:ask-within`, `:prove-within`. **No write's bound is held to a ceiling.** Seven
+  `:ask-within`, `:prove-within`, `:kb-integrity`. `:kb-integrity` has two more dials,
+  `:max-work` (**10000**) and `:max-results` (**1000**), held the same way and filled with
+  the ceiling when a request omits them or sends no option map, so a served sweep always
+  runs under all three ([integrity.md](integrity.md)). **No write's bound is held to a ceiling.** Seven
   writes name one: `:assert`, `:assert-many`, `:assert-rule` and `:forward-chain` read
   `:max-depth` and `:max-derivations`, and `:edit`, `:edit-with-consequences` and
   `:preview` read the same two keys off each batch entry's opts. Both keys bound the
@@ -416,8 +450,10 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   second answer ([anytime.md](anytime.md)). The boolean is there rather than the key
   simply omitted, because the documented `(when (:resume r) …)` loop would otherwise read
   every partial as complete and stop one step in.
-- **The knowledge readings are served** (`:kb-quality`, `:quality-report`, `:argue`,
-  `:vocabulary-audit`, `:settle-stats`, `:provenance`, `:add-provenance`).
+- **The knowledge readings are served** (`:kb-quality`, `:kb-integrity`,
+  `:quality-report`, `:argue`, `:vocabulary-audit`, `:settle-stats`, `:provenance`,
+  `:add-provenance`). `:kb-integrity` takes its finite candidate set over the wire as an
+  EDN set ([integrity.md](integrity.md)).
   `:quality-report` takes the **map**, not the KB, so a client renders a reading it
   already holds; `:kb-quality`'s `:on-progress` is a function and does not cross, so a
   census over a large KB reports nothing until it answers ([quality.md](quality.md)).
@@ -510,6 +546,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   | `reindex` | 2 | It does the same for the index, as a whole-store rewrite under the one lock every other request is queued behind |
   | `clear!` | 2 | It destroys the KB the daemon exists to serve, and leaves every client's handles naming nothing |
   | `close!` | 2 | It ends the process's ownership of the store; the socket that asked would be answering from a KB that no longer has one |
+  | `seal` | 2 | It writes the images of an operation log `open-kb`'s `:oplog?` attached, and the daemon opens without one; the cadence of seals is the opener's |
   | `write-hazards`, `store-state`, `rebuild-progress` | 2 | Each reads the state that opening the store left. The daemon opens with `{:recover? :auto}`, so each answers the same value for the whole of its service, and the repair each one names (`recover`, `reindex`, a reload) is a row above. A write into an unrecovered KB is refused `:unrecovered-kb` over the wire as in process |
   | `add-prover`, `add-evaluatable`, `add-reasoner`, `set-solver` | 1, 2 | The prover registry and the edge solver are held in the process's memory, and none of them is stored. `add-prover` and `add-evaluatable` take a function, and `add-reasoner` and `set-solver` answer the KB value |
   | `fork` | 1 | It answers a KB value |
@@ -520,6 +557,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   | `assert-inert` | 3 | It stores past the constraint, wff and equality checks, and never premises what it stores. It is the solve's labeling primitive ([solving.md](solving.md)) |
   | `bulk-assert-facts!` | 3 | It skips the definitional checks and the dedup for a corpus its caller vouches for. `:assert-many` is the checked batch |
   | `clear-violations!`, `reset-settle-stats!` | 3 | Each empties a diagnostic record every caller reads (`:violations`, `:settle-stats`), and nothing rebuilds either one |
+  | `record-arg-types` | 2, 4 | It completes a store its opener loaded around `assert`, once, after the load; a daemon serves a KB already loaded. It reads every stored fact of every functor an argument declaration reaches, with no bound a request can set |
   | `disjointness-audit` | 4 | It runs a subsumption read for every pair of the n types, n(n−1)/2 of them, with no bound a request can set. `:subsumption-status` answers one pair |
   | `ist` | — | It is `assert` with its arguments reordered: `:assert` of `(ist Ctx S)` stores the same sentex |
   | `register-modal-predicate` | — | `:assert` of `(modal_predicate pred)` in the context is the same write, and answers a handle where this answers the KB |
@@ -951,7 +989,7 @@ representation nobody chose.
 
 | Switch | Read at | Legal values | Default | What it decides |
 |---|---|---|---|---|
-| `VAELII_KB_PATH` | `src/vaelii/browser/catalog.clj:20+` | `:`-separated directory list | `./kbs` and `~/.vaelii/kbs` | The directories KB discovery walks. |
+| `VAELII_KB_PATH` | `src/vaelii/browser/catalog.clj:20+` | `:`-separated directory list (`;` on Windows) | `./kbs` and `~/.vaelii/kbs` | The directories KB discovery walks. |
 | `vaelii.kb.path` | `src/vaelii/browser/catalog.clj:250+` | as above | as above | The same list, read after the variable. |
 | `VAELII_KB_CATALOG` | `src/vaelii/browser/catalog.clj:20+` | a file path | `~/.vaelii/catalog.edn` | The file naming KBs that live outside the search path. |
 | `vaelii.kb.catalog` | `src/vaelii/browser/catalog.clj:260+` | a file path | as above | The same file, read after the variable. |
@@ -1002,6 +1040,8 @@ CI sets these too; nothing in a deployment does.
 | `VAELII_QUERY_ENGINE` | `test/vaelii/test_util.clj:50+` | `dfs` `inference` `hybrid` | unset | Runs every `prove` on the engine named rather than the goal-stack DFS. |
 | `VAELII_QUERY_STRATEGY` | `test/vaelii/test_util.clj:60+` | a tactician `tactics/tacticians` names, such as `breadth-first` | unset | Which tactician orders the node engine's goals. Only meaningful beside the row above. |
 | `VAELII_CLINGO_LIB` | `project.clj:80+` | a directory holding `libclingo` | `/opt/homebrew/lib` | What the `+with-clingo` profile points `jna.library.path` at. |
+| `VAELII_BASH` | `project.clj:10+` | a bash to run | unset (on Windows, Git for Windows' bash when installed; else `bash`) | The bash every script alias (`lint`, `gate`, `fix`, `test-*`, `perf`) runs, and that the suite runs scripts with. On Windows a bare `bash` is WSL's whenever WSL is installed, ahead of `PATH`, which is why the default names Git's; `bash` here asks for WSL's. |
+| `vaelii.test.bash` | `test/vaelii/test_util.clj:230+` | a bash to run | `bash` | The bash a test drives a script with. The `:test` profile sets it to the choice above, so set `VAELII_BASH` instead. |
 | `VAELII_COLOR` | `scripts/gate.sh:110+` | `always` `never` | unset | Whether `lein gate` and `lein lint` colour their output; unset asks the terminal. |
 | `VAELII_GATE_OUT` | `scripts/test-parallel.sh:40+` | a directory | `target/gate` | Where the parallel test stage writes its per-shard logs. `lein gate` sets it to that run's own directory, so the shard logs land beside the stage logs rather than in a directory two gates share. |
 | `VAELII_GATE_TIMINGS` | `scripts/test-parallel.sh:40+` | a file | `target/gate/test-timings.tsv` | The per-namespace timings the test stage bin-packs its shards from. **Per checkout, not per run** — they are feedback for the *next* gate, so they sit above the run directory and every run shares them. Inside a per-run directory each gate starts blind and falls back to round-robin sharding, which is slower and silent. |

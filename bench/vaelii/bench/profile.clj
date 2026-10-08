@@ -194,7 +194,7 @@
 (defn- deep-after-open?
   "Does an **open compound** sit after an open position?  That is the shape with no
   selective access path *at all*: the trie narrows left to right, so the compound's own
-  tokens sit behind a fan, and `[:argument-root pred pos term]` keys a **ground**
+  tokens sit behind a fan, and the argument-root node `[pred pos term]` keys a **ground**
   argument whole, so a compound holding a variable is not one of its keys either.
 
   Deliberately not `stuck-adornment?` with a wider alphabet, and the difference is the
@@ -286,7 +286,7 @@
   "Every family a `KvIndexStore` read can land in, in the order the index docstring
   lists them.  Iterated in full rather than over what the tally holds, because a family
   nothing read is the finding: a zero is the answer to \"does this KB use it\"."
-  [:trie-lookup :trie-counts :context-root :functor-root :argument-root :argument-slot
+  [:trie-lookup :trie-counts :context-root :predicate-extent :argument-root :argument-slot
    :rule-index :exception-index :term-index :term-roster])
 
 (defn- read-report [snap label]
@@ -402,7 +402,7 @@
                        (rest fact)))))
 
 (defn- sample-facts
-  "Up to `k` believed fact sentences on `pred`, read straight from the functor root."
+  "Up to `k` believed fact sentences on `pred`, read straight from its predicate extent."
   [kb pred ^long k]
   (into [] (comp (map #(p/get-sentex (:records kb) %))
                  (keep (fn [s] (when (and s (nil? (:antecedent s)) (= :true (:truth s)))

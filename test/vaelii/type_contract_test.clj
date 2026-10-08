@@ -384,7 +384,7 @@
     :bad-snapshot :bad-table-entry :base-is-overlay :body-too-large :budget-exhausted
     :choice-head-not-positive
     :compaction-failed :cover :cross-origin :daemon-error :damaged-dictionary
-    :damaged-frame :disallowed-class
+    :damaged-frame :derived-only :disallowed-class
     :disjoint :disjunction-too-wide :disk-locked :duplicate-handle :duplicate-tokens :error
     :exception-not-closed :export-busy :fork-base-overlap :frozen-base :functional
     :handle-ceiling
@@ -709,7 +709,7 @@
   []
   (->> (file-seq (io/file "src"))
        (filter #(.isFile ^java.io.File %))
-       (map #(.getPath ^java.io.File %))
+       (map #(str/replace (.getPath ^java.io.File %) \\ \/))
        (filter #(str/ends-with? % ".clj"))
        sort))
 

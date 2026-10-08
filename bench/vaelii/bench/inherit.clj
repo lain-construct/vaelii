@@ -57,7 +57,7 @@
     (doseq [k [1 2 3]]
       (let [p (pred-name k)]
         (doseq [n (range 1 (inc k))]
-          (v/assert kb (list 'transitiveInArg p n 'genl) ctx {:chain? false}))
+          (v/assert kb (list 'transitiveInArgInverse p n 'genl) ctx {:chain? false}))
         ;; the claims sit at the general end (index 0 is nearest `thing`)
         (doseq [c (range claims)]
           (v/assert kb (cons p (repeat k (type-name (min c (dec depth))))) ctx
@@ -92,7 +92,7 @@
     (let [g (gs 1)]
       (run-arm "positions" #(doall (inherit/positions kb (first g) ctx)) samples)
       (run-arm "witness-terms" #(inherit/witness-terms
-                                 kb {:rel 'genl :inverse? false} (second g) ctx)
+                                 kb {:rel 'genl :along? false} (second g) ctx)
                samples))
     (doseq [k [1 2 3]]
       (let [g (gs k)

@@ -5,9 +5,13 @@
   `irreflexive`, and a tuple and its stored converse under `anti_symmetric`.  The
   tuple-mark family: the determinants under `functional` and `functionalInArg`, the
   `anti_transitive` chains and the `asymmetric` converse pairs.  Both find their nogoods
-  from a stored tuple's own arguments and share the converse pairs.  See docs/nmtms.md,
-  \"Nogoods decided at the reader\"."
-  (:require [vaelii.impl.jtms :as jtms]
+  from a stored tuple's own arguments and share the converse pairs, and each nogood is
+  placed as a conclusion (`chain/place-tuples!`).  See docs/nmtms.md, \"A nogood placed as
+  a conclusion\"."
+  (:require [clojure.set :as set]
+            [vaelii.impl.caches :as caches]
+            [vaelii.impl.journal :as journal]
+            [vaelii.impl.jtms :as jtms]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reads :as reads]
@@ -17,12 +21,10 @@
 
 ;; ---- the self and converse family -------------------------------------------
 
-(def ^:private converse-keys
-  "Each candidate key of the self and converse family: the taxonomy props of the marks
-  that read it.  `:self` holds the ground binary self tuples, `:converse` the ground
-  binary tuples with a stored converse."
-  {:self     #{:irreflexive}
-   :converse #{:anti-symmetric :asymmetric}})
+(def ^:private converse-marks
+  "The taxonomy props of the marks that read a tuple's converses: `:converse` holds the
+  ground binary tuples under one of them with a stored converse."
+  #{:anti-symmetric :asymmetric})
 
 (defn- binary-tuple
   "`[a b]` for a stored fact `sx` whose sentence is a ground positive binary tuple with a
@@ -34,6 +36,11 @@
         (when (and (symbol? f) (not= 'not f) (not (sx/variable? f)) (sx/ground-term? s))
           (vec (nm/args s)))))))
 
+(defn- self-tuple?
+  "Is the stored fact `sx` a ground positive binary tuple `(p a a)` (`binary-tuple`)?"
+  [sx]
+  (let [[a b :as ab] (binary-tuple sx)] (boolean (and ab (= a b)))))
+
 (defn- symbol-pair?
   "Two plain symbols, which an all-`:monotonic` `anti_symmetric` converse or functional
   collision merges instead of convicting (`special/derive-antisymmetric-equalities`,
@@ -44,14 +51,13 @@
 (defn- converse-functors
   "The functors a converse of a tuple of `q` is read under: `q`, and every predicate
   below an `anti_symmetric` or `asymmetric` mark on `q` or above it, since the mark binds
-  its whole spec subtree, read over `specs`, the unscoped spec closure: a candidate a
-  reader cannot read is dropped by `nogoods-at`, and a missed one is a nogood no reader
-  decides."
+  its whole spec subtree, read over `specs`, the unscoped spec closure: a missed one is a nogood
+  no placement stores."
   [tax specs q]
   (into #{q}
         (comp (mapcat #(when (seq (tax/props tax %)) (tax/props-over tax % q)))
               (mapcat specs))
-        (:converse converse-keys)))
+        converse-marks))
 
 (defn- converse-handles
   "The handles of the stored converses `(q' b a)` of `(q a b)`: one trie read under each
@@ -69,32 +75,32 @@
     (into [] (filter #(and (not= h %) (= [b a] (some-> (p/get-sentex recs %) binary-tuple))))
           (converse-handles kb (:tax w) (:specs-global w) q a b))))
 
-(def ^:dynamic ^:private *converse-tuples*
-  "A volatile map `{[a b] [[q h] …]}` while `rebuild-candidates!` replays storage: each
-  tuple that would read its converses is kept here instead, and `converse-pairs` joins
-  them once the replay has seen every record.  nil otherwise."
-  nil)
+(defn- marked-facts
+  "The handles of the stored facts of every predicate at or below one of the marked
+  predicates `ps` over the unscoped closure (the write view `w`), read off the predicate
+  extents, in content order of the predicates."
+  [kb w ps]
+  (into [] (mapcat #(reads/as-stored-with-functor (:index kb) %))
+        (into (sorted-set) (mapcat (:specs-global w)) ps)))
 
-(defn- converse-pairs
-  "The converse pairs of the tuples `rebuild-candidates!` kept (`*converse-tuples*`), each
-  a set of two handles: each `(q a b)` with a kept `(q' b a)`, `q'` among
-  `converse-functors` of `q`.  The records the replay fetched answer what
-  `stored-converses` reads off the index per tuple, with no trie read and no sentence
-  built, and `converse-functors` is read once per functor."
-  [w tuples]
-  (let [cf (memoize #(converse-functors (:tax w) (:specs-global w) %))]
-    (persistent!
-     (reduce-kv (fn [acc [a b] es]
-                  (if-some [rs (get tuples [b a])]
-                    (reduce (fn [acc [q h]]
-                              (let [fs     (cf q)
-                                    others (into [] (keep (fn [[q' h']]
-                                                            (when (and (not= h h') (contains? fs q')) h')))
-                                                 rs)]
-                                (reduce #(conj! %1 (hash-set h %2)) acc others)))
-                            acc es)
-                    acc))
-                (transient #{}) tuples))))
+(defn- self-tuples-under
+  "The stored self tuples of the predicates `fs` that an `irreflexive` mark stands on or
+  above, read off the self-tuple trie (`reads/as-stored-self-tuples`), stated in a
+  context of `ctxs` alone when it is given."
+  ([kb w fs] (self-tuples-under kb w fs nil))
+  ([kb w fs ctxs]
+   (let [tax (:tax w)
+         idx (:index kb)]
+     (when (seq (tax/props tax :irreflexive))
+       (into #{} (comp (filter #(seq (tax/props-over tax :irreflexive %)))
+                       (mapcat #(reads/as-stored-self-tuples idx % ctxs)))
+             fs)))))
+
+(defn- self-tuples
+  "Every stored self tuple under an `irreflexive` mark (`self-tuples-under`)."
+  [kb w]
+  (let [tax (:tax w)]
+    (self-tuples-under kb w (into (sorted-set) (mapcat (:specs-global w)) (tax/props tax :irreflexive)))))
 
 ;; ---- the tuple marks -------------------------------------------------------
 ;;
@@ -107,15 +113,15 @@
 ;; arguments with position `n` nil, with its members by context under `::det-ctx`; each
 ;; chain's members under `::chains`; and each stored converse pair under `::conv`, which
 ;; the `asymmetric` marks read.  `::member-of` holds each member's keys, for its removal.
-;; The index reads every mark over a tuple's functor anywhere, so it is a superset, and a
-;; reader keeps the nogoods whose members and marks it sees.
+;; The index reads every mark over a tuple's functor anywhere, so it is a superset, and
+;; the placement keeps the nogoods some context sees whole.
 ;;
 ;; A determinant member is live, under `::live`, when a member with another filler sits in
 ;; a context some context sees together with its own; only a live member is a candidate,
-;; so a determinant whose fillers no context sees together costs no reader anything.  A
-;; reader decides every pair, chain and converse pair.  Liveness reads the unscoped
-;; `genlCx` closure, so `::ts-gen` holds the generation it was read at, and `sync-tuples`
-;; reads it again when it moved.
+;; so a determinant whose fillers no context sees together places nothing.  Liveness reads
+;; the unscoped `genlCx` closure, so `::ts-gen` holds the generation it was read at, and
+;; `sync-tuples` reads it again when it moved.  `::moved` holds the members whose nogoods
+;; the settle places again (`take-moved!`).
 
 (defn- fact-tuple
   "`[f args]` for a stored fact `sx` whose sentence is a ground positive tuple with a
@@ -135,14 +141,6 @@
                (seq (tax/functional-in-arg-predicates tax))
                (seq (tax/props tax :anti-transitive)))))
 
-(defn- tuples-live?
-  "Can the tuple-mark candidates `c` form a nogood: a live determinant member or a chain
-  is stored while the taxonomy holds a tuple mark, or a converse pair is stored while
-  some predicate carries an `asymmetric` mark."
-  [tax c]
-  (boolean (or (and (or (seq (::live c)) (seq (::chains c))) (tuple-marks? tax))
-               (and (seq (::conv c)) (seq (tax/props tax :asymmetric))))))
-
 (defn- tuple-members
   "The handles of the tuple-mark candidates `c`: the live determinant members and the
   members of every chain and converse pair."
@@ -151,6 +149,12 @@
       (into cat (vals (::live c)))
       (into cat (::chains c))
       (into cat (::conv c))))
+
+(defn- tuple-member?
+  "Is `h` among `tuple-members` of `c`?  Read off `::member-of`."
+  [c h]
+  (boolean (some (fn [[kind key]] (or (not= ::det kind) (contains? (get-in c [::live key]) h)))
+                 (get-in c [::member-of h]))))
 
 (defn- stored-specs
   "The predicates at or below `p` holding a stored fact, in content order."
@@ -189,10 +193,10 @@
             [h [as (:context sx)]]))))
 
 (def ^:dynamic ^:private *functor-marks*
-  "A volatile map while `rebuild-candidates!` replays storage, holding each functor's
+  "A volatile map while recover offers the facts under a tuple mark, holding each functor's
   marks as `found-for` reads them (`det-marks`, the `anti_transitive` marks above it):
-  both walk the functor's supertypes, the replay offers every stored tuple, and the
-  taxonomy holds still under it, so a functor's are read once rather than once per
+  both walk the functor's supertypes, recover offers every stored tuple under a mark, and
+  the taxonomy holds still under it, so a functor's are read once rather than once per
   tuple, and each kind's roster cut is read off one memo (`roster-marks`) rather than a
   closure per functor.  nil otherwise."
   nil)
@@ -244,6 +248,15 @@
                       (keys by)))
         (contains? by nil) (conj nil)))))
 
+(defn- noted
+  "`c` with the handles `hs` journaled (`journal/note`) and queued under `::moved` for the
+  settle to place their nogoods again (`take-moved!`).  Given `queued`, only those of `hs`
+  are queued: a member joining or leaving a determinant moves its partners' candidate
+  entries and only its own nogoods."
+  ([c hs] (noted c hs hs))
+  ([c hs queued]
+   (-> (journal/note c hs) (update ::moved (fnil into #{}) queued))))
+
 (defn- link
   "`c` with the members of `ms` recorded under `k`."
   [c ms k]
@@ -278,7 +291,9 @@
   (let [ps (det-partners w c key h)]
     (if (empty? ps)
       c
-      (update-in c [::live key] (fnil into #{}) (conj ps h)))))
+      (-> c
+          (update-in [::live key] (fnil into #{}) (conj ps h))
+          (noted (conj ps h) [h])))))
 
 (defn- add-det-member
   "`c` with `h`, filling `v` in context `cx`, a member of determinant `key`."
@@ -291,16 +306,24 @@
 
 (defn- sync-tuples
   "`c` with `::live` read again when the `genlCx` generation moved since `::ts-gen`: one
-  pass over the determinants."
+  pass over the determinants.  Only the members whose liveness moved are queued
+  (`::moved`)."
   [w c]
   (let [gen (tax/relation-gen (:tax w) :genlCx)]
     (if (= gen (::ts-gen c 0))
       c
-      (as-> c c
-        (dissoc c ::live)
-        (reduce-kv (fn [c key g] (reduce #(classify-det-member w %1 key %2) c (keys g)))
-                   c (::det c))
-        (assoc c ::ts-gen gen)))))
+      (let [live (fn [c] (into #{} cat (vals (::live c))))
+            c'   (as-> c c'
+                   (journal/note c' (into #{} (mapcat keys) (vals (::det c'))))
+                   (dissoc c' ::live)
+                   (reduce-kv (fn [c' key g] (reduce #(classify-det-member w %1 key %2) c' (keys g)))
+                              c' (::det c'))
+                   (assoc c' ::ts-gen gen))
+            was  (live c)
+            now  (live c')]
+        (assoc c' ::moved (-> (or (::moved c) #{})
+                              (into (remove now) was)
+                              (into (remove was) now)))))))
 
 (defn- found-for
   "The determinants and chains the stored tuple `h`, `(q args…)` in context `cx`, is a
@@ -360,7 +383,8 @@
     (reduce (fn [c ms]
               (if (contains? (::chains c) ms)
                 c
-                (-> c (update ::chains (fnil conj #{}) ms) (link ms [::chains ms]))))
+                (-> c (update ::chains (fnil conj #{}) ms) (link ms [::chains ms])
+                    (noted ms))))
             c chains)))
 
 (defn- add-conv
@@ -371,7 +395,8 @@
             (let [ms #{h o}]
               (if (contains? (::conv c) ms)
                 c
-                (-> c (update ::conv (fnil conj #{}) ms) (link ms [::conv ms])))))
+                (-> c (update ::conv (fnil conj #{}) ms) (link ms [::conv ms])
+                    (noted ms)))))
           c others))
 
 (defn- drop-det-member
@@ -383,7 +408,8 @@
         c      (-> c
                    (update-in [::det key] dissoc h)
                    (update-in [::det-ctx key cx] disj h)
-                   (update-in [::live key] #(some-> % (disj h))))
+                   (update-in [::live key] #(some-> % (disj h)))
+                   (noted (conj ps h) [h]))
         g      (get-in c [::det key])]
     (if (< 1 (count (into #{} (map first) (vals g))))
       (reduce (fn [c h'] (if (seq (det-partners w c key h'))
@@ -394,7 +420,8 @@
           (update ::det dissoc key)
           (update ::det-ctx dissoc key)
           (update ::live dissoc key)
-          (unlink (keys g) [::det key])))))
+          (unlink (keys g) [::det key])
+          (noted (keys g))))))
 
 (defn- drop-tuple
   "`c` with the tuple `h` gone from every determinant, chain and converse pair it is a
@@ -403,7 +430,7 @@
   (reduce (fn [c [kind key :as k]]
             (case kind
               ::det (drop-det-member w c key h)
-              (-> c (update kind disj key) (unlink (disj key h) k))))
+              (-> c (update kind disj key) (unlink (disj key h) k) (noted key))))
           (update c ::member-of dissoc h)
           (get-in c [::member-of h])))
 
@@ -423,34 +450,38 @@
         (swap! cands #(drop-tuple w (sync-tuples w %) (:id sx)))))))
 
 (defn- note-converse!
-  "Keep the self tuples and the converse candidates in step with the fact `sx` arriving
-  (`stored?` true) or leaving (`note-candidate!`)."
+  "Keep the converse candidates in step with the fact `sx` arriving (`stored?` true) or
+  leaving (`note-candidate!`).  A self tuple keeps no row: it is queued for the settle to
+  place (`take-moved!`) when it leaves, or arrives under an `irreflexive` mark, and read
+  off the self-tuple trie otherwise (`self-tuples-under`)."
   [kb w sx stored?]
   (when-let [[a b] (binary-tuple sx)]
     (let [q     (nm/functor (:sentence sx))
           h     (:id sx)
           cands (reasoning/nogood-candidates kb)]
       (cond
-        (not stored?)
-        (when (or (contains? (:self @cands) h) (contains? (:converse @cands) h))
-          (swap! cands (fn [m] (-> m (update :self disj h) (update :converse disj h)))))
-
         (= a b)
-        (swap! cands update :self (fnil conj #{}) h)
+        (when (or (not stored?) (seq (tax/props-over (:tax w) :irreflexive q)))
+          (swap! cands update ::moved (fnil conj #{}) h))
 
-        (and (symbol-pair? a b)
-             (not-any? #(seq (tax/props (:tax w) %)) (:converse converse-keys)))
+        (not stored?)
+        (when (contains? (:converse @cands) h)
+          (swap! cands (fn [m] (-> m (update :converse disj h) (noted [h])))))
+
+        ;; no mark over `q` reads its converse pairs, and one arriving on `q` or above
+        ;; it offers the stored tuples again (`special/offer-marked-existing`,
+        ;; `antisym-equate-existing` and their edge twins)
+        (not-any? #(and (seq (tax/props (:tax w) %)) (seq (tax/props-over (:tax w) % q)))
+                  converse-marks)
         nil
-
-        (some? *converse-tuples*)
-        (vswap! *converse-tuples* update [a b] (fnil conj []) [q h])
 
         :else
         (let [others (stored-converses kb w h q a b)]
           (when (seq others)
             (swap! cands #(-> (sync-tuples w %)
                               (update :converse (fnil into #{}) (conj others h))
-                              (add-conv h others)))))))))
+                              (add-conv h others)
+                              (noted (conj others h))))))))))
 
 (defn offer!
   "Offer the stored fact `sx` to the converse and tuple-mark candidates again, or with
@@ -461,28 +492,13 @@
   (note-converse! kb w sx true)
   (when-not (= :converse only) (note-tuple! kb w sx true)))
 
-(defn- marks-over
-  "The `[mark-handle P]` pairs of `prop` a reader with ancestor set `up` reads over
-  predicate `q`: `P` is `q` or above it through predicate edges asserted in `up`, and the
-  mark is IN, stated in `up` and not hidden (`hidden?`, or nil)."
-  [kb prop q up hidden?]
-  (let [tax    (reasoning/taxonomy kb)
-        marked (tax/props tax prop)]
-    (when (seq marked)
-      (let [tms (reasoning/tms kb)]
-        (for [p (sort (filter marked (tax/genls-asserted-in tax q up)))
-              [h c] (sort (tax/prop-supporter-contexts tax prop p))
-              :when (and (or (nil? c) (contains? up c)) (jtms/in? tms h)
-                         (not (and hidden? (hidden? h))))]
-          [h p])))))
-
-(defn- seen-tuple
-  "`[sx a b]` for the candidate `h` when a reader with ancestor set `up` sees it, else nil."
-  [kb h up hidden?]
-  (when-let [sx (p/get-sentex (:records kb) h)]
-    (when (and (or (nil? (:context sx)) (contains? up (:context sx)))
-               (not (and hidden? (hidden? h))))
-      (when-let [[a b] (binary-tuple sx)] [sx a b]))))
+;; ---- the nogoods placed as conclusions -------------------------------------
+;;
+;; No reader decides a tuple nogood: the settle places each one where its members, a mark
+;; over every functor and the predicate `genl` edges that reach the mark are seen together
+;; (`chain/place-tuples!`).  The index queues the members whose nogoods moved under
+;; `::moved` (`noted`), and a nogood's routes are the marks that convict it over the
+;; unscoped taxonomy (`routes`).
 
 (defn monotonic-member?
   "Is `h` a `:monotonic` member of a collision, which a merge needs of every member
@@ -498,105 +514,11 @@
   [tms a b h o]
   (and (symbol-pair? a b) (monotonic-member? tms h) (monotonic-member? tms o)))
 
-(defn- converse-nogoods
-  "The self and converse nogoods a reader with ancestor set `up` reads: a self tuple under
-  a visible `irreflexive` mark, and a converse pair under one visible `anti_symmetric`
-  mark over both functors.  A pair of two symbols with both members `:monotonic` merges
-  and comes back under `:kind :merge`.  A tuple's converses are read under the unscoped
-  `converse-functors`, a superset, and each is kept only when the reader sees it and a
-  mark over both functors."
-  [kb cands up hidden?]
-  (let [tms   (reasoning/tms kb)
-        tax   (reasoning/taxonomy kb)
-        specs #(tax/specs-global tax %)]
-    (concat
-     (for [h (sort (:self cands))
-           :let [[sx] (seen-tuple kb h up hidden?)]
-           :when sx
-           :let [ms (marks-over kb :irreflexive (nm/functor (:sentence sx)) up hidden?)]
-           :when (seq ms)]
-       {:members #{h} :marks (into #{} (map first) ms) :kind :irreflexive})
-     (for [h (sort (:converse cands))
-           :let [[sx a b] (seen-tuple kb h up hidden?)]
-           :when sx
-           :let [m1 (marks-over kb :anti-symmetric (nm/functor (:sentence sx)) up hidden?)]
-           :when (seq m1)
-           o (sort (converse-handles kb tax specs (nm/functor (:sentence sx)) a b))
-           :when (not= o h)
-           :let [[sx2] (seen-tuple kb o up hidden?)]
-           :when sx2
-           :let [m2 (marks-over kb :anti-symmetric (nm/functor (:sentence sx2)) up hidden?)
-                 ps (into #{} (map peek) m2)
-                 ms (concat (filter #(ps (peek %)) m1)
-                            (filter #(contains? (into #{} (map peek) m1) (peek %)) m2))]
-           :when (seq ms)]
-       {:members #{h o} :marks (into #{} (map first) ms)
-        :kind    (if (merges? tms a b h o) :merge :anti-symmetric)}))))
-
-(defn- mark-supporters
-  "`{handle context}` of the marks `prop` states of `p`: a taxonomy prop, or
-  `[:functional-in-arg n]`."
-  [tax prop p]
-  (if (keyword? prop)
-    (tax/prop-supporter-contexts tax prop p)
-    (tax/functional-in-arg-supporter-contexts tax p (second prop))))
-
-(defn- marked-by
-  "The predicates carrying `prop` (`mark-supporters`), as a set."
-  [tax prop]
-  (if (keyword? prop)
-    (tax/props tax prop)
-    (into #{} (keep (fn [[q ns]] (when (contains? ns (second prop)) q)))
-          (tax/functional-in-arg-table tax))))
-
-(defn- mark-reader
-  "`(fn [prop q])` → `{P #{mark-handle}}`, memoized: the marks of `prop` a reader with
-  ancestor set `up` reads over predicate `q`.  `P` is `q` or above it through predicate
-  edges asserted in `up`, and each mark is IN, stated in `up` and not hidden (`hidden?`,
-  or nil)."
-  [kb up hidden?]
-  (let [tax   (reasoning/taxonomy kb)
-        tms   (reasoning/tms kb)
-        memo  (volatile! {})
-        ups   (volatile! {})
-        up-of (fn [q] (or (get @ups q)
-                          (let [v (tax/genls-asserted-in tax q up)] (vswap! ups assoc q v) v)))]
-    (fn [prop q]
-      (if-let [e (find @memo [prop q])]
-        (val e)
-        (let [marked (marked-by tax prop)
-              v      (if (empty? marked)
-                       {}
-                       (into {}
-                             (keep (fn [p]
-                                     (let [hs (into #{}
-                                                    (keep (fn [[h c]]
-                                                            (when (and (or (nil? c) (contains? up c))
-                                                                       (jtms/in? tms h)
-                                                                       (not (and hidden? (hidden? h))))
-                                                              h)))
-                                                    (mark-supporters tax prop p))]
-                                       (when (seq hs) [p hs]))))
-                             (filter marked (up-of q))))]
-          (vswap! memo assoc [prop q] v)
-          v)))))
-
-(defn- common-marks
-  "The handles of the `prop` marks `marks` (`mark-reader`) reads on one predicate over
-  every functor of `fs`, restricted to `p` when given."
-  ([marks prop fs] (common-marks marks prop fs nil))
-  ([marks prop fs p]
-   (let [ms (map #(marks prop %) fs)
-         ps (reduce (fn [acc m] (into #{} (filter #(contains? m %)) acc))
-                    (if p #{p} (set (keys (first ms))))
-                    ms)]
-     (into #{} (mapcat #(get (first ms) %)) ps))))
-
 (defn- same-class-at?
   "Do the symbols `a` and `b` denote one thing through equality edges a reader with
-  ancestor set `up` sees: each with a supporter IN, stated in `up` and not hidden?  The
-  scoped election `res/same-class-in?` makes, over the reader's ancestor set and with no
-  withdrawal read, since this runs inside one."
+  ancestor set `up` sees: each with a supporter IN, stated in `up` and not hidden
+  (`hidden?`, or nil)?  The scoped election `res/same-class-in?` makes, over the reader's
+  ancestor set and with no withdrawal read."
   [kb up hidden? a b]
   (let [tax (reasoning/taxonomy kb)]
     (boolean
@@ -611,113 +533,278 @@
                                (second (tax/scoped-class tax t vis?))))]
             (= (rep a) (rep b)))))))
 
-(defn- member-reader
-  "`(fn [h])` → `[functor context]` of the stored tuple `h`, or nil, memoized."
+(defn member?
+  "Is `h` a member of a tuple nogood: a stored self tuple (`self-tuple?`), or a member of a
+  converse pair or a chain or a live determinant member the candidate index `c` keeps?"
+  [kb c h]
+  (or (tuple-member? c h) (boolean (some-> (p/get-sentex (:records kb) h) self-tuple?))))
+
+(defn held?
+  "Does the candidate index `c` keep a member of a determinant, a chain or a converse
+  pair, or does the taxonomy `tax` hold an `irreflexive` mark, which a stored self tuple
+  can stand under?"
+  [tax c]
+  (boolean (or (seq (::member-of c)) (seq (tax/props tax :irreflexive)))))
+
+(defn members
+  "Every member of a tuple nogood: the stored self tuples under an `irreflexive` mark
+  (`self-tuples`), and every member the candidate index `c` keeps.  `w` is
+  `decide/write-view`'s."
+  [kb w c]
+  (into (set (self-tuples kb w)) (tuple-members c)))
+
+(defn self-tuples-in
+  "The stored self tuples under an `irreflexive` mark stated in a context of `ctxs`, which
+  a `genlCx` move exposing those contexts can give a placement (`decide/edge-reach`)."
+  [kb w ctxs]
+  (when (seq ctxs)
+    (let [tax (:tax w)]
+      (self-tuples-under kb w (into (sorted-set) (mapcat (:specs-global w)) (tax/props tax :irreflexive))
+                         ctxs))))
+
+(defn moved?
+  "Has the index queued a member whose nogoods the settle places again (`take-moved!`)?"
+  [c]
+  (boolean (seq (::moved c))))
+
+(defn take-moved!
+  "The members whose tuple nogoods moved since the last call, and the queue emptied
+  (`noted`)."
   [kb]
-  (let [recs (:records kb)]
-    (memoize (fn [h] (when-let [sx (p/get-sentex recs h)]
-                       (when-let [[f] (fact-tuple sx)] [f (:context sx)]))))))
+  (let [[old _] (swap-vals! (reasoning/nogood-candidates kb) dissoc ::moved)]
+    (::moved old #{})))
 
-(defn- read-spec
-  "The nogood a reader reads of `spec`, `{:members :marks :kind}`, or nil: none unless it
-  sees every member, in `up` and not `hidden?`.  `spec` is a determinant pair
-  `{:family :det :members :key :fillers}`, a chain `{:family :chain :members}` or a
-  converse pair `{:family :converse :members}`.  A determinant pair under a `functional`
-  or `functionalInArg` mark on the determinant's predicate over both functors is
-  `:functional`; `:merge` when both fillers are symbols and both members `:monotonic`,
-  which `special/derive-functional-equalities` merges; and nothing when the fillers are
-  one class at the reader (`same-class-at?`).  A chain under one `anti_transitive` mark
-  over every functor is `:anti-transitive`, and a converse pair under one `asymmetric`
-  mark over both functors `:asymmetric`.  `marks` is `mark-reader`'s and `member`
-  `member-reader`'s."
-  [kb marks member up hidden? spec]
-  (let [ms  (:members spec)
-        inf (map member ms)]
-    (when (every? (fn [[h [f c]]] (and f (or (nil? c) (contains? up c))
-                                       (not (and hidden? (hidden? h)))))
-                  (map vector ms inf))
-      (let [fs (into #{} (map first) inf)]
-        (case (:family spec)
-          :det
-          (let [[p k n] (:key spec)
-                hs      (-> (if (= 2 k n) (common-marks marks :functional fs p) #{})
-                            (into (common-marks marks [:functional-in-arg n] fs p)))
-                [v1 v2] (:fillers spec)]
-            (when (seq hs)
-              (cond
-                (and (symbol-pair? v1 v2)
-                     (every? #(monotonic-member? (reasoning/tms kb) %) ms))
-                {:members ms :marks hs :kind :merge}
+(defn- note-placement-left!
+  "Queue the tuple members a `(contradicts …)` sentex `sx` leaving the store names, so the
+  settle places their nogoods where they stand (`take-moved!`): a `genlCx` edge under the
+  placement can have left with it."
+  [kb sx]
+  (let [s (:sentence sx)]
+    (when (and (seq? s) (= 'contradicts (first s)))
+      (let [cands (reasoning/nogood-candidates kb)
+            c     @cands
+            hs    (into #{} (comp (keep sx/handle-id) (filter #(member? kb c %))) (rest s))]
+        (when (seq hs)
+          (swap! cands update ::moved (fnil into #{}) hs))))))
 
-                (and (symbol-pair? v1 v2) (same-class-at? kb up hidden? v1 v2))
-                nil
+(defn members-under
+  "The members of the tuple nogoods whose functor is at or below one of the predicates
+  `ps` over the unscoped `genl` closure (`w`, `decide/write-view`): those a mark on one of
+  `ps`, or a `genl` edge whose lower end is one of `ps`, can give or take a route.  The
+  members `c` keeps are read off their records, or off the stored facts of each predicate
+  at or below `ps`, whichever is fewer; the self tuples under an `irreflexive` mark off
+  those facts (`self-tuples-under`)."
+  [kb w c ps]
+  (when (and (seq ps) (held? (:tax w) c))
+    (let [idx  (:index kb)
+          fs   (into (sorted-set) (mapcat (:specs-global w)) ps)
+          ms   (tuple-members c)]
+      (into (set (self-tuples-under kb w fs))
+            (if (< (count ms) (transduce (map #(reads/stored-count-with-functor idx %)) + fs))
+              (filter #(contains? fs (some-> (p/get-sentex (:records kb) %) :sentence nm/functor)) ms)
+              (into [] (comp (mapcat #(reads/as-stored-with-functor idx %)) (filter #(tuple-member? c %)))
+                    fs))))))
 
-                :else
-                {:members ms :marks hs :kind :functional})))
+(defn nogoods-holding
+  "The tuple nogoods `c` keeps with a member among the handles `hs`, each `{:members #{h}
+  :specs #{spec}}`, one per member set: `[:self]` for a self tuple, `[:conv]` for a
+  converse pair, `[:chain]` for a chain, and `[:det key]` for two live members of
+  determinant `key` with distinct fillers.  A spec names the shape; `routes` reads the
+  marks that convict it."
+  [kb c hs]
+  (let [recs  (:records kb)
+        specs (fn [h]
+                (concat
+                 (when (some-> (p/get-sentex recs h) self-tuple?) [[#{h} [:self]]])
+                 (mapcat (fn [[kind key]]
+                           (case kind
+                             ::det    (let [g    (get-in c [::det key])
+                                            live (get-in c [::live key])
+                                            v    (first (get g h))]
+                                        (when (contains? live h)
+                                          (for [h' live :when (and (not= h h') (not= v (first (get g h'))))]
+                                            [#{h h'} [:det key]])))
+                             ::chains [[key [:chain]]]
+                             ::conv   [[key [:conv]]]))
+                         (get-in c [::member-of h]))))]
+    (->> (mapcat specs hs)
+         (reduce (fn [m [ms spec]] (update m ms (fnil conj #{}) spec)) {})
+         (mapv (fn [[ms ss]] {:members ms :specs ss})))))
 
-          :chain
-          (let [hs (common-marks marks :anti-transitive fs)]
-            (when (seq hs) {:members ms :marks hs :kind :anti-transitive}))
+(defn- convicting
+  "The predicates carrying `prop` at or above every functor of `fs` over the unscoped
+  closure, in content order."
+  [tax prop fs]
+  (sort (reduce set/intersection (map #(tax/props-over tax prop %) fs))))
 
-          :converse
-          (let [hs (common-marks marks :asymmetric fs)]
-            (when (seq hs) {:members ms :marks hs :kind :asymmetric})))))))
+(defn routes
+  "Each way a mark convicts the tuple nogood `ng` (`nogoods-holding`) over the unscoped
+  taxonomy, as `{:keys #{k} :links [[sub super]]}` (`tax/separation-routes`' shape): a
+  mark on a predicate `P` at or above every member's functor, its flat-cache key, and the
+  subsumption from each functor to `P`.  A self tuple reads the `irreflexive` marks, a
+  chain the `anti_transitive` ones, and a converse pair the `asymmetric` ones and the
+  `anti_symmetric` ones unless it merges (`merges?`,
+  `special/derive-antisymmetric-equalities`).  A determinant pair reads the determinant's
+  own `functional` and `functionalInArg` marks; two symbol fillers both `:monotonic` merge
+  (`special/derive-functional-equalities`) and give no route.  Two symbol fillers one class
+  at a reader form no nogood there, which the read reads (`exempt-at?`).  `w` is
+  `decide/write-view`'s."
+  [kb w c {:keys [members specs]}]
+  (let [tax   (:tax w)
+        tms   (reasoning/tms kb)
+        recs  (:records kb)
+        sxs   (into {} (map (fn [h] [h (p/get-sentex recs h)])) members)
+        fs    (into (sorted-set) (keep #(some-> (get sxs %) :sentence nm/functor)) members)
+        links (fn [q] (into [] (comp (remove #(= q %)) (map #(vector % q))) fs))
+        by    (fn [prop] (for [q (convicting tax prop fs)] {:keys #{[:prop prop q]} :links (links q)}))]
+    (when (every? some? (vals sxs))
+      (into []
+            (mapcat
+             (fn [[kind key]]
+               (case kind
+                 :self  (by :irreflexive)
+                 :chain (by :anti-transitive)
+                 :conv  (let [[h o] (sort members)
+                              [a b] (binary-tuple (get sxs h))]
+                          (concat (by :asymmetric)
+                                  (when-not (merges? tms a b h o) (by :anti-symmetric))))
+                 :det   (let [[q k n] key
+                              [v1 v2] (map #(first (get-in c [::det key %])) members)
+                              sym?    (symbol-pair? v1 v2)]
+                          (when-not (and sym? (every? #(monotonic-member? tms %) members))
+                            (for [mk (cond-> [[:functional-in-arg q n]] (= 2 k n) (conj [:prop :functional q]))]
+                              {:keys #{mk} :links (links q)}))))))
+            (sort-by nm/print-key specs)))))
 
-(defn- tuple-nogoods
-  "The tuple-mark nogoods a reader with ancestor set `up` decides (`read-spec`).  Each
-  determinant contributes the pairs of its live members the reader sees, so a
-  determinant read by a reader seeing one member costs a filter of its live members."
-  [kb c up hidden?]
-  (when (tuples-live? (reasoning/taxonomy kb) c)
-    (let [marks   (mark-reader kb up hidden?)
-          member  (member-reader kb)
-          seen?   (fn [h] (let [[_ cx] (member h)]
-                            (and (or (nil? cx) (contains? up cx))
-                                 (not (and hidden? (hidden? h))))))
-          dets    (for [[key live] (::live c)
-                        :let [g  (get-in c [::det key])
-                              hs (sort (filter seen? live))]
-                        [i h1] (map-indexed vector hs)
-                        h2 (drop (inc i) hs)
-                        :let [v1 (first (get g h1)) v2 (first (get g h2))]
-                        :when (not= v1 v2)]
-                    {:family :det :members #{h1 h2} :key key :fillers [v1 v2]})
-          specs   (concat dets
-                          (for [ms (::chains c)] {:family :chain :members ms})
-                          (for [ms (::conv c)] {:family :converse :members ms}))]
-      (for [spec specs
-            :let [ng (read-spec kb marks member up hidden? spec)]
-            :when ng]
-        ng))))
+(defn kind-of
+  "The kind the tuple nogood over the member handles `ms` reports under, read off the
+  candidate index `c` and the marks over the members' functors in the unscoped taxonomy:
+  `:irreflexive` for a self tuple under an `irreflexive` mark, `:anti-transitive` for a
+  chain under an `anti_transitive` one, `:functional` for a determinant pair, and for a
+  converse pair `:anti-symmetric` under an `anti_symmetric` mark, else `:asymmetric` under
+  an `asymmetric` one; the first in keyword order when the set has two.  nil when no mark
+  convicts a tuple nogood `c` keeps over `ms`."
+  [kb c ms]
+  (when (seq ms)
+    (when-let [specs (some #(when (= ms (:members %)) (:specs %)) (nogoods-holding kb c [(first ms)]))]
+      (let [tax  (reasoning/taxonomy kb)
+            fs   (into #{} (map #(nm/functor (:sentence (p/get-sentex (:records kb) %)))) ms)
+            has? #(seq (convicting tax % fs))]
+        (first (sort (keep (fn [[kind]]
+                             (case kind
+                               :self  (when (has? :irreflexive) :irreflexive)
+                               :chain (when (has? :anti-transitive) :anti-transitive)
+                               :det   :functional
+                               :conv  (cond (has? :anti-symmetric) :anti-symmetric
+                                            (has? :asymmetric)     :asymmetric)))
+                           specs)))))))
+
+(def ^:private mark-kinds
+  "The taxonomy props a tuple nogood is convicted through."
+  #{:irreflexive :anti-symmetric :asymmetric :functional :anti-transitive})
+
+(defn under-mark?
+  "Does a mark a tuple nogood is convicted through stand on `q` or a predicate above it
+  over the unscoped closure?  A `genl` edge below no mark gives no tuple nogood a route."
+  [tax q]
+  (boolean (or (some #(seq (tax/props-over tax % q)) mark-kinds)
+               (seq (tax/functional-in-arg-over tax q)))))
+
+(defn owned?
+  "Is the placed nogood over `members` with antecedents but the `genlCx` edges `core` one
+  this family places (`chain/place-tuples!`): a ground among `core` supports a tuple
+  mark's flat-cache key?"
+  [tax members core]
+  (boolean (some (fn [h] (some (fn [[kind prop]] (or (= :functional-in-arg kind)
+                                                     (and (= :prop kind) (contains? mark-kinds prop))))
+                               (tax/supported-keys tax [h])))
+                 (remove (set members) core))))
+
+(defn exempt-at?
+  "Does a reader with ancestor set `up` read no nogood over the handles `ms`: two live
+  members of one determinant of `c` whose fillers are symbols one class at the reader
+  (`same-class-at?`, `hidden?` naming the handles the reader does not believe or see, or
+  nil).  False for any other set."
+  [kb c ms up hidden?]
+  (boolean
+   (when (= 2 (count ms))
+     (let [[h o] (seq ms)]
+       (some (fn [[kind key :as k]]
+               (when (and (= ::det kind) (contains? (get-in c [::member-of o]) k))
+                 (let [v1 (first (get-in c [::det key h]))
+                       v2 (first (get-in c [::det key o]))]
+                   (and (not= v1 v2) (symbol-pair? v1 v2) (same-class-at? kb up hidden? v1 v2)))))
+             (get-in c [::member-of h]))))))
 
 (def converse-family
-  "The self and converse family's entry in `decide/registry`.  A replay keeps the tuples
-  by their arguments and joins them after it (`converse-pairs`)."
-  {:note!     (fn [kb w sx stored? _] (note-converse! kb w sx stored?))
-   :replay    (fn [] {#'*converse-tuples* (volatile! {})})
-   :replayed  (fn [_ w c]
-                (let [pairs (converse-pairs w @*converse-tuples*)]
-                  (if (seq pairs)
-                    (reduce (fn [c ms] (let [[h o] (seq ms)] (add-conv c h [o])))
-                            (update c :converse (fnil into #{}) cat pairs)
-                            pairs)
-                    c)))
-   :handles   (fn [c] (concat (:self c) (:converse c)))
-   :live?     (fn [tax c] (some (fn [[k props]] (and (seq (get c k)) (some #(seq (tax/props tax %)) props)))
-                                converse-keys))
-   :unstamped #{}
-   :nogoods   converse-nogoods})
+  "The self and converse family's entry in `decide/registry`.  Its self tuples are read
+  off the self-tuple trie (`self-tuples-under`).  Recover offers the stored facts of the
+  predicates under an `anti_symmetric` or `asymmetric` mark to `note-converse!`, and
+  queues the self tuples under an `irreflexive` mark.  Each nogood of it is placed as a
+  conclusion (`chain/place-tuples!`)."
+  {:grounds   {:forced-monotonic '#{irreflexive anti_symmetric} :forced-between-predicates '#{genl}}
+   :note!     (fn [kb w sx stored?] (note-converse! kb w sx stored?))
+   :recovered (fn [kb w]
+                (let [recs (:records kb)]
+                  (doseq [h (marked-facts kb w (mapcat #(tax/props (:tax w) %) converse-marks))
+                          :let [sx (p/get-sentex recs h)]
+                          :when sx]
+                    (note-converse! kb w sx true)))
+                (let [self (self-tuples kb w)]
+                  (when (seq self)
+                    (swap! (reasoning/nogood-candidates kb) update ::moved (fnil into #{}) self))))
+   :handles   :converse
+   :holds?    (fn [c h] (contains? (:converse c) h))})
 
 (def marks-family
   "The tuple-mark family's entry in `decide/registry`.  Liveness reads the `genlCx`
-  closure, so a moved generation syncs `::live` (`sync-tuples`), and a determinant reads
-  the equality edges, since two fillers of one class form no nogood."
-  {:note!     (fn [kb w sx stored? _] (note-tuple! kb w sx stored?))
-   :replay    (fn [] {#'*functor-marks* (volatile! {})})
+  closure, so a moved generation syncs `::live` (`sync-tuples`).  Each nogood of it is
+  placed as a conclusion (`chain/place-tuples!`)."
+  {:grounds   {:forced-monotonic          '#{functional functionalInArg anti_transitive asymmetric}
+               :forced-between-predicates '#{genl}}
+   :note!     (fn [kb w sx stored?]
+                (note-tuple! kb w sx stored?)
+                (when-not stored? (note-placement-left! kb sx)))
+   :recovered (fn [kb w]
+                (binding [*functor-marks* (volatile! {})]
+                  (let [recs (:records kb)]
+                    (doseq [h (marked-facts kb w (concat (tax/props (:tax w) :functional)
+                                                         (tax/functional-in-arg-predicates (:tax w))
+                                                         (tax/props (:tax w) :anti-transitive)))
+                            :let [sx (p/get-sentex recs h)]
+                            :when sx]
+                      (note-tuple! kb w sx true)))))
    :synced?   (fn [tax c] (= (tax/relation-gen tax :genlCx) (::ts-gen c 0)))
-   :sync      sync-tuples
+   :sync      (fn [_ w c] (sync-tuples w c))
    :handles   tuple-members
-   :live?     tuples-live?
-   :unstamped #{::member-of ::det ::det-ctx ::ts-gen}
-   :stamp     (fn [tax c] (when (seq (::live c)) (tax/equality-edges tax)))
-   :nogoods   tuple-nogoods})
+   :holds?    tuple-member?})
+
+;; ---- derived state (docs/caches.md, "The derived-state register") ----------------
+
+(caches/register-derived
+ {:id :N1 :label "Converse candidates" :kind :cache :keyed-by :handle
+  :reads [:index :records :T2]
+  :retired-by {:stored :K :removed :K :respelled :K :declared :K :edge :K :recover :R
+               :image-install :R}
+  :computed :write :imaged? :state
+  :at [[:nogood-candidates :converse]]
+  :bound "one handle per stored binary tuple under an `anti_symmetric` or `asymmetric` mark"
+  :note "the stored binary tuples under a converse mark with a stored converse, read off the trie at a write and off the marked extents at recover"})
+
+(caches/register-derived
+ {:id :N2 :label "Tuple mark candidates" :kind :cache :keyed-by :value
+  :reads [:index :records :T1 :T2]
+  :retired-by {:stored :K :removed :K :respelled :K :declared :K :edge :G :edge-belief :G
+               :settle-pass :G :recover :R :image-install :R}
+  :computed :read :imaged? :state
+  :at [[:nogood-candidates ::det] [:nogood-candidates ::det-ctx]
+       [:nogood-candidates ::chains] [:nogood-candidates ::conv]
+       [:nogood-candidates ::member-of] [:nogood-candidates ::live]
+       [:nogood-candidates ::ts-gen] [:nogood-candidates ::moved]]
+  :bound "one entry per stored tuple under a `functional`, `functionalInArg`, `anti_transitive`, `anti_symmetric` or `asymmetric` mark"
+  :note "the determinants holding two fillers, their chains and converses, and the members queued for the settle to place again; synced again at a read when the genlCx generation moved from `::ts-gen`"})
+
+(caches/register-derived
+ {:id :N9 :label "Candidate recover memos" :kind :pass :keyed-by :functor :reads [:records]
+  :retired-by {} :computed :pass :imaged? false
+  :note "`*functor-marks*`, bound while `decide/rebuild-candidates!` offers the facts under a tuple mark"})

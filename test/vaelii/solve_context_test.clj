@@ -321,7 +321,7 @@
           (is (zero? (v/count-in-context kb 'CxMenuPlanOptions))))
         (testing "the choice predicate is stored only as labeling truth values"
           ;; two labelings × (one positive + one negative) — a stored menu would add
-          ;; two more under the functor root
+          ;; two more to the predicate extent
           (is (= 4 (v/count-with-functor kb color))))))))
 
 (deftest label-replaces-a-previous-run
@@ -689,7 +689,7 @@
             before  (fetches)]
         (dotimes [_ 200] (v/assert kb (list noise (tu/tmp-ind)) 'CxUniverse))
         (is (= before (fetches)) "200 more facts in the base, no more fetches")
-        (is (= before (count (mapcat val @(reasoning/solve-rules kb)))))))))
+        (is (= before (count (reads/as-stored-rules-in (:index kb) :solve nil))))))))
 
 ;; ---- 4. do/classify: gather brave/cautious over the labelings -----------
 

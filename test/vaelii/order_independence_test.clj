@@ -35,8 +35,12 @@
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [vaelii.core :as v]
+            [vaelii.impl.decide :as decide]
+            [vaelii.impl.journal :as journal]
+            [vaelii.impl.memory :as mem]
+            [vaelii.impl.nat :as nat]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.resolution :as res]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
@@ -62,7 +66,7 @@
             tail (interleavings (update chains i rest))]
         (cons (first (nth chains i)) tail)))))
 
-(defn- permutations
+(defn permutations
   "Every ordering of `coll` — the `interleavings` of ops that constrain one another not
   at all."
   [coll]
@@ -844,6 +848,140 @@
           "and the second withdrawal takes the whole proposition"))
     (tu/clear-kb! (tu/test-kb))))
 
+;; ---- a reifiable_function mark moving -------------------------------------
+
+(def ^:private skill-use '(hasCapability Rex (SkillFn Rex)))
+
+(defn- skill-reading
+  "What a KB told some of vaelii#100's forms holds and answers about `(SkillFn Rex)`."
+  [kb]
+  {:rows     (sort-by pr-str (map :sentence (v/sentexes-with-functor kb 'hasCapability)))
+   :minted   (count (v/sentexes-matching kb '(termOfUnit ?k (SkillFn Rex)) 'CxUniverse))
+   :compound (v/ask? kb skill-use 'CxUniverse)
+   :genl     (v/ask? kb '(genl (SkillFn Rex) capability) 'CxUniverse)})
+
+(defn- assert-op [s & [opts]] #(v/assert % s 'CxUniverse opts))
+
+(deftest a-late-reifiable-declaration-mints-what-a-first-one-mints
+  ;; vaelii#100's four forms, and the use asserted twice: a raw use stored before the
+  ;; declaration is re-spelled when the declaration arrives, so the second assertion
+  ;; dedups to it rather than storing a second row for the proposition.  5!/2! orderings.
+  (let [ops    [[(assert-op skill-use) (assert-op skill-use)]
+                [(assert-op '(unary_function SkillFn))]
+                [(assert-op '(reifiable_function SkillFn))]
+                [(assert-op '(genlResult SkillFn capability))]]
+        result (one-outcome-under! "vaelii#100's forms" ops skill-reading)]
+    (is (= {:minted 1 :compound true :genl true} (dissoc result :rows)))
+    (is (= [(list 'hasCapability 'Rex (nat/constant-for nat/nat-namespace '(SkillFn Rex)))] (:rows result))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-late-inner-declaration-names-the-outer-constant-as-a-first-one-does
+  ;; The outer constant's name hashes its expression, so a use stored while `InnerFn` was
+  ;; undeclared names a constant whose map holds the raw inner application.  The inner
+  ;; declaration re-keys it: the use moves to the constant of `(OuterFn <inner constant>)`
+  ;; and the first one is collected.
+  (let [ops    [(assert-op '(reifiable_function OuterFn))
+                (assert-op '(reifiable_function InnerFn))
+                (assert-op '(likes Rex (OuterFn (InnerFn Rex))))]
+        reading (fn [kb] {:maps  (sort-by pr-str (map :sentence (v/sentexes-with-functor kb 'termOfUnit)))
+                          :likes (mapv :sentence (v/sentexes-with-functor kb 'likes))
+                          :ask   (v/ask? kb '(likes Rex (OuterFn (InnerFn Rex))) 'CxUniverse)})
+        inner  (nat/constant-for nat/nat-namespace '(InnerFn Rex))
+        outer  (nat/constant-for nat/nat-namespace (list 'OuterFn inner))
+        result (one-outcome! "a nested pair" ops reading)]
+    (is (= {:maps  [(list 'termOfUnit inner '(InnerFn Rex)) (list 'termOfUnit outer (list 'OuterFn inner))]
+            :likes [(list 'likes 'Rex outer)]
+            :ask   true}
+           (update result :maps (partial sort-by #(str (nth % 2)))))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-late-reifiable-declaration-re-spells-a-stored-rule-and-a-fired-conclusion
+  ;; A rule whose antecedent names `(SkillFn Rex)` matches the use only when both are
+  ;; spelled alike, and a conclusion a rule fired before the declaration keeps its firing
+  ;; once re-spelled: retracting the antecedent takes it, and the constant with it.
+  (let [rule   (fn [antes conseq] #(v/assert-rule % antes conseq 'CxUniverse {:direction :forward}))
+        joined (one-outcome! "a stored rule"
+                             [(rule '[(likes ?x (SkillFn Rex))] '(fan ?x))
+                              (assert-op '(likes Bob (SkillFn Rex)))
+                              (assert-op '(reifiable_function SkillFn))]
+                             #(v/ask? % '(fan Bob) 'CxUniverse))
+        fired  (one-outcome! "a fired conclusion"
+                             [(rule '[(dog ?x)] '(hasCapability ?x (SkillFn ?x)))
+                              (assert-op '(dog Rex))
+                              (assert-op '(reifiable_function SkillFn))]
+                             (fn [kb]
+                               [(skill-reading kb)
+                                (do (v/retract! kb (v/handle-of kb '(dog Rex) 'CxUniverse))
+                                    (skill-reading kb))]))]
+    (is (true? joined))
+    (is (= [{:minted 1 :compound true} {:rows () :minted 0 :compound false}]
+           (mapv #(dissoc % :genl) [(dissoc (first fired) :rows) (second fired)]))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-reifiable-declaration-leaving-reads-as-one-never-made
+  ;; The mark retracted, or defeated by a known-true denial, leaves what a KB never told
+  ;; it holds: the use spelled as written and no constant.  The denial retracted revives
+  ;; the mark, and the KB reads as one told the declaration first.
+  (let [decl     (assert-op '(reifiable_function SkillFn))
+        h        (atom nil)
+        never    (run-ops [(assert-op '(genlResult SkillFn capability)) (assert-op skill-use)]
+                          skill-reading)
+        first-in (run-ops [decl (assert-op '(genlResult SkillFn capability)) (assert-op skill-use)]
+                          skill-reading)
+        rest-ops [[(assert-op '(genlResult SkillFn capability))] [(assert-op skill-use)]]
+        leaving  (fn [label ops] (one-outcome-under! label (into [ops] rest-ops) skill-reading))]
+    (is (= {:minted 0 :compound true :genl false} (dissoc never :rows)))
+    (is (= never (leaving "retracted"
+                          [#(reset! h (decl %)) #(v/retract! % @h)])))
+    (is (= never (leaving "denied"
+                          [decl (assert-op '(not (reifiable_function SkillFn)) {:strength :monotonic})])))
+    (is (= first-in (leaving "denied, then the denial retracted"
+                             [decl
+                              #(reset! h (v/assert % '(not (reifiable_function SkillFn)) 'CxUniverse
+                                                   {:strength :monotonic}))
+                              #(v/retract! % @h)]))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-reifiable-declaration-denied-below-the-use-is-read-per-reader
+  ;; The declaration and the use in CxUniverse, a known-true denial in CxSkillD below it:
+  ;; CxUniverse reads what a KB told the declaration reads, and CxSkillD what a KB never
+  ;; told it reads, the mint and the result type included.
+  (let [reading (fn [kb]
+                  (into {} (for [r '[CxUniverse CxSkillD]]
+                             [r {:minted   (count (v/sentexes-matching kb '(termOfUnit ?k (SkillFn Rex)) r))
+                                 :compound (v/ask? kb skill-use r)
+                                 :genl     (v/ask? kb '(genl (SkillFn Rex) capability) r)}])))
+        result  (one-outcome! "a declaration denied below the use"
+                              [(assert-op '(genlCx CxSkillD CxUniverse) {:strength :monotonic})
+                               (assert-op '(reifiable_function SkillFn))
+                               (assert-op '(genlResult SkillFn capability))
+                               (assert-op skill-use)
+                               #(v/assert % '(not (reifiable_function SkillFn)) 'CxSkillD
+                                          {:strength :monotonic})]
+                              reading ordering-sample)]
+    (is (= {'CxUniverse {:minted 1 :compound true :genl true}
+            'CxSkillD   {:minted 0 :compound true :genl false}}
+           result)))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-loaded-directory-mints-a-use-whose-file-sorts-before-the-declaration
+  ;; `load-text!` reads `CxAlpha.txt` before `CxBeta.txt`, so the use is stored before
+  ;; the declaration and the declaration's arrival re-spells it.
+  (let [dir (.toFile (java.nio.file.Files/createTempDirectory
+                      "vaelii-late-reifiable-" (make-array java.nio.file.attribute.FileAttribute 0)))]
+    (try
+      (spit (java.io.File. dir "CxAlpha.txt") (str (pr-str skill-use) "\n"))
+      (spit (java.io.File. dir "CxBeta.txt")
+            "(reifiable_function SkillFn)\n(genlResult SkillFn capability)\n")
+      (let [kb (tu/fresh)]
+        (v/load-text! kb (.getPath dir))
+        (is (= [[(list 'hasCapability 'Rex (nat/constant-for nat/nat-namespace '(SkillFn Rex))) 'CxAlpha]]
+               (mapv (juxt :sentence :context) (v/sentexes-with-functor kb 'hasCapability))))
+        (is (v/ask? kb '(genl (SkillFn Rex) capability) 'CxUniverse)))
+      (finally
+        (run! #(.delete ^java.io.File %) (reverse (file-seq dir))))))
+  (tu/clear-kb! (tu/test-kb)))
+
 (deftest a-computed-context-edge-merges-in-every-ordering
   ;; The calendar case, and the one where the edge nobody asserts is the whole question.
   ;; `contextArgSubrelation` makes January a spec of its year *structurally*, so the
@@ -1425,16 +1563,23 @@
   and a leftover is by definition a sentence the test did not think to name.  Retraction
   sweeps a solely-supported conclusion's record rather than merely relabelling it (the
   claim `tu/assert-neutral!` makes structurally at every teardown), so a sweep that
-  stopped short shows up here as an extra member on one side."
+  stopped short shows up here as an extra member on one side.  An `except` names its
+  target by handle, so a `(sentexHandle H)` is replaced by the sentence and context it names."
   [kb]
-  (into #{}
-        (map (fn [h]
-               (let [sx (v/sentex kb h)]
-                 {:sentence (v/sentence-of sx)
-                  :context  (:context sx)
-                  :believed (v/in? kb h)
-                  :class    (v/defeat-class kb h)})))
-        (tu/sentex-ids kb)))
+  (letfn [(content [s]
+            (walk/postwalk #(if (and (seq? %) (= 'sentexHandle (first %)))
+                              (let [t (v/sentex kb (second %))]
+                                [(content (v/sentence-of t)) (:context t)])
+                              %)
+                           s))]
+    (into #{}
+          (map (fn [h]
+                 (let [sx (v/sentex kb h)]
+                   {:sentence (content (v/sentence-of sx))
+                    :context  (:context sx)
+                    :believed (v/in? kb h)
+                    :class    (v/defeat-class kb h)})))
+          (tu/sentex-ids kb))))
 
 (deftest a-fact-given-back-leaves-the-kb-that-never-had-it
   ;; The plainest confluence claim: a KB that learned an extra fact, derived from it and
@@ -1460,6 +1605,116 @@
            (one-outcome-under! "larger, then given back"
                                [[rule] [lead] [keeper] [extra give-back]] whole-reading))
         "a KB that learned a fact and gave it back is the KB that never learned it"))
+  (tu/clear-kb! (tu/test-kb)))
+
+;; Each row: a declaration whose derivation waits on a trigger, a fact it reads, the
+;; sentences that make the trigger hold, and the memberships the three derive.  The
+;; ternary `interArgs` row derives the two other arguments, and each derived membership
+;; is a trigger in turn, so its retraction has a support cycle through the fact to sweep.
+;; The last row's trigger holds through a subtype and the `genl` edge above it.
+(def ^:private trigger-rows
+  [["interArg" '(interArg eatsOf 1 carnivore_t 2 meat_t) '(eatsOf Rex Chunk)
+    '[(carnivore_t Rex)] '[(meat_t Chunk)]]
+   ["interArgAndRest" '(interArgAndRest kindOf 2 animal_t) '(kindOf Farm Rex Oak)
+    '[(animal_t Rex)] '[(animal_t Oak)]]
+   ["interArgs" '(interArgs kindOf animal_t) '(kindOf Rex Oak Elm)
+    '[(animal_t Rex)] '[(animal_t Oak) (animal_t Elm)]]
+   ["interArg through a subtype" '(interArg eatsOf 1 carnivore_t 2 meat_t)
+    '(eatsOf Rex Chunk) '[(lion_t Rex) (genl lion_t carnivore_t)] '[(meat_t Chunk)]]])
+
+(defn- a-trigger-derives-and-its-retraction-takes-the-derivation!
+  "Every row of `trigger-rows` over every ordering, or over `cap` of them.  The trigger's
+  type is read when the fact or the declaration arrives, so a trigger arriving last
+  reaches back only through the settle (`special/triggered-mints`), and the derivation
+  names the trigger so that retracting any part of it withdraws the derivation.  The
+  types' edges to `thing` are an op of their own, so the declared type becoming mintable
+  last is among the orders.
+
+  An `except` of any ingredient (the declaration, the fact, a trigger part), stated in
+  the derivation's context, holds no derivation in any order of its arrival, and
+  retracting it leaves the KB that never had it: the `except` moving reaches the
+  derivation through `special/except-move-sweeps` in either direction."
+  [cap]
+  (tu/with-entailing
+    (doseq [[label decl fact triggers derived] trigger-rows]
+      (let [cx    'CxUniverse
+            edges #(doseq [t '[carnivore_t meat_t animal_t lion_t]]
+                     (v/assert % (list 'genl t 'thing) cx))
+            add   (fn [s] #(v/assert % s cx))
+            drop  (fn [s] #(v/retract! % (v/handle-of % s cx)))
+            ex    (fn [kb s] (list 'except (sx/sentex-handle (v/handle-of kb s cx))))
+            hide  (fn [s] #(v/assert % (ex % s) cx))
+            show  (fn [s] #(v/retract! % (v/handle-of % (ex % s) cx)))
+            base  [edges (add decl) (add fact)]
+            whole (one-outcome! (str label ": the trigger in every order")
+                                (into base (map add) triggers) whole-reading cap)
+            held? (fn [reading]
+                    (some (fn [d] (some #(and (= d (:sentence %)) (:believed %)) reading)) derived))]
+        (testing label
+          (is (every? (fn [d] (some #(and (= d (:sentence %)) (:believed %)) whole)) derived)
+              "the trigger derives the membership in every order")
+          (doseq [t triggers]
+            (let [others (remove #{t} triggers)
+                  never  (one-outcome! (str label ": without " t)
+                                       (into base (map add) others) whole-reading cap)]
+              (is (not-any? (fn [d] (some #(= d (:sentence %)) never)) derived)
+                  (str "nothing derives the membership without " t))
+              (is (= never
+                     (one-outcome-under! (str label ": " t " given back")
+                                         (into [[(add t) (drop t)]]
+                                               (map vector)
+                                               (into base (map add) others))
+                                         whole-reading cap))
+                  (str "retracting " t " leaves the KB that never had it"))))
+          (doseq [s (into [decl fact] triggers)]
+            (let [others (into [[edges]] (comp (remove #{s}) (map #(vector (add %))))
+                               (into [decl fact] triggers))]
+              (is (not (held? (one-outcome-under! (str label ": " s " excepted")
+                                                  (conj others [(add s) (hide s)])
+                                                  whole-reading cap)))
+                  (str "an except of " s " holds no derivation in any order"))
+              (is (= whole
+                     (one-outcome-under! (str label ": " s " excepted and given back")
+                                         (conj others [(add s) (hide s) (show s)])
+                                         whole-reading cap))
+                  (str "retracting the except of " s " leaves the KB that never had it")))))))
+    (tu/clear-kb! (tu/test-kb))))
+
+(deftest ^:slow a-trigger-derives-in-every-order-and-its-retraction-takes-the-derivation
+  (a-trigger-derives-and-its-retraction-takes-the-derivation! nil))
+
+(deftest a-trigger-derives-in-sampled-orders-and-its-retraction-takes-the-derivation
+  ;; the `:default` twin of the walk above
+  (a-trigger-derives-and-its-retraction-takes-the-derivation! 6))
+
+(deftest a-context-edge-that-brings-an-except-into-view-takes-the-derivation-in-every-order
+  ;; The `except` of the trigger is stated in CxEdHid, beside the fact's CxEdLow; the
+  ;; `(genlCx CxEdLow CxEdHid)` edge makes CxEdLow see it, so the edge's arrival withdraws
+  ;; the derivation and its retraction draws it again (`special/recheck-except-ancestors`,
+  ;; scoped to the contexts under the edge's `sub`).
+  (tu/with-entailing
+    (let [U     'CxUniverse
+          trig  '(carnivore_t Rex)
+          setup #(do (doseq [t '[carnivore_t meat_t]] (v/assert % (list 'genl t 'thing) U))
+                     (doseq [c '[CxEdLow CxEdHid]] (v/assert % (list 'genlCx c U) U)))
+          add   (fn [s c] #(v/assert % s c))
+          hide  #(v/assert % (list 'except (sx/sentex-handle (v/handle-of % trig U))) 'CxEdHid)
+          edge  '(genlCx CxEdLow CxEdHid)
+          drop  #(v/retract! % (v/handle-of % edge U))
+          base  [[setup] [(add '(interArg eatsOf 1 carnivore_t 2 meat_t) U)]
+                 [(add '(eatsOf Rex Chunk) 'CxEdLow)] [(add trig U) hide]]
+          held? (fn [reading]
+                  (some #(and (= '(meat_t Chunk) (:sentence %)) (= 'CxEdLow (:context %))
+                              (:believed %))
+                        reading))
+          never (one-outcome-under! "no edge" base whole-reading ordering-sample)]
+      (is (held? never) "CxEdLow derives while it does not see the except")
+      (is (not (held? (one-outcome-under! "the edge" (conj base [(add edge U)]) whole-reading
+                                          ordering-sample)))
+          "the edge withdraws the derivation in every order")
+      (is (= never (one-outcome-under! "the edge given back" (conj base [(add edge U) drop])
+                                       whole-reading ordering-sample))
+          "retracting the edge leaves the KB that never had it")))
   (tu/clear-kb! (tu/test-kb)))
 
 (deftest a-taxonomy-edge-put-back-is-the-edge-that-never-left
@@ -1590,6 +1845,31 @@
         "a rule fires off what its context can see, whenever it was told it could"))
   (tu/clear-kb! (tu/test-kb)))
 
+(deftest a-context-edge-given-back-is-the-edge-that-never-came
+  ;; The removal twin of the test above, in four ops: the same rule and fact, and the
+  ;; edge asserted and then retracted.  The retraction names the handle its assertion
+  ;; allocated, so the two are one chain and the rule and the fact interleave around it —
+  ;; twelve orderings.  Retracting before either arrives must leave nothing for them to
+  ;; fire; retracting after both must withdraw the firing.  In all twelve, `observe`
+  ;; returns what it returns over the rule and the fact alone.
+  (let [edge    '(genlCx CxVrLow CxVrMid)
+        fact    #(v/assert % '(vr_fact_p VrA) 'CxVrMid)
+        rule    #(v/assert % '(implies (vr_fact_p ?x) (vr_seen_p ?x)) 'CxVrLow {:direction :forward})
+        observe (fn [kb]
+                  {:derived (boolean (seq (v/sentexes-matching kb '(vr_seen_p VrA) 'CxVrLow)))})
+        never   (one-outcome! "no edge" [fact rule] observe)]
+    (is (= {:derived false} never) "without the edge the rule cannot see the fact")
+    (is (= {:derived true} (one-outcome! "the edge" [#(v/assert % edge 'CxUniverse) fact rule]
+                                         observe))
+        "the edge alone is what draws the conclusion")
+    (is (= never (one-outcome-under! "the edge given back"
+                                     [[#(v/assert % edge 'CxUniverse)
+                                       #(v/retract! % (v/handle-of % edge 'CxUniverse))]
+                                      [fact] [rule]]
+                                     observe))
+        "retracting the edge leaves the KB that never had it, in every interleaving"))
+  (tu/clear-kb! (tu/test-kb)))
+
 (deftest a-subsumed-firing-across-a-context-edge-is-order-independent
   ;; The two closures at once, which is the shape neither seeding covers on its own.
   ;; `special/visibility-seeds` enumerates from `:rule-antecedents`, so a rule taking
@@ -1613,7 +1893,7 @@
 (deftest a-negated-antecedent-firing-across-a-context-edge-is-order-independent
   ;; The negated-antecedent twin of the visibility case, and the same gap on the other
   ;; branch: `special/visibility-seeds` looked a negated antecedent's roster key
-  ;; `[:not v_neg_p]` up in the functor-root index, which nothing is written under, so a
+  ;; `[:not v_neg_p]` up in the predicate extent, which nothing is written under, so a
   ;; genlCx edge arriving after the negative fact never re-joined the rule.  These three
   ;; sentences must derive `(v_neg_seen_p VA)` in every arrival order, not only the ones
   ;; that put the edge before the rule and the fact.  The rule reaches the negative fact
@@ -1854,7 +2134,7 @@
    "preserved claim, genl edge"
    '[[CxRjA CxRjP] [CxRjA CxRjR]]
    '[[(genl rj_chi_t rj_dog_t) CxRjP]
-     [(transitiveInArg rjLarger 1 genl) CxRjR]
+     [(transitiveInArgInverse rjLarger 1 genl) CxRjR]
      [(rjLarger rj_dog_t rj_cat_t) CxRjR]
      [(implies (rjLarger rj_chi_t ?y) (rj_outw_p ?y)) CxRjR]]
    '(rj_outw_p rj_cat_t)
@@ -1864,7 +2144,7 @@
   (a-late-edge-reaches-what-the-view-licenses!
    "preserved claim, declaration"
    '[[CxRjA CxRjM] [CxRjA CxRjR]]
-   '[[(transitiveInArg rjLarger 1 genl) CxRjM]
+   '[[(transitiveInArgInverse rjLarger 1 genl) CxRjM]
      [(genl rj_chi_t rj_dog_t) CxRjR]
      [(rjLarger rj_dog_t rj_cat_t) CxRjR]
      [(implies (rjLarger rj_chi_t ?y) (rj_outw_p ?y)) CxRjR]]
@@ -2578,6 +2858,57 @@
     (is (= 1 (count (:rows (second result)))) "and revived, it folds the pair again"))
   (tu/clear-kb! (tu/test-kb)))
 
+(defn- reader-reading
+  "What `reader` answers about the `swRel` pair: each spelling asked, the bindings
+  `(swRel ?x ?y)` answers, and what a rule drew from each spelling."
+  [kb reader]
+  {:asked   (mapv #(v/ask? kb % reader) '[(swRel Bea Ada) (swRel Ada Bea)])
+   :answers (set (v/query kb '(swRel ?x ?y) reader))
+   :drawn   (mapv #(v/ask? kb % reader) '[(swNoted Bea Ada) (swNoted Ada Bea)])})
+
+(deftest a-permuting-mark-defeated-below-the-facts-is-read-per-reader
+  ;; `(symmetric swRel)` and the facts in CxUniverse, a known-true denial in CxSwD below
+  ;; it: CxUniverse believes the mark and reads what a KB holding it reads, and CxSwD
+  ;; reads what a KB never told it reads, so the store holds the written spelling beside
+  ;; the fold.
+  (doseq [shape [:one-spelling :two-spellings]]
+    (testing (name shape)
+      (let [h     (atom nil)
+            facts (get spelled-shapes shape)
+            edge  #(v/assert % '(genlCx CxSwD CxUniverse) 'CxUniverse {:strength :monotonic})
+            deny  #(v/assert % '(not (symmetric swRel)) 'CxSwD {:strength :monotonic})
+            read2 (fn [kb] (mapv #(reader-reading kb %) '[CxUniverse CxSwD]))
+            never (one-outcome! "never stated" (into [edge] (spelled-ops facts nil h)) read2
+                                ordering-sample)
+            held  (one-outcome! "held" (into [edge] (spelled-ops facts '[symmetric] h)) read2
+                                ordering-sample)
+            split (one-outcome! "denied below" (conj (into [edge] (spelled-ops facts '[symmetric] h)) deny)
+                                read2 ordering-sample)]
+        (is (= (first held) (first split)) "the context above the denial reads the mark")
+        (is (= (second never) (second split)) "the context below it reads each spelling as written"))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-genlcx-edge-bringing-a-defeat-under-the-facts-splits-their-spellings
+  ;; The denial and its defeat sit in CxSwD, the fact in CxSwF, both under CxUniverse
+  ;; where the mark is: CxSwD reads the fact only once `(genlCx CxSwD CxSwF)` arrives, and
+  ;; then reads it as written while CxSwF reads the fold, whichever arrived last.
+  (let [wire   #(doseq [c '[CxSwD CxSwF]]
+                  (v/assert % (list 'genlCx c 'CxUniverse) 'CxUniverse {:strength :monotonic}))
+        ops    (fn [mark?]
+                 (cond-> [#(v/assert % '(implies (swRel ?x ?y) (swNoted ?x ?y)) 'CxUniverse
+                                     {:direction :forward})
+                          #(v/assert % '(swRel Bea Ada) 'CxSwF)
+                          #(v/assert % '(genlCx CxSwD CxSwF) 'CxUniverse {:strength :monotonic})]
+                   mark? (conj #(v/assert % '(symmetric swRel) 'CxUniverse)
+                               #(v/assert % '(not (symmetric swRel)) 'CxSwD {:strength :monotonic}))))
+        read2  (fn [kb] (mapv #(reader-reading kb %) '[CxSwF CxSwD]))
+        run    (fn [label ops] (one-outcome! label (into [wire] ops) read2 ordering-sample))
+        never  (run "never stated" (ops false))
+        split  (run "denied below" (ops true))]
+    (is (= [true true] (:asked (first split))) "the fact's own context reads the mark")
+    (is (= (second never) (second split)) "the context the edge brings under it reads the fact as written"))
+  (tu/clear-kb! (tu/test-kb)))
+
 ;; ---- the forward chaining depth bound -------------------------------------
 ;;
 ;; A run's `:max-depth` refuses a firing whose conclusion would sit deeper than it, and
@@ -2881,97 +3212,327 @@
           (is (zero? (:contra r))  "and no pair is reported to a reader that reads none")))))
   (tu/clear-kb! (tu/test-kb)))
 
-;; ---- the withdrawal cache is a memo of current state ----------------------
+;; ---- the taxonomy's scoped reads answer what a fresh memo answers -------------
 
-(def ^:private wd-readers '[CxUniverse CxWdTop CxWdMid CxWdLow CxWdSide])
+(def ^:private wo-contexts '[CxUniverse CxWoTop CxWoA CxWoB CxWoAA])
 
-(defn- wd-setup!
-  "The lattice and the rules every ordering starts from: `CxWdMid`, `CxWdLow` and
-  `CxWdSide` under `CxWdTop`, and `drvp` concluded from `srcp` or `altp`, `drv2p` from
-  `drvp`."
+(def ^:private wo-rule
+  "A rule concluding a membership of the second separation from one of the first, so a
+  loser of one nogood withdraws a member of another."
+  '(set/forwardRule (implies (wo_kc ?x) (wo_kd ?x))))
+
+(defn- wo-setup!
+  "`CxWoA` and `CxWoB` under `CxWoTop`, `CxWoAA` under `CxWoA`, an `irreflexive` mark,
+  an argument-preservation declaration, two separations the stream's writes form nogoods
+  under, and `wo-rule` between them."
   [kb]
-  (doseq [[sub super] '[[CxWdTop CxUniverse] [CxWdMid CxWdTop] [CxWdLow CxWdTop]
-                        [CxWdSide CxWdTop]]]
-    (v/assert kb (list 'genlCx sub super) 'CxUniverse))
-  (doseq [r '[(set/forwardRule (implies (srcp ?x) (drvp ?x)))
-              (set/forwardRule (implies (altp ?x) (drvp ?x)))
-              (set/forwardRule (implies (drvp ?x) (drv2p ?x)))]]
-    (v/assert kb r 'CxWdTop {:strength :monotonic})))
+  (let [m {:strength :monotonic}]
+    (doseq [[sub sup] '[[CxWoTop CxUniverse] [CxWoA CxWoTop] [CxWoB CxWoTop] [CxWoAA CxWoA]]]
+      (v/assert kb (list 'genlCx sub sup) 'CxUniverse m))
+    (doseq [s '[(irreflexive woSelf) (binary_predicate woCarries)
+                (transitiveInArgInverse woCarries 1 genl) (genl woHauler animal) (genl woCart woHauler)
+                (genl wo_ka animal) (genl wo_kb animal) (genl wo_kc animal)
+                (disjoint wo_kb wo_kc) (genl wo_kd animal) (genl wo_ke animal)
+                (disjoint wo_kd wo_ke)]]
+      (v/assert kb s 'CxUniverse m))
+    (v/assert kb wo-rule 'CxWoTop m)))
 
-(defn- wd-reading
-  "Every reader's `res/withdrawal` and the taxonomy's roster, as `kb` answers them."
-  [kb]
-  {:readers (into {} (map (juxt identity #(res/withdrawal kb %))) wd-readers)
-   :roster  (res/supporter-filter-roster kb)})
+(defn- wo-op
+  "One write of a stream over every route a reader's decision reads: a self tuple, a
+  predicate edge bringing a predicate under the mark, a length binding and the tuples it
+  breaks, an inherited claim and the denials it convicts, a fact no nogood reads, a
+  `genl` edge into a separated type its denial withdraws at `CxWoA`, an `except` of the
+  denial below it, a membership of the separated type at the `except`'s reader, a rule
+  concluding a membership of a second separation from one of the first, so a loser of
+  one nogood withdraws a member of another, the same through a guarded firing, an
+  equality merging two individuals, an `except` of a membership, `genlCx` edges that
+  widen `CxWoB`'s and `CxWoAA`'s ancestor sets, each stated in `CxUniverse` or in a
+  context the widened reader does not see, and retractions of each.  An op `[:except s c
+  in]` excepts `s` in `c` from context `in`."
+  [^java.util.Random rng]
+  (let [ctx  #(nth (subvec wo-contexts 1) (.nextInt rng (dec (count wo-contexts))))
+        ind  #(nth '[WoA WoB WoC] (.nextInt rng 3))
+        bone #(nth '[WoBone0 WoBone1] (.nextInt rng 2))
+        str8 #(if (zero? (.nextInt rng 3)) {:strength :monotonic} {})
+        m    {:strength :monotonic}]
+    (case (.nextInt rng 35)
+      (0 1)  (let [x (ind)] [:assert (list 'woSelf x x) (ctx) (str8)])
+      2      (let [x (ind)] [:retract (list 'woSelf x x) (ctx)])
+      3      [:assert '(genl woSub woSelf) (ctx) m]
+      4      [:retract '(genl woSub woSelf) (ctx)]
+      5      (let [x (ind)] [:assert (list 'woSub x x) (ctx) (str8)])
+      6      [:assert '(arity woLen 2) (ctx) m]
+      7      [:retract '(arity woLen 2) (ctx)]
+      (8 9)  [:assert (list 'woLen (ind) (ind) (ind)) (ctx) (str8)]
+      10     [:assert (list 'woCarries 'woHauler (bone)) (ctx) m]
+      (11 12) [:assert (list 'not (list 'woCarries 'woCart (bone))) (ctx) (str8)]
+      13     [:retract (list 'not (list 'woCarries 'woCart (bone))) (ctx)]
+      14     [:assert (list 'woLedger (ind) (ind)) (ctx) (str8)]
+      15     [:retract (list 'woCarries 'woHauler (bone)) (ctx)]
+      16     [:assert '(genl wo_ka wo_kb) 'CxWoA {}]
+      17     [:assert '(not (genl wo_ka wo_kb)) 'CxWoA m]
+      18     [:retract '(not (genl wo_ka wo_kb)) 'CxWoA]
+      19     [:assert (list (if (zero? (.nextInt rng 2)) 'wo_ka 'wo_kc) (ind)) (ctx) (str8)]
+      20     [:except '(not (genl wo_ka wo_kb)) 'CxWoA 'CxWoAA]
+      21     [:assert (list 'wo_kc (ind)) 'CxWoAA {}]
+      22     [:assert (list 'wo_kb (ind)) (ctx) (str8)]
+      23     [:assert (list 'wo_kc (ind)) (ctx) (str8)]
+      (24 25) [:assert (list 'wo_ke (ind)) (ctx) (str8)]
+      26     [:assert wo-rule 'CxWoTop m]
+      27     [:retract wo-rule 'CxWoTop]
+      28     [:assert '(set/forwardRule (implies (and (wo_ka ?x) (unknown (wo_ke ?x))) (wo_kd ?x)))
+              'CxWoA m]
+      29     (if (zero? (.nextInt rng 2))
+               [:assert '(sameAs WoB WoC) 'CxWoB m]
+               [:retract '(sameAs WoB WoC) 'CxWoB])
+      30     [:except (list 'wo_kb (ind)) 'CxWoA 'CxWoAA]
+      31     [:assert '(genlCx CxWoB CxWoA) (nth '[CxUniverse CxWoA] (.nextInt rng 2)) m]
+      32     [:retract '(genlCx CxWoB CxWoA) (nth '[CxUniverse CxWoA] (.nextInt rng 2))]
+      33     [:assert '(genlCx CxWoAA CxWoB) (nth '[CxUniverse CxWoB] (.nextInt rng 2)) m]
+      34     [:retract '(genlCx CxWoAA CxWoB) (nth '[CxUniverse CxWoB] (.nextInt rng 2))])))
 
-(defn- wd-fresh-view
-  "`kb` reading through an empty `:withdrawn` cache, so every answer is recomputed."
-  [kb]
-  (assoc kb :reasoning (volatile! (assoc @(:reasoning kb) :withdrawn (atom {})))))
-
-(defn- wd-except
+(defn- tx-except
   "Assert, in `ctx`, an `except` of the sentex `sentence` holds in `in`."
   [kb sentence in ctx]
   (v/assert kb (list 'except (sx/sentex-handle (v/handle-of kb sentence in))) ctx
             {:strength :monotonic}))
 
-(deftest the-withdrawal-cache-answers-what-a-fresh-recompute-answers-in-every-order
-  ;; After each op's settle, every reader's cached withdrawal and the cached roster are
-  ;; read (each an entry the settle kept, or a fill) and compared with the same reading
-  ;; through an empty cache.  The ops move what the cache reads in each way it can: a
-  ;; second route into a withdrawn conclusion arriving and leaving (`altp`), a rule
-  ;; concluding from a withdrawn conclusion (`drv3p`), an `except` and a meta-except
-  ;; arriving, a `genlCx` edge bringing an `except` into a reader's ancestor set, and an
-  ;; unrelated fact that reaches no entry.
-  (let [bad    (atom [])
-        kept   (atom 0)
-        check  (fn [op]
-                 (fn [kb]
-                   (op kb)
-                   (let [m @(reasoning/withdrawn kb)]
-                     (swap! kept + (count (filter #(contains? m %) wd-readers))))
-                   (let [memo  (wd-reading kb)
-                         fresh (wd-reading (wd-fresh-view kb))]
-                     (when (not= memo fresh) (swap! bad conj {:memo memo :fresh fresh})))))
-        chains (mapv #(mapv check %)
-                     [[#(v/assert % '(srcp Ann) 'CxWdTop {:strength :monotonic})
-                       #(wd-except % '(srcp Ann) 'CxWdTop 'CxWdMid)
-                       #(wd-except % (list 'except (sx/sentex-handle
-                                                    (v/handle-of % '(srcp Ann) 'CxWdTop)))
-                                   'CxWdMid 'CxWdLow)]
-                      [#(v/assert % '(srcp Bob) 'CxWdTop {:strength :monotonic})
-                       #(wd-except % '(srcp Bob) 'CxWdTop 'CxWdSide)
-                       #(v/assert % '(set/forwardRule (implies (drv2p ?x) (drv3p ?x))) 'CxWdTop
-                                  {:strength :monotonic})]
-                      [#(v/assert % '(altp Ann) 'CxWdTop {:strength :monotonic})
-                       #(v/retract! % (v/handle-of % '(altp Ann) 'CxWdTop))]
-                      [#(v/assert % '(genlCx CxWdLow CxWdMid) 'CxUniverse)
-                       #(v/assert % '(otherp Cal) 'CxWdTop)]])
-        ;; a handle is allocated in arrival order, so a `sentexHandle` reads as its sentence
-        content   (fn content [kb h]
-                    (walk/postwalk #(if (and (seq? %) (= 'sentexHandle (first %)))
-                                      (content kb (second %))
-                                      %)
-                                   (:sentence (p/get-sentex (:records kb) h))))
-        sentences (fn [kb hs] (into #{} (map #(content kb %)) hs))
-        observe (fn [kb]
-                  (let [mismatches @bad]
-                    (reset! bad [])
-                    {:mismatches (count mismatches)
-                     :withdrawn  (into {} (keep (fn [r]
-                                                  (when-let [w (res/withdrawal kb r)]
-                                                    [r (sentences kb (:out w))])))
-                                       wd-readers)}))
-        walked  (map #(cons wd-setup! %)
-                     (sampled-orderings ordering-sample (interleavings chains)))
-        census  (outcome-census walked observe)
-        [reading] (keys census)]
-    (is (= 1 (count census)) (str "one reading in every order —" (census-report census)))
-    (is (zero? (:mismatches reading)) "no cached answer differs from a fresh recompute")
-    (is (= '{CxWdMid  #{(srcp Ann) (drvp Ann) (drv2p Ann) (drv3p Ann)}
-             CxWdLow  #{(except (srcp Ann))}
-             CxWdSide #{(srcp Bob) (drvp Bob) (drv2p Bob) (drv3p Bob)}}
-           (:withdrawn reading))
-        "the meta-except in CxWdLow hides CxWdMid's except there, and so nothing it targets")
-    (is (pos? @kept) "a settle kept a cached entry, so the memo was read and not only filled"))
+(def ^:private tx-types '[wo_ka wo_kb wo_kc wo_kd wo_ke woSub woSelf woHauler animal])
+
+(defn- tx-op
+  "One write of `wo-op`'s stream, or of the writes that put a taxonomy supporter in the
+  supporter roster (`exc/supporter-roster`) without moving an edge: an `except` of
+  a `genlCx` or a `genl` edge, an edge asserted beside a rule that concludes it from a
+  nogood candidate, and an `except` of a candidate."
+  [^java.util.Random rng]
+  (let [m {:strength :monotonic}]
+    (if (zero? (.nextInt rng 2))
+      (wo-op rng)
+      (case (.nextInt rng 13)
+        0  [:except '(genlCx CxWoAA CxWoB) 'CxUniverse 'CxWoAA]
+        1  [:except '(genlCx CxWoB CxWoA) 'CxUniverse 'CxWoB]
+        2  [:except '(genlCx CxWoB CxWoA) 'CxWoA 'CxWoB]
+        3  [:assert '(set/forwardRule (implies (wo_kb WoA) (genl woSub woSelf))) 'CxWoTop m]
+        4  [:retract '(set/forwardRule (implies (wo_kb WoA) (genl woSub woSelf))) 'CxWoTop]
+        5  [:assert '(set/forwardRule (implies (wo_kc WoB) (genlCx CxWoAA CxWoB))) 'CxUniverse m]
+        6  [:assert '(genl woSub woSelf) 'CxWoA {}]
+        7  [:retract '(genl woSub woSelf) 'CxWoA]
+        8  [:except '(genl woSub woSelf) 'CxWoA 'CxWoAA]
+        9  [:except '(genl wo_ka wo_kb) 'CxWoA 'CxWoB]
+        10 [:assert '(set/forwardRule (implies (wo_kc ?x) (genl wo_ka wo_ke))) 'CxWoA m]
+        11 [:assert '(genlCx CxWoAA CxWoB) 'CxUniverse m]
+        12 [:except '(wo_kc WoB) 'CxWoTop 'CxWoAA]))))
+
+(defn- tx-reads
+  "What every reader of `wo-contexts` reads of the taxonomy `tx` through its memos: whether
+  each relation needs its supporters asked, each context's ancestor and descendant sets,
+  `sees?` for each pair, and the `genls` and `specs` of each type of `tx-types`."
+  [tx]
+  (let [t @tx]
+    {:filter-active [(#'tax/relation-filter-active? t :genl) (#'tax/relation-filter-active? t :genlCx)]
+     :up    (into {} (for [c wo-contexts] [c (tax/context-up tx c)]))
+     :down  (into {} (for [c wo-contexts] [c (tax/context-down tx c)]))
+     :sees  (into {} (for [a wo-contexts b wo-contexts] [[a b] (boolean (tax/sees? tx a b))]))
+     :genls (into {} (for [c wo-contexts a tx-types] [[c a] (tax/genls tx a c)]))
+     :specs (into {} (for [c wo-contexts a tx-types] [[c a] (tax/specs tx a c)]))}))
+
+(defn- tx-stream-mismatch
+  "The first `[step op read]` after which a read of `tx-reads` through the KB's taxonomy,
+  whose memos the reads after every earlier write filled, differs from the same read
+  through a detached copy, whose memos are empty (`tax/detached-copy`), over `steps`
+  writes of `seed`'s stream, or nil."
+  [seed steps]
+  (let [kb  (tu/fresh)
+        rng (java.util.Random. (long seed))]
+    (wo-setup! kb)
+    (loop [step 0]
+      (when (< step steps)
+        (let [[kind s c opts :as op] (tx-op rng)]
+          (try (case kind
+                 :assert  (v/assert kb s c opts)
+                 :retract (some->> (v/handle-of kb s c) (v/retract! kb))
+                 :except  (when (v/handle-of kb s c) (tx-except kb s c opts)))
+               (catch clojure.lang.ExceptionInfo _ nil))
+          (let [tx    (reasoning/taxonomy kb)
+                memo  (tx-reads tx)
+                fresh (tx-reads (tax/detached-copy tx))]
+            (if-let [k (first (filter #(not= (memo %) (fresh %)) (keys memo)))]
+              [step op k]
+              (recur (inc step)))))))))
+
+(deftest the-taxonomy-s-scoped-reads-answer-what-a-fresh-memo-answers-over-a-random-stream
+  ;; two seeds of the `^:slow` sweep, so `:default` runs the harness; both read a
+  ;; supporter of each relation through the roster for most of their writes.  The stream
+  ;; moves the roster by writes that move no edge, which the `:filter-active` memo and the
+  ;; closures under a map scope read through the visibility generation alone.
+  (is (nil? (tx-stream-mismatch 2 40)))
+  (is (nil? (tx-stream-mismatch 11 40)))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest ^:slow the-taxonomy-s-scoped-reads-answer-what-a-fresh-memo-answers-over-random-streams
+  (doseq [seed (range 12 36)]
+    (is (nil? (tx-stream-mismatch seed 60)) (str "seed " seed)))
+  (tu/clear-kb! (tu/test-kb)))
+
+;; ---- the candidate journal answers what a recompute answers ------------------
+
+(def ^:private jo-contexts '[CxJoTop CxJoA CxJoB CxJoAA])
+
+(defn- jo-setup!
+  "`CxJoA` and `CxJoB` under `CxJoTop`, `CxJoAA` under `CxJoA`, a mark of each tuple
+  family, the arguments of an inherited claim, two types under a third, two rules
+  concluding from a self tuple, so a candidate has consequences, and two fillers of one
+  determinant no context sees together."
+  [kb]
+  (let [m {:strength :monotonic}]
+    (doseq [[sub sup] '[[CxJoTop CxUniverse] [CxJoA CxJoTop] [CxJoB CxJoTop] [CxJoAA CxJoA]]]
+      (v/assert kb (list 'genlCx sub sup) 'CxUniverse m))
+    (doseq [s '[(irreflexive joSelf) (anti_symmetric joAnti) (functional joFun)
+                (anti_transitive joChain) (asymmetric joAsym) (binary_predicate joCarries)
+                (transitiveInArgInverse joCarries 1 genl) (genl joHauler animal) (genl joCart joHauler)
+                (genl jo_dog jo_animal) (genl jo_cat jo_animal) (genl joLenSub joLen)
+                (disjoint jo_pet jo_cat)]]
+      (v/assert kb s 'CxUniverse m))
+    (doseq [r '[(set/forwardRule (implies (joSelf ?x ?x) (jo_tagged ?x)))
+                (set/forwardRule (implies (jo_tagged ?x) (jo_tag_two ?x)))]]
+      (v/assert kb r 'CxJoTop m))
+    ;; two fillers a context edge the stream writes makes visible together
+    (v/assert kb '(joFun JoA JoB) 'CxJoAA)
+    (v/assert kb '(joFun JoA JoC) 'CxJoB)))
+
+(defn- jo-op
+  "One write of a stream over every family's candidates: the tuples each mark reads, a
+  predicate edge bringing a predicate under a mark, two length bindings a `genl` edge
+  pairs and the tuples they break, both polarities of a body, memberships and the
+  declarations over them, a type edge relating a separation's two types, a metatype and
+  its members in both polarities, an inherited
+  claim and its denials, an `except`, a context edge, and retractions.  A retraction
+  takes the sentence in whichever context holds it."
+  [^java.util.Random rng]
+  (let [ctx  #(nth jo-contexts (.nextInt rng (count jo-contexts)))
+        ind  #(nth '[JoA JoB JoC] (.nextInt rng 3))
+        str8 #(if (zero? (.nextInt rng 3)) {:strength :monotonic} {})
+        bin  (fn [f] (list f (ind) (ind)))
+        m    {:strength :monotonic}
+        op   (fn [s] [(if (zero? (.nextInt rng 3)) :retract :assert) s (ctx) (str8)])]
+    (case (.nextInt rng 19)
+      0  (op (let [x (ind)] (list 'joSelf x x)))
+      1  (op (bin 'joAnti))
+      2  (op (bin 'joFun))
+      3  (op (bin 'joChain))
+      4  (op (bin 'joAsym))
+      5  [(if (.nextBoolean rng) :assert :retract) '(genl joSub joSelf) (ctx) m]
+      6  (op (let [x (ind)] (list 'joSub x x)))
+      7  [(if (.nextBoolean rng) :assert :retract)
+          (if (.nextBoolean rng) '(arity joLen 2) '(arity joLenSub 3)) (ctx) m]
+      8  (op (list 'joLen (ind) (ind) (ind)))
+      9  (op (let [b (list 'jo_neg (ind))] (if (.nextBoolean rng) b (list 'not b))))
+      10 (op (list (if (.nextBoolean rng) 'jo_dog 'jo_cat) (ind)))
+      11 [(if (.nextBoolean rng) :assert :retract)
+          (nth '[(disjoint jo_dog jo_cat) (disjoint jo_dog jo_animal) (covering jo_animal jo_dog jo_cat)
+                 (covering jo_pet jo_dog jo_cat) (disjoint jo_pet jo_dog)]
+               (.nextInt rng 5))
+          (ctx) m]
+      12 (if (.nextBoolean rng)
+           [:assert '(joCarries joHauler JoBone) (ctx) m]
+           (op '(not (joCarries joCart JoBone))))
+      13 [:except (list 'joSelf (ind) (ind)) (ctx)]
+      14 [(if (.nextBoolean rng) :assert :retract) '(genlCx CxJoAA CxJoB) 'CxUniverse m]
+      15 [(if (.nextBoolean rng) :assert :retract) '(genl jo_cat jo_pet) (ctx) m]
+      16 (op (list 'joLenSub (ind) (ind)))
+      ;; a metatype's members support its clique with no write of their own
+      17 [(if (.nextBoolean rng) :assert :retract) '(disjoint_metatype jo_kind) 'CxUniverse m]
+      18 (op (let [b (list 'jo_kind (if (.nextBoolean rng) 'jo_dog 'jo_cat))]
+               (if (.nextBoolean rng) b (list 'not b)))))))
+
+(defn- jo-apply!
+  [kb [kind s c opts]]
+  (try (case kind
+         :assert  (v/assert kb s c opts)
+         :retract (some->> (some #(v/handle-of kb s %) (cons 'CxUniverse jo-contexts)) (v/retract! kb))
+         :except  (when-let [h (some #(v/handle-of kb s %) jo-contexts)]
+                    (v/assert kb (list 'except (sx/sentex-handle h)) c {:strength :monotonic})))
+       (catch clojure.lang.ExceptionInfo _ nil)))
+
+(defn- jo-by-context
+  "The candidates of `kb` by the context of their records, as `journal/indexed` keeps
+  them."
+  [kb]
+  (let [recs (:records kb)]
+    (reduce (fn [m h] (update m (:context (p/get-sentex recs h)) (fnil conj #{}) h))
+            {} (decide/candidate-handles kb))))
+
+(defn- jo-stream-mismatch
+  "The first `[step op what]` after which the candidates kept off the candidate journal,
+  or the candidates by context kept off it (`journal/indexed`), differ from a recompute,
+  over `steps` writes of `seed`'s stream, or nil.  The candidates are read from the last
+  position and the handles the journal names since."
+  [seed steps]
+  (let [kb  (tu/fresh)
+        rng (java.util.Random. (long seed))]
+    (jo-setup! kb)
+    (loop [step 0, cands (set (decide/candidate-handles kb)), at (journal/position (decide/synced kb))]
+      (when (< step steps)
+        (let [op (jo-op rng)
+              _  (jo-apply! kb op)
+              [c at' moved] (decide/moves kb at)
+              cands' (if moved
+                       (reduce #(if (decide/candidate? c %2) (conj %1 %2) (disj %1 %2)) cands moved)
+                       (set (decide/candidate-handles kb)))
+              bad    (cond
+                       (not= cands' (set (decide/candidate-handles kb)))                 :candidates
+                       (not= (:by (::journal/at (decide/synced kb))) (jo-by-context kb)) :by-context)]
+          (if bad [step op bad] (recur (inc step) cands' at')))))))
+
+(deftest the-candidate-journal-answers-what-a-recompute-answers-over-a-random-stream
+  ;; one seed of the `^:slow` sweep, so `:default` runs the harness; the second run
+  ;; holds the journal to a few handles, so a position falls out of it and the
+  ;; candidates are read whole again
+  (is (nil? (jo-stream-mismatch 0 40)))
+  (with-redefs [journal/bound 3]
+    (is (nil? (jo-stream-mismatch 0 40)) "with the journal restarted past three handles"))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest ^:slow the-candidate-journal-answers-what-a-recompute-answers-over-random-streams
+  (doseq [seed (range 1 25)]
+    (is (nil? (jo-stream-mismatch seed 60)) (str "seed " seed)))
+  (with-redefs [journal/bound 3]
+    (doseq [seed (range 25 31)]
+      (is (nil? (jo-stream-mismatch seed 60)) (str "seed " seed " with the journal restarted past three handles"))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-bulk-load-leaves-the-negation-candidates-and-nogoods-single-writes-leave
+  ;; Lattice: CxA and CxB under CxUniverse, CxD under both.  `(warm Sun)` in CxA and
+  ;; `(not (warm Sun))` in CxB form a negation pair at CxD.  The opposed family reads the
+  ;; trie when the second polarity is stored (`kv/opposed-adds`), so a bulk load
+  ;; whose reads missed its own writes would store both and keep no candidate.  On a
+  ;; backend with no bulk path, `with-bulk-writes` runs its body unchanged.
+  (tu/with-terms [warm Sun CxA CxB CxD]
+    (let [lattice! (fn [kb]
+                     (doseq [c [CxA CxB]] (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+                     (doseq [c [CxA CxB]] (v/assert kb (list 'genlCx CxD c) 'CxUniverse)))
+          content  (fn [kb h] (let [s (v/sentex kb h)] [(:sentence s) (:context s)]))
+          observe  (fn [kb]
+                     (let [bs (reads/as-stored-opposed-bodies (:index kb))]
+                       {:candidates (into #{} (comp (mapcat #(reads/as-stored-opposed-members (:index kb) %))
+                                                    (map #(content kb %)))
+                                          bs)
+                        :bodies     bs
+                        :placed     (into #{} (map #(tu/handle-free kb [(:sentence %) (:context %)]))
+                                          (v/sentexes-with-functor kb 'contradicts))}))
+          single   (let [kb (tu/fresh)]
+                     (lattice! kb)
+                     (v/assert kb (list warm Sun) CxA)
+                     (v/assert kb (list 'not (list warm Sun)) CxB)
+                     (observe kb))
+          bulk     (let [kb (tu/fresh)]
+                     (lattice! kb)
+                     (mem/with-bulk-writes (:backend (:index kb))
+                       (v/bulk-assert-facts! kb [(list warm Sun)] CxA)
+                       (v/bulk-assert-facts! kb [(list 'not (list warm Sun))] CxB))
+                     (observe kb))]
+      (testing "single writes keep the pair and place it, so the comparison is not vacuous"
+        (is (= #{[(list warm Sun) CxA] [(list 'not (list warm Sun)) CxB]} (:candidates single)))
+        (is (seq (:placed single))))
+      (is (= single bulk))))
   (tu/clear-kb! (tu/test-kb)))

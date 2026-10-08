@@ -1402,3 +1402,15 @@
                 {:entries (reduce + 0 (keep (fn [k]
                                               (some-> ^java.util.Map (:cache k) .size))
                                             (vals kinds)))}))})
+
+(caches/register-derived
+ {:id :R10 :label "Hot records" :cache :hot-records :kind :cache :keyed-by :handle
+  :reads [:records]
+  :retired-by {:stored :K :removed :K :respelled :K :cleared :W}
+  :computed :read :imaged? false
+  :value (fn [kb] (when-let [ks (:kinds (:records kb))]
+                    (into {} (keep (fn [[kind k]]
+                                     (when-let [^java.util.Map c (:cache k)]
+                                       [kind (locking c (into {} c))])))
+                          ks)))
+  :note "per kind, an access-ordered LRU of decoded records; disk stores only"})

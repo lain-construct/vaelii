@@ -40,10 +40,10 @@
     :title "A chain nobody stored"
     :shows "Two stored edges, one question they never state. Transitivity is a cached
             closure rather than a rule, so the answer costs a set lookup and no chaining
-            at all — and no (genl penguin animal) sentex is ever materialized."
+            at all — and no (genl penguin vertebrate) sentex is ever materialized."
     :rests-on [['(genl penguin bird) 'CxOrganism]
-               ['(genl bird animal) 'CxOrganism]]
-    :goal '(genl penguin animal) :context 'CxWell :expect :yes}
+               ['(genl bird vertebrate) 'CxOrganism]]
+    :goal '(genl penguin vertebrate) :context 'CxWell :expect :yes}
 
    {:id "disjoint-metatype" :group "Taxonomy"
     :title "Ten separations from one declaration"
@@ -59,12 +59,12 @@
    {:id "arg-preserving" :group "Taxonomy"
     :title "A claim about kinds, reaching kinds it never mentions"
     :shows "(largerThan mammal insect) is a claim about two kinds. Because largerThan is
-            declared transitiveInArg along genl on both positions, it answers about every
+            declared transitiveInArgInverse along genl on both positions, it answers about every
             pair of subkinds beneath it — here dogs and ants, about whose sizes the KB
             holds nothing whatever."
     :rests-on [['(largerThan mammal insect) 'CxSize]
-               ['(transitiveInArg largerThan 1 genl) 'CxAbstract]
-               ['(transitiveInArg largerThan 2 genl) 'CxAbstract]]
+               ['(transitiveInArgInverse largerThan 1 genl) 'CxAbstract]
+               ['(transitiveInArgInverse largerThan 2 genl) 'CxAbstract]]
     :goal '(largerThan dog ant) :context 'CxWell :expect :yes}
 
    {:id "arg-preserving-stops" :group "Taxonomy"
@@ -110,25 +110,25 @@
 
    {:id "part-type" :group "Predicates about predicates"
     :title "Preserved on one position and not the other"
-    :shows "Nobody wrote that penguins have wings. partType is declared transitiveInArg
+    :shows "Nobody wrote that penguins have wings. partType is declared transitiveInArgInverse
             along genl on its first position only, and that asymmetry is the claim: a
             kind of bird has whatever parts birds have, while birds having wings says
             nothing about which kinds of wing. Compare largerThan, which is declared on
             both — each position is a separate decision about the relation."
     :rests-on [['(partType bird wing) 'CxAnatomy]
-               ['(transitiveInArg partType 1 genl) 'CxAbstract]
+               ['(transitiveInArgInverse partType 1 genl) 'CxAbstract]
                ['(genl penguin bird) 'CxOrganism]]
     :goal '(partType penguin wing) :context 'CxWell :expect :yes}
 
    ;; ---- defaults and their exceptions ---------------------------------
    {:id "default-alive" :group "Defaults and exceptions"
     :title "Alive until told otherwise"
-    :shows "Nobody said Rex was alive. A default rule concludes it of every living
-            thing, and nothing about being a dog mentions living things — the rule's
+    :shows "Nobody said Rex was alive. A default rule concludes it of every
+            organism, and nothing about being a dog mentions organisms — the rule's
             antecedent is matched by fanning it out over the subtype closure. The
             conclusion is defeasible, which the next card is about."
     :rests-on [['(exceptWhen (dead ?x)
-                             (set/defaultRule (implies (and (living_thing ?x)) (alive ?x))))
+                             (set/defaultRule (implies (and (organism ?x)) (alive ?x))))
                 'CxBiology]]
     :premises '[(dog RexEx)]
     :goal '(alive RexEx) :expect :yes}
@@ -188,7 +188,7 @@
     :rests-on [['(implies (and (partOf ?part ?whole) (locatedIn ?whole ?place))
                           (locatedIn ?part ?place))
                 'CxMereology]]
-    :premises '[(vehicle CarEx) (artifact WheelEx) (building GarageEx)
+    :premises '[(vehicle CarEx) (made WheelEx) (building GarageEx)
                 (partOf WheelEx CarEx) (locatedIn CarEx GarageEx)]
     :goal '(locatedIn WheelEx GarageEx) :expect :yes}
 
@@ -198,7 +198,7 @@
             rule, and every part of everything anyone owns follows."
     :rests-on [['(implies (and (owns ?p ?whole) (partOf ?part ?whole)) (owns ?p ?part))
                 'CxMereology]]
-    :premises '[(person AdaEx) (vehicle CarEx) (artifact WheelEx)
+    :premises '[(person AdaEx) (vehicle CarEx) (made WheelEx)
                 (owns AdaEx CarEx) (partOf WheelEx CarEx)]
     :goal '(owns AdaEx WheelEx) :expect :yes}
 
@@ -240,16 +240,16 @@
     :refuse '(genl mammal dog)}
 
    {:id "argisa-refusal" :group "What it refuses"
-    :title "An argument the predicate's own type constraint forbids"
-    :shows "eats wants food in its second position, and a garage is a building. The
-            constraint is open-world — an argument whose type is unknown cannot violate
-            it — so this is refused for what the KB knows the garage to be, not for
-            what it has not been told."
-    :rests-on [['(arg eats 2 food) 'CxLife]
-               ['(genl building artifact) 'CxAbstract]]
-    :premises '[(dog RexEx) (building GarageEx)]
+    :title "A value the predicate's argument constraint cannot type"
+    :shows "eats wants food in its second position. A value is typed by its kind, which
+            the value itself states: 42 is an integer, and an integer is not food, so
+            the sentence is refused. A name in that position is not refused: the
+            constraint adds the type it names, so (eats RexEx GarageEx) is stored and
+            derives (food GarageEx)."
+    :rests-on [['(arg eats 2 food) 'CxLife]]
+    :premises '[(dog RexEx)]
     :kind :refusal
-    :refuse '(eats RexEx GarageEx)}
+    :refuse '(eats RexEx 42)}
 
    {:id "not-ground-refusal" :group "What it refuses"
     :title "A universal written as a fact"
@@ -257,7 +257,7 @@
             premise it would unify with any goal at all — a universal nobody licensed —
             so facts must be ground and universals are written as rules, where
             range-restriction governs the variables."
-    :rests-on [['(set/defaultRule (implies (and (living_thing ?x)) (mortal ?x)))
+    :rests-on [['(set/defaultRule (implies (and (organism ?x)) (mortal ?x)))
                 'CxBiology]]
     :kind :refusal
     :refuse '(mortal ?x)}])

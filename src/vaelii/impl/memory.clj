@@ -173,28 +173,24 @@
 
 (def ^:dynamic *bulk-txn*
   "During a bulk load, `{:state <the loaded backend's state atom> :txn <a volatile!
-  holding a transient of its map>}`.  While bound, **that** backend's *writes* land on
-  the transient (`assoc!` — no per-op HAMT path copy) and the whole load is one
-  `persistent!` at the end, instead of a `swap!` per fact.  nil (the default) leaves
-  every op on the persistent atom, so nothing outside a bulk load pays for the binding's
-  existence — and *reads* go to the backing atom in both modes, so the query hot path
-  never branches on it.  The backing atom is therefore stale for the life of
-  the load: correct only because the sole mid-load reader (`note-opposed`'s `[:false b]`
-  probe) reads the always-empty negative side, and every real read happens after the
-  closing `persistent!`.  Use `with-bulk-writes` for a positive/monotonic, distinct load;
-  a corpus with `(not …)` facts must `rebuild-opposed!` after it (the atom the opposed
-  set is derived from was stale during the load).
+  holding a transient of its map>}`.  While bound, **that** backend's writes land on the
+  transient (`assoc!` — no per-op HAMT path copy) and its reads answer from the same
+  transient, so a read inside the load sees every write the load made.  The whole load is
+  one `persistent!` at the end instead of a `swap!` per fact.  nil (the default) leaves
+  every op on the persistent atom; a read outside a load pays one read of this var and,
+  inside one, an `identical?` check.  Use `with-bulk-writes` for a distinct load.
 
   The binding names the backend it is for, because a dynamic binding is per *thread*,
   not per backend: a write this thread makes to any other `MemoryKvBackend` while the
   load runs — a second KB's index, a chaining callback asserting elsewhere — lands on
-  that backend's own atom (`txn-for`), never on the loaded one's transient.
+  that backend's own atom (`txn-for`), never on the loaded one's transient.  A reader on
+  another thread reads the atom, which holds the state before the load.
 
   **The accumulator's life is the batch's, and no longer.**  `with-bulk-writes` clears
   the volatile as it installs, so the binding a body conveyed somewhere — a future, a
   lazy seq realized afterwards — finds nothing to write on and takes the atom, which is
   where a write outside the batch belongs.  A transient reached after its `persistent!`
-  is not a slow write but a thrown one, and on a path nobody expected to be able to throw."
+  throws."
   nil)
 
 (defn- txn-for
@@ -206,16 +202,22 @@
     (when (identical? (:state b) state)
       (when (some? @(:txn b)) (:txn b)))))
 
+(defn- current
+  "The map a read of the backend over `state` answers from: the open bulk transient when
+  this thread is loading into that backend (`txn-for`), else the atom's value.  A
+  transient answers `get`, `contains?` and `count`, the three lookups the reads make."
+  [state]
+  (if-let [tv (txn-for state)] @tv @state))
+
 (defn- mem-op!
   "The transient twin of `kv/apply-op`: apply one write op to transient map `t`, returning
-  the new transient (a transient op's return must be captured).  No reply is computed —
-  the bulk caller (`index-sentex`) ignores them, and `kv-batch`'s ordinary fold reads a
-  counter's value back off the transient.  The set *values* stay persistent;
-  it is the millions-of-keys map that is transient.
+  the new transient (a transient op's return must be captured).  No reply is computed;
+  `fold-ops` reads a counter's value back off the transient.  The set *values* stay
+  persistent; it is the millions-of-keys map that is transient.
 
   That trade is right for the trie's child and leaf sets, which are small.  It is not
   free for the secondary roots the same op writes: `[:context-root …]`,
-  `[:functor-root …]` and the term index grow to the size of the KB, so each `conj` here
+  `[:predicate-extent …]` and the term index grow to the size of the KB, so each `conj` here
   is a path copy in a HAMT of that size, per fact loaded.  Making those transient too
   would mean a second representation for reads to know about, which is the cost this
   declines rather than one it avoids."
@@ -232,14 +234,26 @@
                        (if (empty? s) (dissoc! t k) (assoc! t k s)))
     (p/unknown-op! op)))
 
-;; Writes consult `*bulk-txn*`: bound (a bulk load), they land on the transient; nil
-;; (everything else), the persistent atom, byte-for-byte the unbatched path.  Reads are
-;; NOT bulk-aware — they read the atom in both modes, so the query hot path is untouched;
-;; the atom is stale only for the life of a bulk load, and `with-bulk-writes` documents
-;; why that is sound (positive load; every real read is post-load).
+(defn- fold-ops
+  "Fold `ops` into transient `t` (`mem-op!`), returning `[t' replies]`: a counter op's
+  reply is its value after the op, read back off the transient, and every other op's is
+  nil."
+  [t ops]
+  (let [rs (java.util.ArrayList.)
+        t  (reduce (fn [t [op k :as o]]
+                     (let [t' (mem-op! t o)]
+                       (.add rs (when (or (identical? op :increment) (identical? op :decrement))
+                                  (get t' k)))
+                       t'))
+                   t ops)]
+    [t (vec rs)]))
+
+;; Every op consults `*bulk-txn*`: bound (a bulk load over this backend), a write lands on
+;; the transient and a read answers from it (`current`); nil (everything else), both use
+;; the persistent atom, byte-for-byte the unbatched path.
 (defrecord MemoryKvBackend [state]
   p/KvBackend
-  (kv-get  [_ k] (get @state k))
+  (kv-get  [_ k] (get (current state) k))
   (kv-put  [_ k v]
     (if-let [tv (txn-for state)] (vswap! tv assoc! k v) (swap! state assoc k v))
     nil)
@@ -270,46 +284,38 @@
                        (if (empty? s) (dissoc st k) (assoc st k s))))))
     nil)
   ;; the stored set by reference — the O(1) return the in-memory backend is for
-  (kv-members [_ k] (get @state k #{}))
-  ;; a hash lookup into the stored set, the same read `kv-members` hands back — bulk-blind
-  ;; like every other read here, so it agrees with `kv-members` in both modes
-  (kv-member? [_ k m] (contains? (get @state k) m))
-  (kv-count    [_ k]  (count (get @state k)))
+  (kv-members [_ k] (get (current state) k #{}))
+  ;; a hash lookup into the stored set, the same read `kv-members` hands back
+  (kv-member? [_ k m] (contains? (get (current state) k) m))
+  (kv-count    [_ k]  (count (get (current state) k)))
   (kv-intersect [_ ks]
     (if (empty? ks)
       #{}
-      (let [st @state]
+      (let [st (current state)]
         (apply set/intersection (map (fn [k] (get st k #{})) ks)))))
+  ;; Every op of a batch folds through one transient (`fold-ops`): the bulk load's own,
+  ;; or else one taken off the state map inside one swap!.  One assert's index write is
+  ;; some twenty ops into one map, and folded persistently each op copies the path from
+  ;; the root down; folded through a transient a node is copied once per batch.  The
+  ;; replies are captured again on each swap attempt, so a retry (never, under
+  ;; single-writer) cannot double-count.
   (kv-batch [_ ops]
     (if-let [tv (txn-for state)]
-      ;; bulk load: fold every op into the transient (no per-op path copy, no swap!);
-      ;; index-sentex ignores the replies, so return the aligned nil placeholders.
-      (do (vswap! tv (fn [t] (reduce mem-op! t ops))) (mapv (fn [_#] nil) ops))
-      ;; apply every op in one swap!, over one transient of the state map, capturing the
-      ;; per-op replies.  One assert's index write is some twenty ops into one map, and
-      ;; folded persistently each op copies the path from the root down; folded through
-      ;; a transient a node is copied once per batch.  The ops mean what `mem-op!` says,
-      ;; which is `kv/apply-op`'s transient twin, and a counter's reply is its value
-      ;; after the op, read back off the transient.  The capture is recomputed each swap
-      ;; attempt, so a retry (never, under single-writer) cannot double-count.
+      (let [[t rs] (fold-ops @tv ops)] (vreset! tv t) rs)
       (let [replies (volatile! nil)]
-        (swap! state
-               (fn [m]
-                 (let [rs (java.util.ArrayList.)
-                       t  (reduce (fn [t [op k :as o]]
-                                    (let [t' (mem-op! t o)]
-                                      (.add rs (when (or (identical? op :increment)
-                                                         (identical? op :decrement))
-                                                 (get t' k)))
-                                      t'))
-                                  (transient m) ops)]
-                   (vreset! replies (vec rs))
-                   (persistent! t))))
+        (swap! state (fn [m] (let [[t rs] (fold-ops (transient m) ops)]
+                               (vreset! replies rs)
+                               (persistent! t))))
         @replies)))
   ;; this backend's resident shape *is* the portable one — structured vector keys,
   ;; Clojure sets and Longs — so both directions are the map itself, with no key
-  ;; reshaped on the way through
-  (kv-entries [_] (seq @state))
+  ;; reshaped on the way through.  A transient does not enumerate, so inside a load this
+  ;; persists the accumulator and opens a new transient over the result, both O(1); the
+  ;; load's next write to each path copies that path once more.
+  (kv-entries [_]
+    (if-let [tv (txn-for state)]
+      (let [m (persistent! @tv)] (vreset! tv (transient m)) (seq m))
+      (seq @state)))
   (kv-load [_ entries] (swap! state into entries) nil)
 
   (kv-clear! [_] (reset! state {}) nil))
@@ -362,10 +368,9 @@
   map, persisted back in a single step at the end — the write-side fast path for a bulk
   load (millions of trie `assoc!`s with no per-op HAMT path copy, one `persistent!`
   instead of a `swap!` per fact).  A no-op wrapper unless `backend` is a MemoryKvBackend,
-  so a non-memory store (disk) just runs `body` on its own batched path.  See `*bulk-txn*`
-  for the read-staleness contract: a positive/monotonic, distinct load only; a corpus
-  with `(not …)` facts must `rebuild-opposed!` after; and `bulk-writes*`, which this
-  delegates to, for what keeps the accumulator the batch's own."
+  so a non-memory store (disk) just runs `body` on its own batched path.  A read of
+  `backend` inside `body` sees the writes `body` made (`*bulk-txn*`); `bulk-writes*`,
+  which this delegates to, keeps the accumulator the batch's own."
   [backend & body]
   `(let [bk# ~backend]
      (if (instance? vaelii.impl.memory.MemoryKvBackend bk#)

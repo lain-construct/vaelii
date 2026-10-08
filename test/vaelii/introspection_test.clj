@@ -78,35 +78,37 @@
        (is (empty? (v/violations kb)))))))
 
 (tu/deftest-kb every-definitional-check-reports-through-the-same-ledger
-  ;; `place-conclusion` runs four checks on the derivation path — the three
-  ;; definitional constraints plus structural well-formedness — and drops rather than
-  ;; throws, because a fixpoint cannot abort halfway through one.  Only `:disjoint`
-  ;; was covered; a check that stopped reporting (or reported under the wrong key)
-  ;; would be invisible, since the conclusion is absent either way.
-  (testing "an arg violation"
-    (tu/with-terms [parentOf person rock looksLike Boulder Muffet]
-      (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-      (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
-      (v/assert kb (list rock Boulder) 'CxUniverse)
-      (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
-      (v/assert kb (list looksLike Boulder) 'CxUniverse)
-      (is (= [:arg-type] (map :violation (v/violations kb))))
-      (is (empty? (v/sentexes-matching kb (list parentOf Boulder Muffet) 'CxUniverse)))))
+  ;; the constraint-only reading: the arg row is a conviction there
+  (tu/without-entailing
+   ;; `place-conclusion` runs four checks on the derivation path — the three
+   ;; definitional constraints plus structural well-formedness — and drops rather than
+   ;; throws, because a fixpoint cannot abort halfway through one.  Only `:disjoint`
+   ;; was covered; a check that stopped reporting (or reported under the wrong key)
+   ;; would be invisible, since the conclusion is absent either way.
+   (testing "an arg violation"
+     (tu/with-terms [parentOf person rock looksLike Boulder Muffet]
+       (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
+       (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
+       (v/assert kb (list rock Boulder) 'CxUniverse)
+       (v/assert kb (fwd [(list looksLike '?x)] (list parentOf '?x Muffet)) 'CxUniverse)
+       (v/assert kb (list looksLike Boulder) 'CxUniverse)
+       (is (= [:arg-type] (map :violation (v/violations kb))))
+       (is (empty? (v/sentexes-matching kb (list parentOf Boulder Muffet) 'CxUniverse)))))
 
-  ;; No `:functional` case here on purpose.  `functional` is mid-redesign: a clash
-  ;; between two *symbol* values now derives `(equals V1 V2)` and merges them rather
-  ;; than being rejected (docs/equality.md), so a derived second value is not a
-  ;; violation at all — only a clash between non-symbols is.  Pinning either
-  ;; reading here would just be a hostage to that work.
+   ;; No `:functional` case here on purpose.  `functional` is mid-redesign: a clash
+   ;; between two *symbol* values now derives `(equals V1 V2)` and merges them rather
+   ;; than being rejected (docs/equality.md), so a derived second value is not a
+   ;; violation at all — only a clash between non-symbols is.  Pinning either
+   ;; reading here would just be a hostage to that work.
 
-  (testing "a derived genl edge that would cycle the taxonomy"
-    (v/clear-violations! kb)          ; the ledger accumulates; scope to this stage
-    (tu/with-terms [dog animal relates]
-      (v/assert kb (list 'genl dog animal) 'CxUniverse)
-      (v/assert kb (fwd [(list relates '?x '?y)] (list 'genl '?x '?y)) 'CxUniverse)
-      (v/assert kb (list relates animal dog) 'CxUniverse)
-      (is (= [:not-well-formed] (map :violation (v/violations kb))))
-      (is (not (v/genl? kb animal dog)) "and the closure is intact"))))
+   (testing "a derived genl edge that would cycle the taxonomy"
+     (v/clear-violations! kb)          ; the ledger accumulates; scope to this stage
+     (tu/with-terms [dog animal relates]
+       (v/assert kb (list 'genl dog animal) 'CxUniverse)
+       (v/assert kb (fwd [(list relates '?x '?y)] (list 'genl '?x '?y)) 'CxUniverse)
+       (v/assert kb (list relates animal dog) 'CxUniverse)
+       (is (= [:not-well-formed] (map :violation (v/violations kb))))
+       (is (not (v/genl? kb animal dog)) "and the closure is intact")))))
 
 (tu/deftest-kb a-clean-run-reports-no-violations
   (tu/with-terms [bird flies Robin]

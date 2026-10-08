@@ -35,42 +35,79 @@
     [:unclassified k]
     (case (nth k 0)
       :trie            [:trie (nth k 1)]
-      :rule-index      [:rule-index (nth k 1)]
+      (:argument-root :predicate-extent :rule-antecedent :rule-consequent :rule-extent
+                      :opposed :tax-support :mint :mint-in :self-tuple)
+      [(nth k 0) (nth k 1)]
       :exception-index (if (= :rules (nth k 1)) [:exception-index :rules] [:exception-index :predicate])
-      (:context-root :functor-root :argument-root :argument-slot :unary-slot
-                     :term-index :term-roster)
+      (:context-root :argument-slot :unary-slot :term-index :term-roster :rule-antecedent-keys
+                     :opposed-in :opposed-bodies :tax-installs :mint-terms :unary-multi
+                     :shape-count :shape-lengths)
       [(nth k 0)]
       [:unclassified k])))
 
 (def ^:private handle-families
   "Families whose value is a set of **handles** — the ones a dense backend must pack into
   int postings.  Handles fit an `int`, which is what makes packing possible at all."
-  #{[:trie :handles]
-    [:context-root] [:functor-root] [:argument-root] [:term-index]
-    [:rule-index :antecedent] [:rule-index :consequent]
+  #{[:trie :handles] [:argument-root :handles] [:predicate-extent :handles]
+    [:context-root] [:term-index]
+    [:rule-antecedent :handles] [:rule-consequent :handles] [:rule-extent :handles]
+    [:opposed :handles] [:opposed-in] [:self-tuple :handles]
+    [:tax-support :handles] [:mint :handles] [:mint-in :handles]
     [:exception-index :predicate] [:exception-index :rules]})
 
+(def ^:private count-families
+  "Families whose value is a subtree count — an integer, a plain counter where a backend
+  stores it.  `dense-roots` stores no argument-node count and answers it from the node's
+  leaves, so on the columnar store it is read through `kv-get` and found in neither the
+  packed map nor the fallback.  The other three count tries' counts, one per predicate or
+  rule key, are counters in its fallback."
+  #{[:trie :count] [:argument-root :count] [:predicate-extent :count]
+    [:rule-antecedent :count] [:rule-consequent :count] [:rule-extent :count]
+    [:opposed :count] [:tax-support :count] [:mint :count] [:mint-in :count] [:shape-count]
+    [:self-tuple :count]})
+
 (def ^:private other-families
-  "Families whose value is deliberately *not* a handle set, so packing them would be
-  wrong rather than merely unrealized: a subtree count (an integer), the trie's child
-  labels (path tokens — numbers among them, which is the case a value-type dispatch
-  would misclassify), the roster (term *names*), and the two slot rosters (*predicates*
-  present at a slot, and those a term is the lone argument of — names, like the term
-  roster's members)."
-  #{[:trie :count] [:trie :children] [:term-roster] [:argument-slot] [:unary-slot]})
+  "Families whose value is deliberately *not* a handle set, so packing them as handles
+  would be wrong rather than merely unrealized: the counts, the trie's child labels (path
+  tokens — numbers among them, which is the case a value-type dispatch would
+  misclassify), an argument node's children (contexts), the roster (term *names*), and
+  the two slot rosters (*predicates* present at a slot, and those a term is the lone
+  argument of — names, like the term roster's members)."
+  (into #{[:trie :children] [:argument-root :children] [:predicate-extent :children]
+          [:rule-antecedent :children] [:rule-consequent :children] [:rule-extent :children]
+          [:opposed :children] [:self-tuple :children] [:term-roster] [:argument-slot] [:unary-slot]
+          [:rule-antecedent-keys] [:opposed-bodies]
+          [:tax-support :children] [:tax-installs]
+          [:mint :children] [:mint-in :children] [:mint-terms] [:unary-multi] [:shape-lengths]}
+        count-families))
+
+(def ^:private interned-name-families
+  "Name families the columnar roots pack anyway: a count trie's node children are
+  contexts, and `dense-roots` holds each as its id in the shared token dictionary, in a
+  posting under a packed key (an argument node's carries its interned `(pred, pos)`
+  scope), so the family's per-node mass is ints rather than a boxed key and set in the
+  fallback."
+  #{[:argument-root :children] [:predicate-extent :children] [:rule-antecedent :children]
+    [:rule-consequent :children] [:rule-extent :children] [:opposed :children]
+    [:mint :children] [:self-tuple :children]})
 
 (def ^:private unpackable-handle-families
   "Handle families the dense layout cannot int-route, and why.
 
-  Empty, and that is a claim worth checking rather than a blank: **every** handle family
-  packs. The one that carries two names — `[:argument-root pred pos term]`, index layout
-  2 in `kv.clj` — packs because its `(pred, pos)` scope is interned to a dense id of its
-  own and rides the `pos` field (`dense-roots`' `argfam-id`), so the packed long spends
-  family 8 bits | scope 24 | term id 32 and no family is left keyed by a boxed vector.
+  One, the taxonomy's supporter leaves; every other handle family packs. The one that
+  carries the most names — the argument trie's leaf
+  `[:argument-root :handles [pred pos term ctx]]`, index layout 4 in `kv.clj` — packs
+  because its `(pred, pos, ctx)` scope is interned to a dense id of its own and rides the
+  `pos` field (`dense-roots`' `argfam-id`), so the packed long spends family 8 bits |
+  scope 24 | term id 32 and no family is left keyed by a boxed vector.
 
   A family added here must state which of the two it lacks: a term the shared dictionary
-  can intern, or a field in the packed long to put it in."
-  #{})
+  can intern, or a field in the packed long to put it in.
+
+  `[:tax-support :handles [k ctx]]` lacks the term: its node `k` is a taxonomy key, a
+  vector such as `[:genl a b]` or `[:disjoint #{a b}]`, which the dictionary does not
+  intern."
+  #{[:tax-support :handles]})
 
 ;;; ── the KB, and the backends under test ───────────────────────────────
 
@@ -83,14 +120,17 @@
 
 (defn- build!
   "One KB touching every index family: a ragged trie (a numeric token, a negative fact),
-  all three roots, both halves of the rule index, both halves of the exception index, the
-  term index and the roster.  A family the fixture never writes cannot be checked, so the
+  the context root, the argument trie and the predicate extent, both rule indexes, both halves of the exception index, the
+  term index and the roster, and the mint family, which an argument declaration's mint
+  writes with the entailment pinned on.  A family the fixture never writes cannot be checked, so the
   completeness assertion below fails when the fixture misses a family."
   [kb]
   (tu/with-terms [bird penguin animal flies feathered parentOf grandparentOf
                   Tweety Opus Ann Bob Cid CxRouting]
     (v/assert kb (list 'genl penguin bird) CxRouting {:strength :monotonic})
     (v/assert kb (list 'genl bird animal) CxRouting {:strength :monotonic})
+    (v/assert kb (list 'genl animal 'thing) CxRouting {:strength :monotonic})
+    (v/assert kb (list 'arg parentOf 1 animal) CxRouting {:strength :monotonic})
     ;; a rule with an exception — the rule index and both exception-index halves
     (v/assert kb (list 'exceptWhen (list penguin '?b)
                        (list 'set/defaultRule
@@ -103,10 +143,15 @@
     (v/assert kb (list feathered Tweety) CxRouting)
     (v/assert kb (list bird Opus) CxRouting)
     (v/assert kb (list penguin Opus) CxRouting)
-    (v/assert kb (list parentOf Ann Bob) CxRouting)
-    (v/assert kb (list parentOf Bob Cid) CxRouting)
+    (tu/with-entailing
+      (v/assert kb (list parentOf Ann Bob) CxRouting)
+      (v/assert kb (list parentOf Bob Cid) CxRouting))
     (v/assert kb (list 'bornInYear Tweety 1970) CxRouting)   ; a numeric trie token
-    (v/assert kb (list 'not (list feathered Opus)) CxRouting)))
+    (v/assert kb (list 'not (list feathered Opus)) CxRouting)
+    ;; a body stored in both polarities: the opposed family
+    (v/assert kb (list feathered Opus) CxRouting)
+    ;; a ground binary self tuple: the self-tuple trie
+    (v/assert kb (list parentOf Cid Cid) CxRouting)))
 
 (defn- families-present
   "The families the built index actually holds, with one representative key each."
@@ -151,7 +196,7 @@
                      (some-> v class .getSimpleName)
                      " — the router does not recognize the key, so it took the fallback"))
 
-            (= [:trie :count] fam)
+            (count-families fam)
             (is (number? v) (str fam " should be a plain counter"))
 
             :else
@@ -174,15 +219,23 @@
     (doseq [[fam k] (sort-by (comp str key) present)
             :when   (not= :trie (first fam))]      ; the columnar trie is native; no [:trie …] key reaches the roots
       (testing (pr-str fam)
-        (is (seq (p/kv-members roots k)) (str fam " is missing from the roots backend"))
-        (if (and (handle-families fam) (not (unpackable-handle-families fam)))
-          (is (nil? (p/kv-get roots k))
-              (str fam " is a handle family but " (pr-str k) " is readable through `kv-get`"
-                   " — it sits in the fallback backend, un-interned and boxed"))
-          (is (some? (p/kv-get roots k))
-              (str fam " must stay in the fallback — it is either not a handle family"
-                   " or one the packed layout cannot carry (see"
-                   " `unpackable-handle-families`)")))))
+        (cond
+          (count-families fam)
+          (is (pos? (long (p/kv-get roots k))) (str fam " answers the node's count"))
+
+          (or (and (handle-families fam) (not (unpackable-handle-families fam)))
+              (interned-name-families fam))
+          (do (is (seq (p/kv-members roots k)) (str fam " is missing from the roots backend"))
+              (is (nil? (p/kv-get roots k))
+                  (str fam " is a packed family but " (pr-str k) " is readable through `kv-get`"
+                       " — it sits in the fallback backend, un-interned and boxed")))
+
+          :else
+          (do (is (seq (p/kv-members roots k)) (str fam " is missing from the roots backend"))
+              (is (some? (p/kv-get roots k))
+                  (str fam " must stay in the fallback — it is either not a handle family"
+                       " or one the packed layout cannot carry (see"
+                       " `unpackable-handle-families`)"))))))
     ;; and the trie families really are elsewhere — the roots hold no path keys at all
     (doseq [[fam k] present :when (= :trie (first fam))]
       (is (empty? (p/kv-members roots k))

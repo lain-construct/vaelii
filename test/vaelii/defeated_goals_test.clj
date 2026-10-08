@@ -149,3 +149,30 @@
       (is (empty? (v/prove kb [(list flies Tweety)] CxClash))))
     (testing "and its sibling, which cannot see the clash, still does"
       (is (seq (v/prove kb [(list flies Tweety)] CxCalm))))))
+
+(tu/deftest-kb a-guard-defeat-withholds-one-firing-so-a-backward-rule-still-answers-below-it
+  ;; CxB sees CxA.  CxA holds (pp Zed), (tt Zed), the forward G, (pp ?x) exceptWhen (qq ?x)
+  ;; => (rr ?x), and the backward H, (pp ?x) & (tt ?x) => (rr ?x).  (qq Zed) in CxB places
+  ;; a guard defeat of G's firing there.  H's derivation is not G's firing, so no guard
+  ;; covers it at CxB.
+  (doseq [g? [true false]]
+    (tu/with-terms [pp qq rr tt Zed CxA CxB]
+      (let [hs (cond-> [(v/assert kb (list 'genlCx CxB CxA) C {:strength :monotonic})
+                        (v/assert kb (list pp Zed) CxA)
+                        (v/assert kb (list tt Zed) CxA)
+                        (v/assert-rule kb [(list pp '?x) (list tt '?x)] (list rr '?x) CxA
+                                       {:direction :backward})
+                        (v/assert kb (list qq Zed) CxB)]
+                 g? (conj (v/assert kb (list 'exceptWhen (list qq '?x)
+                                             (list 'set/forwardRule
+                                                   (list 'implies (list pp '?x) (list rr '?x))))
+                                    CxA)))]
+        (testing (if g? "with G" "without G")
+          (when g?
+            (let [f (v/handle-of kb (list rr Zed) CxA)]
+              (is (= [true false] [(v/believed? kb f CxA) (v/believed? kb f CxB)]))))
+          (is (seq (v/prove kb [(list rr Zed)] CxB)))
+          (doseq [engine [:dfs :inference :hybrid]]
+            (binding [v/*query-engine* engine]
+              (is (seq (v/query kb [(list rr Zed)] CxB {:max-depth 3})) (str engine)))))
+        (doseq [h (rseq hs)] (when (v/sentex kb h) (v/retract! kb h)))))))

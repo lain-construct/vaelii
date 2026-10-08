@@ -264,6 +264,20 @@
       (is (= 3 (:rooted t)) "known unary and unknown types both remain")
       (is (= 2 (:islands t)) "untyped disconnected islands are still findings"))))
 
+(tu/deftest-kb taxonomy-coverage-excludes-a-sub-relation-edge-between-variable-arity-relations
+  ;; `(genl partition covering)` is an edge between two relations, not two types: neither
+  ;; has an exact arity, so the unique-arity exclusion above does not reach them, and
+  ;; counting them made a true sub-relation edge read as a two-node island.
+  (tu/with-terms [root_type leaf_type covers splits]
+    (v/assert kb (list 'genl leaf_type root_type) 'CxUniverse)
+    (doseq [relation [covers splits]]
+      (v/assert kb (list 'variable_arity relation) 'CxUniverse))
+    (v/assert kb (list 'genl splits covers) 'CxUniverse)
+    (let [t (:taxonomy (v/kb-quality kb))]
+      (is (= root_type (:root t)))
+      (is (= 2 (:edged t)) "the two relations are not type nodes")
+      (is (= 0 (:islands t)) "so their edge is not an island"))))
+
 ;; ---- the options, and the emitter ----------------------------------------
 
 (tu/deftest-kb an-option-nothing-reads-and-a-bound-that-is-not-one-are-refused

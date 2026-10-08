@@ -5,8 +5,8 @@
 
   Everything the index holds — the trie, the secondary roots, the rule index, the
   exception re-check index, the inverted term index — is *derived* from the
-  stored sentexes, so the repair for a damaged or stale index is mechanical:
-  clear it and re-derive every entry.  Three situations need it:
+  stored sentexes, and the mint family from the stored justifications, so the repair
+  for a damaged or stale index is mechanical: clear it and re-derive every entry.  Three situations need it:
 
   * a crash between the record write and the index pipeline (`assert` spans both
     stores; each side is a single pipeline, but the boundary between them remains)
@@ -19,7 +19,7 @@
     than an audit.
 
   Run `core/recover` afterwards: it rebuilds the TMS and taxonomy from the
-  stores, and parts of that rebuild (`rebuild-taxonomy` reads the functor root)
+  stores, and parts of that rebuild (`rebuild-taxonomy` reads the predicate extents)
   read the very index this restores.
 
   Named bare, like `recover`: the `!` convention marks destruction of stored
@@ -29,7 +29,8 @@
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as rules]
-            [vaelii.impl.sentex :as sx]))
+            [vaelii.impl.sentex :as sx]
+            [vaelii.impl.special :as special]))
 
 (defn- index-rule-entry
   "Register a rule the way `special/index-rule-sentex` does: under all its
@@ -43,7 +44,8 @@
   [index handle rule-sentex]
   (p/index-rule index handle
                 (rules/antecedent-keys (:antecedent rule-sentex))
-                (rules/consequent-index-pred rule-sentex))
+                (rules/consequent-index-pred rule-sentex)
+                (:context rule-sentex))
   (when (rules/rechecked? rule-sentex)
     (p/index-exception index handle (rules/recheck-predicates rule-sentex))))
 
@@ -73,27 +75,47 @@
       (sx/exceptWhen-meta? (:sentence sx)) (index-exceptWhen-entry index sx))
     rule?))
 
+(defn- mint-conclusions
+  "The handles the stored justifications `special/mint-informant?` accepts conclude: one
+  fetch per stored justification, chunk-hinted as `recover`'s walk is."
+  [records]
+  (into #{}
+        (comp (keep #(p/get-justification records %))
+              (filter #(special/mint-informant? (:informant %)))
+              (map :consequence))
+        (cap/hinting (cap/justification-prefetcher records) cap/recovery-hint-chunk
+                     (p/justification-ids records))))
+
 (defn reindex
-  "Flush the index store and rebuild every entry from the stored sentexes.
-  Returns {:sentexes n :rules n}."
+  "Flush the index store and rebuild every entry from the stored sentexes: each record's
+  own entries (`index-one!`) and its mint family entry, then the taxonomy's supporter
+  families (`special/post-taxonomy-supporters!`).  The mint family is read from the stored
+  justifications, walked first, so each mint is posted from the record the sentex walk
+  holds.  Returns {:sentexes n :rules n}."
   [kb]
   (let [records (:records kb)
-        index   (:index kb)]
+        index   (:index kb)
+        minted  (mint-conclusions records)]
     (p/clear-index! index)
     ;; the index moves wholesale here rather than through the per-sentex choke point, so
     ;; the clock a resident derived structure stamps itself with is bumped by hand — as
     ;; `core/clear!` does, and for the same reason
     (observe/note-change)
-    (reduce
-     (fn [acc h]
-       (if-let [sx (p/get-sentex records h)]
-         (cond-> (update acc :sentexes inc)
-           (index-one! index sx h) (update :rules inc))
-         acc))
-     {:sentexes 0 :rules 0}
-     ;; A walk that fetches every live record, so a store that can warm many at one cost
-     ;; is told a chunk ahead (`protocols/Prefetching`).  Ungated, unlike the query path's
-     ;; hint: this walk consumes every handle it is given, so a hint here can save round
-     ;; trips and cannot waste one.  Nil for every store that does not prefetch, which is
-     ;; every store the engine ships, and then this is `(p/sentex-ids records)`.
-     (cap/hinting (cap/prefetcher records) cap/recovery-hint-chunk (p/sentex-ids records)))))
+    (let [counts
+          (reduce
+           (fn [acc h]
+             (if-let [sx (p/get-sentex records h)]
+               (do (when (contains? minted h)
+                     (special/post-mint! index (sx/sentence-of sx) (:context sx) h))
+                   (cond-> (update acc :sentexes inc)
+                     (index-one! index sx h) (update :rules inc)))
+               acc))
+           {:sentexes 0 :rules 0}
+           ;; A walk that fetches every live record, so a store that can warm many at one cost
+           ;; is told a chunk ahead (`protocols/Prefetching`).  Ungated, unlike the query path's
+           ;; hint: this walk consumes every handle it is given, so a hint here can save round
+           ;; trips and cannot waste one.  Nil for every store that does not prefetch, which is
+           ;; every store the engine ships, and then this is `(p/sentex-ids records)`.
+           (cap/hinting (cap/prefetcher records) cap/recovery-hint-chunk (p/sentex-ids records)))]
+      (special/post-taxonomy-supporters! kb)
+      counts)))

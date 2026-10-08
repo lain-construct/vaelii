@@ -30,7 +30,7 @@ mechanism and nothing else.
 | L | name | adds | built on |
 |---|------|------|----------|
 | 0 | `:raw` | nothing — handles at an index location | `p/lookup` |
-| 1 | `:extent` | one literal context, narrowed by functor | the context + functor roots |
+| 1 | `:extent` | one literal context, narrowed by functor | the context root + predicate extent |
 | 2 | `:local` | unification + the symmetric mirror | `res/raw-match` |
 | 3 | `:visible` | context inheritance (`genlCx` up-closure) | `res/raw-match` per context |
 | 4 | `:typed` | predicate inheritance (the `genl` spec walk) | `res/matches-visible` |
@@ -44,7 +44,7 @@ interprets nothing — not belief, not polarity, not the goal's arguments beyond
 the path encodes.
 
 Level 1 is candidate retrieval, not matching: it intersects the context root with
-the functor root and does **not** look at arguments. Both roots carry O(1)
+the predicate extent and does **not** look at arguments. Both carry O(1)
 cardinality, so it drives from whichever is smaller.
 
 Level 3's fan-out up the `genlCx` ancestor set is also what *creates* a retired spelling,
@@ -72,14 +72,14 @@ storage one, which is why levels 2–5 match the goal as written.
 `res/raw-match`: one literal context, no subtype fan-out, unification, the symmetric
 mirror, belief-filtered. So a `sentexes-matching` pinning an argument *after* a variable
 (`(parentOf ?x Tom)`) shares `match-one`'s argument-root divert — it reads the
-predicate-scoped argument root (`[:argument-root parentOf 2 Tom]`) instead of fanning
+predicate-scoped argument root (the node `[parentOf 2 Tom]`) instead of fanning
 the whole first-argument column — while a fully-ground or left-prefixed query keeps the trie,
 none of which `sentexes-matching` has to know about.
 
 It adds exactly three things level 2 does not, all **questions about truth** rather than
 about storage:
 
-- the **`except` visibility filter** (`res/without-excepted`) — a believed
+- the **`except` visibility filter** (`exc/without-excepted`) — a believed
   `(except (sentexHandle H))` visible from the query context hides `H` there and in
   every context that sees it ([contexts.md](contexts.md));
 - the **retired-spelling filter** (`res/without-retired`) — the reader-scoped half of

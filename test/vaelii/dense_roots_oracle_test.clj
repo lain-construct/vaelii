@@ -7,18 +7,22 @@
 
   What is exercised, in the **key shapes `vaelii.impl.kv` actually writes**:
 
-    * the int-routed families — `:context-root`, `:functor-root`, `:term-index`,
-      `:rule-index` (both arms), `:exception-index` — with symbol *and* ground-compound
-      terms, plus the `:exception-index :rules` roster, which is the one key packed
-      whole rather than through the dictionary;
-    * the **argument roots**, `[:argument-root pred pos term]` — four parts, the
-      predicate included (index layout 2, `kv/arg-key`).  They are the interesting case
-      because they are the one key with two names in it against a packed long with one
-      term field: the `(pred, pos)` scope is interned to a dense id of its own and rides
-      the `pos` field (`dense-roots`' `argfam-id`), so a read has two dictionaries to
-      miss in rather than one.  This is the oracle that says the packed path answers
-      what the memory backend answers.  `dense_routing_test` is what pins the routing
-      decision itself, which no behavioural test can see;
+    * the int-routed flat families — `:context-root`, `:term-index`, `:exception-index`
+      — with symbol *and* ground-compound terms, plus the `:exception-index :rules`
+      roster, which is the one key packed whole rather than through the dictionary;
+    * the leaves and node children of the predicate extent and both rule indexes, whose
+      leaf `[key ctx]` rides its context's scope `(ctx, 0, ctx)`, a negated antecedent's
+      `[:not p]` key among them;
+    * the **argument trie**, its leaves `[:argument-root :handles [pred pos term ctx]]`
+      and its nodes' children `[:argument-root :children [pred pos term]]` (index layout
+      4).  They are the interesting case because they carry several names against a
+      packed long with one term field: the `(pred, pos, ctx)` or `(pred, pos)` scope is
+      interned to a dense id of its own and rides the `pos` field (`dense-roots`'
+      `argfam-id`), so a read has two dictionaries to miss in rather than one, and a
+      node's children are contexts held as their dictionary ids.  This is the oracle
+      that says the packed path answers what the memory backend answers.
+      `dense_routing_test` is what pins the routing decision itself, which no
+      behavioural test can see;
     * the `[:argument-slot pos term]` roster beside them, whose members are
       **predicates rather than handles** and which stays in the fallback;
     * multi-family `kv-intersect`, and the fallback for unrecognized keys (counters /
@@ -35,19 +39,24 @@
 ;; a keyspace spanning every routed family plus fallback keys (counters / plain sets)
 (def ^:private index-keys
   (vec (concat (for [c '[C0 C1]]            [:context-root c])
-               (for [p '[p0 p1 p2]]         [:functor-root p])
-               ;; four parts, the predicate first — `kv/arg-key`'s own shape.  Written
-               ;; as three (`[:argument-root pos term]`) this whole family would still
-               ;; agree, because both sides answer such a key from the generic map;
-               ;; what it would stop testing is the family the index writes.
-               (for [p '[p0 p1] pos [1 2] t '[A0 A1 (fatherOf A0)]]
-                 [:argument-root p pos t])
+               (for [p '[p0 p1 p2] c '[C0 C1]] [:predicate-extent :handles [p c]])
+               ;; the leaf shape `kv/arg-leaf-key` writes.  Written another way this
+               ;; family would still agree, because both sides answer an unrecognized
+               ;; key from the generic map; what it would stop testing is the family the
+               ;; index writes.
+               (for [p '[p0 p1] pos [1 2] t '[A0 A1 (fatherOf A0)] c '[C0 C1]]
+                 [:argument-root :handles [p pos t c]])
                (for [t '[A0 A1 dog (fatherOf A0)]]         [:term-index t])
-               (for [p '[p0 p1]]            [:rule-index :antecedent p])
-               (for [p '[p0 p2]]            [:rule-index :consequent p])
+               (for [p '[p0 p1 [:not p0]] c '[C0 C1]] [:rule-antecedent :handles [p c]])
+               (for [p '[p0 p2] c '[C0 C1]] [:rule-consequent :handles [p c]])
                (for [p '[flies penguin]]    [:exception-index p])
                [[:exception-index :rules]])))
 (def ^:private fallback-keys (vec (for [n [:n0 :n1]] [:ctr n])))   ; not a routed family
+;; the count tries' node children, whose members are contexts rather than handles
+(def ^:private node-keys
+  (vec (concat (for [p '[p0 p1] pos [1 2] t '[A0 (fatherOf A0)]] [:argument-root :children [p pos t]])
+               (for [tag [:predicate-extent :rule-antecedent :rule-consequent] p '[p0 [:not p1]]]
+                 [tag :children [p]]))))
 
 (deftest dense-roots-set-equal
   (let [rng (java.util.Random. 7)
@@ -56,8 +65,13 @@
     (dotimes [_ 9000]
       (let [r (.nextInt rng 100)]
         (cond
-          (< r 55) (let [k (pick rng index-keys) h (.nextInt rng 400)]
+          (< r 45) (let [k (pick rng index-keys) h (.nextInt rng 400)]
                      (p/kv-add-to-set m k h) (p/kv-add-to-set d k h))
+          (< r 50) (let [k (pick rng node-keys) c (pick rng '[C0 C1 C2])]
+                     (p/kv-add-to-set m k c) (p/kv-add-to-set d k c))
+          (< r 55) (let [k (pick rng node-keys) c (pick rng '[C0 C1 C2 NeverStated])]
+                     (is (= (p/kv-member? m k c) (p/kv-member? d k c)) (str "sismember " k))
+                     (p/kv-remove-from-set m k c) (p/kv-remove-from-set d k c))
           (< r 75) (let [k (pick rng index-keys) h (.nextInt rng 400)]
                      (p/kv-remove-from-set m k h) (p/kv-remove-from-set d k h))
           (< r 85) (let [k (pick rng fallback-keys)]           ; fallback counter
@@ -67,7 +81,7 @@
           :else    (let [ks (vec (take (inc (.nextInt rng 3)) (shuffle index-keys)))]
                      (is (= (p/kv-intersect m ks) (p/kv-intersect d ks)) (str "sinter " ks))))))
     ;; members + cardinality agree for every key
-    (doseq [k index-keys]
+    (doseq [k (concat index-keys node-keys)]
       (is (= (p/kv-members m k) (p/kv-members d k)) (str "smembers " k))
       (is (= (p/kv-count    m k) (p/kv-count    d k)) (str "scard "    k)))
     (doseq [k fallback-keys]
@@ -80,13 +94,13 @@
     ;; merged answer is what both sides would then agree on
     (testing "an argument root is per predicate, not per (position, term)"
       (doseq [b [m d]]
-        (p/kv-add-to-set b [:argument-root 'q0 1 'B0] 11)
-        (p/kv-add-to-set b [:argument-root 'q1 1 'B0] 22))
-      (is (= #{11} (p/kv-members d [:argument-root 'q0 1 'B0])))
-      (is (= (p/kv-members m [:argument-root 'q0 1 'B0])
-             (p/kv-members d [:argument-root 'q0 1 'B0])))
-      (is (= (p/kv-members m [:argument-root 'q1 1 'B0])
-             (p/kv-members d [:argument-root 'q1 1 'B0]))))
+        (p/kv-add-to-set b [:argument-root :handles '[q0 1 B0 C0]] 11)
+        (p/kv-add-to-set b [:argument-root :handles '[q1 1 B0 C0]] 22))
+      (is (= #{11} (p/kv-members d [:argument-root :handles '[q0 1 B0 C0]])))
+      (is (= (p/kv-members m [:argument-root :handles '[q0 1 B0 C0]])
+             (p/kv-members d [:argument-root :handles '[q0 1 B0 C0]])))
+      (is (= (p/kv-members m [:argument-root :handles '[q1 1 B0 C0]])
+             (p/kv-members d [:argument-root :handles '[q1 1 B0 C0]]))))
     ;; the slot roster beside them: same generic path, but its members are predicate
     ;; *names* rather than handles, so a backend that assumed int postings everywhere
     ;; would fail here and nowhere else
@@ -101,6 +115,28 @@
         (is (= (p/kv-count   m k) (p/kv-count   d k)) (str "scard "    k)))
       (is (= #{'q0} (p/kv-members d [:argument-slot 1 'B0]))))))
 
+(deftest an-argument-nodes-count-is-the-sum-of-its-leaves
+  ;; `DenseRoots` stores no count for an argument node: it answers the count from the
+  ;; leaves under the node's children, replies to the index's increment with it, and
+  ;; emits it beside the children, so `kv-entries` holds the entries `MemoryKvBackend`
+  ;; holds.
+  (let [d     (dr/dense-roots (tok/token-dict))
+        node  '[p0 1 A0]
+        ck    [:argument-root :count node]
+        leaf  (fn [c] [:argument-root :handles (conj node c)])]
+    (p/kv-batch d [[:add-to-set (leaf 'C0) 1] [:add-to-set (leaf 'C0) 2] [:add-to-set (leaf 'C1) 3]
+                   [:add-to-set [:argument-root :children node] 'C0]
+                   [:add-to-set [:argument-root :children node] 'C1]])
+    (is (= 3 (p/kv-get d ck)))
+    (is (= 3 (p/kv-increment d ck)) "an increment stores nothing and replies with the count")
+    (p/kv-remove-from-set d (leaf 'C0) 2)
+    (is (= 2 (p/kv-decrement d ck)))
+    (is (some #{[ck 2]} (p/kv-entries d)) "the count is projected beside the children")
+    (let [d2 (dr/dense-roots (tok/token-dict))]
+      (p/kv-load d2 (p/kv-entries d))
+      (is (= 2 (p/kv-get d2 ck)) "and a load reads it back off the leaves it installs")
+      (is (= '#{C0 C1} (p/kv-members d2 [:argument-root :children node]))))))
+
 (deftest route-and-unpack-are-inverses-over-every-family
   ;; `route` and `unpack` are each other's inverse over every family the index writes, and
   ;; the oracle cannot see it: a key that decoded to the wrong shape would still answer
@@ -110,14 +146,22 @@
   (let [dict   (tok/token-dict)
         argfam (tok/token-dict)
         keys   ['[:context-root C0]
-                '[:functor-root p0]
-                '[:argument-root p0 2 A0]
-                '[:argument-root p0 3 A0]      ; same predicate, another position
-                '[:argument-root q1 2 A0]      ; same position, another predicate
-                '[:argument-root p0 2 (fatherOf A0)]   ; a compound term
+                '[:predicate-extent :handles [p0 C0]]
+                '[:predicate-extent :handles [p0 C1]]     ; same predicate, another context
+                '[:predicate-extent :children [p0]]
+                '[:argument-root :handles [p0 2 A0 C0]]
+                '[:argument-root :handles [p0 2 A0 C1]]   ; same node, another context
+                '[:argument-root :handles [p0 3 A0 C0]]   ; same predicate, another position
+                '[:argument-root :handles [q1 2 A0 C0]]   ; same position, another predicate
+                '[:argument-root :handles [p0 2 (fatherOf A0) C0]]   ; a compound term
+                '[:argument-root :children [p0 2 A0]]
+                '[:argument-root :children [q1 2 A0]]
                 '[:term-index A0]
-                '[:rule-index :antecedent p0]
-                '[:rule-index :consequent p0]
+                '[:rule-antecedent :handles [p0 C0]]
+                '[:rule-antecedent :handles [[:not p0] C0]]   ; a negated antecedent's key
+                '[:rule-antecedent :children [p0]]
+                '[:rule-consequent :handles [p0 C0]]
+                '[:rule-consequent :children [p0]]
                 '[:exception-index p0]
                 [:exception-index :rules]]]
     (doseq [k keys]
@@ -127,14 +171,38 @@
     (testing "distinct keys take distinct packed longs"
       (is (= (count keys)
              (count (into #{} (map #(#'dense-roots-types/route dict argfam % true)) keys)))))
-    (testing "a read of a pair nothing has scoped finds no posting to look for"
-      (is (= :absent (#'dense-roots-types/route dict argfam '[:argument-root neverSeen 2 A0] false))))
-    (testing "a read of a scoped pair at an uninterned term is absent for the term"
-      (is (= :absent (#'dense-roots-types/route dict argfam '[:argument-root p0 2 NeverSeen] false))))))
+    (testing "a node's count is not a posting: an argument node's is answered from the leaves"
+      (is (= :count (#'dense-roots-types/route dict argfam '[:argument-root :count [p0 2 A0]] false)))
+      (is (= :fallback (#'dense-roots-types/route dict argfam '[:predicate-extent :count [p0]] false))))
+    (testing "a read of a scope nothing has interned finds no posting to look for"
+      (is (= :absent (#'dense-roots-types/route dict argfam '[:argument-root :children [neverSeen 2 A0]] false)))
+      (is (= :absent (#'dense-roots-types/route dict argfam '[:argument-root :handles [p0 2 A0 CxNever]] false))))
+    (testing "a read of a held scope at an uninterned term is absent for the term"
+      (is (= :absent (#'dense-roots-types/route dict argfam '[:argument-root :children [p0 2 NeverSeen]] false))))))
+
+(deftest the-scope-dictionary-grows-with-contexts-not-with-leaf-keys
+  ;; A mint's term and an opposed body are content, not vocabulary: a scope per key would
+  ;; grow the 24-bit scope dictionary with the facts and throw `:argument-family-ceiling`
+  ;; on an ordinary assert past 2^24 of them.
+  (let [dict   (tok/token-dict)
+        argfam (tok/token-dict)
+        leaves (fn [n] (for [i (range n)
+                             :let [t (symbol (str "T" i))]
+                             k [[:mint :handles [t 'C0]]
+                                [:opposed :handles [(list 'p0 t) 'C0]]
+                                [:predicate-extent :handles [(symbol (str "q" i)) 'C0]]]]
+                         k))
+        scopes (fn [n]
+                 (doseq [k (leaves n)] (#'dense-roots-types/route dict argfam k true))
+                 (tok/token-count argfam))]
+    (is (= (scopes 1) (scopes 50)))
+    (doseq [k (leaves 50)]
+      (is (= k (#'dense-roots-types/unpack dict argfam (#'dense-roots-types/route dict argfam k false)))))))
 
 (deftest the-argument-scope-dictionary-refuses-to-overflow
-  ;; The pair rides 24 bits, and the bound is (distinct predicates × their arities) rather
-  ;; than the fact count — so it holds on any KB anyone has measured.  It is asserted
+  ;; The scope rides 24 bits, and the bound is (distinct predicates × their arities × the
+  ;; contexts each is stated in) rather than the fact count — so it holds on any KB anyone
+  ;; has measured.  It is asserted
   ;; anyway: a ceiling that throws is a fact, one that wraps is two families sharing a key
   ;; and answering each other's postings.
   (with-redefs-fn {#'dense-roots-types/argfam-ceiling 3}
@@ -142,9 +210,9 @@
       (let [dict   (tok/token-dict)
             argfam (tok/token-dict)]
         (doseq [pos [1 2 3]]
-          (is (instance? Long (#'dense-roots-types/route dict argfam [:argument-root 'p0 pos 'A0] true))))
+          (is (instance? Long (#'dense-roots-types/route dict argfam [:argument-root :children ['p0 pos 'A0]] true))))
         (let [e (is (thrown? clojure.lang.ExceptionInfo
-                             (#'dense-roots-types/route dict argfam '[:argument-root p0 4 A0] true)))
+                             (#'dense-roots-types/route dict argfam '[:argument-root :children [p0 4 A0]] true)))
               d (ex-data e)]
           (is (= :argument-family-ceiling (:type d)))
           (is (= 3 (:ceiling d)))
@@ -164,18 +232,18 @@
     (fn []
       (let [dict   (tok/token-dict)
             argfam (tok/token-dict)]
-        (doseq [pos [1 2 3]] (#'dense-roots-types/route dict argfam [:argument-root 'p0 pos 'A0] true))
+        (doseq [pos [1 2 3]] (#'dense-roots-types/route dict argfam [:argument-root :children ['p0 pos 'A0]] true))
         (is (thrown? clojure.lang.ExceptionInfo
-                     (#'dense-roots-types/route dict argfam '[:argument-root p0 4 A0] true)))
+                     (#'dense-roots-types/route dict argfam '[:argument-root :children [p0 4 A0]] true)))
         (testing "the dictionary holds the scopes it granted and no more"
           ;; `argfam-table`'s length is this count, so a clean dictionary is a clean table
           (is (= 3 (tok/token-count argfam)))
           (is (neg? (tok/token-id argfam '[p0 4])) "the refused pair has no id"))
         (testing "so a later read of the refused pair finds no posting to look for"
           ;; the assertion the swallowed throw turns on: `:absent`, not a packed long
-          (is (= :absent (#'dense-roots-types/route dict argfam '[:argument-root p0 4 A0] false))))
+          (is (= :absent (#'dense-roots-types/route dict argfam '[:argument-root :children [p0 4 A0]] false))))
         (testing "and a scope already granted still answers while the dictionary is full"
-          (is (instance? Long (#'dense-roots-types/route dict argfam '[:argument-root p0 2 A0] true))))))))
+          (is (instance? Long (#'dense-roots-types/route dict argfam '[:argument-root :children [p0 2 A0]] true))))))))
 
 (deftest no-packed-field-carries-into-the-next
   ;; `unpack` is the exact inverse of `route` only while every field stays inside its own
@@ -200,16 +268,16 @@
 (deftest dense-roots-batch-and-clear
   (let [m (mem/->MemoryKvBackend (atom {}))
         d (dr/dense-roots (tok/token-dict))
-        ops [[:add-to-set [:functor-root 'p0] 1] [:add-to-set [:functor-root 'p0] 2]
-             [:add-to-set [:argument-root 'p0 2 'A0] 9]
+        ops [[:add-to-set [:predicate-extent :handles '[p0 C0]] 1] [:add-to-set [:predicate-extent :handles '[p0 C0]] 2]
+             [:add-to-set [:argument-root :handles '[p0 2 A0 C0]] 9]
              [:add-to-set [:argument-slot 2 'A0] 'p0]
              [:add-to-set [:term-index '(fatherOf A0)] 5] [:add-to-set [:exception-index :rules] 7]
-             [:increment [:ctr :n]] [:remove-from-set [:functor-root 'p0] 1] [:decrement [:ctr :n]]]]
+             [:increment [:ctr :n]] [:remove-from-set [:predicate-extent :handles '[p0 C0]] 1] [:decrement [:ctr :n]]]]
     (is (= (p/kv-batch m ops) (p/kv-batch d ops)) "batch replies aligned")
-    (doseq [k '[[:functor-root p0] [:argument-root p0 2 A0] [:argument-slot 2 A0]
+    (doseq [k '[[:predicate-extent :handles [p0 C0]] [:argument-root :handles [p0 2 A0 C0]] [:argument-slot 2 A0]
                 [:term-index (fatherOf A0)] [:exception-index :rules]]]
       (is (= (p/kv-members m k) (p/kv-members d k)) (str "post-batch " k)))
     (is (= (p/kv-get m [:ctr :n]) (p/kv-get d [:ctr :n])) "fallback counter after batch")
     (p/kv-clear! m) (p/kv-clear! d)
-    (doseq [k '[[:functor-root p0] [:exception-index :rules] [:ctr :n]]]
+    (doseq [k '[[:predicate-extent :handles [p0 C0]] [:exception-index :rules] [:ctr :n]]]
       (is (= (p/kv-members m k) (p/kv-members d k)) (str "cleared " k)))))

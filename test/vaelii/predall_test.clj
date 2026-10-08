@@ -579,7 +579,7 @@
              small " against " large))))
 
 (tu/deftest-kb a-late-argn-declaration-reaches-facts-stored-before-it
-  ;; argN carries `:reach` in the declaration, and `the-declaration-reconstructs-the-
+  ;; arg1/arg2/arg3 carry `:reach` in the declaration, and `the-declaration-reconstructs-the-
   ;; reach-rosters` holds the facet roster to that — so the behaviour the facet claims
   ;; is pinned here rather than left to the roster's own comment. The projection has no
   ;; reach mechanism of its own: the bridge rule's `arg` conclusion is what

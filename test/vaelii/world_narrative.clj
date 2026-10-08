@@ -21,10 +21,7 @@
       neither stated;
     * goal reasoning — an agent that wants a goal and brings about an event that
       achieves it is deduced to *achieve its goal* (a joined forward rule); an agent
-      is *responsible for* what its action directly causes;
-    * arg type inference — an untyped individual's role is inferred from the
-      relation slot it fills (`CheeseFalls` is never typed, yet `ask?` finds it an
-      event, because `causes` constrains both its arguments to be events).
+      is *responsible for* what its action directly causes.
 
   It is worked on one new story (the Fox and the Crow) and retrofitted onto an
   existing fable (the Tortoise and the Hare) to show the schema generalizes.  The
@@ -88,8 +85,7 @@
   '[(agent FoxF) (agent CrowF)
     (goal HasCheese)
     (action Flatter1)
-    (event CrowSings) (event FoxGetsCheese)      ; CheeseFalls is left untyped — its
-                                                 ; eventhood is inferred from causes' arg
+    (event CrowSings) (event CheeseFalls) (event FoxGetsCheese)
     (wants FoxF HasCheese)
     (does FoxF Flatter1)
     (causes Flatter1 CrowSings)          ; the causal chain, link by link
@@ -115,16 +111,17 @@
 
   The four consecutive links are stated and no more: `instantBefore` is transitive, and a
   forward join over a transitive antecedent reads the closure, so the race's beginning
-  comes before its end without anybody writing that down (CxChange).  The events are left
-  untyped, exactly as CheeseFalls is above: `happens`
-  constrains its first argument to a temporal and `beforeEvent` constrains its own to
-  an event, and an untyped individual satisfies both readings where a stored membership
-  could only satisfy one."
+  comes before its end without anybody writing that down (CxChange).  Each event is an
+  `event`, which reaches `temporal` through CxAbstract's `(genl event situation)`, so it
+  satisfies both `happens`, whose first argument is a temporal, and `beforeEvent`, whose
+  arguments are events."
   '[(time_point RaceBegins) (time_point HareLiesDown) (time_point TortoisePasses)
     (time_point HareWakes)  (time_point RaceEnds)
 
     (instantBefore RaceBegins HareLiesDown)     (instantBefore HareLiesDown TortoisePasses)
     (instantBefore TortoisePasses HareWakes)    (instantBefore HareWakes RaceEnds)
+
+    (event HareNaps) (event TortoiseGoesPast) (event HareStirs)
 
     (happens HareNaps HareLiesDown)
     (initiates HareNaps (AsleepFn HareA) HareLiesDown)
@@ -151,6 +148,9 @@
   starter (and its stories) to be loaded first, so CxStories exists.  Returns kb."
   [kb]
   (v/assert kb '(genlCx CxFoxCrow CxStories) 'CxUniverse)
+  (v/assert kb '(context CxFoxCrow) 'CxUniverse)
+  ;; `inverse` is stored in CxUniverse, and its argument declaration types afterEvent there
+  (v/assert kb '(predicate afterEvent) 'CxUniverse)
   ;; the timed retelling hangs below the fable rather than in it — see `tortoise-timeline`
   (assert-all kb 'CxStories type-hierarchy)
   (assert-all kb 'CxStories type-docs)
@@ -176,6 +176,7 @@
             'CxStories)
   (assert-all kb 'CxTortoiseHare tortoise-goal)          ; the same schema on an existing fable
   (v/assert kb '(genlCx CxRaceClock CxTortoiseHare) 'CxUniverse)
+  (v/assert kb '(context CxRaceClock) 'CxUniverse)
   (assert-all kb 'CxRaceClock tortoise-timeline)         ; and the same fable on a clock
   (v/assert kb '(comment CxRaceClock
                          "The Tortoise and the Hare, dated: the same race written as events and fluents, so what holds when is inertia's answer rather than the story's.")

@@ -566,10 +566,16 @@
         (f/write-nippy-atomic! p {:seq 43})               ; atomic overwrite
         (is (= {:seq 43} (f/read-nippy-file p)))
         (is (= :default (f/read-nippy-file (str dir "/missing.nippy") :default)))
-        (testing "a corrupt blob falls back to the default rather than throwing"
-          (let [bad (str dir "/bad.nippy")]
-            (spit bad "not nippy at all")
-            (is (= :default (f/read-nippy-file bad :default)))))))))
+        (testing "every truncation of a blob falls back to the default rather than throwing"
+          ;; a torn write leaves a prefix; arbitrary bytes can decode a count of any size
+          ;; and allocate for it, which the read rethrows rather than defaults
+          (let [bs  (java.nio.file.Files/readAllBytes (.toPath (File. ^String p)))
+                bad (str dir "/bad.nippy")]
+            (is (= [] (into [] (remove (fn [n]
+                                         (with-open [o (java.io.FileOutputStream. ^String bad)]
+                                           (.write o ^bytes bs 0 (int n)))
+                                         (= :default (f/read-nippy-file bad :default))))
+                            (range 1 (count bs)))))))))))
 
 (deftest dirty-marker-lifecycle
   (with-tmp

@@ -154,7 +154,7 @@ its arguments as written, so a negated equation goal meets the stored denial as 
 `(except (sentexHandle E))` of a schematic equation `E` leaves `E` believed and takes it
 out of rewriting at the contexts that read the except ([contexts.md](contexts.md)).
 `kb/rewrite-term` filters the rules by the reader's `visible?`, so a goal asked there is
-not normalized under `E`, and every twin `E` raised rests on `E`, so `res/hidden-fn`
+not normalized under `E`, and every twin `E` raised rests on `E`, so `exc/hidden-fn`
 hides the twins there. What a reader there answers follows from where the fact lives:
 
 - **A fact whose own context reads the except is read as spelled.** A supersession is
@@ -184,8 +184,8 @@ hides the twins there. What a reader there answers follows from where the fact l
   **copy** of the fact's spelling in such a reader, justified by `[original, E, except]`
   under the informant `except` (`special/migrate-into`), as it stores a twin in a reader
   that elects another form. Reads and forward chaining in that reader and below it see
-  the copy. `E` is hidden wherever the copy is read, so a withdrawal reads the copy's
-  `E` at its current label (`res/belief-only-antecedent`); an except of the except
+  the copy. `E` is hidden wherever the copy is read, so the read walk reads the copy's
+  `E` at its current label (`exc/belief-only-antecedent`); an except of the except
   withdraws the copy through its third antecedent. Retracting the except or `E` takes
   the copy OUT. The copy is stored while the original is superseded or not, and the
   supersession reconcile retires it while an original it restates is not displaced (a

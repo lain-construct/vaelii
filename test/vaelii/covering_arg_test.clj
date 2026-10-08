@@ -100,23 +100,27 @@
 ;; ---- the *Genl forms discriminate kind from instance -----------------------
 
 (tu/deftest-kb argsGenl-wants-a-subtype-where-args-wants-an-instance
-  (let [[rel animal dog other] (variable-relation kb)]
-    (v/assert kb (list 'type_relation_predicate rel) 'CxUniverse)
-    (v/assert kb (list 'argsGenl rel animal) 'CxUniverse)
-    (testing "a subtype of the type, and the type itself, satisfy the subtype demand"
-      (is (v/assert kb (list rel dog animal) 'CxUniverse)))
-    (testing "a type outside the down-closure is convicted"
-      (is (= :arg-genl (ex-type #(v/assert kb (list rel dog other) 'CxUniverse)))))
-    (testing "an individual can never be a subtype, so it is convicted not excused"
-      (is (= :arg-genl (ex-type #(v/assert kb (list rel dog (tu/tmp-ind)) 'CxUniverse)))))))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   (let [[rel animal dog other] (variable-relation kb)]
+     (v/assert kb (list 'type_relation_predicate rel) 'CxUniverse)
+     (v/assert kb (list 'argsGenl rel animal) 'CxUniverse)
+     (testing "a subtype of the type, and the type itself, satisfy the subtype demand"
+       (is (v/assert kb (list rel dog animal) 'CxUniverse)))
+     (testing "a type outside the down-closure is convicted"
+       (is (= :arg-genl (ex-type #(v/assert kb (list rel dog other) 'CxUniverse)))))
+     (testing "an individual can never be a subtype, so it is convicted not excused"
+       (is (= :arg-genl (ex-type #(v/assert kb (list rel dog (tu/tmp-ind)) 'CxUniverse))))))))
 
 (tu/deftest-kb argAndRestGenl-types-the-tail-as-a-kind
-  (let [[rel animal dog other] (variable-relation kb)
-        name (tu/tmp-ind)]
-    (v/assert kb (list 'argAndRestGenl rel 2 animal) 'CxUniverse)
-    (testing "the prefix is free and the tail names a kind"
-      (is (v/assert kb (list rel name dog dog) 'CxUniverse))
-      (is (= :arg-genl (ex-type #(v/assert kb (list rel name dog other) 'CxUniverse)))))))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   (let [[rel animal dog other] (variable-relation kb)
+         name (tu/tmp-ind)]
+     (v/assert kb (list 'argAndRestGenl rel 2 animal) 'CxUniverse)
+     (testing "the prefix is free and the tail names a kind"
+       (is (v/assert kb (list rel name dog dog) 'CxUniverse))
+       (is (= :arg-genl (ex-type #(v/assert kb (list rel name dog other) 'CxUniverse))))))))
 
 ;; ---- conjunction with the singular forms -----------------------------------
 
@@ -146,6 +150,29 @@
      (testing "and the covering across the whole tail"
        (is (= :arg-type (ex-type #(v/assert kb (list rel RedDog PlainRed) 'CxUniverse)))
            "red but not an animal at position 2 — the covering args convicts")))))
+
+(tu/deftest-kb the-entailing-reading-derives-every-tail-membership-in-either-order
+  ;; `args` derives `animal` of every symbol in the tail, and `argsGenl` the edge, whether
+  ;; the declaration or the fact arrives first; a term the KB places outside the type is
+  ;; given the membership beside its own and nothing is refused.
+  (doseq [decl-first? [true false]]
+    (tu/with-terms [kind_of]
+      (let [[rel animal _ other] (variable-relation kb)
+            a (tu/tmp-ind) b (tu/tmp-ind) c (tu/tmp-ind)
+            gr (tu/tmp-pred) k1 (tu/tmp-type) k2 (tu/tmp-type)]
+        (tu/with-entailing
+          (v/assert kb (list other c) 'CxUniverse)
+          (v/assert kb (list 'binary_predicate gr) 'CxUniverse)
+          (v/assert kb (list 'variable_arity gr) 'CxUniverse)
+          (let [decls [(list 'args rel animal) (list 'argsGenl gr kind_of)]
+                facts [(list rel a b c) (list gr k1 k2)]]
+            (v/assert kb (list 'genl kind_of 'thing) 'CxUniverse)
+            (doseq [x (if decl-first? (concat decls facts) (concat facts decls))]
+              (v/assert kb x 'CxUniverse)))
+          (testing (str "declaration first: " decl-first?)
+            (is (every? #(v/isa? kb % animal 'CxUniverse) [a b c]))
+            (is (v/isa? kb c other 'CxUniverse))
+            (is (every? #(v/genl? kb % kind_of) [k1 k2]))))))))
 
 ;; ---- inheritance down the predicate hierarchy ------------------------------
 

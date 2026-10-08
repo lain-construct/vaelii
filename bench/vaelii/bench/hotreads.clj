@@ -22,10 +22,11 @@
   has to move.  A wall clock alone could not say it: a chaining run's cost per fact
   moves with JIT warmth by more than either read is worth.
 
-  **`excepted-handles`** (`vaelii.impl.resolution`) answers which handles a believed
-  `(except (sentexHandle H))` hides from a view context.  It opens on the emptiness of
-  the `:excepted` roster, so a KB that hides nothing pays one deref; past that it is a
-  `tax/context-up` and a `jtms/in?` per except stated in a visible context, **per call**,
+  **`excepted-handles`** (`vaelii.impl.except`) answers which handles a believed
+  `(except (sentexHandle H))` hides from a view context.  It opens on the trie's
+  `[except]` count, so a KB that hides nothing pays one count read; past that it is a
+  `tax/context-up`, a record read and a `jtms/in?` per except stated in a visible context,
+  **per call**,
   and the callers are per-placement (`chain/place-conclusion` → `antecedent-hidden?`) and
   per candidate justification (`chain/justification-excepted?`).  The excepted targets
   are **decoys** — facts no rule reads — so E moves the cost of the read without moving
@@ -47,9 +48,9 @@
     --branching  genl branching for the same (default 3)
     --reps       chaining runs per row, best taken (default 3)"
   (:require [vaelii.core :as v]
+            [vaelii.impl.except :as exc]
             [vaelii.impl.plan :as plan]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]))
@@ -201,12 +202,10 @@
         ;; construction and the read is a `variable?` test
         {:keys [total costly spent elapsed]}
         ;; both entry points: the set read, and the per-handle predicate the placement
-        ;; path goes through (`chain/antecedent-hidden?`, `res/without-excepted`) — with
+        ;; path goes through (`chain/antecedent-hidden?`, `exc/without-excepted`) — with
         ;; that predicate's own calls charged back here, since half its work happens
         ;; after it has returned
-        (counting-calls (into [#'res/excepted-handles]
-                              (keep #(ns-resolve 'vaelii.impl.resolution %))
-                              '[hidden-fn])
+        (counting-calls [#'exc/excepted-handles #'exc/hidden-fn]
                         (fn [_ view-context] (not (sx/variable? view-context)))
                         (fn [r charge!]
                           (if (fn? r)
@@ -218,7 +217,7 @@
                         #(load-edges! (except-kb e) side))
         kb              (except-kb e)]
     {:excepts e
-     :hidden  (count (res/excepted-handles kb leaf-ctx))
+     :hidden  (count (exc/excepted-handles kb leaf-ctx))
      :derived drv
      :ms      (/ ns 1e6)
      :per-drv (/ (double ns) (max 1 drv) 1000.0)

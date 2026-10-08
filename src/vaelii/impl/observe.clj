@@ -450,10 +450,13 @@
       (let [v (if (nil? cache)
                 (build nil)
                 (let [now (change-clock)
-                      hit (get @cache k)]
+                      hit (get @cache k)
+                      t   (caches/tally-of cache :R3)]
                   (if (and hit (== now (long (:clock hit))))
-                    (:value hit)
-                    (let [v (build (:value hit))]
+                    (do (caches/hit t) (:value hit))
+                    (let [v (caches/recomputed t (build (:value hit)))]
+                      (when (and hit (caches/tallying?))
+                        (caches/compared t (= (:value hit) v)))
                       (swap! cache caches/assoc-bounded
                              (caches/limit-of :resident resident-limit)
                              k {:value v :clock now})
@@ -588,7 +591,7 @@
   :scope    :kb
   :unit     "networks and passes"
   :limit    (caches/limit-thunk :resident resident-limit)
-  :counters nil
+  :counters :kb
   :note     (str "What this KB's derived structures cost to read out of the store — a "
                  "qualitative constraint network per calculus and context, the metric "
                  "problem behind it, and the closures over each. Stamped with the "
@@ -641,3 +644,30 @@
                  "so a join reads one state rather than a moving one. A step's scope, "
                  "and so uncountable between steps.")
   :read     (fn [_] {:entries (some-> *pin* deref count)})})
+
+(caches/register-derived
+ {:id :X3 :label "Change clock" :kind :counter :keyed-by :global :reads []
+  :retired-by (caches/on-every :G*) :computed :write :imaged? false :var #'clock
+  :value (fn [_] (.get clock))
+  :note "bumped by every mutation of any KB in the process; R1, R2 and R3 stamp entries with it"})
+
+(caches/register-derived
+ {:id :R3 :label "Resident derived values" :cache :resident :kind :cache :keyed-by :context
+  :reads [:index :M1]
+  :retired-by (assoc (caches/on-every :G*) :caches-cleared :W :cleared :W)
+  :computed :read :imaged? false :at [[:qcn]]
+  :live (fn [kb] (let [now (change-clock)]
+                   (count (filter #(and (map? %) (== now (long (:clock % -1))))
+                                  (vals @(reasoning/qcn kb))))))
+  :note "networks and passes by `[calc ctx]`, each stamped with the change clock and rebuilt from its stale value; `newly-seen?` markers carry no clock"})
+
+(caches/register-derived
+ {:id :R7 :label "Search-step memos" :cache :closure-neighbours :kind :pass :keyed-by :node
+  :reads [:index :M1] :retired-by {} :computed :pass :imaged? false :var #'*reach-memo*
+  :note "`*reach-memo*` (neighbour sets) and `*pin*` (pinned resident values), bound for one search step or one datum"})
+
+(caches/register-derived
+ {:id :R8 :label "Stored handles" :cache :stored-handles :kind :pass :keyed-by :literal
+  :reads [:index :records] :retired-by {:removed :K :respelled :K} :computed :pass
+  :imaged? false :var #'*handle-cache*
+  :note "`[sentence ctx]` to handle for one chaining run, and the chain authority memo (`kb/*chain-authoritative-functors*`); a removal forgets its handle and a `canon-stamp` step clears both"})

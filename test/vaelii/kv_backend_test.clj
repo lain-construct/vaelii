@@ -139,18 +139,16 @@
         (p/kv-add-to-set b [:term-index 'foo] 13)
         (is (= #{11 12 13} (p/kv-members b [:term-index 'foo]))))))
 
-  ;; The predicate-scoped argument roots are the one key family an adapter may hold
-  ;; hierarchically rather than as a flat key→set entry (`vaelii.impl.memory`'s counted
-  ;; `::arg` trie, which the dense and columnar roots delegate to).  So every op on this
-  ;; family has **two** folds — the protocol method and the `kv-batch` arm — and the
-  ;; contract is that they agree with each other and with what a flat map answers.  A
-  ;; whole-posting `:put` and a `:delete` are the two that only the hierarchical layout
-  ;; has to think about, and the two the index's own writes never issue on this family,
-  ;; so nothing else in the suite would notice one adapter refusing them.
-  (testing "argument roots — the hierarchical family answers the flat contract"
+  ;; The argument trie's leaves carry a scope the columnar roots intern to an id of its
+  ;; own (`dense-roots`' `argfam-id`), so every op on this family has **two** folds there —
+  ;; the protocol method and the `kv-batch` arm — and the contract is that they agree with
+  ;; each other and with what a flat map answers.  A whole-posting `:put` and a `:delete`
+  ;; are the two the index's own writes never issue on this family, so nothing else in the
+  ;; suite would notice one adapter refusing them.
+  (testing "argument roots — the interned family answers the flat contract"
     (p/kv-clear! b)
-    (let [k1 [:argument-root 'p 1 'A]
-          k2 [:argument-root 'q 1 'A]]                 ; same (pos, term), another predicate
+    (let [k1 [:argument-root :handles '[p 1 A C0]]
+          k2 [:argument-root :handles '[q 1 A C0]]]    ; same (pos, term, ctx), another predicate
       (p/kv-add-to-set b k1 11)
       (p/kv-add-to-set b k1 12)
       (p/kv-add-to-set b k2 13)
@@ -223,6 +221,45 @@
         (p/kv-clear! loaded)
         (p/kv-clear! other)))))
 
+(deftest a-read-inside-a-bulk-load-sees-the-load-s-writes
+  (let [b (doto (mem/memory-kv-backend {:space 996}) (p/kv-clear!))]
+    (try
+      (p/kv-add-to-set b [:set :before] 1)
+      (mem/with-bulk-writes b
+        (p/kv-put b [:s :x] 5)
+        (p/kv-add-to-set b [:set :a] 1)
+        (p/kv-add-to-set b [:set :a] 2)
+        (p/kv-batch b [[:add-to-set [:set :b] 2] [:increment [:c :n]]])
+        (is (= [5 #{1 2} true 2 #{2} 1]
+               [(p/kv-get b [:s :x]) (p/kv-members b [:set :a]) (p/kv-member? b [:set :a] 2)
+                (p/kv-count b [:set :a]) (p/kv-intersect b [[:set :a] [:set :b]])
+                (p/kv-get b [:c :n])]))
+        (is (= {[:set :before] #{1} [:s :x] 5 [:set :a] #{1 2} [:set :b] #{2} [:c :n] 1}
+               (into {} (p/kv-entries b))))
+        (p/kv-add-to-set b [:set :a] 3))
+      (is (= #{1 2 3} (p/kv-members b [:set :a]))
+          "a write after the enumeration lands, and the load installs")
+      (finally (p/kv-clear! b)))))
+
+(deftest a-retraction-inside-a-bulk-load-leaves-the-index-one-outside-leaves
+  ;; `unindex-sentex!` reads the leaf before its batches and the decrement replies between
+  ;; them, so a retraction inside a load needs the load's writes and its batch replies
+  (tu/with-neutral-kb [kb tu/fresh]        ; only to build real sentexes; nothing stored
+    (tu/with-terms [rel A B C Ctx]
+      (let [a   (res/kb-sentex kb (list rel A B) Ctx)
+            b   (res/kb-sentex kb (list rel A C) Ctx)
+            run (fn [bulk?]
+                  (let [be   (doto (mem/memory-kv-backend {:space 996}) (p/kv-clear!))
+                        ix   (kv/->KvIndexStore be)
+                        mode (fn [g] (if bulk? (mem/with-bulk-writes be (g)) (g)))]
+                    (try
+                      (p/index-sentex ix a 1)
+                      [(mode #(p/kv-batch be [[:put [:s] 0] [:increment [:c]] [:decrement [:c]]]))
+                       (do (mode #(do (p/index-sentex ix b 2) (p/unindex-sentex! ix b 2)))
+                           (into {} (p/kv-entries be)))]
+                      (finally (p/kv-clear! be)))))]
+        (is (= (run false) (run true)))))))
+
 (deftest a-bulk-load-refuses-to-discard-a-write-that-landed-under-it
   ;; The accumulator is a transient taken off an atom held per **space**, which every
   ;; index store over that space shares — so installing it with a `reset!` writes over
@@ -261,8 +298,8 @@
       (check-backend b))))
 
 (deftest deleting-a-stored-sentexs-argument-root-leaves-the-store-consistent
-  ;; The argument roots are a **derived** family: `[:argument-root pred pos term] →
-  ;; handles`, written beside the trie and read by the multi-column probe.  Losing one is
+  ;; The argument roots are a **derived** family: `[:argument-root :handles [pred pos term
+  ;; ctx]] → handles`, written beside the trie and read by the multi-column probe.  Losing one is
   ;; not hypothetical — a crash inside the index write persists a prefix of the batch, and
   ;; `vaelii.impl.reindex` repairs by dropping and rewriting postings — so the claim worth
   ;; pinning is what the store answers in between: the probe under that column answers
@@ -275,7 +312,7 @@
             h   (v/assert kb (list rel A B) CxCtx)]
         (is (= #{h} (set (p/sentexes-with-args idx rel [[1 A]])))
             "the argument-root probe answers before the delete")
-        (p/kv-delete bk [:argument-root rel 1 A])
+        (p/kv-delete bk [:argument-root :handles [rel 1 A CxCtx]])
         (testing "the probe answers empty rather than a handle with no posting"
           (is (= #{} (set (p/sentexes-with-args idx rel [[1 A]]))))
           (is (= #{} (set (p/sentexes-with-args idx rel [[1 A] [2 B]])))
@@ -283,7 +320,7 @@
         (testing "every other family the sentex is filed under still answers"
           (is (= #{h} (set (p/sentexes-with-args idx rel [[2 B]])))
               "the other argument column")
-          (is (contains? (set (p/sentexes-with-functor idx rel)) h) "the functor root")
+          (is (contains? (set (p/sentexes-with-functor idx rel)) h) "the predicate extent")
           (is (contains? (p/leaf-at idx (sx/path (v/sentex kb h))) h) "the trie leaf")
           (is (some? (v/sentex kb h)) "and the record itself"))
         (testing "and an ordinary retract-and-assert rebuilds the posting"

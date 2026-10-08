@@ -6,12 +6,11 @@
 
   The definitional checks read a term's memberships through the argument roots — the
   candidate index's unary-roster read, and `arbitrable-violations`' `matches-visible` —
-  which narrow on the **argument-root** key `[:argument-root pred pos term]`.  That key is a four-element *vector*, and unlike every other index family
-  (context / functor / term / rule, all compact int-keyed) it routes to the slow
-  fallback (`dense_roots/route :argument-root → :fallback → MemoryKvBackend.kv-members`),
-  where a `PersistentHashMap.find` compares the whole vector via `APersistentVector`'s
-  `doEquiv`.  A settle over a large store spent ~28% CPU in that comparison and ~98% of its
-  allocation materializing the posting-list seqs the read returns.
+  which narrow on the **argument roots**, a count trie over `[pred pos term ctx]`: the node
+  `[:argument-root :children [pred pos term]]` lists the contexts stating such a fact, and
+  the leaf `[:argument-root :handles [pred pos term ctx]]` holds the handles stated in one.
+  On `:memory` each key is a boxed vector `MemoryKvBackend` hashes; on the columnar
+  backends `DenseRoots` packs it into a `long` (docs/density.md).
 
   This harness has two layers, both reproducible and both meant to be re-run **verbatim**
   by the two later changes that implement index-layout variants — comparability is the
@@ -19,8 +18,8 @@
 
   * **micro** — isolates one argument-root probe.  A hot subject sits at argument 1 of
     `fanout` facts spread across `contexts` contexts; a `(relOf Subj ?y)` query reads the
-    one wide `[:argument-root relOf 1 Subj]` posting and the context filter keeps only the
-    visible share.  Reports per-probe wall clock, the raw index read as a fraction of the
+    node `[:argument-root :children [relOf 1 Subj]]` and the leaves
+    `[:argument-root :handles [relOf 1 Subj ctx]]` of the contexts it keeps.  Reports per-probe wall clock, the raw index read as a fraction of the
     full match, and — the metric a variant is judged on — **returned-vs-matched**: how many
     candidate handles the probe hands back against how many survive `unify` and the
     context filter.  A fanout sweep shows the probe cost is a real fraction of the whole.
@@ -118,9 +117,9 @@
 (defn- build-micro!
   "A KB whose argument-1 roots are **wide**: each of `subjects` hot subjects sits at
   argument 1 of `fanout` `(relOf Subj Obj)` facts, round-robined across `contexts`
-  sibling contexts of which only `CxAsk` is visible from `CxAsk`.  So one
-  `[:argument-root relOf 1 Subj]` posting holds `fanout` handles and a query from
-  `CxAsk` matches the `fanout/contexts` stored there."
+  sibling contexts of which only `CxAsk` is visible from `CxAsk`.  So the leaves under
+  one node `[:argument-root :children [relOf 1 Subj]]` hold `fanout` handles between them,
+  and a query from `CxAsk` matches the `fanout/contexts` stored there."
   [kb {:keys [subjects fanout contexts]}]
   (v/assert kb (list 'genlCx 'CxAsk 'CxCore) 'CxCore {:chain? false})
   (doseq [k (range (dec contexts))]
@@ -134,12 +133,10 @@
   'CxAsk)
 
 (defn- micro-probe-raw
-  "The scoped argument-root **lookup** `lead-candidates` performs, in isolation — no
-  unify, no cache — over every hot subject.  This is the vector-key hash probe
-  (`[:argument-root relOf 1 Subj]` → `dense_roots :fallback` → `kv-members` → the
-  `doEquiv` the profile flagged), which hands back the posting set by *reference*: O(1),
-  so its aggregate cost in a settle is driven by the count of probes, not their width.
-  Returns [total-handles nanoseconds]."
+  "The unscoped argument-root **lookup**, in isolation — no unify, no cache — over every
+  hot subject: `p/sentexes-with-args` reads the node `[:argument-root :children [relOf 1
+  Subj]]` and unions the leaf `[:argument-root :handles [relOf 1 Subj ctx]]` of every
+  context it lists.  Returns [total-handles nanoseconds]."
   [kb subjects]
   (let [ix (:index kb)]
     (timed
@@ -221,12 +218,13 @@
 (defn run-micro [opts]
   (println (format "\n=== MICRO: one argument-root probe ===  subjects %,d, contexts %d, samples %d"
                    (long (:subjects opts)) (long (:contexts opts)) (long (:samples opts))))
-  (println "  lookup = p/sentexes-with-args [:argument-root relOf 1 Subj] hash probe (cache-free, O(1))")
+  (println "  lookup = p/sentexes-with-args relOf {1 Subj}: the node's contexts, then their leaves (cache-free)")
   (println "  walk   = materializing the returned posting as a seq (the ~98%-alloc cost, O(width))")
   (println "  full match = res/matches-visible (relOf Subj ?y) from CxAsk (the clash-arm call)")
   (println "  returned/matched from prof :sift (matches-hierarchical); ratio ≈ contexts")
-  ;; sensitivity: lookup is ~flat (O(1) hash probe); walk and full match track fanout (width)
-  (println "\n  -- fanout sensitivity (posting width drives walk + match, not the O(1) lookup) --")
+  ;; sensitivity: the lookup unions every leaf under the node, so it reads all `fanout`
+  ;; handles, as the walk and the full match do
+  (println "\n  -- fanout sensitivity --")
   (doseq [fan [50 (:fanout opts) (* 2 (long (:fanout opts)))]]
     (let [o  (assoc opts :fanout fan)
           kb (doto (v/open-kb {:backend :memory :space 48 :recover? false}) (v/clear!))
@@ -397,7 +395,7 @@
         sift  (fmt-sift (:sift snap))]
     {:argument-root (get reads :argument-root 0)
      :argument-slot (get reads :argument-slot 0)
-     :functor-root  (get reads :functor-root 0)
+     :predicate-extent (get reads :predicate-extent 0)
      :context-root  (get reads :context-root 0)
      :sift          sift}))
 
@@ -426,9 +424,9 @@
     (prof/start)
     (v/recover kb)
     (let [snap (prof/stop)
-          {:keys [argument-root argument-slot functor-root context-root sift]} (read-summary snap)]
-      (println (format "  argument-root reads %,d | argument-slot reads %,d | functor-root %,d | context-root %,d"
-                       (long argument-root) (long argument-slot) (long functor-root) (long context-root)))
+          {:keys [argument-root argument-slot predicate-extent context-root sift]} (read-summary snap)]
+      (println (format "  argument-root reads %,d | argument-slot reads %,d | predicate-extent %,d | context-root %,d"
+                       (long argument-root) (long argument-slot) (long predicate-extent) (long context-root)))
       (println (format "  matches-hierarchical returned/matched: %,d / %,d = %.1f×"
                        (long (:returned sift)) (long (:matched sift)) (:ratio sift)))
       (when (zero? (long argument-root))
@@ -437,7 +435,7 @@
       {:reindex-s (/ ix-ns 1e9) :recover-s (/ rec-ns 1e9) :recover-bytes rec-bytes
        :sentexes n :contradictions contras :violations viols
        :argument-root argument-root :argument-slot argument-slot
-       :functor-root functor-root :context-root context-root :sift sift})))
+       :predicate-extent predicate-extent :context-root context-root :sift sift})))
 
 (defn- macro-header [tag opts]
   (println (format "\n=== MACRO [%s]: reindex + recover ===  types %,d (branching %d), individuals %,d × %d memberships, %,d disjoint pairs, %,d clashes"

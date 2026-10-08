@@ -199,3 +199,17 @@
           (is (pos? (count (:entries @(reasoning/closures kb)))))
           (ancestors-of kb before (nodes 3) CxFarm)     ; 4 more, over the bound
           (is (zero? (count (:entries @(reasoning/closures kb))))))))))
+
+(tu/deftest-kb the-closure-answers-row-counts-the-members-its-bound-counts
+  (tu/with-terms [before CxFarm]
+    (v/assert kb (list 'transitive before) CxFarm)
+    (let [nodes (vec (repeatedly 8 tu/tmp-ind))
+          row   #(first (filter (fn [r] (= :closure-answers (:cache r))) (v/caches kb)))]
+      (doseq [i (range 7)] (v/assert kb (list before (nodes i) (nodes (inc i))) CxFarm))
+      (v/clear-caches kb)
+      (ancestors-of kb before (nodes 0) CxFarm)
+      (is (= 1 (count (:entries @(reasoning/closures kb)))) "the premise: one reach is held")
+      (is (= {:entries 7 :unit "members"} (select-keys (row) [:entries :unit])))
+      (is (= 7 (:entries (first (filter #(= :closure-answers (:cache %))
+                                        (:cleared (v/clear-caches kb))))))
+          "a clear reports the members it dropped"))))

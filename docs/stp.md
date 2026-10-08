@@ -280,7 +280,9 @@ absence of a claim. An unsatisfiable metric network narrows every pair to nothin
 reading records one of them (`unsatisfiable-narrowing`), supported by every constraint
 read: the interval network reading it is then unsatisfiable, answers no goal, and
 withdraws the firings it licensed ([qcn.md](qcn.md), "A network can have a second
-reader"). An interval missing one of its bounding instants, or with one stated of
+reader"). The reading also describes the clash as a `:metric` source: the pairs
+unsatisfiable as written, the instants on a negative cycle, and the handles behind the
+constraints among them, so `qualitative-network` over `:allen` names the cycle. An interval missing one of its bounding instants, or with one stated of
 two *different* instants, is not read at all.
 
 ### The interval algebra reads it

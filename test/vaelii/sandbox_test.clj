@@ -15,6 +15,7 @@
             [vaelii.browser.sandbox :as sandbox]
             [vaelii.browser.web :as web]
             [vaelii.core :as v]
+            [vaelii.impl.checks :as checks]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded tu/load-starter!))
@@ -37,7 +38,7 @@
         (is (empty? (into [] (comp (remove #{sbx}) (filter #(v/sees? kb % sbx)))
                           (v/contexts kb)))))
       (testing "a shipped type is usable from inside, and the shipped rule fires there"
-        (v/assert kb '(living_thing SandboxRufus) sbx)
+        (v/assert kb '(organism SandboxRufus) sbx)
         (is (v/ask? kb '(mortal SandboxRufus) sbx)
             "CxBiology's default rule reached content in the sandbox")
         (testing "and the conclusion was placed in the sandbox, not in the rule's context"
@@ -54,8 +55,13 @@
       (sandbox/open kb sbx)
       (try
         (is (sandbox/live? kb sbx))
-        (is (= 1 (- (count (tu/sentex-ids kb)) (count before)))
-            "exactly one sentex: the genlCx edge that makes it a context")
+        ;; under the entailing reading CxCore's (arg genlCx 1 context) derives the edge's
+        ;; membership; the starter loaded under the same reading already holds CxWell's
+        (is (= (cond-> #{(list 'genlCx sbx 'CxWell)}
+                 checks/*assertive-arg-types?* (conj (list 'context sbx)))
+               (into #{} (map #(:sentence (v/sentex kb %)))
+                     (remove before (tu/sentex-ids kb))))
+            "the genlCx edge that makes it a context, and what the edge derives")
         (finally (sandbox/reset! kb sbx))))))
 
 (tu/deftest-kb opening-twice-is-the-same-sandbox
@@ -75,7 +81,7 @@
           justs-before    (tu/justification-ids kb)
           sbx             (fresh-sandbox)]
       (sandbox/open kb sbx)
-      (v/assert kb '(living_thing SandboxTibbles) sbx)
+      (v/assert kb '(organism SandboxTibbles) sbx)
       (v/assert kb '(bird SandboxPingu) sbx)
       (v/assert-rule kb '[(bird ?x)] '(sandbox_feathered ?x) sbx)
       (is (< (count sentexes-before) (count (tu/sentex-ids kb))) "there is something to lose")
@@ -97,7 +103,7 @@
     (let [justs-before (tu/justification-ids kb)
           sbx          (fresh-sandbox)]
       (sandbox/open kb sbx)
-      (v/assert kb '(living_thing SandboxMoggy) sbx)
+      (v/assert kb '(organism SandboxMoggy) sbx)
       (let [derived (v/handle-of kb '(mortal SandboxMoggy) sbx)]
         (is (nat-int? derived) "the shipped rule concluded into the sandbox")
         (is (v/in? kb derived))
@@ -180,7 +186,7 @@
         hdrs   {"cookie" cookie "host" "localhost:3000"}
         post   #(app {:request-method :post :uri %1 :params %2 :headers hdrs})]
     (testing "the first write brings the context into being and the rules run in it"
-      (let [b (:body (post "/assert" {"text" "(living_thing SandboxWebRufus)" "ctx" sbx}))]
+      (let [b (:body (post "/assert" {"text" "(organism SandboxWebRufus)" "ctx" sbx}))]
         (is (str/includes? b "Stored"))
         (is (v/ask? kb '(mortal SandboxWebRufus) (symbol sbx)))
         (is (str/includes? b "Your sandbox") "the panel says where the writing went")))
@@ -209,7 +215,7 @@
         r      (app {:request-method :get :uri "/assert" :headers {}})
         sbx    (second (re-find #"value=\"(CxSandbox[0-9a-f]+)\"" (:body r)))
         hdrs   {"cookie" (cookie-of r) "host" "localhost:3000"}]
-    (doseq [text ["(living_thing SandboxRefused" "" ":oops" "(Bad_Pred SandboxRefused)"]]
+    (doseq [text ["(organism SandboxRefused" "" ":oops" "(Bad_Pred SandboxRefused)"]]
       (testing (pr-str text)
         (let [b (:body (app {:request-method :post :uri "/assert"
                              :params {"text" text "ctx" sbx} :headers hdrs}))]
@@ -229,10 +235,10 @@
     (try
       (doseq [{:keys [cookie ctx]} [a b]]
         (app {:request-method :post :uri "/assert"
-              :params {"text" "(living_thing SandboxShared)" "ctx" ctx}
+              :params {"text" "(organism SandboxShared)" "ctx" ctx}
               :headers {"cookie" cookie "host" "localhost:3000"}}))
       (testing "each sees only its own writing"
-        (is (= 1 (count (v/sentexes-matching kb '(living_thing SandboxShared) (symbol (:ctx a))))))
+        (is (= 1 (count (v/sentexes-matching kb '(organism SandboxShared) (symbol (:ctx a))))))
         (is (not (v/sees? kb (symbol (:ctx a)) (symbol (:ctx b))))))
       (testing "and one resetting leaves the other's alone"
         (app {:request-method :post :uri "/sandbox/reset" :params {}

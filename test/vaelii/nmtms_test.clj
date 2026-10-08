@@ -83,7 +83,8 @@
         (testing "the defeated conclusion had no surviving derivation and is swept"
           (is (nil? (v/sentex kb bar-h)))                              ; gone from the store
           (is (nil? (handle-of (list bar x))))                          ; and the term index
-          (is (= 2 (:removed-sentexes result))))))))                     ; foo X + bar X
+          ;; foo X, bar X, and the contradicts and defeat its negation pair placed
+          (is (= 4 (:removed-sentexes result))))))))
 
 ;; ---- the dilemma the engine declines to decide --------------------------
 

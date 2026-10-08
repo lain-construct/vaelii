@@ -48,8 +48,7 @@
   (:require [vaelii.impl.caches :as caches]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.sentex :as sx]
-            [vaelii.impl.types.reasoning :as reasoning])
-  (:import [java.util.concurrent.atomic AtomicLong]))
+            [vaelii.impl.types.reasoning :as reasoning]))
 
 (def ^:private canonical-vars
   "`?0 ?1 …` pre-built and interned.  A literal's variable count is small and the same
@@ -162,15 +161,6 @@
   and a cache that has grown past this is one whose queries have moved on."
   4096)
 
-(defonce ^{:private true
-           :tag AtomicLong}
-  hit-count
-  (AtomicLong. 0))
-(defonce ^{:private true
-           :tag AtomicLong}
-  miss-count
-  (AtomicLong. 0))
-
 (defn- storing
   "`xs`, with the fully realized answer handed to `store!` **at the moment the source
   runs dry** — and never if the consumer stops first.
@@ -211,57 +201,42 @@
   (if (nil? cache)
     (compute)
     (let [now (observe/change-clock)
-          hit (get @cache k)]
+          hit (get @cache k)
+          t   (caches/tally-of cache :R1)]
       (if (and hit (== now (long (:clock hit))))
-        (do (.incrementAndGet hit-count) (:value hit))
-        (do (.incrementAndGet miss-count)
-            (storing (fn [v]
-                       (when (== (observe/change-clock) now)
-                         (swap! cache caches/assoc-bounded
-                                (caches/limit-of :literal-matches cache-limit)
-                                k {:clock now :value v})))
-                     (compute)))))))
+        (do (caches/hit t) (:value hit))
+        (let [start (System/nanoTime)]
+          (caches/miss t)
+          (storing (fn [v]
+                     (caches/spent t start)
+                     (when (and hit (caches/tallying?))
+                       (caches/compared t (= (:value hit) v)))
+                     (when (== (observe/change-clock) now)
+                       (swap! cache caches/assoc-bounded
+                              (caches/limit-of :literal-matches cache-limit)
+                              k {:clock now :value v})))
+                   (compute)))))))
 
 (defn stats
   "`{:size :limit :hits :misses :clock}` — entries held for `kb`, the bound they are
-  cleared wholesale at, the hit/miss counters (global, across every KB, since they
-  measure the mechanism rather than a store), and the change clock a fresh lookup would
-  stamp with."
+  cleared wholesale at, `kb`'s hit and miss counts (its tally, `caches/row-tally`), and
+  the change clock a fresh lookup would stamp with."
   [kb]
-  {:size   (count @(reasoning/matches kb))
-   :limit  (caches/limit-of :literal-matches cache-limit)
-   :hits   (.get hit-count)
-   :misses (.get miss-count)
-   :clock  (observe/change-clock)})
+  (let [{:keys [hits misses]} (caches/tally-map (caches/tally-of (reasoning/matches kb) :R1))]
+    {:size   (count @(reasoning/matches kb))
+     :limit  (caches/limit-of :literal-matches cache-limit)
+     :hits   hits
+     :misses misses
+     :clock  (observe/change-clock)}))
 
 (defn clear-cache
   "Drop everything `kb` has cached; answers how many entries went.  Not `!`: it destroys
-  no knowledge — every entry is derived, and the next read recomputes it.
-
-  **Scoped to `kb`, and only to `kb`.**  The hit and miss counters are process-wide for
-  the reason `stats` gives — they measure the mechanism rather than a store — so they are
-  *not* reset here: a caller asking one KB to drop its entries has not asked to zero the
-  rate every other KB in the process is reporting, and a function whose argument says
-  \"this KB\" must not reach past it.  `reset-counters` is that second, wider control,
-  asked for separately."
+  no knowledge — every entry is derived, and the next read recomputes it.  The hit and
+  miss counts stay; `caches/clear-caches` zeroes them when asked to."
   [kb]
   (let [n (count @(reasoning/matches kb))]
     (reset! (reasoning/matches kb) {})
     n))
-
-(defn reset-counters
-  "Zero the process-wide hit and miss counters, and answer what they held.
-
-  Separate from `clear-cache` because it is a **wider** operation than one: the counters
-  span every KB in this JVM, so this resets a measurement two other readers may be in the
-  middle of.  It is still the thing the one workflow a clear exists for needs — clear,
-  ask again, read the rate off zero — which is why it is offered at all rather than
-  merely possible."
-  []
-  (let [h (.get hit-count) m (.get miss-count)]
-    (.set hit-count 0)
-    (.set miss-count 0)
-    {:hits h :misses m}))
 
 (caches/register-cache
  {:cache    :literal-matches
@@ -269,16 +244,21 @@
   :scope    :kb
   :unit     "literals"
   :limit    (caches/limit-thunk :literal-matches cache-limit)
-  :counters :process
+  :counters :kb
   :note     (str "One literal's visible matches, keyed blind to what the caller named "
                  "its variables. Every entry carries the change clock it was computed "
                  "under, so one mutation anywhere retires the whole cache's usefulness "
                  "at once; past the limit it is cleared wholesale rather than evicted "
-                 "entry by entry. A clear drops this KB's entries; the counters are the "
-                 "mechanism's and span every KB, so they are zeroed only when asked for.")
-  :read     (fn [kb] (let [s (stats kb)] {:entries (:size s)
-                                          :hits    (:hits s)
-                                          :misses  (:misses s)}))
+                 "entry by entry.")
+  :read     (fn [kb] {:entries (count @(reasoning/matches kb))})
   :clear    clear-cache
-  :trim     (fn [kb target] (caches/trim-map! (reasoning/matches kb) target))
-  :reset-counters (fn [_] (reset-counters))})
+  :trim     (fn [kb target] (caches/trim-map! (reasoning/matches kb) target))})
+
+(caches/register-derived
+ {:id :R1 :label "Literal matches" :cache :literal-matches :kind :cache :keyed-by :literal
+  :reads [:index :M1 :T1]
+  :retired-by (assoc (caches/on-every :G*) :caches-cleared :W)
+  :computed :read :imaged? false :at [[:matches]]
+  :live (fn [kb] (let [now (observe/change-clock)]
+                   (count (filter #(== now (long (:clock %))) (vals @(reasoning/matches kb))))))
+  :note "a stale entry is ignored, not removed, and replaced at its next read"})

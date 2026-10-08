@@ -1,20 +1,20 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.discovery
-  "The one nogood family a settle finds: the clashes argument preservation infers between
-  a stored claim and a known-true claim no one stored, each with the most general
-  contexts that read it whole, installed in the candidate index for every reader below a
-  vantage to decide.  The memo `:preserved-clashes` carries a clash whose inputs did not
-  move.  See docs/nmtms.md, \"The inherited-clash memo\"."
+  "The detector of the one nogood family a settle finds: the clashes argument preservation
+  infers between a stored claim and a known-true claim no one stored, each with the most
+  general contexts that read it whole, where `chain/place-inherited!` places it.  The
+  memo `:preserved-clashes` carries a clash whose inputs did not move.  See docs/nmtms.md,
+  \"The inherited-clash memo\"."
   (:require [taoensso.trove :as trove]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.capabilities :as cap]
-            [vaelii.impl.clashes :as clashes]
+            [vaelii.impl.decide :as decide]
             [vaelii.impl.decide.inherited :as inherited]
             [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
-            [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
@@ -31,98 +31,6 @@
   entry point the content came through\")."
   false)
 
-(defn clear-inherited!
-  "Empty the inherited clashes, so the discovery that follows reads no verdict: a pair one
-  reader's verdict hides from the context that asks it is still a pair a reader below
-  that context can read (docs/nmtms.md, \"A defeat is scoped to its vantage\")."
-  [kb]
-  (when (inherited/clear-inherited! kb)
-    (res/clear-withdrawn! kb)
-    (observe/note-change)))
-
-(defn- install-inherited!
-  "Record `ngs`, the nogoods a discovery found with their vantages, in the candidate index
-  (`inherited/install-inherited!`).  Moves the change clock and empties the withdrawal cache,
-  since every reader below a vantage now decides the nogood."
-  [kb ngs]
-  (when (inherited/install-inherited! kb ngs)
-    (res/clear-withdrawn! kb)
-    (observe/note-change)))
-
-(defn inherited-losers
-  "The members of the inherited clashes some vantage of theirs takes OUT
-  (`res/verdicts`)."
-  [kb]
-  (into #{}
-        (for [[ms {:keys [vantages]}] (inherited/inherited-clashes kb)
-              v vantages
-              :let [h (:defeat (get (res/verdicts kb v) ms))]
-              :when h]
-          h)))
-
-(defn- ground-reading
-  "`(fn [g k])` → what reader `k` (nil: the whole KB) sees of the grounds `s` could clash
-  on, `g` being the contexts holding the other members: for a membership, the types held
-  of its term in `g` that `k` proves disjoint from `s`'s type, and nothing for any other
-  sentence.  Read off the taxonomy's cached closures; no check runs.  Two readers with
-  equal readings convict `s` on the same grounds."
-  [kb s]
-  (let [tax (reasoning/taxonomy kb)
-        sen (:sentence s)
-        f   (nm/functor sen)
-        as  (nm/args sen)]
-    (if (and (sequential? sen) (symbol? f) (= 1 (count as)))
-      (if (and (symbol? (first as)) (clashes/separations? tax))
-        (let [held (group-by second (clashes/believed-memberships kb (first as)))]
-          (fn [g k]
-            (into #{}
-                  (comp (mapcat held)
-                        (map first)
-                        (remove #(= f %))
-                        (filter #(if k (tax/disjoint? tax f % k) (tax/disjoint? tax f %))))
-                  g)))
-        (constantly #{}))
-      (constantly #{}))))
-
-(defn- readers
-  "The common descendants of `cs` whose reading of the grounds can differ from that of
-  the maximum above them, beside the maxima `top`: see `group-vantages`."
-  [tax cs top]
-  (if-let [gs (tax/ground-contexts tax)]
-    (into (set top)
-          (comp (remove (fn [x] (every? #(tax/sees? tax % x) top)))
-                (mapcat #(tax/common-descendants tax (into [%] cs))))
-          gs)
-    (tax/common-descendants tax cs)))
-
-(defn- group-vantages
-  "The vantages beyond `s`'s own context of the clashes `s` could form with members held in
-  each of `groups`, a collection of context sets.  Per group: the maximal common
-  descendants of `s`'s context and the group's, and the most general context of each
-  distinct `ground-reading` among the `readers`.  When every maximum reads what the whole
-  KB holds, the common descendants are not enumerated (docs/nmtms.md, \"A defeat is scoped
-  to its vantage\").  A group holding only `s`'s context has that context as its maximum,
-  so it adds only the readers below it that read a ground `s`'s context does not."
-  [kb s groups]
-  (let [tax     (reasoning/taxonomy kb)
-        c       (:context s)
-        reading (ground-reading kb s)]
-    (into #{}
-          (comp (map set)
-                (filter seq)
-                (mapcat (fn [g]
-                          (let [cs    (into [c] (sort (disj g c)))
-                                top   (tax/maximal-common-descendant-contexts tax cs)
-                                read  (memoize #(reading g %))
-                                whole (read nil)]
-                            (if (every? #(= whole (read %)) top)
-                              top
-                              (into top
-                                    (mapcat #(tax/maximal-contexts tax (val %)))
-                                    (group-by read (readers tax cs top)))))))
-                (remove #(= c %)))
-          groups)))
-
 (def ^:dynamic *incremental-preserving*
   "True (the default): `preserving-nogoods` carries each standing inherited clash whose
   inputs did not move, and re-asks only the stored facts a moved claim reaches.  False:
@@ -130,13 +38,26 @@
   a claim moved, the reference `inherited_clash_oracle_test` compares the memo against."
   true)
 
-(defn- preserving-stamp
-  "The inputs of every inherited clash's question compared as whole values: the `genlCx`
-  generation, the contexts each flat-cache entry is asserted from, and the `except`
-  roster.  When one moves, `preserving-nogoods` carries nothing."
-  [kb]
-  (let [tax (reasoning/taxonomy kb)]
-    [(tax/relation-gen tax :genlCx) (tax/flat-contexts tax) @(reasoning/excepted kb)]))
+(defn- flat-reading
+  "`[reading moved]`: the flat caches as `kb` reads them, `{:pos :map}`, and the
+  flat-cache keys whose supporting contexts moved since `prev`, an earlier reading.  `:pos`
+  is the taxonomy's position in the journal `tax/flat-moves` reads, and `:map` the
+  contexts map the discovery reads (`tax/flat-contexts`).  The moves are the journal's
+  since `prev`'s position.  Where the journal does not reach back that far (an
+  image install, a rebuild, a journal restarted past its bound) they are the keys the
+  two maps differ on, and nil when `prev` holds no map."
+  [kb prev]
+  (let [tax         (reasoning/taxonomy kb)
+        [pos moved] (tax/flat-moves tax (:pos prev))
+        now         (tax/flat-contexts tax)
+        was         (:map prev)]
+    [{:pos pos :map now}
+     (cond moved                       moved
+           (identical? was now)        #{}
+           (some? was)                 (-> #{}
+                                           (into (keep (fn [[k cs]] (when-not (= cs (get was k)) k)))
+                                                 now)
+                                           (into (remove #(contains? now %)) (keys was))))]))
 
 (defn- member-priority
   "The rebuttal-range priority of an inherited nogood: the highest defeat-class rank among
@@ -167,42 +88,41 @@
           (group-by #(into #{h} (cons (:claim %) (:handles %))) cs))))
 
 (defn- preserving-entry
-  "`s`'s inherited clash, or nil: `{:pred :askers :classes :class :nogoods}`.  The
-  clashing claims are `inherit/clashing-claim`'s answers from `s`'s own context and from
-  each vantage (`group-vantages` over `inherit/denial-contexts`): a vantage that sees a
-  stronger reading than the own context reads decides from that reading.  `:askers` is
-  every context asked, `:classes` the defeat-class of every member but `s`, `:class`
-  `s`'s own, and `:nogoods` `inherited-nogoods`.  An answer of no clash is an entry with
-  no nogoods while some claim would deny `s` in a reader that saw both, so the `genlCx`
-  edge that makes that reader is asked again, and while an asker reads something
-  withdrawn, so the settle that clears the withdrawal asks again."
+  "`s`'s inherited clash, or nil: `{:pred :askers :reads :contexts :classes :class
+  :nogoods}`.  The clashing claims are `inherit/clashing-claim`'s answers from `s`'s own
+  context and from the vantages of each reading `inherit/denial-readings` names: the
+  maximal common descendants of `s`'s context and the reading's where `s` and every
+  handle of the reading are seen with no except hiding one
+  (`res/exception-aware-placements`, the placement a firing takes).  `:askers` is every
+  context asked, `:reads` `s` and every handle of the readings, `:contexts` the contexts
+  they are stated in, `:classes` the defeat-class of every member but `s`, `:class` `s`'s
+  own, and `:nogoods` `inherited-nogoods`.  An answer of no clash is an entry with no
+  nogoods while some claim would deny `s` in a reader that saw both, so an except or a
+  `genlCx` edge that makes that reader asks it again (`preserving-entries`)."
   [kb s]
   (let [sen    (:sentence s)
         tms    (reasoning/tms kb)
-        denial (inherit/denial-contexts kb sen)
-        askers (cons (:context s) (sort (group-vantages kb s denial)))
+        c      (:context s)
+        denial (inherit/denial-readings kb sen)
+        askers (cons c (sort (disj (into #{}
+                                         (mapcat (fn [{:keys [handles contexts]}]
+                                                   (res/exception-aware-placements
+                                                    kb (conj handles (:id s))
+                                                    (into [c] (sort (disj contexts c))))))
+                                         denial)
+                                   c)))
         cs     (into [] (mapcat #(keep (fn [f] (f kb sen %))
                                        [inherit/clashing-claim inherit/converse-claim]))
                      askers)]
-    (when (or (seq cs) (seq denial) (some #(seq (res/withdrawn-set kb %)) askers))
-      {:pred    (nm/functor (kb/body-under-not sen))
-       :askers  (set askers)
-       :classes (into {} (map (juxt identity #(jtms/defeat-class tms %)))
-                      (mapcat #(cons (:claim %) (:handles %)) cs))
-       :class   (jtms/defeat-class tms (:id s))
-       :nogoods (inherited-nogoods kb (:id s) sen cs)})))
-
-(defn- withdrawal-moves
-  "The handles whose withdrawal at an asker in `seen` (`{context withdrawn-set}`, as the last
-  call read it) differs now (`res/withdrawn-set`)."
-  [kb seen]
-  (into #{}
-        (mapcat (fn [[k was]]
-                  (let [now (res/withdrawn-set kb k)]
-                    (when-not (identical? now was)
-                      (let [now (or now #{}) was (or was #{})]
-                        (concat (remove was now) (remove now was)))))))
-        seen))
+    (when (or (seq cs) (seq denial))
+      {:pred     (nm/functor (kb/body-under-not sen))
+       :askers   (set askers)
+       :reads    (into #{(:id s)} (mapcat :handles) denial)
+       :contexts (into #{c} (mapcat :contexts) denial)
+       :classes  (into {} (map (juxt identity #(jtms/defeat-class tms %)))
+                       (mapcat #(cons (:claim %) (:handles %)) cs))
+       :class    (jtms/defeat-class tms (:id s))
+       :nogoods  (inherited-nogoods kb (:id s) sen cs)})))
 
 (defn note-removed!
   "Record `sentex`, leaving the store, as `{handle sentence}` under `:left` in
@@ -218,9 +138,9 @@
   "What the moved handles `moves` (`[handle region?]`, `region?` false for a withdrawal
   alone) re-open, as `[whole reached]`: the preserved predicates whose stored extent is
   re-asked (`inherit/moved-channels`' other channels, and a `genl` edge between
-  predicates), and the stored facts a moved claim reaches
-  (`inherit/claim-reach-extent`).  A claim reaches when it is believed and known-true,
-  and, moved in the region, when `vantaged` holds its predicate: the claims of every
+  predicates), and the stored facts a moved claim reaches (`inherit/claim-reach-extent`).
+  A claim reaches when it is believed and known-true,
+  and, moved in the region, when `vantaged` (a delay) holds its predicate: the claims of every
   class decide which vantages ask.  `narrow?` false re-opens the stored extent of every
   predicate a claim moves.  A handle with no record is read from `left`, the sentences
   `note-removed!` recorded: it is OUT, so it reaches as a claim moved in the region.  The
@@ -255,7 +175,7 @@
              [whole
               (into reached
                     (comp (remove whole)
-                          (filter #(or (not narrow?) (and region? (contains? vantaged %)) @kt?))
+                          (filter #(or (not narrow?) (and region? (contains? @vantaged %)) @kt?))
                           (mapcat #(or (when narrow? (inherit/claim-reach-extent kb sen %))
                                        (extent %))))
                     claimed)])
@@ -268,32 +188,61 @@
   [tms e]
   (every? (fn [[h c]] (and (jtms/in? tms h) (= c (jtms/defeat-class tms h)))) (:classes e)))
 
+(defn- except-reach
+  "The handles an `except` that moved can hide or show, as a set: what `special/except-moved`
+  queued, the target of each `except` among the region `handles` (read from `left` for one
+  with no record), each of those followed down its except cascade, and their consequence
+  closure.  nil when no except moved."
+  [kb handles left]
+  (let [recs   (:records kb)
+        target #(some-> (if-let [s (p/get-sentex recs %)] (sx/sentence-of s) (get left %))
+                        kb/except-target)
+        roots  (into (set (special/except-moved kb)) (keep target) handles)]
+    (when (seq roots)
+      (jtms/consequence-closure
+       (reasoning/tms kb)
+       (into #{} (mapcat #(take-while some? (iterate target %))) roots)))))
+
+(defn- reached-by-edges?
+  "Can the `genlCx` move `reach` (`decide/edge-reach`) change entry `e`'s askers: a context
+  it reads is in `:below`, or a context it asked is in `:under`?"
+  [reach e]
+  (boolean (or (some (:below reach) (:contexts e)) (some (:under reach) (:askers e)))))
+
 (defn- preserving-entries
   "The standing inherited clashes after this call, `{handle entry}` (`preserving-entry`).
-  An entry is carried when the stamp (`preserving-stamp`) did not move, every handle in
-  the region without a record has its sentence in `:left` (`note-removed!`), its
-  predicate's extent was not re-opened, no moved claim reaches it
-  (`preserving-moves`, over the region and `withdrawal-moves`), and its members hold the
-  classes it recorded.  Every other entry, the region, and what the moves re-open are
-  asked.  An entry whose candidate is OUT is kept and publishes nothing.  The region is
-  what the touched window recorded since the last call's mark (`jtms/touched-since`), so a
-  later pass of one settle asks only what the passes before it moved, and `region`, the
-  settle's whole window, when the mark is from an earlier window.  Under
-  `*whole-store-region?*` with a region the store's size, nothing is carried, no extent
-  is swept, and the questions are the preserved predicates' stored extents (docs/nmtms.md,
-  \"The inherited-clash memo\")."
-  [kb pairs region prev stamp]
+  An entry is carried when the `genlCx` relation was not rebuilt and `prev` holds its
+  generation, the flat-cache keys that
+  moved are known (`flat-reading`'s `moved`), every handle in the region without a record
+  has its sentence in `:left` (`note-removed!`), its own handle is not in `:left`, its
+  predicate's extent was not re-opened, no moved claim reaches it (`preserving-moves`,
+  over the region and the supporters of each moved key), no except that moved reaches a
+  handle it reads (`except-reach`), no `genlCx` move since `gen` reaches it
+  (`reached-by-edges?`), and its members hold the classes it recorded.  Every other entry,
+  the region, and what the moves re-open are asked.  An entry whose candidate is OUT is
+  kept and publishes nothing.  The region is what the touched window recorded since the
+  last call's mark (`jtms/touched-since`), so a later pass of one settle asks only what the
+  passes before it moved, and `region`, the settle's whole window, when the mark is from an
+  earlier window.  Under `*whole-store-region?*` with a region the store's size, nothing is
+  carried, no extent is swept, and the questions are the preserved predicates' stored
+  extents (docs/nmtms.md, \"The inherited-clash memo\")."
+  [kb pairs region prev gen moved]
   (let [recs    (:records kb)
         tms     (reasoning/tms kb)
+        tax     (reasoning/taxonomy kb)
         handles (if-some [m (when *incremental-preserving* (:mark prev))]
                   (jtms/touched-since tms m)
                   @region)
         entries (:entries prev {})
         left    (:left prev {})
+        reach   (when (and (:gen prev) (not= gen (:gen prev)))
+                  (decide/edge-reach tax (:gen prev)))
         whole?  (and *whole-store-region?* (>= (count handles) (cap/count-sentexes recs)))
         why     (cond whole?                          :whole-store
                       (not *incremental-preserving*)  :exhaustive
-                      (not= stamp (:stamp prev))      :stamp
+                      (or (:all? reach) (nil? moved)) :rebuilt
+                      ;; an image an earlier build wrote holds entries and no generation
+                      (and (seq entries) (nil? (:gen prev))) :rebuilt
                       ;; nothing reads what a handle with no record and no `left` sentence moved
                       (some #(and (not (contains? left %)) (nil? (p/get-sentex recs %))) handles)
                       :retraction)
@@ -302,24 +251,33 @@
         (if whole?
           [#{} #{}]
           (preserving-moves kb pairs left
+                            ;; a moved flat-cache entry is read through what its supporters state
                             (concat (map #(vector % true) handles)
                                     (when-not fresh?
-                                      (map #(vector % false) (withdrawal-moves kb (:seen prev)))))
-                            (into #{} (map (comp :pred val)) entries)
+                                      (map #(vector % false)
+                                           (into #{}
+                                                 (mapcat #(tax/visible-supporters tax % nil))
+                                                 moved))))
+                            (delay (into #{} (map (comp :pred val)) entries))
                             *incremental-preserving*))
-        kept    (if fresh?
-                  {}
-                  (into {} (filter (fn [[h e]] (and (not (contains? whole (:pred e)))
-                                                    (not (contains? reached h))
-                                                    (some? (p/get-sentex recs h))
-                                                    (entry-live? tms e))))
+        hidden  (when-not fresh? (except-reach kb handles left))
+        dropped (if fresh?
+                  (keys entries)
+                  (into [] (keep (fn [[h e]]
+                                   (when-not (and (not (contains? whole (:pred e)))
+                                                  (not (contains? reached h))
+                                                  (not (contains? left h))
+                                                  (not (and hidden (some hidden (:reads e))))
+                                                  (not (and reach (reached-by-edges? reach e)))
+                                                  (entry-live? tms e))
+                                     h)))
                         entries))
+        kept    (if fresh? {} (persistent! (reduce dissoc! (transient entries) dropped)))
         idx     (:index kb)
         preds   (into #{} (map first) pairs)
         ;; the whole store's claims are the preserved predicates' stored extents, read
         ;; off the index rather than off a record per region handle
-        ask     (-> #{}
-                    (into (keys entries))
+        ask     (-> (set dropped)
                     (into (if whole? (mapcat #(reads/as-stored-with-functor idx %) preds) handles))
                     (into reached)
                     (into (mapcat #(reads/as-stored-with-functor idx %)) whole)
@@ -346,28 +304,30 @@
   The members are the stored claim and the reading's reasons (`inherit/clashing-claim`'s
   `:claim` and `:handles`).  `:priority` is the rebuttal range, 1–2.  A candidate is asked
   from its own context and from every vantage (`preserving-entry`).  A body stored in both
-  polarities is a negation pair (`negation-nogoods`, `decide/nogoods-at`), excluded by
-  `clashing-claim`.  Behind an `empty?` on `kb`'s `:preserving` roster (docs/nmtms.md, \"What qualifies as a nogood\";
+  polarities is a negation pair (`chain/place-negations!`), excluded by
+  `clashing-claim`.  Behind `inherit/preserved-pairs`, two predicate-extent counts on a KB
+  that declares none (docs/nmtms.md, \"What qualifies as a nogood\";
   docs/inherit.md).  The memo keeps a mark of the touched window taken before the
-  questions (`jtms/touch-mark`), where the next call's region starts."
+  questions (`jtms/touch-mark`), where the next call's region starts, and the `genlCx`
+  generation, from which the next call reads the edges moved since (`decide/edge-reach`)."
   [kb region]
-  (let [pairs @(reasoning/preserving kb)]
+  (let [pairs (inherit/preserved-pairs kb)]
     (if (empty? pairs)
       (do (reset! (reasoning/preserved-clashes kb) {}) #{})
-      (let [tms     (reasoning/tms kb)
-            mark    (jtms/touch-mark tms)
-            stamp   (preserving-stamp kb)
-            entries (preserving-entries kb (set (keys pairs)) region
-                                        @(reasoning/preserved-clashes kb) stamp)]
+      (let [tms          (reasoning/tms kb)
+            mark         (jtms/touch-mark tms)
+            gen          (tax/relation-gen (reasoning/taxonomy kb) :genlCx)
+            prev         @(reasoning/preserved-clashes kb)
+            [flat moved] (flat-reading kb (:flat prev))
+            entries      (preserving-entries kb pairs region prev gen moved)]
         (reset! (reasoning/preserved-clashes kb)
-                {:stamp   stamp
+                {:gen     gen
+                 :flat    flat
                  :mark    mark
-                 :entries entries
-                 :seen    (into {} (map (juxt identity #(res/withdrawn-set kb %)))
-                                (into #{} (mapcat :askers) (vals entries)))})
+                 :entries entries})
         (into #{}
               (mapcat (fn [[h e]]
-                        (when (jtms/in? tms h)
+                        (when (and (seq (:nogoods e)) (jtms/in? tms h))
                           ;; the other members hold the classes `e` recorded
                           (if (= (:class e) (jtms/defeat-class tms h))
                             (:nogoods e)
@@ -375,44 +335,33 @@
                                  (:nogoods e))))))
               entries)))))
 
-(defn- discovery-view
-  "`kb` as the inherited family's discovery reads it: the taxonomy with every handle
-  withdrawn at its own context (`::special/own-out`) back at its network label, in a
-  detached copy (`tax/detached-copy`) with a match, closure and withdrawal cache of its
-  own, so a
-  member an inherited verdict took out of the unscoped caches is read as the verdict-free
-  network holds it, and the live caches learn nothing of the read.  The view holds a candidate
-  index of its own, synced under the copy (`decide/synced`).  A reader's verdicts on
-  the other families still apply at the askers, through the scoped reads.  `kb` itself
-  while nothing is withdrawn at its own context."
-  [kb]
-  (let [tax (reasoning/taxonomy kb)
-        out (::special/own-out @tax)]
-    (if (empty? out)
-      kb
-      (let [tms  (reasoning/tms kb)
-            copy (tax/detached-copy tax)]
-        (tax/refresh-beliefs copy #(jtms/in? tms %) out)
-        (assoc kb :reasoning (atom (assoc (reasoning/of kb)
-                                          :taxonomy copy
-                                          :nogood-candidates (atom @(reasoning/nogood-candidates kb))
-                                          :matches (atom {})
-                                          :closures (atom {})
-                                          :withdrawn (atom {}))))))))
-
 (defn discover-inherited!
-  "Find the inherited clashes (`preserving-nogoods`) and record them in the candidate
-  index for the readers (`install-inherited!`).  The index's inherited clashes are emptied
-  first, and the discovery reads `discovery-view`, so it reads no inherited verdict.  Every
-  clash found whose members the network believes is recorded with its vantages, where each
-  reader at or below a vantage decides it for itself (`decide/nogoods-at`).  The network
-  records no defeat (docs/nmtms.md, \"The runtime view\")."
+  "Find the inherited clashes (`preserving-nogoods`) over the network and record them in
+  the candidate index (`inherited/install-inherited!`), as `{:found [ngmap] :left
+  [members]}`: each clash, whose members the network believes, of a candidate asked again
+  this call (one whose memo entry was not carried), and the member sets the index held
+  and no longer holds.  `chain/place-inherited!` places the first at their vantages and
+  removes the placements of the second."
   [kb region]
-  (clear-inherited! kb)
-  (let [tms (reasoning/tms kb)
-        in? #(jtms/in? tms %)]
-    (install-inherited! kb (into []
-                                 (comp (filter #(every? in? (:nogood %)))
-                                       (filter #(seq (:vantages %)))
-                                       (distinct))
-                                 (preserving-nogoods (discovery-view kb) region)))))
+  (let [tms  (reasoning/tms kb)
+        in?  #(jtms/in? tms %)
+        prev (:entries @(reasoning/preserved-clashes kb) {})
+        ngs  (into [] (comp (filter #(every? in? (:nogood %)))
+                            (filter #(seq (:vantages %)))
+                            (distinct))
+                   (preserving-nogoods kb region))
+        now  (:entries @(reasoning/preserved-clashes kb) {})
+        left (inherited/install-inherited! kb ngs)]
+    ;; a carried entry is the identical value, so its clashes and their placements stand
+    {:found (into [] (filter (fn [ng] (some #(not (identical? (get now %) (get prev %))) (:nogood ng))))
+                  ngs)
+     :left  left}))
+
+;; ---- derived state (docs/caches.md, "The derived-state register") ----------------
+
+(caches/register-derived
+ {:id :D3 :label "Preserved clashes" :kind :cache :keyed-by :handle
+  :reads [:index :T1 :Q3 :J4 :M2]
+  :retired-by {:removed :K :inherited :K :settle-pass :K :recover :R :image-install :R}
+  :computed :settle :imaged? :state :at [[:preserved-clashes]]
+  :note "the inherited clashes found per stored claim with what each was read under; read again by region, moves, the excepts that moved and the genlCx edges moved since its generation, whole when J4 lost its position or genlCx was rebuilt, and `:left` notes a removal"})

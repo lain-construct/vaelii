@@ -54,15 +54,16 @@
 
 (defn- rand-op
   "One write: a claim or its denial at a random tuple, context and strength, a `genl`
-  edge or a declaration asserted or retracted, or a `genlCx` edge to `CxIcJoin`."
+  edge, a declaration, a statement of the `asymmetric` mark or a separation asserted or
+  retracted, or a `genlCx` edge to `CxIcJoin`."
   [^java.util.Random rng]
   (let [pick (fn [xs] (nth xs (.nextInt rng (count xs))))
         ctx  #(pick ctxs)
         str8 #(if (zero? (.nextInt rng 2)) {:strength :monotonic} {})
         claim #(list 'ibig (pick types) (pick types))
         edge #(let [[a b] (pick edges)] (list 'genl a b))
-        decl #(list 'transitiveInArg 'ibig (inc (.nextInt rng 2)) 'genl)]
-    (case (.nextInt rng 12)
+        decl #(list 'transitiveInArgInverse 'ibig (inc (.nextInt rng 2)) 'genl)]
+    (case (.nextInt rng 16)
       (0 1 2) [:assert (claim) (ctx) (str8)]
       3       [:assert (list 'not (claim)) (ctx) (str8)]
       4       [:retract (claim) (ctx)]
@@ -71,7 +72,12 @@
       8       [:assert (decl) (first ctxs) (str8)]
       9       [:retract (decl) (first ctxs)]
       10      [:assert (list 'genlCx 'CxIcJoin (nth ctxs 1)) 'CxUniverse {:strength :monotonic}]
-      11      [:assert (list 'genlCx 'CxIcJoin (nth ctxs 2)) 'CxUniverse {:strength :monotonic}])))
+      11      [:assert (list 'genlCx 'CxIcJoin (nth ctxs 2)) 'CxUniverse {:strength :monotonic}]
+      ;; the build's own statement in `CxIcBase` stays, so a replay builds what streamed
+      12      [:assert '(asymmetric ibig) (pick (rest ctxs)) (str8)]
+      13      [:retract '(asymmetric ibig) (pick (rest ctxs))]
+      14      [:assert '(disjoint ic_far ic_mid) (ctx) (str8)]
+      15      [:retract '(disjoint ic_far ic_mid) (ctx)])))
 
 (defn- apply-op!
   "Run one op, returning a refusal's `:type` as an observation the two KBs must agree on."
@@ -96,7 +102,8 @@
   {:believed  (into #{}
                     (comp (filter #(v/in? kb %))
                           (keep #(p/get-sentex (:records kb) %))
-                          (map (juxt :sentence :context)))
+                          (map (juxt :sentence :context))
+                          (map #(tu/handle-free kb %)))
                     (jtms/in-datums (reasoning/tms kb)))
    :standing  (into #{}
                     (for [[_ ng] (inherited/inherited-clashes kb)]
@@ -106,13 +113,16 @@
    :joined    (into #{} (map clash-key) (v/contradictions kb 'CxIcJoin))})
 
 (defn- diff
-  "`{key {la only-in-a lb only-in-b}}` over the snapshot keys where `a` and `b` differ."
+  "`{key {la only-in-a lb only-in-b}}` over the snapshot keys where `a` and `b` differ; a
+  map-valued key (`reader-snapshot`'s `:reads`) diffs per entry."
   ([a b] (diff a b :incremental-only :exhaustive-only))
   ([a b la lb]
    (into {} (keep (fn [k]
                     (let [x (get a k) y (get b k)]
                       (when (not= x y)
-                        [k {la (set/difference x y) lb (set/difference y x)}]))))
+                        [k (if (map? x)
+                             (diff x y la lb)
+                             {la (set/difference x y) lb (set/difference y x)})]))))
          (keys a))))
 
 (defn- run-stream
@@ -161,15 +171,16 @@
 ;; ---- oracle 2: directed streams -----------------------------------------
 
 (deftest a-second-known-true-claim-is-read-where-the-first-was-carried
-  ;; the declarations and edges `:default`, so the clash is a dilemma and its report names
-  ;; the claim read; `(ibig ic_mid ic_side)` arrives reaching the same tuple and sorts
-  ;; before `(ibig ic_top ic_side)`, with nothing of the standing clash moving
+  ;; the declarations, edges and stored claim `:monotonic`, so the clash is a conflict and
+  ;; its report names the claim read; `(ibig ic_mid ic_side)` arrives reaching the same
+  ;; tuple and sorts before `(ibig ic_top ic_side)`, with nothing of the standing clash
+  ;; moving
   (is (nil? (run-stream
-             [[:assert '(transitiveInArg ibig 1 genl) 'CxIcBase {}]
-              [:assert '(transitiveInArg ibig 2 genl) 'CxIcBase {}]
-              [:assert '(genl ic_mid ic_top) 'CxIcBase {}]
-              [:assert '(genl ic_low ic_mid) 'CxIcBase {}]
-              [:assert '(ibig ic_side ic_low) 'CxIcBase {}]
+             [[:assert '(transitiveInArgInverse ibig 1 genl) 'CxIcBase {:strength :monotonic}]
+              [:assert '(transitiveInArgInverse ibig 2 genl) 'CxIcBase {:strength :monotonic}]
+              [:assert '(genl ic_mid ic_top) 'CxIcBase {:strength :monotonic}]
+              [:assert '(genl ic_low ic_mid) 'CxIcBase {:strength :monotonic}]
+              [:assert '(ibig ic_side ic_low) 'CxIcBase {:strength :monotonic}]
               [:assert '(ibig ic_top ic_side) 'CxIcBase {:strength :monotonic}]
               [:assert '(ibig ic_far ic_far) 'CxIcBase {}]
               [:assert '(ibig ic_mid ic_side) 'CxIcBase {:strength :monotonic}]
@@ -182,8 +193,8 @@
   (is (nil? (run-stream
              [[:assert '(genlCx CxIcJoin CxIcLeft) 'CxUniverse {:strength :monotonic}]
               [:assert '(genlCx CxIcJoin CxIcRight) 'CxUniverse {:strength :monotonic}]
-              [:assert '(transitiveInArg ibig 1 genl) 'CxIcBase {:strength :monotonic}]
-              [:assert '(transitiveInArg ibig 2 genl) 'CxIcBase {:strength :monotonic}]
+              [:assert '(transitiveInArgInverse ibig 1 genl) 'CxIcBase {:strength :monotonic}]
+              [:assert '(transitiveInArgInverse ibig 2 genl) 'CxIcBase {:strength :monotonic}]
               [:assert '(genl ic_low ic_mid) 'CxIcLeft {}]
               [:assert '(genl ic_mid ic_top) 'CxIcLeft {:strength :monotonic}]
               [:assert '(genl ic_low ic_far) 'CxIcLeft {}]
@@ -197,8 +208,8 @@
   ;; the stored default in CxIcRight loses at CxIcJoin only, so every settle re-decides it
   ;; there while it stays believed in CxIcRight
   (is (nil? (run-stream
-             [[:assert '(transitiveInArg ibig 1 genl) 'CxIcBase {:strength :monotonic}]
-              [:assert '(transitiveInArg ibig 2 genl) 'CxIcBase {:strength :monotonic}]
+             [[:assert '(transitiveInArgInverse ibig 1 genl) 'CxIcBase {:strength :monotonic}]
+              [:assert '(transitiveInArgInverse ibig 2 genl) 'CxIcBase {:strength :monotonic}]
               [:assert '(genl ic_low ic_mid) 'CxIcLeft {:strength :monotonic}]
               [:assert '(genl ic_mid ic_top) 'CxIcLeft {:strength :monotonic}]
               [:assert '(ibig ic_side ic_low) 'CxIcRight {}]
@@ -210,11 +221,11 @@
               [:assert '(ibig ic_far ic_side) 'CxIcBase {}]]))))
 
 (deftest a-route-edge-raised-to-known-true-is-read-again
-  ;; the reading rests on the direct `:default` edge until the route through ic_mid is
-  ;; raised to `:monotonic`; the claim then opposes the stored converse at that route, and
-  ;; the dilemma becomes a defeat with no member of the carried entry changing class
-  (let [ops '[[:assert (transitiveInArg ibig 1 genl) CxIcBase {:strength :monotonic}]
-              [:assert (transitiveInArg ibig 2 genl) CxIcBase {:strength :monotonic}]
+  ;; every route rests on a `:default` edge, so the reading opposes nothing until the
+  ;; route through ic_mid is raised to `:monotonic`; the claim then opposes the stored
+  ;; converse at that route, and the converse loses
+  (let [ops '[[:assert (transitiveInArgInverse ibig 1 genl) CxIcBase {:strength :monotonic}]
+              [:assert (transitiveInArgInverse ibig 2 genl) CxIcBase {:strength :monotonic}]
               [:assert (genl ic_low ic_mid) CxIcBase {}]
               [:assert (genl ic_mid ic_top) CxIcBase {}]
               [:assert (genl ic_low ic_top) CxIcBase {}]
@@ -239,9 +250,9 @@
     [:assert (ibig ic_low ic_low) CxIcLeft {:strength :monotonic}]
     [:assert (icAgeOf IcI2 2) CxIcLeft {:strength :monotonic}]
     [:assert (genlCx CxIcJoin CxIcLeft) CxUniverse {:strength :monotonic}]
-    [:assert (transitiveInArg ibig 2 genl) CxIcBase {:strength :monotonic}]
+    [:assert (transitiveInArgInverse ibig 2 genl) CxIcBase {:strength :monotonic}]
     [:assert (anti_transitive icPrecedes) CxIcBase {:strength :monotonic}]
-    [:assert (transitiveInArg ibig 2 genl) CxIcBase {}]
+    [:assert (transitiveInArgInverse ibig 2 genl) CxIcBase {}]
     [:assert (anti_transitive icPrecedes) CxIcBase {:strength :monotonic}]
     [:assert (genlCx CxIcJoin CxIcRight) CxUniverse {:strength :monotonic}]])
 
@@ -255,11 +266,13 @@
 
 (def ^:private swept-claim
   "A standing clash whose stored side a guarded rule concludes, beside a second entry.
-  Blocking the firing sweeps the conclusion, so the settle's second pass reads a region
-  handle with no record; the release derives it again."
-  '[[:assert (transitiveInArg ibig 1 genl) CxIcBase {}]
-    [:assert (genl ic_mid ic_top) CxIcBase {}]
-    [:assert (genl ic_low ic_mid) CxIcBase {}]
+  The reading is known-true and the conclusion `:default`, so the conclusion loses the
+  clash and nothing is reported.  Blocking the firing sweeps the conclusion, so the
+  settle's second pass reads a region handle with no record; the release derives it
+  again."
+  '[[:assert (transitiveInArgInverse ibig 1 genl) CxIcBase {:strength :monotonic}]
+    [:assert (genl ic_mid ic_top) CxIcBase {:strength :monotonic}]
+    [:assert (genl ic_low ic_mid) CxIcBase {:strength :monotonic}]
     [:assert (ibig ic_top ic_side) CxIcBase {:strength :monotonic}]
     [:assert (exceptWhen (ic_skip ?x)
                          (set/defaultRule
@@ -272,29 +285,29 @@
     [:retract (icLink ic_side ic_low) CxIcBase]])
 
 (deftest a-claim-a-guard-block-sweeps-leaves-the-clash-it-stood-in
-  (is (seq (:dilemmas (settled (take 7 swept-claim) true))) "the derived claim clashes")
-  (is (empty? (:dilemmas (settled (take 8 swept-claim) true))) "the block sweeps it")
+  (is (seq (:standing (settled (take 7 swept-claim) true))) "the derived claim clashes")
+  (is (empty? (:standing (settled (take 8 swept-claim) true))) "the block sweeps it")
   (is (nil? (run-stream swept-claim))))
 
 (def ^:private retracted-reasons
-  "A standing clash beside a second entry, then the mark, the declaration and an edge the
-  reading rests on retracted and the first two asserted again: each retraction's region
-  holds a handle with no record."
-  '[[:assert (transitiveInArg ibig 1 genl) CxIcBase {}]
-    [:assert (genl ic_mid ic_top) CxIcBase {}]
-    [:assert (genl ic_low ic_mid) CxIcBase {}]
-    [:assert (ibig ic_side ic_low) CxIcBase {}]
+  "A standing conflict beside a second entry, its members `:monotonic`, then the mark, the
+  declaration and an edge the reading rests on retracted and the first two asserted
+  again: each retraction's region holds a handle with no record."
+  '[[:assert (transitiveInArgInverse ibig 1 genl) CxIcBase {:strength :monotonic}]
+    [:assert (genl ic_mid ic_top) CxIcBase {:strength :monotonic}]
+    [:assert (genl ic_low ic_mid) CxIcBase {:strength :monotonic}]
+    [:assert (ibig ic_side ic_low) CxIcBase {:strength :monotonic}]
     [:assert (ibig ic_top ic_side) CxIcBase {:strength :monotonic}]
     [:assert (ibig ic_far ic_side) CxIcBase {}]
     [:retract (asymmetric ibig) CxIcBase]
     [:assert (asymmetric ibig) CxIcBase {:strength :monotonic}]
-    [:retract (transitiveInArg ibig 1 genl) CxIcBase]
-    [:assert (transitiveInArg ibig 1 genl) CxIcBase {}]
+    [:retract (transitiveInArgInverse ibig 1 genl) CxIcBase]
+    [:assert (transitiveInArgInverse ibig 1 genl) CxIcBase {:strength :monotonic}]
     [:retract (genl ic_low ic_mid) CxIcBase]])
 
 (deftest a-retracted-reason-leaves-the-clash-it-read
-  (is (seq (:dilemmas (settled (take 6 retracted-reasons) true))) "the clash stands")
-  (is (empty? (:dilemmas (settled (take 7 retracted-reasons) true))) "the mark leaves it")
+  (is (seq (:conflicts (settled (take 6 retracted-reasons) true))) "the clash stands")
+  (is (empty? (:conflicts (settled (take 7 retracted-reasons) true))) "the mark leaves it")
   (is (nil? (run-stream retracted-reasons))))
 
 (def ^:private predicate-edge-streams
@@ -309,10 +322,10 @@
                 [:assert (genl icSub ibig) CxIcBase {}]
                 [:assert (icSub ic_top ic_side) CxIcBase {:strength :monotonic}]]
         drop  '[:retract (genl icSub ibig) CxIcBase]]
-    [(-> '[[:assert (transitiveInArg icSub 1 genl) CxIcBase {:strength :monotonic}]]
+    [(-> '[[:assert (transitiveInArgInverse icSub 1 genl) CxIcBase {:strength :monotonic}]]
          (into edges)
          (conj '[:assert (icSub ic_side ic_low) CxIcBase {}] drop))
-     (-> '[[:assert (transitiveInArg ibig 1 genl) CxIcBase {:strength :monotonic}]]
+     (-> '[[:assert (transitiveInArgInverse ibig 1 genl) CxIcBase {:strength :monotonic}]]
          (into edges)
          (conj '[:assert (ibig ic_side ic_low) CxIcBase {}] drop))]))
 
@@ -388,10 +401,10 @@
         (with-redefs [discovery/preserving-entry (fn [kb s] (swap! calls inc) (orig kb s))]
           (v/with-deferred-settle kb
             (run! #(apply-op! kb %)
-                  (concat [[:assert '(transitiveInArg ibig 1 genl) 'CxIcBase {}]
-                           [:assert '(genl ic_mid ic_top) 'CxIcBase {}]
-                           [:assert '(genl ic_low ic_mid) 'CxIcBase {}]
-                           [:assert '(ibig ic_side ic_low) 'CxIcBase {}]
+                  (concat [[:assert '(transitiveInArgInverse ibig 1 genl) 'CxIcBase {:strength :monotonic}]
+                           [:assert '(genl ic_mid ic_top) 'CxIcBase {:strength :monotonic}]
+                           [:assert '(genl ic_low ic_mid) 'CxIcBase {:strength :monotonic}]
+                           [:assert '(ibig ic_side ic_low) 'CxIcBase {:strength :monotonic}]
                            [:assert '(ibig ic_top ic_side) 'CxIcBase {:strength :monotonic}]]
                           (for [i (range n)]
                             [:assert (list 'ibig 'ic_far (symbol (str "ic_far_" i))) 'CxIcBase {}])
@@ -408,14 +421,14 @@
         [se qe pe] (two-pass-settle n false)]
     (is (= 2 pi pe) "the batch's settle runs a second pass in each arm")
     (is (= si se) (pr-str (diff si se)))
-    (is (seq (:dilemmas si)) "the standing clash is read in the batch")
+    (is (seq (:conflicts si)) "the standing clash is read in the batch")
     (is (< qi (+ n 10)) (str "the incremental arm asked " qi " questions over two passes"))
     (is (> qe (* 2 n)) (str "the exhaustive arm asks each pass whole: " qe))))
 
 ;; ---- a retraction in the region -----------------------------------------
 
-(defn- retraction-settles
-  "`n` stored claims that each keep an entry, each denied by a `:default` reading of a
+(defn- entry-settles
+  "`n` stored claims that each keep an entry, each reached by a `:default` reading of a
   claim on `ic_top`, beside a guarded firing per term of `ic_probe`.  Then each op of
   `ops` under its own settle.  `[snapshot entries questions]` under `incremental?`,
   `questions` the `preserving-entry` calls each op's settle made."
@@ -432,7 +445,7 @@
                   'CxIcBase)
         (v/with-deferred-settle kb
           (run! #(apply-op! kb %)
-                (concat [[:assert '(transitiveInArg ibig 1 genl) 'CxIcBase {}]
+                (concat [[:assert '(transitiveInArgInverse ibig 1 genl) 'CxIcBase {}]
                          [:assert '(genl ic_mid ic_top) 'CxIcBase {}]
                          [:assert '(genl ic_low ic_mid) 'CxIcBase {}]
                          [:assert '(ic_probe IcA) 'CxIcBase {}]
@@ -456,12 +469,214 @@
         ops '[[:retract (ic_probe IcB) CxIcBase]
               [:assert (ic_skip IcA) CxIcBase {}]
               [:retract (ibig ic_s_0 ic_low) CxIcBase]]
-        [si ni qi] (retraction-settles n ops true)
-        [se _  qe] (retraction-settles n ops false)]
+        [si ni qi] (entry-settles n ops true)
+        [se _  qe] (entry-settles n ops false)]
     (is (= si se) (pr-str (diff si se)))
     (is (>= ni n) (str ni " entries stand before the retractions"))
     (is (every? #(< % 10) qi) (str "the incremental arm asked " qi))
     (is (every? #(>= % (dec n)) qe) (str "the exhaustive arm asks every entry: " qe))))
+
+;; ---- a declaration in the region -------------------------------------------
+
+(deftest a-separation-no-entry-reads-asks-no-entry
+  ;; A `disjoint` moves a flat-cache entry no question of a binary claim reads, so the
+  ;; settles of its assert and its retract ask no entry.  A second statement of the
+  ;; preserved predicate's `asymmetric` mark moves an entry every question reads, and
+  ;; asks them again.  The exhaustive arm asks every entry on every settle.
+  (let [n   40
+        ops '[[:assert (disjoint ic_far ic_side) CxIcBase {}]
+              [:retract (disjoint ic_far ic_side) CxIcBase]
+              [:assert (asymmetric ibig) CxIcLeft {}]]
+        [si ni qi] (entry-settles n ops true)
+        [se _  qe] (entry-settles n ops false)]
+    (is (= si se) (pr-str (diff si se)))
+    (is (>= ni n) (str ni " entries stand before the declarations"))
+    (is (= [0 0] (subvec qi 0 2)) (str "the incremental arm asked " qi))
+    (is (>= (qi 2) n) (str "the mark's settle asks the entries again: " qi))
+    (is (every? #(>= % (dec n)) qe) (str "the exhaustive arm asks every entry: " qe))))
+
+;; ---- a separation a membership entry reads --------------------------------
+
+(defn- membership-settles
+  "Three stored memberships `(ic_red w)` of a predicate preserved along `icPartOf`, each
+  reached by `(not (ic_red IcCar))` through `(icPartOf w IcCar)`, so each keeps an entry
+  that reads the types of its term: `IcMw0` in `ic_wheel`, `IcMw1` in `ic_wheel_sub`
+  below it, `IcMw2` in `ic_spoke`.  Then each op of `ops` under its own settle.
+  `[snapshot questions]` under `incremental?`, `questions` the `preserving-entry` calls
+  each op's settle made."
+  [ops incremental?]
+  (let [kb    (if incremental? (tu/fresh) (tu/isolated-fresh))
+        calls (atom 0)
+        orig  @#'discovery/preserving-entry]
+    (try
+      (binding [discovery/*incremental-preserving* incremental?]
+        (build-ontology! kb)
+        (v/with-deferred-settle kb
+          (run! #(apply-op! kb %)
+                (concat '[[:assert (transitive icPartOf) CxIcBase {:strength :monotonic}]
+                          [:assert (transitiveInArgInverse ic_red 1 icPartOf) CxIcBase {}]
+                          [:assert (genl ic_wheel thing) CxIcBase {}]
+                          [:assert (genl ic_wheel_sub ic_wheel) CxIcBase {}]
+                          [:assert (genl ic_spoke thing) CxIcBase {}]
+                          [:assert (genl ic_hub thing) CxIcBase {}]
+                          [:assert (not (ic_red IcCar)) CxIcBase {}]]
+                        (for [[t i] '[[ic_wheel 0] [ic_wheel_sub 1] [ic_spoke 2]]
+                              :let  [w (symbol (str "IcMw" i))]
+                              s     [(list t w) (list 'icPartOf w 'IcCar) (list 'ic_red w)]]
+                          [:assert s 'CxIcBase {}]))))
+        (let [qs (with-redefs [discovery/preserving-entry
+                               (fn [kb s] (swap! calls inc) (orig kb s))]
+                   (mapv (fn [op] (reset! calls 0) (apply-op! kb op) @calls) ops))]
+          [(snapshot kb) qs]))
+      (finally (tu/clear-kb! kb)))))
+
+(deftest a-moved-separation-asks-the-membership-entries-below-its-types
+  ;; No inherited reading reads a separation, so a `disjoint` over `ic_wheel` arriving and
+  ;; leaving asks no entry, and neither does one over two types no entry names.
+  (let [ops '[[:assert (disjoint ic_wheel ic_hub) CxIcBase {}]
+              [:retract (disjoint ic_wheel ic_hub) CxIcBase]
+              [:assert (disjoint ic_far ic_side) CxIcBase {}]]
+        [si qi] (membership-settles ops true)
+        [se]    (membership-settles ops false)]
+    (is (= si se) (pr-str (diff si se)))
+    (is (= [0 0 0] qi) (str "the incremental arm asked " qi))))
+
+(defn- build-route!
+  "The shared ontology, and a membership predicate `ic_red` preserved along `icPartOf`:
+  the stored `(ic_red IcLa)` and the claim `(not (ic_red IcLcar))` are known-true; the
+  `:default` route `(icPartOf IcLa IcLcar)` between them loses in `CxIcBase` to a
+  monotonic denial, which an `except` in `CxIcLeft` hides there.  The route is a
+  `:default` reason, so the reading over it is undercut and forms no inherited clash in
+  any context.  `IcLa` is held `ic_blue`."
+  [kb]
+  (let [m {:strength :monotonic}]
+    (build-ontology! kb)
+    (doseq [s '[(transitive icPartOf) (transitiveInArgInverse ic_red 1 icPartOf) (genl ic_red thing)
+                (genl ic_blue thing) (ic_red IcLa) (not (ic_red IcLcar))]]
+      (v/assert kb s 'CxIcBase m))
+    (v/assert kb '(icPartOf IcLa IcLcar) 'CxIcBase {})
+    (v/assert kb '(ic_blue IcLa) 'CxIcBase {})
+    (let [denial (v/assert kb '(not (icPartOf IcLa IcLcar)) 'CxIcBase m)]
+      (v/assert kb (list 'except (list 'sentexHandle denial)) 'CxIcLeft {}))))
+
+(defn- restored-at-left
+  "Whether `(ic_red IcLa)` is believed at `[CxIcLeft CxIcBase]` before each op and after
+  the last, under `incremental?`: the claim `(not (ic_red IcLcar))` and the route
+  `(icPartOf IcLa IcLcar)` are known-true in `CxIcBase` and the stored `(ic_red IcLa)` is
+  `:default`, so the inherited clash defeats it.  `:except` hides the route at `CxIcBase`,
+  `:meta` excepts that except in `CxIcLeft`, and `:unmeta` retracts it."
+  [ops incremental?]
+  (let [kb (if incremental? (tu/fresh) (tu/isolated-fresh))
+        m  {:strength :monotonic}]
+    (try
+      (binding [discovery/*incremental-preserving* incremental?]
+        (build-ontology! kb)
+        (doseq [s '[(transitive icPartOf) (transitiveInArgInverse ic_red 1 icPartOf)
+                    (genl ic_red thing) (not (ic_red IcLcar))]]
+          (v/assert kb s 'CxIcBase m))
+        (let [route  (v/assert kb '(icPartOf IcLa IcLcar) 'CxIcBase m)
+              stored (v/assert kb '(ic_red IcLa) 'CxIcBase {})
+              hs     (atom {})
+              read   #(mapv (fn [c] (v/believed? kb stored c)) '[CxIcLeft CxIcBase])]
+          (into [(read)]
+                (map (fn [op]
+                       (case op
+                         :except (swap! hs assoc :except
+                                        (v/assert kb (list 'except (list 'sentexHandle route)) 'CxIcBase {}))
+                         :meta   (swap! hs assoc :meta
+                                        (v/assert kb (list 'except (list 'sentexHandle (:except @hs))) 'CxIcLeft {}))
+                         :unmeta (v/retract! kb (:meta @hs)))
+                       (read)))
+                ops)))
+      (finally (tu/clear-kb! kb)))))
+
+(deftest a-meta-except-restoring-a-reason-below-a-membership-entry-decides-its-clash-there
+  ;; The except hides the known-true route at `CxIcBase`, which takes the clash away
+  ;; there; the meta-except shows the route at `CxIcLeft` alone, and the carried entry is
+  ;; asked again there, which the exhaustive arm asks every settle.
+  (let [ops [:except :meta :unmeta]
+        re  (restored-at-left ops false)]
+    (is (= [[false false] [true true] [false true] [true true]] re) "the exhaustive arm")
+    (is (= re (restored-at-left ops true)) "the incremental arm")))
+
+;; ---- oracle 4: randomized streams over a preserved membership ------------------
+
+(defn- build-membership-world!
+  "`build-route!`, a disjoint metatype `ic_kind`, the type `ic_green`, and `CxIcJoin`
+  below `CxIcLeft`."
+  [kb]
+  (build-route! kb)
+  (doseq [[s c] '[[(disjoint_metatype ic_kind) CxIcBase] [(genl ic_green thing) CxIcBase]
+                  [(genlCx CxIcJoin CxIcLeft) CxUniverse]]]
+    (v/assert kb s c {:strength :monotonic})))
+
+(defn- rand-membership-op
+  "One write over `build-membership-world!`: a metatype membership of a type, `:default`
+  in half the writes, or its monotonic denial, asserted or retracted; a `disjoint` of
+  `ic_red` with another type; a membership, a claim, a route or an unrelated fact; or
+  the `genlCx` edge from `CxIcJoin` to `CxIcRight`."
+  [^java.util.Random rng]
+  (let [pick (fn [xs] (nth xs (.nextInt rng (count xs))))
+        ctx  #(pick ctxs)
+        str8 #(if (zero? (.nextInt rng 2)) {:strength :monotonic} {})
+        term #(pick '[IcLa IcLb IcLcar])
+        kind #(list 'ic_kind (pick '[ic_red ic_blue ic_green]))
+        type #(pick '[ic_blue ic_green])]
+    (case (.nextInt rng 12)
+      0  [:assert (kind) (ctx) (str8)]
+      1  [:retract (kind) (ctx)]
+      2  [:assert (list 'not (kind)) (ctx) {:strength :monotonic}]
+      3  [:retract (list 'not (kind)) (ctx)]
+      4  [:assert (list 'disjoint 'ic_red (type)) (ctx) {}]
+      5  [:retract (list 'disjoint 'ic_red (type)) (ctx)]
+      6  [:assert (list (type) (term)) (ctx) (str8)]
+      7  [:assert (list 'ic_red (term)) (ctx) (str8)]
+      8  [:assert (list 'icPartOf (term) (term)) (ctx) (str8)]
+      9  [:retract (list 'icPartOf (term) (term)) (ctx)]
+      10 [:assert (list 'icUnrel (term) (term)) (ctx) {}]
+      11 [:assert '(genlCx CxIcJoin CxIcRight) 'CxUniverse {:strength :monotonic}])))
+
+(defn- reader-snapshot
+  "`snapshot`, with what each context reads of the routes and the memberships."
+  [kb]
+  (assoc (snapshot kb) :reads
+         (into {} (for [c (conj ctxs 'CxIcJoin)
+                        g '[(icPartOf ?x ?y) (ic_red ?x) (not (ic_red ?x)) (ic_blue ?x)
+                            (ic_green ?x) (ic_kind ?x)]]
+                    [[c g] (set (v/query kb g c))]))))
+
+(defn- membership-stream-divergence
+  "`ops` into an incremental and an exhaustive `build-membership-world!`, comparing their
+  `reader-snapshot`s after every write: the first `[step op incremental exhaustive]` that
+  differs, or nil."
+  [ops]
+  (let [inc-kb (tu/fresh)
+        exh-kb (tu/isolated-fresh)]
+    (try
+      (binding [discovery/*incremental-preserving* true]  (build-membership-world! inc-kb))
+      (binding [discovery/*incremental-preserving* false] (build-membership-world! exh-kb))
+      (loop [step 0, [op & more] ops]
+        (when op
+          (let [ri (binding [discovery/*incremental-preserving* true]  (apply-op! inc-kb op))
+                re (binding [discovery/*incremental-preserving* false] (apply-op! exh-kb op))
+                si (reader-snapshot inc-kb)
+                se (reader-snapshot exh-kb)]
+            (if (and (= ri re) (= si se))
+              (recur (inc step) more)
+              [step op si se]))))
+      (finally (tu/clear-kb! inc-kb) (tu/clear-kb! exh-kb)))))
+
+(defn- membership-streams [seeds]
+  (doseq [seed seeds]
+    (let [rng (java.util.Random. (long seed))
+          r   (membership-stream-divergence (repeatedly 30 #(rand-membership-op rng)))]
+      (is (nil? r) (str "seed " seed " " (when r (divergence r)))))))
+
+(deftest a-sample-of-membership-streams-reads-as-the-exhaustive-arm
+  (membership-streams (range 3)))
+
+(deftest ^:slow membership-streams-read-as-the-exhaustive-arm
+  (membership-streams (range 3 40)))
 
 ;; ---- across an image install ----------------------------------------------
 
@@ -510,6 +725,7 @@
   (reopened-streams (range 200 210) 20))
 
 (deftest a-sampled-stream-reopened-from-the-image-finds-the-same-inherited-clashes
-  ;; seed 201's eighteenth write is a denial whose clash a mark carried across the install
-  ;; hid
-  (reopened-streams [201] 18))
+  (tu/with-snapshot-platform
+    ;; seed 201's eighteenth write is a denial whose clash a mark carried across the install
+    ;; hid
+    (reopened-streams [201] 18)))

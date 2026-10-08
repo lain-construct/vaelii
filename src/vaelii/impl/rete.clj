@@ -127,7 +127,7 @@
 (defn- index-functor
   "The functor a fact is bucketed under: the functor of its positive atomic body, so
   a negative fact `(not (parentOf A B))` roots under `parentOf` — exactly as the store's
-  `[:functor-root pred]` functor root does, and as a positive antecedent pattern will look for."
+  predicate extent does, and as a positive antecedent pattern will look for."
   [sentex]
   (nm/functor (sx/body sentex)))
 
@@ -378,3 +378,11 @@
                                  0)})
   :clear    (fn [kb] (forget-kb! kb))
   :trim     (fn [kb _target] (forget-kb! kb))})
+
+(caches/register-derived
+ {:id :R9 :label "Rete alpha memories" :cache :rete-alpha :kind :cache :keyed-by :functor
+  :reads [:records]
+  :retired-by {:stored :K :removed :K :respelled :K :closed :W :caches-cleared :W :recover :R}
+  :computed :write :imaged? false :var #'registry
+  :value (fn [kb] (some-> (.get registry (weak-key kb)) deref))
+  :note "facts by functor and argument, kept through the store hooks; present only with `VAELII_RETE=1` or `track!`"})

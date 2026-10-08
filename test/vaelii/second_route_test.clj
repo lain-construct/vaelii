@@ -7,7 +7,8 @@
   A firing names one path per reachability it rests on — the `genl` path a subsumed match
   climbed, the `genlCx` path its placement is seen over, the path a `transitiveInArg` claim
   moved along — and a second route is paid for with a re-derivation when the named one
-  goes (docs/nmtms.md, \"Where the layer stops\").  Each case below builds two routes
+  goes from the network, and read at the reader when a defeat or an `except` hides it
+  there (docs/nmtms.md, \"Where the layer stops\").  Each case below builds two routes
   between the same ends, knocks out an edge of the named one, and compares every reader's
   answer with a KB that never held that edge.
 
@@ -17,15 +18,13 @@
   generality — and four ways to knock an edge out:
 
     retract    the record goes; the sweep's re-join brings the firing back
-    network    a monotonic negation in the edge's own context defeats it everywhere; the
-               edge keeps its record and the settle's re-join (`settle/departed-seeds`)
-               brings the firing back
-    scoped     a monotonic negation in a context below the edge defeats it at that
-               vantage and below; the network keeps the edge IN, and the settle
-               re-derives the firing from each such reader's view
-               (`reroute/lost-firing-seeds`, `chain/*witness-view*`)
+    network    a monotonic negation in the edge's own context places a defeat of it
+               there; the network keeps the edge IN, and a reader that reaches the path's
+               ends over edges it does not hide reads the firing (`exc/rerouted`)
+    scoped     a monotonic negation in a context below the edge places the defeat at that
+               vantage, read the same way below it
     except     an `(except (sentexHandle H))` hides the edge from its context and below,
-               re-derived the same way
+               read the same way
 
   A network knock is compared with a KB that never held the edge at every reader; a scoped
   or excepting one only at the readers at and below its context, and with the whole KB
@@ -86,7 +85,7 @@
           (terms '[dog_t mid_t chi_t cat_t largerThan noted CxA CxB])]
       {:base    [[(list 'genlCx CxA 'CxUniverse) 'CxUniverse]
                  [(list 'genlCx CxB CxA) 'CxUniverse]
-                 [(list 'transitiveInArg largerThan 1 'genl) 'CxUniverse]
+                 [(list 'transitiveInArgInverse largerThan 1 'genl) 'CxUniverse]
                  [(list 'set/forwardRule (list 'implies (list largerThan '?x '?y) (list noted '?x '?y)))
                   'CxUniverse]]
        :named   [[(list 'genl mid_t dog_t) 'CxUniverse] [(list 'genl chi_t mid_t) 'CxUniverse]]
@@ -105,7 +104,7 @@
           (terms '[dog_t mid_t chi_t cat_t largerThan noted CxA CxB])]
       {:base    [[(list 'genlCx CxA 'CxUniverse) 'CxUniverse]
                  [(list 'genlCx CxB CxA) 'CxUniverse]
-                 [(list 'transitiveInArg largerThan 1 'genl) 'CxUniverse]
+                 [(list 'transitiveInArgInverse largerThan 1 'genl) 'CxUniverse]
                  [(list 'set/forwardRule (list 'implies (list largerThan '?x '?y) (list noted '?x '?y)))
                   'CxUniverse]]
        :named   [[(list 'genl chi_t dog_t) CxA]]
@@ -123,7 +122,7 @@
       {:base    [[(list 'genlCx CxA 'CxUniverse) 'CxUniverse]
                  [(list 'genlCx CxB CxA) 'CxUniverse]
                  [(list 'transitive partOf) 'CxUniverse]
-                 [(list 'transitiveInArg rel 1 partOf) 'CxUniverse]
+                 [(list 'transitiveInArgInverse rel 1 partOf) 'CxUniverse]
                  [(list 'set/forwardRule (list 'implies (list rel '?x '?y) (list noted '?x '?y)))
                   'CxUniverse]]
        :named   [[(list partOf B A) 'CxUniverse] [(list partOf C B) 'CxUniverse]]
@@ -142,7 +141,7 @@
     (let [{:syms [low_t mid_t high_t val_t aRel noted CxA CxB CxD]}
           (terms '[low_t mid_t high_t val_t aRel noted CxA CxB CxD])]
       {:base    (into (sibling-contexts CxA CxB CxD)
-                      [[(list 'transitiveInArg aRel 1 'genl) 'CxUniverse]
+                      [[(list 'transitiveInArgInverse aRel 1 'genl) 'CxUniverse]
                        [(list 'set/forwardRule (list 'implies (list aRel '?x '?y) (list noted '?x '?y)))
                         'CxUniverse]])
        :named   [[(list 'genl low_t mid_t) CxA] [(list 'genl mid_t high_t) CxA]]
@@ -159,7 +158,7 @@
           (terms '[partOf rel noted A B C Z CxA CxB CxD])]
       {:base    (into (sibling-contexts CxA CxB CxD)
                       [[(list 'transitive partOf) 'CxUniverse]
-                       [(list 'transitiveInArg rel 1 partOf) 'CxUniverse]
+                       [(list 'transitiveInArgInverse rel 1 partOf) 'CxUniverse]
                        [(list 'set/forwardRule (list 'implies (list rel '?x '?y) (list noted '?x '?y)))
                         'CxUniverse]])
        :named   [[(list partOf C B) CxA] [(list partOf B A) CxA]]
@@ -330,7 +329,7 @@
   (let [{:syms [low_t mid_t high_t val_t aRel noted alive_t partOf P1 P2 P3 Fido CxA CxB CxD]}
         (terms '[low_t mid_t high_t val_t aRel noted alive_t partOf P1 P2 P3 Fido CxA CxB CxD])
         ctxs    (sibling-contexts CxA CxB CxD)
-        pres    [[(list 'transitiveInArg aRel 1 'genl) 'CxUniverse]]
+        pres    [[(list 'transitiveInArgInverse aRel 1 'genl) 'CxUniverse]]
         noting  [[(list 'set/forwardRule (list 'implies (list aRel '?x '?y) (list noted '?x '?y)))
                   'CxUniverse]]
         long-a  [[:a1 [[(list 'genl low_t mid_t) CxA]]] [:a2 [[(list 'genl mid_t high_t) CxA]]]]
@@ -359,8 +358,8 @@
       ;; one declaration, stated in each sibling
       :declared-twice
       {:base  (concat ctxs noting [[(list 'genl low_t high_t) 'CxUniverse]])
-       :parts [[:da [[(list 'transitiveInArg aRel 1 'genl) CxA]]]
-               [:db [[(list 'transitiveInArg aRel 1 'genl) CxB]]]
+       :parts [[:da [[(list 'transitiveInArgInverse aRel 1 'genl) CxA]]]
+               [:db [[(list 'transitiveInArgInverse aRel 1 'genl) CxB]]]
                [:claim [[(list aRel high_t val_t) 'CxUniverse]]]]
        :goal  (list noted low_t val_t) :readers readers :expect [false true true true]}
 
@@ -372,7 +371,7 @@
 
       :fact-relation
       {:base  (concat ctxs noting [[(list 'transitive partOf) 'CxUniverse]
-                                   [(list 'transitiveInArg aRel 1 partOf) 'CxUniverse]])
+                                   [(list 'transitiveInArgInverse aRel 1 partOf) 'CxUniverse]])
        :parts [[:a1 [[(list partOf P3 P2) CxA]]] [:a2 [[(list partOf P2 P1) CxA]]]
                [:b [[(list partOf P3 P1) CxB]]] [:claim [[(list aRel P1 val_t) 'CxUniverse]]]]
        :goal  (list noted P3 val_t) :readers readers :expect [false true true true]}
@@ -401,7 +400,7 @@
       :transitive-twice
       {:base    (concat ctxs noting [[(list partOf P3 P1) 'CxUniverse]])
        :parts   [[:ta [[(list 'transitive partOf) CxA]]] [:tb [[(list 'transitive partOf) CxB]]]
-                 [:decl [[(list 'transitiveInArg aRel 1 partOf) 'CxUniverse]]]
+                 [:decl [[(list 'transitiveInArgInverse aRel 1 partOf) 'CxUniverse]]]
                  [:claim [[(list aRel P1 val_t) 'CxUniverse]]]]
        :admits  (fn [order]
                   (let [at #(.indexOf ^java.util.List order %)]
@@ -469,7 +468,7 @@
         m (mark-of aRel)]
     {:base    (concat (sibling-contexts CxA CxB CxD)
                       [[(list 'arity aRel 2) 'CxUniverse]
-                       [(list 'transitiveInArg aRel 1 'genl) 'CxUniverse]
+                       [(list 'transitiveInArgInverse aRel 1 'genl) 'CxUniverse]
                        [(list 'genl low_t zhigh_t) 'CxUniverse]
                        [(list 'set/forwardRule (list 'implies (list aRel '?x '?y) (list noted '?x '?y)))
                         'CxUniverse]])
@@ -509,3 +508,129 @@
     (testing (str (first (mark-of 'r)) " " order " withdrawing " withdrawn)
       (is (= (mapv #(vec (repeat 2 (vec (repeat 4 %)))) [true true false])
              (mark-answers mark-of order withdrawn))))))
+
+;; ---- a second route from another claim ------------------------------------
+;;
+;; Two claims of one property below `c2`, at `c0` and at `c1`, and two routes up: `c0 ⊂ c1 ⊂
+;; c2` and `c0 ⊂ c1b ⊂ c2`.  A monotonic denial of `c1 ⊂ c2` hides the only route from the
+;; `c1` claim, and a firing that named it stands on the `c0` claim's route over `c1b`.
+;; Which claim a firing names depends on the arrival order, so the reader's answer comes
+;; from the claims and the edges it sees, not from the justification stored
+;; (`inherit/goal-reached?`).  A preserved claim and a subsumed membership each carry the
+;; property.
+
+(defn- claim-shape
+  "The two-claim lattice for `kind` as `{:base :parts :goal :second}`: `:parts` the named
+  arrivals the orders permute, `:second` the denial of `c1b ⊂ c2`."
+  [kind]
+  (let [{:syms [c0_t c1_t c1b_t c2_t aRel noted_t K]}
+        (terms '[c0_t c1_t c1b_t c2_t aRel noted_t K])
+        U     'CxUniverse
+        M     {:strength :monotonic}
+        edge  (fn [a b] [(list 'genl a b) U {}])
+        claim (fn [t] (if (= kind :preserve) [(list aRel t K) U {}] [(list t K) U {}]))
+        rule  (if (= kind :preserve)
+                (list 'implies (list aRel '?x '?y) (list noted_t '?x))
+                (list 'implies (list c2_t '?x) (list noted_t '?x)))]
+    {:base   (cond-> [(edge c0_t c1_t) (edge c0_t c1b_t)]
+               (= kind :preserve) (into [[(list 'arity aRel 2) U {}]
+                                         [(list 'transitiveInArg aRel 1 'genl) U M]]))
+     :parts  {:claim0 [(claim c0_t)] :claim1 [(claim c1_t)]
+              :named  [(edge c1_t c2_t)] :other [(edge c1b_t c2_t)]
+              :denial [[(list 'not (list 'genl c1_t c2_t)) U M]]
+              :rule   [[(list 'set/forwardRule rule) U {}]]}
+     :goal   (if (= kind :preserve) (list noted_t c2_t) (list noted_t K))
+     :second [(list 'not (list 'genl c1b_t c2_t)) U M]}))
+
+(defn- claim-answers
+  "Whether CxUniverse believes the goal of `kind`'s lattice with its parts arriving in
+  `order`, and then once `c1b ⊂ c2` is denied too, in a cleared KB."
+  [kind order]
+  (tu/with-cleared-kb [kb tu/isolated-fresh]
+    (let [{:keys [base parts goal second]} (claim-shape kind)
+          ask #(v/ask? kb goal 'CxUniverse)]
+      (doseq [[s c o] base] (v/assert kb s c o))
+      (doseq [part order, [s c o] (parts part)] (v/assert kb s c o))
+      (let [before (ask)]
+        (apply v/assert kb second)
+        [before (ask)]))))
+
+(defn- claim-orders-agree [orders]
+  (doseq [kind [:preserve :subsume], order orders]
+    (testing (str kind " " order)
+      (is (= [true false] (claim-answers kind order))))))
+
+(deftest a-claim-on-an-unhidden-route-holds-the-firing-in-sampled-orders
+  (claim-orders-agree (map #(into [:named :other] %) (permutations [:claim0 :claim1 :denial :rule]))))
+
+(deftest ^:slow a-claim-on-an-unhidden-route-holds-the-firing-in-every-order
+  (claim-orders-agree (permutations [:claim0 :claim1 :named :other :denial :rule])))
+
+;; ---- belief reads a route the reader does not see -------------------------------
+;;
+;; The two-claim lattice with every firing on the denied `c1 ⊂ c2`, and an except at
+;; CxUniverse of the `c0` claim or of the `c1b ⊂ c2` edge.  An except is visibility, so the
+;; reader still believes the goal over the `c0` claim's route and does not see it
+;; (docs/nmtms.md, "Where the layer stops").  `in?` reads belief at the goal's own context,
+;; CxUniverse.
+
+(defn- hidden-route-answers
+  "Whether CxUniverse believes and sees the goal of `kind`'s lattice with its parts arriving
+  in `order`, `c1b ⊂ c2` and the denial after them, and an except of `hide`'s sentence."
+  [kind order hide]
+  (tu/with-cleared-kb [kb tu/isolated-fresh]
+    (let [{:keys [base parts goal]} (claim-shape kind)]
+      (doseq [[s c o] base] (v/assert kb s c o))
+      (doseq [part order, [s c o] (parts part)] (v/assert kb s c o))
+      (v/assert kb (list 'except (list 'sentexHandle (v/handle-of kb (ffirst (parts hide)) 'CxUniverse)))
+                'CxUniverse)
+      (let [h (v/handle-of kb goal 'CxUniverse)]
+        [(boolean (and h (v/in? kb h))) (v/ask? kb goal 'CxUniverse)]))))
+
+(deftest a-route-through-an-excepted-claim-or-edge-holds-belief-and-not-visibility
+  (doseq [kind [:preserve :subsume], hide [:claim0 :other]
+          order (map #(conj % :other :denial) (permutations [:claim0 :claim1 :named :rule]))]
+    (testing (str kind " " hide " " order)
+      (is (= [true false] (hidden-route-answers kind order hide))))))
+
+;; ---- a claim that stands on a second route --------------------------------------
+;;
+;; Two rules in sequence, `a2 ⇒ b0` and `b2 ⇒ noted`, each over a lattice of two routes,
+;; `x0 ⊂ x1 ⊂ x2` and `x0 ⊂ x1b ⊂ x2`, with `x1 ⊂ x2` denied monotonic.  Each firing names
+;; the denied route, so `(b0 K)` stands at CxUniverse on its second route alone, and the
+;; search for the second firing's goal `(b2 K)` reaches it over `b1b` only if it reads
+;; `(b0 K)` the way a read outside the search does (`exc/route-answer`).
+
+(defn- chained-shape []
+  (let [{:syms [a0_t a1_t a1b_t a2_t b0_t b1_t b1b_t b2_t noted_t K]}
+        (terms '[a0_t a1_t a1b_t a2_t b0_t b1_t b1b_t b2_t noted_t K])
+        U    'CxUniverse
+        M    {:strength :monotonic}
+        edge (fn [a b] [(list 'genl a b) U {}])]
+    {:base  [(edge a0_t a1_t) (edge a0_t a1b_t) (edge b0_t b1_t) (edge b0_t b1b_t)]
+     :parts {:claim  [[(list a0_t K) U {}]]
+             :named  [(edge a1_t a2_t) (edge b1_t b2_t)]
+             :other  [(edge a1b_t a2_t) (edge b1b_t b2_t)]
+             :denial [[(list 'not (list 'genl a1_t a2_t)) U M] [(list 'not (list 'genl b1_t b2_t)) U M]]
+             :rule   [[(list 'set/forwardRule (list 'implies (list a2_t '?x) (list b0_t '?x))) U {}]
+                      [(list 'set/forwardRule (list 'implies (list b2_t '?x) (list noted_t '?x))) U {}]]}
+     :goals [(list b0_t K) (list noted_t K)]}))
+
+(defn- chained-answers [order]
+  (tu/with-cleared-kb [kb tu/isolated-fresh]
+    (let [{:keys [base parts goals]} (chained-shape)]
+      (doseq [[s c o] base] (v/assert kb s c o))
+      (doseq [part order, [s c o] (parts part)] (v/assert kb s c o))
+      (mapv #(v/ask? kb % 'CxUniverse) goals))))
+
+(defn- chained-orders-agree [orders]
+  (doseq [order orders]
+    (testing (str order)
+      (is (= [true true] (chained-answers order))))))
+
+(deftest a-claim-on-its-own-second-route-holds-the-next-firing-in-sampled-orders
+  (chained-orders-agree [[:rule :claim :named :other :denial] [:denial :other :named :claim :rule]
+                         [:other :named :rule :denial :claim] [:named :denial :claim :rule :other]]))
+
+(deftest ^:slow a-claim-on-its-own-second-route-holds-the-next-firing-in-every-order
+  (chained-orders-agree (permutations [:rule :claim :named :other :denial])))

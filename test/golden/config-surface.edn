@@ -12,6 +12,7 @@
   "VAELII_ASP_TIME_LIMIT"
   "VAELII_ASSERTIVE_ARG_TYPES"
   "VAELII_AUDIT_SUPPORT"
+  "VAELII_BASH"
   "VAELII_BENCH_LOG_LEVEL"
   "VAELII_BENCH_STORE"
   "VAELII_BUILD"
@@ -73,4 +74,5 @@
   "vaelii.index.snapshot-drift"
   "vaelii.kb.catalog"
   "vaelii.kb.path"
+  "vaelii.test.bash"
   "vaelii.web.port"]}

@@ -162,7 +162,7 @@
   `vaelii.core`'s read entry points and `vaelii.impl.predall`'s audit prepare a goal the
   same way through this one function."
   [kb goal context]
-  (letfn [(prep [g] (kb/rewrite-goal kb (nat/maybe-reify-for-read kb (maybe-reduce kb g)) context))]
+  (letfn [(prep [g] (kb/rewrite-goal kb (nat/maybe-reify-for-read kb (maybe-reduce kb g) context) context))]
     (if (vector? goal) (mapv prep goal) (prep goal))))
 
 (defn ask-prepared

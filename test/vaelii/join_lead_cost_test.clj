@@ -8,7 +8,7 @@
   membership question.  Through the trie it is one walk per member of `broad`'s
   sub-predicate closure, so the firing's read count grows with how wide the type
   hierarchy under the antecedent is; through the argument lead it is the term's own
-  postings, narrowed to the closure in memory, and flat in that width.  Same set either
+  postings, kept to the closure through the slot roster, and flat in that width.  Same set either
   way — `matches_hierarchical_test` pins that — and this pins the cost half, as a
   **count** rather than a duration, for `assert_cost_test`'s reasons: an integer the
   engine computes, identical across runs and machines.

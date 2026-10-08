@@ -24,6 +24,7 @@
   makes (docs/qcn.md) and the same one `exceptWhen` revival makes."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
@@ -121,8 +122,9 @@
 
 (tu/deftest-kb a-defeated-edge-puts-the-conclusion-out-and-a-revived-one-brings-it-back
   ;; defeat, not removal: the justification is structurally intact, so the sweep leaves
-  ;; the conclusion alone and the JTMS simply labels it OUT.  Revival is a relabel — the
-  ;; *same* handle — which is what distinguishes this from the retraction cases below.
+  ;; the conclusion alone, and the placed defeat of the edge removes it from belief.
+  ;; Revival keeps the *same* handle, which is what distinguishes this from the
+  ;; retraction cases below.
   (tu/with-terms [fatherOf parentOf ancestorOf Tom Bob]
     (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
     (v/assert kb (list 'implies (list parentOf '?x '?y) (list ancestorOf '?x '?y)) 'CxUniverse {:direction :forward})
@@ -132,11 +134,11 @@
                             {:strength :monotonic})]
       (is (not (v/in? kb derived)) "the edge is not believed, so neither is what climbed it")
       (is (some? (v/sentex kb derived)) "stored all along — nothing was swept")
-      (is (= :unsupported (:reason (v/why-not kb derived))))
+      (is (= :withdrawn (:reason (v/why-not kb derived))))
       (v/retract! kb nope)
       (is (v/in? kb derived) "and the edge coming back brings the conclusion back")
       (is (= derived (v/handle-of kb (list ancestorOf Tom Bob) 'CxUniverse))
-          "at the same handle: a relabel, not a re-derivation"))))
+          "at the same handle, not a re-derivation"))))
 
 (tu/deftest-kb the-edge-caps-the-conclusion-s-defeat-class
   ;; a conclusion is never stronger than what it rests on, and the edge it climbed is
@@ -190,7 +192,7 @@
     (let [a (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
           b (v/assert kb (list 'genl fatherOf parentOf) 'CxUniverse)
           c (v/assert kb (list 'genl fatherOf parentOf) 'CxCore)
-          support (get-in @(reasoning/taxonomy kb) [:genl :support [fatherOf parentOf]])]
+          support (tax/supporters (reasoning/taxonomy kb) [:genl fatherOf parentOf])]
       (is (= a b) "one sentence in one context is one sentex, however often it is asserted")
       (is (not= a c) "a second context is a second sentex, and a second supporter")
       (is (= #{a c} (set (keys support))) "so the edge has exactly the two supporters")

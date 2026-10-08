@@ -45,7 +45,8 @@ The seven predicates live in `resources/kb/upper/CxMeasure.txt`, beside the meas
 | `(greaterInMagnitudeThan A B)` | A is further from zero than B |
 
 The arithmetic relations say which quantities stand in the relation; no fact states what
-any of them amounts to.
+any of them amounts to. Every position that holds Q, R, A or B is declared `quantity`, so
+`(signOf Tap SignPositive)` derives `(quantity Tap)`.
 
 The three sign values are individuals of the type `sign_value`, **jointly exhaustive and
 pairwise disjoint** over the reals, the property a relation algebra's base relations have

@@ -251,17 +251,17 @@
   ;; The spindle design lets a user add a sibling upper context — one that sees
   ;; CxCore and is seen by CxUniverse — to hold their own *universal* domain
   ;; terms.  Vocabulary put there (a type, an arg, an individual) is visible from
-  ;; every data context below Well, and its arg constraints are enforced there.
+  ;; every data context below Well, and its arg constraints are read there.
   (tu/with-neutral-kb [kb starter-world-kb]
     (let [widgets (tu/tmp-ctx) widget (tu/tmp-type) priceOf (tu/tmp-pred)
-          gadget (tu/tmp-ind) bad (tu/tmp-ind)]
+          gadget (tu/tmp-ind) bad (tu/tmp-ind) plain (tu/tmp-ind)]
       ;; a sibling upper context: sees CxCore, seen by CxUniverse (so every
       ;; descendant of CxUniverse — the middle theories, and CxNaturalWorld
       ;; below Well — sees it)
       (v/assert kb (list 'genlCx widgets 'CxCore)     'CxUniverse)
       (v/assert kb (list 'genlCx 'CxUniverse widgets) 'CxUniverse)
       ;; universal domain vocabulary defined once, in the sibling context
-      (v/assert kb (list 'genl widget 'artifact)  widgets)
+      (v/assert kb (list 'genl widget 'made)      widgets)
       (v/assert kb (list 'arg priceOf 1 widget) widgets)
       (v/assert kb (list widget gadget)            widgets)
       (testing "the sibling sits among the upper spindle's members"
@@ -270,14 +270,20 @@
         (is (tax/sees? (reasoning/taxonomy kb) 'CxNaturalWorld widgets)))   ; via Universe, through Well
       (testing "the sibling's vocabulary is visible from a data context"
         (is (v/isa? kb gadget widget     'CxNaturalWorld))
-        (is (v/isa? kb gadget 'artifact  'CxNaturalWorld)))          ; genl widget artifact
+        (is (v/isa? kb gadget 'made      'CxNaturalWorld)))          ; genl widget made
       (testing "a fact using the sibling's term is allowed from the data context"
         (v/assert kb (list priceOf gadget 10) 'CxNaturalWorld)      ; gadget is a widget: OK
         (is (seq (v/sentexes-matching kb (list priceOf gadget 10) 'CxNaturalWorld))))
-      (testing "and the sibling's arg constraint is enforced from the data context"
-        (v/assert kb (list 'dog bad) 'CxNaturalWorld)               ; bad is-a (real) dog ⇒ is-a thing, but not a widget
-        (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list priceOf bad 5) 'CxNaturalWorld)))))))
+      (testing "and the sibling's arg constraint speaks for the data context"
+        (testing "under the entailing reading it derives the type it names"
+          (tu/with-entailing
+            (v/assert kb (list priceOf plain 7) 'CxNaturalWorld)
+            (is (v/handle-of kb (list widget plain) 'CxNaturalWorld))))
+        (testing "under the constraint-only reading it refuses a term placed outside it"
+          (v/assert kb (list 'dog bad) 'CxNaturalWorld)             ; bad is-a (real) dog ⇒ is-a thing, but not a widget
+          (is (thrown? clojure.lang.ExceptionInfo
+                       (tu/without-entailing
+                        (v/assert kb (list priceOf bad 5) 'CxNaturalWorld)))))))))
 
 ;; ---- recovery rebuilds the spindle and the derived stories ---------------
 

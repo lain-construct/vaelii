@@ -233,7 +233,8 @@
 (defn- snapshot [kb]
   {:believed  (into #{}
                     (comp (keep #(p/get-sentex (:records kb) %))
-                          (map (juxt :sentence :context)))
+                          (map (juxt :sentence :context))
+                          (map #(tu/handle-free kb %)))
                     (jtms/in-datums (reasoning/tms kb)))
    :dilemmas  (into #{} (map clash-key) (v/contradictions kb))
    :conflicts (into #{} (map clash-key) (v/conflicts kb))})

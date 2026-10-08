@@ -119,7 +119,7 @@ durable as the fork is and a remount needs no separate recovery step.
 **`kv-count` answers the merged cardinality**, never the overlay's. The count-aware trie
 is a selectivity structure — `plan/order` costs every conjunct off `count-at`, divides by
 the fan-out at a position off `count-children`, and `prover-types/est-bindings` reads the
-functor root — so a base-blind count would not be a wrong answer, it would be a silently
+predicate extent's count — so a base-blind count would not be a wrong answer, it would be a silently
 wrong *plan* for every query touching inherited content. `kv-intersect` merges for the
 same reason: `sentexes-with-args` intersects the predicate-scoped argument roots, and it
 has to see the base's postings.
@@ -178,7 +178,8 @@ deliberately, because that is what the caller asked for.
   looks for a base record at or above it. A base that holds one has grown, and a fork
   that has written anything (a record, a tombstone, a released mark, a `reindex`) is
   refused (`:type :fork-base-overlap`, `:handles` naming the fork's own handles the base
-  now also holds) rather than served over it. A fork that has written nothing mounts.
+  now also holds) rather than served over it, and the refused mount releases the fork's
+  directory lock. A fork that has written nothing mounts.
   A base rebuilt in another order grows nothing, so before the fork writes a tombstone,
   an override or a released mark at a base handle it **pins** the base record there — a
   content digest in the bookkeeping — and a mount over a base holding another record at a
@@ -188,6 +189,9 @@ deliberately, because that is what the caller asked for.
   base holds must match the base's record except in its strength, as an override does.
   What none of this sees is a fork justification or except naming a base handle the fork
   wrote no state at: over a reordered base, that names the record now there.
+  To carry a refused fork onto the grown base, mount it over the base it was taken
+  against, read its premises, re-assert them by content in a fresh fork over the new
+  base, and re-point each `except` at the new handle of its target.
 - **Tombstones.** Deleting an inherited record cannot touch the base, so it is recorded
   and the read path filters it. They are sticky: an inherited record cannot come back
   through fall-through, only by being written into the overlay again (a revival, at the

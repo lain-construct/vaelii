@@ -20,6 +20,7 @@
             [vaelii.impl.protocols :as p]
             [vaelii.test-util :as tu])
   (:import [java.io RandomAccessFile]
+           [java.lang.ref WeakReference]
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]
            [java.util.concurrent CountDownLatch Executors ScheduledExecutorService
@@ -353,6 +354,31 @@
             (is (seq (v/sentexes-matching kb2 (list dog Muffet) 'CxUniverse))
                 "the data is back and believed with no explicit recover call")
             (is (v/isa? kb2 Muffet animal))))))))
+
+;; Built in a fn of its own, so no local of the test body holds the KB.
+(defn- closed-kb-refs
+  "Weak references to a `:disk-snapshot` KB over `dir`, its records, its index and its
+  reasoning, taken after two writes and before its close."
+  [dir]
+  (let [kb (v/open-kb {:backend :disk-snapshot :dir dir})]
+    (v/assert kb '(dog Fido) 'CxUniverse {:strength :default})
+    (v/assert kb '(genl dog animal) 'CxUniverse {:strength :default})
+    (let [refs (mapv #(WeakReference. %) [kb (:records kb) (:index kb) (:reasoning kb)])]
+      (v/close! kb)
+      refs)))
+
+(deftest a-closed-kb-is-collectable-once-its-caller-drops-it
+  (tu/with-snapshot-platform
+    ;; A process that opens and closes large KBs in turn needs the heap of the one it closed.
+    (with-tmp
+      (fn [dir]
+        (let [refs (closed-kb-refs dir)
+              held #(mapv (fn [^WeakReference r] (some? (.get r))) refs)]
+          (is (= [false false false false]
+                 (loop [i 0]
+                   (System/gc)
+                   (let [h (held)]
+                     (if (or (not-any? true? h) (= i 20)) h (do (Thread/sleep 50) (recur (inc i)))))))))))))
 
 (deftest public-close-on-a-memory-kb-is-a-no-op
   ;; an in-memory KB has no `:dir`, so close! releases nothing and the KB stays

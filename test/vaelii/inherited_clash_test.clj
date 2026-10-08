@@ -6,10 +6,10 @@
 
   `(carriesLoad hauler_kind Bone1)` asserted `{:strength :monotonic}` reaches
   `(carriesLoad cart_kind Bone1)`, and a stored `(not (carriesLoad cart_kind Bone1))`
-  denies a claim that has no handle.  `inherit/undercut?` is what decides whether there is
-  anything to say: a `:default` general claim yields to the nearer contrary one and never
-  fires for that tuple, while a `:monotonic` one is \"a contradiction to report rather
-  than a refinement to defer to\".
+  denies a claim that has no handle.  A reading is as strong as its weakest reason: one
+  whose general claim, declaration or `genl` edge is `:default` yields to the nearer
+  contrary claim and forms no nogood, while a reading known-true throughout is \"a
+  contradiction to report rather than a refinement to defer to\".
 
   What is pinned here is that the report exists, that it names enough to be acted on —
   the claim nobody wrote, the sentex it was read off, the declaration and the edge — and
@@ -21,12 +21,13 @@
 
   `ontology_test` reads the same mechanism as a modelling claim about the shipped
   vocabulary; this namespace reads it as an engine contract."
-  (:require [clojure.test :refer [is testing use-fixtures]]
+  (:require [clojure.set :as set]
+            [clojure.test :refer [is testing use-fixtures]]
+            [clojure.walk :as walk]
             [taoensso.trove :as trove]
             [vaelii.core :as v]
             [vaelii.impl.decide :as decide]
-            [vaelii.impl.taxonomy :as tax]
-            [vaelii.impl.types.reasoning :as reasoning]
+            [vaelii.impl.decide.inherited :as inherited]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :each (tu/neutral-fresh tu/fresh))
@@ -36,15 +37,22 @@
 
 (defn- vocabulary!
   "The declaration and the taxonomy the whole namespace runs on: `carriesLoad` preserves
-  its first argument down `genl`, and `cart_kind` is a kind of `hauler_kind`.  Every
-  sentence here is at the default `:default` unless a test says otherwise, which is what
-  the shipped ontology's own edges are; the declaration is on the engine's baseline
-  roster, so it is held `:monotonic`."
+  its first argument down `genl`, and `cart_kind` is a kind of `hauler_kind`.  The
+  declaration and the edges are `:monotonic`, so a reading off a `:monotonic` claim is
+  known-true: against a `:monotonic` denial the pair is a conflict, and a `:default`
+  denial loses to it unreported."
   [kb {:keys [pred hauler cart]} & {:keys [edge?] :or {edge? true}}]
   (v/assert kb (list 'binary_predicate pred) U)
-  (v/assert kb (list 'transitiveInArg pred 1 'genl) U)
-  (v/assert kb (list 'genl hauler 'animal) U)
-  (when edge? (v/assert kb (list 'genl cart hauler) U)))
+  (v/assert kb (list 'transitiveInArgInverse pred 1 'genl) U mono)
+  (v/assert kb (list 'genl hauler 'animal) U mono)
+  (when edge? (v/assert kb (list 'genl cart hauler) U mono)))
+
+(defn- about?
+  "Whether the clash `r`'s inherited claim is about `pred`."
+  [pred r]
+  (let [s (:sentence (:inherited r))
+        s (if (= 'not (first s)) (second s) s)]
+    (= pred (first s))))
 
 (defn- inherited-reports
   "Every standing clash of either reading whose second side is an inherited claim.
@@ -56,10 +64,7 @@
   ([kb]
    (filterv #(= :inherited (:kind %)) (concat (v/conflicts kb) (v/contradictions kb))))
   ([kb pred]
-   (filterv (fn [r] (let [s (:sentence (:inherited r))
-                          s (if (= 'not (first s)) (second s) s)]
-                      (= pred (first s))))
-            (inherited-reports kb))))
+   (filterv #(about? pred %) (inherited-reports kb))))
 
 ;; ---- the report ----------------------------------------------------------
 
@@ -68,15 +73,14 @@
     (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}]
       (vocabulary! kb terms)
       (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
-      (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)
+      (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U mono)
       (let [rs (inherited-reports kb)
             r  (first rs)]
-        (testing "one report, and it is a represented dilemma rather than an unsolved clash"
-          ;; the reading rests on a `:default` declaration and a `:default` edge, so the
-          ;; floor of the nogood is shared and the engine defeats nothing
+        (testing "one report, and it is an unsolved clash"
+          ;; every member is `:monotonic`, so the engine defeats nothing
           (is (= 1 (count rs)))
-          (is (= 1 (count (v/contradictions kb))))
-          (is (empty? (v/conflicts kb))))
+          (is (= 1 (count (v/conflicts kb))))
+          (is (empty? (v/contradictions kb))))
         (testing "it names the claim nobody wrote, and where it was read"
           (is (= (list carriesLoad cart_kind 'Bone1) (:sentence (:inherited r))))
           (is (= U (:context (:inherited r)))))
@@ -88,7 +92,7 @@
                                            (:sides r)))))))
         (testing "and the genl path and the declaration, so `why` can explain the reach"
           (is (= (set (map #(v/handle-of kb % U)
-                           [(list 'transitiveInArg carriesLoad 1 'genl)
+                           [(list 'transitiveInArgInverse carriesLoad 1 'genl)
                             (list 'genl cart_kind hauler_kind)]))
                  (set (:via (:inherited r))))))
         (testing "the sides are the stored sentexes, and the stored claim is among them"
@@ -103,7 +107,7 @@
     (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}]
       (vocabulary! kb terms)
       (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
-      (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)
+      (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U mono)
       ;; `contradicts`, with the two ordered by content like every other clash sentence
       ;; — never by which of them was stored, since only one of them was
       (is (= (list 'contradicts
@@ -130,9 +134,9 @@
                       [:edge :src :neg] [:edge :neg :src]]]
            (tu/with-terms [carriesLoad hauler_kind cart_kind]
              (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}
-                   write {:edge #(v/assert kb (list 'genl cart_kind hauler_kind) U)
+                   write {:edge #(v/assert kb (list 'genl cart_kind hauler_kind) U mono)
                           :src  #(v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
-                          :neg  #(v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)}]
+                          :neg  #(v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U mono)}]
                (vocabulary! kb terms :edge? false)
                (doseq [k order] ((write k)))
                ;; the vocabulary is gensym'd per order, so what is compared is the report's
@@ -167,11 +171,11 @@
       (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}
             which {:src  (list carriesLoad hauler_kind 'Bone1)
                    :edge (list 'genl cart_kind hauler_kind)
-                   :decl (list 'transitiveInArg carriesLoad 1 'genl)
+                   :decl (list 'transitiveInArgInverse carriesLoad 1 'genl)
                    :neg  (list 'not (list carriesLoad cart_kind 'Bone1))}]
         (vocabulary! kb terms)
         (v/assert kb (which :src) U mono)
-        (v/assert kb (which :neg) U)
+        (v/assert kb (which :neg) U mono)
         (is (= 1 (count (inherited-reports kb carriesLoad))) (str "before retracting " label))
         (v/retract! kb (v/handle-of kb (which drop-key) U))
         (is (empty? (inherited-reports kb carriesLoad)) (str "after retracting " label))))))
@@ -181,8 +185,9 @@
 (tu/deftest-kb a-claim-is-paired-where-a-context-sees-the-general-one
   ;; The pair is judged at every context that sees the stored claim, the general claim and
   ;; the reading: the stored claim's own context when it sees them, and otherwise the most
-  ;; general context below it that does.  A general claim stated *below* the stored one
-  ;; is paired there and reported to the readers at and below it, and two contexts
+  ;; general context below it that does.  The stored denial is `:default`, so it loses
+  ;; the pair at the readers at and below that context and nothing is reported.  A
+  ;; general claim stated *below* the stored one is paired there, and two contexts
   ;; neither of which sees the other, with nothing seeing both, pair nothing.
   ;;
   ;;   CxUniverse
@@ -193,21 +198,21 @@
     (doseq [c [CxNarrow CxLeft CxRight]]
       (v/assert kb (list 'genlCx c U) U))
     (doseq [[label src-ctx neg-ctx expected readers]
-            [["the general claim above the stored one" U CxNarrow 1 {CxNarrow 1 U 0}]
-             ["the general claim below the stored one" CxNarrow U 1 {CxNarrow 1 U 0}]
+            [["the general claim above the stored one" U CxNarrow 1 {CxNarrow false}]
+             ["the general claim below the stored one" CxNarrow U 1 {CxNarrow false U true}]
              ["two contexts neither of which sees the other" CxLeft CxRight 0
-              {CxLeft 0 CxRight 0}]]]
+              {CxRight true}]]]
       (tu/with-terms [carriesLoad hauler_kind cart_kind]
         (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}]
           (vocabulary! kb terms)
           (v/assert kb (list carriesLoad hauler_kind 'Bone1) src-ctx mono)
-          (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) neg-ctx)
-          (is (= expected (count (inherited-reports kb carriesLoad))) label)
-          (doseq [[reader n] readers]
-            (is (= n (count (filter #(and (= :inherited (:kind %))
-                                          (= carriesLoad (first (:sentence (:inherited %)))))
-                                    (v/contradictions kb reader))))
-                (str label ", read from " reader))))))))
+          (let [d (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) neg-ctx)]
+            (is (= expected (count (filter #(about? carriesLoad %)
+                                           (vals (inherited/inherited-clashes kb)))))
+                label)
+            (is (empty? (inherited-reports kb carriesLoad)) label)
+            (doseq [[reader in?] readers]
+              (is (= in? (v/believed? kb d reader)) (str label ", read from " reader)))))))))
 
 ;; ---- what is not reported ------------------------------------------------
 
@@ -229,7 +234,8 @@
   ;; The diagonal.  `witness-terms` is reflexive, so the claim stated at the very tuple
   ;; the stored negation is about comes back through the reach too — and that pair is an
   ;; ordinary `P` beside an ordinary `(not P)`, which the negation family already forms off
-  ;; the `:opposed` set.  Reporting it here as well would report one pair twice.
+  ;; the bodies stored in both polarities.  Reporting it here as well would report one pair
+  ;; twice.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
     (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}]
       (vocabulary! kb terms)
@@ -250,7 +256,7 @@
   ;; does not stop it.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
     (v/assert kb (list 'binary_predicate carriesLoad) U)
-    (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) U mono)
+    (v/assert kb (list 'transitiveInArgInverse carriesLoad 1 'genl) U mono)
     (v/assert kb (list 'genl hauler_kind 'animal) U mono)
     (v/assert kb (list 'genl cart_kind hauler_kind) U mono)
     (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
@@ -266,7 +272,7 @@
   ;; defeated, so it is a clash the engine hands back — a contradiction like any other.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
     (v/assert kb (list 'binary_predicate carriesLoad) U)
-    (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) U mono)
+    (v/assert kb (list 'transitiveInArgInverse carriesLoad 1 'genl) U mono)
     (v/assert kb (list 'genl hauler_kind 'animal) U mono)
     (v/assert kb (list 'genl cart_kind hauler_kind) U mono)
     (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
@@ -278,19 +284,19 @@
       (is (v/ask? kb (list carriesLoad hauler_kind 'Bone1) U))
       (is (v/ask? kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)))))
 
-(tu/deftest-kb a-default-edge-between-two-known-true-claims-is-the-reading-s-weakest-link
-  ;; The reading is capped by its weakest link exactly as a firing's strength is.  The
-  ;; declaration is on the engine's baseline roster, so it is `:monotonic` on this bare KB
-  ;; too, and the `:default` edge is the nogood's unique weakest member: it loses, and
-  ;; both known-true claims stand with nothing reported.
+(tu/deftest-kb a-reading-over-a-default-edge-between-two-known-true-claims-forms-no-nogood
+  ;; The declaration is `:monotonic` and the edge `:default`, so the reading is
+  ;; `:default` and the known-true denial undercuts it: nothing is reported, and the edge
+  ;; and both known-true claims stay believed.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
     (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}]
-      (vocabulary! kb terms)
+      (vocabulary! kb terms :edge? false)
+      (v/assert kb (list 'genl cart_kind hauler_kind) U)
       (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
       (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U mono)
       (is (empty? (v/conflicts kb)))
       (is (empty? (inherited-reports kb)))
-      (is (not (v/ask? kb (list 'genl cart_kind hauler_kind) U)))
+      (is (v/ask? kb (list 'genl cart_kind hauler_kind) U))
       (is (v/ask? kb (list carriesLoad hauler_kind 'Bone1) U))
       (is (v/ask? kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)))))
 
@@ -298,12 +304,12 @@
 
 (tu/deftest-kb a-stored-positive-claim-against-an-inherited-negation-is-reported-too
   ;; `claims` reads both polarities out of the reach, so a known-true `(not (P w b))`
-  ;; above a stored `(P a b)` denies it the same way round.
+  ;; above a stored known-true `(P a b)` denies it the same way round.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
     (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}]
       (vocabulary! kb terms)
       (v/assert kb (list 'not (list carriesLoad hauler_kind 'Bone1)) U mono)
-      (v/assert kb (list carriesLoad cart_kind 'Bone1) U)
+      (v/assert kb (list carriesLoad cart_kind 'Bone1) U mono)
       (let [r (first (inherited-reports kb))]
         (is (some? r))
         (is (= (list 'not (list carriesLoad cart_kind 'Bone1)) (:sentence (:inherited r))))
@@ -312,20 +318,19 @@
 
 ;; ---- a genl cycle -------------------------------------------------------
 
-(tu/deftest-kb a-claim-carried-round-a-genl-cycle-does-not-deny-itself
-  ;; The `:default` edge `(genl kind_a kind_b)` loses to the known-true nogood it closes,
-  ;; so the reverse edge passes the cycle check; the settle that places it re-decides that
-  ;; nogood with the old edge IN, and there `(asymmetric outranks)` reads the stored
-  ;; `(outranks kind_b kind_a)`'s converse back at its own tuple.  The last write is the
-  ;; reverse edge in every order, since any order placing it before the default edge's
-  ;; defeat refuses the default edge as a cycle instead.
+(tu/deftest-kb a-reading-over-a-default-edge-closes-no-genl-cycle
+  ;; The reading that carries `(outranks kind_b kind_a)`'s converse round `(genl kind_a
+  ;; kind_b)` rests on that `:default` edge, so it is undercut and no nogood defeats the
+  ;; edge: the edge stays believed, and the reverse edge is refused as a cycle in every
+  ;; order.  A claim round a cycle therefore never reaches its own tuple from here.
   (let [writes (fn [kb P a b]
                  {:ab    #(v/assert kb (list 'genl a b) U)
-                  :decl2 #(v/assert kb (list 'transitiveInArg P 2 'genl) U mono)
-                  :decl1 #(v/assert kb (list 'transitiveInArg P 1 'genl) U)
+                  :decl2 #(v/assert kb (list 'transitiveInArgInverse P 2 'genl) U mono)
+                  :decl1 #(v/assert kb (list 'transitiveInArgInverse P 1 'genl) U)
                   :neg   #(v/assert kb (list 'not (list P b b)) U mono)
                   :claim #(v/assert kb (list P b a) U mono)
-                  :ba    #(v/assert kb (list 'genl b a) U mono)})
+                  :ba    #(try (v/assert kb (list 'genl b a) U mono) nil
+                               (catch clojure.lang.ExceptionInfo e (:type (ex-data e))))})
         shapes
         (vec
          (for [order [[:ab :decl2 :decl1 :neg :claim] [:claim :neg :decl1 :decl2 :ab]
@@ -337,37 +342,27 @@
                (v/assert kb (list 'binary_predicate outranks) U)
                (v/assert kb (list 'asymmetric outranks) U mono)
                (doseq [t [kind_a kind_b]] (v/assert kb (list 'genl t 'thing) U mono))
-               (doseq [k (conj order :ba)] ((w k)))
-               (let [rs (inherited-reports kb outranks)]
-                 [(mapv (juxt :kind #(= (list outranks kind_b kind_b) (:sentence (:inherited %)))
-                              #(count (:nogood %)))
-                        rs)
-                  (every? (set (v/conflicts kb)) rs)
-                  (mapv in? [(list 'genl kind_a kind_b) (list 'genl kind_b kind_a)
-                             (list outranks kind_b kind_a)
-                             (list 'not (list outranks kind_b kind_b))])])))))]
-    (is (= 1 (count (distinct shapes))) (pr-str (vec (distinct shapes))))
-    (testing "the one clash is the claim, the edge and the declaration against the negation"
-      (is (= [[[:inherited true 4]] true [false true true true]] (first shapes))))))
+               (doseq [k order] ((w k)))
+               [((w :ba))
+                (count (inherited-reports kb outranks))
+                (mapv in? [(list 'genl kind_a kind_b) (list outranks kind_b kind_a)
+                           (list 'not (list outranks kind_b kind_b))])]))))]
+    (is (= #{[:not-well-formed 0 [true true true]]} (set shapes)))))
 
 ;; ---- the roster survives a rebuild ---------------------------------------
 
-(tu/deftest-kb a-rebuild-puts-the-preservation-roster-back
-  ;; `:preserving` is derived from storage and no store holds it, so `recover` rebuilds it
-  ;; beside `:opposed`, `:excepted` and the rule rosters.  A KB that came up without it
-  ;; would answer `contradictions` differently either side of a restart — silently, since
-  ;; the gate reads as "this KB declares no preservation" and stops.  Emptied by hand
-  ;; here, which is the state a second KB over the same records comes up in.
+(tu/deftest-kb a-recover-reports-the-inherited-clash-again
+  ;; The discovery's gate reads the declarations off the index, so a KB that comes up
+  ;; over the same records answers `contradictions` the same either side of a restart.
   (tu/with-terms [carriesLoad hauler_kind cart_kind]
     (let [terms {:pred carriesLoad :hauler hauler_kind :cart cart_kind}]
       (vocabulary! kb terms)
       (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
-      (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)
+      (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U mono)
       (is (= 1 (count (inherited-reports kb carriesLoad))))
-      (reset! (reasoning/preserving kb) {})
       (v/recover kb)
       (is (= 1 (count (inherited-reports kb carriesLoad)))
-          "the rebuild re-derives the roster from the records"))))
+          "the recover reads the declarations from the index"))))
 
 (tu/deftest-kb a-recover-asks-the-preserved-claims-and-not-every-stored-sentex
   ;; recover's settle reads the whole store as its region; its discovery asks the stored
@@ -378,7 +373,7 @@
           asked (atom [])]
       (vocabulary! kb terms)
       (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
-      (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)
+      (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U mono)
       (dotimes [_ 40] (v/assert kb (list 'animal (tu/tmp-ind "Beast")) U))
       (binding [trove/*log-fn* (fn [_ns _coords _level id payload]
                                  (when (= :vaelii.impl.discovery/asked id)
@@ -390,58 +385,22 @@
         (is (= 2 n) "the two stored carriesLoad sentences"))
       (is (= 1 (count (inherited-reports kb carriesLoad)))))))
 
-(def ^:private sync-stamp-keys
-  "The keys each family stamps its candidate rows with, read off the index a sync is handed."
-  [:vaelii.impl.decide.membership/sep-stamp :vaelii.impl.decide.membership/genl-seen
-   :vaelii.impl.decide.related/dj-seen :vaelii.impl.decide.tuple/ts-gen])
-
-(defn- sync-log
-  "`decide/registry` with each family's `:sync` logging, to `log`, the family, the
-  taxonomy it was handed, that taxonomy's separation stamp and generations, and the
-  stamp the index held before the sync.  A sync from a stamp the index held after an
-  earlier sync under the same taxonomy state repeats that sync; a rebuilt index holds no
-  stamp, so its first sync is a new entry."
-  [log]
-  (into []
-        (map-indexed
-         (fn [i {s :sync :as f}]
-           (cond-> f
-             s (assoc :sync (fn [w c]
-                              (let [tax (:tax w)]
-                                (swap! log conj [i (System/identityHashCode tax)
-                                                 (tax/separation-stamp tax)
-                                                 (tax/relation-gen tax :genl)
-                                                 (tax/relation-gen tax :genlCx)
-                                                 (select-keys c sync-stamp-keys)]))
-                              (s w c))))))
-        decide/registry))
-
-(tu/deftest-kb a-discovery-over-a-detached-taxonomy-syncs-each-candidate-index-once-per-taxonomy-state
-  ;; The disjoint declaration loses to its denial at its own context, so the live
-  ;; taxonomy leaves it out and the discovery reads a detached copy that holds it
-  ;; (`discovery-view`).  The copy and the live taxonomy each read the membership
-  ;; candidates of the four terms the declaration separates; a candidate index both
-  ;; stamped would be read again under one taxonomy state at every alternation.
-  (tu/with-terms [carriesLoad hauler_kind cart_kind a_kind b_kind]
-    (let [log   (atom [])
-          bones (vec (repeatedly 4 #(tu/tmp-ind "Bone")))
-          once? (fn [] (let [l @log] (= (count l) (count (distinct l)))))]
-      (vocabulary! kb {:pred carriesLoad :hauler hauler_kind :cart cart_kind})
-      (doseq [t [a_kind b_kind]] (v/assert kb (list 'genl t 'animal) U))
-      (dotimes [_ 4]
-        (let [x (tu/tmp-ind "Pair")]
-          (v/assert kb (list a_kind x) U mono)
-          (v/assert kb (list b_kind x) U mono)))
-      (v/assert kb (list 'disjoint a_kind b_kind) U)
-      (v/assert kb (list 'not (list 'disjoint a_kind b_kind)) U mono)
-      (doseq [b bones] (v/assert kb (list carriesLoad hauler_kind b) U mono))
-      (with-redefs [decide/registry (sync-log log)]
-        (v/assert kb (list 'not (list carriesLoad cart_kind (first bones))) U)
-        (is (once?) "a settle")
-        (reset! log [])
-        (v/recover kb)
-        (is (once?) "a recover"))
-      (is (= 1 (count (inherited-reports kb carriesLoad)))))))
+(tu/deftest-kb a-write-beside-a-standing-inherited-clash-journals-none-of-its-members
+  ;; Each settle pass empties the inherited clashes and installs what its discovery finds
+  ;; again.  A member of a clash that stands did not move, so no reader of the candidate
+  ;; journal (`decide/moves`) reads it again.
+  (tu/with-terms [carriesLoad hauler_kind cart_kind]
+    (vocabulary! kb {:pred carriesLoad :hauler hauler_kind :cart cart_kind})
+    (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
+    (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U mono)
+    (let [members (into #{} cat (keys (inherited/inherited-clashes kb)))
+          [_ at]  (decide/moves kb nil)]
+      (is (seq members))
+      (v/assert kb (list 'animal (tu/tmp-ind "Beast")) U)
+      (let [[_ _ moved] (decide/moves kb at)]
+        (is (some? moved) "the journal reaches back to the position")
+        (is (= 0 (count (set/intersection members moved))))
+        (is (= members (into #{} cat (keys (inherited/inherited-clashes kb)))))))))
 
 ;; ---- a KB that declares no preservation ----------------------------------
 
@@ -459,7 +418,7 @@
     (is (empty? (v/conflicts kb)))))
 
 (tu/deftest-kb a-reader-below-a-one-context-inherited-clash-that-reads-it-released-believes-the-loser
-  ;;   CxUniverse  (transitiveInArg carriesLoad 1 genl) (genl cart hauler)
+  ;;   CxUniverse  (transitiveInArgInverse carriesLoad 1 genl) (genl cart hauler)
   ;;               (carriesLoad hauler Bone), each :monotonic
   ;;    └─ CxA     (not (carriesLoad cart Bone)) :default — loses at CxA
   ;;        └─ CxB (except (sentexHandle <(carriesLoad hauler Bone)>))
@@ -470,7 +429,7 @@
       (v/assert kb (list 'genlCx CxA U) U mono)
       (v/assert kb (list 'genlCx CxB CxA) U mono)
       (v/assert kb (list 'binary_predicate carriesLoad) U mono)
-      (v/assert kb (list 'transitiveInArg carriesLoad 1 'genl) U mono)
+      (v/assert kb (list 'transitiveInArgInverse carriesLoad 1 'genl) U mono)
       (v/assert kb (list 'genl hauler_kind 'animal) U mono)
       (v/assert kb (list 'genl cart_kind hauler_kind) U mono)
       (let [claim  (v/assert kb (list carriesLoad hauler_kind Bone) U mono)
@@ -480,3 +439,282 @@
         (testing (if except-first? "the except first" "the denial first")
           (is (false? (v/believed? kb d CxA)) "CxA reads the known-true claim and the denial loses")
           (is (true? (v/believed? kb d CxB)) "CxB reads no claim, and believes the denial"))))))
+
+(defn- default-reason-reading
+  "`[T believed, denial believed, contradicts stored]` at CxR once `ops` run in order.
+
+  ```
+  CxUniverse
+   └─ CxB   (binary_predicate bigOf) (genl side top) :monotonic       :edge
+       │    (transitiveInArgInverse bigOf 1 genl) :default, T          :decl
+       └─ CxR  (bigOf Side Mid) :monotonic, the claim                 :claim
+               (not (bigOf Top Mid)) :monotonic, the stored denial    :denial
+  ```"
+  [ops]
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [bigOf side top Mid CxB CxR]
+      (v/assert kb (list 'genlCx CxB U) U)
+      (v/assert kb (list 'genlCx CxR CxB) U)
+      (v/assert kb (list 'binary_predicate bigOf) CxB mono)
+      (let [hs (reduce (fn [hs op]
+                         (assoc hs op
+                                (case op
+                                  :edge   (v/assert kb (list 'genl side top) CxB mono)
+                                  :decl   (v/assert kb (list 'transitiveInArgInverse bigOf 1 'genl) CxB)
+                                  :claim  (v/assert kb (list bigOf side Mid) CxR mono)
+                                  :denial (v/assert kb (list 'not (list bigOf top Mid)) CxR mono))))
+                       {} ops)]
+        [(v/believed? kb (:decl hs) CxR)
+         (v/believed? kb (:denial hs) CxR)
+         (boolean (seq (v/sentexes-with-functor kb 'contradicts)))]))))
+
+(defn- permutations [xs]
+  (if (empty? xs)
+    [[]]
+    (for [x xs, more (permutations (remove #{x} xs))] (cons x more))))
+
+(tu/deftest-kb a-reading-resting-on-a-default-reason-is-undercut-and-the-denial-stands
+  ;; The claim is known-true and the declaration is :default, so the reading is :default
+  ;; and the stored denial undercuts it: no nogood forms, in every arrival order.
+  (is (= #{[true true false]}
+         (into #{} (map default-reason-reading) (permutations [:edge :decl :claim :denial])))))
+
+(tu/deftest-kb an-inherited-clash-is-placed-at-its-vantage-and-no-reader-decides-it
+  ;;   CxUniverse  the vocabulary, every reason :monotonic
+  ;;     ├─ CxHigh  (carriesLoad hauler_kind Bone1) :monotonic, the general claim
+  ;;     └─ CxLow   (not (carriesLoad cart_kind Bone1)) :default, the stored denial
+  ;;          CxJoin under both
+  ;; The clash is read whole at CxJoin alone, so the `contradicts` and the denial's
+  ;; `defeat` are placed there, justified by the members; retracting the general claim
+  ;; takes both OUT.
+  (tu/with-terms [carriesLoad hauler_kind cart_kind CxHigh CxLow CxJoin]
+    (vocabulary! kb {:pred carriesLoad :hauler hauler_kind :cart cart_kind})
+    (doseq [c [CxHigh CxLow]]
+      (v/assert kb (list 'genlCx c U) U)
+      (v/assert kb (list 'genlCx CxJoin c) U))
+    (let [claim  (v/assert kb (list carriesLoad hauler_kind 'Bone1) CxHigh mono)
+          deny   (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) CxLow)
+          placed (fn [] (into #{} (for [f '[contradicts defeat]
+                                        s (v/sentexes-with-functor kb f)
+                                        :when (v/in? kb (:id s))]
+                                    [f (:context s)])))]
+      (is (= #{['contradicts CxJoin] ['defeat CxJoin]} (placed)))
+      (is (false? (v/believed? kb deny CxJoin)))
+      (is (true? (v/believed? kb deny CxLow)))
+      (v/retract! kb claim)
+      (is (= #{} (placed))))))
+
+(defn- meta-except-reading
+  "`[placed denial-at-below denial-at-base placed-after]` once `ops` run in order: the
+  placed `contradicts` and `defeat` as `[functor :base|:below]`, the denial's belief at
+  each context, and the placed set once the meta-except is retracted.
+
+  ```
+  CxUniverse  the declaration and (genl hauler animal), :monotonic
+   └─ CxBase   (genl cart hauler) :monotonic, E                     :edge
+       │       (carriesLoad hauler Bone1) :monotonic, the claim     :claim
+       │       (not (carriesLoad cart Bone1)) :default, the denial  :deny
+       │       (except E)                                           :except
+       └─ CxBelow (except <the except of E>)                        :meta
+  ```"
+  [ops]
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [carriesLoad hauler_kind cart_kind CxBase CxBelow]
+      (vocabulary! kb {:pred carriesLoad :hauler hauler_kind :cart cart_kind} :edge? false)
+      (v/assert kb (list 'genlCx CxBase U) U)
+      (v/assert kb (list 'genlCx CxBelow CxBase) U)
+      (let [hs     (reduce (fn [hs op]
+                             (assoc hs op
+                                    (case op
+                                      :edge   (v/assert kb (list 'genl cart_kind hauler_kind) CxBase mono)
+                                      :claim  (v/assert kb (list carriesLoad hauler_kind 'Bone1) CxBase mono)
+                                      :deny   (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) CxBase)
+                                      :except (v/assert kb (list 'except (list 'sentexHandle (:edge hs))) CxBase)
+                                      :meta   (v/assert kb (list 'except (list 'sentexHandle (:except hs))) CxBelow))))
+                           {} ops)
+            names  {CxBase :base CxBelow :below}
+            placed (fn [] (into #{} (for [f '[contradicts defeat]
+                                          s (v/sentexes-with-functor kb f)
+                                          :when (v/in? kb (:id s))]
+                                      [f (names (:context s) (:context s))])))
+            now    [(placed) (v/believed? kb (:deny hs) CxBelow) (v/believed? kb (:deny hs) CxBase)]]
+        (v/retract! kb (:meta hs))
+        (conj now (placed))))))
+
+(tu/deftest-kb an-inherited-clash-a-meta-except-restores-below-its-members-is-placed-there
+  ;; The except hides the reason edge at CxBase, so the clash is whole at CxBelow alone,
+  ;; where the meta-except shows the edge again.  Every arrival order with the edge before
+  ;; its except and the except before the meta-except.
+  (let [orders (filter #(let [i (zipmap % (range))] (< (i :edge) (i :except) (i :meta)))
+                       (permutations [:edge :except :meta :claim :deny]))]
+    (is (= #{[#{['contradicts :below] ['defeat :below]} false true #{}]}
+           (into #{} (map meta-except-reading) orders)))))
+
+(defn- knocked-edge-reading
+  "The placed `contradicts` and `defeat` sentexes as `[sentence context]`, each named
+  handle spelled as its `[sentence context]` and each temporary by the name below, once
+  `ops` run in order.
+
+  ```
+  CxUniverse  the declaration, (genl a mid) (genl mid hauler) :monotonic
+   └─ CxBase   (genl a hauler) :default, G                               :edge
+               (not (genl a hauler)) :monotonic, its negation defeat     :knock
+               (carriesLoad hauler Bone1) :monotonic, the claim          :claim
+               (not (carriesLoad a Bone1)) :default, the denial          :deny
+  ```"
+  [ops]
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [carriesLoad hauler_kind mid_kind a_kind CxBase]
+      (vocabulary! kb {:pred carriesLoad :hauler hauler_kind :cart a_kind} :edge? false)
+      (v/assert kb (list 'genl a_kind mid_kind) U mono)
+      (v/assert kb (list 'genl mid_kind hauler_kind) U mono)
+      (v/assert kb (list 'genlCx CxBase U) U)
+      (doseq [op ops]
+        (case op
+          :edge  (v/assert kb (list 'genl a_kind hauler_kind) CxBase)
+          :knock (v/assert kb (list 'not (list 'genl a_kind hauler_kind)) CxBase mono)
+          :claim (v/assert kb (list carriesLoad hauler_kind 'Bone1) CxBase mono)
+          :deny  (v/assert kb (list 'not (list carriesLoad a_kind 'Bone1)) CxBase)))
+      (let [names {a_kind 'a hauler_kind 'hauler mid_kind 'mid carriesLoad 'carriesLoad CxBase 'CxBase}
+            spell (fn spell [x]
+                    (cond (and (seq? x) (= 'sentexHandle (first x)))
+                          (let [t (v/sentex kb (second x))] [(spell (:sentence t)) (spell (:context t))])
+                          (seq? x) (map spell x)
+                          :else    (names x x)))]
+        (into #{} (for [f '[contradicts defeat]
+                        s (v/sentexes-with-functor kb f)
+                        :when (v/in? kb (:id s))]
+                    [(spell (:sentence s)) (spell (:context s))]))))))
+
+(tu/deftest-kb a-defeat-of-a-genl-edge-beside-an-inherited-clash-places-the-same-in-every-order
+  ;; The reading climbs the known-true route through `mid`, and a placement reads no
+  ;; defeat (ruling 13), so the defeat of G changes no inherited placement whichever
+  ;; arrives first.
+  (is (= #{#{'[(contradicts [(genl a hauler) CxBase] [(not (genl a hauler)) CxBase]) CxBase]
+             '[(defeat [(genl a hauler) CxBase]) CxBase]
+             '[(contradicts [(genl a mid) CxUniverse] [(genl mid hauler) CxUniverse]
+                            [(not (carriesLoad a Bone1)) CxBase] [(carriesLoad hauler Bone1) CxBase]
+                            [(transitiveInArgInverse carriesLoad 1 genl) CxUniverse])
+               CxBase]
+             '[(defeat [(not (carriesLoad a Bone1)) CxBase]) CxBase]}}
+         (into #{} (map knocked-edge-reading) (permutations [:edge :knock :claim :deny])))))
+
+(defn- hidden-cover-reading
+  "`[placed denial-at-below denial-at-base placed-after]` once `ops` run in order: the
+  placed `contradicts` and `defeat` as `[functor :base|:below]`, the denial's belief at
+  each context, and the placed set once the except is retracted.  `shape` names what the
+  covering reading differs in.
+
+  ```
+  CxUniverse  (genl hauler animal) :monotonic
+   └─ CxBase   (carriesLoad hauler Bone1) :monotonic, the claim     :claim
+       │       (not (carriesLoad cart Bone1)) :default, the denial  :deny
+       │       :decl   the declaration, the cover; (genl cart hauler) beside it
+       │       :route  (genl cart hauler), the cover; the declaration beside it
+       │       :copy   (genl cart hauler), the cover; the declaration beside it
+       └─ CxBelow  :decl   the declaration again                      :covered
+                   :route  (genl cart mid) (genl mid hauler)          :covered
+                   :copy   (genl cart hauler) again                   :covered
+                   (except <the cover>)                               :except
+  ```"
+  [shape ops]
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [carriesLoad hauler_kind mid_kind cart_kind CxBase CxBelow]
+      (v/assert kb (list 'binary_predicate carriesLoad) U)
+      (v/assert kb (list 'genl hauler_kind 'animal) U mono)
+      (v/assert kb (list 'genlCx CxBase U) U)
+      (v/assert kb (list 'genlCx CxBelow CxBase) U)
+      (let [decl  (list 'transitiveInArgInverse carriesLoad 1 'genl)
+            edge  (list 'genl cart_kind hauler_kind)
+            _     (v/assert kb (if (= shape :decl) edge decl) CxBase mono)
+            write (fn [hs op]
+                    (case op
+                      :cover   (v/assert kb (if (= shape :decl) decl edge) CxBase mono)
+                      :covered (case shape
+                                 :decl  (v/assert kb decl CxBelow mono)
+                                 :copy  (v/assert kb edge CxBelow mono)
+                                 :route (do (v/assert kb (list 'genl cart_kind mid_kind) CxBelow mono)
+                                            (v/assert kb (list 'genl mid_kind hauler_kind) CxBelow mono)))
+                      :claim   (v/assert kb (list carriesLoad hauler_kind 'Bone1) CxBase mono)
+                      :deny    (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) CxBase)
+                      :except  (v/assert kb (list 'except (list 'sentexHandle (:cover hs))) CxBelow)))
+            hs    (reduce (fn [hs op] (assoc hs op (write hs op))) {} ops)
+            names {CxBase :base CxBelow :below}
+            placed (fn [] (into #{} (for [f '[contradicts defeat]
+                                          s (v/sentexes-with-functor kb f)
+                                          :when (v/in? kb (:id s))]
+                                      [f (names (:context s) (:context s))])))
+            now    [(placed) (v/believed? kb (:deny hs) CxBelow) (v/believed? kb (:deny hs) CxBase)]]
+        (v/retract! kb (:except hs))
+        (conj now (placed))))))
+
+(tu/deftest-kb an-inherited-reading-whose-cover-an-except-hides-below-is-placed-there
+  ;; At CxBase the clash rests on the cover.  At CxBelow the except hides the cover, so
+  ;; CxBelow reads the covered reading, and a second clash is placed there.  Retracting
+  ;; the except leaves the clash at CxBase alone.  Every arrival order with the cover
+  ;; before its except.
+  (let [orders (filter #(let [i (zipmap % (range))] (< (i :cover) (i :except)))
+                       (permutations [:cover :covered :claim :deny :except]))]
+    (doseq [shape [:decl :route :copy]]
+      (is (= #{[#{['contradicts :base] ['defeat :base] ['contradicts :below] ['defeat :below]}
+                false false #{['contradicts :base] ['defeat :base]}]}
+             (into #{} (map #(hidden-cover-reading shape %)) orders))
+          (str shape)))))
+
+(tu/deftest-kb a-recovered-store-places-its-inherited-clashes-before-its-first-write
+  ;; The known-true reading of (carriesLoad cart_kind Bone1) defeats the default denial.
+  ;; The dump imported records-only holds the placed sentexes with no justification, so
+  ;; the recover's discovery places the clash, in place and in a second KB opened over
+  ;; the store.
+  (tu/with-terms [carriesLoad hauler_kind cart_kind swims Nemo]
+    (vocabulary! kb {:pred carriesLoad :hauler hauler_kind :cart cart_kind})
+    (v/assert kb (list carriesLoad hauler_kind 'Bone1) U mono)
+    (v/assert kb (list 'not (list carriesLoad cart_kind 'Bone1)) U)
+    (doseq [reopen? [false true]]
+      (testing (if reopen? "reopened" "in place")
+        (let [[source recovered written]
+              (tu/recovered-readings kb reopen? [(list 'not (list carriesLoad cart_kind 'Bone1)) U]
+                                     #(v/assert % (list swims Nemo) U))]
+          (is (false? (:loser source)))
+          (is (= 2 (count (:placed source))))
+          (is (= source recovered) "before any write")
+          (is (= source written) "after an unrelated write"))))))
+
+(defn- merged-reading
+  "`{:reported :rr}` once `ops` run in order: the reported inherited clashes' sentences, and
+  whether CxUniverse believes `(rr Aa)`.  `claimed` is the spelling the claim is written
+  with: Zz, the denial's, or Aa, the representative's.
+
+  ```
+  CxUniverse  the declaration and (genl cart hauler) :monotonic
+              (carriesLoad hauler <claimed>) :monotonic, the claim        :claim
+              (not (carriesLoad cart Zz)) :default, the denial            :deny
+              (not (carriesLoad ?k ?x)) => (rr ?x) forward                :rule
+              (rewriteOf Aa Zz) :monotonic, the merge                     :merge
+  ```"
+  [claimed ops]
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [carriesLoad hauler_kind cart_kind rr Aa Zz]
+      (vocabulary! kb {:pred carriesLoad :hauler hauler_kind :cart cart_kind})
+      (doseq [op ops]
+        (case op
+          :claim (v/assert kb (list carriesLoad hauler_kind ({:Zz Zz :Aa Aa} claimed)) U mono)
+          :deny  (v/assert kb (list 'not (list carriesLoad cart_kind Zz)) U)
+          :rule  (v/assert kb (list 'implies (list 'not (list carriesLoad '?k '?x)) (list rr '?x)) U
+                           {:direction :forward})
+          :merge (v/assert kb (list 'rewriteOf Aa Zz) U mono)))
+      (let [names {carriesLoad 'carriesLoad hauler_kind 'hauler cart_kind 'cart Aa 'Aa Zz 'Zz}
+            rr-aa (v/handle-of kb (list rr Aa) U)]
+        {:reported (into #{} (map #(walk/postwalk (fn [x] (names x x)) (:sentence %)))
+                         (inherited-reports kb))
+         :rr       (boolean (and rr-aa (v/believed? kb rr-aa U)))}))))
+
+(tu/deftest-kb an-inherited-clash-over-a-merged-term-reads-alike-in-every-arrival-order
+  ;; The merge makes `(not (carriesLoad cart Zz))` and `(not (carriesLoad cart Aa))` one
+  ;; sentence, which the known-true reading defeats unreported, so CxUniverse believes no
+  ;; `(rr Aa)` in all 24 orders.  With the merge last, a stored
+  ;; `(rr Zz)` restates as `(rr Aa)` under `[(rr Zz) (rewriteOf Aa Zz)]`.
+  (doseq [claimed [:Zz :Aa]]
+    (let [rs (into #{} (map #(merged-reading claimed %)) (permutations [:claim :deny :rule :merge]))]
+      (is (= #{{:rr false :reported #{}}} rs)
+          (str claimed)))))

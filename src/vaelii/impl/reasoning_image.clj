@@ -63,16 +63,20 @@
   The records stay the only source of truth.  An image is installed whole, against the
   exact records, source and policies it was written under, or discarded whole; nothing
   reconciles an image against records that moved.  So a KB that installs an image is the
-  KB that wrote it, field for field, less the discovery memo's `:mark`, which names a point
-  in the writer's touched window and which the install drops.  An image written after a
+  KB that wrote it, field for field, less the journals and the discovery memo's journal
+  position, which an image is written without, and the memo's `:mark`, which names a
+  point in the writer's touched window and which the install drops.  The install
+  restarts the candidate index's journal.  An image written after a
   recover is that recover.  An image written by a KB built assert by assert carries that
   KB's labels, which equal a recover's because belief is order independent, and that KB's
-  derivation depths and settle readings, which a recover rebuilds from the records
+  derivation depths, which a recover rebuilds from the records
   instead of reading ([docs/defenses.md](docs/defenses.md), \"A reasoning image is
   installed whole or not at all\")."
   (:require [clojure.java.io :as io]
+            [clojure.set :as set]
             [taoensso.nippy :as nippy]
             [taoensso.trove :as trove]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.capabilities :as cap]
             [vaelii.impl.config :as config]
             [vaelii.impl.dense-jtms :as dense]
@@ -80,6 +84,7 @@
             [vaelii.impl.disk.files :as dfiles]
             [vaelii.impl.disk.record-store :as drs]
             [vaelii.impl.io.thaw :as safe]
+            [vaelii.impl.journal :as journal]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
@@ -87,18 +92,18 @@
             [vaelii.impl.reads :as reads]
             [vaelii.impl.solve :as solve]
             [vaelii.impl.source-identity :as si]
-            [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning])
   (:import [java.io BufferedInputStream BufferedOutputStream DataInputStream
             DataOutputStream File FileInputStream FileOutputStream]
            [java.nio.file CopyOption Files StandardCopyOption]
            [vaelii.impl.dense_jtms DenseTms]
-           [vaelii.impl.disk.record_store DiskRecordStore]))
+           [vaelii.impl.disk.record_store DiskRecordStore]
+           [vaelii.impl.types.reasoning Reasoning]))
 
 (def format-version
   "The image's own layout number, beside `dense/image-version` (the network section's).
-  An image of any other number is discarded."
-  1)
+  An image of any other number is discarded, and the open recovers from the records."
+  11)
 
 (def ^String dir-name
   "The directory an image is written to, under a `:disk-snapshot` KB's own directory and
@@ -108,42 +113,27 @@
   "reasoning")
 
 (def state-atoms
-  "The KB atoms an image carries: each one recovery fills, or the closing settle leaves
-  holding something the next settle reads.  `reasoning_image_test` fails on a KB atom that is
-  in neither this list nor `unimaged-atoms`."
-  [:program :recheck :refused :opposed :preserving
-   :preserved-clashes :excepted :meta-except-count :rule-antecedents :rule-contexts
-   :solve-rules :supersessions :minted :nogood-candidates])
+  "The KB atoms an image carries: the fields of the register rows imaged as `:state`
+  (`caches/image-fields`), each one recovery fills or the closing settle leaves holding
+  something the next settle reads."
+  (vec (caches/image-fields :state)))
 
 (def unimaged-atoms
-  "The KB atoms an image leaves as the open made them.  `:taxonomy` has its own section.
-  `:provers` and `:solver` are configuration the caller sets, held to the defaults by
-  `refusal`.  `:settle-stats` and `:chain-stats` count work this process did.  `:qcn`,
-  `:matches` and `:closures` are bounded caches a missing read refills.  `:qcn-joined`
-  holds one re-join baseline per calculus and reader context, with no count bound, and a
-  missing baseline makes the next join a full one.  `:withdrawn` is the per-reader cache
-  `res/withdrawal` refills from the imaged `:nogood-candidates` and `:excepted`.
-  `:unrecovered` is the write-hazard record recovery clears after an install.  `:feed`
-  holds the change feed's subscriptions, which a caller in this process registered.
-  `:violations` is the log of what writes newly exposed; a restore exposes nothing
-  (`settle/*rebuilding?*`), so an installed KB starts it empty, as a recovered one does.
-  `:respell` is the queue of predicates whose permuting marks moved, and `:except-moves`
-  the queue of handles an `except` began or stopped hiding; every settle drains both, so
-  they are empty whenever an image can be taken.  `:read-reports` is the last reading's
-  report memo, which a missing entry rebuilds.  `:own-readings` is what
-  the last settle read at each context holding a handle of the decided families' closure,
-  and an installed KB's first settle that reads them publishes what they withdraw as
-  moved."
-  #{:taxonomy :provers :solver :settle-stats :chain-stats :qcn :qcn-joined :matches
-    :closures :withdrawn :unrecovered :feed :violations :respell :except-moves
-    :own-readings :read-reports})
+  "The KB atoms an image leaves as the open made them: every other `Reasoning` atom, and
+  the KB's own `:provers`, `:solver`, `:unrecovered` and `:feed`.  `:taxonomy` has its own
+  section, and the register says why each of the rest is not carried."
+  (-> (into #{} (map keyword) (Reasoning/getBasis))
+      (disj :tms)
+      (set/difference (set state-atoms))
+      (into #{:provers :solver :unrecovered :feed})))
 
 (def taxonomy-side-slots
-  "The taxonomy keys an image leaves as the open made them: the two callbacks
-  `kb/open-kb` installs, which close over the KB, and the four side caches, each keyed or
-  stamped by a relation's own `:gen`."
-  [:supporter-filter-active? :supporter-visible? :closure-memo :closure-lru :vis-index
-   :rewrite-order])
+  "The taxonomy keys an image leaves as the open made them: the five callbacks and the
+  index store `kb/open-kb` installs with its `:raw?` flag, which belong to the KB, the
+  three side caches, each keyed or stamped by a relation's own `:gen`, and the supporter
+  cache, which fills from the index on a read."
+  [:supporter-filter-active? :supporter-visible? :network-filter-active? :network-visible?
+   :supporter-reaches? :index :raw? :closure-memo :closure-lru :rewrite-order :supporters])
 
 ;; ---- which KB ---------------------------------------------------------------
 
@@ -274,9 +264,21 @@
 (defn- data-in ^DataInputStream [^File f]
   (DataInputStream. (BufferedInputStream. (FileInputStream. f) 1048576)))
 
-(defn- state-of [kb]
-  {:taxonomy (apply dissoc @(reasoning/taxonomy kb) taxonomy-side-slots)
-   :atoms    (into {} (map (fn [a] [a @(get (reasoning/of kb) a)])) state-atoms)})
+(defn- state-of
+  "`kb`'s taxonomy and state atoms as an image holds them.  The candidate index and the
+  taxonomy are held without their journals (`:cache-moves` is one), which name what this
+  process's readers read since their last position and none of an installed KB's, and the
+  candidate index without its candidates by context, which the first read rebuilds."
+  [kb]
+  (let [tax (reasoning/taxonomy kb)]
+    {:taxonomy (apply dissoc @tax :cache-moves taxonomy-side-slots)
+     :atoms    (into {} (map (fn [a] (let [v @(get (reasoning/of kb) a)]
+                                       [a (cond-> v
+                                            (= a :nogood-candidates) journal/without
+                                            ;; the discovery memo's position in `:cache-moves`
+                                            (and (= a :preserved-clashes) (:flat v))
+                                            (update :flat dissoc :pos))])))
+                     state-atoms)}))
 
 (defn write-sections!
   "Write `kb`'s network and state into `dir`, then a manifest carrying `stamp`, and return
@@ -292,7 +294,8 @@
      (write-atomic! (section dir "network.bin")
                     (fn [f] (with-open [o (data-out f)] (dense/write-image (reasoning/tms kb) o))))
      (write-atomic! (section dir "state.nippy")
-                    (fn [f] (with-open [o (data-out f)] (nippy/freeze-to-out! o (state-of kb)))))
+                    (fn [f] (with-open [o (data-out f)]
+                              (nippy/freeze-to-out! o (state-of kb)))))
      (when (commit?)
        (let [manifest (assoc stamp
                              :written-at (str (java.time.Instant/now))
@@ -398,7 +401,10 @@
   KB's records fingerprint in the form the image's manifest carries; it runs only once the
   cheaper conditions hold.  Returns `{:reasoning :installed :source d :image m}`, or
   `{:reasoning :recover :reason r}` with the KB untouched — `r` one of `decision`'s reasons, a `refusal`,
-  `:not-applicable`, `:network-populated` or `:unreadable`.  `:source` is the source
+  `:not-applicable`, `:network-populated` or `:unreadable`.  A `VirtualMachineError`
+  anywhere in a failed install's cause chain is rethrown as itself, not answered
+  `:unreadable`: the heap ran out, the image may be sound, and a recover from the records
+  needs more heap than the install.  `:source` is the source
   identity's digest, which `register-close!` takes, and `:image` the installed manifest's
   `:source`, `:written-at` and `:recover`.
 
@@ -423,18 +429,21 @@
                        (dense/read-image! (dense/create-dense-tms) i))
                  st  (read-state dir)]
              (dense/copy-into! (reasoning/tms kb) net)
-             (swap! (reasoning/taxonomy kb) #(tax/with-cache-census (merge % (:taxonomy st))))
+             (swap! (reasoning/taxonomy kb) merge (:taxonomy st))
              (doseq [[a v] (:atoms st)] (reset! (get (reasoning/of kb) a) v))
              ;; the discovery memo's `:mark` names a point in the writer's touched window,
              ;; and the installed network opens a window of its own at generation 0, where
              ;; `jtms/touched-since` would take the writer's mark for one of its own
              (swap! (reasoning/preserved-clashes kb) dissoc :mark)
+             ;; the candidate index is written without its journal
+             (swap! (reasoning/nogood-candidates kb) journal/restart)
              (let [image (select-keys manifest [:source :written-at :recover])]
                (if why
                  {:reasoning :stale :reason why :source (:source now)
                   :image-source (:source manifest) :image image}
                  {:reasoning :installed :source (:source now) :image image})))
            (catch Throwable t
+             (when-let [e (safe/vm-error t)] (throw e))
              (trove/log! {:level :warn :id ::unreadable :error t
                           :msg (str "reasoning image in " dir " unreadable ("
                                     (.getMessage t) ") — recovering from the records")})

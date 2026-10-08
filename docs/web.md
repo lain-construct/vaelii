@@ -157,8 +157,8 @@ request log either, which [operations.md](operations.md) states as the trade it 
 | `/` | the **upper ontology**: what the KB is in four numbers, then the genlCx context lattice, the genl type tree (from `thing`), the documented terms (the `comment` sentexes), and its disjointness. Every one of them is **bounded**, and where the whole is too long to read the page shows the top of a ranking rather than the first fifty of an order nobody chose — this is the first page opened against a KB whose size the reader did not choose (below) |
 | `/stats` (`?clashes=1`) | **statistics**: headline counts (contexts, types, stored sentexes, and the contradiction / conflict / violation tallies), a contexts-by-size table ranked largest-first, and the actual dilemmas / conflicts / dropped-derivation violations when non-empty — each violation naming the run that dropped it. The contexts table and the three ledgers are one screen each and continue on scroll. `?clashes=1` additionally asks the **standing disjointness question** (below), which is computed on demand rather than filed; its clash list stops at 50 with a `showing 50 of N` line and does not continue |
 | `/find?q=<pattern>` | **term search** over the KB's vocabulary: every term whose name matches (a query with no regex metacharacter is a case-insensitive substring match, so `DOG` finds `dog`; a query carrying one is a regular expression under `re-find`, so `^parent` anchors), each linked to its term page — the header search box points here. A pattern resolving to a single term (the only match, or an exact-name match) **jumps straight to that term's page** (`HX-Push-Url`) |
-| `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), then every sentex containing it grouped by the **index root** that reaches it — functor `[:functor-root]`, argument-position `[:argument-slot pos]` (the roster the predicate-agnostic read unions the scoped roots over), context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its cheap count (O(1) for the roots; one O(1) read per predicate at the slot for the argument groups) |
-| `/sentex/:id` | a **sentex** (atomic or rule): its **belief state** (IN, or the `why-not` reason — superseded / defeated / unsupported — with the restatement, contradictors, or missing antecedents that explain it), its supporting justifications (justifications concluding it), its dependents (justifications using it as an argument), and its terms |
+| `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), then every sentex containing it grouped by the **index root** that reaches it — functor `[:predicate-extent]`, argument-position `[:argument-slot pos]` (the roster the predicate-agnostic read unions the scoped roots over), context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its cheap count (O(1) for the roots; one O(1) read per predicate at the slot for the argument groups) |
+| `/sentex/:id` | a **sentex** (atomic or rule): its **belief state** (IN, or the `why-not` reason — superseded / defeated / unsupported — with the restatement, contradictors, the declarations a placed defeat convicts through, or missing antecedents that explain it), its supporting justifications (justifications concluding it), its dependents (justifications using it as an argument), and its terms |
 | `/why/:id` | the **proof tree**: `vaelii.core/why` rendered whole — every justification down to the premises it rests on, collapsible, cycle-guarded, with rule sentences in the author's variable names |
 | `/justification/:id` | a **justification**: its supports/arguments (antecedent sentexes) and its dependent sentex (the conclusion) |
 | `/levels?q=<goal>&ctx=<context>` | the **lookup-to-query stack**: what each of the eight levels answers for a goal, which level first does, and — above them — the **query plan**: the provers bearing on the goal with their estimates and which one runs. A **vector** goal is a conjunctive query and gets the join plan instead (below). Links across to `/inference` for the same goal |
@@ -258,6 +258,12 @@ vocabularies apart — so there is exactly one subsumption relation per term pag
 class on its edges says which. That is also what makes a context page worth opening: `genl`
 says nothing about contexts, so the picture is the only thing on the page that shows the
 lattice at all.
+
+**A `genl` row is one step of the closure.** The rows read `direct-genls` and
+`direct-specs`, so an edge a `covering`, `separating` or `partition` roster installs is
+drawn as a stated `(genl sub super)` is, with the same arrow. A roster stores no `genl`
+sentence for its parts, and a picture read off stored `genl` sentences alone would draw a
+part with no parent.
 
 **What is and is not an edge**, stated rather than left to fall out of the code. Binary
 facts only — a ternary `(arg parentOf 1 person)` relates three things and an arrow
@@ -369,7 +375,7 @@ reader who reloads, navigates away, or resets lands on the line that is actually
 Two things it is careful to show rather than assert:
 
 - **The cascade.** All five sentences the script touches are rendered at every step. A
-  stored one shows its record and its live belief pill. The capability hierarchy answers
+  stored one shows its record and its live belief pill. The `genl` hierarchy of event kinds answers
   `(hasCapability Pingu travelling)` at retrieval and stores no record, so its row shows
   what `ask?` answers: answerable in step 1, unanswerable once the flight goes in step 2,
   and answerable again in step 3. `(not (hasCapability Pingu flying))` appears in step 2 —
@@ -434,7 +440,7 @@ can end with the thing a commit otherwise leaves unsaid — and an extension tha
 renders the same ending through `stored-sentexes` ([Extensions](#extensions)):
 
 > **You didn't say this, but it follows**
-> `(mortal Muffet)` — because `(dog Muffet)`, `(genl animal living_thing)`, `(genl dog mammal)`, `(genl mammal animal)`, the `genlCx` edges from the sandbox up to the rule's context, and the rule `(implies (living_thing ?x) (mortal ?x))` · _proof_
+> `(mortal Muffet)` — because `(dog Muffet)`, `(separating organism animal plant)`, `(genl dog mammal)`, `(genl mammal vertebrate)`, `(partition animal vertebrate invertebrate)`, the `genlCx` edges from the sandbox up to the rule's context, and the rule `(implies (organism ?x) (mortal ?x))` · _proof_
 > `(mammal Muffet)` — because `(dog Muffet)`, and every `dog` is a `mammal`
 
 Those two lines come from **different mechanisms**, and the callout keeps them apart rather
@@ -444,7 +450,7 @@ than blurring them into one list of "conclusions":
   the JTMS sense, has a handle, and its whole proof is one click away. The `because` lists
   every antecedent of the justification, then the rule. The antecedents are the fact that
   matched plus the `genl` and `genlCx` edges the match went through, which is why the
-  example above reads `(dog Muffet)` against a rule about `living_thing`: the match fanned
+  example above reads `(dog Muffet)` against a rule about `organism`: the match fanned
   out over the genl spec closure, and the edges it crossed are listed beside the fact.
 - a **type subsumes**. `(genl dog animal)` plus `(dog Muffet)` makes Muffet an animal, and the
   engine deliberately never materializes `(animal Muffet)` — matching fans the functor out
@@ -999,7 +1005,7 @@ round-trip under `--attach`.
   counts already in hand, since a walk that is going to be truncated is a walk not worth
   taking. The term index is keyed on `kv/sentex-terms`, which is a sentex's indexable terms
   **plus its context**, so a context's own extent bounds its term index below exactly as a
-  predicate's functor root does. Left out of the bound, a large context's page read
+  predicate's extent does. Left out of the bound, a large context's page read
   50,000 records of its term index on every request and discarded them as truncated.
 - **The concept graph is bounded before its first read, not after.** Its relation flank is
   read off the index groups the term page built anyway, its taxonomy is probed only where
@@ -1375,13 +1381,16 @@ catalog will load an ontology with hundreds of thousands of `genl` edges — so 
 it may be proportional to the KB.
 
 The **hierarchy trees** open one level at a time. A node with children carries a caret
-that fetches them on its first `change`; a level is read by pinning the parent
-(`(genl ?sub node)`), which the index answers from the predicate-scoped argument root
-(`[:argument-root genl 2 node]`), so the cost is that node's own fan-out rather than the
-number of edges in the KB. Whether a node gets a disclosure at all is
-`count-with-arg 2 node`, a cheap upper bound (one O(1) count per predicate at the slot):
-it spans every binary predicate holding the node in second position, so it can offer a
-disclosure that opens to nothing, and can never hide a real child.
+that fetches them on its first `change`. A `genl` level is the closure's one-step
+adjacency (`direct-specs`), which includes the parts a cover roster installs; a `genlCx`
+level is read by pinning the parent (`(genlCx ?sub node)`), which the index answers from
+the predicate-scoped argument root (the node `[genlCx 2 node]`). Either way the cost
+is that node's own fan-out rather than the number of edges in the KB. A `genl` level is
+always sorted, and a `genl` node gets a disclosure when `direct-specs` holds a child. A
+`genlCx` node gets one when `count-with-arg 2 node` is positive, an upper bound (one O(1)
+count per predicate at the slot) that spans every binary predicate holding the node in
+second position, so it can offer a disclosure that opens to nothing and never hides a
+real child.
 
 The caret is a **checkbox and its label**, not a `<details>`/`<summary>`. A `<summary>`
 consumes the click on whatever it contains, so the term inside one toggled the disclosure
@@ -1392,7 +1401,7 @@ a reader with no script still works the tree. The checkbox's id keys on the edge
 (`pred`, `node`), which is what a disclosure *is*: a type reachable by two parents is a
 different disclosure under each.
 
-The **flat lists** read their functor root rather than a wholly-open pattern. `(comment
+The **flat lists** read their predicate's extent rather than a wholly-open pattern. `(comment
 ?term ?text)` pins nothing, so the trie fans over every child token at every level: a
 `take` would bound the records fetched and not the candidates enumerated, which is a walk
 of the whole extent to show fifty rows. Sorting is bounded the same way — alphabetical
@@ -1487,8 +1496,8 @@ beside a group's heading is its stored total rather than the page's.
 **Past `group-sort-cap` (20,000) a group is not ordered at all** — it pages in the order
 the index read it in, which is reproducible for an unchanged store and is therefore the
 one property paging needs. Ordering means realizing the whole group and printing a context
-per member to show sixty rows: at `genl`, whose functor root on a large store holds
-millions of sentexes, that cost grows with the root and was paid twice per page. The same
+per member to show sixty rows: at `genl`, whose predicate extent on a large store holds
+millions of sentexes, that cost grows with the extent and is paid twice per page. The same
 cap governs the graph's flank window (`flank-scan`), where the alternative was sorting
 millions of records to pick forty.
 
@@ -1509,7 +1518,7 @@ about them — not a ranking recomputed per term:
    term, and the condition is about whatever the rule concludes. A rule doing both is
    listed under the conclusion;
 3. **the deeper nestings** — the term index minus what a root or a rule half claimed;
-4. **the extents, last**. `[:functor-root]` is every fact written with the term as
+4. **the extents, last**. `[:predicate-extent]` is every fact written with the term as
    predicate and `[:context-root]` is everything asserted in a context, each a list
    whose first sixty rows say nothing about the term itself.
 
@@ -1552,7 +1561,7 @@ records, and how many of them are premises is not known until they are read.
 ### A term page reads what it can count, and says when it did not look
 
 The root groups carry an **O(1) stored count**: one group per argument position the term
-sits at (positions 1 to `arg-position-cap`, 12), the functor root when a stored sentence
+sits at (positions 1 to `arg-position-cap`, 12), the predicate extent when a stored sentence
 has the term as its predicate, and the context root when the term is a context holding
 something. The three remainder groups ("Rule
 conclusion", "Rule condition", "Nested elsewhere") are the term index **minus**
@@ -1598,9 +1607,11 @@ A sentence is rendered structurally, not as one opaque string:
   an individual, or the context independently (nested compound subterms are also
   listed individually under a sentex's *Subterms*);
 - terms are **colored by role** — type (green), individual (purple), predicate
-  (blue), context (brown), number (red), variable (grey). A type is recognized by
-  membership in the genl taxonomy, so `dog` colors as a type while `parentOf`
-  colors as a predicate — and that membership is checked **before** the non-symbol
+  (blue), context (brown), number (red), variable (grey). A node of the genl taxonomy
+  colors by stored content: a predicate when `relation?` reads it as a relation of two or
+  more places, as for `orthogonal` under its `genl` edge, and a type otherwise, as for
+  `dog`. A term outside the taxonomy colors by its spelling, so `parentOf` colors as a
+  predicate. The node check comes **before** the non-symbol
   fallback, because a type node need not be a symbol: an imported ontology names a type
   it has no atomic name for with a function term, and over ten thousand of the types in
   the OpenCyc import [kbs.md](kbs.md) is the route to are compounds.

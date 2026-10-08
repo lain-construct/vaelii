@@ -191,19 +191,17 @@
     (let [ah (v/handle-of kb (list airborne Tweety) CxBird)]
       (is (some? ah))
       (is (true? (v/in? kb ah)))
-      ;; now defeat the antecedent; the conclusion is not itself defeated, it simply
-      ;; loses its only valid justification
+      ;; now defeat the antecedent; the conclusion is not itself defeated, it rests on a
+      ;; handle the placed defeat removes from belief
       (v/assert kb (list 'not (list flies Tweety)) CxBird {:strength :monotonic})
       (let [wn (v/why-not kb ah)
             fh (v/handle-of kb (list flies Tweety) CxBird)]
-        (testing "OUT for lack of support, not by defeat"
+        (testing "withdrawn by the defeat of what it rests on, not defeated itself"
           (is (false? (v/in? kb ah)))
           (is (false? (:believed? wn)))
-          (is (= :unsupported (:reason wn)))
-          (is (false? (:premise? wn))))
-        (testing "and the antecedent that went missing is named"
-          (is (seq (:support wn)))
-          (is (contains? (set (mapcat :missing (:support wn))) fh)))))))
+          (is (= :withdrawn (:reason wn))))
+        (testing "and the defeated antecedent is named"
+          (is (= [fh] (mapv :handle (:withdrawn-by wn)))))))))
 
 (tu/deftest-kb why-not-on-a-believed-and-on-an-unknown-handle
   (tu/with-terms [dog Muffet CxFact]

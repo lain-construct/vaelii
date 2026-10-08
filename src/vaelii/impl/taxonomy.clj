@@ -46,14 +46,13 @@
 
   ## Edges are supported, and support is belief-sensitive
 
-  A relation is `{:support {[a b] {handle ctx}} :edges #{[a b]} :fwd {} :rev {}
-  :nodes #{} :depth {} :gen n}`.  `:support` records **every sentex that asserts an
-  edge**, keyed by handle with the asserting sentex's context as the value — handle
-  and context enter and leave together, so they cannot desync; a nil context means
-  the writer had none to record (a probe) and the edge constrains everywhere.
-  `:edges` is the *active* set the closures are computed from — an edge with
-  no believed supporter is not in it.  That distinction is what keeps three things
-  right:
+  Every sentex that asserts an edge is a **supporter**, stored in the index's supporter
+  families under the key `[:genl a b]` (`kv/post-supporter!`) with its context; a nil
+  context means the writer had none to record (a probe) and the edge constrains
+  everywhere.  A relation is `{:edges #{[a b]} :edge-ctxs {} :fwd {} :rev {} :nodes #{}
+  :depth {} :gen n}`, and `:edges` is the *active* set the closures are computed from — an
+  edge with no believed supporter is not in it.  That distinction is what keeps three
+  things right:
 
   - **Belief.** A defeated `(genl dog animal)` leaves the closure, so `isa?` cannot
     outrun belief.  Matching is belief-sensitive everywhere in the engine, the
@@ -67,26 +66,33 @@
 
   `rewriteOf` / `sameAs` / `equals` all feed one **equivalence** closure, so it is
   stored as a partition — member → class, class → members and representative —
-  rather than as up/down closures.  It shares the `:support` discipline above and
-  nothing else: insertion is a union, and deletion can *split* a class, which no
-  union-find can undo, so it rebuilds the affected class from its surviving edges.
+  rather than as up/down closures.  It shares the supporter discipline above, keeping its
+  own `:support` map, and nothing else: insertion is a union, and deletion can *split* a
+  class, which no union-find can undo, so it rebuilds the affected class from its
+  surviving edges.
   See the section below and docs/equality.md.
 
   The same belief discipline reaches the six flat caches too — `disjoint`, the
   disjoint metatypes and their members, the sibling-disjoint marks, the predicate
   properties, `inverse`, and the declared arities.
-  They carry no per-claim `:support` record of their own; their supporters are
-  reference-counted in the shared `:cache-support` map, and `refresh-beliefs`
-  reconciles each cache entry against belief exactly as `refresh-relation` does for
-  genl — an entry is active iff some supporter is stored *and* believed.  So a
+  Their supporters are stored in the same families under each entry's `[kind key]`, and
+  `refresh-beliefs` reconciles each cache entry against belief exactly as
+  `refresh-relation` does for genl — an entry is active iff some supporter is stored
+  *and* believed.  So a
   defeated `(disjoint dog cat)` stops constraining, a defeated `(functional P)` stops
   merging, and a defeated `(inverse P Q)` stops answering the swapped goal, the way a
   defeated genl edge leaves the closure.  See docs/taxonomy.md."
   (:require [clojure.set :as set]
             [vaelii.impl.caches :as caches]
+            [vaelii.impl.journal :as journal]
+            [vaelii.impl.kv :as kv]
+            [vaelii.impl.memory :as mem]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
+            [vaelii.impl.overlay.frozen :as frozen]
+            [vaelii.impl.overlay.kv :as okv]
             [vaelii.impl.predicates :as pr]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.strength :as strength]
             [vaelii.impl.types.reasoning :as reasoning]))
 
@@ -205,21 +211,16 @@
                       {} up)]
     {:edges (set edges) :up up :down down}))
 
-;; `:handle-edge {handle [a b]}` is the **reverse** of `:support`: which edge each
-;; supporting sentex asserts.  A handle supports exactly one edge — its sentence names
-;; one — so add/del maintain it 1:1 and the key set is exactly the relation's supporters.
-;;
-;; It exists so `refresh-beliefs` can read the edges a settle could have moved **off the
-;; moved region** rather than off the relation.  Belief moves by handle; only an edge
-;; some moved handle supports can have changed its believed-supporter set, so that
-;; lookup is the whole reconcile's scope.  Without it both halves of the reconcile are
-;; O(vocabulary): the "did anything touch me" gate walks every supporter, and the
-;; reconcile itself evaluates belief for every edge — 176ms per flip in a 64k-edge
-;; relation, against a taxonomy that is the same size in every settle whatever moved.
+;; A relation's supporters are not held here: the index's supporter families hold them,
+;; keyed by the edge (`[:genl a b]`) and by the handle (`[:tax-installs h]`, the edges it
+;; installs), and `:supporters` caches what the reconcile reads.  The second family is
+;; what lets `refresh-beliefs` read the edges a settle could have moved **off the moved
+;; region** rather than off the relation (`moved-keys`): belief moves by handle, and only
+;; an edge some moved handle supports can have changed its believed-supporter set.
 ;;
 ;; `:dirty` is the other half of that scope, and it exists because the edge writers are
 ;; **belief-blind**: `add-edge` and `del-edge` run on the assert/retract path, where no
-;; `believed?` is in hand, so they recompute `:edge-ctxs` from every recorded supporter
+;; `believed?` is in hand, so they recompute `:edge-ctxs` from every stored supporter
 ;; rather than from the believed ones.  On an edge with a single supporter that is exact.
 ;; On a shared edge it is a superset — a disbelieved supporter's context reads as
 ;; asserting — and only a reconcile can narrow it.  So a writer leaving a shared edge
@@ -228,21 +229,13 @@
 ;; not, never misses one it should), and the set stays proportional to the edits: the
 ;; single-supporter edge that is nearly every edge, and all of a bulk load, never enters
 ;; it.
-;; Beside the edge set, three pieces of **derived context state**, all functions of
-;; `:support` and belief the way `:edges` is:
-;;
-;; - `:edge-ctxs {[a b] #{ctx}}` — the supporting contexts of each *active* edge
-;;   (keys ≡ `:edges`); nil in the set marks a supporter with no recorded context,
-;;   which constrains everywhere.  `:gen` bumps whenever an entry moves, not only
-;;   when an edge appears or disappears — a scoped closure read is a function of
-;;   these, so they retire the read memo exactly as the edge set does.
-;; - `:ctx-counts {ctx n}` — how many supporters (nil excluded) assert from each
-;;   context, belief-blind: a superset of the believed edge contexts is all the
-;;   scoped reads need, and counting every supporter keeps maintenance O(1) at the
-;;   writers with nothing for belief to reconcile.
-;; - `:ctxs-gen` — bumped only when a context key appears in or disappears from
-;;   `:ctx-counts`, so a bulk load inside one context does not churn what is keyed
-;;   on it (the visibility interning of the scoped reads).
+;; Beside the edge set, `:edge-ctxs {[a b] #{ctx}}` is **derived context state**, a
+;; function of the supporters and belief the way `:edges` is: the supporting contexts of each
+;; *active* edge (keys ≡ `:edges`); nil in the set marks a supporter with no recorded
+;; context, which constrains everywhere.  `:gen` bumps whenever an entry moves, not only
+;; when an edge appears or disappears — a scoped closure read is a function of these, so
+;; they retire the read memo exactly as the edge set does.  The contexts that state a
+;; supporter at all are read from the index (`census-in`).
 ;;
 ;; `:depth` is a potential over the **condensation**, and `:scc` is what makes it one:
 ;; a node in a strongly connected component maps to that component's representative
@@ -252,7 +245,7 @@
 ;; representative → members, written wherever `:scc` is, so a repair that moves one
 ;; component reads that component's members and not the whole map.
 (defn- empty-relation []
-  {:support {} :handle-edge {} :dirty #{} :edges #{} :edge-ctxs {} :ctx-counts {} :ctxs-gen 0
+  {:dirty #{} :edges #{} :edge-ctxs {}
    :fwd {} :rev {} :nodes #{} :depth {} :scc {} :scc-members {} :gen 0
    ;; `note-move`'s log
    :moves (sorted-map) :move-gen {}})
@@ -276,8 +269,96 @@
   "A taxonomy's empty closure cache: weighted by the terms each closure holds (a closure
   needs set by its contexts, a flag by one), bounded through the cache profile."
   []
-  (caches/weighted-lru (caches/limit-thunk :taxonomy-closures closure-memo-limit)
-                       (fn [v] (inc (if (coll? v) (count v) 0)))))
+  (assoc (caches/weighted-lru (caches/limit-thunk :taxonomy-closures closure-memo-limit)
+                              (fn [v] (inc (if (coll? v) (count v) 0))))
+         ;; the up-closures `closure-of` built from their parents' (`reach-by-parents`), and
+         ;; those that fell back to a walk: a parent evicted mid-build, or a cycle `:scc`
+         ;; has not recorded
+         :walks (java.util.concurrent.atomic.AtomicLongArray. 2)))
+
+(defn- private-index
+  "An empty in-memory index store, holding the supporter families of a raw taxonomy."
+  []
+  (kv/->KvIndexStore (mem/->MemoryKvBackend (atom {}))))
+
+(defn- fork-index
+  "An index store whose writes land in a private in-memory layer over `index`'s roots,
+  which it reads through: a `detached-copy`'s, so a probe's supporters reach neither the
+  KB's store nor its readers."
+  [index]
+  (kv/->KvIndexStore (okv/overlay-kv (mem/->MemoryKvBackend (atom {}))
+                                     (frozen/frozen-kv (kv/roots-backend index)))))
+
+(def supporter-cache-limit
+  "How many entries the supporter cache (`:supporters`) holds, keys and handles together,
+  before it is cleared wholesale: the shipped default the cache profile scales."
+  1000000)
+
+(def ^:private empty-supporters
+  "The supporter cache with nothing held: `{:by-key {k {handle ctx}} :by-handle {handle
+  #{k}}}`."
+  {:by-key {} :by-handle {}})
+
+;; The supporters of a taxonomy key are the index's supporter families
+;; (`kv/post-supporter!`), and `:supporters` caches the two reads the reconcile makes per
+;; moved handle and per touched key.  An entry holds the whole stored answer: the
+;; writers drop the entries their post moves and read the family afresh, and the
+;; reconcile (`recover`'s included) fills an entry it misses.  A reader outside a write
+;; reads through without filling.  Past `supporter-cache-limit` the cache is cleared
+;; wholesale.
+
+(defn- supporters-of
+  "Taxonomy key `k`'s stored supporters in taxonomy state `t`, as `{handle ctx}`: the
+  cache's entry, else the supporter family."
+  [t k]
+  (or (get-in t [:supporters :by-key k]) (reads/as-stored-supporters (:index t) k)))
+
+(defn- keys-of
+  "The taxonomy keys stored handle `h` installs, as a set: the cache's entry, else the
+  supporter family."
+  [t h]
+  (or (get-in t [:supporters :by-handle h]) (reads/as-stored-installed-keys (:index t) h)))
+
+(defn- hold
+  "`t` with `v` cached as `side`'s (`:by-key` or `:by-handle`) entry for `k`, the cache
+  cleared first when it holds the cache profile's bound on `supporter-cache-limit`."
+  [t side k v]
+  (let [c (:supporters t)
+        c (if (>= (+ (count (:by-key c)) (count (:by-handle c)))
+                  (long (caches/limit-of :taxonomy-supporters supporter-cache-limit)))
+            empty-supporters
+            c)]
+    (assoc t :supporters (assoc-in c [side k] v))))
+
+(defn- held-supporters
+  "`[t' sup]`: key `k`'s supporters read through the cache, with `t'` holding them."
+  [t k]
+  (let [sup (supporters-of t k)]
+    [(cond-> t (not (contains? (get-in t [:supporters :by-key]) k)) (hold :by-key k sup)) sup]))
+
+(defn- held-keys
+  "`[t' ks]`: the keys handle `h` installs read through the cache, with `t'` holding a
+  non-empty answer."
+  [t h]
+  (if-let [ks (get-in t [:supporters :by-handle h])]
+    [t ks]
+    (let [ks (reads/as-stored-installed-keys (:index t) h)]
+      [(cond-> t (seq ks) (hold :by-handle h ks)) ks])))
+
+(defn- drop-held
+  "`t` with the cached entries for key `k` and handle `h` dropped: a writer's post moved
+  them."
+  [t k h]
+  (-> t
+      (update-in [:supporters :by-key] dissoc k)
+      (update-in [:supporters :by-handle] dissoc h)))
+
+(defn supporters
+  "Taxonomy key `k`'s stored supporters, believed or not, as `{handle ctx}`: `k` is
+  `[:genl a b]`, `[:genlCx a b]` or a flat-cache key (`[:disjoint #{a b}]`, `[:prop kind
+  pred]`, …)."
+  [tax k]
+  (supporters-of @tax k))
 
 (defn create-taxonomy
   "A KB's taxonomy: one atom holding the cached relations, plus a **watch** bumping
@@ -298,8 +379,14 @@
           :sibling-disjoint #{} :sib-exception-index {}
           :covers {} :cover-parts {} :partitions #{}
           :props {} :inverse {} :arity {} :functional-in-arg {} :commuting {}
-          :cache-support {} :cache-handle-keys {} :cache-dirty #{} :cache-ctxs {}
-          :cache-ctx-counts {}
+          :cache-dirty #{} :cache-ctxs {}
+          ;; The supporter cache (`supporters-of`), over the index's supporter families
+          :supporters empty-supporters
+          ;; The index store the supporter families are posted to and read from
+          ;; (`kv/post-supporter!`).  A raw taxonomy holds a private in-memory one and
+          ;; `:raw?`; `install-index!` sets the KB's, where `census-in` also reads the
+          ;; contexts stating a supporter.
+          :index (private-index) :raw? true
           ;; A KB installs two read-only callbacks after construction: whether any
           ;; supporter needs exception-aware scoping, and whether one supporter is
           ;; effective from a concrete reader context. Raw taxonomies (the unit-test
@@ -307,7 +394,11 @@
           ;; path byte-for-byte. `:supporter-visibility-gen` invalidates scoped closure
           ;; memo entries when an except or meta-except changes without moving an edge.
           :supporter-filter-active? nil :supporter-visible? nil
+          :network-filter-active? nil :network-visible? nil :supporter-reaches? nil
           :supporter-visibility-gen 0
+          ;; how many times `clear-relations!` rebuilt the relations, whose `:gen`s it
+          ;; restarts at 0 (`relation-epoch`)
+          :epoch 0
           ;; Oriented schematic rewrite rules (docs/equality.md, symbolic equational
           ;; reasoning).  `:rewrite-support` records every asserted rule keyed by its
           ;; equation handle; `:rewrite-active` is the believed subset `refresh-beliefs`
@@ -322,16 +413,11 @@
           ;; writer on the main atom and never mutates the snapshot a concurrent reader
           ;; is holding.  Stale (wrong-gen) entries are ignored on read and overwritten
           ;; on the next miss, so an edge change needs only to bump `:gen`.
-          :closure-memo (atom {})
+          :closure-memo (caches/tallied (atom {}) [:T7])
           ;; The closures themselves, global and scoped, in one weighted LRU
           ;; (`closure-lru`), keyed with the relation's `:gen` so an edge change retires
           ;; them by never asking for them again.  A side object for the memo's reasons.
           :closure-lru (closure-lru)
-          ;; The interned visible-context sets the scoped reads key on — one entry
-          ;; per [relation context], stamped [genlCx-gen ctxs-gen] and recomputed
-          ;; on a stamp mismatch.  A side atom for the same reasons as the memo; its
-          ;; population is bounded by the context count, never by the read count.
-          :vis-index (atom {})
           ;; The content-ordered rewrite rules (`rewrite-rules`), memoized as
           ;; `{:for <the :rewrite-active map it sorted> :rules <sorted seq>}`.  A side
           ;; atom for the same reasons as the other two, stamped on the *object* it
@@ -340,29 +426,46 @@
     (add-watch ::change (fn [_ _ _ _] (observe/note-change)))))
 
 (defn install-supporter-visibility!
-  "Install the KB-owned exception visibility callbacks on `tax`.
+  "Install the KB-owned visibility callbacks on `tax`.
 
-  `active?` is the cheap whole-KB gate: nil or false while no visibility `except` is
-  stored, else truthy — and when truthy, the roster's entries, a seq of
-  `[context {target-handle #{except-handle}}]`, which is what lets
-  `relation-filter-active?` ask whether any target is a supporter of the relation
-  being read (a bare truthy value is honoured as \"every relation\").  `visible?`
-  answers whether one stored supporter handle is believed and not excepted from one
-  concrete reader context.  Taxonomy remains independent of the JTMS and exception
-  grammar; the KB owns those facts and supplies the two reads after its
-  mutually-referential parts exist."
-  [tax active? visible?]
-  (swap! tax assoc :supporter-filter-active? active? :supporter-visible? visible?)
-  tax)
+  `active?` is the cheap whole-KB gate: nil or false while no `except` or placed `defeat`
+  is stored, else truthy — and when truthy, the roster's entries, a seq of `[key
+  #{target-handle …}]`, which is what lets `relation-filter-active?` ask whether a
+  supporter of the relation being read rests on a target (a bare truthy value is honoured
+  as \"every relation\").  `reaches?` answers that, given the roster, a view of a
+  relation's stored supporters (`supporter-view`) and whether the placed defeats count: they do not for `genlCx`, whose
+  supporters rest only on forced-monotonic sentences, which no defeat targets.  Without
+  it a target must be a supporter itself.  `visible?`
+  answers whether one stored supporter handle is believed and seen from one concrete
+  reader context.  `network-active?` and `network-visible?` are the same two reads over
+  the network and the `except` roster alone, with no placed `defeat` read: what a
+  firing's witness search reads (`*network-belief*`).  Taxonomy remains independent of
+  the JTMS and exception grammar; the KB owns those facts and supplies the reads after
+  its mutually-referential parts exist."
+  ([tax active? visible?] (install-supporter-visibility! tax active? visible? active? visible? nil))
+  ([tax active? visible? network-active? network-visible? reaches?]
+   (swap! tax assoc :supporter-filter-active? active? :supporter-visible? visible?
+          :network-filter-active? network-active? :network-visible? network-visible?
+          :supporter-reaches? reaches?)
+   tax))
 
 (defn note-supporter-visibility-change!
-  "Invalidate context-scoped derived reads after an except's effective belief moves.
+  "Invalidate context-scoped derived reads after an except's effective belief moves, or a
+  placed `defeat` is stored, removed or relabelled while a scoped read may hold it
+  (`defeat-moves-scoped?`).
 
-  No edge or flat-cache entry is activated/deactivated here: an except is a hole in a
-  visibility ancestor set, not a global retraction. The generation is carried in scoped memo
-  keys, so the next affected read recomputes while the unscoped cache stays hot."
+  No edge or flat-cache entry is activated/deactivated here: an except or a defeat is a
+  hole in a reader's view, not a global retraction. The generation is carried in scoped
+  memo keys, so the next affected read recomputes while the unscoped cache stays hot."
   [tax]
   (swap! tax update :supporter-visibility-gen (fnil inc 0))
+  tax)
+
+(defn install-index!
+  "Install the KB's index store on `tax`: the supporter families are posted to it and
+  read from it, and `census-in` reads the contexts that state a supporter there."
+  [tax index]
+  (swap! tax assoc :index index :raw? false)
   tax)
 
 (defn detached-copy
@@ -375,16 +478,20 @@
   merely wasted: the moment the live relation's gen catches up (its next real edge
   change), they answer real reads with closures computed over the probe's
   hypothetical edge — and a *second* probe copies the live gen, bumps to the same
-  number, and reads them as its own.  `:vis-index` is a side atom with the same
+  number, and reads them as its own.  `:closure-lru` is a side object with the same
   stamp discipline, so it gets the same isolation.
 
   `:rewrite-order` is stamped on the map object it sorted rather than on a number, so a
   probe's entry could never be *mistaken* for the live one's — but a shared atom would
   still have the two evicting each other's single slot on every alternation, and a side
-  atom belonging to whoever reads it is the rule here rather than the exception."
+  atom belonging to whoever reads it is the rule here rather than the exception.
+
+  `:index` is a fork of the original's (`fork-index`), so the supporters a probe posts land
+  where only the copy reads them."
   [tax]
-  (atom (assoc @tax :closure-memo (atom {}) :closure-lru (closure-lru) :vis-index (atom {})
-               :rewrite-order (atom nil))))
+  (let [t @tax]
+    (atom (assoc t :index (fork-index (:index t))
+                 :closure-memo (atom {}) :closure-lru (closure-lru) :rewrite-order (atom nil)))))
 
 ;; ---- on-demand closures, memoized per generation ------------------------
 ;;
@@ -402,8 +509,7 @@
 ;; by a caller that walks or intersects the set (`separation-frame`, `covers-over`).
 
 (def ^:dynamic *closure-pass-cache*
-  "An optional atom for the span of a **read-only** pass over a still taxonomy — a
-  reader's re-read of its definitional nogoods (`clashes/reread-at`) — holding the
+  "An optional atom for the span of a **read-only** pass over a still taxonomy, holding the
   exception-filtered context down-sets (`context-down`) the pass reads, keyed
   `[:genlCx :down-vis c nil]`, and the `genl?-per-pass` answers, keyed `[:genl? sub
   super context]`.  The closures themselves are in the taxonomy's LRU, which a still
@@ -429,8 +535,13 @@
 
   With a transducer `xf` other than nil, each answer is the union of what `xf` makes of
   the closure's terms, by the same recurrence: what `xf` makes of a union is the union of
-  what it makes of the parts (`genls-global-union`)."
-  [node adj scc held hold! xf]
+  what it makes of the parts (`genls-global-union`).
+
+  `walk`, when given, answers a unit with two or more parents not yet built, in place of
+  building them: a whole closure built from two parents costs the smaller parent's
+  closure, so building every ancestor of one cold type costs the sum of their closures,
+  quadratic on a braid, where one walk costs the type's own."
+  [node adj scc held hold! xf walk]
   (let [unit    #(get scc % %)
         members (fn [u] (if (contains? scc u)
                           (reach u (fn [x] (filter #(= u (get scc %)) (adj x))))
@@ -445,6 +556,10 @@
                 pending (remove #(or (get built %) (held %)) ps)]
             (cond
               (and (seq pending) (get entered u)) nil
+              (and (seq pending) walk (next ps))
+              (let [cl (walk u)]
+                (hold! u cl)
+                (recur (rest stack) (assoc! built u cl) entered))
               (seq pending) (recur (into stack pending) built (conj! entered u))
               :else
               (let [pcs (mapv #(or (get built %) (held %)) ps)]
@@ -478,12 +593,19 @@
         up?  (= dir-key :fwd)
         node (if up? (get (:scc rel) node node) node)]
     (or (caches/lru-get lru (key node))
-        (when up?
-          (reach-by-parents node adj (:scc rel)
-                            #(caches/lru-get lru (key %))
-                            #(caches/lru-put! lru (key %1) %2)
-                            nil))
-        (caches/lru-put! lru (key node) (reach node adj)))))
+        (let [t0 (System/nanoTime)
+              ^java.util.concurrent.atomic.AtomicLongArray walks (:walks lru)
+              v  (or (when up?
+                       (let [v (reach-by-parents node adj (:scc rel)
+                                                 #(caches/lru-get lru (key %))
+                                                 #(caches/lru-put! lru (key %1) %2)
+                                                 nil #(reach % adj))]
+                         (when walks (.incrementAndGet walks (if v 0 1)))
+                         v))
+                     (caches/lru-put! lru (key node) (reach node adj)))]
+          (caches/spent (:tally lru) t0)
+          (caches/compare-retired (:tally lru) [rel-key dir-key node] (:gen rel) v)
+          v))))
 
 ;; ---- scoped reads: the visibility filter over the same closures ----------
 ;;
@@ -495,12 +617,120 @@
 ;; forces every genlCx edge universal.
 ;;
 ;; The filter is keyed on `vis = up(K) ∩ ctxs`, where `ctxs` is the relation's
-;; context census (`:ctx-counts` keys).  Since every edge's context set is a
-;; subset of `ctxs`, two contexts with the same `vis` induce the identical
-;; filtered edge set — so `vis` is the memo key, a function of the answer rather
-;; than a proxy for it.  nil `vis` means the answer cannot differ from the global
-;; one (no context given, or K sees every asserting context): the caller takes
-;; today's path and today's memo slot, byte-identical.
+;; context census: the contexts that state a supporter (`census-in`).  Since every
+;; edge's context set is a subset of `ctxs`, two contexts with the same `vis` induce the
+;; identical filtered edge set — so `vis` is the memo key, a function of the answer
+;; rather than a proxy for it.  nil `vis` means the answer cannot differ from the global
+;; one (no context given, or K sees every asserting context): the caller takes the
+;; global path and the global memo slot.
+
+(def edge-installing-functors
+  "The functors of the sentences `installed-edges` reads a `genl` edge off."
+  '#{genl covering separating partition})
+
+(def ^:private flat-functors
+  "The functors whose declarations the flat caches record, read off their storage in
+  `vaelii.impl.predicates`: every property, mark, keyed pair other than equality, roster,
+  per-position and commuting declaration.  A disjoint metatype's members are stated under
+  the metatype, which is data, so `census-functors` adds those."
+  (into #{} (comp (filter (fn [[_ spec]]
+                            (let [[kind target] (:storage spec)]
+                              (and (contains? #{:prop :mark :keyed-pair :roster :pred-position
+                                                :pred-commuting}
+                                              kind)
+                                   (not= :equality target)))))
+                  (map first))
+        pr/entries))
+
+(defn- census-functors
+  "The functors whose stored facts state a supporter of `rel-key`: `:genl`, `:genlCx`, or
+  `:flat` for the flat caches, whose functors include each disjoint metatype with a member."
+  [t rel-key]
+  (case rel-key
+    :genl   edge-installing-functors
+    :genlCx '#{genlCx}
+    :flat   (into flat-functors (keys (:metatype-members t)))))
+
+(defn- of-relation?
+  "Does taxonomy key `k` belong to `rel-key`: `:genl`, `:genlCx`, or `:flat` for every
+  flat-cache key?"
+  [rel-key k]
+  (if (= :flat rel-key)
+    (not (contains? #{:genl :genlCx} (nth k 0)))
+    (= rel-key (nth k 0))))
+
+(defn- raw-supporters
+  "`{k {handle ctx}}` for every key of `rel-key` with a stored supporter in a raw
+  taxonomy's private store: a walk of the store (`reads/as-stored-supporter-map`)."
+  [t rel-key]
+  (into {} (filter #(of-relation? rel-key (key %))) (reads/as-stored-supporter-map (:index t))))
+
+(defn- support-census
+  "The contexts every stored supporter of `rel-key` is stated in, nil excluded: the census
+  of a raw taxonomy, whose store holds no predicate extent."
+  [t rel-key]
+  (into #{} (comp (mapcat vals) (remove nil?)) (vals (raw-supporters t rel-key))))
+
+(defn- extent-handles
+  "Every stored handle of a fact of one of the functors `fs`, either polarity."
+  [t fs]
+  (into #{} (mapcat #(reads/as-stored-with-functor (:index t) %)) fs))
+
+(defn- relation-supporters
+  "Every handle stored as a supporter of a `rel-key` key (`of-relation?`): a raw
+  taxonomy's walk, else the handles of `census-functors`' facts that install one."
+  [t rel-key]
+  (if (:raw? t)
+    (into #{} (mapcat (comp keys val)) (raw-supporters t rel-key))
+    (into #{} (filter (fn [h] (some #(of-relation? rel-key %) (keys-of t h))))
+          (extent-handles t (census-functors t rel-key)))))
+
+(defn- supporter-total
+  "How many stored facts state a supporter of `rel-key`, a count that moves whenever a
+  supporter is stored or removed: one count read per `census-functors` functor, which
+  counts either polarity, or a raw taxonomy's walk."
+  [t rel-key]
+  (if (:raw? t)
+    (transduce (map (comp count val)) + 0 (raw-supporters t rel-key))
+    (transduce (map #(reads/stored-count-with-functor (:index t) %)) + 0
+               (census-functors t rel-key))))
+
+(defn- supporter-view
+  "What the reach callback reads of `rel-key`'s stored supporters
+  (`install-supporter-visibility!`): `:supports?`, whether a handle is one; `:count`, a
+  count of them (`supporter-total`); `:handles`, a thunk answering every one."
+  [t rel-key]
+  {:supports? (fn [h] (boolean (some #(of-relation? rel-key %) (keys-of t h))))
+   :count     (supporter-total t rel-key)
+   :handles   (fn [] (relation-supporters t rel-key))})
+
+(defn- census-in
+  "`[in all?]`: the contexts of the set `ctxs` that state a supporter of `rel-key`
+  (`census-functors`), and whether `ctxs` holds every context that states one.  Read from
+  the predicate extents in the installed index store (`install-index!`): per functor, one
+  child count and, when it is not zero, min(|contexts stating it|, |ctxs|) membership
+  probes.  The extent
+  holds every stored fact of the functor, either polarity and whatever its belief, so the
+  census is a superset of the contexts of the believed supporters, which is all a scoped
+  read needs.  A raw taxonomy reads `support-census`."
+  [t rel-key ctxs]
+  (let [idx (:index t)
+        fs  (census-functors t rel-key)]
+    (if-some [per (when-not (:raw? t)
+                    (let [seen (mapv #(reads/as-stored-contexts-with-functor idx % ctxs) fs)]
+                      (when (every? some? seen) seen)))]
+      [(into #{} (mapcat first) per)
+       (every? (fn [[s n]] (= (count s) n)) per)]
+      (let [all (support-census t rel-key)
+            in  (into #{} (filter #(contains? ctxs %)) all)]
+        [in (= (count in) (count all))]))))
+
+(defn- census-among
+  "The contexts of the set `ctxs` that state a supporter of `rel-key` (`census-in`), or nil
+  when `ctxs` holds every context that states one."
+  [t rel-key ctxs]
+  (let [[in all?] (census-in t rel-key ctxs)]
+    (when-not all? in)))
 
 (defn- scoped-context?
   "A concrete context to scope by — a symbol that is not a `?var`.  nil and `'?ctx`
@@ -513,23 +743,49 @@
 ;; but below the closure, creating a mutual dependency.
 (declare visible-ctxs context-up sees?)
 
-(defn- supporter-filter-active?
-  "Does this KB currently need supporter-level exception filtering anywhere?  The
-  whole-KB gate: true once any visibility `except` is stored, whatever it targets."
+(def ^:dynamic *network-belief*
+  "True while a firing's witness search reads the scoped closures (`chain`'s placement):
+  a supporter is read at its network label and through the `except` roster, and no
+  placed `defeat` is read (`:network-filter-active?`, `:network-visible?`).  The scope
+  key carries the callback it reads, so the two readings never share a memo entry."
+  false)
+
+(def ^:dynamic *search*
+  "nil outside a second-route search (`exc/route-answer`), else `:belief` while the search
+  answers a belief read and `:visibility` otherwise.  A scope that reads supporter belief
+  carries the value in its key, as the effective ancestor set does, so a walk inside a
+  search and one outside it never share a memo entry."
+  nil)
+
+(defn- roster-fn
+  "The whole-KB gate callback the reading in force reads (`*network-belief*`)."
   [t]
-  (boolean (when-let [active? (:supporter-filter-active? t)] (active?))))
+  (if *network-belief* (:network-filter-active? t) (:supporter-filter-active? t)))
+
+(defn- visible-fn
+  "The supporter callback the reading in force reads (`*network-belief*`)."
+  [t]
+  (if *network-belief* (:network-visible? t) (:supporter-visible? t)))
+
+(defn- supporter-filter-active?
+  "Does this KB currently need supporter-level filtering anywhere?  The whole-KB gate:
+  true once any visibility `except`, or for a reader's belief any placed `defeat`, is
+  stored, whatever it targets."
+  [t]
+  (boolean (when-let [active? (roster-fn t)] (active?))))
 
 (defn- targets-supporter?
-  "Does some handle in `targets` support an edge of `rel`?  O(targets): the roster is a
-  handful where the relation is the vocabulary's size, so it is the targets that walk."
-  [rel targets]
-  (let [he (:handle-edge rel)]
-    (boolean (some #(contains? he %) targets))))
+  "Is a target of a `roster` entry a supporter in `view` (`supporter-view`)?  The reach
+  callback of a taxonomy with none installed (`install-supporter-visibility!`), which
+  reads every entry whatever `_defeats?`."
+  [roster view _defeats?]
+  (boolean (some (fn [e] (some (:supports? view) (val e))) roster)))
 
 (defn- relation-filter-active?
-  "Does a scoped read of `rel-key` need supporter-level exception filtering — is some
-  supporter of it, or of `genlCx` (whose holes move every reader's ancestor set), the target of
-  a stored `except`?
+  "Does a scoped read of `rel-key` need supporter-level exception filtering — does some
+  supporter of it, or of `genlCx` (whose holes move every reader's ancestor set), rest on
+  the target of a stored `except` or placed `defeat` (the reach callback,
+  `install-supporter-visibility!`)?
 
   The whole-KB gate above says an except exists *somewhere*; this one says it reaches
   this relation.  The distinction is exact, not a heuristic: a supporter no except
@@ -539,35 +795,110 @@
   probe per supporter per neighbour, unmemoized.  Without this gate one except on an
   unrelated fact buys a filtered walk per candidate for every `context-down`.
 
-  The roster's targets are what `:supporter-filter-active?` returns when truthy
-  (`install-supporter-visibility!`); an installer returning a bare truthy value keeps
-  the whole-KB reading.  Memoized per relation in the closure memo, stamped on
-  everything the answer is a function of: the visibility generation (the roster moves
-  with it), both relations' generations, and their supporter counts — a second
-  supporter joining an active edge moves no generation."
+  The roster's targets are what the gate callback returns when truthy
+  (`install-supporter-visibility!`, `roster-fn`); an installer returning a bare truthy
+  value keeps the whole-KB reading.  Memoized per relation and per reading in the closure
+  memo, stamped on everything the answer is a function of: the visibility generation,
+  both relations' generations, their stored supporter counts (a second supporter joining an
+  active edge moves no generation), and each roster entry's set of targets, compared by
+  value (a stored or removed `defeat` moves no generation, `defeat-moves-scoped?`).  The entry
+  keeps `:active-vgen`, the last visibility generation the gate answered true under."
   [t rel-key]
-  (when-let [active? (:supporter-filter-active? t)]
+  (when-let [active? (roster-fn t)]
     (when-let [roster (active?)]
       (if-not (sequential? roster)
         true
         (let [cx    (:genlCx t)
               rel   (get t rel-key)
+              slot  (if *network-belief* :filter-active-network :filter-active)
+              cx-view  (supporter-view t :genlCx)
+              rel-view (when (not= rel-key :genlCx) (supporter-view t rel-key))
               stamp [(:supporter-visibility-gen t) (:gen cx) (:gen rel)
-                     (count (:handle-edge cx)) (count (:handle-edge rel))]
+                     (:count cx-view) (:count rel-view)]
+              ids   (mapv val roster)
               memo  (:closure-memo t)
-              cached (get-in @memo [rel-key :filter-active])]
-          (if (= stamp (:stamp cached))
-            (:active? cached)
-            (let [targets (into #{} (mapcat (fn [e] (keys (val e)))) roster)
-                  active  (boolean (or (targets-supporter? cx targets)
-                                       (and (not= rel-key :genlCx)
-                                            (targets-supporter? rel targets))))]
+              tl    (caches/tally-of memo :T7)
+              cached (get-in @memo [rel-key slot])]
+          (if (and (= stamp (:stamp cached)) (= ids (:ids cached)))
+            (do (caches/hit tl) (:active? cached))
+            (let [reach  (or (:supporter-reaches? t) targets-supporter?)
+                  active (caches/recomputed
+                          tl (boolean (or (reach roster cx-view false)
+                                          (and rel-view (reach roster rel-view true)))))]
+              (when cached (caches/compared tl (= active (:active? cached))))
               (swap! memo (fn [mm]
                             (let [e (get mm rel-key)
                                   e (if (= (:gen rel) (:gen e)) e {:gen (:gen rel) :fwd {} :rev {}})]
                               (assoc mm rel-key
-                                     (assoc e :filter-active {:stamp stamp :active? active})))))
+                                     (assoc e slot {:stamp stamp :ids ids :active? active
+                                                    :active-vgen (if active
+                                                                   (first stamp)
+                                                                   (get-in e [slot :active-vgen]))})))))
               active)))))))
+
+(defn- drop-filter-memo!
+  "Drop the stamps of the filter gate's memo entries for `rel-key`
+  (`relation-filter-active?`), so the next scoped read asks the gate again.  Each entry
+  keeps `:active-vgen`, which `defeat-moves-scoped?` reads."
+  [tax rel-key]
+  (swap! (:closure-memo @tax)
+         (fn [mm] (reduce (fn [mm slot] (if (get-in mm [rel-key slot])
+                                          (update-in mm [rel-key slot] dissoc :stamp)
+                                          mm))
+                          mm [:filter-active :filter-active-network]))))
+
+(defn defeat-moves-scoped?
+  "May a `defeat` stored, removed or relabelled move a memoized scoped read: has the
+  belief reading's filter gate (`relation-filter-active?`) answered true for `genl` under
+  its current generation and the current visibility generation?  Only then is a scoped
+  `genl` closure or visible-context set memoized under a key holding that visibility
+  generation.  The `genlCx` gate reads no defeat.  The gate itself is read again after a
+  roster move, whose entries it compares by value.  `slot` `:filter-active-network` asks
+  the same of the network reading's gate (`*network-belief*`)."
+  ([tax] (defeat-moves-scoped? tax :filter-active))
+  ([tax slot]
+   (let [t  @tax
+         mm @(:closure-memo t)
+         vg (:supporter-visibility-gen t)]
+     (boolean (let [e (get mm :genl)]
+                (and (= (:gen e) (:gen (:genl t)))
+                     (= vg (get-in e [slot :active-vgen]))))))))
+
+(defn retire-scoped-genl!
+  "Evict the scoped `genl` closures that can cross one of `edges` (`genl` edges `[a b]`):
+  each held under the belief reading, for a reader that sees `placement` (every reader
+  when nil), of a node at or below some `a` (an up-closure) or at or above some `b` (a
+  down-closure).  The global relation decides both tests, since a scoped closure is a
+  subset of the global one.  Every other closure, and every visible-context set, stays.
+  A `defeat` stored, removed or relabelled calls it with the edges its target reaches and
+  its own context.  `network?` also evicts the closures held under the network reading
+  (`*network-belief*`), which reads no defeat: `retire-genl-moves!` passes it with the
+  edges whose supporters moved in label or in justifications.  Scans the closure cache
+  once; answers how many entries went."
+  [tax edges placement network?]
+  (if (empty? edges)
+    0
+    (let [t     @tax
+          rel   (:genl t)
+          vis   (cond-> #{(:supporter-visible? t)} network? (conj (:network-visible? t)))
+          depth (when-not (:loose? rel) (:depth rel))
+          sees? (if (nil? placement)
+                  (constantly true)
+                  (memoize (fn [r] (contains? (closure-of tax :genlCx :fwd r) placement))))
+          crosses? (fn [dir n]
+                     (some (fn [[a b]]
+                             (if (= dir :fwd)
+                               (reachable? n a (:fwd rel) depth (:scc rel))
+                               (reachable? b n (:fwd rel) depth (:scc rel))))
+                           edges))]
+      (caches/lru-evict-if! (:closure-lru t)
+                            (fn [k]
+                              (and (vector? k) (= 5 (count k)) (= :genl (nth k 0))
+                                   (let [scope (nth k 4)]
+                                     (and (map? scope) (contains? vis (:supporter-visible? scope))))))
+                            (fn [k]
+                              (and (sees? (:context (nth k 4)))
+                                   (crosses? (nth k 2) (nth k 3))))))))
 
 (defn- scope-admits-supporter?
   "Does `scope` admit supporter `[handle context]`?
@@ -581,36 +912,14 @@
            (contains? contexts supporter-context))
        (supporter-visible? handle context)))
 
-(defn- effective-visible-ctxs
-  "`up(K) ∩ ctxs` for relation `rel-key` over the **exception-filtered** ancestor set
-  (`context-up`), or nil when every asserting context is visible — `visible-ctxs`'s
-  answer for a reader some `except` reaches.  Interned in `:vis-index` under its own
-  key, stamped on the visibility generation as well as the two edge generations, since
-  a hole opening or closing in the ancestor set moves the set with no edge changing."
-  [tax t rel-key context]
-  (let [rel  (get t rel-key)
-        ctxs (:ctx-counts rel)]
-    (when (seq ctxs)
-      (let [stamp  [(:gen (:genlCx t)) (:ctxs-gen rel) (:supporter-visibility-gen t)]
-            vidx   (:vis-index t)
-            k      [rel-key context :effective]
-            cached (get @vidx k)]
-        (if (= stamp (:stamp cached))
-          (:vis cached)
-          (let [up  (context-up tax context)
-                all (keys ctxs)
-                vis (into #{} (filter up) all)
-                vis (when-not (= (count vis) (count all)) vis)]
-            (swap! vidx assoc k {:stamp stamp :vis vis})
-            vis))))))
-
 (defn- relation-scope
   "The scoped-read key for `rel-key` from `context`, or nil for the global fast path.
 
   With no `except` reaching the relation (`relation-filter-active?`) this is exactly
-  `visible-ctxs`'s set/nil answer.  Once one does, retain the concrete reader and
-  visibility generation because two readers with the same inherited asserting contexts
-  may hide different handles."
+  `visible-ctxs`'s set/nil answer.  Once one does, it is a map holding the reader's
+  exception-filtered ancestor set, the concrete reader and the visibility generation,
+  because two readers with the same inherited asserting contexts may hide different
+  handles."
   [tax rel-key context]
   (when (scoped-context? context)
     (let [t   @tax
@@ -625,39 +934,26 @@
                 ;; excepted per reader, but assertion-context filtering must never
                 ;; turn the whole context hierarchy off.
                 (= rel-key :genlCx) nil
-                active?             (effective-visible-ctxs tax t rel-key context)
+                ;; the scope below carries the reader, so its key is per reader whatever
+                ;; the set, and a supporter's context is in `up(K) ∩ ctxs` iff it is in
+                ;; `up(K)`: the exception-filtered ancestor set is the whole filter
+                active?             (context-up tax context)
                 :else               (visible-ctxs tax rel-key context))]
       (if active?
         {:contexts vis
          :context context
-         :supporter-visible? (:supporter-visible? t)
+         :supporter-visible? (visible-fn t)
+         :search *search*
          :visibility-gen (:supporter-visibility-gen t)}
         vis))))
 
 (defn visible-ctxs
   "`up(K) ∩ ctxs` for relation `rel-key` — the supporting contexts `context` can
-  see — or nil when the scoped answer could not differ from the global one.
-  Interned per `[genlCx-gen ctxs-gen]`, so repeated reads from one context
-  share one set object (O(1) hash for the memo level keyed on it) and the
-  intersection runs once per context per taxonomy epoch, not once per call."
+  see — or nil when the scoped answer could not differ from the global one.  Read on
+  each call: the ancestor set from the closure cache, then `census-among`."
   [tax rel-key context]
   (when (scoped-context? context)
-    (let [t    @tax
-          rel  (get t rel-key)
-          ctxs (:ctx-counts rel)]
-      (when (seq ctxs)
-        (let [stamp  [(:gen (:genlCx t)) (:ctxs-gen rel)]
-              vidx   (:vis-index t)
-              cached (get @vidx [rel-key context])]
-          (if (= stamp (:stamp cached))
-            (:vis cached)
-            (let [up  (closure-of tax :genlCx :fwd context)
-                  vis (into #{} (filter up) (keys ctxs))
-                  ;; vis ⊆ ctxs, so equal counts mean equal sets: every asserting
-                  ;; context is visible and the filter would keep every edge
-                  vis (when-not (= (count vis) (count ctxs)) vis)]
-              (swap! vidx assoc [rel-key context] {:stamp stamp :vis vis})
-              vis)))))))
+    (census-among @tax rel-key (closure-of tax :genlCx :fwd context))))
 
 (defn- ctxs-visible?
   "Does the supporting-context set `cs` reach a reader whose visible set is `visq`
@@ -690,20 +986,22 @@
   effective in `scope` — the scoped walk's adjacency. Edge orientation: `:fwd` n→x is edge
   [n x], `:rev` n→x is edge [x n].  Filtered once per pass when a neighbour cache
   is bound (an empty result caches as `[]`, still truthy, so it is not re-walked).
-  `rel-key` names the relation `rel` is: it keys the cache, since one pass scopes
-  more than one relation (`:genl` and the `:genlCx` witness walk) and their filtered
-  neighbours must not collide on a shared `[dir vis n]`."
-  [rel-key rel dir-key scope n]
+  `rel-key` names the relation of taxonomy state `t` walked: it keys the cache, since one
+  pass scopes more than one relation (`:genl` and the `:genlCx` witness walk) and their
+  filtered neighbours must not collide on a shared `[dir vis n]`.  A scope carrying
+  supporter visibility (a map) reads each edge's stored supporters (`supporters-of`)."
+  [t rel-key dir-key scope n]
   (let [nc *visible-neighbours-cache*
         k  (when nc [rel-key dir-key scope n])]
     (or (when nc (get @nc k))
-        (let [ectxs   (:edge-ctxs rel)
-              support (:support rel)
+        (let [rel     (get t rel-key)
+              ectxs   (:edge-ctxs rel)
               e-of    (if (= dir-key :fwd) (fn [x] [n x]) (fn [x] [x n]))
               pred    (if (map? scope)
                         (fn [x]
-                          (some (fn [[h c]] (scope-admits-supporter? scope h c))
-                                (get support (e-of x))))
+                          (let [[a b] (e-of x)]
+                            (some (fn [[h c]] (scope-admits-supporter? scope h c))
+                                  (supporters-of t [rel-key a b]))))
                         (fn [x] (ctxs-visible? (get ectxs (e-of x)) scope)))
               nbrs  (get (dir-key rel) n)
               res   (if nc (filterv pred nbrs) (filter pred nbrs))]
@@ -759,7 +1057,11 @@
             lru (:closure-lru t)
             k   [rel-key (:gen rel) dir-key node scope]]
         (or (caches/lru-get lru k)
-            (caches/lru-put! lru k (reach node #(visible-neighbours rel-key rel dir-key scope %)))))))
+            (let [t0 (System/nanoTime)
+                  v  (caches/lru-put! lru k (reach node #(visible-neighbours t rel-key dir-key scope %)))]
+              (caches/spent (:tally lru) t0)
+              (caches/compare-retired (:tally lru) [rel-key dir-key node scope] (:gen rel) v)
+              v)))))
 
 (defn- reachable-filtered?
   "`reachable?` over only the edges effective in `scope` — the sibling walk the scoped
@@ -777,8 +1079,8 @@
   component.  Mutual reachability there is a fact about the *global* edge set, and the
   whole question here is which of those edges the reader can see, so a component is a
   reason to keep walking and never an answer."
-  [src tgt rel-key rel scope depth scc]
-  (let [nbrs #(visible-neighbours rel-key rel :fwd scope %)]
+  [src tgt t rel-key scope depth scc]
+  (let [nbrs #(visible-neighbours t rel-key :fwd scope %)]
     (or (= src tgt)
         (if (nil? depth)
           (loop [seen #{src}, stack [src]]
@@ -817,150 +1119,84 @@
 
 ;; ---- supporter reference counting for the non-transitive caches ---------
 ;;
-;; `genl` and `genlCx` carry their own `:support` map inside the relation (see
-;; the ns docstring).  The other six caches — `disjoint`, the disjoint metatypes,
-;; the sibling-disjoint marks, the predicate properties, `inverse`, and the declared
-;; arities — are flat sets and maps with no such record, so they need reference
-;; counting of their own.
+;; The six flat caches — `disjoint`, the disjoint metatypes, the sibling-disjoint marks,
+;; the predicate properties, `inverse`, and the declared arities — are sets and maps keyed
+;; by `[kind key]`.  None of their predicates is forced universal (only `genlCx` is,
+;; core_context.clj), so `(disjoint dog cat)` asserted in two contexts is two sentexes
+;; folding into one entry, and retracting either must leave the entry while the other is
+;; stored and believed.  So an entry is counted by its supporters, which are the index's
+;; supporter family under its key (`kv/post-supporter!`), exactly as a `genl` edge's are:
+;; an entry is active iff some supporter is stored *and* believed, and
+;; `refresh-cache-support` reconciles it after every relabel the way `refresh-relation`
+;; does the closures.  `cache-install` / `cache-uninstall` are the one definition of an
+;; active entry, shared by the assert-time `add-*` / `mark-*` functions and that reconcile.
 ;;
-;; Tearing one down unconditionally drifts, because none of those predicates is
-;; *forced* universal: only `genlCx` is (core_context.clj), so only it is guaranteed
-;; one sentex per claim.  `(disjoint dog cat)` asserted in two contexts is two
-;; sentexes, both folding into one cache entry — so retracting either one must not
-;; delete it while the other is still stored and believed, or the cache would say the
-;; pair is not disjoint while the KB still asserts that it is, and a membership the KB
-;; should refuse would start being accepted.
+;; `:cache-ctxs {[kind key] #{ctx}}` mirrors `:edge-ctxs`: the supporting contexts of each
+;; entry, written by the writers from every stored supporter and narrowed to the believed
+;; ones by `refresh-cache-support`.  No generation rides on it — the flat caches are point
+;; lookups, never memoized closures.
 ;;
-;; So they get reference counting, in one shared map keyed by
-;; `[kind key]`: the entry survives while any sentex still asserts it.  Belief rides
-;; on top of that count exactly as it does for genl — an entry is active iff some
-;; supporter is stored *and* believed (`refresh-cache-support`, below, reconciles it
-;; after every relabel the way `refresh-relation` does the closures).  `cache-install`
-;; / `cache-uninstall` are the *one* definition of what an active entry looks like,
-;; shared by the assert-time `add-*` / `mark-*` functions and by that belief reconcile,
-;; so the two paths can never drift.
-
-;; `:cache-ctxs {[kind key] #{ctx}}` mirrors `:edge-ctxs` for the flat caches: the
-;; supporting contexts of each entry, maintained by the writers from every supporter
-;; and refined to the believed ones by `refresh-cache-support`.  No generation rides
-;; on it — the flat caches are point lookups, never memoized closures.
-;;
-;; `:cache-ctx-counts {ctx n}` is its census, the flat-cache twin of a relation's
-;; `:ctx-counts`: how many entries name `ctx` among their supporting contexts.  Every
-;; write to `:cache-ctxs` goes through `set-cache-ctxs`, which keeps the two in step, so
-;; the contexts any flat entry is asserted from are the census's keys and read without
-;; walking the entries (`ground-contexts`).
-;;
-;; `:cache-handle-keys {handle #{[kind key]}}` is the **reverse** of `:cache-support`:
-;; which entries each supporting sentex asserts.  It is the flat-cache twin of a
-;; relation's `:handle-edge` and exists for the same reason — so `refresh-beliefs` can
-;; read the entries a settle could have moved *off the moved region* rather than off the
-;; cache.  Belief moves by handle, so only an entry some moved handle supports can have
-;; changed which of its supporters are believed, and that lookup is the whole reconcile's
-;; scope.  Read backward instead, both halves are O(vocabulary): the "did anything touch
-;; me" gate walks every supporter, and the reconcile then evaluates belief for every
-;; entry — 5.0 ms merely to decide nothing moved, and 95 ms per flip, over 32k
-;; declarations, against a map that holds every disjoint pair, predicate property,
-;; inverse and declared arity in the KB.
-;;
-;; A **multimap**, where `:handle-edge` is 1:1.  Every writer here keys the entry off the
-;; asserting sentence, so today one handle names one `[kind key]` — but nothing in the
-;; structure says so, and removal is per-(handle, key): a 1:1 index would have the first
-;; `support-drop` take the handle out from under an entry the same sentex still supports,
-;; which shows up as a stale cache rather than as a crash.  A set per handle costs the
-;; single-key case one small set and makes the index answer to `:cache-support`'s own
-;; shape instead of to an invariant nothing states.
-;;
-;; `:cache-dirty` is the other half of the scope, and it exists because the writers are
-;; **belief-blind** in exactly the way `add-edge` / `del-edge` are: `support-add` and
-;; `support-drop` run on the assert/retract path with no `believed?` in hand, so they
-;; recompute `:cache-ctxs` from every *recorded* supporter, and `supported-del` uninstalls
-;; only when the last supporter is gone.  On an entry with a single supporter both are
-;; exact.  On a **shared** entry they are not — a disbelieved co-supporter's context reads
-;; as asserting, and losing the last *believed* supporter of an entry two sentexes still
-;; assert is an uninstall only a `believed?` can make.  So a writer leaving a shared entry
-;; behind names it here and the next reconcile takes it whether or not belief moved there.
-;; A superset is the safe interim reading (a scoped read sees an entry it should not,
-;; never misses one it should), and the set stays proportional to the edits: the
-;; single-supporter entry that is nearly every entry, and all of a bulk load, never
-;; enters it.
-
-(defn- forget-handle-key
-  "Drop `k` from `handle`'s reverse-index entry, and the handle itself once it supports
-  nothing — an empty set left behind would make the handle read as a live supporter and
-  keep it in the reconcile's scope for the life of the KB."
-  [t handle k]
-  (let [left (disj (get-in t [:cache-handle-keys handle] #{}) k)]
-    (if (seq left)
-      (assoc-in t [:cache-handle-keys handle] left)
-      (update t :cache-handle-keys dissoc handle))))
+;; `:cache-dirty` exists because the writers are belief-blind, as `add-edge` / `del-edge`
+;; are: they set `:cache-ctxs` from every stored supporter, and `supported-del` uninstalls
+;; only when the last stored supporter is gone.  On an entry with one supporter both are
+;; exact; on a shared one a disbelieved co-supporter's context reads as asserting, and
+;; losing the last *believed* supporter is an uninstall only a `believed?` can make.  So a
+;; writer leaving a shared entry behind names it here and the next reconcile takes it.
+;; The first-supporter write that is nearly every write, and all of a bulk load, never
+;; enters the set.
 
 (defn- set-cache-ctxs
   "Record `cs` as entry `k`'s supporting contexts, or drop the entry's contexts when `cs`
-  is nil, moving `:cache-ctx-counts` by the difference.  nil in `cs` is a supporter with
-  no recorded context and is not counted, as `ctx-count-inc` does not count it."
+  is nil, journaling `k` in `:cache-moves` when the contexts move (`flat-moves`)."
   [t k cs]
   (let [old (get-in t [:cache-ctxs k] #{})
         new (or cs #{})]
     (if (= old new)
       (cond-> t (nil? cs) (update :cache-ctxs dissoc k))
-      (let [step   (fn [counts c d]
-                     (if (nil? c)
-                       counts
-                       (let [n (+ (long (get counts c 0)) (long d))]
-                         (if (pos? n) (assoc counts c n) (dissoc counts c)))))
-            counts (as-> (:cache-ctx-counts t) m
-                     (reduce #(step %1 %2 -1) m (remove new old))
-                     (reduce #(step %1 %2 1) m (remove old new)))]
-        (-> (if cs (assoc-in t [:cache-ctxs k] cs) (update t :cache-ctxs dissoc k))
-            (assoc :cache-ctx-counts counts))))))
+      (-> (if cs (assoc-in t [:cache-ctxs k] cs) (update t :cache-ctxs dissoc k))
+          (update :cache-moves journal/note [k])))))
 
-(defn with-cache-census
-  "`t` with `:cache-ctx-counts` counted afresh from `:cache-ctxs`, for a taxonomy state
-  installed from elsewhere (`reasoning-image`), whose census may be absent or written by
-  another count."
-  [t]
-  (assoc t :cache-ctx-counts
-         (reduce (fn [counts c] (if (nil? c) counts (update counts c (fnil inc 0))))
-                 {} (mapcat val (:cache-ctxs t)))))
+(defn- written-supporters
+  "`[t' sup]` after a writer's post moved key `k` and handle `handle`: `t` with their
+  cached entries dropped, then `k`'s supporters, held — `sole` when the post answered it
+  (`post!`), else read through the cache."
+  [t k handle sole]
+  (let [t (drop-held t k handle)]
+    (if sole [(hold t :by-key k sole) sole] (held-supporters t k))))
 
-(defn- support-add [t k handle ctx]
-  (let [m (assoc (get-in t [:cache-support k] {}) handle ctx)]
+(defn- support-add
+  "`t` after `handle` was posted as a supporter of flat-cache key `k`: the entry's
+  contexts read from the stored supporters (`sole`, when the post answered them), and `k`
+  dirty when it has more than one."
+  [t k handle sole]
+  (let [[t sup] (written-supporters t k handle sole)]
     (-> t
-        (assoc-in [:cache-support k] m)
-        (set-cache-ctxs k (into #{} (vals m)))
-        (update-in [:cache-handle-keys handle] (fnil conj #{}) k)
-        ;; belief-blind above: with a co-supporter the context set may be a superset and
-        ;; only a reconcile can narrow it.  Costs the common first-supporter write
-        ;; nothing, which is what keeps a bulk load out of the set entirely.
-        (cond-> (> (count m) 1) (update :cache-dirty conj k)))))
+        (set-cache-ctxs k (into #{} (vals sup)))
+        (cond-> (> (count sup) 1) (update :cache-dirty conj k)))))
 
 (defn- support-drop
-  "Drop `handle`'s support for `k`.  Returns `[state last-supporter-gone?]`."
+  "`[state last-supporter-gone?]` after `handle` was retired from flat-cache key `k`."
   [t k handle]
-  (let [left (dissoc (get-in t [:cache-support k] {}) handle)]
-    [(-> (if (seq left)
-           (-> t
-               (assoc-in [:cache-support k] left)
-               (set-cache-ctxs k (into #{} (vals left)))
-               ;; belief-blind again, and worse than the add: the survivors may include
-               ;; one nothing believes, and the caller uninstalls only when the last
-               ;; supporter is gone
-               (update :cache-dirty conj k))
-           (-> t
-               (update :cache-support dissoc k)
-               (set-cache-ctxs k nil)
-               ;; the entry is gone outright, so it owes no reconcile — and reconciling
-               ;; it would write an empty `:cache-ctxs` back under a key nothing supports
-               (update :cache-dirty disj k)))
-         (forget-handle-key handle k))
+  (let [[t left] (written-supporters t k handle nil)]
+    [(if (seq left)
+       (-> t
+           (set-cache-ctxs k (into #{} (vals left)))
+           ;; the survivors may include one nothing believes, and the caller uninstalls
+           ;; only when the last supporter is gone
+           (update :cache-dirty conj k))
+       (-> t
+           (set-cache-ctxs k nil)
+           (update-in [:supporters :by-key] dissoc k)
+           ;; the entry is gone outright, so it owes no reconcile — and reconciling it
+           ;; would write an empty `:cache-ctxs` back under a key nothing supports
+           (update :cache-dirty disj k)))
      (empty? left)]))
 
 (defn- supported-add
-  "Record `handle` as asserting `k` from `ctx`, and apply `f` to install the cache
-  entry."
-  [t k handle ctx f]
-  (-> t (support-add k handle ctx) f))
+  "Install-side bookkeeping for `handle`, posted as a supporter of `k`, then `f` to install
+  the cache entry."
+  [t k handle sole f]
+  (-> t (support-add k handle sole) f))
 
 (defn- supported-del
   "Drop `handle`'s support for `k`, applying `f` to remove the cache entry only when
@@ -1018,7 +1254,7 @@
   "The `[whole parts]` one `(covering W P …)`, `(separating W P …)` or `(partition W P
   …)` sentence declares, or nil when the stored sentence is not one.
 
-  `recover` replays **stored** sentexes rather than checked ones, so a foreign or stale
+  `reindex` replays **stored** sentexes rather than checked ones, so a foreign or stale
   store reaches the rebuild arm with a two-element row or a non-symbol part, and reading
   it positionally would record a cover over nil.  The guard `special/replay-edge` applies to a
   taxonomy edge, applied to a roster: at least three elements, every one of them a
@@ -1089,10 +1325,10 @@
     ;; read off the genl closure (`separation-frame`), never materialized, exactly
     ;; as the metatype clique reads its members.
     :sib-disjoint (update t :sibling-disjoint conj a)              ; a = c
-    ;; `:sib-exception` exempts one pair the sibling clique (or a `disjoint_metatype`)
-    ;; would otherwise separate; stored as adjacency exactly as `:disjoint-index` is, so
-    ;; the read is one map lookup behind the `genl-related?` guard it sits beside.
-    :sib-exception (index-symmetric t :sib-exception-index a true)  ; a = #{x y}
+    ;; `:sib-exception` exempts one pair from the separation marks; stored as adjacency
+    ;; exactly as `:disjoint-index` is, so the read is one map lookup behind each arm's
+    ;; guards.
+    :sib-exception (index-symmetric t :sib-exception-index a true)   ; a = #{x y}
     ;; `:cover` is one whole-and-parts declaration: `a` is `[whole parts]` with the parts
     ;; sorted and `b` is the `cover-kinds` keyword saying which of the two claims it
     ;; makes.  Three tables, because three readers ask three different questions of one
@@ -1184,12 +1420,28 @@
         (assoc-in t [:commuting a] gs')
         (update t :commuting dissoc a)))))
 
+(defn- post!
+  "Post `handle`, stated in `ctx`, as a supporter of taxonomy key `k` in `tax`'s index
+  store (`kv/post-supporter!`), before the in-memory write that installs `k`.  Answers
+  `k`'s supporters when the post made `handle` the only one, `{handle ctx}`, which the
+  write then needs no read for; else nil."
+  [tax k handle ctx]
+  (when (= 1 (kv/post-supporter! (:index @tax) k handle ctx))
+    {handle ctx}))
+
+(defn- retire!
+  "Take `handle` out of taxonomy key `k`'s supporters in `tax`'s index store: true when it
+  was one."
+  [tax k handle]
+  (kv/retire-supporter! (:index @tax) k handle))
+
 (defn- add-supported
   "Record `handle` as asserting the flat-cache key `k` from `ctx`, installing the entry,
   and answer `tax`.  The one body behind every `add-*` / `mark-*` whose cache entry is its
   key alone; each of those names only how its arguments spell the key."
   [tax k handle ctx]
-  (swap! tax supported-add k handle ctx #(cache-install % k))
+  (let [sole (post! tax k handle ctx)]
+    (swap! tax supported-add k handle sole #(cache-install % k)))
   tax)
 
 (defn- del-supported!
@@ -1197,6 +1449,7 @@
   and answer `tax`.  `add-supported`'s inverse, behind every matching `del-*!` /
   `unmark-*!`."
   [tax k handle]
+  (retire! tax k handle)
   (swap! tax supported-del k handle #(cache-uninstall % k))
   tax)
 
@@ -1702,29 +1955,6 @@
           bump-gen
           (note-move a)))))
 
-(defn- ctx-count-inc
-  "Count one more supporter asserting from `ctx`; a context appearing for the first
-  time bumps `:ctxs-gen`.  nil (no recorded context) is not counted — it is not a
-  context a visibility ancestor set could name."
-  [rel ctx]
-  (if (nil? ctx)
-    rel
-    (let [n (long (get-in rel [:ctx-counts ctx] 0))]
-      (cond-> (assoc-in rel [:ctx-counts ctx] (inc n))
-        (zero? n) (update :ctxs-gen inc)))))
-
-(defn- ctx-count-dec
-  "One supporter asserting from `ctx` is gone; a context leaving entirely bumps
-  `:ctxs-gen`."
-  [rel ctx]
-  (if (nil? ctx)
-    rel
-    (let [n (long (get-in rel [:ctx-counts ctx] 0))]
-      (cond
-        (zero? n) rel
-        (= 1 n)   (-> rel (update :ctx-counts dissoc ctx) (update :ctxs-gen inc))
-        :else     (assoc-in rel [:ctx-counts ctx] (dec n))))))
-
 (defn- set-edge-ctxs
   "Record `ctxs` as active edge `e`'s supporting contexts, bumping `:gen` iff the set
   moved — a scoped read's answer is a function of these, so a context-only move must
@@ -1744,43 +1974,39 @@
   (cond-> rel shared? (update :dirty conj e)))
 
 (defn- add-edge
-  "Record `handle` as asserting [a b] from `ctx`, and activate the edge."
-  [rel a b handle ctx]
-  (let [support (assoc (get-in rel [:support [a b]] {}) handle ctx)]
-    (-> rel
-        (assoc-in [:support [a b]] support)
-        (assoc-in [:handle-edge handle] [a b])
-        (ctx-count-inc ctx)
-        (activate a b)
-        (set-edge-ctxs [a b] (into #{} (vals support)))
-        (mark-dirty [a b] (> (count support) 1)))))
+  "`t` after `handle` was posted as a supporter of `rel-key` edge [a b]: the edge active,
+  with the contexts of every stored supporter, and dirty when it has more than one."
+  [t rel-key a b handle sole]
+  (let [k       [rel-key a b]
+        [t sup] (written-supporters t k handle sole)]
+    (update t rel-key #(-> %
+                           (activate a b)
+                           (set-edge-ctxs [a b] (into #{} (vals sup)))
+                           (mark-dirty [a b] (> (count sup) 1))))))
 
 (defn- del-edge
-  "Drop `handle`'s support for [a b].  The edge survives while any other sentex
-  still asserts it."
-  [rel a b handle]
-  (let [support (get-in rel [:support [a b]] {})]
-    (if-not (contains? support handle)
-      rel
-      (let [left (dissoc support handle)
-            rel  (-> (if (seq left)
-                       (assoc-in rel [:support [a b]] left)
-                       (update rel :support dissoc [a b]))
-                     (update :handle-edge dissoc handle)
-                     (ctx-count-dec (get support handle)))]
-        (if (seq left)
-          ;; retarget only an *active* edge: a refresh may have deactivated this one
-          ;; with its (disbelieved) supporters still recorded, and `:edge-ctxs` keys
-          ;; exactly the active set.  Belief-blind either way, so the edge owes a
-          ;; reconcile: the survivors may include one nothing believes, and losing the
-          ;; last *believed* supporter of a still-supported edge is a deactivation only
-          ;; a `believed?` can see.
-          (-> rel
-              (cond-> (contains? (:edges rel) [a b])
-                (set-edge-ctxs [a b] (into #{} (vals left))))
-              (mark-dirty [a b] true))
-          (-> rel (deactivate a b) (update :edge-ctxs dissoc [a b])
-              (update :dirty disj [a b])))))))
+  "`t` after `handle` was retired from `rel-key` edge [a b] (`retired?` false when it was
+  not a supporter, which leaves `t` as it is).  The edge survives while any other stored
+  sentex supports it."
+  [t rel-key a b handle retired?]
+  (if-not retired?
+    t
+    (let [k        [rel-key a b]
+          [t left] (written-supporters t k handle nil)]
+      (if (seq left)
+        ;; retarget only an *active* edge: a refresh may have deactivated this one with its
+        ;; (disbelieved) supporters still stored, and `:edge-ctxs` keys exactly the active
+        ;; set.  Belief-blind either way, so the edge owes a reconcile: the survivors may
+        ;; include one nothing believes, and losing the last *believed* supporter of a
+        ;; still-supported edge is a deactivation only a `believed?` can see.
+        (update t rel-key #(-> %
+                               (cond-> (contains? (:edges %) [a b])
+                                 (set-edge-ctxs [a b] (into #{} (vals left))))
+                               (mark-dirty [a b] true)))
+        (-> t
+            (update-in [:supporters :by-key] dissoc k)
+            (update rel-key #(-> % (deactivate a b) (update :edge-ctxs dissoc [a b])
+                                 (update :dirty disj [a b]))))))))
 
 (defn- moved-touches?
   "Should a cache be reconciled against belief?  Yes when `moved` is nil — the caller
@@ -1799,8 +2025,8 @@
   scan is small — the equality partition and the rewrite rules, which hold the KB's
   asserted term-identity claims rather than its vocabulary.  The two transitive relations
   and the flat caches are the vocabulary's own size, so they do not gate at all:
-  `moved-edges` / `moved-cache-keys` read the affected entries straight off `moved`, and
-  skipping falls out of finding none."
+  `moved-keys` reads the affected keys straight off `moved`, and skipping falls out of
+  finding none."
   [moved supporters]
   (or (nil? moved)
       (boolean
@@ -1815,37 +2041,71 @@
   [hs believed?]
   (reduce-kv (fn [s h c] (if (believed? h) (conj s c) s)) #{} hs))
 
-(defn- moved-edges
-  "The edges a supporter in `moved` asserts — the only ones whose believed-supporter set
-  can have changed, and so the whole scope a reconcile owes.  `nil` means every edge with
-  a supporter, which is what a caller holding no region gets: `refresh-beliefs`'s
-  two-arity.  Every `settle` path names one.
+(defn- stored-metatypes
+  "Every metatype a stored sentex marks, believed or not: the keys the stored
+  `disjoint_metatype` facts install, or a raw taxonomy's walk."
+  [t]
+  (let [mt (fn [k] (when (= :metatype (nth k 0)) (nth k 1)))]
+    (if (:raw? t)
+      (into #{} (keep mt) (keys (reads/as-stored-supporter-map (:index t))))
+      (into #{} (comp (mapcat #(keys-of t %)) (keep mt))
+            (extent-handles t '[disjoint_metatype])))))
 
-  Read forward off `moved` through `:handle-edge`, never backward off the relation.  That
-  is what makes the reconcile proportional to the region a settle relabelled rather than
-  to the vocabulary — and it subsumes the gate, since a settle touching no supporter here
-  yields no edges and the reconcile below returns untouched.  `moved` is a *superset* of
-  the handles whose belief flipped (`jtms/touched`), so a handle in it that did not
-  actually move costs one edge re-examined and never an answer.
+(def ^:private supporter-functors
+  "The functors whose stored facts install a taxonomy key, but for the disjoint
+  metatypes, which are data (`stored-metatypes`)."
+  (into (conj edge-installing-functors 'genlCx) flat-functors))
 
-  Plus `:dirty`, the edges a belief-blind writer left owing a reconcile.  Belief did not
-  move there, so `moved` cannot name them and they would otherwise never be narrowed.
+(defn- all-keys
+  "`[t' ks]`: every taxonomy key with a stored supporter, `t'` holding each key's
+  supporters and each supporter's keys.  The stored facts of `supporter-functors` and of
+  each stored metatype are every supporter there is, and the predicate extent lists each
+  under its context, so the walk reads one installed-key set per stored fact and no
+  supporter read: a key's supporters are the facts of the walk that install it."
+  [t]
+  (let [idx (:index t)
+        [t sup]
+        (reduce (fn [acc f]
+                  (reduce (fn [acc c]
+                            (reduce (fn [[t sup] h]
+                                      (let [[t ks] (held-keys t h)]
+                                        [t (reduce #(assoc-in %1 [%2 h] c) sup ks)]))
+                                    acc (reads/as-stored-with-functor-in idx f #{c})))
+                          acc (first (reads/as-stored-contexts-with-functor idx f nil))))
+                [t {}] (into supporter-functors (stored-metatypes t)))]
+    [(reduce-kv (fn [t k hs] (hold t :by-key k hs)) t sup) (set (keys sup))]))
 
-  Whichever side is **smaller** is the one walked, and that is not a micro-optimization:
-  the two are independently sized, and a settle relabelling a large region over a
-  taxonomy holding few edges is an ordinary shape rather than a corner (arbitrating a
-  standing set of P/¬P dilemmas is one, and `perf`'s `negation-arbitration` measures it).
-  Walking `moved` unconditionally makes that settle pay for a taxonomy it never touches —
-  the very cost this reverse index exists to remove, moved to the other side.  Either arm
-  answers identically; the cost is O(min) rather than O(either)."
-  [rel moved]
-  (if (nil? moved)
-    (keys (:support rel))
-    (let [he (:handle-edge rel)]
-      (if (and (counted? moved) (<= (count moved) (count he)))
-        (into (:dirty rel) (keep he) moved)
-        ;; also the arm an empty relation takes, in O(1) — `he` is the map being reduced
-        (reduce-kv (fn [s h e] (if (moved h) (conj s e) s)) (:dirty rel) he)))))
+(defn- moved-keys
+  "`[t' ks]`: the taxonomy keys a handle in `moved` installs — the only keys whose
+  believed supporters can have changed, so the whole scope a reconcile owes — read
+  through the supporter cache, `t'` holding what it read.  Every key with a stored
+  supporter when `moved` is nil (`all-keys`, or a raw taxonomy's walk):
+  `refresh-beliefs`' two-arity, which a caller holding no region takes.
+
+  `moved` is a superset of the handles whose belief flipped (`jtms/touched`), so a handle
+  in it that installs nothing costs one read and never an answer.  The smaller side is
+  walked: `moved`, one read per handle, or the handles of the facts that can install a key
+  (`supporter-functors`, `stored-metatypes`) kept where `moved` holds them.  The second
+  is read only when `moved` outnumbers the functors, whose stored facts it then counts
+  first; a settle relabelling a large region over a KB declaring little is an ordinary
+  shape (`perf`'s `negation-arbitration` measures one)."
+  [t moved]
+  (let [walk (fn [t hs]
+               (reduce (fn [[t ks] h] (let [[t hks] (held-keys t h)] [t (into ks hks)]))
+                       [t #{}] hs))]
+    (cond
+      (and (nil? moved) (:raw? t))
+      [t (set (keys (reads/as-stored-supporter-map (:index t))))]
+      (nil? moved)
+      (all-keys t)
+      (or (:raw? t) (not (counted? moved)) (<= (count moved) (count supporter-functors)))
+      (walk t moved)
+      :else
+      (let [fs (into supporter-functors (stored-metatypes t))
+            n  (transduce (map #(reads/stored-count-with-functor (:index t) %)) + 0 fs)]
+        (if (<= (count moved) n)
+          (walk t moved)
+          (walk t (filter #(contains? moved %) (extent-handles t fs))))))))
 
 (defn- refresh-relation
   "Active edges are those with at least one *believed* supporter, carrying the
@@ -1861,11 +2121,12 @@
   not to the region.  A recovery names every edge, and holds no per-edge context map of
   the whole taxonomy while the arms run.
 
-  Scoped to `moved-edges` — an edge no moved handle supports and no writer left dirty is
-  provably unchanged, so belief is never evaluated for it and it cannot enter either
-  difference.  That is the locality invariant for this cache: the reconcile costs what
-  moved, not what is stored.  This is the pass that discharges `:dirty`, so it clears the
-  set on the way in.
+  Scoped to `edges` (`moved-keys`) and `:dirty`, the edges a belief-blind writer left
+  owing a reconcile — an edge no moved handle supports and no writer left dirty is
+  provably unchanged, so belief is never evaluated for it.  That is the locality
+  invariant for this cache: the reconcile costs what moved, not what is stored.  This is
+  the pass that discharges `:dirty`, so it clears the set on the way in.  Each edge's
+  supporters are read through the supporter cache, which holds them.
 
   Three arms, not two.  An edge can keep its liveness while its *contexts* move —
   supported from A by h1 and from B by h2, h2 defeated: the edge stays active and B
@@ -1881,51 +2142,65 @@
   the settled graph never has.  Draining the deactivations first is what keeps the
   potential's fate a function of the settled edge set rather than of the order two arms
   happened to run in."
-  [rel believed? moved]
-  (let [touched (moved-edges rel moved)]
+  [t rel-key believed? edges]
+  (let [rel     (get t rel-key)
+        touched (into (:dirty rel) edges)]
     (if (empty? touched)
-      rel
-      (let [rel     (assoc rel :dirty #{})       ; this pass is what discharges them
-            support (:support rel)
-            have    (:edges rel)
-            ctxs    (:edge-ctxs rel)
+      t
+      (let [have (:edges rel)
+            ctxs (:edge-ctxs rel)
             ;; `drops` is a hash set and `adds` a hash map (`hash-map`, never an array map),
             ;; so the deactivate and activate arms meet their edges in hash order, the order
             ;; they take.  `retarget` skips an active edge whose believed contexts equal its
             ;; recorded ones: `set-edge-ctxs` would leave it untouched, and neither earlier
             ;; arm writes another edge's `:edge-ctxs`.
-            [drops adds retarget]
-            (reduce (fn [[drops adds retarget :as acc] e]
-                      (let [cs (believed-ctxs (get support e) believed?)]
+            [t drops adds retarget]
+            (reduce (fn [[t drops adds retarget] [a b :as e]]
+                      (let [[t sup] (held-supporters t [rel-key a b])
+                            cs      (believed-ctxs sup believed?)]
                         (cond
                           (contains? have e)
-                          (cond (empty? cs)         [(conj! drops e) adds retarget]
-                                (= cs (get ctxs e)) acc
-                                :else               [drops adds (assoc! retarget e cs)])
-                          (seq cs) [drops (assoc! adds e cs) retarget]
-                          :else    acc)))
-                    [(transient #{}) (transient (hash-map)) (transient (hash-map))]
+                          (cond (empty? cs)         [t (conj! drops e) adds retarget]
+                                (= cs (get ctxs e)) [t drops adds retarget]
+                                :else               [t drops adds (assoc! retarget e cs)])
+                          (seq cs) [t drops (assoc! adds e cs) retarget]
+                          :else    [t drops adds retarget])))
+                    [t (transient #{}) (transient (hash-map)) (transient (hash-map))]
                     touched)]
-        (as-> rel r
-          (reduce (fn [r [a b :as e]]
-                    (-> r (deactivate a b) (update :edge-ctxs dissoc e)))
-                  r (persistent! drops))
-          (reduce-kv (fn [r [a b :as e] cs]
-                       (-> r (activate a b) (set-edge-ctxs e cs)))
-                     r (persistent! adds))
-          (reduce-kv set-edge-ctxs r (persistent! retarget)))))))
+        (update t rel-key
+                (fn [rel]
+                  (as-> (assoc rel :dirty #{}) r     ; this pass is what discharges them
+                    (reduce (fn [r [a b :as e]]
+                              (-> r (deactivate a b) (update :edge-ctxs dissoc e)))
+                            r (persistent! drops))
+                    (reduce-kv (fn [r [a b :as e] cs]
+                                 (-> r (activate a b) (set-edge-ctxs e cs)))
+                               r (persistent! adds))
+                    (reduce-kv set-edge-ctxs r (persistent! retarget)))))))))
 
 ;; The add writers take the asserting sentex's context; the one-shorter arity is for
 ;; a caller with none to record — a probe, or a test driving the closure math — and
 ;; stores nil, the constrains-everywhere reading.  Deletion is keyed by handle alone.
 (defn add-genl
   ([tax sub super handle] (add-genl tax sub super handle nil))
-  ([tax sub super handle ctx] (swap! tax update :genl add-edge sub super handle ctx) tax))
-(defn del-genl! [tax sub super handle] (swap! tax update :genl del-edge sub super handle) tax)
+  ([tax sub super handle ctx]
+   (let [sole (post! tax [:genl sub super] handle ctx)]
+     (swap! tax add-edge :genl sub super handle sole))
+   tax))
+(defn del-genl! [tax sub super handle]
+  (let [r (retire! tax [:genl sub super] handle)]
+    (swap! tax del-edge :genl sub super handle r))
+  tax)
 (defn add-genlCx
   ([tax sub super handle] (add-genlCx tax sub super handle nil))
-  ([tax sub super handle ctx] (swap! tax update :genlCx add-edge sub super handle ctx) tax))
-(defn del-genlCx! [tax sub super handle] (swap! tax update :genlCx del-edge sub super handle) tax)
+  ([tax sub super handle ctx]
+   (let [sole (post! tax [:genlCx sub super] handle ctx)]
+     (swap! tax add-edge :genlCx sub super handle sole))
+   tax))
+(defn del-genlCx! [tax sub super handle]
+  (let [r (retire! tax [:genlCx sub super] handle)]
+    (swap! tax del-edge :genlCx sub super handle r))
+  tax)
 
 ;; ---- equality: rewriteOf / sameAs / equals, one partition ----------------
 ;;
@@ -2096,11 +2371,10 @@
 (defn- refresh-equality
   "Reconcile the equality partition with belief, scoped to what `moved` names: only a
   moved supporter can change its believed status or its own edge's state, so the
-  reconcile updates `:out` for `moved ∩ handles` and re-applies exactly those edges —
-  the `moved-edges` discipline the transitive relations hold, `:handle-edge` being the
-  same reverse map, walked from whichever side is smaller.  Unscoped, the i-th merge
-  of a load re-asked belief of every supporter and re-derived the live state of every
-  edge, Θ(N²) across the load.  nil `moved` is the unconditional reconcile
+  reconcile updates `:out` for `moved ∩ handles` and re-applies exactly those edges,
+  through the reverse map `:handle-edge`, walked from whichever side is smaller.
+  Unscoped, the i-th merge of a load re-asked belief of every supporter and re-derived
+  the live state of every edge, Θ(N²) across the load.  nil `moved` is the unconditional reconcile
   (`refresh-beliefs`' two-arity): every supporter re-asked, every edge re-applied.  The
   edge of each supporter whose `:out` entry flipped is noted in `:moved`, and each
   supporter that left `:out` is added to `:believed-again` (`take-believed-again!`)."
@@ -2423,12 +2697,6 @@
                 (remove (:out rel #{})))
           (get (:edge-idx rel) term #{}))))
 
-(defn equality-supporter?
-  "Does `handle` assert an equality edge of the partition, believed or not?  The twin of
-  `derives-from?` for the edges that function leaves out."
-  [tax handle]
-  (contains? (get-in @tax [:equality :handles]) handle))
-
 ;; ---- schematic rewrite rules (oriented equational rewriting) -------------
 ;; A schematic `(equals L R)` is oriented once (by `vaelii.impl.rewrite/orient`, at
 ;; the assert layer) into a rewrite `[lhs rhs]` and cached here.  The cache holds
@@ -2517,46 +2785,12 @@
     (assoc t :rewrite-active
            (into {} (filter (fn [[h _]] (believed? h))) (:rewrite-support t)))))
 
-(defn- moved-cache-keys
-  "The flat-cache entries a supporter in `moved` asserts — the only ones whose believed
-  supporters can have changed, and so the whole scope a reconcile owes.  `nil` means
-  every entry with a supporter, which is what a caller holding no region gets:
-  `refresh-beliefs`'s two-arity.  Every `settle` path names one.
-
-  The flat-cache twin of `moved-edges`, and the same three claims hold.  Read forward off
-  `moved` through `:cache-handle-keys`, never backward off `:cache-support`, which is what
-  makes the reconcile proportional to the region a settle relabelled rather than to a map
-  holding every disjoint pair, property, inverse and declared arity in the KB — and it
-  subsumes the gate, since a settle touching no declaration yields no keys and the
-  reconcile below returns untouched.  `moved` is a *superset* of the handles whose belief
-  flipped (`jtms/touched`), so a handle in it that did not actually move costs one entry
-  re-examined and never an answer.
-
-  Plus `:cache-dirty`, the entries a belief-blind writer left owing a reconcile.  Belief
-  did not move there, so `moved` cannot name them and they would otherwise never be
-  narrowed.
-
-  And off whichever side is **smaller**, for the reason `moved-edges` states: `moved` and
-  the cache are independently sized, so walking `moved` unconditionally would hand the
-  same O(vocabulary) bill to the settle on the opposite shape — a large relabelled region
-  over a KB that declares few disjointness pairs, which arbitrating a standing set of
-  P/¬P dilemmas is.  Either arm answers identically; the cost is O(min) rather than
-  O(either)."
-  [t moved]
-  (if (nil? moved)
-    (keys (:cache-support t))
-    (let [hk (:cache-handle-keys t)]
-      (if (and (counted? moved) (<= (count moved) (count hk)))
-        (reduce (fn [s h] (if-let [ks (hk h)] (into s ks) s)) (:cache-dirty t) moved)
-        ;; also the arm an empty cache takes, in O(1) — `hk` is the map being reduced
-        (reduce-kv (fn [s h ks] (if (moved h) (into s ks) s)) (:cache-dirty t) hk)))))
-
 (defn- refresh-cache-support
   "Reconcile the seven flat caches — `disjoint`, the disjoint metatypes and their
-  members, the sibling-disjoint marks, the sibling-disjointness exceptions, the
+  members, the sibling-disjoint marks, the `siblingDisjointException` pairs, the
   predicate properties, `inverse` and the declared arities — with current
-  belief, the way `refresh-relation` does for genl.  Each `[kind key]` in
-  `:cache-support` is active iff some supporter is believed; install or uninstall its
+  belief, the way `refresh-relation` does for genl.  Each key in `ks` (`moved-keys`) and
+  `:cache-dirty` is active iff some stored supporter is believed; install or uninstall its
   cache entry to match, reusing the very `cache-install` / `cache-uninstall` the assert
   path uses so the two can never disagree on what an active entry is.
 
@@ -2565,32 +2799,58 @@
   changes nothing.  (genl's `refresh-relation` diffs only because rebuilding a *closure*
   is expensive.)
 
-  Scoped to `moved-cache-keys` — an entry no moved handle supports and no writer left
-  dirty is provably unchanged, so belief is never evaluated for it.  That is the locality
-  invariant for these caches: the reconcile costs what moved, not what the KB declares.
-  This is the pass that discharges `:cache-dirty`, so it clears the set on the way in.
-
-  A key whose `:cache-support` entry has since gone is skipped rather than reconciled.
-  Nothing in scope should name one — `support-drop` retires the handle and the dirty mark
-  with the entry, and `forget-metatype` owes the same by hand — and the guard is what
-  keeps the failure a no-op instead of an empty `:cache-ctxs` written back under a key no
-  sentex supports, which is indistinguishable from an entry asserted from nowhere."
-  [t believed? moved]
-  (let [touched (moved-cache-keys t moved)]
+  An entry no moved handle supports and no writer left dirty is provably unchanged, so
+  belief is never evaluated for it: the reconcile costs what moved, not what the KB
+  declares.  This is the pass that discharges `:cache-dirty`, so it clears the set on the
+  way in.  A key with no stored supporter left is skipped rather than reconciled: an empty
+  `:cache-ctxs` written back under it would read as an entry asserted from nowhere."
+  [t believed? ks]
+  (let [touched (into (:cache-dirty t) ks)]
     (if (empty? touched)
       t
-      (let [support (:cache-support t)]
-        (reduce (fn [t k]
-                  (if-let [supporters (get support k)]
-                    (let [cs (believed-ctxs supporters believed?)]
+      (reduce (fn [t k]
+                (let [[t sup] (held-supporters t k)]
+                  (if (seq sup)
+                    (let [cs (believed-ctxs sup believed?)]
                       (-> (if (seq cs) (cache-install t k) (cache-uninstall t k))
-                          ;; the flat-cache twin of refresh-relation's third arm: an
-                          ;; entry that stays active can still change contexts when one
-                          ;; of several supporters moves belief
+                          ;; the flat-cache twin of refresh-relation's third arm: an entry
+                          ;; that stays active can still change contexts when one of
+                          ;; several supporters moves belief
                           (set-cache-ctxs k cs)))
-                    t))
-                (assoc t :cache-dirty #{})    ; this pass is what discharges them
-                touched)))))
+                    t)))
+              (assoc t :cache-dirty #{})    ; this pass is what discharges them
+              touched))))
+
+(defn- key-edges
+  "The edges `[a b]` of relation `rel-key` among the taxonomy keys `ks`."
+  [ks rel-key]
+  (into #{} (comp (filter #(= rel-key (nth % 0))) (map (fn [[_ a b]] [a b]))) ks))
+
+(defn- edge-moves
+  "`[t' es]`: the `rel-key` edges among `edges` whose scoped reads a move of the handles
+  in `moved` can change with the relation's generation left as it is.  A premise
+  supporter's visibility at a reader is its label and the excepts and defeats naming it,
+  so an edge whose moved supporters are all premises moves a scoped read only through a
+  label flip, which moves the relation's generation unless a second supporter keeps the
+  edge's contexts."
+  [t rel-key edges moved premise?]
+  (reduce (fn [[t gm] [a b :as e]]
+            (let [[t hs] (held-supporters t [rel-key a b])]
+              [t (cond-> gm
+                   (or (< 1 (count hs))
+                       (some #(and (contains? moved %) (not (premise? %))) (keys hs)))
+                   (conj e))]))
+          [t #{}] edges))
+
+(defn- retire-genl-moves!
+  "Retire the scoped `genl` closures that cross one of the edges `gm` (`edge-moves`), and
+  drop the filter gate's memo so the next scoped read asks it again, since a supporter's
+  justifications can have moved.  Only while the whole-KB filter is on."
+  [tax gm]
+  (when (and (seq gm) (supporter-filter-active? @tax))
+    (drop-filter-memo! tax :genl)
+    (when (or (defeat-moves-scoped? tax) (defeat-moves-scoped? tax :filter-active-network))
+      (retire-scoped-genl! tax gm nil true))))
 
 (defn refresh-beliefs
   "Reconcile the cached relations with current belief: an edge (or a flat-cache entry)
@@ -2609,94 +2869,132 @@
 
   Every cache follows belief here — the two transitive relations, the equality
   partition, and the seven flat caches (`disjoint`, disjoint metatypes + members, the
-  sibling-disjoint marks, the sibling-disjointness exceptions, the predicate properties,
-  `inverse`, the declared arities) —
-  so a defeated declaration
-  stops taking effect the
+  sibling-disjoint marks, the `siblingDisjointException` pairs, the predicate properties,
+  `inverse`, the declared arities) — so a defeated declaration stops taking effect the
   moment `settle` relabels, and a revived one takes effect again.
 
   `moved` is the set of handles whose belief just flipped (`jtms/touched`, a superset),
   and the caches read it two ways.  The two transitive relations and the flat caches
-  **scope** by it — `moved-edges` / `moved-cache-keys` turn the moved handles into the
-  edges and entries they assert, and a settle reconciles those and nothing else, which is
-  what keeps a flip in a 100k-edge taxonomy the price of a flip.  Those seven are the
-  vocabulary's own size, so nothing less than scoping them would do.
+  **scope** by it — `moved-keys` turns the moved handles into the keys they install,
+  read from the supporter families, and a settle reconciles those and nothing else, which
+  is what keeps a flip in a 100k-edge taxonomy the price of a flip.
 
   The equality partition and the rewrite rules **gate** on it instead: a cache no moved
   handle supports is left alone, and a hit rescans it.  Both hold the KB's asserted
   term-identity claims rather than its vocabulary, and the gate reads whichever of the two
   sides is smaller, so a settle that moves neither pays the size of its own region.
 
-  `nil` reconciles every cache unconditionally, for a caller holding no region.  `recover`
-  is that caller and passes it: a settle's reconcile is scoped *and* gated on belief
-  having moved, so a rebuild that replays a declaration nothing supports — OUT from the
-  moment its node is made, opposed by nothing — has no settle event to lean on
-  (`core/recover`).  Every `settle` path names a region instead; the supersession pass
-  widens its own by hand rather than dropping it, because a supersession flip is a belief
-  change with no relabel to record it."
+  `nil` reconciles every key with a stored supporter, for a caller holding no region.
+  `recover` is that caller and passes it: a settle's reconcile is scoped *and* gated on
+  belief having moved, so a declaration nothing supports — OUT from the moment its node is
+  made, opposed by nothing — has no settle event to lean on (`core/recover`).  Every
+  `settle` path names a region instead; the supersession pass widens its own by hand
+  rather than dropping it, because a supersession flip is a belief change with no relabel
+  to record it."
   ([tax believed?] (refresh-beliefs tax believed? nil))
-  ([tax believed? moved]
-   (swap! tax (fn [t]
-                (-> t
-                    (update :genl        refresh-relation believed? moved)
-                    (update :genlCx refresh-relation believed? moved)
-                    (update :equality    refresh-equality believed? moved)
-                    (refresh-rewrite believed? moved)
-                    (refresh-cache-support believed? moved)
-                    ;; A supporter moving belief can change what a reader sees through
-                    ;; an edge that stays active with the same contexts — the edge's
-                    ;; other supporter is excepted for that reader, this one was its
-                    ;; way in — and no generation above records that.  The scoped reads
-                    ;; key on the visibility generation, so move it whenever a supporter
-                    ;; of either relation is in the region and some except is stored;
-                    ;; read off `t` before the refresh, whose pass discharges `:dirty`.
-                    ;; the edge test first: the filter gate reads the KB's withdrawable
-                    ;; closure
-                    (cond-> (and (or (seq (moved-edges (:genlCx t) moved))
-                                     (seq (moved-edges (:genl t) moved)))
-                                 (supporter-filter-active? t))
-                      (update :supporter-visibility-gen (fnil inc 0))))))
-   tax))
+  ([tax believed? moved] (refresh-beliefs tax believed? moved (constantly false)))
+  ([tax believed? moved premise?]
+   (let [scoped?    (some? moved)
+         genl-moved (volatile! nil)]
+     (swap! tax (fn [t]
+                  (let [[t ks] (moved-keys t moved)
+                        g-es   (key-edges ks :genl)
+                        cx-es  (key-edges ks :genlCx)
+                        [t gm] (if scoped?
+                                 (edge-moves t :genl (into (:dirty (:genl t)) g-es) moved premise?)
+                                 [t nil])]
+                    (vreset! genl-moved (not-empty gm))
+                    (-> t
+                        ;; A supporter moving belief can change what a reader sees through
+                        ;; an edge that stays active with the same contexts — the edge's
+                        ;; other supporter is excepted for that reader, this one was its way
+                        ;; in — and no generation above records that.  A `genlCx` supporter
+                        ;; in the region moves the visibility generation, which every
+                        ;; reader's ancestor set keys on; with no region, so does a `genl`
+                        ;; one.  Read before the refresh, whose pass discharges `:dirty`; the
+                        ;; edge test first.
+                        (cond-> (and (or (seq cx-es) (seq (:dirty (:genlCx t)))
+                                         (and (nil? moved) (or (seq g-es) (seq (:dirty (:genl t))))))
+                                     (supporter-filter-active? t))
+                          (update :supporter-visibility-gen (fnil inc 0)))
+                        (refresh-relation :genl believed? g-es)
+                        (refresh-relation :genlCx believed? cx-es)
+                        (update :equality refresh-equality believed? moved)
+                        (refresh-rewrite believed? moved)
+                        (refresh-cache-support believed?
+                                               (into #{} (filter #(of-relation? :flat %)) ks))))))
+     (when scoped? (retire-genl-moves! tax @genl-moved))
+     tax)))
+
+(defn scoped-reads-held?
+  "May a scoped `genl` or `genlCx` read be memoized under the filter: does either
+  relation's filter gate (`relation-filter-active?`) hold an entry under the relation's
+  current generation that is stamped, or that answered true under the current visibility
+  generation, while an `except` or `defeat` is stored?  The closure memo is read first, so
+  a KB that never asked the gate with one stored pays no index read."
+  [tax]
+  (let [t  @tax
+        mm @(:closure-memo t)
+        vg (:supporter-visibility-gen t)]
+    (boolean (and (some (fn [rel-key]
+                          (let [e (get mm rel-key)]
+                            (and (= (:gen e) (:gen (get t rel-key)))
+                                 (some (fn [slot] (let [g (get e slot)] (or (:stamp g) (= vg (:active-vgen g)))))
+                                       [:filter-active :filter-active-network]))))
+                        [:genl :genlCx])
+                  (supporter-filter-active? t)))))
+
+(defn retire-support-moves!
+  "Evict the scoped reads a justification added to or dropped from a stored supporter in
+  `moved` can move, after a settle that flipped no label: the scoped `genl` closures that
+  cross the edge of a supporter `edge-moves` names (`retire-genl-moves!`), and every
+  scoped read keyed on the visibility generation for a `genlCx` one.  A supporter's
+  justifications decide where the read walk finds it believed, so a justification over
+  no hidden handle shows an edge a defeat or except hid, and dropping one can hide it,
+  with the edge network IN throughout.  `premise?` is `refresh-beliefs`'.  The supporters
+  are read past the supporter cache, which holds nothing for this read.  The caller asks
+  `scoped-reads-held?` first."
+  [tax moved premise?]
+  (when (seq moved)
+    (let [t       @tax
+          [_ ks]  (moved-keys t moved)
+          [_ gm]  (edge-moves t :genl (key-edges ks :genl) moved premise?)
+          [_ cxm] (edge-moves t :genlCx (key-edges ks :genlCx) moved premise?)]
+      (when (seq cxm) (swap! tax update :supporter-visibility-gen (fnil inc 0)))
+      (retire-genl-moves! tax gm)))
+  tax)
 
 (defn clear-relations!
-  "Drop **every** cache, support and all.  `recover` rebuilds them from the durable
-  store and must not merge into whatever the in-memory taxonomy already had —
+  "Drop **every** cache and the supporter cache.  `recover` rebuilds them from the
+  durable store and must not merge into whatever the in-memory taxonomy already had —
   otherwise a stale entry outlives the data it came from.
 
   Clearing must cover **every** cache, not just the two transitive relations:
   because `recover` merges into whatever it clears, a merge can only ever *add*, so a
   disjoint pair, a predicate property, an inverse or a declared arity whose sentex is
-  gone would survive the recovery that is supposed to re-derive it.  The equality partition is the same
-  story and worse — a stale merge makes two individuals one.  Clearing all of them is
-  what makes `recover` a rebuild rather than a top-up.
-
-  Clearing then replaying the *stored* declarations (defeated ones included) is
-  deliberate: `:support` and `:cache-support` must record every asserting sentex, and the
-  `refresh-beliefs` `recover` runs over the replay decides which entries are active — so
-  a defeated `(disjoint dog cat)` is rebuilt into the cache and then dropped by belief,
-  giving the same answer either side of a restart.  Belief-filtering the replay instead
-  would lose the disbelieved supporter, and clearing its defeat could never revive the
-  entry."
+  gone would survive the recovery that is supposed to re-derive it.  The equality
+  partition is the same story and worse — a stale merge makes two individuals one.
+  Clearing all of them is what makes `recover` a rebuild rather than a top-up.  The
+  supporters themselves are stored content in the index, which this leaves alone."
   [tax]
-  (swap! tax assoc
+  (swap! tax (comp #(update % :epoch (fnil inc 0)) assoc)
          :genl (empty-relation) :genlCx (empty-relation)
          :equality (empty-equality)
          :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
          :sibling-disjoint #{} :sib-exception-index {}
          :covers {} :cover-parts {} :partitions #{}
          :props {} :inverse {} :arity {} :functional-in-arg {} :commuting {}
-         :cache-support {} :cache-handle-keys {} :cache-dirty #{} :cache-ctxs {}
-         :cache-ctx-counts {}
+         :cache-dirty #{} :cache-ctxs {}
+         :supporters empty-supporters
+         :cache-moves (journal/restart nil)
          :rewrite-support {} :rewrite-active {})
   ;; The read memo is stamped with each relation's `:gen`, which the fresh
   ;; `empty-relation`s just reset to 0, so drop the memo too — otherwise a lingering
-  ;; entry could be mistaken for a current one.  The vis-index is stamped the same
-  ;; way, so it goes with it.  The rewrite order is stamped on the map object it
+  ;; entry could be mistaken for a current one.  The rewrite order is stamped on the map object it
   ;; sorted, and the fresh `{}` above can never be that object, so dropping it
   ;; releases the rules it retains rather than correcting an answer.
   (reset! (:closure-memo @tax) {})
   (caches/lru-clear! (:closure-lru @tax))
-  (reset! (:vis-index @tax) {})
   (reset! (:rewrite-order @tax) nil)
   tax)
 
@@ -2717,26 +3015,16 @@
 (defn derives-from?
   "Does `handle` assert something the taxonomy derives an answer from — an edge of a
   cached relation (`genl`, `genlCx`), or a flat-cache entry (a separation, a metatype
-  mark and its memberships, a sibling-disjointness mark or exception, a cover roster, a
+  mark and its memberships, a sibling-disjointness mark, a `siblingDisjointException` pair, a cover roster, a
   predicate property, an inverse, an arity)?
 
-  **Three O(1) lookups, off the reverse indexes the reconcile already reads forward.**
-  `:handle-edge` per relation is 1:1 and `:cache-handle-keys` is the multimap twin of
-  `:cache-support`, so this asks what those two already know and walks nothing.  The
-  equality partition is left out: it holds no definitional grounds a clash convicts
+  **One read**, of the keys `handle` installs (`keys-of`), which the reconcile reads
+  forward and the supporter family holds.  The equality partition is left out: it holds no definitional grounds a clash convicts
   through, and a caller asking about one is asking about `genl` and the flat caches.
 
-  What it is for: a reader deciding a batch of defeats has to take a defeat of the
-  *grounds* before the verdicts resting on them, since a defeat that withdraws a
-  separation retires the pair it separated rather than losing to it
-  (`decide/losers`, docs/nmtms.md).  Over-answering costs one extra round and never an
-  answer, which is why the reading is this coarse: it
-  names a handle the taxonomy reads *at all* rather than the grounds of one nogood."
+  It names a handle the taxonomy reads *at all* rather than the grounds of one nogood."
   [tax handle]
-  (let [t @tax]
-    (boolean (or (contains? (:cache-handle-keys t) handle)
-                 (contains? (get-in t [:genl :handle-edge]) handle)
-                 (contains? (get-in t [:genlCx :handle-edge]) handle)))))
+  (boolean (seq (keys-of @tax handle))))
 
 (defn cache-contexts
   "The supporting contexts of flat-cache entry `k` (`[:disjoint #{a b}]`,
@@ -2744,30 +3032,13 @@
   [tax k]
   (get-in @tax [:cache-ctxs k] #{}))
 
-(defn asserting-contexts
-  "Every context asserting a `genl` edge (the relation's `:ctx-counts`) or a flat-cache
-  entry (`:cache-ctx-counts`), as a set, read off the two censuses with no belief
-  callback: `ground-contexts`' answer before it asks whether an `except` is stored.  A
-  reader inside a withdrawal reads this, since the callback asks the withdrawal."
-  [tax]
-  (let [t @tax]
-    (into (set (keys (get-in t [:genl :ctx-counts]))) (keys (:cache-ctx-counts t)))))
-
-(defn ground-contexts
-  "The contexts a scoped definitional read can tell apart: every context asserting a
-  `genl` edge (the relation's `:ctx-counts`) or a flat-cache entry (`:cache-ctx-counts`).
-  Two readers that see the same members of it read the same `genls`, `disjoint?`,
-  `props-over` and `functional-in-arg-over`, since each filters by nothing else.  nil once
-  an `except` is stored, when a read depends on the reader as well as on the contexts it
-  sees (`supporter-filter-active?`).
-
-  It holds at least the contexts some believed supporter asserts from: the `genl` census
-  counts every recorded supporter, and the flat one every recorded supporter until a
-  settle narrows an entry to its believed ones.  A context named here that grounds
-  nothing costs a caller a read that finds nothing new."
-  [tax]
-  (when-not (supporter-filter-active? @tax)
-    (asserting-contexts tax)))
+(defn asserting-contexts-among
+  "The contexts of `ctxs` that state a `genl` edge or a flat-cache declaration, as a set:
+  `census-in` over the two, with no belief callback."
+  [tax ctxs]
+  (let [t  @tax
+        cs (set ctxs)]
+    (into (first (census-in t :genl cs)) (first (census-in t :flat cs)))))
 
 (defn visible-supporters
   "The handles of flat-cache entry `k`'s recorded supporters a reader at `context` sees:
@@ -2777,13 +3048,13 @@
   caller's filter, except where that check reads it."
   [tax k context]
   (let [t   @tax
-        sup (get-in t [:cache-support k] {})]
+        sup (supporters-of t k)]
     (cond
       (empty? sup)                    #{}
       (not (scoped-context? context)) (set (keys sup))
       (supporter-filter-active? t)
       (let [scope {:contexts (context-up tax context) :context context
-                   :supporter-visible? (:supporter-visible? t)}]
+                   :supporter-visible? (visible-fn t)}]
         (into #{} (keep (fn [[h c]] (when (scope-admits-supporter? scope h c) h))) sup))
       :else
       (let [up (context-up tax context)]
@@ -2791,23 +3062,46 @@
 
 (defn flat-contexts
   "Each flat-cache entry mapped to the contexts its recorded supporters assert it from, as
-  one value: a memo compares it to notice a declaration stated, withdrawn or moved to
-  another context."
+  one value: a memo diffs two of them to find the entries a declaration stated, withdrawn
+  or moved to another context moved, where `flat-moves` does not reach back."
   [tax]
   (:cache-ctxs @tax))
 
-(deftype IdentityKey [v]
-  Object
-  (equals [_ o] (and (instance? IdentityKey o) (identical? v (.-v ^IdentityKey o))))
-  (hashCode [_] (System/identityHashCode v)))
+(defn flat-moves
+  "`[pos moved]`: the position of the journal `set-cache-ctxs` writes, and the flat-cache
+  keys whose supporting contexts moved since the position `since` (an earlier `pos`), nil
+  when the journal does not reach back that far or `since` is nil."
+  [tax since]
+  (let [j (:cache-moves @tax)]
+    [(journal/position j) (when (some? since) (journal/since j since))]))
 
-(defn flat-contexts-key
-  "`flat-contexts` compared by identity, for a memo checked on every settle:
-  `set-cache-ctxs` keeps the map when nothing moved, and an `=` over two maps of every
-  declaration in the KB is O(declarations) per compare.  A map rebuilt equal reads as
-  moved, which costs the memo a recompute, never a stale answer."
-  [tax]
-  (->IdentityKey (:cache-ctxs @tax)))
+(defn supported-edges
+  "The `rel-key` edges `[a b]` the stored handles `hs` support, as a set."
+  [tax rel-key hs]
+  (let [t @tax]
+    (into #{} (comp (mapcat #(keys-of t %)) (filter #(= rel-key (nth % 0))) (map (fn [[_ a b]] [a b])))
+          hs)))
+
+(defn supported-keys
+  "The flat-cache keys the handles `hs` support, as a set."
+  [tax hs]
+  (let [t @tax]
+    (into #{} (comp (mapcat #(keys-of t %)) (filter #(of-relation? :flat %))) hs)))
+
+(defn separation-ends
+  "The types a move of flat-cache entry `k` can change `disjoint?` between: a type whose
+  global `genls` hold none of them reads the same separations either side of the move.
+  The pair of a `disjoint` or `siblingDisjointException` key, a `sibling_disjoint`
+  parent, a metatype's members, a member, and a cover's whole and parts.  nil for a key
+  no separation reads."
+  [tax k]
+  (case (first k)
+    (:disjoint :sib-exception) (set (second k))
+    :sib-disjoint              #{(second k)}
+    :metatype                  (get-in @tax [:metatype-members (second k)] #{})
+    :member                    #{(nth k 2)}
+    :cover                     (let [[whole parts] (second k)] (conj (set parts) whole))
+    nil))
 
 (defn- cache-entry-visible?
   "Does flat-cache entry `k` have a believed supporter visible from `context`?
@@ -2823,10 +3117,10 @@
       (if (supporter-filter-active? t)
         (let [scope {:contexts (context-up tax context)
                      :context context
-                     :supporter-visible? (:supporter-visible? t)}]
+                     :supporter-visible? (visible-fn t)}]
           (boolean
            (some (fn [[h c]] (scope-admits-supporter? scope h c))
-                 (get-in t [:cache-support k]))))
+                 (supporters-of t k))))
         (ctxs-visible? (get-in t [:cache-ctxs k])
                        (closure-of tax :genlCx :fwd context))))))
 (defn types        [tax] (get-in @tax [:genl :nodes] #{}))
@@ -2836,12 +3130,35 @@
 (defn separation-stamp
   "What a separation or a cover over two types reads of `tax` besides the `genl` closures,
   as one value compared with `=`: the separating and covering declarations with the
-  sibling-disjointness exceptions.  A declaration moving replaces its roster's value, so
-  an unmoved stamp compares on identity.  The closures that moved are `moves-since`'s."
+  `siblingDisjointException` pairs that exempt a pair from the separation marks.  A declaration moving
+  replaces its roster's value, so an unmoved stamp compares on identity.  The closures that moved are `moves-since`'s."
   [tax]
   (let [t @tax]
     [(:disjoint t) (:disjoint-metatypes t) (:metatype-members t)
      (:sibling-disjoint t) (:partitions t) (:covers t) (:sib-exception-index t)]))
+
+(defn separation-moves
+  "The types whose separations can differ between two `separation-stamp` values `old` and
+  `new`, as a set: the pair of each `disjoint` and `siblingDisjointException` entry one holds and the
+  other does not, the members of a disjoint metatype that moved and each member that
+  moved, a `sibling_disjoint` parent that moved, and the parts of a partition that moved.
+  A type whose global `genls` hold none of them reads the same separation of every
+  partner under both values.  A cover moving separates nothing and adds no type.  Reads
+  a roster only when the two values hold different ones, and then costs its entries."
+  [old new]
+  (let [[dj mt mm sib parts _ exc]       old
+        [dj' mt' mm' sib' parts' _ exc'] new
+        moved   (fn [a b] (when-not (identical? a b)
+                            (concat (remove #(contains? b %) a) (remove #(contains? a %) b))))
+        changed (fn [a b] (when-not (identical? a b)
+                            (filter #(not= (get a %) (get b %)) (distinct (concat (keys a) (keys b))))))]
+    (-> #{}
+        (into cat (moved dj dj'))
+        (into (mapcat #(concat (get mm %) (get mm' %))) (moved mt mt'))
+        (into (mapcat #(moved (get mm %) (get mm' %))) (changed mm mm'))
+        (into (moved sib sib'))
+        (into (mapcat second) (moved parts parts'))
+        (into (mapcat #(cons % (moved (get exc %) (get exc' %)))) (changed exc exc')))))
 
 (defn moves-since
   "The lower ends of the edges of relation `rel-key` whose activation or supporting
@@ -2860,6 +3177,13 @@
   since the edge set is the thing that is too big to compare."
   [tax rel-key]
   (get-in @tax [rel-key :gen] 0))
+
+(defn relation-epoch
+  "How many times `clear-relations!` has rebuilt `tax`'s relations.  A rebuild restarts
+  each `relation-gen` at 0, so a stamp that must not compare equal across a `recover`
+  carries this beside the generations (`special/taxonomy-generations`)."
+  [tax]
+  (:epoch @tax 0))
 
 (defn- reachable-in?
   "Does `src` reach `tgt` in relation `rel-key`, following `:fwd`?  The depth-pruned
@@ -2911,8 +3235,8 @@
   "Supertypes of t, incl t, through the active edges some supporter asserts from a
   context in the set `ctxs`, with no belief callback.  A predicate `genl` edge is forced
   monotonic, so for a predicate this is `genls` from a reader whose ancestor set is
-  `ctxs`.  `vaelii.impl.decide` reads it inside a withdrawal, which a scoped read would
-  re-enter through the supporter callback (`res/supporter-believed?`)."
+  `ctxs`.  It reads no belief, so a caller that must not re-enter the supporter callback
+  (`res/supporter-believed?`) reads it in place of a scoped `genls`."
   [tax t ctxs]
   (closure-of-vis tax :genl :fwd t ctxs))
 
@@ -2975,7 +3299,7 @@
                           (and (not= ::none path)
                                (or (every? (fn [[a b]] (ctxs-visible? (get ectx [a b]) ctxs))
                                            (partition 2 1 path))
-                                   (reachable-filtered? sub super :genl rel ctxs
+                                   (reachable-filtered? sub super t :genl ctxs
                                                         (when-not (:loose? rel) (:depth rel))
                                                         (:scc rel))))))))))
 
@@ -2990,7 +3314,8 @@
   [tax sub among ctxs]
   (if (empty? among)
     #{}
-    (let [rel   (:genl @tax)
+    (let [t     @tax
+          rel   (:genl t)
           depth (when-not (:loose? rel) (:depth rel))
           scc   (:scc rel)
           self  (if (contains? among sub) #{sub} #{})
@@ -3007,7 +3332,7 @@
         self
         (loop [seen #{sub}, stack [sub], found #{}]
           (if-let [n (peek stack)]
-            (let [ns    (visible-neighbours :genl rel :fwd ctxs n)
+            (let [ns    (visible-neighbours t :genl :fwd ctxs n)
                   found (into found (filter among) ns)]
               (if (= want (count found))
                 (into self found)
@@ -3015,14 +3340,27 @@
                   (recur (into seen fresh) (into (pop stack) fresh) found))))
             (into self found)))))))
 
+(defn supporter-count-in
+  "How many facts stating a supporter of a `rel-key` edge are stored in the contexts of
+  the set `ctxs`, either polarity and whatever their belief: one leaf count per context
+  stating one, per functor (`census-functors`).  A raw taxonomy counts its recorded
+  supporters."
+  [tax rel-key ctxs]
+  (let [t   @tax
+        idx (:index t)
+        fs  (census-functors t rel-key)
+        per (when-not (:raw? t) (mapv #(reads/stored-count-with-functor-in idx % ctxs) fs))]
+    (if (and per (every? some? per))
+      (reduce + 0 per)
+      (transduce (comp (mapcat vals) (filter #(contains? ctxs %)) (map (constantly 1))) + 0
+                 (vals (raw-supporters t rel-key))))))
+
 (defn asserting-contexts-in
   "The contexts of the set `ctxs` that assert a supporter of a `rel-key` edge, or nil when
   `ctxs` holds every context asserting one: a closure over the edges asserted in `ctxs` is
   then the global closure, and the set answers the same as `ctxs` does otherwise."
   [tax rel-key ctxs]
-  (let [cc (:ctx-counts (get @tax rel-key))
-        in (into #{} (filter #(contains? ctxs %)) (keys cc))]
-    (when-not (= (count in) (count cc)) in)))
+  (census-among @tax rel-key ctxs))
 
 (defn specs-global
   "Subtypes of t, incl t, through **every** active edge — no context scope.
@@ -3075,7 +3413,7 @@
         lim  (long limit)]
     (if memo
       (when (<= (count memo) lim) memo)
-      (reach-within node #(visible-neighbours rel-key rel dir-key scope %) lim))))
+      (reach-within node #(visible-neighbours t rel-key dir-key scope %) lim))))
 
 (defn genls-global-within
   "`genls-global` of `t` when it holds at most `limit` terms, else nil — for a caller that
@@ -3104,7 +3442,7 @@
         node (get scc t t)]
     (or (get @memo node)
         (reach-by-parents node #(get (:fwd rel) %) scc
-                          #(get @memo %) #(vswap! memo assoc %1 %2) xf)
+                          #(get @memo %) #(vswap! memo assoc %1 %2) xf nil)
         (into #{} xf (closure-of tax :genl :fwd t)))))
 
 (defn genls-global-among
@@ -3115,17 +3453,15 @@
     #{}
     (genls-global-union tax t (filter among) memo)))
 
-(defn specs-global-while
-  "The types a walk down from `t` through **every** active edge enters, when it enters a
-  type only if `(enter? type)`: `specs-global` of `t` cut below each type `enter?`
-  refuses, `t` included, and empty when `enter?` refuses `t`.  For a caller keeping a
-  property of every subtype that a subtype holding it passes down unchanged, which stops
-  where the property is already held: `arity/spread-lengths`.  Nothing enters the
-  closure cache, and the walk costs the types it enters and their edges."
-  [tax t enter?]
+(defn- closure-while
+  "The types a walk from `t` along `dir-key` (`:fwd` up, `:rev` down) through **every**
+  active edge enters, when it enters a type only if `(enter? type)`, `t` included, and
+  empty when `enter?` refuses `t`.  Nothing enters the closure cache, and the walk costs
+  the types it enters and their edges."
+  [tax dir-key t enter?]
   (if-not (enter? t)
     #{}
-    (let [adj (get-in @tax [:genl :rev])]
+    (let [adj (get-in @tax [:genl dir-key])]
       (loop [seen (transient #{t}), stack [t]]
         (if-let [n (peek stack)]
           (let [[seen stack] (reduce (fn [[seen stack :as acc] x]
@@ -3136,6 +3472,20 @@
                                      (get adj n))]
             (recur seen stack))
           (persistent! seen))))))
+
+(defn specs-global-while
+  "`specs-global` of `t` cut below each type `enter?` refuses (`closure-while`), for a
+  caller keeping a property of every subtype that a subtype holding it passes down
+  unchanged, which stops where the property is already held: `arity/spread-lengths`."
+  [tax t enter?]
+  (closure-while tax :rev t enter?))
+
+(defn genls-global-while
+  "`genls-global` of `t` cut above each type `enter?` refuses (`closure-while`), for a
+  caller keeping a set closed upward that stops where the set already holds a type:
+  `arity/conflict-raised`."
+  [tax t enter?]
+  (closure-while tax :fwd t enter?))
 
 (defn specs-global-within
   "`specs-global` of `t` when it holds at most `limit` terms, else nil.
@@ -3174,25 +3524,36 @@
   is not."
   [tax dir-key t context]
   (if-some [scope (relation-scope tax :genl context)]
-    (into #{} (visible-neighbours :genl (:genl @tax) dir-key scope t))
+    (into #{} (visible-neighbours @tax :genl dir-key scope t))
     (get-in @tax [:genl dir-key t] #{})))
 
 (defn direct-genls
-  "The types `t` is a subtype of by **one** declared `genl` edge — its direct parents,
-  where `genls` is everything those parents in turn reach.
+  "The types `t` is a subtype of by **one** `genl` edge of the closure — its direct
+  parents, where `genls` is everything those parents in turn reach.  An edge counts
+  whatever installed it: a stated `(genl t super)` or a cover roster naming `t` as a part.
 
   O(degree), off the `:fwd` adjacency the closure walk is built on, against a closure
-  read that is O(1) only because it is memoized.  The two answer different questions: the
-  closure is what a subsumption check needs, and the parents are what the term was
-  *told*, which is what a reader is shown and what an editor edits."
+  read that is O(1) only because it is memoized.  The closure is what a subsumption check
+  needs, and the parents are what a reader is shown."
   [tax t context]
   (direct-neighbours tax :fwd t context))
 
 (defn direct-specs
-  "The types that are a subtype of `t` by **one** declared `genl` edge — its direct
+  "The types that are a subtype of `t` by **one** `genl` edge of the closure — its direct
   children.  `direct-genls`' reasoning, the other direction."
   [tax t context]
   (direct-neighbours tax :rev t context))
+
+(defn direct-genls-global
+  "`direct-genls` through **every** active edge — no context scope.  `genls-global`'s
+  reasoning: a caller holding a context wants `direct-genls`."
+  [tax t]
+  (direct-neighbours tax :fwd t nil))
+
+(defn direct-specs-global
+  "`direct-specs` through **every** active edge — no context scope."
+  [tax t]
+  (direct-neighbours tax :rev t nil))
 
 (defn specs-of-all
   "The union of `specs` over every node in `nodes`, walked **once**.
@@ -3224,13 +3585,30 @@
   [tax sub super]
   (reachable-in? tax :genl sub super))
 
+(defn genl?-global-held
+  "`genl?-global`, held in the closure cache under the `genl` generation, for a caller
+  that asks one pair once per fact of a sweep: a pair the depth potential does not reject
+  walks `sub`'s ancestors on every ask (`checks/mintable-type?`)."
+  [tax sub super]
+  (let [t   @tax
+        rel (:genl t)
+        lru (:closure-lru t)
+        k   [:genl (:gen rel) :reaches sub super]
+        hit (caches/lru-get lru k)]
+    (if (some? hit)
+      hit
+      (caches/lru-put! lru k (boolean (reachable? sub super (:fwd rel)
+                                                  (when-not (:loose? rel) (:depth rel))
+                                                  (:scc rel)))))))
+
 (defn genl?
   "Is sub a (transitive) subtype of super through the edges visible from `context`?
   `genl?-global` is the unscoped read."
   [tax sub super context]
   (if-some [scope (relation-scope tax :genl context)]
-    (let [rel (get @tax :genl)]
-      (reachable-filtered? sub super :genl rel scope
+    (let [t   @tax
+          rel (:genl t)]
+      (reachable-filtered? sub super t :genl scope
                            (when-not (:loose? rel) (:depth rel))
                            (:scc rel)))
     (reachable-in? tax :genl sub super)))
@@ -3297,14 +3675,24 @@
   the strength-aware pickers below read for class.  A supporter is believed iff its own
   context is in `:edge-ctxs` (an edge is stored once per context, so the context
   identifies it); nil `vis` is the unscoped read where every asserting context is visible."
-  [rel e scope]
-  (into [] (filter (let [live (get (:edge-ctxs rel) e #{})]
+  [t rel-key [a b :as e] scope]
+  (into [] (filter (let [live (get-in t [rel-key :edge-ctxs e] #{})]
                      (fn [[h c]]
                        (if (map? scope)
                          (scope-admits-supporter? scope h c)
                          (and (contains? live c)
                               (or (nil? scope) (nil? c) (scope c)))))))
-        (get (:support rel) e {})))
+        (supporters-of t [rel-key a b])))
+
+(defn genl-edge-supporters
+  "The handles of the believed supporters of `genl` edge `[sub super]` a reader at
+  `context` can use: each `(genl sub super)` sentex, and each `covering`, `separating` or
+  `partition` roster that installs the edge, that `genl?` from `context` would walk the
+  edge through.  Empty when the edge is not active.  Belief is read as `:edge-ctxs` records it, so a caller wanting the
+  JTMS's word filters again."
+  [tax sub super context]
+  (into #{} (map first)
+        (visible-edge-supporters @tax :genl [sub super] (relation-scope tax :genl context))))
 
 (defn- most-general-of
   "The most general of `cands` (a non-empty vector of `[handle ctx]`), since its context is
@@ -3347,8 +3735,8 @@
 
   The **most general** visible supporter (`most-general-of`), since its context is
   inherited by whatever depends on the edge."
-  [tax rel e vis]
-  (let [cands (visible-edge-supporters rel e vis)]
+  [tax t rel-key e vis]
+  (let [cands (visible-edge-supporters t rel-key e vis)]
     (when (seq cands) (most-general-of tax cands))))
 
 (defn- top-supporter-class
@@ -3364,8 +3752,8 @@
 (defn- edge-class
   "The defeat class active edge `e` holds at, as `vis` sees it, or nil when no supporter is
   visible at all."
-  [rel e vis supporter-class]
-  (let [cands (visible-edge-supporters rel e vis)]
+  [t rel-key e vis supporter-class]
+  (let [cands (visible-edge-supporters t rel-key e vis)]
     (when (seq cands) (top-supporter-class cands supporter-class))))
 
 (defn- strongest-edge-supporter
@@ -3374,8 +3762,8 @@
   supporter as strong as the edge is, and where two supporters tie on strength the
   placement-relevant (most general) one is named — `edge-supporter`'s own choice, applied
   after the strength filter.  nil when the edge has no visible supporter."
-  [tax rel e vis supporter-class]
-  (let [cands (visible-edge-supporters rel e vis)]
+  [tax t rel-key e vis supporter-class]
+  (let [cands (visible-edge-supporters t rel-key e vis)]
     (when (seq cands)
       (let [top (top-supporter-class cands supporter-class)]
         (most-general-of tax (filterv (fn [[h _]] (= top (or (supporter-class h) :default)))
@@ -3433,11 +3821,12 @@
   ([tax rel-key sub super context supporter-class]
    (if (= sub super)
      []
-     (let [rel (get @tax rel-key)
+     (let [t   @tax
+           rel (get t rel-key)
            scope (relation-scope tax rel-key context)
            ;; nil `vis` is the unscoped walk — every asserting context is visible, so
            ;; the plain adjacency *is* the visible one, exactly as in `genls`
-           adj (if (nil? scope) #(get (:fwd rel) %) #(visible-neighbours rel-key rel :fwd scope %))
+           adj (if (nil? scope) #(get (:fwd rel) %) #(visible-neighbours t rel-key :fwd scope %))
            ;; `nm/print-key` keeps a node that is not a symbol (a NAT) sortable, and
            ;; prints it with the bounds released — a bare `str` would let an ambient
            ;; `*print-length*` elide two nested nodes to one prefix and expand the
@@ -3447,13 +3836,13 @@
            nbrs #(nm/sort-by-content-key nm/print-key compare (adj %))]
        (if (nil? supporter-class)
          (bfs-witness-path sub super nbrs (fn [_] true)
-                           #(edge-supporter tax rel % scope))
+                           #(edge-supporter tax t rel-key % scope))
          (some (fn [threshold]
                  (bfs-witness-path
                   sub super nbrs
-                  (fn [e] (>= (strength/rank-of (edge-class rel e scope supporter-class))
+                  (fn [e] (>= (strength/rank-of (edge-class t rel-key e scope supporter-class))
                               (strength/rank-of threshold)))
-                  #(strongest-edge-supporter tax rel % scope supporter-class)))
+                  #(strongest-edge-supporter tax t rel-key % scope supporter-class)))
                [:monotonic :default]))))))
 
 (defn context-specificity
@@ -3515,17 +3904,21 @@
       (every? (fn [a] (some #(seen-from? tax a %) f2)) f1)))
 
 (defn- covers?
-  "Does label `[rank1 floor1]` cover `[rank2 floor2]`: at least as strong, and seen from
-  every reader that sees the other?  A nil rank takes no part in the comparison."
-  [tax [r1 f1] [r2 f2]]
+  "Does label `[rank1 floor1 hid1]` cover `[rank2 floor2 hid2]`: at least as strong, seen
+  from every reader that sees the other, and resting on no handle an except can hide
+  (`hid`, a set or nil) that the other does not rest on too?  A nil rank takes no part in
+  the comparison."
+  [tax [r1 f1 h1] [r2 f2 h2]]
   (and (or (nil? r1) (nil? r2) (>= r1 r2))
+       (or (empty? h1) (every? #(contains? h2 %) h1))
        (floor-covers? tax f1 f2)))
 
 (defn uncovered
   "The members of `alts` whose label no other member's label covers, in their given
   order.  `label` maps a member to `[rank floor]` (rank nil where strength takes no
-  part).  Of two members that cover each other, the earlier is kept, so a caller that
-  hands `alts` over in content order gets a result that is a function of the content."
+  part), or to `[rank floor hid]`, `hid` the set of its handles an except can hide.  Of
+  two members that cover each other, the earlier is kept, so a caller that hands `alts`
+  over in content order gets a result that is a function of the content."
   [tax label alts]
   (if (nil? (next alts))
     (vec alts)
@@ -3555,12 +3948,14 @@
   first.  `[[]]` when `start` is `goal`, which rests on nothing; `[]` when no route
   exists.
 
-  `step` maps a node to its outgoing steps `[next [handle ctx] rank]` in content order,
-  one per supporter a route may name for that edge.  `rank` is the supporter's strength
-  rank, or nil where strength takes no part.  A route's label is its weakest rank and
-  the floor of its supporters' contexts (`context-floor`).  Extending a route never
-  makes its label cover more, so the walk drops a partial route whose label a route
-  already held at the same node covers, or one a route already found at `goal` covers.
+  `step` maps a node to its outgoing steps `[next [handle ctx] rank hid?]` in content
+  order, one per supporter a route may name for that edge.  `rank` is the supporter's
+  strength rank, or nil where strength takes no part, and `hid?` is true when an except
+  can hide the supporter.  A route's label is its weakest rank, the floor of its
+  supporters' contexts (`context-floor`) and the set of its hidable supporters.
+  Extending a route never makes its label cover more, so the walk drops a partial route
+  whose label a route already held at the same node covers, or one a route already found
+  at `goal` covers.
   A node therefore holds one partial route per uncovered label, and where every edge is
   stated in contexts one reader sees, that is one route per node.
 
@@ -3580,30 +3975,30 @@
           ;; found then covers every entry still queued.
           labels   (java.util.HashMap.)
           one?     (volatile! true)
-          label    (fn [rank floor]
-                     (let [k [rank floor]]
+          label    (fn [rank floor hid]
+                     (let [k [rank floor hid]]
                        (or (.get labels k)
-                           (let [l [rank floor (- (or rank 0)) (floor-specificity tax floor)
+                           (let [l [rank floor hid (- (or rank 0)) (floor-specificity tax floor)
                                     (vec (sort (map nm/print-key floor)))]]
                              (when (pos? (.size labels)) (vreset! one? false))
                              (.put labels k l)
                              l))))
           push!    (fn [l node from path len]
-                     (.add pq [[(nth l 2) (nth l 3) len (nm/print-key node)
-                                (nm/print-key from) (nth l 4)]
+                     (.add pq [[(nth l 3) (nth l 4) len (nm/print-key node)
+                                (nm/print-key from) (nth l 5)]
                                node l path len]))
           lcovers? (fn [a b] (covers? tax a b))
           covered? (fn [ls l] (some #(lcovers? % l) ls))
           keep-in  (fn [ls l] (conj (filterv #(not (lcovers? l %)) ls) l))
           routes   (fn [found] (mapv (fn [[_ path]] (vec (rseq path))) found))]
-      (push! (label nil #{}) start "" [] 0)
+      (push! (label nil #{} nil) start "" [] 0)
       (loop [held {}, found [], flabels []]
         ;; one label in the whole walk and a route found under it: every entry still
         ;; queued carries that label, which the route covers, so the walk is over
         (if (and (seq found) @one?)
           (routes found)
           (if-let [[_ node l path len] (.poll pq)]
-            (let [rank (nth l 0), floor (nth l 1)]
+            (let [rank (nth l 0), floor (nth l 1), hid (nth l 2)]
               (cond
                 (or (covered? flabels l) (covered? (get held node) l))
                 (recur held found flabels)
@@ -3615,15 +4010,18 @@
                 :else
                 (let [held (update held node (fnil keep-in []) l)
                       len2 (inc len)]
-                  (doseq [[n2 w r] (step node)
+                  (doseq [[n2 w r hid?] (step node)
                           :let  [c  (nth w 1)
+                                 h? (and hid? (not (contains? hid (nth w 0))))
                                  l2 (if (and (or (nil? r) (and rank (<= rank r)))
-                                             (or (nil? c) (contains? floor c)))
+                                             (or (nil? c) (contains? floor c))
+                                             (not h?))
                                       l
                                       (label (cond (nil? r) rank (nil? rank) r :else (min rank r))
                                              (if (or (nil? c) (contains? floor c))
                                                floor
-                                               (context-floor tax (conj floor c)))))]
+                                               (context-floor tax (conj floor c)))
+                                             (if h? (conj (or hid #{}) (nth w 0)) hid)))]
                           :when (not (or (covered? (get held n2) l2)
                                          (covered? flabels l2)))]
                     (push! l2 n2 node (conj path w) len2))
@@ -3639,19 +4037,22 @@
   Built eagerly into a vector, and an edge with one visible supporter — nearly every
   edge — takes neither the ordering nor the covering comparison: the walk reads one step
   per edge on the hot path, and a lazy seq per neighbour is what it costs to produce
-  them one at a time."
-  [tax rel-key context supporter-class]
-  (let [rel   (get @tax rel-key)
+  them one at a time.  With `hidable` (`handle → boolean`) each supporter an except can
+  hide is marked so (`uncovered-routes`' `hid?`)."
+  [tax rel-key context supporter-class hidable]
+  (let [t     @tax
+        rel   (get t rel-key)
         scope (relation-scope tax rel-key context)
-        adj   (if (nil? scope) #(get (:fwd rel) %) #(visible-neighbours rel-key rel :fwd scope %))
+        adj   (if (nil? scope) #(get (:fwd rel) %) #(visible-neighbours t rel-key :fwd scope %))
         rank  (when supporter-class
                 #(strength/rank-of (or (supporter-class %) :default)))
-        label (fn [[h c]] [(when rank (rank h)) (if (nil? c) #{} #{c})])
-        step  (fn [acc n2 w] (conj! acc [n2 w (when rank (rank (nth w 0)))]))]
+        hid?  (if hidable #(boolean (hidable %)) (constantly false))
+        label (fn [[h c]] [(when rank (rank h)) (if (nil? c) #{} #{c}) (when (hid? h) #{h})])
+        step  (fn [acc n2 w] (conj! acc [n2 w (when rank (rank (nth w 0))) (hid? (nth w 0))]))]
     (fn [node]
       (persistent!
        (reduce (fn [acc n2]
-                 (let [cands (visible-edge-supporters rel [node n2] scope)]
+                 (let [cands (visible-edge-supporters t rel-key [node n2] scope)]
                    (cond
                      (empty? cands)      acc
                      (nil? (next cands)) (step acc n2 (nth cands 0))
@@ -3682,16 +4083,20 @@
   the same edges name the same witnesses whatever order they were built in
   (docs/nmtms.md)."
   [tax rel-key sub super context]
-  (uncovered-routes tax sub super (edge-steps tax rel-key context nil)))
+  (uncovered-routes tax sub super (edge-steps tax rel-key context nil nil)))
 
 (defn reach-supports
   "Every witness for `sub →* super` in `rel-key` that `context` sees and no other witness
   covers, weighing the defeat class of each supporter (`supporter-class`) beside its
   context: a route covers another only if its floor class is at least as strong and it
   is seen wherever the other is.  The routes a placement that has to descend below the
-  firing's other ingredients chooses among (`chain/placement-ingredients`)."
-  [tax rel-key sub super context supporter-class]
-  (uncovered-routes tax sub super (edge-steps tax rel-key context supporter-class)))
+  firing's other ingredients chooses among (`chain/placement-ingredients`).  With
+  `hidable` (`handle → boolean`), a route resting on a supporter an except can hide
+  covers only the routes resting on that supporter too."
+  ([tax rel-key sub super context supporter-class]
+   (reach-supports tax rel-key sub super context supporter-class nil))
+  ([tax rel-key sub super context supporter-class hidable]
+   (uncovered-routes tax sub super (edge-steps tax rel-key context supporter-class hidable))))
 
 (defn reach-strength
   "The defeat class of the **strongest** route `sub →* super` in `rel-key` that `context`
@@ -3772,6 +4177,11 @@
     (closure-of-vis tax :genlCx :fwd c scope)
     (context-up-global tax c)))
 
+(defn context-parents-global
+  "The contexts `c` reaches over **one** active `genlCx` edge, with no `except` holes."
+  [tax c]
+  (get-in @tax [:genlCx :fwd c] #{}))
+
 (defn context-up-besides
   "The contexts `c` inherits from, incl `c`, over every `genlCx` edge but `c`'s own edge to
   `parent` and every edge `usable?` refuses — `c`'s ancestor set as it stood before that
@@ -3784,11 +4194,12 @@
   recovered store — whose members already see what the new edge added, and it answers
   `#{c}`."
   [tax c parent usable?]
-  (let [rel   (:genlCx @tax)
+  (let [t     @tax
+        rel   (:genlCx t)
         scope (relation-scope tax :genlCx c)
         up1   (fn [n] (filter #(usable? n %)
                               (if (some? scope)
-                                (visible-neighbours :genlCx rel :fwd scope n)
+                                (visible-neighbours t :genlCx :fwd scope n)
                                 (get-in rel [:fwd n] #{}))))]
     (loop [acc #{c}
            todo (into [] (remove #{parent}) (up1 c))]
@@ -3826,8 +4237,12 @@
                   m    @memo
                   cur  (when (= gen (get-in m [:genlCx :gen])) (get m :genlCx))
                   dv   (:down-vis cur)
-                  s    (or (when (= vgen (:vgen dv)) (get (:by-ctx dv) c))
-                           (let [s (into #{} (filter #(sees? tax % c)) raw)]
+                  tl   (caches/tally-of memo :T7)
+                  s    (or (when-let [s (when (= vgen (:vgen dv)) (get (:by-ctx dv) c))]
+                             (caches/hit tl)
+                             s)
+                           (let [s (caches/recomputed tl (into #{} (filter #(sees? tax % c)) raw))]
+                             (caches/compare-retired tl c [gen vgen] s)
                              (swap! memo
                                     (fn [mm]
                                       (let [e  (get mm :genlCx)
@@ -3849,8 +4264,9 @@
 
 (defn sees? "Does context k see assertions in context y?" [tax k y]
   (if-some [scope (relation-scope tax :genlCx k)]
-    (let [rel (get @tax :genlCx)]
-      (reachable-filtered? k y :genlCx rel scope
+    (let [t   @tax
+          rel (:genlCx t)]
+      (reachable-filtered? k y t :genlCx scope
                            (when-not (:loose? rel) (:depth rel))
                            (:scc rel)))
     (reachable-in? tax :genlCx k y)))
@@ -4085,92 +4501,88 @@
   ([tax a b handle ctx] (add-supported tax [:disjoint #{a b}] handle ctx)))
 (defn del-disjoint! [tax a b handle] (del-supported! tax [:disjoint #{a b}] handle))
 
-;; ---- sibling-disjointness exceptions -------------------------------------
+;; ---- sibling-disjoint exceptions: the exemption from the separation marks --------
 ;;
-;; `(siblingDisjointException x y)` exempts the one pair `x`,`y` that a `sibling_disjoint`
-;; mark (or a `disjoint_metatype`) would otherwise force disjoint, without disturbing
-;; either type's disjointness from the parent's *other* specializations.  Keyed as an
-;; unordered pair exactly like `disjoint`, belief-following through the same
-;; `cache-install` / `cache-uninstall` refcount, and read by `exemption` inside
-;; `disjointness-test` behind the `genl-related?` guard, at the reader: a reader is
-;; exempted only by an exception some supporter states where it reads.
+;; `(siblingDisjointException x y)` exempts the one pair `x`,`y` from the separation marks:
+;; a `partition` / `separating` roster naming both (whose coverage half stands), a
+;; `disjoint_metatype` and a `sibling_disjoint` parent, without disturbing either type's
+;; disjointness from anything else.  A stated `(disjoint x y)` is not exempted.  The
+;; exemption is read where a separation is: against the separated pair of supertypes, so
+;; exempting two parts of a roster or two members of a metatype lifts what their
+;; separation reached below them as well.  A `sibling_disjoint` parent separates every pair
+;; of its specializations, so a subtype of `x` stays separated from `y`.  Keyed as an unordered
+;; pair exactly like `disjoint`, belief-following through the same `cache-install` /
+;; `cache-uninstall` refcount, and read by `exemption` inside `disjointness-test` behind
+;; each mark arm's own guards, at the reader: a reader is exempted only by an exception
+;; some supporter states where it reads.  An `orthogonal` exempts nothing.
 
+;; `hash-set`, not a set literal: `(siblingDisjointException a a)` is stored (the
+;; related-types family reports it), and a literal over two equal values throws.
 (defn add-sib-exception
   ([tax a b handle] (add-sib-exception tax a b handle nil))
-  ([tax a b handle ctx] (add-supported tax [:sib-exception #{a b}] handle ctx)))
-(defn del-sib-exception! [tax a b handle] (del-supported! tax [:sib-exception #{a b}] handle))
+  ([tax a b handle ctx] (add-supported tax [:sib-exception (hash-set a b)] handle ctx)))
+(defn del-sib-exception! [tax a b handle] (del-supported! tax [:sib-exception (hash-set a b)] handle))
+
+(defn- member-keys
+  "The `[:member m t]` keys with a stored supporter: those the stored facts of functor `m`
+  install, or a raw taxonomy's walk."
+  [t m]
+  (let [member? (fn [k] (and (= :member (nth k 0)) (= m (nth k 1))))]
+    (if (:raw? t)
+      (into #{} (filter member?) (keys (reads/as-stored-supporter-map (:index t))))
+      (into #{} (comp (mapcat #(keys-of t %)) (filter member?)) (extent-handles t [m])))))
 
 (defn- forget-metatype
-  "Drop `m` entirely: the mark, its recorded members, and the support entries behind
-  them.  Purging the support matters — a re-declaration rescans the store for members
-  and re-adds them, so a leftover handle from the previous life would keep a
-  membership alive after the sentex stating it had gone.
-
-  This is the one teardown that drops `:cache-support` entries without going through
-  `support-drop`, so it owes the two indexes keyed off it — `:cache-handle-keys` and
-  `:cache-dirty` — the same removal by hand.  That is a **contract**, not tidiness.
-  `:cache-handle-keys` is what `moved-cache-keys` reads to turn a settle's moved handles
-  into the entries to reconcile, so a handle left in it after its entry is gone puts a key
-  nothing supports into every later scope, for the life of the KB; and a `:cache-dirty`
-  mark left behind puts it there on *every* settle, moved or not.  Both are then skipped
-  by the reconcile's own guard, so the cost is wasted work rather than a wrong answer —
-  but it is wasted work that never stops.
-
-  A dropped member's handle leaves `:cache-handle-keys` by its `[kind key]`, not
-  wholesale: one sentex names one claim today, and the index is a multimap precisely so
-  nothing here has to depend on that.
-
-  Which entries to drop costs **one** scan of `:cache-support` and the removals are
-  keyed off what it found, rather than rebuilding each map around a predicate: the map
-  holds every disjoint pair, property, inverse and declared arity in the KB (OpenCyc:
-  tens of thousands) where a metatype has a handful of members, so a rebuild is
-  proportional to the wrong thing twice over.  The scan itself cannot be avoided by
-  reading `:metatype-members` for the keys — that map is belief-filtered, so a member
-  whose supporters are all defeated has left it while the `:cache-support` entry this
-  exists to purge is still there.  `:cache-ctxs` is written by the same two functions as
-  `:cache-support` and keys identically, so one key list serves both."
-  [t m]
-  (let [member-of-m? (fn [[k _]] (and (vector? k) (= :member (first k)) (= m (second k))))
-        dropped      (into {} (filter member-of-m?) (:cache-support t))
-        ks           (keys dropped)]
-    (-> (reduce (fn [t [k supporters]]
-                  (reduce (fn [t h] (forget-handle-key t h k)) t (keys supporters)))
-                t dropped)
-        (update :disjoint-metatypes disj m)
-        (update :metatype-members dissoc m)
-        (update :cache-support #(apply dissoc % ks))
-        (as-> t (reduce #(set-cache-ctxs %1 %2 nil) t ks))
-        (update :cache-dirty #(reduce disj % ks)))))
+  "Drop `m` entirely: the mark, its recorded members, and their contexts and dirty marks
+  under the member keys `ks`, whose supporters `unmark-disjoint-metatype!` retires from the
+  index store.  Retiring them matters — a re-declaration rescans the store for members
+  and posts them again, so a leftover supporter from the previous life would keep a
+  membership alive after the sentex stating it had gone."
+  [t m ks]
+  (-> t
+      (update :disjoint-metatypes disj m)
+      (update :metatype-members dissoc m)
+      (as-> t (reduce #(set-cache-ctxs %1 %2 nil) t ks))
+      (update :cache-dirty #(reduce disj % ks))
+      (update-in [:supporters :by-key] #(apply dissoc % ks))))
 
 (defn mark-disjoint-metatype
   ([tax m handle] (mark-disjoint-metatype tax m handle nil))
   ([tax m handle ctx] (add-supported tax [:metatype m] handle ctx)))
-(defn unmark-disjoint-metatype! [tax m handle]
-  (swap! tax supported-del [:metatype m] handle #(forget-metatype % m))
+(defn unmark-disjoint-metatype!
+  "Drop `handle`'s support for the mark on `m`.  The last supporter going forgets `m`
+  (`forget-metatype`), and its members' supporters leave the index store with it."
+  [tax m handle]
+  (retire! tax [:metatype m] handle)
+  (let [t       @tax
+        members (when (zero? (long (reads/stored-supporter-count (:index t) [:metatype m])))
+                  (into {} (map (fn [k] [k (supporters-of t k)])) (member-keys t m)))]
+    (doseq [[k sup] members, h (keys sup)] (retire! tax k h))
+    (swap! tax (fn [t]
+                 (let [t (update-in t [:supporters :by-handle]
+                                    #(apply dissoc % (mapcat (comp keys val) members)))]
+                   (supported-del t [:metatype m] handle #(forget-metatype % m (keys members)))))))
   tax)
 (defn disjoint-metatype? [tax m] (contains? (:disjoint-metatypes @tax) m))
 (defn disjoint-metatypes [tax] (:disjoint-metatypes @tax))
 (defn stored-disjoint-metatype?
-  "Whether some **stored** sentex marks `m` a disjoint metatype, believed or not — the
-  `:cache-support` entry for the mark is there while any supporter is.  This is the
-  gate the member arms read (`special/structural-integrate` and its disintegrate
-  mirror), and it is storage rather than belief by the same discipline the
-  `disjoint_metatype` integrate sweep follows: a membership is a *supporter*, recorded
-  whatever the mark's label, so that belief can follow it through
-  `refresh-cache-support`.  Gated on the believed set instead, a member asserted while
-  the mark is defeated would never be recorded and reviving the mark would not
-  separate it; one retracted while the mark is defeated would leave its support entry
-  behind for the life of the KB; and `rebuild-taxonomy`'s second pass, which records
-  every stored member, would make a restart change the answer."
+  "Whether some **stored** sentex marks `m` a disjoint metatype, believed or not: the
+  supporter family under `[:metatype m]` counts one.  This is the gate the member arms
+  read (`special/structural-integrate` and its disintegrate mirror), and it is storage
+  rather than belief by the same discipline the `disjoint_metatype` integrate sweep
+  follows: a membership is a *supporter*, recorded whatever the mark's label, so that
+  belief can follow it through `refresh-cache-support`.  Gated on the believed set
+  instead, a member asserted while the mark is defeated would never be recorded and
+  reviving the mark would not separate it, and one retracted while the mark is defeated
+  would leave its supporter behind for the life of the KB."
   [tax m]
-  (contains? (:cache-support @tax) [:metatype m]))
+  (pos? (long (reads/stored-supporter-count (:index @tax) [:metatype m]))))
 (defn stored-disjoint-metatypes
   "Every metatype some stored sentex marks, believed or not — the set
-  `rebuild-taxonomy`'s member pass walks, so a defeated mark's members are recorded
-  exactly as the live member arm records them."
+  `special/post-taxonomy-supporters!`' member pass walks, so a defeated mark's members are
+  posted exactly as the live member arm posts them."
   [tax]
-  (into #{} (keep (fn [k] (when (and (vector? k) (= :metatype (first k))) (second k))))
-        (keys (:cache-support @tax))))
+  (stored-metatypes @tax))
 
 ;; A metatype's members are **recorded, not materialized**.  `(disjoint_metatype M)`
 ;; makes every pair of M's members disjoint.  Materializing that clique would mean
@@ -4294,9 +4706,10 @@
     (cache-entry-visible? tax k context)))
 
 (defn- exemption
-  "`(fn [x y])` → does a `siblingDisjointException` of the pair `x`, `y` exempt it for a
-  reader at `context`: one with a supporter `context` reads (`entry-visible-at?`), or,
-  for an unscoped `context`, any stored one.  One map lookup when no exception names `x`."
+  "`(fn [x y])` → does a `siblingDisjointException` over the pair `x`, `y` exempt it from
+  the separation marks for a reader at `context`: one with a supporter `context` reads
+  (`entry-visible-at?`), or, for an unscoped `context`, any stored one.  One map lookup
+  when no exception names `x`."
   [tax context]
   (let [idx (:sib-exception-index @tax)]
     (cond
@@ -4305,7 +4718,7 @@
 
       (or (set? context) (scoped-context? context))
       (fn [x y] (and (contains? (get idx x) y)
-                     (entry-visible-at? tax [:sib-exception #{x y}] context)))
+                     (entry-visible-at? tax [:sib-exception (hash-set x y)] context)))
 
       :else
       (fn [x y] (contains? (get idx x) y)))))
@@ -4350,8 +4763,8 @@
 
 (def ^:dynamic *separation-frame-cache*
   "An optional atom `{[a context] frame}` for a **read-only** pass (see
-  `*closure-pass-cache*`).  A re-read asks `disjointness-test` — and so
-  `separation-frame` — once per membership of each nogood it re-asks, but the frame
+  `*closure-pass-cache*`).  A pass asks `disjointness-test` — and so
+  `separation-frame` — once per membership it reads, but the frame
   depends on `a` and `context` alone, and the nogoods of a large KB name millions of
   memberships over a few thousand types, so the same `[a context]` frame is rebuilt once
   per *instance* of the type.  Bound and dropped by the pass, which holds the taxonomy
@@ -4398,7 +4811,7 @@
           (reach-by-parents node #(get (:fwd rel) %) scc
                             #(caches/lru-get lru (key %))
                             #(caches/lru-put! lru (key %1) %2)
-                            (filter terms))
+                            (filter terms) nil)
           (into #{} (filter terms) (genls-global tax a))))))
 
 (defn- intact-scc
@@ -4407,14 +4820,14 @@
   one `scope` sees, held through `held` / `hold!` under `k`.  A build over the visible
   edges may read such a component as one unit, as the unscoped build reads every one; a
   component the scope breaks is left out, and a build meeting its cycle hands back."
-  [rel scope held hold! k]
+  [t rel scope held hold! k]
   (let [scc (:scc rel)]
     (if (empty? scc)
       scc
       (or (held k)
           (let [whole? (fn [[r ms]]
                          (every? (fn [[m]]
-                                   (let [vis (set (visible-neighbours :genl rel :fwd scope m))]
+                                   (let [vis (set (visible-neighbours t :genl :fwd scope m))]
                                      (every? #(or (not= r (get scc %)) (contains? vis %))
                                              (get (:fwd rel) m))))
                                  ms))
@@ -4454,7 +4867,7 @@
       (and (nil? scope) (not (set? context)))  (separable-genls tax a)
       (nil? held)                              (genls-at tax a context)
       :else
-      (let [scc  (intact-scc rel scope held hold! [:genl (:gen rel) :intact-scc scope])
+      (let [scc  (intact-scc t rel scope held hold! [:genl (:gen rel) :intact-scc scope])
             node (get scc a a)
             key  (fn [n] [:genl (:gen rel) :separable-at scope stamp n])
             got  (held (key node))]
@@ -4462,10 +4875,10 @@
           (= ::uncut got) (genls-at tax a context)
           (some? got)     got
           :else
-          (or (reach-by-parents node #(visible-neighbours :genl rel :fwd scope %) scc
+          (or (reach-by-parents node #(visible-neighbours t :genl :fwd scope %) scc
                                 #(let [h (held (key %))] (when-not (= ::uncut h) h))
                                 #(hold! (key %1) %2)
-                                (filter terms))
+                                (filter terms) nil)
               (do (hold! (key node) ::uncut)
                   (genls-at tax a context))))))))
 
@@ -4572,33 +4985,23 @@
               f)))
       (separation-frame* tax a context))))
 
-(defn disjointness-test
-  "A predicate `type -> boolean` answering `(disjoint? tax a <type> context)` — the
-  question with everything that depends on `a` and `context` alone read once
-  (`separation-frame`).  `disjoint?` is this asked once; `checks/disjoint-problem`
-  asks it of every type the term already holds, which is the shape it exists for.
-
-  A type `a` no declaration reaches answers false without looking at the candidate at
-  all; one that *is* separable pays a set lookup per declaration rather than a walk
-  over the closure product.
-
-  `exempt?` is the `siblingDisjointException` read, `(fn [x y])`: by default the
-  exceptions `context` reads (`exemption`); `(constantly false)` reads none, which
-  answers true for every pair some reader can read separated."
-  ([tax a context] (disjointness-test tax a context (exemption tax context)))
+(defn separation-test
+  "`disjointness-test`, or nil when no declaration reaches `a`: a caller testing many
+  candidates against `a` learns from the nil that every one answers false, and tests
+  none.  Unscoped (`context` nil), the test is symmetric: when `a`'s answers `b`,
+  `b`'s answers `a`, so a nil for `a` also means no candidate's test answers `a`."
+  ([tax a context] (separation-test tax a context (exemption tax context)))
   ([tax a context exempt?]
    (let [{:keys [scoped? seps metas sibs parts pair-vis? member-vis?]}
          (separation-frame tax a context)]
-     (if (and (empty? seps) (empty? metas) (empty? sibs) (empty? parts))
-       (constantly false)
+     (when-not (and (empty? seps) (empty? metas) (empty? sibs) (empty? parts))
        ;; genl-relatedness is read **globally**, never through the reader's ancestor set: the
        ;; exception is the same one `wff/disjoint-problems` applies to an explicit pair,
        ;; and reading it scoped would let a descendant context that cannot see an
        ;; `(genl x y)` edge separate a pair the whole KB knows overlaps.
        ;; `exempt?` sits behind the `not=` / `genl-related?` guards, so the negative path
-       ;; pays one map lookup only for a pair those tests already admitted.  The
-       ;; explicit-`disjoint` arm is not exempted: an explicit `(disjoint x y)` is a hard
-       ;; assertion you retract to undo, not except.
+       ;; pays one map lookup only for a pair those tests already admitted.  The three
+       ;; mark arms read it; a stated `disjoint` names its pair and no exception lifts it.
        (let [genl-related? (fn [x y] (or (genl?-global tax x y) (genl?-global tax y x)))]
          (fn [b]
            ;; `b`'s supertypes cut to the separable ones as `a`'s are, and whole only for
@@ -4607,7 +5010,8 @@
                  all-bs (if scoped? (delay (genls-at tax b context)) (delay (genls-global tax b)))]
              (boolean
               (or (some (fn [[x ys]]
-                          (some (fn [y] (and (not= x y) (contains? bs y) (pair-vis? x y))) ys))
+                          (some (fn [y] (and (not= x y) (contains? bs y) (pair-vis? x y)))
+                                ys))
                         seps)
                   ;; a metatype separates when it holds a supertype of `a` and a *different*
                   ;; supertype of `b`.  Driven from the members, not from `as × bs`: a
@@ -4648,13 +5052,31 @@
                                   in-a)))
                         parts))))))))))
 
+(defn disjointness-test
+  "A predicate `type -> boolean` answering `(disjoint? tax a <type> context)` — the
+  question with everything that depends on `a` and `context` alone read once
+  (`separation-frame`).  `disjoint?` is this asked once; `checks/disjoint-problem`
+  asks it of every type the term already holds, which is the shape it exists for.
+
+  A type `a` no declaration reaches answers false without looking at the candidate at
+  all; one that *is* separable pays a set lookup per declaration rather than a walk
+  over the closure product.
+
+  `exempt?` is the `siblingDisjointException` read, `(fn [x y])`, consulted by the three
+  mark arms over the separated pair of supertypes and never by the `disjoint` arm: by
+  default the exceptions `context` reads (`exemption`); `(constantly false)` reads none,
+  which answers true for every pair some reader can read separated."
+  ([tax a context] (disjointness-test tax a context (exemption tax context)))
+  ([tax a context exempt?]
+   (or (separation-test tax a context exempt?) (constantly false))))
+
 (defn separating-partners
   "The types a **visible declaration** separates `a` from: every `y` such that some
   supertype of `a` is declared `(disjoint x y)` with `x` ≠ `y`, shares a disjoint
   metatype with `y`, stands beside `y` as a proper specialization of one
   `(sibling_disjoint C)` parent, or stands beside `y` in one `partition` roster —
   the same four arms `disjointness-test` tests, with the same global genl-relatedness
-  guard and the same exemptions at `context` on the latter three.
+  guard and the same `siblingDisjointException` exemptions at `context` on the latter three.
 
   This is the enumeration `disjointness-test` is the membership test of, and the two
   read one frame so they cannot disagree.  Every type disjoint from `a` is a **subtype
@@ -4721,35 +5143,74 @@
   its two `[:member m _]` memberships, each `[:sib-disjoint c]` parent and each separating
   cover's `[:cover [whole parts] kind]`, over a supertype `x` of `a` and a different
   supertype `y` of `b`.  The entries `disjointness-test` answers true through, under its
-  guards, read off the same frame; empty when `a` and `b` are not disjoint at `context`."
-  [tax a b context]
-  (let [{:keys [seps metas sibs parts pair-vis? member-vis?]} (separation-frame tax a context)]
-    (if (and (empty? seps) (empty? metas) (empty? sibs) (empty? parts))
-      #{}
-      ;; global genl-relatedness, for the reason `disjointness-test` states
-      (let [bs      (genls-at tax b context)
-            exempt? (exemption tax context)
-            sep?    (fn [x y] (and (not= x y)
-                                   (not (genl?-global tax x y)) (not (genl?-global tax y x))
-                                   (not (exempt? x y))))]
-        (into #{}
-              cat
-              [(for [[x ys] seps, y ys
-                     :when (and (not= x y) (contains? bs y) (pair-vis? x y))]
-                 [:disjoint #{x y}])
-               (for [[m ms in-a] metas
-                     x in-a
-                     y ms
-                     :when (and (contains? bs y) (member-vis? m y) (sep? x y))
-                     k [[:metatype m] [:member m x] [:member m y]]]
-                 k)
-               (for [[c under-c? below-a] sibs
-                     :when (some (fn [x] (some #(and (not= % c) (under-c? %) (sep? x %)) bs))
-                                 below-a)]
-                 [:sib-disjoint c])
-               (for [[ps in-a k] parts
-                     :when (some (fn [x] (some #(and (contains? bs %) (sep? x %)) ps)) in-a)]
-                 k)])))))
+  guards, read off the same frame; empty when `a` and `b` are not disjoint at `context`.
+
+  `exempt?` is the `siblingDisjointException` read, as for `disjointness-test`: by default
+  the pairs `context` reads exempted; `(constantly false)` names every separation stated
+  over the pair, the marks an exception lifts included."
+  ([tax a b context] (separating-keys tax a b context (exemption tax context)))
+  ([tax a b context exempt?]
+   (let [{:keys [seps metas sibs parts pair-vis? member-vis?]} (separation-frame tax a context)]
+     (if (and (empty? seps) (empty? metas) (empty? sibs) (empty? parts))
+       #{}
+       ;; global genl-relatedness, for the reason `disjointness-test` states
+       (let [bs      (genls-at tax b context)
+             sep?    (fn [x y] (and (not= x y)
+                                    (not (genl?-global tax x y)) (not (genl?-global tax y x))
+                                    (not (exempt? x y))))]
+         (into #{}
+               cat
+               [(for [[x ys] seps, y ys
+                      :when (and (not= x y) (contains? bs y) (pair-vis? x y))]
+                  [:disjoint #{x y}])
+                (for [[m ms in-a] metas
+                      x in-a
+                      y ms
+                      :when (and (contains? bs y) (member-vis? m y) (sep? x y))
+                      k [[:metatype m] [:member m x] [:member m y]]]
+                  k)
+                (for [[c under-c? below-a] sibs
+                      :when (some (fn [x] (some #(and (not= % c) (under-c? %) (sep? x %)) bs))
+                                  below-a)]
+                  [:sib-disjoint c])
+                (for [[ps in-a k] parts
+                      :when (some (fn [x] (some #(and (contains? bs %) (sep? x %)) ps)) in-a)]
+                  k)]))))))
+
+(defn separation-routes
+  "Each way the declarations separate `a` from `b` over the unscoped closures with no
+  `siblingDisjointException` read, as `{:keys #{k} :links [[sub super]] :pair [x y]}`: the flat-cache
+  keys it reads (`separating-keys`' entries), the separated supertypes `x` of `a` and `y`
+  of `b`, and the `genl` subsumptions it climbs, `a` to `x` and `b` to `y`, and for a
+  `sibling_disjoint` parent `c` also `x` and `y` to `c`.  A reflexive subsumption is left
+  out.  Empty exactly when `disjointness-test` reading no exemption answers false from
+  `a`'s side.  A placed nogood names one route's supporters and edges as its grounds
+  (docs/nmtms.md).  A route through a mark carries `:mark? true`: an exception can exempt
+  it (`route-exempted?`)."
+  [tax a b]
+  (let [{:keys [seps metas sibs parts]} (separation-frame tax a nil)
+        bs     (genls-global tax b)
+        unrel? (fn [x y] (and (not= x y) (not (genl?-global tax x y)) (not (genl?-global tax y x))))
+        route  (fn [ks x y & links]
+                 {:keys ks :pair [x y] :mark? true
+                  :links (into [] (remove (fn [[s t]] (= s t))) (concat [[a x] [b y]] links))})]
+    (concat
+     (for [[x ys] seps, y ys :when (and (not= x y) (contains? bs y))]
+       (dissoc (route #{[:disjoint #{x y}]} x y) :mark?))
+     (for [[m ms in-a] metas, x in-a, y ms :when (and (contains? bs y) (unrel? x y))]
+       (route #{[:metatype m] [:member m x] [:member m y]} x y))
+     (for [[c under-c? below-a] sibs, x below-a, y bs
+           :when (and (not= y c) (under-c? y) (unrel? x y))]
+       (route #{[:sib-disjoint c]} x y [x c] [y c]))
+     (for [[ps in-a k] parts, x in-a, y ps :when (and (contains? bs y) (unrel? x y))]
+       (route #{k} x y)))))
+
+(defn route-exempted?
+  "Does a `siblingDisjointException` that `context` reads (a context or an ancestor set)
+  exempt the separated pair of the mark route `route` (`separation-routes`, `:mark?`)?
+  False for a route through a stated `disjoint` and for a route with no `:pair`."
+  [tax {:keys [pair mark?]} context]
+  (boolean (and mark? pair ((exemption tax context) (first pair) (second pair)))))
 
 (defn separating-pairs
   "Every **ordered** pair `[x y]`, `x` ≠ `y`, that a visible declaration separates —
@@ -4837,13 +5298,13 @@
   scoped closures.
 
   `context` may be an ancestor set instead: the closures and declarations read are those
-  some supporter states in the set, with no belief callback (`genls-asserted-in`), which
-  is how a reader decides inside its own withdrawal (`vaelii.impl.decide`).
+  some supporter states in the set, with no belief callback (`genls-asserted-in`), so the
+  read does not re-enter the supporter callback.
 
   Monotone on the visibility of declarations and edges: seeing more of them only adds
   witnesses.  A `siblingDisjointException` is the one read that removes one: the three
-  guarded arms spare the exempted pair at a reader that sees the exception, so a context
-  below the exception reads the pair apart and a context above it, or beside it, reads it
+  mark arms spare the separated pair it names at a reader that sees it, so a context below
+  the exception reads the pair apart and a context above it, or beside it, reads it
   separated.  An unscoped read sees every exception."
   ([tax a b] ((disjointness-test tax a nil) b))
   ([tax a b context] ((disjointness-test tax a context) b)))
@@ -4898,11 +5359,10 @@
   choices can all multiply, and a node can have exponentially many ancestor paths
   — so a consumer that finds its witness early never pays for the tail.
 
-  No `siblingDisjointException` is read: an exception removes a separation at the
-  readers that see it, which a set of contexts to see cannot state, so a caller tests
-  the reader it names with `disjoint?`.  Empty exactly when no reader separates the
-  pair, `disjointness-test` reading no exception, which is the guard a caller runs
-  first."
+  No `siblingDisjointException` is read: an exemption removes a separation at the readers that see it,
+  which a set of contexts to see cannot state, so a caller tests the reader it names with
+  `disjoint?`.  Empty exactly when no reader separates the pair, `disjointness-test`
+  reading no exemption, which is the guard a caller runs first."
   [tax a b]
   (let [t       @tax
         rel     (:genl t)
@@ -4970,27 +5430,38 @@
   ([tax kind pred handle ctx] (add-supported tax [:prop kind pred] handle ctx)))
 (defn unmark-prop! [tax kind pred handle] (del-supported! tax [:prop kind pred] handle))
 (def ^:private keyed-kinds
-  "The property kinds that decide the key a sentex is stored under — `symmetric` and
-  `commutative` sort arguments at the entry point, for every context at once."
+  "The property kinds that sort a sentex's arguments at the entry point — `symmetric` and
+  `commutative` — and so are read from every context (`has-prop?`)."
   #{:symmetric :commutative})
+
+(defn- keyed-entry-believed?
+  "Does `context` believe a supporter of flat-cache entry `k`, each supporter read as
+  visible from every context?  A permuting mark is read from every context, so only a
+  `defeat` or an `except` the reader sees takes it away there (docs/canonicalization.md,
+  \"A mark a reader does not believe\")."
+  [tax k context]
+  (let [t @tax]
+    (or (not (supporter-filter-active? t))
+        (let [vis? (visible-fn t)]
+          (boolean (some #(vis? % context) (keys (supporters-of t k))))))))
 
 (defn has-prop?
   "Does `pred` carry property `kind` — anywhere, or (with `context`) declared from
   a context the reader can see?
 
-  `:symmetric` and `:commutative` answer the same with a context as without one.  They
-  decide the argument order a `(pred …)` sentex is stored in, and a sentex has one key
-  for every context, so the store answers the mirror of a fact from a context that sees
-  no statement of the mark — one with no `genlCx` edge, or one above CxUniverse, where
-  the lifted copy sits.  Every reader of the property therefore reads it where the store
-  does."
+  `:symmetric` and `:commutative` are read from every context, as the store sorts a fact
+  stated in a context that sees no statement of the mark — one with no `genlCx` edge, or
+  one above CxUniverse, where the lifted copy sits.  With a context they answer whether
+  that context believes a statement (`keyed-entry-believed?`), which a `defeat` or an
+  `except` it sees takes away."
   ([tax kind pred] (contains? (get (:props @tax) kind) pred))
   ([tax kind pred context]
    (let [t @tax]
      (and (contains? (get (:props t) kind) pred)
           (or (not (scoped-context? context))
-              (contains? keyed-kinds kind)
-              (cache-entry-visible? tax [:prop kind pred] context))))))
+              (if (contains? keyed-kinds kind)
+                (keyed-entry-believed? tax [:prop kind pred] context)
+                (cache-entry-visible? tax [:prop kind pred] context)))))))
 (defn props "The set of predicates carrying property `kind`." [tax kind] (get (:props @tax) kind #{}))
 
 (defn quoting-function?
@@ -5136,7 +5607,7 @@
 ;; Every stored supporter is returned, believed or not: a justification's antecedents
 ;; are labelled by the JTMS, so handing it a defeated supporter is how a derivation
 ;; revives by itself when that supporter does.
-(defn- cache-supporters [tax k] (into #{} (keys (get-in @tax [:cache-support k] {}))))
+(defn- cache-supporters [tax k] (into #{} (keys (supporters-of @tax k))))
 (defn prop-supporters
   "The **handles** of the sentexes declaring property `kind` of `pred`, as a set —
   every one of them, defeated members included, which is what lets a derivation resting
@@ -5149,7 +5620,7 @@
 (defn prop-supporter-contexts
   "`prop-supporters` with the context each was stated in, as `{handle context}` — for a
   caller that names only the statements its reader sees."
-  [tax kind pred] (get-in @tax [:cache-support [:prop kind pred]] {}))
+  [tax kind pred] (supporters-of @tax [:prop kind pred]))
 
 (defn add-inverse
   ([tax p q handle] (add-inverse tax p q handle nil))
@@ -5227,11 +5698,6 @@
   included, for the reason `prop-supporters` gives."
   [tax pred n] (cache-supporters tax [:functional-in-arg pred n]))
 
-(defn functional-in-arg-supporter-contexts
-  "`functional-in-arg-supporters` with the context each was stated in, as `{handle
-  context}`: `prop-supporter-contexts` for the pair."
-  [tax pred n] (get-in @tax [:cache-support [:functional-in-arg pred n]] {}))
-
 (defn functional-in-arg-over
   "`[pred n]` pairs — `p` and every **super-predicate** of it carrying a
   `(functionalInArg pred n)` declaration, anywhere or (with `context`) declared from a
@@ -5284,18 +5750,6 @@
   reads `props :functional` for the arity-2 mark."
   [tax] (set (keys (get @tax :functional-in-arg {}))))
 
-(defn functional-in-arg-table
-  "The whole `functionalInArg` table, `pred -> #{n1 n2 …}`, as a value — the positions
-  and not only the predicates.
-
-  `functional-in-arg-predicates` is the predicate roster and drops the positions, which
-  is what a *reach* wants (walk each marked predicate's extent).  A *fingerprint* wants
-  the positions: two positions on one predicate are two independent constraints
-  (`functional-in-arg-over`), so removing one while another stands leaves the predicate
-  in the roster while the constraint it convicted through is gone.  One map read, no
-  walk."
-  [tax] (get @tax :functional-in-arg {}))
-
 (defn add-commuting
   "Install a commutativity group on `pred`.  `group` is `[:rest f]` or `[:args [p1 p2 …]]`
   — the two written spellings reduced to the one descriptor `commuting-components` reads."
@@ -5316,10 +5770,9 @@
   **The exact functor, and global**, unlike `functional-in-arg-over`, which walks up.
   Two separate reasons, and they point the same way:
 
-  - A commutativity mark *canonicalizes* where the argument constraints *convict*.  A
-    sentex has one key, so whether a predicate permutes its arguments cannot vary by who
-    is asking, and a reader-scoped read here would store one literal under two keys —
-    `kb-sentex`'s key discipline, stated at that function.
+  - A commutativity mark *canonicalizes* where the argument constraints *convict*.  The
+    store keys a fact by the sort every stored mark gives it (`res/kb-sentex`); a reader
+    that does not believe a group reads through `res/spelling-planner`.
   - A `genl` edge below a commutative predicate does not make the sub-predicate
     commutative, exactly as it does not make it symmetric (`integrate/commute-existing`,
     `constraint_descension_test`).  A row re-spelled at a sub-predicate would be one the
@@ -5443,32 +5896,148 @@
   :scope    :kb
   :unit     "closure terms"
   :limit    (caches/limit-thunk :taxonomy-closures closure-memo-limit)
-  :counters nil
+  :counters :kb
   :note     (str "The reflexive-transitive reach sets the taxonomy has walked, up and "
                  "down, global and scoped to what one context sees, weighed by the terms "
                  "each holds. Retired by a genl or genlCx edge changing, which moves the "
                  "generation they are keyed on; past the bound, and under memory "
                  "pressure, the least recently used go first.")
-  :read     (fn [kb] {:entries (some-> (reasoning/taxonomy kb) deref :closure-lru
-                                       caches/lru-weight)})
+  :read     (fn [kb] (let [lru (some-> (reasoning/taxonomy kb) deref :closure-lru)
+                           ^java.util.concurrent.atomic.AtomicLongArray w (:walks lru)]
+                       (cond-> {:entries (some-> lru caches/lru-weight)}
+                         w (assoc :builds (.get w 0) :fallbacks (.get w 1)))))
   :clear    (fn [kb] (or (some-> (reasoning/taxonomy kb) deref :closure-lru caches/lru-clear!)
                          0))
   :trim     (fn [kb target]
               (or (some-> (reasoning/taxonomy kb) deref :closure-lru (caches/lru-trim! target))
                   0))})
 
+;; ---- derived state (docs/caches.md, "The derived-state register") ----------------
+
+(defn- relation-value
+  "Relation `r`'s map in `kb`'s taxonomy less its moves (J5)."
+  [kb r]
+  (-> (caches/value-at kb [:taxonomy r]) (dissoc :moves :move-gen)))
+
+(def ^:private flat-keys
+  [:disjoint :disjoint-index :disjoint-metatypes :metatype-members :sibling-disjoint
+   :sib-exception-index :covers :cover-parts :partitions :props :inverse :arity
+   :functional-in-arg :commuting :cache-dirty :cache-ctxs])
+
+(caches/register-derived
+ {:id :T1 :label "genl and genlCx relations" :kind :index :keyed-by :node
+  :reads [:records :M1]
+  :retired-by {:edge :K :edge-belief :K :settle-exit :K :recover :R :image-install :R}
+  :computed :write :imaged? :taxonomy
+  :at [[:taxonomy :genl] [:taxonomy :genlCx] [:taxonomy :epoch]]
+  :value (fn [kb] [(relation-value kb :genl) (relation-value kb :genlCx)
+                   (caches/value-at kb [:taxonomy :epoch])])
+  :note "the active edges with their believed contexts, closure adjacency, depths and components; `:gen` moves at every edge change, and `clear-relations!` sets it to 0 and moves `:epoch`"})
+
+(caches/register-derived
+ {:id :T2 :label "Flat declaration caches" :kind :index :keyed-by :value
+  :reads [:records :M1]
+  :retired-by {:declared :K :edge-belief :K :recover :R :image-install :R}
+  :computed :write :imaged? :taxonomy :at (mapv #(vector :taxonomy %) flat-keys)
+  :value (fn [kb] (select-keys (caches/value-at kb [:taxonomy]) flat-keys))
+  :note "disjointness, covers, partitions, predicate properties, inverses, arities, functional arguments and commuting pairs, with their contexts"})
+
 (caches/register-cache
- {:cache    :taxonomy-visibility
-  :label    "Taxonomy visibility sets"
+ {:cache    :taxonomy-supporters
+  :label    "Taxonomy supporters"
   :scope    :kb
-  :unit     "relation/context pairs"
-  :limit    nil
+  :unit     "taxonomy keys and handles"
+  :limit    (caches/limit-thunk :taxonomy-supporters supporter-cache-limit)
   :counters nil
-  :note     (str "The interned set of asserting contexts each reader can see, one per "
-                 "relation and context. Bounded by the context census rather than by "
-                 "the read count, and recomputed when its stamp moves.")
-  :read     (fn [kb] {:entries (some-> (reasoning/taxonomy kb) deref :vis-index deref count)})
-  :clear    (fn [kb] (let [v (some-> (reasoning/taxonomy kb) deref :vis-index)
-                           n (if v (count @v) 0)]
-                       (some-> v (reset! {}))
-                       n))})
+  :note     (str "The stored supporters of the taxonomy keys and the keys of the handles the "
+                 "belief reconcile has read, from the index's supporter families. A writer "
+                 "drops the entries its post moves; past the bound the cache is cleared "
+                 "wholesale, and recover's reconcile fills it as it reads.")
+  :read     (fn [kb] {:entries (some-> (reasoning/taxonomy kb) deref :supporters
+                                       (as-> c (+ (count (:by-key c)) (count (:by-handle c)))))})
+  :clear    (fn [kb] (if-let [tax (reasoning/taxonomy kb)]
+                       (let [c (:supporters @tax)]
+                         (swap! tax assoc :supporters empty-supporters)
+                         (+ (count (:by-key c)) (count (:by-handle c))))
+                       0))})
+
+(caches/register-derived
+ {:id :T11 :label "Taxonomy supporters" :cache :taxonomy-supporters :kind :cache :keyed-by :value
+  :reads [:index]
+  :retired-by {:edge :K :declared :K :edge-belief :K :recover :W :caches-cleared :W}
+  :computed :read :imaged? false :at [[:taxonomy :supporters]]
+  :note "`{:by-key {k {handle ctx}} :by-handle {handle #{k}}}` over the supporter families; a writer drops the entries its post moves, the settle's reconcile fills what it reads, and past the bound it is cleared"})
+
+(caches/register-derived
+ {:id :T3 :label "Equality partition" :kind :index :keyed-by :term :reads [:records :M1]
+  :retired-by {:equality :K :edge-belief :K :recover :R :image-install :R}
+  :computed :write :imaged? :taxonomy :at [[:taxonomy :equality]]
+  :value (fn [kb] (dissoc (caches/value-at kb [:taxonomy :equality]) :moved :believed-again))
+  :note "the classes of `rewriteOf`, `sameAs` and `equals`: a union at an add, the class rebuilt at a delete"})
+
+(caches/register-derived
+ {:id :T4 :label "Rewrite rules" :kind :index :keyed-by :handle :reads [:records :M1]
+  :retired-by {:integrated :K :removed :K :edge-belief :K :recover :R :image-install :R}
+  :computed :write :imaged? :taxonomy
+  :at [[:taxonomy :rewrite-support] [:taxonomy :rewrite-active] [:taxonomy :rewrite-order]]
+  :value (fn [kb] (let [t (caches/value-at kb [:taxonomy])]
+                    {:support (:rewrite-support t) :active (:rewrite-active t)
+                     :order   (some-> (:rewrite-order t) deref)}))
+  :note "the equations by handle and the active ones; `:rewrite-order` is one slot compared by identity against `:rewrite-active`"})
+
+(caches/register-derived
+ {:id :T5 :label "Taxonomy closures" :cache :taxonomy-closures :kind :cache :keyed-by :node
+  :reads [:T1 :M1]
+  :retired-by {:edge :G :edge-belief :G :recover :W :caches-cleared :W
+               :stored :K :removed :K :except :K}
+  :computed :read :imaged? false :at [[:taxonomy :closure-lru]]
+  :value (fn [kb] (when-let [^java.util.LinkedHashMap m (:map (caches/value-at kb [:taxonomy :closure-lru]))]
+                    (locking m (into {} m))))
+  :live (fn [kb] (let [t @(reasoning/taxonomy kb)
+                       ^java.util.LinkedHashMap m (:map (:closure-lru t))]
+                   (count (filter (fn [k] (and (vector? k)
+                                               (= (nth k 1 nil) (:gen (get t (nth k 0 nil))))))
+                                  (locking m (vec (.keySet m)))))))
+  :note "reach sets, needs-sets, `:asserted-in`, `:reaches`, `:path` and separable entries keyed `[rel gen …]`: a generation bump orphans the keys, and the LRU ages them out"})
+
+(caches/register-derived
+ {:id :T7 :label "Closure filter memo" :kind :cache :keyed-by :context :reads [:T1 :T9]
+  :retired-by (assoc (caches/on-every :G) :recover :W)
+  :computed :read :imaged? false :at [[:taxonomy :closure-memo]]
+  :value (fn [kb] (some-> (caches/value-at kb [:taxonomy :closure-memo]) deref))
+  :note "per relation, whether the supporter filter is active and the down-closure by context, stamped by the relation generation and the visibility generation"})
+
+(caches/register-derived
+ {:id :T9 :label "Supporter visibility generation" :kind :counter :keyed-by :global
+  :reads [:index :N7]
+  :retired-by {:edge-belief :G :settle-exit :G :settle-pass :G :inherited :G :recheck :G
+               :stored :G :removed :G :except :G :held :G :recover :G}
+  :computed :write :imaged? :taxonomy :at [[:taxonomy :supporter-visibility-gen]]
+  :note "bumped where a supporter's visibility can move: `refresh-beliefs` over a `genlCx` supporter or with no region, `retire-support-moves!` over a `genlCx` supporter whose justifications moved, and `special/reconcile-belief-change` over an except; a `defeat` and a `genl` supporter evict the scoped closures they can move instead (`retire-scoped-genl!`); never reset"})
+
+(caches/register-derived
+ {:id :T10 :label "Taxonomy pass caches" :kind :pass :keyed-by :node :reads [:T1 :M1]
+  :retired-by {} :computed :pass :imaged? false
+  :note "`*closure-pass-cache*`, `*visible-neighbours-cache*` and `*separation-frame-cache*`, bound for one reading pass (`clashes`, `with-neighbours`)"})
+
+(caches/register-derived
+ {:id :J4 :label "Flat context moves" :kind :journal :keyed-by :value :reads [:T2]
+  :retired-by {:declared :K :edge-belief :K :recover :R}
+  :computed :write :imaged? false :at [[:taxonomy :cache-moves]]
+  :note "the flat keys whose contexts moved, by position; the discovery memo keeps its position"})
+
+(caches/register-derived
+ {:id :J5 :label "Relation moves" :kind :journal :keyed-by :node :reads [:T1]
+  :retired-by {:edge :K :edge-belief :K :recover :R :image-install :R}
+  :computed :write :imaged? :taxonomy
+  :at [[:taxonomy :genl :moves] [:taxonomy :genl :move-gen]
+       [:taxonomy :genlCx :moves] [:taxonomy :genlCx :move-gen]]
+  :note "`{gen #{node}}` and `{node gen}` per relation, which `moves-since` reads; a reader whose generation is older than the first kept reads whole"})
+
+(caches/register-derived
+ {:id :Q5 :label "Equality moves" :kind :queue :keyed-by :term :reads [:T3]
+  :retired-by {:equality :K :edge-belief :K :settle-exit :Q :settle-pass :Q :recover :R
+               :image-install :R}
+  :computed :write :imaged? :taxonomy
+  :at [[:taxonomy :equality :moved] [:taxonomy :equality :believed-again]]
+  :note "the class members moved per reader and the handles believed again; `take-equality-moves!` and `take-believed-again!` drain them"})

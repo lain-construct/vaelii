@@ -27,11 +27,11 @@
 
 ;; ---- the negative-literal cost path ------------------------------------
 
-(tu/deftest-kb a-negative-literal-is-costed-by-the-functor-root
+(tu/deftest-kb a-negative-literal-is-costed-by-the-predicate-extent
   ;; A negative literal keys under `[:false <body>]`, so no prefix built from its own
   ;; tokens reaches it and `count-at` answers 0 — a *lower* bound, which would rank
-  ;; the most expensive literal in the conjunction as the cheapest.  The functor root
-  ;; is the one count spanning both polarities.
+  ;; the most expensive literal in the conjunction as the cheapest.  The predicate
+  ;; extent's count is the one count spanning both polarities.
   (tu/with-terms [banned allowed Aa Bb Cc Dd]
     ;; many negative `banned` facts, one positive `allowed` fact
     (doseq [i [Aa Bb Cc Dd]]
@@ -61,7 +61,7 @@
 
 (tu/deftest-kb a-ground-argument-after-a-variable-is-costed-by-the-argument-root
   ;; The trie narrows left to right, so `(parentOf ?x Cid)` can only be counted up to
-  ;; `?x` — every `parentOf` fact.  The argument roots (`[:argument-root parentOf 2 Cid]`)
+  ;; `?x` — every `parentOf` fact.  The argument roots (the node `[parentOf 2 Cid]`)
   ;; index the ground argument directly, and are the whole reason the secondary roots
   ;; exist.
   (tu/with-terms [parentOf Ann Bob Cid Dee Eve]

@@ -88,31 +88,35 @@
          (is (v/assert kb (list fatherOf Fred Mary) 'CxUniverse)))))))
 
 (tu/deftest-kb genlArg-descends-on-the-same-argument
-  (tu/with-terms [machine_t vehicle_t partType subPartType Rex]
-    (a-type kb machine_t 'CxUniverse)
-    (a-type kb vehicle_t 'CxUniverse)
-    (v/assert kb (list 'genl subPartType partType) 'CxUniverse)
-    (v/assert kb (list 'genlArg partType 1 machine_t) 'CxUniverse)
-    (is (= :arg-genl (ex-type #(v/assert kb (list partType vehicle_t Rex) 'CxUniverse)))
-        "a kind outside the constraint's down-closure")
-    (is (= :arg-genl (ex-type #(v/assert kb (list subPartType vehicle_t Rex) 'CxUniverse)))
-        "and the same kind under the sub-predicate")))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   (tu/with-terms [machine_t vehicle_t partType subPartType Rex]
+     (a-type kb machine_t 'CxUniverse)
+     (a-type kb vehicle_t 'CxUniverse)
+     (v/assert kb (list 'genl subPartType partType) 'CxUniverse)
+     (v/assert kb (list 'genlArg partType 1 machine_t) 'CxUniverse)
+     (is (= :arg-genl (ex-type #(v/assert kb (list partType vehicle_t Rex) 'CxUniverse)))
+         "a kind outside the constraint's down-closure")
+     (is (= :arg-genl (ex-type #(v/assert kb (list subPartType vehicle_t Rex) 'CxUniverse)))
+         "and the same kind under the sub-predicate"))))
 
 (tu/deftest-kb interArg-descends-by-riding-the-same-reader
-  (tu/with-terms [carnivore meat plant eats gnawsOn Rex Chunk]
-    (a-type kb carnivore 'CxUniverse)
-    (a-type kb meat 'CxUniverse)
-    (a-type kb plant 'CxUniverse)
-    (v/assert kb (list 'genl gnawsOn eats) 'CxUniverse)
-    (v/assert kb (list 'interArg eats 1 carnivore 2 meat) 'CxUniverse)
-    (v/assert kb (list carnivore Rex) 'CxUniverse)
-    (v/assert kb (list plant Chunk) 'CxUniverse)
-    (is (= :inter-arg-type (ex-type #(v/assert kb (list eats Rex Chunk) 'CxUniverse))))
-    (is (= :inter-arg-type (ex-type #(v/assert kb (list gnawsOn Rex Chunk) 'CxUniverse))))
-    (testing "and the trigger still has to be established under either spelling"
-      (tu/with-terms [Nobody]
-        (is (v/assert kb (list gnawsOn Nobody Chunk) 'CxUniverse)
-            "an untyped eater leaves the conditional dormant")))))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   (tu/with-terms [carnivore meat plant eats gnawsOn Rex Chunk]
+     (a-type kb carnivore 'CxUniverse)
+     (a-type kb meat 'CxUniverse)
+     (a-type kb plant 'CxUniverse)
+     (v/assert kb (list 'genl gnawsOn eats) 'CxUniverse)
+     (v/assert kb (list 'interArg eats 1 carnivore 2 meat) 'CxUniverse)
+     (v/assert kb (list carnivore Rex) 'CxUniverse)
+     (v/assert kb (list plant Chunk) 'CxUniverse)
+     (is (= :inter-arg-type (ex-type #(v/assert kb (list eats Rex Chunk) 'CxUniverse))))
+     (is (= :inter-arg-type (ex-type #(v/assert kb (list gnawsOn Rex Chunk) 'CxUniverse))))
+     (testing "and the trigger still has to be established under either spelling"
+       (tu/with-terms [Nobody]
+         (is (v/assert kb (list gnawsOn Nobody Chunk) 'CxUniverse)
+             "an untyped eater leaves the conditional dormant"))))))
 
 ;; ---- entry point parity: the entailment ---------------------------------------
 

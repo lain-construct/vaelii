@@ -257,10 +257,11 @@ and the same exemption at the two taxonomy edge triggers).
 
 ### Evaluated in the placement context, not the join
 
-The question is asked at the placement context when the firing is made, and again at every
-reader below it; a reader at which it holds reads the firing as withdrawn (decision 4 of
-[reference.md](reference.md#decisions)). The placement keeps its block, and the reading
-below never revives a firing the placement blocks.
+The question is asked at the placement context when the firing is made. Where it holds
+only below the placement, the firing places a guard defeat there, and a reader at or below
+it does not believe the conclusion through that firing (decision 4 of
+[reference.md](reference.md#decisions)). The placement keeps its block, and a reader below
+never revives a firing the placement blocks.
 
 An `unknown` antecedent is **not** a join filter. Forward chaining *skips* it in the
 join (it binds nothing and names no fact) and checks it at **derive time, per
@@ -272,33 +273,60 @@ is the backward analogue of the placement context. Both read the identical level
 judgement (`chain/unknown-inner-holds?` → `provers/exception-holds?` over the query's
 conjuncts), so the two can never drift.
 
-**A reader below the placement asks again.** `res/withdrawal` at a reader R reads the
-guarded firings placed in a context R sees other than R itself
-(`chain/guard-withdrawals`), and each one whose `unknown` query or `exceptWhen` holds at R
-is read at R as a blocked justification is: `jtms/grounded-in-region` takes it as invalid,
-so its conclusion is withdrawn from R unless another justification holds it, and what rests
-only on the conclusion goes with it. The rule stays whatever the placement decided. With
-`(pp ?x) & (unknown (qq ?x)) => (rr ?x)` and `(pp Zed)` in CxA, and `(qq Zed)` in CxB below
-it, CxA believes `(rr Zed)` and CxB does not.
+**A guard below the placement places a defeat.** When a firing's `unknown` query or
+`exceptWhen` holds at a context below its placement and not at the placement, the firing
+stores `(defeat (sentexHandle F))`, F its conclusion, at each context a firing over the
+handles the query matched is placed at (`chain/place-guard-defeats!`): the maximal contexts
+that see the placement, those handles and the `genl` edges the match climbed, where no
+except hides one of the handles (`chain/placements-over`, which reads no defeat). Its
+justification, under informant `guard`, names those handles, the `exceptWhen`'s own handle,
+the firing's rule and antecedents, F, and the `genl` and `genlCx` edges the context sees
+them over. The blocker is found by the forward join over the query's conjuncts
+(`chain/solve-rule`), so a conjunct a prover answers from stored facts names the facts it
+read, as a firing's antecedent does: a `genl` conjunct the closure answers names the edges
+of one path, and a conjunct on a `(transitive P)` predicate names the hops of its walk. A
+prover answer that names no stored fact places no defeat. An inner `unknown` binds nothing
+and is decided at the placed context, so a context the reader does not see moves no
+defeat. The condition is checked at the placed
+context in the network and through the excepts, with no defeat read
+(`tax/*network-belief*`): a blocker a defeat hides there still places the defeat, which
+rests on it, and the walk reads the two defeats together
+([nmtms.md](nmtms.md#a-defeat-dependency-cycle)). The firing is examined when it is made and whenever the re-check index re-decides
+it, so a blocker arriving or leaving, an `exceptWhen` arriving, a `genl` or `genlCx` edge
+moving, or an except of a blocker arriving or leaving places or drops its defeat. A
+retracted or defeated blocker or climbed edge takes the defeat's justification OUT, or out
+of force at a reader that does not believe or see it. With `(pp ?x) & (unknown (qq ?x)) => (rr ?x)` and
+`(pp Zed)` in CxA, and `(qq Zed)` in CxB below it, the defeat is stored in CxB: CxA
+believes `(rr Zed)` and CxB does not.
 
-The firings a reader asks are found from the query, not from the rule's extent. The query
-is solved at R with the rule's variables open (`provers/condition-solutions`), and each
-binding names the conclusions it can block by instantiating the consequent, matched in the
-contexts R sees. A reader that sees no blocker asks no firing, whatever the rule's extent;
-`lein perf`'s `guarded-firings-read-below` holds that read flat in the firings. A query an
-open solve cannot enumerate (a nested `unknown`, `forall`, aggregate or computed conjunct)
-or a consequent a match cannot name (`ist`, a rule) asks every firing placed above R. The
-query reads R's view with R's other withdrawals applied, in rounds, so a guard reads a
-firing of a lower stratum that R withdraws (`res/guard-reading`).
+**An except or a defeat that takes a blocker's defeat out of force is a supporter.** A
+blocker a placed defeat hides at the firing's placement is believed at a reader whose
+excepts or defeats take that defeat out of force: an except of a handle in the defeat's
+support can lower a member's class, or hide a member, a ground or the defeat, and a defeat
+of a `:default` ground in that support hides the ground. Each such except or defeat
+(`chain/blocker-support-hiders`: the defeats naming a blocker, their support past
+premises, and the excepts and other defeats naming a handle in it) places the guard defeat
+as one more supporter beside the blocker handles, and the defeat's justification names it.
+A context that sees a placement made without it takes none. With W `:monotonic` through X
+and `:default` through Y, its nogood's loser L and the guarded firing F in CxD, and
+`(except X)` in CxR below, the nogood is a dilemma at CxR, L is believed there, and the
+guard defeat is stored in CxR. Retracting the except takes the defeat OUT. With the
+nogood's loser defeated through a `:default` `(genl poodle dog)` in CxD and `(not (genl
+poodle dog))` `:monotonic` in CxR, the negation pair's defeat hides the edge at CxR, and
+the guard defeat is stored in CxR resting on it.
 
-The answer is kept in the reader's withdrawal cache entry with the guarded rules it asked.
-A fact moving on a predicate one of them watches, a firing of one arriving or leaving, and a
-re-check queued for one (`special/mark-recheck`) drop the entry
-([nmtms.md](nmtms.md#the-withdrawal-cache)).
+**A guard defeat removes one firing, not the sentence.** A justification `j` of F is
+covered at a reader R when a justification of a guard defeat of F that is in force at R,
+with every antecedent but F believed and seen there, names `j`'s rule and every antecedent
+of `j`. The read walk (`exc/defeat-hidden-fn`) drops the covered justifications from its
+fixpoint, so F stays believed at R through a premise or a second justification no guard
+blocks there. A guard defeat reads F at its label (the exemption a placed nogood's own
+`defeat` takes), so it does not hide itself. `chain` reads no defeat.
 
 The other direction is absent: a blocker the placement context sees and a reader below it
 withdraws leaves the rule blocked, so that reader lacks the conclusion the question asked at
-it would give.
+it would give. A guard defeat is placed the same way: at a reader below its placement where
+an inner `unknown` of the condition fails, it stays in force.
 
 ### Standalone positive `thereExists` desugars
 
@@ -435,16 +463,13 @@ leaves. This is the `exceptWhen` block/sweep/revive path, reused verbatim:
   visible by the time it returns.
 - A **defeat** releases too, with nothing stored or removed: a monotonic `(not (happy
   Zed))` arriving after a firing was blocked and swept defeats the default `(happy Zed)`,
-  so `(unknown (happy Zed))` holds again. The swept firing left no blocked justification
-  and no refusal record to re-ask, so the settle pass that newly defeats a datum re-chains
-  every rule watching its predicate (`readings/released-by-defeat`, keyed as
-  `special/rules-watching` keys an arrival). A defeat the previous settle already applied
-  re-chains nothing. A reader's verdict on an inherited clash moves belief with no relabel
-  at all, so the pass that finds a member taken OUT or given back at a vantage
-  (`discovery/inherited-losers` against the pass before) posts the member's sentence to the
-  re-check queue as its arrival would be and re-chains the rules watching it
-  (`readings/released-by-verdicts`); an `unknown` or `exceptWhen` read at the placement
-  context reads that context's verdicts.
+  so `(unknown (happy Zed))` holds again. The sweep recorded the firing in the refusal
+  record (`chain/record-swept-firing!`), and the settle pass that newly places a defeat
+  posts its target's sentence and the sentences of what rests on it, as an arrival posts
+  them (`settle/post-defeat-moves!`), so the queued sentence releases the firing from its
+  bindings. A defeat the previous settle already applied posts nothing. A placed inherited `defeat` posts its target's re-check as every placed
+  defeat does; an `unknown` or `exceptWhen` read at the placement context reads that
+  context's belief.
 
 The settle-time firing filter (`firing-reachable?`) shapes the exception's conjuncts
 and the `unknown` antecedents' inner queries the same way: a ground inner narrows
@@ -576,7 +601,9 @@ implementations.
   `UnknownProver`, `ThereExistsProver` and `exception-holds?` alike, so the goal, the
   antecedent and the exception cannot drift about what a conjunction means.
 - **Forward chaining**: `unknown` skipped in the join and blocked at derive time per
-  placement context (`naf-blocks?`), alongside the exception.
+  placement context (`naf-blocks?`), alongside the exception; where the query holds only
+  below the placement, the firing places a guard `defeat` there
+  (`chain/place-guard-defeats!`).
 - **Belief maintenance**: `justification-excepted?` blocks on a NAF antecedent too;
   `index-rule-sentex` / `disintegrate-sentex!` post the NAF predicates in the re-check
   index (`rules/recheck-predicates`); `settle` narrows NAF firings the same way it

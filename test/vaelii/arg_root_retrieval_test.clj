@@ -6,8 +6,9 @@
   The trie narrows only left to right, so a pattern whose first argument is a
   variable but a later argument is ground — `(parentOf ?x Tom)` — forces a full
   fan-out.  `res/*arg-root-retrieval*` lets `match-one` answer that from the
-  predicate-scoped argument root (`[:argument-root pred pos term]`) instead, with a
-  single set read.  The claim is
+  predicate-scoped argument root instead: the node `[:argument-root :children [pred pos
+  term]]` and the leaf `[:argument-root :handles [pred pos term ctx]]` of each context it
+  keeps.  The claim is
   that this changes only *how* candidates are fetched, never *which* sentexes match:
   the root returns a superset of the trie's hits and the existing `unify` filters it
   to the same set.
@@ -26,10 +27,7 @@
   the equality below means something."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
-            [vaelii.impl.naming :as nm]
-            [vaelii.impl.protocols :as p]
             [vaelii.impl.resolution :as res]
-            [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
@@ -54,29 +52,6 @@
   [f]
   [(binding [res/*arg-root-retrieval* false] (proj (f)))
    (binding [res/*arg-root-retrieval* true]  (proj (f)))])
-
-(defn- fact-sentences
-  "Up to `n` distinct positive bodies of stored ground facts (no rules), sampled
-  *evenly* across the world's facts rather than the first `n` — the leading facts
-  cluster by predicate, so an even spread spans more functors and argument shapes for
-  the same cost.  The handles are sorted first: `sentex-ids` is a set in the store's own
-  order, so the same world gives the same sample on every backend.  `keep?` narrows the
-  facts before the spread is taken.  This is a trie-vs-arg-root equivalence oracle, so the
-  sample is a regression net over the fact space."
-  ([kb n] (fact-sentences kb n (constantly true)))
-  ([kb n keep?]
-   (let [all (->> (sort (p/sentex-ids (:records kb)))
-                  (keep #(p/get-sentex (:records kb) %))
-                  (remove #(some? (:antecedent %)))    ; drop rules
-                  (keep sx/body)
-                  (filter #(and (sequential? %) (symbol? (nm/functor %))))
-                  (filter keep?)
-                  distinct
-                  vec)
-         m   (count all)]
-     (if (<= m n)
-       all
-       (mapv #(nth all (quot (* % m) n)) (range n))))))
 
 (defn- var-patterns
   "For a ground fact `(pred a1 a2 …)`, a spread of query patterns that stress the
@@ -104,7 +79,7 @@
   ;; 80 sampled facts (each ~8 patterns) rather than the first 250: the exhaustive
   ;; sweep was ~11s for a per-pattern trie-vs-arg-root equality a spread already pins.
   (tu/with-kb [kb]
-    (let [pats (mapcat var-patterns (fact-sentences kb 80))]
+    (let [pats (mapcat var-patterns (tu/fact-sample kb 80))]
       (is (seq pats))
       (doseq [pat pats]
         (let [[off on] (both-ways #(res/match-pattern kb pat '?ctx))]
@@ -118,7 +93,7 @@
     ;; must not change the answer either
     (probed "matches-visible-arg-root-equals-trie"
             (for [ctx '[CxMantle CxNaturalWorld CxSocialWorld CxUniverse]
-                  pat (mapcat var-patterns (fact-sentences kb 48))]    ; sampled, not first 120
+                  pat (mapcat var-patterns (tu/fact-sample kb 48))]    ; sampled, not first 120
               (let [[off on :as both] (both-ways #(res/matches-visible kb pat ctx))]
                 (is (= off on) (str "matches-visible diverged on " (pr-str pat) " @ " ctx))
                 both)))))
@@ -126,13 +101,9 @@
 (deftest a-sample-of-the-arg-root-oracle-runs-at-default
   ;; The two sweeps above are `^:slow`, so `lein gate` never runs this harness.  Four
   ;; facts' patterns through both comparisons keep it running at `:default`; the sweeps
-  ;; widen the sample to 80 and 48 facts.  The sample is drawn from binary facts only,
-  ;; so each fact yields the same nine patterns: the stored facts differ between the
-  ;; `assertive-off` sweep, which stores no argument-type mint, and every other
-  ;; configuration, and a sample of mixed arity would run a different number of
-  ;; assertions there.
+  ;; widen the sample to 80 and 48 facts.
   (tu/with-kb [kb]
-    (let [pats (mapcat var-patterns (fact-sentences kb 4 #(= 3 (count %))))]
+    (let [pats (mapcat var-patterns (tu/fact-sample kb 4))]
       (is (seq pats))
       (doseq [pat pats]
         (let [[off on] (both-ways #(res/match-pattern kb pat '?ctx))]
@@ -168,10 +139,10 @@
                 (is (= off on) (str "diverged on " (pr-str pat)))
                 both)))))
 
-;; the case the user asked about: knowing *more* terms.  A shared individual sits at
-;; the same argument position across several predicates, so a single argument root is
-;; loose; intersecting it with the functor root (and, for a ternary, a second argument
-;; root) must still return exactly what the trie does.
+;; Knowing *more* terms.  A shared individual sits at the same argument position across
+;; several predicates.  Each pattern reads its own predicate's argument-root node (for a
+;; ternary, the intersection of two such nodes), and the read must return exactly what
+;; the trie does.
 (tu/deftest-kb multi-column-narrowing
   (tu/with-terms [Shared P1 P2 P3 X Z Other parentRel sibRel marRel rel]
     ;; Shared appears at position 2 across three binary predicates ...
@@ -181,10 +152,10 @@
     ;; ... and in a ternary predicate with two ground arguments to intersect
     (v/assert kb (list rel X Shared Z) 'CxMantle {:strength :monotonic})
     (v/assert kb (list rel X Other  Z) 'CxMantle {:strength :monotonic})
-    (doseq [pat [(list parentRel (symbol "?x") Shared)   ; functor ∩ [2 Shared]
+    (doseq [pat [(list parentRel (symbol "?x") Shared)   ; [parentRel 2 Shared]
                  (list sibRel    (symbol "?x") Shared)
                  (list marRel    (symbol "?x") Shared)
-                 (list rel (symbol "?x") Shared Z)        ; functor ∩ [2 Shared] ∩ [3 Z]
+                 (list rel (symbol "?x") Shared Z)        ; [rel 2 Shared] ∩ [rel 3 Z]
                  (list rel (symbol "?x") (symbol "?y") Z)
                  (list rel X (symbol "?y") Z)]]           ; leading value + later ground
       (let [[off on] (both-ways #(res/match-pattern kb pat '?ctx))]
@@ -207,10 +178,10 @@
               (binding [res/*arg-root-retrieval* flag]
                 (set (map :sentence (v/sentexes-matching kb goal ctx)))))]
       (doseq [ctx  (list 'CxMantle '?ctx)                 ; concrete and wildcard context
-              goal [(list parentRel (symbol "?x") Shared)      ; functor ∩ [2 Shared]
+              goal [(list parentRel (symbol "?x") Shared)      ; [parentRel 2 Shared]
                     (list sibRel    (symbol "?x") Shared)
                     (list marRel    (symbol "?x") Shared)
-                    (list rel (symbol "?x") Shared Z)           ; functor ∩ [2 Shared] ∩ [3 Z]
+                    (list rel (symbol "?x") Shared Z)           ; [rel 2 Shared] ∩ [rel 3 Z]
                     (list rel (symbol "?x") (symbol "?y") Z)]]  ; a value past the leading vars
         (let [off (q goal ctx false)
               on  (q goal ctx true)]

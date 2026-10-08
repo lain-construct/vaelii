@@ -61,7 +61,37 @@
             (run! #(v/retract! kb %) (rseq hs))
             r))))
 
-;;; ── irreflexive: a self tuple is a one-member nogood the reader decides ───────
+;;; ── irreflexive: a self tuple is a one-member nogood ─────────────────────────
+
+(defn- placed
+  "The stored `contradicts` and `defeat` sentexes, each as `[sentence context]` with its
+  `sentexHandle` arguments resolved."
+  [kb]
+  (into #{} (for [f '[contradicts defeat]
+                  s (v/sentexes-with-functor kb f)]
+              (tu/handle-free kb [(:sentence s) (:context s)]))))
+
+(tu/deftest-kb a-self-tuple-under-a-descended-mark-is-placed-and-no-reader-decides-it
+  ;;   CxUniverse  (irreflexive before)
+  ;;     └─ CxS    (genl beforeStrict before)  (beforeStrict Alice Alice) default
+  (tu/with-terms [before beforeStrict Alice CxS]
+    (v/assert kb (list 'genlCx CxS U) U)
+    (let [mark (v/assert kb (list 'irreflexive before) U)
+          edge (v/assert kb (list 'genl beforeStrict before) CxS)
+          self (v/assert kb (list beforeStrict Alice Alice) CxS)
+          L    [(list beforeStrict Alice Alice) CxS]]
+      (testing "the contradicts and the defeat of the self tuple are stored at CxS"
+        (is (= #{[(list 'contradicts L) CxS] [(list 'defeat L) CxS]} (placed kb))))
+      (testing "the mark and the predicate edge the reading climbed are grounds"
+        (let [[c] (v/sentexes-with-functor kb 'contradicts)]
+          (is (every? (set (mapcat :antecedents (v/supporting-justifications kb (:id c))))
+                      [self mark edge]))))
+      (testing "no reader decides the self tuple, and the defeat hides it at CxS"
+        (is (false? (v/believed? kb self CxS))))
+      (testing "retracting the edge takes the placed sentexes out"
+        (v/retract! kb edge)
+        (is (empty? (placed kb)))
+        (is (true? (v/believed? kb self CxS)))))))
 
 (tu/deftest-kb an-irreflexive-mark-takes-a-default-self-tuple-out-in-either-order
   (tu/with-terms [before Alice Bob]
@@ -77,6 +107,23 @@
     (testing "an ordinary non-self tuple of the same predicate is believed"
       (v/assert kb (list before Alice Bob) U)
       (is (believed-at? kb (list before Alice Bob) U)))))
+
+(tu/deftest-kb a-mark-stated-beside-its-excepted-derivation-convicts-at-the-excepting-reader
+  ;;   CxUniverse  (injection ageRel) monotonic, from which CxCore derives (functional ageRel)
+  ;;     └─ CxHid  (ageRel Tom 1) default  (ageRel Tom 2) monotonic  (except (injection ageRel))
+  ;; CxHid reads no mark while the derivation alone states it.  The mark stated as well
+  ;; convicts the pair there, and the placement reads the network: the default filler its
+  ;; own defeat hides at CxHid is no reason to move the placement.
+  (tu/with-terms [ageRel Tom CxHid]
+    (v/assert kb (list 'genlCx CxHid U) U)
+    (let [M   {:strength :monotonic}
+          inj (v/assert kb (list 'injection ageRel) U M)
+          los (v/assert kb (list ageRel Tom 1) CxHid)]
+      (v/assert kb (list ageRel Tom 2) CxHid M)
+      (v/assert kb (list 'except (list 'sentexHandle inj)) CxHid M)
+      (is (true? (v/believed? kb los CxHid)) "the excepted derivation states no mark at CxHid")
+      (v/assert kb (list 'functional ageRel) U M)
+      (is (false? (v/believed? kb los CxHid)) "the stated mark convicts the pair at CxHid"))))
 
 (tu/deftest-kb a-monotonic-self-tuple-under-an-irreflexive-mark-is-a-conflict-in-either-order
   (tu/with-terms [before Alice]

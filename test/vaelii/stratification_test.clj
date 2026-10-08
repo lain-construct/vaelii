@@ -127,7 +127,7 @@
 
 (tu/deftest-kb a-cycle-that-runs-through-a-negated-antecedent-is-refused
   ;; The antecedent index keys a negation by its body's predicate (`[:not flies]`) and
-  ;; a *conclusion* is keyed by its functor root (`not`), so the dependency has to be
+  ;; a *conclusion* is keyed by its outermost functor (`not`), so the dependency has to be
   ;; looked up under the spelling the concluders are filed by
   ;; (`rules/dependency-predicates`) or the edge "reads (not (flies …))" ->
   ;; "concludes (not (flies …))" is a lookup in an empty bucket and the cycle is

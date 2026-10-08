@@ -28,7 +28,8 @@
   (:require [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]]))
+            [clojure.test :refer [deftest is testing]]
+            [vaelii.test-util :as tu]))
 
 (def ^:private roster
   "Every test namespace whose bodies gate on `solver/available?` — or, for
@@ -68,6 +69,7 @@
               (filter #(re-find gate (slurp %)))
               (map (fn [^java.io.File f]
                      (-> (.getPath f)
+                         (str/replace \\ \/)
                          (str/replace #"^test/" "")
                          (str/replace #"\.clj$" "")
                          (str/replace "/" ".")
@@ -92,7 +94,7 @@
     (let [script (io/file "scripts/asp-namespaces.sh")]
       (is (.exists script) "the asp job reads this script to pick its namespaces")
       (when (.exists script)
-        (let [{:keys [exit out]} (shell/sh "bash" (.getPath script))]
+        (let [{:keys [exit out]} (shell/sh tu/bash "scripts/asp-namespaces.sh")]
           (is (zero? exit))
           (is (= roster
                  (into #{} (map symbol) (remove str/blank? (str/split-lines out))))))))))

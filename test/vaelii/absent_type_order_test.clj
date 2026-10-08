@@ -288,10 +288,14 @@
           (a-type kb animal CxTheory)
           (a-type kb poodleKind CxTheory)
           (v/assert kb (list 'arg ownsPet 2 animal) CxTheory)
-          (let [rh (v/assert kb rule CxWorld)]
-            (v/assert kb (list poodleKind Rex) CxWorld)
-            (v/assert kb (list petOf Rex Ann) CxWorld)
-            (step :conviction-recorded)
+          ;; the conviction under the constraint-only reading, the one that convicts a
+          ;; symbol; the mint and the releases under the entailing one
+          (let [rh (tu/without-entailing
+                    (let [rh (v/assert kb rule CxWorld)]
+                      (v/assert kb (list poodleKind Rex) CxWorld)
+                      (v/assert kb (list petOf Rex Ann) CxWorld)
+                      (step :conviction-recorded)
+                      rh))]
             (v/assert kb (list usesTool Bob Widget) CxWorld)
             (let [dh (v/assert kb (list 'arg usesTool 2 gadgetKind) CxWorld)]
               (step :mint-recorded)

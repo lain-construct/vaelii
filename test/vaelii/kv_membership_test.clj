@@ -56,16 +56,16 @@
 ;; a type error there and not an interesting disagreement.  The label families hold tokens
 ;; and names and take anything.
 (def ^:private handle-keys
-  (vec (concat (for [p '[p0 p1 p2]] [:functor-root p])
+  (vec (concat (for [p '[p0 p1 p2]] [:predicate-extent :handles [p 'C0]])
                (for [c '[C0 C1]]    [:context-root c])
                (for [t '[A0 A1]]    [:term-index t])
-               [[:argument-root 'p0 1 'A0]
-                [:rule-index :antecedent 'p0]
-                [:rule-index :consequent 'p2]
+               [[:argument-root :handles '[p0 1 A0 C0]]
+                [:rule-antecedent :handles '[p0 C0]]
+                [:rule-consequent :handles '[p2 C0]]
                 [:exception-index 'flies]
                 [:exception-index :rules]        ; the roster the gate probes
                 [:trie :handles '[p0 A0]]
-                [:functor-root 'never-written]])))
+                [:predicate-extent :handles '[never-written C0]]])))
 
 (def ^:private label-keys
   (vec (concat (for [p '[p0 p1]] [:trie :children [p]])
@@ -104,9 +104,9 @@
   (probe-agrees b label handle-keys handle-probes)
   (probe-agrees b label label-keys  label-probes)
   (testing (str label ": an emptied key holds nothing")
-    (doseq [m (p/kv-members b [:functor-root 'p0])]
-      (p/kv-remove-from-set b [:functor-root 'p0] m))
-    (is (not (p/kv-member? b [:functor-root 'p0] 1))))
+    (doseq [m (p/kv-members b [:context-root 'p0])]
+      (p/kv-remove-from-set b [:context-root 'p0] m))
+    (is (not (p/kv-member? b [:context-root 'p0] 1))))
   (testing (str label ": and a cleared store holds nothing")
     (p/kv-clear! b)
     (probe-agrees b label handle-keys [0 1 199])))
@@ -124,9 +124,9 @@
     (check-probe b "dense")
     (p/kv-clear! b)
     (testing "past the int[] → RoaringBitmap promotion, where the probe switches structure"
-      (dotimes [i (* 4 postings/promote)] (p/kv-add-to-set b [:functor-root 'hot] (* 2 i)))
-      (is (> (p/kv-count b [:functor-root 'hot]) postings/promote) "the posting is a bitmap")
-      (probe-agrees b "dense/roaring" [[:functor-root 'hot]]
+      (dotimes [i (* 4 postings/promote)] (p/kv-add-to-set b [:context-root 'hot] (* 2 i)))
+      (is (> (p/kv-count b [:context-root 'hot]) postings/promote) "the posting is a bitmap")
+      (probe-agrees b "dense/roaring" [[:context-root 'hot]]
                     (vec (range 0 (* 8 postings/promote) 7))))
     (p/kv-clear! b)))
 
@@ -169,37 +169,37 @@
                       (p/kv-members ov (removed-key k))))))
 
 (def ^:private base-content
-  '{[:functor-root untouched]  #{1 2 3}          ; inherited whole, never touched by the fork
-    [:functor-root extended]   #{10 11}          ; inherited and added to
-    [:functor-root partial]    #{20 21 22}       ; inherited, one member recorded as removed
-    [:functor-root emptied]    #{30 31}          ; inherited, every member removed
-    [:functor-root tombed]     #{40 41}          ; whole key deleted in the fork
-    [:functor-root readded]    #{50 51}          ; deleted, then repopulated fresh
-    [:functor-root roundtrip]  #{60 61}          ; a member removed and then put back
-    [:functor-root shareda]    #{1 20 40 60}     ; two keys that actually overlap, so an
-    [:functor-root sharedb]    #{20 40 99}       ;   intersection over them is not vacuous
+  '{[:context-root untouched]  #{1 2 3}          ; inherited whole, never touched by the fork
+    [:context-root extended]   #{10 11}          ; inherited and added to
+    [:context-root partial]    #{20 21 22}       ; inherited, one member recorded as removed
+    [:context-root emptied]    #{30 31}          ; inherited, every member removed
+    [:context-root tombed]     #{40 41}          ; whole key deleted in the fork
+    [:context-root readded]    #{50 51}          ; deleted, then repopulated fresh
+    [:context-root roundtrip]  #{60 61}          ; a member removed and then put back
+    [:context-root shareda]    #{1 20 40 60}     ; two keys that actually overlap, so an
+    [:context-root sharedb]    #{20 40 99}       ;   intersection over them is not vacuous
     [:exception-index :rules]  #{70 71}          ; the roster, edited across the protocol
     [:trie :children [p0]]     #{tok0 tok1}})    ; a non-handle family
 
 (def ^:private fork-keys
   (vec (concat (keys base-content)
-               '[[:functor-root forkonly]        ; the overlay's alone
-                 [:functor-root absent]])))      ; neither side ever held it
+               '[[:context-root forkonly]        ; the overlay's alone
+                 [:context-root absent]])))      ; neither side ever held it
 
 (defn- edit-fork!
   "One edit of every shape the merge rule distinguishes."
   [f]
-  (p/kv-add-to-set      f '[:functor-root extended] 12)
-  (p/kv-remove-from-set f '[:functor-root partial] 21)
-  (doseq [m [30 31]] (p/kv-remove-from-set f '[:functor-root emptied] m))
-  (p/kv-delete          f '[:functor-root tombed])
-  (p/kv-delete          f '[:functor-root readded])
-  (p/kv-add-to-set      f '[:functor-root readded] 55)
-  (p/kv-remove-from-set f '[:functor-root roundtrip] 60)
-  (p/kv-add-to-set      f '[:functor-root roundtrip] 60)   ; the removal record empties again
-  (p/kv-remove-from-set f '[:functor-root shareda] 20)     ; narrows the overlap to {40}
-  (p/kv-add-to-set      f '[:functor-root sharedb] 60)     ; and widens it back to {40 60}
-  (p/kv-add-to-set      f '[:functor-root forkonly] 80)
+  (p/kv-add-to-set      f '[:context-root extended] 12)
+  (p/kv-remove-from-set f '[:context-root partial] 21)
+  (doseq [m [30 31]] (p/kv-remove-from-set f '[:context-root emptied] m))
+  (p/kv-delete          f '[:context-root tombed])
+  (p/kv-delete          f '[:context-root readded])
+  (p/kv-add-to-set      f '[:context-root readded] 55)
+  (p/kv-remove-from-set f '[:context-root roundtrip] 60)
+  (p/kv-add-to-set      f '[:context-root roundtrip] 60)   ; the removal record empties again
+  (p/kv-remove-from-set f '[:context-root shareda] 20)     ; narrows the overlap to {40}
+  (p/kv-add-to-set      f '[:context-root sharedb] 60)     ; and widens it back to {40 60}
+  (p/kv-add-to-set      f '[:context-root forkonly] 80)
   (p/kv-remove-from-set f '[:exception-index :rules] 70)
   (p/kv-add-to-set      f '[:exception-index :rules] 72)
   (p/kv-add-to-set      f '[:trie :children [p0]] 'tok2)
@@ -214,16 +214,16 @@
   an overlay-only side, a key neither side holds — plus a cross-family pair whose members
   cannot even be the same *kind* of thing, a three-key fold, and the pair reversed, since
   the narrowing reorders by size and must not depend on the caller's order."
-  '[[[:functor-root shareda] [:functor-root sharedb]]
-    [[:functor-root shareda] [:functor-root sharedb] [:functor-root untouched]]
-    [[:functor-root sharedb] [:functor-root shareda]]
-    [[:functor-root shareda] [:functor-root roundtrip]]
-    [[:functor-root tombed] [:functor-root shareda]]
-    [[:functor-root forkonly] [:functor-root extended]]
-    [[:functor-root shareda] [:functor-root absent]]
-    [[:exception-index :rules] [:functor-root shareda]]
-    [[:trie :children [p0]] [:functor-root shareda]]
-    [[:functor-root shareda]]])
+  '[[[:context-root shareda] [:context-root sharedb]]
+    [[:context-root shareda] [:context-root sharedb] [:context-root untouched]]
+    [[:context-root sharedb] [:context-root shareda]]
+    [[:context-root shareda] [:context-root roundtrip]]
+    [[:context-root tombed] [:context-root shareda]]
+    [[:context-root forkonly] [:context-root extended]]
+    [[:context-root shareda] [:context-root absent]]
+    [[:exception-index :rules] [:context-root shareda]]
+    [[:trie :children [p0]] [:context-root shareda]]
+    [[:context-root shareda]]])
 
 (defn- check-intersections
   "`kv-intersect` on the fork against the same independent rule.  Its own check because a
@@ -264,7 +264,7 @@
     (testing (str label ": a wholesale clear hides the base without emptying it")
       (p/kv-clear! f)
       (check-merged f ov base label fork-keys)
-      (p/kv-add-to-set f '[:functor-root untouched] 7)      ; usable again, base still hidden
+      (p/kv-add-to-set f '[:context-root untouched] 7)      ; usable again, base still hidden
       (p/kv-add-to-set f '[:exception-index :rules] 73)
       (check-merged f ov base label fork-keys)
       (check-intersections f ov base label))
@@ -286,19 +286,19 @@
   ;; the merged answer is the base's own, member for member and count for count — including
   ;; the roster, which is what `exception-rule?` probes through the protocol.
   (let [raw  (doto (dense/dense-kv-backend {:space [::member-inherit]}) (p/kv-clear!))
-        _    (doseq [i (range 400)] (p/kv-add-to-set raw [:functor-root 'wide] i))
+        _    (doseq [i (range 400)] (p/kv-add-to-set raw [:context-root 'wide] i))
         _    (doseq [i (range 5)]   (p/kv-add-to-set raw [:exception-index :rules] i))
         ov   (doto (mem/memory-kv-backend {:space [::member-inherit-fork]}) (p/kv-clear!))
         base (frozen/frozen-kv raw)
         f    (okv/overlay-kv ov base)]
-    (is (= 400 (p/kv-count f [:functor-root 'wide])))
-    (is (= (p/kv-members raw [:functor-root 'wide]) (p/kv-members f [:functor-root 'wide])))
+    (is (= 400 (p/kv-count f [:context-root 'wide])))
+    (is (= (p/kv-members raw [:context-root 'wide]) (p/kv-members f [:context-root 'wide])))
     (is (p/kv-member? f [:exception-index :rules] 3))
     (is (not (p/kv-member? f [:exception-index :rules] 9)))
     (testing "and one write to the key does not change any of those answers"
-      (p/kv-add-to-set f [:functor-root 'wide] 1000)
-      (is (= 401 (p/kv-count f [:functor-root 'wide])))
-      (is (p/kv-member? f [:functor-root 'wide] 1000))
-      (is (p/kv-member? f [:functor-root 'wide] 399)))
+      (p/kv-add-to-set f [:context-root 'wide] 1000)
+      (is (= 401 (p/kv-count f [:context-root 'wide])))
+      (is (p/kv-member? f [:context-root 'wide] 1000))
+      (is (p/kv-member? f [:context-root 'wide] 399)))
     (p/kv-clear! ov)
     (p/kv-clear! raw)))

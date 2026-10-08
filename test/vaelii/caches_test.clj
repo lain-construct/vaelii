@@ -115,21 +115,20 @@
 
 ;; ---- whose numbers are whose --------------------------------------------
 
-(tu/deftest-kb the-literal-cache-counts-entries-per-kb-and-hits-per-process
+(tu/deftest-kb the-literal-cache-counts-entries-and-hits-per-kb
   (let [other (doto (v/open-kb tu/plain-memory-space) (tu/clear-kb!))
         lit   #(row % :literal-matches)]
     (try
       (v/clear-caches kb {:counters? true})
-      (is (= :kb      (:scope    (lit kb))))
-      (is (= :process (:counters (lit kb))))
+      (is (= :kb (:scope    (lit kb))))
+      (is (= :kb (:counters (lit kb))))
       (tu/with-terms [parentOf Tom Bob CxFarm]
         (v/assert other (list parentOf Tom Bob) CxFarm)
         (v/clear-caches other {:counters? true})
-        (dotimes [_ 2] (doall (v/prove other (list parentOf Tom '?y) CxFarm)))
-        (is (pos? (:hits (lit other))) "the second ask of one literal is served")
-        (is (= (:hits (lit other)) (:hits (lit kb)))
-            (str "the counters are the mechanism's, not the store's — so this KB reports "
-                 "the other KB's hits, which is exactly why the row says :process"))
+        (let [mine (:hits (lit kb))]
+          (dotimes [_ 2] (doall (v/prove other (list parentOf Tom '?y) CxFarm)))
+          (is (pos? (:hits (lit other))) "the second ask of one literal is served")
+          (is (= mine (:hits (lit kb))) "and this KB, asked nothing, counts none of it"))
         (is (zero? (:entries (lit kb)))
             "and the entries are not shared: this KB was asked nothing"))
       (finally (v/clear-caches other) (v/clear! other)))))
@@ -498,11 +497,8 @@
             "and nothing that was believed stopped being believed")))))
 
 (tu/deftest-kb a-clear-is-scoped-to-its-argument-and-the-counter-reset-is-asked-for
-  ;; The scope split is not only a rendering question. The literal cache's counters are
-  ;; the mechanism's and span every KB in the process, so zeroing them is *wider* than
-  ;; the KB a clear names — which is why a plain clear must not do it. Both halves are
-  ;; pinned here, in both directions: what a plain clear leaves alone, and what
-  ;; `:counters? true` then reaches.
+  ;; A plain clear zeroes no counter. `:counters? true` zeroes the process counters,
+  ;; which every KB reports, and this KB's own tallies, and no other KB's.
   (let [other (doto (v/open-kb tu/plain-memory-space) (tu/clear-kb!))
         lit   #(row % :literal-matches)]
     (try
@@ -518,9 +514,7 @@
             (is (not (contains? report :counters-reset))
                 "a clear that was not asked to reset counters does not report doing so"))
           (is (= rate (:hits (lit other)))
-              (str "clearing this KB left the other's rate alone — the counters are the "
-                   "mechanism's, so reaching them is wider than the argument and is asked "
-                   "for separately"))
+              "clearing this KB left the other's rate alone")
           (is (= held (:entries (lit other)))
               "and did not touch a single entry of the other KB's")
           (is (v/ask? other (list parentOf Tom Bob) CxFarm)
@@ -533,8 +527,10 @@
             (is (every? #(and (keyword? (:cache %)) (nat-int? (:hits %)))
                         (:counters-reset report))
                 "and what each of them held, so the measurement is not merely lost")
-            (is (zero? (:hits (lit other)))
-                "which is process-wide, exactly as the :counters column says")
+            (is (some #(= :R1 (:row %)) (:tallies-reset report))
+                "and this KB's own tallies, the literal cache's among them")
+            (is (zero? (:hits (lit kb))) "which are this KB's")
+            (is (= rate (:hits (lit other))) "and leave the other KB's alone")
             (is (= held (:entries (lit other)))
                 "while still costing the other KB no entry"))))
       (finally (v/clear-caches other) (v/clear! other)))))
@@ -551,10 +547,10 @@
   ;; caller has to be able to say which caches it would reach without naming one in prose
   ;; that would outlive it — which is how the page writes the warning above its button.
   (let [wide (->> (v/caches kb)
-                  (filter #(and (:clearable? %) (= :process (:counters %))))
+                  (filter #(= :process (:counters %)))
                   (map :cache)
                   set)]
-    (is (= #{:literal-matches} wide))))
+    (is (= #{:closure-neighbours} wide))))
 
 (tu/deftest-kb the-structural-caches-are-left-alone-and-the-page-can-say-which
   (let [rows  (v/caches kb)
@@ -575,8 +571,8 @@
   count, so adding one is a visible change in a diff and not merely a number that moved."
   #{:literal-matches :resident :stored-handles :closure-neighbours :closure-answers
     :pinned-values :justification-dedup :symbol-pool :compiled-algebras :relation-decode
-    :path-consistency :network-support :taxonomy-closures
-    :taxonomy-visibility :hot-records :rete-alpha :source-parses :preservation-crossing})
+    :path-consistency :network-support :taxonomy-closures :taxonomy-supporters
+    :hot-records :rete-alpha :source-parses :preservation-crossing})
 
 (def ^:private optional-roster
   "Caches registered by a namespace core does **not** load, so whether they are present
@@ -606,7 +602,10 @@
   "Limit-shaped constants in `src/` that bound something other than a cache, each with
   what it does bound.  Explicit rather than a pattern: a pattern excusing `*-budget*`
   would excuse the taxonomy's scoped memo, which is a cache bound and has a row."
-  {"min-limit"           (str "caches.clj — the floor `limit-of` never scales a bound "
+  {"retired-values-limit"     (str "caches.clj — the retired values one tally keeps while the "
+                                   "derived-state instrument runs, for comparing a miss's "
+                                   "recompute; instrument state, not a cache a read is served from")
+   "min-limit"           (str "caches.clj — the floor `limit-of` never scales a bound "
                               "below; a clamp on the tunable bound, not a cache of its own")
    "set-limit"           (str "caches.clj — the setter that pins one cache's bound; a "
                               "function, not a constant, and it writes a bound rather than "
@@ -638,12 +637,12 @@
    "wrap-body-limit"     "guard.clj — the HTTP request-body ceiling"
    "graph-side-budget"   "web.clj — how many expansions a term page's picture may spend"
    "matrix-node-limit"   "web.clj — how many nodes the network page will draw"
+   "graph-row-limit"     (str "web.clj — how many direct neighbours one node of a term "
+                              "page's picture may have and still have a row drawn; a "
+                              "per-read bound, nothing retained")
    "default-node-budget" (str "inference.clj — how many nodes the debugger's bounded "
                               "search-tree walk expands before it stops; a per-read "
                               "search bound, not a retained cache")
-   "tracked-limit"       (str "decide.clj — how many tuples of one shape the arity "
-                              "candidate index keeps the handles of before it marks the "
-                              "shape `:many`; storage the index needs, never evicted")
    "*exposure-instance-budget*" (str "taxonomy.clj — how many candidate instances one "
                                      "bounded arbitration or merge sweep enumerates")
    "regex-step-budget"   (str "core.clj — how many characters a `find-terms` regex may "
@@ -672,6 +671,7 @@
    "*symbol-pool-limit*"   :symbol-pool
    "generation-limit"      :symbol-pool
    "closure-memo-limit"    :taxonomy-closures
+   "supporter-cache-limit" :taxonomy-supporters
    "parse-memo-limit"      :source-parses
    "crossing-reads-limit"  :preservation-crossing})
 
@@ -735,4 +735,7 @@
       (is (<= (caches/lru-weight lru) 4)))
     (testing "a clear empties it"
       (caches/lru-clear! lru)
-      (is (= [0 0] [(caches/lru-size lru) (caches/lru-weight lru)])))))
+      (is (= [0 0] [(caches/lru-size lru) (caches/lru-weight lru)])))
+    (testing "its tally counts each read as a hit or a miss, and each entry evicted"
+      (is (= {:hits 2 :misses 2 :evicted 5}
+             (select-keys (caches/tally-map (:tally lru)) [:hits :misses :evicted]))))))

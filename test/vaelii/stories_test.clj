@@ -7,11 +7,24 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
+            [vaelii.impl.checks :as checks]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
 (use-fixtures :once (tu/loaded (fn [kb] (-> kb tu/load-starter! world/load-into))))
 (use-fixtures :each (tu/neutral))
+
+(defn- arg-derived
+  "The informants of the stored justifications of `sentence`, in any context.  The fixture
+  loads under the root reading, so an argument declaration in force derives the membership
+  as `arg` under the entailing reading and stores nothing under the constraint-only one."
+  [kb sentence]
+  (into #{} (comp (mapcat #(v/supporting-justifications kb (:id %))) (map :informant))
+        (v/sentexes-matching kb sentence '?ctx)))
+
+(defn- arg-derivation-expected
+  "What `arg-derived` answers for a membership an argument declaration types."
+  [] (if checks/*assertive-arg-types?* #{'arg} #{}))
 
 ;; ---- connected conjunctive antecedents in the starter -------------------
 
@@ -39,11 +52,13 @@
     (is (empty? (v/sentexes-matching kb '(owns Tom Engine1) 'CxNaturalWorld)))))
 
 (tu/deftest-kb joined-antecedents-infer-a-part-type
-  ;; partOf now carries arg (partOf 2 physical_object), so an untyped part is
-  ;; inferred to be a physical_object from how it is used.
-  (testing "Roof1 is never typed, but its physical_object-hood is inferable"
-    (is (empty? (v/sentexes-matching kb '(physical_object Roof1) '?ctx)))
-    (is (v/ask? kb '(physical_object Roof1)))))
+  ;; partOf carries (arg partOf 2 tangible), so an untyped part is a
+  ;; tangible from how it is used: the declaration, inherited from CxAbstract,
+  ;; derives the membership (docs/argtypes.md), and under the constraint-only reading
+  ;; the backward read answers it with nothing stored.
+  (testing "Roof1 is never typed, but its tangible-hood is derived from partOf"
+    (is (= (arg-derivation-expected) (arg-derived kb '(tangible Roof1))))
+    (is (v/ask? kb '(tangible Roof1)))))
 
 ;; ---- the stories --------------------------------------------------------
 
@@ -173,9 +188,11 @@
     (is (v/ask? kb '(afterEvent FoxGetsCheese Flatter1)))))
 
 (tu/deftest-kb a-role-is-inferred-from-a-schema-position-via-arg
-  (testing "CheeseFalls is never typed, yet its eventhood is inferred from causes' arg"
-    (is (empty? (v/sentexes-matching kb '(event CheeseFalls) '?ctx)))   ; not stored
-    (is (v/ask? kb '(event CheeseFalls))))                  ; but inferred
+  (testing "an untyped event's eventhood is derived from causes' arg"
+    (tu/with-terms [Spill]
+      (v/assert kb (list 'causes 'CrowSings Spill) 'CxFoxCrow)
+      (is (= (arg-derivation-expected) (arg-derived kb (list 'event Spill))))
+      (is (v/ask? kb (list 'event Spill) 'CxFoxCrow))))
   (testing "explicit types still compose through genl (an action is an event)"
     (is (v/isa? kb 'Flatter1 'event))                       ; action < event
     (is (v/isa? kb 'FoxF 'agent)))

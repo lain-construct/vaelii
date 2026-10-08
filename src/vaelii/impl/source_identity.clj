@@ -605,10 +605,11 @@
   :limit    (caches/limit-thunk :source-parses parse-memo-limit)
   :counters nil
   :note     (str "Each engine source file's classified and hashed top-level forms and its "
-                 "edges, keyed on the SHA-256 of its bytes, so the source identity parses "
-                 "only a file whose bytes it has not parsed before. Past the limit it is "
-                 "cleared wholesale.")
+                 "edges, keyed on the file's URL. An entry is read again when the file's "
+                 "modification time or length moves, and parsed again only when the "
+                 "SHA-256 of its bytes moves. Past the limit it is cleared wholesale.")
   :read     (fn [_] {:entries (count @parsed)})
+  :clear    (fn [_] (let [n (count @parsed)] (reset! parsed {}) n))
   :trim     (fn [_ target] (caches/trim-map! parsed target))})
 
 ;; ---- the walk over namespaces -----------------------------------------------
@@ -831,3 +832,15 @@
   ([opts]
    (let [v (identity-of opts)]
      (assoc v :definitions (count (:definitions v))))))
+
+(caches/register-derived
+ {:id :K6 :label "Source parses" :cache :source-parses :kind :cache :keyed-by :value
+  :reads [:source] :retired-by {:caches-cleared :W} :computed :read :imaged? false
+  :var #'parsed :value (fn [_] @parsed)
+  :note "by URL, re-read when the file's modification time or length moves"})
+
+(caches/register-derived
+ {:id :K7 :label "Last source identity" :kind :cache :keyed-by :value :reads [:source :K6]
+  :retired-by {} :computed :read :imaged? false :var #'last-identity
+  :value (fn [_] @last-identity)
+  :note "one slot keyed by the options and the file hashes"})

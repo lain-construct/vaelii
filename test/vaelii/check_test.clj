@@ -472,39 +472,41 @@
           (is (= [] (v/check-edit kb {:add [] :remove []}))))))))
 
 (deftest check-edit-judges-each-add-against-the-kb-as-it-stands
-  ;; Nothing is stored, so each add is judged against the KB *before the batch*, not
-  ;; against the KB the entries before it would have made.  That is the correct answer
-  ;; for a dry run, and it differs from the sequential reading in **both** directions —
-  ;; so both are pinned, because an assertion true under either reading says nothing
-  ;; about which one `check-edit` implements.
-  (tu/with-neutral-kb [kb kb-with-starter]
-    (testing "an add admissible only *after* an earlier one landed is still reported"
-      ;; sequentially the genl edge lands first and puts the kind under the constraint
-      ;; type; as it stands the kind reaches `thing` and not the constraint, which is
-      ;; the visible-evidence-in-the-wrong-place case genlArg convicts
-      (tu/with-terms [relOf a_kind an_animal Rex CxThe]
-        (v/assert kb (list 'genlCx CxThe 'CxCore) 'CxCore)
-        (v/assert kb (list 'genl an_animal 'thing) 'CxCore)
-        (v/assert kb (list 'genl a_kind 'thing) 'CxCore)
-        (v/assert kb (list 'genlArg relOf 1 an_animal) 'CxCore)
-        (let [ps (v/check-edit kb {:add [[(list 'genl a_kind an_animal) CxThe]
-                                         [(list relOf a_kind Rex) CxThe]]})]
-          (is (= [{:in :add :index 1 :type :arg-genl}]
-                 (mapv #(select-keys % [:in :index :type]) ps))
-              "the second add was judged against a KB the first had already changed"))))
-    (testing "and an add the KB as it stands admits is *not* reported for what an
+  ;; the constraint-only reading: the second add is a genlArg refusal there
+  (tu/without-entailing
+   ;; Nothing is stored, so each add is judged against the KB *before the batch*, not
+   ;; against the KB the entries before it would have made.  That is the correct answer
+   ;; for a dry run, and it differs from the sequential reading in **both** directions —
+   ;; so both are pinned, because an assertion true under either reading says nothing
+   ;; about which one `check-edit` implements.
+   (tu/with-neutral-kb [kb kb-with-starter]
+     (testing "an add admissible only *after* an earlier one landed is still reported"
+       ;; sequentially the genl edge lands first and puts the kind under the constraint
+       ;; type; as it stands the kind reaches `thing` and not the constraint, which is
+       ;; the visible-evidence-in-the-wrong-place case genlArg convicts
+       (tu/with-terms [relOf a_kind an_animal Rex CxThe]
+         (v/assert kb (list 'genlCx CxThe 'CxCore) 'CxCore)
+         (v/assert kb (list 'genl an_animal 'thing) 'CxCore)
+         (v/assert kb (list 'genl a_kind 'thing) 'CxCore)
+         (v/assert kb (list 'genlArg relOf 1 an_animal) 'CxCore)
+         (let [ps (v/check-edit kb {:add [[(list 'genl a_kind an_animal) CxThe]
+                                          [(list relOf a_kind Rex) CxThe]]})]
+           (is (= [{:in :add :index 1 :type :arg-genl}]
+                  (mapv #(select-keys % [:in :index :type]) ps))
+               "the second add was judged against a KB the first had already changed"))))
+     (testing "and an add the KB as it stands admits is *not* reported for what an
               earlier one would have forbidden"
-      ;; the mirror: sequentially the declaration binds the fact after it and the arity
-      ;; check refuses; as it stands nothing is declared and open world admits it
-      (tu/with-terms [pOf Thing CxThe]
-        (let [ps (v/check-edit kb {:add [[(list 'binary_predicate pOf) CxThe]
-                                         [(list pOf Thing) CxThe]]})]
-          (is (= [] ps)
-              "the declaration in the same batch was give the impression that it had landed"))))
-    (testing "and the open-world floor still holds: an untyped argument violates nothing"
-      (tu/with-terms [newPred Thing CxThe]
-        (is (= [] (v/check-edit kb {:add [[(list 'arg newPred 1 'animal) CxThe]
-                                          [(list newPred Thing) CxThe]]})))))))
+       ;; the mirror: sequentially the declaration binds the fact after it and the arity
+       ;; check refuses; as it stands nothing is declared and open world admits it
+       (tu/with-terms [pOf Thing CxThe]
+         (let [ps (v/check-edit kb {:add [[(list 'binary_predicate pOf) CxThe]
+                                          [(list pOf Thing) CxThe]]})]
+           (is (= [] ps)
+               "the declaration in the same batch was give the impression that it had landed"))))
+     (testing "and the open-world floor still holds: an untyped argument violates nothing"
+       (tu/with-terms [newPred Thing CxThe]
+         (is (= [] (v/check-edit kb {:add [[(list 'arg newPred 1 'animal) CxThe]
+                                           [(list newPred Thing) CxThe]]}))))))))
 
 ;; ---- which declaration a violation names: content, not arrival ----------
 
@@ -512,26 +514,29 @@
   ;; two visible arg declarations convict the same sentence, one per argument;
   ;; the single reported violation must name the content-sort winner in every
   ;; assertion order — `res/matches-visible` promises the answer *set*, so
-  ;; enumeration order may not pick the declaration a refusal is about
+  ;; enumeration order may not pick the declaration a refusal is about.  Pinned to the
+  ;; constraint-only reading: under the entailing one a declaration derives its type of a
+  ;; symbol argument and convicts nothing, so there is no violation to name
   (doseq [flip? [false true]]
-    (tu/with-neutral-kb [kb kb-with-starter]
-      (tu/with-terms [relOf t_first t_second t_plain Muffet Alice CxThe]
-        (v/assert kb (list 'genlCx CxThe 'CxCore) 'CxCore)
-        (doseq [t [t_first t_second t_plain]]
-          (v/assert kb (list 'genl t 'thing) 'CxCore))
-        (let [d1     (list 'arg relOf 1 t_first)
-              d2     (list 'arg relOf 2 t_second)
-              winner (first (sort-by pr-str [d1 d2]))]
-          (doseq [d (if flip? [d2 d1] [d1 d2])]
-            (v/assert kb d 'CxCore))
-          (v/assert kb (list t_plain Muffet) CxThe)
-          (v/assert kb (list t_plain Alice) CxThe)
-          (let [ps (v/check kb (list relOf Muffet Alice) CxThe)
-                p  (first (filter #(= :arg-type (:type %)) ps))]
-            (testing (str "assertion order " (if flip? "second first" "first second"))
-              (is (some? p) "both declarations convict, so a violation is reported")
-              (is (= (nth winner 2) (:position p)))
-              (is (= (nth winner 3) (:expected p))))))))))
+    (tu/without-entailing
+     (tu/with-neutral-kb [kb kb-with-starter]
+       (tu/with-terms [relOf t_first t_second t_plain Muffet Alice CxThe]
+         (v/assert kb (list 'genlCx CxThe 'CxCore) 'CxCore)
+         (doseq [t [t_first t_second t_plain]]
+           (v/assert kb (list 'genl t 'thing) 'CxCore))
+         (let [d1     (list 'arg relOf 1 t_first)
+               d2     (list 'arg relOf 2 t_second)
+               winner (first (sort-by pr-str [d1 d2]))]
+           (doseq [d (if flip? [d2 d1] [d1 d2])]
+             (v/assert kb d 'CxCore))
+           (v/assert kb (list t_plain Muffet) CxThe)
+           (v/assert kb (list t_plain Alice) CxThe)
+           (let [ps (v/check kb (list relOf Muffet Alice) CxThe)
+                 p  (first (filter #(= :arg-type (:type %)) ps))]
+             (testing (str "assertion order " (if flip? "second first" "first second"))
+               (is (some? p) "both declarations convict, so a violation is reported")
+               (is (= (nth winner 2) (:position p)))
+               (is (= (nth winner 3) (:expected p)))))))))))
 
 ;; ---- an imperative is an instruction, so there is no verdict to predict ---
 

@@ -123,19 +123,19 @@
       (is (re-find #"<input checked=\"checked\"[^>]*class=\"tree-tog\"" body))
       (is (re-find #"<a[^>]*href=\"/term\?q=thing\"" body)))
     (testing "a node with subtypes is a disclosure that fetches its own children"
-      ;; `formula` is a direct subtype of `thing`, so it is on the first level, and it has
-      ;; `atomic_formula` under it, so it is a node with children rather than a leaf.  It
+      ;; `acausal` is a direct subtype of `thing`, so it is on the first level, and it has
+      ;; `acausal_event` under it, so it is a node with children rather than a leaf.  It
       ;; also sorts early: the first level is paged at 50, and a node late in the
       ;; alphabet falls off that page whenever the vocabulary grows a direct subtype —
       ;; which `VAELII_ASSERTIVE_ARG_TYPES=1` does by minting one per declared type
-      (is (re-find #"<input[^>]*hx-get=\"/tree/rows\?rel=genl&amp;node=formula" body)))
+      (is (re-find #"<input[^>]*hx-get=\"/tree/rows\?rel=genl&amp;node=acausal&amp;" body)))
     (testing "and it selects nothing out of what it fetches"
       ;; `hx-select="#main"` is on the body and inherited; against a fragment of bare
       ;; rows it selects nothing, so an open would swap in nothing.  This is invisible
       ;; to a handler test — the swap is the client's — so the attribute is the assertion
       (is (re-find #"<input[^>]*hx-select=\"unset\"[^>]*hx-get=\"/tree/rows|<input[^>]*hx-get=\"/tree/rows[^>]*hx-select=\"unset\"" body)))
     (testing "and what is below it is not in the page until it is opened"
-      ;; `animal` is under `physical_object` and `bird` under that — the eager tree
+      ;; `animal` is under `tangible` and `bird` under that — the eager tree
       ;; rendered the whole hierarchy, this one renders one level and a placeholder
       (is (not (re-find #"href=\"/term\?q=bird\"" body)))
       (is (re-find #"tree-kids" body) "the placeholder a fetch will replace"))))
@@ -151,13 +151,13 @@
 
 (deftest tree-rows-answers-one-node-and-checks-its-relation
   (testing "a node's children come back as bare rows"
-    (let [r (GET "/tree/rows" "rel=genl&node=animal")]
+    (let [r (GET "/tree/rows" "rel=genl&node=vertebrate")]
       (is (= 200 (:status r)))
       (is (re-find #"href=\"/term\?q=bird\"" (:body r)) "a direct subtype is there")
       (is (not (re-find #"<html" (:body r))) "a fragment, not a document")))
   (testing "the fetch reaches only that node — a grandchild is behind its own request"
-    (let [b (:body (GET "/tree/rows" "rel=genl&node=animal"))]
-      ;; `penguin` is under `bird`, which is under `animal`
+    (let [b (:body (GET "/tree/rows" "rel=genl&node=vertebrate"))]
+      ;; `penguin` is under `bird`, which is under `vertebrate`
       (is (not (re-find #"href=\"/term\?q=penguin\"" b)))
       (is (re-find #"hx-get=\"/tree/rows\?rel=genl&amp;node=bird" b)
           "the child carries the request that would reach it")))
@@ -210,11 +210,23 @@
                 (re-find #"separated pairs" (:body r)))
             "the front page renders — either as pairs or as summary"))
       (testing "and so does the continuation that pages the same list"
-        (is (= 200 (:status (GET "/front/rows" "section=disjoint&offset=0"))))
-        (let [deep (GET "/front/rows" (str "section=disjoint&offset=50"))]
-          (is (= 200 (:status deep)))
-          (is (re-find #">nothing</a> ⊥ <a[^>]*>nothing</a>" (:body deep))
-              "the self-disjoint pair renders on a deeper page"))))))
+        ;; Every page is walked rather than one fixed offset read: the list is in name
+        ;; order, so which page the pair lands on moves whenever a pair that sorts before
+        ;; `nothing` is stated or retired, and a fixed offset tested the KB's pair count
+        ;; rather than the rendering.
+        (let [pages (loop [offset 0, acc []]
+                      (let [r   (GET "/front/rows" (str "section=disjoint&offset=" offset))
+                            acc (conj acc r)
+                            nxt (some->> (:body r)
+                                         (re-find #"section=disjoint&(?:amp;)?offset=(\d+)")
+                                         second parse-long)]
+                        ;; an offset that does not advance ends the walk
+                        (if (and nxt (> nxt offset))
+                          (recur (long nxt) acc)
+                          acc)))]
+          (is (every? #(= 200 (:status %)) pages))
+          (is (some #(re-find #">nothing</a> ⊥ <a[^>]*>nothing</a>" (:body %)) pages)
+              "the self-disjoint pair renders on a page of the continuation"))))))
 
 (deftest a-term-page-survives-a-compound-in-the-taxonomy
   ;; The second half of the same story as the test above: a **type node need not be a
@@ -247,6 +259,17 @@
           (is (contains? (set (:terms (:genls-direct d))) nat))
           (is (contains? (set (:terms (:disjoint-maximal d))) nat))
           (is (contains? (set (:terms (:disjoint d))) nat)))))))
+
+(tu/deftest-kb the-disjointness-list-holds-the-pairs-a-roster-separates
+  ;; a `separating` roster stores no `(disjoint …)` sentence for its parts, and separates
+  ;; them as a disjoint_metatype separates its members — by being consulted — so the list
+  ;; computes its pairs as it computes a metatype's
+  (tu/with-terms [roster_whole roster_left roster_right]
+    (v/assert kb (list 'separating roster_whole roster_left roster_right) 'CxUniverse
+              {:chain? false})
+    (let [pairs (set (#'web/disjoint-pairs kb))]
+      (is (contains? pairs (#'web/disjoint-pair roster_left roster_right)))
+      (is (not-any? #(some #{roster_whole} %) pairs) "the whole is separated from nothing"))))
 
 (tu/deftest-kb a-term-past-the-probed-argument-positions-is-in-a-remainder-group
   ;; the page probes argument positions 1 to 12; a fact naming the term only at 13 has no
@@ -619,12 +642,12 @@
     (is (re-find #"parentOf" (:body (GET "/term" "q=Bob"))))))
 
 (deftest term-page-groups-sentexes-by-index
-  (testing "a predicate's facts are grouped under its functor root, arguments under [:argument-root]"
+  (testing "a predicate's facts are grouped under its predicate extent, arguments under [:argument-root]"
     (let [r (GET "/term" "q=dog")]
       (is (= 200 (:status r)))
       (is (re-find #"Sentexes by index" (:body r)))
-      (is (re-find #"Predicate extent" (:body r)))        ; (dog Muffet) is a functor-root fact
-      (is (re-find #"\[:functor-root dog\]" (:body r)))
+      (is (re-find #"Predicate extent" (:body r)))        ; (dog Muffet) is a predicate-extent fact
+      (is (re-find #"\[:predicate-extent dog\]" (:body r)))
       (is (re-find #"stored" (:body r)))                  ; the O(1) stored count is shown
       (is (re-find #"Muffet" (:body r)))))                  ; still reachable, now under a group
   (testing "an individual is grouped by the argument position it fills"
@@ -725,11 +748,13 @@
       (is (re-find #"class=\"g-node t-type g-centre\"" svg))
       (is (contains? (drawn-terms svg) "animal")))
     (testing "a supertype above it and a subtype below it are both drawn"
+      ;; animal has more direct subtypes than the row cap, and past the cap the row is
+      ;; read in index order, so which subtypes are drawn is not fixed: any one will do.
       (let [ts (drawn-terms svg)]
-        (is (contains? ts "living_thing"))
-        (is (contains? ts "bird"))))
+        (is (contains? ts "organism"))
+        (is (some #(and (not= "animal" %) (true? (v/genl? tu/*kb* (symbol %) 'animal))) ts))))
     (testing "every node is a link to that term's page — the graph is navigation"
-      (is (re-find #"<a href=\"/term\?q=living_thing\"><g class=\"g-node" svg))
+      (is (re-find #"<a href=\"/term\?q=organism\"><g class=\"g-node" svg))
       (is (= (drawn-terms svg) (set (map second (re-seq #"<a href=\"/term\?q=([^\"]+)\"" svg))))))
     (testing "and it says which claim the vertical axis is"
       (is (re-find #"class=\"g-edge g-genl\"" svg))
@@ -737,6 +762,26 @@
     (testing "and the rows the picture approximates are under it"
       (is (re-find #"Sentexes by index" body))
       (is (re-find #"Argument position 1" body)))))
+
+(tu/deftest-kb the-taxonomy-view-draws-a-genl-edge-a-roster-installs
+  ;; `(separating whole a b)` states `(genl a whole)` and `(genl b whole)` as covering
+  ;; does: the edges are in the closure, supported by the roster sentex, and no `genl`
+  ;; sentence is stored for either.  A direct parent the roster installs is a direct
+  ;; parent, so the picture draws it in both directions as it draws a stated edge
+  (tu/with-terms [roster_whole roster_left roster_right]
+    (v/assert kb (list 'separating roster_whole roster_left roster_right) 'CxUniverse
+              {:chain? false})
+    (is (empty? (v/find-sentexes kb {:pattern (list 'genl roster_left roster_whole)}))
+        "no genl sentence is stored for the part")
+    (testing "a part's picture draws the whole above it"
+      (let [svg (svg-of (:body (GET "/term" (str "q=" roster_left))))]
+        (is (some? svg))
+        (is (contains? (drawn-terms svg) (str roster_whole)))
+        (is (re-find #"class=\"g-edge g-genl\"" svg))))
+    (testing "and the whole's picture draws both parts below it"
+      (let [ts (drawn-terms (svg-of (:body (GET "/term" (str "q=" roster_whole)))))]
+        (is (contains? ts (str roster_left)))
+        (is (contains? ts (str roster_right)))))))
 
 (deftest a-context-page-draws-the-relation-a-context-has
   ;; `genl` says nothing about contexts, so the picture is the only thing on the page that
@@ -1059,6 +1104,17 @@
         (is (re-find #"<h2>Term <a class=\"sx t-type\"" body))
         (is (not (re-find #"<h2>Term <a class=\"sx t-num\"" body)))))))
 
+(tu/deftest-kb a-relation-that-is-a-genl-node-colours-as-a-predicate
+  ;; `(genl predicateTypeByArity relationTypeByArity)` makes both nodes of the genl
+  ;; hierarchy; the stored arity of two colours each, and the snake_case temporary shows
+  ;; the spelling decides nothing.
+  (is (re-find #"<h2>Term <a class=\"sx t-pred\"" (:body (GET "/term" "q=predicateTypeByArity"))))
+  (tu/with-terms [near_rel close_rel]
+    (v/assert kb (list 'symmetric near_rel) 'CxUniverse {:chain? false})
+    (v/assert kb (list 'symmetric close_rel) 'CxUniverse {:chain? false})
+    (v/assert kb (list 'genl near_rel close_rel) 'CxUniverse {:chain? false})
+    (is (re-find #"<h2>Term <a class=\"sx t-pred\"" (:body (GET "/term" (str "q=" near_rel)))))))
+
 (tu/deftest-kb a-hub-draws-its-cap-and-says-what-it-left-out
   (tu/with-terms [hub_type]
     (v/assert kb (list 'genl hub_type 'thing) 'CxUniverse {:chain? false})
@@ -1069,10 +1125,68 @@
           svg  (svg-of body)]
       (testing "the row is capped — 400 subtypes are not 400 nodes"
         (is (= 8 (count (filter #(str/includes? % "_kid") (drawn-terms svg))))))
-      (testing "and the caption says so, with the count and the fact that it is a bound"
-        (is (re-find #"showing 8 of up to 40[01] direct subtypes" body)))
+      (testing "and the caption says so, with the count it read"
+        (is (re-find #"showing 8 of 400 direct subtypes" body)))
       (testing "the centre is still in its own view"
         (is (contains? (drawn-terms svg) (str hub_type)))))))
+
+(def ^:private capped-kids
+  "Twelve subtype names, more than `graph-row-cap`, whose sort order is their alphabet
+  order: the eight a capped row draws are `kid_a` through `kid_h`."
+  (mapv #(str "kid_" %) "abcdefghijkl"))
+
+(deftest a-capped-row-draws-the-same-terms-whatever-order-they-were-asserted-in
+  ;; Two KBs holding the same twelve `genl` edges, asserted forwards and backwards.  The
+  ;; row draws eight of the twelve, and which eight is a property of the knowledge, not of
+  ;; the order the index hands the children back in.
+  (let [hub   'cap_hub
+        drawn (fn [kids]
+                (tu/with-cleared-kb [kb tu/isolated-fresh]
+                  (v/assert-many kb (for [k kids] (list 'genl (symbol k) hub))
+                                 'CxRowOrder {:chain? false})
+                  (let [body (:body ((web/app kb) {:request-method :get :uri "/term"
+                                                   :query-string (str "q=" hub)}))]
+                    {:kids (set (filter #(str/starts-with? % "kid_")
+                                        (drawn-terms (svg-of body))))
+                     :body body})))
+        fwd   (drawn capped-kids)
+        bwd   (drawn (rseq capped-kids))]
+    (is (= (set (take 8 capped-kids)) (:kids fwd)) "the first eight in sort order")
+    (is (= (:kids fwd) (:kids bwd)) "the same eight, asserted in the other order")
+    (testing "and the caption counts the twelve it read"
+      (is (re-find #"showing 8 of 12 direct subtypes" (:body fwd)))
+      (is (re-find #"showing 8 of 12 direct subtypes" (:body bwd))))))
+
+(deftest mammal-s-subtype-row-is-its-first-eight-children-in-sort-order
+  ;; `mammal` has twelve direct `genl` children in the shipped ontology, so its row is
+  ;; capped.  The row is pinned exactly: the first eight in sort order, not whichever
+  ;; eight the index returned first.
+  (let [grow (ns-resolve 'vaelii.browser.web 'grow)
+        {:keys [rows direct]} (grow tu/*kb* 'genl :down 1 'mammal 1)]
+    (is (= '#{cat cow dog fox hare horse human lion}
+           (set (map :term (first rows)))))
+    (is (= {:shown 8 :total 12 :exact? true :more? false} direct))))
+
+(deftest a-node-past-the-row-limit-draws-no-sample-whatever-the-assertion-order
+  ;; Past `graph-row-limit` the read does not hold every neighbour, so any eight of it
+  ;; would be eight of the index's order.  The node draws none, the same in both KBs, and
+  ;; the caption says why.
+  (let [hub   'wide_hub
+        kids  (mapv #(format "wkid_%04d" %) (range 520))
+        drawn (fn [kids]
+                (tu/with-cleared-kb [kb tu/isolated-fresh]
+                  (v/assert-many kb (for [k kids] (list 'genl (symbol k) hub))
+                                 'CxRowOrder {:chain? false})
+                  (let [body (:body ((web/app kb) {:request-method :get :uri "/term"
+                                                   :query-string (str "q=" hub)}))]
+                    {:kids (set (filter #(str/starts-with? % "wkid_")
+                                        (drawn-terms (svg-of body))))
+                     :body body})))
+        fwd   (drawn kids)
+        bwd   (drawn (rseq kids))]
+    (is (= #{} (:kids fwd) (:kids bwd)) "no sample of an order the reader cannot name")
+    (is (re-find #"more than 500 direct subtypes, too many to draw" (:body fwd)))
+    (is (re-find #"more than 500 direct subtypes, too many to draw" (:body bwd)))))
 
 ;; ---- the read is bounded, not just the render ---------------------------
 
@@ -1100,8 +1214,7 @@
 
 (def ^:private graph-read-budget
   "What the picture may cost a term page, in facade reads.  Twelve expansions — six a side
-  — plus, only where a row was actually elided, one O(1) count each; the radial view spends
-  at most twelve.  Stated here and asserted below, because a graph that renders without a click may
+  — and the radial view spends at most twelve.  Stated here and asserted below, because a graph that renders without a click may
   never be the reason a term page is slow."
   24)
 
@@ -1126,7 +1239,7 @@
       (testing "and does not grow with the fan-out — 400 subtypes cost exactly what 40 do"
         (is (= mid big) (str mid " vs " big)))
       (testing "the wide ones pay for their caption, the narrow one has nothing to caption"
-        (is (re-find #"showing 8 of up to" (:body (GET "/term" (str "q=" big_type)))))
+        (is (re-find #"showing 8 of 400" (:body (GET "/term" (str "q=" big_type)))))
         (is (not (re-find #"showing " (:body (GET "/term" (str "q=" tiny_type)))))))
       (testing "and the belief it needs rides the page's one batched read, not a read a node"
         (is (= 1 (get (drawn big_type) 'believed))))
@@ -1413,6 +1526,21 @@
         (is (re-find #"Defeated" (:body r)))
         (is (re-find #"contradicted by" (:body r)))))))
 
+(tu/deftest-kb a-defeat-a-separation-caused-names-the-separation-on-the-sentex-and-term-pages
+  ;; `(disjoint gladdenOf saddenOf)` mints `(genl gladdenOf thing)` through CxCore's
+  ;; `(genlArg disjoint 1 thing)`, and `(unary_predicate thing)` then defeats the tuple.
+  ;; The mint is the entailing reading's, so the test pins it: under the constraint-only
+  ;; reading the tuple stays believed and no page names the separation.
+  (tu/with-entailing
+    (tu/with-terms [gladdenOf saddenOf Cal Dee]
+      (let [fact (v/assert kb (list gladdenOf Cal Dee) 'CxUniverse)
+            sep  (v/assert kb (list 'disjoint gladdenOf saddenOf) 'CxUniverse)
+            ref  (re-pattern (str "through .*?/sentex/" sep "\\b"))]
+        (is (false? (v/in? kb fact)))
+        (is (re-find #"convicted through" (:body (GET (str "/sentex/" fact)))))
+        (is (re-find ref (:body (GET (str "/sentex/" fact)))))
+        (is (re-find ref (:body (GET "/term" (str "q=" gladdenOf)))))))))
+
 (deftest levels-page-without-a-goal-documents-the-stack
   (let [r (GET "/levels")]
     (is (= 200 (:status r)))
@@ -1604,6 +1732,17 @@
       (is (re-find #"<link[^>]*vaelii\.css" body))
       (is (not (re-find #"<style" body))))))
 
+(deftest a-wheel-over-the-concept-graph-scrolls-the-page
+  ;; `overscroll-behavior: contain` on the graph's scroll box keeps every wheel turn inside
+  ;; the box, so a pointer resting on the picture left the page standing still.  The
+  ;; browser hands a wheel the box cannot use to the page only when the box leaves
+  ;; `overscroll-behavior` at its default.
+  (let [css  (slurp (io/resource web/stylesheet-resource))
+        rule (re-find #"\.kb-graph-box\s*\{[^}]*\}" css)]
+    (is rule "the stylesheet still styles the graph's box")
+    (is (str/includes? rule "overflow: auto") "a wide graph still scrolls inside its box")
+    (is (not (str/includes? rule "overscroll-behavior")))))
+
 (deftest unknown-ids-render-not-found
   (is (re-find #"No sentex" (:body (GET "/sentex/999999"))))
   (is (re-find #"No justification" (:body (GET "/justification/999999")))))
@@ -1709,7 +1848,7 @@
   (tu/with-terms [Rufus]
     (let [sbx (sandbox/context-for (sandbox/mint-token))]
       (sandbox/open kb sbx)
-      (v/assert kb (list 'living_thing Rufus) sbx)
+      (v/assert kb (list 'organism Rufus) sbx)
       (is (v/ask? kb (list 'mortal Rufus) sbx) "so there is a conclusion to sweep too")
       (let [rows (#'web/sandbox-note (sandbox/reset! kb sbx))]
         (is (= [:reset] (mapv :type rows)))
@@ -1725,7 +1864,7 @@
             sbx    (second (re-find #"value=\"(CxSandbox[0-9a-f]+)\"" (:body opened)))
             hdrs   {"cookie" cookie "host" "localhost:3000"}]
         (*app* {:request-method :post :uri "/assert" :scheme :http :headers hdrs
-                :params {"text" (str "(living_thing " Rufus ")") "ctx" sbx}})
+                :params {"text" (str "(organism " Rufus ")") "ctx" sbx}})
         (let [r (*app* {:request-method :post :uri "/sandbox/reset" :scheme :http
                         :params {} :headers hdrs})]
           (is (= 200 (:status r)))

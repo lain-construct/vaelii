@@ -183,7 +183,7 @@
 ;; ---- 5. contradiction detection misses incomparable contexts -----------
 ;; Two incomparable contexts with a common *descendant* both reach the pair, so the
 ;; clash is real from that descendant although neither context `sees?` the other: a
-;; reader decides a pair whose two contexts it sees (`decide/nogoods-at`).
+;; pair is placed at the descendant that sees its two contexts (`chain/place-memberships!`).
 
 (tu/deftest-kb a-contradiction-visible-from-a-common-descendant-is-detected
   (tu/with-terms [flies Zed CxLeft CxRight CxBoth]

@@ -93,7 +93,12 @@
             "would have yielded the token CxDee"))
       (testing "and the wildcard still resolves when the path is run to its real leaf"
         (is (= #{h2} (p/lookup idx [rel A B CxCee '?tok CxDee])))
-        (is (= #{h2} (p/lookup idx [rel A B CxCee X '?ctx])))))))
+        (is (= #{h2} (p/lookup idx [rel A B CxCee X '?ctx]))))
+      (testing "a context set keeps the last level to its members"
+        (is (= #{h1} (p/lookup idx [rel A B '?ctx] #{CxCee CxDee})))
+        (is (= #{} (p/lookup idx [rel A B '?ctx] #{CxDee})))
+        (is (= #{h2} (p/lookup idx [rel A B CxCee X '?ctx] #{CxDee})))
+        (is (= #{} (p/lookup idx [rel A B CxCee X CxDee] #{CxCee})))))))
 
 ;; ---- unindex arithmetic: cleanup must fire on dead nodes and only those --
 
@@ -186,7 +191,7 @@
       (testing "the context's extent and cardinality both count the rule"
         (is (= 2 (v/count-in-context kb CxRule)))
         (is (= #{fact rule} (set (map :id (v/sentexes-in-context kb CxRule))))))
-      (testing "while the functor root still holds facts only"
+      (testing "while the predicate extent still holds facts only"
         (is (= 0 (v/count-with-functor kb q)))
         (is (= 1 (v/count-with-functor kb dog)))))))
 

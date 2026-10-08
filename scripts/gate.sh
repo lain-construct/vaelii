@@ -5,7 +5,7 @@
 # a full one to run before a tag or a perf-sensitive land:
 #
 #   lein gate           FAST — lint + test:
-#     lint   static analysis  (scripts/lint.sh — eleven checks in three concurrent lanes)
+#     lint   static analysis  (scripts/lint.sh — twelve checks in three concurrent lanes)
 #     test   the suite        (`lein test`, `:default` selector, memory stores; incl. assert_cost_test)
 #
 #   lein release-gate   FULL — lint + test + perf:
@@ -319,7 +319,7 @@ announce () {                  # announce <name> <blurb> <cmd...>
 
 # ---- what each stage actually checked ------------------------------------
 #
-# A stage row is a verdict and not a roster.  `✓ lint` is eleven independent checks
+# A stage row is a verdict and not a roster.  `✓ lint` is twelve independent checks
 # and `✓ perf` is forty-odd, and four green rows cannot tell a gate that covered
 # something from one that skipped it — which is the question somebody quoting a
 # green gate is actually being asked, and the reason `--only` and `--skip` exist
@@ -618,7 +618,7 @@ fi
 # `nat_maintenance`, the `types/` records); a file no claim or cost test executes does not
 # (the public API's shims, io, and the domain reasoners without a claim).  Edit it here
 # when a claim starts timing a file or the hot surface moves.
-PERF_SENSITIVE_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(provers|resolution|inherit|chain|settle|settle_phases|recheck|reroute|clashes|discovery|readings|assert_entry|jtms|dense_jtms|caches|taxonomy|nat|nat_maintenance|context_nat|plan|tactics|rules|rete|strength|levels|special|wiring|checks|violations|abduce|sentex|wff|naming|kb|memory|observe|reindex|literal_cache|tokens|columnar|kv|dense_kv|dense_roots|rewrite|reads|feed|integrate|quasiquote|skolem|capabilities|profile|qcn|qcn_kb|stp|quality|roster|overlay/kv|sign|asp/label|asp/prover)\.clj$|^src/vaelii/impl/(disk|types)/'
+PERF_SENSITIVE_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(provers|resolution|except|withdrawal|inherit|chain|settle|settle_phases|recheck|reroute|clashes|discovery|readings|assert_entry|jtms|dense_jtms|caches|taxonomy|nat|nat_maintenance|context_nat|plan|tactics|rules|rete|strength|levels|special|wiring|checks|violations|abduce|sentex|wff|naming|kb|memory|observe|reindex|literal_cache|tokens|columnar|kv|dense_kv|dense_roots|rewrite|reads|feed|integrate|quasiquote|skolem|capabilities|profile|qcn|qcn_kb|stp|quality|roster|overlay/kv|sign|asp/label|asp/prover)\.clj$|^src/vaelii/impl/(disk|types)/'
 #
 # SLOW_OWED_RE.  The engine files the `^:slow` tests drive, in three groups: the index
 # (the retrieval, record and posting stores the index oracles compare), the TMS (the
@@ -627,7 +627,7 @@ PERF_SENSITIVE_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(provers|resolution|i
 # and whole-KB round trips run).  The slow tests outside all three (the aspif solver, the
 # catalog load, the feed socket, the koinii wire scenarios) name no file here.  Edit it
 # when a slow test starts driving a file, or a file's slow tests lose their marks.
-SLOW_OWED_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(resolution|literal_cache|memory|columnar|dense_kv|dense_roots|reindex|tokens|kv|jtms|dense_jtms|settle|recheck|reroute|clashes|discovery|readings|checks|violations|strength|levels|observe|chain|rete|provers|inference|tactics|plan|rules|inherit|taxonomy|special|sentex|wff|nat|context_nat|abduce|qcn|qcn_kb|stp)\.clj$|^src/vaelii/impl/types/(trie|postings|snapshot|dense_roots)\.clj$|^src/vaelii/impl/disk/index_snapshot\.clj$'
+SLOW_OWED_RE='^src/vaelii/core\.clj$|^src/vaelii/impl/(resolution|except|withdrawal|literal_cache|memory|columnar|dense_kv|dense_roots|reindex|tokens|kv|jtms|dense_jtms|settle|recheck|reroute|clashes|discovery|readings|checks|violations|strength|levels|observe|chain|rete|provers|inference|tactics|plan|rules|inherit|taxonomy|special|sentex|wff|nat|context_nat|abduce|qcn|qcn_kb|stp)\.clj$|^src/vaelii/impl/types/(trie|postings|snapshot|dense_roots)\.clj$|^src/vaelii/impl/disk/index_snapshot\.clj$'
 
 # What is about to land: committed-since-upstream ∪ staged ∪ unstaged.  Fall back to
 # origin/main, then to the uncommitted diff alone, when no upstream is tracked.

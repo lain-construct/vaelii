@@ -91,6 +91,16 @@
     ;; every stored path and its variable fan-out patterns
     (doseq [path paths, pat (var-patterns path)]
       (both #(p/lookup % pat) mem col))
+    ;; the same patterns with the context level kept to a set: one context, two, and more
+    ;; contexts than any node has children, so both sides of the intersection run.  The
+    ;; reference is one walk per context in the set.
+    (doseq [path paths, pat (var-patterns path)
+            cs [#{'C0} #{'C0 'C2} (into (set ctxs) '[D0 D1 D2 D3])]]
+      (both #(p/lookup % pat cs) mem col)
+      (let [q (peek pat)]
+        (is (= (into #{} (mapcat #(p/lookup mem (conj (pop pat) %)))
+                     (if (sx/variable? q) cs (filter #{q} cs)))
+               (p/lookup mem pat cs)))))
     ;; count-at + children over every prefix that occurs anywhere
     (doseq [pfx pfxs]
       (both #(p/count-at % pfx) mem col)
@@ -343,7 +353,7 @@
                          [(sx/sentex (rand-sentence rng) (pick rng ctxs)) (inc i)]))]
           (doseq [[s h] ops] (p/index-sentex mem s h) (p/index-sentex src s h))
           (doseq [store [mem src]]
-            (p/index-rule store 7001 '[p0 p1] 'p2)
+            (p/index-rule store 7001 '[p0 p1] 'p2 'C0)
             (p/index-exception store 7001 '[penguin flies]))
 
           ;; write, read into a store that has never seen a sentex, and re-check
@@ -353,6 +363,7 @@
           (compare-all mem dst (map first ops))
           (is (= (p/rules-by-antecedent mem 'p0) (p/rules-by-antecedent dst 'p0)))
           (is (= (p/rules-by-consequent mem 'p2) (p/rules-by-consequent dst 'p2)))
+          (is (= #{7001} (p/rules-by-consequent dst 'p2 '#{C0}) (p/rules-by-consequent mem 'p2 '#{C0})))
           (is (= (p/rules-with-exception-on mem 'penguin) (p/rules-with-exception-on dst 'penguin)))
           (is (= (p/exception-rules mem) (p/exception-rules dst)))
           (is (true? (p/exception-rule? dst 7001)))
@@ -380,19 +391,24 @@
         col (columnar/columnar-index-store {:space 72})]
     (p/clear-index! mem) (p/clear-index! col)
     (doseq [store [mem col]]
-      (p/index-rule store 10 '[p0 p1] 'p2)
-      (p/index-rule store 11 '[p1] 'p0)
+      (p/index-rule store 10 '[p0 p1] 'p2 'C0)
+      (p/index-rule store 11 '[p1] 'p0 'C1)
       (p/index-exception store 10 '[penguin flies])
       (p/index-exception store 11 '[t0]))
     (doseq [pr '[p0 p1 p2 penguin flies t0]]
       (both #(p/rules-by-antecedent % pr) mem col)
       (both #(p/rules-by-consequent % pr) mem col)
-      (both #(p/rules-with-exception-on % pr) mem col))
+      (both #(p/rules-with-exception-on % pr) mem col)
+      ;; the consequent index ends in the context: a scoped read keeps the rules stated there
+      (doseq [cs '[#{C0} #{C1} #{C0 C1} #{C2}]]
+        (both #(p/rules-by-consequent % pr cs) mem col)))
+    (is (= #{10} (p/rules-by-consequent col 'p2 '#{C0})))
+    (is (= #{11} (p/rules-by-consequent col 'p0 '#{C1 C2})))
     (both p/exception-rules mem col)
     (doseq [h [10 11 12]] (both #(p/exception-rule? % h) mem col))
     ;; retract one rule + its exception and re-compare
     (doseq [store [mem col]]
-      (p/unindex-rule! store 10 '[p0 p1] 'p2)
+      (p/unindex-rule! store 10 '[p0 p1] 'p2 'C0)
       (p/unindex-exception! store 10 '[penguin flies]))
     (doseq [pr '[p0 p1 p2 penguin flies t0]]
       (both #(p/rules-by-antecedent % pr) mem col)

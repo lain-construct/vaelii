@@ -28,6 +28,9 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.walk :as walk]
             [vaelii.core :as v]
+            [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.settle :as settle]
+            [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
 (use-fixtures :once (tu/loaded tu/load-starter!))
@@ -184,13 +187,13 @@
       (is (= Rex9 (get-in (first @seen) [:believed-added 0 :bindings '?x]))
           "binding the argument the subsumption unified"))))
 
-;; ---- transitiveInArg: a claim travels the edges the asker can see ---------
+;; ---- transitiveInArgInverse: a claim travels the edges the asker can see ---------
 
 (tu/deftest-kb an-inherited-claim-stops-at-an-invisible-edge
   (tu/with-terms [biggerThan8 retriever_t dog8_t cat8_t CxA CxB]
     (siblings! kb CxA CxB)
     (v/assert kb (list 'binary_predicate biggerThan8) 'CxUniverse)
-    (v/assert kb (list 'transitiveInArg biggerThan8 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArgInverse biggerThan8 1 'genl) 'CxUniverse)
     (v/assert kb (list 'genl retriever_t dog8_t) CxA)
     (v/assert kb (list biggerThan8 dog8_t cat8_t) CxB)
     (is (empty? (v/ask kb (list biggerThan8 retriever_t cat8_t) CxB))
@@ -200,7 +203,7 @@
   (tu/with-terms [biggerThan9 retriever_t dog9_t cat9_t CxA CxB]
     (siblings! kb CxA CxB)
     (v/assert kb (list 'binary_predicate biggerThan9) 'CxUniverse)
-    (v/assert kb (list 'transitiveInArg biggerThan9 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArgInverse biggerThan9 1 'genl) 'CxUniverse)
     (v/assert kb (list 'genl retriever_t dog9_t) 'CxUniverse)
     (v/assert kb (list biggerThan9 dog9_t cat9_t) CxB)
     (is (seq (v/ask kb (list biggerThan9 retriever_t cat9_t) CxB)))))
@@ -223,7 +226,7 @@
     (v/assert kb (list 'transitive begat8) CxA)
     (is (seq (v/sentexes-matching kb (list 'transitive begat8) 'CxUniverse))
         "the lift put it where every context can see it")
-    (v/assert kb (list 'transitiveInArg cursed8 1 begat8) CxB)
+    (v/assert kb (list 'transitiveInArgInverse cursed8 1 begat8) CxB)
     (v/assert kb (list begat8 A8 B8) CxB)
     (v/assert kb (list cursed8 B8) CxB)
     (is (seq (v/ask kb (list cursed8 A8) CxB))
@@ -582,19 +585,25 @@
         "refused although B cannot see the edge it closes a cycle with")))
 
 (tu/deftest-kb a-cycle-belief-assembles-is-answered-alike-by-every-reader-of-it
-  ;; The check above reads the **active** adjacency, so belief walks around it: defeat an
-  ;; edge, assert its reverse — nothing is cyclic while the first is out — then retract
-  ;; the defeater and both stand.  Nothing refuses the result, so the reads owe it an
-  ;; answer rather than an assumption, and the three readers of one question owe the
-  ;; *same* answer.  The potential ranks the condensation, so the two types are level
-  ;; rather than ordered, and a scoped walk pruned on a strict descent alone denies the
-  ;; edge its own closure returns.
+  ;; The check above reads the **active** adjacency, so belief walks around it: take an
+  ;; edge OUT, assert its reverse — nothing is cyclic while the first is out — then bring
+  ;; the first back and both stand.  The edge goes OUT here as `preview` suspends a
+  ;; removal.  Nothing refuses the result, so the reads owe it an answer rather than an
+  ;; assumption, and the three readers of one question owe the *same* answer.  The
+  ;; potential ranks the condensation, so the two types are level rather than ordered,
+  ;; and a scoped walk pruned on a strict descent alone denies the edge its own closure
+  ;; returns.
   (tu/with-terms [c18_t d18_t e18_t CxA CxB]
     (siblings! kb CxA CxB)
-    (v/assert kb (list 'genl c18_t d18_t) CxA)
-    (let [h (v/assert kb (list 'not (list 'genl c18_t d18_t)) CxA {:strength :monotonic})]
+    (let [h      (v/assert kb (list 'genl c18_t d18_t) CxA)
+          tms    (reasoning/tms kb)
+          s      (jtms/premise-strength tms h)
+          settle #(binding [settle/*relabelled-before?* true] (settle/settle kb))]
+      (jtms/suspend-premise tms h)
+      (settle)
       (v/assert kb (list 'genl d18_t c18_t) CxA)    ; admitted: the first edge is out
-      (v/retract! kb h))                                 ; and now both of them stand
+      (jtms/add-premise tms h s)
+      (settle))                                        ; and now both of them stand
     (v/assert kb (list 'genl e18_t 'thing) CxB)     ; a second asserting context
     (testing "A sees both edges, and every read of them agrees"
       (is (contains? (v/genls kb c18_t CxA) d18_t))

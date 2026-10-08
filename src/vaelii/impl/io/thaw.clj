@@ -206,16 +206,28 @@
       (= :disallowed-class (:type (ex-data e)))    e
       :else                                        (recur (.getCause e)))))
 
+(defn vm-error
+  "The `VirtualMachineError` in `t`'s cause chain (an `OutOfMemoryError`, a
+  `StackOverflowError`), or nil.  `nippy/thaw` wraps one as it wraps a refusal, and a
+  caller that reads a wrapped one as a damaged file discards a sound one."
+  ^VirtualMachineError [^Throwable t]
+  (loop [^Throwable e t]
+    (cond
+      (nil? e)                          nil
+      (instance? VirtualMachineError e) e
+      :else                             (recur (.getCause e)))))
+
 (defn guarded
-  "Run `f` — a thunk that thaws — behind the entry point, raising a `:disallowed-class` refusal
-  as itself rather than as whatever wrapped it.
+  "Run `f` — a thunk that thaws — behind the entry point, raising a `:disallowed-class`
+  refusal and a `VirtualMachineError` (`vm-error`) as themselves rather than as whatever
+  wrapped them.
 
   The entry point for a caller reading **many** frames off one stream
   (`vaelii.impl.io.frames`): the entry point is opened once for the run instead of once per
   frame, which is one binding frame for ten thousand of them."
   [f]
   (try (with-guard (f))
-       (catch Throwable t (throw (or (refusal t) t)))))
+       (catch Throwable t (throw (or (refusal t) (vm-error t) t)))))
 
 (defn thaw
   "`nippy/thaw` of `bs` behind the entry point."

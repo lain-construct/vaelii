@@ -95,16 +95,22 @@
    (opts/check-values! budget subject)
    budget))
 
+(defn now
+  "The `System/nanoTime` instant every deadline in this namespace is set and checked
+  against.  A test hooks it to move a deadline past without sleeping."
+  []
+  (System/nanoTime))
+
 (defn deadline
-  "Absolute `System/nanoTime` instant `:max-ms` from now, or nil when unbounded."
+  "Absolute `now` instant `:max-ms` from now, or nil when unbounded."
   [budget]
   (when-let [ms (:max-ms budget)]
-    (+ (System/nanoTime) (long (* ms 1e6)))))
+    (+ (long (now)) (long (* ms 1e6)))))
 
 (def ^:dynamic *deadline*
-  "The `System/nanoTime` instant a walk inside one step of a bounded read stops at: bound
-  by `collect` around its pulls when the caller hands it a `restart`, and by the two
-  backward chainers around a leaf (`interruptible`); nil otherwise.  A walk reads it
+  "The `now` instant a walk inside one step of a bounded read stops at: bound by `collect`
+  around its pulls when the caller hands it a `restart`, by the two backward chainers
+  around a leaf (`interruptible`), and by `metered` to its meter's deadline; nil otherwise.  A walk reads it
   through `check-deadline!`."
   nil)
 
@@ -112,7 +118,7 @@
   "Throw the signal `collect` catches when the instant `dl` has passed.  A nil `dl`
   never throws."
   [dl]
-  (when (and dl (>= (System/nanoTime) (long dl)))
+  (when (and dl (>= (long (now)) (long dl)))
     (throw (ex-info "the deadline passed inside a pull" {::deadline dl}))))
 
 (defn interruptible
@@ -151,9 +157,9 @@
    :max-term-growth (:max-term-growth budget)})
 
 (defn ms-since
-  "Milliseconds elapsed since a `System/nanoTime` instant, as a double."
+  "Milliseconds elapsed since a `now` instant, as a double."
   [start-nanos]
-  (/ (double (- (System/nanoTime) start-nanos)) 1e6))
+  (/ (double (- (long (now)) (long start-nanos))) 1e6))
 
 (defn from-batch
   "Assemble the partial-result contract from a completed step.  `resume-fn` is a
@@ -173,7 +179,7 @@
   (check-budget! budget)
   (let [max-results (:max-results budget)
         dl          (deadline budget)
-        start       (System/nanoTime)
+        start       (now)
         stop        (fn [acc status next-step]
                       (let [results (persistent! acc)]
                         (from-batch results status start
@@ -182,7 +188,7 @@
       (loop [xs xs, n 0, acc (transient []), unbounded? unbounded-first?]
         (if (and max-results (>= n max-results))
           (stop acc :capped (fn [b seen] (collect* xs b restart seen false)))
-          (let [s (cond (and dl (>= (System/nanoTime) dl)) ::passed
+          (let [s (cond (and dl (>= (long (now)) (long dl))) ::passed
                         unbounded? (binding [*deadline* nil] (seq xs))
                         :else      (pull xs))]
             (cond
@@ -237,3 +243,103 @@
   (if-let [f (:resume partial)]
     (f budget)
     partial))
+
+;; ---- the work meter: a cooperative bound on a read that is not one answer stream ----
+
+(def ^:private ^:dynamic *meter*
+  "The meter atom of the `metered` read running on this thread, or nil."
+  nil)
+
+(defonce ^{:private true
+           :tag java.util.concurrent.atomic.AtomicLong
+           :doc "How many `metered` reads are running in the process.  `current-meter` reads
+  `*meter*` only while this is positive: the first `binding` of `*meter*` marks the var
+  thread-bound for the life of the process, after which every read of it, on every
+  thread, looks up the thread-local frame."}
+  running
+  (java.util.concurrent.atomic.AtomicLong.))
+
+(defn- current-meter []
+  (when (pos? (.get running)) *meter*))
+
+(defn meter
+  "A new work meter for the bounds `opts` reads (`:max-work`, `:max-ms`), started now."
+  [opts]
+  (atom {:work 0 :max-work (:max-work opts) :start (now) :deadline (deadline opts)
+         :found {}}))
+
+(defn metered
+  "`(f)` with `*meter*` bound to the meter `m` and `*deadline*` to its deadline, so a walk
+  that reads `*deadline*` stops at it too.  A bound running out throws `spend!`'s or
+  `check-deadline!`'s signal out of `f`; `exhausted` reads either."
+  [m f]
+  (.incrementAndGet running)
+  (try (binding [*meter* m, *deadline* (:deadline @m)] (f))
+       (finally (.decrementAndGet running))))
+
+(defn exhausted
+  "The bound that `e` reports running out, `:max-work` or `:max-ms`, when `e` is
+  `spend!`'s signal or `check-deadline!`'s; else nil."
+  [e]
+  (let [data (ex-data e)]
+    (or (::exhausted data) (when (contains? data ::deadline) :max-ms))))
+
+(defn spend!
+  "Charge one work unit to the running meter.  Throws before the unit when the meter's
+  deadline has passed or its `:max-work` units are spent.  A no-op outside `metered`."
+  []
+  (when-let [m (current-meter)]
+    (let [{:keys [work max-work deadline]} @m]
+      (cond
+        (and deadline (>= (long (now)) (long deadline)))
+        (throw (ex-info "metered read: wall-clock budget exhausted" {::exhausted :max-ms}))
+
+        (and max-work (>= (long work) (long max-work)))
+        (throw (ex-info "metered read: work budget exhausted" {::exhausted :max-work}))
+
+        :else
+        (swap! m update :work inc)))))
+
+(defn checked-call
+  "`(f)` between two `spend!` checkpoints, so a deadline passed inside an opaque callback
+  stops the read as soon as it returns.  Outside `metered` it is `(f)`."
+  [f]
+  (if (current-meter)
+    (do (spend!)
+        (let [result (f)]
+          (spend!)
+          result))
+    (f)))
+
+(defn- metered-seq [xs]
+  (lazy-seq
+   (spend!)
+   (when-let [s (seq xs)]
+     (let [x (first s)]
+       (spend!)
+       (cons x (metered-seq (rest s)))))))
+
+(defn checked-seq
+  "`xs` with a `spend!` before and after each pull, or `xs` itself outside `metered`.  A
+  chunked source realizes its whole chunk in one pull, and the meter observes that only
+  after the pull returns."
+  [xs]
+  (if (current-meter) (metered-seq xs) xs))
+
+(defn record!
+  "Add `x` to the running meter's findings under `k`, which `found` reads however the
+  read stopped.  Returns `x`."
+  [k x]
+  (when-let [m (current-meter)]
+    (swap! m update-in [:found k] (fnil conj []) x))
+  x)
+
+(defn found
+  "The findings `record!` added to meter `m`, as `{k [x …]}` in arrival order."
+  [m]
+  (:found @m))
+
+(defn snapshot
+  "The work meter `m` charged and the milliseconds since it started."
+  [m]
+  {:work (:work @m) :elapsed-ms (ms-since (:start @m))})

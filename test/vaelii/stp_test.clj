@@ -9,6 +9,7 @@
             [vaelii.host.seed :as seed]
             [vaelii.impl.duration :as dur]
             [vaelii.impl.interval :as iv]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.point :as pt]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.stp :as stp]
@@ -632,12 +633,28 @@
       (testing "the rule fires on a relation only the metric layer entails"
         (is (seq (v/sentexes-matching kb (list finishedFirst A) '?ctx))))
       ;; a negative cycle through two instants neither interval is bounded by
-      (let [h (v/assert kb (list 'temporalDistance P Q '(QuantityFn 1 Hour)) C)]
-        (v/assert kb (list 'temporalDistance Q P '(QuantityFn 1 Hour)) C)
+      (let [h  (v/assert kb (list 'temporalDistance P Q '(QuantityFn 1 Hour)) C)
+            h2 (v/assert kb (list 'temporalDistance Q P '(QuantityFn 1 Hour)) C)]
         (testing "the interval network that reads the metric one is unsatisfiable too"
           (is (inconsistent? kb C))
           (is (false? (:consistent? (v/qualitative-network kb :allen C))))
           (is (not (v/ask? kb (list 'before A B) C))))
+        (testing "the network names the metric cycle as its source, not the pair it emptied"
+          (let [net                 (v/qualitative-network kb :allen C)
+                [{:keys [support]
+                  :as   src}]          (:unsatisfiable-sources net)]
+            (is (empty? (:unsatisfiable net)))
+            (is (= [{:source :metric
+                     :pairs  (nm/by-print-key #{[P Q] [Q P]})
+                     :cycle  (nm/by-print-key #{P Q})}]
+                   (map #(dissoc % :support) (:unsatisfiable-sources net))))
+            (is (= #{h h2} (set (filter #(= 'temporalDistance (first (v/sentence-of (v/sentex kb %))))
+                                        (:support src))))
+                "the cycle's two measures, and none of the measures off the cycle")
+            (is (every? #(#{'dimensionOf 'conversionFactor 'temporalDistance}
+                          (first (v/sentence-of (v/sentex kb %))))
+                        support)
+                "the rest is the unit table the measures converted through")))
         (testing "so the firing is withdrawn, though every fact it listed is still believed"
           (is (empty? (v/sentexes-matching kb (list finishedFirst A) '?ctx))))
         (testing "and retracting the cycle revives it"

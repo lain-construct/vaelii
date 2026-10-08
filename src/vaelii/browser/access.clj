@@ -81,6 +81,11 @@
   sentexes-matching ask ask? sentex handle-of find-sentexes
   in? believed? belief-status believed why-not
   why genls types contexts premise? defeat-class justification
+  ;; one `genl` step each way, whatever installed the edge — a stated `genl` or a cover
+  ;; roster — which is what the taxonomy view draws and the tree opens
+  direct-genls direct-specs
+  ;; whether a `types` node is a relation, by its stored arity, for the term colouring
+  relation?
   supporting-justifications dependent-justifications
   ;; which justifications the rule exceptions currently block — the one thing about a
   ;; justification that cannot be read off belief, and so the one a remote reader would
@@ -88,7 +93,8 @@
   blocked-justifications
   lookup escalate count-in-context
   sentexes-in-context sentexes-with-arg sentexes-with-functor count-with-arg
-  count-with-functor disjoint-metatypes metatype-members conflicts contradictions
+  count-with-functor disjoint-metatypes metatype-members separating-covers conflicts
+  contradictions
   ;; what a reified term denotes, so a reified NAT is displayed as the expression it was
   ;; minted from rather than as its opaque constant (docs/nat.md).  Gated by the pure
   ;; `reified-term?` below, so a KB with no reified terms never sends it

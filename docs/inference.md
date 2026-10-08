@@ -208,8 +208,8 @@ with `?x` already bound by the trigger, the commonest non-trigger antecedent —
 `|specs|` walks to confirm one membership, per firing attempt. A substituted
 antecedent with a bound indexable argument is therefore read through
 `res/matches-hierarchical` at `?ctx` (`chain/join-matches`, `res/lead-literal?`): one
-predicate-agnostic slot read narrowed to the closure in memory, or one scoped read per
-spec where that side is smaller (`res/*lead-side*`), the identical set under the same
+slot-roster read kept to the closure and a read of each kept predicate's node, or one
+scoped read per spec where that side is smaller (`res/*lead-side*`), the identical set under the same
 belief filter, polarity check and symmetric mirror. The route is taken only with the
 reference matcher bound and `res/*hierarchical-retrieval*` on, so a rete run keeps its
 boundary and the reference-retrieval sweep keeps the trie everywhere.
@@ -426,11 +426,11 @@ up set is bounded by the hierarchy's depth where the down set is a whole subtree
 negative fan is the cheaper of the two per pattern; the cost lands on the other side
 instead, in which rules an arriving negation reaches. There `rules/trigger-keys`
 enumerates from the **rule roster** rather than from the spec closure: a negation triggers
-the `[:not q]` keys for the specs `q` of its body's predicate, and reading them off
-`:rule-antecedents` (the live map of keys some rule reads) costs one `genls` test per such
-key instead of one index probe per type under the predicate — an arriving `(not (thing X))`
-would otherwise probe once per type in the KB. A KB whose rules read no negation pays a
-map read.
+the `[:not q]` keys for the specs `q` of its body's predicate, and reading them off the
+antecedent keys some stored rule reads (`reads/as-stored-rule-keys`, the rule index's root
+level) costs one `genls` test per such key instead of one index probe per type under the
+predicate — an arriving `(not (thing X))` would otherwise probe once per type in the KB. A
+KB whose rules read no negation pays one set read.
 
 **The two things a subsumption match owes beyond the match reverse with it.** A firing
 that climbed an edge names a witness for the path it climbed, and under a negation that
@@ -475,7 +475,7 @@ negative mirror holds here too: a rule concluding `(not (animal ?x))` answers th
 `(not (dog A))`, `subsuming-unify` reading `genls` where the polarity is negative and
 `specs` where it is positive. No index change carries it, because every negated
 conclusion is already filed under one `not` bucket (`rules/consequent-predicate` reads
-the functor root), so the candidate set was always the coarse one and it is
+the predicate extent), so the candidate set was always the coarse one and it is
 `subsuming-unify` that decides. In the
 default assert-then-query flow a forward-capable rule has already materialized the
 subtype conclusion, so this only *adds* answers where forward has not run it — a
@@ -520,8 +520,27 @@ about the rule.
   antecedent on that relation. A departing edge puts the same rules back on the agenda
   (`special/resubsumption-seeds`, `special/departed-edge-seeds`), so a second path
   re-derives the conclusion the departed edge's path licensed. Both are gated on the
-  `:rule-antecedents` roster, so a KB whose rules read neither relation pays a map read
-  per edge.
+  antecedent keys some stored rule reads (`reads/stored-rule-key?`), so a KB whose rules
+  read neither relation pays one membership test per edge. One chaining run re-joins a
+  rule in full once per closure stamp (`special/taxonomy-generations`, recorded in
+  `chain/*closure-rejoins*`). A later edge datum at the same stamp fires the rule at its
+  trigger position only. A full join reads the closure and the stored facts, so a second
+  full join at an unmoved stamp finds what the first one found, plus what each fact that
+  arrived since finds at its own trigger position. A departing `genlCx` edge re-chains
+  every `genl` fact its upper context's ancestor set holds, and without the stamp each
+  of those facts re-joins the same rules in full.
+- **A withdrawn mint re-joins the rule over the stated route.** The settle withdraws a
+  minted `genl` edge that a stated route has made redundant
+  (`special/subsumed-mint-blocks`), and the sweep deletes every rule firing that names
+  the minted edge as its witness. Before the sweep, `special/withdrawn-edge-seeds`
+  collects the facts and rules of each withdrawn edge that a rule firing names as its
+  witness. After the sweep, `settle/apply-pass!` re-chains those seeds, so each firing
+  is stored again over the stated route. The gate is a dependent justification whose
+  informant is a rule, not a dependent conclusion that went OUT, because the firing's
+  conclusion usually stands on another firing. Both arrival orders therefore store the
+  same firings, which
+  `late_route_test/a-stated-route-withdrawing-a-mint-keeps-the-firings-the-mint-carried`
+  asks.
 - **A rule concluding the relation it reads takes the matcher alone.** Its conclusions
   are edges of the closure it would read, so the path a firing names would depend on how
   far the rule had got; `chain/walks-its-own-conclusion?` is the test, shared with the
@@ -587,9 +606,9 @@ proving levels would answer both sides of a clash belief has settled.
 The contract is that they do not: **the proving levels agree with belief.** Belief has
 decided that datum is OUT under the current state, and a chainer that reads it IN is not
 answering a harder question, it is answering a stale one. So an answer a **rule expansion**
-produces whose instantiated sentence names a stored sentex the JTMS holds defeated, visible
-from the query's context, is not produced — neither as a top-level answer nor as an
-intermediate one a further derivation would read
+produces whose instantiated sentence names a stored sentex that a nogood's defeat in force,
+or a placed conflict, removes at the query's context is not produced — neither as a
+top-level answer nor as an intermediate one a further derivation would read
 ([why its other derivations are not a second chance](defenses.md#a-defeated-datums-other-derivations-are-not-a-second-chance)).
 
 Four things about the structure of it:
@@ -605,13 +624,19 @@ Four things about the structure of it:
   way**, deliberately: the defeat is a claim about the datum, not about one derivation of
   it, so a second route to the same sentence reaches the same OUT. Retract the defeater and
   the datum revives, and both chainers answer it again with nothing else having changed.
+  A guard defeat is a claim about one firing (naf.md, "A guard defeat removes one firing,
+  not the sentence"), so it removes no answer a rule expansion produces; the expanded
+  rule's own `exceptWhen` is asked at the query's context.
 - **Only `defeated`.** The other two non-belief states are handled elsewhere and are not
   folded in: a `blocked` justification is swept, so nothing survives for a chainer to find,
   and a `superseded` spelling is displaced by an equality merge, which the goal rewrite
   applies before any prover sees the goal ([equality.md](equality.md)).
 - **It costs a KB with no contradiction nothing.** `res/defeated-index` is read once per
-  query and is **nil** when no nogood member is stored; when one is, a goal whose functor
-  no member carries is never checked. So no marker is pushed and no node records
+  query and is **nil** when no defeat is stored and no placed `contradicts` stands beside an
+  `except`. It holds the targets of the stored defeats, and the members of the placed
+  `contradicts` while an `except` is stored, and no nogood candidate
+  (`backward-query-beside-candidates`). A goal whose functor no target carries is never
+  checked. So no marker is pushed and no node records
   anything unless a defeat on that predicate is actually in play. Laziness and the anytime
   budget are untouched: the check is one lookup at a frame that was going to be popped
   anyway.
@@ -687,7 +712,11 @@ under **`{:proof? true}`** changes the result shape to `[{:bindings … :proof �
 hands back one justification tree per answer, reading the way `why` does (`:goal` /
 `:via` / `:because`). It needs a depth — without one no rule was expanded and there is
 no derivation to show — and the tree is a record of that search, not a stored
-justification anything else can read. `why` / `why-not` explain a **stored** belief by
+justification anything else can read. `proof-tree` replays the answering node's chain of
+rewrites from the query's conjuncts. Where the collapse folded two copies of a literal into
+one, the kept literal stands for both leaves, and a later rewrite of it grows each of them
+with the same rule node, so the tree's `:leaf` goals are exactly the answering node's
+literals. `why` / `why-not` explain a **stored** belief by
 reading the JTMS, which is a different question about a different object: what forward
 chaining and `assert` left behind, not what a query just computed.
 
@@ -832,8 +861,9 @@ conjunction that already holds it, and conjunction is idempotent, so the two spe
 are one question under two keys. The kept copy takes the **largest** depth of the copies
 folded onto it, because a deeper copy admits every rewrite a shallower copy admits. The
 rewrite window then reopens at the position a copy folded onto, which is what makes that
-depth reachable. Without the collapse a rule graph containing a cycle adds a conjunct
-per turn. `inference_test`'s three-rule cycle (`(alpha ?x) ∧ (beta ?x) ⇒ (paired ?x)`,
+depth reachable. The child's rewrite record keeps the collapse map (`:slots`, the kept
+position each spliced literal landed on), which the proof replay reads. Without the
+collapse a rule graph containing a cycle adds a conjunct per turn. `inference_test`'s three-rule cycle (`(alpha ?x) ∧ (beta ?x) ⇒ (paired ?x)`,
 and `paired` concluding each half) runs dry at depth 6 in under 200 nodes with the
 collapse, and the test pins that bound.
 
@@ -1559,14 +1589,14 @@ per closure — not holding its answer longer.
 
 **Every input must be an upper bound**, which is what decides how the two
 functor-blind shapes are costed. Both of the functor-keyed models — the subtype fan
-and the functor root — read the functor as a concrete symbol, and both answer *low*
+and the predicate extent — read the functor as a concrete symbol, and both answer *low*
 when it is not one, which is the one direction a cost model may not err in: a lower
 bound ranks the dearest literal cheapest and hoists it to the front, where its
 fan-out multiplies everything after it. So an **open functor** (`(?type Muffet)`) is
 costed by the argument roots alone — the same posting `res/candidate-handles`
 actually reads for it — and a **dotted rest** (`(rel A . ?args)`), which pins no
 argument position at all since its tail splices a whole list, falls back to the
-functor root, or to unbounded when the functor is open too.
+predicate extent, or to unbounded when the functor is open too.
 
 Where a **complete** prover owns a goal, its own estimate is authoritative instead
 (`provers/est-goal`), mirroring `solve-goal-with`: a `genl` conjunct is answered from
@@ -2238,9 +2268,9 @@ unfinished DFS goal stack (`res/prove-from`). Full design: [anytime.md](anytime.
 A node is IN if it is a premise or has a *valid* justification (all antecedents
 IN), computed as a least fixpoint. Belief is a **relabelling**, recomputed from the
 current justifications rather than accumulated, so it is order-independent. A
-contradiction takes nothing OUT of the network: each reader decides it and withdraws the
-loser from its own view, whether the defeater arrives before or after, and removing the
-defeater gives the loser back. The relabel is *scoped to the affected region* with the rest of the graph
+contradiction takes nothing OUT of the network: the settle places a `defeat` of the loser
+that a read applies at and below the nogood's vantage, whether the defeater arrives before
+or after, and removing the defeater gives the loser back. The relabel is *scoped to the affected region* with the rest of the graph
 held fixed, and the whole-graph `jtms/relabel` has no engine caller: `recover` composes
 the region relabels its own rebuild runs (`recovery/rebuild-tms`), because a region relabel
 over the affected closure equals a global one. What `relabel` is for is the differential

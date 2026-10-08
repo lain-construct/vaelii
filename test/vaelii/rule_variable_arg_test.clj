@@ -149,8 +149,8 @@
       (is (= :arg-variable (ex-type #(v/assert kb form 'CxUniverse)))))))
 
 (tu/deftest-kb the-shipped-schema-refuses-a-function-fed-into-a-type-slot
-  ;; The second half CxCore states outright — "A function is a thing, and is not a
-  ;; predicate" — now as a fact rather than as prose.  Every type is a unary_predicate,
+  ;; The second half of CxCore's "A function is a relation, and is not a predicate", as a
+  ;; fact rather than as prose — derived from the partition of `relation`, not stated.  Every type is a unary_predicate,
   ;; so a type-level position asks for a predicate, and the three declarations that
   ;; name a function-valued argument all meet `genl` on a variable no term can fill.
   (doseq [pred '[result genlResult functionCorrespondingPredicate]]
@@ -339,7 +339,8 @@
   ;; hands `declaration-reader` a match pattern instead of a name and EVERY (arg P n T)
   ;; in the KB comes back, so a variadic rule collects two unrelated predicates' demands
   ;; on one variable — (arg typeToInstancePred 2 instance_relation_predicate) beside
-  ;; (genlArg arg1 2 thing) — and is refused for a clash neither declaration is about.
+  ;; (arg instantNotEqual 2 time_point) — and is refused for a clash neither declaration is
+  ;; about.
   (testing "an inert variadic rule checks clean"
     (is (= [] (v/check kb '(set/inertRule
                             (implies (?pred . ?args) (holdsIn CxCore (?pred . ?args))))

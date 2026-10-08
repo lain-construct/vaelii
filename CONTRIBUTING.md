@@ -36,10 +36,29 @@ none of which Leiningen installs:
   your distro's package
 - `python3` — usually already present
 
+**On Windows** every script alias runs under [Git for Windows](https://gitforwindows.org/)'s
+bash (the `bash` def at the top of `project.clj` finds it beside a `git.exe` on `PATH`,
+or in the machine-wide, per-user or Scoop install), and the three tools are Windows
+programs on its `PATH` — with [Scoop](https://scoop.sh/):
+
+```powershell
+scoop bucket add extras
+scoop bucket add scoop-clojure https://github.com/littleli/scoop-clojure
+scoop install git python shellcheck scoop-clojure/clj-kondo
+```
+
+The `python3` Windows ships on `PATH` is a Microsoft Store placeholder, not Python. WSL
+is not needed, and is not what runs even where it is installed — Windows resolves a bare
+`bash` to WSL's ahead of `PATH`, which is why `project.clj` names Git's by its path.
+`VAELII_BASH` overrides the choice: `VAELII_BASH=bash` runs the aliases under WSL instead,
+with the tools installed inside the distribution. The suite's tests over a
+`:disk-snapshot` KB print `SKIP` on Windows, which refuses that backend.
+
 ```bash
 lein lint    # glossary, versions, doc links, doc drift, conflict markers, clj-kondo,
              # cljfmt, shellcheck, reflect (a compile pass), unused (a public var nothing
-             # calls), prose — eleven checks, run in three concurrent lanes
+             # calls), prose, derived (a stateful def with no register row) — twelve
+             # checks, run in three concurrent lanes
 lein fix     # reformats in place; cljfmt is the only auto-repairable check
 lein gate    # lint alongside the suite — the check before you push
 lein release-gate  # ...and the perf claims, before a tag or a perf-sensitive land
@@ -202,8 +221,8 @@ What follows from it:
   as a rule, where variables belong.
 
 Every `ex-info` that `assert` throws carries a `:type` (`:naming`, `:not-well-formed`,
-`:not-ground`, `:not-range-restricted`, `:arg-type`, `:disjoint`, `:functional`), so
-discriminate on that rather than guessing from which keys are present. No check uses
+`:not-ground`, and the rest [`docs/troubleshooting.md`](docs/troubleshooting.md) indexes
+under "I have a `:type`"), so discriminate on that rather than guessing from which keys are present. No check uses
 `clojure.core/assert`: it is elidable, and an elided check stores the junk it existed
 to refuse.
 
@@ -286,8 +305,8 @@ to spell them to ban them.
 ### 3.8 What counts as breaking
 
 A change is classified by who can observe it, and the release number follows the
-classification. Four classes, and every entry's `*Class:*` line spells one of them —
-**Breaking**, **Refusal**, **Additive**, **Fix**:
+classification. Five classes, and every entry's `*Class:*` line spells one of them —
+**Breaking**, **Refusal**, **Additive**, **Fix**, **Internal**:
 
 1. **A contract change a working caller can observe** — a return shape, a `:type`
    keyword, a status code, a documented default. That is **Breaking**: the changelog
@@ -313,6 +332,12 @@ classification. Four classes, and every entry's `*Class:*` line spells one of th
    where an entry carries one. A change a working caller can observe *and* is
    entitled to is class 1 however plainly it is a bug: the counterweight below is
    what decides, not the word "fix".
+5. **Internal** — no caller observes the change: a refactor, a test, a lint stage, a
+   build or tooling change, a doc edit, a version bump. An Internal change gets an entry
+   when a maintainer needs it: a subsystem deleted or restructured, a new lint stage,
+   check or tool, a platform the scripts now run on. A test, a comment, a doc rewording
+   and a version bump get none. **Internal** rides any release, raises no version on its
+   own, and owes no `*Breaks:*` or `*Migration:*` line.
 
 **A configuration name is part of that surface.** Renaming or removing a `VAELII_*`
 environment variable or a `vaelii.*` system property is class 1 — a systemd unit or a
@@ -384,13 +409,16 @@ Three process rules follow:
   answer is "nothing: no working caller exists", because that sentence is the
   class-2 claim made checkable.
 - **At release time the changelog is closed against `git log --oneline
-  <last-tag>..`**: every `feat(`, `fix(`, `perf(` and behaviour-moving `build(`
-  commit has an entry, including functionality no public entry point reaches yet —
-  an engine-internal subsystem, developer tooling, a bench or a lint check. An entry
-  postponed to the release where the functionality becomes caller-visible is one
-  no release writes. The one exemption is a fix to code no release has shipped. An
-  entry written at commit time is cheap; one reconstructed at release time is
-  guesswork.
+  <last-tag>..`**: every `feat(`, `fix(`, `perf(` or behaviour-moving `build(` commit
+  is covered by an entry of the class its change earns, including functionality no
+  public entry point reaches yet — an engine-internal subsystem, developer tooling, a
+  bench or a lint check. An entry postponed to the release where the functionality
+  becomes caller-visible is one no release writes. A fix to code no release has shipped
+  gets no entry of its own: the entry for that code states the fixed behaviour.
+  Commits that change one subsystem share one entry, which states what the release
+  ships rather than each step, and the entries under each heading run from most to
+  least impact. An entry written at commit time is cheap; one reconstructed at release
+  time is guesswork.
 - **Every Breaking and every Refusal entry also carries a `*Breaks:*` line, and
   the release greps the siblings for it.** The line holds one backticked token
   per name a caller would have written — a retired option key or symbol, an
@@ -415,6 +443,24 @@ Three process rules follow:
   and a red sibling, found by whoever pulls next — which is how the 0.5.0
   `open-kb` option rename reached `vaelii-foreign`'s test scaffolding and a
   downstream harness's benchmark cells.
+- **A release heading and its summary are terse and technical.**
+  - The heading is `## <V> — <YYYY-MM-DD> — "<title>"`. The title lists the release's
+    three or four largest themes as comma-separated noun phrases, by entry count and by
+    impact on a caller. Each phrase names what changed and uses the backticked API or KB
+    term where one exists. The title holds no full sentence, no rationale and no
+    metaphor. The 0.24.0 title:
+
+    ```
+    Reified `contradicts` and `defeat` sentexes synced to KB, upper ontology improvements and more disjointness, indexing improvements
+    ```
+  - Under the heading, a `| Area | Change |` table gives one row per theme. Each cell
+    names the API calls, KB terms, options and format versions that changed, in clauses
+    separated by semicolons, with no narrative. A bulleted list does not go there:
+    `check-breaking-siblings.sh` reads every `- ` line in the section as an entry.
+  - The Breaking and Refusal count follows in one sentence, then the triage table with
+    one `| If your code… | Then |` row per Breaking and Refusal entry.
+  - The release notes (`release-notes/v<V>-<repo>.md`) take the same register: the
+    census on the first line, then statements of what changed and the migration.
 
 ### 3.9 Compacting a released changelog section
 
@@ -557,7 +603,7 @@ lein test :slow                  # only the marked ones
 lein test-multi-jvm              # the cross-process tests — opt-in, in neither of the above
 lein test-fuzz                   # the exhaustive truncation sweep — likewise opt-in
 lein test-full-kb [KB-DIR]       # the probes of a full-size KB on disk — likewise opt-in
-lein test-backends               # the whole suite once per backend (all eight)
+lein test-backends               # the whole suite once per backend (all nine)
 lein test-sweeps                 # ...and once per sweep (all seven)
 lein test-matrix                 # both at once, concurrently — ~13 min, not ~55.
                                  # Shuffled launch order, seed printed; `--ordered`
@@ -590,13 +636,13 @@ mocks — the in-memory stores by default, with no external dependency.
   (`memory-columnar`, `disk-dense`) — `memory` is the one pair named for a single store
   on both axes, `disk-log` is durable records under the write-ahead-logged index, and
   `overlay` is the fork decorator rather than a pair. The suite must be
-  **failing-set-identical across all eight**, and so must the assertion count — which
+  **failing-set-identical across all nine**, and so must the assertion count — which
   the runners check against `config_expected_delta` rather than print for a reader to
   compare, since a configuration that ran fewer assertions than the others is green.
 - **`lein gate` runs the memory pair and only that one**, so a change touching storage,
   the index, records, recovery or overlay owes `./scripts/test-backends.sh` a run
   before it lands. A durable-store bug is invisible to the one backend the gate
-  exercises, which is the whole reason there are eight.
+  exercises, which is the whole reason there are nine.
 - **`./scripts/test-sweeps.sh` is the other axis**, and a change touching inference,
   the TMS or context retrieval owes it the same run. Six switches re-run the suite
   through an alternative implementation of something the engine otherwise picks for

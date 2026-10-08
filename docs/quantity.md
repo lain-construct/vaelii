@@ -62,6 +62,14 @@ thing is, is a measurement and belongs wherever that thing's facts do. A KB meas
 something else states its own units the same way, and a `starter-test` case holds the
 shipped ones to converting direct-to-base within one dimension.
 
+The table types its terms. `dimensionOf` declares its arguments `unit_of_measure` and
+`physical_dimension`, so `(dimensionOf Kilogram Mass)` derives `(unit_of_measure
+Kilogram)` and `(physical_dimension Mass)` ([argtypes.md](argtypes.md)). `QuantityFn` and
+`QuantityIntervalFn` declare `measure` as their result, and every shipped position that
+holds a measure (`weightOf`, `heightOf`, the five comparisons, CxTime's durations) is
+declared `measure`. An application there whose function declares a result that does not
+reach `measure` is refused with `:arg-type`, as is a number or a string.
+
 ## `normalize-quantity`
 
 `(normalize-quantity kb measure context)` → `[dimension lo-base hi-base]`.

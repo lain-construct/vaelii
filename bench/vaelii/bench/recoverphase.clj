@@ -6,10 +6,10 @@
 
   `recover` is a **per-open** cost: every process start over a durable store pays it,
   proportional to the corpus.  `bench-reindex` times it whole; this splits it into the
-  nine steps its body runs, so a design downstream (persist a derived-state image, bulk
+  eight steps its body runs, so a design downstream (persist a derived-state image, bulk
   the TMS rebuild, parallelize) can be aimed at the step that actually holds the clock
   rather than a guess.  The four `rebuild-tms` steps had been measured; the other five —
-  the taxonomy rebuild, the exception re-check, the supersession refresh, the opposed
+  the taxonomy rebuild, the exception re-check, the supersession refresh, the except
   rebuild, the closing settle — were one number between them.  This is that split.
 
   **Method: a faithful replay, timed step by step.**  `timed-recover!` is `core/recover`'s
@@ -41,7 +41,7 @@
   loops no longer make, since the enumerator already proves the handle live.
 
   Run: `lein bench-recoverphase [mode] [args…]`
-    decomp   [sizes…]   nine-step split at each size (default 100000 500000 1000000)
+    decomp   [sizes…]   eight-step split at each size (default 100000 500000 1000000)
     fetchfix [size]     the removed fetch, priced on disk (default 300000)
                         idx picks the derived index kind (memory|columnar|dense|disk, default
                         memory).  memory is a RAM trie — too large for a big store; columnar
@@ -172,8 +172,6 @@
                     (tax/restore-depths (reasoning/taxonomy kb)))
         t-exc   (ms (special/recheck-every-exception kb))
         t-sup   (ms (special/refresh-supersessions kb (#'recovery/recovered-supersessions kb)))
-        t-opp   (ms (kb/rebuild-opposed! kb)
-                    (kb/rebuild-excepted! kb))
         t-set   (ms (binding [settle/*rebuilding?* true]
                       (settle/settle kb)
                       (let [{:keys [derived]} (chain/rerecord-refusals! kb)]
@@ -182,7 +180,7 @@
     {:split split
      :rebuild-tms (+ (:node split) (:premise split) (:just split) (:relabel split))
      :taxonomy t-tax :exceptions t-exc :supersessions t-sup
-     :opposed t-opp :settle t-set
+     :settle t-set
      :settle-stats (v/settle-stats kb)}))
 
 ;; ---- sub-question A: justification order --------------------------------
@@ -228,14 +226,13 @@
    [:taxonomy      "5 rebuild-taxonomy     (+ refresh-beliefs)"]
    [:exceptions    "6 recheck-every-exception"]
    [:supersessions "7 refresh-supersessions"]
-   [:opposed       "8 rebuild-opposed! + rebuild-excepted!"]
-   [:settle        "9 closing settle       (+ rerecord-refusals)"]])
+   [:settle        "8 closing settle       (+ rerecord-refusals)"]])
 
 (defn- flat
-  "The nine step timings as one map, folding the rebuild-tms split back in."
+  "The eight step timings as one map, folding the rebuild-tms split back in."
   [r]
   (merge (:split r)
-         (select-keys r [:taxonomy :exceptions :supersessions :opposed :settle])))
+         (select-keys r [:taxonomy :exceptions :supersessions :settle])))
 
 (defn- report-decomp [n r order]
   (let [f     (flat r)
@@ -317,7 +314,7 @@
       (finally (disk/close-dir! dir) (rm-rf! dir)))))
 
 ;; ---- shared helpers (timestamps, heap occupancy, belief census) --------
-;; The nine-step split against a real, already-imported `:disk` store on disk — no
+;; The eight-step split against a real, already-imported `:disk` store on disk — no
 ;; generation, no truncation.  This is the real store the generated corpus could only
 ;; approach: a store of millions of sentexes opened cold and settled once.  The daemon that
 ;; starved earlier settles is off here (`-Dvaelii.disk.sync-ms=0`); the read is otherwise
@@ -361,7 +358,7 @@
     (let [genl    (get (deref (reasoning/taxonomy kb)) :genl)
           fwd     (:fwd genl)
           ectxs   (:edge-ctxs genl)
-          ccounts (:ctx-counts genl)
+          ccounts (frequencies (remove nil? (mapcat val ectxs)))
           nedges  (reduce + 0 (map count (vals fwd)))
           nilctx  (count (filter (fn [[_ cs]] (some nil? cs)) ectxs))
           setsz   (into (sorted-map) (frequencies (map count (vals ectxs))))

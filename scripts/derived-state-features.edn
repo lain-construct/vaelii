@@ -1,0 +1,33 @@
+;; The settle features scripts/derived-state-graph.py draws beside the register: each
+;; feature's removability and the derived-state register rows that hold its state.
+;;
+;; :removability is one of
+;;   :core    cannot remove: belief or the model needs it
+;;   :free    independently removable: the features that need it go with it
+;;   :speed   speed only: every answer is the same without it
+;;
+;; A row is in at most one feature, and a feature may hold no row (its code keeps no
+;; state between writes).  A row the register adds appears on the page under "no
+;; feature" until it is listed here.  An id listed here that the register lacks, or one
+;; listed under two features, fails `lein lint`'s `derived` check.  The page reads this
+;; file and the export, and nothing else.
+[{:feature "record store + index"  :removability :core   :rows [:R10 :R13]}
+ {:feature "justification network" :removability :core   :rows [:M1 :M3]}
+ {:feature "region relabel"         :removability :core   :rows []}
+ {:feature "strength classes"       :removability :core   :rows []}
+ {:feature "genl / genlCx closures" :removability :core   :rows [:T1 :T2 :T5 :T7 :T10 :T11 :J4 :J5]}
+ {:feature "context scoping"        :removability :core   :rows [:T9]}
+ {:feature "recheck queue"          :removability :free   :rows [:Q1]}
+ {:feature "forward chaining"       :removability :free   :rows [:M4 :R8 :R9 :R11]}
+ {:feature "generators"             :removability :free   :rows []}
+ {:feature "equality partition"     :removability :free   :rows [:T3 :T4 :Q5]}
+ {:feature "supersession"           :removability :free   :rows [:Q2 :Q4]}
+ {:feature "candidate index"        :removability :free
+  :rows [:J1 :J2 :J6 :N1 :N2 :N3 :N5 :N6 :N9 :Q7 :X1]}
+ {:feature "visibility except"      :removability :free   :rows [:Q3]}
+ {:feature "inherited discovery"    :removability :free   :rows [:N7 :D3 :R5 :R6]}
+ {:feature "exceptWhen · NAF"       :removability :free   :rows [:S5]}
+ {:feature "edge solver"            :removability :free   :rows [:S7]}
+ {:feature "mint withdrawal"        :removability :free   :rows [:Q8 :Q9]}
+ {:feature "published window"       :removability :free   :rows [:Q6]}
+ {:feature "touched window"         :removability :speed  :rows [:M2]}]

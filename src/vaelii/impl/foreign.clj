@@ -48,7 +48,8 @@
   (:require [clojure.edn :as edn]
             [clojure.java.io :as io]
             [clojure.string :as str]
-            [taoensso.trove :as trove])
+            [taoensso.trove :as trove]
+            [vaelii.impl.caches :as caches])
   (:import [java.io PushbackReader]))
 
 (def manifest-resource
@@ -217,3 +218,11 @@
   the engine, and every call site in here takes `reader` or `reader!` instead."
   [kind]
   (some? (reader kind)))
+
+;; ---- derived state (docs/caches.md, "The derived-state register") ----------------
+
+(caches/register-derived
+ {:id :K9 :label "Foreign format scan" :kind :cache :keyed-by :value :reads [:source]
+  :retired-by {} :computed :read :imaged? false :var #'discovered
+  :value (fn [_] @discovered)
+  :note "the reader formats the classpath manifests declare; `rescan` replaces it"})

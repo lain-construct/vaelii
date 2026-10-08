@@ -54,8 +54,9 @@ What it takes to *have* each of these — which ship here, which needs a plugin,
 supply, and what each costs to get to a first load — is [kbs.md](kbs.md).
 
 ```
-VAELII_KB_PATH=/kbs:/data/corpora    # colon-separated; each entry is a KB directory or
-                                      # a directory of them, probed one level down
+VAELII_KB_PATH=/kbs:/data/corpora    # colon-separated (semicolon on Windows, as PATH is);
+                                      # each entry is a KB directory or a directory of
+                                      # them, probed one level down
 ```
 
 With no `VAELII_KB_PATH`, the `vaelii.kb.path` system property is consulted (the same

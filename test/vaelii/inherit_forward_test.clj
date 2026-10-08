@@ -3,7 +3,7 @@
 (ns vaelii.inherit-forward-test
   "Forward chaining on a claim nobody stored.
 
-  `(transitiveInArg largerThan 1 genl)` beside `(largerThan dog cat)` licenses
+  `(transitiveInArgInverse largerThan 1 genl)` beside `(largerThan dog cat)` licenses
   `(largerThan chihuahua maine_coon)`, and a rule over `largerThan` has to fire on it —
   or `sentexes-matching` reads one answer out of the fixpoint while `ask` re-derives
   another through `TransitiveInArgProver`, which is the same knowledge giving two answers
@@ -45,8 +45,8 @@
   [kb pred]
   (v/with-deferred-settle kb
     (v/assert kb (list 'asymmetric pred) ctx)
-    (v/assert kb (list 'transitiveInArg pred 1 'genl) ctx)
-    (v/assert kb (list 'transitiveInArg pred 2 'genl) ctx)))
+    (v/assert kb (list 'transitiveInArgInverse pred 1 'genl) ctx)
+    (v/assert kb (list 'transitiveInArgInverse pred 2 'genl) ctx)))
 
 ;; ---- the disagreement itself ---------------------------------------------
 
@@ -86,8 +86,8 @@
         (is (contains? reasons (list 'genl chihuahua_t dog_t)))
         (is (contains? reasons (list 'genl maine_coon_t cat_t))))
       (testing "and the declarations, which license the move and are as retractable"
-        (is (contains? reasons (list 'transitiveInArg largerThan 1 'genl)))
-        (is (contains? reasons (list 'transitiveInArg largerThan 2 'genl))))
+        (is (contains? reasons (list 'transitiveInArgInverse largerThan 1 'genl)))
+        (is (contains? reasons (list 'transitiveInArgInverse largerThan 2 'genl))))
       (testing "nothing else — a witness, not a transcript"
         (is (= 5 (count reasons)) (pr-str reasons))))))
 
@@ -122,7 +122,7 @@
       (doseq [reason [(list 'genl chihuahua_t dog_t)
                       (list 'genl maine_coon_t cat_t)
                       (list largerThan dog_t cat_t)
-                      (list 'transitiveInArg largerThan 1 'genl)]]
+                      (list 'transitiveInArgInverse largerThan 1 'genl)]]
         (testing (str "retracting " (pr-str reason))
           (let [h (v/handle-of kb reason ctx)]
             (v/retract! kb h)
@@ -234,7 +234,7 @@
   (tu/with-terms [partOf needs_maintenance schedule Car Engine Piston]
     (v/with-deferred-settle kb
       (v/assert kb (list 'transitive partOf) ctx)
-      (v/assert kb (list 'transitiveInArg needs_maintenance 1 partOf) ctx)
+      (v/assert kb (list 'transitiveInArgInverse needs_maintenance 1 partOf) ctx)
       (v/assert kb (list partOf Engine Car) ctx)
       (v/assert kb (list partOf Piston Engine) ctx))
     (v/assert kb (list needs_maintenance Car) ctx)
@@ -258,7 +258,7 @@
   ;; The forward path gates every preserved-antecedent question on "does this KB
   ;; declare any preservation at all", cached per chaining run
   ;; (`chain/*declarations-cell*`).  A run can *derive* the declaration — here one fact
-  ;; fires two rules that conclude both `transitiveInArg`s — and everything the same run
+  ;; fires two rules that conclude both `transitiveInArgInverse`s — and everything the same run
   ;; joins after that placement has to see it: the declaration datum's own re-join of the
   ;; rules it moved, and any later datum's ordinary trigger.  A cache read once at the
   ;; start of the run and never forgotten answers "none" to both.
@@ -271,12 +271,12 @@
           _     (v/assert kb (list largerThan dog_t cat_t) ctx quiet)
           rh    (v/assert kb (list 'set/forwardRule (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y)))
                           ctx quiet)
-          ;; a firing concludes a `transitiveInArg` only from roster antecedents
+          ;; a firing concludes a `transitiveInArgInverse` only from roster antecedents
           _     (v/assert kb (list 'forced_monotonic_predicate preservesBoth) ctx quiet)
           _     (v/assert kb (list 'set/forwardRule (list 'implies (list preservesBoth '?p)
-                                                          (list 'transitiveInArg '?p 1 'genl))) ctx quiet)
+                                                          (list 'transitiveInArgInverse '?p 1 'genl))) ctx quiet)
           _     (v/assert kb (list 'set/forwardRule (list 'implies (list preservesBoth '?p)
-                                                          (list 'transitiveInArg '?p 2 'genl))) ctx quiet)
+                                                          (list 'transitiveInArgInverse '?p 2 'genl))) ctx quiet)
           fh    (v/assert kb (list preservesBoth largerThan) ctx quiet)]
       (testing "nothing has chained yet"
         (is (not (holds? kb (list outweighs dog_t cat_t)))))
@@ -286,19 +286,19 @@
       (chain/chain-all kb [rh fh] nil)
       (settle/settle kb)
       (testing "the declarations were derived inside the run"
-        (is (holds? kb (list 'transitiveInArg largerThan 1 'genl)))
-        (is (holds? kb (list 'transitiveInArg largerThan 2 'genl))))
+        (is (holds? kb (list 'transitiveInArgInverse largerThan 1 'genl)))
+        (is (holds? kb (list 'transitiveInArgInverse largerThan 2 'genl))))
       (testing "and the joins after them inherit"
         (is (holds? kb (list outweighs dog_t cat_t)))
         (is (holds? kb (list outweighs chihuahua_t maine_coon_t)))
         (is (= 9 (count (v/sentexes-matching kb (list outweighs '?x '?y) ctx))))))))
 
-(tu/deftest-kb the-inverse-declaration-fires-upward
+(tu/deftest-kb a-transitiveInArg-declaration-fires-upward
   (tu/with-terms [dog_t animal_t thing_t hasA aboutIt]
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl dog_t animal_t) ctx)
       (v/assert kb (list 'genl animal_t thing_t) ctx)
-      (v/assert kb (list 'transitiveInArgInverse hasA 1 'genl) ctx))
+      (v/assert kb (list 'transitiveInArg hasA 1 'genl) ctx))
     (v/assert kb (list hasA dog_t) ctx)
     (v/assert kb (list 'implies (list hasA '?x) (list aboutIt '?x)) ctx {:direction :forward})
     (is (holds? kb (list aboutIt animal_t)) "one edge up")
@@ -313,7 +313,7 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genlCx CxWide ctx) ctx)
       (v/assert kb (list 'genlCx CxNarrow CxWide) ctx)
-      (v/assert kb (list 'transitiveInArg appliesIn 2 'genlCx) ctx))
+      (v/assert kb (list 'transitiveInArgInverse appliesIn 2 'genlCx) ctx))
     (v/assert kb (list appliesIn TheDecree CxWide) ctx)
     (v/assert kb (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c)) ctx {:direction :forward})
     (testing "the subcontext, by inheritance — and both entry points agree on it"
@@ -340,7 +340,7 @@
   ;; the named witness did not travel, in the very settle that defeated it, or the
   ;; fixpoint holds less than the backward entry point still proves.
   ;;
-  ;;   CxUniverse   (transitiveInArg largerThan 1 genl)  (largerThan dog_t cat_t)
+  ;;   CxUniverse   (transitiveInArgInverse largerThan 1 genl)  (largerThan dog_t cat_t)
   ;;    ├─ CxA      (genl chi_t mid_t) (genl mid_t dog_t)   the long route
   ;;    │           (genl chi_t dog_t)                      the short route, the witness
   ;;    └─ CxB      (not (genl chi_t dog_t))  monotonic
@@ -354,7 +354,7 @@
       (v/assert kb (list 'genl mid_t dog_t) CxA)
       (v/assert kb (list 'genl chi_t mid_t) CxA)
       (v/assert kb (list 'genl chi_t dog_t) CxA)
-      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse largerThan 1 'genl) 'CxUniverse)
       (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse))
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list noted '?x '?y))
               'CxUniverse {:direction :forward})
@@ -385,7 +385,7 @@
   ;; reach").
   ;;
   ;;   CxUniverse   (genl mid_t dog_t) (genl chi_t mid_t)   the long route
-  ;;                (transitiveInArg largerThan 1 genl)  (largerThan dog_t cat_t)
+  ;;                (transitiveInArgInverse largerThan 1 genl)  (largerThan dog_t cat_t)
   ;;    └─ CxA      (genl chi_t dog_t)                      the short route
   ;;         └─ CxB (not (genl chi_t dog_t))  monotonic
   (doseq [long-first? [true false]]
@@ -398,7 +398,7 @@
           (v/with-deferred-settle kb
             (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
             (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse)
-            (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
+            (v/assert kb (list 'transitiveInArgInverse largerThan 1 'genl) 'CxUniverse)
             (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)
             (v/assert kb (list 'implies (list largerThan '?x '?y) (list noted '?x '?y))
                       'CxUniverse {:direction :forward}))
@@ -435,7 +435,7 @@
   (v/with-deferred-settle kb
     (v/assert kb (list 'genlCx CxA 'CxUniverse) 'CxUniverse)
     (v/assert kb (list 'genlCx CxB CxA) 'CxUniverse)
-    (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
+    (v/assert kb (list 'transitiveInArgInverse largerThan 1 'genl) 'CxUniverse)
     (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse)
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list noted '?x '?y))
               'CxUniverse {:direction :forward}))
@@ -478,12 +478,11 @@
         (is (= (two-route-reading kb alone) (two-route-reading kb built)))))))
 
 (tu/deftest-kb a-reader-that-loses-the-long-route-reads-the-conclusion-in-either-order
-  ;; A scoped defeat of the long route at CxA withdraws the CxUniverse firing there, while
-  ;; CxA still reaches chi → dog over its own edge.  The short route first stored a firing
-  ;; in CxA before the long route arrived; the long route first stored none, and the settle
-  ;; re-derives one over CxA's route (reroute/lost-firing-seeds).  Either way CxA holds a
-  ;; firing of its own afterwards, and it is kept rather than retired (docs/defenses.md, "A
-  ;; firing placed over a lower route is not retired").
+  ;; A scoped defeat of the long route at CxA hides that route there, while CxA still
+  ;; reaches chi → dog over its own edge, so CxA reads the CxUniverse firing over it
+  ;; (exc/rerouted).  The short route first stored a firing in CxA before the long route
+  ;; arrived, and it is kept rather than retired (docs/defenses.md, "A firing placed over a
+  ;; lower route is not retired"); the long route first stores the CxUniverse firing alone.
   (doseq [order [[:short :long] [:long :short]]]
     (testing (str (name (first order)) " route first")
       (tu/with-terms [dog_t mid_t chi_t cat_t largerThan noted CxA CxB]
@@ -493,8 +492,8 @@
           (v/assert kb (list 'not (list 'genl chi_t mid_t)) CxA {:strength :monotonic})
           (is (= [true true true] (:answers (two-route-reading kb t)))
               "CxA reaches chi → dog over its own edge and reads the conclusion")
-          (is (= [true true false] (:stored (two-route-reading kb t)))
-              "stored in CxUniverse and in CxA"))))))
+          (is (= (if (= :short (first order)) [true true false] [true false false])
+                 (:stored (two-route-reading kb t)))))))))
 
 (tu/deftest-kb the-mirror-licenses-a-firing-in-either-order
   ;; A symmetric predicate's stored claim states both orientations, so the mirror
@@ -507,7 +506,7 @@
       (tu/with-terms [dog_t cat_t chihuahua_t nearTo seen]
         (v/with-deferred-settle kb
           (v/assert kb (list 'genl chihuahua_t dog_t) ctx)
-          (v/assert kb (list 'transitiveInArg nearTo 1 'genl) ctx))
+          (v/assert kb (list 'transitiveInArgInverse nearTo 1 'genl) ctx))
         (doseq [s (if sym-first?
                     [(list 'symmetric nearTo)
                      (list 'set/forwardRule (list 'implies (list nearTo '?x '?y) (list seen '?x '?y)))
@@ -544,8 +543,8 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl chihuahua_t dog_t) ctx)
       (v/assert kb (list 'genl maine_coon_t cat_t) ctx)
-      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) ctx)
-      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) ctx)
+      (v/assert kb (list 'transitiveInArgInverse largerThan 1 'genl) ctx)
+      (v/assert kb (list 'transitiveInArgInverse largerThan 2 'genl) ctx)
       (v/assert kb (list largerThan dog_t cat_t) ctx))
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y)) ctx {:direction :forward})
     (let [goal (list outweighs chihuahua_t maine_coon_t)]
@@ -567,7 +566,7 @@
   (tu/with-terms [partOf needs_maintenance schedule Car Engine Piston]
     (v/with-deferred-settle kb
       (v/assert kb (list 'transitive partOf) ctx)
-      (v/assert kb (list 'transitiveInArg needs_maintenance 1 partOf) ctx))
+      (v/assert kb (list 'transitiveInArgInverse needs_maintenance 1 partOf) ctx))
     (v/assert kb (list needs_maintenance Car) ctx)
     (v/assert kb (list 'implies (list needs_maintenance '?x) (list schedule '?x)) ctx {:direction :forward})
     (is (not (holds? kb (list schedule Piston))) "nothing connects the part yet")
@@ -591,14 +590,14 @@
       (tu/with-terms [partOf needs_maintenance schedule Car Engine Piston
                       appliesIn noticed TheDecree CxWide CxNarrow]
         (let [content [(list 'transitive partOf)
-                       (list 'transitiveInArg needs_maintenance 1 partOf)
+                       (list 'transitiveInArgInverse needs_maintenance 1 partOf)
                        (list partOf Engine Car)
                        (list partOf Piston Engine)
                        (list needs_maintenance Car)
                        (list 'set/forwardRule (list 'implies (list needs_maintenance '?x) (list schedule '?x)))
                        (list 'genlCx CxWide ctx)
                        (list 'genlCx CxNarrow CxWide)
-                       (list 'transitiveInArg appliesIn 2 'genlCx)
+                       (list 'transitiveInArgInverse appliesIn 2 'genlCx)
                        (list appliesIn TheDecree CxWide)
                        (list 'set/forwardRule (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c)))]]
           (if batch?
@@ -622,7 +621,7 @@
       (v/assert kb (list 'genlCx CxDown CxRight) ctx)
       (v/assert kb (list 'genlCx CxWide ctx) ctx)
       (v/assert kb (list 'genlCx CxNarrow CxWide) ctx)
-      (v/assert kb (list 'transitiveInArg appliesIn 2 'genlCx) ctx))
+      (v/assert kb (list 'transitiveInArgInverse appliesIn 2 'genlCx) ctx))
     (v/assert kb (list appliesIn TheDecree CxWide) CxLeft)
     (v/assert kb (list 'implies (list appliesIn TheDecree '?c) (list noticed '?c))
               CxRight {:direction :forward})
@@ -680,8 +679,8 @@
       (v/assert kb (list 'genlCx CxLower CxUpper) ctx))
     (v/with-deferred-settle kb
       (v/assert kb (list 'asymmetric largerThan) CxUpper)
-      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) CxUpper)
-      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) CxUpper)
+      (v/assert kb (list 'transitiveInArgInverse largerThan 1 'genl) CxUpper)
+      (v/assert kb (list 'transitiveInArgInverse largerThan 2 'genl) CxUpper)
       (v/assert kb (list largerThan dog_t cat_t) CxUpper))
     ;; the edges are stated only in the lower context, so only it can see the reach
     (v/with-deferred-settle kb
@@ -706,8 +705,8 @@
       (v/assert kb (list 'genlCx CxLeft CxBase) ctx)
       (v/assert kb (list 'genlCx CxRight CxBase) ctx))
     (v/with-deferred-settle kb
-      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) CxBase)
-      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) CxBase)
+      (v/assert kb (list 'transitiveInArgInverse largerThan 1 'genl) CxBase)
+      (v/assert kb (list 'transitiveInArgInverse largerThan 2 'genl) CxBase)
       (v/assert kb (list largerThan dog_t cat_t) CxBase))
     ;; incomparable contexts hold one edge each: no context sees both
     (v/assert kb (list 'genl chihuahua_t dog_t) CxLeft)
@@ -769,8 +768,8 @@
                    (list 'genl golden_retriever_t dog_t)
                    (list 'genl maine_coon_t cat_t)
                    (list 'genl siamese_t cat_t)
-                   (list 'transitiveInArg largerThan 1 'genl)
-                   (list 'transitiveInArg largerThan 2 'genl)
+                   (list 'transitiveInArgInverse largerThan 1 'genl)
+                   (list 'transitiveInArgInverse largerThan 2 'genl)
                    (list largerThan dog_t cat_t)
                    (list 'set/forwardRule (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y)))]
           go   (fn [order]
@@ -788,3 +787,44 @@
                  (pr-str (set/difference (:derived (first runs)) (:derived r)))
                  " / "
                  (pr-str (set/difference (:derived r) (:derived (first runs))))))))))
+
+(defn- withdrawn-by-a-defeated-claim
+  "`[stored IN, held]` for `(outweighs chihuahua maine_coon)` at CxA after the writes `ops`,
+  in order, beside `kinds!` and `preserving!` in CxUniverse.
+
+  ```
+  CxA  G = (typicallyLargerThan dog cat) M                                    (:claim)
+       (typicallyLargerThan ?x ?y) => (outweighs ?x ?y)                       (:rule)
+       S = (typicallyLargerThan maine_coon chihuahua) :default                (:specific)
+       (not S) M, which places the defeat of S in CxA                         (:denial)
+  ```"
+  [ops]
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [dog_t cat_t golden_retriever_t maine_coon_t chihuahua_t siamese_t
+                    typicallyLargerThan outweighs CxA]
+      (v/assert kb (list 'genlCx CxA ctx) ctx)
+      (kinds! kb {:dog dog_t :cat cat_t :gr golden_retriever_t
+                  :chi chihuahua_t :mc maine_coon_t :sia siamese_t})
+      (preserving! kb typicallyLargerThan)
+      (let [specific (list typicallyLargerThan maine_coon_t chihuahua_t)
+            target   (list outweighs chihuahua_t maine_coon_t)]
+        (doseq [op ops]
+          (case op
+            :claim    (v/assert kb (list typicallyLargerThan dog_t cat_t) CxA {:strength :monotonic})
+            :rule     (v/assert kb (list 'set/forwardRule (list 'implies (list typicallyLargerThan '?x '?y)
+                                                                (list outweighs '?x '?y)))
+                                CxA {:strength :monotonic})
+            :specific (v/assert kb specific CxA)
+            :denial   (v/assert kb (list 'not specific) CxA {:strength :monotonic})))
+        [(boolean (some-> (v/handle-of kb target CxA) (->> (v/in? kb))))
+         (boolean (seq (v/sentexes-matching kb target CxA)))]))))
+
+(tu/deftest-kb a-defeated-contrary-claim-withdraws-an-inherited-firing-in-every-order
+  ;; The withdrawal reads the network, as every placement in chain does (design.md ruling
+  ;; 19): S is IN, so it undercuts G for the pair whether or not a defeat hides it.
+  (is (= #{[false false]}
+         (into #{} (map withdrawn-by-a-defeated-claim)
+               (for [a [:claim :rule :specific :denial] b [:claim :rule :specific :denial]
+                     c [:claim :rule :specific :denial] d [:claim :rule :specific :denial]
+                     :when (= 4 (count (distinct [a b c d])))]
+                 [a b c d])))))

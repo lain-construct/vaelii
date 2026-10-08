@@ -8,6 +8,7 @@
   are bare integers — the closure math does not care where they came from."
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.impl.caches :as caches]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.taxonomy :as tax]))
 
 (deftest genl-closures
@@ -52,33 +53,43 @@
       (tax/refresh-beliefs t #{2 9})                  ; #1 out, #9 in
       (is (tax/genl?-global t 'dog 'animal)))))
 
-(deftest clear-relations-drops-support-too
+(deftest clear-relations-keeps-the-stored-supporters-a-refresh-installs-from
+  ;; `recover` is a clear and a refresh with no region: the supporters are stored content
+  ;; in the index, so the clear leaves them and the refresh installs what belief admits
   (let [t (tax/create-taxonomy)]
     (tax/add-genl t 'dog 'animal 1)
     (tax/add-genlCx t 'CxBio 'CxUniverse 2)
     (tax/clear-relations! t)
-    (testing "both transitive relations are empty, edges and support alike"
+    (testing "both transitive relations are empty"
       (is (empty? (tax/genl-edges t)))
       (is (empty? (tax/genlCx-edges t)))
       (is (not (tax/genl?-global t 'dog 'animal))))
-    (testing "and a refresh cannot resurrect them"
-      (tax/refresh-beliefs t (constantly true))
+    (testing "a refresh installs the believed supporters' edges"
+      (tax/refresh-beliefs t #{2})
+      (is (= #{'[CxBio CxUniverse]} (tax/genlCx-edges t)))
       (is (empty? (tax/genl-edges t))))))
 
 ;; ---- the four flat caches follow belief the same way --------------------
 ;; `refresh-beliefs` reconciles `disjoint`, the disjoint metatypes + members, the
-;; predicate properties, and `inverse` against belief, keyed on the shared
-;; `:cache-support` count.  Bare integer handles again — the belief question is the
-;; same wherever they came from.
+;; predicate properties, and `inverse` against belief, keyed on the supporters stored
+;; under each key.  Bare integer handles again — the belief question is the same wherever
+;; they came from.
 
-(defn- transpose-cache-support
-  "`:cache-support` read the other way: which `[kind key]` entries each handle supports.
-  What `:cache-handle-keys` must equal after every edit, since that index is what scopes
-  the flat-cache reconcile to the region a settle relabelled."
+(defn- transpose-supporters
+  "The supporter family of `t`'s store read the other way: which keys each handle
+  supports, as `{handle #{k}}`."
   [t]
   (reduce-kv (fn [m k supporters]
                (reduce (fn [m h] (update m h (fnil conj #{}) k)) m (keys supporters)))
-             {} (:cache-support @t)))
+             {} (reads/as-stored-supporter-map (:index @t))))
+
+(defn- installed-keys
+  "`[:tax-installs h]` for every handle `handles` names, as `{handle #{k}}`, the empty
+  sets left out."
+  [t handles]
+  (into {} (keep (fn [h] (let [ks (reads/as-stored-installed-keys (:index @t) h)]
+                           (when (seq ks) [h ks]))))
+        handles))
 
 (deftest disjoint-follows-belief
   (let [t (tax/create-taxonomy)]
@@ -148,14 +159,14 @@
       (is (tax/disjoint? t 'dog 'fish)))))
 
 (deftest unmarking-a-metatype-takes-its-members-handles-with-it
-  ;; Unmarking is the one teardown that drops `:cache-support` entries without going
-  ;; through `support-drop`, so it is the one that can leave `:cache-handle-keys` holding
-  ;; a handle whose entry is gone.  That index is not decoration: `refresh-beliefs` reads
-  ;; it forward to decide which flat-cache entries a settle has to reconcile, so a stale
-  ;; handle puts a key nothing supports into the scope of every settle that relabels
-  ;; *that* sentex — for the life of the KB, since nothing ever removes it.
+  ;; Unmarking is the one teardown that retires supporters the caller never named: every
+  ;; member's, with the mark's last.  The installed-key family is not decoration:
+  ;; `refresh-beliefs` reads it forward to decide which flat-cache entries a settle has to
+  ;; reconcile, so a stale handle puts a key nothing supports into the scope of every
+  ;; settle that relabels *that* sentex — for the life of the KB, since nothing ever
+  ;; removes it.
   (let [t       (tax/create-taxonomy)
-        handles #(:cache-handle-keys @t)
+        handles #(installed-keys t (range 1 7))
         dirty   #(:cache-dirty @t)]
     (tax/mark-disjoint-metatype t 'species 1)
     (doseq [[h ty] (map vector [2 3 4] '[dog cat fish])]
@@ -178,20 +189,20 @@
       (is (= '{5 #{[:disjoint #{plant mineral}]}} (handles))
           "and only the unrelated declaration's handle is left"))
     (testing "and the dirty mark goes with them, not just the handles"
-      ;; `:cache-dirty` is the other index keyed off `:cache-support`, and a mark left on
-      ;; a key nothing supports is worse than a stranded handle: a stranded handle only
+      ;; `:cache-dirty` names keys too, and a mark left on a key nothing supports is
+      ;; worse than a stranded handle: a stranded handle only
       ;; widens the scope of a settle that relabels *that* sentex, where a stranded mark
       ;; widens **every** settle, moved or not, for the life of the KB.
       (is (not (contains? (dirty) '[:member species dog])))
       (is (empty? (dirty))))
-    (testing "the invariant behind the scope: the index is the support map, transposed"
-      (is (= (handles) (transpose-cache-support t))))))
+    (testing "the invariant behind the scope: the installed keys are the supporters, transposed"
+      (is (= (handles) (transpose-supporters t))))))
 
 (deftest the-last-supporter-of-an-entry-takes-its-dirty-mark-with-it
   ;; The `support-drop` half of the claim above.  A shared entry is marked dirty by the
   ;; belief-blind writers, and the mark is discharged by a reconcile — but an entry whose
   ;; last supporter is retracted is never reconciled again, because `refresh-cache-support`
-  ;; guards on the key still being in `:cache-support`.  So the drop has to clear the mark
+  ;; skips a key with no stored supporter.  So the drop has to clear the mark
   ;; itself; left behind, it is in the scope of every settle from then on and nothing ever
   ;; takes it out.  Costs work rather than answers, which is exactly why no other test
   ;; would notice.
@@ -209,7 +220,7 @@
     (testing "dropping the last takes the entry, and the mark with it"
       (tax/del-disjoint! t 'dog 'cat 2)
       (is (not (tax/disjoint? t 'dog 'cat)))
-      (is (nil? (get-in @t [:cache-support k])) "the entry is gone")
+      (is (empty? (tax/supporters t k)) "the entry is gone")
       (is (empty? (dirty)) "so nothing is left owing a reconcile it can never get"))))
 
 ;; ---- the incremental closure, checked against the reference ---------------
@@ -513,10 +524,9 @@
       (is (tax/genl?-global t 'p 'r)))))
 
 ;; ---- the derived context state -------------------------------------------
-;; `:edge-ctxs` carries each active edge's supporting contexts, `:ctx-counts` /
-;; `:ctxs-gen` the relation-wide context census the scoped reads key their
-;; visibility interning on.  All of it is a function of `:support` and belief, the
-;; way `:edges` is — the oracle at the end recomputes exactly that.
+;; `:edge-ctxs` carries each active edge's supporting contexts, a function of
+;; `:support` and belief the way `:edges` is — the oracle at the end recomputes exactly
+;; that.
 
 (deftest edge-contexts-track-supporters
   (let [t (tax/create-taxonomy)]
@@ -567,45 +577,19 @@
       (tax/refresh-beliefs t #{1})
       (is (= g (gen)) "a belief-preserving refresh does not"))))
 
-(deftest context-counts-and-their-generation
-  (let [t (tax/create-taxonomy)
-        counts #(get-in @t [:genl :ctx-counts])
-        cgen   #(get-in @t [:genl :ctxs-gen])]
-    (let [g0 (cgen)]
-      (tax/add-genl t 'a 'b 1 'CxA)
-      (is (= '{CxA 1} (counts)))
-      (is (= (inc g0) (cgen)) "a new context key bumps")
-      (tax/add-genl t 'c 'd 2 'CxA)
-      (is (= '{CxA 2} (counts)))
-      (is (= (inc g0) (cgen)) "a repeat of a counted context does not")
-      (tax/del-genl! t 'a 'b 1)
-      (is (= '{CxA 1} (counts)))
-      (is (= (inc g0) (cgen)))
-      (tax/del-genl! t 'c 'd 2)
-      (is (= {} (counts)))
-      (is (= (+ 2 g0) (cgen)) "the last supporter of a context leaving bumps")
-      (testing "nil is never counted — it is not a context an ancestor set could name"
-        (tax/add-genl t 'a 'b 3)
-        (is (= {} (counts)))))))
-
 (defn- edge-ctxs-oracle
   "What `:edge-ctxs` must equal after a refresh under `believed?`: the believed
-  supporters' contexts of every edge that has at least one, straight off `:support`."
+  supporters' contexts of every edge that has at least one, straight off the stored
+  supporters."
   [t rel-key believed?]
-  (reduce-kv (fn [m e hs]
+  (reduce-kv (fn [m [kind a b] hs]
                (let [cs (reduce-kv (fn [s h c] (if (believed? h) (conj s c) s)) #{} hs)]
-                 (if (seq cs) (assoc m e cs) m)))
-             {} (get-in @t [rel-key :support])))
-
-(defn- ctx-counts-oracle
-  "What `:ctx-counts` must equal at any moment: the context frequencies of every
-  supporter (belief-blind, nil excluded), straight off `:support`."
-  [t rel-key]
-  (frequencies (remove nil? (mapcat vals (vals (get-in @t [rel-key :support]))))))
+                 (if (and (= rel-key kind) (seq cs)) (assoc m [a b] cs) m)))
+             {} (reads/as-stored-supporter-map (:index @t))))
 
 (deftest derived-context-state-agrees-with-a-recompute-after-random-edits
-  ;; the phase oracle: after ANY edit sequence, `:ctx-counts` is a pure function of
-  ;; `:support`, the keys of `:edge-ctxs` are exactly `:edges`, and after each
+  ;; the phase oracle: after ANY edit sequence the keys of `:edge-ctxs` are exactly
+  ;; `:edges`, and after each
   ;; refresh `:edge-ctxs` equals the believed-supporter contexts recomputed from
   ;; scratch.  Deterministic seed; edges only ever point up the node order, so the
   ;; graph stays a DAG and the depth machinery is exercised on its own terms.
@@ -637,22 +621,19 @@
             (is (= (edge-ctxs-oracle t :genl believed)
                    (get-in @t [:genl :edge-ctxs]))
                 "after a refresh, :edge-ctxs is the believed recompute")))
-        (is (= (ctx-counts-oracle t :genl) (get-in @t [:genl :ctx-counts])))
         (is (= (set (keys (get-in @t [:genl :edge-ctxs])))
                (get-in @t [:genl :edges]))
             ":edge-ctxs keys are exactly the active edges")))))
 
 (deftest the-handle-index-is-the-exact-reverse-of-support
-  ;; `:handle-edge` is what scopes the belief reconcile to the moved region, and it is
-  ;; only sound while it is *exact*: a supporter missing from it is an edge a settle
-  ;; would skip, which shows up as a stale closure and not as a crash.  A handle asserts
-  ;; one edge, so the index is the transpose of `:support` after every edit — including
-  ;; the two that are easy to get wrong, a shared edge losing one of its supporters and
-  ;; a supporter re-asserting an edge it already holds.
-  (let [transpose (fn [t] (into {} (for [[e hs] (get-in @t [:genl :support]), h (keys hs)]
-                                     [h e])))
-        exact?    (fn [t] (= (transpose t) (get-in @t [:genl :handle-edge])))
-        t         (tax/create-taxonomy)]
+  ;; The installed-key family is what scopes the belief reconcile to the moved region, and
+  ;; it is only sound while it is *exact*: a supporter missing from it is an edge a settle
+  ;; would skip, which shows up as a stale closure and not as a crash.  It is the
+  ;; transpose of the supporter family after every edit — including the two that are easy
+  ;; to get wrong, a shared edge losing one of its supporters and a supporter re-asserting
+  ;; an edge it already holds.
+  (let [exact? (fn [t] (= (transpose-supporters t) (installed-keys t (range 100))))
+        t      (tax/create-taxonomy)]
     (tax/add-genl t 'p 'q 1)
     (tax/add-genl t 'q 'r 2)
     (tax/add-genl t 'p 'q 3)                            ; a second supporter for p->q
@@ -667,7 +648,7 @@
     (testing "and the last supporter of an edge takes its entry with it"
       (tax/del-genl! t 'p 'q 3)
       (is (exact? t))
-      (is (nil? (get-in @t [:genl :handle-edge 3]))))
+      (is (empty? (reads/as-stored-installed-keys (:index @t) 3))))
     (testing "a delete naming a handle that never supported the edge changes nothing"
       (tax/del-genl! t 'q 'r 99)
       (is (exact? t))
@@ -806,7 +787,7 @@
 
 (defn- flat-cache-oracle
   "What the flat caches must hold under `believed`: the **unconditional** reconcile of
-  the very same `:cache-support`, run on a detached copy so the live taxonomy learns
+  the very same stored supporters, run on a detached copy so the live taxonomy learns
   nothing of it.  That arm walks every entry and evaluates belief for each, which is the
   reference the scoped arm has to agree with entry for entry."
   [t believed]
@@ -864,7 +845,7 @@
                 ;; rather than tracked: unmarking the *last* supporter of a metatype drops
                 ;; its members' entries wholesale, so handles the driver never named stop
                 ;; being supporters in the same call.
-                (let [alive (into #{} (keys (transpose-cache-support t)))]
+                (let [alive (into #{} (keys (transpose-supporters t)))]
                   (swap! live #(into {} (filter (comp alive key)) %))
                   (swap! believed #(into #{} (filter alive) %))))
 
@@ -877,9 +858,9 @@
                 (reset! believed now)
                 (tax/refresh-beliefs t now flipped)
                 (check! (str "a flip of " (pr-str flipped)))))
-            (is (= (transpose-cache-support t) (:cache-handle-keys @t))
-                (str "trial " trial ": :cache-handle-keys is not the transpose of "
-                     ":cache-support after op " op))))))))
+            (is (= (transpose-supporters t) (installed-keys t (range (inc @next-h))))
+                (str "trial " trial ": the installed keys are not the transpose of "
+                     "the supporters after op " op))))))))
 
 (deftest genlCx-visibility
   (let [t (tax/create-taxonomy)]

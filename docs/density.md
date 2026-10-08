@@ -146,18 +146,43 @@ later query came back short — which is why `dense_kv_oracle_test` snapshots ev
 across a run of intersections and compares.
 
 **Which families get packed is a decision, and it is checked.** A handle family is one
-whose value is a set of handles: the trie leaves `[:trie :handles …]`, the three roots
-`[:context-root …]` `[:functor-root …]` `[:argument-root pred pos …]`, the term index
-`[:term-index …]`, both halves of the rule index `[:rule-index :antecedent|:consequent
-…]`, and both halves of the exception index `[:exception-index <pred>|:rules]`. The rest
-must *not* be packed: `[:trie :count …]` is an integer, `[:trie :children …]` holds path
-tokens (numbers among them), and `[:term-roster]` and `[:argument-slot …]` hold term and
-predicate *names*. **Every handle family packs**, the argument roots included, and they
-are the one family that has to earn it: `[:argument-root pred pos term]` carries two names
-where every other key carries one, and the packed long has a single term field. The room
-is in `pos` — 24 bits reserved for an argument position, which every other family passes
-0 in — so `dense-roots` interns the `(pred, pos)` scope to a dense id of its own and rides
-those bits. `dense_routing_test` records that no handle family is left in the fallback.
+whose value is a set of handles: the leaves of the trie `[:trie :handles …]` and of the
+ten count tries ending in the context (`[:argument-root :handles …]`,
+`[:predicate-extent :handles …]`, `[:rule-antecedent :handles …]`, `[:rule-consequent
+:handles …]`, `[:rule-extent :handles …]`, `[:opposed :handles …]`, `[:self-tuple
+:handles …]`, `[:tax-support :handles …]`, `[:mint :handles …]`, `[:mint-in :handles …]`),
+the context root `[:context-root …]`, the opposed members by context
+`[:opposed-in …]`, the term index `[:term-index …]`, and both halves of the exception
+index `[:exception-index <pred>|:rules]`. The rest must *not* be packed as handles: the
+counts (`:count`) are integers, `[:trie :children …]` holds path tokens (numbers among
+them), a count trie's `:children` hold contexts, and `[:term-roster]`, `[:argument-slot
+…]`, `[:rule-antecedent-keys]`, `[:opposed-bodies]` and `[:tax-installs …]` hold term,
+predicate, rule-key, body and taxonomy-key *names*. `TieredKvBackend` packs every handle
+family. `dense-roots` packs every one but the taxonomy's supporter leaves, whose node is a
+taxonomy key (`[:genl a b]`, `[:disjoint #{a b}]`) that the token dictionary does not
+intern; those stay in its fallback. The argument trie's leaves are the family that has to
+earn its packing:
+`[:argument-root :handles [pred pos term ctx]]` carries three names beside its term, and
+the packed long has a single term field. The room is in `pos` — 24 bits reserved for an
+argument position, which every flat family passes 0 in — so `dense-roots` interns the
+`(pred, pos, ctx)` scope to a dense id of its own and rides those bits. Every other count
+trie's leaf `[key ctx]` (predicate extent, rule index, opposed, mint, self tuple) rides its
+context's scope `(ctx, 0, ctx)` the same way, its term field holding the key, so the scope
+table grows with the contexts and never with the minted terms or opposed bodies. No
+argument position is 0, so the two scope shapes never meet. `dense_routing_test` records
+which handle families are left in the fallback.
+
+`dense-roots` packs the count tries' nodes too, though their members are not handles.
+An argument node's children ride the `(pred, pos)` scope, and a predicate-extent or
+rule-index node's children hold the key in the term field, each context held as its id in
+the shared token dictionary, so the per-node mass is an `int` run rather than a boxed key
+and set in the fallback; a snapshot writes those ids through the remap it applies to the
+keys. An argument node's count is not stored: `dense-roots` answers it as the sum of the
+node's leaf sizes, one leaf per context it lists, replies to the index's increment with
+that sum, and emits it in `kv-entries` beside the children, so the projection matches the
+flat map's and a snapshot carries no count column. The predicate-extent and rule-index
+counts, one per predicate or rule key, are counters in the fallback. On `:memory-dense` the counts and children are a
+`Long` and an ordinary set per node, as the positional trie's are.
 
 Both dense backends keep a fallback for keys they don't route, which makes a routing
 mistake behaviourally invisible — a misrouted family is stored as an ordinary boxed set,
@@ -222,10 +247,11 @@ and exception indexes, and the inverted term index route into one
 `Long2ObjectOpenHashMap` keyed by a packed `family | pos | term-id`, with the term
 interned through the *same* dictionary the trie uses. Unrecognized keys fall back to a
 plain backend, so it stays a full `KvBackend` and the composition above it is unchanged —
-which here is two families: `[:term-roster]` and `[:argument-slot pos term]`, whose
-members are term and predicate names rather than handles. Both are vocabulary-scaled, so
-nothing fact-scaled is left outside the packed map — the argument roots reach it through
-the interned `(pred, pos)` scope described above. The columnar trie is native, so no
+which here is the name families `[:term-roster]`, `[:argument-slot pos term]` and
+`[:unary-slot term]`, whose members are term and predicate names rather than handles, and
+the predicate-extent and rule-index counters. All are vocabulary-scaled, so
+nothing fact-scaled is left outside the packed map — the argument trie reaches it through
+the interned scopes described above. The columnar trie is native, so no
 `[:trie …]` key reaches this backend at all.
 
 `vaelii.impl.tokens` is the `path-token ↔ int` dictionary. It interns a path level

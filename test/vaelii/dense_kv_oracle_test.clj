@@ -31,7 +31,7 @@
         den   (dense/dense-kv-backend {:space 91})
         _     (do (p/kv-clear! mem) (p/kv-clear! den))
         ;; few handle keys + a big value range ⇒ some cross the promotion threshold to Roaring
-        hkeys (vec (for [i (range 6)] [:functor-root (symbol (str "pr" i))]))
+        hkeys (vec (for [i (range 6)] [:context-root (symbol (str "pr" i))]))
         lkeys (vec (for [i (range 3)] [:trie :children [(symbol (str "pr" i))]]))
         ckeys (vec (for [i (range 3)] [:trie :count [(symbol (str "pr" i))]]))]
     (dotimes [_ 8000]
@@ -70,7 +70,7 @@
 
 (deftest intersect-tiers-and-leaves-the-postings-alone
   (let [den (dense/dense-kv-backend {:space 93})
-        k   (fn [n] [:functor-root n])
+        k   (fn [n] [:context-root n])
         add (fn [n xs] (doseq [x xs] (p/kv-add-to-set den (k n) x)))]
     (p/kv-clear! den)
     (add 'hot  (range 400))                      ; past `promote`, so a bitmap
@@ -105,10 +105,10 @@
   (let [mem (mem/memory-kv-backend  {:space 92})
         den (dense/dense-kv-backend {:space 92})]
     (p/kv-clear! mem) (p/kv-clear! den)
-    (let [ops [[:add-to-set [:functor-root 'p] 1] [:add-to-set [:functor-root 'p] 2] [:increment [:trie :count ['p]]]
+    (let [ops [[:add-to-set [:context-root 'p] 1] [:add-to-set [:context-root 'p] 2] [:increment [:trie :count ['p]]]
                [:add-to-set [:trie :children ['p]] 'tok] [:add-to-set [:trie :children ['p]] 1970]
-               [:remove-from-set [:functor-root 'p] 1] [:decrement [:trie :count ['p]]] [:increment [:trie :count ['p]]]]]
+               [:remove-from-set [:context-root 'p] 1] [:decrement [:trie :count ['p]]] [:increment [:trie :count ['p]]]]]
       (is (= (p/kv-batch mem ops) (p/kv-batch den ops)) "batch replies aligned")
-      (is (= (p/kv-members mem [:functor-root 'p]) (p/kv-members den [:functor-root 'p])))
+      (is (= (p/kv-members mem [:context-root 'p]) (p/kv-members den [:context-root 'p])))
       (is (= (p/kv-members mem [:trie :children ['p]]) (p/kv-members den [:trie :children ['p]])))
       (is (= (p/kv-get mem [:trie :count ['p]]) (p/kv-get den [:trie :count ['p]]))))))

@@ -52,28 +52,32 @@
 ;; ---- the gate ------------------------------------------------------------
 
 (tu/deftest-kb the-gate-refuses-and-reports-what-it-will-not-assume
-  (doseq [[why setup]
-          [["ungranted" (fn [_ _ _ _ _] nil)]
-           ["a believed negation denies it"
-            (fn [kb p n cx _]
-              (grant kb p cx)
-              (v/assert kb (list 'not (list p n)) cx {:strength :monotonic}))]
-           ["a clash the hypothesis would form: a cat in a dog-only slot"
-            (fn [kb p n cx [dog_ cat_]]
-              (grant kb p cx)
-              (v/assert kb (list 'genl dog_ 'thing) cx)
-              (v/assert kb (list 'genl cat_ 'thing) cx)
-              (v/assert kb (list 'disjoint dog_ cat_) cx)
-              (v/assert kb (list cat_ n) cx)
-              (v/assert kb (list 'arg p 1 dog_) cx))]]]
-    (tu/with-terms [wabGoal wabPremise N dog_ cat_ CxTheory]
-      (a-context kb CxTheory)
-      (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
-      (setup kb wabPremise N CxTheory [dog_ cat_])
-      (let [r (v/abduce kb (list wabGoal N) CxTheory)]
-        (is (empty? (:hypotheses r)) why)
-        (is (empty? (:solutions r)) why)
-        (is (= [(list wabPremise N)] (:refused r)) why))))
+  ;; The constraint-only reading, where the cat in a dog-only slot is a refusal; under
+  ;; the entailing reading the slot derives `(dog_ N)`, a clash and not a refusal, so the
+  ;; gate admits the hypothesis as `assert` admits the sentence.
+  (tu/without-entailing
+   (doseq [[why setup]
+           [["ungranted" (fn [_ _ _ _ _] nil)]
+            ["a believed negation denies it"
+             (fn [kb p n cx _]
+               (grant kb p cx)
+               (v/assert kb (list 'not (list p n)) cx {:strength :monotonic}))]
+            ["a clash the hypothesis would form: a cat in a dog-only slot"
+             (fn [kb p n cx [dog_ cat_]]
+               (grant kb p cx)
+               (v/assert kb (list 'genl dog_ 'thing) cx)
+               (v/assert kb (list 'genl cat_ 'thing) cx)
+               (v/assert kb (list 'disjoint dog_ cat_) cx)
+               (v/assert kb (list cat_ n) cx)
+               (v/assert kb (list 'arg p 1 dog_) cx))]]]
+     (tu/with-terms [wabGoal wabPremise N dog_ cat_ CxTheory]
+       (a-context kb CxTheory)
+       (a-rule kb [(list wabPremise '?x)] (list wabGoal '?x) CxTheory)
+       (setup kb wabPremise N CxTheory [dog_ cat_])
+       (let [r (v/abduce kb (list wabGoal N) CxTheory)]
+         (is (empty? (:hypotheses r)) why)
+         (is (empty? (:solutions r)) why)
+         (is (= [(list wabPremise N)] (:refused r)) why)))))
   (testing "assert would refuse it: an argument no naming convention reads"
     (tu/with-terms [wabGoal wabPremise CxTheory]
       (wabd! kb wabGoal wabPremise CxTheory)

@@ -541,6 +541,45 @@
       (testing "`query?` ignores it rather than testing a map for emptiness"
         (is (v/query? kb goal CxPf {:max-depth 2 :proof? true}))))))
 
+(defn- folding-rows
+  "Asserts `(c ?x) ∧ (b ?x) ⇒ (a ?x)` and `(d ?x) ⇒ (c ?x)` with `(c K) (b K) (d J)
+  (b J)`, and returns `[row goals depth]` per fold position.  The rule's stored
+  antecedents are `[(b ?x) (c ?x)]`, so rewriting `(a …)` splices a `(c …)` the goals
+  already hold.  In `:fold-left` the repeat folds onto the literal left of the rewritten
+  one; in `:fold-right` it folds onto the literal right of it, and the rewrite of `(c J)`
+  that follows must grow both leaves the collapse merged."
+  [kb a b c d K J ctx]
+  (v/assert-rule kb [(list c '?x) (list b '?x)] (list a '?x) ctx {:direction :backward})
+  (v/assert-rule kb [(list d '?x)] (list c '?x) ctx {:direction :backward})
+  (doseq [s [(list c K) (list b K) (list d J) (list b J)]] (v/assert kb s ctx))
+  [[:fold-left  [(list c '?x) (list a '?x)] 1]
+   [:fold-right [(list a J) (list c J)] 2]])
+
+(tu/deftest-kb a-proof-replays-a-rewrite-whose-residual-repeats-a-conjunct
+  (doseq [i (range 2)]
+    (tu/with-terms [qqa qqb qqc qqd FoldK FoldJ CxFold]
+      (let [[row goals depth] (nth (folding-rows kb qqa qqb qqc qqd FoldK FoldJ CxFold) i)
+            opts {:max-depth depth}
+            rs   (v/query kb goals CxFold (assoc opts :proof? true))]
+        (testing (str row " answers what the query without proofs answers")
+          (is (= (set (v/query kb goals CxFold opts)) (set (map :bindings rs)))))
+        (testing (str row " leaves only stored facts, never a literal a rule derived")
+          (is (= #{} (set (remove #(v/query? kb % CxFold)
+                                  (mapcat (comp leaves-in :proof) rs))))))))))
+
+(tu/deftest-kb a-node-proof-has-one-leaf-goal-per-literal-of-the-node
+  ;; Over every node the search built, not only the answering ones: a collapse anywhere in
+  ;; the chain above a node shows here as a leaf set that differs from its literals.
+  (doseq [i (range 2)]
+    (tu/with-terms [qqa qqb qqc qqd FoldK FoldJ CxFold]
+      (let [[row goals depth] (nth (folding-rows kb qqa qqb qqc qqd FoldK FoldJ CxFold) i)
+            sess (inf/session kb goals CxFold {:max-depth depth :proof? true})
+            _    (dorun (inf/search-seq sess))
+            off  (remove (fn [n] (= (set (map :sentence (:literals n)))
+                                    (set (leaves-in (inf/proof-tree kb sess n)))))
+                         (vals @(:nodes sess)))]
+        (is (zero? (count off)) (str row ": nodes whose proof leaves differ from them"))))))
+
 ;;; ── the depth bound is required, not defaulted ────────────────────────
 
 (tu/deftest-kb the-node-engine-refuses-to-start-without-a-depth-bound

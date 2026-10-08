@@ -75,6 +75,7 @@
   (:require [vaelii.impl.budget :as budget]
             [vaelii.impl.caches :as caches]
             [vaelii.impl.datetime :as datetime]
+            [vaelii.impl.except :as exc]
             [vaelii.impl.inherit :as inherit]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.modal :as modal]
@@ -224,25 +225,33 @@
   unstorable (`different`, `unknown`, `thereExists`, `forall`, an aggregate): they need
   no exemption, because for them no channel ever bears.
 
-  The channels are read **once per goal** — they are a property of the goal and the KB,
-  not of the prover asking.  So is each claimant's estimate: `sort-by` re-evaluates its
-  keyfn on **every comparison**, and an estimate is a real count over the taxonomy
-  rather than a constant, so it is taken once per prover and carried.  The sort is
+  The channels are read **once per goal**, and only for a goal some prover claims: they
+  are a property of the goal and the KB, not of the prover asking, and with no claimant
+  the answer is the union whatever they hold.  A plain stored-fact literal has none, and
+  its channels cost an index probe per spec of its predicate.  Each claimant's estimate
+  is taken once and carried: `sort-by` re-evaluates its keyfn on **every comparison**,
+  and an estimate is a real count over the taxonomy rather than a constant.  The sort is
   stable and the estimate is a function of the goal and the KB, so a tie still breaks
   on registry order and not on when the comparison happened."
   [kb applicable goal context]
-  (when (empty? (shadowing-channels kb goal context))
-    (->> applicable
-         (filter #(>= (completeness % kb goal context) 100))
-         (map (juxt identity #(est-bindings % kb goal context)))
-         (sort-by second)
-         ffirst)))
+  (let [claimants (filterv #(>= (budget/checked-call
+                                 (fn [] (completeness % kb goal context)))
+                                100)
+                           applicable)]
+    (when (and (seq claimants)
+               (empty? (budget/checked-call
+                        (fn [] (shadowing-channels kb goal context)))))
+      (->> claimants
+           (map (juxt identity #(budget/checked-call
+                                 (fn [] (est-bindings % kb goal context)))))
+           (sort-by second)
+           ffirst))))
 
 ;; ---- facts (the index) --------------------------------------------------
 
 (defn- est-by-functor
   "Estimated bindings for a goal: how many stored facts share its functor.  Read from
-  the functor root, which counts either polarity and any arity — the trie's
+  the predicate extent, which counts either polarity and any arity — the trie's
   `count-at [pred]` sees only positive facts, since a negative one keys under
   `:false` and would estimate 0."
   [kb goal]
@@ -438,7 +447,7 @@
   would put a `^:dynamic` deref in the walk's innermost loop — once per node — which is the
   cost `res/belief-blind?` exists to keep out of exactly that loop."
   [dir pred node context]
-  [dir pred node context (res/belief-blind?) res/*unscoped-own*])
+  [dir pred node context (res/belief-blind?) exc/*unscoped-own*])
 
 (defn- memo-neighbours
   "The neighbours of `node` under `pred` as `{neighbour #{handle}}` — the terms one hop
@@ -663,11 +672,16 @@
   entry to look for.  Belief *mode* is not: see `closure-key`."
   [kb dir pred node context step]
   (let [k     (closure-key dir pred node context)
-        clock (observe/change-clock)]
-    (or (closure-hit kb k clock)
-        (let [v (reach (step node) step)]
-          (when (== (observe/change-clock) clock) (hold-closure kb k v clock))
-          v))))
+        clock (observe/change-clock)
+        t     (some-> (reasoning/closures kb) (caches/tally-of :R2))]
+    (if-let [v (closure-hit kb k clock)]
+      (do (caches/hit t) v)
+      (let [v (caches/recomputed t (reach (step node) step))]
+        (when (caches/tallying?)
+          (when-let [old (get (:entries @(reasoning/closures kb)) k)]
+            (caches/compared t (= old v))))
+        (when (== (observe/change-clock) clock) (hold-closure kb k v clock))
+        v))))
 
 (defn- reaches?
   "Is `tgt` in the transitive reach of `seed` under `step`?  Stops at the first
@@ -2158,6 +2172,101 @@
   (mapcat #(defn-conditions kb 'defnNecessary % context)
           (tax/genls (reasoning/taxonomy kb) coll context)))
 
+(defn- definition-entries
+  "The visible `(pred coll condition)` declarations as witness maps.  Keeping the
+  declaring collection beside the condition matters to an integrity report: a
+  sufficient inherited from a spec is evidence about a different declaration than
+  the queried collection's own necessary."
+  [kb pred coll context]
+  (for [declaring-coll coll
+        [_ bindings _] (res/matches-visible
+                        kb (list pred declaring-coll '?condition) context)]
+    (do
+      (budget/spend!)
+      {:defined-collection declaring-coll
+       :condition          (get bindings '?condition)})))
+
+(defn- definition-inconsistency
+  "The definitional clash witness for one ground `(coll member)`, or nil."
+  [kb coll member context]
+  (binding [*defn-stack* (conj *defn-stack* coll)]
+    (let [tx (reasoning/taxonomy kb)
+          strict-failing?
+          (some (fn [ancestor]
+                  (some #(not (condition-holds? kb (:condition %) member context))
+                        (definition-entries kb 'defnNecessary [ancestor] context)))
+                (most-general-first tx context
+                                    (disj (tax/genls tx coll context) coll)))]
+      ;; Match the positive prover's short-circuit: once a strict ancestor excludes the
+      ;; member, its sufficient conditions are not evaluated at all.
+      (when-not strict-failing?
+        (let [passing
+              (->> (definition-entries kb 'defnSufficient
+                     (tax/specs tx coll context) context)
+                   (filter #(condition-holds? kb (:condition %) member context))
+                   (sort-by (juxt (comp nm/print-key :defined-collection)
+                                  (comp nm/print-key :condition)))
+                   vec)
+              own-failing
+              (->> (definition-entries kb 'defnNecessary [coll] context)
+                   (remove #(condition-holds? kb (:condition %) member context))
+                   (sort-by (comp nm/print-key :condition))
+                   vec)]
+          (when (and (seq passing) (seq own-failing))
+            {:collection coll
+             :term member
+             :passing-sufficient passing
+             :failing-necessary own-failing}))))))
+
+(defn- sufficient-definition-collections
+  "The finite visible collection population the positive definition prover can reach.
+
+  This is the sweep's one unavoidable open definition census: callers bound ground
+  candidate terms but deliberately do not restate collection names. Every validation
+  after this census is focused on one collection and one ground candidate."
+  [kb context]
+  (let [tx (reasoning/taxonomy kb)
+        declared
+        (into #{}
+              (map (fn [match]
+                     (budget/spend!)
+                     (get (second match) '?collection)))
+              (res/matches-visible
+               kb '(defnSufficient ?collection ?condition) context))]
+    (into #{} (mapcat #(tax/genls tx % context)) declared)))
+
+(defn definition-inconsistencies
+  "Query-only definitional inconsistencies over the finite ground `candidate-terms`.
+
+  Returns one witness per `[collection term]` for which the definition provers can
+  answer both `(collection term)` and `(not (collection term))`: some own-or-spec
+  sufficient condition passes, the collection's own necessary condition fails, and
+  no strict-genl necessary fast-fails the positive query.  Each witness carries every
+  passing sufficient and failing necessary declaration involved.
+
+  Collections are not supplied or guessed.  They are the finite visible population
+  induced by `defnSufficient` declarations and their `genl` ancestors, exactly the
+  collections the positive prover can reach.  `candidate-terms` is a finite set of ground
+  terms, which `vaelii.impl.integrity/kb-integrity` checks.  Reads only; stores and
+  belief are untouched."
+  [kb candidate-terms context max-results]
+  (let [query-colls (sufficient-definition-collections kb context)]
+    (loop [pairs (seq (for [coll   (sort-by nm/print-key query-colls)
+                            member (sort-by nm/print-key candidate-terms)]
+                        [coll member]))
+           findings []]
+      (if-let [[coll member] (first pairs)]
+        (do
+          (budget/spend!)
+          (if-let [finding (definition-inconsistency kb coll member context)]
+            (if (and max-results (>= (count findings) max-results))
+              {:status :truncated :reason :max-results :findings findings}
+              (let [findings' (conj findings finding)]
+                (budget/record! :definition-inconsistencies finding)
+                (recur (next pairs) findings')))
+            (recur (next pairs) findings)))
+        {:status :complete :findings findings}))))
+
 (defrecord DefnNecessaryNegationProver []
   Prover
   ;; A ground `(not (Coll x))` for a `Coll` whose reflexive genl ancestor set carries a visible
@@ -2521,7 +2630,7 @@
 ;; than by declaring the meta-predicates `transitiveInArg`: that routes every one of the
 ;; KB's very many `arg`/`genlArg` lookups through the general preservation prover and
 ;; its chaining sweeps — a per-query tax the whole subsystem is gated to avoid, since
-;; almost no predicate is preserved.  A stored `(transitiveInArg arg …)` breaks that
+;; almost no predicate is preserved.  A stored `(transitiveInArgInverse arg …)` breaks that
 ;; gate for the most-queried predicates there are.
 ;;
 ;; The predicate position reaches DOWN (a constraint on a super binds its
@@ -2658,7 +2767,7 @@
   else.  Nor is a rule the KB no longer believes (`res/rule-believed?`) — the
   consequent index posts on storage, so belief is asked of the record here exactly as
   forward chaining asks it of a trigger.  Nor is one a believed visibility `except`
-  hides from the asking context (`res/hidden-fn`): forward chaining sweeps the
+  hides from the asking context (`exc/hidden-fn`): forward chaining sweeps the
   conclusions of a hidden rule, and a backward pass that rebuilt them through the
   same rule would answer from knowledge the context deliberately removed.  The
   predicate is built once per goal and is nil for the almost-every-KB that hides
@@ -2681,8 +2790,12 @@
   tie back onto the handle."
   [kb goal context]
   (when (sequential? goal)
-    (let [hidden? (res/hidden-fn kb context)]
-      (->> (res/concluding-rule-handles kb (first goal) context)
+    (let [hidden? (exc/hidden-fn kb context)
+          ;; the ancestor set `rule-visible-from?` reads, so the index reads no rule the
+          ;; filter below would drop
+          visible (when (and (symbol? context) (not (sx/variable? context)))
+                    (tax/context-up (reasoning/taxonomy kb) context))]
+      (->> (res/concluding-rule-handles kb (first goal) context visible)
            (map #(p/get-sentex (:records kb) %))
            (filter rules/backward-sentex?)
            (filter #(res/rule-believed? kb (:id %)))
@@ -2722,7 +2835,9 @@
   reports both — so a sweep that drifted between them would make the diagnostic lie
   about the dispatch it is there to explain."
   [kb provers goal context]
-  (filterv #(applicable? % kb goal context) provers))
+  (filterv #(budget/checked-call
+             (fn [] (applicable? % kb goal context)))
+           provers))
 
 ;; Membership tests for the lookup-to-query stack (vaelii.impl.levels), which runs
 ;; the engine over a *subset* of the registry: level 5 with the transitive provers
@@ -2854,7 +2969,9 @@
                                also))]
         (tax/meet-closure (reasoning/taxonomy kb) held))))))
 
-(defn- goal-cost-rank [pr kb goal context] (cost-rank (cost pr kb goal context)))
+(defn- goal-cost-rank [pr kb goal context]
+  (cost-rank (budget/checked-call
+              (fn [] (cost pr kb goal context)))))
 
 (defn- dispatch-provers
   "The prover dispatch itself, with `run` saying what one prover's answers look like:
@@ -2866,7 +2983,10 @@
   agreeing.  What differs between the callers is only the structure of an answer, which is
   exactly what `run` carries."
   [kb provers goal context run]
-  (let [applicable (applicable-provers kb provers goal context)
+  (let [run        (fn [prover]
+                     (let [answers (budget/checked-call #(run prover))]
+                       (budget/checked-seq answers)))
+        applicable (applicable-provers kb provers goal context)
         complete   (sole-prover kb applicable goal context)]
     (if complete
       (run complete)
@@ -3095,13 +3215,6 @@
   [kb except bindings context]
   (conjunction-derivable? kb except bindings context (condition-normalizer kb context)))
 
-(defn condition-solutions
-  "Lazy solutions of the block condition `conjuncts` with its rule variables left open,
-  in `context`: the bindings under which it holds there, each conjunct put in the normal
-  form `exception-holds?` puts a closed one in."
-  [kb conjuncts context]
-  (conjunction-solutions kb conjuncts {} context (condition-normalizer kb context)))
-
 (defn exception-visible-from?
   "Does `context` see the exception `entry` (a `rule-exception-entries` element)?
 
@@ -3115,8 +3228,8 @@
 
 (defn rule-exception-entries
   "The exceptWhen exceptions currently in force for the rule at `handle`, each as
-  `{:context c :query q}`: `q` is one **conjunction** (a vector of literals) and `c` is
-  the context its meta-sentex is stored in.
+  `{:context c :handle h :query q}`: `q` is one **conjunction** (a vector of literals),
+  and `c` and `h` are its meta-sentex's context and handle.
 
   An exception is a separate belief-following meta-sentex `(exceptWhen Q (sentexHandle
   handle))`: the rule and its exceptions are distinct assertions, so a rule and its
@@ -3138,6 +3251,7 @@
               (filter #(= handle (sx/exceptWhen-rule-handle (:sentence %))))
               (filter #(jtms/in? (reasoning/tms kb) (:id %)))
               (map (fn [msx] {:context (:context msx)
+                              :handle  (:id msx)
                               :query   (sx/exception-query-conjuncts (:sentence msx))})))
         (reads/as-stored-with-term (:index kb) (sx/sentex-handle handle))))
 
@@ -3338,9 +3452,9 @@
  {:cache    :closure-answers
   :label    "Closure answers"
   :scope    :kb
-  :unit     "closures"
+  :unit     "members"
   :limit    (caches/limit-thunk :closure-answers #'*closure-answer-limit*)
-  :counters nil
+  :counters :kb
   :note     (str "One declared-transitive predicate's reach from one node, in one "
                  "direction, seen from one context — the answer an open-argument ask "
                  "computes. The whole map carries one change clock, so any mutation "
@@ -3348,9 +3462,24 @@
                  "every entry at once. Bounded by total MEMBERS rather than entries, "
                  "since an entry is a whole reach set: a reach larger than the bound is "
                  "never stored, and a total that reaches it drops the map wholesale.")
-  :read     (fn [kb] {:entries (some-> (reasoning/closures kb) deref :entries count)})
+  :read     (fn [kb] {:entries (or (some-> (reasoning/closures kb) deref :members) 0)})
   :clear    (fn [kb] (let [a (reasoning/closures kb)
-                           n (if a (count (:entries @a)) 0)]
+                           n (if a (:members @a 0) 0)]
                        (some-> a (reset! {}))
                        n))
   :trim     (fn [kb target] (trim-closures kb target))})
+
+(caches/register-derived
+ {:id :R2 :label "Closure answers" :cache :closure-answers :kind :cache :keyed-by :node
+  :reads [:index :M1]
+  :retired-by (assoc (caches/on-every :G*) :caches-cleared :W)
+  :computed :read :imaged? false :at [[:closures]]
+  :live (fn [kb] (let [c (some-> (reasoning/closures kb) deref)]
+                   (if (== (observe/change-clock) (long (:clock c -1))) (count (:entries c)) 0)))
+  :note "one clock for the whole map: a write retires every entry"})
+
+(caches/register-derived
+ {:id :K10 :label "Prover registry summary" :kind :cache :keyed-by :value :reads []
+  :retired-by (caches/on-every :I) :computed :read :imaged? false :var #'registry-support
+  :value (fn [_] @registry-support)
+  :note "one slot, compared by identity against the prover registry vector of the KB read; a read of a KB holding another vector replaces it"})

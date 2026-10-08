@@ -15,7 +15,6 @@
             [vaelii.impl.decide :as decide]
             [vaelii.impl.decide.arity :as arity]
             [vaelii.impl.protocols :as p]
-            [vaelii.impl.resolution :as res]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
@@ -30,20 +29,21 @@
      :arity-pairs (set (:arity-pairs c))}))
 
 (defn- oracle
-  "The arity candidates by definition, off the bindings and shapes the index tracks, one
-  whole `genls-global` closure per functor, and every stored record's shape."
+  "The arity candidates by definition, off the bindings the index tracks, one whole
+  `genls-global` closure per functor, and every stored record's shape."
   [kb]
   (let [c     @(reasoning/nogood-candidates kb)
         bs    (::arity/bindings c)
         tax   (reasoning/taxonomy kb)
         recs  (:records kb)
+        shape @#'arity/fact-shape
         own   (fn [q kind] (into #{} (keep (fn [[_ [k v]]] (when (= k kind) v))) (get bs q)))
         cand  (into #{}
                     (filter (fn [[f n]]
                               (or (some (fn [g] (some #(not= n %) (own g :exact)))
                                         (tax/genls-global tax f))
                                   (some #(> % n) (own f :min)))))
-                    (for [[f ns] (::arity/shapes c), n (keys ns)] [f n]))
+                    (into #{} (keep #(some-> (p/get-sentex recs %) shape)) (p/sentex-ids recs)))
         pairs (into #{}
                     (for [f (keys bs)
                           :let [o (own f :exact)]
@@ -51,8 +51,7 @@
                           g (tax/genls-global tax f)
                           :let [og (own g :exact)]
                           :when (and (not= g f) (seq og) (some (fn [a] (some #(not= a %) og)) o))]
-                      [f g]))
-        shape @#'arity/fact-shape]
+                      [f g]))]
     {:cand-shapes cand
      :pairs       pairs
      :arity       (into #{} (filter #(contains? cand (some-> (p/get-sentex recs %) shape)))
@@ -302,6 +301,80 @@
         (is (= (into #{} (map (fn [t] [t root])) types) (:pairs before))
             "which pairs every type with the root")))))
 
+(defn- edge-reach-tests
+  "The `genl?-global` calls one `genl` edge makes, putting a fresh tracked type under the
+  bottom of a chain of twelve types bound to one argument, on a KB holding `n` predicates
+  under a conflict: each binds one argument under a root binding two."
+  [n]
+  (let [calls (atom nil)]
+    (tu/with-neutral-kb [kb tu/isolated-fresh]
+      (let [root  (tu/fresh-term :predicate 'top)
+            chain (vec (repeatedly 12 #(tu/fresh-term :predicate 'kind)))
+            leaf  (tu/fresh-term :predicate 'kind)
+            a     (tu/fresh-term :individual 'Thing)]
+        (v/assert kb (list 'arity root 2) 'CxUniverse)
+        (dotimes [_ n]
+          (let [p (tu/fresh-term :predicate 'rel)]
+            (v/assert kb (list 'genl p root) 'CxUniverse)
+            (v/assert kb (list 'arity p 1) 'CxUniverse)))
+        (doseq [i (range 1 (count chain))]
+          (v/assert kb (list 'genl (chain i) (chain (dec i))) 'CxUniverse))
+        (v/assert kb (list 'arity (chain 0) 1) 'CxUniverse)
+        (v/assert kb (list leaf a) 'CxUniverse)
+        (is (= n (count (::arity/at-conflict @(reasoning/nogood-candidates kb)))))
+        (let [k    (atom 0)
+              real tax/genl?-global]
+          (with-redefs [tax/genl?-global (fn [tax sub super] (swap! k inc) (real tax sub super))]
+            (v/assert kb (list 'genl leaf (peek chain)) 'CxUniverse))
+          (reset! calls @k))
+        (is (= (oracle kb) (held kb)))))
+    @calls))
+
+(deftest an-edge-arriving-asks-no-reachability-of-the-functors-under-a-conflict
+  (is (= (edge-reach-tests 4) (edge-reach-tests 64))))
+
+(defn- conflicts-below-mismatches
+  "The terms `t` of `kb`'s taxonomy whose functors under a conflict below `t`, as
+  `arity/conflicts-below` reads them, differ from `::at-conflict` filtered by
+  `genl?-global`."
+  [kb]
+  (let [tax (reasoning/taxonomy kb)
+        c   @(reasoning/nogood-candidates kb)
+        ac  (::arity/at-conflict c)]
+    (into []
+          (remove (fn [t]
+                    (= (into #{} (filter #(or (= t %) (tax/genl?-global tax % t))) ac)
+                       (second (@#'arity/conflicts-below (decide/write-view tax) c t #{})))))
+          (tax/types tax))))
+
+(deftest the-functors-under-a-conflict-below-a-type-are-the-reachability-filter-s
+  ;; A hub type above half the terms, bound to a length, puts most functors under a
+  ;; conflict and most types above one.  Edges then leave, which leaves the kept set of
+  ;; types above a conflict a superset.
+  (let [rnd   (java.util.Random. 4099)
+        found (atom 0)]
+    (doseq [trial (range 8)]
+      (tu/with-neutral-kb [kb tu/isolated-fresh]
+        (let [hub    (tu/fresh-term :predicate 'kind)
+              stream (random-stream rnd)
+              terms  (into #{} (comp (filter #(#{'genl 'arity 'arityMin} (first %))) (mapcat rest)
+                                     (filter symbol?))
+                           stream)
+              hubbed (concat stream
+                             [(list 'arity hub (inc (.nextInt rnd 2)))]
+                             (keep #(when (< (.nextInt rnd 2) 1) (list 'genl % hub)) (sort terms)))
+              stored (assert-all! kb (sort-by (fn [_] (.nextInt rnd)) hubbed))
+              where  (str "trial " trial)]
+          (swap! found + (count (::arity/at-conflict @(reasoning/nogood-candidates kb))))
+          (is (= [] (conflicts-below-mismatches kb)) where)
+          (doseq [[s h] (sort-by (fn [_] (.nextInt rnd)) stored)
+                  :when (and (= 'genl (first s)) (< (.nextInt rnd 3) 1))]
+            (v/retract! kb h))
+          (is (= [] (conflicts-below-mismatches kb)) (str where ", edges left"))
+          (decide/rebuild-candidates! kb)
+          (is (= [] (conflicts-below-mismatches kb)) (str where ", rebuilt")))))
+    (is (pos? @found) "the streams put functors under a conflict")))
+
 ;; A reader's binding for a functor with none of its own is read off the bound predicates
 ;; above it (`arity/bound-above`), each kept when the reader's ancestor set reaches it
 ;; (`tax/genls-asserted-among`).  The oracle is the definition: the closure over the edges
@@ -342,7 +415,10 @@
                   bs    (::arity/bindings c)
                   tax   (reasoning/taxonomy kb)
                   above (@#'arity/bound-above tax bs)
-                  fs    (into (set (keys (::arity/shapes c))) (keys bs))]
+                  recs  (:records kb)
+                  fs    (into (into #{} (keep #(some-> (p/get-sentex recs %) (@#'arity/fact-shape) first))
+                                    (p/sentex-ids recs))
+                              (keys bs))]
               (doseq [cx ctxs
                       :let [up (tax/context-up-global tax cx)]
                       q (sort fs)
@@ -375,16 +451,18 @@
           (with-redefs [tax/genl-path            (count! :path @#'tax/genl-path)
                         tax/reachable-filtered?  (count! :walk @#'tax/reachable-filtered?)
                         tax/visible-neighbours   (count! :nodes @#'tax/visible-neighbours)]
-            (is (= 6 (count (arity/arity-grounds kb (list q 'a 'b 'c) up nil)))
-                "every bound predicate above q grounds the conviction"))
+            (let [bs (::arity/bindings @(reasoning/nogood-candidates kb))]
+              (is (= 6 (count (:grounds (@#'arity/reader-binding kb bs (@#'arity/bound-above tax bs)
+                                                                 q up nil))))
+                  "every bound predicate above q grounds the conviction")))
           (is (nil? (:path @walks)) "no path is read per bound predicate")
           (is (nil? (:walk @walks)) "and no pair walks")
           (is (<= (:nodes @walks 0) 6) "one walk enters each node below the top once"))))))
 
 ;; A pair `[f g]` is a nogood at a reader whose ancestor set reaches `g` from `f` over
 ;; the edges it states and whose own visible exact lengths differ, `variable_arity`
-;; neither.  `arity-nogoods` answers every pair of `f` off one walk up from `f`
-;; (`tax/genls-asserted-among`); the oracle reads `f`'s scoped closure whole.
+;; neither.  The settle places one `contradicts` per exact binding of each end
+;; (`chain/place-arities!`); the oracle reads `f`'s scoped closure whole.
 
 (defn- descensions-by-definition
   [kb cands up]
@@ -392,14 +470,24 @@
         tax (reasoning/taxonomy kb)
         vis (fn [p] (@#'arity/visible-bindings kb bs p up nil))]
     (into #{}
-          (keep (fn [[f g]]
-                  (let [bf (vis f) bg (vis g)]
-                    (when (and (empty? (:var bf)) (empty? (:var bg))
-                               (= 1 (count (:exact bf))) (= 1 (count (:exact bg)))
-                               (not= (key (first (:exact bf))) (key (first (:exact bg))))
-                               (contains? (tax/genls-asserted-in tax f up) g))
-                      (into (val (first (:exact bf))) (val (first (:exact bg))))))))
+          (mapcat (fn [[f g]]
+                    (let [bf (vis f) bg (vis g)]
+                      (when (and (empty? (:var bf)) (empty? (:var bg))
+                                 (= 1 (count (:exact bf))) (= 1 (count (:exact bg)))
+                                 (not= (key (first (:exact bf))) (key (first (:exact bg))))
+                                 (contains? (tax/genls-asserted-in tax f up) g))
+                        (for [hf (val (first (:exact bf))), hg (val (first (:exact bg)))]
+                          #{hf hg})))))
           (::arity/pairs cands))))
+
+(defn- descensions-believed
+  "The member sets of the placed `:arity-descension` nogoods whose `contradicts` the reader
+  `cx` sees and believes."
+  [kb cands cx]
+  (into #{} (comp (filter #(and (v/sees? kb cx (:context %)) (v/believed? kb (:id %) cx)))
+                  (map #(into #{} (map second) (rest (:sentence %))))
+                  (filter #(= :arity-descension (arity/kind-of cands %))))
+        (v/sentexes-with-functor kb 'contradicts)))
 
 (deftest a-reader-s-arity-pairs-are-the-ones-its-ancestor-set-reaches
   (let [rnd  (java.util.Random. 6421)
@@ -414,152 +502,17 @@
             (doseq [s (random-stream rnd)]
               (try (v/assert kb s (ctxs (.nextInt rnd (count ctxs))))
                    (catch clojure.lang.ExceptionInfo _)))
-            (let [cands @(reasoning/nogood-candidates kb)
+            (let [cands (decide/synced kb)
                   tax   (reasoning/taxonomy kb)]
-              (doseq [pass [nil (volatile! nil)]
-                      cx   ctxs
+              (doseq [cx   ctxs
                       :let [up   (tax/context-up-global tax cx)
                             want (descensions-by-definition kb cands up)
-                            got  (binding [arity/*arity-pass* pass]
-                                   (into #{} (comp (filter #(= :arity-descension (:kind %)))
-                                                   (map :members))
-                                         (@#'arity/arity-nogoods kb cands up nil)))]]
+                            got  (descensions-believed kb cands cx)]]
                 (swap! seen + (count want))
                 (when (not= want got)
-                  (swap! bad conj {:trial trial :context cx :pass? (some? pass)
-                                   :want want :got got}))))))))
+                  (swap! bad conj {:trial trial :context cx :want want :got got}))))))))
     (is (pos? @seen) "the streams relate some pairs of differing lengths")
     (is (= [] @bad))))
-
-(deftest a-reader-s-arity-pairs-of-one-predicate-are-read-off-one-walk-from-it
-  ;; f under g0 … g4 stated in CxAr, f bound to one argument and every g to two, and an
-  ;; edge stated in CxCr, so CxAr's ancestor set misses a context stating a `genl` edge:
-  ;; one walk up from f answers its five pairs, and a second reader of the settle
-  ;; stating the same contexts walks nothing
-  (tu/with-neutral-kb [kb tu/isolated-fresh]
-    (tu/with-terms [CxAr CxBr CxCr]
-      (doseq [[c up] [[CxAr 'CxUniverse] [CxBr CxAr] [CxCr 'CxUniverse]]]
-        (v/assert kb (list 'genlCx c up) 'CxUniverse))
-      (let [f     (tu/fresh-term :predicate 'rel)
-            gs    (vec (repeatedly 5 #(tu/fresh-term :predicate 'rel)))
-            other (vec (repeatedly 2 #(tu/fresh-term :predicate 'rel)))]
-        (doseq [[a b] (partition 2 1 (cons f gs))] (v/assert kb (list 'genl a b) CxAr))
-        (v/assert kb (list 'genl (first other) (second other)) CxCr)
-        (v/assert kb (list 'arity f 1) 'CxUniverse)
-        (doseq [g gs] (v/assert kb (list 'arity g 2) 'CxUniverse))
-        (let [tax    (reasoning/taxonomy kb)
-              cands  @(reasoning/nogood-candidates kb)
-              walks  (atom {})
-              count! (fn [k real] (fn [& args] (swap! walks update k (fnil inc 0)) (apply real args)))
-              read   (fn [cx] (into #{} (comp (filter #(= :arity-descension (:kind %))) (map :members))
-                                    (@#'arity/arity-nogoods kb cands (tax/context-up-global tax cx) nil)))]
-          (with-redefs [tax/genl-asserted-in?      (count! :pair tax/genl-asserted-in?)
-                        tax/reachable-filtered?    (count! :walk @#'tax/reachable-filtered?)
-                        tax/genls-asserted-among   (count! :among tax/genls-asserted-among)]
-            (binding [arity/*arity-pass* (volatile! nil)]
-              (is (= 5 (count (read CxAr))) "f descends against every g")
-              (is (= 5 (count (read CxBr))) "and so it does below CxAr")
-              (is (= 1 (:among @walks)) "one walk up from f, for both readers")
-              ;; CxCr states the other edge and none of f's, so it reaches no g
-              (is (empty? (read CxCr)) "and a reader stating other contexts walks its own")))
-          (is (nil? (:pair @walks)) "no pair is asked alone")
-          (is (nil? (:walk @walks)) "and no pair walks")
-          (is (= 2 (:among @walks)) "one walk per scope"))))))
-
-(deftest a-pass-filters-each-predicate-s-edges-once-per-scope
-  ;; f1 and f2 under one chain g0 … g4 stated in CxAr, every g bound to two arguments
-  ;; and each f to one, and an edge stated in CxCr: the walks up from f1 and from f2
-  ;; climb the same chain, and the pass filters each node's edges to CxAr's scope once
-  (tu/with-neutral-kb [kb tu/isolated-fresh]
-    (tu/with-terms [CxAr CxCr]
-      (doseq [c [CxAr CxCr]] (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
-      (let [[f1 f2] (repeatedly 2 #(tu/fresh-term :predicate 'rel))
-            gs      (vec (repeatedly 5 #(tu/fresh-term :predicate 'rel)))
-            other   (vec (repeatedly 2 #(tu/fresh-term :predicate 'rel)))]
-        (doseq [[a b] (partition 2 1 gs)] (v/assert kb (list 'genl a b) CxAr))
-        (doseq [f [f1 f2]]
-          (v/assert kb (list 'genl f (first gs)) CxAr)
-          (v/assert kb (list 'arity f 1) 'CxUniverse))
-        (v/assert kb (list 'genl (first other) (second other)) CxCr)
-        (doseq [g gs] (v/assert kb (list 'arity g 2) 'CxUniverse))
-        (let [tax     (reasoning/taxonomy kb)
-              cands   @(reasoning/nogood-candidates kb)
-              filters (atom 0)
-              real    @#'tax/ctxs-visible?]
-          (with-redefs [tax/ctxs-visible? (fn [& args] (swap! filters inc) (apply real args))]
-            (binding [arity/*arity-pass* (volatile! nil)]
-              (is (= 10 (count (filter #(= :arity-descension (:kind %))
-                                       (@#'arity/arity-nogoods kb cands (tax/context-up-global tax CxAr) nil))))
-                  "each f descends against every g")))
-          (is (<= @filters 6) (str @filters " edge filters for six nodes with one edge up each")))))))
-
-(deftest a-pass-reads-each-arity-candidate-s-record-once
-  ;; twelve ternary tuples of a binary predicate, read by three readers of one pass:
-  ;; each candidate's record is read for the first reader alone
-  (tu/with-neutral-kb [kb tu/isolated-fresh]
-    (tu/with-terms [CxAr CxBr CxCr]
-      (doseq [[c up] [[CxAr 'CxUniverse] [CxBr CxAr] [CxCr 'CxUniverse]]]
-        (v/assert kb (list 'genlCx c up) 'CxUniverse))
-      (let [q (tu/fresh-term :predicate 'rel)]
-        (v/assert kb (list 'arity q 2) 'CxUniverse)
-        (dotimes [_ 12]
-          (v/assert kb (list q (tu/fresh-term :individual 'Thing) (tu/fresh-term :individual 'Thing)
-                             (tu/fresh-term :individual 'Thing))
-                    'CxUniverse))
-        (let [tax     (reasoning/taxonomy kb)
-              cands   @(reasoning/nogood-candidates kb)
-              arity   (set (:arity cands))
-              fetches (atom 0)
-              real    @#'arity/fact-shape]
-          (is (= 12 (count arity)) "every tuple is a candidate")
-          ;; a protocol call site does not go through the var, so the read counted is the
-          ;; shape the scan takes of each record it fetches
-          (with-redefs [arity/fact-shape (fn [sx] (swap! fetches inc) (real sx))]
-            (binding [arity/*arity-pass* (volatile! nil)]
-              (doseq [cx [CxAr CxBr CxCr]]
-                (is (= 12 (count (filter #(= :arity (:kind %))
-                                         (@#'arity/arity-nogoods kb cands (tax/context-up-global tax cx) nil))))
-                    (str cx " convicts every tuple")))))
-          (is (= 12 @fetches) (str @fetches " record reads for twelve candidates and three readers")))))))
-
-(deftest a-pass-entry-read-over-a-detached-copy-answers-no-read-of-the-live-taxonomy
-  ;; the copy and the live taxonomy each add a different `genl` edge, so both reach the
-  ;; same generation with the same bindings: the live read must not take the copy's cut
-  (let [live (tax/create-taxonomy)
-        bs   {'p {1 [:exact 2 'CxU]} 'q {2 [:exact 3 'CxU]}}
-        up   #{'CxU}
-        copy (tax/detached-copy live)]
-    (tax/add-genl copy 'f 'p 10 'CxU)
-    (tax/add-genl live 'f 'q 11 'CxU)
-    (is (= (tax/relation-gen copy :genl) (tax/relation-gen live :genl)) "one generation")
-    (is (= #{'q} ((@#'arity/bound-above live bs) 'f up)) "no pass")
-    (is (= [#{'p} #{'q}]
-           (binding [arity/*arity-pass* (volatile! nil)]
-             [((@#'arity/bound-above copy bs) 'f up) ((@#'arity/bound-above live bs) 'f up)]))
-        "one pass, the copy read first")))
-
-(deftest a-reader-reads-no-tuple-of-a-shape-its-binding-does-not-break
-  ;; twelve ternary tuples of a predicate bound to three under one bound to two: the
-  ;; shape is a candidate, since a length above the functor differs, and a reader reads
-  ;; the functor's own binding once and no tuple of the shape
-  (tu/with-neutral-kb [kb tu/isolated-fresh]
-    (let [hi  (tu/fresh-term :predicate 'rel)
-          q   (tu/fresh-term :predicate 'rel)
-          ind #(tu/fresh-term :individual 'Thing)]
-      (v/assert kb (list 'arity hi 2) 'CxUniverse)
-      (v/assert kb (list 'arity q 3) 'CxUniverse)
-      (v/assert kb (list 'genl q hi) 'CxUniverse)
-      (dotimes [_ 12] (v/assert kb (list q (ind) (ind) (ind)) 'CxUniverse))
-      (let [tax     (reasoning/taxonomy kb)
-            cands   @(reasoning/nogood-candidates kb)
-            fetches (atom 0)
-            real    @#'arity/fact-shape]
-        (is (= 12 (count (:arity cands))) "every tuple is a candidate")
-        (with-redefs [arity/fact-shape (fn [sx] (swap! fetches inc) (real sx))]
-          (is (empty? (filter #(= :arity (:kind %))
-                              (@#'arity/arity-nogoods kb cands (tax/context-up-global tax 'CxUniverse) nil)))
-              "q's own length holds its tuples"))
-        (is (zero? @fetches) (str @fetches " tuple records read"))))))
 
 (deftest a-reader-stops-reading-the-bindings-above-once-two-lengths-show
   ;; q binds nothing and sits under a chain of twenty predicates bound to one argument
@@ -576,12 +529,14 @@
       (v/assert kb (list 'arity top 2) 'CxUniverse)
       (v/assert kb (list q (ind) (ind) (ind)) 'CxUniverse)
       (let [tax   (reasoning/taxonomy kb)
-            cands (assoc @(reasoning/nogood-candidates kb) ::arity/pairs #{})
+            cands (decide/synced kb)
+            bs    (::arity/bindings cands)
             calls (atom 0)
             real  @#'arity/visible-bindings]
         (is (contains? (::arity/cand-shapes cands) [q 3]) "the ternary shape is a candidate")
         (with-redefs [arity/visible-bindings (fn [& args] (swap! calls inc) (apply real args))]
-          (is (empty? (@#'arity/arity-nogoods kb cands (tax/context-up-global tax 'CxUniverse) nil))
+          (is (nil? (@#'arity/reader-binding kb bs (@#'arity/bound-above tax bs) q
+                                             (tax/context-up-global tax 'CxUniverse) nil))
               "q is unbound, so its tuple breaks nothing"))
         (is (<= @calls 3) (str @calls " bindings read"))))))
 
@@ -597,40 +552,9 @@
       (v/assert kb (list 'arity lo 3) 'CxUniverse M)
       (v/assert kb (list 'genl lo hi) 'CxUniverse M))))
 
-(defn- verdicts-asked
-  "How many nogoods `reader`'s withdrawal decides, read with the withdrawal cache empty."
-  [kb reader]
-  (res/clear-withdrawn! kb)
-  (let [asked (atom 0)
-        real  decide/verdict]
-    (with-redefs [decide/verdict (fn [class-of ms] (swap! asked inc) (real class-of ms))]
-      (res/withdrawal kb reader))
-    @asked))
-
 (deftest a-reader-reads-each-pair-of-monotonic-bindings-as-hard
   (tu/with-neutral-kb [kb tu/isolated-fresh]
     (descension-pairs kb)
     (is (= 6 (count (filter #(= :arity-descension (:kind %)) (v/conflicts kb)))))
-    (is (= 6 (count (filter #{:hard} (vals (res/verdicts kb 'CxUniverse))))))))
-
-(deftest a-reader-s-later-rounds-decide-only-the-nogoods-their-region-reaches
-  ;; six `:default` membership pairs under a `disjoint` are dilemmas (an arity binding is
-  ;; on the engine's baseline roster, so a descension pair is never one); a `:default`
-  ;; self tuple under an `irreflexive` mark is a loser, so the reader decides in two
-  ;; rounds, and the second round's region holds the self tuple alone
-  (tu/with-neutral-kb [kb tu/isolated-fresh]
-    (let [[a b] (map #(tu/fresh-term :type %) '[a_t b_t])]
-      (v/assert kb (list 'disjoint a b) 'CxUniverse)
-      (dotimes [_ 6]
-        (let [x (tu/fresh-term :individual 'Ind)]
-          (v/assert kb (list a x) 'CxUniverse)
-          (v/assert kb (list b x) 'CxUniverse))))
-    (let [q    (tu/fresh-term :predicate 'rel)
-          x    (tu/fresh-term :individual 'X)
-          mark (v/assert kb (list 'irreflexive q) 'CxUniverse {:strength :monotonic})
-          self (v/assert kb (list q x x) 'CxUniverse)]
-      (is (not (v/believed? kb self 'CxUniverse)) "the reader takes the self tuple OUT")
-      (is (= 6 (count (filter #(= :dilemma (val %)) (res/verdicts kb 'CxUniverse)))))
-      (is (= 7 (verdicts-asked kb 'CxUniverse)) "each nogood decided once")
-      (v/retract! kb self)
-      (v/retract! kb mark))))
+    (is (= 6 (count (v/sentexes-with-functor kb 'contradicts))) "each pair is placed")
+    (is (empty? (v/sentexes-with-functor kb 'defeat)) "and defeats no binding")))

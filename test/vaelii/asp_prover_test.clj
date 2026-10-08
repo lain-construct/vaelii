@@ -150,8 +150,8 @@
         (is (not (v/ask? kb (list 'cautiously (list pacifist nixon)) 'CxUniverse)))))))
 
 ;; ---- the solve-free bracket (no backend needed) --------------------------
-;; The `grounded-forcing-out` primitive and the bracket's scaling are pure JTMS — no ASP —
-;; so they live in `grounded_forcing_out_test`.  These exercise the classifier and prover.
+;; The `grounded-in-region` read and the bracket's scaling are pure JTMS — no ASP —
+;; so they live in `grounded_in_region_test`.  These exercise the classifier and prover.
 
 (deftest classify-local-brackets-the-dilemma
   ;; The solve-free classifier, read directly.  A conclusion drawn from BOTH sides of the

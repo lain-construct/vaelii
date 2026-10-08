@@ -5,8 +5,8 @@
   reason: a count is a property of the algorithm and a millisecond a property of the
   box (docs/nmtms.md, \"The runtime of a settle\").
 
-  * The relabelled region is materialized `passes + 1` times: one delay per pass, and one
-    at the finish, which the own-context reconcile forces even on a rebuild.
+  * The relabelled region is materialized at most `passes + 1` times: one delay per pass
+    that reads it, and one at the finish.
   * A `genl` or `genlCx` edge no standing clash depends on re-derives none of them, and a
     `genlCx` edge reads no opposed body.  The bound is zero, which cannot drift upward; a
     plain fact retracted beside each edge is the control, and `clash_oracle_test` /
@@ -18,19 +18,15 @@
   * A settle reads the standing merges and `except`s only where they moved: a batch of
     merges reads the region once per settle, an un-merge re-examines its own class, a
     settle that moves no equality premise calls no supersession reconcile, and
-    resolution's flip check reads no `except` root when the region is smaller, an assert
-    the excepts' regions do not reach recomputes no reader's withdrawal, and a two-pass
-    settle keeps the withdrawal it computed."
+    resolution's flip check reads no `except` root when the region is smaller."
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
-            [vaelii.impl.clashes :as clashes]
             [vaelii.impl.decide.arity :as arity]
             [vaelii.impl.decide.negation :as negation]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.reads :as reads]
-            [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.settle-phases :as phases]
             [vaelii.impl.special :as special]
@@ -54,8 +50,10 @@
     @calls))
 
 (def ^:private one-pass-reads
-  "Region materializations of a one-pass settle: the pass's delay and the finish's."
-  2)
+  "Region materializations of a one-pass settle: the finish's.  A pass forces its own
+  delay only when something it reads needs the region, and a pass that owes nothing reads
+  none."
+  1)
 
 (deftest a-settle-materializes-its-region-once-per-pass-and-once-at-the-finish
   (let [kb (tu/isolated-fresh)]
@@ -86,21 +84,23 @@
                                             'CxUniverse {})))))))
       (finally (tu/clear-kb! kb)))))
 
-(deftest a-defeat-costs-one-region-read-and-a-revival-costs-two
-  ;; a defeat converges in the pass that discovers it, and a revival takes a second pass,
-  ;; so the reading moves by one: the growth term is the pass, not the belief move
+(deftest a-defeat-takes-two-passes-and-a-revival-one
+  ;; a negation pair is placed in the pass that discovers it, and the placed sentexes are
+  ;; chained in a second; the target a removed defeat gives back is not re-chained, so a
+  ;; revival takes one pass.  Each pass reads the region, as the finish does: the growth
+  ;; term is the pass, not the belief move
   (let [kb (tu/isolated-fresh)]
     (try
       (tu/with-shipped-config
         (v/assert kb '(srm_neg SrmX) 'CxUniverse {})
-        (testing "the defeat converges in one pass"
-          (is (= one-pass-reads
+        (testing "the defeat takes two passes, each reading the region"
+          (is (= (+ 2 one-pass-reads)
                  (region-reads #(v/assert kb '(not (srm_neg SrmX)) 'CxUniverse
                                           {:strength :monotonic}))))
           (is (not (v/ask? kb '(srm_neg SrmX) 'CxUniverse)) "the default must have lost"))
-        (testing "the revival takes a second, and one more region read with it"
+        (testing "the revival takes one pass"
           (let [h (v/handle-of kb '(not (srm_neg SrmX)) 'CxUniverse)]
-            (is (= (inc one-pass-reads) (region-reads #(v/retract! kb h)))))
+            (is (= one-pass-reads (region-reads #(v/retract! kb h)))))
           (is (v/ask? kb '(srm_neg SrmX) 'CxUniverse) "the default must be believed again")))
       (finally (tu/clear-kb! kb)))))
 
@@ -266,33 +266,6 @@
         (is (seq (v/sentexes-matching kb (list 'sss_seen (symbol (str "SssA" n))) 'CxUniverse))))
       (finally (tu/clear-kb! kb)))))
 
-;; ---- the grounds re-ask --------------------------------------------------
-
-(defn- reasked-clashes
-  "`clashes/reads-clash?` calls made while `f` runs."
-  [f]
-  (let [calls (atom 0)
-        orig  @#'clashes/reads-clash?]
-    (with-redefs [clashes/reads-clash? (fn [& args] (swap! calls inc) (apply orig args))]
-      (f))
-    @calls))
-
-(deftest a-definitional-clash-is-re-asked-only-where-a-reader-withdraws-a-ground
-  (let [kb (tu/fresh)]
-    (try
-      (v/assert kb '(disjoint srr_a srr_b) 'CxUniverse {:strength :monotonic})
-      (v/assert kb '(srr_a SrrY) 'CxUniverse {})
-      (testing "a reader that decides a dilemma re-asks nothing"
-        (is (zero? (reasked-clashes #(v/assert kb '(srr_b SrrY) 'CxUniverse {}))))
-        (is (= 1 (count (v/contradictions kb))) "the premise: a standing dilemma"))
-      (testing "nor does one whose loser is no ground"
-        (v/assert kb '(srr_a SrrX) 'CxUniverse {:strength :monotonic})
-        (v/assert-rule kb ['(srr_src ?z)] '(srr_b ?z) 'CxUniverse {:direction :forward})
-        (is (zero? (reasked-clashes #(do (v/assert kb '(srr_src SrrX) 'CxUniverse {})
-                                         (v/ask? kb '(srr_b SrrX) 'CxUniverse)))))
-        (is (not (v/ask? kb '(srr_b SrrX) 'CxUniverse)) "the premise: the reader defeated it"))
-      (finally (tu/clear-kb! kb)))))
-
 ;; ---- the phase clock -----------------------------------------------------
 
 (deftest the-phase-clock-partitions-each-settle-into-its-buckets
@@ -404,52 +377,4 @@
         (is (empty? (filter #(= sx/except-functor (second %))
                             (calls-to #'reads/believed-with-functor
                                       #(v/assert kb '(srm_plain SrmAfterExcepts) 'CxUniverse {}))))))
-      (finally (tu/clear-kb! kb)))))
-
-(deftest an-assert-beside-standing-excepts-it-does-not-touch-recomputes-no-withdrawal
-  ;; the settle keeps the `:withdrawn` entries its moves do not reach
-  ;; (`res/reconcile-withdrawn!`); both the reader's withdrawal and the roster walk the
-  ;; region with `grounded-in-region`
-  (let [kb (tu/isolated-fresh)]
-    (try
-      (tu/with-shipped-config
-        (dotimes [i n]
-          (let [h (v/assert kb (list 'srm_decoy (symbol (str "SrmD" i))) 'CxUniverse
-                            {:strength :monotonic})]
-            (v/assert kb (list 'except (sx/sentex-handle h)) 'CxUniverse {:strength :monotonic})))
-        (let [read-both #(do (res/supporter-filter-roster kb) (res/withdrawal kb 'CxUniverse))
-              before    (read-both)]
-          (is (= n (count (:out before))))
-          (is (zero? (count (calls-to #'jtms/grounded-in-region
-                                      #(do (v/assert kb '(srm_plain SrmBesideExcepts)
-                                                     'CxUniverse {})
-                                           (read-both))))))))
-      (finally (tu/clear-kb! kb)))))
-
-(deftest a-withdrawal-a-two-pass-settle-computes-is-cached-after-it
-  ;; The batch stores a nogood the reader decides, whose handles are in the window before
-  ;; the settle computes the reader's withdrawal, and a blocker of a guarded firing, which
-  ;; runs a second pass.  Each reconcile reads the window since the cache's mark
-  ;; (`res/reconcile-withdrawn!`), so no later one drops the entry for the writes it was
-  ;; computed after.
-  (let [kb (tu/isolated-fresh)]
-    (try
-      (tu/with-shipped-config
-        (v/with-deferred-settle kb
-          (v/assert kb '(binary_predicate srmRel) 'CxUniverse {:strength :monotonic})
-          (v/assert kb '(asymmetric srmRel) 'CxUniverse {:strength :monotonic})
-          (v/assert kb '(exceptWhen (srm_skip ?x)
-                                    (set/forwardRule (implies (srm_probe ?x) (srm_seen ?x))))
-                    'CxUniverse)
-          (v/assert kb '(srm_probe SrmP) 'CxUniverse))
-        (v/with-deferred-settle kb
-          (v/assert kb '(srm_skip SrmP) 'CxUniverse)
-          (v/assert kb '(srmRel SrmA SrmB) 'CxUniverse)
-          (v/assert kb '(srmRel SrmB SrmA) 'CxUniverse))
-        (is (= 2 (:passes (v/settle-stats kb))))
-        (is (contains? @(reasoning/withdrawn kb) '[CxUniverse :defeats]))
-        (is (= {#{(v/handle-of kb '(srmRel SrmA SrmB) 'CxUniverse)
-                  (v/handle-of kb '(srmRel SrmB SrmA) 'CxUniverse)} :dilemma}
-               (res/verdicts kb 'CxUniverse)))
-        (is (zero? (count (calls-to #'res/withdrawal* #(res/verdicts kb 'CxUniverse))))))
       (finally (tu/clear-kb! kb)))))

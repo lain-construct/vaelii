@@ -67,12 +67,14 @@
   — a volatile read there is paid per node per lookup, to buy a guarantee the engine's
   own single writer never needs."
   (:require [taoensso.trove :as trove]
+            [vaelii.impl.caches :as caches]
             [vaelii.impl.dense-roots :as dense-roots]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.profile :as prof]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.tokens :as tok]
+            [vaelii.impl.types.snapshot :as snapshot-types]
             [vaelii.impl.types.trie :as trie-types
              :refer [t-child-count t-children t-clear! t-compact! t-count-at
                      t-insert! t-leaves-at t-lookup t-remove!]]))
@@ -90,13 +92,18 @@
 
 ;; ---- the composed IndexStore --------------------------------------------
 
+(defn- trie-reads
+  "`kv/trie-reads` over the native trie, which the opposed family's writes read."
+  [trie]
+  (kv/trie-reads #(t-count-at trie %) #(t-children trie %) #(t-leaves-at trie %)))
+
 (defrecord ColumnarIndexStore [dict trie roots embedded]
   p/IndexStore
   ;; trie native; roots + term index straight to the shared int-keyed backend (same keys
   ;; as KvIndexStore, so the delegated reads below stay consistent)
   (index-sentex [_ sentex handle]
     (let [pth  (sx/path sentex)
-          flat (kv/flat-family-adds roots sentex handle)] ; reads the pre-write postings
+          flat (kv/flat-family-adds roots (trie-reads trie) sentex handle)] ; reads the pre-write postings
       (t-insert! trie pth handle)
       (p/kv-batch roots (:ops flat))
       ;; the same tally `KvIndexStore` keeps, because this store writes the index itself
@@ -112,14 +119,17 @@
   ;; `KvIndexStore` makes off its leaf probe, and it says so for that store's reason.  The
   ;; caller deletes the record next either way, so a genuine record/index divergence would
   ;; otherwise surface as a handle with no record, several operations away from the store
-  ;; that diverged.  `reindex` is the repair.
+  ;; that diverged.  `reindex` is the repair.  The flat ops are read before the trie
+  ;; removal, since the opposed family reads the trie's counts as they stood, and a stray
+  ;; unindex drops them unwritten.
   (unindex-sentex! [_ sentex handle]
     (let [pth  (sx/path sentex)
+          flat (kv/flat-family-retires roots (trie-reads trie) sentex handle) ; reads the pre-write postings
           dead (long (t-remove! trie pth handle))]
       (if (neg? dead)
         (trove/log! {:level :warn :id ::unindex-absent
                      :data {:handle handle :path pth :context (:context sentex)}})
-        (let [flat (kv/flat-family-retires roots sentex handle)] ; reads the pre-write postings
+        (do
           (p/kv-batch roots (:ops flat))
           (when (prof/profiling?)
             (prof/record-index-retract sentex (assoc (:counts flat)
@@ -135,6 +145,7 @@
   (children [_ prefix]  (prof/record-read :trie-counts) (t-children trie prefix))
   (count-children [_ prefix] (prof/record-read :trie-counts) (t-child-count trie prefix))
   (lookup   [_ pattern] (prof/record-read :trie-lookup) (t-lookup   trie pattern))
+  (lookup   [_ pattern ctxs] (prof/record-read :trie-lookup) (t-lookup trie pattern ctxs))
   ;; the exact leaf — the trie's own `t-leaves-at`, which walks the path's nodes and
   ;; decodes nothing else.  Tallied as retrieval, like the walk above it.
   (leaf-at  [_ path]    (prof/record-read :trie-lookup) (t-leaves-at trie path))
@@ -150,10 +161,12 @@
 
   (count-with-arg        [_ pos term] (p/count-with-arg        embedded pos term))
   (sentexes-with-args    [_ pred pts] (p/sentexes-with-args    embedded pred pts))
-  (index-rule            [_ h a c]    (p/index-rule            embedded h a c))
-  (unindex-rule!         [_ h a c]    (p/unindex-rule!         embedded h a c))
+  (sentexes-with-args    [_ pred pts cs] (p/sentexes-with-args embedded pred pts cs))
+  (index-rule            [_ h a c x]  (p/index-rule            embedded h a c x))
+  (unindex-rule!         [_ h a c x]  (p/unindex-rule!         embedded h a c x))
   (rules-by-antecedent   [_ pred]     (p/rules-by-antecedent   embedded pred))
   (rules-by-consequent   [_ pred]     (p/rules-by-consequent   embedded pred))
+  (rules-by-consequent   [_ pred cs]  (p/rules-by-consequent   embedded pred cs))
   (index-exception       [_ h preds]  (p/index-exception       embedded h preds))
   (unindex-exception!    [_ h preds]  (p/unindex-exception!    embedded h preds))
   (rules-with-exception-on [_ pred]   (p/rules-with-exception-on embedded pred))
@@ -238,3 +251,15 @@
 ;; directly, so this namespace carries no second vocabulary for them.
 
 (defn columnar? [store] (instance? ColumnarIndexStore store))
+
+;; ---- derived state (docs/caches.md, "The derived-state register") ----------------
+
+(caches/register-derived
+ {:id :R13 :label "Mapped index roots" :kind :index :keyed-by :value :reads [:index]
+  :retired-by {:stored :K :removed :K :respelled :K}
+  :computed :write :imaged? false
+  :value (fn [kb] (let [store (:index kb)]
+                    (when (columnar? store)
+                      [(snapshot-types/snapshot-mapped? (:trie store))
+                       (snapshot-types/snapshot-mapped? (:roots store))])))
+  :note "a columnar index's postings mapped from its image; the first write thaws every mapped posting into the heap"})

@@ -112,10 +112,10 @@
     (case (first k)
       :idx  (case (second k) :c :trie-counters :s :trie-childsets :l :trie-leaves nil)
       :context-root :root-context
-      :functor-root :root-functor
+      :predicate-extent :root-functor
       :argument-root :root-arg
       :term-index :term-index
-      (:rule-index :exception-index) :rule-index
+      (:rule-antecedent :rule-consequent :exception-index) :rule-index
       nil)))
 
 (defn- mb [b] (/ (double b) 1048576.0))

@@ -356,7 +356,7 @@
       (is (empty? fails) (failure-text "declaration below the pair" fails (count orders))))))
 
 (deftest a-vantage-below-a-dilemma-decides-its-stronger-inherited-reading-in-every-order
-  ;;   CxUniverse  (transitiveInArg heavierThan 1 genl) (genl hauler animal)
+  ;;   CxUniverse  (transitiveInArgInverse heavierThan 1 genl) (genl hauler animal)
   ;;               (genl vehicle animal) monotonic
   ;;               (genl cart hauler) default   (not (heavierThan cart Bone1)) default
   ;;               K1 (heavierThan hauler Bone1) monotonic, in one world of the two
@@ -369,7 +369,7 @@
     (doseq [k1? [false true]]
       (let [den      (list 'not (list heavierThan cart Bone1))
             claim    (list heavierThan cart Bone1)
-            wiring   [(w (list 'transitiveInArg heavierThan 1 'genl) U :monotonic)
+            wiring   [(w (list 'transitiveInArgInverse heavierThan 1 'genl) U :monotonic)
                       (w (list 'genl hauler animal) U :monotonic)
                       (w (list 'genl vehicle animal) U :monotonic)
                       (w (list 'genl cart hauler) U)
@@ -632,12 +632,89 @@
       (is (empty? fails) (failure-text "cover through a supertype denial" fails
                                        (count orders))))))
 
+;; Random reference world 283: the reader withdraws a ground and re-reads each `covering`
+;; nogood, once per denial of the whole.
+(deftest a-cover-denial-stated-in-two-contexts-convicts-at-a-reader-that-withdraws-a-ground-in-every-order
+  ;;   CxA  (covering whole p1 p2)   (genl p2 other)   (p2 Kit)   (not (whole Kit))
+  ;;   CxB sees CxA: (not (whole Kit)) monotonic   (not (genl p2 other)) monotonic
+  ;;
+  ;; A denial of the whole denies both parts, so (p2 Kit) and either denial refute the
+  ;; cover.  CxA reads a dilemma.  CxB reads the denial :monotonic, takes (p2 Kit) OUT,
+  ;; and withdraws the ground (genl p2 other).
+  (tu/with-terms [whole p1 p2 other Kit CxA CxB]
+    (let [denial   (list 'not (list whole Kit))
+          wiring   [(w (list 'genlCx CxB CxA) U :monotonic)
+                    (w (list 'covering whole p1 p2) CxA)
+                    (w (list 'genl p2 other) CxA)]
+          content  [(w denial CxA)
+                    (w denial CxB :monotonic)
+                    (w (list p2 Kit) CxA)
+                    (w (list 'not (list 'genl p2 other)) CxB :monotonic)]
+          world    {:contexts #{U CxA CxB} :writes (into wiring content)}
+          expected {CxA {(list p2 Kit) true denial true}
+                    CxB {(list p2 Kit) false denial true}}
+          orders   (mapv #(into wiring %) (gen/permutations content))
+          {fails :failures known :known} (expected-failures world orders expected)]
+      (is (= [] (reference-agrees world expected)))
+      (print-known "cover denial in two contexts" known)
+      (is (empty? fails) (failure-text "cover denial in two contexts" fails (count orders))))))
+
+;; Random reference world 286: a firing whose ingredients meet only once a `genlCx` edge
+;; joins the two contexts, with the `genl` edge the match reads on the other side of it
+;; from the rule and the fact.
+(deftest a-genl-edge-across-a-late-genlcx-edge-licenses-the-firing-in-every-order
+  ;;   CxLow sees CxHigh
+  ;;   edge below:  CxHigh  (dog Rex) monotonic, (animal ?x) => (pet ?x)   CxLow  (genl dog animal)
+  ;;   edge above:  CxLow   (dog Rex) monotonic, (animal ?x) => (pet ?x)   CxHigh (genl dog animal)
+  ;;
+  ;; CxLow sees all three, so it believes (pet Rex) whichever write arrives last.
+  (tu/with-terms [dog animal pet Rex CxHigh CxLow]
+    (doseq [[label home edge-at] [["edge below the rule" CxHigh CxLow]
+                                  ["edge above the rule" CxLow CxHigh]]]
+      (let [ws       [(w (list 'genlCx CxLow CxHigh) U)
+                      (w (list 'genl dog animal) edge-at :monotonic)
+                      (w (list dog Rex) home :monotonic)
+                      (w (gen/forward (list 'implies (list animal '?x) (list pet '?x))) home)]
+            world    {:contexts #{U CxHigh CxLow} :writes ws}
+            expected {CxLow {(list pet Rex) true}}
+            orders   (gen/permutations ws)
+            {fails :failures known :known} (expected-failures world orders expected)]
+        (is (= [] (reference-agrees world expected)))
+        (print-known label known)
+        (is (empty? fails) (failure-text label fails (count orders)))))))
+
+;; Random reference world 392: a fact stated above a merge stays believed where it lives,
+;; and the reader below the merge retires its spelling through the read filter
+;; (docs/equality.md, "The reader is not the fact's own context").
+(deftest a-fact-stored-above-a-merge-is-no-displaced-spelling-below-in-every-order
+  ;;   CxA  (dog Cc) monotonic
+  ;;   CxB sees CxA: (anti_symmetric aboveOf) (aboveOf Cc Aa) (aboveOf Aa Cc), all monotonic
+  ;;
+  ;; The converse pair merges Aa and Cc at CxB, and Aa sorts first.
+  (tu/with-terms [dog aboveOf Aa Cc CxA CxB]
+    (let [wiring  [(w (list 'genlCx CxB CxA) U)]
+          content [(w (list dog Cc) CxA :monotonic)
+                   (w (list 'anti_symmetric aboveOf) CxB :monotonic)
+                   (w (list aboveOf Cc Aa) CxB :monotonic)
+                   (w (list aboveOf Aa Cc) CxB :monotonic)]
+          world   {:contexts #{U CxA CxB} :writes (into wiring content)}
+          runs    (mapv #(gen/run-order world (into wiring %) {}) (gen/permutations content))
+          wrong   (into [] (keep (fn [{:keys [order beliefs merges displaced]}]
+                                   (when-not (and (empty? displaced)
+                                                  (= #{#{Aa Cc}} (get merges CxB))
+                                                  (contains? (get beliefs CxA) (list dog Cc))
+                                                  (contains? (get beliefs CxB) (list dog Aa)))
+                                     {:order (mapv :sentence order) :displaced displaced
+                                      :merges merges})))
+                        runs)]
+      (is (empty? wrong) (failure-text "fact above a merge" wrong (count runs))))))
+
 ;; A converse reached by argument preservation under an `asymmetric` mark on the tuple's
 ;; functor or on a super-predicate of it (docs/inherit.md, "The converse of an inherited
 ;; claim"):
 ;;
 ;;   CxUniverse  (asymmetric touchesX) or (asymmetric nudgesX)   (genl nudgesX touchesX)
-;;               (transitiveInArg nudgesX 1 genl)   (genl chix dogx)
+;;               (transitiveInArgInverse nudgesX 1 genl)   (genl chix dogx)
 ;;               (nudgesX dogx Fido) monotonic, which reaches (nudgesX chix Fido)
 ;;               (nudgesX Fido chix) default
 ;;
@@ -649,7 +726,7 @@
   `marked`: every order of the six writes when `all?`, else the declaration first and every
   order of the other five."
   [{:keys [touches nudges chi dog Fido]} marked all?]
-  (let [decl     (w (list 'transitiveInArg nudges 1 'genl) U :monotonic)
+  (let [decl     (w (list 'transitiveInArgInverse nudges 1 'genl) U :monotonic)
         content  [(w (list 'asymmetric marked) U :monotonic)
                   (w (list 'genl nudges touches) U :monotonic)
                   (w (list 'genl chi dog) U :monotonic)
@@ -736,8 +813,8 @@
     (is (empty? fails) (failure-text label fails n))))
 
 ;; A `siblingDisjointException` exempts its pair at the readers that see it.  CxU sees the
-;; mark and both memberships and not the exception, so it reads the pair as a nogood; CxE
-;; sees the exception too and reads none.
+;; mark and both memberships and not the declaration, so it reads the pair as a nogood; CxE
+;; sees the declaration too and reads none.
 ;;
 ;;   CxUniverse
 ;;     └─ CxU  (sibling_disjoint col) (genl ta col) (genl tb col)
@@ -837,30 +914,39 @@
 (defn- check-seed
   "Generate the world for `seed`, check it in the orders `order-opts` selects, and return
   `{:runs :refused :store-split :merge-skips :divergences}`, each divergence carrying its
-  `:seed`."
+  `:seed`.  A world the reference refuses as outside its fragment (`:unsupported`, such
+  as a rule set that is not stratified) is checked in no order and answers
+  `{:unsupported? true}` with no runs."
   [seed order-opts]
-  (let [world  (gen/gen-world seed {})
-        orders (gen/orders-for world (assoc order-opts :seed seed))
-        check  (gen/check-world world orders judges)]
-    {:runs        (:runs check)
-     :refused     (:refused check)
-     :store-split (:store-split check)
-     :merge-skips (count (:merge-skips check))
-     :divergences (mapv #(assoc % :seed seed) (gen/divergences world check judges))}))
+  (let [world (gen/gen-world seed {})]
+    (try
+      (let [orders (gen/orders-for world (assoc order-opts :seed seed))
+            check  (gen/check-world world orders judges)]
+        {:runs        (:runs check)
+         :refused     (:refused check)
+         :store-split (:store-split check)
+         :merge-skips (count (:merge-skips check))
+         :divergences (mapv #(assoc % :seed seed) (gen/divergences world check judges))})
+      (catch clojure.lang.ExceptionInfo e
+        (if (= :unsupported (:type (ex-data e)))
+          {:unsupported? true :runs 0 :refused [] :merge-skips 0 :divergences []}
+          (throw e))))))
 
 (defn- random-worlds
   "Check every seed of `seeds`, print one line with the number of worlds and runs, the
-  refusals counted by `:type` and the refused sentence's functor, the number of worlds
-  whose orders stored different content, the contexts skipped for a `:merge` verdict and
-  the wall time, then one line per kind of `known-divergences` with its count.  Returns
-  the report lines of every divergence of a kind outside `known-divergences`."
+  worlds the reference refuses as `:unsupported`, the refusals counted by `:type` and the
+  refused sentence's functor, the number of worlds whose orders stored different content,
+  the contexts skipped for a `:merge` verdict and the wall time, then one line per kind of
+  `known-divergences` with its count.  Returns the report lines of every divergence of a
+  kind outside `known-divergences`."
   [label seeds order-opts]
   (let [t0      (System/nanoTime)
         results (mapv #(check-seed % order-opts) seeds)
         divs    (mapcat :divergences results)
         counts  (frequencies (map :kind divs))]
     (println (str label ": " (count seeds) " worlds, "
-                  (reduce + (map :runs results)) " runs, refusals "
+                  (reduce + (map :runs results)) " runs, unsupported "
+                  (count (filter :unsupported? results)) ", refusals "
                   (pr-str (frequencies (for [{:keys [type refused]} (mapcat :refused results)]
                                          [type (first (:sentence refused))])))
                   ", store splits " (count (filter :store-split results))

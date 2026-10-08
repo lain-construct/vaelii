@@ -28,7 +28,8 @@
             [vaelii.impl.protocols :as p]
             [vaelii.impl.reindex :as reindex]
             [vaelii.impl.tokens :as tok]
-            [vaelii.impl.types.snapshot :as snapshot-types])
+            [vaelii.impl.types.snapshot :as snapshot-types]
+            [vaelii.test-util :as tu])
   (:import [java.io File RandomAccessFile]
            [java.nio.file CopyOption Files Paths StandardCopyOption]
            [java.nio.file.attribute FileAttribute]))
@@ -180,163 +181,170 @@
 ;; ---- the round trip ------------------------------------------------------
 
 (deftest snapshot-round-trip-skips-the-rebuild
-  (with-snapshot-dir
-    (fn [dir]
-      (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
-            want (answers kb)]
-        (backend/close-dir! dir)
-        (is (.exists (meta-file dir)) "closing the directory wrote the image")
-        (let [[kb2 rebuilds] (opening dir)]
-          (is (zero? rebuilds) "no reindex ran")
-          (is (= want (answers kb2))))))))
+  (tu/with-snapshot-platform
+    (with-snapshot-dir
+      (fn [dir]
+        (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+              want (answers kb)]
+          (backend/close-dir! dir)
+          (is (.exists (meta-file dir)) "closing the directory wrote the image")
+          (let [[kb2 rebuilds] (opening dir)]
+            (is (zero? rebuilds) "no reindex ran")
+            (is (= want (answers kb2)))))))))
 
 (deftest a-write-after-a-mapped-open-thaws-and-answers
-  (with-snapshot-dir
-    (fn [dir]
-      (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
-      (backend/close-dir! dir)
-      (let [[kb2 rebuilds] (opening dir)]
-        (is (zero? rebuilds))
-        (v/assert kb2 '(cat SnapTom) 'CxUniverse {:strength :monotonic})
-        (v/assert kb2 '(likes SnapTom SnapBall) 'CxUniverse {:strength :monotonic})
-        (is (v/ask? kb2 '(cat SnapTom) 'CxUniverse) "the trie thawed out of its mapping")
-        (is (= 2 (count (v/sentexes-matching kb2 '(likes ?x SnapBall) 'CxUniverse)))
-            "the thawed roots hold the mapped posting and the new member alike")
-        (let [want (answers kb2)]
-          (backend/close-dir! dir)
-          (testing "and the next image round-trips the thawed state"
-            (let [[kb3 rebuilds] (opening dir)]
-              (is (zero? rebuilds))
-              (is (= want (answers kb3))))))))))
+  (tu/with-snapshot-platform
+    (with-snapshot-dir
+      (fn [dir]
+        (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+        (backend/close-dir! dir)
+        (let [[kb2 rebuilds] (opening dir)]
+          (is (zero? rebuilds))
+          (v/assert kb2 '(cat SnapTom) 'CxUniverse {:strength :monotonic})
+          (v/assert kb2 '(likes SnapTom SnapBall) 'CxUniverse {:strength :monotonic})
+          (is (v/ask? kb2 '(cat SnapTom) 'CxUniverse) "the trie thawed out of its mapping")
+          (is (= 2 (count (v/sentexes-matching kb2 '(likes ?x SnapBall) 'CxUniverse)))
+              "the thawed roots hold the mapped posting and the new member alike")
+          (let [want (answers kb2)]
+            (backend/close-dir! dir)
+            (testing "and the next image round-trips the thawed state"
+              (let [[kb3 rebuilds] (opening dir)]
+                (is (zero? rebuilds))
+                (is (= want (answers kb3)))))))))))
 
 (deftest a-mapped-index-that-was-never-written-is-not-rewritten
-  (testing "closing a read-only session must not pull the cold tail back into heap"
+  (tu/with-snapshot-platform
+    (testing "closing a read-only session must not pull the cold tail back into heap"
+      (with-snapshot-dir
+        (fn [dir]
+          (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+          (backend/close-dir! dir)
+          (let [[kb2 _] (opening dir)
+                stamp   #(drs/slot-fingerprint (:records kb2))]
+            (is (= {:index :skipped :reason :unchanged}
+                   (select-keys (snap/save! dir (:index kb2) stamp) [:index :reason]))
+                "the image already *is* this index — writing it would thaw the roots to read them")
+            ;; and a write puts it back in play
+            (v/assert kb2 '(cat SnapTom) 'CxUniverse {:strength :monotonic})
+            (is (= :saved (:index (snap/save! dir (:index kb2) stamp))))))))))
+
+(deftest a-save-that-fails-part-way-takes-its-temp-sections-with-it
+  (tu/with-snapshot-platform
+    ;; Each section is written beside its target and swapped in only at the commit point,
+    ;; so a throw part-way costs the new image and never the one on disk.  What it must not
+    ;; also cost is the directory: a `.tmp` section is the size of the index, nothing else
+    ;; ever deletes one, and a KB nobody reopens carries it for good.
     (with-snapshot-dir
       (fn [dir]
         (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
         (backend/close-dir! dir)
         (let [[kb2 _] (opening dir)
-              stamp   #(drs/slot-fingerprint (:records kb2))]
-          (is (= {:index :skipped :reason :unchanged}
-                 (select-keys (snap/save! dir (:index kb2) stamp) [:index :reason]))
-              "the image already *is* this index — writing it would thaw the roots to read them")
-          ;; and a write puts it back in play
+              stamp   #(drs/slot-fingerprint (:records kb2))
+              ^String root (snap/snapshot-root dir)
+              temps   (fn [] (->> (.listFiles (File. root))
+                                  (filter #(.endsWith (.getName ^File %) ".tmp"))
+                                  (mapv #(.getName ^File %))
+                                  sort
+                                  vec))]
+          ;; a write, so the image is no longer the index being read and `save!` is not
+          ;; skipped as `:unchanged`
           (v/assert kb2 '(cat SnapTom) 'CxUniverse {:strength :monotonic})
-          (is (= :saved (:index (snap/save! dir (:index kb2) stamp)))))))))
+          (is (= [] (temps)) "nothing is left over before the failed save")
+          (is (thrown? java.io.IOException
+                       (with-redefs-fn
+                         {#'snap/write-roots! (fn [& _] (throw (java.io.IOException. "the disk filled")))}
+                         (fn [] (snap/save! dir (:index kb2) stamp))))
+              "the failure travels rather than being reported as a written image")
+          (is (= [] (temps))
+              (str "a failed save left its sections behind: " (pr-str (temps))))
+          (testing "and the image already on disk is the one that is still there"
+            (let [want (answers kb2)]
+              (backend/close-dir! dir)
+              (let [[kb3 rebuilds] (opening dir)]
+                (is (zero? rebuilds) "the previous image still reads, so nothing rebuilt")
+                (is (= want (answers kb3)))))))))))
 
-(deftest a-save-that-fails-part-way-takes-its-temp-sections-with-it
-  ;; Each section is written beside its target and swapped in only at the commit point,
-  ;; so a throw part-way costs the new image and never the one on disk.  What it must not
-  ;; also cost is the directory: a `.tmp` section is the size of the index, nothing else
-  ;; ever deletes one, and a KB nobody reopens carries it for good.
-  (with-snapshot-dir
-    (fn [dir]
-      (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
-      (backend/close-dir! dir)
-      (let [[kb2 _] (opening dir)
-            stamp   #(drs/slot-fingerprint (:records kb2))
-            ^String root (snap/snapshot-root dir)
-            temps   (fn [] (->> (.listFiles (File. root))
-                                (filter #(.endsWith (.getName ^File %) ".tmp"))
-                                (mapv #(.getName ^File %))
-                                sort
-                                vec))]
-        ;; a write, so the image is no longer the index being read and `save!` is not
-        ;; skipped as `:unchanged`
-        (v/assert kb2 '(cat SnapTom) 'CxUniverse {:strength :monotonic})
-        (is (= [] (temps)) "nothing is left over before the failed save")
-        (is (thrown? java.io.IOException
-                     (with-redefs-fn
-                       {#'snap/write-roots! (fn [& _] (throw (java.io.IOException. "the disk filled")))}
-                       (fn [] (snap/save! dir (:index kb2) stamp))))
-            "the failure travels rather than being reported as a written image")
-        (is (= [] (temps))
-            (str "a failed save left its sections behind: " (pr-str (temps))))
-        (testing "and the image already on disk is the one that is still there"
+(deftest a-half-thawed-index-writes-its-sections-out-of-the-mapping
+  (tu/with-snapshot-platform
+    ;; `index-rule` writes the rule index and touches no trie path (the rule *sentex* does
+    ;; that separately — this is the half `reindex/index-rule-entry` posts on its own).  So
+    ;; it thaws the roots and leaves the trie mapped, and the next image is written with its
+    ;; leaf sections read **straight out of the live mapping** — the one write path with no
+    ;; heap array to copy from, and one the `:unchanged` skip above keeps an ordinary close
+    ;; from reaching.
+    (with-snapshot-dir
+      (fn [dir]
+        (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+        (backend/close-dir! dir)
+        (let [[kb2 _] (opening dir)
+              idx     (:index kb2)]
+          (is (snapshot-types/snapshot-mapped? (:trie idx)) "the trie opened mapped")
+          (p/index-rule idx 987654 '[snapAnte] 'snapConsq 'CxSnapRule)
+          (is (snapshot-types/snapshot-mapped? (:trie idx)) "and the rule index left it so — only the roots thawed")
+          (is (= :saved (:index (snap/save! dir idx #(drs/slot-fingerprint (:records kb2))))))
           (let [want (answers kb2)]
             (backend/close-dir! dir)
             (let [[kb3 rebuilds] (opening dir)]
-              (is (zero? rebuilds) "the previous image still reads, so nothing rebuilt")
-              (is (= want (answers kb3))))))))))
-
-(deftest a-half-thawed-index-writes-its-sections-out-of-the-mapping
-  ;; `index-rule` writes the rule index and touches no trie path (the rule *sentex* does
-  ;; that separately — this is the half `reindex/index-rule-entry` posts on its own).  So
-  ;; it thaws the roots and leaves the trie mapped, and the next image is written with its
-  ;; leaf sections read **straight out of the live mapping** — the one write path with no
-  ;; heap array to copy from, and one the `:unchanged` skip above keeps an ordinary close
-  ;; from reaching.
-  (with-snapshot-dir
-    (fn [dir]
-      (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
-      (backend/close-dir! dir)
-      (let [[kb2 _] (opening dir)
-            idx     (:index kb2)]
-        (is (snapshot-types/snapshot-mapped? (:trie idx)) "the trie opened mapped")
-        (p/index-rule idx 987654 '[snapAnte] 'snapConsq)
-        (is (snapshot-types/snapshot-mapped? (:trie idx)) "and the rule index left it so — only the roots thawed")
-        (is (= :saved (:index (snap/save! dir idx #(drs/slot-fingerprint (:records kb2))))))
-        (let [want (answers kb2)]
-          (backend/close-dir! dir)
-          (let [[kb3 rebuilds] (opening dir)]
-            (is (zero? rebuilds))
-            (is (= want (answers kb3)) "the mapped-through sections read back unchanged")
-            ;; the rule entry is not derivable from the records (no such sentex), so its
-            ;; survival is proof the image carried it rather than a rebuild recreating it
-            (is (= #{987654} (p/rules-by-consequent (:index kb3) 'snapConsq)))))))))
+              (is (zero? rebuilds))
+              (is (= want (answers kb3)) "the mapped-through sections read back unchanged")
+              ;; the rule entry is not derivable from the records (no such sentex), so its
+              ;; survival is proof the image carried it rather than a rebuild recreating it
+              (is (= #{987654} (p/rules-by-consequent (:index kb3) 'snapConsq))))))))))
 
 ;; ---- staleness: an image about a KB that has moved ----------------------
 
 (deftest a-stale-image-is-discarded-and-rebuilt
-  (testing "an image that is internally perfect and describes an older record set"
+  (tu/with-snapshot-platform
+    (testing "an image that is internally perfect and describes an older record set"
+      (with-snapshot-dir
+        (fn [dir]
+          (let [aside (str dir "-aside")]
+            (try
+              (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+              (backend/close-dir! dir)
+              (copy-tree! (snap/snapshot-root dir) aside)     ; the image as of now
+
+              ;; move the records on, and let the close write a *newer* image
+              (let [[kb2 _] (opening dir)]
+                (v/assert kb2 '(fish SnapNemo) 'CxUniverse {:strength :monotonic}))
+              (let [want (do (backend/close-dir! dir)
+                             (let [[kb3 _] (opening dir)
+                                   a (answers kb3)]
+                               (backend/close-dir! dir)
+                               a))]
+                ;; put the older image back: self-consistent, and about a KB that is gone
+                (copy-tree! aside (snap/snapshot-root dir))
+                (let [[kb4 rebuilds] (opening dir)]
+                  (is (= 1 rebuilds) "the stamp caught it")
+                  (is (= want (answers kb4)) "and the records answered instead")
+                  (is (v/ask? kb4 '(fish SnapNemo) 'CxUniverse)
+                      "including the fact the stale image had never heard of")))
+              (finally (rm-rf! aside)))))))))
+
+(deftest a-cleared-store-declines-an-image-of-the-records-it-held
+  (tu/with-snapshot-platform
+    ;; `clear!` truncates the logs, so a record of the same byte length refills an old slot
+    ;; exactly, and the store below differs from the one the older image describes in
+    ;; content alone.  The epoch the wipe mints is the part of the stamp that separates the
+    ;; two.
     (with-snapshot-dir
       (fn [dir]
         (let [aside (str dir "-aside")]
           (try
-            (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+            (v/assert (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})
+                      '(dog SnapMuffet) 'CxUniverse {:strength :monotonic})
             (backend/close-dir! dir)
-            (copy-tree! (snap/snapshot-root dir) aside)     ; the image as of now
-
-            ;; move the records on, and let the close write a *newer* image
+            (copy-tree! (snap/snapshot-root dir) aside)       ; the image of the dog record
             (let [[kb2 _] (opening dir)]
-              (v/assert kb2 '(fish SnapNemo) 'CxUniverse {:strength :monotonic}))
-            (let [want (do (backend/close-dir! dir)
-                           (let [[kb3 _] (opening dir)
-                                 a (answers kb3)]
-                             (backend/close-dir! dir)
-                             a))]
-              ;; put the older image back: self-consistent, and about a KB that is gone
-              (copy-tree! aside (snap/snapshot-root dir))
-              (let [[kb4 rebuilds] (opening dir)]
-                (is (= 1 rebuilds) "the stamp caught it")
-                (is (= want (answers kb4)) "and the records answered instead")
-                (is (v/ask? kb4 '(fish SnapNemo) 'CxUniverse)
-                    "including the fact the stale image had never heard of")))
+              (v/clear! kb2)
+              (v/assert kb2 '(cat SnapTiddle) 'CxUniverse {:strength :monotonic}))
+            (backend/close-dir! dir)
+            (copy-tree! aside (snap/snapshot-root dir))
+            (let [[kb3 rebuilds] (opening dir)]
+              (is (= 1 rebuilds) "the stamp caught it")
+              (is (v/ask? kb3 '(cat SnapTiddle) 'CxUniverse))
+              (is (empty? (v/sentexes-matching kb3 '(dog ?x) 'CxUniverse))))
             (finally (rm-rf! aside))))))))
-
-(deftest a-cleared-store-declines-an-image-of-the-records-it-held
-  ;; `clear!` truncates the logs, so a record of the same byte length refills an old slot
-  ;; exactly, and the store below differs from the one the older image describes in
-  ;; content alone.  The epoch the wipe mints is the part of the stamp that separates the
-  ;; two.
-  (with-snapshot-dir
-    (fn [dir]
-      (let [aside (str dir "-aside")]
-        (try
-          (v/assert (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})
-                    '(dog SnapMuffet) 'CxUniverse {:strength :monotonic})
-          (backend/close-dir! dir)
-          (copy-tree! (snap/snapshot-root dir) aside)       ; the image of the dog record
-          (let [[kb2 _] (opening dir)]
-            (v/clear! kb2)
-            (v/assert kb2 '(cat SnapTiddle) 'CxUniverse {:strength :monotonic}))
-          (backend/close-dir! dir)
-          (copy-tree! aside (snap/snapshot-root dir))
-          (let [[kb3 rebuilds] (opening dir)]
-            (is (= 1 rebuilds) "the stamp caught it")
-            (is (v/ask? kb3 '(cat SnapTiddle) 'CxUniverse))
-            (is (empty? (v/sentexes-matching kb3 '(dog ?x) 'CxUniverse))))
-          (finally (rm-rf! aside)))))))
 
 ;; ---- every other mismatch class, one at a time --------------------------
 
@@ -396,140 +404,147 @@
                 (is (= want (answers kb2)))))))))))
 
 (deftest an-uncommitted-image-is-not-read
-  (testing "a crash before the meta lands leaves sections nothing points at"
+  (tu/with-snapshot-platform
+    (testing "a crash before the meta lands leaves sections nothing points at"
+      (with-snapshot-dir
+        (fn [dir]
+          (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+                want (answers kb)]
+            (backend/close-dir! dir)
+            (is (.delete (meta-file dir)) "the commit marker goes; the sections stay")
+            (is (.exists (File. (str (snap/snapshot-root dir) "/trie.csr"))))
+            (let [[kb2 rebuilds] (opening dir)]
+              (is (= 1 rebuilds) "no meta means no image, whatever else is on disk")
+              (is (= want (answers kb2))))))))))
+
+(deftest an-absent-image-is-a-plain-rebuild
+  (tu/with-snapshot-platform
     (with-snapshot-dir
       (fn [dir]
         (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
               want (answers kb)]
-          (backend/close-dir! dir)
-          (is (.delete (meta-file dir)) "the commit marker goes; the sections stay")
-          (is (.exists (File. (str (snap/snapshot-root dir) "/trie.csr"))))
+          (is (not (.exists (meta-file dir))) "nothing was written — the directory never closed")
           (let [[kb2 rebuilds] (opening dir)]
-            (is (= 1 rebuilds) "no meta means no image, whatever else is on disk")
+            (is (= 1 rebuilds))
             (is (= want (answers kb2)))))))))
-
-(deftest an-absent-image-is-a-plain-rebuild
-  (with-snapshot-dir
-    (fn [dir]
-      (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
-            want (answers kb)]
-        (is (not (.exists (meta-file dir))) "nothing was written — the directory never closed")
-        (let [[kb2 rebuilds] (opening dir)]
-          (is (= 1 rebuilds))
-          (is (= want (answers kb2))))))))
 
 ;; ---- order independence: the ids differ, the answers do not -------------
 
 (deftest a-rebuild-and-a-mapped-load-answer-alike
-  (testing "token ids depend on first-encounter order and nothing above them reads one"
-    (with-snapshot-dir
-      (fn [dir]
-        (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
-              want (answers kb)]
-          ;; the two argument reads are only a check on the image if the corpus makes
-          ;; them answer something: an equality between two empty sets holds however
-          ;; badly the scope ids round-tripped
-          (is (= 3 (count (:agnostic want)) (:agn-n want))
-              "SnapMuffet sits at position 1 under dog, likes and bornIn")
-          (is (= 1 (count (:scoped want))) "and SnapBall at position 2 under likes")
-          (backend/close-dir! dir)
-          ;; a mapped load cites the ids the image was written with …
-          (let [[kb2 mapped-rebuilds] (opening dir)]
-            (is (zero? mapped-rebuilds))
-            (is (= want (answers kb2))))
-          (backend/close-dir! dir)
-          ;; … and a rebuild re-interns the vocabulary in the records' arrival order,
-          ;; which is a different numbering of the same index
-          (.delete (meta-file dir))
-          (let [[kb3 rebuilds] (opening dir)]
-            (is (= 1 rebuilds))
-            (is (= want (answers kb3)) "equal answers, whatever the ids were")))))))
+  (tu/with-snapshot-platform
+    (testing "token ids depend on first-encounter order and nothing above them reads one"
+      (with-snapshot-dir
+        (fn [dir]
+          (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+                want (answers kb)]
+            ;; the two argument reads are only a check on the image if the corpus makes
+            ;; them answer something: an equality between two empty sets holds however
+            ;; badly the scope ids round-tripped
+            (is (= 3 (count (:agnostic want)) (:agn-n want))
+                "SnapMuffet sits at position 1 under dog, likes and bornIn")
+            (is (= 1 (count (:scoped want))) "and SnapBall at position 2 under likes")
+            (backend/close-dir! dir)
+            ;; a mapped load cites the ids the image was written with …
+            (let [[kb2 mapped-rebuilds] (opening dir)]
+              (is (zero? mapped-rebuilds))
+              (is (= want (answers kb2))))
+            (backend/close-dir! dir)
+            ;; … and a rebuild re-interns the vocabulary in the records' arrival order,
+            ;; which is a different numbering of the same index
+            (.delete (meta-file dir))
+            (let [[kb3 rebuilds] (opening dir)]
+              (is (= 1 rebuilds))
+              (is (= want (answers kb3)) "equal answers, whatever the ids were"))))))))
 
 ;; ---- the cadence --------------------------------------------------------
 
 (deftest the-writer-refreshes-a-drifted-image-without-a-close
-  ;; The image is written when the directory closes, which a process killed outright
-  ;; never reaches: a writer that ran for weeks would reopen onto no image and pay the
-  ;; whole reindex the backend is named to skip.  So the writer rewrites it mid-life,
-  ;; once the live index has drifted far enough from the one on disk.
-  ;;
-  ;; The interval floor is dropped to zero rather than waited out, and the threshold left
-  ;; at its default: what this checks is that the drift trigger fires from the write entry point
-  ;; on the writer's thread, not how long the floor is.
-  (with-properties {"vaelii.disk.compact-min-interval-ms" "0"}
-    (fn []
-      (with-snapshot-dir
-        (fn [dir]
-          (let [kb (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})]
-            (v/clear! kb)
-            (is (not (.exists (meta-file dir)))
-                "a fresh directory holds no image, and nothing has closed")
-            (build! kb)
-            (is (.exists (meta-file dir))
-                "the write entry point wrote one: drift from an absent image is total")
-            ;; and it describes the records, which is the only thing that makes it worth
-            ;; having — a mid-life image stamped against a store that has moved on is one
-            ;; the next open discards
-            (let [want (answers kb)]
-              (backend/close-dir! dir)
-              (let [[kb2 rebuilds] (opening dir)]
-                (is (zero? rebuilds) "so the next open maps rather than reindexes")
-                (is (= want (answers kb2)))))))))))
+  (tu/with-snapshot-platform
+    ;; The image is written when the directory closes, which a process killed outright
+    ;; never reaches: a writer that ran for weeks would reopen onto no image and pay the
+    ;; whole reindex the backend is named to skip.  So the writer rewrites it mid-life,
+    ;; once the live index has drifted far enough from the one on disk.
+    ;;
+    ;; The interval floor is dropped to zero rather than waited out, and the threshold left
+    ;; at its default: what this checks is that the drift trigger fires from the write entry point
+    ;; on the writer's thread, not how long the floor is.
+    (with-properties {"vaelii.disk.compact-min-interval-ms" "0"}
+      (fn []
+        (with-snapshot-dir
+          (fn [dir]
+            (let [kb (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})]
+              (v/clear! kb)
+              (is (not (.exists (meta-file dir)))
+                  "a fresh directory holds no image, and nothing has closed")
+              (build! kb)
+              (is (.exists (meta-file dir))
+                  "the write entry point wrote one: drift from an absent image is total")
+              ;; and it describes the records, which is the only thing that makes it worth
+              ;; having — a mid-life image stamped against a store that has moved on is one
+              ;; the next open discards
+              (let [want (answers kb)]
+                (backend/close-dir! dir)
+                (let [[kb2 rebuilds] (opening dir)]
+                  (is (zero? rebuilds) "so the next open maps rather than reindexes")
+                  (is (= want (answers kb2))))))))))))
 
 (deftest a-fresh-image-is-not-rewritten-on-every-write
-  ;; The refresh is a full CSR write on the writer's thread, so the trigger has to be a
-  ;; threshold and not a counter.  With the floor at its default no second image is due,
-  ;; whatever the drift.
-  (with-snapshot-dir
-    (fn [dir]
-      (let [kb (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})]
-        (v/clear! kb)
-        (build! kb)
-        (is (not (.exists (meta-file dir)))
-            "the interval floor has not elapsed, so the drift never gets asked about")))))
+  (tu/with-snapshot-platform
+    ;; The refresh is a full CSR write on the writer's thread, so the trigger has to be a
+    ;; threshold and not a counter.  With the floor at its default no second image is due,
+    ;; whatever the drift.
+    (with-snapshot-dir
+      (fn [dir]
+        (let [kb (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})]
+          (v/clear! kb)
+          (build! kb)
+          (is (not (.exists (meta-file dir)))
+              "the interval floor has not elapsed, so the drift never gets asked about"))))))
 
 (deftest auto-compact-off-declines-the-mid-life-refresh-outright
-  ;; A batch that fills a KB in one run and closes cleanly wants exactly one image, at the
-  ;; end, and neither of the cadence's two numbers can say so: the floor only rate-limits
-  ;; (and moves the record store's compaction with it), and the drift ratio's `0` is the
-  ;; *most* eager setting rather than the off one — as a threshold it means "any drift at
-  ;; all".  A refresh is an opportunistic compaction of a derived structure, so the knob
-  ;; that already governs those is the one that says it.
-  (with-properties {"vaelii.disk.compact-min-interval-ms" "0"
-                    "vaelii.index.snapshot-drift" "0"
-                    "vaelii.disk.auto-compact" "false"}
-    (fn []
-      (with-snapshot-dir
-        (fn [dir]
-          (let [kb (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})]
-            (v/clear! kb)
-            (build! kb)
-            (is (not (.exists (meta-file dir)))
-                "the floor is zero and the drift threshold the most eager there is — and still nothing was written")
-            (testing "and the close writes the one image the caller asked for"
-              (backend/close-dir! dir)
-              (is (.exists (meta-file dir)))
-              (let [[_ rebuilds] (opening dir)]
-                (is (zero? rebuilds) "which the next open maps")))))))))
+  (tu/with-snapshot-platform
+    ;; A batch that fills a KB in one run and closes cleanly wants exactly one image, at the
+    ;; end, and neither of the cadence's two numbers can say so: the floor only rate-limits
+    ;; (and moves the record store's compaction with it), and the drift ratio's `0` is the
+    ;; *most* eager setting rather than the off one — as a threshold it means "any drift at
+    ;; all".  A refresh is an opportunistic compaction of a derived structure, so the knob
+    ;; that already governs those is the one that says it.
+    (with-properties {"vaelii.disk.compact-min-interval-ms" "0"
+                      "vaelii.index.snapshot-drift" "0"
+                      "vaelii.disk.auto-compact" "false"}
+      (fn []
+        (with-snapshot-dir
+          (fn [dir]
+            (let [kb (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})]
+              (v/clear! kb)
+              (build! kb)
+              (is (not (.exists (meta-file dir)))
+                  "the floor is zero and the drift threshold the most eager there is — and still nothing was written")
+              (testing "and the close writes the one image the caller asked for"
+                (backend/close-dir! dir)
+                (is (.exists (meta-file dir)))
+                (let [[_ rebuilds] (opening dir)]
+                  (is (zero? rebuilds) "which the next open maps"))))))))))
 
 (deftest a-drift-threshold-of-zero-is-the-most-eager-setting-and-not-the-off-one
-  ;; The trap worth pinning: an operator reaching for 0 to mean "never" gets a whole CSR
-  ;; rewrite on every write past the floor.  The switch is `vaelii.disk.auto-compact`
-  ;; above; this is what the low end of the ratio actually does.
-  (with-properties {"vaelii.disk.compact-min-interval-ms" "0"
-                    "vaelii.index.snapshot-drift" "0"}
-    (fn []
-      (with-snapshot-dir
-        (fn [dir]
-          (let [kb    (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})
-                saves (atom 0)
-                real  snap/save!]
-            (v/clear! kb)
-            (with-redefs [snap/save! (fn [& args] (swap! saves inc) (apply real args))]
-              (dotimes [i 5]
-                (v/assert kb (list 'cat (symbol (str "SnapEager" i))) 'CxUniverse
-                          {:strength :monotonic})))
-            (is (= 5 @saves) "one whole image per write, which is the pathology and not the switch")))))))
+  (tu/with-snapshot-platform
+    ;; The trap worth pinning: an operator reaching for 0 to mean "never" gets a whole CSR
+    ;; rewrite on every write past the floor.  The switch is `vaelii.disk.auto-compact`
+    ;; above; this is what the low end of the ratio actually does.
+    (with-properties {"vaelii.disk.compact-min-interval-ms" "0"
+                      "vaelii.index.snapshot-drift" "0"}
+      (fn []
+        (with-snapshot-dir
+          (fn [dir]
+            (let [kb    (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})
+                  saves (atom 0)
+                  real  snap/save!]
+              (v/clear! kb)
+              (with-redefs [snap/save! (fn [& args] (swap! saves inc) (apply real args))]
+                (dotimes [i 5]
+                  (v/assert kb (list 'cat (symbol (str "SnapEager" i))) 'CxUniverse
+                            {:strength :monotonic})))
+              (is (= 5 @saves) "one whole image per write, which is the pathology and not the switch"))))))))
 
 (deftest a-refresh-attempt-restarts-the-floor-without-moving-the-baseline
   ;; A save that throws — a full disk, a directory gone read-only — writes no image, so the
@@ -559,63 +574,65 @@
         (is (not (snap/due? dir 40)) "there is no image to be drifted from")))))
 
 (deftest a-refresh-that-throws-costs-the-image-and-not-the-write
-  ;; By the time the refresh runs the sentex is durably stored and indexed, and the image
-  ;; is a cache of derived state — so a failure to write one must not fail the assert, and
-  ;; must not skip the observation call sites that run after it (`observe/notify-add`, the
-  ;; incremental matcher's alpha-memory entry point, which would otherwise be permanently behind
-  ;; the store).  The image on disk is left exactly as it was.
-  (with-snapshot-dir
-    (fn [dir]
-      (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
-      (backend/close-dir! dir)
-      (let [[kb2 _] (opening dir)
-            before  (.lastModified (meta-file dir))]
-        (with-properties {"vaelii.disk.compact-min-interval-ms" "0"
-                          "vaelii.index.snapshot-drift" "0.001"}
-          (fn []
-            (with-redefs [snap/save! (fn [& _] (throw (java.io.IOException. "the disk filled")))]
-              (v/assert kb2 '(cat SnapTom) 'CxUniverse {:strength :monotonic})
-              (v/assert kb2 '(likes SnapTom SnapBall) 'CxUniverse {:strength :monotonic}))))
-        (is (v/ask? kb2 '(cat SnapTom) 'CxUniverse)
-            "the write went through: a failed cache write is not a failed data write")
-        (is (= 2 (count (v/sentexes-matching kb2 '(likes ?x SnapBall) 'CxUniverse)))
-            "and so did the one after it, so nothing stopped at the throw")
-        (is (= before (.lastModified (meta-file dir)))
-            "and the image on disk is the one that was already there")
-        (testing "which still reads, because a refusal to refresh left it whole"
-          (let [want (answers kb2)]
-            (backend/close-dir! dir)
-            (let [[kb3 rebuilds] (opening dir)]
-              (is (zero? rebuilds))
-              (is (= want (answers kb3))
-                  "and the close's image carries the writes the failed refresh did not"))))))))
+  (tu/with-snapshot-platform
+    ;; By the time the refresh runs the sentex is durably stored and indexed, and the image
+    ;; is a cache of derived state — so a failure to write one must not fail the assert, and
+    ;; must not skip the observation call sites that run after it (`observe/notify-add`, the
+    ;; incremental matcher's alpha-memory entry point, which would otherwise be permanently behind
+    ;; the store).  The image on disk is left exactly as it was.
+    (with-snapshot-dir
+      (fn [dir]
+        (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+        (backend/close-dir! dir)
+        (let [[kb2 _] (opening dir)
+              before  (.lastModified (meta-file dir))]
+          (with-properties {"vaelii.disk.compact-min-interval-ms" "0"
+                            "vaelii.index.snapshot-drift" "0.001"}
+            (fn []
+              (with-redefs [snap/save! (fn [& _] (throw (java.io.IOException. "the disk filled")))]
+                (v/assert kb2 '(cat SnapTom) 'CxUniverse {:strength :monotonic})
+                (v/assert kb2 '(likes SnapTom SnapBall) 'CxUniverse {:strength :monotonic}))))
+          (is (v/ask? kb2 '(cat SnapTom) 'CxUniverse)
+              "the write went through: a failed cache write is not a failed data write")
+          (is (= 2 (count (v/sentexes-matching kb2 '(likes ?x SnapBall) 'CxUniverse)))
+              "and so did the one after it, so nothing stopped at the throw")
+          (is (= before (.lastModified (meta-file dir)))
+              "and the image on disk is the one that was already there")
+          (testing "which still reads, because a refusal to refresh left it whole"
+            (let [want (answers kb2)]
+              (backend/close-dir! dir)
+              (let [[kb3 rebuilds] (opening dir)]
+                (is (zero? rebuilds))
+                (is (= want (answers kb3))
+                    "and the close's image carries the writes the failed refresh did not")))))))))
 
 (deftest a-second-open-over-a-current-image-does-not-force-a-rewrite
-  ;; `open-kb` starts the cadence clock for every KB constructed over a directory, and they
-  ;; all share one index — so a start that clobbered would reset the baseline to "no image"
-  ;; on the second open, `drift` would read 1.0 against an image that is exactly right, and
-  ;; the first write past the floor would rewrite a whole CSR for nothing.
-  (with-snapshot-dir
-    (fn [dir]
-      (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
-      (backend/close-dir! dir)
-      (let [[kb2 rebuilds] (opening dir)]
-        (is (zero? rebuilds) "the image maps, so the baseline is the live count")
-        ;; a second KB over the same directory: same stores, same index, one more
-        ;; registration
-        (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})
-        (let [saves (atom 0)
-              real  snap/save!]
-          (with-properties {"vaelii.disk.compact-min-interval-ms" "0"}
-            (fn []
-              (with-redefs [snap/save! (fn [& args] (swap! saves inc) (apply real args))]
-                (doseq [i (range 5)]
-                  (v/assert kb2 (list 'cat (symbol (str "SnapCat" i))) 'CxUniverse
-                            {:strength :monotonic})))))
-          (is (zero? @saves)
-              (str "five writes over a current image rewrote it " @saves " time(s)"))
-          (is (< (snap/drift dir (p/count-at (:index kb2) [])) 0.5)
-              "the baseline is the image's own count, not zero"))))))
+  (tu/with-snapshot-platform
+    ;; `open-kb` starts the cadence clock for every KB constructed over a directory, and they
+    ;; all share one index — so a start that clobbered would reset the baseline to "no image"
+    ;; on the second open, `drift` would read 1.0 against an image that is exactly right, and
+    ;; the first write past the floor would rewrite a whole CSR for nothing.
+    (with-snapshot-dir
+      (fn [dir]
+        (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+        (backend/close-dir! dir)
+        (let [[kb2 rebuilds] (opening dir)]
+          (is (zero? rebuilds) "the image maps, so the baseline is the live count")
+          ;; a second KB over the same directory: same stores, same index, one more
+          ;; registration
+          (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false})
+          (let [saves (atom 0)
+                real  snap/save!]
+            (with-properties {"vaelii.disk.compact-min-interval-ms" "0"}
+              (fn []
+                (with-redefs [snap/save! (fn [& args] (swap! saves inc) (apply real args))]
+                  (doseq [i (range 5)]
+                    (v/assert kb2 (list 'cat (symbol (str "SnapCat" i))) 'CxUniverse
+                              {:strength :monotonic})))))
+            (is (zero? @saves)
+                (str "five writes over a current image rewrote it " @saves " time(s)"))
+            (is (< (snap/drift dir (p/count-at (:index kb2) [])) 0.5)
+                "the baseline is the image's own count, not zero")))))))
 
 ;; ---- a lazy read walked across a refresh --------------------------------
 
@@ -643,45 +660,46 @@
     @seen))
 
 (deftest a-lazy-match-seq-is-walked-across-a-mid-life-refresh
-  ;; `core/sentexes-matching` promises a seq that is lazy over live state — "a seq held
-  ;; across a write yields what is stored when it is walked" — and asserting while walking
-  ;; one is the pattern `forward-chain` is built on.  The mid-life refresh puts a
-  ;; `columnar/compact!` on that write path, so the supported pattern now freezes the trie
-  ;; under an unconsumed tail, and once mapped it thaws the leaf columns out from under one
-  ;; too.  Both are safe, and the reason is in `save!`: an index read is eager per read, so
-  ;; a freeze lands between reads and never inside one.  Here to stay safe.
-  (with-properties {"vaelii.disk.compact-min-interval-ms" "0"
-                    "vaelii.index.snapshot-drift" "0.2"}
-    (fn []
-      (with-snapshot-dir
-        (fn [dir]
-          (let [saves (atom 0)
-                real  snap/save!]
-            (with-redefs [snap/save! (fn [& args] (swap! saves inc) (apply real args))]
-              (testing "over an index this process built"
-                (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir
-                                               :recover? false}))
-                      want (walked kb '(parentOf ?x ?y) 'CxUniverse)]
-                  (reset! saves 0)
-                  (is (= want (walk-writing! kb '(parentOf ?x ?y) 'CxUniverse "SnapBuilt"))
-                      "the walk yielded the set a realized read yields")
-                  (is (pos? @saves) "and a refresh actually fired inside it")
-                  (backend/close-dir! dir)))
-              (testing "and over one mapped back from its image, which the walk thaws"
-                (let [[kb2 rebuilds] (opening dir)]
-                  (is (zero? rebuilds))
-                  (is (snapshot-types/snapshot-mapped? (:trie (:index kb2))) "the trie opened mapped")
-                  (reset! saves 0)
-                  (let [want (walked kb2 '(parentOf ?x ?y) 'CxUniverse)]
-                    (is (= want (walk-writing! kb2 '(parentOf ?x ?y) 'CxUniverse "SnapMapped"))))
-                  (is (pos? @saves))
-                  (is (not (snapshot-types/snapshot-mapped? (:trie (:index kb2))))
-                      "and the walk's own writes thawed it, so the freeze ran over heap arrays")
-                  (testing "and at a variable context, where the fan reads the index per reader"
+  (tu/with-snapshot-platform
+    ;; `core/sentexes-matching` promises a seq that is lazy over live state — "a seq held
+    ;; across a write yields what is stored when it is walked" — and asserting while walking
+    ;; one is the pattern `forward-chain` is built on.  The mid-life refresh puts a
+    ;; `columnar/compact!` on that write path, so the supported pattern now freezes the trie
+    ;; under an unconsumed tail, and once mapped it thaws the leaf columns out from under one
+    ;; too.  Both are safe, and the reason is in `save!`: an index read is eager per read, so
+    ;; a freeze lands between reads and never inside one.  Here to stay safe.
+    (with-properties {"vaelii.disk.compact-min-interval-ms" "0"
+                      "vaelii.index.snapshot-drift" "0.2"}
+      (fn []
+        (with-snapshot-dir
+          (fn [dir]
+            (let [saves (atom 0)
+                  real  snap/save!]
+              (with-redefs [snap/save! (fn [& args] (swap! saves inc) (apply real args))]
+                (testing "over an index this process built"
+                  (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir
+                                                 :recover? false}))
+                        want (walked kb '(parentOf ?x ?y) 'CxUniverse)]
                     (reset! saves 0)
-                    (let [want (walked kb2 '(parentOf ?x ?y) '?ctx)]
-                      (is (= want (walk-writing! kb2 '(parentOf ?x ?y) '?ctx "SnapFanned"))))
-                    (is (pos? @saves))))))))))))
+                    (is (= want (walk-writing! kb '(parentOf ?x ?y) 'CxUniverse "SnapBuilt"))
+                        "the walk yielded the set a realized read yields")
+                    (is (pos? @saves) "and a refresh actually fired inside it")
+                    (backend/close-dir! dir)))
+                (testing "and over one mapped back from its image, which the walk thaws"
+                  (let [[kb2 rebuilds] (opening dir)]
+                    (is (zero? rebuilds))
+                    (is (snapshot-types/snapshot-mapped? (:trie (:index kb2))) "the trie opened mapped")
+                    (reset! saves 0)
+                    (let [want (walked kb2 '(parentOf ?x ?y) 'CxUniverse)]
+                      (is (= want (walk-writing! kb2 '(parentOf ?x ?y) 'CxUniverse "SnapMapped"))))
+                    (is (pos? @saves))
+                    (is (not (snapshot-types/snapshot-mapped? (:trie (:index kb2))))
+                        "and the walk's own writes thawed it, so the freeze ran over heap arrays")
+                    (testing "and at a variable context, where the fan reads the index per reader"
+                      (reset! saves 0)
+                      (let [want (walked kb2 '(parentOf ?x ?y) '?ctx)]
+                        (is (= want (walk-writing! kb2 '(parentOf ?x ?y) '?ctx "SnapFanned"))))
+                      (is (pos? @saves)))))))))))))
 
 ;; ---- the platform the image publishes on --------------------------------
 ;;
@@ -737,28 +755,29 @@
       (finally (backend/close-dir! dir) (rm-rf! dir)))))
 
 (deftest an-image-on-a-platform-that-cannot-refresh-it-is-discarded
-  ;; The remaining case: a directory carrying an image, opened where it can be mapped and
-  ;; never rewritten.  A mapped index that cannot be refreshed is a cache going stale
-  ;; against its own records, so it joins the mismatch classes beside byte order rather
-  ;; than being read and hoped for.
-  (with-snapshot-dir
-    (fn [dir]
-      (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir
-                                     :recover? false}))
-            want (answers kb)]
-        (backend/close-dir! dir)
-        (is (.exists (meta-file dir)) "this platform wrote one")
-        (let [m (f/read-nippy-file (meta-path dir) nil)]
-          (is (= {:index :rebuild :reason :unsupported-platform}
-                 (on-windows
-                  (fn []
-                    (select-keys (snap/load! dir (scratch-index "platform")
-                                             (constantly (:records m)))
-                                 [:index :reason]))))))
-        (testing "and this platform still maps it"
-          (let [[kb2 rebuilds] (opening dir)]
-            (is (zero? rebuilds))
-            (is (= want (answers kb2)))))))))
+  (tu/with-snapshot-platform
+    ;; The remaining case: a directory carrying an image, opened where it can be mapped and
+    ;; never rewritten.  A mapped index that cannot be refreshed is a cache going stale
+    ;; against its own records, so it joins the mismatch classes beside byte order rather
+    ;; than being read and hoped for.
+    (with-snapshot-dir
+      (fn [dir]
+        (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir
+                                       :recover? false}))
+              want (answers kb)]
+          (backend/close-dir! dir)
+          (is (.exists (meta-file dir)) "this platform wrote one")
+          (let [m (f/read-nippy-file (meta-path dir) nil)]
+            (is (= {:index :rebuild :reason :unsupported-platform}
+                   (on-windows
+                    (fn []
+                      (select-keys (snap/load! dir (scratch-index "platform")
+                                               (constantly (:records m)))
+                                   [:index :reason]))))))
+          (testing "and this platform still maps it"
+            (let [[kb2 rebuilds] (opening dir)]
+              (is (zero? rebuilds))
+              (is (= want (answers kb2))))))))))
 
 ;; ---- the refusals the section readers raise ------------------------------
 ;;
@@ -776,95 +795,114 @@
     (.writeInt raf 0)))
 
 (deftest a-section-that-is-not-a-vaelii-snapshot-is-refused-on-its-magic-number
-  ;; The magic number is the one check that reads the section's own bytes rather than the
-  ;; meta beside it.  Everything else agrees on a file of the right length in the right
-  ;; place, so without this a trie's worth of somebody else's bytes is mapped and walked.
-  ;; Each section names itself, because the refusal is spliced into the WARN an operator
-  ;; reads and "did not read" says nothing about whether the data is gone.
-  (with-snapshot-dir
-    (fn [dir]
-      (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
-            want (answers kb)]
-        (backend/close-dir! dir)
-        (let [^String root (snap/snapshot-root dir)
-              m     (f/read-nippy-file (meta-path dir) nil)
-              store (scratch-index :magic)]
-          (doseq [[part file load! section] [[:trie  "trie.csr"  #'snap/load-trie!  (:trie m)]
-                                             [:roots "roots.csr" #'snap/load-roots! (:roots m)]]]
-            (testing (name part)
-              (let [path (str root "/" file)
-                    _    (zero-magic! path)
-                    e    (is (thrown? clojure.lang.ExceptionInfo (load! store path section)))
-                    d    (ex-data e)]
-                (is (= :bad-snapshot (:type d)))
-                (is (= part (:part d)) "the refusal names which section")
-                (is (= 0 (:magic d)) "and the number it read")
-                (is (not= 0 (:expected d)) "against the one it wanted"))))
-          (p/clear-index! store))
-        (testing "and an ordinary open rebuilds from the records, which are untouched"
-          (let [[kb2 rebuilds] (opening dir)]
-            (is (= 1 rebuilds))
-            (is (= want (answers kb2)))))))))
+  (tu/with-snapshot-platform
+    ;; The magic number is the one check that reads the section's own bytes rather than the
+    ;; meta beside it.  Everything else agrees on a file of the right length in the right
+    ;; place, so without this a trie's worth of somebody else's bytes is mapped and walked.
+    ;; Each section names itself, because the refusal is spliced into the WARN an operator
+    ;; reads and "did not read" says nothing about whether the data is gone.
+    (with-snapshot-dir
+      (fn [dir]
+        (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+              want (answers kb)]
+          (backend/close-dir! dir)
+          (let [^String root (snap/snapshot-root dir)
+                m     (f/read-nippy-file (meta-path dir) nil)
+                store (scratch-index :magic)]
+            (doseq [[part file load! section] [[:trie  "trie.csr"  #'snap/load-trie!  (:trie m)]
+                                               [:roots "roots.csr" #'snap/load-roots! (:roots m)]]]
+              (testing (name part)
+                (let [path (str root "/" file)
+                      _    (zero-magic! path)
+                      e    (is (thrown? clojure.lang.ExceptionInfo (load! store path section)))
+                      d    (ex-data e)]
+                  (is (= :bad-snapshot (:type d)))
+                  (is (= part (:part d)) "the refusal names which section")
+                  (is (= 0 (:magic d)) "and the number it read")
+                  (is (not= 0 (:expected d)) "against the one it wanted"))))
+            (p/clear-index! store))
+          (testing "and an ordinary open rebuilds from the records, which are untouched"
+            (let [[kb2 rebuilds] (opening dir)]
+              (is (= 1 rebuilds))
+              (is (= want (answers kb2))))))))))
 
 (deftest a-fallback-blob-that-does-not-thaw-whole-is-refused-rather-than-defaulted
-  ;; The fallback blob carries the slot roster — the predicates present at a
-  ;; `(pos, term)`, which the agnostic argument reads descend through — so a thaw that
-  ;; comes back torn has to condemn the image.  A default of the empty value would open an
-  ;; index answering `#{}` to every `sentexes-with-arg`, which is indistinguishable from a KB that holds
-  ;; nothing at any position.
-  (with-snapshot-dir
-    (fn [dir]
-      (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
-            want (answers kb)]
-        (backend/close-dir! dir)
-        (let [^String root (snap/snapshot-root dir)
-              m     (f/read-nippy-file (meta-path dir) nil)]
-          ;; garbage of the recorded length: past the length check in `decision`, so it is
-          ;; the strict thaw that has to catch it
-          (with-open [raf (RandomAccessFile. (str root "/roots-fallback.nippy") "rw")]
-            (dotimes [i (min 16 (.length raf))]
-              (.seek raf i)
-              (.writeByte raf 0xFF)))
-          (let [e (is (thrown? clojure.lang.ExceptionInfo (#'snap/read-fallback root m)))
-                d (ex-data e)]
-            (is (= :torn-snapshot (:type d)))
-            (is (= (get-in m [:fallback :entries]) (:expected d))
-                "naming the entry count the meta vouches for")
-            (is (nil? (:entries d)) "and nothing read, since the blob did not thaw")))
-        (testing "and an ordinary open rebuilds from the records"
-          (let [[kb2 rebuilds] (opening dir)]
-            (is (= 1 rebuilds))
-            (is (= want (answers kb2)))))))))
+  (tu/with-snapshot-platform
+    ;; The fallback blob carries the slot roster — the predicates present at a
+    ;; `(pos, term)`, which the agnostic argument reads descend through — so a thaw that
+    ;; comes back torn has to condemn the image.  A default of the empty value would open an
+    ;; index answering `#{}` to every `sentexes-with-arg`, which is indistinguishable from a KB that holds
+    ;; nothing at any position.
+    (with-snapshot-dir
+      (fn [dir]
+        (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+              want (answers kb)]
+          (backend/close-dir! dir)
+          (let [^String root (snap/snapshot-root dir)
+                m     (f/read-nippy-file (meta-path dir) nil)]
+            ;; garbage of the recorded length: past the length check in `decision`, so it is
+            ;; the strict thaw that has to catch it
+            (with-open [raf (RandomAccessFile. (str root "/roots-fallback.nippy") "rw")]
+              (dotimes [i (min 16 (.length raf))]
+                (.seek raf i)
+                (.writeByte raf 0xFF)))
+            (let [e (is (thrown? clojure.lang.ExceptionInfo (#'snap/read-fallback root m)))
+                  d (ex-data e)]
+              (is (= :torn-snapshot (:type d)))
+              (is (= (get-in m [:fallback :entries]) (:expected d))
+                  "naming the entry count the meta vouches for")
+              (is (nil? (:entries d)) "and nothing read, since the blob did not thaw")))
+          (testing "and an ordinary open rebuilds from the records"
+            (let [[kb2 rebuilds] (opening dir)]
+              (is (= 1 rebuilds))
+              (is (= want (answers kb2))))))))))
+
+(deftest a-heap-failure-mapping-the-image-is-thrown-and-the-image-is-kept
+  (tu/with-snapshot-platform
+    ;; A rebuild from the records needs more heap than the map that ran out, and the failed
+    ;; open holds part of the image, which a close-time write would commit over the whole one.
+    (with-snapshot-dir
+      (fn [dir]
+        (let [want (answers (build! (v/open-kb {:records :disk :index :snapshot :dir dir
+                                                :recover? false})))]
+          (backend/close-dir! dir)
+          (is (thrown? OutOfMemoryError
+                       (with-redefs [snap/load-roots! (fn [& _] (throw (OutOfMemoryError. "Java heap space")))]
+                         (opening dir))))
+          (is (.exists (meta-file dir)) "the open wrote no image over it")
+          (let [[kb rebuilds] (opening dir)]
+            (is (= [0 want] [rebuilds (answers kb)]) "the next open maps it")))))))
 
 (deftest a-dictionary-that-reloads-short-of-its-log-condemns-the-image
-  ;; The mapped edges cite durable token ids, and an id is the log position it was written
-  ;; at — so a dictionary that comes back holding fewer entries than the log has shifted
-  ;; every id past the gap, and each edge still is indistinguishable from a perfectly legal int.  The count
-  ;; is the only witness there is, which is why it is compared rather than assumed.
-  ;;
-  ;; The disagreement is staged at the dictionary, because the thing that shifts a
-  ;; numbering in practice is a Clojure-equal pair of frames, and that one is named and
-  ;; repaired a layer earlier (below) before this check can see it.  A `reify` delegating
-  ;; to a real dictionary is what a protocol change takes: a redef of `token-count` is a
-  ;; var no protocol call reads.
-  (with-snapshot-dir
-    (fn [dir]
-      (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
-      (backend/close-dir! dir)
-      (let [real  (tok/token-dict)
-            short (reify tok/ITokens
-                    (intern-token! [_ t] (tok/intern-token! real t))
-                    (token-id      [_ t] (tok/token-id real t))
-                    (id-token      [_ i] (tok/id-token real i))
-                    (token-count   [_]   (dec (tok/token-count real)))
-                    (clear-tokens! [_]   (tok/clear-tokens! real)))
-            root  (snap/snapshot-root dir)
-            e     (is (thrown? clojure.lang.ExceptionInfo (#'snap/load-dictionary! short root)))
-            d     (ex-data e)]
-        (is (= :torn-snapshot (:type d)))
-        (is (= (dec (long (:durable d))) (:loaded d))
-            "the refusal carries both counts, so a reader sees the size of the shift")
-        (is (pos? (long (:durable d))) "and the log it was read against is a real one")))))
+  (tu/with-snapshot-platform
+    ;; The mapped edges cite durable token ids, and an id is the log position it was written
+    ;; at — so a dictionary that comes back holding fewer entries than the log has shifted
+    ;; every id past the gap, and each edge still is indistinguishable from a perfectly legal int.  The count
+    ;; is the only witness there is, which is why it is compared rather than assumed.
+    ;;
+    ;; The disagreement is staged at the dictionary, because the thing that shifts a
+    ;; numbering in practice is a Clojure-equal pair of frames, and that one is named and
+    ;; repaired a layer earlier (below) before this check can see it.  A `reify` delegating
+    ;; to a real dictionary is what a protocol change takes: a redef of `token-count` is a
+    ;; var no protocol call reads.
+    (with-snapshot-dir
+      (fn [dir]
+        (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+        (backend/close-dir! dir)
+        (let [real  (tok/token-dict)
+              short (reify tok/ITokens
+                      (intern-token! [_ t] (tok/intern-token! real t))
+                      (token-id      [_ t] (tok/token-id real t))
+                      (id-token      [_ i] (tok/id-token real i))
+                      (token-count   [_]   (dec (tok/token-count real)))
+                      (clear-tokens! [_]   (tok/clear-tokens! real)))
+              root  (snap/snapshot-root dir)
+              e     (is (thrown? clojure.lang.ExceptionInfo (#'snap/load-dictionary! short root)))
+              d     (ex-data e)]
+          (is (= :torn-snapshot (:type d)))
+          (is (= (dec (long (:durable d))) (:loaded d))
+              "the refusal carries both counts, so a reader sees the size of the shift")
+          (is (pos? (long (:durable d))) "and the log it was read against is a real one"))))))
 
 ;; ---- a dictionary an older build wrote twice ----------------------------
 
@@ -890,32 +928,33 @@
       (finally (rm-rf! dir)))))
 
 (deftest a-token-log-holding-a-duplicate-is-repaired-rather-than-rediagnosed
-  ;; The forward map keys on `tokens/Key`, so `2` and `(int 2)` are one entry — but a log
-  ;; written before it did can hold both as separate frames.  It then reloads one entry
-  ;; short of the log, every id past the pair shifts, and the image is condemned; the
-  ;; rebuilt index is snapshotted against the same log, so the *next* open is condemned
-  ;; too, and the one after that.  One open repairs it and the next maps again.
-  (with-snapshot-dir
-    (fn [dir]
-      (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
-            want (answers kb)]
-        (backend/close-dir! dir)
-        ;; `(bornIn SnapMuffet 1970)` put a Long in the dictionary; append the Integer an
-        ;; older build would have minted beside it.  Nothing else on disk moves.
-        (let [log (f/open-log (str (snap/snapshot-root dir) "/tokens.log"))]
-          (try (f/append-record! log (int 1970)) (finally (f/close! log))))
-        (testing "the decision names the duplicate, not a torn image"
-          (let [m (f/read-nippy-file (meta-path dir) nil)]
-            (is (= {:index :rebuild :reason :duplicate-tokens}
-                   (select-keys (snap/load! dir (scratch-index :dups)
-                                            (constantly (:records m)))
-                                [:index :reason])))))
-        (testing "the KB opens, rebuilds once, and answers"
-          (let [[kb2 rebuilds] (opening dir)]
-            (is (= 1 rebuilds) "the records were the fallback")
-            (is (= want (answers kb2)))))
-        (backend/close-dir! dir)
-        (testing "and the repaired log lets the next open map its image again"
-          (let [[kb3 rebuilds] (opening dir)]
-            (is (zero? rebuilds) "the duplicate is gone for good, not diagnosed forever")
-            (is (= want (answers kb3)))))))))
+  (tu/with-snapshot-platform
+    ;; The forward map keys on `tokens/Key`, so `2` and `(int 2)` are one entry — but a log
+    ;; written before it did can hold both as separate frames.  It then reloads one entry
+    ;; short of the log, every id past the pair shifts, and the image is condemned; the
+    ;; rebuilt index is snapshotted against the same log, so the *next* open is condemned
+    ;; too, and the one after that.  One open repairs it and the next maps again.
+    (with-snapshot-dir
+      (fn [dir]
+        (let [kb   (build! (v/open-kb {:records :disk :index :snapshot :dir dir :recover? false}))
+              want (answers kb)]
+          (backend/close-dir! dir)
+          ;; `(bornIn SnapMuffet 1970)` put a Long in the dictionary; append the Integer an
+          ;; older build would have minted beside it.  Nothing else on disk moves.
+          (let [log (f/open-log (str (snap/snapshot-root dir) "/tokens.log"))]
+            (try (f/append-record! log (int 1970)) (finally (f/close! log))))
+          (testing "the decision names the duplicate, not a torn image"
+            (let [m (f/read-nippy-file (meta-path dir) nil)]
+              (is (= {:index :rebuild :reason :duplicate-tokens}
+                     (select-keys (snap/load! dir (scratch-index :dups)
+                                              (constantly (:records m)))
+                                  [:index :reason])))))
+          (testing "the KB opens, rebuilds once, and answers"
+            (let [[kb2 rebuilds] (opening dir)]
+              (is (= 1 rebuilds) "the records were the fallback")
+              (is (= want (answers kb2)))))
+          (backend/close-dir! dir)
+          (testing "and the repaired log lets the next open map its image again"
+            (let [[kb3 rebuilds] (opening dir)]
+              (is (zero? rebuilds) "the duplicate is gone for good, not diagnosed forever")
+              (is (= want (answers kb3))))))))))

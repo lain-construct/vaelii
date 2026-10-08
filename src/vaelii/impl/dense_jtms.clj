@@ -346,8 +346,12 @@
       (.clear touched-out)
       (.set marks {:gen (inc (long (:gen (.get marks)))) :epochs []})) nil)
   (-touch-mark [_]
+    ;; a mark taken while the open epoch is empty shares it: nothing was recorded between
+    ;; the two marks, so an epoch per mark would only lengthen the OR `-touched-since` runs
     (with-write lock
-      (let [m (update (.get marks) :epochs conj (rb))]
+      (let [m0 (.get marks)
+            e  ^RoaringBitmap (peek (:epochs m0))
+            m  (if (and e (.isEmpty e)) m0 (update m0 :epochs conj (rb)))]
         (.set marks m)
         [(:gen m) (dec (count (:epochs m)))])))
   (-touched-since [_ mark]
@@ -999,6 +1003,7 @@
         ;; read the informants BEFORE the columns are unlinked — a premise
         ;; justification is the caller's own and is not ours to report as removed
         removed-justs (into [] (remove #(= :premise (j-informant this %))) dead-jids)
+        supports      (mapv #(vector (j-consequence this %) (j-informant this %)) removed-justs)
         ;; the survivors among these lost a justification
         lost          (into (vec raised) (keep #(consequence-or-nil this %)) dead-jids)]
     (doseq [jid dead-jids] (unlink-just! this jid))
@@ -1028,7 +1033,8 @@
     ;; — a whole swept region — would pay for on every `exceptWhen` block (`jtms/dissoc-all`)
     (swap! ^clojure.lang.Atom (.-superseded this) jtms/dissoc-all dead)
     (redepth! this lost)
-    {:removed-sentexes dead :removed-justifications removed-justs}))
+    (cond-> {:removed-sentexes dead :removed-justifications removed-justs}
+      (seq supports) (assoc :removed-supports supports))))
 
 (defn- retract-datum!
   "Dependency-directed retraction: drop the premise, relabel the affected closure (a
@@ -1056,7 +1062,8 @@
   [^DenseTms this jid]
   (if-not (rb-has? ^RoaringBitmap (.-jids this) jid)
     {:removed-sentexes [] :removed-justifications []}
-    (let [c (j-consequence this jid)]
+    (let [c   (j-consequence this jid)
+          inf (j-informant this jid)]
       (unlink-just! this jid)
       (keep-held! this :blocked (.-blocked this))
       (rb-del! ^RoaringBitmap (.-blocked this) jid)
@@ -1065,7 +1072,7 @@
         (rb-del! ^RoaringBitmap (.-f-void this) jid))
       (let [suspects (affected-region this [c])]
         (relabel-region! this suspects)
-        (sweep! this suspects [c])))))
+        (update (sweep! this suspects [c]) :removed-supports (fnil conj []) [c inf])))))
 
 ;; ---- the byte image -------------------------------------------------------
 ;;

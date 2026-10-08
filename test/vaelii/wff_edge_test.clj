@@ -158,19 +158,21 @@
     (is (= [:disjoint] (mapv :kind (v/contradictions kb))))))
 
 (tu/deftest-kb an-arg-violation-is-typed-arg-type
-  ;; Everything in one context on purpose: the constraint checks are context-scoped,
-  ;; and this KB is fresh, so `CxNaturalWorld` has no genlCx edge to
-  ;; CxUniverse and a constraint declared there would simply be invisible.
-  (tu/with-terms [parentOf person rock Muffet Boulder]
-    ;; `checks/args-problem` is open-world: it only bites when the argument is provably a
-    ;; `thing`, so an untyped individual can never violate a constraint.  The genl
-    ;; edge is what makes Boulder checkable at all.
-    (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-    (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
-    (v/assert kb (list rock Boulder) 'CxUniverse)
-    (is (= :arg-type
-           (ex-type #(v/assert kb (list parentOf Boulder Muffet) 'CxUniverse)))
-        "Boulder is a rock, and rock does not reach person through genl")))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   ;; Everything in one context on purpose: the constraint checks are context-scoped,
+   ;; and this KB is fresh, so `CxNaturalWorld` has no genlCx edge to
+   ;; CxUniverse and a constraint declared there would simply be invisible.
+   (tu/with-terms [parentOf person rock Muffet Boulder]
+     ;; `checks/args-problem` is open-world: it only bites when the argument is provably a
+     ;; `thing`, so an untyped individual can never violate a constraint.  The genl
+     ;; edge is what makes Boulder checkable at all.
+     (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
+     (v/assert kb (list 'arg parentOf 1 person) 'CxUniverse)
+     (v/assert kb (list rock Boulder) 'CxUniverse)
+     (is (= :arg-type
+            (ex-type #(v/assert kb (list parentOf Boulder Muffet) 'CxUniverse)))
+         "Boulder is a rock, and rock does not reach person through genl"))))
 
 ;; The values are **numbers**, and that is the point rather than an incidental
 ;; choice.  A functional clash between two *symbols* is not an error (docs/equality.md):
@@ -193,21 +195,23 @@
         "genl relates types, and Muffet is an individual")))
 
 (tu/deftest-kb the-error-payload-carries-more-than-the-type
-  ;; The diagnostic keys are the whole value of ex-info over a bare throw; a caller
-  ;; that reports "argument 2 of parentOf should be a person" needs them.
-  (tu/with-terms [parentOf person rock Muffet Boulder]
-    (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
-    (v/assert kb (list 'arg parentOf 2 person) 'CxUniverse)
-    (v/assert kb (list rock Boulder) 'CxUniverse)
-    (try
-      (v/assert kb (list parentOf Muffet Boulder) 'CxUniverse)
-      (is false "expected the arg constraint to reject this")
-      (catch clojure.lang.ExceptionInfo e
-        (let [d (ex-data e)]
-          (is (= :arg-type (:type d)))
-          (is (= (list parentOf Muffet Boulder) (:sentence d)))
-          (is (seq (dissoc d :type :sentence))
-              "the payload names what was expected where, not just that it failed"))))))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   ;; The diagnostic keys are the whole value of ex-info over a bare throw; a caller
+   ;; that reports "argument 2 of parentOf should be a person" needs them.
+   (tu/with-terms [parentOf person rock Muffet Boulder]
+     (v/assert kb (list 'genl rock 'thing) 'CxUniverse)
+     (v/assert kb (list 'arg parentOf 2 person) 'CxUniverse)
+     (v/assert kb (list rock Boulder) 'CxUniverse)
+     (try
+       (v/assert kb (list parentOf Muffet Boulder) 'CxUniverse)
+       (is false "expected the arg constraint to reject this")
+       (catch clojure.lang.ExceptionInfo e
+         (let [d (ex-data e)]
+           (is (= :arg-type (:type d)))
+           (is (= (list parentOf Muffet Boulder) (:sentence d)))
+           (is (seq (dissoc d :type :sentence))
+               "the payload names what was expected where, not just that it failed")))))))
 
 ;; ---- a refused rule writes nothing -------------------------------------
 

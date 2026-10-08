@@ -26,7 +26,7 @@
 (def label-cap
   "How many characters of a term's name a node label carries.  Past this it is cut and
   the whole term goes in the node's `title`, so nothing is lost — only moved one hover
-  away.  Twenty-two holds `physical_object` and every predicate the shipped schema has,
+  away.  Twenty-two holds `spatiotemporal` and every predicate the shipped schema has,
   and is short enough that a row of eight still reads."
   22)
 

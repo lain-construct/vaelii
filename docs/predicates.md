@@ -67,7 +67,7 @@ predicates  ←  taxonomy  ←  wff  ←  checks  ←  special  ←  settle  ←
 ```
 
 `entries` is a **vector**, not a map, because the order is content: `special/entries` is
-that order filtered, and `special/rebuild-taxonomy` replays it top to bottom with a
+that order filtered, and `special/post-taxonomy-supporters!` replays it top to bottom with a
 rebuild arm allowed to read what an earlier one wrote.
 
 ## The declaration record

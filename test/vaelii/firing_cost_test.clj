@@ -162,10 +162,19 @@
 ;; at 0**, which is the stronger claim: a family the workload never reads is a key the
 ;; tally never emits, so one read of it fails the budget.
 ;;
-;; Measured under the shipped default (`with-entailing` in `measure`), so `:functor-root`
-;; carries the entailment's per-firing declaration lookup — 100 reads over the 100 firings
-;; that a `VAELII_ASSERTIVE_ARG_TYPES=0` run does not spend.  Pinned on so the number is the
-;; same whatever the root is set to.
+;; Measured under the shipped default (`with-entailing` in `measure`), so `:predicate-extent`
+;; carries the entailment's per-firing `interArg` gate read — 100 reads over the 100 firings,
+;; where a `VAELII_ASSERTIVE_ARG_TYPES=0` run spends the constraint check's instead.  Pinned on
+;; so the number is the same whatever the root is set to.  It also carries the
+;; preservation gate, six count reads per firing: the re-join, the re-check trigger and the
+;; settle each ask `inherit/declarations-exist?` of the conclusion.  A conclusion that is a
+;; membership adds four, the taxonomy's census for one scoped `genl` read (`tax/visible-ctxs`).
+;;
+;; `:trie-counts` carries the `except` and `defeat` gates, four or five count reads per
+;; firing on the trie's `[except]` and `[defeat]` nodes (`exc/placed-reads?`,
+;; `exc/except-hidden-fn`), where a KB storing neither reads 0 from each.  The negation
+;; family adds no trie count per firing: the index write reads the conclusion's
+;; `[:false B]` count itself, untallied (`kv/opposed-adds`).
 ;;
 ;; `:trie-lookup` is where the two join workloads part, and it is the reading to take them
 ;; by.  The unfanned join walks the trie once per firing (100) and the fanned one never
@@ -179,25 +188,25 @@
     :build single-antecedent
     ;; the conclusion is a second membership of the datum's term, which the membership
     ;; candidates read the term's unary roster for once (`membership/note-membership!`)
-    :reads {:argument-root 200 :argument-slot 200 :exception-index 200
-            :functor-root 301 :rule-index 200 :trie-counts 100}}
+    :reads {:argument-root 100 :argument-slot 100 :exception-index 200
+            :predicate-extent 1201 :rule-index 300 :tax-support 100 :trie-counts 500}}
 
    {:name :unfanned-join
     :build unfanned-join
-    :reads {:exception-index 200 :functor-root 303 :rule-index 200
-            :trie-counts 100 :trie-lookup 100}}
+    :reads {:exception-index 200 :predicate-extent 803 :rule-index 300
+            :trie-counts 400 :trie-lookup 100}}
 
    {:name :fanned-join
     :build fanned-join
     :reads {:argument-root 200 :argument-slot 200 :exception-index 200
-            :functor-root 303 :rule-index 200 :trie-counts 100}}
+            :predicate-extent 1203 :rule-index 300 :trie-counts 500}}
 
    ;; two `:trie-lookup` per firing, not one: the mirror is a second orientation to look
    ;; the conclusion's own handle up under, and both orientations reach `join-matches`
    {:name :symmetric-trigger
     :build symmetric-trigger
-    :reads {:exception-index 200 :functor-root 303 :rule-index 200
-            :trie-counts 100 :trie-lookup 200}}])
+    :reads {:exception-index 200 :predicate-extent 803 :rule-index 300
+            :trie-counts 400 :trie-lookup 200}}])
 
 ;; ---- measuring -----------------------------------------------------------
 

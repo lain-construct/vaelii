@@ -108,46 +108,50 @@
         (is (re-find words (:message p)))))))
 
 (tu/deftest-kb a-nested-symbol-input-is-read-open-world
-  ;; the constraint reading: a symbol with no visible type is no evidence, one whose
-  ;; types visibly miss the declared one is convicted.  No mint is drawn for a nested
-  ;; input under the assertive reading — a declaration arriving later could not find the
-  ;; application to mint over, so the mint would depend on arrival order.
-  (tu/with-terms [MotherFn likes animal rock Rex Pebble Unknown]
-    (doseq [s [(list 'genl animal 'thing) (list 'genl rock 'thing)
-               (list 'unreifiable_function MotherFn) (list 'unary_function MotherFn)
-               (list 'arg MotherFn 1 animal)
-               (list 'unary_predicate likes)]]
-      (v/assert kb s 'CxUniverse))
-    (v/assert kb (list animal Rex) 'CxUniverse)
-    (v/assert kb (list rock Pebble) 'CxUniverse)
-    (testing "an input of the declared type passes"
-      (is (nil? (problem kb (list likes (list MotherFn Rex))))))
-    (testing "an untyped input is not evidence"
-      (is (nil? (problem kb (list likes (list MotherFn Unknown))))))
-    (testing "an input typed outside the declared type is convicted"
-      (is (= :arg-type (refusal kb (list likes (list MotherFn Pebble))))))
-    (testing "storing the untyped one mints nothing about it"
-      (v/assert kb (list likes (list MotherFn Unknown)) 'CxUniverse)
-      (is (not (v/ask? kb (list animal Unknown) 'CxUniverse))))))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   ;; the constraint reading: a symbol with no visible type is no evidence, one whose
+   ;; types visibly miss the declared one is convicted.  No mint is drawn for a nested
+   ;; input under the assertive reading — a declaration arriving later could not find the
+   ;; application to mint over, so the mint would depend on arrival order.
+   (tu/with-terms [MotherFn likes animal rock Rex Pebble Unknown]
+     (doseq [s [(list 'genl animal 'thing) (list 'genl rock 'thing)
+                (list 'unreifiable_function MotherFn) (list 'unary_function MotherFn)
+                (list 'arg MotherFn 1 animal)
+                (list 'unary_predicate likes)]]
+       (v/assert kb s 'CxUniverse))
+     (v/assert kb (list animal Rex) 'CxUniverse)
+     (v/assert kb (list rock Pebble) 'CxUniverse)
+     (testing "an input of the declared type passes"
+       (is (nil? (problem kb (list likes (list MotherFn Rex))))))
+     (testing "an untyped input is not evidence"
+       (is (nil? (problem kb (list likes (list MotherFn Unknown))))))
+     (testing "an input typed outside the declared type is convicted"
+       (is (= :arg-type (refusal kb (list likes (list MotherFn Pebble))))))
+     (testing "storing the untyped one mints nothing about it"
+       (v/assert kb (list likes (list MotherFn Unknown)) 'CxUniverse)
+       (is (not (v/ask? kb (list animal Unknown) 'CxUniverse)))))))
 
 (tu/deftest-kb a-functions-genlarg-and-quotedarg-are-read-too
-  (tu/with-terms [KindFn NameFn tagged animal dog rock Rex]
-    (doseq [s [(list 'genl animal 'thing) (list 'genl dog animal) (list 'genl rock 'thing)
-               (list 'unreifiable_function KindFn) (list 'unary_function KindFn)
-               (list 'genlArg KindFn 1 animal)
-               (list 'unreifiable_function NameFn) (list 'unary_function NameFn)
-               (list 'quotedArg NameFn 1 'string)
-               (list 'unary_predicate tagged)]]
-      (v/assert kb s 'CxUniverse))
-    (v/assert kb (list animal Rex) 'CxUniverse)
-    (testing "genlArg: a kind below the declared one passes, one outside it is convicted"
-      (is (nil? (problem kb (list tagged (list KindFn dog)))))
-      (is (= :arg-genl (refusal kb (list tagged (list KindFn rock))))))
-    (testing "genlArg: an individual can never be a subtype"
-      (is (= :arg-genl (refusal kb (list tagged (list KindFn Rex))))))
-    (testing "quotedArg: the input is typed as the term written"
-      (is (nil? (problem kb (list tagged (list NameFn "Bob")))))
-      (is (= :quoted-arg-type (refusal kb (list tagged (list NameFn 5))))))))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   (tu/with-terms [KindFn NameFn tagged animal dog rock Rex]
+     (doseq [s [(list 'genl animal 'thing) (list 'genl dog animal) (list 'genl rock 'thing)
+                (list 'unreifiable_function KindFn) (list 'unary_function KindFn)
+                (list 'genlArg KindFn 1 animal)
+                (list 'unreifiable_function NameFn) (list 'unary_function NameFn)
+                (list 'quotedArg NameFn 1 'string)
+                (list 'unary_predicate tagged)]]
+       (v/assert kb s 'CxUniverse))
+     (v/assert kb (list animal Rex) 'CxUniverse)
+     (testing "genlArg: a kind below the declared one passes, one outside it is convicted"
+       (is (nil? (problem kb (list tagged (list KindFn dog)))))
+       (is (= :arg-genl (refusal kb (list tagged (list KindFn rock))))))
+     (testing "genlArg: an individual can never be a subtype"
+       (is (= :arg-genl (refusal kb (list tagged (list KindFn Rex))))))
+     (testing "quotedArg: the input is typed as the term written"
+       (is (nil? (problem kb (list tagged (list NameFn "Bob")))))
+       (is (= :quoted-arg-type (refusal kb (list tagged (list NameFn 5)))))))))
 
 (tu/deftest-kb a-mention-is-not-descended-into
   ;; a position `quotedArg` types holds the term written there, and a quoting function's

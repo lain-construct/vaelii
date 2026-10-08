@@ -133,10 +133,14 @@
           (is (contains? (shapes-of snap p) ["fb" :arg-roots])
               "and the adornment names which position was bound")))
 
-      (testing "a left prefix keeps the trie"
-        (let [snap (collected #(doall (res/raw-match kb (list p a '?y) ctx)))]
+      (testing "a left prefix keeps the trie under a variable context"
+        (let [snap (collected #(doall (res/raw-match kb (list p a '?y) '?ctx)))]
           (is (contains? (paths-of snap p) :trie))
           (is (contains? (shapes-of snap p) ["bf" :trie]))))
+
+      (testing "and reads the argument roots in a ground one, which the trie reaches last"
+        (let [snap (collected #(doall (res/raw-match kb (list p a '?y) ctx)))]
+          (is (contains? (shapes-of snap p) ["bf" :arg-roots]))))
 
       (testing "an open negative with something pinned reads the roots"
         (let [snap (collected #(doall (res/raw-match kb (list 'not (list q '?x b)) ctx)))]
@@ -220,8 +224,8 @@
         (is (= 1 (:asserts row)))
         (is (= (inc (count (sx/path sx))) (:levels row))
             "one trie level per path token, plus the root")
-        (is (= (count (kv/root-keys sx)) (:roots row))
-            "and the secondary roots are exactly the ones the index wrote")
+        (is (= (+ (count (kv/root-keys sx)) (* 2 (inc (count (kv/arg-slots sx))))) (:roots row))
+            "the root postings, plus a count and a child edge per count-trie node: the predicate extent's and each argument's")
         (is (= (count (kv/sentex-terms sx)) (:terms row)))))))
 
 (deftest the-retraction-tally-is-its-own-tally
@@ -237,8 +241,8 @@
         (is (= 1 (:retracts row)))
         (is (= (inc (count (sx/path sx))) (:levels row))
             "one decrement per path token, plus the root")
-        (is (= (count (kv/root-keys sx)) (:roots row))
-            "and the secondary roots are exactly the ones the index removed")
+        (is (= (+ (count (kv/root-keys sx)) (* 2 (inc (count (kv/arg-slots sx))))) (:roots row))
+            "the root postings, plus the count and the child edge of each emptied count-trie node")
         (is (= (count (kv/sentex-terms sx)) (:terms row)))
         (testing "and it is separate from the assert tally, not that one with a sign on it"
           (is (nil? (get (:writes snap) p))
@@ -272,7 +276,7 @@
       (v/assert kb (list 'binary_predicate p) ctx)
       (v/assert kb (list p a b) ctx)
       (let [ix (:index kb)]
-        (is (= {:functor-root 1} (:reads (collected #(p/count-with-functor ix p)))))
+        (is (= {:predicate-extent 1} (:reads (collected #(p/count-with-functor ix p)))))
         (is (= {:context-root 1} (:reads (collected #(p/count-in-context ix ctx)))))
         (is (= {:term-roster 1}  (:reads (collected #(p/term-count ix)))))
         (is (= {:trie-counts 1}  (:reads (collected #(p/count-children ix [p])))))

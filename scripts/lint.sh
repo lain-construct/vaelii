@@ -27,6 +27,8 @@
 #                 scripts/unused-publics-baseline.txt
 #   - prose       metaphor and aphorism where a mechanism has a name, against the
 #                 per-file budget in scripts/prose-baseline.txt (CONTRIBUTING §3.9)
+#   - derived     every stateful def under impl/ and every Reasoning field has a
+#                 derived-state register row, or a reason in its allowlist
 #
 #   lein lint               # the clean report
 #   VERBOSE=1 lein lint     # also dump each check's full output, pass or fail
@@ -42,13 +44,19 @@
 #
 # The granular `lein lint-glossary` / `lint-versions` / `lint-links` /
 # `lint-drift` / `lint-kondo` / `lint-cljfmt` / `lint-shellcheck` /
-# `lint-reflect` / `lint-unused` / `lint-prose` aliases run a
+# `lint-reflect` / `lint-unused` / `lint-prose` / `lint-derived` aliases run a
 # single check for a quick one-off.
 { # one brace group, read whole before it runs: scripts/lint-shellcheck.sh says why
 set -uo pipefail   # NOT -e: every check must run even after one fails.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
+
+# The Python checks read UTF-8 docs with a bare `open()`, whose encoding is the
+# locale's: UTF-8 on macOS and Linux, cp1252 on Windows — where it raises on the
+# docs' em-dashes, or under `errors="replace"` reads them garbled.  UTF-8 mode makes
+# it UTF-8 everywhere (PEP 540), and the `lint-*` aliases in project.clj set it too.
+export PYTHONUTF8=1
 
 # shellcheck source=scripts/lib/runlog.sh
 . "$ROOT/scripts/lib/runlog.sh"
@@ -83,7 +91,7 @@ pass=0; fail=0; failed_labels=()
 # coreutils takes a TEMPLATE and rejects one with fewer than three X's.  So a
 # bare `-t vaelii-lint` works here and dies on every Linux runner with "too few
 # X's in template" — leaving `$DIR` empty, every check writing to nothing, and
-# all eleven reported as FAILED.  A template with X's satisfies both.  Same
+# all of them reported as FAILED.  A template with X's satisfies both.  Same
 # spelling as vaelii-foreign's scripts/lint.sh.
 DIR="$(mktemp -d -t vaelii-lint.XXXXXX)"
 trap 'rm -f "$DIR"/* 2>/dev/null; rmdir "$DIR" 2>/dev/null' EXIT
@@ -104,6 +112,7 @@ summary() {
     reflect)    s="$(grep -oE 'no reflection warnings.*' "$o" | head -1)" ;;
     unused)     s="$(grep -oE '[0-9]+ known.*' "$o" | head -1)" ;;
     prose)      s="$(grep -oE '[0-9]+ of [0-9]+ allowed, [0-9]+ files remaining' "$o" | head -1)" ;;
+    derived)    s="$(grep -oE '[0-9]+ stateful defs \([0-9]+ registered' "$o" | head -1)" ;;
   esac
   echo "${s:-ok}"
 }
@@ -235,7 +244,7 @@ kondo_version_note() {
 #
 #   A  cljfmt, reflect                              ~30s
 #   B  kondo, unused                                ~25s
-#   C  the seven cheap ones                         ~30s
+#   C  the eight cheap ones                         ~30s
 #
 # Wall clock is the longest lane's, where a serial run's was the sum.  A lane that
 # outgrows the other two is the signal to rebalance.
@@ -262,12 +271,13 @@ lane_c() {
   # other. It also checks itself against the tree, both directions.
   check shellcheck -- bash scripts/lint-shellcheck.sh
   check prose      -- python3 scripts/check-prose.py
+  check derived    -- python3 scripts/check-derived-state.py
 }
 
 # The order the report reads in, which is NOT a lane's order: rows print here,
 # each waiting for its own lane to reach it.
 readonly -a ROSTER=(glossary versions links drift conflicts
-                    kondo cljfmt shellcheck reflect unused prose)
+                    kondo cljfmt shellcheck reflect unused prose derived)
 
 lint_run() {
   printf '%slint%s\n' "$BOLD" "$RST"

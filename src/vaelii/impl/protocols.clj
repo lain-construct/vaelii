@@ -207,7 +207,11 @@
   (`vaelii.impl.reindex`); it needs no durability of its own."
   (index-sentex    [store sentex handle] "Insert a ground sentex handle into the trie.")
   (unindex-sentex!  [store sentex handle] "Remove a sentex handle from the trie.")
-  (lookup    [store pattern]       "Handles whose path matches a full pattern.")
+  ;; A path's last token is the context, so `contexts`, a set or nil, ranges that level:
+  ;; a set keeps only the children in it, iterating the smaller of the two, and nil keeps
+  ;; every child.
+  (lookup    [store pattern] [store pattern contexts]
+    "Handles whose path matches a full pattern, stated in one of `contexts` when it is a set.")
   ;; The **exact leaf**, where `lookup` is a match.  A path carrying a variable is a
   ;; wildcard to `lookup` — the token fans over every child at that level — so asking it
   ;; for one sentex's own key costs the whole extent of that shape.  This asks the node
@@ -262,11 +266,16 @@
   ;; does — a capability nothing tests for is not a capability, it is this protocol with
   ;; a second name.
   (unary-sentexes-with-arg [store term] "Handles of arity-1 fact sentexes whose lone argument is `term` — a superset is legal; the caller filters it exact.")
-  ;; multi-column narrowing: one intersection of the functor root and every named argument
-  ;; root, so a query that knows several terms narrows on all of them at once instead
-  ;; of one column with the rest deferred to a post-fetch filter.  `pred` may be nil
-  ;; (a variable-functor pattern); `pos-terms` is a seq of `[pos term]`.
-  (sentexes-with-args    [store pred pos-terms] "Handles with functor `pred` AND each `[pos term]` — one set intersection.")
+  ;; multi-column narrowing: one intersection of every named argument root, so a query
+  ;; that knows several terms narrows on all of them at once instead of one column with
+  ;; the rest deferred to a post-fetch filter.  `pred` may be nil (a variable-functor
+  ;; pattern); `pos-terms` is a seq of `[pos term]`, and empty reads `pred`'s predicate
+  ;; extent.  `contexts`, a set or nil, scopes the read to the handles stated in those
+  ;; contexts: the argument roots and the predicate extent end in the context, so a
+  ;; reader passes its ancestor set and no leaf it cannot see is read.  Nil reads every
+  ;; context.
+  (sentexes-with-args    [store pred pos-terms] [store pred pos-terms contexts]
+    "Handles with functor `pred` AND each `[pos term]`, stated in one of `contexts` when it is a set.")
   ;; rule index: rules are sentexes indexed additionally by their predicates.  Both
   ;; predicate sets are *complete* — every rule, whatever its direction — so "what
   ;; could conclude P?" is answerable for a forward-only rule.  A rule whose consequent
@@ -275,10 +284,12 @@
   ;; bucket unioned with that catch-all — see `resolution/concluding-rule-handles`.
   ;; Direction and defeasibility are NOT mirrored here: they live on the sentex record
   ;; (the `set/*Rule` wrapper canonicalizes into it), and chaining reads them from there.
-  (index-rule   [store handle ante-preds conseq-pred] "Register a rule handle by its predicates.")
-  (unindex-rule! [store handle ante-preds conseq-pred] "Deregister a rule handle.")
+  ;; Both indexes end in the rule's `context`, so a read given `contexts` (a set, or nil
+  ;; for every context) returns only the rules stated in one of them.
+  (index-rule   [store handle ante-preds conseq-pred context] "Register a rule handle, stated in `context`, by its predicates.")
+  (unindex-rule! [store handle ante-preds conseq-pred context] "Deregister a rule handle stated in `context`.")
   (rules-by-antecedent [store pred] "Handles of rules with an antecedent on pred.")
-  (rules-by-consequent [store pred] "Handles of rules concluding pred.")
+  (rules-by-consequent [store pred] [store pred contexts] "Handles of rules concluding pred, stated in one of `contexts` when it is a set.")
   ;; exception (re-check) index: a rule carrying an `exceptWhen` is posted under every
   ;; predicate its exception query mentions, and into a roster of all such rules.  It is
   ;; at *rule* granularity, never per firing — a rule handle is already an antecedent of

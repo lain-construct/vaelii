@@ -17,6 +17,7 @@
   antecedent index key a negation files under is `negated-antecedent-index-test`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.taxonomy :as tax]
@@ -216,7 +217,7 @@
   (tu/with-terms [dog_t animal_t other_t grounded A]
     (v/assert kb (list 'genl dog_t animal_t) 'CxCore {:strength :monotonic})
     (let [tax'   (reasoning/taxonomy kb)
-          roster #(deref (reasoning/rule-antecedents kb))]
+          roster #(reads/as-stored-rule-keys (:index kb))]
       (testing "with no rule reading a negation, an arriving negation names no key"
         (is (empty? (rules/trigger-keys tax' (negate (list animal_t A)) (roster)))))
       (v/assert-rule kb [(negate (list dog_t (symbol "?x")))]
@@ -229,9 +230,12 @@
                (vec (rules/trigger-keys tax' (negate (list dog_t A)) (roster))))))
       (testing "a negation on an unrelated predicate reaches nothing"
         (is (empty? (rules/trigger-keys tax' (negate (list other_t A)) (roster)))))
-      (testing "a positive fact still names its predicate and its supertypes"
-        (is (= (tax/genls-global tax' dog_t)
-               (set (rules/trigger-keys tax' (list dog_t A) (roster)))))))))
+      (testing "a positive fact names no key while no rule reads its predicate or a supertype"
+        (is (empty? (rules/trigger-keys tax' (list dog_t A) (roster)))))
+      (v/assert-rule kb [(list animal_t (symbol "?x"))]
+                     (list grounded (symbol "?x")) 'CxCore {:direction :forward})
+      (testing "a positive fact names the supertypes some rule reads"
+        (is (= [animal_t] (rules/trigger-keys tax' (list dog_t A) (roster))))))))
 
 ;; ---- the fan is scoped by the vantage ------------------------------------
 

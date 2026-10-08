@@ -410,10 +410,10 @@
   (testing "it is advice and not a refusal — the sentence breaks no invariant"
     (is (empty? (nm/problems '(isa Muffet Dog) 'CxUniverse))))
   (testing "a multi-word type is spelled snake_case, not merely lower-cased"
-    ;; `physicalobject` is a name the conventions refuse, so suggesting it would
-    ;; trade one unusable sentence for another
-    (is (re-find #"\(physical_object Muffet\)"
-                 (:message (nm/advice '(isa Muffet PhysicalObject))))))
+    ;; `warmblooded` is a different term from `warm_blooded`, so suggesting it would
+    ;; trade one sentence nothing reads for another
+    (is (re-find #"\(warm_blooded Muffet\)"
+                 (:message (nm/advice '(isa Muffet WarmBlooded))))))
   (testing "an argument that is not a symbol gets advice, not a ClassCastException"
     ;; a number, a string and a compound are all legal in argument position, and
     ;; `clojure.core/name` throws on every one of them — advice that crashes the

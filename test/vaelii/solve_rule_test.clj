@@ -21,7 +21,9 @@
             [vaelii.core :as v]
             [vaelii.impl.asp.solve-context :as sc]
             [vaelii.impl.asp.solver :as solver]
+            [vaelii.impl.kv :as kv]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.rules :as rules]
             [vaelii.test-util :as tu]))
 
@@ -75,6 +77,26 @@
                                 'CxUniverse)]
             (is (= bare plain))
             (is (= #{:forward :backward :solve} (:engines (sentex-of kb bare))))))))))
+
+(deftest a-solve-spelling-joined-onto-a-stored-rule-enters-the-solve-extent
+  ;; the solve extent is the rule-extent node `[:solve]`; its count is read off the
+  ;; roots store, since no reader returns the counter itself
+  (tu/with-neutral-kb [kb tu/fresh]
+    (tu/with-terms [p q CxSolve]
+      (let [idx      (:index kb)
+            solve    (fn [] (reads/as-stored-rules-in idx :solve #{CxSolve}))
+            counter  (fn [] (p/kv-get (kv/roots-backend idx)
+                                      [:rule-extent :count [:solve]]))
+            before   (counter)
+            r        (list 'implies (list p '?x) (list q '?x))
+            h        (v/assert kb r CxSolve)
+            h'       (v/assert kb (list 'set/solveRule r) CxSolve)]
+        (is (= h h'))
+        (is (contains? (:engines (sentex-of kb h)) :solve))
+        (is (= #{h} (solve)) "the joined rule is in the solve extent")
+        (v/retract! kb h)
+        (is (= #{} (solve)))
+        (is (= before (counter)) "the retraction takes out exactly what the join posted")))))
 
 (deftest a-solve-rule-combination-with-no-reading-is-refused
   (tu/with-neutral-kb [kb tu/fresh]

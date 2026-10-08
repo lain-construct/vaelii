@@ -5,8 +5,8 @@
   distinct while the status report agrees with the boolean and matching surfaces."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
-            [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu]))
 
@@ -56,11 +56,11 @@
                 "the branching forest is deterministic")))
         (testing "the cheap boolean makes one contextual exception query, not a global scan"
           (let [calls (atom 0)
-                excepted? res/excepted?]
-            (with-redefs [res/excepted-anywhere?
+                excepted? exc/excepted?]
+            (with-redefs [exc/closure-excepted-anywhere?
                           (fn [& _]
                             (throw (ex-info "believed? scanned every exception context" {})))
-                          res/excepted?
+                          exc/excepted?
                           (fn [& args]
                             (swap! calls inc)
                             (apply excepted? args))]

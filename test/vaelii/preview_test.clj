@@ -9,6 +9,7 @@
             [vaelii.impl.integrate :as integrate]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.rules :as vr]
             [vaelii.impl.settle :as settle]
             [vaelii.impl.types.reasoning :as reasoning]
@@ -23,6 +24,12 @@
   [(tu/sentex-ids kb) (tu/justification-ids kb)])
 
 (defn- sentences [entries] (mapv :sentence entries))
+
+(defn- placed?
+  "Is `s` a sentence a placed nogood stores?  Its `sentexHandle` arguments name the
+  handles the batch allocated, which the rollback frees."
+  [s]
+  (contains? '#{contradicts defeat} (first s)))
 
 (defn- except-rule [exception antes conseq]
   (list 'exceptWhen exception (list 'set/defaultRule (list 'set/forwardRule (vr/rule-sentence antes conseq)))))
@@ -118,16 +125,17 @@
         (is (= [(list flies Tweety)] (sentences (:believed-removed r))))
         (is (= h (:handle (first (:believed-removed r)))))
         (is (= :defeated (:reason (first (:believed-removed r))))))
-      (testing "and the negation is what arrived"
-        (is (= [(list 'not (list flies Tweety))] (sentences (:believed-added r)))))
+      (testing "and the negation is what arrived, with the nogood it places"
+        (is (= [(list 'not (list flies Tweety))] (remove placed? (sentences (:believed-added r)))))
+        (is (= '[contradicts defeat] (map first (filter placed? (sentences (:believed-added r)))))))
       (testing "belief is unchanged afterwards — the defeat was hypothetical"
         (is (true? (v/in? kb h))))
       (is (= before (content kb))))))
 
 (tu/deftest-kb a-batch-whose-mark-a-reader-decides-reports-the-removal
   ;; A late `irreflexive` mark takes the `:default` self tuple OUT at its own context with
-  ;; no label moving: the reader decides the nogood (docs/nmtms.md, "Nogoods decided at
-  ;; the reader"), and the settle's window names the tuple.
+  ;; no label moving: the settle places the nogood's `defeat` (docs/nmtms.md, "The nogood
+  ;; families"), and the settle's window names the tuple.
   (tu/with-terms [near Dora CxStory]
     (let [h      (v/assert kb (list near Dora Dora) CxStory)
           before (content kb)
@@ -268,8 +276,8 @@
      (let [entry  {:violation :qualitative-inconsistency :calculus :rcc8
                    :context CxStory :sentence nil}
            filed? (atom false)
-           orig   clashes/contradictions-of
-           r      (with-redefs [clashes/contradictions-of
+           orig   clashes/opened
+           r      (with-redefs [clashes/opened
                                 (fn [& args]
                                   ;; a plain Thread, which conveys no binding, as a
                                   ;; reader's own thread does not
@@ -296,9 +304,11 @@
           r      (v/preview kb {:add [[(list swims Willy) CxStory]]})]
       (testing "nothing is dropped — the conclusion is admissible, it is merely contested"
         (is (empty? (:violations r))))
-      (testing "both the trigger and the contested conclusion would be believed"
+      (testing "both the trigger and the contested conclusion would be believed, with the
+                nogood they place"
         (is (= #{(list swims Willy) (list fish Willy)}
-               (set (sentences (:believed-added r))))))
+               (set (remove placed? (sentences (:believed-added r))))))
+        (is (= '[contradicts] (map first (filter placed? (sentences (:believed-added r)))))))
       (testing "and the contradiction it would open is what the reviewer is shown"
         (is (= 1 (count (:contradictions r)))))
       (is (= before (content kb))))))
@@ -470,13 +480,16 @@
   [kb batch]
   (let [before (believed-sentences kb)]
     (v/edit! kb batch)
-    (let [after (believed-sentences kb)]
-      {:added   (set (vals (apply dissoc after (keys before))))
-       :removed (set (vals (apply dissoc before (keys after))))})))
+    (let [after (believed-sentences kb)
+          s     #(set (map (fn [x] (if (placed? x) (first x) x)) (vals %)))]
+      {:added   (s (apply dissoc after (keys before)))
+       :removed (s (apply dissoc before (keys after)))})))
 
-(defn- preview-diff [r]
-  {:added   (set (sentences (:believed-added r)))
-   :removed (set (sentences (:believed-removed r)))})
+(defn- preview-diff
+  "The sentences `r` adds and removes, each placed nogood's by its functor (`placed?`)."
+  [r]
+  (let [s #(set (map (fn [x] (if (placed? x) (first x) x)) (sentences %)))]
+    {:added (s (:believed-added r)) :removed (s (:believed-removed r))}))
 
 (tu/deftest-kb a-preview-predicts-the-edit-when-the-batch-derives
   (tu/with-terms [dog friendly Rex CxStory]
@@ -539,6 +552,112 @@
     (let [r (v/preview kb {:add [[(list dog Rex) CxStory]]})]
       (is (empty? (:contradictions r))
           "an unrelated line is not answerable for a clash that was already there"))))
+
+(tu/deftest-kb a-preview-reads-no-placed-nogood-its-window-does-not-touch
+  ;; the standing dilemmas sit in contexts the line's context does not see
+  (tu/with-terms [flies dog Rex CxSide]
+    (let [n     8
+          birds (repeatedly n #(tu/tmp-ind "Bird"))]
+      (doseq [b birds :let [c (tu/tmp-ctx "Story")]]
+        (v/assert kb (list flies b) c)
+        (v/assert kb (list 'not (list flies b)) c))
+      (is (= n (count (v/contradictions kb))))
+      (let [read (atom 0)
+            real @#'clashes/reports-over
+            r    (with-redefs [clashes/reports-over (fn [kb hs]
+                                                      (swap! read + (count hs))
+                                                      (real kb hs))]
+                   (v/preview kb {:add [[(list dog Rex) CxSide]]}))]
+        (is (empty? (:contradictions r)))
+        (is (zero? @read))))))
+
+(defn- oracle-op
+  "One line of a random batch or of the stream between batches, over the routes a
+  reader's dilemmas read: a negation pair, two memberships of separated types and the
+  separation itself, a self tuple under a mark and a predicate edge bringing a
+  predicate under it, an inherited claim and the denials it convicts, and a fact no
+  nogood reads.  `t` holds the terms; each line is `[sentence context opts]`."
+  [^java.util.Random rng {:keys [ctxs inds] :as t}]
+  (let [pick #(nth % (.nextInt rng (count %)))
+        x    (pick inds)
+        k    (.nextInt rng 11)
+        ;; the declarations monotonic, the rest a default three times in four
+        opts (if (or (contains? #{4 6 8} k) (zero? (.nextInt rng 4))) {:strength :monotonic} {})]
+    [(case k
+       0 (list (:flies t) x)
+       1 (list 'not (list (:flies t) x))
+       2 (list (:fish t) x)
+       3 (list (:mammal t) x)
+       4 (list 'disjoint (:fish t) (:mammal t))
+       5 (list (:self t) x x)
+       6 (list 'genl (:sub t) (:self t))
+       7 (list (:sub t) x x)
+       8 (list (:carries t) (:hauler t) x)
+       9 (list 'not (list (:carries t) (:cart t) x))
+       10 (list (:ledger t) x x))
+     (pick ctxs)
+     opts]))
+
+(defn- opened-both
+  "`preview`'s answer for `batch`, and the `:contradictions` the same preview answers
+  when it reads the reports of every stored `(contradicts …)`, from one run, so both
+  read the same handles."
+  [kb batch]
+  (let [opened   clashes/opened
+        removed  clashes/standing-removed
+        full     (atom nil)
+        answer   (atom nil)
+        r        (with-redefs [clashes/opened
+                               (fn [kb window]
+                                 (reset! full (opened kb (reads/as-stored-with-functor (:index kb) 'contradicts)))
+                                 (opened kb window))
+                               clashes/standing-removed
+                               (fn [kb o]
+                                 (reset! answer (removed kb @full))
+                                 (removed kb o))]
+                   (v/preview kb batch))]
+    [r @answer]))
+
+(defn- oracle-mismatch
+  "The first `[step batch]` of `seed`'s stream whose preview answers `:contradictions`
+  other than the full read's, or moves the KB's own, over `steps` steps, or nil."
+  [kb seed steps]
+  (tu/with-terms [flies fish mammal self sub carries hauler cart ledger
+                  CxTop CxA CxB CxAB CxSide A B C]
+    (let [rng (java.util.Random. (long seed))
+          t   {:flies flies :fish fish :mammal mammal :self self :sub sub :carries carries
+               :hauler hauler :cart cart :ledger ledger
+               ;; `CxSide` sees none of the others
+               :ctxs [CxTop CxA CxB CxAB CxSide] :inds [A B C]}
+          m   {:strength :monotonic}]
+      (doseq [[sub sup] [[CxA CxTop] [CxB CxTop] [CxAB CxA] [CxAB CxB]]]
+        (v/assert kb (list 'genlCx sub sup) CxTop m))
+      (doseq [s [(list 'irreflexive self) (list 'binary_predicate carries)
+                 (list 'transitiveInArgInverse carries 1 'genl) (list 'genl hauler 'animal)
+                 (list 'genl cart hauler)]]
+        (v/assert kb s CxTop m))
+      (loop [step 0, stored []]
+        (when (< step steps)
+          (let [[s c opts] (oracle-op rng t)
+                h          (try (v/assert kb s c opts) (catch clojure.lang.ExceptionInfo _ nil))
+                stored     (cond-> stored (integer? h) (conj h))]
+            (let [batch  {:add    (vec (repeatedly (.nextInt rng 3) #(oracle-op rng t)))
+                          :remove (if (and (seq stored) (zero? (.nextInt rng 2)))
+                                    [(nth stored (.nextInt rng (count stored)))]
+                                    [])}
+                  before (v/contradictions kb)
+                  [r full] (opened-both kb batch)]
+              (if (and (= full (:contradictions r)) (= before (v/contradictions kb)))
+                (recur (inc step) stored)
+                [step batch]))))))))
+
+(tu/deftest-kb a-preview-opens-the-dilemmas-the-full-read-opens-over-a-random-stream
+  ;; one seed of the `^:slow` sweep, so `:default` runs the harness
+  (is (nil? (oracle-mismatch kb 0 25))))
+
+(tu/deftest-kb ^:slow a-preview-opens-the-dilemmas-the-full-read-opens-over-random-streams
+  (doseq [seed (range 1 9)]
+    (is (nil? (oracle-mismatch kb seed 40)) (str "seed " seed))))
 
 ;; ---- 13. equality: the second way a belief stops being one ---------------
 

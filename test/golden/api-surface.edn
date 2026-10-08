@@ -54,6 +54,8 @@
   deprecated? "[[conn term] [conn term context]]",
   describe
   "[[conn term] [conn term context] [conn term context opts]]",
+  direct-genls "[[conn t] [conn t context]]",
+  direct-specs "[[conn t] [conn t context]]",
   disjoint-metatypes "[[conn]]",
   disjoint? "[[conn a b] [conn a b context]]",
   edit! "[[conn batch]]",
@@ -80,6 +82,8 @@
   isa? "[[conn x t] [conn x t context]]",
   justification "[[conn jid]]",
   kb-diff "[[conn b]]",
+  kb-integrity
+  "[[conn candidate-terms context] [conn candidate-terms context options]]",
   kb-quality "[[conn] [conn opts]]",
   last-program "[[conn]]",
   levels "[[conn]]",
@@ -104,6 +108,7 @@
   query-status "[[conn goal context] [conn goal context opts]]",
   query? "[[conn goal] [conn goal context] [conn goal context opts]]",
   readable-sentence "[[conn sx]]",
+  relation? "[[conn term] [conn term context]]",
   representative "[[conn term] [conn term context]]",
   retract! "[[conn handle]]",
   same-class? "[[conn a b] [conn a b context]]",
@@ -117,6 +122,7 @@
   sentexes-matching "[[conn sentence] [conn sentence context]]",
   sentexes-with-arg "[[conn pos term] [conn pos term opts]]",
   sentexes-with-functor "[[conn pred] [conn pred opts]]",
+  separating-covers "[[conn]]",
   settle-stats "[[conn]]",
   specified-violations
   "[[conn pred indep context] [conn pred indep context arg-pos]]",
@@ -217,6 +223,8 @@
   deprecated? "[[kb term] [kb term context]]",
   describe "[[kb term] [kb term context] [kb term context opts]]",
   describe-opt-keys [:limit],
+  direct-genls "[[kb t] [kb t context]]",
+  direct-specs "[[kb t] [kb t context]]",
   disjoint-metatypes "[[kb]]",
   disjoint? "[[kb a b] [kb a b context]]",
   disjointness-audit "[[kb] [kb context]]",
@@ -251,6 +259,8 @@
   ist "[[kb ctx s]]",
   justification "[[kb jid]]",
   kb-diff "[[a b]]",
+  kb-integrity
+  "[[kb candidate-terms context] [kb candidate-terms context options]]",
   kb-quality "[[kb] [kb opts]]",
   last-program "[[kb]]",
   levels "[[]]",
@@ -286,16 +296,19 @@
   reasoner "[[nm]]",
   reasoners "[[]]",
   rebuild-progress "[[kb]]",
+  record-arg-types "[[kb]]",
   recover "[[kb]]",
   register-modal-predicate "[[kb pred] [kb pred context]]",
   reified-term? "[[term]]",
   reindex "[[kb]]",
+  relation? "[[kb term] [kb term context]]",
   representative "[[kb term] [kb term context]]",
   reset-settle-stats! "[[kb]]",
   rests-on "[[j]]",
   resume "[[partial budget]]",
   retract! "[[kb handle]]",
   same-class? "[[kb a b] [kb a b context]]",
+  seal "[[kb]]",
   search-tree "[[kb goal] [kb goal context] [kb goal context opts]]",
   search-tree-opt-keys [:max-depth :max-ms :node-budget :strategy],
   sees? "[[kb k y]]",
@@ -308,6 +321,7 @@
   sentexes-matching "[[kb sentence] [kb sentence context]]",
   sentexes-with-arg "[[kb pos term] [kb pos term opts]]",
   sentexes-with-functor "[[kb pred] [kb pred opts]]",
+  separating-covers "[[kb]]",
   set-cache-limit "[[id n]]",
   set-cache-scale "[[x]]",
   set-log-level "[[level]]",
@@ -383,6 +397,8 @@
    :dependent-justifications
    :deprecated?
    :describe
+   :direct-genls
+   :direct-specs
    :disjoint-metatypes
    :disjoint?
    :edit
@@ -407,6 +423,7 @@
    :isa?
    :justification
    :kb-diff
+   :kb-integrity
    :kb-quality
    :last-program
    :levels
@@ -430,6 +447,7 @@
    :query-status
    :query?
    :readable-sentence
+   :relation?
    :representative
    :retract
    :same-class?
@@ -442,6 +460,7 @@
    :sentexes-matching
    :sentexes-with-arg
    :sentexes-with-functor
+   :separating-covers
    :settle-stats
    :specified-violations
    :specs
@@ -499,6 +518,8 @@
    :dependent-justifications
    :deprecated?
    :describe
+   :direct-genls
+   :direct-specs
    :disjoint-metatypes
    :disjoint?
    :edit
@@ -523,6 +544,7 @@
    :isa?
    :justification
    :kb-diff
+   :kb-integrity
    :kb-quality
    :last-program
    :levels
@@ -545,6 +567,7 @@
    :query-status
    :query?
    :readable-sentence
+   :relation?
    :representative
    :retract
    :same-class?
@@ -557,6 +580,7 @@
    :sentexes-matching
    :sentexes-with-arg
    :sentexes-with-functor
+   :separating-covers
    :settle-stats
    :specified-violations
    :specs

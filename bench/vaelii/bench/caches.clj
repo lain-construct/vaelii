@@ -16,14 +16,10 @@
   builds its memo inside a function body and drops it on return, so nothing survives the
   call that made it.
 
-  That leaves one structure whose population grows with what is loaded, and one this
-  harness measures beside it because its *bytes* depend on the hierarchy:
-
-  * `taxonomy` `:closure-lru` — the reach sets read, global and scoped, weighed by the
-    terms they hold and bounded by weight, so its bytes are a function of the bound and
-    of which closures the workload keeps warm.
-  * `taxonomy` `:vis-index` — one interned visible-context set per `[relation context]`,
-    so it is bounded by the context census rather than by the read count.
+  That leaves one structure whose population grows with what is loaded:
+  `taxonomy` `:closure-lru`, the reach sets read, global and scoped, weighed by the terms
+  they hold and bounded by weight, so its bytes are a function of the bound and of which
+  closures the workload keeps warm.
 
   Retained size, not shallow: a map of sets whose shallow size is a few hundred bytes can
   retain megabytes, and reporting the shallow figure would understate exactly the
@@ -86,11 +82,10 @@
   (System/gc)
   (Thread/sleep 200))
 
-;; ---- the two structures whose population is not capped -------------------
+;; ---- the structure whose population is not capped ------------------------
 
 (defn- closure-lru  [kb] (:closure-lru @(reasoning/taxonomy kb)))
 (defn- closure-memo [kb] (:map (closure-lru kb)))
-(defn- vis-index    [kb] @(:vis-index    @(reasoning/taxonomy kb)))
 
 (defn- memo-census
   "The closure cache's population: how many closures it holds and the terms they weigh."
@@ -103,7 +98,6 @@
   [kb]
   (settle-heap!)
   {:closure-memo (postings/retained [(closure-memo kb)])
-   :vis-index    (postings/retained [(vis-index kb)])
    :literal      (:size (lc/stats kb))
    :heap-live    (heap-live)})
 
@@ -114,8 +108,8 @@
         n (memo-census kb)]
     (println (format "  %-22s closure-lru  %8.2f MB (%,d closures, %,d terms)"
                      label (mb (:closure-memo c)) (:entries n) (:weight n)))
-    (println (format "  %-22s vis-index    %8.2f MB   literal-cache %,d entries   live heap %8.2f MB"
-                     "" (mb (:vis-index c)) (:literal c) (mb (:heap-live c))))
+    (println (format "  %-22s literal-cache %,d entries   live heap %8.2f MB"
+                     "" (:literal c) (mb (:heap-live c))))
     (assoc c :census n)))
 
 ;; ---- reading 2: does anything grow with the query count? ----------------

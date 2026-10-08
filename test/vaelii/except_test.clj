@@ -204,6 +204,80 @@
       (testing "and retracting the witness re-derives it"
         (is (seq (v/sentexes-matching kb (list flies Opus) CxBird)))))))
 
+(tu/deftest-kb an-existential-exception-revives-when-a-fact-ends-every-witness
+  ;; the arriving fact names no rule variable — it is about the witness alone
+  (tu/with-terms [bird childOf vaccinated flies Opus Kid CxBird]
+    (v/assert kb (except-rule (list 'thereExists '?c (list 'and (list childOf '?b '?c)
+                                                           (list 'unknown (list vaccinated '?c))))
+                              [(list bird '?b)] (list flies '?b))
+              CxBird)
+    (v/assert kb (list bird Opus) CxBird)
+    (v/assert kb (list childOf Opus Kid) CxBird)
+    (testing "an unvaccinated child is a witness"
+      (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
+    (v/assert kb (list vaccinated Kid) CxBird)
+    (testing "vaccinating the only one ends the exception, and the rule fires"
+      (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))))))
+
+(tu/deftest-kb a-count-exception-an-arrival-imposed-is-released-by-the-next
+  ;; an exception blocks while it holds, so a count — like an `unknown` — can stop
+  ;; holding when a fact arrives; the block one arrival imposed, the next releases
+  (tu/with-terms [bird childOf flies Opus K1 K2 CxBird]
+    (v/assert kb (except-rule (list 'agg/count 1 '?c (list childOf '?b '?c))
+                              [(list bird '?b)] (list flies '?b))
+              CxBird)
+    (v/assert kb (list bird Opus) CxBird)
+    (testing "no child: the rule fires"
+      (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))))
+    (v/assert kb (list childOf Opus K1) CxBird)
+    (testing "exactly one: the conclusion is swept"
+      (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
+    (v/assert kb (list childOf Opus K2) CxBird)
+    (testing "the second child releases it"
+      (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))))))
+
+(tu/deftest-kb a-forall-exception-is-the-nested-naf-it-desugars-to
+  ;; a `forall` conjunct is desugared at the entry point, as a `forall` antecedent is,
+  ;; so the re-check index watches what is under it and the NAF spelling is one meta
+  (tu/with-terms [bird childOf sick flies Opus Kid CxBird]
+    (let [h (v/assert kb (except-rule (list 'forall '?c (list 'implies (list childOf '?b '?c) (list sick '?c)))
+                                      [(list bird '?b)] (list flies '?b))
+                      CxBird)]
+      (v/assert kb (list bird Opus) CxBird)
+      (testing "no child: the universal holds vacuously"
+        (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
+      (v/assert kb (list childOf Opus Kid) CxBird)
+      (testing "a child who is not sick ends it"
+        (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))))
+      (v/assert kb (list sick Kid) CxBird)
+      (testing "every child sick restores it"
+        (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))
+      (is (= h (v/assert kb (except-rule (list 'unknown (list 'thereExists '?d
+                                                              (list 'and (list childOf '?b '?d)
+                                                                    (list 'unknown (list sick '?d)))))
+                                         [(list bird '?b)] (list flies '?b))
+                         CxBird))))
+    (let [bad (except-rule (list 'forall '?c (list sick '?c)) [(list bird '?b)] (list flies '?b))]
+      (is (= :not-well-formed (:type (ex-data (try (v/assert kb bad CxBird)
+                                                   (catch clojure.lang.ExceptionInfo e e))))))
+      (is (= [:not-well-formed] (mapv :type (v/check kb bad CxBird)))))))
+
+(tu/deftest-kb a-count-exception-compares-under-a-thereExists
+  ;; the conjuncts of a vector share no variable, so a count is compared inside a
+  ;; quantifier that binds it
+  (tu/with-terms [bird childOf flies Opus K1 K2 CxBird]
+    (v/assert kb (except-rule (list 'thereExists '?n (list 'and (list 'agg/count '?n '?c (list childOf '?b '?c))
+                                                           (list 'lessThan 1 '?n)))
+                              [(list bird '?b)] (list flies '?b))
+              CxBird)
+    (v/assert kb (list bird Opus) CxBird)
+    (v/assert kb (list childOf Opus K1) CxBird)
+    (testing "one child: the rule fires"
+      (is (seq (v/sentexes-matching kb (list flies Opus) CxBird))))
+    (v/assert kb (list childOf Opus K2) CxBird)
+    (testing "two: the exception holds"
+      (is (empty? (v/sentexes-matching kb (list flies Opus) CxBird))))))
+
 (tu/deftest-kb an-existential-exception-dedups-across-binder-names
   ;; canonical form: two exceptions identical up to the bound variable's name are one
   (tu/with-terms [bird childOf sick flies CxBird]

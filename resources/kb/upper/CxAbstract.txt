@@ -1,33 +1,51 @@
 ;; CxAbstract — non-biological upper-ontology types (intangible, physical
-;; objects, attributes, substances, artifacts, body parts and their kinds), the
-;; physical-structure relations partOf/locatedIn/madeOf, and the two type-level
-;; relations largerThan/partType. Sees CxCore; CxUniverse sees it, so any
-;; type or relation here is visible from every context.
+;; objects, substances, made things, body parts, events and their kinds), the
+;; physical-structure relations partOf/locatedIn/madeOf, the event relations
+;; doneBy/performedBy and input/output, and the two type-level relations
+;; largerThan/partType. Sees CxCore; CxUniverse sees it, so any type or relation
+;; here is visible from every context.
 
 (genlCx CxAbstract CxCore)
 (genlCx CxUniverse CxAbstract)
 
-(comment artifact "A physical object made by an agent for a purpose.")
-(genl artifact physical_object)
-
-(comment attribute "A property an object can bear (a color, a size).")
-(genl attribute intangible)
-
-(comment body_part "A physical part of a living thing (a wing, a heart).")
-(genl body_part physical_object)
+(comment body_part "A part an organism grew — a wing, a heart, a leaf. It stays a body part once transplanted into another organism or shed from its own.")
+;; An organism and a part it grew are both biological and never the same thing; nothing
+;; says every biological thing is one of the two.  The roster installs each part's genl
+;; edge to biological, so body_part's is not stated; organism's is stated in CxCore too,
+;; where CxOrganism can see it.
+(separating biological organism body_part)
+;; A leg of lamb or a chicken wing is food and a body part at once.
+(orthogonal food body_part)
+;; Something made can be biological too: an engineered bacterium, an organ grown in a lab
+;; and a cloned sheep are biological and made at once.
+(orthogonal biological made)
+;; An orthogonal is not inherited along genl, so each overlapping pair is stated.  A cloned
+;; sheep is a made organism and a wild sheep a natural one.  A lab-grown bladder is a made
+;; body part and a heart a natural one.  Steel, water and sand are a made, a natural and a
+;; formation substance.  Bread, an apple and sea salt are a made, a natural and a
+;; formation food, and an apple is biological food.
+(orthogonal organism made)
+(orthogonal organism natural)
+(orthogonal body_part made)
+(orthogonal body_part natural)
+(orthogonal substance made)
+(orthogonal substance natural)
+(orthogonal substance formation)
+(orthogonal food made)
+(orthogonal food natural)
+(orthogonal food biological)
+(orthogonal food formation)
 
 (comment building "An artifact that is a fixed structure enclosing space.")
-(genl building artifact)
 
 
 (comment clothing "An artifact worn on the body.")
-(genl clothing artifact)
+(genl clothing made)
 
 (comment container "An artifact whose function is to hold other objects — a cup, a box, a bag.")
-(genl container artifact)
+(genl container made)
 
 (comment context "A context: the second half of a sentex, and what a sentence holds in.")
-(genl context intangible)
 
 (comment feather "A light keratin body part covering a bird.")
 (genl feather body_part)
@@ -35,54 +53,36 @@
 (comment fin "A flat body part a fish steers and propels itself with.")
 (genl fin body_part)
 
-(comment fluent "A state of affairs that holds over some stretches of time and not others — a cat being asleep, a light being on. What an event starts and stops, and what holdsAt asks about at a moment; intangible, because it is a way the world is rather than a thing in it. See docs/time.md.")
-(genl fluent intangible)
-
 (comment food "A physical object eaten by an animal for nourishment.")
-(genl food physical_object)
+
+(comment formation "A natural tangible whose form came from physical processes, neither grown nor made: a rock, a crystal, a river, a star, a dune.")
+(genl formation natural)
+;; Nothing grown is a formation.  The roster also installs (genl formation tangible), and
+;; formation's edge to natural derives the same edge.
+(separating tangible formation biological)
 
 (comment fur "The hair covering a mammal.")
 (genl fur body_part)
 
 (comment furniture "An artifact for use in a room — a chair, a table, a bed.")
-(genl furniture artifact)
+(genl furniture made)
 
 (comment glass_stuff "A hard, brittle, transparent substance.")
 (genl glass_stuff substance)
 
 
-;; CxCore's literal types, placed in this lattice.  Text and a number have no mass and no
-;; location, and neither of them is a relation.  Saying the second is what lets a rule be
-;; refused for feeding a text-valued argument into a position that holds a type: every
-;; type is a unary_predicate, so the type position asks for a predicate, and one variable
-;; cannot be both at once.  The disjointness on number carries integer with it.
-;;
-;; symbol gets neither edge, and CxCore's note on it says why: a name is exactly how a
-;; predicate is written, so (disjoint symbol predicate) would be false.
-(genl string intangible)
-(genl number intangible)
-(genl keyword intangible)
-(genl boolean intangible)
-(genl character intangible)
-(set/monotonic (disjoint string predicate))
-(set/monotonic (disjoint number predicate))
-(set/monotonic (disjoint keyword predicate))
-(set/monotonic (disjoint boolean predicate))
-(set/monotonic (disjoint character predicate))
-
 (comment language "A system of signs a person speaks, writes or signs in.")
-(genl language intangible)
 
 (comment largerThan
-         "(largerThan ?kind1 ?kind2) means that a ?kind1 is bigger than a ?kind2. A claim about two KINDS rather than about two things — a type_relation_predicate — so (largerThan dog cat) says dogs are bigger than cats and says nothing whatever about any particular dog. Transitive and asymmetric, so a cycle of size claims is a contradiction the KB reports rather than a chain it walks. Declared transitiveInArg on both positions along genl, which is what carries a claim down to subkinds: a kind of dog is larger than a kind of cat. That distribution is itself a claim about largerThan, which is why it is declared rather than assumed — the same inheritance is false of a chihuahua and a maine coon, and nothing in a sentence says which case it is in.")
+         "(largerThan ?kind1 ?kind2) means that a ?kind1 is bigger than a ?kind2. A claim about two KINDS rather than about two things — a type_relation_predicate — so (largerThan dog cat) says dogs are bigger than cats and says nothing whatever about any particular dog. Transitive and asymmetric, so a cycle of size claims is a contradiction the KB reports rather than a chain it walks. Declared transitiveInArgInverse on both positions along genl, which is what carries a claim down to subkinds: a kind of dog is larger than a kind of cat. That distribution is itself a claim about largerThan, which is why it is declared rather than assumed — the same inheritance is false of a chihuahua and a maine coon, and nothing in a sentence says which case it is in.")
 (binary_predicate largerThan)
 (type_relation_predicate largerThan)
-(genlArg largerThan 1 physical_object)
-(genlArg largerThan 2 physical_object)
+(genlArg largerThan 1 tangible)
+(genlArg largerThan 2 tangible)
 (transitive largerThan)
 (asymmetric largerThan)
-(transitiveInArg largerThan 1 genl)
-(transitiveInArg largerThan 2 genl)
+(set/monotonic (transitiveInArgInverse largerThan 1 genl))
+(set/monotonic (transitiveInArgInverse largerThan 2 genl))
 
 (comment leaf "A flat green body part a plant photosynthesizes with.")
 (genl leaf body_part)
@@ -93,47 +93,55 @@
 (comment liquid "A substance that flows and takes the structure of its container.")
 (genl liquid substance)
 
-(set/monotonic (disjoint living_thing artifact))
-
 (comment locatedIn
          "(locatedIn ?object ?place) means that ?object sits within ?place. Declared transitive, so a chain of containments is walked by the closure prover rather than materialized, and a joined rule carries location down parthood — a part is located wherever its whole is. Both arguments are physical objects: a region is CxSpace's business, and partOfRegion is the relation to reach for there.")
 (binary_predicate locatedIn)
 (instance_relation_predicate locatedIn)
-(arg locatedIn 1 physical_object)
-(arg locatedIn 2 physical_object)
+(arg locatedIn 1 tangible)
+(arg locatedIn 2 tangible)
 (transitive locatedIn)
 
 (comment machine "An artifact with moving parts that does work under power.")
-(genl machine artifact)
+(genl machine made)
+
+(comment made "A tangible shaped by an agent's action, or by something made: a chair, a widget from a factory machine, steel, sawdust, a footprint, a beaver's dam, a cloned sheep. Contrast natural.")
+;; Every tangible is made or natural, and no tangible is both.  The partition installs
+;; the genl edges from made and from natural to tangible, so neither edge is stated.  A
+;; tangible denied made is concluded natural.
+(partition tangible made natural)
 
 (comment madeOf
          "(madeOf ?object ?substance) means that ?object is made of ?substance. About one particular object and the stuff it is made of, so it is instance-level; what a whole kind is made of is a claim about that kind. Partial rather than exhaustive — a thing may be made of several substances, and saying it is made of one does not deny the others.")
 (binary_predicate madeOf)
 (instance_relation_predicate madeOf)
-(arg madeOf 1 physical_object)
+(arg madeOf 1 tangible)
 (arg madeOf 2 substance)
 
 (comment metal "A hard, dense, conducting substance — iron, copper, gold.")
 (genl metal substance)
 
+(comment natural "A tangible whose form no living thing's action gave it: a wild sheep, a coral reef, a rock, a river, a star. Contrast made.")
+;; A wild sheep is natural and biological.  A cloned sheep is made and biological.  So
+;; biological is orthogonal to made and to natural.
+(orthogonal biological natural)
+
 (comment organization "A group of people acting as one body — a company, a school, a team.")
-(genl organization intangible)
 
 (comment partOf
          "(partOf ?part ?whole) means that ?part is a component of ?whole. Declared transitive, so a part of a part is a part and the chain is answered by the closure prover rather than stored. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
 (binary_predicate partOf)
 (instance_relation_predicate partOf)
-(arg partOf 1 physical_object)
-(arg partOf 2 physical_object)
+(arg partOf 1 tangible)
+(arg partOf 2 tangible)
 (transitive partOf)
 
 (comment partType
-         "(partType ?wholeKind ?partKind) means that a ?wholeKind has a ?partKind among its parts. The type-level reading of partOf: (partType bird wing) says birds have wings, where (partOf LeftWing Pingu) says one thing is part of another. Declared transitiveInArg along genl on the FIRST position only, and the asymmetry is the claim: a kind of bird has whatever parts birds have, so penguins have wings without a word being written about penguins, while the second position preserves nothing — birds having wings says nothing about which kinds of wing they have. Linked to partOf by typeToInstancePred, which records that the two are readings of one relation and deliberately moves no claim between them: going from the kinds to their members needs a quantifier reading (every bird has SOME wing) that nothing here fixes, and guessing it is how a claim about kinds quietly becomes a false claim about individuals.")
+         "(partType ?wholeKind ?partKind) means that a ?wholeKind has a ?partKind among its parts. The type-level reading of partOf: (partType bird wing) says birds have wings, where (partOf LeftWing Pingu) says one thing is part of another. Declared transitiveInArgInverse along genl on the FIRST position only, and the asymmetry is the claim: a kind of bird has whatever parts birds have, so penguins have wings without a word being written about penguins, while the second position preserves nothing — birds having wings says nothing about which kinds of wing they have. Linked to partOf by typeToInstancePred, which records that the two are readings of one relation and deliberately moves no claim between them: going from the kinds to their members needs a quantifier reading (every bird has SOME wing) that nothing here fixes, and guessing it is how a claim about kinds quietly becomes a false claim about individuals.")
 (binary_predicate partType)
 (type_relation_predicate partType)
-(genlArg partType 1 physical_object)
-(genlArg partType 2 physical_object)
-(transitiveInArg partType 1 genl)
+(genlArg partType 1 tangible)
+(genlArg partType 2 tangible)
+(set/monotonic (transitiveInArgInverse partType 1 genl))
 (typeToInstancePred partType partOf)
 
 (comment petal "A coloured body part of a flower.")
@@ -141,7 +149,7 @@
 
 
 (comment relation_type "A type whose instances are relations between things.")
-(genl relation_type intangible)
+(genl relation_type aspatial)
 
 (comment root "The body part a plant anchors itself and draws water with.")
 (genl root body_part)
@@ -151,41 +159,53 @@
 (genl stone substance)
 
 (comment substance "A homogeneous stuff (water, iron) rather than a countable object.")
-(genl substance physical_object)
+(genl substance tangible)
 ;; substance's instances are individuals, so it is a first-order `type`; the interArg on
 ;; typeGenl requires this because the stuff metatypes classify it (typeGenl … substance).
 (type substance)
 
-(set/monotonic (disjoint physical_object intangible))
+;; --- time / time_point / time_interval: time itself --------------------------
+(comment time "A time, as in \"at that time\": a moment or a stretch of time as such, not something that happens in it. In time and in no space, and never a cause: the year 2000 broke nothing, two-digit years did, at the rollover. Parent of time_point (a moment) and time_interval (a stretch).")
+;; CxCore states time's edges to temporal and aspatial and (partition time time_point
+;; time_interval), so a band context that does not see CxAbstract reads a calendar term
+;; as a time.
+(genl time acausal)
 
 (comment time_point "A moment rather than a stretch — one of the two instants bounding an interval. What the point algebra relates, and what startOf and endOf reach from an interval.")
-(genl time_point temporal)
+
+(comment time_interval "A stretch of time as such, e.g. a year, a day, an hour — not something that happens in it. What the calendar constructors YearFn, MonthFn and DayFn name.")
+
+;; A time is not a state of affairs in it.
+(set/monotonic (disjoint time situation))
 
 ;; --- situation / static_situation / event: the state-of-affairs hierarchy ------
 (comment situation "A state of affairs: objects bearing properties or relations over a time interval. Parent of static_situation (the state holds unchanged) and event (the world's state changes); change is the specialization axis.")
-(genl situation temporal)
 
 (comment static_situation "A situation extended in time but unchanged, a held state, e.g. a file existing. Contrast event, the kind whose state changes.")
-(genl static_situation situation)
 
 (comment event "Something that happens: an occurrence located in time whose state changes. The event-calculus slots (happens/initiates/terminates) are typed temporal and no event collection was declared; this names one.")
-(genl event situation)
-
-;; A situation either holds unchanged or changes, never both — the specialization axis
-;; is a partition, so the two specializations are disjoint.
-(set/monotonic (disjoint static_situation event))
+;; CxCore holds (genl situation temporal) and the partition of situation into these two.
 
 ;; --- causal / acausal: whether a thing can occupy a cause slot -----------------
 (comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. One side of the causal/acausal division of thing.")
 (genl causal thing)
 
-(comment acausal "A thing that cannot be a cause: evidence, data, attributes, records. The other side of the causal/acausal division of thing.")
+(comment acausal "A thing that cannot be a cause: a time, a property line, an attribute, the information a record or piece of evidence carries (a reading of it can cause; the information itself causes nothing). The other side of the causal/acausal division of thing.")
 (genl acausal thing)
 
 ;; The causal/acausal division: a thing either can be a cause or cannot, so the two
 ;; sides are disjoint. This also makes causal_event and acausal_event disjoint, by the
 ;; genl closure of disjointness.
 (set/monotonic (disjoint causal acausal))
+
+;; Anything with mass can fill a cause slot: the rock dented the car. tangible is in
+;; CxCore, so the edge lives here beside causal; with the disjointness above it also
+;; keeps every tangible out of acausal.
+(genl tangible causal)
+
+;; A body of people can be a cause too: a company hires; a court rules. organization
+;; is aspatial, and nothing separates aspatial from causal.
+(genl organization causal)
 
 ;; --- causal_event / acausal_event: events by whether they can cause ------------
 ;; defined via intersection (CxCore); its rules derive the genls and membership.
@@ -195,11 +215,81 @@
 (comment acausal_event "An event that is not a cause (an observation or receipt is one): the intersection of acausal and event.")
 (intersection acausal_event acausal event)
 
+;; --- doneBy / performedBy: an event's doer -----------------------------------
+(comment doneBy
+         "(doneBy ?event ?doer) means that ?doer brought about ?event, intentionally or not. The doer can be any thing — a person, an animal, a machine, a process — so the second position declares no type: agent names a registered participant rather than something that can act, and no type below thing covers every doer. performedBy is the intentional case.")
+(binary_predicate doneBy)
+(instance_relation_predicate doneBy)
+(arg doneBy 1 event)
+
+(comment performedBy
+         "(performedBy ?event ?doer) means that ?doer intentionally initiated ?event. Specializes doneBy through a genl edge, so every performing is a doing and a doing is not concluded a performing.")
+(binary_predicate performedBy)
+(instance_relation_predicate performedBy)
+(arg performedBy 1 event)
+(genl performedBy doneBy)
+
+;; --- input / output: what went into an event and what it left behind -----------
+;; Each relation takes the event first, as every relation over an event does.  Each states
+;; binary_predicate beside instance_relation_predicate.  The arity check holds out a fact
+;; of the wrong length only where binary_predicate is stated, and the genl edge from
+;; instance_relation_predicate does not reach that check.  CxChange states when an input
+;; and an output exist relative to their event, because CxChange sees CxTime's point
+;; relations.
+(comment input "(input ?event ?thing) means that ?thing went into ?event: the lettuce in a salad, the ore in smelting, the plank in sawing. An instrument the event used and left unchanged, like the knife or the saw, is not an input. Contrast output.")
+(binary_predicate input)
+(instance_relation_predicate input)
+(arg input 1 event)
+(termsRelated input output)
+
+(comment destroyedInput "(destroyedInput ?event ?thing) means that ?thing went into ?event and ceased to exist there: the ore in smelting, the plank in sawing, the egg in an omelet. The lettuce in a salad is an input but not a destroyed one.")
+(binary_predicate destroyedInput)
+(instance_relation_predicate destroyedInput)
+(arg destroyedInput 1 event)
+(genl destroyedInput input)
+
+(comment preservedInput "(preservedInput ?event ?thing) means that ?thing went into ?event and still exists when ?event ends: the lettuce in a salad, the thread in a woven cloth.")
+(binary_predicate preservedInput)
+(instance_relation_predicate preservedInput)
+(arg preservedInput 1 event)
+(genl preservedInput input)
+;; No thing is both a destroyed and a preserved input of one event.  The KB does not
+;; state the disjointness, because a separation over two relations constrains no tuple.
+
+(comment output
+         "(output ?event ?thing) means that ?event gave ?thing the form or content it has, as something it left behind: a chair from its making, sawdust from sawing, a footprint from a step, a file from a program run. Whether that was the point of the event does not matter.")
+(binary_predicate output)
+(instance_relation_predicate output)
+(arg output 1 event)
+
+(comment tangibleOutput
+         "(tangibleOutput ?event ?thing) means that ?thing is a tangible output of ?event: a chair from its making, steel from smelting, sawdust from sawing, a footprint from a step.")
+(binary_predicate tangibleOutput)
+(instance_relation_predicate tangibleOutput)
+(arg tangibleOutput 1 event)
+(arg tangibleOutput 2 tangible)
+(genl tangibleOutput output)
+
+(comment intangibleOutput
+         "(intangibleOutput ?event ?thing) means that ?thing is an intangible output of ?event: a file from a program run, a receipt from a tool call, a recorded measurement from an observation.")
+(binary_predicate intangibleOutput)
+(instance_relation_predicate intangibleOutput)
+(arg intangibleOutput 1 event)
+(arg intangibleOutput 2 intangible)
+(genl intangibleOutput output)
+
+;; A tangible output of an intentionally initiated event is made.  Growth is never
+;; intentionally initiated, so a calf is not made by its mother.
+(set/forwardRule (implies (and (tangibleOutput ?e ?x) (performedBy ?e ?d)) (made ?x)))
+;; A tangible output of an event a made thing did is made: a widget a factory machine
+;; stamped is made.
+(set/forwardRule (implies (and (tangibleOutput ?e ?x) (doneBy ?e ?d) (made ?d)) (made ?x)))
+
 (comment tool "An artifact used to perform work.")
-(genl tool artifact)
+(genl tool made)
 
 (comment vehicle "An artifact for transporting people or goods.")
-(genl vehicle artifact)
+(genl vehicle made)
 
 (comment wing "A body part a bird or an insect flies with.")
 (genl wing body_part)
@@ -209,67 +299,34 @@
 
 ;; --- Lacuna proposals (CxAbstract, upper ontology overhaul) ---
 ;; The metatype-order ladder (type / metatype / meta_metatype / at_least_metatype /
-;; variable_order_type / fixed_order_type / type_type_by_order) and `abstract` are declared
+;; variable_order_type / fixed_order_type / type_type_by_order) and `nowhere_never` are declared
 ;; and commented in CxCore, the head, because that is where their genl edges are: a comment
 ;; belongs with the declaration it documents, visible from every context that sees the term.
-(comment expression "The abstract parent of all representable forms — relations, formulas, contexts, and unrepresented terms.")
 (comment gas "A substance in the gaseous state of matter.")
 (comment plasma "A substance in the plasma state of matter — an ionized gas.")
 (comment solid "A substance in the solid state of matter.")
 (comment stuff_type_by_state_of_matter "A disjoint_metatype classifying substances by physical state — solid, liquid, gas, plasma.")
 (comment stuff_type_by_substance "A disjoint_metatype classifying substances by material — wood, metal, glass_stuff, stone.")
-(comment unrepresented_term "An expression that cannot be further decomposed in the KB — strings, numbers, keywords, booleans, characters.")
-(set/monotonic (disjoint attribute physical_object))
+;; Neither an organism nor a part it grew is stuff; stated once of biological, it reaches
+;; both parts and every kind below them.
+(set/monotonic (disjoint biological substance))
 (set/monotonic (disjoint building furniture))
 (set/monotonic (disjoint building tool))
 (set/monotonic (disjoint building vehicle))
 (set/monotonic (disjoint clothing building))
 (set/monotonic (disjoint clothing furniture))
 (set/monotonic (disjoint clothing vehicle))
-(set/monotonic (disjoint attribute substance))
-(set/monotonic (disjoint food body_part))
 (set/monotonic (disjoint formula relation))
-(set/monotonic (disjoint glass_stuff stone))
-(set/monotonic (disjoint language substance))
 (set/monotonic (disjoint liquid stone))
-(set/monotonic (disjoint living_thing substance))
-(set/monotonic (disjoint metal glass_stuff))
-(set/monotonic (disjoint metal stone))
-(set/monotonic (disjoint metal wood))
-(set/monotonic (disjoint organization substance))
 (set/monotonic (disjoint relation context))
-(set/monotonic (disjoint substance artifact))
-(set/monotonic (disjoint substance body_part))
-(set/monotonic (disjoint unrepresented_term context))
-(set/monotonic (disjoint unrepresented_term formula))
-(set/monotonic (disjoint unrepresented_term relation))
-(set/monotonic (disjoint unrepresented_term relation_application))
-(set/monotonic (disjoint wood glass_stuff))
-(set/monotonic (disjoint wood stone))
 (set/monotonic (disjoint_metatype stuff_type_by_state_of_matter))
 (set/monotonic (disjoint_metatype stuff_type_by_substance))
 (metatype stuff_type_by_state_of_matter)
 (metatype stuff_type_by_substance)
-(genl boolean unrepresented_term)
-(genl character unrepresented_term)
-(genl context expression)
-;; This edge lives here, not in CxCore, because CxAbstract sees both denotational_term
-;; (declared in CxCore) and expression (declared here).
-(genl denotational_term expression)
-(genl expression abstract)
-(genl formula expression)
 (genl building container)
 (genl gas substance)
-(genl keyword unrepresented_term)
-(genl language abstract)
-(genl number unrepresented_term)
-(genl physical_object temporal)
 (genl plasma substance)
-(genl relation expression)
-(genl relation_application expression)
 (genl solid substance)
-(genl string unrepresented_term)
-(genl unrepresented_term expression)
 (stuff_type_by_state_of_matter gas)
 (stuff_type_by_state_of_matter liquid)
 (stuff_type_by_state_of_matter plasma)

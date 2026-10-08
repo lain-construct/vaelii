@@ -1,15 +1,13 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.converse-candidates-test
-  "The converse half of the candidate index (`:converse`, `:self`) as a rebuild finds it.
+  "The converse half of the candidate index (`:converse`) as a rebuild finds it.
 
   A live store reads a tuple's converses off the index, one trie read per converse
-  functor (`tuple/stored-converses`).  `rebuild-candidates!` keeps the tuples by their
-  arguments instead and joins them once the replay has seen every record
-  (`tuple/converse-pairs`).  The two must agree: the rebuilt index equals the one live
-  stores built, and equals a rebuild that reads each tuple's converses off the index as
-  a live store does."
-  (:require [clojure.test :refer [deftest is testing]]
+  functor (`tuple/stored-converses`), and `rebuild-candidates!` offers the stored facts
+  of the predicates under a converse mark the same way.  The rebuilt index equals the one
+  live stores built."
+  (:require [clojure.test :refer [deftest is]]
             [vaelii.core :as v]
             [vaelii.impl.decide :as decide]
             [vaelii.impl.decide.tuple :as tuple]
@@ -17,10 +15,9 @@
             [vaelii.test-util :as tu]))
 
 (defn- converse-half
-  "The converse and self entries of `kb`'s candidate index."
+  "The converse entries of `kb`'s candidate index."
   [kb]
-  (let [c @(reasoning/nogood-candidates kb)]
-    {:converse (set (:converse c)) :self (set (:self c))}))
+  {:converse (set (:converse @(reasoning/nogood-candidates kb)))})
 
 (defn- random-stream
   "A seeded shuffle of predicate `genl` edges, `anti_symmetric` marks, and binary tuples
@@ -52,19 +49,9 @@
            (v/assert kb s 'CxUniverse))
          (catch clojure.lang.ExceptionInfo _))))
 
-(defn- trie-converse-pairs
-  "`converse-pairs` as a live store answers it: each kept tuple reads its converses off
-  the index (`stored-converses`)."
-  [kb w tuples]
-  (let [stored (deref #'tuple/stored-converses)]
-    (into #{}
-          (mapcat (fn [[[a b] es]]
-                    (mapcat (fn [[q h]] (map #(hash-set h %) (stored kb w h q a b))) es)))
-          tuples)))
-
-(deftest a-rebuild-joins-the-converses-a-live-store-reads
+(deftest a-rebuild-reads-the-converses-a-live-store-reads
   (let [rnd  (java.util.Random. 1729)
-        seen (atom {:converse 0 :self 0 :marked 0})]
+        seen (atom {:converse 0 :marked 0})]
     (doseq [deferred? [false true], trial (range 12)]
       (tu/with-neutral-kb [kb tu/isolated-fresh]
         (let [stream (random-stream rnd)
@@ -74,23 +61,16 @@
             (store-all! kb stream))
           (let [live (converse-half kb)]
             (swap! seen #(merge-with + % {:converse (count (:converse live))
-                                          :self     (count (:self live))
                                           :marked   (if (some (fn [[_ s]] (= 'anti_symmetric (first s))) stream) 1 0)}))
             (decide/rebuild-candidates! kb)
-            (let [rebuilt @(reasoning/nogood-candidates kb)]
-              (testing "the rebuild finds what live stores built"
-                (is (= live (converse-half kb)) where))
-              (testing "and what a rebuild reading each tuple's converses off the index finds"
-                (with-redefs [tuple/converse-pairs (partial trie-converse-pairs kb)]
-                  (decide/rebuild-candidates! kb))
-                (is (= rebuilt @(reasoning/nogood-candidates kb)) where)))))))
-    (is (every? pos? (vals @seen)) (str "the streams reach pairs, self tuples and marks: " @seen))))
+            (is (= live (converse-half kb)) where)))))
+    (is (every? pos? (vals @seen)) (str "the streams reach pairs and marks: " @seen))))
 
-(deftest a-rebuild-reads-no-converse-off-the-index
-  ;; A converse read is a sentence and a trie lookup per converse functor, for every
-  ;; ground binary tuple: half of a large KB's recover before the join.
+(deftest a-rebuild-reads-the-converses-of-the-tuples-under-a-mark-only
+  ;; recover offers the facts of the predicates under a converse mark, one converse read
+  ;; per tuple, and reads no tuple of an unmarked predicate
   (tu/with-neutral-kb [kb tu/isolated-fresh]
-    (let [[p q]   (repeatedly 2 #(tu/fresh-term :predicate 'rel))
+    (let [[p q r] (repeatedly 3 #(tu/fresh-term :predicate 'rel))
           [a b c] (repeatedly 3 #(tu/fresh-term :individual 'Thing))]
       (v/assert kb (list 'anti_symmetric p) 'CxUniverse)
       (v/assert kb (list 'genl q p) 'CxUniverse)
@@ -98,12 +78,14 @@
       (v/assert kb (list q b a) 'CxUniverse)
       (v/assert kb (list p a c) 'CxUniverse)
       (v/assert kb (list p "x" c) 'CxUniverse)
+      (v/assert kb (list r a b) 'CxUniverse)
+      (v/assert kb (list r b a) 'CxUniverse)
       (let [before (converse-half kb)
             reads  (atom 0)
             real   (deref #'tuple/converse-handles)]
         (with-redefs [tuple/converse-handles (fn [& xs] (swap! reads inc) (apply real xs))]
           (decide/rebuild-candidates! kb))
-        (is (zero? @reads) "no converse is read off the index")
+        (is (= 4 @reads) "one read for each tuple of the marked predicate and the one below it")
         (is (= before (converse-half kb)) "and the index is the one live stores built")
         (is (= #{(v/handle-of kb (list p a b) 'CxUniverse) (v/handle-of kb (list q b a) 'CxUniverse)}
                (:converse before))

@@ -293,8 +293,8 @@
 
 (defn believed?
   "Is `handle` JTMS IN and not withdrawn from `context` — hidden by the `(except ...)`
-  cascade visible from it, a loser of a nogood it decides, or resting only on such a
-  handle (docs/nmtms.md, \"A defeat is scoped to its vantage\")?"
+  cascade visible from it, the target of a placed `defeat` in force there, or resting only
+  on such a handle (docs/nmtms.md, \"A defeat is scoped to its vantage\")?"
   [conn handle context]
   (call conn :believed? [handle context]))
 
@@ -439,6 +439,18 @@
   ([conn term context] (call conn :describe [term context]))
   ([conn term context opts] (call conn :describe [term context opts])))
 
+(defn direct-genls
+  "The types `t` is a subtype of by **one** `genl` edge in the closure — its direct
+  parents, where `genls` is everything they reach."
+  ([conn t] (call conn :direct-genls [t]))
+  ([conn t context] (call conn :direct-genls [t context])))
+
+(defn direct-specs
+  "The types that are a subtype of `t` by **one** `genl` edge in the closure — its direct
+  children."
+  ([conn t] (call conn :direct-specs [t]))
+  ([conn t context] (call conn :direct-specs [t context])))
+
 (defn disjoint-metatypes
   "The declared disjoint metatypes — each a type whose member types are pairwise disjoint
   by `(disjoint_metatype M)`."
@@ -558,8 +570,8 @@
 
 (defn in?
   "Is the sentex handle believed as the context it is stored in reads it: JTMS IN, and not
-  withdrawn there by a nogood that context decides or by resting only on such a loser
-  (docs/nmtms.md, \"A read with no reader\")? Visibility `except`s are not applied."
+  hidden there by a placed `defeat` in force there or by resting only on a handle one
+  hides (docs/nmtms.md, \"A read with no reader\")? Visibility `except`s are not applied."
   [conn handle]
   (call conn :in? [handle]))
 
@@ -584,6 +596,11 @@
   "What two KBs disagree about, as content: `{:added :removed :moved :belief-changed}`."
   [conn b]
   (call conn :kb-diff [b]))
+
+(defn kb-integrity
+  "Run the bounded, read-only integrity sweep in `context`."
+  ([conn candidate-terms context] (call conn :kb-integrity [candidate-terms context]))
+  ([conn candidate-terms context options] (call conn :kb-integrity [candidate-terms context options])))
 
 (defn kb-quality
   "Seven readings about the **knowledge** — one map, seven keys, each a distribution rather
@@ -718,6 +735,13 @@
   [conn sx]
   (call conn :readable-sentence [sx]))
 
+(defn relation?
+  "Is `term` a relation of two or more places by what the KB stores of it, visible from
+  `context` (default `?ctx`, every context): an `(arity P n)` declaration or exact-arity
+  class membership of two or more, or a `variable_arity` membership."
+  ([conn term] (call conn :relation? [term]))
+  ([conn term context] (call conn :relation? [term context])))
+
 (defn representative
   "The term standing for `term`'s equivalence class — `term` itself when nothing has merged
   it, so this is total and never nil."
@@ -791,6 +815,12 @@
   ([conn pred] (call conn :sentexes-with-functor [pred]))
   ([conn pred opts] (call conn :sentexes-with-functor [pred opts])))
 
+(defn separating-covers
+  "The believed `separating` and `partition` rosters, as a set of `[whole parts kind]`:
+  every two distinct `parts` are disjoint, and `disjoint?` reads them from this table."
+  [conn]
+  (call conn :separating-covers []))
+
 (defn settle-stats
   "Instrumentation for the `exceptWhen` fixpoint in `settle`."
   [conn]
@@ -816,10 +846,11 @@
   "The subsumption relationship of type `a` to type `b`, one of: `:coextensional` (each is
   `genl` the other), `:genl` (`(genl a b)` holds — `a` is a subtype of `b`), `:spec`
   (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint` (provably no shared
-  instance), `:orthogonal` (neither subsumes the other and not disjoint, but a shared
-  instance the registry answers without rule expansion exists), `:unknown` (none of the
-  above is provable), or `:inconsistent` (multiple contradictory relationships hold, e.g.
-  both genl-related and disjoint)."
+  instance), `:orthogonal` (a stated `(orthogonal a b)`, or neither subsumes the other and
+  not disjoint, but a shared instance the registry answers without rule expansion exists,
+  or a shared subtype not provably empty), `:unknown` (none of the above is provable), or
+  `:inconsistent` (multiple contradictory relationships hold, e.g. both genl-related and
+  disjoint)."
   ([conn a b] (call conn :subsumption-status [a b]))
   ([conn a b context] (call conn :subsumption-status [a b context])))
 

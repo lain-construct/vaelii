@@ -29,7 +29,7 @@
 
 ;; ---- arg, both directions --------------------------------------------
 
-(tu/deftest-kb arg-answers-up-the-genl-chain-via-transitiveInArgInverse
+(tu/deftest-kb arg-answers-up-the-genl-chain-via-transitiveInArg
   ;; position 3 is a TYPE: a stored constraint on mammal answers up to animal
   (tu/with-terms [petMammal mammal animal dog]
     (v/assert kb (list 'genl animal 'thing) C)
@@ -48,7 +48,7 @@
     (testing "but the constraint does not descend at position 3 — inverse is up only"
       (is (not (v/ask? kb (list 'arg petMammal 1 dog) C))))))
 
-(tu/deftest-kb arg-inherits-down-the-predicate-via-transitiveInArg
+(tu/deftest-kb arg-inherits-down-the-predicate-via-transitiveInArgInverse
   ;; position 1 is the PREDICATE: a constraint on a general predicate reaches its
   ;; genl-specializations, and not the other way
   (tu/with-terms [mySuper mySub myOver myType]
@@ -59,7 +59,7 @@
     (testing "a specialization of the constrained predicate inherits the constraint"
       (is (v/ask? kb (list 'arg mySub 1 myType) C))
       (is (empty? (v/sentexes-matching kb (list 'arg mySub 1 myType) '?ctx))))
-    (testing "but a generalization does not — transitiveInArg reaches down, not up"
+    (testing "but a generalization does not — transitiveInArgInverse reaches down, not up"
       (is (not (v/ask? kb (list 'arg myOver 1 myType) C))))))
 
 ;; ---- genlArg, interArg, arity: the same shape, smoke-tested ----------

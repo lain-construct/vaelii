@@ -35,8 +35,6 @@ scratch context hung below the asking context, so an ignored call leaves the
 KB as it found it and every answer names its assumptions. See
 [abduction.md](abduction.md).
 
-**`abstract`** ![kb](../.github/badges/cat-kb.svg): An entity outside space and time — both `aspatial` and `atemporal`. See [taxonomy.md](taxonomy.md).
-
 **Aggregation** ![inference](../.github/badges/cat-inference.svg): The five
 query operators `agg/count` / `agg/sum` / `agg/min` / `agg/max` / `agg/avg` —
 namespaced like `set/*Rule`, the bare words being ordinary vocabulary.
@@ -85,7 +83,7 @@ leaves it dormant, an unreachable target convicts. See [argtypes.md](argtypes.md
 `binary` and `ternary` are the exact relation classes, each with predicate and function
 specializations. `arity` states one exact relation arity and derives its exact
 relation-wide class; `arityMin` states a variable relation's lower bound. These bindings
-are forced monotonic, and a tuple breaking one is a nogood each reader decides
+are forced monotonic, and a tuple breaking one is a placed nogood
 ([taxonomy.md](taxonomy.md#arity)).
 `at_least_binary_relation` / `at_least_ternary_relation` are derived minimum classes.
 `admitsArgnum` names whether one positive position exists; `AdmitsArgnumProver` answers
@@ -109,7 +107,7 @@ backend the edge solver renders a contested `Program` into, solved with clingo
 (in-process JNA) or clasp (subprocess). Opt-in, with a deterministic stub
 fallback. See [asp.md](asp.md).
 
-**`aspatial`** ![kb](../.github/badges/cat-kb.svg): An entity not located in space. See [taxonomy.md](taxonomy.md).
+**`aspatial`** ![kb](../.github/badges/cat-kb.svg): An entity not located in any space — the complement of `spatial`, the two partitioning `thing`. Having no location, it has no mass, so it is below `intangible`. See [taxonomy.md](taxonomy.md#the-three-partitions-of-thing).
 
 **ASPIF** ![asp](../.github/badges/cat-asp.svg): The intermediate text format a
 `Program` is emitted to before a clingo/clasp solve. Contested assumptions
@@ -122,7 +120,7 @@ on a justification. A sentex may be both asserted and **Derived**; `kb-diff`'s
 
 **`at_least_metatype`** ![kb](../.github/badges/cat-kb.svg): The metatype-order collection of every type at order two or higher — `metatype`, `meta_metatype`, and up. See [taxonomy.md](taxonomy.md).
 
-**`atemporal`** ![kb](../.github/badges/cat-kb.svg): An entity not located in time. See [taxonomy.md](taxonomy.md).
+**`atemporal`** ![kb](../.github/badges/cat-kb.svg): An entity not located in time — the complement of `temporal`, the two partitioning `thing`. Having no location in time, it has no mass, so it is below `intangible`. See [taxonomy.md](taxonomy.md#the-three-partitions-of-thing).
 
 **Atomic (storage)** ![backend](../.github/badges/cat-backend.svg): All-or-nothing, the systems sense —
 an atomic rename publishing a new file over the live one, a crash-atomic write, and
@@ -261,6 +259,17 @@ sub-context *sees* its supers. Names start with `Cx`, then CapitalCamelCase. See
 dilemma* — both sides stay believed at `:default` and the pair is reported by
 `contradictions`, not arbitrated. See [nmtms.md](nmtms.md).
 
+**`contradicts`** ![tms](../.github/badges/cat-tms.svg): `(contradicts (sentexHandle h1)
+…)`, the stored form of a nogood: one argument per member, in content order, placed by
+the settle at each of the nogood's **Vantage**s and justified by the members, the grounds
+and the `genlCx` edges the placement is seen over, so retracting any of them takes it
+OUT. Matchable and browsable like any sentex; `conflicts` and `contradictions` read their
+reports off it. A dilemma or a conflict places a `contradicts` alone, and a nogood with a
+unique weakest member places a **`defeat`** beside it. A `contradicts` naming a member
+that is **Superseded** stays placed and is left out of the reports, and a report at a
+context names only the `contradicts` that context believes and sees. See
+[nmtms.md](nmtms.md#a-nogood-placed-as-a-conclusion).
+
 **CxCore** ![kb](../.github/badges/cat-kb.svg): The vocabulary head — the
 most general context and the upper **Spindle**'s head, seen by every other. Loaded
 by `core-context/load-into`:
@@ -300,9 +309,27 @@ rule but confers `:default` justification strength. See [nmtms.md](nmtms.md).
 stronger or contradicting knowledge arrives. Default conclusions are defeasible
 at the edges; monotonic content is not. See [nmtms.md](nmtms.md).
 
+**`defeat`** ![tms](../.github/badges/cat-tms.svg): `(defeat (sentexHandle H))`, a
+meta-sentex that removes `H` from belief at its own context and every context that
+sees it, read at read time; it sweeps nothing. Only the engine derives one: a placed
+nogood stores one for its unique weakest member, and a guard that holds below a firing's
+placement stores one for the firing's conclusion, which removes that one firing. A
+nogood's defeat is in force at a reader while one of its `nogood` justifications
+convicts `H` with the classes that reader reads; a **Defeat-dependency cycle** is broken
+in content order.
+`assert` refuses `defeat` in any literal (`:derived-only`). Contrast **`except`**, which removes `H` from visibility and
+sweeps the firings resting on `H` placed at or below it. See [nmtms.md](nmtms.md).
+
 **Defeat-class** ![tms](../.github/badges/cat-tms.svg): The strength tier an IN
 node sits at — exactly two, `:monotonic` > `:default`. A nogood is resolved by
 defeating its strictly weakest member. See [nmtms.md](nmtms.md).
+
+**Defeat-dependency cycle** ![tms](../.github/badges/cat-tms.svg): Two or more placed
+`defeat`s, each of which rests, through a rule-derived `genl` edge or a guard
+defeat's blocker, on a handle another one hides. The read walk keeps the defeat whose
+loser is first in content order (`nm/compare-form` on sentence, then context) in force
+and takes the others out of force for that read, and stores nothing. A cycle is not a
+dilemma. See [nmtms.md](nmtms.md#a-defeat-dependency-cycle).
 
 **Deferred literal** ![inference](../.github/badges/cat-inference.svg): A literal
 whose position is operational, not logical, so canonicalization holds it in the
@@ -417,10 +444,22 @@ antecedent under a `:max-depth`. See [inference.md](inference.md).
 evaluation — `(evaluate ?sum (+ 1 2))` binds `?sum` to 3 via a safe whitelist,
 not `eval`. A deferred literal. See [inference.md](inference.md).
 
+**`except`** ![tms](../.github/badges/cat-tms.svg): `(except (sentexHandle H))`, a
+meta-sentex a user asserts to remove `H` from visibility at its own context and every
+context that sees it, and to sweep the firings resting on `H` placed there. An except
+of an except takes it out of force (the meta-except cascade). Contrast **`defeat`**.
+See [contexts.md](contexts.md#except-removing-visibility-down-a-context-subtree).
+
 **`exceptWhen`** ![inference](../.github/badges/cat-inference.svg): A wrapper
 letting a rule state its own exception. For a binding the closed level-6 query
 holds of, the rule *blocks* — it does not conclude, so there is nothing to
 arbitrate. Undercutting defeat. See [exceptions.md](exceptions.md).
+
+**Exemption** ![tms](../.github/badges/cat-tms.svg): The read walk's rule that a placed
+nogood's own `contradicts` and `defeat`, which rest on the loser they hide, read that
+loser at its network label when only the nogood's own reading hides it, so the
+placement does not hide itself. Any other `defeat` or `except` of the loser hides them.
+See [nmtms.md](nmtms.md#a-nogood-placed-as-a-conclusion).
 
 **`expression`** ![kb](../.github/badges/cat-kb.svg): The parent of the representable forms — `relation`, `formula`, `context`, and `unrepresented_term`. See [taxonomy.md](taxonomy.md).
 
@@ -503,11 +542,6 @@ directions; what it adds is a **composite determinant**, as in
 `(functionalInArg P 2)` on a binary predicate is `(functional P)`. See
 [taxonomy.md](taxonomy.md) and [equality.md](equality.md).
 
-**Functor root** ![backend](../.github/badges/cat-backend.svg): The secondary
-index root `[:functor-root pred]` — every fact by functor, any arity, either polarity —
-read via `sentexes-with-functor` / `count-with-functor`. See
-[indexing.md](indexing.md).
-
 ## G
 
 **`genl` / `genlCx`** ![kb](../.github/badges/cat-kb.svg): The two
@@ -588,6 +622,8 @@ mark**: `P` is single-valued, one-to-one, and total on its declared domain, with
 said about reaching every member of its range. Derives `(functional P)` and
 `(functionalInArg P 1)`, both enforced at the write, and `(predAllSpecified P D)` off
 the `arg` declarations, audited on demand. See [taxonomy.md](taxonomy.md).
+
+**`intangible`** ![kb](../.github/badges/cat-kb.svg): An entity with no mass — a region, a shadow, a number, a relation, a time. The complement of `tangible`, the two partitioning `thing`. An intangible entity may have a location: a region of space is `spatiotemporal` and intangible both. `aspatial` and `atemporal` are below it. See [taxonomy.md](taxonomy.md#the-three-partitions-of-thing).
 
 **`ist`** ![kb](../.github/badges/cat-kb.svg): "Is true in" — `(ist Ctx S)`
 finds-or-creates `S` in `Ctx` and returns its handle, and given to a read it asks `S`
@@ -718,28 +754,32 @@ Closed-world negation. `(unknown S)` holds iff `S` is not derivable;
 never stored, and a negative stratification edge in a rule body. See
 [naf.md](naf.md).
 
-**Nogood** ![tms](../.github/badges/cat-tms.svg): A set of believed sentexes that
-cannot all hold — a believed `(not X)` alongside a believed `X` wherever some context
+**Nogood** ![tms](../.github/badges/cat-tms.svg): A set of sentexes IN in the network that
+cannot all hold — a `(not X)` alongside an `X` wherever some context
 sees both, a definitional clash, or the three claims an `anti_transitive` chain forbids.
-Resolved softly by `settle` on defeat-class, the weakest member defeated where one is
-weakest, never thrown. See [nmtms.md](nmtms.md).
+Placed by `settle` at its **Vantage**s as a **`contradicts`**, with a **`defeat`** of the
+weakest member where one is weakest on defeat-class; never thrown. See
+[nmtms.md](nmtms.md).
 
 **`not`** ![kb](../.github/badges/cat-kb.svg): First-class negation. A `(not S)` is
 stored with its one head `not`, double negation eliminated, and that head is the
 literal's sign (`sentex/negative?`); the trie keys it under `:false`. See
 [canonicalization.md](canonicalization.md).
 
+**`nowhere_never`** ![kb](../.github/badges/cat-kb.svg): An entity in no space and at no time — below both `aspatial` and `atemporal`, and so neither physically nor mathematically located. An expression or a language is one; the line y=x is not, being located in the Cartesian plane. See [taxonomy.md](taxonomy.md#the-three-partitions-of-thing).
+
 ## O
 
-**Operation log** ![backend](../.github/badges/cat-backend.svg): The file a KB records
-each outermost public write into, as the call that made it — the operation's name, its
-arguments, and the clock, creator and dynamic bindings the call reads beyond them
-(`vaelii.impl.oplog`). A write nested inside another appends no frame. A seal-class or
+**Operation log** ![backend](../.github/badges/cat-backend.svg): The file a
+`:disk-snapshot` KB opened with `:oplog?` records each outermost public write into, as
+the call that made it — the operation's name, its arguments, and the clock, creator and
+dynamic bindings the call reads beyond them (`vaelii.impl.oplog`). A write nested inside another appends no frame. A seal-class or
 configuration call, an argument nippy cannot freeze, a change-feed listener's write, or a
 record write outside every operation marks the log unusable until the next **seal**. A
 restore replays the frames of the current generation over the images the seal wrote,
-checking each replayed write against the record stored at its handle. See
-[namespaces.md](namespaces.md).
+checking each replayed write against the record stored at its handle; an open with
+`:oplog?` restores first and rebuilds from the records only when the restore declines.
+See [storage.md](storage.md#the-operation-log).
 
 **`or`** ![kb](../.github/badges/cat-kb.svg): The disjunction connective, legal in a
 rule **antecedent** and nowhere else. It never reaches a stored sentence: the
@@ -753,6 +793,16 @@ is written with `set/assumptionRule` ([solving.md](solving.md)); a disjunctive
 that the same knowledge asserted in any order yields the same beliefs — belief
 is computed from state, and every tie-break keys on content, never on handle id.
 See [nmtms.md](nmtms.md).
+
+**`orthogonal`** ![kb](../.github/badges/cat-kb.svg): States three things together: the
+two types are not disjoint, the first is not a `genl` of the second, and the second is not
+a `genl` of the first. It does not say that anything is an instance of both, and it
+exempts the pair from no separation. Symmetric and forced monotonic. A separation of the
+pair a reader sees, a `genl` edge between the two, or the one type named twice
+contradicts it: a one-member clash of the declaration. It is also the declared witness of
+the `:orthogonal` subsumption status. `siblingDisjointException` is a `genl` of it, so a
+stored exception answers `(orthogonal a b)` and is read as one. See
+[taxonomy.md](taxonomy.md).
 
 ## P
 
@@ -771,8 +821,10 @@ goal or inside a rule. See [inference.md](inference.md).
 
 **Placement context** ![inference](../.github/badges/cat-inference.svg): Where a
 forward-derived sentex lands — the maximal contexts that see the firing rule and
-all its antecedent facts (`maximal-common-descendant-contexts`). Possibly
-several, possibly none. See [contexts.md](contexts.md).
+all its antecedent facts (`maximal-common-descendant-contexts`), where no `except`
+hides one of them (`res/exception-aware-placements`). Possibly several, possibly none.
+A placed nogood and a guard defeat take the same placement over what they read, and no
+placement reads a `defeat`. See [contexts.md](contexts.md).
 
 **Plan (conjunctive query planning)** ![inference](../.github/badges/cat-inference.svg):
 Ordering a conjunction's literals cheapest-first, each estimated under the
@@ -812,6 +864,12 @@ on-demand integrity audit reporting the instances with no determinate filler —
 the filler's required type derived from the predicate's own slot contract rather than
 restated, and a predicate with no visible slot typing reported as an explicit
 declaration-contract gap. See [predall.md](predall.md).
+
+**Predicate extent** ![backend](../.github/badges/cat-backend.svg): The count trie
+`[:predicate-extent … [pred ctx]]` — every fact by functor, any arity, either polarity,
+with the contexts that state one as its node's children — read via
+`sentexes-with-functor` / `count-with-functor`, and scoped to a reader's ancestor set
+through `sentexes-with-args`. See [indexing.md](indexing.md).
 
 **Premise** ![tms](../.github/badges/cat-tms.svg): An asserted datum held IN
 unconditionally (subject to defeat/supersession), as opposed to a derived
@@ -877,6 +935,13 @@ of 8 base topological relations between two regions — disconnected, externally
 connected, partially overlapping, equal, and the two proper-part relations with
 their converses. `vaelii.impl.space`, registered as `:rcc8`. See
 [space.md](space.md).
+
+**Read walk** ![tms](../.github/badges/cat-tms.svg): What a belief-filtered read at a
+context runs (`exc/defeat-hidden-fn`): over the asked handle's justification
+ancestors, it forces OUT each target a **`defeat`** or **`except`** in force there
+names, drops the justifications a guard defeat covers, and reads the handle's label
+with `jtms/region-in`. Its memo lives for one read. See
+[nmtms.md](nmtms.md#a-nogood-placed-as-a-conclusion).
 
 **Reasoning image** ![tms](../.github/badges/cat-tms.svg): The whole **reasoning state** a
 `:disk-snapshot` KB writes beside its records (`vaelii.impl.reasoning-image`): the dense
@@ -991,22 +1056,25 @@ function of the facts alone, so it is repeatable.
 `core/qualitative-scenario` / `qualitative-scenarios`. See
 [scenario.md](scenario.md).
 
-**Scoped defeat** ![tms](../.github/badges/cat-tms.svg): A nogood's member a reader
-takes OUT. Every defeat is scoped: the member keeps its IN label in the network, and each
-reader at or below the nogood's **Vantage** decides the nogood from its own view and reads
-the loser, and whatever rests only on it, as withdrawn. See [nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage).
+**Scoped defeat** ![tms](../.github/badges/cat-tms.svg): A nogood's member a placed `defeat`
+hides. Every defeat is scoped: the member keeps its IN label in the network, and a reader
+at or below the nogood's **Vantage** where the defeat is in force does not believe the
+loser or whatever rests only on it. See
+[nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage).
 
 **Seal** ![backend](../.github/badges/cat-backend.svg): The point an **operation log**
 starts again from (`vaelii.impl.seal`): the index image and the reasoning image, written
 together, then a `seal.nippy` naming the new generation, the records watermark and the
 two fingerprints the images carry, then the log truncated to a header for that
 generation. A restore installs the images against the seal's fingerprints and replays
-only frames of its generation. See [namespaces.md](namespaces.md).
+only frames of its generation. `vaelii.core/seal` takes one on the caller's cadence. See
+[storage.md](storage.md#the-operation-log).
 
 **Secondary roots** ![backend](../.github/badges/cat-backend.svg): The three
 single-level index roots the trie's left-to-right narrowing cannot supply —
-context `[:context-root]`, functor `[:functor-root]`, and argument-position `[:argument-root]` — each a
-set whose cardinality is its own count. See [indexing.md](indexing.md).
+context `[:context-root]`, functor `[:predicate-extent]`, and argument-position
+`[:argument-root]`.  The context root is a set whose cardinality is its own count; the
+other two are count tries ending in the context. See [indexing.md](indexing.md).
 
 **`seeAlso`** ![kb](../.github/badges/cat-kb.svg): A curation cross-reference —
 `(seeAlso a b)` points a reader from term `a` to term `b`. **Directional**: the reverse is
@@ -1040,12 +1108,15 @@ the `disjoint_metatype` clique keyed off the genl closure, consulted not stored,
 belief-following, and raising contradictions through the same JTMS/ASP path as
 `disjoint`. Covering is out of scope. See [taxonomy.md](taxonomy.md).
 
-**`siblingDisjointException`** ![kb](../.github/badges/cat-kb.svg): Exempts the one pair
-of types it names from a disjointness a `sibling_disjoint` mark or a `disjoint_metatype`
-would otherwise force — pair-local, so it does not disturb either type's disjointness from
-the parent's other specializations and does not leak to subtypes. Read at the reader: a
-context that does not see the exception reads the pair separated. See
-[taxonomy.md](taxonomy.md).
+**`siblingDisjointException`** ![kb](../.github/badges/cat-kb.svg): Exempts one pair of
+types from the separation marks — a `sibling_disjoint` parent, a `disjoint_metatype`, a
+`partition` or `separating` roster — pair-local and read at the reader. A stated
+`disjoint` is no mark, so a `disjoint` over the pair or over a supertype of each
+contradicts it. Symmetric and forced monotonic. CxCore states
+`(genl siblingDisjointException orthogonal)`: an exception states an `orthogonal` pair, and
+a `genl` edge between its two types is a clash of the orthogonal it entails. The exemption
+is the exception's alone; an `orthogonal` exempts nothing. See
+[taxonomy.md](taxonomy.md#disjointness).
 
 **Sideways information passing** ![inference](../.github/badges/cat-inference.svg):
 Costing each conjunct under the bindings the already-chosen literals will
@@ -1083,6 +1154,10 @@ jar names of the libraries the engine namespaces load are included. A **reasonin
 by a build whose source identity equals the one the image was written under. See
 [storage.md](storage.md).
 
+**`spatial`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in some space — physical space, or a mathematical one such as the Cartesian plane, where the line y=x is located though it has no location in the world. `spatial` and `aspatial` partition `thing`, and every argument of the spatial calculi is declared at `spatial`. See [space.md](space.md).
+
+**`spatiotemporal`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in space and time — a physical object, a region, a place. Below both `spatial` and `temporal`. See [space.md](space.md).
+
 **Spindle** ![kb](../.github/badges/cat-kb.svg): The shape the context topology
 is built from — three layers: a **head** every member sees, a set of **members**
 that see the head and not each other, and a **collector** that sees every member.
@@ -1091,6 +1166,11 @@ members `kb/upper/`, collector CxUniverse) and the *middle* spindle (head
 CxUniverse, members `kb/middle/`, collector CxWell). A term two members of one
 spindle define or extend belongs at or above that spindle's head, since no member
 sees another. See [contexts.md](contexts.md).
+
+**Spurious miss** ![backend](../.github/badges/cat-backend.svg): A miss of a
+derived-state row whose recompute returns the value a write retired: the write retired
+an entry whose inputs it did not change. Counted while the derived-state instrument runs.
+See [caches.md](caches.md#spurious-misses).
 
 **Stratification** ![inference](../.github/badges/cat-inference.svg): The
 well-formedness rule that a rule set must have no cycle through negation — `wff`
@@ -1114,16 +1194,20 @@ retracted. See [quality.md](quality.md); the matching-time relation it is built 
 **Subsumption status** ![kb](../.github/badges/cat-kb.svg): The relationship of one type
 to another in the genl hierarchy, as `subsumption-status` classifies it: `:genl` (the
 first type is a subtype of the second), `:spec` (the converse), `:coextensional` (each is
-`genl` the other), `:disjoint` (provably no shared instance), `:orthogonal` (a shared
-instance with neither subsumption nor disjointness), or `:unknown` (none of these is
-provable). `disjointness-audit` runs the classification over every unordered type pair,
-and its `:unknown` pairs are the candidates for a missing `disjoint` declaration. See
-[taxonomy.md](taxonomy.md).
+`genl` the other), `:disjoint` (provably no shared instance), `:orthogonal` (a stated
+`orthogonal` or `siblingDisjointException`, or a shared instance or a shared subtype not
+provably empty, with neither subsumption nor disjointness),
+`:unknown` (none of these is provable), or `:inconsistent` (two or more of them at once).
+`disjointness-audit` runs the classification over every unordered type pair, leaving out
+each `genl` node for which `relation?` answers true (a stored arity of two or more), and its
+`:unknown` pairs are the candidates for a missing `disjoint` or `orthogonal` declaration.
+See [taxonomy.md](taxonomy.md).
 
 **Superseded** ![tms](../.github/badges/cat-tms.svg): The TMS state an equality
 merge puts a stale spelling in — stored but not believed and not matching,
 subtracting from reported belief rather than forced OUT, so its justified twin
-survives. See [equality.md](equality.md).
+survives. A superseded datum stays IN in the network and fires no rule, and a nogood
+naming one keeps its placement. See [equality.md](equality.md).
 
 **`surjection`** ![kb](../.github/badges/cat-kb.svg): `(surjection P)` — a **function
 mark**: `P` is single-valued, total on its declared domain, and onto its declared range,
@@ -1138,9 +1222,12 @@ orders at match time. See [canonicalization.md](canonicalization.md).
 
 ## T
 
+**`tangible`** ![kb](../.github/badges/cat-kb.svg): An entity with mass — and so, necessarily, a location in space and time: below `spatiotemporal`. `tangible` and `intangible` partition `thing`. See [taxonomy.md](taxonomy.md#the-three-partitions-of-thing).
+
 **Taxonomy** ![kb](../.github/badges/cat-kb.svg): The in-memory cache of the
 `genl` / `genlCx` closures, the equality partition, the predicate metadata,
-and the disjointness caches — all belief-following, reconciled each `settle`. See
+and the disjointness caches, reconciled each `settle`. Each reads the network's labels,
+and a scoped read filters each supporter through the **Read walk**. See
 [taxonomy.md](taxonomy.md).
 
 **Term** ![backend](../.github/badges/cat-backend.svg): A name in the KB's vocabulary — what
@@ -1177,10 +1264,11 @@ desugars to `S`'s conjuncts with `?x` a local matched variable. See
 hierarchy — every type reaches `thing` upward. See [taxonomy.md](taxonomy.md).
 
 **`transitiveInArg`** ![kb](../.github/badges/cat-kb.svg): `(transitiveInArg P n R)`
-licenses carrying a claim about `P`'s *n*-th argument across an `R`-related pair
-— what makes "the part of a wooden table is wooden" derivable without a rule per
-predicate. `transitiveInArgInverse` reads it the other way. See
-[inherit.md](inherit.md).
+licenses carrying a claim about `P`'s *n*-th argument across an `R`-related pair,
+along `R`'s arrow: a stored `(P … W …)` and `(R W A)` give `(P … A …)`, as Cyc's
+`transitiveViaArg` does. `transitiveInArgInverse` carries it against the arrow — what
+makes "the part of a wooden table is wooden" derivable from `partOf` without a rule per
+predicate. See [inherit.md](inherit.md).
 
 **Transitivity** ![kb](../.github/badges/cat-kb.svg): The lifeblood of common
 sense, done by cached closures rather than rules for `genl` / `genlCx`, and
@@ -1232,10 +1320,11 @@ a string, a number, a character, a boolean. It denotes itself, which is why its 
 answers both argument readings. See [argtypes.md](argtypes.md).
 
 **Vantage** ![tms](../.github/badges/cat-tms.svg): A most general context that sees every
-member of a nogood, and for a definitional clash the declaration too. Every reader at or
-below a vantage decides the nogood from its own view, and a member such a reader takes OUT
-is a **Scoped defeat**. See
-[nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage).
+member of a nogood, and for a definitional clash its grounds too, with no `except`
+hiding one of them. The settle places the nogood's **`contradicts`**, and the
+loser's **`defeat`**, in each vantage. A reader at or below a vantage reads the
+placement with its own classes, and a member a defeat in force there hides is that
+reader's **Scoped defeat**. See [nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage).
 
 **Variable** ![kb](../.github/badges/cat-kb.svg): A `?x` symbol standing for an unknown. Canonically renumbered
 (`?var0`, `?var1`, …) in a stored rule, with the author's spelling kept in
@@ -1280,7 +1369,8 @@ stratification. See [naming.md](naming.md).
 
 **`why` / `why-not`** ![tms](../.github/badges/cat-tms.svg): Introspection.
 `why` returns the proof tree of a believed handle down to premises; `why-not`
-explains a stored-but-OUT datum (`:defeated` / `:withdrawn` / `:superseded` / `:unsupported`)
+explains a stored datum its own context does not believe (`:defeated` / `:withdrawn` /
+`:superseded` / `:unsupported`)
 or a blocked conclusion. `why-not`'s `{:nearest n}` answers the one case with nothing
 stored to explain: it runs a bounded backward search and names the rules that came
 closest, with the antecedents each is still missing. See [nmtms.md](nmtms.md),

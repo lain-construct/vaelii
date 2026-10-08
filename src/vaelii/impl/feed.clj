@@ -30,7 +30,8 @@
   listener vector, and nothing accumulates.  A KB *with* one pays per relabelled region
   — the same region a `preview` diffs — and never per stored sentex; see
   `lein perf`'s `feed-listener-scaling`.  See docs/feed.md."
-  (:require [taoensso.trove :as trove]))
+  (:require [taoensso.trove :as trove]
+            [vaelii.impl.caches :as caches]))
 
 (def ^:dynamic *enabled?*
   "Does a settle file its region into the feed at all?
@@ -276,3 +277,12 @@
          (try (deliver! kb#)
               (catch Throwable d# (.addSuppressed t# d#)))
          (throw t#)))))
+
+;; ---- derived state (docs/caches.md, "The derived-state register") ----------------
+
+(caches/register-derived
+ {:id :Q6 :label "Feed accumulator" :kind :queue :keyed-by :handle :reads [:M2]
+  :retired-by {:settle-exit :Q :recover :Q}
+  :computed :settle :imaged? false
+  :value (fn [kb] (some-> (:feed kb) deref (select-keys [:region :was-in :delivering?])))
+  :note "the region and prior belief a delivery owes the feed's listeners, filed at the settle exit and taken by `claim!` and `take-accumulated!`"})

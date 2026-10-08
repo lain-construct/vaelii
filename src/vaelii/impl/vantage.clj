@@ -42,7 +42,8 @@
   The two must return the same answers, witnesses included.  `query_context_test` pins the
   cases one at a time; `vantage_differential_test` compares them over generated lattices,
   and each of the five things above turns it red when removed."
-  (:require [vaelii.impl.naming :as nm]
+  (:require [vaelii.impl.except :as exc]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
             [vaelii.impl.resolution :as res]
@@ -208,7 +209,7 @@
       ;; to acquire, so requiring a reader for it would drop it for want of a witness rather
       ;; than for want of support.  Answered unscoped and with no witness, there being no
       ;; context to name.
-      (binding [res/*unscoped-own* true] (vec (run-at '?ctx)))
+      (binding [exc/*unscoped-own* true] (vec (run-at '?ctx)))
       (witnessed kb witness
                  (reduce (fn [acc reader]
                            (reduce (fn [m b] (update m b (fnil conj #{}) reader))
@@ -229,7 +230,7 @@
   (let [rs (readers kb goals)]
     (if (empty? rs)
       ;; the lattice is empty, so there is no vantage to require — see `fan`
-      (binding [res/*unscoped-own* true] (vec (distinct (run-at '?ctx))))
+      (binding [exc/*unscoped-own* true] (vec (distinct (run-at '?ctx))))
       ;; **Lazy over the readers**, since `sentexes-matching` promises a seq that fetches
       ;; what it is asked for.  There is no witness to maximize here, so unlike `fan` there
       ;; is nothing that has to see every reader before it can answer at all: `distinct` is
@@ -450,7 +451,7 @@
   construction, so post-hoc matches a sentex that is `except`ed from the very context it is
   about to place the answer in, and reports an answer no reader has.
 
-  So a targeted supporter forces the same descent `chain/exception-aware-placements` makes
+  So a targeted supporter forces the same descent `res/exception-aware-placements` makes
   forward: enumerate the contexts that structurally see every ingredient, keep the ones that
   see every *exact* supporter, and maximize those. `excepted-anywhere?` is the coarse gate,
   so an ordinary answer — which is nearly every answer — takes no ancestor set walk at all and
@@ -458,9 +459,9 @@
   [kb supporters ctxs]
   (let [tax     (reasoning/taxonomy kb)
         merged? (tax/merged-term-pred tax)
-        ;; ...and a supporter some reader withdraws (`res/withdrawable-closure`)
-        wc      (res/withdrawable-closure kb)
-        base    (if (some #(or (contains? wc %) (res/excepted-anywhere? kb %)) supporters)
+        ;; ...and a supporter a placed defeat removes from some reader's belief
+        base    (if (some #(or (exc/defeated-anywhere? kb %) (exc/closure-excepted-anywhere? kb %))
+                          supporters)
                   (tax/maximal-contexts
                    tax (filterv (fn [c] (every? #(res/supporter-visible? kb % c) supporters))
                                 (tax/common-descendants tax ctxs)))
@@ -547,7 +548,7 @@
     (cond
       (nothing-to-witness? goals)
       ;; asked of the KB, each handle as its own context believes it
-      {:answers (binding [res/*unscoped-own* true] (vec (run-at '?ctx))) :strategy :unscoped}
+      {:answers (binding [exc/*unscoped-own* true] (vec (run-at '?ctx))) :strategy :unscoped}
 
       (and (= :post-hoc *strategy*) (not expands-rules?) (placeable? kb goals))
       ;; post-hoc first, and the fan if it proves to be in the blowup regime.  A cost

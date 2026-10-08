@@ -29,22 +29,24 @@
       (is (string? (first (core-context/comment-of kb term)))))))
 
 (tu/deftest-kb argisa-constraints-are-enforced-on-assert
-  ;; arg is a core predicate the engine interprets, so a constraint on it is checked
-  ;; on assert.  (The starter's domain arg live in the upper CxRelation now, not
-  ;; the vocabulary head, so this defines its own vocabulary — wiring a data context to
-  ;; see CxCore directly, since a CxCore-only KB is a head with no spindle under it.)
-  (let [animal (tu/tmp-type) rock (tu/tmp-type) kin (tu/tmp-pred)
-        tom (tu/tmp-ind) boulder (tu/tmp-ind)]
-    (v/assert kb '(genlCx CxData CxCore) 'CxUniverse)   ; a data context that sees core
-    (v/assert kb (list 'genl animal 'thing) 'CxCore)
-    (v/assert kb (list 'genl rock   'thing) 'CxCore)
-    (v/assert kb (list 'arg kin 1 animal) 'CxCore)                  ; the constraint
-    (v/assert kb (list animal tom)    'CxData)
-    (v/assert kb (list rock   boulder) 'CxData)
-    (testing "the arg constraint applies on assert"
-      (is (v/assert kb (list kin tom tom) 'CxData))                    ; tom is an animal: OK
-      (is (thrown? clojure.lang.ExceptionInfo
-                   (v/assert kb (list kin boulder tom) 'CxData))))))   ; a rock is not an animal
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   ;; arg is a core predicate the engine interprets, so a constraint on it is checked
+   ;; on assert.  (The starter's domain arg live in the upper CxRelation now, not
+   ;; the vocabulary head, so this defines its own vocabulary — wiring a data context to
+   ;; see CxCore directly, since a CxCore-only KB is a head with no spindle under it.)
+   (let [animal (tu/tmp-type) rock (tu/tmp-type) kin (tu/tmp-pred)
+         tom (tu/tmp-ind) boulder (tu/tmp-ind)]
+     (v/assert kb '(genlCx CxData CxCore) 'CxUniverse)   ; a data context that sees core
+     (v/assert kb (list 'genl animal 'thing) 'CxCore)
+     (v/assert kb (list 'genl rock   'thing) 'CxCore)
+     (v/assert kb (list 'arg kin 1 animal) 'CxCore)                  ; the constraint
+     (v/assert kb (list animal tom)    'CxData)
+     (v/assert kb (list rock   boulder) 'CxData)
+     (testing "the arg constraint applies on assert"
+       (is (v/assert kb (list kin tom tom) 'CxData))                    ; tom is an animal: OK
+       (is (thrown? clojure.lang.ExceptionInfo
+                    (v/assert kb (list kin boulder tom) 'CxData)))))))   ; a rock is not an animal
 
 (tu/deftest-kb argument-declarations-accept-functions-and-predicates
   (tu/with-terms [ReviewFn reviewRelation]

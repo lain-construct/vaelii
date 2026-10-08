@@ -6,7 +6,7 @@
 
   A backward goal on predicate P is answered by expanding the rules that could conclude P:
   `res/concluding-rule-handles` = `specs(P)` ∩ `rules-by-consequent(P)`, an **indexed**
-  intersection over the rule index (`:rule-index :consequent`).  So the per-goal candidate set is bounded by
+  intersection over the consequent index (`:rule-consequent`).  So the per-goal candidate set is bounded by
   *how many rules conclude P* — not by the total rule count — provided that lookup really is
   indexed and never scans.  This bench verifies that and sizes it:
 
@@ -35,11 +35,11 @@
   (let [ix (:index kb)]
     (dotimes [i n]
       (let [[antes conc] (gen-rule rng preds pred-cum)]
-        (p/index-rule ix (+ 1000000000 i) antes conc)))))
+        (p/index-rule ix (+ 1000000000 i) antes conc (quote CxBench))))))
 
 (defn- ridx-postings [state]
-  ;; the rule-index consequent postings (`[:rule-index :consequent pred] -> #{rule-handles}`)
-  (keep (fn [[k v]] (when (and (vector? k) (= :rule-index (first k)) (= :c (second k)) (set? v)) v)) state))
+  ;; the consequent index's leaves (`[:rule-consequent :handles [pred ctx]] -> #{rule-handles}`)
+  (keep (fn [[k v]] (when (and (vector? k) (= :rule-consequent (first k)) (= :handles (second k)) (set? v)) v)) state))
 
 (defn- ->intarr ^ints [s] (int-array (sort (map #(int (- % 1000000000)) s))))
 

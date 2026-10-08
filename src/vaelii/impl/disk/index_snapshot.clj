@@ -30,11 +30,14 @@
   * `trie.csr` — the trie's six CSR sections (`fcounts` `foffsets` `fedge-tok`
     `fedge-tgt` `fleaf-off` `fhandles`), each a raw little-endian `int` run behind a
     header naming the counts.
-  * `roots.csr` — **every** root family (context/functor roots, the argument roots, the
-    term, rule and exception indexes) as the same CSR shape over `dense-roots`' packed
-    `long` keys: sorted keys, an offset column, one shared handle run.  Plus the scope
-    table the argument roots decode through — one `(predicate, position)` pair per entry,
-    indexed by the scope id their packed keys carry (`dense-roots`' `argfam-id`).  The
+  * `roots.csr` — **every** root family (the context roots, the predicate extent, the
+    argument roots, the term, rule and exception indexes) as the same CSR shape over
+    `dense-roots`' packed `long` keys: sorted keys, an offset column, one shared handle
+    run (an argument node's run holds context token ids).  Plus the scope table the count
+    tries' leaves decode through — one `(predicate, position)` pair, `(predicate, position,
+    context)` triple or `(context, 0, context)` context scope per entry, as three columns
+    with -1 for a pair's context, indexed by the scope id their packed keys carry
+    (`dense-roots`' `argfam-id`).  The
     table is vocabulary-scaled and rides this file because this file's key column is its
     only reader: written in one pass, discarded as one unit, so the two cannot drift.
   * `roots-fallback.nippy` — everything the routed families do not claim: the term and
@@ -111,6 +114,7 @@
             [vaelii.impl.dense-roots :as roots]
             [vaelii.impl.disk.files :as f]
             [vaelii.impl.disk.tokens :as dtok]
+            [vaelii.impl.io.thaw :as safe]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.sentex :as sx]
@@ -124,8 +128,10 @@
 
 (def ^:const format-version
   "The snapshot's own layout number, beside `kv/index-layout-version` (which says what the
-  *entries* mean).  Bump when a section's shape or order changes."
-  2)
+  *entries* mean).  Bump when a section's shape or order changes, or when a packed key
+  cites a different scope.  4 packs each `[key ctx]` leaf of a count trie other than the
+  argument trie under its context's scope `[ctx 0 ctx]`."
+  4)
 
 (def ^:private ^:const trie-magic  0x56545249)     ; "VTRI"
 (def ^:private ^:const roots-magic 0x56524f54)     ; "VROT"
@@ -505,7 +511,7 @@
   they cannot drift apart.  `tokens.log` is durable ground truth appended as facts arrive,
   which is why it can disagree with an image and why `:duplicate-tokens` exists to repair
   that."
-  [^String path {:keys [keys offsets handles preds positions]}]
+  [^String path {:keys [keys offsets handles preds positions contexts]}]
   (let [k (alength ^longs keys)
         h (alength ^ints handles)
         a (alength ^ints preds)]
@@ -516,6 +522,7 @@
       (put-ints!  ch handles h)
       (put-ints!  ch preds   a)
       (put-ints!  ch positions a)
+      (put-ints!  ch contexts a)
       (.force ch true))
     {:keys k :handles h :scopes a}))
 
@@ -684,7 +691,7 @@
       :entries-truncated
       (< (file-len (roots-path root))
          (+ 20 (* 8 (long kn)) (* 4 (inc (long kn))) (* 4 (long hn))
-            (* 8 (long (or (:scopes (:roots m)) 0)))))
+            (* 12 (long (or (:scopes (:roots m)) 0)))))
       :entries-truncated
       ;; the fallback blob is read whole, so its length is checked exactly — a
       ;; missing file (-1) and a meta with no record of it both land here
@@ -727,8 +734,9 @@
 (defn- load-roots!
   "Map the three routed columns, and read the scope table resident.
 
-  The table is vocabulary-scaled — one entry per `(predicate, position)` pair the corpus
-  exhibits — so it joins the resident half of the split beside the key and offset columns
+  The table is vocabulary-scaled — one entry per `(predicate, position)` pair and per
+  `(predicate, position, context)` triple the corpus exhibits — so it joins the resident
+  half of the split beside the key and offset columns
   rather than the mapped half.  It is read before the columns are installed: a packed
   argument key whose scope id decodes to nothing is a key that answers the wrong posting,
   and the throw belongs before the install rather than at the first read after it."
@@ -747,8 +755,10 @@
             o2 (+ o1 (* 8 k))
             o3 (+ o2 (* 4 (inc k)))
             o4 (+ o3 (* 4 h))
-            o5 (+ o4 (* 4 a))]
-        (roots/load-argfam! (:roots store) (read-ints ch o4 a) (read-ints ch o5 a) a)
+            o5 (+ o4 (* 4 a))
+            o6 (+ o5 (* 4 a))]
+        (roots/load-argfam! (:roots store) (read-ints ch o4 a) (read-ints ch o5 a)
+                            (read-ints ch o6 a) a)
         (snapshot-types/snapshot-install!
          (:roots store)
          {:keys    (map-longs ch o1 k)          ; resident enough to be read
@@ -851,7 +861,11 @@
 
   `:duplicate-tokens` is the one rebuild that also **repairs** as it declines
   (`load-dictionary!`), and so the one a reader should not expect twice over one
-  directory."
+  directory.
+
+  A `VirtualMachineError` in a failed map's cause chain (`safe/vm-error`) empties `store`
+  and is rethrown as itself, not answered `:unreadable`: the heap ran out, and a rebuild
+  from the records needs more heap than the map."
   [dir store stamp-fn]
   (let [root (snapshot-root dir)
         m    (f/read-nippy-file (meta-path root) nil)]
@@ -875,6 +889,9 @@
                                         root ms (long (:tokens m)) (long (:nodes (:trie m))))})
               {:index :mapped :ms ms :trie (:trie m) :roots (:roots m)}))
           (catch Throwable t
+            (when-let [e (safe/vm-error t)]
+              (p/clear-index! store)
+              (throw e))
             ;; a cause this open could do something about names itself, so the operator
             ;; reads what happened rather than "did not read" a third time
             (let [why (if (= :duplicate-tokens (:type (ex-data t))) :duplicate-tokens :unreadable)]

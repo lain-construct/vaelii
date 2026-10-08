@@ -494,9 +494,18 @@
         (conj (audit-path (- m k) (subvec leaves k n))
               {:hash (hex (merkle-node (subvec leaves 0 k))) :side :left})))))
 
+(defn- leaf?
+  "Does the seat's commit hold `h`: believed (`v/in?`), and not a `contradicts` or
+  `defeat` the engine placed for a nogood, which names its members by this seat's
+  handles and records a clash among the beliefs rather than a belief of its own."
+  [kb h]
+  (and (v/in? kb h)
+       (not (and (contains? '#{contradicts defeat} (first (:sentence (v/sentex kb h))))
+                 (not (v/premise? kb h))))))
+
 (defn- believed-handles
-  "The handles this seat **believes** — `v/handles` (storage) narrowed by `v/in?` (the JTMS
-  label), which is the belief filter the extent readers spell `{:believed? true}`.
+  "The handles this seat **believes** — `v/handles` (storage) narrowed by `leaf?`, the
+  belief filter the extent readers spell `{:believed? true}`.
 
   The one enumeration every commit identity is built from, and the reason is what a commit
   id is FOR: two seats compare it to agree they hold the same thing, and what a seat holds
@@ -506,7 +515,7 @@
   so two seats agreeing on every belief but differing in what they had once stored would
   compute different ids and read as disagreeing."
   [kb]
-  (filter #(v/in? kb %) (v/handles kb)))
+  (filter #(leaf? kb %) (v/handles kb)))
 
 (defn commit-id
   "A content-addressed fingerprint of the seat's **believed knowledge** — the RFC-6962
@@ -876,7 +885,7 @@
         ;; `handle-of` is a STORAGE read and the commit family enumerates BELIEF — so
         ;; without this arm a defeated record resolves here while answering no inclusion
         ;; proof, and the two halves of one seat disagree about what it holds
-        (not (v/in? kb h))
+        (not (leaf? kb h))
         {:resolved? false :reason :not-believed :locator (:locator marker) :handle h}
 
         (not= (:locator marker) (locator-of kb h))

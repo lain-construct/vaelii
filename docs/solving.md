@@ -345,8 +345,8 @@ fully-dense ~12×12+ region stays degenerate, so its candidate graph is kept spa
 `recover` — but it is **not a JTMS premise**, so it is never IN.
 
 This is what makes labelings coexist, and it needs no ATMS. Every belief-filtered read —
-`sentexes-matching`, `in?`, and the nogood decisions (`decide/losers`, the settle's
-rounds) — sees only IN sentexes. So an inert `(not head)` sitting in a context that sees a believed `head` forms
+`sentexes-matching`, `in?`, and the nogood placement (`chain/place-nogoods!`) — sees only
+IN sentexes. So an inert `(not head)` sitting in a context that sees a believed `head` forms
 **no** nogood and moves **no** belief. Coexistence falls out of *not premising*.
 
 ```clojure
@@ -375,10 +375,10 @@ The optional third argument is the mode: `:all` (the default), `:one` or `:sat`,
 anything else is refused as `:not-assertible`.
 
 The rules a run reads — choice, constraint and cardinality rules, and `set/solveRule`s
-(`rules/solve-sentex?`) — come off the `:solve-rules` roster, `{context -> #{handle}}`,
-kept at the rule index/unindex choke points beside `:rule-contexts` and rebuilt by
-`recover`. The roster records storage; a run reads the entries for `Base` and its
-`genlCx` ancestor set and keeps the rules `res/rule-believed?` holds. Finding the rules
+(`rules/solve-sentex?`) — come off the rule extent's `:solve` node, a count trie ending in
+the context (`reads/as-stored-rules-in`). The extent records storage; a run reads the
+leaves for `Base` and its `genlCx` ancestor set and keeps the rules `res/rule-believed?`
+holds. Finding the rules
 therefore fetches one record per solve rule in that ancestor set and none of its facts
 (`solve_context_test`, `finding-a-solves-rules-reads-its-rules-not-the-corpus`).
 

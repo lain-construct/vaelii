@@ -599,23 +599,25 @@
           (is (= childOf (v/inverse-of kb parentOf))))))))
 
 (tu/deftest-kb except-blocks-genlArg-sentex-visibility
-  ;; genlArg: argument subtype constraint.
-  (tu/with-terms [typeRel root sub CxAG]
-    (v/assert kb (list 'genlCx CxAG 'CxWell) 'CxUniverse {:strength :monotonic})
-    (v/assert kb (list 'genl root 'thing) CxAG {:strength :monotonic})
-    (v/assert kb (list 'genl sub root) CxAG {:strength :monotonic})
-    (let [agh (v/assert kb (list 'genlArg typeRel 1 root) CxAG {:strength :monotonic})]
-      (testing "genlArg constraint is active — subtype passes, sibling fails"
-        (is (v/assert kb (list typeRel sub (tu/tmp-type)) CxAG))
-        (tu/with-terms [other]
-          (v/assert kb (list 'genl other 'thing) CxAG {:strength :monotonic})
-          (is (= :arg-genl (ex-type #(v/assert kb (list typeRel other (tu/tmp-type)) CxAG))))))
-      (let [eh (v/assert kb (list 'except (sx/sentex-handle agh)) CxAG {:strength :monotonic})]
-        (testing "the genlArg sentex is hidden from query"
-          (is (empty? (v/sentexes-matching kb (list 'genlArg typeRel 1 root) CxAG))))
-        (testing "retract except — genlArg sentex returns"
-          (v/retract! kb eh)
-          (is (seq (v/sentexes-matching kb (list 'genlArg typeRel 1 root) CxAG))))))))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   ;; genlArg: argument subtype constraint.
+   (tu/with-terms [typeRel root sub CxAG]
+     (v/assert kb (list 'genlCx CxAG 'CxWell) 'CxUniverse {:strength :monotonic})
+     (v/assert kb (list 'genl root 'thing) CxAG {:strength :monotonic})
+     (v/assert kb (list 'genl sub root) CxAG {:strength :monotonic})
+     (let [agh (v/assert kb (list 'genlArg typeRel 1 root) CxAG {:strength :monotonic})]
+       (testing "genlArg constraint is active — subtype passes, sibling fails"
+         (is (v/assert kb (list typeRel sub (tu/tmp-type)) CxAG))
+         (tu/with-terms [other]
+           (v/assert kb (list 'genl other 'thing) CxAG {:strength :monotonic})
+           (is (= :arg-genl (ex-type #(v/assert kb (list typeRel other (tu/tmp-type)) CxAG))))))
+       (let [eh (v/assert kb (list 'except (sx/sentex-handle agh)) CxAG {:strength :monotonic})]
+         (testing "the genlArg sentex is hidden from query"
+           (is (empty? (v/sentexes-matching kb (list 'genlArg typeRel 1 root) CxAG))))
+         (testing "retract except — genlArg sentex returns"
+           (v/retract! kb eh)
+           (is (seq (v/sentexes-matching kb (list 'genlArg typeRel 1 root) CxAG)))))))))
 
 (tu/deftest-kb except-blocks-interArgIsa-sentex-visibility
   ;; interArgIsa: conditional argument type declaration.

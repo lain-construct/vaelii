@@ -1,18 +1,20 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.decide
-  "The nogoods a reader decides.  Each family keeps its rows of one candidate index
-  (`:nogood-candidates`) and finds its nogoods at a reader; this namespace runs the
-  families as one index, and decides each nogood from the classes the reader reads
-  (`verdict`, `losers`).  `res/withdrawal` adds a reader's losers to what that reader
-  withdraws.  See docs/nmtms.md, \"Nogoods decided at the reader\"."
-  (:require [vaelii.impl.decide.arity :as arity]
+  "The nogood candidate index.  Each family keeps its rows of one candidate index
+  (`:nogood-candidates`), which the placement detectors read; this namespace runs the
+  families as one index, holds the forced-monotonic roster, and decides a placed nogood
+  from its members' classes (`verdict`).  See docs/nmtms.md, \"A nogood placed as a
+  conclusion\"."
+  (:require [vaelii.impl.caches :as caches]
+            [vaelii.impl.decide.arity :as arity]
             [vaelii.impl.decide.inherited :as inherited]
             [vaelii.impl.decide.membership :as membership]
             [vaelii.impl.decide.negation :as negation]
             [vaelii.impl.decide.related :as related]
             [vaelii.impl.decide.tuple :as tuple]
-            [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.journal :as journal]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.strength :as strength]
             [vaelii.impl.taxonomy :as tax]
@@ -20,9 +22,9 @@
 
 (defn write-view
   "The unscoped closures of `tax`, under their `tax/…-global` names, and `tax` itself as
-  `:tax`: the taxonomy a family keeps its rows through, handed to `:note!`, `:replayed`
+  `:tax`: the taxonomy a family keeps its rows through, handed to `:note!`, `:recovered`
   and `:sync`.  The rows are a superset over every reader, kept where no reader exists,
-  and each reader scopes what it reads; `:nogoods` is handed no view."
+  and each reader scopes what it reads."
   [tax]
   {:tax                 tax
    :genls-global        (partial tax/genls-global tax)
@@ -31,40 +33,94 @@
    :genls-global-among  (partial tax/genls-global-among tax)
    :genls-global-union  (partial tax/genls-global-union tax)
    :specs-global-while  (partial tax/specs-global-while tax)
+   :genls-global-while  (partial tax/genls-global-while tax)
    :context-up-global   (partial tax/context-up-global tax)
    :context-down-global (partial tax/context-down-global tax)})
 
 (def registry
   "Every family, each a map of the parts the candidate index runs, `w` a `write-view`:
 
-  * `:note!` `(fn [kb w sx stored? replay?])`, at the store and removal choke points and
-    for each record of a replay; absent for a family the settle installs.
-  * `:replay` `(fn [] bindings)`, the var bindings a replay holds, and `:replayed` `(fn
-    [kb w c] c)`, the rows the family computes once the replay has seen every record.
-  * `:synced?` `(fn [tax c])` and `:sync` `(fn [w c] c)`: rows derived from the
+  * `:grounds`, `{kind #{functor}}`: the roster literals the family reads as stored
+    grounds rather than as members, under the roster kind that reads them
+    (`:forced-between-predicates` for a functor read only between predicate-spelled
+    arguments).  Absent for a family that reads none.
+  * `:note!` `(fn [kb w sx stored?])`, at the store and removal choke points; absent for
+    a family the settle installs.
+  * `:recovered` `(fn [kb w])`: writes the rows the family computes off the store once
+    recover has emptied the index.
+  * `:synced?` `(fn [tax c])` and `:sync` `(fn [kb w c] c)`: rows derived from the
     taxonomy, read again when it moved.
-  * `:handles` `(fn [c])`, every handle some reader can read as a member, and
-    `:watched` `(fn [c])`, the other handles a reading reads.
-  * `:live?` `(fn [tax c])`: can some reader read a loser of the family?
-  * `:unstamped`, the family's keys `stamp` leaves out, and `:stamp` `(fn [tax c])`, a
-    stamp part of its own.
-  * `:nogoods` `(fn [kb c up hidden?])`, the family's nogoods a reader with ancestor set
-    `up` reads, each `{:members #{h} :marks #{h} :kind k}`.
-  * `:pass`, a var holding a cache one pass of many readers shares (`with-pass`).
-
-  The order is the order `nogoods-at` reads the families in."
+  * `:handles` `(fn [c])`, every handle some reader can read as a member; `:holds?`
+    `(fn [c h])` answers whether `h` is among them with a few map reads.  Every update that
+    can move a handle into or out of it journals it (`journal/note`).  Absent for the
+    negation family, whose members are an index family (`reads/as-stored-opposed-in`).
+  Every family places its nogoods as conclusions (`chain/place-nogoods!`)."
   [tuple/converse-family arity/family negation/family tuple/marks-family membership/family
    related/family inherited/family])
 
+(def held-members
+  "The roster members no family reads among its grounds, each with the reason it is on the
+  roster (docs/nmtms.md, \"The forced-monotonic roster\")."
+  '{genlCx     "every context's ancestor set reads the stored edges"
+    except     "withdrawing one un-hides its target, so the OUT set of a round would shrink"
+    orthogonal "the one member of the related-types family's clash of it, which is a conflict and never a defeat"
+    rewriteOf  "withdrawing one un-merges two terms, so the OUT set of a round would shrink"
+    sameAs     "withdrawing one un-merges two terms, so the OUT set of a round would shrink"
+    equals     "withdrawing one un-merges two terms, so the OUT set of a round would shrink"
+    injection  "a premise of CxCore's rules concluding (functional P) and (functionalInArg P 1)"
+    surjection "a premise of CxCore's rule concluding (functional P)"
+    bijection  "a premise of CxCore's rules concluding (injection P) and (surjection P)"})
+
+(def baseline-roster
+  "The engine's own roster, `{kind #{predicate …}}`: every family's `:grounds` and every
+  `held-members` member, held on every KB whether or not it is stated."
+  (reduce #(merge-with into %1 %2)
+          {:forced-monotonic (set (keys held-members)) :forced-between-predicates #{}}
+          (keep :grounds registry)))
+
+(def roster-kinds "The two roster properties." (set (keys baseline-roster)))
+
+(defn on-roster?
+  "Does `pred` carry the roster property `kind` (`:forced-monotonic` or
+  `:forced-between-predicates`): a `baseline-roster` member, or declared.  The one reader
+  of the two properties, and a global one: the roster decides what a stored sentex is,
+  and that does not vary by the reader's visibility."
+  [tax kind pred]
+  (or (contains? (baseline-roster kind) pred) (tax/has-prop? tax kind pred)))
+
+(defn roster
+  "Every predicate `on-roster?` as `kind`."
+  [tax kind]
+  (into (baseline-roster kind) (tax/props tax kind)))
+
+(defn- predicate-spelled?
+  "Is `x` spelled as a predicate of arity 2 or more: `nm/predicate?` and not
+  `nm/type-symbol?`, so camelCase with an uppercase letter after the first character.  A
+  bare lowercase word satisfies the type spelling as well and is read as a type
+  (docs/naming.md)."
+  [x]
+  (and (nm/predicate? x) (not (nm/type-symbol? x))))
+
+(defn roster-literal?
+  "Is `literal` on the forced-monotonic roster: its functor is `on-roster?` as
+  `:forced-monotonic`, or as `:forced-between-predicates` with every argument spelled as a
+  predicate of arity 2 or more."
+  [tax literal]
+  (let [f (nm/functor literal)]
+    (boolean (and (symbol? f)
+                  (or (on-roster? tax :forced-monotonic f)
+                      (and (on-roster? tax :forced-between-predicates f)
+                           (next literal)
+                           (every? predicate-spelled? (rest literal))))))))
+
 (defn note-candidate!
   "Keep `:nogood-candidates` in step with the fact `sx` arriving (`stored?` true) or
-  leaving.  Runs at the store primitive and the removal choke point, as
-  `kb/note-opposed!` does.  A bulk load reads a stale index, so a nogood stored inside one
-  bulk load enters only at the rebuild (`rebuild-candidates!`)."
+  leaving.  Runs at the store primitive and the removal choke point, after the index
+  write."
   [kb sx stored?]
   (let [w (write-view (reasoning/taxonomy kb))]
     (doseq [{:keys [note!]} registry :when note!]
-      (note! kb w sx stored? false))))
+      (note! kb w sx stored?))))
 
 (defn offer!
   "Offer the stored facts `sxs` to the tuple candidates again (`tuple/offer!`), with
@@ -75,204 +131,226 @@
      (doseq [sx sxs] (tuple/offer! kb w sx only)))))
 
 (defn rebuild-candidates!
-  "Recompute `:nogood-candidates` from storage, for `recover`: every stored record is
-  fetched once and offered to each family as arriving, under the bindings the families
-  replay with, and each family then computes the rows it defers to the end of the
-  replay."
+  "Recompute `:nogood-candidates` from storage, for `recover`: each family computes its
+  rows off the store (`:recovered`), and no record is read for a family that stores no
+  fact it reads."
   [kb]
   (let [cands (reasoning/nogood-candidates kb)
-        recs  (:records kb)
         w     (write-view (reasoning/taxonomy kb))]
     (reset! cands {})
-    (with-bindings (into {} (keep #(some-> (:replay %) (apply []))) registry)
-      (doseq [h (p/sentex-ids recs)
-              :let [sx (p/get-sentex recs h)]
-              :when sx
-              {:keys [note!]} registry
-              :when note!]
-        (note! kb w sx true true))
-      (doseq [{:keys [replayed]} registry :when replayed]
-        (swap! cands #(replayed kb w %))))))
+    (doseq [{:keys [recovered]} registry :when recovered]
+      (recovered kb w))
+    (swap! cands journal/restart)))
+
+(defonce ^{:private true
+           :doc "`[candidates-atom taxonomy candidates]` of the last `synced` read: the index
+  it answered and the taxonomy value it was synced against.  `:synced?` reads only the
+  taxonomy and the index, so a read finding both identical answers from here; a settle
+  reads them several times an assert.  A
+  volatile vector, as `provers/registry-support`: a lost race costs a recompute."}
+  sync-memo
+  (volatile! nil))
+
+(defn drop-memos
+  "Empty `sync-memo`, and return nil.  It is process-wide and holds the taxonomy value of
+  the last KB read, which holds a view of that KB, so it keeps its records and index
+  reachable until another KB is read; `vaelii.core/close!` calls this last.  A KB still
+  open recomputes its entry on its next read."
+  []
+  (vreset! sync-memo nil)
+  nil)
+
+(defn candidate?
+  "Is `h` among `candidate-handles` of the candidate index `c`?"
+  [c h]
+  (boolean (some #(% c h) (keep :holds? registry))))
+
+(defn- handles-of-index
+  "Every handle some reader can read as a nogood member of a family of the candidate
+  index `c`."
+  [c]
+  (into #{} (mapcat #(% c)) (keep :handles registry)))
 
 (defn synced
   "The candidate index after each family's rows derived from the taxonomy are read again
-  where it moved (`:synced?`, `:sync`)."
+  where it moved (`:synced?`, `:sync`), and its candidates by the context they are stated
+  in read again off the journal (`journal/indexed`, read by `handles-at`)."
   [kb]
   (let [tax   (reasoning/taxonomy kb)
-        cands (reasoning/nogood-candidates kb)]
-    (reduce (fn [c {:keys [synced? sync]}]
-              (if (or (nil? sync) (synced? tax c))
-                c
-                (swap! cands #(if (synced? tax %) % (sync (write-view tax) %)))))
-            @cands registry)))
+        cands (reasoning/nogood-candidates kb)
+        t     @tax
+        [a mt mc] @sync-memo]
+    (if (and (identical? a cands) (identical? mt t) (identical? mc @cands))
+      mc
+      (let [recs (:records kb)
+            _    (reduce (fn [c {:keys [synced? sync]}]
+                           (if (or (nil? sync) (synced? tax c))
+                             c
+                             (swap! cands #(if (synced? tax %) % (sync kb (write-view tax) %)))))
+                         @cands registry)
+            c    (swap! cands journal/indexed candidate? #(:context (p/get-sentex recs %))
+                        handles-of-index)]
+        (vreset! sync-memo [cands t c])
+        c))))
 
 (defn candidate-handles
   "Every handle some reader can read as a nogood member of a family."
   [kb]
-  (let [c (synced kb)]
-    (into #{} (mapcat #((:handles %) c)) registry)))
+  (handles-of-index (synced kb)))
 
-(defn reach-handles
-  "`candidate-handles` and the other handles the families read (`:watched`).  The
-  candidate index part of `stamp` follows from these handles, their contexts and the
-  taxonomy parts of `stamp`, so a reader whose ancestor set holds the context of no
-  handle that entered or left this set reads the same nogoods before and after
-  (`readings/reader-moves`)."
+(defn handles-at
+  "The candidates of `c`, as `synced` answers it, stated in a context of the ancestor set
+  `up` or in none: every handle a reader with ancestor set `up` can read as a nogood
+  member, which a `genlCx` edge's placement pass reads (`edge-reach`)."
+  [c up]
+  (journal/at c up))
+
+(defn edge-reach
+  "What the `genlCx` edges moved after generation `since` reach, `{:under :below}`:
+  `:under` the contexts at or below a lower end `tax/moves-since` names, whose ancestor
+  sets the move changed, and `:below`, for each lower end and each active edge up from it,
+  the contexts a context at or below the lower end sees that the upper end does not;
+  `{:all? true}` when the relation was rebuilt, which restarts its generation.  A
+  placement the move can create or retire lies in `:under`, and a common descendant there
+  is the most general one only when one of its ingredients is stated in `:below`: one
+  whose every ingredient the upper end sees has the upper end, above it, as a common
+  descendant.  A removed or inactive edge reaches nothing in `:below`: the placements
+  resting on it leave with it, and their nogoods are queued again (`negation/take-moved!`,
+  `membership/take-moved!`, `related/take-moved!`).  Read over the unscoped closures
+  (`write-view`), a superset over every reader."
+  [tax since]
+  (if (< (tax/relation-gen tax :genlCx) since)
+    {:all? true}
+    (let [w    (write-view tax)
+          up   (:context-up-global w)
+          down (:context-down-global w)
+          ends (tax/moves-since tax :genlCx since)]
+      {:under (into #{} (mapcat down) ends)
+       :below (into #{}
+                    (mapcat (fn [sub]
+                              (mapcat (fn [super]
+                                        (let [seen (set (up super))]
+                                          (into #{} (comp (mapcat up) (remove seen)) (down sub))))
+                                      (tax/context-parents-global tax sub))))
+                    ends)})))
+
+(defn take-edge-cursor!
+  "`[since first?]`: the `genlCx` generation the last call read when it has moved since,
+  else nil, so `tax/moves-since` reads the edges moved after it (`edge-reach`); and
+  `first?`, true when no call has read it since the candidate index was emptied
+  (`rebuild-candidates!`), so every placement may be owed.  The placement pass reads it
+  once (`chain/place-nogoods!`)."
   [kb]
-  (let [c (synced kb)]
-    (into (candidate-handles kb) (mapcat #(some-> (:watched %) (apply [c]))) registry)))
+  (let [gen     (tax/relation-gen (reasoning/taxonomy kb) :genlCx)
+        [old _] (swap-vals! (reasoning/nogood-candidates kb)
+                            #(if (= gen (::genlcx %)) % (assoc % ::genlcx gen)))]
+    [(when (not= gen (::genlcx old)) (or (::genlcx old) 0))
+     (not (contains? old ::genlcx))]))
 
-(defn live?
-  "Can some reader read a loser of a family?  A few map reads per family."
+(defn placements-owed?
+  "Is every placement owed: no placement pass has read the edge cursor since the
+  candidate index `c` was emptied (`rebuild-candidates!`, `take-edge-cursor!`)?"
+  [c]
+  (not (contains? c ::genlcx)))
+
+(defn moves
+  "`[c pos moved]`: the candidate index as `synced` answers it, its journal position, and
+  the handles journaled since the position `since` (`journal/since`), which hold every
+  handle that entered or left the candidates since; nil when the journal does not reach
+  back to `since`, and a reader reads the index whole."
+  [kb since]
+  (let [c (synced kb)]
+    [c (journal/position c) (journal/since c since)]))
+
+(defn note-except-target!
+  "An `except` of `h` arrived or left: queue `h` for the families whose placement reads
+  what a reader below the placement context hides (`arity/note-except-target!`)."
+  [kb h]
+  (arity/note-except-target! kb h))
+
+(defn arity-held?
+  "Does the arity index keep a candidate or the binding of a pair (`arity/held?`), read
+  off the index as written, with no sync?"
   [kb]
-  (let [c (synced kb)]
-    (boolean
-     (when (seq c)
-       (let [tax (reasoning/taxonomy kb)]
-         (some #((:live? %) tax c) registry))))))
+  (arity/held? @(reasoning/nogood-candidates kb)))
 
-(defn stamp
-  "What a reader's losers read besides the handles its watch names: the candidate index
-  without each family's `:unstamped` keys, the declarations the taxonomy's flat caches
-  hold and the contexts they are stated in (by identity, `tax/flat-contexts-key`), the
-  `genl` generation, and each family's own `:stamp` part.  nil while `live?` is false.
-  `res/withdrawal-stamp` carries it, so a mark, a binding, a candidate or a predicate
-  edge arriving empties the per-reader cache, and reads no tuple."
-  [kb]
-  (when (live? kb)
-    (let [tax (reasoning/taxonomy kb)
-          c   (synced kb)]
-      (into [(apply dissoc c (mapcat :unstamped registry))
-             (tax/flat-contexts-key tax)
-             (tax/relation-gen tax :genl)]
-            (for [{f :stamp} registry :when f] (f tax c))))))
+(defn placed-kind
+  "The kind a nogood over the member handles `ms` placed as a conclusion reports under,
+  read off the members' sentences: `:negation` for a `B` beside `(not B)`, the membership
+  family's kind (`membership/kind-of`), the related-types family's (`related/kind-of`),
+  the tuple families' (`tuple/kind-of`), the arity family's (`arity/kind-of`),
+  `:inherited` for a set the inherited detector found (`inherited/inherited-clashes`), or
+  nil for any other set."
+  [kb ms]
+  (let [recs (:records kb)]
+    (or (when (contains? (inherited/inherited-clashes kb) ms) :inherited)
+        (when (= 2 (count ms))
+          (let [[a b] (map #(:sentence (p/get-sentex recs %)) ms)]
+            (when (or (= a (list 'not b)) (= b (list 'not a))) :negation)))
+        (membership/kind-of recs ms)
+        (related/kind-of (write-view (reasoning/taxonomy kb)) recs ms)
+        (let [c (synced kb)] (or (tuple/kind-of kb c ms) (arity/kind-of c ms))))))
 
-(defn nogoods-at
-  "The nogoods every family reads at a reader with ancestor set `up` (`:nogoods`), each
-  `{:members #{h} :marks #{h} :kind k}`, one per kind and member set with the marks of
-  each.  A `:merge` nogood is one `losers` decides nothing of and watches, and a
-  `:definitional?` one is read again once the reader withdraws a ground or an equality
-  supporter.  `hidden?` is
-  the reader's `except` filter, or nil.  Members are not tested for belief here."
-  [kb up hidden?]
-  (let [c (synced kb)]
-    (vals (reduce (fn [m ng] (update m [(:kind ng) (:members ng)]
-                                     #(if % (update % :marks into (:marks ng)) ng)))
-                  {} (mapcat #((:nogoods %) kb c up hidden?) registry)))))
-
-(defn pass-bindings
-  "Each family's pass cache (`:pass`) for a span in which many readers decide over one
-  taxonomy, as `with-bindings` takes them: a fresh one when `fresh?`, else the one bound
-  already or a fresh one."
-  [fresh?]
-  (into {} (keep (fn [{v :pass}] (when v [v (or (when-not fresh? @v) (volatile! nil))])))
-        registry))
-
-(defmacro with-pass
-  "`body` under `pass-bindings`."
-  [fresh? & body]
-  `(with-bindings (pass-bindings ~fresh?) ~@body))
+(defn exempt-at?
+  "Does a reader with ancestor set `up` read no conviction of the placed nogood over the
+  member handles `ms`: a membership nogood whose separation a `siblingDisjointException`
+  it sees removes (`membership/exempt-at?`), a contradicted `orthogonal` whose separation
+  such an exception removes (`related/exempt-at?`),
+  a determinant pair whose fillers it reads as one class (`tuple/exempt-at?`), or an
+  arity nogood it reads no binding for (`arity/exempt-at?`).  `hidden?` names the handles
+  the reader does not believe or see, or is nil.  False for any other nogood."
+  [kb ms up hidden?]
+  (let [tax  (reasoning/taxonomy kb)
+        recs (:records kb)]
+    (or (membership/exempt-at? tax recs ms up)
+        (related/exempt-at? (write-view tax) recs ms up)
+        (and (seq (tax/equality-edges tax)) (tuple/exempt-at? kb (synced kb) ms up hidden?))
+        (and (arity-held? kb) (arity/exempt-at? kb (synced kb) ms up hidden?)))))
 
 (defn verdict
-  "The verdict on nogood `members` from `class-of` (`handle -> defeat-class`):
-  `{:defeat h}` for a unique weakest member that is defeasible, `:dilemma` for a
-  defeasible minimum two members share, `:hard` for an all-`:monotonic` nogood
-  (docs/reference.md, item 7 of \"The function\")."
-  [class-of members]
-  (let [ranked  (mapv (fn [h] [h (class-of h)]) members)
-        floor   (reduce min (map #(strength/rank-of (peek %)) ranked))
-        weakest (filterv #(= floor (strength/rank-of (peek %))) ranked)]
-    (cond
-      (not (strength/defeasible? (peek (first weakest)))) :hard
-      (= 1 (count weakest))                               {:defeat (ffirst weakest)}
-      :else                                               :dilemma)))
+  "The verdict on nogood `members` from `class-of` (`handle -> defeat-class`) and
+  `roster?` (`handle -> boolean`, is the member a roster literal): `{:defeat h}` for a
+  unique weakest defeasible member off the roster, `:dilemma` for a defeasible minimum two
+  such members share, and `:hard` when no member off the roster is defeasible.  A roster
+  member is never a loser, whatever its class (docs/reference.md, item 7 of \"The
+  function\")."
+  [class-of roster? members]
+  (let [ranked (into [] (keep (fn [h] (let [c (class-of h)]
+                                        (when (and (strength/defeasible? c) (not (roster? h)))
+                                          [h c]))))
+                     members)]
+    (if (empty? ranked)
+      :hard
+      (let [floor   (reduce min (map #(strength/rank-of (peek %)) ranked))
+            weakest (filterv #(= floor (strength/rank-of (peek %))) ranked)]
+        (if (= 1 (count weakest)) {:defeat (ffirst weakest)} :dilemma)))))
 
-(defn losers
-  "`{:losers #{h} :verdicts {members verdict} :watch #{h}}`: the members a reader with
-  ancestor set `up` takes OUT, its verdict on every nogood it decides, and the handles the
-  answer reads.  `seeds` is what the reader withdraws already (its `except` targets),
-  `hidden?` its `except` filter or nil, and `belief-only` the argument
-  `jtms/grounded-in-region` takes.  `reread` is `(fn [ngs provisional])` → the member sets of the
-  definitional nogoods among `ngs` the reader still convicts when it withdraws
-  `provisional` (`{:region :in}`).
+;; ---- derived state (docs/caches.md, "The derived-state register") ----------------
 
-  Rounds, as docs/reference.md item 8 states them: each round forces the seeds and the
-  losers so far OUT, reads each member's class over that region
-  (`jtms/classes-in-region`), decides every nogood whose members all stay believed, and
-  adds the unique weakest defeasible members.  A round after the first decides again only
-  the nogoods with a member in its region, which grows from round to round, and keeps the
-  verdict before it on the rest.  A round whose new losers include a ground
-  (`tax/derives-from?`) adds those alone.  A round whose region withdraws a set of grounds
-  and equality supporters (`tax/equality-supporter?`) no earlier round's re-read was asked
-  under asks `reread` of each definitional nogood before it is decided, and one the reader
-  no longer reads stays dropped.  A re-read reads the reader's withdrawal only through the
-  grounds, the equality partition (the spellings the reader retires) and the members,
-  which stay believed while the nogood is decided, so a round withdrawing no other ground
-  or equality supporter re-asks none.  Only an `except` seed withdraws an equality
-  supporter: the equality relations are on the forced-monotonic roster, so no loser is one.
-  A round that adds no loser ends the loop, and no round removes one.  `:verdicts` holds
-  each loser's `{:defeat h}` from the round that applied it and the last round's `:hard`
-  and `:dilemma` verdicts.  `:watch` is every member and every mark read, a merging pair's
-  included, so a member's class moving re-decides the reader."
-  [kb up seeds hidden? belief-only reread]
-  (let [all   (vec (nogoods-at kb up hidden?))
-        ngs   (filterv #(not= :merge (:kind %)) all)
-        watch (into #{} (mapcat #(concat (:members %) (:marks %))) all)]
-    (if (empty? ngs)
-      {:losers #{} :verdicts {} :watch watch}
-      (let [tms  (reasoning/tms kb)
-            tax  (reasoning/taxonomy kb)
-            sets (into [] (comp (map :members) (distinct)) ngs)
-            defs (filterv :definitional? ngs)]
-        ;; `vs` is the last round's verdict on each member set it read believed, `ds` the
-        ;; `{:defeat h}` ones among them
-        (loop [out #{} applied {} dropped #{} read-under #{} vs nil ds nil]
-          (let [forced     (into (set seeds) out)
-                {:keys [region in]} (when (seq forced)
-                                      (jtms/grounded-in-region tms forced belief-only))
-                region     (or region #{})
-                in         (or in #{})
-                classes    (delay (jtms/classes-in-region tms region in))
-                withdrawn? #(and (contains? region %) (not (contains? in %)))
-                class-of   #(if (contains? region %) (get @classes %) (jtms/defeat-class tms %))
-                ;; the region only grows from round to round, so a member set with no
-                ;; member in it reads the belief and classes it read the round before and
-                ;; keeps that round's verdict
-                redo       (if vs (filterv (fn [ms] (some #(contains? region %) ms)) sets) sets)
-                [vs ds]    (let [[v d] (reduce
-                                        (fn [[v d] ms]
-                                          (if (and (not (contains? dropped ms))
-                                                   (every? #(and (jtms/in? tms %) (not (withdrawn? %))) ms))
-                                            (let [x (verdict class-of ms)]
-                                              [(assoc! v ms x) (if (map? x) (assoc! d ms x) (dissoc! d ms))])
-                                            [(dissoc! v ms) (dissoc! d ms)]))
-                                        [(transient (or vs {})) (transient (or ds {}))] redo)]
-                             [(persistent! v) (persistent! d)])
-                live?      #(contains? vs (:members %))
-                ;; a definitional clash is read through the grounds and the spellings the
-                ;; reader elects, so it is re-read once this reader withdraws a ground or an
-                ;; equality supporter, and again only when the withdrawn ones move
-                grounds-out (when (some live? defs)
-                              (into #{} (filter #(and (withdrawn? %)
-                                                      (or (tax/derives-from? tax %)
-                                                          (tax/equality-supporter? tax %))))
-                                    region))
-                asked      (when (and (seq grounds-out) (not= grounds-out read-under))
-                             (filterv live? defs))
-                kept       (when (seq asked) (reread asked {:region region :in in}))
-                gone       (into #{} (comp (map :members) (remove #(contains? kept %))) asked)
-                vs         (if (seq gone) (apply dissoc vs gone) vs)
-                ds         (if (seq gone) (apply dissoc ds gone) ds)
-                fresh      (into {} (remove #(contains? out (:defeat (val %)))) ds)
-                grounds    (into {} (filter #(tax/derives-from? tax (:defeat (val %)))) fresh)
-                add        (if (seq grounds) grounds fresh)]
-            (if (empty? add)
-              {:losers   out
-               :verdicts (into applied (remove (comp map? val)) vs)
-               :watch    watch}
-              (recur (into out (map (comp :defeat val)) add)
-                     (into applied add)
-                     (into dropped gone)
-                     (if asked grounds-out read-under)
-                     vs
-                     ds))))))))
+(caches/register-derived
+ {:id :J1 :label "Candidate journal" :kind :journal :keyed-by :handle :reads [:N1 :N3 :N5]
+  :retired-by {:stored :K :removed :K :respelled :K :edge :K :declared :K :edge-belief :K
+               :inherited :K :settle-pass :K :recover :R :image-install :R}
+  :computed :write :imaged? false :at [[:nogood-candidates ::journal/journal]]
+  :note "the handles each family's update moved into or out of a reader's reach, by position; restarted past 16,384, by `rebuild-candidates!` and at an image install"})
+
+(caches/register-derived
+ {:id :J2 :label "Candidates by context" :kind :cache :keyed-by :context :reads [:J1 :N1]
+  :retired-by {:stored :K :removed :K :respelled :K :edge-belief :K :inherited :K :recover :R
+               :image-install :R}
+  :computed :read :imaged? false :at [[:nogood-candidates ::journal/at]]
+  :note "the candidates by context and the J1 position they were indexed at, brought up to date at a read (`synced`); whole when J1 lost the position"})
+
+(caches/register-derived
+ {:id :J6 :label "Placement edge cursor" :kind :counter :keyed-by :global :reads [:J5]
+  :retired-by {:settle-pass :Q :recover :R :image-install :R}
+  :computed :settle :imaged? :state :at [[:nogood-candidates ::genlcx]]
+  :note "the `genlCx` generation the last placement pass read (`take-edge-cursor!`); absent after `rebuild-candidates!`, which owes every placement"})
+
+(caches/register-derived
+ {:id :X1 :label "Sync memo" :kind :cache :keyed-by :global :reads [:N1 :T1]
+  :retired-by (assoc (caches/on-every :I) :closed :W) :computed :read :imaged? false
+  :var #'sync-memo
+  :value (fn [_] @sync-memo)
+  :note "one slot for the process: the candidates atom, taxonomy value and candidates of the last `synced` read, compared by identity; another KB's read evicts it"})
+

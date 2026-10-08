@@ -20,7 +20,8 @@
   (:require [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.string :as str]
-            [clojure.test :refer [deftest is testing]])
+            [clojure.test :refer [deftest is testing]]
+            [vaelii.test-util :as tu])
   (:import [java.io File]
            [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
@@ -34,19 +35,20 @@
 (defn- with-ledger
   "Call `f` with a ledger file in a fresh directory, and delete both after."
   [f]
-  (let [dir    (.toFile (Files/createTempDirectory "vaelii-runlog-" (into-array FileAttribute [])))
-        ledger (io/file dir "runs.tsv")]
-    (try (f ledger)
-         (finally (doseq [^File x (reverse (file-seq dir))] (.delete x))))))
+  (tu/with-requirement @tu/host-bash? "the bash on PATH is WSL's, which sees neither this ledger nor RUNLOG_FILE"
+    (let [dir    (.toFile (Files/createTempDirectory "vaelii-runlog-" (into-array FileAttribute [])))
+          ledger (io/file dir "runs.tsv")]
+      (try (f ledger)
+           (finally (doseq [^File x (reverse (file-seq dir))] (.delete x)))))))
 
 (defn- record!
   "Source the writer and append one row to `ledger`. The summary carries a tab and
   a newline, which the writer must squash rather than let add a column or a row."
   [^File ledger]
-  (shell/sh "bash" "-c"
+  (shell/sh tu/bash "-c"
             (str ". scripts/lib/runlog.sh && runlog_start && "
                  "runlog_record lint - passed $'11/11\\tclean\\nsecond line' logs/lint/run-1.log")
-            :env (assoc (into {} (System/getenv)) "RUNLOG_FILE" (.getPath ledger))))
+            :env (assoc (into {} (System/getenv)) "RUNLOG_FILE" (tu/posix-path ledger))))
 
 (defn- rows [^File ledger]
   (mapv #(str/split % #"\t" -1) (str/split-lines (slurp ledger))))

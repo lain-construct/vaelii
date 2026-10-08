@@ -43,8 +43,9 @@ than to the KB.
 ## One pass, and nothing new indexed
 
 A `rule -> firings` index would be a second copy of the JTMS adjacency to keep in step,
-which is the failure class the taxonomy's single `:support` map exists to avoid. So every
-reading comes off state that is already there:
+which is the failure class the taxonomy's one record of its supporters, the index's
+supporter families, exists to avoid. So every reading comes off state that is already
+there:
 
 - **One walk over the term roster**, and one is the number. The functor names come off it
   by filter, and the type-shaped names come off *those* rather than off the roster a second
@@ -169,9 +170,11 @@ the reading means the same on a corpus that never heard of `thing`.
 
 The denominator (`:names`) is every type-shaped name in the vocabulary, and by
 [naming.md](naming.md) that includes a bare lowercase word: `likes` is a legal predicate
-*and* a legal type name. A unique declared arity other than one excludes a known
-non-unary predicate from both names and edges. Unknown or conflicting arities remain
-candidates, so an untyped root or disconnected unary island is not silently dropped.
+*and* a legal type name. A name `relation?` answers true for, by a stored arity of two
+or more or a `variable_arity` membership, is excluded from both names and edges, so a
+sub-relation edge such as CxCore's `(genl partition covering)` is not an island. A name
+with no stored arity remains a candidate, so an untyped root or disconnected unary
+island is not silently dropped.
 This is why the gap is the finding rather than either fraction on its own.
 
 The measured shape on the same OpenCyc conversion as the Gini above, and all three
@@ -306,11 +309,12 @@ rule *concludes* about the unified term. `(arity ?r ?a) => (fixed_arity ?r)` dem
 be a `relation` through `(arg arity 1 relation)`, and CxCriedWolf's
 `(lied_before ?x) => (liar ?x)` places the unified term under `person`. No ground term is
 both a relation and a person, so the two rules never both fire for one term and the pair is
-dropped. The demand is read where a membership cannot state it: `lied_before` says nothing
-about its argument's type, so only the `arg` declaration on the paired rule's antecedent
-rules the term out. A declared domain the other conclusion does not exclude, and an
-undeclared one, both stay candidates — two stated types clashing is the clash the pair
-reports, so at least one side of the disjoint pair must be a declared arg type.
+dropped. The demand is read where a membership cannot state it, on either side: the test
+world declares `(arg lied_before 1 person)`, so the same reading drops the pairs whose other
+rule concludes a type no person has, such as a signed refinement of `integer`. A declared
+domain the other conclusion does not exclude, and an undeclared one, both stay candidates
+— two stated types clashing is the clash the pair reports, so at least one side of the
+disjoint pair must be a declared arg type.
 
 Scoped to a context that can see **both** rules. That is a common descendant of the two
 contexts and not a `sees?` between them, for [nmtms.md](nmtms.md)'s reason: asking only

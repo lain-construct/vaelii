@@ -9,11 +9,11 @@
   it starts with the handle term primitives (`vaelii.impl.sentex`)."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
-            [vaelii.impl.resolution :as res]
             [vaelii.impl.sentex :as sx]
             [vaelii.impl.special :as special]
             [vaelii.impl.taxonomy :as tax]
@@ -281,20 +281,18 @@
         (is (empty? (v/sentexes-matching kb (list sparkles gold) cm)))
         (is (nil? (v/handle-of kb (list sparkles gold) cm)))))))
 
-;; ---- except: the roster the read is served from -------------------------
-;; `res/excepted-handles` is asked per placement and per candidate justification, so it
-;; reads the KB's `:excepted` roster — `{context -> {except-handle -> hidden-handle}}`,
-;; maintained at the store and removal choke points — rather than fetching every stored
-;; `except` record and re-deriving its target.  A roster that drifts from storage is a
-;; wrong *belief* and not a slow one: a fact left visible that should be hidden, or
-;; hidden that should not be.  So what these pin is the equality against a full scan,
-;; held at every point a sentex can arrive or leave.
+;; ---- except: the reads the index serves ------------------------------------
+;; `exc/excepted-handles` and `exc/excepted?` read the excepts off the index, by context
+;; (the `except` extent) and by target (the trie), rather than fetching every stored
+;; `except` record.  A read that drifts from storage is a wrong *belief* and not a slow
+;; one: a fact left visible that should be hidden, or hidden that should not be.  So what
+;; these pin is the equality against a full scan, held at every point a sentex can arrive
+;; or leave.
 
 (defn- excepted-by-scan
   "The reference read: every stored `except` fetched from the record store, filtered by
-  belief and by whether `view-context` sees where it was asserted.  This is what
-  `res/excepted-handles` computed before it had a roster to read off, kept here as the
-  oracle — the roster is only correct if it answers the same thing."
+  belief and by whether `view-context` sees where it was asserted: the oracle the index
+  reads are held to."
   [kb view-context]
   (if (sx/variable? view-context)
     #{}
@@ -309,7 +307,7 @@
 
 (defn- roster-agrees?
   "Does the roster answer the scan, from every context in play — and does the membership
-  read (`res/excepted?`, which the per-placement caller goes through) answer the same
+  read (`exc/excepted?`, which the per-placement caller goes through) answer the same
   thing as the set read for every handle either of them could be asked about?  A
   divergence there is a firing blocked or admitted against a hidden set nothing else
   agrees with, which is exactly the drift that makes an incrementally-maintained roster a
@@ -318,8 +316,8 @@
   (let [handles (into #{} (mapcat #(excepted-by-scan kb %)) contexts)]
     (every? (fn [c]
               (let [scanned (excepted-by-scan kb c)]
-                (and (= scanned (res/excepted-handles kb c))
-                     (every? #(= (contains? scanned %) (res/excepted? kb % c)) handles))))
+                (and (= scanned (exc/excepted-handles kb c))
+                     (every? #(= (contains? scanned %) (exc/excepted? kb % c)) handles))))
             contexts)))
 
 (tu/deftest-kb the-roster-answers-what-a-full-scan-of-storage-answers
@@ -338,42 +336,42 @@
       (is (roster-agrees? kb ctxs) "storing a fact is not storing an except")
       (let [e1 (v/assert kb (list 'except (sx/sentex-handle h)) pm {:strength :monotonic})]
         (is (roster-agrees? kb ctxs) "one except, one context")
-        (is (= #{h} (res/excepted-handles kb cm)) "and it is the target that is hidden")
+        (is (= #{h} (exc/excepted-handles kb cm)) "and it is the target that is hidden")
         (let [e2 (v/assert kb (list 'except (sx/sentex-handle h)) cm {:strength :monotonic})
               e3 (v/assert kb (list 'except (sx/sentex-handle h2)) pm {:strength :default})]
           (is (roster-agrees? kb ctxs) "a second except on one target, and a second in one context")
-          (is (= #{h h2} (res/excepted-handles kb cm)))
+          (is (= #{h h2} (exc/excepted-handles kb cm)))
           (testing "a denied except stays in the roster's answer, its denial being inert"
             (v/assert kb (list 'not (list 'except (sx/sentex-handle h2))) pm
                       {:strength :monotonic})
             (is (roster-agrees? kb ctxs))
-            (is (= #{h h2} (res/excepted-handles kb cm)) "h2 stays hidden"))
+            (is (= #{h h2} (exc/excepted-handles kb cm)) "h2 stays hidden"))
           (testing "retracting one of two excepts on a target leaves the other hiding it"
             (v/retract! kb e2)
             (is (roster-agrees? kb ctxs))
-            (is (= #{h h2} (res/excepted-handles kb cm)) "e1 still hides h from cm"))
+            (is (= #{h h2} (exc/excepted-handles kb cm)) "e1 still hides h from cm"))
           (v/retract! kb e3)
           (is (roster-agrees? kb ctxs) "and the retracted one's record goes")
-          (is (= #{h} (res/excepted-handles kb cm)) "h2 is visible again")
+          (is (= #{h} (exc/excepted-handles kb cm)) "h2 is visible again")
           (testing "retracting the last except empties the roster"
             (v/retract! kb e1)
             (is (roster-agrees? kb ctxs))
-            (is (empty? (res/excepted-handles kb cm)))))))))
+            (is (empty? (exc/excepted-handles kb cm)))))))))
 
 (tu/deftest-kb the-roster-survives-a-recover
-  ;; The roster is derived from storage and no store holds it, so `recover` rebuilds it
-  ;; — the same standing `rebuild-opposed!` has, and the one a **fork** rides on, since
-  ;; a fork recovers over the merged view rather than inheriting its base's belief.
+  ;; The roster is derived from storage and no store holds it, so `recover` rebuilds it,
+  ;; and a **fork** rides on that, since a fork recovers over the merged view rather than
+  ;; inheriting its base's belief.
   (let [gp (tu/tmp-ctx "Gp") pm (tu/tmp-ctx "Pm")
         shiny (tu/tmp-pred) gold (tu/tmp-ind)]
     (v/assert kb (list 'genlCx gp 'CxWell) 'CxUniverse {:strength :monotonic})
     (v/assert kb (list 'genlCx pm gp) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list shiny gold) gp {:strength :monotonic})]
       (v/assert kb (list 'except (sx/sentex-handle h)) pm {:strength :monotonic})
-      (is (= #{h} (res/excepted-handles kb pm)))
+      (is (= #{h} (exc/excepted-handles kb pm)))
       (v/recover kb)
       (testing "the rebuilt roster hides exactly what the pre-recover one did"
-        (is (= #{h} (res/excepted-handles kb pm)))
+        (is (= #{h} (exc/excepted-handles kb pm)))
         (is (roster-agrees? kb [gp pm 'CxWell]))
         (is (not (v/ask? kb (list shiny gold) pm)) "and the read still follows it")
         (is (v/ask? kb (list shiny gold) gp))))))
@@ -413,36 +411,36 @@
           (testing "the inner except E is hidden"
             (is (not (v/ask? kb (list 'except (sx/sentex-handle h)) ctx))
                 "the except itself is hidden by the meta-except"))
+          (testing "a third depth toggles again"
+            (let [m2 (v/assert kb (list 'except (sx/sentex-handle m)) ctx {:strength :monotonic})]
+              (is (not (v/ask? kb (list shiny gold) ctx)) "M2 hides M, so E hides P again")
+              (v/retract! kb m2)
+              (is (v/ask? kb (list shiny gold) ctx) "without M2, M hides E and P is visible")))
           (testing "retracting the meta-except re-hides P"
             (v/retract! kb m)
             (is (not (v/ask? kb (list shiny gold) ctx))
                 "E's effect is restored when M goes away")))))))
 
-;; ---- meta-except counter: no leak when the inner except goes first --------
+;; ---- a meta-except over a retracted except ---------------------------------
 
-(tu/deftest-kb meta-except-count-drops-when-inner-except-retracted-before-meta
-  ;; `:meta-except-count` gates the read-time cascade path (resolution/excepted-handles),
-  ;; so it must stay equal to what `rebuild-excepted!` recomputes: the number of stored
-  ;; excepts whose target is itself a stored except.  Retracting the inner except E before
-  ;; the meta-except M = (except E) strands M — its target no longer resolves — so the
-  ;; count must fall the moment E leaves, not over-count for the KB's lifetime.
+(tu/deftest-kb a-meta-except-whose-inner-except-is-retracted-hides-nothing
+  ;; Retracting the inner except E before the meta-except M = (except E) strands M: its
+  ;; target is no longer stored, so the cascade reads no except of the fact E hid.
   (let [ctx (tu/tmp-ctx "MetaCount") shiny (tu/tmp-pred) gold (tu/tmp-ind)]
     (v/assert kb (list 'genlCx ctx 'CxWell) 'CxUniverse {:strength :monotonic})
     (let [h (v/assert kb (list shiny gold) ctx {:strength :monotonic})
           e (v/assert kb (list 'except (sx/sentex-handle h)) ctx {:strength :monotonic})
           m (v/assert kb (list 'except (sx/sentex-handle e)) ctx {:strength :monotonic})]
-      (testing "M is a meta-except: its target E is itself an except"
-        (is (= 1 @(reasoning/meta-except-count kb))))
-      (testing "retracting the inner except E strands M, so the count drops at once"
+      (testing "M hides E, so the fact is visible"
+        (is (v/ask? kb (list shiny gold) ctx))
+        (is (not (contains? (exc/excepted-handles kb ctx) h))))
+      (testing "with E retracted, M names no stored except and the fact stays visible"
         (v/retract! kb e)
-        (is (= 0 @(reasoning/meta-except-count kb))
-            "the count must not leak while M dangles over a deleted E"))
-      (testing "retracting the meta-except M leaves the count at zero"
+        (is (v/ask? kb (list shiny gold) ctx))
+        (is (not (contains? (exc/excepted-handles kb ctx) h))))
+      (testing "with M retracted too, the fact stays visible"
         (v/retract! kb m)
-        (is (= 0 @(reasoning/meta-except-count kb))))
-      (testing "the incremental count equals a fresh recomputation from storage"
-        (kb/rebuild-excepted! kb)
-        (is (= 0 @(reasoning/meta-except-count kb)))))))
+        (is (v/ask? kb (list shiny gold) ctx))))))
 
 ;; ---- an except names a stored handle ---------------------------------------
 

@@ -19,12 +19,15 @@ with forward/backward inference and JTMS truth maintenance.
 
 - JDK 21+, Leiningen 2.10+ — no external services. CI and the Docker image run Temurin 25;
   a weekly CI job runs the suite on 21
-- macOS and Linux; Windows is not supported ([why](docs/storage.md#the-image-disk-snapshot))
+- macOS, Linux and Windows.  On Windows every backend runs except `:disk-snapshot`, and
+  with it the reasoning image, the operation log and the background rebuild that ride on
+  it ([why](docs/storage.md#the-image-disk-snapshot)); `lein lint` and the other script
+  aliases need Git for Windows ([CONTRIBUTING §1.1](CONTRIBUTING.md#11-static-analysis-lein-lint-setup))
 
 ## Quick start
 
-As a dependency — Leiningen `[com.vaelii/vaelii "0.23.0"]`, or deps.edn
-`com.vaelii/vaelii {:mvn/version "0.23.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
+As a dependency — Leiningen `[com.vaelii/vaelii "0.24.0"]`, or deps.edn
+`com.vaelii/vaelii {:mvn/version "0.24.0"}` — from [Clojars](https://clojars.org/com.vaelii/vaelii).
 To work on it instead:
 
 ```sh

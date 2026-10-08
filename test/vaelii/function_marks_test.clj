@@ -352,3 +352,34 @@
     (doseq [s [(list 'bijection pRel) (list 'injection pRel) (list 'surjection pRel)
                (list 'functional pRel) (list 'functionalInArg pRel 1)]]
       (is (v/ask? kb s U) (str s " reaches CxUniverse")))))
+
+;;; ── a mark read only where the reader believes it ─────────────────────
+
+(tu/deftest-kb a-reader-convicts-no-tuple-through-a-mark-its-except-withdraws
+  ;; The mark a rule concludes from a roster literal is not itself hidden where the
+  ;; literal is excepted; it leaves that reader through the except's closure alone.  One
+  ;; row per family that reads marks: CxCore's `injection` rule concludes
+  ;; `(functionalInArg P 1)` (the tuple-mark family), and a stated rule concludes
+  ;; `(irreflexive P)` from `(anti_transitive P)` (the self and converse family).
+  (let [M {:strength :monotonic}]
+    (doseq [[label premise rule tuples]
+            [["functionalInArg" 'injection nil
+              (fn [rel x] [[(list rel (tu/tmp-ind "Xa") x) M] [(list rel (tu/tmp-ind "Xb") x)]])]
+             ["irreflexive" 'anti_transitive
+              '(set/forwardRule (implies (anti_transitive ?r) (irreflexive ?r)))
+              (fn [rel x] [[(list rel x x)]])]]]
+      (tu/with-terms [rel CxHid CxSib Xc]
+        (doseq [cx [CxHid CxSib]] (v/assert kb (list 'genlCx cx U) U M))
+        (when rule (v/assert kb rule U M))
+        (let [lit (v/assert kb (list premise rel) U M)
+              at  (into {} (for [cx [CxHid CxSib]]
+                             [cx (mapv (fn [[s o]] (if o (v/assert kb s cx o) (v/assert kb s cx)))
+                                       (tuples rel Xc))]))
+              out (fn [cx] (count (remove #(v/believed? kb % cx) (get at cx))))
+              ex  (v/assert kb (list 'except (list 'sentexHandle lit)) CxHid M)]
+          (testing label
+            (is (= [0 1] [(out CxHid) (out CxSib)])
+                "the reader that excepts the premise convicts nothing, its sibling one tuple")
+            (v/retract! kb ex)
+            (is (= [1 1] [(out CxHid) (out CxSib)])
+                "and convicts again once the except is retracted")))))))

@@ -16,6 +16,9 @@
             [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.checks :as checks]
+            [vaelii.impl.resolution :as res]
+            [vaelii.impl.taxonomy :as tax]
+            [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu])
   (:import [java.nio.file Files]
            [java.nio.file.attribute FileAttribute]))
@@ -78,6 +81,14 @@
     (when (and h (v/in? kb h)) h)))
 
 (defn- believed? [kb sentence ctx] (some? (entailed kb sentence ctx)))
+
+(defn- permutations
+  [coll]
+  (if (< (count coll) 2)
+    (list coll)
+    (for [i (range (count coll))
+          p (permutations (concat (take i coll) (drop (inc i) coll)))]
+      (cons (nth coll i) p))))
 
 ;; ---- the headline --------------------------------------------------------
 
@@ -152,6 +163,165 @@
           (is (= 1 (count (:support (v/why kb (v/handle-of kb (list animal Fred)
                                                            CxWorld)))))
               (str "with one justification under " (name order))))))))
+
+;; ---- a declaration's sweep over stored facts ------------------------------
+
+(defn- walks-to-thing
+  "The types asked whether they reach `thing` through `genl` while `f` runs, with the
+  number of reachability walks each took."
+  [f]
+  (let [real   @#'tax/reachable?
+        walked (atom [])]
+    (with-redefs [tax/reachable? (fn
+                                   ([a b adj depth] (real a b adj depth nil))
+                                   ([a b adj depth scc]
+                                    (when (= 'thing b) (swap! walked conj a))
+                                    (real a b adj depth scc)))]
+      (f))
+    (frequencies @walked)))
+
+(tu/deftest-kb a-declaration-over-stored-facts-walks-each-type-to-thing-at-most-once
+  ;; `low_t` sits at the bottom of a chain not under `thing`, and the predicate already
+  ;; declares it at position 1.  The declaration arriving at position 2 walked both
+  ;; declarations' types once per fact: 2n+1 walks over n facts.
+  (doseq [mintable? [false true]]
+    (let [reading (fn [n]
+                    (tu/with-neutral-kb [kb tu/fresh]
+                      (tu/with-terms [rel top_t low_t mid_t new_t CxWorld]
+                        (with-entailing
+                          (a-context kb CxWorld)
+                          (v/assert kb (list 'genl mid_t top_t) CxWorld)
+                          (v/assert kb (list 'genl low_t mid_t) CxWorld)
+                          (when mintable? (a-type kb new_t CxWorld))
+                          (v/assert kb (list 'arg rel 1 low_t) CxWorld)
+                          (dotimes [_ n]
+                            (v/assert kb (list rel (tu/tmp-ind "A") (tu/tmp-ind "B")) CxWorld))
+                          (let [w (walks-to-thing #(v/assert kb (list 'arg rel 2 new_t) CxWorld))]
+                            {:other (get w low_t 0)
+                             :own   (get w new_t 0)
+                             :mints (count (v/sentexes-matching kb (list new_t '?x) CxWorld))})))))]
+      (is (= [{:other 0 :own 1 :mints (if mintable? 4 0)}
+              {:other 0 :own 1 :mints (if mintable? 16 0)}]
+             [(reading 4) (reading 16)])
+          (if mintable? "a mintable type" "an unmintable type")))))
+
+(tu/deftest-kb a-declaration-s-entailments-are-the-ones-every-declaration-draws-under-it
+  ;; One fact of each shape below every entailing kind, through a local, an inherited and
+  ;; a super-predicate declaration, with mintable and unmintable types and every trigger
+  ;; held.
+  (tu/with-terms [rel super kinds a_t u0_t u1_t g_t trig_t tu_t all_t rest_t ag_t arg_t
+                  hom_t hom2_t s_t kind_t kind2_t A B C E CxUp CxDown]
+    (with-entailing
+      (v/assert kb (list 'genlCx CxUp 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'genlCx CxDown CxUp) 'CxUniverse)
+      (doseq [t [a_t g_t trig_t tu_t all_t rest_t ag_t arg_t hom_t hom2_t s_t kind_t kind2_t]]
+        (a-type kb t CxUp))
+      (v/assert kb (list 'genl u1_t u0_t) CxUp)
+      (v/assert kb (list 'genl rel super) CxUp)
+      (let [dhs   (mapv #(v/assert kb % CxUp)
+                        [(list 'arg rel 1 a_t) (list 'arg rel 2 u1_t) (list 'genlArg rel 3 g_t)
+                         (list 'interArg rel 1 trig_t 2 tu_t) (list 'interArg rel 1 trig_t 2 u1_t)
+                         (list 'args rel all_t) (list 'args rel u0_t)
+                         (list 'argAndRest rel 2 rest_t) (list 'argAndRestGenl rel 3 arg_t)
+                         (list 'interArgs rel hom_t) (list 'interArgAndRest rel 2 hom2_t)
+                         (list 'argsGenl kinds ag_t) (list 'arg super 2 s_t)])
+            _     (doseq [m [(list trig_t A) (list hom_t B) (list hom2_t B)]]
+                    (v/assert kb m CxUp))
+            facts [[(list rel A B kind_t) CxDown] [(list rel C B kind2_t) CxUp]
+                   [(list rel A E kind_t) CxUp] [(list kinds kind_t kind2_t) CxDown]]]
+        (doseq [[s c] facts] (v/assert kb s c))
+        (let [all (mapv (fn [[s c]] (checks/constraint-entailments kb s c)) facts)]
+          (is (= '#{arg genlArg interArg args argAndRest argAndRestGenl interArgs
+                    interArgAndRest argsGenl}
+                 (into #{} (comp cat (map :kind)) all))
+              "every entailing kind draws over the facts")
+          (doseq [[[s c] es] (map vector facts all)
+                  dh dhs]
+            (is (= (filterv #(= dh (first (:because %))) es)
+                   (checks/declaration-entailments kb s c dh))
+                (str s " under " (:sentence (v/sentex kb dh))))))))))
+
+;; ---- whose declarations a membership reads -----------------------------
+
+(defn- counting-set
+  "`s`, with every element it hands out and every membership asked of it added to `n`."
+  [s n]
+  (reify
+    clojure.lang.IPersistentSet
+    (disjoin [_ x] (disj s x))
+    (contains [_ x] (swap! n inc) (contains? s x))
+    (get [_ x] (swap! n inc) (get s x))
+    (count [_] (count s))
+    (cons [_ x] (conj s x))
+    (empty [_] #{})
+    (equiv [_ o] (= s o))
+    (seq [_] (seq (map (fn [x] (swap! n inc) x) s)))
+    java.lang.Iterable
+    (iterator [_]
+      (let [it (.iterator ^Iterable s)]
+        (reify java.util.Iterator
+          (hasNext [_] (.hasNext it))
+          (next [_] (swap! n inc) (.next it)))))))
+
+(defn- ancestors-read
+  "How many elements of the `genl` up-closures `res/constraining-predicates` reads while
+  `f` runs."
+  [f]
+  (let [n      (atom 0)
+        inside (atom false)
+        cp     res/constraining-predicates
+        genls  tax/genls]
+    (with-redefs [res/constraining-predicates (fn [& args]
+                                                (reset! inside true)
+                                                (try (apply cp args) (finally (reset! inside false))))
+                  tax/genls (fn [t pred ctx]
+                              (cond-> (genls t pred ctx) @inside (counting-set n)))]
+      (f))
+    @n))
+
+(tu/deftest-kb a-membership-reads-the-declaring-roster-not-its-type-s-ancestors
+  ;; One predicate declares `arg`; the membership's type sits 8 and then 64 below a type
+  ;; under `thing`, so its own functor's declaration read meets a closure of 10 and of 66.
+  (let [reading (fn [depth]
+                  (tu/with-neutral-kb [kb tu/fresh]
+                    (tu/with-terms [rel top_t CxWorld]
+                      (with-entailing
+                        (a-context kb CxWorld)
+                        (a-type kb top_t CxWorld)
+                        (v/assert kb (list 'arg rel 1 top_t) CxWorld)
+                        (let [ts (vec (repeatedly depth #(tu/tmp-type "deep_t")))]
+                          (doseq [[sub super] (map vector ts (cons top_t ts))]
+                            (v/assert kb (list 'genl sub super) CxWorld))
+                          (ancestors-read
+                           #(v/assert kb (list (peek ts) (tu/tmp-ind "A")) CxWorld)))))))]
+    (is (= (reading 8) (reading 64)))))
+
+(tu/deftest-kb constraining-predicates-are-the-declaring-supers-in-content-order
+  ;; A predicate chain declaring at every other link, an edge only `CxSide` sees, and the
+  ;; same reads again once the roster outgrows every closure here.
+  (tu/with-terms [pa pb pc pd pe px a_t CxWorld CxSide]
+    (a-context kb CxWorld)
+    (v/assert kb (list 'genlCx CxSide CxWorld) 'CxUniverse)
+    (a-type kb a_t CxWorld)
+    (doseq [[sub super] [[pa pb] [pb pc] [pc pd] [pd pe]]]
+      (v/assert kb (list 'genl sub super) CxWorld))
+    (v/assert kb (list 'genl pa px) CxSide)
+    (doseq [p [pa pc pe px]]
+      (v/assert kb (list 'arg p 1 a_t) CxWorld))
+    (let [tax       (reasoning/taxonomy kb)
+          reference (fn [pred ctx]
+                      (let [d (tax/props tax (tax/arg-declaration-props 'arg))]
+                        (into (if (contains? d pred) [pred] [])
+                              (comp (remove #{pred}) (filter d))
+                              (sort (tax/genls tax pred ctx)))))
+          readings  (fn []
+                      (for [pred [pa pb pc pd pe px], ctx [CxWorld CxSide]]
+                        [(res/constraining-predicates kb 'arg pred ctx) (reference pred ctx)]))]
+      (is (= (into [pa] (sort [pc pe px])) (res/constraining-predicates kb 'arg pa CxSide)))
+      (doseq [[got want] (readings)] (is (= want got)))
+      (dotimes [_ 8]
+        (v/assert kb (list 'arg (tu/tmp-pred "other") 1 a_t) CxWorld))
+      (doseq [[got want] (readings)] (is (= want got))))))
 
 ;; ---- the type is held by its supporters ---------------------------------
 
@@ -254,7 +424,10 @@
 
 ;; ---- where it does *not* mint -------------------------------------------
 
-(tu/deftest-kb an-inherited-declaration-constrains-but-does-not-spray
+(tu/deftest-kb an-inherited-declaration-derives-and-a-disjoint-type-is-a-clash
+  ;; An argument constraint only adds support: the ancestor's declaration derives in the
+  ;; descendant as a local one does, and an argument the KB places in a disjoint type is
+  ;; stored with its derived membership, the pair listed as a contradiction.
   (tu/with-terms [animal rock parentOf Fred Mary Rex CxSchema CxStory]
     (with-entailing
       (a-type kb animal 'CxUniverse)
@@ -263,17 +436,15 @@
       (v/assert kb (list 'genlCx CxStory CxSchema) 'CxUniverse)
       (v/assert kb (list 'arg parentOf 1 animal) CxSchema)
       (v/assert kb (list parentOf Fred Mary) CxStory)
-      (testing "the ancestor's declaration entails nothing in the descendant"
-        (is (not (believed? kb (list animal Fred) CxStory)))
-        (is (nil? (v/handle-of kb (list animal Fred) CxStory))))
-      (testing "but it still constrains there — an argument of the wrong type is refused"
+      (testing "the ancestor's declaration derives in the descendant"
+        (is (believed? kb (list animal Fred) CxStory)))
+      (testing "a disjoint membership is a clash, not a refusal"
         (v/assert kb (list rock Rex) CxStory)
         (v/assert kb (list 'disjoint animal rock) 'CxUniverse)
-        (is (thrown? clojure.lang.ExceptionInfo
-                     (v/assert kb (list parentOf Rex Mary) CxStory))))
-      (testing "and the same declaration written locally does entail"
-        (v/assert kb (list 'arg parentOf 1 animal) CxStory)
-        (is (believed? kb (list animal Fred) CxStory))))))
+        (v/assert kb (list parentOf Rex Mary) CxStory)
+        (is (some? (v/handle-of kb (list parentOf Rex Mary) CxStory)))
+        (is (some? (v/handle-of kb (list animal Rex) CxStory)))
+        (is (= 1 (count (v/contradictions kb))))))))
 
 (tu/deftest-kb one-sentex-however-many-declarations-entail-it
   ;; Deduplication is by content, and only by content: one record for the sentence, one
@@ -381,9 +552,10 @@
 
 (tu/deftest-kb a-record-stored-by-another-route-takes-the-justification
   ;; The mint is withheld, and then the sentence arrives as a premise.  A record is
-  ;; justified by everything that entails it, so the declaration's justification has to
-  ;; land on it — otherwise retracting the premise would keep the type in the order where
-  ;; the mint came first and lose it in the order where it came second.
+  ;; justified by everything that entails it, so the declaration's justification lands on
+  ;; it.  Retracting the premise leaves the record on that justification alone, a mint
+  ;; `(dog Fred)` says more specifically, so it goes as the withheld mint never came: the
+  ;; KB holds what the same content without the premise holds, and still answers the type.
   (tu/with-terms [animal dog parentOf Fred Mary CxWorld]
     (with-pruning
       (a-context kb CxWorld)
@@ -393,10 +565,10 @@
       (v/assert kb (list dog Fred) CxWorld)
       (v/assert kb (list parentOf Fred Mary) CxWorld)
       (is (nil? (v/handle-of kb (list animal Fred) CxWorld)) "withheld")
-      (v/assert kb (list animal Fred) CxWorld)
-      (v/retract! kb (v/handle-of kb (list animal Fred) CxWorld))
-      (is (believed? kb (list animal Fred) CxWorld)
-          "the premise is gone and the declaration still says it"))))
+      (v/retract! kb (v/assert kb (list animal Fred) CxWorld))
+      (is (not (believed? kb (list animal Fred) CxWorld))
+          "the premise is gone and the specific membership withholds the mint again")
+      (is (v/isa? kb Fred animal CxWorld)))))
 
 (tu/deftest-kb a-defeated-membership-gives-the-mint-back
   ;; Belief, not storage, is what withholds: a `(dog Fred)` the KB stops believing
@@ -581,11 +753,9 @@
                 (v/handle-of kb (list t2 Fred) CxWorld)}]
              (mapv :nogood (v/contradictions kb)))))))
 
-(tu/deftest-kb an-inherited-declaration-still-convicts
-  ;; The yield is `arg-entailments`' condition term for term, and `declares-locally?` is
-  ;; one of them: a declaration written in an ancestor context constrains a descendant
-  ;; without minting there.  So in the descendant the constraint reading is the only
-  ;; reading there is, and it convicts as it always did.
+(tu/deftest-kb a-membership-outside-the-declared-type-is-no-evidence-against-the-fact
+  ;; `Bert` is a `rock` and nothing says a rock is not an animal, so the inherited
+  ;; declaration derives `(animal Bert)` beside it and refuses nothing.
   (tu/with-terms [animal rock parentOf Bert Mary CxUp CxDown]
     (with-entailing
       (v/assert kb (list 'genlCx CxUp 'CxUniverse) 'CxUniverse)
@@ -594,9 +764,177 @@
       (a-type kb rock CxUp)
       (v/assert kb (list 'arg parentOf 1 animal) CxUp)
       (v/assert kb (list rock Bert) CxDown)
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"must be a"
-                            (v/assert kb (list parentOf Bert Mary) CxDown)))
-      (is (nil? (v/handle-of kb (list animal Bert) CxDown))))))
+      (v/assert kb (list parentOf Bert Mary) CxDown)
+      (is (believed? kb (list parentOf Bert Mary) CxDown))
+      (is (believed? kb (list animal Bert) CxDown))
+      (is (empty? (v/contradictions kb))))))
+
+;; ---- a derived membership under an inherited declaration -------------------
+;; `(achieves A B)` under `(genl achieves accomplishes)` and `(arg accomplishes 2 tt)`
+;; derives `(tt B)`; `(genl tt assoc)` with `(arg assoc 1 sub)` inherited from `CxUp`
+;; derives `(sub B)` from it.
+
+(defn- chain-premises
+  "The premises of the derived-membership chain, as `[step sentence context]` rows, every
+  step but the facts."
+  [{:keys [tt assoc sub accomplishes achieves CxUp CxDown]}]
+  [[:up       (list 'genlCx CxUp 'CxUniverse) 'CxUniverse]
+   [:cx       (list 'genlCx CxDown CxUp) 'CxUniverse]
+   [:types    (list 'genl assoc 'thing) 'CxUniverse]
+   [:types    (list 'genl tt assoc) 'CxUniverse]
+   [:types    (list 'genl sub 'thing) 'CxUniverse]
+   [:sub-decl (list 'arg assoc 1 sub) CxUp]
+   [:pred     (list 'genl achieves accomplishes) 'CxUniverse]
+   [:acc-decl (list 'arg accomplishes 2 tt) CxDown]])
+
+(defn- chain-terms
+  "Fresh terms for the chain, keyed by name."
+  []
+  (tu/with-terms [tt assoc sub accomplishes achieves Ann Bee Cal Dee CxUp CxDown]
+    {:tt tt :assoc assoc :sub sub :accomplishes accomplishes :achieves achieves
+     :Ann Ann :Bee Bee :Cal Cal :Dee Dee :CxUp CxUp :CxDown CxDown}))
+
+(defn- outcome
+  "`:stored`, or the refusal's `:type`."
+  [kb s c]
+  (try (v/assert kb s c) :stored
+       (catch clojure.lang.ExceptionInfo e (:type (ex-data e)))))
+
+(tu/deftest-kb two-facts-deriving-one-membership-are-both-stored-in-either-order
+  (doseq [order [[:ann :dee] [:dee :ann]]]
+    (tu/with-neutral-kb [kb tu/fresh]
+      (let [{:keys [tt sub achieves Ann Bee Dee CxDown] :as t} (chain-terms)]
+        (with-entailing
+          (doseq [[_ s c] (chain-premises t)] (v/assert kb s c))
+          (let [subject {:ann Ann :dee Dee}
+                got     (mapv #(outcome kb (list achieves (subject %) Bee) CxDown) order)]
+            (testing (str order)
+              (is (= [:stored :stored] got))
+              (is (believed? kb (list tt Bee) CxDown))
+              (is (believed? kb (list sub Bee) CxDown)
+                  "the inherited declaration derives over the derived membership")
+              (is (= 2 (count (:support (v/why kb (v/handle-of kb (list tt Bee) CxDown)))))))))))))
+
+(tu/deftest-kb a-stored-membership-re-asserts-as-it-first-asserted
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [{:keys [tt sub Bee CxDown] :as t} (chain-terms)]
+      (with-entailing
+        (doseq [[_ s c] (chain-premises t)] (v/assert kb s c))
+        (is (= [:stored :stored] [(outcome kb (list tt Bee) CxDown)
+                                  (outcome kb (list tt Bee) CxDown)]))
+        (is (believed? kb (list sub Bee) CxDown))))))
+
+(defn- inherited-chain-results
+  "Per order of the two declarations, the predicate edge, the context edge and the fact:
+  `(tt Bee)` and `(sub Bee)` believed once all have arrived, and again after the context
+  edge is retracted."
+  [orders]
+  (for [order orders]
+    (tu/with-neutral-kb [kb tu/fresh]
+      (let [{:keys [tt sub achieves Ann Bee CxUp CxDown] :as t} (chain-terms)]
+        (with-entailing
+          (let [rows (group-by first (chain-premises t))]
+            (doseq [[_ s c] (concat (rows :up) (rows :types))] (v/assert kb s c))
+            (doseq [step order]
+              (if (= :fact step)
+                (v/assert kb (list achieves Ann Bee) CxDown)
+                (doseq [[_ s c] (rows step)] (v/assert kb s c))))
+            (let [standing {:tt  (believed? kb (list tt Bee) CxDown)
+                            :sub (believed? kb (list sub Bee) CxDown)}]
+              (v/retract! kb (v/handle-of kb (list 'genlCx CxDown CxUp) 'CxUniverse))
+              [order [standing {:tt  (believed? kb (list tt Bee) CxDown)
+                                :sub (some? (v/handle-of kb (list sub Bee) CxDown))}]])))))))
+
+(def ^:private chain-orders (permutations [:cx :sub-decl :pred :acc-decl :fact]))
+
+(defn- one-reading?
+  "Every order reached the KB that derives both memberships, and retracting the context
+  edge took back only the one derived through the declaration it made visible."
+  [results]
+  (let [want [{:tt true :sub true} {:tt true :sub false}]]
+    (is (= #{want} (set (map second results)))
+        (str "the derivations varied by arrival order: "
+             (pr-str (take 4 (remove #(= want (second %)) results)))))))
+
+(tu/deftest-kb ^:slow every-arrival-order-derives-through-an-inherited-declaration
+  ;; All 120 orders.
+  (one-reading? (inherited-chain-results chain-orders)))
+
+(tu/deftest-kb sampled-arrival-orders-derive-through-an-inherited-declaration
+  ;; The sampled twin: every tenth order, the context edge first and last among them.
+  (one-reading? (inherited-chain-results (take-nth 10 chain-orders))))
+
+(defn- loaded-reading
+  "The chain's facts loaded with `bulk-assert-facts!`, then `record-arg-types` when
+  `record?`; then the stored `(tt Bee)` and `(sub Bee)`, and the check of `(achieves Dee
+  Bee)`, before and after `(achieves Cal Bee)` is added and retracted."
+  [record?]
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [{:keys [tt sub achieves Ann Bee Cal Dee CxDown] :as t} (chain-terms)]
+      (with-entailing
+        (doseq [[_ s c] (chain-premises t)] (v/assert kb s c))
+        (v/bulk-assert-facts! kb [(list achieves Ann Bee)] CxDown)
+        (when record? (v/record-arg-types kb))
+        (let [read (fn [] {:tt    (some? (v/handle-of kb (list tt Bee) CxDown))
+                           :sub   (some? (v/handle-of kb (list sub Bee) CxDown))
+                           :check (mapv :type (v/check kb (list achieves Dee Bee) CxDown))})
+              before (read)]
+          (v/retract! kb (v/assert kb (list achieves Cal Bee) CxDown))
+          [before (read)])))))
+
+(tu/deftest-kb a-bulk-loaded-store-records-its-derivations-once
+  ;; Without the pass the store lacks `(tt Bee)` and a write's add-and-remove cycle draws
+  ;; it; after the pass the store holds what a per-fact load holds and the cycle changes
+  ;; nothing.
+  (let [per-fact (tu/with-neutral-kb [kb tu/fresh]
+                   (let [{:keys [tt sub achieves Ann Bee Dee CxDown] :as t} (chain-terms)]
+                     (with-entailing
+                       (doseq [[_ s c] (chain-premises t)] (v/assert kb s c))
+                       (v/assert kb (list achieves Ann Bee) CxDown)
+                       {:tt    (some? (v/handle-of kb (list tt Bee) CxDown))
+                        :sub   (some? (v/handle-of kb (list sub Bee) CxDown))
+                        :check (mapv :type (v/check kb (list achieves Dee Bee) CxDown))})))]
+    (is (= {:tt false :sub false :check []} (first (loaded-reading false)))
+        "the bulk load skips the derivations")
+    (is (= [per-fact per-fact] (loaded-reading true)))))
+
+(tu/deftest-kb record-arg-types-is-idempotent
+  (tu/with-neutral-kb [kb tu/fresh]
+    (let [{:keys [achieves Ann Bee CxDown] :as t} (chain-terms)]
+      (with-entailing
+        (doseq [[_ s c] (chain-premises t)] (v/assert kb s c))
+        (v/bulk-assert-facts! kb [(list achieves Ann Bee)] CxDown)
+        (is (= 2 (:recorded (v/record-arg-types kb))))
+        (is (= 0 (:recorded (v/record-arg-types kb))))))))
+
+(tu/deftest-kb a-symmetric-fact-derives-at-its-stored-positions-in-either-spelling
+  ;; Both spellings of a `symmetric` fact store as one sentex in sorted order, and each
+  ;; argument's type rests on the declaration of the position it is stored at, so the two
+  ;; spellings store the same justifications and `record-arg-types` adds none to either.
+  (let [support (fn [written]
+                  (tu/with-neutral-kb [kb tu/fresh]
+                    (tu/with-terms [t rel Abe Zed CxWorld]
+                      (a-type kb t CxWorld)
+                      (a-context kb CxWorld)
+                      (v/assert kb (list 'symmetric rel) CxWorld)
+                      (v/assert kb (list 'arg rel 1 t) CxWorld)
+                      (v/assert kb (list 'arg rel 2 t) CxWorld)
+                      (with-entailing
+                        (v/assert kb (written rel Abe Zed) CxWorld)
+                        (let [read (fn []
+                                     (into {}
+                                           (for [[k x] {:abe Abe :zed Zed}]
+                                             [k (mapv (fn [j] (mapv #(v/sentence-of (v/sentex kb %))
+                                                                    (rest (:antecedents j))))
+                                                      (v/supporting-justifications
+                                                       kb (v/handle-of kb (list t x) CxWorld)))])))
+                              loaded (read)]
+                          (v/record-arg-types kb)
+                          [(update-vals loaded #(mapv (fn [antes] (mapv (juxt first (fn [d] (nth d 2))) antes)) %))
+                           (= loaded (read))])))))]
+    (is (= (support (fn [r a z] (list r a z)))
+           (support (fn [r a z] (list r z a)))))
+    (is (true? (second (support (fn [r a z] (list r z a))))))))
 
 (tu/deftest-kb an-entailment-of-a-length-its-type-denies-is-read-out
   ;; `(t Rex)` is what the declaration entails, and `t` is declared binary — so the
@@ -741,7 +1079,7 @@
         rows  (fn [kb pick]
                 (set (for [h (v/handles kb) :when (pick h)
                            :let [sx (v/sentex kb h)]]
-                       [(v/sentence-of sx) (:context sx)])))
+                       (tu/handle-free kb [(v/sentence-of sx) (:context sx)]))))
         seen  (fn [kb] [(rows kb any?) (rows kb #(v/in? kb %))])]
     (try
       (tu/with-terms [rel_t coll_t pp marked Foo Bar]
@@ -810,11 +1148,10 @@
       (is (not (v/genl? kb Wheel physical_object))))))
 
 (tu/deftest-kb a-genlArg-position-holding-thing-mints-no-reflexive-genl-edge
-  ;; The shipped `(genlArg arg 3 thing)` / `(genlArg genlArg 3 thing)` put `thing` itself in
-  ;; a genlArg-declared position over every `(arg P n thing)` declaration the ontology
-  ;; carries.  `(genl thing thing)` is not-well-formed, so the entailment must not draw it —
-  ;; otherwise loading the shipped KB lands a `:not-well-formed` violation per genl edge
-  ;; naming `thing` (docs/argtypes.md, "Where it does not mint").
+  ;; A `(genlArg P 2 thing)` declaration over a sentence holding `thing` in position 2 puts
+  ;; `thing` in a genlArg-declared position.  `(genl thing thing)` is not-well-formed, so
+  ;; the entailment must not draw it, or the KB lands a `:not-well-formed` violation
+  ;; (docs/argtypes.md, "Where it does not mint").
   (tu/with-terms [partType wheel_kind axle_kind Widget CxWorld]
     (with-entailing
       (a-context kb CxWorld)
@@ -831,15 +1168,110 @@
             "and none lands in the violations ledger")
         (is (empty? (v/violations kb)) "the ledger stays clean")))))
 
-;; ---- order independence --------------------------------------------------
+(tu/deftest-kb a-symmetric-fact-mints-over-its-stored-spelling
+  ;; `(symmetric relates)` stores `(relates a b)` and `(relates b a)` as one sentex, so
+  ;; the declaration a mint rests on is read off that one spelling.  Read off the
+  ;; spelling written, the fact arriving after `(genlArg relates 1 kind)` drew
+  ;; `(genl b kind)` over position 2 or position 1 by how it was written, while the
+  ;; declarations arriving after the fact read the stored spelling — two justifications
+  ;; for one content, and a text export reloading in content order kept the other one.
+  (tu/with-terms [kind relates a_kind b_kind CxWorld]
+    (let [run (fn [fact-first? fact]
+                (tu/with-neutral-kb [kb tu/fresh]
+                  (with-entailing
+                    (a-context kb CxWorld)
+                    (a-type kb kind CxWorld)
+                    (v/assert kb (list 'symmetric relates) 'CxUniverse)
+                    (let [decls #(doseq [n [1 2]]
+                                   (v/assert kb (list 'genlArg relates n kind) CxWorld))
+                          state #(v/assert kb fact CxWorld)]
+                      (if fact-first? (do (state) (decls)) (do (decls) (state))))
+                    (into {}
+                          (for [t [a_kind b_kind]
+                                :let [h (v/handle-of kb (list 'genl t kind) CxWorld)]]
+                            [t (set (for [s (:support (v/why kb h))]
+                                      (set (map #(v/sentence-of (v/sentex kb (:handle %)))
+                                                (:because s)))))])))))
+          results (for [fact-first? [true false]
+                        fact [(list relates a_kind b_kind) (list relates b_kind a_kind)]]
+                    [[fact-first? fact] (run fact-first? fact)])]
+      (is (every? (fn [[_ r]] (every? seq (vals r))) results)
+          "each argument is minted a subtype of kind")
+      (is (= 1 (count (set (map second results))))
+          (str "the mints' justifications varied by spelling or order: " (pr-str results))))))
 
-(defn- permutations
-  [coll]
-  (if (< (count coll) 2)
-    (list coll)
-    (for [i (range (count coll))
-          p (permutations (concat (take i coll) (drop (inc i) coll)))]
-      (cons (nth coll i) p))))
+;; ---- a relation named where a type is declared ----------------------------
+;;
+;; CxCore declares every argument of the separation family a subtype of `thing`
+;; (`(genlArg disjoint 1 thing)`, `(argAndRestGenl partition 2 thing)`), and
+;; `(unary_predicate thing)` binds `thing` to one argument.  A relation named in one of them
+;; is minted below `thing`, so it meets the arity content stored of it.  Each case
+;; states those declarations by hand over a fresh KB, in every arrival order.
+
+(defn- separation-row
+  "The belief and the clash grounds the separation `sep` leaves over the tuple `fact` of a
+  relation it names, as a value the fresh terms of one order do not vary: whether `fact`
+  is believed (nil when it is not stored), the grounds `why-not` names for its defeat, and
+  the grounds of each `:arity-descension` report, with `sep` and `(unary_predicate thing)`
+  read as `:separation` and `:binding`."
+  [kb sep fact ctx]
+  (let [sep   (some->> (v/handle-of kb sep ctx) (v/sentex kb) :sentence)
+        named #(cond (= sep %) :separation (= '(unary_predicate thing) %) :binding :else %)
+        h     (v/handle-of kb fact ctx)]
+    {:fact     (when h (believed? kb fact ctx))
+     :defeat   (when (and h (not (believed? kb fact ctx)))
+                 (into #{} (map (comp named :sentence)) (:grounds (v/why-not kb h))))
+     :descends (into #{} (comp (filter #(= :arity-descension (:kind %)))
+                               (map #(into #{} (map (comp named :sentence)) (:grounds %))))
+                     (concat (v/conflicts kb) (v/contradictions kb)))}))
+
+(tu/deftest-kb a-tuple-of-a-relation-a-separation-names-is-defeated-naming-the-separation-in-every-order
+  (doseq [[decls sep-of] [[['(genlArg disjoint 1 thing)]
+                           (fn [r s _] (list 'disjoint r s))]
+                          [['(genlArg partition 1 thing) '(argAndRestGenl partition 2 thing)]
+                           (fn [r s w] (list 'partition w r s))]]]
+    (let [results
+          (for [order (permutations [:decl :bind :sep :fact])]
+            (tu/with-neutral-kb [kb tu/fresh]
+              (tu/with-terms [animal gladdenOf saddenOf outputOf Cal Dee CxWorld]
+                (with-entailing
+                  (a-context kb CxWorld)
+                  (a-type kb animal CxWorld)
+                  (let [sep (sep-of gladdenOf saddenOf outputOf)]
+                    (doseq [step order]
+                      (case step
+                        :decl (doseq [d decls] (v/assert kb d CxWorld {:strength :monotonic}))
+                        :bind (v/assert kb '(unary_predicate thing) CxWorld {:strength :monotonic})
+                        :sep  (v/assert kb sep CxWorld)
+                        :fact (v/assert kb (list gladdenOf Cal Dee) CxWorld)))
+                    [order (separation-row kb sep (list gladdenOf Cal Dee) CxWorld)])))))]
+      (is (= #{{:fact false :defeat #{:separation :binding} :descends #{}}}
+             (set (map second results)))
+          (str (first decls) ": " (pr-str (remove #(= {:fact false :defeat #{:separation :binding}
+                                                       :descends #{}}
+                                                      (second %))
+                                                  results)))))))
+
+(tu/deftest-kb a-relation-a-separation-names-clashes-with-its-own-binding-naming-the-separation-in-every-order
+  (let [results
+        (for [order (permutations [:decl :bind :own :sep])]
+          (tu/with-neutral-kb [kb tu/fresh]
+            (tu/with-terms [animal parentOf childOf Cal Dee CxWorld]
+              (with-entailing
+                (a-context kb CxWorld)
+                (a-type kb animal CxWorld)
+                (let [sep (list 'disjoint parentOf childOf)]
+                  (doseq [step order]
+                    (case step
+                      :decl (v/assert kb '(genlArg disjoint 1 thing) CxWorld {:strength :monotonic})
+                      :bind (v/assert kb '(unary_predicate thing) CxWorld {:strength :monotonic})
+                      :own  (v/assert kb (list 'binary_predicate parentOf) CxWorld {:strength :monotonic})
+                      :sep  (v/assert kb sep CxWorld)))
+                  [order (separation-row kb sep (list parentOf Cal Dee) CxWorld)])))))]
+    (is (= #{{:fact nil :defeat nil :descends #{#{:separation}}}} (set (map second results)))
+        (pr-str (remove #(= {:fact nil :defeat nil :descends #{#{:separation}}} (second %)) results)))))
+
+;; ---- order independence --------------------------------------------------
 
 (defn- believed-shape
   "The belief the three sentences leave, as a value order cannot vary."

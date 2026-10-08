@@ -301,8 +301,9 @@
           fired  (v/handle-of kb (list likes Ann Dan) 'CxUniverse)
           observe (fn [k] (mapv (fn [h] [(v/in? k h) (v/defeat-class k h) (:strength (v/sentex k h))])
                                 [fact denial fired]))]
-      (is (= [[true :monotonic :default] [false nil :default] [false nil nil]]
-             (one-reading! "a forced fact, a denial held OUT and a void firing" kb observe))))))
+      (is (= [[true :default :default] [false nil :default] [false nil nil]]
+             (one-reading! "a roster fact at its written strength, a denial held OUT and a void firing"
+                           kb observe))))))
 
 (tu/deftest-kb a-denial-an-older-store-kept-inert-recovers-as-a-default-premise
   ;; An older store held a denial of a roster literal with no premise mark; a recover

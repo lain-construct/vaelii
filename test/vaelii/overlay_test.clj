@@ -210,7 +210,7 @@
   ;; back byte-identical.
   (let [base (doto (v/open-kb {:backend :memory :space [::preserve-base] :recover? false})
                (v/clear!))]
-    (v/assert base '(transitiveInArg tmpLargerThan 1 genl) 'CxUniverse)
+    (v/assert base '(transitiveInArgInverse tmpLargerThan 1 genl) 'CxUniverse)
     (v/assert base '(tmpLargerThan tmp_dog tmp_cat) 'CxUniverse)
     (v/assert base '(implies (tmpLargerThan ?x ?y) (tmpOutweighs ?x ?y)) 'CxUniverse {:direction :forward})
     (let [before (base-snapshot base)
@@ -225,6 +225,25 @@
         (v/retract! f (v/handle-of f '(genl tmp_chi tmp_dog) 'CxUniverse))
         (is (empty? (v/sentexes-matching f '(tmpOutweighs tmp_chi tmp_cat)
                                          'CxUniverse)))))
+    (v/clear! base)))
+
+(deftest a-fork-answers-the-bases-excepts-and-defeats
+  ;; The excepts and defeats are read off the index, so a fork reads its base's through
+  ;; the merged view.
+  (let [base (doto (v/open-kb {:backend :memory :space [::except-base] :recover? false})
+               (v/clear!))]
+    (v/assert base '(genlCx CxOverlayEx CxUniverse) 'CxUniverse {:strength :monotonic})
+    (let [h (v/assert base '(tmp_shiny TmpGold) 'CxUniverse)]
+      (v/assert base (list 'except (list 'sentexHandle h)) 'CxOverlayEx)
+      (v/assert base '(tmp_hot TmpSun) 'CxUniverse)
+      (v/assert base '(not (tmp_hot TmpSun)) 'CxUniverse {:strength :monotonic})
+      (let [f (v/fork base)]
+        (doseq [[label kb] [["the base" base] ["the fork" f]]]
+          (testing label
+            (is (v/ask? kb '(tmp_shiny TmpGold) 'CxUniverse))
+            (is (not (v/ask? kb '(tmp_shiny TmpGold) 'CxOverlayEx)) "the except hides it below")
+            (is (not (v/ask? kb '(tmp_hot TmpSun) 'CxUniverse)) "the placed defeat removes it")
+            (is (= 1 (count (v/sentexes-matching kb '(defeat ?h) 'CxUniverse))))))))
     (v/clear! base)))
 
 (deftest a-fork-writes-only-to-itself
@@ -454,9 +473,9 @@
           fork-h  (v/handle-of f '(dog Rex) 'CxOverlay)
           base-h  (v/handle-of base '(dog Muffet) 'CxOverlay)]
       (testing "a root inherited from the base and extended by the fork comes out merged"
-        (is (= #{fork-h base-h} (get entries '[:functor-root dog]))))
+        (is (= #{fork-h base-h} (get entries '[:predicate-extent :handles [dog CxOverlay]]))))
       (testing "and one the fork emptied of its inherited member is simply gone"
-        (is (nil? (get entries '[:functor-root ownerOf]))))
+        (is (nil? (get entries '[:predicate-extent :handles [ownerOf CxOverlay]]))))
       (testing "the bookkeeping keys are the overlay's own and never project"
         (is (empty? (filter (fn [k] (or (keyword? k) (and (vector? k) (keyword? (first k))
                                                           (namespace (first k)))))

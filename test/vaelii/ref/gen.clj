@@ -149,7 +149,7 @@
     a merge only when both are `:monotonic` (decision D6), which `merge-disagreements`
     reads through the engine's equality.
   - `:num` — two integers in 1..3; the same marks.  Two integers never merge.
-  - `:type-arg` — a type then an individual; marks `(transitiveInArg P 1 genl)`."
+  - `:type-arg` — a type then an individual; marks `(transitiveInArgInverse P 1 genl)`."
   [rng sizes]
   {:contexts    (vec (for [i (range (between rng (:contexts sizes)))]
                        (tu/fresh-term :context (str "Cx" (str/upper-case (str (letter i)))))))
@@ -208,7 +208,7 @@
       :functional        (list 'functional pred)
       :functional-in-arg (list 'functionalInArg pred (inc (.nextInt ^Random rng 2)))
       :anti-symmetric    (list 'anti_symmetric pred)
-      :transitive-in-arg (list 'transitiveInArg pred 1 'genl))))
+      :transitive-in-arg (list 'transitiveInArgInverse pred 1 'genl))))
 
 (defn- violation
   "A tuple a mark among the writes `acc` convicts, or nil when `acc` holds no
@@ -241,15 +241,15 @@
   "The functors of the writes `fact-write` draws that are on the forced-monotonic roster:
   the `genlCx` edge and every `declaration`."
   '#{genlCx disjoint covering functional functionalInArg anti_symmetric irreflexive
-     anti_transitive transitiveInArg})
+     anti_transitive})
 
 (defn- fact-write
   "One non-rule write drawn from the menu: a `genlCx` edge, a `genl` edge or its denial, a
   membership or its denial, a tuple or its denial, a declaration, a denial of a roster
   write (one among `acc`, the writes drawn before it, when there is one), or a
   `violation` of a mark among `acc`.  Every write takes a random strength: the reference
-  and the engine both read a write of `vaelii.ref.world/forced-monotonic` `:monotonic`,
-  and both hold a denial of one inert."
+  and the engine both read a write of `vaelii.ref.world/forced-monotonic` as never a
+  loser and a `genlCx` write as `:monotonic`, and both hold a denial of one inert."
   [rng {:keys [contexts types individuals predicates] :as pools} acc]
   (let [ctx   #(pick rng contexts)
         kind  (weighted rng (cond-> [[2 :genl] [1 :genl-denial] [5 :member] [2 :member-denial]
@@ -484,7 +484,8 @@
   `guarded-clash`, a quarter of the worlds the writes of `release-below`, a third the
   writes of `collision`, and a third of the worlds holding a guarded rule the writes of
   `blocker-below`, each less any `[sentence context]` pair already drawn.  Every write of
-  `vaelii.ref.world/forced-monotonic` is read `:monotonic`, and a denial of one inert.
+  `vaelii.ref.world/forced-monotonic` is never a loser, a `genlCx` write is read
+  `:monotonic`, and a denial of one is inert.
   `:contexts` holds every generated context plus `CxUniverse` when an edge names it."
   [seed opts]
   (let [rng    (Random. (long seed))
@@ -674,25 +675,40 @@
         :else          form))
 
 (defn engine-displaced
-  "`{C {S S'}}`: each sentence `S` of `beliefs` (`engine-beliefs`) believed at `C` that
-  names a term of a pair of `merges` (`engine-merges`) whose representative at `C` is
-  another term, with `S'`, its spelling under the representatives.  A merge supersedes
-  every spelling it displaces but its own equalities', so each entry is a spelling the
-  merge left believed."
-  [kb beliefs merges]
-  (into {}
-        (for [[c pairs] merges
-              :let [rep (into {} (comp cat
-                                       (map (fn [t] [t (v/representative kb t c)]))
-                                       (remove (fn [[t r]] (= t r))))
-                              pairs)]
-              :when (seq rep)
-              :let [ss (into {} (comp (remove #(contains? '#{equals sameAs rewriteOf} (functor-of %)))
-                                      (filter #(some rep (symbols-in %)))
-                                      (map (fn [s] [s (respell s rep)])))
-                             (get beliefs c))]
-              :when (seq ss)]
-          [c ss])))
+  "`{C {S S'}}`: each stored sentence `S` believed at `C` (`believed?` on its handle, as
+  `engine-beliefs` reads it) that names a term of a pair of `merges` (`engine-merges`)
+  whose representative at the context `S` is stored in is another term, with `S'`, its
+  spelling under those representatives.  A merge supersedes every spelling the fact's own
+  context displaces but its own equalities', so each entry is a spelling the merge left
+  believed.  A fact stored above the merge stays believed where it lives, and a reader
+  below retires its spelling through the read filter (`res/without-retired`,
+  docs/equality.md, \"The reader is not the fact's own context\"), which `believed?` does
+  not read, so such a fact is no entry."
+  [kb merges]
+  (let [stored (into [] (keep (fn [h]
+                                (let [sx (v/sentex kb h)]
+                                  (when (and sx (nil? (:antecedent sx)))
+                                    [h (v/sentence-of sx) (:context sx)]))))
+                     (v/handles kb))]
+    (into {}
+          (for [[c pairs] merges
+                :let [terms (into #{} cat pairs)
+                      ss    (into {}
+                                  (keep (fn [[h s cx]]
+                                          (when (and (comparable-sentence? s)
+                                                     (not (contains? '#{equals sameAs rewriteOf}
+                                                                     (functor-of s)))
+                                                     (some terms (symbols-in s))
+                                                     (v/sees? kb c cx)
+                                                     (v/believed? kb h c))
+                                            (let [rep (into {} (keep (fn [t]
+                                                                       (let [r (v/representative kb t cx)]
+                                                                         (when (not= t r) [t r]))))
+                                                            (filter terms (symbols-in s)))]
+                                              (when (seq rep) [s (respell s rep)])))))
+                                  stored)]
+                :when (seq ss)]
+            [c ss]))))
 
 (defn- recovered-beliefs
   "`engine-beliefs` of the KB `loaded` holds after it is closed and opened again over the
@@ -723,7 +739,7 @@
                   :beliefs   beliefs
                   :reports   (engine-reports kb world)
                   :merges    merges
-                  :displaced (engine-displaced kb beliefs merges)}
+                  :displaced (engine-displaced kb merges)}
            recover? (assoc :recovered (recovered-beliefs loaded world opts asks))))
        (finally (close-kb! loaded))))))
 

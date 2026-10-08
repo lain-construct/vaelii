@@ -15,7 +15,8 @@
             [vaelii.impl.asp.clingo :as clingo]
             [vaelii.impl.asp.edge :as edge]
             [vaelii.impl.asp.solver :as solver]
-            [vaelii.impl.solve :as solve])
+            [vaelii.impl.solve :as solve]
+            [vaelii.test-util :as tu])
   (:import [com.sun.jna.ptr PointerByReference]
            [java.lang ProcessHandle]
            [java.nio.file Files]
@@ -81,23 +82,24 @@
   ;; The stub ignores `--time-limit` and sleeps in a child process, as a wedged clasp
   ;; would.  The solve runs in a future bounded at 10 s, so a missing watchdog reads as
   ;; `::hung` instead of stalling the suite for the stub's 30 s.
-  (let [dir  (.toFile (Files/createTempDirectory "vaelii-clasp-stub" (make-array FileAttribute 0)))
-        pids (io/file dir "pids")
-        stub (io/file dir "clasp")]
-    (try
-      (spit stub (str "#!/bin/sh\necho $$ > '" pids "'\nsleep 30 &\necho $! >> '" pids "'\nwait\n"))
-      (.setExecutable stub true)
-      (with-redefs [clasp/deadline-ms (constantly 500)]
-        (binding [clasp/*clasp-binary* (str stub)]
-          (let [r (deref (future (try (clasp/solve "asp 1 0 0\n0\n" :label)
-                                      (catch clojure.lang.ExceptionInfo e (ex-data e))))
-                         10000 ::hung)]
-            (is (= :solver-unavailable (:type r)))
-            (is (= [] (remove #(exits-within? % 5000)
-                              (map parse-long (str/split-lines (slurp pids)))))
-                "the stub and its child are gone"))))
-      (finally
-        (run! #(.delete ^java.io.File %) (reverse (file-seq dir)))))))
+  (tu/with-requirement (not tu/windows?) "the stub is a #!/bin/sh script, which Windows does not exec"
+    (let [dir  (.toFile (Files/createTempDirectory "vaelii-clasp-stub" (make-array FileAttribute 0)))
+          pids (io/file dir "pids")
+          stub (io/file dir "clasp")]
+      (try
+        (spit stub (str "#!/bin/sh\necho $$ > '" pids "'\nsleep 30 &\necho $! >> '" pids "'\nwait\n"))
+        (.setExecutable stub true)
+        (with-redefs [clasp/deadline-ms (constantly 500)]
+          (binding [clasp/*clasp-binary* (str stub)]
+            (let [r (deref (future (try (clasp/solve "asp 1 0 0\n0\n" :label)
+                                        (catch clojure.lang.ExceptionInfo e (ex-data e))))
+                           10000 ::hung)]
+              (is (= :solver-unavailable (:type r)))
+              (is (= [] (remove #(exits-within? % 5000)
+                                (map parse-long (str/split-lines (slurp pids)))))
+                  "the stub and its child are gone"))))
+        (finally
+          (run! #(.delete ^java.io.File %) (reverse (file-seq dir))))))))
 
 (deftest a-failing-handle-close-does-not-replace-the-failure-that-caused-it
   ;; `drain-handle` closes the solve handle in a `finally`, because freeing a control

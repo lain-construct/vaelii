@@ -8,8 +8,10 @@
             [vaelii.host.core-context :as core-context]
             [vaelii.host.seed :as seed]
             [vaelii.host.starter :as starter]
+            [vaelii.impl.checks :as checks]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.special :as special]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
@@ -36,6 +38,29 @@
   (is (not= ::unread @starter-violations) "the fixture read the ledger")
   (is (empty? @starter-violations)
       (str "the starter load files violations: " (pr-str @starter-violations))))
+
+(tu/deftest-kb the-loaded-starter-holds-every-argument-type-derivation
+  ;; `record-arg-types` records the derivations a store loaded around `assert` lacks.  The
+  ;; starter and the test-world load through `assert`, so it records nothing over them: the
+  ;; loaders draw every derivation, a decontextualized lift's copy included.
+  (is (= 0 (:recorded (v/record-arg-types kb)))))
+
+(tu/deftest-kb ^:slow the-constraint-only-reading-proves-every-sentence-the-entailment-derives
+  ;; Each record the argument entailment alone holds up in the fixture is asked in its
+  ;; context of the same starter and test-world loaded under the constraint-only reading,
+  ;; which derives nothing.  Under that reading the fixture holds no such record.
+  (let [mint-only? #'special/mint-only?
+        derived    (sort-by pr-str
+                            (for [h     (p/sentex-ids (:records kb))
+                                  :when (mint-only? kb h)
+                                  :let  [{:keys [sentence context]} (p/get-sentex (:records kb) h)]]
+                              [context sentence]))
+        off        (doto (v/open-kb (tu/isolated-space)) (tu/clear-kb!))]
+    (try
+      (binding [checks/*assertive-arg-types?* false]
+        (-> off starter/load-into world/load-into)
+        (is (empty? (remove (fn [[c s]] (v/ask? off s c)) derived))))
+      (finally (tu/clear-kb! off)))))
 
 (defn- authored-sentences
   "Every sentence the shipped ontology's own source files contain, paired with the context
@@ -98,7 +123,7 @@
      modal_predicate decontextualized_predicate forced_decontextualized_predicate
      instance_relation_predicate type_relation_predicate target_following_predicate
      reifiable_function unreifiable_function quoting_function context_denoting_function
-     result genlResult transitiveInArg transitiveInArgInverse inverse relation_kind})
+     result genlResult transitiveInArgInverse transitiveInArg inverse relation_kind})
 
 (defn- touched-terms
   "`term -> #{context}` over `sentences`, for the terms each one defines or extends."
@@ -110,7 +135,7 @@
                 (cond
                   (= 'genl f)
                   (reduce #(update %1 %2 (fnil conj #{}) ctx) acc (filter symbol? (take 2 args)))
-                  (contains? '#{disjoint sibling_disjoint siblingDisjointException} f)
+                  (contains? '#{disjoint sibling_disjoint orthogonal} f)
                   (reduce #(update %1 %2 (fnil conj #{}) ctx) acc (filter symbol? args))
                   (and (contains? defining-functors f) (symbol? (first args)))
                   (update acc (first args) (fnil conj #{}) ctx)
@@ -122,8 +147,8 @@
   ;; A spindle is a **head** every member sees, **members** that see the head and not
   ;; each other, and a **collector** that sees every member (docs/contexts.md).  So a
   ;; term defined in one member and extended from a second is a term the extending
-  ;; member cannot see, and that is a defect rather than untidiness: with `living_thing`
-  ;; defined in CxAbstract, `(genl animal living_thing)` written in CxOrganism left
+  ;; member cannot see, and that is a defect rather than untidiness: with `organism`
+  ;; defined in CxAbstract, `(genl animal organism)` written in CxOrganism left
   ;; `animal` unable to reach `thing` FROM CxOrganism, so every `arg` constraint written
   ;; there convicted nothing in its own context and `isa?` answered false about a type
   ;; the file defines.
@@ -194,8 +219,8 @@
 
 (tu/deftest-kb starter-documents-its-vocabulary
   (testing "every ontology type carries exactly one comment"
-    (doseq [t '[thing intangible physical_object attribute temporal relation_type
-                substance artifact body_part food living_thing vehicle tool building
+    (doseq [t '[thing intangible tangible temporal relation_type
+                substance made natural formation body_part food organism vehicle tool building
                 animal plant mammal bird fish reptile insect person human dog cat
                 lion mouse hare wolf tortoise ant grasshopper
                 penguin eagle sparrow tree flower]]
@@ -231,3 +256,23 @@
       (doseq [[_ [base _]] conversion]
         (is (= [base 1] (conversion base))
             (str base " is a base unit, so it converts to itself unchanged"))))))
+
+(tu/deftest-kb a-unit-table-entry-types-its-unit-and-its-dimension
+  ;; `(dimensionOf Kilogram Mass)` proves `(unit_of_measure Kilogram)` and
+  ;; `(physical_dimension Mass)` from CxMeasure's declarations under either reading, and
+  ;; stores no `(thing Kilogram)`
+  (let [entries (v/sentexes-with-functor kb 'dimensionOf {:believed? true})]
+    (is (seq entries))
+    (doseq [{[_ unit dimension] :sentence c :context} entries]
+      (is (v/ask? kb (list 'unit_of_measure unit) c) (str unit))
+      (is (v/ask? kb (list 'physical_dimension dimension) c) (str dimension))
+      (is (nil? (v/handle-of kb (list 'thing unit) c)) (str unit)))))
+
+(deftest no-shipped-declaration-makes-an-argument-a-thing
+  ;; `genlArg … thing` is not in the roster: it says the position holds a type
+  (let [declares #{'arg 'arg1 'arg2 'arg3 'arg4 'arg5 'args 'argAndRest 'quotedArg}
+        bare     #(if (and (seq? %) (= 'set/monotonic (first %))) (second %) %)]
+    (is (empty? (for [[c s] (authored-sentences)
+                      :let  [s (bare s)]
+                      :when (and (seq? s) (declares (first s)) (= 'thing (last s)))]
+                  [c s])))))

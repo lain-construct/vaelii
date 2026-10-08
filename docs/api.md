@@ -71,6 +71,8 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
                                                 ; chaining, one settle.  The caller owns the two
                                                 ; preconditions — well-formed, pairwise-distinct.
                                                 ; `:on-progress` reports the load's facts/sec
+(record-arg-types kb)                           ; after a bulk or dump load: record the
+                                                ; argument-type derivations it skipped, once
 (edit! kb {:add [[sentence context opts?] ...] :remove [handle ...]}) ; add-then-remove, one settle
 (check kb sentence context opts)                ; would assert succeed? -> [] or [{:type :message …}]
 (check-edit kb {:add […] :remove […]})          ; the same over an edit batch, each problem naming its entry
@@ -95,10 +97,12 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ;  naming the claim nobody stored, docs/inherit.md)
                                                ; both lists are ordered by CONTENT, entries and sides
                                                ; alike, so (first (contradictions kb)) is stable
-(contradictions kb context)                    ; the pairs standing for ONE reader: it sees every
-                                               ; side's context, and a pair its vantages decided
-                                               ; differently (:vantages {vantage handle}) is a dilemma
-                                               ; only for a reader seeing two of those vantages
+(contradictions kb context)                    ; the pairs standing for ONE reader: it sees a
+                                               ; placed (contradicts …), believes every member,
+                                               ; and reads their classes as a tie; a pair its
+                                               ; placements decided differently
+                                               ; (:vantages {context handle}) is a dilemma only
+                                               ; for a reader seeing two of those placements
                                                ; (docs/nmtms.md, "Vantages that disagree")
 (settle-stats kb) / (reset-settle-stats! kb)     ; the exceptWhen fixpoint's iteration instrumentation
 (chain-stats kb)                               ; {:runs n :last {:derived n :truncated? bool}} — a capped run is visible
@@ -151,6 +155,43 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; omitted and the gaps never, so an empty map is a clean
                                                 ; sweep. A legacy-ternary gap keys by its whole stale
                                                 ; tuple [functor pred a b], displacing nothing
+(kb-integrity kb candidate-terms ctx)
+(kb-integrity kb candidate-terms ctx opts)       ; the bounded checkpoint sweep: the complete specified
+                                                ; audit above, query-only definition clashes over an
+                                                ; explicit finite set of ground terms, every visible
+                                                ; predicate genl edge whose spec declares an arg type its
+                                                ; genl's constraint does not subsume, every candidate
+                                                ; term declared unary_predicate with no genl path to
+                                                ; thing, a suggested (genl X P) for every candidate
+                                                ; type a visible cover forces under P that the closure
+                                                ; misses, and every visible orthogonal declaration
+                                                ; (orthogonal a b), or a siblingDisjointException,
+                                                ; over a pair a stated separation divides, the suggested
+                                                ; declaration for every stored rule that a declaration the
+                                                ; engine implements states, every genl node with no
+                                                ; declared arity, plus three
+                                                ; review-only smells: sibling types sharing one direct
+                                                ; genl set, stated genl/disjoint edges that derive
+                                                ; without themselves, and disjoint pairs a known cover
+                                                ; exhausts (a candidate partition), and every declared
+                                                ; argument position no arg-type declaration types. Returns
+                                                ; {:status :audited :candidate-count n}
+                                                ; when clean, or :status :gap plus any of the sparse
+                                                ; categories :all-specified-violations,
+                                                ; :definition-inconsistencies, :genl-arg-widening,
+                                                ; :not-under-thing, :implicit-genl,
+                                                ; :orthogonal-over-separation, :rule-macro,
+                                                ; :undeclared-arity, :twin-genls,
+                                                ; :derivable-stated-edge,
+                                                ; :disjoint-could-be-partition and :missing-arg. opts may bound :max-work,
+                                                ; :max-ms and :max-results, and :categories names the
+                                                ; passes to run. The four review-only passes run only
+                                                ; when :categories names them; exhaustion is :truncated,
+                                                ; never :audited. Work/time check between opaque callbacks
+                                                ; and result pulls (one callback/chunk may overrun);
+                                                ; :max-results absolutely caps returned findings.
+                                                ; The opts map is optional. Reads only
+                                                ; (docs/integrity.md)
 (last-program kb)                              ; the last edge Program solved — the tie, before belief erased it
 (set-solver kb :asp)                           ; the real answer-set backend, by name (:stub is the default)
 (set-solver kb solver)                         ; or any vaelii.impl.types.solve/Solver value
@@ -266,7 +307,7 @@ default-chain-opts                              ; the bounds a chain run takes w
 ;; ONE network, where two incomparable contexts compose for nobody — a diagnostic view of
 ;; everything stored, off which no goal is answered.  A goal fans over the readers.
 (calculi)                                      ; the shipped calculi: base relations + vocabulary
-(qualitative-network kb calculus context)      ; the tightened network + :consistent? (+ :unsatisfiable)
+(qualitative-network kb calculus context)      ; the tightened network + :consistent? (+ :unsatisfiable, :unsatisfiable-sources)
 (possible-relations kb calculus context a b)   ; the base relations still possible between two terms
 (qualitative-scenario kb calculus context)     ; one consistent arrangement, {[a b] -> relation}, or nil
 (qualitative-scenarios kb calculus context n)  ; up to n of them (the count is exponential, so n is required)
@@ -274,6 +315,11 @@ default-chain-opts                              ; the bounds a chain run takes w
 (reindex kb)                                   ; rebuild the index (trie/roots/rule/term) from the records, then recover
 (clear! kb)                                    ; empty both durable stores — `recover`'s counterpart,
                                                ; and irreversible, which is what the `!` says
+(seal kb)                                      ; a KB opened with :oplog?: write both images, start
+                                               ; the log's next generation, so a restore replays
+                                               ; only what follows -> {:sealed true :generation g
+                                               ; :watermark w :ms t}, or {:sealed false :reason r}
+                                               ; (docs/storage.md, "The operation log")
 (close! kb)                                    ; release a durable KB's directory: flush + close the
                                                ; stores, drop the file lock.  A durable fork releases
                                                ; its own writable directory, never the base's — that
@@ -352,20 +398,35 @@ default-chain-opts                              ; the bounds a chain run takes w
 (disjoint-metatypes kb) / (metatype-members kb m) ; the declared `disjoint_metatype` cliques and one
                                                ; clique's members — consulted, never materialized,
                                                ; so no `(disjoint a b)` pair is stored to read back
+(separating-covers kb)                         ; the believed `separating` / `partition` rosters as
+                                               ; `[whole parts kind]`, consulted the same way
 (subsumption-status kb type-a type-b [context]); the pair's genl relationship as a keyword —
                                                ; :genl :spec :coextensional :disjoint :orthogonal
                                                ; :unknown, or :inconsistent when two of those hold
                                                ; at once; genl/disjoint read the global closures,
-                                               ; `context` is the shared-instance vantage (default
-                                               ; CxUniverse)
-(disjointness-audit kb [context])              ; subsumption-status over every unordered type pair —
+                                               ; a stated `(orthogonal a b)` or
+                                               ; `(siblingDisjointException a b)` reads :orthogonal,
+                                               ; `context` is the vantage the declaration and the
+                                               ; shared instance are read from (default CxUniverse)
+                                               ; a shared subtype not provably empty, read
+                                               ; from the global closures, also reads :orthogonal
+(disjointness-audit kb [context])              ; subsumption-status over every unordered type pair,
+                                               ; the genl nodes less each `relation?` at context —
                                                ; {:types :pairs :by-status :pairs-data}; the
                                                ; :unknown pairs flag a candidate missing `disjoint`
+                                               ; or `orthogonal`; an :orthogonal entry carries
+                                               ; :witness (:declared :shared-instance :shared-spec
+                                               ; :unwitnessed-spec) and :via, the instance or
+                                               ; subtype found
 ;; the taxonomy, read (thin delegations to vaelii.impl.taxonomy — reads only, since
 ;; edges and metadata are maintained by assert / retract! from the sentexes stating them)
 (genls kb t [context]) / (specs kb t [context])         ; genl up/down closure (scoped with a context)
+(direct-genls kb t [context]) / (direct-specs kb t [context]) ; one genl step up/down, not reflexive;
+                                                        ; a cover roster's installed edges count
 (genl? kb sub super [context])                          ; subtype test, scoped the same way
 (types kb) / (contexts kb)                              ; the nodes of each hierarchy
+(relation? kb term [context])                           ; a stored arity of 2+ or variable_arity:
+                                                        ; a `types` node that is a relation, not a type
 (context-up kb c) / (context-down kb c) / (sees? kb k y); genlCx closures + visibility test
 (context-of-agent agent) / (agent-of-context ctx)       ; the Alice <-> CxAgentAlice agent
                                                         ; context bijection (docs/belief.md)
@@ -475,7 +536,7 @@ assertable-strengths                            ; #{:monotonic :default}, the se
 ;; extent fns take {:believed? true} to filter, which is O(n); there is no O(1)
 ;; believed count and none is pretended.
 (sentexes-in-context kb ctx [opts]) / (count-in-context kb ctx)              ; context root
-(sentexes-with-functor kb pred [opts]) / (count-with-functor kb pred)    ; functor root
+(sentexes-with-functor kb pred [opts]) / (count-with-functor kb pred)    ; predicate extent
 (sentexes-with-arg kb pos term [opts]) / (count-with-arg kb pos term)    ; argument-position root
                                                 ; each extent is a LAZY seq over live state:
                                                 ; records fetched as it is walked, so (take n …)
@@ -505,12 +566,12 @@ assertable-strengths                            ; #{:monotonic :default}, the se
 (retract! kb handle)                            ; teardown -> {:removed-sentexes n :removed-justifications n}
 (in? kb handle)                                 ; raw structural JTMS IN, before contextual exceptions
 (believed? kb handle context)                   ; IN and not withdrawn from context (an except, a
-                                                ; loser it decides, or resting only on one), before
+                                                ; placed defeat it sees, or resting only on one), before
                                                 ; assertion-context inheritance
 (belief-status kb handle context)               ; deterministic diagnostic map:
                                                 ; {:handle :view-context :stored? :in?
                                                 ;  :assertion-context :exceptions :excepted?
-                                                ;  :withdrawn? :scoped-vantages
+                                                ;  :withdrawn?
                                                 ;  :inherited-path :believed? :visible?}
                                                 ; :exceptions is context/content ordered; every node
                                                 ; is {:handle :in? :in-force? :excepted-by}
@@ -523,7 +584,7 @@ assertable-strengths                            ; #{:monotonic :default}, the se
                                                 ; the cap bounds the tree returned, not the depth a
                                                 ; read can reach without overflowing
 (why-not kb handle)                             ; stored but OUT: :defeated (+ what contradicts it)
-                                                ; / :withdrawn (+ the verdict that withdrew it)
+                                                ; / :withdrawn (+ the defeats it rests on)
                                                 ; / :superseded (+ the restatement that displaced it)
                                                 ; / :unsupported (+ the missing antecedents) / :not-stored
 (why-not kb sentence context)                   ; the same five, plus the two only this arity
@@ -716,6 +777,9 @@ write path itself, and the entry point reports what it costs — `:on-progress` 
 `{:phase :done :total n …}` once the closing settle has run, so the last event is a rate
 for the whole load and is comparable between runs and between corpus sizes. Where that
 time goes, phase by phase: [storage.md](storage.md), "What a bulk load costs".
+The argument-type derivations ride on the skipped checks, so a bulk load stores none of
+them; `record-arg-types`, run once after the load on the recovered KB, records them
+([argtypes.md](argtypes.md#where-it-does-not-mint)).
 
 `edit!` batches assertions **and** retractions into one settle — `{:add [[sentence
 context opts?] …] :remove [handle …]}`.  The adds land **before** the removes, so a
@@ -937,9 +1001,11 @@ beside it** — `{:terms :total :exact? :sorted?}` for terms, `{:rows …}` for 
 on an imported ontology one type has 110,000 subtypes and a reader who is handed a
 truncated list without its total has been told something false.
 
-The role is `term-role`'s with one override: a term the `genl` hierarchy holds as a node is
-described as a **type**, since a type *is* a unary predicate and no spelling separates the
-two ([naming.md](naming.md)).
+Stored content overrides `term-role`'s spelling read. A term `relation?` answers for at the
+asking context (an arity of two or more, or `variable_arity`) is described as a
+**predicate**, and any other node of the `genl` hierarchy as a **type**: a type *is* a unary
+predicate, and no spelling separates the two ([naming.md](naming.md)). A term with neither
+keeps the spelling's role, which is a display read only.
 
 **`why-not` `{:nearest n}` — why doesn't my rule fire?**  `:not-stored` is the emptiest
 answer the entry point has, and it is the one that arrives when a rule was supposed to conclude
@@ -1139,7 +1205,7 @@ Inside `vaelii.impl.*` the same convention runs — `delete-sentex!`, `unindex-s
 Everything that *adds* or *recomputes* is bare even though it mutates: `assert`,
 `assert-rule`, `add-premise`, `register-modal-predicate`, `index-sentex`, `mark-prop`,
 `forward-chain`, `settle`,
-`recover`. So the `!` is a warning about not being able to undo, not a note that a
+`recover`, `seal`. So the `!` is a warning about not being able to undo, not a note that a
 function has effects — which is why `vaelii.core` excludes `clojure.core/assert` and
 callers write `v/assert`. A `set-` that installs a value is bare for the same reason:
 `set-solver` and `set-log-level` both name a setting the next call replaces, and
@@ -1192,7 +1258,7 @@ Each member file wires itself to its own head and collector, so the topology is 
 CxCore-only KB is a head with no spindle under it, and a user adds a member to either
 spindle.
 The middle theories are the defeasible defaults that state their own exception with
-`exceptWhen` (birds fly except penguins; animals breathe air except fish; living things
+`exceptWhen` (birds fly except penguins; animals breathe air except fish; organisms
 are alive until they are dead and awake until they are asleep — four rules of one shape,
 differing in whether the exception names a species, a whole class, or a state that
 changes) and the rules with **connected conjunctive antecedents** (antecedents sharing
@@ -1201,13 +1267,12 @@ a variable so they join — grandparentOf, part-location, owns-parts).
 **A binary predicate says which level it relates at, unless its two ends disagree.**
 `relation_kind` is a `disjoint_metatype` over `instance_relation_predicate` and
 `type_relation_predicate`: `parentOf`, `northOf` and `madeOf` relate individuals; `genl`,
-`disjoint`, `largerThan`, `partType`, `capabilityType` and `siblingDisjointException`
-relate kinds. *At most* one, not
+`disjoint`, `orthogonal`, `largerThan`, `partType` and `capabilityType` relate kinds. *At most* one, not
 exactly one — the unmarked are those whose two ends sit at different levels, or at no
 level at all (`implies` is a connective; `rewriteOf` takes either role so long as its two
 sides agree; `result` and `genlResult` relate a function to a type;
 `functionCorrespondingPredicate` relates a function to a predicate; `hasCapability`
-relates one animal to a capability kind). The mark is not decoration: it decides which
+relates one animal to an event kind). The mark is not decoration: it decides which
 argument-check family the predicate may use, one for **every** position, which is why a
 mixed predicate cannot carry one — `arg` on a `type_relation_predicate` and `genlArg` on
 an `instance_relation_predicate` are both refused `:arg-constraint-kind`. The distinction is

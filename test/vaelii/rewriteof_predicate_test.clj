@@ -61,7 +61,7 @@
 ;; 2. Predicate merge over facts (roles 2 — functor position)
 ;; ==========================================================================
 ;; Store a fact under the deprecated predicate, merge, and the representative
-;; predicate now answers while the deprecated functor root does not.
+;; predicate now answers while the deprecated predicate's extent does not.
 
 (tu/deftest-kb predicate-merge-moves-facts-to-the-representative-functor
   (tu/with-terms [bornIn birthplaceOf Ada London CxName]
@@ -75,7 +75,7 @@
       (is (= #{London} (ask-values kb (list bornIn Ada '?c) CxName '?c))))
     (testing "a goal under the retired spelling is rewritten and still answers"
       (is (= #{London} (ask-values kb (list birthplaceOf Ada '?c) CxName '?c))))
-    (testing "the deprecated functor root has no believed sentex"
+    (testing "the deprecated predicate's extent has no believed sentex"
       (is (empty? (v/sentexes-with-functor kb birthplaceOf {:believed? true})))
       (is (seq (v/sentexes-with-functor kb bornIn {:believed? true}))))))
 

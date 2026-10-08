@@ -211,14 +211,14 @@
            [(count (believed-at r 'CxB))
             (:verdict (first (get-in r ['CxB :nogoods]))) (get-in r ['CxB :out])]))))
 
-(deftest a-declaration-written-default-is-stored-monotonic-and-two-monotonic-memberships-clash-hard
+(deftest a-declaration-written-default-keeps-its-strength-and-two-monotonic-memberships-clash-hard
   ;; D11. CxA: (disjoint dog cat) written :default; (dog Rex) (cat Rex) :monotonic.
   ;; The declaration is a ground, not a member, so it is not weighed.
   (let [v (b/view (world ['(disjoint dog cat) 'CxA :default]
                          ['(dog Rex) 'CxA :monotonic]
                          ['(cat Rex) 'CxA :monotonic])
                   'CxA [disjoint-double])]
-    (is (= [:hard #{} :monotonic]
+    (is (= [:hard #{} :default]
            [(:verdict (first (:nogoods v))) (:out v) ((:class v) '(disjoint dog cat))]))))
 
 (deftest a-sentence-taken-out-takes-its-consequences-with-it
@@ -378,12 +378,12 @@
       (is (not (contains? (:believed v) '(w X)))))))
 
 (deftest scenario-e-an-own-denial-under-a-vantage-claim-is-out-with-and-without-a-second-path
-  ;; CxLeft sees CxU. CxU :monotonic: (transitiveInArg pP 1 genl) (genl hauler animal)
+  ;; CxLeft sees CxU. CxU :monotonic: (transitiveInArgInverse pP 1 genl) (genl hauler animal)
   ;; (genl vehicle animal); CxU :default: (genl cart hauler) (not (pP cart Bone1));
   ;; CxLeft :monotonic: (genl cart vehicle) (pP vehicle Bone1). The second world adds
   ;; (pP hauler Bone1) :monotonic in CxU.
   (tu/with-requirement @reference-families "vaelii.ref.nogoods/families is not loadable"
-    (let [base  [['(transitiveInArg pP 1 genl) 'CxU :monotonic]
+    (let [base  [['(transitiveInArgInverse pP 1 genl) 'CxU :monotonic]
                  ['(genl hauler animal) 'CxU :monotonic]
                  ['(genl vehicle animal) 'CxU :monotonic]
                  ['(genl cart hauler) 'CxU :default]
@@ -402,7 +402,7 @@
 
 (deftest a-guarded-conclusion-a-defeat-releases-ties-with-a-default-edge-instead-of-defeating-it
   ;; D2 and D14. CxA: (genl chi dog) (chi Kit) :default; (disjoint dog cat) (cat Kit)
-  ;; (pp Kit) (transitiveInArg pP 1 genl) (pP dog Bone) :monotonic; a forward rule
+  ;; (pp Kit) (transitiveInArgInverse pP 1 genl) (pP dog Bone) :monotonic; a forward rule
   ;; pp ∧ unknown(chi) ⇒ ¬(pP chi Bone). Round 1 takes (chi Kit) OUT and the rule fires.
   ;; The conclusion is :default (D14), so round 2's inherited nogood ties it with the
   ;; :default edge. Before D14 the conclusion was :monotonic, round 2 took the edge OUT,
@@ -413,7 +413,7 @@
                            ['(disjoint dog cat) 'CxA :monotonic]
                            ['(cat Kit) 'CxA :monotonic]
                            ['(pp Kit) 'CxA :monotonic]
-                           ['(transitiveInArg pP 1 genl) 'CxA :monotonic]
+                           ['(transitiveInArgInverse pP 1 genl) 'CxA :monotonic]
                            ['(pP dog Bone) 'CxA :monotonic]
                            ['(set/forwardRule (implies (and (pp ?x) (unknown (chi ?x)))
                                                        (not (pP chi Bone)))) 'CxA])
@@ -425,19 +425,19 @@
 
 ;; ---- the forced-monotonic roster (D7) ---------------------------------------
 
-(deftest a-roster-member-is-written-monotonic-and-its-denial-inert
-  ;; D7, D10, D11: each mark, declaration and predicate genl edge written :default is
-  ;; stored :monotonic, and a denial of one is set aside as inert; a genl edge between
-  ;; types may be :default and may be denied
+(deftest a-roster-member-keeps-its-strength-and-its-denial-is-inert
+  ;; D7, D10, D11: each mark, declaration and predicate genl edge written :default keeps
+  ;; its strength, and a denial of one is set aside as inert; a genl edge between types
+  ;; may be :default and may be denied
   (let [roster  '[(irreflexive likes) (anti_symmetric likes) (asymmetric likes)
                   (functional likes) (functionalInArg likes 2) (anti_transitive likes)
-                  (transitiveInArg likes 1 genl) (disjoint dog cat)
+                  (disjoint dog cat)
                   (covering vehicle car boat) (genl partOf nearTo)]
         n       (count roster)
         refused (fn [triple] (unsupported? #(w/check-world (world triple))))
         stored  (fn [triple] (mapv :strength (:writes (w/check-world (world triple)))))
         inert   (fn [triple] (count (:inert (w/check-world (world triple)))))]
-    (is (= [(vec (repeat n [:monotonic])) (vec (repeat n 1)) (vec (repeat n false))]
+    (is (= [(vec (repeat n [:default])) (vec (repeat n 1)) (vec (repeat n false))]
            [(mapv #(stored [% 'CxA :default]) roster)
             (mapv #(inert [(list 'not %) 'CxA :monotonic]) roster)
             (mapv #(refused [% 'CxA :monotonic]) roster)]))
@@ -445,12 +445,12 @@
            [(stored ['(genl dog animal) 'CxA :default])
             (stored ['(not (genl dog animal)) 'CxA :default])
             (inert ['(not (genl dog animal)) 'CxA :default])]))
-    (is (refused ['(transitiveInArg likes 1 partOf) 'CxA :monotonic])
-        "a transitiveInArg over a relation other than genl")))
+    (is (refused ['(transitiveInArgInverse likes 1 partOf) 'CxA :monotonic])
+        "a transitiveInArgInverse over a relation other than genl")))
 
-(deftest a-mark-reaches-a-sub-predicate-over-a-predicate-edge-stored-monotonic
+(deftest a-mark-reaches-a-sub-predicate-over-a-predicate-edge-written-default
   ;; D7, D10. CxA: (functional ageOf) (ageAtDeath Bob 5) :monotonic; (genl ageAtDeath
-  ;; ageOf) and (ageOf Bob 6) written :default. The edge is stored :monotonic and carries
+  ;; ageOf) and (ageOf Bob 6) written :default. The edge keeps its strength and carries
   ;; the mark, so (ageOf Bob 6) is the unique weakest member. A denial of the edge is
   ;; inert and leaves the verdict as it is.
   (tu/with-requirement @reference-families "vaelii.ref.nogoods/families is not loadable"
@@ -459,7 +459,7 @@
                  ['(genl ageAtDeath ageOf) 'CxA :default]
                  ['(ageOf Bob 6) 'CxA :default]]
           reach (b/view (apply world base) 'CxA @reference-families)]
-      (is (= [:monotonic :monotonic #{'(ageOf Bob 6)} true]
+      (is (= [:monotonic :default #{'(ageOf Bob 6)} true]
              [((:class reach) '(functional ageOf)) ((:class reach) '(genl ageAtDeath ageOf))
               (:out reach) (contains? (:believed reach) '(ageAtDeath Bob 5))]))
       (is (= [(:out reach) (:believed reach)]
@@ -471,7 +471,7 @@
 
 (def ^:private carrier
   "A load claim on `hauler` and the declaration that carries position 1 down `genl`."
-  [['(transitiveInArg carriesLoad 1 genl) 'CxA :monotonic]
+  [['(transitiveInArgInverse carriesLoad 1 genl) 'CxA :monotonic]
    ['(carriesLoad hauler Bone1) 'CxA :monotonic]])
 
 (defn- claim-at
@@ -484,7 +484,7 @@
     [(b/believed? wd s 'CxA families) ((:class v) s) (contains? (:inherited v) s)]))
 
 (deftest a-claim-is-inherited-down-a-believed-genl-edge-at-the-edge-s-class
-  ;; D5. CxA: (transitiveInArg carriesLoad 1 genl) (carriesLoad hauler Bone1)
+  ;; D5. CxA: (transitiveInArgInverse carriesLoad 1 genl) (carriesLoad hauler Bone1)
   ;; :monotonic, and (genl cart hauler) :monotonic, then :default
   (is (= [[true :monotonic true] [true :default true]]
          [(claim-at (conj carrier ['(genl cart hauler) 'CxA :monotonic]) [])
@@ -624,11 +624,11 @@
                                              ['(genlCx CxB CxA) 'CxUniverse])))
         "a genlCx cycle")
     (is (unsupported? #(w/check-world
-                        (world ['(transitiveInArg pP 1 genl) 'CxA :monotonic]
+                        (world ['(transitiveInArgInverse pP 1 genl) 'CxA :monotonic]
                                ['(set/forwardRule (implies (pP ?x Bone) (qq ?x))) 'CxA])))
         "a rule reading a preserved predicate")
     (is (unsupported? #(w/check-world
-                        (world ['(transitiveInArg pP 1 genl) 'CxA :monotonic]
+                        (world ['(transitiveInArgInverse pP 1 genl) 'CxA :monotonic]
                                ['(genl pP qQ) 'CxA :monotonic]
                                ['(set/forwardRule (implies (qQ ?x Bone) (qq ?x))) 'CxA])))
         "a rule reading a predicate above a preserved one")

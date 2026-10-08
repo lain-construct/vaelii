@@ -83,6 +83,10 @@ def analysis() -> dict:
         ["clj-kondo", "--lint", *PATHS,
          "--config", '{:output {:analysis true :format :json}}'],
         cwd=ROOT, capture_output=True, text=True,
+        # The native Windows build writes the ANSI code page whatever it is asked
+        # for, so a docstring's em-dash arrives as a byte UTF-8 rejects.  Only var
+        # names and namespaces are read here, so a docstring read as U+FFFD is harmless.
+        encoding="utf-8", errors="replace",
     )
     # kondo exits 2 when it has findings of its own; the analysis is still on stdout,
     # and the findings are the `kondo` check's business rather than this one's.

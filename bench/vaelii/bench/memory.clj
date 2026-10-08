@@ -64,7 +64,7 @@
       (let [antes (distinct (repeatedly (inc (.nextInt rng 3))
                                         #(nth preds (zipf-sample pred-cum rng))))
             conc  (nth preds (zipf-sample pred-cum rng))]
-        (p/index-rule ix (+ 1000000000 i) antes conc)))
+        (p/index-rule ix (+ 1000000000 i) antes conc (quote CxBench))))
     {:secs (/ (- (System/nanoTime) t0) 1e9)}))
 
 ;; ---- measurement --------------------------------------------------------

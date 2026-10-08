@@ -455,7 +455,13 @@ Three things make the fold sound rather than merely convenient:
   so the network reading it is unsatisfiable too and answers nothing. Answering nothing
   from the source instead would widen the network when a fact arrives, and a firing
   resting on an entailment the widening lost would stay believed, since
-  `chain/entailment-withdrawn?` withdraws on an unsatisfiable network only.
+  `chain/entailment-withdrawn?` withdraws on an unsatisfiable network only. The emptied
+  pair is a **stand-in** for the source's clash, and no fact of the calculus contradicts
+  it, so `qualitative-network`'s `:unsatisfiable` and the ledger entry's `:pairs` leave it
+  out. The narrowing describes the source instead (`qcn-kb/unsatisfiable-sources`), and
+  `qualitative-network` answers the description as `:unsatisfiable-sources`: the source
+  network (`:metric` or `:point`), its pairs unsatisfiable as written, the instants on a
+  negative cycle for `:metric`, and the handles of the facts behind them.
 - **It carries support.** A pair narrowed by a second reader names the facts *that* reader
   read, so a conclusion drawn through it is withdrawn by retracting one of them, exactly as
   a conclusion drawn through a stored fact is. A node-set narrowing reads no fact and names
@@ -538,7 +544,7 @@ The negative half of the read is fetched differently from the positive half, for
 reason stated here. A negative fact's trie key carries its whole body as a single token
 (`[:false (P a b) ctx]`), so the trie answers a *ground* negative lookup and nothing else
 — an open `(not (P ?a ?b))` compares the token `(P ?0 ?1)` against `(P A B)` and matches
-nothing. The **functor root** indexes either polarity under the positive body's functor,
+nothing. The **predicate extent** indexes either polarity under the positive body's functor,
 so that is what enumerates them, with belief, context visibility and `except` removal
 applied exactly as `matches-visible` applies them to the positive read. It is the
 predicate's own extent, with no fan over the genl spec closure — under negation
@@ -604,6 +610,8 @@ leaves the culprit set to a caller who asks for it.
 appends a `:qualitative-inconsistency` entry to the KB's violations ledger — the
 `(violations kb)` a caller already reads — naming the calculus, the context, the nodes,
 and the pairs that are unsatisfiable *as written* (absent when only composition found it).
+When a narrowing's source is unsatisfiable, the entry's `:sources` carries the source
+descriptions `qualitative-network` answers as `:unsatisfiable-sources`.
 Otherwise an impossible KB answers nothing and says nothing about why.
 
 It is deliberately **not** a `wff` check. [why not a wff
@@ -626,7 +634,7 @@ stored facts before the first answer, a closure rather than a search. `completen
 *whole* network rather than of any one stored fact, so the dispatcher runs the prover
 alone and a raw fact match would add nothing it does not already entail. `est-bindings`
 is bounded by the node count, itself bounded by the number of stored facts on that
-prover's own predicates — a sum of O(1) functor-root reads, because an estimate must not
+prover's own predicates — a sum of O(1) predicate-extent reads, because an estimate must not
 cost what it estimates.
 
 Three caches, answering different questions:

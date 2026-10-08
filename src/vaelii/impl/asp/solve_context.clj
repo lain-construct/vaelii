@@ -47,6 +47,7 @@
   (:require [clojure.set :as set]
             [vaelii.impl.asp.edge :as edge]
             [vaelii.impl.asp.solver :as solver]
+            [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
@@ -301,20 +302,19 @@
 (defn- program-rules
   "Every **believed** rule a solve reads (`rules/solve-sentex?`) visible from `base` —
   scoped to `base` and its genlCx up-closure, never the whole KB — in content order.
-  Read off the `:solve-rules` roster, which posts storage per context at the rule
-  index/unindex choke points, so the read costs the up-closure and its solve rules and
-  never a context's facts.  The belief question is asked here, as both chainers ask it
+  Read off the rule extent's `:solve` node (`reads/as-stored-rules-in`), which ends in the
+  context, so the read costs the up-closure and its solve rules and never a context's
+  facts.  The belief question is asked here, as both chainers ask it
   of the rule index: a defeated or superseded rule must not mint choice heads or forbid
   models.  `rule-believed?` rather than `jtms/in?`, so a rule reads by the same rule
   the chainers use, and a rule `base` withdraws is left out."
   [kb base]
-  (let [roster @(reasoning/solve-rules kb)
-        ;; ...and not withdrawn at `base` by a verdict `base` reaches
-        out    (res/defeat-withdrawn-set kb base)]
-    (->> (distinct (cons base (tax/context-up (reasoning/taxonomy kb) base)))
-         (mapcat #(get roster %))
+  (let [;; ...and not withdrawn at `base` by a verdict or a placed defeat `base` reaches
+        out (or (exc/belief-hidden-fn kb base) (constantly false))]
+    (->> (reads/as-stored-rules-in (:index kb) :solve
+                                   (conj (set (tax/context-up (reasoning/taxonomy kb) base)) base))
          (keep #(p/get-sentex (:records kb) %))
-         (filter #(and (res/rule-believed? kb (:id %)) (not (contains? out (:id %)))))
+         (filter #(and (res/rule-believed? kb (:id %)) (not (out (:id %)))))
          (nm/sort-by-content-key #(nm/print-key [(sx/sentence-of %) (:context %)]) compare))))
 
 (defn- assumption-rules

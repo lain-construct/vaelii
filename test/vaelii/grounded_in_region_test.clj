@@ -1,14 +1,14 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
-(ns vaelii.grounded-forcing-out-test
-  "`jtms/grounded-forcing-out` — the belief read behind the solve-free skeptical/credulous
+(ns vaelii.grounded-in-region-test
+  "`jtms/grounded-in-region` — the belief read behind the solve-free skeptical/credulous
   bracket (`vaelii.impl.asp.label/classify-local`, docs/labeling.md) — and the backend-free
   properties of the classifier it feeds.  None of these needs an ASP backend
   (`classify-local` reads the JTMS graph directly, never `solver/available?`), so they are
   tested here rather than beside the `bravely`/`cautiously` prover, whose tests do drive the
   backend or the prover.
 
-  Three things: that forcing a set OUT equals the engine's own `defeat` of that set; how the
+  Three things: that forcing a set OUT equals the network with its derivations blocked; how the
   classifier's cost scales in the number of dilemmas — measured as a **call count**, a
   property of the algorithm, the way the other `*_cost_test` files measure (see
   `settle_region_cost_test`); and that it classifies the same content the same way whatever
@@ -47,11 +47,11 @@
      :opposes (v/handle-of kb (list o x) 'CxUniverse)
      :q       (v/handle-of kb (list q x) 'CxUniverse)}))
 
-(deftest grounded-forcing-out-equals-a-network-without-them
-  ;; The primitive's contract: forcing a set of derived datums OUT and reading belief
-  ;; equals the belief the network holds with every justification concluding them
-  ;; blocked — and it drops what rests only on the set while keeping the rest.  Runs
-  ;; under both TMS representations.
+(deftest grounded-in-region-equals-a-network-without-them
+  ;; The read's contract: forcing a set of derived datums OUT and reading belief over its
+  ;; consequence closure equals the belief the network holds there with every
+  ;; justification concluding them blocked, and the closure holds what rests on the set
+  ;; and not the background.  Runs under both TMS representations.
   (tu/with-neutral-kb [kb tu/fresh]
     (let [{:keys [pos neg ethical opposes q]} (one-diamond kb)
           tms        (reasoning/tms kb)
@@ -61,23 +61,15 @@
                          (let [r (set (jtms/in-datums tms))]
                            (jtms/set-blocked tms was)   ; restore
                            r))
-          core       (jtms/grounded-forcing-out tms extra)]
-      (is (= via-block core)
-          "grounded-forcing-out equals the belief left with the set's derivations blocked")
+          {:keys [region in]} (jtms/grounded-in-region tms extra)]
+      (is (= (into #{} (filter via-block) region) in)
+          "the region's believed datums equal those left with the set's derivations blocked")
       (testing "the forced sides and everything resting only on a side drop out"
-        (is (not (contains? core pos)))
-        (is (not (contains? core neg)))
-        (is (not (contains? core opposes)))   ; one-sided downstream
-        (is (not (contains? core ethical))))  ; both supports gone once both sides are out
-      (testing "the monotonic background survives, so the read is region-local"
-        (is (contains? core q))))))
-
-(deftest grounded-forcing-out-empty-is-belief
-  ;; Forcing nothing out is the believed set unchanged.
-  (tu/with-neutral-kb [kb tu/fresh]
-    (one-diamond kb)
-    (is (= (set (jtms/in-datums (reasoning/tms kb)))
-           (jtms/grounded-forcing-out (reasoning/tms kb) #{})))))
+        (is (every? region [pos neg opposes ethical]))
+        (is (not-any? in [pos neg opposes ethical])))
+      (testing "the monotonic background is outside the region, so the read is region-local"
+        (is (not (contains? region q)))
+        (is (contains? via-block q))))))
 
 ;; ---- scaling of the classify-local bracket over N dilemmas ---------------
 

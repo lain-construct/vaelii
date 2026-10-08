@@ -224,8 +224,8 @@
 (deftest a-manifest-over-the-bound-is-refused-by-name
   (let [d (temp-dir "manifest")]
     (try
-      (let [small (str (.getPath d) "/small.edn")
-            big   (str (.getPath d) "/meta.edn")]
+      (let [small (.getPath (io/file d "small.edn"))
+            big   (.getPath (io/file d "meta.edn"))]
         (write-manifest! small 64)
         (write-manifest! big (+ dfiles/manifest-bytes 4096))
         (testing "an ordinary manifest reads"
@@ -250,7 +250,7 @@
       (write-manifest! (.getPath fmt) (+ dfiles/manifest-bytes 4096) "{:format-version 1}")
       (let [e (ex-data-of #(v/open-kb {:backend :disk-log :dir (.getPath d)}))]
         (is (= :manifest-too-large (:type e)))
-        (is (str/ends-with? (str (:file e)) "records/format.edn")))
+        (is (= (.getCanonicalFile fmt) (.getCanonicalFile (io/file (str (:file e)))))))
       (finally (try (backend/close-dir! (.getPath d)) (catch Throwable _ nil))
                (rm-rf! d)))))
 
@@ -273,7 +273,7 @@
 (deftest a-manifest-cut-mid-form-is-refused-by-name
   (let [d (temp-dir "manifest-cut")]
     (try
-      (let [cut (str (.getPath d) "/meta.edn")]
+      (let [cut (.getPath (io/file d "meta.edn"))]
         (spit cut "{:format :vaelii/export :format-version")
         (testing "the reader names the refusal and the file rather than raising the reader's EOF"
           (let [e (ex-data-of #(import/read-edn-manifest cut))]
@@ -317,6 +317,6 @@
     (is (= []
            (for [^File f (file-seq (io/file "src"))
                  :when (and (.isFile f) (.endsWith (.getName f) ".clj"))
-                 :let [path (.getPath f)]
+                 :let [path (str/replace (.getPath f) \\ \/)]
                  :when (and (not (held path)) (re-find raw (slurp f)))]
              path)))))

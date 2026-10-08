@@ -19,7 +19,7 @@
   - **genlCx edge**: `(genlCx Sub Super)`, two `Cx…` symbols, written `:monotonic`. The
     genlCx edges together are acyclic.
   - **declaration**: `(d a1 … an)` with `d` in `declaration-predicates`, every argument a
-    constant symbol or an integer. A `transitiveInArg` declaration is `(transitiveInArg
+    constant symbol or an integer. A `transitiveInArgInverse` declaration is `(transitiveInArgInverse
     P k genl)`, `P` an ordinary predicate and `k` a positive integer.
   - **denial**: `(not S)` with `S` a fact, a `genl` edge, or a write of the
     forced-monotonic roster.
@@ -28,17 +28,17 @@
   **The forced-monotonic roster** (`forced?`, docs/reference.md D1, D7, D10–D13 and
   D17): `genlCx`, the relation marks, the function classes, the definitional
   declarations, `except`, the equality predicates, and a `genl` between two predicates
-  (`predicate-genl?`). A write of one is read `:monotonic` whatever strength it was
-  written at (`force-monotonic`), as the engine's labeller holds it. A write the roster
-  rules out is stored and inert, never refused (`inert-write?`): a denial of a roster
-  literal, and a rule concluding one,
-  whose antecedents in v1 are never roster literals. `check-world` sets the inert writes
-  aside under `:inert`, so every read of a roster literal at every context is
-  `:monotonic`. v1 admits `genlCx`, the marks, `disjoint`, `covering` and a predicate
+  (`predicate-genl?`). A write of one keeps the strength it was written at and is never
+  the loser of a nogood (`vaelii.ref.believe/decide`), except a `genlCx` write, which is
+  read `:monotonic` whatever strength it was written at (`force-monotonic`, D1), as the
+  engine's labeller holds it. A write the roster rules out is stored and inert, never
+  refused (`inert-write?`): a denial of a roster literal, and a rule concluding one, whose
+  antecedents in v1 are never roster literals. `check-world` sets the inert writes aside
+  under `:inert`. v1 admits `genlCx`, the marks, `disjoint`, `covering` and a predicate
   `genl`; the rest of the roster is outside v1.
 
   Refused besides (`check-computed-reads`): a rule that reads a predicate some write
-  declares `transitiveInArg`, or a positive literal on a predicate the written `genl`
+  declares `transitiveInArgInverse`, or a positive literal on a predicate the written `genl`
   edges put above one, because the engine satisfies such an antecedent with a claim
   nobody stored (docs/inference.md, \"Antecedents nothing stored\"), and an `unknown` or
   `exceptWhen` conjunct on a part of some `covering`, which level 6 answers through
@@ -59,17 +59,17 @@
   "The definitional declarations v1 admits. Each is read by a nogood family
   (`vaelii.ref.nogoods`), never by derivation."
   '#{disjoint covering functional functionalInArg irreflexive anti_symmetric asymmetric
-     anti_transitive transitiveInArg})
+     anti_transitive transitiveInArgInverse})
 
 (def forced-monotonic
-  "The functors whose every write is `:monotonic`, whose denial is inert, and which a v1
+  "The functors whose every write is never a loser, whose denial is inert, and which a v1
   rule concludes only inertly: `genlCx` (docs/reference.md D1), the relation marks and the
   function classes (D7, D17), the definitional declarations and the arity bindings (D11),
   `except` (D12) and the equality predicates (D13).  `injection`, `surjection`,
   `bijection`, `partition`, `sibling_disjoint`, the arity bindings, `except`, `rewriteOf`,
   `sameAs` and `equals` are outside v1, and `write-kind` refuses a write of one."
   '#{genlCx irreflexive anti_symmetric asymmetric functional functionalInArg
-     anti_transitive transitiveInArg injection surjection bijection disjoint covering
+     anti_transitive injection surjection bijection disjoint covering
      partition sibling_disjoint arity unary binary ternary unary_predicate
      binary_predicate ternary_predicate unary_function binary_function ternary_function
      variable_arity variable_arity_predicate variable_arity_function arityMin except
@@ -370,14 +370,14 @@
 (defn- check-computed-reads
   "Throw `:unsupported` when a rule of `writes` reads a predicate whose answers the
   engine computes rather than stores: any literal of a rule on a predicate some write
-  declares `transitiveInArg`, a positive literal on a predicate the written genl edges
+  declares `transitiveInArgInverse`, a positive literal on a predicate the written genl edges
   put above such a predicate (a read of `q` is met by the facts of every predicate below
   `q`, docs/inference.md, \"Predicate subsumption in matching\"), and an `unknown` or
   `exceptWhen` conjunct on a part some `covering` write names, which level 6's
   `CoveringProver` answers (docs/inference.md, \"The pluggable prover engine\")."
   [writes]
   (let [sentences (map :sentence writes)
-        preserved (into #{} (keep #(when (and (seq? %) (= 'transitiveInArg (first %)))
+        preserved (into #{} (keep #(when (and (seq? %) (= 'transitiveInArgInverse (first %)))
                                      (second %)))
                         sentences)
         subs      (written-subs writes)
@@ -393,7 +393,7 @@
             :let [{:keys [antecedents unknowns exceptions consequent]} (parse-rule s)
                   queries (concat (apply concat unknowns) (apply concat exceptions))]]
       (when-let [l (first (filter reads-preserved? (concat antecedents queries)))]
-        (unsupported "a rule reads a predicate declared transitiveInArg, or one above it"
+        (unsupported "a rule reads a predicate declared transitiveInArgInverse, or one above it"
                      {:sentence s :literal l :consequent consequent}))
       (when-let [f (some parts (map functor queries))]
         (unsupported "an unknown or exceptWhen reads a covering part"
@@ -410,32 +410,30 @@
       (and (rule-form? sentence) (:inert? (parse-rule sentence)))))
 
 (defn- check-transitive-in-arg
-  "Throw `:unsupported` when write `w` is a `transitiveInArg` declaration other than
-  `(transitiveInArg P k genl)` over an ordinary predicate `P` and a positive integer `k`."
+  "Throw `:unsupported` when write `w` is a `transitiveInArgInverse` declaration other than
+  `(transitiveInArgInverse P k genl)` over an ordinary predicate `P` and a positive integer `k`."
   [{:keys [sentence] :as w}]
   (let [f (when (seq? sentence) (first sentence))]
-    (when (= 'transitiveInArg f)
+    (when (= 'transitiveInArgInverse f)
       (let [[_ p k r] sentence]
         (when-not (and (= 4 (count sentence)) (ordinary-predicate? p) (integer? k) (pos? k)
                        (= 'genl r))
-          (unsupported "a transitiveInArg declaration other than (transitiveInArg P k genl)"
+          (unsupported "a transitiveInArgInverse declaration other than (transitiveInArgInverse P k genl)"
                        {:write w}))))))
 
 (defn force-monotonic
-  "`write` with its strength set to `:monotonic` when its sentence is on the
-  forced-monotonic roster (`forced?`), as the engine's entry point stores it
-  (docs/reference.md D1, D7, D10, D11: the strength is coerced, never refused, as
-  `forced_decontextualized_predicate` coerces a context); any other write unchanged."
+  "`write` with its strength set to `:monotonic` when its sentence is a `genlCx` edge, as
+  the engine's labeller reads one (docs/reference.md D1: the strength is coerced, never
+  refused, so an edge caps no class); any other write unchanged."
   [{:keys [sentence] :as write}]
-  (if (forced? sentence)
+  (if (genlCx-edge? sentence)
     (assoc write :strength :monotonic)
     write))
 
 (defn check-world
   "Throw `:unsupported` unless every write of `world` is inside the v1 fragment (the
   namespace docstring), and return `world` with its `inert-write?` writes moved from
-  `:writes` to `:inert` and every roster write left forced `:monotonic`
-  (`force-monotonic`).  The fragment's structural checks read the writes that stay."
+  `:writes` to `:inert` and every `genlCx` write read `:monotonic` (`force-monotonic`).  The fragment's structural checks read the writes that stay."
   [world]
   (let [ws (:writes world)]
     (doseq [{:keys [sentence context strength] :as w} ws]

@@ -49,15 +49,15 @@
 # finds; `--strict` is the one exception, and it fails on three things, all of
 # them an entry saying less than §3.8 asks: a Breaking or Refusal entry naming no
 # token at all — an entry nothing can check — one carrying no `*Migration:*` line,
-# and one whose stated class is not among the four §3.8 defines (Breaking,
-# Refusal, Additive, Fix). That last is the fail-open case and the reason the
+# and one whose stated class is not among the five §3.8 defines (Breaking,
+# Refusal, Additive, Fix, Internal). That last is the fail-open case and the reason the
 # other two are checked here: the class is what decides the release number, and
 # everything downstream reads a word it does not recognise as Additive.
 #
 # Only Breaking and Refusal owe a `*Breaks:*` line and a `*Migration:*` line.
-# Additive and Fix owe neither — a Fix moves the code to what the engine already
-# documents, so it retires no name a sibling could be grepped for — and both ride
-# any release.
+# Additive, Fix and Internal owe neither — a Fix moves the code to what the engine
+# already documents, so it retires no name a sibling could be grepped for, and an
+# Internal change is one no caller observes — and all three ride any release.
 #
 #   bash scripts/check-breaking-siblings.sh                 # the unreleased section
 #   bash scripts/check-breaking-siblings.sh --section 0.5.0
@@ -258,7 +258,7 @@ function flush(   i, cls, cw, headlined) {
   headlined = (body ~ /^- \*\*(Breaking|Refusal):/)
   if (cw == "") {
     if (!headlined) printf "X\t%s\t%s\n", headline(), "states no class"
-  } else if (cw !~ /^(breaking|refusal|additive|fix|neither|none)$/) {
+  } else if (cw !~ /^(breaking|refusal|additive|fix|internal|neither|none)$/) {
     printf "X\t%s\t%s\n", headline(), "unknown class `" cw "`"
   }
   # A **mixed** entry states the weaker class first and the stronger one in prose —
@@ -404,7 +404,7 @@ if [[ ${#malformed[@]} -gt 0 ]]; then
   printf '  %s\n' "${malformed[@]}"
   printf '%sthe class decides the release number, so an entry stating one this does not\n' "$DIM"
   printf 'know is read as Additive by everything downstream. CONTRIBUTING §3.8 has the\n'
-  printf 'four: Breaking, Refusal, Additive, Fix — "neither label" and "none" also spell\n'
+  printf 'five: Breaking, Refusal, Additive, Fix, Internal — "neither label" and "none" also spell\n'
   printf 'Additive.%s\n' "$RST"
   bad=1
 fi

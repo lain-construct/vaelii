@@ -86,6 +86,12 @@ how a query answers a pair whichever way round it was asked. Sorting needs the t
 so every store/lookup builds its sentex through `res/kb-sentex` (which supplies
 `:symmetric?`).
 
+The definitional checks read a literal in the stored order too (`checks/checked-sentence`,
+for a symmetric or commuting functor), so each argument meets the `arg` and `genlArg`
+declarations of the position it is stored at. The two spellings of one fact draw the same
+derivations, and `record-arg-types` adds none to either
+(`argtype_entail_test/a-symmetric-fact-derives-at-its-stored-positions-in-either-spelling`).
+
 ### A mark arriving after the facts migrates them
 
 The sort is what the *entry point* does, so a `(symmetric P)` declaration arriving after `P`'s
@@ -147,7 +153,8 @@ So each row records the spellings its pieces were written in, under the provenan
   restart reads the spellings back with no new store method. `core/provenance` does not
   return the entry, and `add-provenance` cannot overwrite it.
 
-A mark stops holding when its last statement is retracted or defeated. Both reach the
+A mark stops holding when its last statement is retracted or goes OUT. A placed `defeat`
+or an `except` moves no label and is the next section's case. Both reach the
 taxonomy at one of two choke points, the removal arm and the belief refresh, and each
 queues the predicate whose permuting marks moved. The settle that follows drains the queue
 through `chain/reconcile-spellings!`. That call puts every piece at the row its spelling
@@ -171,6 +178,68 @@ from the start.
 `core/preview` does not show the split. It runs its settle with the sweep off and must hand
 the KB back at the same handles, so a preview of retracting a mark reads the rows as still
 folded.
+
+### A mark a reader does not believe
+
+A mark is read from every context, so a mark leaving every reader at once is the case
+above. A placed `defeat` or an `except` of a mark's statement takes it away from the
+readers that see the defeat and from no other reader, and those readers read a fact on the
+predicate as written. The four permuting marks stay visible from every context ([A
+context outside the spindle](contexts.md#a-context-outside-the-spindle)), so whether a
+reader believes one is read from the defeats and excepts it sees
+(`res/supporter-believed?`).
+
+The store holds the spellings the readers of each fact read
+(`res/spelling-planner`). The readers are the fact's context and the contexts where it
+meets a context stating a `defeat` or an `except` that reaches a statement of the mark
+(`res/spelling-readers`, over `tax/meet-closure`), kept where they see the fact's
+context:
+
+| the readers of `(P Bea Ada)` written in `Cf` | stored |
+|---|---|
+| every one believes the mark (nothing defeats it, or the defeat is placed where no reader of `Cf` sees it) | `(P Ada Bea)` alone, holding the premise and the spelling record, as above |
+| none believes it (the defeat is placed at `Cf` or above it) | `(P Bea Ada)` alone, as written |
+| some do and some do not (the defeat is placed below `Cf`) | `(P Bea Ada)` holding the premise, and `(P Ada Bea)` in `Cf` justified by `[(P Bea Ada) mark]` under informant `respell` |
+
+- **Store keys.** Each row is keyed by its own spelling: the as-written row by the
+  spelling written, the `respell` row by the sort under the marks its readers believe.
+  Dedup reads the key the spelling has, so a second assertion of `(P Bea Ada)` finds the
+  as-written row, and one of `(P Ada Bea)` finds the sorted row. `res/*spelled-by*` tells
+  `res/kb-sentex` which marks spell the literal for the store and for a lookup.
+- **What a reader reads.** The read walk hides a `respell` row from a reader that does
+  not believe the mark, since the row rests on it. A read hides the as-written row from a
+  reader that believes the mark, and drops a match read in an argument order the marks
+  the reader believes do not license (`res/without-unbelieved-spellings`, beside
+  `res/without-retired`). A ground goal is probed at its written spelling as well as at
+  the sorted one (`res/raw-match`, `matches-hierarchical`). `has-prop?` of `:symmetric` or
+  `:commutative` with a context answers whether that context believes a statement, so the
+  symmetric prover reads the mirror only where the mark is believed. `handle-of` looks a
+  sentence up under the marks its context believes.
+- **Several commuting groups.** A reader that believes some of a predicate's groups reads
+  a fact sorted by those groups alone. More than one spelling read puts the premise at the
+  spelling written, and each other spelling read is a `respell` row.
+- **Class.** A `respell` justification confers the weaker of the as-written row's class
+  and the mark's, as a firing read through the mirror does. A reader above the defeat
+  therefore reads the sorted row at `:default` when the mark is `:default` and only the
+  moved spelling was asserted `:monotonic`, where a KB with no defeat reads it
+  `:monotonic`. This is the one reading in which a defeat placed below a context changes
+  what that context reads, against vantage scoping
+  ([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)): the `respell` row is stored
+  in `Cf` because a reader below it does not believe the mark.
+- **When it runs.** A `defeat` or an `except` stored, removed or moved in force queues the
+  predicates whose mark statements rest on its target (`special/note-mark-reach!`), and a
+  write storing a fact on such a predicate queues its row (`integrate/note-premise-spelling!`).
+  A `genlCx` edge stored or removed while a `defeat` or an `except` is stored queues every
+  predicate whose readers disagree (`special/note-split-marks!`), since the edge moves which
+  readers see the defeat.
+  The settle draining `:respell` brings the rows to the spellings their readers read
+  (`chain/respell-rows!`), at a cost linear in the rows of the moved predicate. A KB where
+  every reader believes every mark queues nothing.
+
+`order_independence_test`'s `a-permuting-mark-defeated-below-the-facts-is-read-per-reader`
+pins both readers over sampled arrival orders, and
+`a-defeated-permuting-mark-leaves-each-spelling-as-written` the case where no reader
+believes the mark.
 
 ## Commuting arguments sorted — the same sort at any arity
 
@@ -253,8 +322,7 @@ one variable in it probes `g` times. Where the fan really is factorial the *answ
 is too: `g` distinct variables match one stored fact `g!` ways, each a different binding,
 which is `(siblingOf ?a ?b)` matching a stored pair twice, at a longer arity.
 
-The mark is read off the literal's **exact functor**, like `symmetric`'s: a sentex has one
-key, so whether a predicate sorts its arguments cannot vary by who is asking, and a `genl`
+The mark is read off the literal's **exact functor**, like `symmetric`'s, and a `genl`
 edge below a commutative predicate does not make the sub-predicate commutative. A late
 declaration reaches the facts already stored through the same `integrate/commute-existing`
 migration described above.

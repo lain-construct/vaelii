@@ -67,59 +67,27 @@
 ;; costs a hash lookup where a field costs none.  Every other field here is declared for
 ;; the same reason.
 ;;
-;; `rule-antecedents` and `rule-contexts` are the rule rosters `special` bumps on every
-;; rule index/unindex and reads per settle for the visibility seeds.  `solve-rules` is the
-;; third, `{context -> #{handle}}` of the rules a solve reads (`rules/solve-sentex?`),
-;; which `do/label` reads in place of each context's extent.  All three hold storage, not
-;; belief.  None is stored, and recovery replays belief and the taxonomy rather than rule
-;; indexing, so `rebuild-rule-roster!` is what refills them on a recovered, reopened or
-;; forked KB.
+;; `mint-queues` holds two queues the settle's mint withdrawal and release drain:
+;; `:departed`, the removed records that can have subsumed a mint
+;; (`special/note-departure!`), and `:unpremised`, the records a retraction left standing
+;; on a derivation alone (`special/note-unpremised!`).  The mints themselves are an index
+;; family (docs/indexing.md, "The mint family").
 ;;
-;; `excepted` is the visibility roster beside `:opposed`, and kept the same way: `{context
-;; -> {except-handle -> hidden-handle}}` for the stored `(except (sentexHandle H))` facts,
-;; maintained O(1) at the store and removal choke points and rebuilt by `recover`.  It
-;; holds **storage**, not belief — an except's own handle is what a reader checks `in?`
-;; against — for the reason `:opposed` holds storage: belief moves without a sentex
-;; arriving or leaving, so a roster that tried to track it would be maintained at a choke
-;; point that does not exist.  `res/excepted-handles` reads it per placement and per
-;; candidate justification (docs/exceptions.md, "Visibility removal").
-;;
-;; `withdrawn` is the per-reader answer built from `nogood-candidates` and `excepted`,
-;; `{reader -> #{handle}}`, emptied whenever either input or the network moves.  Each
-;; emptying moves its generation, so a reader thread cannot install an answer computed
-;; before it.
-;;
-;; `minted` is the mint roster, `{:by-term {x #{handle}} :by-context {context #{handle}}}`:
-;; every stored `(t x)` or `(genl x t)` an `arg`, `genlArg` or `interArg` justification has
-;; concluded, which `special/subsumed-mint-blocks` reads instead of the index
-;; (docs/argtypes.md).  A record stays in it until it leaves the store.  Kept at the one
-;; place a mint justification is added (`special/entail-arg-type`) and the one place a
-;; record leaves (`integrate/sentex-removed!`), and rebuilt by `recover`.  Its `:departed`
-;; is the queue of removed records that can have subsumed a mint
-;; (`special/note-departure!`), which every settle drains.
-;;
-;; `nogood-candidates` is the candidate index of the nogood families a reader decides,
-;; `{:self #{handle} :converse #{handle} :negation #{handle} … :inherited …}`: every stored
-;; ground binary self tuple, every stored ground binary tuple with a stored converse, the
-;; arity candidates, and the negation pairs of every body stored in both polarities, kept
-;; at the store and removal choke points and rebuilt by `recover` like `:opposed`; and the
-;; inherited clashes with their vantages, `{:by-set {members ngmap} :by-vantage {vantage
-;; #{members}}}`, which each settle re-finds.  No verdict is stored: a reader at or below a
-;; vantage decides from its own view (`vaelii.impl.decide`, docs/nmtms.md, "Nogoods decided
-;; at the reader").
-;; `own-readings` is what the last settle read at each context holding a handle of those
-;; candidates' consequence closure, so the next settle publishes the own-context belief a
-;; decided loser moved (`readings/reader-moves`).  `read-reports` is the report memo of the last reading of
-;; those families' clashes (`clashes/read-clashes`).
+;; `nogood-candidates` is the candidate index of the nogood families,
+;; `{:converse #{handle} :arity #{handle} … :inherited …}`: the stored ground binary tuples
+;; under a converse mark with a stored converse, the arity, membership and related-types
+;; candidates, kept at the store and removal choke points and rebuilt by `recover`; and
+;; the inherited clashes with their vantages, which each settle re-finds.  No verdict is stored
+;; here: the settle places each nogood (`vaelii.impl.decide`, docs/nmtms.md, "The nogood
+;; families").
 ;;
 ;; `kb/empty-reasoning` states what the remaining fields hold, beside the expression that
 ;; makes each one.
 (defrecord Reasoning [tms taxonomy program violations recheck refused
-                      settle-stats chain-stats opposed preserving preserved-clashes excepted
-                      meta-except-count rule-antecedents rule-contexts solve-rules
+                      settle-stats chain-stats preserved-clashes
                       supersessions qcn qcn-joined matches closures
-                      withdrawn respell except-moves
-                      minted nogood-candidates own-readings read-reports])
+                      respell except-moves
+                      mint-queues nogood-candidates])
 
 (defn of
   "The `Reasoning` value `kb` holds now."
@@ -175,35 +143,11 @@
   [kb]
   (:chain-stats @(:reasoning kb)))
 
-(defn opposed
-  "`kb`'s `:opposed` atom."
-  {:inline (fn [kb] `(:opposed (deref (:reasoning ~kb))))}
-  [kb]
-  (:opposed @(:reasoning kb)))
-
 (defn nogood-candidates
   "`kb`'s `:nogood-candidates` atom."
   {:inline (fn [kb] `(:nogood-candidates (deref (:reasoning ~kb))))}
   [kb]
   (:nogood-candidates @(:reasoning kb)))
-
-(defn read-reports
-  "`kb`'s `:read-reports` atom."
-  {:inline (fn [kb] `(:read-reports (deref (:reasoning ~kb))))}
-  [kb]
-  (:read-reports @(:reasoning kb)))
-
-(defn own-readings
-  "`kb`'s `:own-readings` atom."
-  {:inline (fn [kb] `(:own-readings (deref (:reasoning ~kb))))}
-  [kb]
-  (:own-readings @(:reasoning kb)))
-
-(defn preserving
-  "`kb`'s `:preserving` atom."
-  {:inline (fn [kb] `(:preserving (deref (:reasoning ~kb))))}
-  [kb]
-  (:preserving @(:reasoning kb)))
 
 (defn preserved-clashes
   "`kb`'s `:preserved-clashes` atom."
@@ -211,47 +155,11 @@
   [kb]
   (:preserved-clashes @(:reasoning kb)))
 
-(defn excepted
-  "`kb`'s `:excepted` atom."
-  {:inline (fn [kb] `(:excepted (deref (:reasoning ~kb))))}
+(defn mint-queues
+  "`kb`'s `:mint-queues` atom."
+  {:inline (fn [kb] `(:mint-queues (deref (:reasoning ~kb))))}
   [kb]
-  (:excepted @(:reasoning kb)))
-
-(defn withdrawn
-  "`kb`'s `:withdrawn` atom."
-  {:inline (fn [kb] `(:withdrawn (deref (:reasoning ~kb))))}
-  [kb]
-  (:withdrawn @(:reasoning kb)))
-
-(defn meta-except-count
-  "`kb`'s `:meta-except-count` atom."
-  {:inline (fn [kb] `(:meta-except-count (deref (:reasoning ~kb))))}
-  [kb]
-  (:meta-except-count @(:reasoning kb)))
-
-(defn rule-antecedents
-  "`kb`'s `:rule-antecedents` atom."
-  {:inline (fn [kb] `(:rule-antecedents (deref (:reasoning ~kb))))}
-  [kb]
-  (:rule-antecedents @(:reasoning kb)))
-
-(defn rule-contexts
-  "`kb`'s `:rule-contexts` atom."
-  {:inline (fn [kb] `(:rule-contexts (deref (:reasoning ~kb))))}
-  [kb]
-  (:rule-contexts @(:reasoning kb)))
-
-(defn solve-rules
-  "`kb`'s `:solve-rules` atom."
-  {:inline (fn [kb] `(:solve-rules (deref (:reasoning ~kb))))}
-  [kb]
-  (:solve-rules @(:reasoning kb)))
-
-(defn minted
-  "`kb`'s `:minted` atom."
-  {:inline (fn [kb] `(:minted (deref (:reasoning ~kb))))}
-  [kb]
-  (:minted @(:reasoning kb)))
+  (:mint-queues @(:reasoning kb)))
 
 (defn supersessions
   "`kb`'s `:supersessions` atom."

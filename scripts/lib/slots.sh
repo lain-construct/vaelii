@@ -73,9 +73,10 @@ default_slots() {
 #
 # A matrix, an axis sweep or `lein perf` in a linked worktree is a second fleet of JVMs
 # beside the primary's, and every runner above drops to one slot when it counts them.  So
-# these run from the primary, which also owns the one matrix lock below.  A separate clone
-# is not a linked worktree and is not refused.  `ALLOW_WORKTREE_RUN=1` runs one anyway,
-# for a release gated in a scratch worktree at the carved sha.
+# these run from the primary, which also owns the one matrix lock below.  `lein perf --only`,
+# limited to the checks a change needs, runs anywhere (scripts/perf.sh).  A separate
+# clone is not a linked worktree and is not refused.  `ALLOW_WORKTREE_RUN=1` runs one
+# anyway, for a release gated in a scratch worktree at the carved sha.
 
 # The repository's shared git directory, absolute: the primary's `.git`, from any worktree.
 common_git_dir() {

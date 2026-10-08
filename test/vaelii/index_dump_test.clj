@@ -28,6 +28,7 @@
             [vaelii.impl.io.import :as imp]
             [vaelii.impl.kv :as kv]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.rules :as vr]
             [vaelii.impl.sentex :as sx]
             [vaelii.test-util :as tu])
@@ -82,13 +83,16 @@
 
 (defn- build!
   "Every index family in one KB: the trie (ragged paths, a numeric token, a negative
-  fact), all three roots, the rule index, the exception index, the term index and the
-  roster.  An index dump that dropped a family would otherwise pass on the families it
-  did keep."
+  fact), all three roots, the rule index, the exception index, the term index, the
+  roster, and the mint family, which an argument declaration's mints write with the
+  entailment pinned on.  An index dump that dropped a family would otherwise pass on the
+  families it did keep."
   [kb {:keys [bird penguin animal flies feathered parentOf grandparentOf
               Tweety Opus Ann Bob Cid ctx]}]
   (v/assert kb (list 'genl penguin bird) ctx {:strength :monotonic})
   (v/assert kb (list 'genl bird animal) ctx {:strength :monotonic})
+  (v/assert kb (list 'genl animal 'thing) ctx {:strength :monotonic})
+  (v/assert kb (list 'arg parentOf 1 animal) ctx {:strength :monotonic})
   ;; a rule with an exception — the rule index and the exception index, and a
   ;; meta-sentex whose sentence embeds a handle
   (v/assert kb (list 'exceptWhen (list penguin '?b)
@@ -102,8 +106,10 @@
   (v/assert kb (list feathered Tweety) ctx)
   (v/assert kb (list bird Opus) ctx)
   (v/assert kb (list penguin Opus) ctx)
-  (v/assert kb (list parentOf Ann Bob) ctx)
-  (v/assert kb (list parentOf Bob Cid) ctx)
+  ;; each mints `(animal x)`, a record a justification files in the mint family
+  (tu/with-entailing
+    (v/assert kb (list parentOf Ann Bob) ctx)
+    (v/assert kb (list parentOf Bob Cid) ctx))
   ;; a numeric argument (a trie token that is not a handle) and a ragged path
   (v/assert kb (list 'bornInYear Tweety 1970) ctx)
   ;; a negative fact — roots under its positive body's functor
@@ -253,7 +259,11 @@
    :birds        (count (v/sentexes-matching kb (list bird '?x) ctx))
    :ask-flies    (boolean (seq (v/ask kb (list flies Tweety) ctx)))
    :isa          (v/isa? kb Opus bird)
-   :terms        (count (v/terms kb))})
+   :terms        (count (v/terms kb))
+   :mints        (let [idx (:index kb)]
+                   (into #{} (for [x (reads/as-stored-mint-terms idx)
+                                   h (reads/as-stored-mints-about idx x)]
+                               [(:sentence (v/sentex kb h)) (:context (v/sentex kb h))])))})
 
 (defn- import-into
   "Import `dir` into a fresh KB on `opts` and hand `(f kb summary)` the result."
@@ -264,12 +274,14 @@
   ;; The required test.  Import the same dump twice — once with its index, once with
   ;; the index taken away so the importer has to rebuild — and compare every read the
   ;; protocol has, plus the queries the KB answers.
-  (let [t (terms)
-        src-dir (fresh-dump-dir "both")]
+  (let [t       (terms)
+        src-dir (fresh-dump-dir "both")
+        source  (tu/with-cleared-kb [src tu/fresh]
+                  (build! src t)
+                  (export/export! src src-dir {:variant :records+index :compression :none})
+                  (answers src t))]
     (try
-      (tu/with-cleared-kb [src tu/fresh]
-        (build! src t)
-        (export/export! src src-dir {:variant :records+index :compression :none}))
+      (is (seq (:mints source)) "the source files mints, so the comparison is not vacuous")
       (doseq [opts index-backends]
         (testing (str (:backend opts))
           (let [replayed (import-into opts "replay" src-dir
@@ -293,7 +305,9 @@
                                     (index-reads kb (map #(v/sentex kb %) (tu/sentex-ids kb))))
                                  "a replayed index answers differently than a rebuilt one")
                              (is (= (second replayed) (answers kb t))
-                                 "and the KB itself answers differently")))
+                                 "and the KB itself answers differently")
+                             (is (= (:mints source) (:mints (answers kb t)))
+                                 "an import files the mints the exporting KB filed")))
               (finally (rm-rf! bare-dir))))))
       (finally (rm-rf! src-dir)))))
 

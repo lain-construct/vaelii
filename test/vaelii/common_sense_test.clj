@@ -48,11 +48,11 @@
     (is (seq (v/sentexes-matching kb '(mortal Muffet) 'CxNaturalWorld)))))
 
 (tu/deftest-kb one-thing-cannot-be-two-kinds-that-exclude-each-other
-  ;; Common sense says a dog is not a cat.  The KB says it twice over: once from a
-  ;; stated `(disjoint dog cat)`, and once from the `vertebrate_class` metatype, which
+  ;; Common sense says a dog is not a cat.  The KB says it with two metatypes: the
+  ;; `folk_species` metatype separates every two species, and the `vertebrate_class` one
   ;; separates all five classes pairwise and hands the separation down to every
   ;; subtype — so a penguin is not a dog without a word being written about either.
-  (testing "the stated pair, and the pair a metatype separates"
+  (testing "the species pair, and the pair a class metatype separates"
     (is (v/disjoint? kb 'dog 'cat))
     (is (v/disjoint? kb 'penguin 'dog)))
   (testing "and the KB stores the membership as a contradiction the settle weighs"
@@ -64,7 +64,7 @@
 
 (tu/deftest-kb a-size-claim-about-two-kinds-reaches-the-kinds-beneath-them
   ;; (largerThan mammal insect) is stated; nothing is stated about dogs or ants.  The
-  ;; reach is licensed by `transitiveInArg` on both positions along genl, which is a
+  ;; reach is licensed by `transitiveInArgInverse` on both positions along genl, which is a
   ;; claim about largerThan and not about the world — declared, so it can be wrong,
   ;; rather than assumed, where it could not be.
   (testing "the stated claim, and one nobody stated"
@@ -89,18 +89,24 @@
 ;; ---- what follows from how a thing is used ------------------------------
 
 (tu/deftest-kb type-inferred-from-how-a-thing-is-used
-  ;; Bone1 is never given a type; it is only ever eaten by Muffet. Because
-  ;; (arg eats 2 food), we can infer Bone1 is food — and, by genl, a
-  ;; physical_object and a thing — without ever storing those memberships.
-  (testing "the type is not stored, only inferable"
-    (is (empty? (v/sentexes-matching kb '(food Bone1) '?ctx))))
-  (testing "the individual's type follows from the relation's arg"
-    (is (v/ask? kb '(food Bone1)))
-    (is (v/ask? kb '(physical_object Bone1)))            ; a supertype of food
-    (is (not (v/ask? kb '(vehicle Bone1)))))            ; but only what actually follows
-  (testing "asking for all of an individual's inferred types"
-    (is (= '#{food physical_object spatial temporal thing}
-           (set (map #(get % '?t) (v/ask kb '(?t Bone1) '?ctx)))))))
+  ;; the entailing reading: the derivation is the subject
+  (tu/with-entailing
+    ;; Bone1 is never given a type; it is only ever eaten by Muffet. Because
+    ;; (arg eats 2 food), the KB derives that a thing eaten is food — and, by genl, a
+    ;; tangible, a causal and a thing, which it answers without storing them.  The record is
+    ;; read off a fact asserted here, since the fixture may load under either reading.
+    (testing "the declared type is a derived record, and its supertypes are not stored"
+      (tu/with-terms [Bone]
+        (v/assert kb (list 'eats 'Muffet Bone) N)
+        (is (seq (v/sentexes-matching kb (list 'food Bone) '?ctx)))
+        (is (empty? (v/sentexes-matching kb (list 'tangible Bone) '?ctx)))))
+    (testing "the individual's type follows from the relation's arg"
+      (is (v/ask? kb '(food Bone1)))
+      (is (v/ask? kb '(tangible Bone1)))            ; a supertype of food
+      (is (not (v/ask? kb '(vehicle Bone1)))))            ; but only what actually follows
+    (testing "asking for all of an individual's inferred types"
+      (is (= '#{food tangible causal spatial spatiotemporal temporal thing}
+             (set (map #(get % '?t) (v/ask kb '(?t Bone1) '?ctx))))))))
 
 ;; ---- arithmetic, and the ordering derived from it ------------------------
 
@@ -131,11 +137,31 @@
   (testing "people without a recorded birth year are not ordered"
     (is (not (v/query? kb '(olderThan Dave Tom) '?ctx {:max-depth 2})))))
 
+(tu/deftest-kb a-plant-has-a-parent-a-birth-year-and-an-age
+  ;; Kinship and age are about being born, which every organism is, so a tree's parent
+  ;; is stored as a dog's is, the kinship theory reads on from it, and neither tree is
+  ;; taken for an animal on the way.
+  (tu/with-terms [OldOak Sapling]
+    (v/assert kb (list 'tree OldOak) N)
+    (v/assert kb (list 'tree Sapling) N)
+    (testing "parenthood and birth years between two plants are stored, not refused"
+      (is (= :stored (refusal kb (list 'parentOf OldOak Sapling) N)))
+      (is (= :stored (refusal kb (list 'birthYearOf OldOak 1900) N)))
+      (is (= :stored (refusal kb (list 'birthYearOf Sapling 1990) N))))
+    (testing "and the kinship and age theory reads on from them"
+      (is (true? (v/ask? kb (list 'childOf Sapling OldOak))))
+      (is (true? (v/ask? kb (list 'ancestorOf OldOak Sapling))))
+      (is (true? (v/query? kb (list 'olderThan OldOak Sapling) '?ctx {:max-depth 2}))))
+    (testing "with neither tree taken for an animal"
+      (is (not (v/isa? kb OldOak 'animal)))
+      (is (not (v/isa? kb Sapling 'animal)))
+      (is (not (tu/stored-in-clash? kb (list 'tree Sapling) N))))))
+
 ;; ---- defaults, and taking one back --------------------------------------
 
 (tu/deftest-kb a-default-conclusion-feeds-a-further-rule
-  ;; flying ⇒ can travel via the capability hierarchy: (genl flying travelling) +
-  ;; (transitiveInArgInverse hasCapability 2 genl).  An eagle flies by default, so it
+  ;; flying ⇒ can travel via the event-kind hierarchy: (genl flying travelling) +
+  ;; (transitiveInArg hasCapability 2 genl).  An eagle flies by default, so it
   ;; can travel; a penguin's flight is defeated, so the downstream query returns nothing.
   ;; No stored forward-rule conclusion — the hierarchy answers at retrieval.
   (testing "the eagle inherits can-travel through the flight default"

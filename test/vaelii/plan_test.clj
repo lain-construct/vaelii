@@ -109,7 +109,7 @@
 
 (tu/deftest-kb an-open-functor-is-costed-by-the-argument-root
   ;; `(?type Muffet)` names no predicate, so neither functor-keyed model applies: there
-  ;; is no subtype closure to fan and no functor root to count.  The matcher answers it
+  ;; is no subtype closure to fan and no predicate extent to count.  The matcher answers it
   ;; from the position-1 argument roots (a slot-roster union), so the estimate has to be
   ;; that same count — costing it by the trie (which stops dead at the open first token)
   ;; charges the whole KB.
@@ -127,7 +127,7 @@
       (is (> (plan/est-matches kb (list animal '?x) #{})
              (plan/est-matches kb (list dog '?x) #{}))))
     (testing "a negated open functor is not ranked cheapest"
-      ;; the functor root answers 0 for a variable — a *lower* bound, which would hoist
+      ;; `count-with-functor` answers 0 for a variable — a *lower* bound, which would hoist
       ;; the dearest literal in the conjunction to the front
       (is (pos? (plan/est-matches kb (list 'not (list '?c Muffet)) #{}))))))
 
@@ -230,7 +230,7 @@
 
 (tu/deftest-kb est-rows-reports-rows-and-no-columns-for-the-shapes-the-trie-cannot-walk
   ;; A negative literal keys under [:false …], a dotted rest pins no position, an open
-  ;; functor roots nothing — so the walk that counts a column never starts.  Each still
+  ;; functor names no predicate extent — so the walk that counts a column never starts.  Each still
   ;; needs a row count, and it comes from the bound; what must not happen is a column
   ;; being invented, because a fabricated count ranks as a reading in the next join and
   ;; throws away the one the other side actually has.

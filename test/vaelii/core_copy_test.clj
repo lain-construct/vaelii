@@ -29,6 +29,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.host.core-context :as core-context]
+            [vaelii.impl.checks :as checks]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
@@ -84,3 +85,23 @@
       (finally
         (tu/clear-kb! built)
         (tu/clear-kb! restored)))))
+
+(deftest a-dump-is-built-under-the-root-reading-whatever-its-first-caller-binds
+  ;; A dump is built once per JVM by whichever fixture asks first, and a namespace may
+  ;; pin the other argument-type reading around its fixture (`inter_args_test` pins the
+  ;; constraint-only one).  The dump is still the KB `build` makes under the root
+  ;; reading, or every later restore inherits the first caller's binding.
+  (let [space  (fn [k] (assoc tu/core-build-space :space [::dump-reading k]))
+        build  (fn [kb]
+                 (v/assert kb '(genl dr_kind thing) 'CxUniverse)
+                 (v/assert kb '(arg drHolds 1 dr_kind) 'CxUniverse)
+                 (v/assert kb '(drHolds DrOne DrTwo) 'CxUniverse))
+        direct (doto (v/open-kb (space :direct)) (tu/clear-kb!) (build))
+        dumped (doto (v/open-kb (space :dumped)) (tu/clear-kb!))]
+    (try
+      (binding [checks/*assertive-arg-types?* (not checks/*assertive-arg-types?*)]
+        (tu/load-dumped! dumped ::dump-reading build))
+      (is (= (content direct) (content dumped)))
+      (finally
+        (tu/clear-kb! direct)
+        (tu/clear-kb! dumped)))))

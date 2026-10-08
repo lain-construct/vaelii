@@ -99,9 +99,8 @@
   ;; second derivation must not walk its forward closure again.
   ;;
   ;; **Still in the window** is what a reader of `touched` needs, and belief cannot say
-  ;; it: the withdrawal cache keeps an entry whose watch the window does not meet
-  ;; (`res/reconcile-withdrawn!`), so a silent arrival is a cached answer that reads fewer
-  ;; reasons than the KB holds.  `touched-in` takes it too — the datum was believed before, and a
+  ;; it: a reader of the window that kept an answer about the datum keeps one that reads
+  ;; fewer reasons than the KB holds.  `touched-in` takes it too — the datum was believed before, and a
   ;; window that said otherwise would read as "newly believed" to `preview` and the feed.
   (doseq [n sizes]
     (let [tms (fan-of n)]
@@ -328,9 +327,9 @@
   ;; the flip set").  Both halves are needed and both are checked here.
   ;;
   ;; It is worth a protocol-level test because the failure is backend-specific and shows up
-  ;; far away: the withdrawal cache keeps an entry whose watch the window does not meet
-  ;; (`res/reconcile-withdrawn!`), so a silently-arriving witness is a cached answer that
-  ;; reads fewer reasons than the KB holds — on one backend and not the other.
+  ;; far away: a reader of the window that kept an answer about a silently-arriving witness
+  ;; keeps one that reads fewer reasons than the KB holds — on one backend and not the
+  ;; other.
   (doseq [[label make] networks]
     (testing label
       (let [tms (make)]
@@ -395,3 +394,19 @@
           (justify tms 77779 [6] 7)
           (is (= (jtms/touched tms) (jtms/touched-since tms m))
               "a mark from before the reset reads the whole window, not a stale epoch"))))))
+
+(deftest marks-taken-with-nothing-recorded-between-them-share-one-epoch
+  ;; a settle takes a mark at each reconcile and discovery, and most of them follow no
+  ;; relabel, so an epoch per mark lengthens every `touched-since` by the empty epochs
+  (doseq [[label make] networks]
+    (testing label
+      (let [tms (fan-on make 50)]
+        (jtms/reset-touched! tms)
+        (let [ms (vec (repeatedly 5 #(jtms/touch-mark tms)))]
+          (is (apply = ms) "five marks over an empty window are one")
+          (justify tms 77777 [2] 3)
+          (let [m2 (jtms/touch-mark tms)]
+            (is (not= (first ms) m2) "a mark after a recording opens a new epoch")
+            (justify tms 77778 [4] 5)
+            (is (= #{3 5} (jtms/touched-since tms (first ms))))
+            (is (= #{5} (jtms/touched-since tms m2)))))))))

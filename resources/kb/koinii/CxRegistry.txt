@@ -41,9 +41,9 @@
 ;; is only STORED and overwritten.
 
 (comment trustLevel
-         "(trustLevel ?agent ?value) means that ?agent is trusted to degree ?value — a mutable NUMBER, an operator-assigned tier at bootstrap and whatever a deployment re-rates it to thereafter (koinii D3). ?value is a plain number, so its arg is thing and constrains nothing, as birthYearOf's year is. Declared functional: one trust value to an agent at a time, so a re-rating retracts the old and asserts the new (set-trust!) rather than storing two. The value must support the sycophancy constraint — an endorsement is a trust signal only across DISTINCT principals, same-model endorsements worth one signal between them. Nothing in the engine computes this number and no resolution policy reads it; here it is only stored and overwritten.")
+         "(trustLevel ?agent ?value) means that ?agent is trusted to degree ?value — a mutable NUMBER, an operator-assigned tier at bootstrap and whatever a deployment re-rates it to thereafter (koinii D3). ?value is a plain number, so its arg is number, as birthYearOf's year is integer. Declared functional: one trust value to an agent at a time, so a re-rating retracts the old and asserts the new (set-trust!) rather than storing two. The value must support the sycophancy constraint — an endorsement is a trust signal only across DISTINCT principals, same-model endorsements worth one signal between them. Nothing in the engine computes this number and no resolution policy reads it; here it is only stored and overwritten.")
 (binary_predicate trustLevel)
 (instance_relation_predicate trustLevel)
 (arg trustLevel 1 agent)
-(arg trustLevel 2 thing)
+(arg trustLevel 2 number)
 (functional trustLevel)

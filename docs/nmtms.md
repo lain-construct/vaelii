@@ -66,25 +66,71 @@ what makes that retraction reversible without writing a frame.
 
 ### The forced-monotonic roster
 
-Some content is held `:monotonic` whatever strength it was written at. The roster is
-every predicate on it as `(forced_monotonic_predicate P)`, plus every `(F …)` literal whose
-arguments are all spelled as predicates of arity 2 or more (camelCase,
-[naming.md](naming.md)) for a functor on it as `(forced_monotonic_between_predicates F)`.
-A predicate is on it by the engine's **baseline** or by a declaration. The baseline
-(`checks/baseline-roster`) is code, held on every KB whether or not it loads CxCore:
-`genlCx`, the relation marks (`irreflexive`, `anti_symmetric`, `asymmetric`, `functional`,
-`functionalInArg`, `anti_transitive`, `transitiveInArg`), the definitional declarations
-(`disjoint`, `covering`, `partition`, `sibling_disjoint`), the arity bindings (`arity`, the
-nine exact-arity classes, `variable_arity` and its two specializations, `arityMin`),
-`except` and the equality relations (`rewriteOf`, `sameAs`, `equals`) with the first, and
-`genl` with the second: a `genl` between two predicates is on the roster and a `genl`
-between types stays defeasible, so a type edge admits exceptions. CxCore declares each of
-these, which moves no membership, and the function classes (`injection`, `surjection`,
-`bijection`), which are on the roster by declaration alone. `checks/on-roster?` is the one
-reader of membership, the baseline united with the two global properties the declarations
-maintain, and `checks/forced-monotonic?` reads a literal through it. The source digest
-covers the baseline, so a reasoning image computed under another baseline is declined and
-the store recovers under the new one. The decisions that put each group on the roster are
+**A literal on the roster goes OUT only by retraction.** The nogood families
+([The nogood families](#the-nogood-families)) need this of the literals
+they read as grounds, and the roster closes each of the three ways a literal leaves belief:
+
+| way out | what closes it |
+|---|---|
+| losing a nogood | `decide/verdict` never makes a roster member the loser: the weakest member is chosen among the members off the roster, and a nogood with no defeasible member off the roster is `:hard` |
+| a denial | a stored denial `(not S)` of a roster literal is never believed (the `:out` forced set below) |
+| its support | a firing concluding a roster literal from a rule that is not all roster antecedents supports nothing (the `:void` forced set below) |
+
+An `except` does not take a roster literal OUT. An `except` in force hides its target from
+the context it is stated in and from every context below that one, a roster literal
+included, and the literal stays believed at every context that does not see the `except`
+([contexts.md](contexts.md#except-removing-visibility-down-a-context-subtree)). A firing
+or a placed nogood resting on the hidden literal is blocked and swept below the `except`,
+as for any other target, and retracting the `except` restores both
+(`except_monotonic_test`).
+
+A roster literal keeps the strength it was written at, and what is derived from it is capped
+by that strength as by any other antecedent's ([Strength propagates from the
+antecedents](#strength-propagates-from-the-antecedents)): a fact preserved through a
+`:default` predicate `genl` and a firing of CxCore's `injection` rules from a `:default`
+declaration are `:default`. A `genlCx` premise is the one exception: it confers `:monotonic`
+whatever strength it was written at (the `:mono` forced set below), so a `genlCx` edge caps
+no firing's class ([reference.md](reference.md#decisions) 1 and 9).
+
+**Membership.** A predicate is on the roster if and only if a nogood family reads its
+literals as grounds, or taking one of its literals OUT adds belief elsewhere. Each family names the literals it reads as grounds under `:grounds` in
+`decide/registry`, and `decide/held-members` names the members no family reads, each with
+its reason. `decide/baseline-roster` is the union of the two, held on every KB whether or
+not it loads CxCore:
+
+| member | on the roster because |
+|---|---|
+| `arity`, the nine exact-arity classes, `variable_arity` and its two specializations, `arityMin` | grounds of the arity family |
+| `irreflexive`, `anti_symmetric` | grounds of the self and converse family |
+| `functional`, `functionalInArg`, `anti_transitive`, `asymmetric` | grounds of the tuple-mark family |
+| `genl` between two arguments spelled as predicates of arity 2 or more ([naming.md](naming.md)) | grounds of the arity, self and converse, and tuple-mark families, which read the stored predicate edges |
+| `disjoint`, `covering`, `partition`, `sibling_disjoint`, `siblingDisjointException` | grounds of the membership family |
+| `orthogonal` | the one member of the related-types family's clash of it, which is a conflict and never a defeat |
+| `genlCx` | every context's ancestor set reads the stored edges |
+| `except` | taking one OUT un-hides its target, so what a reader hides would shrink ([reference.md](reference.md#decisions) 2 and 14) |
+| `rewriteOf`, `sameAs`, `equals` | taking one OUT un-merges two terms, so what a reader hides would shrink |
+| `injection`, `surjection`, `bijection` | premises of CxCore's rules concluding `functional`, `functionalInArg`, `injection` and `surjection` (decision 17) |
+
+A `genl` between types stays defeasible, so a type edge admits exceptions: a placed
+`defeat` of one hides every placed nogood resting on it as a ground, at the defeat's
+vantage and below.
+`transitiveInArg` is off the roster: the inherited family weighs a declaration as a member,
+read through belief (`inherit/positions`), and a declaration loses like any other member.
+A family's own grounds appear among the members of one nogood kind only,
+`:arity-descension`, whose members are all bindings and which `decide/verdict` therefore
+reads `:hard`.
+
+**A ground on the roster keeps the placed reading unique.** A ground that could lose would
+let one placed `defeat` lose force through another, and two such nogoods, each one's loser a
+ground of the other, would give two readings. The roster rules that shape out
+([Why a read runs no rounds](#why-a-read-runs-no-rounds)).
+
+`decide/on-roster?` is the one reader of membership, the baseline united with the two
+global properties the declarations below maintain, and `decide/roster-literal?` reads a
+literal through it (`checks/forced-monotonic?` with a KB). `has-prop?` and `props` answer
+the two roster kinds through it from any context. The source digest covers the
+baseline, so a reasoning image computed under another baseline is declined and the store
+recovers under the new one. The decisions that put each group on the roster are
 [reference.md](reference.md#decisions) 1, 7 and 10 to 13 and 17.
 
 **Forcing is applied when belief is computed, never when content is stored.** Every write
@@ -95,39 +141,46 @@ on the relabel path:
 
 | set | members | what the labeller does |
 |---|---|---|
-| `:mono` | a premise of a roster literal, and a `checks/roster-rule?` concluding one (`checks/forced-premise?`) | its premise mark confers `:monotonic` |
+| `:mono` | a premise of a `genlCx` edge (`checks/forced-premise?`) | its premise mark confers `:monotonic` |
 | `:out` | a stored denial `(not S)` of a roster literal (`checks/inert-denial?`) | the fixpoint never adds it, so it is never believed, forms no nogood and fires no rule |
 | `:void` | a firing `checks/forced-conclusion-violation` convicts | the justification is invalid: it supports nothing and confers no class |
 
 `checks/force-sentex!` writes a stored sentex's `:mono` and `:out` memberships before its
-premise mark or first justification lands, and the chainer writes `:void` before it adds a
-convicted firing's justification (`chain/place-fact-conclusion`), so no element holds a
-label its set rules out, even for one relabel. A denial held OUT keeps `S` believed, and
-`why-not` answers `:inert` for it. A denial of an equation instance is one of these: the
-equation rewrites the denied instance as it rewrites every other.
+premise mark lands, and the chainer writes `:void` before it adds a convicted firing's justification
+(`chain/place-fact-conclusion`), so no element holds a label its set rules out, even for
+one relabel. A denial held OUT keeps `S` believed, and `why-not` answers `:inert` for it. A
+denial of an equation instance is one of these: the equation rewrites the denied instance
+as it rewrites every other.
 
 **A rule concludes a roster literal from roster antecedents only.** A firing is convicted
 when its conclusion is a denial of a roster literal, or a roster literal and its rule is
 not a `checks/roster-rule?`: every antecedent a roster literal, no `unknown`, no
 `set/defaultRule`, and no believed `exceptWhen`. A convicted firing is stored, held void and
 reported as a `:forced-conclusion` violation. A roster rule's firings confer the class its
-antecedents give, and a roster rule's own premise is in `:mono`. CxCore's `injection`,
-`surjection` and `bijection` rules are of this kind. A `genl` consequent with variable
-arguments is on the roster only where a firing binds two predicate-spelled terms. An
-`exceptWhen` arriving on a roster rule convicts its firings, and the last one leaving
-releases them (`special/index-exceptWhen-meta`, `special/unindex-exceptWhen-meta`).
+antecedents give. CxCore's `injection`, `surjection` and `bijection` rules are of this
+kind. A `genl` consequent with variable arguments is on the roster only where a firing
+binds two predicate-spelled terms. An `exceptWhen` arriving on a roster rule convicts its
+firings, and the last one leaving releases them (`special/index-exceptWhen-meta`,
+`special/unindex-exceptWhen-meta`).
 
-**The declaration is a switch.** Asserting or retracting `(forced_monotonic_predicate P)`
+**A declaration puts a predicate outside the baseline on the roster.** Asserting or
+retracting `(forced_monotonic_predicate P)` (or `(forced_monotonic_between_predicates P)`)
 for a `P` outside the baseline rewrites the forced memberships over everything that
-mentions `P` (its literals, their denials, the rules reading or concluding it, and their
+mentions `P` (its literals' denials, the rules reading or concluding it, and their
 firings), and the relabel each moved membership runs is the whole recompute
 (`checks/force-reach!`, called from the declaration's special-table arms when `P` joins or
 leaves the roster). A declaration of a baseline member moves no membership and runs no
-switch. The rules in that
-reach are queued for a fresh join (`:all-rejoin`), so a firing swept while it was held void
-is placed again. There is no ratchet: a KB that retracted a declaration believes what a KB
-that never held it believes. The recompute costs the reach of `P`. Belief moving a
-declaration (a derived declaration going OUT) moves the property and runs no switch.
+switch. The rules in that reach are queued for a fresh join (`:all-rejoin`), so a firing
+swept while it was held void is placed again. There is no ratchet: a KB that retracted a
+declaration believes what a KB that never held it believes. The recompute costs the reach
+of `P`. Belief moving a declaration (a derived declaration going OUT) moves the property
+and runs no switch.
+
+CxOrganism declares `(forced_monotonic_predicate folk_species)`. Taking a species membership
+OUT removes the separations `(disjoint_metatype folk_species)` induces between that species
+and every other, which adds belief elsewhere. On the roster, a denial of `(folk_species S)`
+is held OUT, and a rule concluding a roster literal from `(folk_species ?s)` alone is a
+roster rule.
 
 **Retracting a declaration is refused where its predicate has no unforced semantics.**
 `retract!` and `edit!` refuse the retraction of every declaration CxCore makes except those
@@ -220,14 +273,15 @@ without X would hold, so a justification names every reachability its firing res
 the rule and the facts over ([contexts.md](contexts.md)) — and both retract and defeat run
 the ordinary dependency-directed path. Where a reachability outlives the one witness the
 firing named, the conclusion comes back as a re-derivation: after a retraction or a network
-defeat of the witness in the network, and after a reader's verdict or an `except` of it at each
-reader that still reaches ("Where the layer stops" states what the re-derivation leaves
-stored).
+defeat of the witness in the network. After a placed `defeat` or an `except` of it, a
+reader that still reaches the path's ends reads the firing standing ("Where the layer
+stops" states what each leaves stored).
 
 **The invariant is over the writes offered.** No definitional clash is refused
 (decision 8 of [reference.md](reference.md#decisions)): a sentence that completes a
 disjointness, functional, cover, `asymmetric` or `anti_transitive` clash with content the
-KB already holds is stored, and the settle decides the nogood from its members' classes.
+KB already holds is stored, and the settle places the nogood with the verdict its members'
+classes give.
 So the same sentences in any order leave the same store and the same beliefs, and a clash
 whose members are all `:monotonic` stands in `conflicts` whichever member arrived last.
 
@@ -239,11 +293,11 @@ convicts on the *absence* of a path and so has no member to weigh.
 of its nogood (`checks/arbitrable?`), so the entry point stores it, and what is stored is
 a function of what was offered. A declaration over two `genl`-related types, and a cover naming a part
 disjoint from its whole, are stored like any other declaration, and each is a hard clash
-a reader reports
+`conflicts` reports
 ([Declarations over related types](#declarations-over-related-types)). A tuple under
 `irreflexive`, a non-mergeable `anti_symmetric` converse and a tuple whose length breaks
-its predicate's arity binding are stored in every order, and each reader decides them
-([Nogoods decided at the reader](#nogoods-decided-at-the-reader)). A write the
+its predicate's arity binding are stored in every order, and each is placed as a nogood
+([The nogood families](#the-nogood-families)). A write the
 forced-monotonic roster rules out is stored as written and held OUT or void by the
 labeller ([The forced-monotonic roster](#the-forced-monotonic-roster)).
 
@@ -326,9 +380,9 @@ Belief is a least fixpoint, recomputed region-locally rather than accumulated:
 
 - **`:in`** is the believed set and the sole authority on belief — nodes carry no
   label of their own, so there is no second copy to drift. It is maintained
-  region-locally. Nothing forces a datum OUT: a contradiction is decided at each reader
-  ([A defeat is scoped to its vantage](#a-defeat-is-scoped-to-its-vantage)), so the
-  network holds support labels only, and a datum OUT is one with no valid derivation.
+  region-locally. Nothing forces a datum OUT: a contradiction stores a `defeat` that a
+  read applies ([A defeat is scoped to its vantage](#a-defeat-is-scoped-to-its-vantage)),
+  so the network holds support labels only, and a datum OUT is one with no valid derivation.
 - `affected-region` — the forward consequence closure of whatever changed. A node's
   label is a function of its justifications' antecedents, so a node whose label can
   move is by construction reachable from what moved; everything else is boundary and
@@ -461,10 +515,10 @@ they enter belief at two different points:
 
 Neither is computed by the network, which holds no KB. Each method applies a set it was
 handed, so its cost is the region that set seeds and never the cost of deciding the set.
-A **third** place belief is decided is not on the protocol at all: a reader's verdict
-on a nogood and a visibility `except` are applied per reading context above it, over
-`jtms/grounded-in-region`, and the network's labels do not move for either (*[A defeat is
-scoped to its vantage](#a-defeat-is-scoped-to-its-vantage)*).
+A **third** place belief is decided is not on the protocol at all: a placed `defeat` and
+a visibility `except` are applied per reading context above it, by the read walk over
+`jtms/region-in`, and the network's labels do not move for either (*[A defeat is scoped
+to its vantage](#a-defeat-is-scoped-to-its-vantage)*).
 
 The eighth role, `:hold`, is the settle's and not the fixpoint's. A settle moves labels in
 more than one relabel before it publishes, so for a reader on another thread it holds the
@@ -545,9 +599,8 @@ cannot run the level-6 exception query: the caller evaluates the exception and h
 answer in with `set-blocked`, which *replaces* the set rather than adding to it. A block
 therefore holds only while its exception holds now,
 whatever order the exceptions were discovered in. The set is the placement context's
-answer; a reader below the placement asks the exception again and reads a firing it
-finds blocked as invalid in its own withdrawal
-([naf.md](naf.md#evaluated-in-the-placement-context-not-the-join)).
+answer; where the exception holds only below the placement, the firing stores a guard
+`defeat` there ([naf.md](naf.md#evaluated-in-the-placement-context-not-the-join)).
 
 A blocked *justification* is invalid: it supports nothing and confers no defeat-class
 (`node-class` never reads a blocked justification's strength), so an excepted conclusion
@@ -579,10 +632,10 @@ That makes it the one *reversible* retraction: `add-premise` at the same strengt
 it back, at the same handles, with every justification still where it was.
 `core/preview` is the caller ([preview.md](preview.md)).
 
-**Belief-sensitive reads.** A default a reader takes OUT stays *stored* but is not
-*believed* there. So matching is belief-sensitive: `res/raw-match`, `core/sentexes-matching`,
-and `core/types-of` skip handles that are currently OUT, and a read at a context skips
-what that context withdraws. Raw introspection
+**Belief-sensitive reads.** A default a placed `defeat` hides stays *stored* but is not
+*believed* where the defeat is in force. So matching is belief-sensitive: `res/raw-match`,
+`core/sentexes-matching`, and `core/types-of` skip handles that are currently OUT, and a
+read at a context skips what that context does not believe or see. Raw introspection
 (`core/sentex`, `find-sentexes`, the web browser) still sees everything.
 
 ## Soft, prioritized contradictions (the settle layer)
@@ -590,21 +643,20 @@ what that context withdraws. Raw introspection
 `assert` does not throw on `S` vs `(not S)`. The write path relabels the region a write
 affects, and `settle` runs after every assert / retract / `forward-chain` / `recover`.
 Belief at a context comes out of four steps. The write path and the settle run the first
-two, and a read runs the last two at its reader:
+three, and a read runs the last at its reader:
 
 1. **Relabel.** `jtms/relabel-region*` runs two least fixpoints over the affected region:
    `region-fixpoint` computes the members that are IN, then `region-classes` computes the
-   defeat-class of each. No verdict enters either fixpoint, so a nogood's members keep
-   their network labels whatever a reader decides.
+   defeat-class of each. No verdict and no `defeat` enters either fixpoint, so a nogood's
+   members keep their network labels.
 2. **Find the nogoods.** A **nogood** is a set of believed sentexes that cannot all hold.
-   Every family but one comes off the write-time candidate index
-   ([Nogoods decided at the reader](#nogoods-decided-at-the-reader)): a negation pair, a
-   tuple-mark nogood, a membership nogood, an `irreflexive`, `anti_symmetric` or arity
-   nogood. The settle finds the remaining family itself. `clear-inherited!` empties the
-   inherited clashes from the candidate index, so the discovery reads no verdict, and
+   A negation pair comes off the index family of the bodies stored in both polarities
+   ([The nogood families](#the-nogood-families)). A tuple-mark nogood, a membership
+   nogood, an `irreflexive`, `anti_symmetric` or arity nogood, and a declaration over
+   related types come off the write-time candidate index. The settle finds the remaining
+   family itself:
    `discover-inherited!` records each inherited nogood whose members the network believes,
-   with its vantages (`inherited/install-inherited!`). Every nogood is decided at each reader
-   that sees it, in one context as across several. The inherited family is:
+   with its vantages (`inherited/install-inherited!`). The inherited family is:
    - a stored claim against a **known-true claim reached by argument preservation**
      (`preserving-nogoods`), whose second side was never stored. `(largerThan dog cat)`
      asserted `{:strength :monotonic}` reaches `(largerThan chihuahua maine_coon)`, and a
@@ -619,55 +671,53 @@ two, and a read runs the last two at its reader:
      region and what it re-opens, since a `genl` edge changes what reaches whose tuple
      without either side going near the region, and carries a standing clash whose
      inputs did not move ([The inherited-clash memo](#the-inherited-clash-memo)). A KB
-     whose `:preserving` roster is empty pays one `empty?`. [inherit.md](inherit.md) has the readings, and why a
+     that stores no `transitiveInArg` or `transitiveInArgInverse` declaration pays two
+     predicate-extent counts. [inherit.md](inherit.md) has the readings, and why a
      `:default` general claim produces no pair.
 
    The argument constraints are not nogood sources; the table in
    [What qualifies as a nogood](#what-qualifies-as-a-nogood) gives the reason.
-3. **Decide at the reader.** `res/withdrawal` asks `decide/losers` for the nogoods a
-   reader sees, and `decide/verdict` resolves each from its members' **defeat-classes**,
-   read over the whole member set:
-   - **a unique weakest member** → that member loses at this reader. This reader
-     withdraws it, every other reader decides the nogood from its own view, and the
-     network keeps the member IN. No solver. (Monotonic beats default.)
+3. **Place.** Each nogood is placed the way a firing places its conclusion
+   (`chain/place-nogoods!`, `chain/place-inherited!`, [A nogood placed as a
+   conclusion](#a-nogood-placed-as-a-conclusion)): at each maximal common descendant of
+   the contexts its members and grounds are stated in, the nogood's **vantages**.
+   `decide/verdict` resolves it from its members' **defeat-classes** in the network, read
+   over the whole member set:
+   - **a unique weakest member** → that member loses. The vantage stores
+     `(defeat (sentexHandle L))` beside the `(contradicts …)`, and the network keeps the
+     member IN. No solver. (Monotonic beats default.)
    - **a minimum shared by several, and defeasible** → a **dilemma**. Every member stays
-     believed at `:default` and the set is reported by `contradictions`.
-   - **a minimum shared by several `:monotonic` members** → irreducible; report it in
-     `conflicts` (never throw).
-
-   `decide/losers` decides in rounds. Each round forces the reader's `except` targets and
-   the losers so far OUT (`jtms/grounded-in-region`), reads the members' classes over that
-   region, and adds the new losers. The rounds stop at the first round that adds none
-   ([A defeat is scoped to its vantage](#a-defeat-is-scoped-to-its-vantage)). The reader's
-   withdrawn set is the losers together with every handle that rests only on one:
-   `jtms/grounded-in-region` with the losers forced OUT. `res/withdrawal` caches the
-   answer per reader in `:withdrawn` ([The withdrawal cache](#the-withdrawal-cache)).
-4. **Read.** A read at context `C` subtracts what `C` withdraws from the network's labels:
+     believed at `:default`, and `contradictions` reports the stored `contradicts`.
+   - **a minimum shared by several `:monotonic` members** → irreducible; `conflicts`
+     reports it (never throw).
+4. **Read.** A read at context `C` subtracts what the placed sentexes `C` sees remove from
+   the network's labels:
 
    ```
-   believed(C) = in − superseded − withdrawn(C)
+   believed(C) = in − superseded − defeat-hidden(C)
    visible(C)  = believed(C) − except-hidden(C)
    ```
 
-   `jtms/in?` answers `in − superseded`. `withdrawn(C)` is the set step 3 computes
-   (`res/defeat-withdrawn-set`), and `res/believed-at?` answers `believed(C)`.
-   `except-hidden(C)` is every target of a believed `except` visible from `C`, with every
-   handle that rests only on such a target or on a loser. `res/hidden-fn` applies both
-   sets.
+   `jtms/in?` answers `in − superseded`. `defeat-hidden(C)` is every handle a `defeat` in
+   force at `C` names, with every handle that rests only on such a target; `res/believed-at?`
+   answers `believed(C)` through `exc/belief-hidden-fn`. `except-hidden(C)` adds every
+   target of a believed `except` visible from `C`, with what rests only on one, and
+   `exc/hidden-fn` applies both. Each is a walk over the asked handle's support, made when
+   the read asks and kept for that read alone.
 
-Steps 1 and 3 run region-locally. A relabel is a belief fixpoint over the consequence
-justifications, held to the affected region by [Locality](#2-locality), and a reader's
-rounds walk the forward closure of what the reader withdraws. Finding a nogood reads no
-justification edge. The negation pairs come off a write-time index, and whether some
-context sees both members of a pair in two contexts is a walk over the `genlCx` lattice, so a `P` and a `(not P)` many contexts apart pair on the same terms
-as two in one context. Locality is by **range**, and range cuts across the seven roles:
+Step 1 runs region-locally. A relabel is a belief fixpoint over the consequence
+justifications, held to the affected region by [Locality](#2-locality). Finding a nogood
+reads no justification edge. The negation pairs come off a write-time index, and whether
+some context sees both members of a pair in two contexts is a walk over the `genlCx`
+lattice, so a `P` and a `(not P)` many contexts apart pair on the same terms as two in one
+context. Locality is by **range**, and range cuts across the seven roles:
 
 | range | what is in it | bounded by |
 |---|---|---|
 | support-graph-local | labels, the class fixpoint, the sweep | the affected region |
-| lattice-ranged | nogood discovery — does some context see both members of a pair | the pairs the candidate index holds |
-| query-ranged | the `exceptWhen` re-evaluation that fills `blocked` | the recheck queue's triggers |
-| reader-ranged | a reader's verdict on a nogood, a visibility `except`, and the conclusions resting only on one | the withdrawn set's forward closure, per reading context, cached per reader between settles |
+| lattice-ranged | nogood discovery and placement — does some context see every member and ground | the candidates the moved content reaches |
+| query-ranged | the `exceptWhen` re-evaluation that fills `blocked`, and the guard defeats it places | the recheck queue's triggers |
+| read-ranged | a placed `defeat` or a visibility `except` in force at the reader, and the conclusions resting only on one | the asked handle's support, walked once per read |
 
 A protocol method's locality claim is about applying a set, never about computing one.
 
@@ -676,7 +726,7 @@ A default/default clash is **not** decided: defeat-class is the only axis
 case, [`exceptWhen`](exceptions.md) settles it structurally and no contradiction forms.
 Where neither does (the Nixon diamond), the clash is a dilemma the engine reports.
 
-No nogood the settle discovers reaches the `Solver` below
+No nogood the settle places reaches the `Solver` below
 ([defenses.md](defenses.md#a-settle-hands-no-nogood-to-a-solver)). The solver
 `set-solver` installs is read by [`do/label`](solving.md) when no ASP backend is
 reachable.
@@ -696,10 +746,10 @@ The members and the reading, per source:
 
 | source | members | read *through* | admissible because |
 |---|---|---|---|
-| negation, at the settle or the reader | the believed `P` and the believed `(not P)` | joint visibility — the reader sees both contexts ([Nogoods decided at the reader](#nogoods-decided-at-the-reader)) | no member supports the visibility verdict, and defeating either side removes one of the two claims the pair was about |
-| a membership nogood, at the settle or the reader | the clashing memberships and denials alone, keyed on the **handle set**; the separations, covers and disjoint metatypes are read through and never members | the separating declaration or the cover, and the `genl` closure | no defeat this nogood licenses can unmake the reading that convicted |
+| negation, placed at the settle | the believed `P` and the believed `(not P)` | joint visibility — the placement sees both contexts ([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)) | no member supports the visibility verdict, and defeating either side removes one of the two claims the pair was about |
+| a membership nogood, placed at the settle | the clashing memberships and denials alone, keyed on the **handle set**; the separations, covers and disjoint metatypes are read through and never members | the separating declaration or the cover, and the `genl` closure | no defeat this nogood licenses can unmake the reading that convicted |
 | `preserving-nogoods` | the stored claim **and its reasons** — the general claim, the declaration permitting the move, the relation edges the reach travelled, any `(transitive R)` the reading hangs on | the same reasons, which here *are* members | defeating a reason withdraws the reach, which is what the pair was about, and the reason stays defeated |
-| `arity`, at the reader | the offending tuple alone; for two related predicates, their bindings | the binding, read as storage ([Nogoods decided at the reader](#nogoods-decided-at-the-reader)) | the binding is on the forced-monotonic roster and goes OUT only by retraction, so no defeat unmakes the conviction |
+| `arity`, placed at the settle | the offending tuple alone; for two related predicates, their bindings | the binding, a ground of the placement, and at the reader the bindings it believes ([The nogood families](#the-nogood-families)) | the binding is on the forced-monotonic roster and goes OUT only by retraction, so no defeat unmakes the conviction |
 | **not** `arg` / `genlArg` / `interArg` | there is no second sentex | the **absence** of a path — an open-world NAF judgement | nothing to weigh and no class to compare. A refusal at the entry point, a drop on the derivation path |
 
 `nogood_admissibility_test` pins the first three rows: a definitional clash's `:nogood`
@@ -708,11 +758,11 @@ inherited clash's holds its reasons.
 
 ### The inherited-clash memo
 
-`preserving-nogoods` keeps `{:stamp :mark :entries :seen}` in
+`preserving-nogoods` keeps `{:gen :flat :mark :entries :left}` in
 `(reasoning/preserved-clashes kb)`. `:entries` maps a stored claim to its last answer (`discovery/preserving-entry`): the
-nogoods, every context asked, and the defeat-class of every member. `:seen` holds each
-asker's withdrawn set as that answer read it, and `:left` the sentences removed since the
-call. A settle republishes the entries, which is
+nogoods, every context asked, the handles of every denying reading and the contexts they
+are stated in, and the defeat-class of every member. `:gen` is the `genlCx` generation at
+the call. `:left` holds the sentences removed since the call. A settle republishes the entries, which is
 O(standing) bookkeeping, and asks again only where an input moved. The region is what the
 touched window recorded since `:mark`, the mark taken before the last call's questions, so
 the second pass of a settle asks only what the first pass moved, and not the settle's
@@ -725,8 +775,8 @@ inputs:
   or holds another class, which also covers a supersession flip no region shows. The
   stored claim's own belief is not an input, since its question reads the tuple's other
   claims. An entry whose stored claim is OUT publishes nothing and stays.
-- **the reading's vocabulary.** A handle in the region, or one whose withdrawal at an
-  asker moved (`res/withdrawn-set` against `:seen`), re-opens the whole stored extent of
+- **the reading's vocabulary.** A handle in the region, or a supporter of a moved
+  flat-cache key (below), re-opens the whole stored extent of
   every predicate a non-claim channel of `inherit/moved-channels` names: a declaration, a
   relation edge the reach can cross, a `(transitive R)` or a mark. A `genl` edge between
   predicates re-opens every preserved predicate above either end.
@@ -734,16 +784,30 @@ inputs:
   (`inherit/claim-reach-extent`), and not the extent, when it can change an answer:
   believed and known-true, since `clashing-claim` reads known-true claims alone, or moved
   in the region and of a predicate holding an entry, since every entry is asked from the
-  vantages `inherit/denial-contexts` reads off claims of every class. A known-true claim leaving is a member of every entry
-  it answers, and a reader's verdict never withdraws known-true content.
-- **the stamp.** The `genlCx` generation, the contexts each flat-cache entry is asserted
-  from (`tax/flat-contexts`) and the `except` roster, compared as one value. When the stamp
-  moves, every entry is asked again.
+  vantages of the readings `inherit/denial-readings` reads off claims of every class. A known-true claim leaving is a member of every entry
+  it answers, and no `defeat` hides known-true content.
+- **a flat-cache entry.** `tax/set-cache-ctxs` journals each flat-cache key whose
+  supporting contexts it moves (`tax/flat-moves`), and `:flat` holds the live taxonomy's
+  position in that journal (`discovery/flat-reading`). The keys moved since are read
+  through their supporters (the vocabulary channel above). No reading reads a
+  separation, so a `disjoint`, a roster declaration or any other entry no question reads
+  asks no entry. Where the journal does
+  not reach back (an image install, a
+  rebuild, a journal restarted past its bound), the moves are the keys `:flat`'s map of
+  `tax/flat-contexts` and the current one differ on.
+- **an except.** An `except` that moved (`special/except-moved`, and an `except` in the
+  region) asks again each entry one of whose readings' handles lies in the consequence
+  closure of its target, followed down the except cascade (`discovery/except-reach`).
+- **a `genlCx` edge.** The edges moved since `:gen` (`decide/edge-reach`) ask again each
+  entry with a reading's context in the move's `:below`, or with a context asked at or
+  below a moved lower end, whose ancestor set the move changed. A rebuilt relation asks
+  every entry again.
 - **a deleted record.** `integrate/sentex-removed!` records a departing sentence under its
-  handle in the memo's `:left` while an entry stands (`discovery/note-removed!`). A region
+  handle in the memo's `:left` while an entry stands (`discovery/note-removed!`), so an
+  entry whose stored claim left is read off `:left` and not off the records. A region
   handle with no record is read from `:left` through the two channels above: as
   vocabulary, and as an OUT claim moved in the region. A retracted `genl` edge between
-  predicates is neither a member nor a stamp input, so its `:left` sentence is the only
+  predicates is not a member, so its `:left` sentence is the only
   input that re-asks the clash the edge carried, whether the edge carried an `asymmetric`
   mark down (`tax/props-over`) or made a sub-predicate's claim the super's
   (`inherited_clash_oracle_test`). A region handle with neither a record nor a recorded
@@ -753,11 +817,9 @@ inputs:
 discovery asks the preserved predicates' stored extents, read off the index, and reads
 no record of any other sentex.
 
-A stored claim asked and finding no clash is kept as an entry with no nogoods in two
-cases. While `inherit/denial-contexts` names a claim that would deny it in a reader seeing
-both, the `genlCx` edge that makes such a reader moves the stamp and asks it again. While an asker
-reads something withdrawn, the next settle clears the standing nogoods, and its withdrawal
-diff asks the claim again. A stored claim with no entry has no clash in any reader the
+A stored claim asked and finding no clash is kept as an entry with no nogoods while
+`inherit/denial-readings` names a claim that would deny it in a reader seeing both: the
+`genlCx` edge or the except that makes such a reader asks it again. A stored claim with no entry has no clash in any reader the
 lattice could add, and the region and the re-opened facts are the writes that can give it
 one.
 
@@ -767,18 +829,22 @@ step; its streams do not generate the supersession shape. The same test replays 
 stream leaves stored into a fresh KB, since both of those arms ask through
 `preserving-entry`. `lein perf`'s
 `inherited-clash-arbitration` and `inherited-clash-arbitration-split` hold the per-assert
-cost against the standing set, and `inherited-entry-retraction` the per-retract cost
-against the carried entries.
+cost against the standing set, `inherited-entry-retraction` the per-retract cost
+against the carried entries, `inherited-entry-declaration` the cost of a declaration
+no entry reads, and `inherited-entry-except` the cost of an except no entry's readings
+rest on.
 
 ### A revived datum is a datum the agenda has not seen
 
 A revival is a **relabel**, which brings back everything still stored: a premise
 restored by `preview`'s rollback, or a derivation an unblocked justification or a
-returning antecedent gives back, and the conclusions resting on it. A handle a reader's
-verdict gives back at its own context is read as a revival too (`readings/reader-moves`). A
-relabel cannot bring back a conclusion that was
-never derived. While a datum is OUT, `chain/*matcher*` does not match it, so a rule's
-*other* antecedent arriving meanwhile joins against nothing and attempts no firing.
+returning antecedent gives back, and the conclusions resting on it. A target a removed
+`defeat` gives back at its own context is not a revival: the network kept the target IN, so
+a rule's firings over it stand. It is re-chained only when the taxonomy derives an answer
+from it (`tax/derives-from?`), and the merges and lifts a mark owes are re-read for it
+(`settle/defeat-moves`). A relabel cannot bring back a conclusion that was never derived.
+While a datum is OUT, `chain/*matcher*` does not match it, so a rule's *other* antecedent
+arriving meanwhile joins against nothing and attempts no firing.
 
 No other settle instrument finds that firing afterwards. It holds no justification, so
 it is in no blocked set for `released-rules` to read, and it reached no placement, so it
@@ -816,10 +882,9 @@ A reader that asks the window more than once in one settle takes a mark
 (`jtms/touch-mark`) and reads what the window recorded after it (`jtms/touched-since`): a
 datum relabelled again after the mark is in that answer although `touched` held it
 already, which a set difference over `touched` would drop. Each mark is the reader's own,
-and `reset-touched!` outdates every mark, after which one reads the whole window. Two
-readers mark: the inherited family's discovery ([The inherited-clash
-memo](#the-inherited-clash-memo)) and the withdrawal cache ([The withdrawal
-cache](#the-withdrawal-cache)).
+and `reset-touched!` outdates every mark, after which one reads the whole window. One
+reader marks: the inherited family's discovery ([The inherited-clash
+memo](#the-inherited-clash-memo)).
 
 The seeds are **datums**, so re-chaining one costs what asserting it costs: a join per
 rule keyed by its predicate. Seeding the *rules* instead joins each rule over its whole
@@ -841,10 +906,9 @@ is defeated again inside one settle is never seeded: the set is read after the r
 so it describes where the pass landed rather than what it passed through. A pass that
 revived something is **productive** even when the blocked set stands still, as an
 aggregate's is, or the loop would converge having derived nothing. So is a pass whose
-resolution defeated a datum a watched rule's `unknown` or exception reads
-(`readings/released-by-defeat`, [naf.md](naf.md)), or whose standing verdicts took a
-member OUT or gave one back (`readings/released-by-verdicts`): the pass re-chains the
-released rules whether or not anything was queued. A **rebuild** stands
+placed defeats moved a datum a watched rule's `unknown` or exception reads
+(`settle/post-defeat-moves!`, [naf.md](naf.md)): the pass re-chains the released rules
+whether or not anything was queued. A **rebuild** stands
 aside (`settle/*rebuilding?*`): `recover` relabels the whole graph, so most of what it
 believes reads as newly believed, and the stored justifications it replays already carry
 every derivation.
@@ -871,6 +935,21 @@ Rounds are bounded by `max-unmerge-rounds` (8); two is the structure of every re
 and reaching the eighth is logged as a bug rather than looping. Two other designs, moving
 the reconcile into the settle loop and a re-enter signal from `settle-finish`, cost more
 elsewhere: [why](defenses.md#an-un-merge-re-seeds-through-a-second-channel).
+
+The same rounds carry the opposite flip. `settle-finish` returns the spellings superseded
+since the last settle, and `settle` drops each rule firing that names one of them as an
+antecedent or as its rule (`settle/withdraw-retired-firings!`), deletes what the drop
+sweeps, and settles again. A superseded spelling fires nothing (`chain/process-datum`), so
+a firing made over it before the merge is one the merge-first order never makes; with
+the firing dropped, the twin of its conclusion keeps only the representative's own
+firings. A firing that the superseding merge rests on stays (`settle/merge-support`): a
+rule concluding an equality from the spelling that equality retires has no order in which
+the merge comes first. A dropped firing that climbed a retired `genl` edge is drawn again
+over the edge's twin (`special/withdrawn-edge-seeds`, read before the drop), so `(dog Rex)`
+under `(genl dog mammal)` and `(genl mammal animal)` keeps its firing of
+`(animal ?x) => (alive ?x)` when `(rewriteOf mammalia mammal)` arrives last. The drop
+reads the dependents of the retired spellings and the support of their merges, and
+nothing else. A rebuild and `core/preview` (`*sweep?*` off) drop nothing.
 
 ### The set-membership states a node can hold
 
@@ -905,9 +984,9 @@ The **revival slot** of the window is `:touched` without `:touched-in` or `:touc
 created by it — together with `:touched-out`. `jtms/revived` reads that slot filtered to what is believed now, so a
 believed node in the revival slot is a `revived` one. A believed node created this settle
 sits under `touched-new`, and a believed node the settle relabelled without moving its
-label sits under `touched-in`. A reader's verdict moves no node state: it withdraws a
-handle from a reader's view (`res/withdrawal`), and the settle publishes that move beside
-the window ([The published window](#the-published-window)).
+label sits under `touched-in`. A placed `defeat` moves no node state of its target: a read
+applies it, and the settle publishes the move it makes beside the window ([The published
+window](#the-published-window)).
 
 ### Which entry point the content came through
 
@@ -918,8 +997,7 @@ it is stored:
 | where the clash arrives | members all `:monotonic` | a `:default` member |
 |---|---|---|
 | a **rule firing** (`place-conclusion`) | placed; a hard clash in `conflicts` | placed; the unique weakest is defeated with a `why-not`, a tie is a dilemma |
-| an **`assert`**, disjointness / functionality / a refuted cover / asymmetry / anti-transitivity | stored; a hard clash in `conflicts` | stored; decided as a firing is |
-| an **`assert`**, irreflexivity / antisymmetry that does not merge | stored; a hard clash in `conflicts` | stored; each reader decides it ([Nogoods decided at the reader](#nogoods-decided-at-the-reader)) |
+| an **`assert`**, disjointness / functionality / a refuted cover / asymmetry / anti-transitivity / irreflexivity / antisymmetry that does not merge | stored; a hard clash in `conflicts` | stored; placed as a firing's clash is ([The nogood families](#the-nogood-families)) |
 
 The declaration, the functionality mark, the cover and the `genl` steps a conviction reads
 are the nogood's grounds: read through, never weighed, and never a reason to refuse. A
@@ -927,10 +1005,9 @@ known-true opposing claim beside a known-true declaration therefore makes a hard
 rather than a refusal, whichever member arrived last.
 
 A self tuple `(P a a)` of an `irreflexive` `P`, and a converse no equality could
-reconcile under an `anti_symmetric` `P`, are the last row. Neither is decided by the
-settle: a reader decides it when it reads, in either arrival order, so a late mark takes a
-`:default` self tuple OUT at every reader that reads the mark
-([Nogoods decided at the reader](#nogoods-decided-at-the-reader)).
+reconcile under an `anti_symmetric` `P`, are placed in either arrival order, so a late mark
+places the `defeat` of a `:default` self tuple where the tuple and the mark are seen
+together.
 
 A firing has no caller to refuse, so there the choice is between dropping the
 conclusion — no sentex, no justification, and `why-not` reduced to `:not-stored` — and
@@ -939,13 +1016,12 @@ entry point makes the same choice for a writer.
 
 The **retroactive** half runs the same way. A declaration arriving *after* the content it
 convicts — what an import routinely does — reads no membership: the candidate index keeps
-every term holding two memberships, or a membership and a denial, and a reader reads the
-term's nogoods through the declarations it sees
-([Nogoods decided at the reader](#nogoods-decided-at-the-reader)). The weaker side is
-defeated, or an equal-strength set is reported by `contradictions` or `conflicts`, so
-belief does not depend on whether the schema or the facts arrived first, and a recover of
-the same records decides the same pairs. A pair only a common descendant context sees is
-decided there. A term **joining** a disjoint metatype is a declaration too, and the only
+every term holding two memberships, or a membership and a denial, and the placement pass
+places the term's nogoods through the declarations that convict them
+([The nogood families](#the-nogood-families)). The weaker side is defeated, or an
+equal-strength set is reported by `contradictions` or `conflicts`, so belief does not
+depend on whether the schema or the facts arrived first, and a recover of the same records
+places the same pairs. A pair only a common descendant context sees is placed there. A term **joining** a disjoint metatype is a declaration too, and the only
 one the taxonomy rather than the sentence identifies ([taxonomy.md](taxonomy.md)).
 
 **One retroactive half is an inference rather than a nogood.** `(functional P)` arriving
@@ -956,13 +1032,12 @@ of them — it *merges* them, so `special/equate-existing` runs it exactly as
 converse `(P b a)` beside a `:monotonic` `(P a b)` forces `(equals a b)` and merges,
 `special/derive-antisymmetric-equalities` and `antisym-equate-existing` reaching it from
 the fact side and the declaration side. A symbol pair with a `:default` member is a
-nogood under either mark: the settle decides a `functional` one as above, and each reader
-decides an `anti_symmetric` one ([Nogoods decided at the reader](#nogoods-decided-at-the-reader)).
+nogood under either mark, placed as above ([The nogood families](#the-nogood-families)).
 
 Content the engine stores on its own behalf is admitted as a firing's conclusion is
 (`checks/derivation-violation`): the decontextualization lift's copy, the equality
 migration's twin and the argument-type mint. A clash one of them forms is stored and
-decided at each reader, since refusing it would read stored content and make the stored
+placed, since refusing it would read stored content and make the stored
 set depend on the arrival order. Only the gate on what `abduce` may assume refuses a
 clash (`checks/constraint-violation`): a hypothesis is never stored.
 
@@ -976,7 +1051,7 @@ is one nogood with three members:
   of its three roles — the direct step, the first step and the second step
   (`tuple/found-for`) — so the chain enters the candidate index whichever step arrives
   last.
-- **Decision** is `decide/verdict` over the whole member set: a unique weakest member is
+- **Placement** reads `decide/verdict` over the whole member set: a unique weakest member is
   defeated, a defeasible minimum shared by several is a dilemma, and all-monotonic is a
   conflict. Three equal defaults are one three-sided dilemma.
 - **Reporting**: `contradictions` returns one entry whose `:sides` are three, and
@@ -998,28 +1073,28 @@ down-closure (`tax/maximal-common-descendant-contexts`). Asking whether one cont
 `sees?` the other catches only a comparable pair and exempts every sibling pair; two
 incomparable contexts can share a descendant, and from there `X` and `(not X)` are both
 visible. The common-descendant test generalises `sees?` (if K sees Y, K is itself a
-common descendant), so it detects everything `sees?` would. A reader deciding a negation
-pair asks the same question of its own ancestor set: it sees both contexts.
+common descendant), so it detects everything `sees?` would. A negation pair is placed at
+the maximal common descendants of its two contexts.
 
 A **definitional** clash reads the same rule from the other end. A disjointness needs the
-separation and the `genl` edges it closes under to be visible too, which is a scoped
-check rather than a set test, so each reader asks it over its own ancestor set
-(`membership/term-nogoods`).
+separation and the `genl` edges it closes under to be visible too, so a membership
+nogood is placed where the members, one separation's declarations and the `genl` edges
+it climbs are all seen (`chain/place-memberships!`).
 
 ### A defeat is scoped to its vantage
 
 A nogood has **vantages**: the most general contexts that see every member, and for a
-definitional clash the declaration as well. **Every reader decides each nogood it sees
-from its own view** ([reference.md](reference.md#decisions), decisions 2 and 3): a
-defeated member is disbelieved at the readers that decide against it and nowhere else,
-and the network keeps it IN. A context's belief therefore depends on its own ancestor set
-and on nothing a spec context holds. The families of
-[Nogoods decided at the reader](#nogoods-decided-at-the-reader) are found at the reader,
-in one context as across several. `preserving-nogoods` takes the most general contexts
-that see the stored claim's own context and the reading that denies it, and the settle
-records every inherited nogood whose members the network believes with its vantages in
-the candidate index (`inherited/install-inherited!`), in one context as across several,
-storing no verdict there: each reader at or below a vantage decides it.
+definitional clash the grounds as well. They are the contexts it is placed in
+([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)). A placed `defeat`
+removes its loser from belief at the vantage and at every context that sees it, and
+nowhere else; the network keeps the loser IN ([reference.md](reference.md#decisions),
+decisions 2 and 3). A context's belief therefore depends on its own ancestor set and on
+nothing a spec context holds, with one exception: the class of a fact a permuting mark
+respells, where a defeat of the mark below the fact's context stores a `respell` row
+capped at the mark's class
+([canonicalization.md](canonicalization.md#a-mark-a-reader-does-not-believe)). `preserving-nogoods` takes the most general contexts that
+see the stored claim's own context and the reading that denies it, and
+`chain/place-inherited!` places each inherited nogood there.
 
 ```
 CxA            (cat Rex)   :default
@@ -1027,11 +1102,11 @@ CxA            (cat Rex)   :default
 (disjoint dog cat) is visible from both
 ```
 
-CxD is the only context that sees both memberships, so CxD is the vantage. A read from
-CxD finds `(dog Rex)` and not `(cat Rex)`. A read from CxA finds `(cat Rex)`, because CxA
-does not see `(dog Rex)`.
+CxD is the only context that sees both memberships, so CxD is the vantage, and the
+`(defeat (sentexHandle <(cat Rex)>))` is stored there. A read from CxD finds `(dog Rex)` and
+not `(cat Rex)`. A read from CxA finds `(cat Rex)`, because CxA does not see the defeat.
 
-**A reader sees the grounds as well as the members.** A definitional clash is its members
+**A vantage sees the grounds as well as the members.** A definitional clash is its members
 and what separates them — a `disjoint` declaration, the `genl` path up to a separated
 type, a `functional` or `asymmetric` mark — so the most general context holding the whole
 clash can sit below the members' maximal common descendant:
@@ -1043,14 +1118,12 @@ CxW sees CxA and CxB
  └─ CxV sees CxW and CxDecl
 ```
 
-CxW reads no separation and convicts nothing. CxV reads all three: CxV and every context
-below it believe `(t1 Pip)` alone, while CxW and CxX believe both memberships. Each reader
-reads the separation over its own ancestor set (`membership/term-nogoods`), so the readers
-that see CxDecl decide the pair and no reader above them does, and
-`membership/membership-vantages` names CxV as the most general context deciding it. No write
-reads the contexts below CxW; `lein perf`'s `per-reading-vantages` holds an assert flat in
-them. Two members stored in one context have that context as their lowest, and a
-separation declared only below it is decided by the readers below that read it
+CxW reads no separation and convicts nothing. The nogood is placed at CxV, the most general
+context that sees the members and the separation (`chain/place-memberships!`): CxV and
+every context below it believe `(t1 Pip)` alone, while CxW and CxX believe both
+memberships. No write reads the contexts below CxW; `lein perf`'s `per-reading-vantages`
+holds an assert flat in them. Two members stored in one context have that context as
+their lowest, and a separation declared only below it places the nogood there
 (`reference_test/a-declaration-below-a-pair-stored-in-one-context-decides-it-there-in-every-order`).
 
 **A vantage sees every member, and some clashes have more than two.** An `anti_transitive`
@@ -1062,44 +1135,18 @@ CxAB sees CxA and CxB, CxBC sees CxB and CxC, CxAC sees CxA and CxC
  └─ CxW sees CxAB, CxBC and CxAC
 ```
 
-CxW decides the chain, and CxAB, CxBC and CxAC each keep both steps they see: the chain
-is a candidate a reader decides when it sees all three members
-([Nogoods decided at the reader](#nogoods-decided-at-the-reader)), and
-`reference_test/a-chain-in-three-contexts-is-decided-where-one-reader-sees-it-whole-in-every-order`
-holds it in every arrival order. An inherited clash has more than two as well: a stored claim denied by
-a known-true claim read by argument preservation rests on the general claim, the
-declarations and every `genl` edge the reach travels, each possibly in its own context.
-`inherit/denial-contexts` names those contexts, read from the whole KB, and
-`preserving-nogoods` asks the clash from the most general contexts that see all of them ([inherit.md](inherit.md#a-contrary-claim-against-a-known-true-one-is-a-contradiction-and-is-reported)).
+The chain is placed at CxW, and CxAB, CxBC and CxAC each keep both steps they see
+(`reference_test/a-chain-in-three-contexts-is-decided-where-one-reader-sees-it-whole-in-every-order`).
+An inherited clash has more than two members as well: a stored claim denied by a known-true
+claim read by argument preservation rests on the general claim, the declarations and every
+`genl` edge the reach travels, each possibly in its own context. `inherit/denial-readings`
+names those handles, read from the whole KB, and `preserving-nogoods` asks the clash from
+the most general contexts that see all of them with no except hiding one
+(`res/exception-aware-placements`, the placement a firing takes) ([inherit.md](inherit.md#a-contrary-claim-against-a-known-true-one-is-a-contradiction-and-is-reported)).
 
-**A reader decides in rounds** (`decide/losers`, [reference.md](reference.md#the-function)
-item 8). It reads the families of [Nogoods decided at the reader](#nogoods-decided-at-the-reader),
-the inherited clashes whose vantage it sees among them. Each
-round forces the reader's `except` targets and the losers so far OUT
-(`jtms/grounded-in-region`), reads each member's class over that region
-(`jtms/classes-in-region`), decides every nogood whose members the reader still believes,
-and adds the unique weakest `:default` members. The region grows from round to round, and
-a nogood with no member in it reads the beliefs and classes it read in the round before,
-so a round after the first decides only the nogoods with a member in its region and keeps
-the earlier verdict on the rest. A round whose new losers include a ground
-(`tax/derives-from?`: a `genl` edge or a flat-cache entry) adds those alone. Once the
-reader withdraws a ground or an equality supporter, each definitional nogood is re-asked at the reader before it is
-decided (`clashes/reread-at`, which `res/*reread*` holds): the check the discovery ran is
-asked against a detached copy of the taxonomy (`tax/detached-copy`), with
-`res/*provisional*` answering what the rounds have withdrawn so far, so the closures it
-walks are memoized in the copy and never in the live taxonomy, and the `genl?` answers,
-filtered edges, separation frames and each member's violations one nogood reads serve the
-rest of the round. A
-nogood the reader no longer convicts stays dropped, since a check finds no more for seeing
-less. The re-read reads the reader's withdrawal only through the grounds, the members and
-the equality partition, whose scoped election decides which spellings the reader retires
-(`res/without-retired`), so a later round re-asks the definitional nogoods only when it
-withdraws another ground or equality supporter (`tax/equality-supporter?`). A loser
-withdraws no equality supporter, since the equality relations are on the
-forced-monotonic roster; an `except` withdraws one.
-The rounds stop at the first that adds no loser, and no round takes a loser back.
-The reader's answer holds its losers and its verdict on every nogood it decides
-(`res/verdicts`).
+**A defeat of a ground hides what the ground convicts.** A placed sentex rests on its
+nogood's grounds, so a ground a second nogood defeats takes the first nogood's placed
+sentexes out of belief wherever that defeat is in force:
 
 ```
 CxUniverse   (genl chi thing) (genl dog thing) (genl cat thing)  (disjoint dog cat)
@@ -1108,59 +1155,64 @@ CxUniverse   (genl chi thing) (genl dog thing) (genl cat thing)  (disjoint dog c
       CxB sees CxA and CxD:  (chi Kit) :default   (cat Kit) :monotonic
 ```
 
-CxB is the vantage of both nogoods, and CxB's rounds decide both: the edge against its
-denial first, since the edge is a ground, and the edge goes OUT. CxB then withdraws a
-ground, so it re-asks the membership clash (`clashes/reread-at`), finds no separation
-between `chi` and `cat`, and decides nothing. A reader below CxB that sees the pair and
-the edge decides the same way in its own rounds. CxB believes both memberships, and
-`contradictions` reports nothing, in every arrival order and whatever number of passes the
-settle runs (`reference_test/a-second-settle-pass-leaves-the-release-lattice-reading-unchanged`).
+CxB is the vantage of both nogoods. The negation pair places the `defeat` of the edge
+there, and the membership nogood places the `defeat` of `(chi Kit)` there, resting on the
+edge it climbed. At CxB the edge is not believed, so neither is the membership defeat: CxB
+believes both memberships, and `contradictions` reports nothing, in every arrival order and
+whatever number of passes the settle runs
+(`reference_test/a-second-settle-pass-leaves-the-release-lattice-reading-unchanged`).
 
-**A read applies a reader's verdicts through `res/hidden-fn`**, the predicate every
+**A read applies the placed defeats through `exc/hidden-fn`**, the predicate every
 belief-filtered read with a concrete context asks for the visibility `except`
-([contexts.md](contexts.md)). The predicate reads a handle as withdrawn from reader K in
-three cases: a believed `except` visible from K hides it, K takes it OUT as the loser of a
-nogood K decides, or every justification it has rests on a handle withdrawn for one of
-those two reasons. `res/withdrawal` computes the third set as `jtms/grounded-in-region`
-with the first two forced OUT, so a consequence follows the reader. A forward rule `(cat
-?x) ⇒ (meows ?x)` stated in CxA stores `(meows Rex)` in CxA; a read from CxA finds it and
-a read from CxD does not. Inside a re-read (`res/*provisional*`) the reader being
-decided answers what its rounds have withdrawn so far instead. `believed?` takes a
-context and applies the withdrawal, and a read with no context reads a sentex at its own
-([A read with no reader](#a-read-with-no-reader)).
+([contexts.md](contexts.md)). The predicate reads a handle as hidden from reader K in
+three cases: a believed `except` visible from K hides it, a `defeat` in force at K names
+it, or every justification it has rests on a handle hidden for one of those two reasons.
+The read walk computes the third case over the handle's support
+([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)), so a consequence
+follows the reader. A forward rule `(cat ?x) ⇒ (meows ?x)` stated in CxA stores
+`(meows Rex)` in CxA; a read from CxA finds it and a read from CxD does not. `believed?`
+takes a context and applies the defeats, and a read with no context reads a sentex at its
+own ([A read with no reader](#a-read-with-no-reader)).
 
 **The taxonomy's closures apply it too.** A `genl` or `genlCx` edge is held up by stored
 supporters, and a scoped read of a relation asks the KB per supporter whether the reader
-believes it (`res/supporter-believed?`, installed by `kb/attach-visibility!`). That
-predicate reads the same two withdrawal kinds `hidden-fn` reads, so a context that
-disbelieves `(genl chi dog)` stops reaching over the edge: `genl?`, `isa?`, `genls`, a
-match that climbs the hierarchy and a `transitiveInArg` claim preserved along it all
-answer there the way `believed?` of the edge answers. Without that the two halves would
-disagree about one KB from one context — `believed?` false and `ask?` true — which is the
-disagreement `res/believed-at?` exists to prevent.
+believes it (`res/supporter-believed?`, installed by `kb/attach-visibility!`). The gate the
+taxonomy reads first is `exc/supporter-roster`: the `except` entries and the placed
+defeats, by target. A `defeat` of a supporter hides it from `genl?`, `isa?`, `genls`, a
+match that climbs the hierarchy and a `transitiveInArg` claim preserved along it, at and
+below the defeat's vantage, the way `believed?` of the edge answers there. Without that the
+two halves would disagree about one KB from one context — `believed?` false and `ask?`
+true — which is the disagreement `res/believed-at?` exists to prevent. A defeat of a
+supporter stored, removed or relabelled evicts the scoped `genl` closures that can cross
+the edge it reaches, and no other ([A read with no reader](#a-read-with-no-reader); `lein
+perf`'s `genl-defeat-beside-defeats` and `defeat-beside-unreached-readers`). A firing's witness search alone reads the
+network and the `except` roster and no `defeat` (`tax/*network-belief*`,
+`exc/except-roster`), so a placed defeat moves no firing.
 
-The recursion that shape invites does not close. Every ancestor-set read inside the
-withdrawal answer goes through `tax/context-up-global`: `except-hidden-fn`,
-`visible-exception-index` and `withdrawal*` each name it, and the region walk is
-`jtms/grounded-in-region`, which reads justifications and no taxonomy. So a filtered
-`genlCx` walk asks a question the **unfiltered** genlCx closure answers, for the same
-reason exception evaluation reads that closure ([taxonomy.md](taxonomy.md), "Reads are
-scoped by the asking context").
+The recursion that shape invites does not close. Every ancestor-set read inside the walk
+goes through `tax/context-up-global`: `except-hidden-fn`, `visible-exception-index` and
+the walk's reader state each name it, and the walk's fixpoint is `jtms/region-in`, which
+reads justifications and no taxonomy. The one taxonomy read inside the walk is the
+second-route question. A read nested in it answers its own second routes into the memo of
+the read that opened the search (`exc/*routes*`), so a route question met again on one path
+reads as not reaching, and the recursion ends. So a filtered `genlCx` walk asks a question the
+**unfiltered** genlCx closure answers, for the same reason exception evaluation reads that
+closure ([taxonomy.md](taxonomy.md), "Reads are scoped by the asking context").
 
 `relation-filter-active?` stays the gate in front of all of it: a KB that stores no
-`except` and holds no candidate of a decided family never asks the
-predicate at all, and one whose
-withdrawable handles support no edge of the relation being read does not either.
+`except` and no `defeat` never asks the predicate at all, and one whose stored targets
+support no edge of the relation being read does not either.
 
-**The discovery reads no verdict.** A settle empties the inherited clashes before each
-discovery (`discovery/clear-inherited!`), so a pair one reader's verdict hides from the context
-that asks it is still found for a reader below that context whose view keeps it. The
-discovery therefore reads the relation as the network holds it, and each reader re-asks
-what a verdict of its own dissolves.
+**The discovery reads no inherited defeat.** An inherited nogood's reasons are known-true
+(a reading with a `:default` reason opposes nothing, [inherit.md](inherit.md)), so its
+only `:default` member is the stored denial, which the detector reads by its sentence and
+not through the reads a placed `defeat` filters. A placed inherited `defeat` therefore
+hides nothing the next ask at its vantage reads.
 
-**A verdict binds no reader below the vantage against its own view.** A reader below the
+**A defeat binds no reader below the vantage against its own view.** A reader below the
 vantage that sees a denial, an edge or an `except` dissolving the clash believes what the
-vantage took OUT:
+vantage hides: the denial places its own `defeat` of the ground at the reader, and the
+membership defeat rests on that ground.
 
 | where `(not (genl chi dog))` sits, with `(chi Kit)` and `(cat Kit)` in CxB | CxC below CxB believes `(chi Kit)` |
 |---|---|
@@ -1170,16 +1222,17 @@ vantage took OUT:
 `scoped_defeat_test`'s release tests pin both rows in every arrival order, the retraction
 of the denial and the `except`.
 
-A `siblingDisjointException` exempts its pair only at the readers that see it
-([taxonomy.md](taxonomy.md)): written below a vantage, it releases the pair there and
-below, and the vantage decides the pair as it reads it.
+A `siblingDisjointException` exempts its pair from the separation marks only at the
+readers that see it ([taxonomy.md](taxonomy.md)): written below a vantage, it takes the
+vantage's membership defeat out of force there and below (`membership/exempt-at?`).
 
 #### Vantages that disagree
 
 A nogood can have several vantages, when the contexts that see every member have more than
-one maximal element. Each one decides it from its own view, and two of them can defeat
-different members: a vantage that reads one member's monotonic support as withdrawn ranks
-that member lower than a vantage that reads the support whole.
+one maximal element, and each placement is read with the classes its reader reads. Two
+readers can defeat different members: an `except` in force at a reader that hides one
+member's monotonic support lowers that member's class there, and the read re-decides the
+placed nogood with that class (`exc/verdict-at-reader`).
 
 ```
 CxUniverse
@@ -1192,261 +1245,243 @@ CxZ   genlCx CxW1, CxW2
 (disjoint dog cat) is visible from every context
 ```
 
-CxW1 reads `(cat Rex)` as a default and `(dog Rex)` as monotonic, so it defeats `(cat
-Rex)`; CxW2 reads the pair the other way and defeats `(dog Rex)`. A read from CxW1 finds
-`(dog Rex)` and a read from CxW2 finds `(cat Rex)`. CxZ sees both `except`s, reads both
-members as defaults, and ties: it believes both, and `(contradictions kb CxZ)` reports the
-pair. No reader takes a verdict from a vantage; each reaches its own.
+Both members are `:monotonic` in the network, so the nogood is a conflict, placed as a
+`contradicts` with no `defeat` at CxW1 and at CxW2. CxW1 reads `(cat Rex)` as a default and
+`(dog Rex)` as monotonic, so it treats `(cat Rex)` as defeated; CxW2 reads the pair the
+other way and treats `(dog Rex)` as defeated. A read from CxW1 finds `(dog Rex)` and a read
+from CxW2 finds `(cat Rex)`. CxZ sees both `except`s, reads both members as defaults, and
+ties: it believes both, and `(contradictions kb CxZ)` reports the pair. No reader takes a
+verdict from another; each reads the placed nogood with its own classes.
 
-`contradictions` reports a nogood whose vantages defeated different members as a dilemma
-with `:vantages`, the `{vantage handle}` map of what each vantage decided
-(`clashes/read-clashes`), read with the other reports. `(contradictions kb context)` keeps an entry for a reader that believes every
-member and sees a vantage that weighed it, which is the reading `believed?` gives that
-reader for each member.
+`contradictions` reports a nogood whose placements defeated different members as a
+dilemma with `:vantages`, the `{context handle}` map of what each placement context
+decided (`clashes/read-clashes`), read with the other reports.
+`(contradictions kb context)` reads the placed `contradicts` the reader believes and sees
+(`clashes/contradictions-at`), and keeps a nogood whose verdict at the reader is a tie
+(`exc/verdict-at-reader`) and every member of which it believes and sees, which
+is the reading `believed?` gives that reader for each member. A `contradicts` rests on
+every member, so a reader that does not believe a member does not see it: a dilemma one of
+whose members rests on a loser the reader sees is not that reader's dilemma
+(`constraint_nogood_test/a-dilemma-over-a-member-resting-on-a-loser-is-not-reported-where-the-member-is-not-believed`).
 
-**A verdict blocks no firing.** Derivation blocking reads the `except` roster alone
-(`res/except-hidden-fn`). A conclusion resting on a member a reader takes OUT is stored,
-and the read withdraws it from that reader. An `unknown` or `exceptWhen` is asked at the
-conclusion's placement context and reads that context's verdicts, and a verdict that
-moves posts the re-check of the rules watching the member ([naf.md](naf.md)).
-
-**The published window holds what a reader's verdict moved**
-([The published window](#the-published-window)).
+**A defeat blocks no firing.** Derivation blocking reads the `except` roster alone
+(`exc/except-closure-hidden-fn`). A conclusion resting on a member a `defeat` hides is
+stored, and the read hides it at the readers where the defeat is in force. An `unknown` or
+`exceptWhen` is asked at the conclusion's placement context and reads that context's
+belief, and a defeat that moves posts the re-check of the rules watching the member
+([naf.md](naf.md)).
 
 #### A read with no reader
 
 A read that names no context answers belief at the handle's own context: what
-`res/believed-at?` answers for the context the sentex is stored in, with that context's
-verdicts applied and the `except` roster not applied. Every settle records it: the
-readers `readings/reader-moves` reads keep the handles withdrawn where they are stored, and
-their union is `:own-readings`' `:own-out`, which `res/own-hidden-fn` reads. `in?` and
-`believed`, `types-of` and `isa?` with no context, the extent fns' `{:believed? true}`
-option and `why-not` all read it. An unscoped read therefore never believes what no
-context believes.
+`res/believed-at?` answers for the context the sentex is stored in, with the defeats that
+context sees applied and the `except` roster not applied: the read walk at that context
+(`exc/own-hidden-fn`). `in?` and `believed`, `types-of` with no context, the extent fns'
+`{:believed? true}` option and `why-not` all read it. An unscoped read of a fact therefore
+never believes what no context believes.
 
-- **The unscoped closures and flat caches.** A supporter withdrawn at its own context
-  leaves the `genl` and `genlCx` closures, the equality partition and the flat caches
-  (`:own-readings`' `:own-out`, applied by `special/reconcile-belief-change`), so `genl?`,
-  `disjoint?`, `same-class?`, `inverse-of` and every other taxonomy read with no context
-  skip it. A verdict moves no label, so each settle pass reconciles the caches over the
-  handles whose own-context belief moved (`special/reconcile-own-withdrawals!`) after its
-  resolution, and treats them as it treats a relabel: a handle given back is revived, one
-  withdrawn departs (its `genl` edges re-join a second route, and a firing that named it
-  is re-routed for its reader, `reroute/lost-firing-seeds`), each posts the re-check of the
-  rules watching it, and a mint it subsumed is drawn or withheld again. `settle-finish`
-  repeats the reconcile, to a fixpoint of at most four rounds, before it files the reports
-  and the window.
+- **The unscoped closures, the flat caches and the equality partition read the
+  network.** A supporter resting on a handle a placed `defeat` or an `except` hides is
+  hidden from the scoped reads where that handle is hidden: the scoped closures and the
+  scoped flat-cache and equality reads filter each supporter through the read walk
+  (`res/supporter-believed?`). A `genl?`, `genls`, `isa?`, `disjoint?`, `has-prop?` or
+  `inverse-of` with no context reads an edge or a declaration at its network label, as a
+  firing's witness search does. An equality no reader believes still decides the merge,
+  and the reads at the contexts that do not believe it hide what follows. A permuting or
+  `reifiable_function` mark a reader does not believe spells nothing that reader reads
+  ([canonicalization.md](canonicalization.md#a-mark-a-reader-does-not-believe)). The
+  scoped filter is on for a relation while some supporter of it rests on a target of the
+  `except` or `defeat` roster (`kb/supporter-reaches?`: the targets' forward consequence
+  closure, or each supporter's support, whichever side is smaller), read again after
+  either roster moves. The `genlCx` filter reads the `except` targets alone: a `genlCx`
+  supporter rests only on forced-monotonic sentences, which no defeat targets. While the
+  `genl` filter is on (`tax/defeat-moves-scoped?`), a defeat stored, removed or
+  relabelled evicts the scoped `genl` closures that can cross an edge its target reaches
+  (`tax/retire-scoped-genl!`): those of a node at or below the edge's lower end, or at or
+  above its upper end, read at a reader that sees the defeat's context. A `genl` supporter
+  a settle relabels evicts the closures crossing its edge at every reader, unless it is a
+  premise of an edge no second supporter holds: a premise's visibility is its label and
+  the excepts and defeats naming it, and its label moves the relation's generation. A
+  justification added to or dropped from a stored supporter flips no label, and the
+  settle after it evicts the same closures (`tax/retire-support-moves!`; `lein perf`'s
+  `justification-beside-unreached-readers`). The walk finds a
+  supporter believed where one of its justifications rests on no hidden handle, so a
+  second justification shows an edge a defeat or an `except` hid, and dropping one can
+  hide it again, with the edge network IN throughout. A supporter's eviction also takes
+  the closures held under the network reading, which an `except` hides through; a
+  defeat's takes the belief reading's alone. Each eviction scans the closure cache once.
+  None of them moves the supporter-visibility generation, so no visible-context set is
+  retired; an `except` and a `genlCx` supporter, relabelled or with a justification added
+  or dropped, move it.
 - **A read with no context and no reader to fan over** (`vantage/answers` with nothing to
-  witness, `ask-within`) binds `res/*unscoped-own*`, under which `hidden-fn` of a variable
-  context is `res/own-hidden-fn`. The engine's own unscoped joins bind nothing and read the
+  witness, `ask-within`) binds `exc/*unscoped-own*`, under which `hidden-fn` of a variable
+  context is `exc/own-hidden-fn`. The engine's own unscoped joins bind nothing and read the
   network, verdict-free.
 - **A variable context** reads jointly ([contexts.md](contexts.md)): an answer stands when
   some reader believes every fact it rests on, and post-hoc placement keeps a placement
-  only where each supporter some reader can withdraw is believed.
-- **`why-not`** answers `:defeated` for a loser its own context takes OUT, with the
-  stored sentences opposing it under `:contradicted-by`. A sentex IN in the network and
-  withdrawn where it is stored only by resting on a loser answers `:unsupported`, with the
-  antecedents `in?` answers false for under `:missing`, or `:withdrawn`, with the losers
-  its context decides under `:withdrawn-by` (`res/losers-seen`), when some justification's
-  antecedents are each believed where they are stored.
+  only where each supporter some reader can hide is believed.
+- **`why-not`** answers `:defeated` for the target of a `defeat` in force at its own
+  context, with the stored sentences opposing it under `:contradicted-by`, the defeats
+  under `:defeats` and the nogood's grounds under `:grounds`. A sentex IN in the network
+  and not believed where it is stored only because it rests on a defeated handle answers
+  `:withdrawn`, with the defeats of what it rests on under `:withdrawn-by`.
 
-`belief-status` reports the network label as `:in?` and the withdrawal from its context as
-`:withdrawn?` and `:scoped-vantages`. A backward chainer drops a rule-derived answer its
-query context takes OUT (`res/defeated-answer?`), so a rule cannot re-derive for that
-reader the sentence the reader disbelieves.
-
-#### The withdrawal cache
-
-`:withdrawn` holds each reader's withdrawal and the roster the taxonomy's scoped reads
-filter by (`res/supporter-filter-roster`), each entry with a watch: the handles its answer
-reads. A reader's watch is its region, the `except` handles its ancestor set sees, and the
-members and marks of the nogoods it decides
-([Nogoods decided at the reader](#nogoods-decided-at-the-reader)). A reader that asks the
-guarded firings placed above it again
-([naf.md](naf.md#evaluated-in-the-placement-context-not-the-join)) keeps the guarded rules
-it asked beside the watch. The roster's watch is
-the forward consequence closure of every `except` target, standing nogood member and
-candidate of a nogood a reader decides. At each point the settle moves the network,
-`res/reconcile-withdrawn!` drops an entry whose watch meets a handle the touched window
-recorded since the cache's mark, a handle one of that handle's justifications rests on, or
-the conclusion of a justification resting on that handle. The mark is the one the last
-reconcile or `res/clear-withdrawn!` took (`jtms/touch-mark`), before it moved the cache's
-generation: an entry kept then was checked against every move before the mark, and an
-entry installed since was computed after it. The next reconcile therefore checks an entry
-a pass rebuilt against the moves after the last mark, and not against the earlier moves
-the rebuild already read. It also drops an entry that asked a guarded
-rule whose answer the moves can change (`res/guard-moves`): a re-check queued for the
-rule (`res/note-guard-moves!`, from `special/mark-recheck`), a firing of it in the window,
-or a handle in the window whose label moved on a predicate it watches. Every other entry
-is kept. A gained or lost
-justification puts its conclusion in the window, so those three reach every region member,
-every justification into the region and every boundary label an answer reads.
-
-The watch does not name the rosters, the supersession map, the meta-except count, the
-`genlCx` generation, `decide/stamp` or the guarded rules stored. `reconcile-withdrawn!` compares those as a stamp, and a moved stamp
-empties the cache (`res/clear-withdrawn!`), as every write of the inherited clashes does. A
-settle clears and re-finds the inherited clashes, so a KB holding one empties the cache on
-every settle. A kept entry is the answer a fresh recompute gives:
-`order_independence_test/the-withdrawal-cache-answers-what-a-fresh-recompute-answers-in-every-order`
-compares the two after every op of sampled arrival orders. The taxonomy's
-supporter-visibility generation moves only when an entry is dropped or the cache emptied.
-
-A forward chaining run between two settles reads the withdrawn consequences as they stood
-at the last settle. `hidden-fn` asks the `except` targets themselves live.
+`belief-status` reports the network label as `:in?` and whether its context does not
+believe or see the handle as `:withdrawn?`. A backward chainer drops a rule-derived answer
+that a nogood's defeat in force at its query context removes (`res/defeated-answer?`), so a
+rule cannot re-derive for that reader the sentence the reader's nogood defeats. A guard
+defeat removes one firing and drops no rule-derived answer.
 
 #### The published window
 
-A verdict moves belief with no relabel, so the touched window alone misses the flip.
-`readings/reader-moves` adds those moves to the window `preview`, the consequence report and
-the change feed read, as the belief each handle has at its own context.
+A placed `defeat` moves belief with no relabel, so the touched window alone misses the
+move. `settle-finish` adds what a defeat can move to the window `preview`, the consequence
+report and the change feed read, as the belief each handle has at its own context: what
+the defeats stored before the write reach, and what the defeats the window stored or
+removed reach (`settle/defeat-moves`, the removed ones read off the removal record). A
+defeat reaches its target and the target's forward consequence closure, and a defeat in
+that closure reaches its own target in turn (`kb/defeat-reach`).
 
-A reader here is a context holding a handle of the forward consequence closure of the
-standing members, `decide/reach-handles` (the candidates and the arity bindings) and the
-firings of the guarded rules stored in a context with a context below it
-(`res/guard-closure`). No other handle is withdrawn from any reader. `:own-readings` keeps, per such reader, the part of its
-`res/defeat-reading` stored at that context and IN, and the watch that reading reads, with
-an index from each watched handle to its readers. It keeps the closure too, which gains the
-consequence closure of each handle entering `reach-handles` and of each conclusion in the
-touched window resting on a closure member, and loses a handle whose record left.
+A placed `contradicts` with no `defeat` moves its members too while an `except` is stored,
+since a reader whose excepts lower one member's class reads that member as defeated
+(`exc/conflicts-naming`); `kb/placed-targets` names what each placed sentex moves.
 
-**The bound.** A settle reads again only these readers:
+**Before and after.** A write that reports reads the belief before it at its entry point
+(`settle/reading-before`, bound by `assert`, `retract!`, `edit!` and `preview`, at the
+outermost `with-deferred-settle`, and by `settle` when none is): for each handle what the
+write can move reaches, whether its own context does not believe it
+(`exc/own-hidden-fn`). The reading precedes the write, since a retraction moves a defeat
+before its settle opens and an `except` moves belief when it is stored. A handle the
+reading does not hold was hidden by no defeat and no conflict. The reading lives as long
+as the write, and is taken only when a sink is bound or a listener registered.
 
-- a reader whose watch holds one of `res/near-handles` of a handle in the touched window,
-  the test `res/reconcile-withdrawn!` applies to a `:withdrawn` entry;
-- a reader whose ancestor set holds the context of a handle that entered or left
-  `reach-handles`. The candidate index part of `res/withdrawal-stamp` follows from those
-  handles, their contexts and the taxonomy parts of the stamp, so a reader that sees none
-  of them reads the same nogoods of the decided families;
-- a reader of a handle the closure gained;
-- a reader of a handle of the closure of a guarded rule whose answer at a reader moved,
-  or of a guarded firing in the window (`res/guard-moves`).
+What the write can move is read off its sentences before it writes (`settle/write-seeds`):
 
-A write whose candidates are k nogoods therefore reads the readers holding their closure,
-and no other. Every reader is read again when the rest of `res/withdrawal-stamp` moves: a
-declaration, a mark, a roster, the standing nogoods, or the `genlCx` or `genl` generation
-reaches a reader through no handle. `lein perf`'s `verdict-window-write` holds a tuple its
-own context convicts flat in the readers holding a withdrawn consequence elsewhere.
+| write | the reading starts from |
+|---|---|
+| a retraction, or an assertion of a stored sentence | its handle |
+| a new literal whose functor the engine does not interpret, over atoms | nothing; asserted `:monotonic` or on the forced-monotonic roster, the handles naming its arguments, or its functor as an argument, that a nogood over it could defeat |
+| a sentence firing or re-joining a forward rule (`chain/triggers-rules?`), an interpreted functor or a compound argument, any write while an equality edge is stored, and a `with-deferred-settle` batch | every standing defeat's target and every placed `contradicts`' members |
 
-**Before and after.** The before-state is the last settle's reading of each reader. A hold
-opened at the settle's start (`hold-belief!`) cannot give it: the write path moves the
-candidate index, the marks and the taxonomy before the settle opens its hold, so a reader's
-verdict has moved by then. Each reader read again is diffed against its last reading, and
-the handles whose reading moved join the relabelled region and the supersession flips as
-one `moved` / `was-in` pair. A moved handle outside the region was believed before when its
-label is IN, it was not superseded when the window opened, and its last reading did not
-withdraw it. A relabelled handle superseded when the window opened is left out of `was-in`
-too, since `jtms/touched-in` records the label. The reading runs after
-`res/reconcile-withdrawn!`, so it reads no `:withdrawn` entry the settle's last moves made
-stale. An installed KB's first settle has no reading and publishes what its readers
-withdraw as moved.
+From those handles the reading walks forward as the window does (`kb/moved-reach`). A
+reach holding a handle that queues a watched rule when it moves (`special/posts-recheck?`)
+or an interpreted sentence is read as the last row. A settle inside a deferred batch takes
+the batch's reading again once it has reported. `listener-write-beside-defeats` and
+`verdict-window-write` hold the cost of a write naming no nogood member flat beside the
+standing defeats, and `feed_test`'s 400-world sweep checks the classification. Why the
+reading is not recomputed after the write:
+[defenses.md](defenses.md#a-writes-report-reads-the-belief-before-it-at-its-entry-point).
 
 `feed_test/every-event-is-the-diff-of-own-context-belief-in-random-worlds` compares every
 event with a diff of own-context belief over the whole KB, write by write and retraction by
-retraction, and `feed_test/a-verdict-a-reader-reaches-arrives-in-every-order` holds a
-consequence a reader's verdict withdraws and releases in `preview`, the consequence report
-and the feed.
+retraction, and `scoped_defeat_test/the-reports-of-a-write-name-what-a-scoped-defeat-moved`
+holds a consequence below a vantage in `preview`, the consequence report and the feed.
 
-### Nogoods decided at the reader
+#### The candidate journal
 
-`irreflexive`, `anti_symmetric`, `arity`, and most negation, `functional`,
-`functionalInArg`, `asymmetric`, `anti_transitive`, `disjoint` and cover nogoods are
-decided when a reader reads, not when a settle runs ([reference.md](reference.md#decisions), decision 16). The mechanism has four
-parts, and a family decided this way adds one row to each (`vaelii.impl.decide`):
+The candidates by context follow every candidate, read off what moved since their last
+reading and not off every candidate.
+
+- **The journal.** Every update of the candidate index that can move a handle into or
+  out of a family's `:handles` names the handle in the same update
+  (`journal/note`): the record stored or removed, and the older handles it moves, such as a
+  converse partner, a determinant partner, the other members of a chain, a term's other
+  memberships, the bindings at the far end of an arity pair, and the declarations and
+  members a taxonomy sync reads again. `decide/candidate?` answers whether a journaled
+  handle is a candidate now, from each family's `:holds?`. The journal
+  (`vaelii.impl.journal`) holds at most 16,384 handles, a rebuild restarts it, and an image
+  is written without it or the taxonomy's, both of which the install restarts; a position
+  the journal no longer holds is read whole.
+- **The candidates by context.** `decide/synced` keeps every candidate under the context
+  its record is stated in (`journal/indexed`), read again for the handles journaled since
+  the index's position, and built whole where the journal does not reach back. A moved
+  `genlCx` edge's placement pass reads the candidates stated in the contexts it reaches
+  (`decide/handles-at`, `decide/edge-reach`).
+
+A write adding one candidate therefore reads the handles it journals and what rests on
+them, and no other candidate. The discovery's install still reads every inherited clash,
+and journals only the members that entered or left, so a clash found again moves no reader
+of the journal.
+`order_independence_test/the-candidate-journal-answers-what-a-recompute-answers-over-a-random-stream`
+compares the candidates and the candidates by context with a recompute after every write
+of random streams over every family, once with the journal cut to three handles. `lein
+perf`'s `candidate-write` holds a write adding a candidate flat in the candidates standing
+elsewhere, and `reached-reader-family-read` a write completing a pair at one context flat
+in the converse pairs, determinants, chains and arity tuples stated where that context
+does not see them.
+
+### The nogood families
+
+Every nogood family keeps its candidates in one write-time index (`vaelii.impl.decide`),
+and every family places its nogoods as conclusions
+([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)); no reader decides
+one. The mechanism has three parts, and a family adds one row to each:
 
 1. **A write-time candidate index.** `:nogood-candidates` holds, per family, the stored
    sentences that could be a member of one of its nogoods, recognized from the sentence's
    own arguments at the store and removal choke points (`decide/note-candidate!`). Its
-   rows are a superset over every reader, so a family reads the unscoped closures there
-   through one view (`decide/write-view`), and its reader half is handed none. Under
-   `:self` is every ground binary self tuple. Under `:converse` is every ground binary
+   rows are a superset over every context, so a family reads the unscoped closures there
+   through one view (`decide/write-view`). Under `:converse` is every ground binary
    tuple with a stored converse, found by a trie read of `(Q' b a)` under the tuple's own
    functor and under every predicate below an `anti_symmetric` mark on it or above it
-   (`tuple/converse-functors`). A tuple of two symbols is read only while the KB holds an
-   `anti_symmetric` mark, and the mark's arrival or a predicate `genl` edge bringing
-   tuples under one offers the stored tuples to the index again. The index holds
+   (`tuple/converse-functors`). A tuple is read only while an `anti_symmetric` or
+   `asymmetric` mark stands on its functor or above it, and the mark's arrival or a
+   predicate `genl` edge bringing tuples under one offers the stored tuples to the index
+   again. A ground binary self tuple keeps no row: the index keeps the self tuples in a
+   count trie over `[pred ctx]` ([indexing.md](indexing.md#2-the-secondary-roots)), and
+   the placement reads those of the predicates under an `irreflexive` mark there, by
+   context where a `genlCx` move exposes contexts (`tuple/self-tuples-in`). The index holds
    storage, not belief, so a converse arriving later, or a member reviving, finds its
-   candidates without reading a tuple. `recover` rebuilds it with one fetch per stored
-   record.
-2. **Found at the reader.** `decide/nogoods-at` reads the candidates a reader's ancestor
-   set sees and, for each, the marks the reader sees over its functor: a mark stated in
-   the ancestor set, on the functor or on a predicate above it through the predicate
-   `genl` edges stated there (`tax/genls-asserted-in`). Decision 10 forces those edges
-   monotonic, so the stored edges are the reach. A length binding above a functor that
-   binds none is read off the functor's global closure cut to the bound predicates
-   (`arity/bound-above`), one cut for every reader of a settle, and the cut is checked
-   against the edges stated in the ancestor set only when the ancestor set misses a
-   context stating a `genl` edge, by one walk up from the functor that answers every
-   predicate of the cut (`tax/genls-asserted-among`). A self tuple under a visible
-   `irreflexive` mark is a one-member nogood. A converse pair under one visible
-   `anti_symmetric` mark over both functors is a two-member nogood, unless both arguments
-   are symbols and both members `:monotonic`, which
-   `special/derive-antisymmetric-equalities` merges ([reference.md](reference.md#decisions),
-   decision 6). The reader decides nothing of a merging pair and watches its members and
-   marks, so a member's class moving re-decides the reader.
-3. **Decided at the reader.** `decide/losers` decides every nogood whose members the
-   reader believes, from the classes the reader reads (`decide/verdict`): the unique
-   weakest member at `:default` loses, a `:default` tie is a dilemma, and an
-   all-`:monotonic` nogood is a hard clash. It runs the rounds of
-   [reference.md](reference.md#the-function) item 8. Each round forces the reader's
-   `except` targets and the losers so far OUT (`jtms/grounded-in-region`), reads the
-   classes over that region, and adds losers; the rounds stop at the first that adds none.
-   The same rounds decide the settle's standing nogoods
-   ([A defeat is scoped to its vantage](#a-defeat-is-scoped-to-its-vantage)). A loser joins
-   the reader's withdrawal (`res/withdrawal`), so what rests only on it is withdrawn from
-   that reader through the closure.
-4. **Memoized per reader.** The losers ride the reader's `:withdrawn` entry, whose watch
-   adds every member and mark the reader read, so a member or a mark that moves drops the
-   entry. A mark, a candidate or a predicate edge arriving reaches the entry through the
-   stamp instead: `decide/stamp` is the candidate index, the flat declaration caches with
-   the contexts they are stated in (`tax/flat-contexts`) and the `genl` generation, and
-   `res/withdrawal-stamp` carries it. A mark arriving therefore empties the cache and
-   reads no tuple. The next read at a reader decides the nogoods that reader sees, which
-   reads the candidates it sees once, and a warm read is one cache lookup. `lein perf`'s
-   `irreflexive-mark-arrival` and `decided-warm-read` hold both.
-
-`decide/live?` gates all four: a KB holding no candidate, or declaring no mark over one,
-reads none of it, and `res/withdrawal` keeps its nil at three derefs.
+   candidates without reading a tuple. `recover` offers the stored facts of the
+   predicates under a tuple mark to the tuple families, reads the arity bindings off the
+   binding functors' extents, the membership entries of the terms the unary roster lists
+   two predicates of and of the unary bodies stored in both polarities, and the cover pairs
+   off the cover extents, and reads no other record. The inherited family's rows are the clashes the
+   settle's discovery found (`inherited/install-inherited!`).
+2. **Read by the placement pass.** `chain/place-nogoods!` reads each family's
+   candidates the pass moved, and a moved `genlCx` edge's reach reads the candidates
+   stated there (`decide/handles-at`).
+3. **Placed with the verdict the network's classes give.** The pass stores the
+   `contradicts` and, for a unique weakest `:default` member, its `defeat` at each
+   vantage, and drops the placements the current state no longer gives. A read applies
+   them ([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)).
 
 **The arity family.** A binding is a roster sentence read as storage: `(arity P n)`, an
 exact-arity class membership, a `variable_arity` membership or `(arityMin P m)`, kept per
 predicate in the candidate index. `:arity` holds the stored tuples of every shape (a
 functor and a length) that a stored binding of the functor, or of a predicate above it,
-breaks at some context. The index tracks the handles of each shape up to 64 tuples and
-reads a larger one off the functor posting when it becomes a candidate, so a binding
-arriving over tuples of the right length reads none of them: `lein perf`'s
-`arity-binding-arrival` holds it. A reader reads the bindings of a candidate's functor
-that it sees, or, where there are none, the one length the predicates above it through
-edges stated in its ancestor set agree on, and a candidate breaking that binding is a
-one-member nogood whose marks are the bindings read. A reader reads that binding once per
-candidate shape and the tuples of a shape it breaks alone, so a reader reads no record of
-a tuple its functor's own length holds under a different length above it (`lein perf`'s
-`held-shape-first-withdrawal`). A functor binding nothing reads the predicates above it
-grouped by the exact lengths they store, the smallest group first, and stops at the second
-length it sees. `:arity-pairs` holds the bindings of two predicates a `genl` edge relates
-whose stored lengths differ, and a reader that sees both and the edges between them reads
-them as one `:arity-descension` nogood. Where the ancestor set misses a context stating a
-`genl` edge, the pairs of one lower predicate are checked off one walk up from it
-(`tax/genls-asserted-among`), kept for every reader of the settle that states the same
-contexts. A length arriving recomputes the candidates of the functors below it that did
-not hold it yet, and a binding or a `genl` edge leaving those of every functor below it;
-either changes the stamp ([taxonomy.md](taxonomy.md#arity)).
+breaks at some context. A functor's stored lengths are read off the shape roster the
+index write keeps (`reads/as-stored-shape-lengths`), and a shape's tuples off the
+functor's extent when the shape becomes a candidate, so a binding arriving over tuples of
+the right length reads none of them: `lein perf`'s
+`arity-binding-arrival` holds it. What binds a functor at a reader is read off the
+bindings it sees and believes: its own first, where a `variable_arity` membership leaves
+only a single `arityMin` floor, one exact length binds it and two leave it unbound; else
+the one exact length the predicates above it through edges stated in its ancestor set
+agree on, unless one of them is `variable_arity` (`arity/reader-binding`). A functor
+binding nothing reads the predicates above it grouped by the exact lengths they store,
+the smallest group first, and stops at the second length it sees. `:arity-pairs` holds
+the bindings of two predicates a `genl` edge relates whose stored lengths differ, a
+nogood of one exact binding of each end. A length arriving recomputes the candidates of
+the functors below it that did not hold it yet, and a binding or a `genl` edge leaving
+those of every functor below it ([taxonomy.md](taxonomy.md#arity)). A `genl` edge
+arriving recomputes the functors below its lower end whose own length differs from one
+above them. The index keeps every type at or above such a functor, so the walk down from
+the lower end enters only those types, and an edge with no such functor below it walks
+none: `lein perf`'s `genl-edge-beside-arity-conflicts` holds it. No reader decides an
+arity nogood: each is placed ([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)).
 
-**The negation family.** A body stored in both polarities (`:opposed`) keeps an entry in
-the candidate index: the handles and contexts of its stored `B` and `(not B)`, read with
-two trie reads under a variable context whenever either polarity is stored or removed. A
-pair of a `(not B)` and a `B` is a two-member nogood at every reader that sees both, in one
-context or in two, and its members are under `:negation`;
-a reader reads the entries and no body, so a `genlCx` edge arriving moves the stamp and
-reads none.
-`lein perf`'s `negation-reader-write` holds an unrelated write flat in the pairs stored, and
-`negation-reader-warm-read` a warm read. A pair whose body is a `genl` edge or a type
-membership (`(M t)`, from which a disjoint metatype reads a separation) is a ground of the
-membership families, so a reader's rounds apply it first, and a membership nogood found
-through the ground is read again once the reader withdraws it. A verdict of the reader's
-pairs moves with no relabel when a pair forms or dissolves, when a member's class moves
-and when a `genlCx` edge moves the joint views, and `readings/released-by-negations` posts
-each such body's two sentences to the re-check queue and re-chains the rules watching
-them, as `released-by-verdicts` does for a standing member.
+**The negation family.** A body stored in both polarities, and its members, the handles
+of its stored `B` and `(not B)`, are an index family of the `IndexStore` and keep no row
+in the candidate index ([indexing.md](indexing.md#the-bodies-stored-in-both-polarities)).
+The index write posts it from the sentence in hand and the trie's counts before the write,
+so a bulk load and single writes leave the same family. The pair is placed as a nogood
+with no grounds
+([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)). A pair whose body is
+a `genl` edge or a type membership (`(M t)`, from which a disjoint metatype reads a
+separation) is a ground of the membership families, so where the pair's `defeat` hides the
+ground, it hides the membership nogood placed through that ground too
+([A defeat is scoped to its vantage](#a-defeat-is-scoped-to-its-vantage)).
 
 **The tuple-mark family.** A tuple under a `functional`, `functionalInArg` or
 `anti_transitive` mark on its functor or above it reads, when it is stored, the stored
@@ -1457,65 +1492,58 @@ marked one, one trie read of `(P a ?v)` or one intersection of argument roots; a
 fillers is kept with its members and their contexts, and a determinant already kept
 takes a new tuple with no read, so an empty or a wide determinant is read once. A
 determinant member is a candidate when a member with another filler sits in a context
-some context sees together with its own, so fillers no context sees together cost no
-reader anything; `lein perf`'s `functional-in-arg-empty-determinant-sweep` holds that
-case flat. An `asymmetric` converse is a stored converse pair (`:converse`) read under
-the `asymmetric` marks. A mark arriving, or a predicate `genl` edge bringing tuples under
+some context sees together with its own, so fillers no context sees together place
+nothing; `lein perf`'s `functional-in-arg-empty-determinant-sweep` holds that case flat.
+An `asymmetric` converse is a stored converse pair (`:converse`) read under the
+`asymmetric` marks. A mark arriving, or a predicate `genl` edge bringing tuples under
 one, offers the stored tuples beneath the marked predicate to the index again
-(`special/offer-marked-existing`, `special/offer-marked-under-edge`). A reader reads a pair
-under a mark on the determinant's predicate that it sees over both functors as a
-`:functional` nogood, a chain under one `anti_transitive` mark over every functor as an
-`:anti-transitive` one, and a converse pair under one `asymmetric` mark as an
-`:asymmetric` one. Two symbol fillers both `:monotonic` merge
-(`special/derive-functional-equalities`), and two fillers one class at the reader form no
-nogood. Which contexts see two members together is read off the unscoped `genlCx`
-closure, and a `genlCx` edge moving reads it again over the index (`tuple/sync-tuples`). `lein perf`'s `tuple-mark-determinant-write` holds a tuple's
-arrival flat in the tuples of other determinants, and `tuple-mark-warm-read` a warm read.
+(`special/offer-marked-existing`, `special/offer-marked-under-edge`). Which contexts see
+two members together is read off the unscoped `genlCx` closure, and a `genlCx` edge
+moving reads it again over the index (`tuple/sync-tuples`). `lein perf`'s
+`tuple-mark-determinant-write` holds a tuple's arrival flat in the tuples of other
+determinants. Each tuple nogood is placed
+([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)).
 
 **The membership families.** A `disjoint` nogood is two memberships of one term whose types
-a separation the reader sees holds apart, and a cover nogood is a membership under a
-cover's whole with a denial of each part or of a supertype of it; both are keyed by the
-term. The index keeps each term holding two memberships, or a membership and a denial,
-read off the term's unary roster once when the second arrives and kept in step after
-(`membership/note-membership!`), and each pair of types a kept term holds. A term the read
-finds holding denials and no membership is noted, so a further denial of it reads
+a separation holds apart, and a cover nogood is a membership under a cover's whole with a
+denial of each part or of a supertype of it; both are keyed by the term. The index keeps
+each term holding two memberships, or a membership and a denial, read off the term's unary
+roster once when the second arrives and kept in step after (`membership/note-membership!`),
+and the kept terms by the types their memberships hold, one entry per membership. A term
+the read finds holding denials and no membership is noted, so a further denial of it reads
 nothing; `lein perf`'s `negation-load` holds a denial's arrival flat in the denials of its
-term. The separations are
-read again over those type pairs when a declaration moves them, and over the pairs holding
-a type at or below a moved `genl` edge's lower end when an edge does
-(`membership/sync-memberships`), so a declaration arriving reads no membership; `lein perf`'s
-`membership-declaration-arrival` holds it flat in the memberships under the types it
-separates. A term holding a pair the unscoped taxonomy separates, or a membership and a
-denial under a stored cover, keeps its nogoods through that taxonomy, a superset of what
-any reader reads, and its members are candidates. A reader keeps the nogoods whose
-members it sees and whose grounds it reads: every ground context is in its ancestor set,
-or the separations, covers and `genl` edges stated there convict the members
-(`membership/term-nogoods`), read with no belief callback. A nogood the reader then decides is
-read again, as the settle's standing ones are, once a round withdraws a ground it was
-found through or an equality supporter (`res/*reread*`). A `siblingDisjointException` exempts a pair at a reader
-whose ancestor set states it, as `tax/disjoint?` over an ancestor set reads it. The
-unscoped taxonomy the index keeps reads no exception, so a pair only an exception spares
-is kept, marked `:spared?`, and read again over the reader's ancestor set.
+term. Each kept term keeps the pairs of its types the unscoped taxonomy separates, each pair
+tested when its second type arrives: a membership of a type new to the term tests that type
+against the term's other types, and tests none when no separation reaches it
+(`tax/separation-test`). `lein perf`'s `membership-beside-held-types` holds that arrival
+flat in the term's types, and `separated-membership-beside-held-types` holds the arrival of
+a type a separation reaches linear in them. A declaration moving tests again the pairs
+holding a type at or below a type whose separations it moves (`tax/separation-moves`), and
+a moved `genl` edge the pairs holding a type at or below its lower end
+(`membership/sync-memberships`), both found through the kept terms by type. A declaration
+arriving therefore reads no membership; `lein perf`'s `membership-declaration-arrival` holds
+it flat in the memberships under the types it separates, and
+`separation-beside-kept-terms` flat in the kept terms holding no type under it. A term
+holding a pair the unscoped taxonomy separates, or a membership and a
+denial under a stored cover, keeps its nogoods through that taxonomy (`::ngs`), a superset
+of what any reader reads, and its members are candidates. Each is placed as a nogood with
+its separating declarations and the `genl` edges its reading climbs as grounds
+([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)).
 
-**The reports.** `conflicts` and `contradictions` add the families' hard clashes and
-dilemmas (`clashes/read-clashes`), built at the read: each context below a candidate's own
-context decides the nogoods it reads, and a report names the most general contexts that
-decided it so. Each nogood is decided at each context as that context's withdrawal
-decided it (`res/verdicts`), so a nogood whose readers defeat different members is
-reported once, with `:vantages`. A negation pair reports as a rebuttal: no `:kind`, and
-the rebuttal priority. The answer is cached in `:withdrawn` with no watch, so every settle
-point drops it, and a report whose members' classes and supports and whose vantages are
-the last reading's is that reading's (`:read-reports`).
+**The reports.** `conflicts` and `contradictions` read the placed `contradicts` at the
+read ([The clash reports](#the-clash-reports)): each placed nogood reports its verdict at
+each context it is placed in, and a report names the most general contexts that read it
+so. A nogood whose placements defeat different members is reported once, with
+`:vantages`. A negation pair reports as a rebuttal: no `:kind`, and the rebuttal
+priority.
 
-**The window.** A decided loser moves belief with no relabel, and the window reads it
-per reader ([The published window](#the-published-window)).
+**The window.** A placed `defeat` moves belief with no relabel, and the window reads the
+move at each handle's own context ([The published window](#the-published-window)).
 
-**The family the settle finds.** An inherited nogood is found by the settle and decided
-in the same rounds at each reader that sees a vantage of it
-([A defeat is scoped to its vantage](#a-defeat-is-scoped-to-its-vantage)), beside these
-families'. A decided loser is `:default`, and a sentence resting only on one is `:default`
-too, so no member it would have been weighed against is weaker than it: such a nogood
-defeats no member the reader believes.
+**The family the settle finds.** An inherited nogood is found by the settle and placed at
+its vantages (`chain/place-inherited!`), beside these families'. A nogood one of whose
+members rests on a loser rests on that loser through its placed sentexes, so it is hidden
+where the loser's `defeat` is in force.
 `reference_test/an-irreflexive-loser-leaves-no-disjoint-pair-at-its-reader-in-every-order`
 holds a loser whose consequence is a `disjoint` member.
 
@@ -1534,17 +1562,60 @@ lists it, every member stays believed, and no belief moves.
 
 A cover states the edge from each part to its whole, so the `disjoint` of the second line
 is over related types too and reports its one-member clash beside the cover's. Both are
-found from the declarations' own arguments. The candidate index keeps every stored
-`disjoint` and cover, the `disjoint`s whose arguments are related over the unscoped
-closure (`:related-dj`), read again for the declarations naming a type at or below the
-lower end of an edge that moved (`tax/moves-since`), and each cover paired with a
-`disjoint` separating its whole from a part (`:cover-pairs`), kept at the store and
-removal choke points. A KB whose `disjoint`s are all over unrelated types holds no row, so
-`decide/live?` stays false for it. A reader reads a row whose declarations it sees, and a
-`disjoint` whose arguments the `genl` edges stated in its ancestor set relate
-(`related/related-nogoods`).
+found from the declarations' own arguments, which the argument trie reads: the
+`disjoint`s naming a type at argument 1 or 2, and the `covering`, `separating` and
+`partition` facts naming a whole at argument 1. The candidate index keeps the `disjoint`s
+whose arguments are related over the unscoped closure (`:related-dj`), read again for the
+declarations naming a type at or below the lower end of an edge that moved
+(`tax/moves-since`). A cover pair, a cover beside a `disjoint` separating its whole from a
+part, is read from the store when a placement asks for it, and the store and removal
+choke points queue its members when either side arrives or leaves. Each is placed as a nogood
+([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)), a `disjoint` with
+the `genl` edges relating its arguments as grounds and a cover pair with none.
+
+An `(orthogonal a b)` states that the two types are not disjoint and that neither is a
+`genl` of the other. It exempts nothing ([taxonomy.md](taxonomy.md#disjointness)), so it
+is the same family's one-member clash, of the `orthogonal` declaration, wherever a reader
+reads a `genl` edge between the two, the two are one type, or a separation of the two or
+of two supertypes that no `siblingDisjointException` the reader sees exempts. A stored
+`(siblingDisjointException a b)` states the orthogonal it entails through
+`(genl siblingDisjointException orthogonal)`, and is the member of that clash.
+
+```
+(genl betaw alphaw)  (orthogonal alphaw betaw)                              ; {(orthogonal …)}
+(disjoint upperw otherw)  (genl subw upperw)  (genl subv otherw)  (orthogonal subw subv)
+                                                                            ; {(orthogonal …)}
+(disjoint alphaw betaw)  (orthogonal alphaw betaw)                          ; {(orthogonal …)}
+(sibling_disjoint pw)  (genl alphaw pw)  (genl betaw pw)  (orthogonal alphaw betaw)
+                                                                            ; {(orthogonal …)}
+  + (siblingDisjointException alphaw betaw)                                 ; no clash: exempt
+(disjoint alphaw betaw)  (siblingDisjointException alphaw betaw)            ; {(siblingDisjointException …)}
+```
+
+The declaration is on the forced-monotonic roster, as `disjoint` is, so it is never the
+loser of its nogood at any strength: the clash is a hard one `conflicts` lists, with the separating
+declarations under `:grounds`, every member left believed, and the pair reading both
+statuses (`:inconsistent`). The stored facts whose functor the unscoped `genl` closure
+places under `orthogonal` are read off those functors' extents and argument tries, and
+the candidate index keeps those some reader can read contradicted — over the
+unscoped `genl` closure, or separated by `disjointness-test` with no exemption read
+(`:related-orth`). One is read when it is stored, again with the `disjoint`s when an edge
+moves an argument's ancestor set (`tax/moves-since`) or moves its functor under or out of
+`orthogonal`, and again when the settle relabels a separation declaration over a type at
+or above an argument (`related/reread-separated!`).
+A `siblingDisjointException` stored or removed places again the contradicted ones with an
+argument at or below its own pair, since it moves which of their routes are exempted. Each
+is placed as a nogood once per route: the `genl` edges relating its pair, and the
+declarations and edges of each separation of its pair that no exception its placement
+reads exempts, are the grounds of one route each, with the predicate `genl` edge for an
+exception. A reader whose ancestor set states an exception
+exempting every separation that convicts the declaration does not believe an inherited
+placement of it (`related/exempt-at?`), as for a membership nogood
+([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)).
 `reference_test/a-disjoint-over-related-types-is-a-hard-clash-of-the-declaration-in-every-order`
-holds both in every arrival order.
+holds the `disjoint` over related types in every arrival order, and `orthogonal_test` holds
+the `orthogonal` clash of each route in both arrival orders of the declaration and what
+contradicts it.
 
 ### There is no second axis
 
@@ -1615,35 +1686,30 @@ term holds, and forward chaining re-derives the same conclusion on every round o
 defaults pass, so a check per firing would repeat that read every round.
 
 A conclusion is dropped only for a violation with **no opposing sentex**: an argument
-constraint, an arity, a malformed special predicate, an unstratified derived edge. So
+constraint, a malformed special predicate, an unstratified derived edge. So
 `violations` is the ledger of what cannot be represented, and a contested conclusion is
 found in `contradictions` or `conflicts` instead.
 
-A reader's rounds terminate because its losers grow monotonically and each withdraws a
-member, deactivating its nogood.
-
-### A clash is reported, never stored
+### The clash reports
 
 Contradictions never fail a settle. A conflict is a nogood whose weakest members are all
 `:monotonic`, and a dilemma one whose shared minimum is defeasible; `conflicts` and
 `contradictions` return them as reports.
 
-`(contradicts X Y)` is a **report form**, not a sentex. Nothing asserts it, no handle
-resolves to it, and `(sentexes-matching kb '(contradicts ?a ?b) '?ctx)` is empty however
-many clashes the KB holds (`constraint_nogood_test`; `resources/kb/CxCore.txt` says so of
-the predicate). Stored, it would be a premise needing truth maintenance of its own, and it
-would go stale the moment either side moved; a report is recomputed from current belief.
+`(contradicts X Y)` over the member sentences is the **report form** the reports compose.
+Every family stores its nogoods as `(contradicts (sentexHandle h) …)` naming the members
+by handle ([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)), so
+`(sentexes-matching kb '(contradicts ?a ?b) '?ctx)` holds those
+(`constraint_nogood_test`), and every report is read off one of them.
 
 **A verdict lives exactly as long as its grounds do.** What makes two sentexes a pair is
 the separation or the functionality the KB declares, and a known-true denial of it defeats
 it: the pair stops being a pair, and the loser is believed again at every context that
 reads the denial, whether the pair had been decided or stood as a dilemma. A membership
 reported `:defeated` with an empty `:contradicted-by` would be a verdict that outlived its
-grounds. A reader's rounds hold this by ordering: within one round a loser that withdraws
-grounds (`tax/derives-from?`: an edge of a cached relation, or a flat-cache entry) is
-taken before, and apart from, the verdicts resting on them, and the next round re-asks
-the grounds (`clashes/reread-at`). Taking both at once would convict on a declaration the
-same round disbelieves
+grounds. A placed nogood holds this through its justification: its grounds are
+antecedents, so a ground leaving takes the placed sentexes OUT, and a ground hidden at a
+reader hides them there
 ([A defeat is scoped to its vantage](#a-defeat-is-scoped-to-its-vantage)).
 
 `conflicts` and `contradictions` report the **same entry shape**, down to `:kind` and
@@ -1673,12 +1739,18 @@ those a vantage of the report sees (`clashes/clash-grounds`). For two membership
 are the separating `disjoint` declarations, the disjoint metatype and its two
 memberships, the `sibling_disjoint` parent and the separating cover; for tuples, the
 `functional`, `functionalInArg`, `asymmetric` or `anti_transitive` mark; for a refuted
-cover, the cover. No `genl` edge is named, so the list is bounded by the declarations and
-not by the paths between them, and it is the same in every arrival order. A rebuttal and
-an `:inherited` clash have none: their reasons are members. Retracting every ground
+cover, the cover; for an `:arity` clash, the binding it is placed through. No `genl` edge
+is named, so the list is bounded by the declarations and not by the paths between them,
+and it is the same in every arrival order. An edge an argument declaration minted is named
+by the sentence it was minted from: `(disjoint gladdens saddens)` mints
+`(genl gladdens thing)` through `(genlArg disjoint 1 thing)`, and an `:arity` or
+`:arity-descension` clash placed through that edge names the `disjoint`
+([taxonomy.md](taxonomy.md#disjointness)). A rebuttal and an `:inherited` clash have none:
+their reasons are members. `why-not` of a sentex a placed `defeat` takes OUT names its
+nogood's grounds under `:grounds`. Retracting every ground
 dissolves the clash. The grounds are read when a report is read, one supporter read per
-declaration, and not carried by the report memo below, since a declaration can move under
-a report whose members did not.
+declaration, and no reading is kept ([What a reading reads](#what-a-reading-reads)), since
+a declaration can move under a report whose members did not.
 
 **`:sides` and `:handles` name the members in content order, and so does the list of
 reports around them**
@@ -1689,25 +1761,335 @@ total, since sentence-plus-context identifies a sentex, so no handle enters the 
 side's justifications follow `core/supporting-justifications`' content order.
 
 **The ordering is the read's.** `clashes/read-clashes` builds the two vectors in the
-order the candidate index answers in, and `clashes/ranked` orders a reading when it is
+order the `contradicts` extent answers in, and `clashes/ranked` orders a reading when it is
 asked for; `conflicts`, `contradictions` and the preview's standing filter each call it,
 and any further reader of `clashes/conflicts-of` or `clashes/contradictions-of` owes the
 same call ([why the reading is sorted per read](defenses.md#a-clash-reading-is-sorted-at-the-read-not-on-the-settle-path)).
-The two readings are one cached value (`::read-clashes` in `:withdrawn`), so a reader on
-another thread cannot take one reading's conflicts beside another's contradictions. The
+One `read-clashes` call builds both readings from one pass over the stored `contradicts`. The
 labeling solver re-sorts the dilemmas by priority then content for itself
 (`solve_test/the-result-does-not-depend-on-the-order-the-nogoods-arrive-in`).
 
-### The reports are rebuilt only where a member moved
+### A nogood placed as a conclusion
 
-The settle publishes no report. `read-clashes` builds the readings on the first read after
-a settle point and caches them until the next one. A report is a function of its members —
-their sentences, contexts, defeat classes and supporting justifications — plus `:kind`, the
-vantages and a disagreement's verdicts, so `read-clashes` keeps each report it built in
-`:read-reports` under those inputs and hands the same report back while none of them
-moved; the memo holds only what the last reading reported. A settle therefore costs no
-report, and a reading after it builds only the reports whose inputs moved
-(`clash_reading_cost_test/a-read-builds-no-disagreement-report`).
+`chain/place-nogood!` places a nogood the way a firing places its conclusion. Given the
+member handles and the ground handles the detection read, it reads the verdict
+(`decide/verdict` over the members' classes in the network) and stores, at each maximal
+context that sees the contexts the members and grounds are stated in and where no except
+hides one of them (the placement a firing's conclusion takes, which reads the `except`
+roster and no `defeat`):
+
+| verdict | stored |
+|---|---|
+| a unique weakest member `L` | `(contradicts …)` and `(defeat (sentexHandle L))` |
+| a `:default` minimum shared by several (dilemma) | `(contradicts …)` |
+| no defeasible member off the roster (conflict) | `(contradicts …)` |
+
+`(contradicts (sentexHandle h1) (sentexHandle h2) …)` names the members in content order
+(sentence, then context), so two detections of one nogood store one sentex. Each placed
+sentex is justified under the informant `nogood` at `:default` by the members, the grounds
+and the `genlCx` edges the placement sees them over (`visibility-support`, as a firing
+names them), so retracting any of them takes it OUT with no release code, and `why` names
+them. A `defeat` is read off the trie by its target (`reads/as-stored-naming`).
+
+The placed justifications are a function of the current state. A call drops each
+justification the nogood placed earlier whose context, sentence or edges the state no
+longer gives, and the sweep collects a placed sentex it leaves unsupported. Each family
+places its nogoods again when a `genlCx` edge moves where it reaches (below), so the edge
+arriving first and last store the same placed sentexes (`placed_nogood_test`).
+
+**A nogood with a superseded member keeps its placement.** The negation, membership,
+related-types, tuple and arity families detect their nogoods over the network's IN label,
+which holds a spelling an equality merge superseded (`jtms/network-in?`), and none of them
+removes a placement when a member is superseded. So a nogood over premise members places
+the same sentexes whether it was detected before the merge or after it, and the restated
+spellings form a second nogood beside it. A defeat placed over the superseded spelling
+hides what a restatement derived from it, in every arrival order of the merge
+(`negation_test`, `constraint_nogood_test`). The clash reports leave out a `contradicts`
+naming a superseded member (`clashes/placed-verdicts`), because the restated spellings'
+`contradicts` reports the same clash.
+
+A superseded datum does not fire, and the settle withdraws a firing made over it before
+the merge ([The other half](#the-other-half-a-spelling-an-un-merge-gives-back)), so a
+member derived over a superseded spelling is stored in no arrival order unless the
+superseding merge rests on it. A twin restated under an earlier representative can still
+exist in one order only: `(sameAs CI4 CI1)` restates `(plant CI4)` as `(plant CI1)`, and a
+later `(sameAs CI0 CI1)` elects `CI0` and supersedes that twin, which a KB given both
+merges first never stores. A nogood over such a member is placed in that order alone.
+Belief and the reports still agree across orders, because every context that believes the
+merge reads the representative's spelling, and a context that does not believe it
+restates the spellings it reads for itself. Only the placed sentexes over the superseded
+member differ.
+`clash_oracle_test/randomized-streams-read-as-their-writes-loaded-from-scratch` compares
+belief and the reports for a superseded member, not the stored set, and
+`constraint_nogood_test/a-context-that-excepts-the-merge-reads-the-superseded-spelling-alike-in-both-orders`
+holds a context below an excepted merge.
+
+The inherited family is placed outside `place-nogoods!` and reads its claims through
+`res/matches-visible`, which drops a superseded spelling. So an inherited clash over a
+superseded member is not placed, and loses a placement it held before the merge. That
+loss moves no belief: the settle withdraws the firing over the superseded denial at the
+merge, and the clash over the restated spelling hides the representative's own firings,
+in every arrival order (`inherited_clash_test`).
+
+**A defeat is applied at read time, and sweeps nothing.** The network keeps the loser
+and every consequence of it IN; `chain` reads no `defeat`. A read at a context `C` asks
+`exc/defeat-hidden-fn`, which walks the asked handle's justification ancestors, forces
+OUT each one a defeat in force at `C` names, and reads the handle's label with
+`jtms/region-in` over that support. At a reader whose ancestor set states no except, the
+walk stops at a `:monotonic` handle, in a belief read and a visibility read alike: a
+defeat hides only a `:default` handle, and only an except lowers a class. At such a reader,
+when no placement can be exempt either, the walk reads the `defeat` extent once the
+support holds more handles than the KB stores defeats, and answers from the network
+label when no defeat is stated in a context the reader sees (`exc/region-at`). Each read
+builds its own memo and keeps nothing past the predicate it returns, so nothing about a
+reader is kept between reads and nothing needs invalidating. A read costs the support of
+the handle it asks and is flat in the standing defeats and excepts outside that support:
+`lein perf`'s `read-below-vantage`, `read-beside-unseen-defeats`,
+`hidden-check-beside-excepts` and `decided-warm-read` hold it, and
+`default-chain-beside-unseen-defeats` and `monotonic-chain-beside-seen-defeats` hold a
+read flat in the depth of the derivation it asks. A
+justification resting on a hidden witness edge stands where the reader reaches the path's
+ends another way (`exc/rerouted`, [Where the layer stops](#where-the-layer-stops)). Belief
+and visibility stay apart: `exc/belief-hidden-fn` (read
+by `res/believed-at?`, the levels and `belief-status`) forces the defeats alone, and
+`exc/hidden-fn` forces the excepts in force at `C` beside them. A defeat is in force at
+`C` while all of these hold:
+
+- it is IN, stated in a context `C` sees, and no `except` in force at `C` hides it;
+- for one of its `nogood` justifications, `decide/verdict` over the members of the nogood
+  that justification places (the `contradicts` in the defeat's context with the same
+  antecedents) names its target, with the classes `C` reads: the network's, or, where an
+  except in force at `C` reaches the members' support, the classes that support carries
+  with the except targets forced OUT (`jtms/classes-in-region`);
+- the defeat is believed and seen at `C` through such a justification, its other
+  justifications read as invalid.
+
+Two nogoods with one loser in one context, or a nogood and a guard over one conclusion,
+store one `defeat` with one justification each, and the read takes each justification
+apart: a reader that excepts one nogood's winner or ground still reads the other nogood's
+conviction, and a `guard` justification never holds a nogood's defeat in force
+(`scoped_defeat_test`, `naf_test`). A placed conflict is read the same way, through its
+`nogood` justifications alone.
+
+**The exemption.** A placed sentex rests on the loser it hides, so the walk would remove
+it at every reader the defeat reaches. For a placed nogood's own justifications the loser
+is read at its label when only a `defeat` hides it (`exc/placed-belief-only`, beside the
+reader's copy that `exc/belief-only-antecedent` reads at its label). An except of the
+loser, or of the winner, a ground or the defeat, takes the defeat out of force below the
+except (`placed_nogood_test`).
+
+A defeat stored, removed or relabelled posts the re-check of its target's sentence
+(`special/recheck-defeat-target`), as a store of that sentence does, and so does an `except`
+arriving or leaving that can take a defeat in or out of force: an except of the defeat, of
+a handle it rests on through any chain, or of its target (`special/recheck-except`). While
+a watched rule is stored, the settle pass that stores or relabels a defeat also posts the
+sentence of each handle resting on the target and re-chains the rules watching them, so a
+guard watching the target or a consequence of it is decided again. A defeat among those
+handles moves in force with the target, so its own target and that target's consequences
+are posted too (`kb/defeat-reach`).
+
+**A guard defeat** is the second source of `defeat`: a firing whose `exceptWhen` or
+`unknown` holds below its placement stores `(defeat (sentexHandle F))` for its conclusion
+under the informant `guard` (`chain/place-guard-defeats!`). It removes the one firing it
+guards and not the sentence: the walk drops each justification of F that a guard defeat in
+force at the reader covers, and F stays believed through any other justification
+([naf.md](naf.md#evaluated-in-the-placement-context-not-the-join)). A guard defeat reads F
+at its label, as the exemption reads a nogood's loser.
+
+**A conflict a reader's excepts lower.** A placed nogood whose members are all
+`:monotonic` in the network stores `(contradicts …)` and no `defeat`. At a reader where an
+except in force lowers a member's class, the read re-reads the members' classes over their
+support, past a premise to the other justifications that decide its class, with the
+except targets forced OUT (`exc/verdict-at-reader`), and treats a unique weakest member as
+defeated there (`exc/conflicts-naming`): two placements of one conflict read by readers that
+except different supports defeat different members, and a reader below both reads the tie
+its own excepts leave (`scoped_defeat_test`). A defeat's verdict is read the same way, so a
+defeat whose verdict does not hold at a reader is not in force there.
+
+**The negation family places its pairs** (`chain/place-negations!`, once a settle pass).
+The pass reads one count first, the number of bodies stored in both polarities
+(`reads/stores-opposed?`), and places nothing when it is 0. A pair is placed when both
+members are IN in the network, over the bodies with a member the pass relabelled (a stored member is
+among them), the bodies whose placed `contradicts` the pass relabelled or removed
+(`negation/take-moved!`), and the bodies with a member stated in a context a context at
+or below a moved `genlCx` edge's lower end sees and its upper end does not
+(`decide/edge-reach`; why that reach is enough is in the next paragraph). That read is the
+family's members by context, `[:opposed-in ctx]`, one leaf per context the edge exposes,
+so its cost does not grow with the opposed bodies the edge does not reach (`perf`'s
+`genl-cx-edge-beside-opposed`). The first pass after `recover` places every pair
+(`decide/take-edge-cursor!`). A pair
+reached through that last set alone compares only its placements in the contexts at or below
+the lower end (`edge-reach`'s `:under`), the only contexts whose ancestor sets the move
+changed, and reads them by context (`kb/find-sentex-handle` on the `contradicts` and each
+`defeat`), so the edge's cost per pair does not grow with the pair's other placements
+(`perf`'s `context-edge-beside-placements`). A placement a pass creates is not read as
+relabelled by the next pass, so a settle places each pair once. A `genlCx` edge removed or gone OUT takes the
+placements it witnessed with it, and the pair is placed at its common descendants as they
+stand, so the edge arriving and leaving holds what the KB without it holds
+(`negation_test`).
+
+**The membership and related-types families place their nogoods** in the same pass
+(`chain/place-memberships!`, `chain/place-related!`). A nogood's routes are each way the
+unscoped taxonomy convicts it (`tax/separation-routes`, `membership/routes`,
+`related/routes`): the flat-cache keys of a separation or a cover, and the `genl`
+subsumptions it climbs. For each route and each choice of one believed supporter per key,
+the nogood is placed where a firing over the members, those supporters and those
+subsumptions would be (`chain/placements-over`, the placement a subsumed firing takes:
+a premise except hiding a member or ground removes the placement at and below its
+context, and a `defeat` is not read), justified by the members, the supporters, the `genl` edges of
+one path and the `genlCx` edges the placement sees them over. Each route places independently, so retracting one
+separation leaves the placements another gives. A placement that reads a
+`siblingDisjointException` exempting a mark route's separated pair is left out, and a
+defeat of two memberships is not in force at a reader whose ancestor set states an
+exception that removes the separation
+there (`membership/exempt-at?`). Neither family's inherited `contradicts` or `defeat` is
+believed at such a reader through that nogood: the read walk reads the nogood's
+justifications as invalid there (`exc/exempt-justifications`, `decide/exempt-at?`). A
+family re-places a nogood whose index rows moved
+(`membership/take-moved!`, `related/take-moved!`), whose member or placed `contradicts` the
+pass relabelled, whose types lie under a separation or cover declaration the pass
+relabelled (`membership/terms-under`), or that a moved `genlCx` edge can give or take a
+placement. A placement the edge moves lies at or below its lower end, and is the most
+general common descendant of a route only when one of the route's ingredients is stated in
+a context a context at or below the lower end sees and the upper end does not: otherwise
+the upper end is a common descendant above it. So the edge reaches the candidates stated
+in those contexts, and the nogoods over the types below a `genl` edge or a declaration
+stated there (`decide/edge-reach`'s `:below`); `lein perf`'s
+`context-edge-beside-membership-nogoods` holds an edge flat in the nogoods it does not
+reach.
+A nogood the index no longer holds has its placements removed.
+
+**The tuple and arity families place their nogoods** in the same pass
+(`chain/place-tuples!`, `chain/place-arities!`). A tuple nogood's routes are the marks
+that convict it over the unscoped taxonomy (`tuple/routes`): each predicate carrying the
+family's mark at or above every member's functor, the mark's flat-cache key, and the
+`genl` subsumption from each functor to it. A self tuple reads the `irreflexive` marks, a
+chain the `anti_transitive` ones, a converse pair the `asymmetric` ones and the
+`anti_symmetric` ones, and a determinant pair the determinant's own `functional` and
+`functionalInArg` marks. A pair that merges (two symbols, both members `:monotonic`;
+reference.md decision 6) gives no route. An arity nogood's routes are the bindings it
+breaks (`arity/routes`): each own binding of the tuple's functor, and each exact binding
+of a predicate above it with the subsumption up to that predicate; a pair's route is the
+subsumption between its two ends. Each route is placed as a membership route is.
+
+Two reads at the reader remove a placed tuple or arity nogood there, and they are the
+reads of the walk that are not verdicts (`decide/exempt-at?`, read through the reader's
+own belief of each handle): two symbol fillers of a determinant pair that the equality
+edges the reader sees and believes make one class (`tuple/exempt-at?`), and bindings the
+reader sees and believes that bind the functor to no length the tuple breaks, or a pair's
+ends to fewer than two lengths (`arity/exempt-at?`). A reader below a placement context
+sees more bindings than that context, and more bindings convict less, unless an `except`
+hides one: so while no binding the conviction reads is hidden from any context, an arity
+route is left out at a placement context that reads no conviction through it, and an
+`except` of a binding arriving or leaving places its nogoods again
+(`arity/note-except-target!`). Each family re-places a nogood whose index rows moved
+(`tuple/take-moved!`, `arity/take-moved!`; a tuple joining or leaving a determinant queues
+itself and not its partners, whose nogoods with each other do not move), whose member,
+placed `contradicts`, mark,
+binding or `genl` edge the pass relabelled, or that a moved `genlCx` edge can give or take
+a placement: a candidate stated in its `:below`, a mark or `genl` edge stated there, or a
+binding stated there that a candidate's conviction reads (`arity/reached`). `lein perf`'s
+`arity-exempt-read` holds a read an arity placement exempts flat in the unrelated bindings.
+
+**The inherited family places its nogoods** first in each pass (`chain/place-inherited!`):
+each clash whose memo entry was asked again is placed at its vantages, justified by its
+members and the `genlCx` edges each vantage sees them over, and the placements of a member
+set no longer found are removed. A carried entry keeps its placements.
+
+**A `recover` places the nogoods its store does not hold.** The rebuild's settle places
+the inherited clashes its discovery finds, since that discovery asks every stored claim
+with nothing carried. It stands aside from the negation, membership, related-types, tuple
+and arity families, and the rebuilt candidate index queues every standing nogood, which
+one closing settle places (`chain/placement-queued?`). A store written with no belief, a
+records-only import among them, believes after the recover what it believes after its
+first write (`negation_test`, `inherited_clash_test`), and that write places nothing
+(`perf`'s `first-write-after-recover`). Over a store holding its placements, each
+placement finds its justification stored and neither settle writes it again.
+
+### Why a read runs no rounds
+
+Detection and placement read the network, which a `defeat` never changes, so no verdict
+reads another verdict. A placed sentex rests on everything its verdict read: the members,
+the grounds and the witness edges. A ground that another nogood defeats is hidden by that
+nogood's `defeat`, and the walk then hides every placed sentex resting on it, at the
+contexts where the ground is hidden. The dependency is in the justification and needs no
+ordering.
+
+**A defeat hides only `:default` sentexes, so it never lowers a class.** A defeat is in
+force only while the verdict at the reader names its target, which is then `:default`;
+everything resting on a `:default` handle is capped at `:default`
+([Strength propagates](#strength-propagates-from-the-antecedents)); and a guarded firing is
+`:default`. A premise `except` can lower a class, and the read re-decides the nogoods whose
+members it reaches in one pass ("A conflict a reader's excepts lower" above).
+
+**Without a rule-derived ground or a guard, a defeat rests on at most one other.** The
+rosters keep the defeat-dependency graph two deep:
+
+1. In a decided nogood every member but the loser is `:monotonic`, and no defeat hides a
+   `:monotonic` handle, so a defeat loses force through another only by way of a ground.
+2. Every ground is on the forced-monotonic roster except a `genl` edge between types, and
+   only the membership family takes one for a ground; `genlCx` witness edges are on the roster.
+3. A stated type `genl` edge loses only in a nogood where it is a member: a negation pair or
+   an inherited nogood, neither of which has a ground that can lose.
+
+`placed_nogood_test` holds both two-deep shapes in every arrival order. Two sources go
+past them, and the next section describes the cycle they make.
+
+### A defeat-dependency cycle
+
+A rule-derived `genl` edge between types is `:default` and rests on what derived it, so a
+membership nogood grounded on it rests on that fact. A guard defeat rests on its blocker,
+which can be a nogood's loser. Either lets a defeat rest on itself through other defeats:
+
+```
+CxA  (disjoint dog cat) M   (disjoint bird fish) M   (poodle Rex) M   (sparrow Tweety) M
+     (dog_breed poodle) M   (bird_breed sparrow) M
+     L1 = (cat Rex) :default        L2 = (fish Tweety) :default
+     (fish ?x) & (dog_breed ?t) => (genl ?t dog)    G1 = (genl poodle dog), from L2
+     (cat ?x) & (bird_breed ?t) => (genl ?t bird)   G2 = (genl sparrow bird), from L1
+D1 defeats L1 and rests on G1; D2 defeats L2 and rests on G2
+```
+
+D1 in force hides L1, which hides G2 and takes D2 out of force; D2 in force does the
+mirror. Both readings are consistent, and nothing in the sentences prefers one. The walk
+breaks the cycle in content order (design ruling 18). It keeps each defeat it reads open
+(`exc/in-force-once`). A defeat met again while open answers false, and a value that met a
+defeat open below its own is provisional and is not kept. The defeats left provisional when
+the first of them closes form the cycle, and `exc/close-cycle` orders them by the handle
+each removes (`nm/compare-form` on sentence, then context). The defeats of the first loser
+are read with the others out of force, and each is kept as read. When one of them is in
+force, the others are out of force for that read. When none is, the others are read again
+with those fixed, so a defeat that fails on its own terms (its winner excepted at the
+reader, say) does not take the rest out with it. Two defeats of one loser do not compete.
+Here `(cat Rex)` sorts first, so D1 is in force: L1 and G2 are hidden at CxA, and L2 and G1
+are believed, in every arrival order and whichever loser a read asks first
+(`placed_nogood_test/a-defeat-dependency-cycle-is-broken-in-content-order`).
+
+A cycle is not a dilemma: each nogood has its verdict, and the tie between the defeats
+takes the content tie-break the engine uses everywhere else. Nothing is stored, and the
+memo lives for one read. A cycle of one defeat, a ground derived from the nogood's own
+loser, is in force: met again inside its own read it answers false, so its own target does
+not count against it. A guard defeat and a nogood defeat resting on each other take the
+same rule (`placed_nogood_test/a-guard-defeat-and-a-nogood-defeat-resting-on-each-other-are-broken-in-content-order`),
+since the guard below the placement is checked in the network and stores its defeat in
+every order ([naf.md](naf.md)). A cycle through the guard itself is refused at assert time
+([exceptions.md](exceptions.md#stratification)).
+
+The guard at a firing's own placement reads belief, places no defeat, and so is not in
+the walk's reach. A guard whose blocker is the loser of a nogood grounded on the firing's
+conclusion, all in one context, therefore has two consistent stores: the firing blocked
+and absent, or the firing stored with its blocker defeated. Which one the store holds
+depends on arrival order.
+
+### What a reading reads
+
+The settle publishes no report and no reading is kept. `read-clashes` reads every stored
+`contradicts` at its own context, once per call, and keeps those that context believes and
+sees, so a dilemma is reported KB-wide where a placement context believes every member. `(contradictions kb context)` reads only
+the `contradicts` stated in a context the reader sees, from the smaller of two sides
+compared by index counts: those contexts' extents, or the `contradicts` extent. So a
+reader's reading costs the lesser of what it sees and the placed nogoods, and reads no
+nogood placed outside both (`lein perf`'s `reader-dilemmas-beside-unseen-ones`).
 
 ### Where conviction is one-sided
 
@@ -1731,32 +2113,32 @@ shape and not this one.
 
 ### How a settle finds the clashes
 
-No clash is found by re-running a check over what moved.  Each family's nogoods come off
-the write-time candidate index, and each reader that sees one whole decides it
-([Nogoods decided at the reader](#nogoods-decided-at-the-reader)).
+No clash is found by re-running a check over what moved. Each family's nogoods come off
+the write-time candidate index, and the placement pass places the ones whose candidates
+moved ([The nogood families](#the-nogood-families)).
 
-What reaches a membership nogood with no relabel reaches it through the index or the
-reader's stamp:
+What reaches a membership nogood with no relabel reaches it through the index:
 
 - **a declaration** moves `tax/separation-stamp`, and the index reads the separations
-  again over every type pair the kept terms hold; **a `genl` edge** moving is logged at its
-  lower end (`tax/moves-since`), and the index reads again only the pairs holding a type at
-  or below it (`membership/sync-memberships`). Neither reads a membership, and the flat
-  declaration caches and the `genl` generation are in `decide/stamp`, so every reader
-  decides again. The index compares its stamp with the taxonomy's roster by roster on
-  identity. An installed image holds the two as equal values read back apart, so the
-  first read compares them by value once and takes the taxonomy's;
-- **a `genlCx` edge** moves what each reader sees, and the `genlCx` generation is in
-  `res/withdrawal-stamp`;
-- **a membership or a denial** of a kept term joins it with no read, and the term's live
-  handles are in `decide/stamp`.
+  again over the pairs of the kept terms holding a type at or below a type the declaration
+  moves (`tax/separation-moves`), queueing the terms whose nogoods moved; **a `genl` edge**
+  moving is logged at its lower end (`tax/moves-since`), and the index reads again only the
+  pairs holding a type at or below it, queueing those terms
+  (`membership/sync-memberships`). Neither reads a membership. The index compares its
+  stamp with the taxonomy's roster by roster on identity. An installed image holds the two
+  as equal values read back apart, so the first read compares them by value once and takes
+  the taxonomy's;
+- **a declaration's supporter** arriving or relabelled in a context of its own reaches the
+  terms under the types it separates (`membership/terms-under`);
+- **a `genlCx` edge** reaches the nogoods `chain/place-memberships!` names;
+- **a membership or a denial** of a kept term joins it with no read and queues the term.
 
 `clash_oracle_test` compares a stream's reading, write by write, with the same writes
 loaded from scratch, over the membership routes a clash arrives by.
 
 ## What a settle is built from
 
-A settle composes 21 features. Each one requires some others to exist, and removing a
+A settle composes 20 features. Each one requires some others to exist, and removing a
 feature removes every feature that requires it. This section lists the features, what each
 requires, the reserved words that reach each one, and what a removal takes with it. The
 cost of each step is the next section.
@@ -1764,18 +2146,16 @@ cost of each step is the next section.
 ### The dependency layers
 
 `─►` means *requires*: the target's removal removes the source. `⇢` means *supplies*: the
-target's removal leaves the source with no input and nothing broken; where two targets
-supply one source, the removal of both does. The relation has no
+target's removal leaves the source with no input and nothing broken. The relation has no
 cycle, because a cycle in it would be two features neither of which can be built first.
 
 ```
-layer 5   published window ─► reader verdict, touched window
-          withdrawal cache ⇢ reader verdict, visibility except
-layer 4   reader verdict ─► decide/verdict        edge solver ⇢ decide/verdict
-layer 3   decide/verdict ─► strength classes, deciding vantage
-          decide/verdict ⇢ nogood discovery
-layer 2   visibility except ─► context scoping    generators ─► forward chaining
-          deciding vantage ─► context scoping
+layer 5   published window ─► read walk, touched window
+layer 4   read walk ─► placed nogood, visibility except
+layer 3   placed nogood ─► decide/verdict, context scoping, forward chaining
+          placed nogood ⇢ nogood discovery                edge solver ⇢ decide/verdict
+layer 2   decide/verdict ─► strength classes              generators ─► forward chaining
+          visibility except ─► context scoping
 layer 1   touched window ─► region relabel        forward chaining ─► region relabel
           context scoping ─► genl/genlCx closures nogood discovery ─► genl/genlCx closures
           exceptWhen · NAF ─► recheck queue       supersession ─► equality partition
@@ -1789,25 +2169,24 @@ layer 0   region relabel, genl/genlCx closures, strength classes, recheck queue,
 | justification network | `vaelii.impl.jtms`, `vaelii.impl.dense-jtms` | none | removes everything above layer 0 |
 | region relabel | `jtms/relabel-region*` | none | removes forward chaining, generators and the touched window |
 | genl/genlCx closures | `vaelii.impl.taxonomy` | `genl` `genlCx` `isa` `genlInverse` | removes context scoping, nogood discovery and the arbitration bundle |
-| context scoping | `tax/context-up` | `genlCx` `ist` | removes the visibility except, the deciding vantage and the arbitration bundle |
-| strength classes | `jtms/region-classes` | `:monotonic` `:default` (assertion options) | removes `decide/verdict` and the reader verdict |
+| context scoping | `tax/context-up` | `genlCx` `ist` | removes the visibility except and the arbitration bundle |
+| strength classes | `jtms/region-classes` | `:monotonic` `:default` (assertion options) | removes `decide/verdict` and the arbitration bundle |
 | recheck queue | `settle/drain-recheck!` | none | removes `exceptWhen` and NAF, its only fillers |
 | equality partition | `tax/add-equality`, `tax/representative`, filled by `special/integrate-equality-sentex` | `rewriteOf` `sameAs` `equals` `different` | removes supersession |
 | touched window | `jtms/touched`, and a reader's mark in it: `jtms/touch-mark`, `jtms/touched-since` | none | removes the published window; `preview`, the change feed and the cache reconcile diff the believed set instead, at O(KB) per write |
-| forward chaining | `vaelii.impl.chain` | `implies` `set/forwardRule` `set/defaultRule` `set/backwardRule` `set/assumptionRule` `set/inertRule` | removes generators; backward proof still answers |
+| forward chaining | `vaelii.impl.chain` | `implies` `set/forwardRule` `set/defaultRule` `set/backwardRule` `set/assumptionRule` `set/inertRule` | removes generators and the placed nogood; backward proof still answers |
 | generators | `vaelii.impl.chain` | `implies` `set/forwardRule` with a rule consequent | removes nothing |
-| nogood discovery | `decide/nogoods-at`, `discovery/preserving-nogoods` | `not` `disjoint` `disjoint_metatype` `sibling_disjoint` `siblingDisjointException` `functional` `functionalInArg` `asymmetric` `anti_transitive` `covering` `partition` `transitiveInArg` `transitiveInArgInverse` | leaves `decide/verdict` with no nogood to decide |
-| `exceptWhen` · NAF | `recheck/exception-blocked-set` | `exceptWhen` `unknown` | removes nothing; `:blocked` stays empty |
+| nogood discovery | the candidate index (`vaelii.impl.decide`), `discovery/preserving-nogoods` | `not` `disjoint` `disjoint_metatype` `sibling_disjoint` `orthogonal` `siblingDisjointException` `functional` `functionalInArg` `asymmetric` `anti_transitive` `covering` `partition` `transitiveInArg` `transitiveInArgInverse` | leaves the placed nogood with nothing to place |
+| `exceptWhen` · NAF | `recheck/exception-blocked-set`, `chain/place-guard-defeats!` | `exceptWhen` `unknown` | removes nothing; `:blocked` stays empty and no guard defeat is placed |
 | supersession | `special/refresh-supersessions` | `rewriteOf` `sameAs` | removes nothing; `:superseded` stays empty |
-| visibility except | `res/withdrawal` | `except` `sentexHandle` | removes nothing |
-| deciding vantage | a nogood's `:vantages`, recorded in the candidate index for an inherited clash | `genlCx` `ist` | removes `decide/verdict` and the reader verdict |
-| `decide/verdict` | `decide/verdict` | `contradicts` (reported, never stored) `bravely` `cautiously` | removes the reader verdict |
+| visibility except | `exc/except-hidden-fn`, `exc/except-closure-hidden-fn` | `except` `sentexHandle` | removes nothing |
+| `decide/verdict` | `decide/verdict` | `bravely` `cautiously` | removes the arbitration bundle |
 | edge solver | `vaelii.impl.solve` | `set/hardConstraint` `set/softConstraint` | changes nothing for a KB on the built-in `decide/verdict` |
-| reader verdict | `res/withdrawal`, over the families of `vaelii.impl.decide` | `genlCx` (the vantage) | removes the published window; every nogood stands believed |
-| withdrawal cache | `:withdrawn`, filled by `res/withdrawal`, reconciled by `res/reconcile-withdrawn!` | none | removes nothing; each read at a reader computes its withdrawal again, the rounds of `decide/losers` included |
-| published window | `readings/reader-moves`, `:own-readings` | none | removes the own-context reconcile, so the unscoped caches keep a handle its own context withdraws; `preview`, the consequence report and the change feed miss a move a verdict makes with no relabel |
+| placed nogood | `chain/place-nogoods!`, `chain/place-inherited!`, `chain/place-nogood!` | `contradicts` `defeat` | removes the read walk's defeats; every nogood stands believed and no clash is reported |
+| read walk | `exc/defeat-hidden-fn`, `exc/hidden-fn` | none | removes the published window's defeat moves; a placed `defeat` hides nothing |
+| published window | `settle/defeat-moves`, `kb/defeat-reach`, `settle/reading-before`, `settle/write-seeds` | none | `preview`, the consequence report and the change feed miss a move a `defeat` makes with no relabel |
 
-Strength classes, the deciding vantage, `decide/verdict` and the reader verdict are the
+Strength classes, `decide/verdict`, the placed nogood and the read walk are the
 **arbitration bundle**, and the bundle is the one region of the table where one removal takes several
 features with it. Strength classes do not leave with arbitration: `core/defeat-class` is
 public, and `vaelii.impl.inherit`, `vaelii.impl.chain` and `vaelii.impl.checks` read it for
@@ -1815,9 +2194,9 @@ supporter and declaration strength.
 
 ### A dependency no removal can separate
 
-**A verdict requires strength classes.** `decide/verdict` takes the unique weakest member
-of a nogood OUT at a reader. With no defeat-class the engine has no content-keyed
-minimum, so a loser would be chosen on arrival order, which breaks order independence.
+**A verdict requires strength classes.** `decide/verdict` names the unique weakest member
+of a nogood as the loser. With no defeat-class the engine has no content-keyed minimum, so
+a loser would be chosen on arrival order, which breaks order independence.
 
 ### The cycles a settle runs
 
@@ -1827,7 +2206,7 @@ its mechanism is documented:
 | cycle | what closes it | why it terminates |
 |---|---|---|
 | the exception loop | a blocked set moves belief, and belief moves what an exception query answers | a cycle through negation is refused at assert time; 16 passes bound it ([exceptions.md](exceptions.md#blocking-and-the-tms)) |
-| a reader's rounds | a loser withdraws a region at the reader, and a withdrawn ground can dissolve a nogood | a round only adds losers, and a withdrawal only removes belief, so a round retires nogoods and never forms one ([the resolution rounds](#the-resolution-rounds)) |
+| a defeat's force | a `defeat` is in force only where it is itself believed, and its support can hold another defeat's target | a defeat met again on one read closes a cycle, which the walk breaks in content order of the losers, fixing at least one defeat per pass ([A defeat-dependency cycle](#a-defeat-dependency-cycle)) |
 | a support cycle | `A` justified by `B` and `B` by `A` | `region-fixpoint` starts from nothing IN inside the region and only adds ([Locality](#2-locality)) |
 | the class equation | a node's defeat-class reads its antecedents' classes | `region-classes` starts every member at `:default` and applies a monotone operator ([Strength propagates](#strength-propagates-from-the-antecedents)) |
 | a `genl` or `genlCx` loop | an edge that would close a cycle in the closure | refused, or dropped and recorded when derived ([exceptions.md](exceptions.md#stratification)) |
@@ -1835,24 +2214,24 @@ its mechanism is documented:
 ### No switch removes a feature
 
 Every feature above runs on every KB. Each optional feature sits behind an emptiness check
-instead: a KB storing no `exceptWhen`, no merge, no clash declaration or no `except` pays a
-set read for that feature per settle. No option on the KB handle moves belief; the
-reasoning image stamps the one process switch that does, `VAELII_ASSERTIVE_ARG_TYPES`
-([storage.md](storage.md#the-reasoning-image)).
+instead: a KB storing no `exceptWhen`, no merge, no clash declaration, no `except` or no
+`defeat` pays a set read for that feature per settle or per read. No option on the KB
+handle moves belief; the reasoning image stamps the one process switch that does,
+`VAELII_ASSERTIVE_ARG_TYPES` ([storage.md](storage.md#the-reasoning-image)).
 
 ## The runtime of a settle
 
 Invariant 2 states that a relabel costs its region. A settle does more than relabel, and
-each of its other steps is bounded by a different quantity: the standing contradiction
-set, the rules a trigger reaches, a sweep budget, or the whole store. This section lists
-the steps in the order `settle*` runs them, gives the quantity that bounds each one, and
-names the gate that holds the bound. The last part lists the steps where the bound is not
-the region.
+each of its other steps is bounded by a different quantity: the candidates a move reaches,
+the rules a trigger reaches, a sweep budget, or the whole store. This section lists the
+steps in the order `settle*` runs them, gives the quantity that bounds each one, and names
+the gate that holds the bound. The last part lists the steps where the bound is not the
+region.
 
 ### The runtime view
 
 `n` is the store, `r` the relabelled region (`jtms/touched`), `q` the rules the recheck
-queue holds, and `c` the readers a move reaches.
+queue holds, and `k` the nogoods whose placement a move can change.
 
 ```
 write entry point (assert / retract)                          bound
@@ -1861,18 +2240,17 @@ write entry point (assert / retract)                          bound
  └─ add-justification → relabel the affected region           O(edges in r)
 
 settle*
- ├─ 1  clear-inherited!, again at the head of each pass       O(1); empties `:withdrawn`
- │                                                            when a clash was held
  ├─ 2  the reconcile a caller's relabel owes                  O(r)
  └─ passes, until one queues, revives and releases nothing, at most 16
      ├─ 3  class-moved-merge-seeds (only under a merge mark)  O(r)
-     ├─ 4  discover-inherited!: one discovery, no round
-     │     └─ preserving-nogoods                              O(1) gate; else O(standing + r), asks O(r)
-     ├─    reader-moves · reconcile-own-withdrawals!          O(c)
-     ├─ 5  drain-recheck!                                     O(q)
-     ├─ 6  revived-seeds · refresh-beliefs over them          O(r)
-     ├─ 7  exception-blocked-set                              one level-6 query per trigger-reachable firing
-     └─ 8  set-blocked · sweep · re-chain released firings    O(released firings);
+     ├─ 4  place-inherited!: one discovery
+     │     ├─ preserving-nogoods                              O(1) gate; else O(standing + r), asks O(r)
+     │     └─ place the clashes asked again                   O(clashes asked × vantages)
+     ├─ 5  place-nogoods!: each family's moved candidates     O(k × one placement)
+     ├─ 6  post-defeat-moves! · drain-recheck!                O(q)
+     ├─ 7  defeat-belief-moves · revived-seeds                O(r + moved defeats' targets)
+     ├─ 8  exception-blocked-set · place-guard-defeats!       one level-6 query per trigger-reachable firing
+     └─ 9  set-blocked · sweep · re-chain released firings    O(released firings);
                                                               a blanket re-join is O(fact extent) per rule
 
 settle-finish
@@ -1880,10 +2258,8 @@ settle-finish
  ├─ refresh-beliefs (only when belief moved)                  O(caches a supporter in r feeds)
  ├─ refresh-supersessions (only after an except or an         O(data the except reaches + classes moved)
  │   equality edge moved in belief)
- ├─ reconcile-withdrawn!                                      O(|touched since its mark| × watches)
- └─ reader-moves                                              O(readers a move reaches); every reader
-                                                              when the rest of the stamp moved or
-                                                              on a rebuild
+ └─ the window, with what a defeat reached (only when a       O(r + what the moved defeats and the write reach)
+     sink or listener wants it)
 
 recover                                                       O(n): one settle, r = every sentex
 ```
@@ -1897,39 +2273,23 @@ A settle materializes the region `passes + 1` times, which `settle_region_cost_t
 as a count. On the dense network each read copies the touched bitmap into a set, so that
 count is a multiplier on O(r), and on a `recover` it is a multiplier on O(n).
 
-### The resolution rounds
+### The placement pass
 
-Step 4 of the runtime view is `discover-inherited!`, which runs no round: the network records no defeat.
-It empties the inherited clashes, asks `preserving-nogoods` once, and records every
-nogood found whose members the network believes, with its vantages, in the candidate
-index, where every reader at or below a vantage decides it in its own rounds
-([A defeat is scoped to its vantage](#a-defeat-is-scoped-to-its-vantage)). The hard
-clashes and dilemmas are read at the reader (`clashes/read-clashes`).
-
-The discovery reads `discovery/discovery-view`: a detached copy of the taxonomy with every
-handle withdrawn at its own context back at its network label, and caches and a candidate
-index of its own. The copy's declarations and `genl` generation differ from the live
-taxonomy's, so an index both stamped would be synced again (`decide/synced`) each time a
-read inside the discovery passed from the copy to the live taxonomy's visibility callback. A
-reading's edges and declaration are members of its nogood, so a verdict that took one
-out of the unscoped caches would hide the reading from the next discovery, which would
-give the member back, and the next one would take it out again. A reader's verdicts on
-the other families still apply at the askers, through the scoped reads, so a ground those
-families withdraw first is withdrawn from the reading too, as the reference's rounds
-withdraw a ground before the clash read through it.
-
-A reader's rounds (`decide/losers`, [reference.md](reference.md#the-function) item 8) add
-losers grounds first and alone
-([A clash is reported, never stored](#a-clash-is-reported-never-stored)), and terminate:
-each round adds a loser the reader believed and none takes one back. A sentence first believed after a round's defeat released an
-`unknown` or `exceptWhen` guard is `:default`
-([Strength propagates from the antecedents](#strength-propagates-from-the-antecedents)),
-so it cannot defeat a `:monotonic` member, and a later round's new nogoods take OUT only
-`:default` sentences ([reference.md](reference.md#decisions), decision 14). The hard clashes and the dilemmas are collected at the round
-that defeats nothing, so a clash that stands beside other rounds' work is counted once.
-No round flips an `except` where CxCore declares it: an `except` is held `:monotonic` and
-its denial OUT ([The forced-monotonic roster](#the-forced-monotonic-roster)), so no
-resolution defeats one.
+Steps 4 and 5 place the nogoods, and the network records no verdict. Step 4 asks
+`preserving-nogoods` once over the live KB, records every nogood found whose members the
+network believes, with its vantages, in the candidate index
+(`inherited/install-inherited!`), and places the clashes asked again. Step 5 places each
+family's nogoods whose candidates, members, grounds or placed `contradicts` the pass moved,
+and those a moved `genlCx` edge reaches ([A nogood placed as a
+conclusion](#a-nogood-placed-as-a-conclusion)). A `defeat` the pass stores posts its
+target's re-check before the drain (step 6), and a target a removed defeat gives back is
+re-chained only when the taxonomy derives an answer from it (`tax/derives-from?`): the
+network kept it IN, so a rule's firings over it stand. A defeat takes two passes, the
+placement and the chaining it releases, and a revival one
+(`settle_region_cost_test/a-defeat-takes-two-passes-and-a-revival-one`). No placement
+defeats an `except`: an `except` is on the roster, never a loser, and its denial is held
+OUT ([The forced-monotonic roster](#the-forced-monotonic-roster)). The reports read the
+placed `contradicts` (`clashes/read-clashes`).
 
 ### What `settle-finish` reconciles
 
@@ -1937,14 +2297,16 @@ resolution defeats one.
 
 1. `restore-depths`, the depth repair a `with-deferred-settle` batch owes.
 2. `refresh-beliefs` over the region, only when belief moved: a defeat, a revival, a
-   standing nogood, a pass that moved the blocked set, or a relabel before the settle
+   pass that moved the blocked set, or a relabel before the settle
    (`belief-moved?`). Those are the only label flips a settle sees. The last is
    `preview`'s: `suspend-premise` and the rollback's `add-premise` flip labels with no
    defeat, block or write, so `preview` binds `settle/*relabelled-before?*`, and the
    settle also reconciles at its start, as after a revival, before the passes read the
    closures. A declaration that arrives or leaves reaches the caches
    through `special`'s integrate hook on the write path, so a settle that flipped no label
-   leaves the caches consistent. `restore-depths` runs again after the reconcile, since
+   leaves the caches consistent. Such a settle evicts the scoped closures a supporter in
+   the region can move through its justifications instead (`tax/retire-support-moves!`,
+   [A read with no reader](#a-read-with-no-reader)). `restore-depths` runs again after the reconcile, since
    the reconcile can open or close a cycle
    ([taxonomy.md](taxonomy.md#what-a-batch-does-to-the-depth-potential)). An equality
    supporter a reconcile found disbelieved and this one finds believed met its arrival
@@ -1960,18 +2322,13 @@ resolution defeats one.
    supersedes a `genl` or `disjoint` declaration with no label moving, and step 2 read
    the region alone. The spellings an un-merge gave back go to `settle`'s re-seed
    ([the other half](#the-other-half-a-spelling-an-un-merge-gives-back)).
-5. The own-context reconcile (`special/reconcile-own-withdrawals!`, after
-   `res/reconcile-withdrawn!`) to a fixpoint of at most four rounds
-   ([A read with no reader](#a-read-with-no-reader)). Off on a rebuild.
-6. `res/reconcile-withdrawn!`, the last read of the window before it is cleared
-   ([the withdrawal cache](#the-withdrawal-cache)).
-7. The window: the region, the supersession flips, the twins step 2 stored, and the
-   handles a reader's verdict moved at their own context (`reader-moves`,
-   [The published window](#the-published-window)),
-   handed to `*touched-sink*`, `*touched-in-sink*` and the change feed. `reader-moves`
-   records its readings on every settle. The sets are built only when a sink is bound or a listener is
-   registered, and the feed is skipped on a rebuild, whose region is the whole KB.
-8. `reset-touched!`.
+5. The window: the region, the supersession flips, the twins step 2 stored, and the
+   handles a `defeat` stored, removed or standing before the write reaches, read at their
+   own context ([The published window](#the-published-window)), handed to
+   `*touched-sink*`, `*touched-in-sink*` and the change feed. The sets are built only when
+   a sink is bound or a listener is registered, and the feed is skipped on a rebuild,
+   whose region is the whole KB.
+6. `reset-touched!`.
 
 `jtms/touched` is read once, into a delay every step shares, because the dense network
 copies its bitmap into a set on each read.
@@ -1979,25 +2336,26 @@ copies its bitmap into a set on each read.
 ### Where the time goes, measured
 
 `lein bench-settlephases [n] [memory|disk|both] [defeats=<k>]` charges each settle's wall
-clock to the cost centre running at that instant (`vaelii.impl.settle-phases`). The reading below is n=60,000 facts (104,157 sentexes,
-52,074 justifications). The split is a ratio between centres in one run and holds across
-n=20,000–60,000; the harness reports absolute milliseconds as untrusted on a shared machine.
+clock to the cost centre running at that instant (`vaelii.impl.settle-phases`). The reading
+below is n=60,000 facts (104,157 sentexes and 52,074 justifications; with `defeats=50`,
+104,357 and 52,174), one run per backend and configuration. A range spans the two
+backends, and a cell that names them gives each. The split is a ratio between centres in
+one run;
+the harness reports absolute milliseconds as untrusted on a shared machine.
 
-| centre | additive load | `recover` replay | contradiction-dense load |
-|---|---|---|---|
-| `:chaining` — the generative join | **48–51%** | 0% | 32% |
-| `:outside` — canonicalization, checks, index, minting | 42–44% | 6–11% | 29% |
-| `:belief` — relabel and `add-justification` | 0.5% | **87% memory, 90% disk** | 5% |
-| `:discovery` — the inherited family's discovery | ~1% | ~0% | 2% |
-| `:finish` + `:glue` | 6–8% | 3–4% | **33%** |
-| relabelled region, p50 | 2 | 104,157 | 2 |
+| centre | additive load | load, 50 standing defeats | `recover` replay | `recover`, 50 standing defeats |
+|---|---|---|---|---|
+| `:chaining` — the generative join | **45–46%** | **42–43%** | 0% | 0% |
+| `:outside` — canonicalization, checks, index, minting | 42–45% | 41–46% | 30% memory, **77% disk** | 29% memory, **52% disk** |
+| `:belief` — relabel and `add-justification` | 0.1% | 0.1% | **67% memory**, 21% disk | **59% memory**, 28% disk |
+| `:discovery` — the inherited family's discovery | 1–2% | ~1% | ~0% | ~0% |
+| `:finish` + `:glue` | 8–11% | 10–15% | 2–3% | 12% memory, 20% disk |
+| relabelled region, p50 | 2 | 2 | 104,157 | 104,357 |
 
 A centre is charged its **self-time**, the interval while its span is on top of the stack,
 so nested centres are not counted twice and the six buckets sum to the run. `:belief`
 holds the relabels, the reconcile a caller's relabel owes and `recovery/rebuild-tms`'
-replay; `:finish` is `settle-finish`, where the readers' decisions of the families a
-reader decides are read;
-`:glue` is the settle loop outside every span, and `:outside` the time between settles.
+replay; `:finish` is `settle-finish`, where the window is built; `:glue` is the settle loop outside every span, and `:outside` the time between settles.
 `add-justification` carries no probe of its own: its time goes to the span its caller
 opened. A span on a timing run costs two `System/nanoTime` reads and two unsynchronized
 mutations, which the single writer permits. `settle-phases/stop` returns the run totals
@@ -2007,27 +2365,24 @@ retraction moves the whole graph and a mean over settles hides it.
 Three shapes follow from the table:
 
 - **A clean load spends its time writing and chaining, not believing.** The per-assert
-  region is 2 nodes, so the belief fixpoint is 0.5% of the run. The per-fact write path
+  region is 2 nodes, so the belief fixpoint is 0.1% of the run. The per-fact write path
   is [storage.md](storage.md#what-a-bulk-load-costs)'s table: 43.4 µs per fact at one
   million facts, with the one deferred settle under the measurement floor.
-- **A `recover` spends its time believing.** Its region is the store, and on `:disk-log`
-  the justification fetch lands in the replay's `:belief` span, which is why the durable
-  share is higher. A `:disk-snapshot` open skips this step when it installs the
-  [reasoning image](storage.md#the-reasoning-image).
-- **A contradiction-dense load spends its extra time reading the decided handles.** The
-  load seeded 50 contradictions (`defeats=50`), negation pairs in `CxUniverse` decided at
-  their readers. No settle lifts or re-decides them, so the median region stays 2 and
-  `:discovery` is 2%. Each later settle pays about 0.05 ms more at p50 than on the additive
-  load, in `:glue` and `:finish`: the withdrawal cache's stamp and reconcile and
-  `reader-moves`, asked once per settle while any reader-decided candidate is stored. It
-  is the same at 400 decided pairs as at 50, and an unrelated write reads none of the
-  pairs (`negation-reader-write`).
+- **A `recover` spends its time relabelling on `:memory` and outside its settles on
+  `:disk-log`.** Its region is the store. On `:disk-log` the work between the recover's
+  two settles is 77% of the run. A `:disk-snapshot` open skips the replay when it installs
+  the [reasoning image](storage.md#the-reasoning-image).
+- **Standing defeats move time into `:glue`.** Fifty placed negation pairs take
+  `:finish` + `:glue` from 8–11% of a load to 10–15%, and from 2–3% of a recover to 12–20%;
+  the other centres keep their shares within a few points.
+
+The `defeats=<k>` option seeds k negation pairs in `CxUniverse`, which the settle places.
 
 The exception loop is measured separately in
 [exceptions.md](exceptions.md#the-fixpoint-question-measured): the blocked set moved in
 **0** passes on every settle of the starter and stories load, and in at most **1** in every
 `except_test` scenario. On `except_recheck_test`'s workload, where a
-second rule makes the exception hold on every firing, step 7 costs **1.0** level-6
+second rule makes the exception hold on every firing, step 8 costs **1.0** level-6
 evaluation per assert and the whole settle **2.0**, flat from n=25 to n=200.
 `except_recheck_test` pins the growth of that count, not its value.
 
@@ -2045,18 +2400,24 @@ another. These checks hold invariant 2 end to end:
 
 | step | `lein perf` checks |
 |---|---|
-| a write that reaches its own region: a fact derived through a defeasible rule, a negative fact with no positive twin, a membership, a length binding, a fact of a predicate with a declared arity, a durable append, a fact into an existing context NAT, a retraction naming no NAT | `defeasible-load`, `negation-load`, `membership-check`, `bound-type-load`, `arity-reach-trigger`, `durable-fact-append`, `context-nat-existing-context` (3.0×), `retract-nat-scaling` |
+| a write that reaches its own region: a fact derived through a defeasible rule, a negative fact with no positive twin, a membership, a membership in a type with a deep ancestor set, a length binding, a fact of a predicate with a declared arity, a durable append, a fact into an existing context NAT, a retraction naming no NAT | `defeasible-load`, `negation-load`, `membership-check`, `membership-under-deep-type`, `bound-type-load`, `arity-reach-trigger`, `durable-fact-append`, `context-nat-existing-context` (3.0×), `retract-nat-scaling` |
 | a region delivered to a feed listener | `feed-listener-scaling` |
-| a `genl` edge deep in a chain, and one `genl` edge or `inverse` declaration defeated and revived beside n `disjoint` declarations (the relabel and `refresh-beliefs`) | `taxonomy-depth`, `taxonomy-belief-flip`, `flat-cache-belief-flip` |
+| a `genl` edge deep in a chain, one `genl` edge or `inverse` declaration defeated and revived beside n `disjoint` declarations (the relabel and `refresh-beliefs`), and a `symmetric` mark defeated and revived below its facts beside the facts under another mark | `taxonomy-depth`, `taxonomy-belief-flip`, `flat-cache-belief-flip`, `permuting-mark-defeat-flip` |
 | a write on a KB whose marks the fact does not reach | `unrelated-fact-under-marked-kb-fanout`, `constraint-exposure-shared-arg`, `constraint-genl-edge-gate` (2.5×) |
 | a membership or a `genl` edge into a `sibling_disjoint` clique, in the clique's size | `disjoint-clique-membership`, `sibling-disjoint-new-spec` |
-| a `genl` or `genlCx` edge, in the graph, the excepted rules, the firings and the readers it does not reach, and in the spec closures of the rules its stratification walk reaches | `genl-edge-negation-recheck`, `edge-stratification-unreached`, `edge-stratification-walk`, `genl-defeat-rejoin` (4.0×), `genl-crossing-many` (3.0×), `genlcx-edge-reader-fan` (3.0×), `retract-context-cycle-scaling`, `retract-context-cycle-beside-cycle`, `assert-context-edge-beside-cycle` |
-| an un-merge of one class beside standing merges it does not touch, a merging assert in a deferred batch, a write beside the subsumed mints the KB withholds, and the settle after a `genl` edge re-asking the declarations waiting on a deeper hierarchy | `unmerge-over-standing-merges` (3.0×), `deferred-merge-batch` (3.0×), `mint-withdrawal-under-busy-term`, `settle-beside-withheld-mints`, `mint-release-after-genl-move` |
-| a recover's rebuilds, per claim, declaration or fact each re-reads: the inherited discovery's questions, over the live taxonomy and over a detached copy, the nogoods its first reader re-reads, the waiting declarations, the lifts | `recover-inherited-discovery`, `recover-discovery-own-out`, `recover-discovery-separated-term`, `declaration-rebuild`, `lift-rebuild` |
-| an `exceptWhen` roster gate, a write beside believed `except`s it does not reach ([the withdrawal cache](#the-withdrawal-cache)), the first read after a two-pass settle, a write beside refused firings ([the kind roster](exceptions.md#a-refused-firing-is-remembered-as-bindings)), a retraction releasing a firing beside a guarded rule's firings ([what is re-chained](exceptions.md#re-chaining-what-was-released-not-what-was-touched)), a first read below an `exceptWhen` rule's context ([asked at every reader](naf.md#evaluated-in-the-placement-context-not-the-join)), and a scoped read beside what the `except`s hide | `exception-roster-gate`, `assert-over-standing-excepts` (3.0×), `read-after-two-pass-settle` (3.0×), `assert-beside-naf-refusals`, `released-refusal-beside-guarded-firings` (4.0×), `guarded-firings-read-below`, `visibility-reading` |
-| the families decided at the reader ([Nogoods decided at the reader](#nogoods-decided-at-the-reader)): a mark, a binding or a declaration arriving over its candidates and the first read after it, a write beside the pairs a reader decides, a warm read at a reader, a reader's first withdrawal beside the candidate tuples its binding holds, a vantage below the members' maximum, the join naming a chain's contexts, a brave or cautious ask between writes, and an ask of the candidate index after an image install | `irreflexive-mark-arrival` (3.0×), `arity-binding-arrival` (3.0×), `membership-declaration-arrival`, `tuple-mark-determinant-write`, `negation-reader-write`, `verdict-window-write`, `decided-warm-read`, `held-shape-first-withdrawal`, `negation-reader-warm-read`, `tuple-mark-warm-read`, `per-reading-vantages`, `chain-join`, `brave-ask-between-writes` (3.0×), `installed-image-reads` |
+| a `genl` or `genlCx` edge, in the graph, the excepted rules, the firings and the readers it does not reach, the `genl` edges its `sub` already sees, the functors under an arity conflict it is not above, and in the spec closures of the rules its stratification walk reaches | `genl-edge-negation-recheck`, `genl-edge-beside-arity-conflicts`, `edge-stratification-unreached`, `edge-stratification-walk`, `genl-defeat-rejoin` (4.0×), `genl-crossing-many` (3.0×), `genlcx-edge-reader-fan` (3.0×), `genlcx-edge-under-a-seen-taxonomy`, `genlcx-edge-beside-declared-facts`, `genlcx-edge-beside-excepted-declarations`, `retract-context-cycle-scaling`, `retract-context-cycle-beside-cycle`, `assert-context-edge-beside-cycle` |
+| an un-merge of one class beside standing merges it does not touch, a merging assert in a deferred batch, a merge withdrawing its spelling's firing beside standing merges whose firings were withdrawn, a write beside the subsumed mints the KB withholds, the settle after a `genl` edge re-asking the declarations waiting on a deeper hierarchy, and an `arg` declaration over stored facts beside a deeper declared type | `unmerge-over-standing-merges` (3.0×), `deferred-merge-batch` (3.0×), `merge-withdrawing-a-firing` (3.0×), `mint-withdrawal-under-busy-term`, `settle-beside-withheld-mints`, `mint-release-after-genl-move`, `arg-declaration-over-facts` |
+| a recover's rebuilds, per claim, declaration, fact or negation pair each re-reads: the inherited discovery's questions and the placements they give, the waiting declarations, the lifts, the closing settle's placements; and the first write after a recover | `recover-inherited-discovery`, `recover-discovery-own-out`, `recover-discovery-separated-term`, `declaration-rebuild`, `lift-rebuild`, `recover-negation-pairs`, `first-write-after-recover` |
+| an `exceptWhen` roster gate, a write beside believed `except`s it does not reach ([contexts.md](contexts.md#except-removing-visibility-down-a-context-subtree)), an `except` beside the firings that do not rest on its target, the first read after a two-pass settle, a write beside refused firings ([the kind roster](exceptions.md#a-refused-firing-is-remembered-as-bindings)), a retraction releasing a firing beside a guarded rule's firings ([what is re-chained](exceptions.md#re-chaining-what-was-released-not-what-was-touched)), a first read below an `exceptWhen` rule's context ([asked at every reader](naf.md#evaluated-in-the-placement-context-not-the-join)), a scoped read beside what the `except`s hide, and an `except` of a guard's blocker beside the guarded rule's other firings | `exception-roster-gate`, `assert-over-standing-excepts` (3.0×), `read-after-two-pass-settle` (3.0×), `assert-beside-naf-refusals`, `released-refusal-beside-guarded-firings` (4.0×), `guarded-firings-read-below`, `visibility-reading`, `except-beside-unrelated-firings`, `except-of-a-guard-blocker` |
+| the placed nogoods ([The nogood families](#the-nogood-families)): a mark, a binding or a declaration arriving over its candidates and the first read after it, a write beside the placed pairs it does not reach, a write beside contexts each holding a placed nogood, a membership joining one of n standing dilemmas or joining a nogood as its loser, a write adding a candidate beside the candidates standing elsewhere, a write beside the candidates of four families stated where its context does not see them, a warm read of a placed loser, a read beside the candidate tuples a binding holds, a vantage below the members' maximum, the join naming a chain's contexts, a brave or cautious ask between writes, an ask of the candidate index after an image install, and the first write after one | `irreflexive-mark-arrival` (3.0×), `arity-binding-arrival` (3.0×), `membership-declaration-arrival`, `tuple-mark-determinant-write`, `negation-reader-write`, `verdict-window-write`, `reader-scoped-write`, `own-out-discovery-write` (1.3×), `standing-nogood-write`, `standing-loser-write`, `candidate-write`, `reached-reader-family-read`, `decided-warm-read`, `held-shape-first-withdrawal`, `negation-reader-warm-read`, `tuple-mark-warm-read`, `per-reading-vantages`, `chain-join`, `brave-ask-between-writes` (3.0×), `installed-image-reads`, `first-write-after-install` |
+| placement and the read walk ([A nogood placed as a conclusion](#a-nogood-placed-as-a-conclusion)): a write naming no placed nogood, a write making a nogood whole or dissolving one beside its loser's consequences, a `genlCx` edge reaching none of the placed nogoods or giving none of them a new view, a membership beside the types its term holds, a separation beside the kept terms, a read below a vantage beside the defeats outside its support, a `belief-status` beside the excepts and defeats on other targets, a read an arity placement exempts, a `genl` edge's defeat beside the defeats of other edges, a hidden route beside the unclaimed types under its end, a reading of a context's dilemmas beside those it does not see, a `genl` edge beside the contradicted `orthogonal`s (3.0×), a fact naming no nogood member asserted under a listener, a read beside the defeats in contexts its reader does not see, a read in the depth of the derivation it asks, a backward query beside the candidates no context places, a `genlCx` edge giving a nogood one more placement beside the placements it holds, a closure read at the readers a `genl` edge's defeat does not reach, a hidden firing's read beside the memberships under their own hidden edges, and an `except` beside the carried inherited-clash entries whose questions do not read its target | `vantage-unrelated-write`, `whole-beside-loser-consequences`, `dissolving-beside-loser-consequences`, `whole-beside-unary-loser-consequences`, `dissolving-beside-unary-loser-consequences`, `vantage-dissolving-write`, `vantage-context-edge-unreached`, `context-edge-beside-membership-nogoods`, `membership-beside-held-types`, `separation-beside-kept-terms`, `read-below-vantage`, `hidden-check-beside-excepts`, `arity-exempt-read`, `genl-defeat-beside-defeats`, `hidden-route-beside-unclaimed-types`, `hidden-route-beside-untyped-types`, `reader-dilemmas-beside-unseen-ones`, `edge-beside-contradicted-orthogonals` (3.0×), `listener-write-beside-defeats`, `read-beside-unseen-defeats`, `default-chain-beside-unseen-defeats`, `monotonic-chain-beside-seen-defeats`, `backward-query-beside-candidates`, `context-edge-beside-placements`, `defeat-beside-unreached-readers`, `hidden-route-beside-hidden-claims`, `inherited-entry-except` |
 | retrieval: an argument after a variable, a compound, an intersection or an overlay posting, a columnar insert, a closure already asked, an open `disjoint` goal, a membership of a busy term, and a plan | `arg-root-retrieval`, `compound-probe`, `intersect-selectivity`, `overlay-selectivity`, `columnar-fanout`, `closure-membership`, `disjoint-enumeration`, `membership-read-under-busy-term`, `plan-scaling` |
 | solving and the qualitative calculi | `solve-rule-grounding`, `label-beside-unrelated-facts`, `qcn-network-residency`, `qcn-arrival-over-standing-firings` (3.5×), `qcn-arrival-beside-an-unmoved-network` (2.5×) |
+
+`second-route-over-a-deep-chain` claims a read of a firing flat in the length of the
+`genl` chain its second route climbs, and is marked `:unmet`, so a reading over its 2.0×
+bound reports UNMET and does not fail the run. The search walks the chain with the scoped
+`genl?` on every read, and holds nothing between reads.
 
 **Flat past a cap.** A budgeted merge sweep implicates every instance below a type or
 inside an ancestor set, which is the extent rather than the region. The sweep stops at
@@ -2069,13 +2430,11 @@ terms (512) moves every predicate preserved along `genl` with no read per term:
 `genl-crossing-wide`, 3.0× past the cap.
 
 **Linear in the standing set.** `k` is the standing set: the nogoods, merges or withdrawn
-firings the KB holds. No settle carries a verdict forward. `clear-inherited!` empties the
-withdrawal cache on every settle while an inherited clash is held, and a write that moves
-`res/withdrawal-stamp` empties it too, so the next read at a reader decides every nogood
-that reader sees again (`decide/losers`). Belief is computed from current state and never
-carried over, which is invariant 1, and the cost of that is an O(k) term on such a write.
-The checks bound the per-member cost, so a regression to a full re-derivation of the set
-on every settle fails them:
+firings the KB holds. A placed nogood is stored and a read walks only the asked handle's
+support, so the standing set enters a write through the steps that read it whole: the
+inherited discovery's republish, a `genlCx` edge's reach, and a report that orders what
+it returns. The checks bound the per-member cost, so a regression to a full re-derivation
+of the set on every settle fails them:
 
 | claim | `lein perf` check | growth | bound |
 |---|---|---|---|
@@ -2084,12 +2443,13 @@ on every settle fails them:
 | standing inherited dilemmas, per assert | `inherited-clash-arbitration` | 32× | under 10× |
 | standing inherited clashes split across contexts, per unrelated assert | `inherited-clash-arbitration-split` | 512× | under 90× |
 | carried inherited-clash entries, per unrelated retract | `inherited-entry-retraction` | 32× | under 10× |
+| carried inherited-clash entries, per declaration no entry reads | `inherited-entry-declaration` | 32× | under 5× |
 | standing merges, per unrelated retract | `retract-merge-scaling` | 32× | under 18× |
 | standing merges, per `except` of one merge asserted and retracted | `except-merge-scaling` | 128× | under 28× |
 | standing clashes, per `genl` edge separating nothing | `taxonomy-edge-arbitration` | 100× | under 35× |
 | standing dilemmas, per `genlCx` edge reaching nothing | `context-edge-arbitration` | 100× | under 32× |
 | `contradictions`, which orders the standing set it returns | `standing-clash-reading` | 32× | under 175× |
-| firings a reader below a vantage reads as withdrawn, per settle's scan of them (`reroute/lost-firing-seeds`) | `lost-firing-scan` | 8× | under 20× |
+| standing dilemmas in a context, per `preview` of a fact there no nogood reads | `preview-beside-standing-dilemmas` | 16× | under 2× |
 
 **Grows with a structure the step walks.** The step walks something the fact or the
 question names, and the claim is that it walks that structure once rather than once per
@@ -2104,6 +2464,7 @@ pair:
 | the super-predicates, per declarations census | `quality-declaration-depth` | 32× | under 45× |
 | the claims reaching one term, per ask | `inherit-reach-memo` | 8× | under 12× |
 | the routes between two terms, per preservation support | `witness-route-search` | 8× | under 12× |
+| the nogoods a `genlCx` edge makes whole, per edge | `context-edge-making-nogoods-whole` | 8× | under 16× |
 | the instants of a metric network, per arriving constraint | `metric-closure-warm-start` | 8× | under 35× |
 | the links of a sign chain, per ask after a write | `sign-chain-rebuild` | 32× | under 100× |
 
@@ -2218,7 +2579,7 @@ holds the vocabulary and the page that owns each keyword.
   clashes with nothing and defeats nothing. The ways an equality stops being believed are
   retracting it and withdrawing what a *derived* one rests on; both un-merge, and both are
   re-seeded ("The other half" above).
-- **A firing names one witness, so a second route is re-derived rather than recorded.** A
+- **A firing names one witness, so a second route is re-derived or read rather than recorded.** A
   justification names one path for each reachability it rests on: the `genl` path a
   subsumed match climbed, the `genlCx` path its placement is seen over, and the path a
   `transitiveInArg` claim travelled. A route arriving after the firing that the witness
@@ -2227,15 +2588,16 @@ holds the vocabulary and the page that owns each keyword.
   informant, conclusion and bindings, and antecedents that differ only in believed `genl`
   and `genlCx` edges. The store then holds what the order bringing the route first holds,
   and `why` answers the same in both (`late_route_test`). The argument-type entailment
-  replaces its route the same way. Four things take a named path away, and each starts a
-  re-derivation over a surviving route:
+  replaces its route the same way. Four things take a named path away. The first two
+  start a re-derivation over a surviving route, and the other two leave the firing standing
+  at a reader that reaches the path's ends another way:
 
   | what takes the path | where | what re-derives |
   |---|---|---|
   | a retraction of an edge | the network | the re-join of the facts under the edge, from what the sweep collected (`special/resubsumption-seeds`) |
   | a network defeat of an edge | the network | the same re-join, from the edges that went IN ⇒ OUT in the settle (`settle/departed-seeds`) |
-  | a reader's verdict against an edge | each reader that takes it OUT | the firing again, at each reader that still reaches, with every witness search asked from that reader (`reroute/lost-firing-seeds`, `chain/*witness-view*`) |
-  | an `except` of an edge | the excepting context and below | the same, per reader |
+  | a placed `defeat` of an edge | the defeat's placement and below | nothing: the read walk reads the edge at its label for a firing whose goals the reader reaches from a believed claim over edges it does not hide (`exc/rerouted`) |
+  | an `except` of an edge | the excepting context and below | the same read |
 
   The argument-type entailment and the equality a descended `functional` or
   `anti_symmetric` mark derives name a `genl` route the same way (`checks/edge-support`),
@@ -2243,52 +2605,70 @@ holds the vocabulary and the page that owns each keyword.
   deleted again after the teardown, and a network defeat draws each one the edge took OUT
   (`special/rederive-descended`, [argtypes.md](argtypes.md)).
 
-  A reader's verdict and an `except` leave the edge IN in the network, so no relabel starts:
-  the settle asks each reader at or below a vantage or an excepting context for the firings
-  it reads as withdrawn only because an edge of a path they name is withdrawn there, whose
-  sentence it believes through no other sentex, and whose path ends it still reaches. Such a
-  firing is chained again from its antecedent facts with the reader as the witness view, so
-  the path found is one the reader reads, and placement is decided from that path's
-  contexts as for any firing.
+  A placed `defeat` and an `except` leave the edge IN in the network, so no relabel starts
+  and nothing is chained again. The read walk takes each justification that rests on a
+  handle hidden at the reader and asks whether the firing stands another way
+  (`exc/rerouted`). For a rule firing it reads the goals the firing matched through a
+  reach: each antecedent literal of the rule no antecedent of the justification states,
+  instantiated from the conclusion and the stated antecedents. It then searches backward
+  from each goal for a believed claim that reaches it over edges the reader believes and
+  sees (`inherit/goal-reached?`): a stated match through the matcher's sub-predicate fan,
+  or, at a position a `transitiveInArg` or `transitiveInArgInverse` declaration preserves,
+  a claim whose term reaches the goal's term. The search starts from the stored claims
+  with the goal's other arguments when they number no more than the goal term's reach, and
+  from the reach's terms otherwise, and it stops at the first claim. A claim the
+  justification does not name counts, so the answer is the same whichever claim the
+  arrival order made the firing name. A justification of no rule, or whose goals the walk
+  cannot instantiate, stands where the reader reaches the two ends of every path its
+  hidden edges lie on: the scoped `genl` closure, `genlCx` sight, or the fact relation a
+  `transitiveInArgInverse` claim moves along. Either answer is memoized for one read, and nothing
+  is stored.
+
+  The search reads claims and edges as the read that asked it does. A belief read
+  (`res/believed-at?`, `in?`) counts a claim or an edge an `except` hides at the reader, and
+  a visibility read (`ask?`, `believed?`) does not (`tax/*search*`). A claim or a derived
+  edge inside the search is read with its own second routes, the same way as outside it,
+  so a claim that stands only on a second route still reaches the goal. A route question
+  met again on one path reads as not reaching. An answer that read false off a question
+  still open above it is not kept (`exc/route-answer`). The literal cache and the scoped
+  closure caches key on the search's reading, so a read outside a search is never served
+  an answer read inside one. The justifications of one conclusion that share a goal ask
+  the search once per read.
 
   The preservation witness is the route whose most specific asserting context is the most
   general available ([inherit.md](inherit.md)), so a clash that denies an edge of the
   specific route costs a reader nothing: the conclusion is placed above that route and does
-  not rest on it. A clash that denies an edge of the **named** route withdraws the firing at
-  the clash's vantage and below, and the re-derivation above puts it back. Two shapes show
-  where it lands. The first is a clash in the specific route's own context:
+  not rest on it. A clash that denies an edge of the **named** route hides the firing at
+  the clash's vantage and below, except at a reader that reaches the path's ends another
+  way. Two shapes show it. The first is a clash in the specific route's own context:
 
   ```
   CxUniverse   (genl mid dog) (genl chi mid)   the long route, named
-               (largerThan dog cat)  (transitiveInArg largerThan 1 genl)
+               (largerThan dog cat)  (transitiveInArgInverse largerThan 1 genl)
                forward rule (largerThan ?x ?y) ⇒ (noted ?x ?y)
    └─ CxA      (genl chi dog)                  the short route
                (not (genl chi mid))  :monotonic
   ```
 
-  CxA reaches `chi` up to `dog` over its own edge and reads the CxUniverse firing as
-  withdrawn. The settle re-derives `(noted chi cat)` over the short route, which places it
-  in CxA as a sentex of its own — the firing the short-route-first order stores anyway.
+  CxA reaches `chi` up to `dog` over its own edge, so it reads the CxUniverse firing over
+  that route and believes `(noted chi cat)`, as the short-route-first order believes it.
 
   The second is a pair of routes that **tie** on generality, where the shorter one is
   named:
 
   ```
-  CxUniverse   (largerThan dog cat)  (transitiveInArg largerThan 1 genl)
+  CxUniverse   (largerThan dog cat)  (transitiveInArgInverse largerThan 1 genl)
                forward rule (largerThan ?x ?y) ⇒ (noted ?x ?y)
    └─ CxA      (genl chi dog)  and  (genl chi mid) (genl mid dog)   both routes
         └─ CxB (not (genl chi dog))  :monotonic
   ```
 
   Both routes lie in CxA, so the one-edge route is the witness and `(noted chi cat)` is
-  stored in CxA. CxB is the vantage of the clash over that edge and reads that
-  justification as withdrawn; the re-derivation from CxB names the two-edge route, which
-  places the conclusion in CxA again, so it lands as a **second justification** of the same
-  sentex and CxB reads the sentex through it.
+  stored in CxA. CxB is the vantage of the clash over that edge, and reaches `chi` up to
+  `dog` over the two-edge route, so it reads the justification over that route.
 
-  Replacement stops at three places, each of which changes what is stored and not what is
-  believed. A re-derivation for one reader, as in the tie example, keeps both
-  justifications, because the readers above the vantage still read the first. An older
+  Replacement stops at two places, each of which changes what is stored and not what is
+  believed. An older
   route with an edge OUT is kept, so an edge defeated and then revived leaves the firing
   with the route it had and the route the re-derivation named. And the equality a
   descended `functional` or `anti_symmetric` mark derives keeps the route it first named:
@@ -2304,7 +2684,7 @@ holds the vocabulary and the page that owns each keyword.
   routes, and each route places the conclusion in a reader the other does not reach:
 
   ```
-  CxUniverse   (aRel high val)  (transitiveInArg aRel 1 genl)
+  CxUniverse   (aRel high val)  (transitiveInArgInverse aRel 1 genl)
                forward rule (aRel ?x ?y) ⇒ (noted ?x ?y)
    ├─ CxA      (genl low mid) (genl mid high)
    ├─ CxB      (genl low high)
@@ -2315,23 +2695,13 @@ holds the vocabulary and the page that owns each keyword.
   whichever arrived first, and a knock of a CxA edge — at CxA or scoped to CxD — leaves
   CxB's firing and CxD's reading of it standing. The four rows of the table above apply
   to each route alone: a knock takes the path one firing names, and a reader that still
-  reaches over the same route's other supporters re-derives as described.
+  reaches over the same route's other supporters reads the firing as described.
   `second_route_test` builds these shapes in every order, with and without each knock, and
   [defenses.md](defenses.md#routes-in-sibling-contexts-each-carry-a-firing) gives why one
   named sibling route would not do.
 
-  What this leaves is history in the store. A firing re-derived for a reader outlives the
-  defeat or the `except` that prompted it, since lifting either makes the original firing
-  readable again and takes nothing the re-derivation made; every reader of the re-derived
-  firing also reads the original one, so no belief depends on it, and `sentexes-in-context`
-  and the handle count do. And the scan runs on every settle pass while a standing nogood, an
-  `except` or a reader-decided candidate stands, one withdrawal per reader below it and one
-  check per firing withdrawn there — linear in those firings (`lein perf`'s
-  `lost-firing-scan`), and nothing when the KB holds none. A pass reads a reader again only
-  when its withdrawal entry was recomputed, or the window holds a witness edge or a sentex
-  of a sentence its last scan found re-routable; the readers themselves are memoized on
-  the candidate index and the rosters. So an unrelated write scans no reader and reads no
-  candidate (`negation-reader-write`). The covering test that decides which routes place a firing leaves a
+  A reader that reads a firing over a second route stores nothing, so lifting the defeat
+  or the `except` leaves the store as it was. The covering test that decides which routes place a firing leaves a
   surplus of the same kind, a firing placed below another it is read beside, in a lattice
   that splits one route across sibling contexts
   ([defenses.md](defenses.md#routes-in-sibling-contexts-each-carry-a-firing) gives the

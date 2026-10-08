@@ -439,6 +439,18 @@
   ([conn term context] (c/describe conn term context))
   ([conn term context opts] (c/describe conn term context opts)))
 
+(defn direct-genls
+  "The types `t` is a subtype of by **one** `genl` edge in the closure — its direct
+  parents, where `genls` is everything they reach."
+  ([conn t] (c/direct-genls conn t))
+  ([conn t context] (c/direct-genls conn t context)))
+
+(defn direct-specs
+  "The types that are a subtype of `t` by **one** `genl` edge in the closure — its direct
+  children."
+  ([conn t] (c/direct-specs conn t))
+  ([conn t context] (c/direct-specs conn t context)))
+
 (defn disjoint-metatypes
   "The declared disjoint metatypes — each a type whose member types are pairwise disjoint
   by `(disjoint_metatype M)`."
@@ -556,6 +568,11 @@
   [conn b]
   (c/kb-diff conn b))
 
+(defn kb-integrity
+  "Run the bounded, read-only integrity sweep in `context`."
+  ([conn candidate-terms context] (c/kb-integrity conn candidate-terms context))
+  ([conn candidate-terms context options] (c/kb-integrity conn candidate-terms context options)))
+
 (defn kb-quality
   "Seven readings about the **knowledge** — one map, seven keys, each a distribution rather
   than a number:"
@@ -667,6 +684,13 @@
   [conn sx]
   (c/readable-sentence conn sx))
 
+(defn relation?
+  "Is `term` a relation of two or more places by what the KB stores of it, visible from
+  `context` (default `?ctx`, every context): an `(arity P n)` declaration or exact-arity
+  class membership of two or more, or a `variable_arity` membership."
+  ([conn term] (c/relation? conn term))
+  ([conn term context] (c/relation? conn term context)))
+
 (defn representative
   "The term standing for `term`'s equivalence class — `term` itself when nothing has merged
   it, so this is total and never nil."
@@ -723,6 +747,12 @@
   ([conn pred] (c/sentexes-with-functor conn pred))
   ([conn pred opts] (c/sentexes-with-functor conn pred opts)))
 
+(defn separating-covers
+  "The believed `separating` and `partition` rosters, as a set of `[whole parts kind]`:
+  every two distinct `parts` are disjoint, and `disjoint?` reads them from this table."
+  [conn]
+  (c/separating-covers conn))
+
 (defn settle-stats
   "Instrumentation for the `exceptWhen` fixpoint in `settle`."
   [conn]
@@ -742,10 +772,11 @@
   "The subsumption relationship of type `a` to type `b`, one of: `:coextensional` (each is
   `genl` the other), `:genl` (`(genl a b)` holds — `a` is a subtype of `b`), `:spec`
   (`(genl b a)` holds — `a` is a supertype of `b`), `:disjoint` (provably no shared
-  instance), `:orthogonal` (neither subsumes the other and not disjoint, but a shared
-  instance the registry answers without rule expansion exists), `:unknown` (none of the
-  above is provable), or `:inconsistent` (multiple contradictory relationships hold, e.g.
-  both genl-related and disjoint)."
+  instance), `:orthogonal` (a stated `(orthogonal a b)`, or neither subsumes the other and
+  not disjoint, but a shared instance the registry answers without rule expansion exists,
+  or a shared subtype not provably empty), `:unknown` (none of the above is provable), or
+  `:inconsistent` (multiple contradictory relationships hold, e.g. both genl-related and
+  disjoint)."
   ([conn a b] (c/subsumption-status conn a b))
   ([conn a b context] (c/subsumption-status conn a b context)))
 

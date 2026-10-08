@@ -2,12 +2,12 @@
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.impl.dense-roots
   "A key-interning `KvBackend` (`vaelii.impl.kv`) for the columnar index's non-trie
-  families — the secondary roots, the rule / exception indexes, and the inverted term
-  index.
+  families — the context root, the count tries ending in the context, the opposed members
+  by context, the exception index, and the inverted term index.
 
   Those families are flat `structured-vector-key → handle-set` maps, and the columnar
   measurement (`bench/…/densetrie.clj`) found their **boxed vector keys**
-  (`[:term-index term]`, `[:functor-root pred]`, …) to be ~150 MB — the majority of the
+  (`[:term-index term]`, `[:context-root ctx]`, …) to be ~150 MB — the majority of the
   columnar index once the trie went native.  This backend keeps the *values* as
   `IntPostings` (Phase 1's tiered
   `int[]`/Roaring set) but collapses the keys: the term is interned to an `int` through
@@ -23,10 +23,12 @@
   backend (in the columnar store the trie is native, so no `[:trie …]` key ever reaches
   here).
 
-  **Every handle family routes**, the predicate-scoped argument roots included: their
-  `(pred, pos)` scope is interned to a dense id of its own (`argfam-id`) and rides the
-  `pos` field, which no other family uses.  So the fallback holds only vocabulary-scaled
-  name sets, and the fact-scaled mass is one packed map — or, under a snapshot, one
+  **Every handle family routes**, the count tries' leaves included: an argument leaf's
+  `(pred, pos, ctx)` scope, and any other count trie leaf's context scope `(ctx, 0, ctx)`,
+  is interned to a dense id of its own (`argfam-id`) and rides the `pos` field, which
+  the flat families do not use.  The tries' child sets route as packed keys too, their
+  members held as context ids.  So the fallback holds only vocabulary-scaled name sets
+  and counters, and the fact-scaled mass is one packed map — or, under a snapshot, one
   mapped run.  Single-writer, like every index;
   `kv-members` / `kv-intersect` materialize a fresh Clojure set at the boundary — but
   `kv-intersect` builds it at the size of the *answer*, narrowing through
@@ -54,14 +56,16 @@
 
 ;; ---- the argument roots, and what this backend's packing costs them ----------
 ;;
-;; The argument family is the index layer's (`vaelii.impl.kv`): it spells the three keys
-;; and it does the reading.  What reaches here is the ordinary generic ops over those
-;; keys, and `route` packs `[:argument-root pred pos term]` like any other family — the
-;; `(pred, pos)` scope interned to a dense id that rides the `pos` field.  So the
-;; predicate-SCOPED reads, which is what `sentexes-with-args` makes for a named functor
-;; and so the overwhelmingly common query shape, are packed-long lookups: `kv-members` is
-;; one, and `kv-intersect` narrows in the postings' own representation, a mapped run
-;; included.
+;; The argument family is the index layer's (`vaelii.impl.kv`): it spells the keys and it
+;; does the reading.  What reaches here is the ordinary generic ops over those keys.
+;; `route` packs a leaf `[:argument-root :handles [pred pos term ctx]]` with its
+;; `(pred, pos, ctx)` scope interned to a dense id that rides the `pos` field, and a
+;; node's children `[:argument-root :children [pred pos term]]` with its `(pred, pos)`
+;; scope, its members held as context ids.  A node's count is computed from its leaves.
+;; So the predicate-SCOPED reads, which is what `sentexes-with-args` makes for a named
+;; functor and so the overwhelmingly common query shape, are packed-long lookups: one for
+;; the node's contexts and one per leaf read, and `kv-intersect` narrows in the postings'
+;; own representation, a mapped run included.
 ;;
 ;; The predicate-AGNOSTIC reads cost one lookup more.  The index layer takes them over the
 ;; slot roster — `[:argument-slot pos term]` → the predicates present there, a fallback
@@ -86,7 +90,8 @@
 
 (defn fallback-entries
   "The entries the routed families do **not** claim: the term roster and the two slot
-  rosters, whose members are *names* rather than handles.  All are **vocabulary-scaled**, which
+  rosters, whose members are *names* rather than handles, and the predicate-extent and
+  rule-index node counts, one per predicate or rule key.  All are **vocabulary-scaled**, which
   is what lets a snapshot write them as one nippy blob and load them resident without
   the blob tracking the fact count (`disk/index_snapshot.clj`, \"The residency split\")."
   [^DenseRoots b] (p/kv-entries (.-fallback b)))
@@ -104,33 +109,42 @@
 ;; cannot drift apart at all.  A second log would buy nothing and inherit that repair.
 
 (defn argfam-table
-  "The scope dictionary as `{:preds int[] :positions int[]}`, indexed by scope id, with
-  each predicate taken through `remap` into the durable dictionary's id space — the same
-  `int[]` the packed keys' term halves are remapped by.
+  "The scope dictionary as `{:preds int[] :positions int[] :contexts int[]}`, indexed by
+  scope id, with each predicate and context taken through `remap` into the durable
+  dictionary's id space — the same `int[]` the packed keys' term halves are remapped by.
+  A node's scope `[pred pos]` has no context and writes -1 there; a context scope
+  `[ctx 0 ctx]` writes its context as the predicate and 0 as the position.
 
-  A pair's predicate is interned into the term dictionary when the pair is
+  A scope's names are interned into the term dictionary when the scope is
   (`argfam-id`), so every id here has a term id to be written as."
   [^DenseRoots b ^ints remap]
-  (let [af (.-argfam b)
-        n  (long (tok/token-count af))
-        ps (int-array n)
-        qs (int-array n)]
+  (let [af   (.-argfam b)
+        dict (.-dict b)
+        n    (long (tok/token-count af))
+        ps   (int-array n)
+        qs   (int-array n)
+        cs   (int-array n)
+        durable #(int (aget remap (int (tok/token-id dict %))))]
     (dotimes [i n]
-      (let [[pred pos] (tok/id-token af i)]
-        (aset ps i (int (aget remap (int (tok/token-id (.-dict b) pred)))))
-        (aset qs i (int pos))))
-    {:preds ps :positions qs}))
+      (let [[pred pos ctx :as scope] (tok/id-token af i)]
+        (aset ps i (int (durable pred)))
+        (aset qs i (int pos))
+        (aset cs i (int (if (= 3 (count scope)) (durable ctx) -1)))))
+    {:preds ps :positions qs :contexts cs}))
 
 (defn load-argfam!
   "Rebuild the scope dictionary from a snapshot's table, ids implied by position — the
   same first-writer-wins order `vaelii.impl.tokens` allocates in, so an id read out of a
-  packed key names the pair it named when the image was written."
-  [^DenseRoots b ^ints preds ^ints positions n]
+  packed key names the scope it named when the image was written."
+  [^DenseRoots b ^ints preds ^ints positions ^ints contexts n]
   (let [af   (.-argfam b)
         dict (.-dict b)]
     (tok/clear-tokens! af)
     (dotimes [i (long n)]
-      (tok/intern-token! af [(tok/id-token dict (aget preds i)) (aget positions i)]))
+      (let [pair [(tok/id-token dict (aget preds i)) (aget positions i)]]
+        (tok/intern-token! af (if (neg? (aget contexts i))
+                                pair
+                                (conj pair (tok/id-token dict (aget contexts i)))))))
     (let [loaded (long (tok/token-count af))]
       (when (not= loaded (long n))
         (throw (ex-info (str "the argument-root scope dictionary reloaded as " loaded

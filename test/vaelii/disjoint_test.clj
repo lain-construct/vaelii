@@ -4,6 +4,7 @@
   "disjoint and disjoint_metatype, and the contradiction detection they drive."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
@@ -55,8 +56,8 @@
 
 (tu/deftest-kb a-membership-is-recorded-on-the-marks-storage-not-its-belief
   ;; `(M T)` is a *supporter* of T's membership, so the member arm records it whenever
-  ;; the mark is stored, whatever the mark's label; belief follows through the flat-cache
-  ;; reconcile.  Gated on belief instead, the same four facts would separate the pair in
+  ;; the mark is stored, whatever the mark's label; the cache reads the network, and a
+  ;; scoped read filters the mark through the read walk.  Gated on belief instead, the same four facts would separate the pair in
   ;; one arrival order and not the other.
   (let [species (tu/tmp-pred) dog (tu/tmp-type) cat (tu/tmp-type)
         t (reasoning/taxonomy kb)]
@@ -64,12 +65,13 @@
     (v/assert kb (list species dog) 'CxUniverse)
     (let [neg (v/assert kb (list 'not (list 'disjoint_metatype species)) 'CxUniverse
                         {:strength :monotonic})]
-      (is (not (tax/disjoint-metatype? t species)) "the mark is defeated")
-      (is (tax/stored-disjoint-metatype? t species) "but it is still stored")
+      (is (tax/disjoint-metatype? t species) "the defeated mark stays IN in the network")
+      (is (tax/stored-disjoint-metatype? t species) "and stored")
       (v/assert kb (list species cat) 'CxUniverse)
       (is (= #{dog cat} (tax/metatype-members t species))
           "a member stated while the mark is OUT is recorded")
-      (is (not (v/disjoint? kb dog cat)) "and separates nothing while the mark is OUT")
+      (is (not (v/disjoint? kb dog cat 'CxUniverse))
+          "and separates nothing at the context its defeat is placed at")
       (v/retract! kb neg)
       (is (tax/disjoint-metatype? t species) "the mark revives")
       (is (v/disjoint? kb dog cat)
@@ -85,10 +87,10 @@
           neg  (v/assert kb (list 'not (list 'disjoint_metatype species)) 'CxUniverse
                          {:strength :monotonic})]
       (v/retract! kb hcat)
-      (is (nil? (get-in @t [:cache-support [:member species cat]]))
-          "the membership's support entry goes with the sentex")
-      (is (nil? (get-in @t [:cache-handle-keys hcat]))
-          "and the handle leaves the reverse index")
+      (is (empty? (tax/supporters t [:member species cat]))
+          "the membership's supporter goes with the sentex")
+      (is (empty? (reads/as-stored-installed-keys (:index kb) hcat))
+          "and the handle installs nothing")
       (v/retract! kb neg)
       (is (= #{dog} (tax/metatype-members t species)))
       (is (not (v/disjoint? kb dog cat))
@@ -107,7 +109,7 @@
       (let [live (tax/metatype-members t species)]
         (v/recover kb)
         (is (= live (tax/metatype-members t species)) "same members after recover")
-        (is (not (tax/disjoint-metatype? t species)) "the defeat survives recover"))
+        (is (not (v/disjoint? kb dog cat 'CxUniverse)) "the defeat survives recover"))
       (v/retract! kb neg)
       (is (v/disjoint? kb dog cat)))))
 

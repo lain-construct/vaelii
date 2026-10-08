@@ -12,8 +12,8 @@
   repeatedly, each run with one more phase stubbed out, from the outside in.  The
   difference between two consecutive runs is that phase's cost, and the deltas sum to
   the baseline by construction — so there is no unattributed residue to argue about.
-  The order is chosen so a phase is peeled *before* anything it reads: the negation
-  coincidence probe reads the index, so it goes first; the index write is peeled before
+  The order is chosen so a phase is peeled *before* anything it reads: the nogood
+  candidate note reads the index, so it goes first; the index write is peeled before
   the record write, which is peeled before canonicalization.
 
   Every stub is a `with-redefs-fn` of a var the load path calls, so the un-stubbed
@@ -31,6 +31,7 @@
   Run: `lein bench-loadphase [n] [repeats]`  (default 200000, 1)."
   (:require [vaelii.core :as v]
             [vaelii.impl.assert-entry :as entry]
+            [vaelii.impl.decide :as decide]
             [vaelii.impl.integrate :as integrate]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.kv :as kv]
@@ -132,7 +133,7 @@
     #'special/visibility-seeds               nothing
     #'violations/report                      nothing}
    {#'entry/mark-premise nothing}
-   {#'kb/note-opposed! nothing}
+   {#'decide/note-candidate! nothing}
    {#'observe/notify-add   nothing
     #'observe/note-change  nothing
     #'observe/cache-handle! nothing}
@@ -145,7 +146,7 @@
    "settle (one, deferred)"
    "special-predicate suite + violations"
    "JTMS node + premise mark"
-   "P/¬P coincidence set"
+   "nogood candidate note"
    "observation call sites"
    "index write (key streams + backend)"
    "record store write"

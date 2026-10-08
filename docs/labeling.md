@@ -314,8 +314,7 @@ with no answer-set enumeration and no backend. `label/classify-datum` and
 
 It rests on one JTMS read. `jtms/grounded-in-region` recomputes belief with a set of datums
 **forced OUT** — the forward consequence closure of that set, and within it the datums that
-stay believed, belief outside the closure read per datum rather than materialized
-(`grounded-forcing-out` splices the same read back into full belief). A **resolution** is a minimum-cardinality set of dilemma members whose
+stay believed, belief outside the closure read per datum rather than materialized. A **resolution** is a minimum-cardinality set of dilemma members whose
 forcing OUT satisfies every nogood — leaves no nogood with all its members still believed —
 which is a dilemma set's optimal labelings. `classify-local` reads belief under each
 resolution and splits a believed datum by which resolutions keep it: `:true` when every
@@ -356,7 +355,7 @@ neither forced nor excluded. A backend refines the members of such a cluster whe
 `:refinable`, and nothing else. An operator tunes each cap through its
 `VAELII_CLASSIFY_*` switch (docs/operations.md). Its cost is
 the clusters' consequence closures: **linear** in the number of independent dilemmas
-(`grounded_forcing_out_test`), exponential only inside one interacting cluster or across the
+(`grounded_in_region_test`), exponential only inside one interacting cluster or across the
 clusters one datum joins, and capped at both.
 
 ## Naming
@@ -373,8 +372,8 @@ dilemma-to-`Program` bridge (`label/dilemma-program`), the solve-sourced labelin
 `edge/edge-solver` and the clingo/clasp backends are `asp_label_test` /
 `asp_edge_test`'s subject. The `(bravely S)` / `(cautiously S)` prover and the
 prover-driven `classify-local` classifications are `asp_prover_test`'s; the backend-free
-property tests for the solve-free bracket (`jtms/grounded-forcing-out`, `classify-local`
-order-independence and scaling) are `grounded_forcing_out_test`'s.
+property tests for the solve-free bracket (`jtms/grounded-in-region`, `classify-local`
+order-independence and scaling) are `grounded_in_region_test`'s.
 
 Limits, none of them silent:
 

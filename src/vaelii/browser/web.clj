@@ -755,18 +755,21 @@
 
 (defn- disjoint-pairs
   "The disjointness pairs to display: the believed `(disjoint a b)` sentexes, plus the
-  pairs a `disjoint_metatype` induces.
+  pairs a `disjoint_metatype` induces, plus the pairs a believed `separating` or
+  `partition` roster separates (`separating-covers`, the table `disjoint?` reads).
 
   The induced ones are computed rather than read, because a metatype separates its
   members by being *consulted* rather than by materializing a clique of real
-  sentexes, so a page listing only stored pairs would silently under-report.  A member is
-  not separated from *itself* by belonging to one, which is why only that half filters
-  the diagonal out — a stated `(disjoint A A)` is content and is shown."
+  sentexes, so a page listing only stored pairs would silently under-report.  A roster
+  separates its parts the same way, so each roster contributes every pair of its named
+  parts.  A member is not separated from *itself* by belonging to one, which is why only
+  those halves filter the diagonal out — a stated `(disjoint A A)` is content and is
+  shown."
   [kb]
   (let [declared (into #{} (keep (fn [s] (let [[_ a b] (:sentence s)]
                                            (when (and a b (not (v/negative? s)))
                                              (disjoint-pair a b)))))
-                       ;; the functor root rather than `(disjoint ?a ?b)`: a pattern with
+                       ;; the predicate extent rather than `(disjoint ?a ?b)`: a pattern with
                        ;; no ground argument gives the trie nothing to narrow on and fans
                        ;; over every child token it has
                        (v/sentexes-with-functor kb 'disjoint {:believed? true}))
@@ -775,25 +778,31 @@
                        a  ms
                        b  ms
                        :when (neg? (compare (str a) (str b)))]
+                   (disjoint-pair a b))
+        rostered (for [[_whole parts] (v/separating-covers kb)
+                       :let [ps (vec (distinct parts))]
+                       a    ps
+                       b    ps
+                       :when (neg? (compare (str a) (str b)))]
                    (disjoint-pair a b))]
-    (into declared induced)))
+    (-> declared (into induced) (into rostered))))
 
 (defn- term-class
   "The role class of a term, used to color it: type / individual / predicate /
   context / number / variable.  `v/term-role` supplies the naming role; the view's
-  `types` set overlays it so a term known to the taxonomy colors as a type even where
-  naming would call it a predicate — and **before** the non-symbol fallback, because a
-  type node need not be a symbol.  An imported ontology names a type it has no atomic
-  name for with a function term (17,211 of the types in the OpenCyc import `docs/kbs.md`
-  measures are compounds), and reading that as a number is the whole page in the wrong
-  colour."
-  [{:keys [types]} t]
+  `types` set overlays it so a node of the taxonomy colors by stored content, as
+  `describe`'s role does: a predicate when `v/relation?` answers for it, else a type.
+  The overlay comes **before** the non-symbol fallback, because a type node need not be
+  a symbol.  An imported ontology names a type it has no atomic name for with a function
+  term (17,211 of the types in the OpenCyc import `docs/kbs.md` measures are compounds),
+  and reading that as a number is the whole page in the wrong colour."
+  [{:keys [kb types]} t]
   (let [role (v/term-role t)]
     (cond
       (= role :variable)  "t-var"
       (= role :number)    "t-num"
       (= role :context)   "t-context"
-      (contains? @types t) "t-type"
+      (contains? @types t) (if (v/relation? kb t) "t-pred" "t-type")
       (not (symbol? t))   "t-num"
       (= role :individual) "t-ind"
       (= role :predicate) "t-pred"
@@ -1120,15 +1129,18 @@
 
 (defn- state-tag
   "The belief-state pill for a sentex: IN when the JTMS believes it, else the `why-not`
-  reason (superseded / defeated / unsupported / not-stored).  The sentex page shows it
-  always; a list row shows only the reason and only when the row is OUT — a believed
+  reason (superseded / defeated / unsupported / not-stored), followed for a placed defeat
+  by the declarations its nogood convicts through.  The sentex page shows it always; a list row shows only the reason and only when the row is OUT — a believed
   row's dimmed badge already reads as believed.  The one authority `in?` folds every
   not-believed reason into, and the page reads it back."
   [{:keys [kb] :as view} h]
   (if (believed? view h)
     [:span.tag.tag-in "IN"]
-    (let [r (name (:reason (v/why-not kb h)))]
-      [:span.tag {:class (str "tag-" r)} r])))
+    (let [{:keys [reason grounds]} (v/why-not kb h)
+          r (name reason)]
+      (list [:span.tag {:class (str "tag-" r)} r]
+            (when (seq grounds)
+              [:span.muted " through " (interpose ", " (map #(handle-ref view (:handle %)) grounds))])))))
 
 (defn- edit-link
   "A way into the editor: an htmx GET of `/edit`, swapped into the `#editor` panel.  A
@@ -1270,7 +1282,7 @@
   the missing antecedents of an unsupported one.  Nothing for a believed sentex — its
   proof is the \"Supported by\" section."
   [{:keys [kb] :as view} h]
-  (let [{:keys [reason superseded-by contradicted-by support]} (v/why-not kb h)]
+  (let [{:keys [reason superseded-by contradicted-by grounds support]} (v/why-not kb h)]
     (case reason
       :superseded
       [:div.belief
@@ -1284,11 +1296,16 @@
       :defeated
       [:div.belief
        [:p [:b "Defeated"] " — contradiction resolution forced it OUT."]
-       (if (seq contradicted-by)
+       (when (seq contradicted-by)
          [:ul (for [c contradicted-by]
                 [:li "contradicted by " (handle-ref view (:handle c))
                  " @ " (term-link view (:context c))
-                 (when-let [dc (:defeat-class c)] [:span.tag (str "class " (name dc))])])]
+                 (when-let [dc (:defeat-class c)] [:span.tag (str "class " (name dc))])])])
+       (when (seq grounds)
+         [:ul (for [g grounds]
+                [:li "convicted through " (handle-ref view (:handle g))
+                 " @ " (term-link view (:context g))])])
+       (when (and (empty? contradicted-by) (empty? grounds))
          [:p.muted "the winning sentex has since been retracted; nothing contradicts it now."])]
       :unsupported
       [:div.belief
@@ -1364,7 +1381,7 @@
   that cost grows with the group and is paid twice per page.
   Past the cap the group pages in the order the index read it in, which is reproducible
   for an unchanged store — the one property paging needs — and is the order
-  `comment-rows` already pages the functor roots in."
+  `comment-rows` already pages the predicate extents in."
   20000)
 
 (def ^:private extent-defer-cap
@@ -1392,8 +1409,8 @@
 
 (defn- direct-arg-positions
   "The 1-based argument positions at which `term` sits directly in some stored fact —
-  exactly the positions the predicate-scoped argument roots (`[:argument-root pred pos
-  term]`) maintain for it.  Rules are excluded (they are not in the argument roots).
+  exactly the positions the predicate-scoped argument roots (the nodes `[pred pos term]`)
+  maintain for it.  Rules are excluded (they are not in the argument roots).
 
   **Asked of the counts, not of the records.**  `count-with-arg` is one O(1) set-size
   read per predicate declaring an argument at the slot, so twelve of them answer this
@@ -1412,7 +1429,7 @@
   at the slot for the argument groups): the argument-position groups `[:argument-slot
   pos]` (the roster the predicate-agnostic read unions the scoped roots over), then the
   term-index remainder `[:term-index]` split into rules and deeper nestings, then the two
-  extents — the functor root `[:functor-root]` and the context root `[:context-root]`
+  extents — the predicate extent `[:predicate-extent]` and the context root `[:context-root]`
   (when the term is a context).  The roots are a subset of the term index, so the
   remainder is `find-sentexes` minus what a root claimed.
 
@@ -1423,7 +1440,7 @@
   1 animal)` — and those are what a reader arriving at the page came for.  A rule's
   conclusion is the next most direct thing said about the term, and its conditions are
   what a rule says about something else.  The extents are the other direction:
-  `[:functor-root]` is every fact written with the term as predicate and
+  `[:predicate-extent]` is every fact written with the term as predicate and
   `[:context-root]` is everything asserted in it, each a list whose first sixty rows say
   nothing about the term itself.
 
@@ -1484,7 +1501,7 @@
          ;; **The context root is in the bound.**  A sentex asserted in a context does not
          ;; mention it, but the term index is keyed on `kv/sentex-terms` — the indexable
          ;; content terms *plus the context* — so a context's own extent bounds its term
-         ;; index below exactly as a predicate's functor root does.  Leaving it out cost
+         ;; index below exactly as a predicate's extent does.  Leaving it out cost
          ;; `CxWell` 4.2 s a page to build a scan it then discarded as truncated.
          fn-count  (v/count-with-functor kb term)
          cx-count  (if ctx? (v/count-in-context kb term) 0)
@@ -1506,7 +1523,7 @@
          extents   (sort-by :count
                             (concat
                              (when (pos? fn-count)
-                               [{:label "Predicate extent" :idx (str "[:functor-root " text "]")
+                               [{:label "Predicate extent" :idx (str "[:predicate-extent " text "]")
                                  :count fn-count :extent? true
                                  :deferred? (> fn-count extent-defer-cap)
                                  :fetch #(v/sentexes-with-functor kb term)}])
@@ -1520,10 +1537,10 @@
       (concat
        arg-grps
        (when (seq concl)
-         [{:label "Rule conclusion" :idx "[:rule-index] · [:term-index]"
+         [{:label "Rule conclusion" :idx "[:rule-consequent] · [:term-index]"
            :count (count concl) :sentexes concl}])
        (when (seq conds)
-         [{:label "Rule condition" :idx "[:rule-index] · [:term-index]"
+         [{:label "Rule condition" :idx "[:rule-antecedent] · [:term-index]"
            :count (count conds) :sentexes conds}])
        (when (seq nested)
          [{:label "Nested elsewhere" :idx (str "[:term-index " text "]")
@@ -1940,40 +1957,55 @@
   5000)
 
 (defn- child-terms
-  "The direct sub-nodes of `node` under transitivity relation `pred`, lazily and deduped
-  (one edge asserted in two contexts is two sentexes and one child).
+  "The direct sub-nodes of `node` under transitivity relation `pred`, deduped (one edge
+  asserted in two contexts is two sentexes and one child).
 
-  One index read, not a walk: the pattern pins an argument *after* a variable, which
-  `query` answers from the predicate-scoped argument root (`[:argument-root pred 2
-  node]`, docs/indexing.md), so the cost is this node's own fan-out rather than the
-  number of edges in the KB."
+  For `genl` the answer is the closure's own one-step adjacency (`direct-specs`), so a
+  child a `covering`, `separating` or `partition` roster installs is a child as a stated
+  `(genl child node)` is.  The roster stores no `genl` sentence for its parts, so a read
+  of the stored edges alone would leave every one of them out.  The cost is this node's
+  own fan-out.
+
+  For any other relation, one index read, not a walk: the pattern pins an argument
+  *after* a variable, which `query` answers from the predicate-scoped argument root
+  (the node `[pred 2 node]`, docs/indexing.md), so the cost is this node's own
+  fan-out rather than the number of edges in the KB."
   [kb pred node]
-  (->> (v/sentexes-matching kb (list pred '?sub node) '?ctx)
-       (keep (fn [s] (let [[_ sub super] (:sentence s)]
-                       (when (and sub (= super node)) sub))))
-       (distinct)))
+  (if (= 'genl pred)
+    (v/direct-specs kb node)
+    (->> (v/sentexes-matching kb (list pred '?sub node) '?ctx)
+         (keep (fn [s] (let [[_ sub super] (:sentence s)]
+                         (when (and sub (= super node)) sub))))
+         (distinct))))
 
 (defn- parent-terms
   "The direct super-nodes of `node` under transitivity relation `pred` — `child-terms`'
-  mirror, and bounded the same way: the pattern pins `node` in argument position **1**,
-  which `query` answers from the predicate-scoped argument root (`[:argument-root pred 1
-  node]`), so the cost is this node's own fan-*in* rather than the number of edges in the KB.
-  Deduped for the same reason — one edge asserted in two contexts is two sentexes and one
-  parent."
+  mirror.  For `genl` the closure's one-step adjacency (`direct-genls`), so a parent a
+  cover roster installs is drawn as a stated parent is.  For any other relation the
+  pattern pins `node` in argument position **1**, which `query` answers from the
+  predicate-scoped argument root (the node `[pred 1 node]`), so the cost is this
+  node's own fan-*in* rather than the number of edges in the KB.  Deduped for the same
+  reason — one edge asserted in two contexts is two sentexes and one parent."
   [kb pred node]
-  (->> (v/sentexes-matching kb (list pred node '?super) '?ctx)
-       (keep (fn [s] (let [[_ sub super] (:sentence s)]
-                       (when (and super (= sub node)) super))))
-       (distinct)))
+  (if (= 'genl pred)
+    (v/direct-genls kb node)
+    (->> (v/sentexes-matching kb (list pred node '?super) '?ctx)
+         (keep (fn [s] (let [[_ sub super] (:sentence s)]
+                         (when (and super (= sub node)) super))))
+         (distinct))))
 
 (defn- expandable?
-  "Whether a tree node gets a disclosure control.  `count-with-arg` at position 2
-  counts the facts holding `t` there — summed over the slot roster's predicates, every
-  `(pred sub t)` among them and anything else binary that mentions it there — so it is
-  a cheap *upper* bound on having children.  Wrong only in the safe direction: a node whose second-position facts are
-  all something else opens to \"none\", and no real child is ever hidden."
-  [kb t]
-  (pos? (v/count-with-arg kb 2 t)))
+  "Whether a tree node gets a disclosure control.  For `genl`, whether the closure's
+  one-step adjacency (`direct-specs`) holds a child, which counts a child a cover roster
+  installs and costs the node's own fan-out.  For any other relation, `count-with-arg`
+  at position 2: the facts holding `t` there, summed over every binary predicate, so an
+  *upper* bound on having stated children.  Wrong only in the safe direction: a node
+  whose second-position facts are all something else opens to \"none\", and no real
+  child is ever hidden."
+  [kb pred t]
+  (if (= 'genl pred)
+    (boolean (seq (v/direct-specs kb t)))
+    (pos? (v/count-with-arg kb 2 t))))
 
 (defn- tree-caret
   "The control that opens a node's children, and the id it is addressed by.  A checkbox
@@ -1998,13 +2030,13 @@
   or a disclosure that fetches its own children the first time it is opened.  Bare
   `<li>`s, so the same call answers the page and the continuation that extends it."
   [{:keys [kb] :as view} pred node offset]
-  (let [;; an upper bound on this level's width: `sortable?` is therefore decided without
-        ;; reading the level.  A node wide enough to be worth not sorting is a node whose
-        ;; children nobody is going to read alphabetically anyway.  One count per
-        ;; predicate holding `node` at argument 2 and never the extent (the shape
-        ;; `core/count-with-arg` states), paid once per rendered child by `expandable?`
-        width    (v/count-with-arg kb 2 node)
-        sortable (<= width sortable-cap)
+  (let [;; a `genl` level is the closure's realized adjacency set, so it is always
+        ;; sorted.  For another relation, an upper bound on the level's width decides
+        ;; `sortable` without reading the level: a node wide enough to be worth not
+        ;; sorting is a node whose children nobody reads alphabetically anyway.  One
+        ;; count per predicate holding `node` at argument 2 and never the extent (the
+        ;; shape `core/count-with-arg` states)
+        sortable (or (= 'genl pred) (<= (v/count-with-arg kb 2 node) sortable-cap))
         kids     (cond->> (child-terms kb pred node) sortable by-print-key)
         shown    (into [] (comp (drop offset) (take (inc tree-cap))) kids)
         ;; a child's disclosure asks for *its own* children; the sentinel asks for more
@@ -2013,7 +2045,7 @@
                                   "&node=" (url-enc (str n)) "&offset=" off))]
     (list
      (for [t (take tree-cap shown)]
-       (if (expandable? kb t)
+       (if (expandable? kb pred t)
          ;; `hx-select="#main"` is set on the body so every boosted link swaps the main
          ;; column, and it is **inherited** — against a fragment of bare rows it selects
          ;; nothing and the open would swap in nothing.  So a caret says explicitly that
@@ -2072,24 +2104,25 @@
   "One page of the core-predicate list, from `offset`, with the sentinel that fetches the
   next.
 
-  Read from the **functor root**, not from `(comment ?term ?text)`.  A wholly-open
+  Read from the **predicate extent**, not from `(comment ?term ?text)`.  A wholly-open
   pattern gives the trie nothing to narrow on, so it fans over every child token at every
   level: `take` would then bound the records fetched and not the candidates enumerated,
-  and showing fifty rows would cost a walk of every commented term in the KB.  The root
-  is one posting set, and a page out of it costs a page."
+  and showing fifty rows would cost a walk of every commented term in the KB.  The extent
+  is one posting set per context, and a page out of it costs a page."
   [{:keys [kb] :as view} offset]
   (let [total (v/count-with-functor kb 'comment)
         ;; the term, then the text: a term carrying two comments — the shipped ontology
         ;; gives each one, a KB adding a gloss of its own gives two — ties on the term
-        ;; alone, and the tie falls to the functor root's own order, which is ascending
-        ;; handle.  `core-context/comment-of` keys the same pair for the same reason
+        ;; alone, and the tie falls to the order `sentexes-with-functor` returns, which is
+        ;; stable while the stored comments do not change.  `core-context/comment-of` keys
+        ;; the same pair for the same reason
         rows  (cond->> (v/sentexes-with-functor kb 'comment)
                 (<= total sortable-cap)
                 (sort-by (juxt (comp print-key second :sentence)
                                (comp print-key #(nth (:sentence %) 2 nil)))))
         shown (into [] (comp (drop offset) (take (inc front-cap))) rows)
         page  (take front-cap shown)]
-    ;; the root is what is *stored*; belief is the page's own question, asked in one read
+    ;; the extent is what is *stored*; belief is the page's own question, asked in one read
     (prime-belief! view (map :id page))
     (list
      (for [s     page
@@ -2215,7 +2248,7 @@
             (panel 2 (list "Contexts " [:span.muted "(genlCx)"])
                    (if roots
                      [:ul.tree (for [r roots]
-                                 (if (expandable? kb r)
+                                 (if (expandable? kb 'genlCx r)
                                    ;; the root's children are already on the page, so its
                                    ;; caret opens the level rather than fetching it
                                    [:li (tree-caret 'genlCx r {:checked "checked"})
@@ -2563,6 +2596,14 @@
   and the row stops being a row."
   8)
 
+(def ^:private graph-row-limit
+  "How many direct neighbours one node may have and still have some of them drawn.
+  `graph-step` reads at most one more than this and sorts what it read, so a row is
+  chosen by print order from the node's **whole** fan-out.  A node past the limit draws
+  none and the caption says so.  Five hundred is far past every node of the shipped
+  ontology, and is the same fixed read `ego-scan` makes."
+  500)
+
 (def ^:private graph-spread
   "How many neighbours **one** node contributes to the row below/above it, past the first
   row.  Three, so a row spreads across its parents instead of one prolific node eating
@@ -2666,21 +2707,25 @@
   "One expansion: the direct neighbours of `node` under `pred` going `:up` or `:down`, at
   most `cap` of them, and how many there are.
 
-  **One facade read in the common case.**  `(take (inc cap))` genuinely bounds it —
-  `query` is lazy and the pattern pins an argument, so this costs the node's own fan-out
-  and no more.  A node that fits under the cap is realized whole, and is therefore sorted
-  (a stable picture) and counted **exactly**; one that does not is left in index order and
-  the caption's count is the cheap `count-with-arg` bound, which spans every binary
-  predicate holding the term at that position and is therefore an over-count — so
-  `:exact?` travels with it and the caption words it as the bound it is.  The second read
-  is paid only where something was actually elided."
+  **The neighbours drawn are the first `cap` in print order, of every neighbour the node
+  has.**  The read realizes at most `graph-row-limit` + 1 of them, so it costs at most
+  that many records whatever the node's fan-out.  A node with no more than
+  `graph-row-limit` neighbours is realized whole, sorted, and counted exactly.  A node
+  with more contributes **no** neighbours: the index hands them back in an order that is
+  not the print order, so any `cap` of a partial read would be a sample of that order,
+  and two knowledge bases holding the same edges could draw different ones.  `:more?`
+  marks that case, `:total` is then the limit it exceeded, and the caption says the node
+  has too many to draw.  A `genl` step reads the closure's one-step adjacency
+  (`direct-genls` / `direct-specs`), so an edge a cover roster installs is a neighbour as
+  a stated edge is."
   [kb pred dir node cap]
-  (let [pos  (if (= :up dir) 1 2)
-        read (if (= :up dir) parent-terms child-terms)
-        got  (into [] (take (inc cap)) (read kb pred node))]
-    (if (<= (count got) cap)
-      {:terms (by-print-key got) :total (count got) :exact? true}
-      {:terms (into [] (take cap) got) :total (v/count-with-arg kb pos node) :exact? false})))
+  (let [read  (if (= :up dir) parent-terms child-terms)
+        got   (into [] (take (inc graph-row-limit)) (read kb pred node))
+        more? (> (count got) graph-row-limit)]
+    (if more?
+      {:terms [] :total graph-row-limit :exact? false :more? true}
+      {:terms (into [] (take cap) (by-print-key got)) :total (count got)
+       :exact? true :more? false})))
 
 (defn- fresh-neighbours
   "The neighbours a row is built from: what the expansions found, minus anything already
@@ -2727,15 +2772,18 @@
               row    (into [] (take graph-row-cap) fresh)
               short? (or (< (count probed) (count frontier))
                          (> (count fresh) (count row))
-                         (boolean (some (fn [[_ s]] (> (:total s) (count (:terms s)))) steps)))]
+                         (boolean (some (fn [[_ s]] (> (:total s) (count (:terms s)))) steps)))
+              ;; recorded before the empty-row exit: a centre with too many neighbours to
+              ;; draw has an empty row, and that is the row the caption must explain
+              direct (or direct
+                         (when (= 1 depth)
+                           (let [s (second (first steps))]
+                             {:shown (count row) :total (:total s)
+                              :exact? (:exact? s) :more? (:more? s)})))]
           (if (empty? row)
             {:rows rows :spent spent' :direct direct :deeper? deeper? :truncated? false}
             (recur (mapv :term row) (inc depth) (into seen (map :term) row)
-                   (conj rows row) spent'
-                   (or direct
-                       (when (= 1 depth)
-                         (let [s (second (first steps))]
-                           {:shown (count row) :total (:total s) :exact? (:exact? s)})))
+                   (conj rows row) spent' direct
                    (or deeper? (and (> depth 1) short?)))))))))
 
 (defn- subsumption-plan
@@ -3005,11 +3053,15 @@
 (defn- elision-note
   "How a row says what it left out.  A truncated picture that does not announce itself is
   worse than no picture, and worse here than in a list — a picture reads as complete.  The
-  count is exact where the row was small enough to be read whole, and the argument-root
-  bound otherwise, worded as the bound it is rather than passed off as an edge count."
-  [what {:keys [shown total exact?]}]
+  count is exact where the neighbours were read whole.  A relation flank's count is
+  otherwise the argument-root bound, worded as the bound it is rather than passed off as an
+  edge count.  A taxonomy node past `graph-row-limit` (`:more?`) draws no row, and the note
+  says so and points at the rows below, which list every neighbour."
+  [what {:keys [shown total exact? more?]}]
   (when (and total (> total shown))
-    (str "showing " shown " of " (when-not exact? "up to ") (commas total) " " what)))
+    (if more?
+      (str "more than " (commas total) " " what ", too many to draw; they are listed below")
+      (str "showing " shown " of " (when-not exact? "up to ") (commas total) " " what))))
 
 (def ^:private flank-sample-note
   "What the caption says a partial flank *is*.  A picture drawing eight of forty
@@ -3983,8 +4035,20 @@
                        [:p.legend "Unsatisfiable as written: "
                         (interpose ", " (for [[a b] bad]
                                           [:span (term-link view a) "/" (term-link view b)]))]
-                       [:p.legend "No single pair is to blame — composition is what "
-                        "emptied a constraint, so the clash is a property of the set."])])
+                       (when-not (seq (:unsatisfiable-sources net))
+                         [:p.legend "No single pair is to blame — composition is what "
+                          "emptied a constraint, so the clash is a property of the set."]))
+                     (for [{:keys [source pairs cycle support]} (:unsatisfiable-sources net)]
+                       [:p.legend "The " (name source) " network this calculus reads is "
+                        "unsatisfiable"
+                        (when (seq cycle)
+                          (list ": the instants on a negative cycle are "
+                                (interpose ", " (for [i cycle] (term-link view i)))))
+                        (when (seq pairs)
+                          (list (if (seq cycle) "; unsatisfiable as written: " ": unsatisfiable as written: ")
+                                (interpose ", " (for [[a b] pairs]
+                                                  [:span (term-link view a) "/" (term-link view b)]))))
+                        " (" (count support) " fact" (when (not= 1 (count support)) "s") ")."])])
                   (if (<= (count (:nodes net)) matrix-node-limit)
                     (network-matrix view net base)
                     [:div [:p.legend "Too many nodes to draw the matrix; the pinned "
@@ -4210,10 +4274,10 @@
   [pred] (list pred demo-subject))
 
 (defn- demo-cap
-  "`(hasCapability Pingu <capability>)` — what the walkthrough's conclusion is about.
-  Flight is a capability rather than a one-place property, so the conclusion under test is
-  a binary sentence and the demo builds it apart from `demo-claim`."
-  [capability] (list 'hasCapability demo-subject capability))
+  "`(hasCapability Pingu <event-kind>)` — what the walkthrough's conclusion is about.
+  Flight is an event kind Pingu can be the doer of rather than a one-place property, so the
+  conclusion under test is a binary sentence and the demo builds it apart from `demo-claim`."
+  [event-kind] (list 'hasCapability demo-subject event-kind))
 
 (def ^:private demo-script
   "The three steps.  `:from` is the state the KB has to be in for a step to be the next
@@ -4234,7 +4298,7 @@
 
 (def ^:private demo-watched
   "The five sentences the walkthrough touches, in the order they make sense in: the two
-  the reader asserts, the conclusion under test, what the capability hierarchy answers
+  the reader asserts, the conclusion under test, what the event-kind hierarchy answers
   from it, and the positive claim a penguin carries.  All five are rendered at every step, because the
   cascade is the part worth seeing — the conclusion does not go alone, and the KB does
   not merely fail to conclude flight, it concludes flightlessness, which is a different
@@ -4247,7 +4311,7 @@
     :note "derived — the conclusion under test"}
    {:form      (demo-cap 'travelling)
     :answered? true
-    :note      "answered through the capability hierarchy, never stored — it goes when the flight goes"}
+    :note      "answered through the event-kind hierarchy, never stored — it goes when the flight goes"}
    {:form (list 'not (demo-cap 'flying))
     :note "derived from (penguin Pingu) — a positive claim, not the absence of one"}])
 
@@ -6179,10 +6243,8 @@
 
 (defn- cache-scope
   "Which thing a row's numbers are about — and, where the entries and the counters
-  disagree, both.  The literal cache is exactly that case: its entries are this KB's and
-  its hit counters are global `AtomicLong`s across every KB in the process, since they
-  measure the mechanism rather than a store. Rendering the second as though it were the
-  first is how a page attributes another KB's work to this one."
+  disagree, both: a row whose counters are the process's would otherwise attribute
+  another KB's work to this one."
   [scope counters]
   (let [word {:kb "this KB" :process "this process"}]
     (list [:span (word scope)]

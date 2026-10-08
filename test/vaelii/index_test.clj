@@ -88,7 +88,7 @@
       (v/retract! kb (v/handle-of kb (list p a a) c2))
       (is (= 0 (v/count-in-context kb c2))))))
 
-(tu/deftest-kb the-functor-root-spans-arity-and-polarity
+(tu/deftest-kb the-predicate-extent-spans-arity-and-polarity
   (let [dog (tu/tmp-type) muffet (tu/tmp-ind) rex (tu/tmp-ind)
         rel (tu/tmp-pred)]
     (v/assert kb (list dog muffet) 'CxUniverse)
@@ -101,6 +101,15 @@
       (is (= 1 (v/count-with-functor kb rel))))
     (testing "an unknown functor is simply empty"
       (is (= 0 (v/count-with-functor kb (tu/tmp-pred)))))
+    (testing "the extent ends in the context: a scoped read keeps the facts stated there"
+      (let [cx (tu/tmp-ctx)
+            h  (v/assert kb (list dog rex) cx)]
+        (is (= #{h} (set (p/sentexes-with-args (:index kb) dog [] #{cx}))))
+        (is (= 2 (count (p/sentexes-with-args (:index kb) dog [] '#{CxUniverse}))))
+        (is (= 3 (v/count-with-functor kb dog)))
+        (v/retract! kb h)
+        (is (= #{} (set (p/sentexes-with-args (:index kb) dog [] #{cx}))))
+        (is (= 2 (v/count-with-functor kb dog)))))
     (testing "a rule is not a fact — it contributes no functor entry"
       (let [ante (tu/tmp-pred) conseq (tu/tmp-pred)]
         (v/assert-rule kb [(list ante '?x)] (list conseq '?x) 'CxUniverse {:direction :forward})

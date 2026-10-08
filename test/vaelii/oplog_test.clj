@@ -8,7 +8,9 @@
   listener's write marks the log unusable.  The frames and the mark read back after a
   reopen, which truncates a torn trailing frame.  The logged record store fsyncs an
   operation's frame before the operation writes a record older than the log, and a
-  record write outside every operation marks the log unusable."
+  record write outside every operation marks the log unusable.  Under `:each` every frame
+  is fsynced before its operation runs, and a log that cannot take a frame stops: the
+  write is refused before it runs, and so is every write after it."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [is use-fixtures]]
             [vaelii.core :as v]
@@ -30,14 +32,15 @@
 
 (defn- with-log
   "Call `(f lkb log dir)`, where `lkb` is `kb` attached to an operation log in a fresh
-  directory `dir` (`oplog/attach`).  The log is closed and the directory removed
-  afterwards."
-  [kb f]
-  (let [dir (tmpdir)
-        log (oplog/open-log dir 0)]
-    (try (f (oplog/attach kb log) log dir)
-         (finally (oplog/close-log! log)
-                  (rm-rf! dir)))))
+  directory `dir` (`oplog/attach`), opened with `opts`.  The log is closed and the
+  directory removed afterwards."
+  ([kb f] (with-log kb nil f))
+  ([kb opts f]
+   (let [dir (tmpdir)
+         log (oplog/open-log dir 0 opts)]
+     (try (f (oplog/attach kb log) log dir)
+          (finally (oplog/close-log! log)
+                   (rm-rf! dir))))))
 
 (tu/deftest-kb a-write-to-an-older-record-fsyncs-its-frame-first
   (tu/with-terms [dog Fido Rex CxPets]
@@ -143,3 +146,31 @@
               (is (= [:config :set-solver] (oplog/unusable log2)))
               (is (= len (.length (io/file path))) "the torn frame is gone")
               (finally (oplog/close-log! log2)))))))))
+
+(tu/deftest-kb under-each-every-frame-is-fsynced-before-its-operation-runs
+  (tu/with-terms [dog Fido Rex CxPets]
+    (with-log kb {:fsync :each}
+      (fn [lkb log _]
+        (is (= :each (oplog/fsync-mode log)))
+        (v/assert lkb (list dog Fido) CxPets)
+        (v/assert lkb (list dog Rex) CxPets)
+        (let [{:keys [ops synced guard-checks]} @(:state log)]
+          (is (= 2 ops synced))
+          (is (zero? guard-checks) "neither operation wrote below the watermark"))))))
+
+(tu/deftest-kb a-log-that-cannot-take-a-frame-refuses-the-write-and-every-write-after
+  (tu/with-terms [dog Fido Rex CxPets]
+    (with-log kb
+      (fn [lkb log _]
+        (let [before (v/sentex-count lkb)]
+          ;; the channel closes under the log, as a thread interrupt closes it
+          (.close ^RandomAccessFile (:raf log))
+          (let [refusals (mapv (fn [x]
+                                 (try (v/assert lkb (list dog x) CxPets) nil
+                                      (catch clojure.lang.ExceptionInfo e
+                                        (select-keys (ex-data e) [:type :reason]))))
+                               [Fido Rex])]
+            (is (= :store-unusable (:type (first refusals))))
+            (is (= (first refusals) (second refusals))
+                "the second write is refused by the fault the first latched"))
+          (is (= before (v/sentex-count lkb)) "neither write ran"))))))

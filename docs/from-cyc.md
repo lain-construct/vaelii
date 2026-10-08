@@ -39,33 +39,30 @@ capital to arity 2 and above.
 
 ## What a Cyclist's habits do here
 
-**`arg` is a gate first.** `(arg parentOf 1 animal)` — the shipped ontology's own
-declaration — refuses `(parentOf Fern Mary)` where `Fern` is a `plant`: `ex-info` with
-`:type :arg-type`, exactly as Cyc's constraint would refuse it. What convicts is that the
-hierarchy **places** `Fern` and the place it puts him does not reach `animal`. The
-`(disjoint animal plant)` sitting beside those types is not what does the work — a type
-the constraint's own type does not subsume is enough on its own.
+**`arg` derives, it does not gate.** `(arg eats 1 animal)` — the shipped ontology's
+own declaration — over `(eats Fern Kibble)` derives `(animal Fern)`, a justified
+sentex that retracts like any conclusion, and refuses nothing on what `Fern` is already
+known to be. Where `Fern` is a `plant`, which `(separating organism animal plant)`
+separates from `animal`, the derived membership and the stated one are a placed clash, as
+two stated memberships are. That is the default, behind `checks/*assertive-arg-types?*`
+([argtypes.md](argtypes.md)).
 
-There is one open-world escape and it is deliberate: a **symbol** the `genl` hierarchy
-places nowhere *the asserting context can see* cannot contradict anything, so it passes.
-`(parentOf Zork Mary)` stores when nothing is known about `Zork`. A **literal** is not in
-that escape: its EDN kind is knowable from the value itself and those kinds sit in the
-same `genl` lattice, so `(parentOf 212 Mary)` is refused `:arg-type` — 212 is a `number`,
-and `number` does not reach `animal` ([argtypes.md](argtypes.md)).
+A **literal** is still refused: its EDN kind is knowable from the value itself and those
+kinds sit in the same `genl` lattice, so `(parentOf 212 Mary)` is refused `:arg-type` —
+212 is a `number`, and `number` does not reach `organism`.
 
-The *entailment* reading — the same declaration minting `(animal Fred)` from
-`(parentOf Fred Mary)` — is the **default**, behind
-`checks/*assertive-arg-types?*` (root value true, or `VAELII_ASSERTIVE_ARG_TYPES=0` to opt
-out). It is additive: it keeps the refusal and adds the derived type, as a justified
-sentex that retracts like any conclusion. See [argtypes.md](argtypes.md).
+Cyc's gate is the opt-out reading, `VAELII_ASSERTIVE_ARG_TYPES=0`: there the declaration
+refuses `(eats Fern Kibble)` with `:type :arg-type` because the hierarchy places `Fern`
+somewhere that does not reach `animal`, and a symbol the hierarchy places nowhere the
+asserting context can see passes.
 
 **Undeclared is unconstrained — which is not the same as unchecked.** No predicate has to
 be declared before use, so `(fghgwgads 212)` stores and a typo is the same bug class as a
 predicate nobody has gotten to yet. But as soon as declarations exist they bind: `assert`
 refuses on `arg`, `genlArg` and `interArg`, on top of the naming, groundness, structural
 and stratification checks it always runs. A tuple that breaks an arity binding, or that
-completes a disjointness, asymmetry or functionality clash, is stored, and the settle or
-each reader decides it ([nmtms.md](nmtms.md#1-order-independence)). `check` reports the
+completes a disjointness, asymmetry or functionality clash, is stored, and the settle
+places it as a nogood ([nmtms.md](nmtms.md#1-order-independence)). `check` reports the
 lot without storing → [api.md](api.md).
 
 **A contradictory pair coexists.** Two `:default` claims that rebut each other both stay
@@ -82,7 +79,7 @@ be decided → [solving.md](solving.md).
 | `negationPreds`, binary and up | a pair of implication rules | no declarative form — see below |
 | `disjoint` | `disjoint` | same reading, and `(disjoint_metatype M)` makes every member pairwise disjoint without writing the pairs |
 | `SiblingDisjointCollectionType` | `sibling_disjoint` | a mark on the collection; its `genl`-specializations are pairwise disjoint unless one genls the other, the clique keyed off the genl closure rather than written |
-| `siblingDisjointExceptions` (plural) | `siblingDisjointException` (**singular**, house style) | exempts one pair the sibling mark or a `disjoint_metatype` would force disjoint; read at the reader, so a context that does not see it reads the pair separated, pair-local, and it does not leak to subtypes |
+| `siblingDisjointExceptions` (plural) | `siblingDisjointException` | exempts one pair from the separation marks: the sibling mark, a `disjoint_metatype` and a `partition` or `separating` roster, not a stated `disjoint`; read at the reader, so a context that does not see it reads the pair separated, and pair-local |
 | `SymmetricBinaryPredicate` | `(symmetric P)` | |
 | `AsymmetricBinaryPredicate` | `(asymmetric P)` | convicts a claim whose **converse** is believed; it does not make `P` irreflexive, and `(P a a)` is admitted |
 | `genlInverse` | an inert `genlInverse` declaration, or a forward rule | vaelii declares `genlInverse` as an inert predicate with no inference path; a working inverse is a forward rule, and `(inverse P Q)` is the stronger biconditional |
@@ -264,10 +261,12 @@ position. Nesting is not capped. → [generators.md](generators.md)
 - `negationPreds` above arity 1 — the paired rules above are the translation
 - Strict well-formedness mode
 
-`transitiveViaArg` is **not** on this list — it is spelled `transitiveInArg` here:
-`(transitiveInArg P n R)` and `(transitiveInArgInverse P n R)` carry a claim about argument
-`n` across any declared-transitive `R`, with the direction and the argument position
-declared separately → [inherit.md](inherit.md).
+`transitiveViaArg` is **not** on this list — it is spelled `transitiveInArg` here, in the
+same direction: `(transitiveInArg P n R)` carries a claim about argument `n` along `R`'s
+arrow, a stored `(P … X …)` and `(R X Y)` giving `(P … Y …)`, exactly as Cyc's
+`(transitiveViaArg P R n)` does. `transitiveViaArgInverse` is `transitiveInArgInverse`,
+against the arrow. The argument order differs: vaelii writes `(P n R)` where Cyc writes
+`(P R n)`. `R` is any declared-transitive relation → [inherit.md](inherit.md).
 
 ## What you gain
 

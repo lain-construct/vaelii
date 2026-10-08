@@ -70,6 +70,7 @@
 (defn- removals= [a b]
   (and (= (set (:removed-sentexes a)) (set (:removed-sentexes b)))
        (= (set (:removed-justifications a)) (set (:removed-justifications b)))
+       (= (set (:removed-supports a)) (set (:removed-supports b)))
        (= (count (:removed-sentexes a)) (count (:removed-sentexes b)))
        (= (count (:removed-justifications a)) (count (:removed-justifications b)))))
 

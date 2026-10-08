@@ -81,7 +81,7 @@
 
 (deftest an-arity-nogood-never-takes-the-binding-out
   ;; The binding is the ground of the nogood and not a member, and it is on the
-  ;; forced-monotonic roster: written at `:default`, it is stored `:monotonic`.  A
+  ;; forced-monotonic roster: written at `:default`, it is never a loser.  A
   ;; `:monotonic` tuple against it is a hard clash, so both stay believed and `conflicts`
   ;; reports the pair; no dilemma opens.
   (is (not (contains? checks/arbitrable-kinds :arity)))
@@ -116,17 +116,19 @@
     {:carnivore carnivore :meat meat :beef beef :grass grass :eats eats}))
 
 (tu/deftest-kb a-conditional-constraint-refuses-the-violating-fact
-  (let [{:keys [carnivore grass eats]} (eats-world kb)]
-    (tu/with-terms [Rex Hay]
-      (v/assert kb (list carnivore Rex) 'CxUniverse)
-      (v/assert kb (list grass Hay) 'CxUniverse)
-      (let [e (try (v/assert kb (list eats Rex Hay) 'CxUniverse) nil
-                   (catch clojure.lang.ExceptionInfo x (ex-data x)))]
-        (is (= :inter-arg-type (:type e)))
-        (is (= Hay (:arg e)))
-        (is (= Rex (:trigger e)))
-        (is (= 1 (:trigger-position e)))
-        (is (= 2 (:position e)))))))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   (let [{:keys [carnivore grass eats]} (eats-world kb)]
+     (tu/with-terms [Rex Hay]
+       (v/assert kb (list carnivore Rex) 'CxUniverse)
+       (v/assert kb (list grass Hay) 'CxUniverse)
+       (let [e (try (v/assert kb (list eats Rex Hay) 'CxUniverse) nil
+                    (catch clojure.lang.ExceptionInfo x (ex-data x)))]
+         (is (= :inter-arg-type (:type e)))
+         (is (= Hay (:arg e)))
+         (is (= Rex (:trigger e)))
+         (is (= 1 (:trigger-position e)))
+         (is (= 2 (:position e))))))))
 
 (tu/deftest-kb the-target-type-is-reached-transitively
   ;; `arg` reads the genl closure and so does this: beef is a meat, so a carnivore
@@ -227,9 +229,10 @@
           (is (= 1 (count (:support w))) "one justification, not one per settle")
           (is (= 'interArg (:informant j)))
           (is (= #{(list eats Rex Chunk)
-                   (list 'interArg eats 1 carnivore 2 meat)}
+                   (list 'interArg eats 1 carnivore 2 meat)
+                   (list carnivore Rex)}
                  (set (map :sentence (:because j))))
-              "justified by the fact and the declaration, so retracting either takes it back"))
+              "justified by the fact, the declaration and the trigger, so retracting any takes it back"))
         (v/assert kb (list eats Nobody Other) 'CxUniverse)
         (is (not (v/ask? kb (list meat Other) 'CxUniverse))
             "an unestablished trigger entails nothing")))))
@@ -271,20 +274,22 @@
           "retracting the declaration withdraws what it entailed"))))
 
 (tu/deftest-kb a-derived-conclusion-violating-a-conditional-constraint-is-dropped
-  ;; The derivation path cannot throw — a fixpoint that aborted mid-run would make belief
-  ;; depend on firing order — so an argument-constraint violation there is dropped and
-  ;; reported, exactly as `arg`'s is.  `interArg` joins that path or a rule becomes
-  ;; a way around the check.
-  (tu/with-terms [carnivore_t meat_t grass_t eatsOf feedsOf Rex Hay]
-    (doseq [s [(list 'genl carnivore_t 'thing) (list 'genl meat_t 'thing)
-               (list 'genl grass_t 'thing)
-               (list 'interArg eatsOf 1 carnivore_t 2 meat_t)
-               (list carnivore_t Rex) (list grass_t Hay)
-               (list 'set/forwardRule (vr/rule-sentence [(list feedsOf '?a '?b)]
-                                                        (list eatsOf '?a '?b)))]]
-      (v/assert kb s 'CxUniverse))
-    (v/assert kb (list feedsOf Rex Hay) 'CxUniverse)
-    (is (nil? (v/handle-of kb (list eatsOf Rex Hay) 'CxUniverse))
-        "the violating conclusion is not stored")
-    (is (some #{:inter-arg-type} (map :violation (v/violations kb)))
-        "and it is reported rather than silently lost")))
+  ;; the constraint-only reading: the refusal is the subject
+  (tu/without-entailing
+   ;; The derivation path cannot throw — a fixpoint that aborted mid-run would make belief
+   ;; depend on firing order — so an argument-constraint violation there is dropped and
+   ;; reported, exactly as `arg`'s is.  `interArg` joins that path or a rule becomes
+   ;; a way around the check.
+   (tu/with-terms [carnivore_t meat_t grass_t eatsOf feedsOf Rex Hay]
+     (doseq [s [(list 'genl carnivore_t 'thing) (list 'genl meat_t 'thing)
+                (list 'genl grass_t 'thing)
+                (list 'interArg eatsOf 1 carnivore_t 2 meat_t)
+                (list carnivore_t Rex) (list grass_t Hay)
+                (list 'set/forwardRule (vr/rule-sentence [(list feedsOf '?a '?b)]
+                                                         (list eatsOf '?a '?b)))]]
+       (v/assert kb s 'CxUniverse))
+     (v/assert kb (list feedsOf Rex Hay) 'CxUniverse)
+     (is (nil? (v/handle-of kb (list eatsOf Rex Hay) 'CxUniverse))
+         "the violating conclusion is not stored")
+     (is (some #{:inter-arg-type} (map :violation (v/violations kb)))
+         "and it is reported rather than silently lost"))))

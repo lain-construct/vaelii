@@ -75,7 +75,9 @@
   `vaelii.core/add-prover`, and until then a KB stores and retrieves interval relations as
   ordinary facts without paying for the network."
   (:require [clojure.set :as set]
+            [vaelii.impl.naming :as nm]
             [vaelii.impl.point :as pt]
+            [vaelii.impl.qcn :as qcn]
             [vaelii.impl.qcn-kb :as qkb]
             [vaelii.impl.stp :as stp]
             [vaelii.impl.timepoint :as tp]))
@@ -275,7 +277,8 @@
   are those whose `stp/endpoint-signature` every one of the four endpoint comparisons
   still admits, and its support is the four comparisons' support.  Only narrowed pairs
   are recorded.  An inconsistent point network answers `stp/unsatisfiable-narrowing`,
-  supported by the point network's culprits.
+  supported by the point network's culprits, its `:point` source naming the point pairs
+  unsatisfiable as written and those culprits.
 
   The comparisons are read off the one closed point network, and the support off one
   support-carrying pass (`qcn-kb/closure-with-support`), rather than asked of the network
@@ -296,7 +299,12 @@
         between (fn [x y] (for [ex [:start :end] ey [:start :end]]
                             [[ex ey] [(get-in ends [x ex]) (get-in ends [y ey])]]))]
     (if (= :inconsistent closed)
-      (stp/unsatisfiable-narrowing things (:culprits @pass))
+      (let [culprits (:culprits @pass)]
+        (stp/unsatisfiable-narrowing
+         things culprits
+         {:source  :point
+          :pairs   (nm/by-print-key (qcn/unsatisfiable-pairs net (:algebra calc)))
+          :support culprits}))
       (reduce
        (fn [acc [x y]]
          (let [pts  (between x y)
@@ -316,15 +324,18 @@
        (for [x things y things :when (not= x y)] [x y])))))
 
 (defn- both-narrowings
-  "The metric and the point readings intersected pair by pair, their support unioned.  An
-  absent pair is the universe in either, so a pair only one of them narrows takes that
-  one's set."
+  "The metric and the point readings intersected pair by pair, their support unioned, and
+  their unsatisfiable sources listed metric first.  An absent pair is the universe in
+  either, so a pair only one of them narrows takes that one's set."
   [kb context]
   (let [m (stp/allen-narrowing-with-support kb context)
         p (points-narrowing-with-support kb context)]
     (when (or m p)
-      {:net     (merge-with set/intersection (:net m) (:net p))
-       :support (merge-with set/union (:support m) (:support p))})))
+      (cond-> {:net     (merge-with set/intersection (:net m) (:net p))
+               :support (merge-with set/union (:support m) (:support p))}
+        (or (:unsatisfiable-sources m) (:unsatisfiable-sources p))
+        (assoc :unsatisfiable-sources (into (vec (:unsatisfiable-sources m))
+                                            (:unsatisfiable-sources p)))))))
 
 ;; ---- the calculus, and the glue it shares with every other algebra -------
 

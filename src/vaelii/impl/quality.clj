@@ -67,6 +67,7 @@
   (:require [clojure.set :as set]
             [clojure.string :as str]
             [vaelii.impl.checks :as checks]
+            [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
@@ -231,7 +232,7 @@
                                   (filter #(= h (:informant %))))
                          (jtms/dependents tms h))
               ;; a conclusion as its own context believes it
-              live (count (filter #(res/believed-own? kb (:consequence %)) js))]
+              live (count (filter #(exc/believed-own? kb (:consequence %)) js))]
           (when (and (pos? i) (zero? (mod i progress-every)))
             (progress! {:phase :rules :done i :total total}))
           (recur (inc i)
@@ -387,8 +388,8 @@
 
   The denominator is every type-shaped name in the vocabulary, which by `docs/naming.md`
   includes a bare lowercase word (`likes` is a legal predicate *and* a legal type name).
-  A unique declared arity other than one excludes a known non-unary predicate; unknown
-  or conflicting arities remain candidates rather than hiding disconnected type islands.
+  A `kb/relation?` name is excluded; a name with no stored arity remains a candidate
+  rather than hiding disconnected type islands.
   That is why the gap is the finding rather than either fraction on its own.
 
   Reachability is **reflexive**, as `genls` is: the root reaches itself, so `:rooted`
@@ -399,10 +400,7 @@
         ;; of every node, which on the 124k-type conversion above is a few million calls
         ;; over a name set two orders of magnitude smaller.  Each call reads the
         ;; taxonomy atom and allocates, and the answer cannot move inside one reading.
-        type-candidate? (memoize
-                         (fn [name]
-                           (let [arity (kb/relation-arity kb name nil)]
-                             (or (nil? arity) (= 1 arity)))))
+        type-candidate? (memoize #(not (kb/relation? kb % nil)))
         nodes (into #{} (filter type-candidate?) (tax/types taxo))
         named (into #{} (filter type-candidate?) (:type-names pass))]
     (progress! {:phase :taxonomy :done 0 :total (count nodes)})
@@ -477,7 +475,7 @@
                            (distinct)
                            (keep #(p/get-sentex (:records kb) %))
                            (filter #(not (sx/negative? %)))
-                           (filter #(res/believed-own? kb (:id %))))
+                           (filter #(exc/believed-own? kb (:id %))))
                      declaration-functors)]
     (progress! {:phase :declarations :done 0 :total (count stored)})
     (let [found   (into []

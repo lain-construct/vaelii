@@ -143,7 +143,8 @@ def scan_files():
                         continue
                 except OSError:
                     continue
-                seen.append(os.path.relpath(full, ROOT))
+                # `/`-spelled on every OS: EXEMPT and the baseline name files that way
+                seen.append(os.path.relpath(full, ROOT).replace(os.sep, "/"))
     for fn in ROOT_MD:
         if os.path.exists(os.path.join(ROOT, fn)):
             seen.append(fn)

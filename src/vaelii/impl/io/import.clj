@@ -101,6 +101,7 @@
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
             [vaelii.impl.sentex :as sx]
+            [vaelii.impl.special :as special]
             [vaelii.impl.strength :as st]))
 
 (def export-format
@@ -955,14 +956,23 @@
   the same install and two copies of it could refuse a different frame or count a
   different number.  The file behind the stream is closed on the way out **however this
   leaves**: a refused frame throws out of the middle of the walk, and the seq only
-  auto-closes on a failure it raises itself or on being consumed to the end."
-  [kb dir compression read-fn expected]
-  (let [frames (volatile! nil)]
+  auto-closes on a failure it raises itself or on being consumed to the end.
+
+  `records-only?` leaves out the entries of the families the stored justifications
+  derive (`kv/justification-family-entry?`), since that path stores none; the count
+  checked is the stream's."
+  [kb dir compression read-fn expected records-only?]
+  (let [frames (volatile! nil)
+        read-n (volatile! 0)]
     (try
-      (let [n (snapshot/install-entries!
-               (:index kb)
-               (vreset! frames (read-fn (io/file dir frames/index-dir frames/index-entry-file)
-                                        compression)))]
+      (let [stream (vreset! frames (read-fn (io/file dir frames/index-dir frames/index-entry-file)
+                                            compression))
+            n      (snapshot/install-entries!
+                    (:index kb)
+                    (sequence (comp (map #(do (vswap! read-n inc) %))
+                                    (remove #(and records-only? (kv/justification-family-entry? %))))
+                              stream))
+            n      (if records-only? @read-n n)]
         (when-not (= (long n) (long expected))
           (trove/log! {:level :warn :id ::index-short
                        :msg (str "index entry stream holds " n " entries, index.edn says "
@@ -983,8 +993,9 @@
   which is what makes the fallback unremarkable — but a cache that silently stops being
   used is a cache nobody maintains, so the log line is what makes a regression visible.
   It is also what makes a failed *replay* safe to fall through: `reindex` clears the
-  index before rebuilding, so whatever a broken stream managed to install is wiped."
-  [kb dir compression read-fn index-meta fingerprint preserved? on-progress]
+  index before rebuilding, so whatever a broken stream managed to install is wiped.
+  `records-only?` is `replay-index!`'s."
+  [kb dir compression read-fn index-meta fingerprint preserved? on-progress records-only?]
   (let [[verdict reason] (index-decision index-meta fingerprint preserved?)
         rebuild (fn [r]
                   (trove/log! {:level :info :id ::index-rebuilt
@@ -996,7 +1007,8 @@
     (if (= :replay verdict)
       (do
         (on-progress {:phase :index-entries :done 0 :total (:entry-count index-meta)})
-        (if-let [r (replay-index! kb dir compression read-fn (:entry-count index-meta))]
+        (if-let [r (replay-index! kb dir compression read-fn (:entry-count index-meta)
+                                  records-only?)]
           (rebuild r)
           (do (trove/log! {:level :info :id ::index-replayed
                            :msg  (str "index replayed: " (:entry-count index-meta) " entries")})
@@ -1175,8 +1187,10 @@
         preserved? (and preserve? (zero? (long (:minted result))))
         idx        (if possible?
                      (install-index! kb dir compression read-fn index-meta
-                                     (:fingerprint result) preserved? on-progress)
-                     {:index :inline})]
+                                     (:fingerprint result) preserved? on-progress true)
+                     ;; the inline pass indexed each record; the supporter families are
+                     ;; posted from the stored declarations once every record is in
+                     (do (special/post-taxonomy-supporters! kb) {:index :inline}))]
     (trove/log! {:level :info :id ::records-loaded
                  :msg (str "loaded " (:sentexes result) " sentexes (no belief), index "
                            (name (:index idx)))})
@@ -1582,7 +1596,7 @@
               ;; reads one a restart finds — which is what makes the settling schedulable
               ;; rather than a condition of the load.
               (let [idx (install-index! kb dir compression read-fn (read-index-meta dir)
-                                        fingerprint kept? on-progress)
+                                        fingerprint kept? on-progress false)
                     img (when (true? belief?)
                           (dump-belief! kb dir (and ours? kept?) fingerprint jprint))]
                 (let [summary (merge

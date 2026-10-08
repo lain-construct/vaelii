@@ -184,7 +184,7 @@ missing. The last column names the test that pins the departure, or `none`.
 |---|---|---|---|
 | order | a capped read ([anytime.md](anytime.md#the-one-idea-bound-a-lazy-stream-keep-the-tail)) | A `:max-results` cap, or `take` over `ask` or `query`, keeps *k* answers in the order the index holds their handles. Sorting the matches by content first would realize the whole extent the cap bounds. | `order_independence_test/a-capped-answer-is-one-of-the-answers-whichever-fact-arrived-first` |
 | order | a merge sweep past `tax/*exposure-instance-budget*` ([taxonomy.md](taxonomy.md#what-a-declaration-reaches-back-over), [equality.md](equality.md#functional-infers-equality-instead-of-throwing)) | The sweep reads a prefix of its extent in posting order, so which instances a cut sweep examines depends on arrival. Content order would force the extent the budget bounds. Each cut files a `…-truncated` violation (`core/violations`, "Bounded"). | `order_independence_test/a-revived-genl-edge-merges-up-to-the-budget-and-names-the-cut` |
-| order | the justification set ([nmtms.md](nmtms.md#where-the-layer-stops)) | Belief and `why` agree in every order, and the stored routes do not in four cases: a re-derivation for one reader keeps both routes, an edge defeated and then revived leaves two, a descended `functional` or `anti_symmetric` equality keeps the route it first named, and a firing re-derived for a reader outlives the defeat or `except` that prompted it. Each keeps a justification a reader still reads, or has no second route to replace. | `none` |
+| order | the justification set ([nmtms.md](nmtms.md#where-the-layer-stops)) | Belief and `why` agree in every order, and the stored routes do not in three cases: an edge defeated in the network and then revived leaves two routes, a descended `functional` or `anti_symmetric` equality keeps the route it first named, and the covering test leaves a firing placed below another in a lattice that splits one route across sibling contexts. Each keeps a justification a reader still reads, or has no second route to replace. | `none` |
 | order | a symmetric fold of two bare rows ([canonicalization.md](canonicalization.md#a-mark-arriving-after-the-facts-migrates-them)) | The lower handle survives. The two rows state one proposition, so no belief reads which one stays. | `none` |
 | order | the browser's listings ([web.md](web.md#a-cap-is-not-an-answer-rank-first-then-cap)) | A listing is in handle order, because paging re-slices one sequence at an offset and a content order moves under every write. | `web_test/a-term-with-thousands-of-sentexes-is-walkable-to-the-end` |
 | order | an ASP solve at the time limit ([asp.md](asp.md#the-time-limit)) | Under an installed `:asp` solver, a solve the wall clock stops decides nothing that round, and which solves it stops depends on the machine's speed and load. `VAELII_ASP_SOLVE_LIMIT` stops a search by its conflict count instead, by default at 100,000, at the same point on every machine ([asp.md](asp.md#the-solve-limit)). The time limit stays as the backstop against a process that does not stop, and is the only limit when the solve limit is set to 0. | `asp_aspif_test/a-solve-past-the-time-limit-is-interrupted-not-answered` |
@@ -310,14 +310,13 @@ engine declines to decide, and the *reason* it hands back is the whole answer �
 consequence's handle is noted as touched even on the fast path, O(1) at the write. Polling
 every standing pair for its support count at report time would be O(standing) per settle
 instead. Every consumer reads the window as a superset, so an extra handle costs a
-re-derivation and never a wrong answer — which is exactly what lets a clash report be
-carried forward for any pair the region did not move.
+re-derivation and never a wrong answer.
 
 ### The settle memoizes standing clashes
 
 `settle` runs after every mutation, and the inherited clashes carry forward the answer for
 any claim whose inputs did not move, while the negation, tuple-mark and membership nogoods
-it decides come off a write-time index and are never re-derived: a membership nogood is
+it places come off a write-time index and are never re-derived: a membership nogood is
 kept per term, read again only when the term's memberships or the separations move. This
 is a memo on the recomputation, not an optimization to taste.
 
@@ -326,18 +325,18 @@ at roughly 35 ms an assert with 300 standing definitional clashes against under 
 50; `lein perf`'s `clash-arbitration` and `negation-arbitration` hold the per-assert cost
 against the standing set. The index is sound because it reads as **values** every input a
 separation reads — the separating and covering rosters, the disjoint metatypes' membership
-and the sibling-disjointness exceptions (`tax/separation-stamp`) — and the lower end of
+and the `siblingDisjointException` exemptions (`tax/separation-stamp`) — and the lower end of
 every `genl` edge that moved (`tax/moves-since`), and reads the separations again over the
 type pairs a move can reach.
 
 The rule the whole scheme rests on: **a nogood whose detection reads a belief-following
-cache its own member supports is not stable.** That is why `arity` is not a nogood though it
-names a second believed sentex — `declared-arity` answers from a cache that follows belief,
-so a nogood defeating the declaration would destroy its own premise — and reports instead.
+cache its own member supports is not stable.** That is why an arity binding is a ground of
+its nogood and never a member: the binding is on the forced-monotonic roster, so no defeat
+removes the premise the conviction reads, and the nogood is the offending tuple alone.
 
 ### An un-merge re-seeds through a second channel
 
-A datum displaced by an equality merge is OUT while its twin joins in its place, so a
+A datum displaced by an equality merge is superseded while its twin joins in its place, so a
 partner arriving during the merge concludes at the twin's spelling. Stop believing the
 equality and the twin is swept while the displaced spelling comes back — and the conclusion
 has to be made again at the surviving spelling, or the KB believes both antecedents of a
@@ -361,15 +360,15 @@ by **defeating a member**, which makes admission a stronger question than incomp
 The criterion ([nmtms.md](nmtms.md), *What qualifies as a nogood*) is that a nogood stays
 derivable exactly as long as what it convicts stands.
 
-`arity` is the case that makes it concrete, and the alternative to avoid is to file it as a
-nogood and let the class decide — it names a second believed sentex, it ranks like a
-definitional clash, and the machinery is already there. That gives a clash decided
-once. `declared-arity` answers from a cache that follows belief, so a defeat aimed at the
-`(arity P n)` declaration removes the conviction's own premise: the offending sentex goes on
-standing, nothing can look at the pair again, and the KB is left holding exactly what the
-check exists to catch — silently, because the report is derived from the pair too. So the
-retroactive half reports instead
-([taxonomy.md](taxonomy.md#what-each-constraint-does-in-each-arrival-order)).
+`arity` is the case that makes it concrete, and the alternative to avoid is to file the
+binding as a member and let the class decide — it names a second believed sentex, it ranks
+like a definitional clash, and the machinery is already there. The binding answers from a
+cache that follows belief, so a defeat aimed at the `(arity P n)` declaration removes the
+conviction's own premise: the offending sentex goes on standing, nothing can look at the
+pair again, and the KB is left holding exactly what the check exists to catch — silently,
+because the report is derived from the pair too. So the binding is a ground on the
+forced-monotonic roster, and the nogood is the tuple alone
+([taxonomy.md](taxonomy.md#arity)).
 
 The line is **not** "a member the detection reads through". That wording indicts
 `preserving-nogoods`, which is sound: its members deliberately include the reasons the
@@ -420,20 +419,22 @@ than decided.
 
 ### A clash reading is sorted at the read, not on the settle path
 
-`clashes/read-clashes` builds the conflicts and the dilemmas in the order the candidate
-index answers in, and `clashes/ranked` orders a reading when a caller asks for one
-([nmtms.md](nmtms.md#a-clash-is-reported-never-stored)). Sorting on the settle path puts
+`clashes/read-clashes` builds the conflicts and the dilemmas in the order the
+`contradicts` extent answers in, and `clashes/ranked` orders a reading when a caller asks for one
+([nmtms.md](nmtms.md#the-clash-reports)). Sorting on the settle path puts
 O(standing log standing) comparisons on the path every mutation runs, for a reading nobody
 may ask for: 1.60 ms per assert against 1.07 ms with the sort at the read, on `lein
 perf`'s `negation-arbitration` at 800 standing dilemmas. The cost of the shipped shape is a
-rule: every reader of `conflicts-of` or `contradictions-of` owes the `ranked` call.
+rule: every reader of `conflicts-of`, `contradictions-of` or `contradictions-at` owes the
+`ranked` call.
 
 ### A settle hands no nogood to a solver
 
 Only `:default` content is ever decided; `:monotonic` is the fixed background a solve
 reasons *from*. `decide/verdict` answers every nogood with a defeat, a dilemma or a hard
-clash, so a settle builds no `Program`, and a solver-side guard in `settle` would guard a
-path no settle takes. Labeling holds the split by construction: its `Program` offers only
+clash, and the settle places that answer, so a settle builds no `Program`, and a
+solver-side guard in `settle` would guard a path no settle takes. Labeling holds the
+split by construction: its `Program` offers only
 the dilemmas' tied, defeasible members as assumptions, and `solved-labeling` reads the
 solver's `:defeat` only as a subtraction from those assumptions.
 
@@ -606,7 +607,7 @@ m]`, `[:increment k]`, and so on — rather than the value the key holds after t
 write. Logging the resulting value instead would mean re-serializing the whole set
 on every add: the i-th add to a set of size i would write a value of size i, so N
 adds to one key would cost O(N²) total WAL bytes rather than O(N). A few roots take
-this hit hardest — `[:functor-root p]` and the common contexts — since they are
+this hit hardest — `[:predicate-extent :handles [p ctx]]` and the common contexts — since they are
 exactly the keys a bulk load adds to thousands of times each. Logging the operation
 keeps every write O(1) in the size of what changed, independent of how large the
 set it is changing has already grown.
@@ -925,7 +926,7 @@ arrived first and in none of the others, so a refusal would be a claim about thi
 instant, and what is stored would follow the write order. Reading the classes of the
 opposing sentex and of the grounds does not remove that: a pair every part of which is
 `:monotonic` still depends on which member arrived last. So the entry point stores the
-sentence, the settle decides the nogood, and a clash of `:monotonic` members stands in
+sentence, the settle places the nogood, and a clash of `:monotonic` members stands in
 `conflicts` (decisions 8 and 15 of [reference.md](reference.md#decisions)).
 
 The alternative was to record the refusal and re-offer it when the grounds went, the way
@@ -936,6 +937,46 @@ would have to hold the sentence itself, outside the records a `recover` replays.
 re-offered live and not after a recover would disagree with itself over one store. Storing
 the sentence puts it where `recover` already finds it, and the settle's own weighing is what
 then decides it.
+
+### The mints are an index family over the justifications
+
+A mint is a fact about a stored justification: its informant is an argument declaration.
+Three other homes were considered for the roster of mints the settle's withdrawal reads
+([indexing.md](indexing.md#10-the-mint-family)).
+
+- **An atom on the `Reasoning` value**, refilled by `recover` from its justification walk
+  and carried by the reasoning image.  It would index stored content outside the index
+  store and be rebuilt at every recover; no belief-independent index is held that way.
+- **A sentence stored beside the justification**, such as a `minted` meta-sentex.  It
+  states one fact twice, once as the justification's informant and once as the sentence,
+  and the two can disagree.
+- **A scan of the context roots filtered by mint justification**, which needs no family.
+  It reads every record stated in a context to find the mints there: 1.5 ms at 100 and 15
+  ms at 1,600 authored memberships per context for 100 mints, against 0.02 ms for an atom
+  read.  `lein perf`'s `mints-under-context-edge` reads it at 2.80x for 16x the
+  memberships, against a 2x bound.
+
+The family lives in the `IndexStore` rather than as an index over the `RecordStore`'s
+justifications.  Every shipped index store keeps its count tries in one `KvIndexStore`, and
+the overlay, the snapshot, a dump's index section and `reindex` carry its families
+already; the record stores hold records by handle and keep no trie.  The cost is that the
+index store's families are no longer all derived from the sentexes: `reindex` walks the
+justifications too, and a records-only import, which stores none, leaves the family's
+entries out of a replayed dump index.
+
+### The mints-by-context read: a context-first leaf
+
+The withdrawal a `genlCx` edge triggers reads the mints stated in the contexts under the
+edge's `sub`.  The `:mint` trie ends in the context, so through it alone that read probes
+each mint term's node for the contexts below `sub`: O(mint terms × min(contexts, |below|)),
+growing with mints the edge never reaches.  Measured with one mint under `sub`, the read
+alone cost 0.78 ms beside 1,000 mints in other contexts and 24.7 ms beside 16,000, against
+0.008 and 0.002 ms through a context-first leaf; `lein perf`'s
+`context-edge-beside-distant-mints` reads the whole edge at 8.30x for 16x the distant
+mints through `:mint` alone, and at 0.58x through the leaf.  So the family keeps a second
+count trie, `:mint-in`, whose node is `[]` and whose leaves are keyed by the context: one
+more posting per mint, and the read is O(|below| + members).  Its node count also answers
+whether any mint is stored.
 
 
 ## Taxonomy and disjointness
@@ -1046,8 +1087,8 @@ Defends [nmtms.md](nmtms.md), "Where the layer stops".
 
 A forward firing names one path per reachability it rests on — one firing per route that
 no other route covers ([below](#routes-in-sibling-contexts-each-carry-a-firing)) — and a
-scoped defeat or an `except` of an edge on it withdraws the firing from readers that still reach over a second
-route. The alternative a reader reaches for is to make the antecedent the **question** —
+placed `defeat` or an `except` of an edge on it hides the firing from readers that still
+reach over a second route, unless the read walk finds that route. The alternative a reader reaches for is to make the antecedent the **question** —
 `[rel sub super]`, answered per reader against its scoped closure — so no path is named
 and no reader can lose one. Do not. What it costs, measured on the starter and the test
 world (4,799 justifications, 2,615 of them naming a witness):
@@ -1057,17 +1098,33 @@ world (4,799 justifications, 2,615 of them naming a witness):
 | validity test | 44 ns, a set lookup | 1,058 ns, a scoped reach (24×) |
 | defeat class | a map read | 25 µs, a widest-bottleneck walk |
 | antecedents | 14,505 handles | 12% fewer, plus a question table and an edge → question index kept on every edge write |
-| scoped withdrawal (`grounded-in-region`) | one fixpoint | a question's validity depends on which edges the same fixpoint forces OUT, so it becomes an interleaved one |
+| the read walk (`jtms/region-in`) | one fixpoint | a question's validity depends on which edges the same fixpoint forces OUT, so it becomes an interleaved one |
 | durable frame | unchanged | a new antecedent kind: a format change, a fuzz run, a belief-image re-key |
 
 Every reader of a justification's antecedents changes with it — `valid?`, `conferred-class`,
 the region walks, the dedup keys and fingerprint, the codec, recovery, the equality
 rewrite, `why`, koinii's adjudication and the browser — and every KB that fires over the
 taxonomy pays the per-test cost, to fix a case that exists only where a scoped defeat or an
-`except` does. The settle's re-derivation (`reroute/lost-firing-seeds`) keeps a justification
-a set of handles, is skipped on two derefs in a KB that holds neither, and costs one check per
-withdrawn firing where one stands. It gives up a store that is a function of current
-state, which the entry above records.
+`except` does. The read walk's second-route question (`exc/rerouted`) keeps a justification
+a set of handles, is skipped in a KB that holds neither, and costs one backward claim
+search per justification resting on a hidden handle at the reader.
+
+### A write's report reads the belief before it at its entry point
+
+Defends [nmtms.md](nmtms.md#the-published-window).
+
+A placed `defeat` moves belief with no relabel, so the belief before a write has to come
+from somewhere. The alternative is to derive it after the write: take the defeats the
+write stored or removed and re-read each target, and what rests on it, by the read walk
+with those moves reversed. That reading takes every other input from the network as it
+stands. A write that also lowers a member's class, removes a `genlCx` edge under a
+standing defeat or moves an exemption reads a before-state that was never held: the
+400-world sweep of `feed_test` reports a believed `contradicts` as added, and misses a
+target a re-placed nogood stopped hiding. A reading taken at the entry point, over what the
+write's sentences can move, is exact, and a write with no listener and no sink takes none.
+A reading over what every standing defeat reaches is exact too, and costs a write naming
+no nogood member one read walk per consequence of each standing defeat; it is kept for a
+write the entry point cannot classify.
 
 ### A later route replaces the firing's route rather than joining it
 
@@ -1309,10 +1366,11 @@ here is a route to the same sentence that does not use it.
 
 It is not, and reading it that way confuses two things belief keeps apart. A defeat is a
 claim about the **datum**, not about a derivation of it: `decide/verdict` resolves a clash
-by forcing the strictly-weaker *side* OUT, and the side is a stored sentex with every
+by naming the strictly-weaker *side*, and the side is a stored sentex with every
 justification it has. Its other derivations are not evidence against the defeat — they are
-already in the JTMS, and the reader withdraws the side with every one of them
-([nmtms.md](nmtms.md)). A chainer that answered on one of them would be re-litigating a
+already in the JTMS, and the placed `defeat` hides the side with every one of them
+([nmtms.md](nmtms.md)). Only a guard's `defeat` removes a single firing, because a guard
+blocks one rule and not the sentence ([naf.md](naf.md#evaluated-in-the-placement-context-not-the-join)). A chainer that answered on one of them would be re-litigating a
 settled clash from inside a read, and answering it
 differently from `ask`, `sentexes-matching` and `why` about the same KB.
 

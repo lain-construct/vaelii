@@ -35,7 +35,7 @@
       (is (= :predicate (:role d)))
       (is (= 2 (:arity d))))
     (testing "both argument positions are declared, and each declaration says where"
-      (is (= '[(arg parentOf 1 animal) (arg parentOf 2 animal)]
+      (is (= '[(arg parentOf 1 organism) (arg parentOf 2 organism)]
              (mapv :sentence (:arg-declarations d))))
       (is (every? #(= :arg (:kind %)) (:arg-declarations d)))
       (is (every? #(symbol? (:context %)) (:arg-declarations d))))
@@ -58,6 +58,25 @@
   (testing "a parent relation is neither"
     (is (empty? (:props (v/describe kb 'parentOf W))))))
 
+(tu/deftest-kb a-relation-that-is-a-genl-node-is-described-by-its-stored-arity
+  ;; A `genl` edge between two relations makes each a node of the `genl` hierarchy.  The
+  ;; stored arity decides the role, and the snake_case temporaries show the spelling
+  ;; decides nothing.
+  (doseq [r '[orthogonal siblingDisjointException
+              predicateTypeByArity functionTypeByArity relationTypeByArity]]
+    (is (= [:predicate 2] ((juxt :role :arity) (v/describe kb r))) (str r)))
+  (is (contains? (:props (v/describe kb 'orthogonal)) :symmetric))
+  (tu/with-terms [near_rel close_rel unary_kind]
+    (v/assert kb (list 'symmetric near_rel) 'CxUniverse)
+    (v/assert kb (list 'binary_predicate close_rel) 'CxUniverse)
+    (v/assert kb (list 'genl near_rel close_rel) 'CxUniverse)
+    (v/assert kb (list 'unary_predicate unary_kind) 'CxUniverse)
+    (v/assert kb (list 'genl unary_kind 'thing) 'CxUniverse)
+    (let [d (v/describe kb near_rel W)]
+      (is (= [:predicate 2] ((juxt :role :arity) d)))
+      (is (= #{:symmetric} (:props d))))
+    (is (= :type (:role (v/describe kb unary_kind W))) "a unary node is a type")))
+
 (tu/deftest-kb a-type-is-described-by-what-it-is-under-and-what-it-rules-out
   (let [d (v/describe kb 'dog W)]
     (testing "the taxonomy overrides the spelling: `dog` is a unary predicate and a type,
@@ -75,7 +94,7 @@
 
 (tu/deftest-kb a-subsumption-is-answered-twice-as-the-closure-and-as-the-edge
   ;; `:genls` / `:specs` are the closures a membership check is against; `:genls-direct` /
-  ;; `:specs-direct` are the single `genl` edges the KB was told.  The closure restates one
+  ;; `:specs-direct` are its single `genl` steps, stated or roster-installed.  The closure restates one
   ;; fact as many — `thing` reaches 110,128 subtypes on the OpenCyc import — and it is
   ;; reflexive where the edge reading is not.
   (let [d (v/describe tu/*kb* 'dog '?ctx)]
@@ -192,7 +211,7 @@
 ;; ---- the scoping, which is the whole point ------------------------------
 
 (tu/deftest-kb an-argument-declaration-is-reported-only-where-the-reader-can-see-it
-  ;; `(arg parentOf 1 animal)` is stated in an upper-spindle member; `CxCore` is its head and
+  ;; `(arg parentOf 1 organism)` is stated in an upper-spindle member; `CxCore` is its head and
   ;; sees nothing below.  A `describe` that read the whole KB would report the
   ;; declaration to a reader for whom it does not bind, which is the failure this
   ;; scoping exists to stop — and it is invisible from the answer, since a declaration

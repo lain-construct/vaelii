@@ -19,17 +19,23 @@ maine coon is bigger.
 So it is **declared**, per predicate, per argument position:
 
 ```clojure
-(transitiveInArg        P n R)   ; a stored (P … W …) licenses (P … A …) when (R A W)
-(transitiveInArgInverse P n R)   ; …licenses it when (R W A)
+(transitiveInArg        P n R)   ; a stored (P … W …) licenses (P … A …) when (R W A)
+(transitiveInArgInverse P n R)   ; …licenses it when (R A W)
 ```
+
+`transitiveInArg` carries the claim along `R`'s arrow, from `W` to every `A` that
+`(R W A)` reaches; `transitiveInArgInverse` carries it against the arrow. This is the
+direction Cyc's `transitiveViaArg` / `transitiveViaArgInverse` take
+([from-cyc.md](from-cyc.md)); the argument order is `(P n R)` where Cyc's is `(P R n)`.
 
 `R` is any **transitive** relation — `genl` and `genlCx` through their cached
 closures, or a predicate declared `(transitive R)` walked over the stored facts. With
-`R` = `genl`, `transitiveInArg` is downward inheritance and `transitiveInArgInverse` is
-upward. With `R` = `genlCx` the preserved argument **names a context**, and the
-same two directions read the lattice: a claim about a wide context reaches every
-context below it — a decree stated of a whole world holds in each of its scenarios —
-and the inverse form carries a claim about a narrow context up to the ones above it.
+`R` = `genl`, `transitiveInArg` is upward inheritance and `transitiveInArgInverse` is
+downward. With `R` = `genlCx` the preserved argument **names a context**, and the
+same two directions read the lattice: under `transitiveInArgInverse` a claim about a
+wide context reaches every context below it — a decree stated of a whole world holds
+in each of its scenarios — and under `transitiveInArg` a claim about a narrow context
+reaches the ones above it.
 
 Naming the relation is what keeps this from being a `genl` special case. An argument can
 be preserved along `partOf` just as readily:
@@ -37,13 +43,13 @@ be preserved along `partOf` just as readily:
 ```clojure
 (transitive partOf)
 (partOf Engine Car)  (partOf Piston Engine)
-(transitiveInArg needs_maintenance 1 partOf)
+(transitiveInArgInverse needs_maintenance 1 partOf)
 (needs_maintenance Car)
 ;; => (needs_maintenance Piston)   two hops, no types involved
 ```
 
-The inverse form exists so the other direction never requires declaring an inverse
-predicate that has no other purpose. Both are ordinary stored sentexes read through
+The two names exist so neither direction requires declaring an inverse predicate that
+has no other purpose. Both are ordinary stored sentexes read through
 `matches-visible`, exactly as `arg` and `genlArg` are — context-scoped and
 belief-following, with no cache of their own. Several declarations may name **one**
 position; their reaches union, since each independently licenses the claim.
@@ -63,8 +69,8 @@ and `hasCapability` in `resources/kb/upper/CxLife.txt`. The first two are worth 
 because they are declared **differently on purpose**:
 
 ```clojure
-(transitiveInArg largerThan 1 genl)   (transitiveInArg largerThan 2 genl)
-(transitiveInArg partType   1 genl)
+(transitiveInArgInverse largerThan 1 genl)   (transitiveInArgInverse largerThan 2 genl)
+(transitiveInArgInverse partType   1 genl)
 ```
 
 `largerThan` preserves on both positions, so `(largerThan mammal insect)` in
@@ -75,18 +81,20 @@ nothing about which *kinds of wing* they have, so position 2 preserves nothing. 
 position is a separate claim about the relation, and this is what that looks like when
 somebody has actually made both decisions.
 
-The capability pair is where the **inverse** form ships, and one predicate carries both
+The capability pair is where `transitiveInArg` ships, and one predicate carries both
 directions at once:
 
 ```clojure
-(transitiveInArg        capabilityType 1 genl)   (transitiveInArgInverse capabilityType 2 genl)
-(transitiveInArgInverse hasCapability  2 genl)
+(transitiveInArgInverse capabilityType 1 genl)   (transitiveInArg capabilityType 2 genl)
+(transitiveInArg        hasCapability  2 genl)
 ```
 
 Position 1 of `capabilityType` carries a claim about a kind *down* to its subkinds — a
 kind of bird flies with nothing written about it — while position 2 of both predicates
-carries it *up* the capability hierarchy: flying is a kind of travelling, so whatever
-flies travels.
+carries it *up* the `genl` hierarchy of event kinds: `flying` is a kind of `travelling`, so
+whatever can fly can travel. The second position of both predicates is an event kind,
+`(genlArg hasCapability 2 event)`, so `(hasCapability Tweety flying)` says Tweety can be
+the doer of a flying event.
 
 The size claims are also where the sharp edge shows. Preservation runs downward, so
 `(largerThan mammal mouse)` reaches every pair below it and lands on `(largerThan mouse
@@ -108,9 +116,9 @@ manufacture transitivity for it — two hops of `begat` licensing a claim only o
 ever evidence for. `assert` refuses the declaration:
 
 ```clojure
-(transitiveInArg cursed 1 begat)
+(transitiveInArgInverse cursed 1 begat)
 ;; => throws :not-well-formed
-;;    "begat is not transitive, and transitiveInArg walks the relation it names to a
+;;    "begat is not transitive, and transitiveInArgInverse walks the relation it names to a
 ;;     fixpoint — declare (transitive begat) before the preservation, or name one of
 ;;     genl / genlCx"
 ```
@@ -169,7 +177,7 @@ argument to be marked, and a marked predicate takes one argument-check family fo
 position — `arg` throughout for an instance relation, `genlArg` throughout for a type
 one. A predicate relating one individual to a *kind* satisfies neither and is left
 unmarked, which `relation_kind`'s own comment says of `result` and
-`functionCorrespondingPredicate`. `hasCapability` is the third: one animal, one capability
+`functionCorrespondingPredicate`. `hasCapability` is the third: one animal, one event
 kind. So `capabilityType`/`hasCapability` are named as a pair in their comments and not by
 the predicate that exists to name pairs — declaring the mark to satisfy it would trade an
 argument check that convicts for a link nothing reads. `partType`/`partOf` is the pair the
@@ -205,7 +213,7 @@ asserted, with no second declaration:
 ```clojure
 ;; the declarations and the genl edges under dog and cat {:strength :monotonic}
 (asymmetric largerThan)
-(transitiveInArg largerThan 1 genl)  (transitiveInArg largerThan 2 genl)
+(transitiveInArgInverse largerThan 1 genl)  (transitiveInArgInverse largerThan 2 genl)
 
 (largerThan dog cat)                        {:strength :monotonic}
 (largerThan maine_coon chihuahua)           ; => stored, and not believed
@@ -218,7 +226,7 @@ edge the reading is capped at `:default`, and the pair is the dilemma of the nex
 
 ```clojure
 (asymmetric typicallyLargerThan)
-(transitiveInArg typicallyLargerThan 1 genl)  (transitiveInArg typicallyLargerThan 2 genl)
+(transitiveInArgInverse typicallyLargerThan 1 genl)  (transitiveInArgInverse typicallyLargerThan 2 genl)
 
 (typicallyLargerThan dog cat)               ; the default :default
 (typicallyLargerThan maine_coon chihuahua)  ; => accepted
@@ -250,14 +258,22 @@ undercut, does not fire for that tuple, and there is no pair. A `:monotonic` one
 undercut, which is exactly the case its docstring calls **a contradiction to report
 rather than a refinement to defer to**.
 
+**The reasons count.** A reading is as strong as its weakest member: the general claim,
+the declaration that licenses each move, and every relation edge and mark it rests on
+(`inherit/strongest-claim` caps the reading at the claim's class and takes its weakest
+reason). A reading with any `:default` reason is `:default`, so it is undercut as a
+`:default` claim is: no nogood forms, nothing is reported, and the stored denial stands.
+`inherited_clash_test/a-reading-resting-on-a-default-reason-is-undercut-and-the-denial-stands`
+holds this in every arrival order.
+
 `discovery/preserving-nogoods` forms that pair. It cannot form it the way every other
-rebuttal is formed, because the `:opposed` set holds bodies stored in *both* polarities
-and here the body is stored in one — the other side is a claim with no handle, read out
+rebuttal is formed, because a negation pair needs a body stored in *both* polarities
+(`reads/stored-opposed?`) and here the body is stored in one — the other side is a claim with no handle, read out
 of somebody else's tuple. So the nogood's members are the stored claim **and everything
 the reading rests on**:
 
 - the general claim actually stated — `(carriesLoad hauler_kind Bone1)`;
-- the declaration licensing the move — `(transitiveInArg carriesLoad 1 genl)`;
+- the declaration licensing the move — `(transitiveInArgInverse carriesLoad 1 genl)`;
 - the relation edges the reach travelled — `(genl cart_kind hauler_kind)`;
 - and, for a fact-relation, the `(transitive R)` `usable-relation?` reads at use; for a
   mirrored reading, the `(symmetric …)` behind the mirror.
@@ -274,13 +290,14 @@ super-predicate of `P` (`tax/props-over`), a known-true claim that reaches `(P b
 preservation denies a stored `(P a b)`. `inherit/converse-claim` names that claim and its
 reading, and `preserving-nogoods` forms the pair with the members listed above. A claim
 stated at `(P b a)` itself is a stored converse, which the `asymmetric` family pairs
-([nmtms.md](nmtms.md), "Nogoods decided at the reader").
+([nmtms.md](nmtms.md#the-nogood-families)).
 
 ```clojure
-(asymmetric touchesX)  (genl nudgesX touchesX)  (transitiveInArg nudgesX 1 genl)
+;; every sentence {:strength :monotonic} but the stored converse
+(asymmetric touchesX)  (genl nudgesX touchesX)  (transitiveInArgInverse nudgesX 1 genl)
 (genl chix dogx)
-(nudgesX dogx Fido)    {:strength :monotonic}  ; reaches (nudgesX chix Fido)
-(nudgesX Fido chix)                            ; => stored, and not believed
+(nudgesX dogx Fido)                            ; reaches (nudgesX chix Fido)
+(nudgesX Fido chix)    {:strength :default}    ; => stored, and not believed
 ```
 
 `reference_test/a-converse-an-inherited-claim-reaches-under-a-super-predicate-s-mark-is-out`
@@ -290,7 +307,8 @@ holds this in every arrival order, with the mark on `touchesX` and on `nudgesX`.
 is its weakest member's, and `claim-reading` and `clashing-claim` take the reading whose
 class is highest, the first in content order among equals. A `:default` shortcut edge
 beside a known-true route of any length therefore leaves the reading known-true, and the
-converse is defeated, whichever edge arrived first.
+converse is defeated, whichever edge arrived first. When every route has a `:default`
+reason, the reading is `:default` and opposes nothing.
 
 The same list `supports-for` hands a justification, and for the same reason: those
 sentexes are what the claim *is*, so a set that must not hold in full is that set and not
@@ -329,10 +347,14 @@ engine could not name now has a name.
 context, and the most general contexts that see the stored claim, the general claim and
 everything the reading rests on. An inherited claim exists only where a reader sees the
 claim and each edge the reach travels, so the vantages are found before any reader is
-asked: `inherit/denial-contexts` reads, from the whole KB, the claims that would deny the
-stored one and the contexts each reading rests on, and `discovery/group-vantages` takes the
-most general common descendants of those contexts and the stored claim's
-([nmtms.md](nmtms.md), "A defeat is scoped to its vantage"). The own context and each
+asked: `inherit/denial-readings` reads, from the whole KB, the claims that would deny the
+stored one and the handles each reading rests on, and `discovery/preserving-entry` takes the
+most general common descendants of their contexts and the stored claim's where no except
+hides one of them (`res/exception-aware-placements`, the placement a firing takes;
+[nmtms.md](nmtms.md), "A defeat is scoped to its vantage"). `denial-readings` drops a
+reading another reading covers only when the covering reading rests on no handle an except
+can hide that the covered reading does not rest on as well (`exc/closure-excepted-anywhere?`),
+so a context below whose except hides the cover is asked from the covered reading. The own context and each
 vantage then ask `clashing-claim` on what they see, and the own context's answer does not
 stand in for a vantage's: a vantage that sees a known-true route the own context does not
 see reads a stronger reading, and decides from it.
@@ -348,7 +370,10 @@ pair: with the edges and the declarations known-true the default loses at CxW an
 and with any of them a default it is a dilemma CxW reports. CxB, which cannot see the
 general claim, keeps the stored claim either way. With the edges in a context only a
 context below CxW sees, CxW reads no reach and keeps the stored claim, and that lower
-context is the vantage.
+context is the vantage. An except that hides a reason at the stored claim's context, beside
+a meta-except that shows it again in a context below, makes that lower context the vantage
+in the same way
+(`inherited_clash_test/an-inherited-clash-a-meta-except-restores-below-its-members-is-placed-there`).
 
 **The diagonal is excluded**, as it is for `supports-for`: `witness-terms` is reflexive, so
 the claim stated at the very tuple the stored negation is about comes back through the
@@ -360,11 +385,10 @@ arguments preserved, a `genl` cycle between `a` and `b` carries the converse of 
 `(P b a)` back to `(P b a)`'s own tuple: the converse sits at `[a b]`, and each position
 reaches the other term around the cycle. That reading files one sentence on both sides,
 the shape `claims` skips at a self tuple (below), so `clashing-claim` and
-`denial-contexts` drop a claim whose sentence is the one asked about. The cycle itself
-is refused at assert, and a live KB still reaches one inside a settle: defeat
-`(genl a b)` through an inherited nogood, assert `(genl b a)` past the cycle check, and
-the settle that places the new edge re-decides the old nogood with `(genl a b)` IN
-([taxonomy.md](taxonomy.md)).
+`denial-readings` drop a claim whose sentence is the one asked about. The cycle itself
+is refused at assert ([taxonomy.md](taxonomy.md)), and a reading over a `:default` edge
+is undercut, so no inherited nogood defeats an edge to let the reverse edge past the
+check (`inherited_clash_test/a-reading-over-a-default-edge-closes-no-genl-cycle`).
 
 ## `(asymmetric P)`
 
@@ -416,7 +440,7 @@ a registry where a prover claiming `completeness 100` runs alone, and a computed
 claim nobody stored. So `provers/sole-prover` asks `provers/shadowing-channels` before
 letting any claimant run alone, and a declared preserved position puts `:preserving` in
 that set, which sends the goal down the union path where this prover is consulted.
-Without it, declaring `(transitiveInArg partOfRegion 1 genl)` beside a registered `:rcc8`
+Without it, declaring `(transitiveInArgInverse partOfRegion 1 genl)` beside a registered `:rcc8`
 reasoner leaves the declaration inert and `query-plan` listing a prover that never runs.
 
 That read is on the hot path, and it is gated twice over. `positions` is asked by
@@ -448,7 +472,7 @@ entails ([qcn.md](qcn.md)). An inherited claim has no handle, but it was **read 
 things that do:
 
 - the **claim that was stated** — `(largerThan dog cat)`;
-- the **declaration** licensing the move — `(transitiveInArg largerThan 1 genl)`, one per
+- the **declaration** licensing the move — `(transitiveInArgInverse largerThan 1 genl)`, one per
   position that actually moved;
 - the **relation edges** the reach travelled — `(genl chihuahua dog)`, `(genl maine_coon
   cat)`, one path per position, the one that places the conclusion highest, or one per
@@ -464,7 +488,7 @@ goes, `why` names the actual reasons, and the conclusion is placed only where al
 them can be seen — the contract an ordinarily matched antecedent has.
 
 ```clojure
-(transitiveInArg largerThan 1 genl)  (transitiveInArg largerThan 2 genl)
+(transitiveInArgInverse largerThan 1 genl)  (transitiveInArgInverse largerThan 2 genl)
 (largerThan dog cat)
 (implies (largerThan ?x ?y) (outweighs ?x ?y))
 
@@ -528,16 +552,12 @@ another member of its region. A settle whose region is the whole store, recover'
 first, reads no moved predicates at all, since every extent they would add is already in
 the region.
 
-**A verdict moves the same joins with no sentence arriving at all.** A reader's verdict
-takes a member OUT at that reader, nothing is stored or removed, and so nothing queues the
-re-join an arrival would. `settle`'s `released-by-own` reads the handles whose belief at
-their own context a verdict moved (`special/reconcile-own-withdrawals!`), and
-`preserved-rejoins-for` reads the rules each such sentence licensed and re-chains them
-like any blanket mark. A firing whose named witness went OUT therefore either re-derives
-through a route that witness did not travel or is withdrawn by its own re-check. The same
-reconcile takes each moved handle out of the unscoped closures, or gives it back, before
-the rest of the settle reads them. A scoped closure read applies its reader's withdrawal
-through `res/supporter-believed?`
+**A placed defeat moves belief with no sentence arriving at all.** A `defeat` stored,
+removed or relabelled moves its target's belief at the contexts that see it, and nothing
+queues the re-join an arrival would: the settle posts the re-check of the target and of
+each handle resting on it (`settle/post-defeat-moves!`). A scoped closure read applies the
+defeats its reader sees through `res/supporter-believed?`, and a closure read with no
+context, like a firing's witness search, reads the network
 ([nmtms.md](nmtms.md#a-defeat-is-scoped-to-its-vantage)).
 
 **A mirrored antecedent licenses the forward entry point too, and the firing says so.** A claim
@@ -566,7 +586,13 @@ conclusion and the existing revival machinery brings it back when the specific c
 goes. A settle re-decides only the firings whose goal the moved sentence can bear on
 ([exceptions.md](exceptions.md#two-withdrawals-a-firing-carries)). The check is asked only of an antecedent the KB does not state at the bound tuple:
 a stored claim is withdrawn by its own handle going, and asking `verdict` about one would
-block an ordinary firing over a pair the KB happens to hold in both polarities.
+block an ordinary firing over a pair the KB happens to hold in both polarities. The check
+reads the claims in the network and through the excepts, and no placed defeat
+(`tax/*network-belief*`), as every placement in `chain` does: a specific claim a defeat
+hides still undercuts, so what is stored is the same in every arrival order
+(`inherit_forward_test/a-defeated-contrary-claim-withdraws-an-inherited-firing-in-every-order`).
+At a reader that does not believe the specific claim, `ask?` of the inherited claim still
+answers true through the prover, while a forward rule over it has not fired there.
 
 **Placement follows the reasons.** The claim, the declarations and the edges are
 antecedents, so `maximal-common-descendant-contexts` sees their contexts alongside the
@@ -578,8 +604,8 @@ leave the same belief as the reverse order. The two orders differ in what is **s
 since a firing placed before the general route arrived stays where it was placed and the
 general route adds a second firing above it. The lower firing is kept
 ([defenses.md](defenses.md#a-firing-placed-over-a-lower-route-is-not-retired)): it is the
-firing a reader's verdict against the general route at its context would have the settle re-derive
-in the long-first order ([nmtms.md](nmtms.md#where-the-layer-stops)).
+firing a network defeat of the general route would have the settle re-derive in the
+long-first order ([nmtms.md](nmtms.md#where-the-layer-stops)).
 `lein bench-witness` counts the lower firings that differ from a higher one only in their
 route: 0 in the starter and the test world, one per chain in its short-first corpora.
 Retracting either route leaves what a KB built without it holds, in either order.
@@ -588,7 +614,7 @@ Retracting either route leaves what a KB built without it holds, in either order
 of two siblings' routes cannot rank them, so neither placement is above the other:
 
 ```
-CxUniverse   (transitiveInArg aRel 1 genl)
+CxUniverse   (transitiveInArgInverse aRel 1 genl)
              forward rule (aRel ?x ?y) ⇒ (noted ?x ?y)
  ├─ CxA      (genl low mid) (genl mid high)  (aRel high val)
  ├─ CxB      (genl low high)
@@ -629,13 +655,14 @@ prover answers `ask` without weighing either.
 
 **What it costs, and who pays.** Nothing here runs until a KB declares a preservation
 *and* a forward rule carries an antecedent on the declared predicate. The re-join reads
-the `:preserving` roster, which the store keeps beside the index, so a KB that declares
-none pays one `empty?` per datum and no index read. A KB that declares one but writes no
-rule over it matches each datum against the roster's `[P R]` pairs in memory and then
+the declaration functors' counts off the index, so a KB that declares none pays two
+predicate-extent counts per datum. A KB that declares one reads the two functor postings as
+well, and the `[P R]` pairs are cached on those postings (`inherit/preserved-pairs`); one
+that writes no rule over them matches each datum against the pairs in memory and then
 probes the antecedent index for nothing. A `genl` datum whose moved predicates carry a
 rule pays the narrowing on top (`inherit/crossing-claim?`): one slot-roster read per term
 of its closure per preserved
-position, four functor-root reads for the permuting marks, and, when a declaration or a
+position, four predicate-extent reads for the permuting marks, and, when a declaration or a
 mark has changed since the last edge, one record fetch per declaration on `genl` and per
 mark. A closure past `inherit/crossing-closure-cap` terms skips those reads and moves
 every predicate preserved along `genl`. The forward join's own gate,
@@ -661,7 +688,7 @@ feature:
   keep the tuples that land in the product — cost: what was written about that
   predicate.
 
-`found-claims` weighs one against the other per goal: the functor roots of every
+`found-claims` weighs one against the other per goal: the predicate extents of every
 predicate the probe fans over (the sub-predicates for a positive probe, the
 super-predicates for a negated one), capped by the most selective pinned argument
 position, against the product's size. A predicate that stores nothing while a
@@ -719,7 +746,7 @@ The caller's deadline bounds them instead: under `ask`, `ask?`, `ask-within`, `p
 so a walk past it answers `:budget-exhausted` or `:timeout` rather than reading to the
 end ([anytime.md](anytime.md#the-budget)). `inherit/*deadline*` carries it, and only
 `TransitiveInArgProver` binds it: the asymmetry check at `assert`, settle's
-`clashing-claim` / `denial-contexts` and forward chaining read the same claims with no
+`clashing-claim` / `denial-readings` and forward chaining read the same claims with no
 deadline, since a refusal there would make what is admitted, believed or derived depend
 on the clock
 (`inherit_test/a-claims-reader-other-than-the-ask-prover-walks-past-the-deadline`).
@@ -813,7 +840,7 @@ after it correctly drop, and which you get depends on when the edge arrived.
 predicate declared `(transitiveInArg P n R)` is queued for re-evaluation at the next
 `settle`. Queued as `:all` rather than with the moved sentence as a narrowing trigger,
 because that sentence is about `R` and the exception is about `P`, so it could not narrow
-the right firings anyway. The declarations are read off the functor roots rather than
+the right firings anyway. The declarations are read off the predicate extents rather than
 through `matches-visible` — a trigger has to be conservative in the direction the answer
 is, and a declaration this edge cannot see still qualifies a rule in a context that can.
 Over-queueing costs a level-6 query at the next settle; under-queueing is a wrong belief.

@@ -17,6 +17,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [vaelii.core :as v]
             [vaelii.impl.chain :as chain]
+            [vaelii.impl.settle :as settle]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]))
 
@@ -31,8 +32,8 @@
   "`(bigger dog cat)` inherited down to `[chi mc]` by argument preservation, with the
   predicate asymmetric so a specific converse can undercut it."
   [kb]
-  (v/assert kb '(transitiveInArg fbigger 1 genl) ctx)
-  (v/assert kb '(transitiveInArg fbigger 2 genl) ctx)
+  (v/assert kb '(transitiveInArgInverse fbigger 1 genl) ctx)
+  (v/assert kb '(transitiveInArgInverse fbigger 2 genl) ctx)
   (v/assert kb '(asymmetric fbigger) ctx)
   (v/assert kb '(genl fchi fdog) ctx)
   (v/assert kb '(genl fmc fcat) ctx)
@@ -89,8 +90,8 @@
     ;; Wiring the two contexts together is what brings the converse into view.
     (tu/with-cleared-kb [kb tu/isolated-fresh]
       (v/assert kb (list 'genlCx 'CxFSub ctx) ctx {:strength :monotonic})
-      (v/assert kb '(transitiveInArg ebigger 1 genl) ctx)
-      (v/assert kb '(transitiveInArg ebigger 2 genl) ctx)
+      (v/assert kb '(transitiveInArgInverse ebigger 1 genl) ctx)
+      (v/assert kb '(transitiveInArgInverse ebigger 2 genl) ctx)
       (v/assert kb '(asymmetric ebigger) ctx)
       (v/assert kb '(genl echi edog) ctx)
       (v/assert kb '(genl emc ecat) ctx)
@@ -294,3 +295,31 @@
             (v/retract! kb (v/handle-of kb (list 'rpre (symbol (str "RM" i))) ctx)))
           (is (= 10 (count (v/sentexes-matching kb '(rseen ?x) '?ctx)))
               "the coarse re-join finds what the record would have found"))))))
+
+(defn- swept-then-released
+  "`[recorded rseen? recorded re-chained]` for the firing of `skip-rule!` placed before its
+  blocker `(rskip RM1)` arrives: the entries recorded once the blocker sweeps it, whether
+  it is believed and the entries recorded after `trigger` lifts the block, and the rules
+  re-chained over their extent meanwhile.  `:except` hides the blocker, `:retract`
+  retracts it, `:defeat` stores a `:monotonic` denial whose placed defeat hides it."
+  [trigger]
+  (tu/with-cleared-kb [kb tu/isolated-fresh]
+    (skip-rule! kb)
+    (v/assert kb '(rmark RM1) ctx)
+    (let [blk   (v/assert kb '(rskip RM1) ctx)
+          swept (recorded kb)
+          seen  (atom #{})
+          real  settle/rechain-exception-rules]
+      (with-redefs [settle/rechain-exception-rules (fn [kb rhs] (swap! seen into rhs) (real kb rhs))]
+        (case trigger
+          :except  (v/assert kb (list 'except (list 'sentexHandle blk)) ctx)
+          :retract (v/retract! kb blk)
+          :defeat  (v/assert kb '(not (rskip RM1)) ctx {:strength :monotonic})))
+      [swept (v/ask? kb '(rseen RM1) ctx) (recorded kb) @seen])))
+
+(deftest a-firing-a-late-blocker-swept-is-released-from-the-refusal-record
+  ;; The sweep records the firing as a refusal, so each trigger that lifts the block
+  ;; re-derives it from its bindings and re-chains no rule over its extent.
+  (doseq [trigger [:except :retract :defeat]]
+    (testing (name trigger)
+      (is (= [1 true 0 #{}] (swept-then-released trigger))))))

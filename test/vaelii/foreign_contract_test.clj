@@ -48,7 +48,7 @@
   [dir]
   (for [^java.io.File f (file-seq (io/file dir))
         :when (and (.isFile f) (str/ends-with? (.getName f) ".clj"))]
-    [(.getPath f) (slurp f)]))
+    [(str/replace (.getPath f) \\ \/) (slurp f)]))
 
 ;;; ── nothing here reads a foreign format ───────────────────────────────
 

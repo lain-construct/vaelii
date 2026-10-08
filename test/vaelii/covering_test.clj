@@ -33,6 +33,12 @@
       (v/assert kb (list dog Rex) 'CxUniverse)
       (is (v/ask? kb (list animal Rex) 'CxUniverse)))))
 
+(tu/deftest-kb a-fact-of-another-functor-shaped-as-a-cover-pairs-with-no-disjoint
+  (tu/with-terms [liesAmong alpha beta gamma]
+    (v/assert kb (list liesAmong alpha beta gamma) 'CxUniverse)
+    (v/assert kb (list 'disjoint alpha beta) 'CxUniverse)
+    (is (empty? (filter #(= :cover (:kind %)) (v/contradictions kb))))))
+
 (tu/deftest-kb a-cover-asserted-before-its-parts-answers-what-one-asserted-after-them-does
   (tu/with-terms [animal dog cat Rex]
     (v/assert kb (list dog Rex) 'CxUniverse)
@@ -107,14 +113,16 @@
       (is (not (v/disjoint? kb cat bird))))))
 
 (tu/deftest-kb an-exception-exempts-one-pair-of-parts
+  ;; A partition's separation half is a mark, so a `siblingDisjointException` over two
+  ;; parts exempts that pair; the coverage half stands.
   (tu/with-terms [perception reading touch Braille]
     (v/assert kb (list 'partition perception reading touch) 'CxUniverse)
     (is (v/disjoint? kb reading touch))
     (v/assert kb (list 'siblingDisjointException reading touch) 'CxUniverse)
-    (testing "the roster is read by the same test the metatype clique is"
-      (is (not (v/disjoint? kb reading touch)))
-      (v/assert kb (list reading Braille) 'CxUniverse)
-      (is (= :ok (outcome kb (list touch Braille) 'CxUniverse))))))
+    (is (not (v/disjoint? kb reading touch)))
+    (v/assert kb (list reading Braille) 'CxUniverse)
+    (is (= :ok (outcome kb (list touch Braille) 'CxUniverse)))
+    (is (empty? (filter #(= :orthogonal (:kind %)) (v/conflicts kb))))))
 
 ;; ---- what the declaration is refused for --------------------------------
 
@@ -178,6 +186,22 @@
     (testing "a whole instance belonging to no part violates nothing"
       (v/assert kb (list animal Rex) 'CxUniverse)
       (is (empty? (v/conflicts kb))))))
+
+(tu/deftest-kb a-roster-edge-is-one-genl-step-read-from-the-roster-s-context
+  (tu/with-terms [animal dog cat CxA CxB]
+    (doseq [c [CxA CxB]] (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+    (v/assert kb (list 'separating animal dog cat) CxA)
+    (testing "the parts are the whole's direct specs, and the whole each part's direct genl"
+      (is (= #{dog cat} (v/direct-specs kb animal CxA)))
+      (is (= #{animal} (v/direct-genls kb dog CxA))))
+    (testing "a context that does not see the roster reads no step"
+      (is (= #{} (v/direct-specs kb animal CxB)))
+      (is (= #{} (v/direct-genls kb dog CxB))))
+    (testing "the global arity reads every edge"
+      (is (= #{dog cat} (v/direct-specs kb animal))))
+    (testing "separating-covers lists the roster disjoint? reads"
+      (is (some (fn [[w ps]] (and (= animal w) (= #{dog cat} (set ps))))
+                (v/separating-covers kb))))))
 
 (tu/deftest-kb separating-licenses-no-coverage-inference
   (tu/with-terms [animal dog cat Rex]

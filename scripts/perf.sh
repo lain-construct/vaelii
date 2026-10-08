@@ -14,7 +14,7 @@
 # of it.  The cost is one extra leiningen boot (~1s against a ~40s stage).
 #
 # Arguments pass straight through, so `lein perf --quick`, `lein perf --only
-# <name>` and `lein perf --tolerance <x>` are unchanged.
+# <name>[,<name>…]` and `lein perf --tolerance <x>` are unchanged.
 #
 # `2>&1` merges the harness's stderr into the log, which is where the
 # `perf-progress k/total` markers live — `scripts/gate.sh` polls those into its
@@ -33,14 +33,17 @@ cd "$ROOT" || exit 1
 . "$ROOT/scripts/lib/runlog.sh"
 
 # `--list` prints the checks' names and claims, measures nothing, runs anywhere and
-# writes no log or ledger row.  A worktree runs `lein gate` and nothing heavier
-# (scripts/lib/slots.sh says why).
+# writes no log or ledger row.  A worktree runs `lein gate`, and `lein perf` only with
+# `--only` (scripts/lib/slots.sh says why).
 case " $* " in
   *" --list "*) exec lein with-profile +bench run -m vaelii.bench.perf "$@" ;;
 esac
 # shellcheck source=scripts/lib/slots.sh
 . "$ROOT/scripts/lib/slots.sh"
-require_primary "lein perf"
+case " $* " in
+  *" --only "*) ;;
+  *) require_primary "lein perf without --only" ;;
+esac
 
 PERF_ROOT="logs/perf"
 LOG="$PERF_ROOT/run-$$.log"

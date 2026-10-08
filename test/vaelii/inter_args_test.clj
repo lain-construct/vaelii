@@ -9,7 +9,8 @@
   Open-world as `interArg` is: the trigger must be positively established, and a target
   is convicted only when the KB places it in the hierarchy outside `T`.  An application
   whose arguments all lie outside `T` is unconstrained.  The refusal is `interArg`'s
-  `:inter-arg-type`."
+  `:inter-arg-type`, under the constraint-only reading every test here but the last
+  pins; the entailing reading derives the type instead (docs/argtypes.md)."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
@@ -17,8 +18,12 @@
             [vaelii.test-util :as tu]))
 
 ;; CxCore's vocabulary, since the two forward rules relating the spellings are CxCore's.
-;; A KB per test, because the restart tests open a second KB over the same stores.
-(use-fixtures :each (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
+;; A KB per test, because the restart tests open a second KB over the same stores.  The
+;; constraint-only reading, which is the one that refuses; the entailing reading's
+;; derivation is `the-entailing-reading-derives-the-suffix-type`, which binds it back.
+(use-fixtures :each
+  (fn [f] (tu/without-entailing (f)))
+  (tu/neutral-fresh #(doto (tu/fresh) (tu/load-core!))))
 
 (defn- ex-type
   "The `:type` on the ex-info a thunk throws, or nil if it does not throw."
@@ -369,3 +374,14 @@
             [:interArg-pair [0 1] true true] [:interArg-pair [1 0] true true]]
            placed)
         "dropped while a target is outside the type, placed once both are inside it")))
+
+(tu/deftest-kb the-entailing-reading-derives-the-suffix-type
+  ;; With a dog in the suffix, the entailing reading derives `animal` of the plant beside
+  ;; it, stores the application, and refuses nothing.
+  (tu/with-entailing
+    (let [{:keys [rel animal dogs plants]} (world kb)
+          [a] dogs [p] plants]
+      (v/assert kb (list 'interArgs rel animal) 'CxUniverse)
+      (v/assert kb (list rel a p) 'CxUniverse)
+      (is (some? (v/handle-of kb (list rel a p) 'CxUniverse)))
+      (is (v/isa? kb p animal 'CxUniverse)))))

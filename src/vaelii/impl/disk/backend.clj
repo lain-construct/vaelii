@@ -343,66 +343,71 @@
   any rewrite → join the compactor → write the image → close the components → release
   the lock.  Releasing the OS lock is the last thing that happens,
   because it is the thing the other process is waiting on, and everything above it is a
-  file of this directory's still being written."
-  [dir]
-  (let [cdir (canonical-dir dir)]
-    ;; A background belief rebuild is stopped before the monitor is taken: the stop waits
-    ;; for the rebuild's next stop check, which can be a whole-store settle away, and every
-    ;; other directory's open and close takes this monitor.  `reasoning-image` stops it again
-    ;; under the monitor, which returns at once for this rebuild and waits only for one
-    ;; registered in between.
-    (when-let [stop (get-in @stores [cdir :stop-rebuild])] (stop))
-    (locking stores
-      (when-let [{:keys [records index overlay-meta snapshot reasoning-image dur-ids]} (@stores cdir)]
-        ;; Deregister first: it is the signal a task the compaction executor has queued
-        ;; but not started reads, so it turns every waiting rewrite of this directory
-        ;; into a skip rather than something to wait out.  It also stops the next daemon
-        ;; tick queueing a fresh one behind our backs, which is what makes the join below
-        ;; terminate.
-        (doseq [id (vals dur-ids)] (dur/deregister! id))
-        ;; Then stop the rewrite that is already running, and wait for it.  The record
-        ;; store's rewrite phase holds no lock on purpose (`record-store/compact-kind!`),
-        ;; so nothing a close does to the store blocks it: it reads through a private
-        ;; handle and appends to `sentexes.log.compact` *by name*, which is a path the
-        ;; next process to own this directory will compact over.  Releasing the OS lock
-        ;; with that rewrite still running is two processes appending to one temp log and
-        ;; a replay installing frames from both — the exact tearing the directory lock
-        ;; exists to prevent, under a setting (`vaelii.disk.auto-compact`) that is on by
-        ;; default.  The abort makes the wait short; the wait ensures no rewrite outlives the
-        ;; release.
-        (when records (drs/abort-compaction! records))
-        (dur/await-compaction-quiescent! (vals dur-ids))
-        ;; The image after the join and before the closes: it is stamped against the
-        ;; records, so it has to be written while they are still open *and* while nothing
-        ;; is rewriting the offsets underneath it — and a failure to write one must not
-        ;; stop the close.
-        (when snapshot
-          (try (snapshot)
-               (catch Throwable t
-                 (trove/log! {:level :warn
-                              :msg (str "disk backend: the index snapshot for " cdir
-                                        " was not written (" (.getMessage t)
-                                        ") — the next open rebuilds from the records")}))))
-        ;; the reasoning image under the same two conditions, and `save!` logs and swallows
-        ;; its own failure
-        (when reasoning-image (reasoning-image))
-        (let [failures (into []
-                             (keep identity)
-                             [(when records
-                                (close-component! (str "disk-records " cdir)
-                                                  #(drs/close! records)))
-                              (when index
-                                (close-component! (str "disk-index " cdir)
-                                                  #(dkv/close! (:backend index))))
-                              (when overlay-meta
-                                (close-component! (str "overlay-meta " cdir)
-                                                  #(dkv/close! overlay-meta)))])]
-          (lock/release! cdir)
-          (swap! stores dissoc cdir)
-          ;; after the close wrote one, so the next open measures its drift against the
-          ;; image it actually finds rather than against one this process left behind
-          (snap/forget-image! cdir)
-          (when-first [t failures] (throw t)))))))
+  file of this directory's still being written.
+
+  `{:images? false}` skips the image step: the caller holds no KB whose index or belief
+  describes the records, such as an open that threw, and an image of what it holds would
+  replace a sound one."
+  ([dir] (close-dir! dir nil))
+  ([dir {:keys [images?] :or {images? true}}]
+   (let [cdir (canonical-dir dir)]
+     ;; A background belief rebuild is stopped before the monitor is taken: the stop waits
+     ;; for the rebuild's next stop check, which can be a whole-store settle away, and every
+     ;; other directory's open and close takes this monitor.  `reasoning-image` stops it again
+     ;; under the monitor, which returns at once for this rebuild and waits only for one
+     ;; registered in between.
+     (when-let [stop (get-in @stores [cdir :stop-rebuild])] (stop))
+     (locking stores
+       (when-let [{:keys [records index overlay-meta snapshot reasoning-image dur-ids]} (@stores cdir)]
+         ;; Deregister first: it is the signal a task the compaction executor has queued
+         ;; but not started reads, so it turns every waiting rewrite of this directory
+         ;; into a skip rather than something to wait out.  It also stops the next daemon
+         ;; tick queueing a fresh one behind our backs, which is what makes the join below
+         ;; terminate.
+         (doseq [id (vals dur-ids)] (dur/deregister! id))
+         ;; Then stop the rewrite that is already running, and wait for it.  The record
+         ;; store's rewrite phase holds no lock on purpose (`record-store/compact-kind!`),
+         ;; so nothing a close does to the store blocks it: it reads through a private
+         ;; handle and appends to `sentexes.log.compact` *by name*, which is a path the
+         ;; next process to own this directory will compact over.  Releasing the OS lock
+         ;; with that rewrite still running is two processes appending to one temp log and
+         ;; a replay installing frames from both — the exact tearing the directory lock
+         ;; exists to prevent, under a setting (`vaelii.disk.auto-compact`) that is on by
+         ;; default.  The abort makes the wait short; the wait ensures no rewrite outlives the
+         ;; release.
+         (when records (drs/abort-compaction! records))
+         (dur/await-compaction-quiescent! (vals dur-ids))
+         ;; The image after the join and before the closes: it is stamped against the
+         ;; records, so it has to be written while they are still open *and* while nothing
+         ;; is rewriting the offsets underneath it — and a failure to write one must not
+         ;; stop the close.
+         (when (and images? snapshot)
+           (try (snapshot)
+                (catch Throwable t
+                  (trove/log! {:level :warn
+                               :msg (str "disk backend: the index snapshot for " cdir
+                                         " was not written (" (.getMessage t)
+                                         ") — the next open rebuilds from the records")}))))
+         ;; the reasoning image under the same two conditions, and `save!` logs and swallows
+         ;; its own failure
+         (when (and images? reasoning-image) (reasoning-image))
+         (let [failures (into []
+                              (keep identity)
+                              [(when records
+                                 (close-component! (str "disk-records " cdir)
+                                                   #(drs/close! records)))
+                               (when index
+                                 (close-component! (str "disk-index " cdir)
+                                                   #(dkv/close! (:backend index))))
+                               (when overlay-meta
+                                 (close-component! (str "overlay-meta " cdir)
+                                                   #(dkv/close! overlay-meta)))])]
+           (lock/release! cdir)
+           (swap! stores dissoc cdir)
+           ;; after the close wrote one, so the next open measures its drift against the
+           ;; image it actually finds rather than against one this process left behind
+           (snap/forget-image! cdir)
+           (when-first [t failures] (throw t))))))))
 
 (defn disk-dir
   "The directory a disk KB lives in.  `:dir` names it explicitly; otherwise it derives

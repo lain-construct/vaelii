@@ -58,15 +58,18 @@
       (is (= :quoted-arg-type (refusal kb (list holds true)))))))
 
 (tu/deftest-kb quotedarg-and-arg-are-independent
-  ;; `arg` (referent) and `quotedArg` (term) are separate checks on one position: the same
-  ;; sentence can satisfy one and violate the other.
-  (tu/with-terms [tagOf label]
-    (v/assert kb (list 'unary_predicate tagOf) 'CxUniverse)
-    (v/assert kb (list 'genl label 'thing) 'CxUniverse)
-    (v/assert kb (list 'arg tagOf 1 'label) 'CxUniverse)          ; the REFERENT must be a label
-    (v/assert kb (list 'quotedArg tagOf 1 'string) 'CxUniverse)   ; the TERM must be a string
-    (testing "a string value passes quotedArg but is outside the label hierarchy — arg exempts it open-world"
-      (is (nil? (refusal kb (list tagOf "x")))))))
+  ;; the entailing reading: the derivation is the subject
+  (tu/with-entailing
+    ;; `arg` (referent) and `quotedArg` (term) are separate checks on one position: the same
+    ;; sentence can satisfy one and violate the other.
+    (tu/with-terms [tagOf label]
+      (v/assert kb (list 'unary_predicate tagOf) 'CxUniverse)
+      (v/assert kb (list 'genl label 'thing) 'CxUniverse)
+      (v/assert kb (list 'arg tagOf 1 'label) 'CxUniverse)          ; the REFERENT must be a label
+      (v/assert kb (list 'quotedArg tagOf 1 'string) 'CxUniverse)   ; the TERM must be a string
+      (testing "a string value passes quotedArg and fails arg: the declaration derives
+              `label` a type, and a string is not one"
+        (is (= :arg-type (refusal kb (list tagOf "x"))))))))
 
 (tu/deftest-kb quotedarg-is-open-world-about-a-non-syntactic-declared-type
   ;; a declared type outside the syntactic lattice (a domain collection, e.g. an imported

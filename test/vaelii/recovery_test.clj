@@ -14,7 +14,9 @@
             [vaelii.impl.chain :as chain]
             [vaelii.impl.checks :as checks]
             [vaelii.impl.protocols :as p]
+            [vaelii.impl.reads :as reads]
             [vaelii.impl.sentex :as sx]
+            [vaelii.impl.special :as special]
             [vaelii.impl.taxonomy :as tax]
             [vaelii.impl.types.reasoning :as reasoning]
             [vaelii.test-util :as tu]
@@ -111,17 +113,19 @@
           (is (contains? (set (v/genls kb2 dog_t)) mammal_t))
           (is (v/isa? kb2 Rex mammal_t)))))))
 
-(tu/deftest-kb recover-drops-a-malformed-edge-declaration-rather-than-crashing
-  ;; `recover` replays the **stored** genl / genlCx sentexes rather than the checked ones,
-  ;; reading each edge positionally (`[_ a b]`).  A store an older or foreign writer left a
-  ;; non-edge sentex under the genl / genlCx functor root then reaches the rebuild arm as a
+(tu/deftest-kb a-reindex-drops-a-malformed-edge-declaration-rather-than-crashing
+  ;; `reindex` posts the supporters of the **stored** genl / genlCx sentexes rather than
+  ;; the checked ones, reading each edge positionally (`[_ a b]`), and the `recover` after
+  ;; it installs what was posted.  A store an older or foreign writer left a
+  ;; non-edge sentex in the genl / genlCx predicate extent then reaches the rebuild arm as a
   ;; malformed edge whose super reads nil — a two-element sentence binds the member as the
   ;; sub and nil as the super.  Added, the nil is a node the closure's `strong-components`
   ;; cannot walk (`java.util.ArrayDeque` rejects a null element), and it throws the moment a
-  ;; loose or cyclic relation is condensed — the `NullPointerException` recover hits on such
-  ;; a store.  The genlCx cycle below makes that walk run during the replay, so this is the
-  ;; reported crash; the fix drops the malformed declaration and warns, the way `rebuild-tms`
-  ;; drops a justification the store cannot root.
+  ;; loose or cyclic relation is condensed.  The genlCx cycle below makes that walk run,
+  ;; so this is the reported crash; the guard drops the malformed declaration and warns,
+  ;; the way `rebuild-tms` drops a justification the store cannot root.  The sentexes are
+  ;; stored past the assert path, which posts no supporter, so the store is one a
+  ;; `reindex` reads, as an older store is at its first open.
   (let [rec    (:records kb)
         idx    (:index kb)
         store! (fn [sentence]                          ; put a sentex past the assert checks
@@ -142,7 +146,7 @@
     (let [kb2   (restart)
           level (v/log-level)
           out   (try (v/set-log-level :warn)
-                     (with-out-str (v/recover kb2))     ; throws here without the fix
+                     (with-out-str (v/reindex kb2))     ; throws here without the guard
                      (finally (v/set-log-level level)))
           tax2  @(reasoning/taxonomy kb2)]
       (testing "recover completes rather than crashing in strong-components"
@@ -155,7 +159,7 @@
       (testing "and the drop is reported, not silent"
         (is (re-find #"not well-formed edges" out))))))
 
-(tu/deftest-kb recover-drops-over-arity-edge-declarations-rather-than-fabricating
+(tu/deftest-kb a-reindex-drops-over-arity-edge-declarations-rather-than-fabricating
   ;; #82: v0.17's replay guard requires both endpoints to be symbols, but the rebuild arm
   ;; reads the edge positionally (`[_ a b]`) off the stored sentence — so an OVER-ARITY row
   ;; `(genl a b surplus)` an older or foreign writer left under the genl / genlCx functor
@@ -177,14 +181,14 @@
     ;; well-formed edges that MUST survive the rebuild
     (v/assert kb (list 'genl sub-ok super-ok) 'CxUniverse)
     (v/assert kb (list 'genlCx 'CxSubOk 'CxSuperOk) 'CxUniverse)
-    ;; over-arity declarations under the correct functor root, symbols in both endpoints —
+    ;; over-arity declarations in the correct predicate extent, symbols in both endpoints —
     ;; the shape the v0.17 endpoint guard replays and this fix rejects
     (store! '(genl SubOver SuperOver SurplusOver))
     (store! '(genlCx CxSubOver CxSuperOver CxSurplusOver))
     (let [kb2   (restart)
           level (v/log-level)
           out   (try (v/set-log-level :warn)
-                     (with-out-str (v/recover kb2))
+                     (with-out-str (v/reindex kb2))
                      (finally (v/set-log-level level)))
           tax2  @(reasoning/taxonomy kb2)]
       (testing "the well-formed edges survive the rebuild"
@@ -247,28 +251,27 @@
       (is (v/disjoint? kb2 a c)
           "and the mark it excepts still separates a non-exempted pair"))))
 
-(tu/deftest-kb recover-agrees-about-a-defeated-exception
-  ;; The exceptions cache follows belief like the others: a defeated exception does not
-  ;; exempt.  rebuild-taxonomy replays the *stored* exception (the defeated one included) so
-  ;; :cache-support records every asserting sentex, and the reconcile recover runs drops it
-  ;; by belief — the same answer either side of a restart.
+(tu/deftest-kb recover-agrees-about-a-denied-exemption
+  ;; `siblingDisjointException` is on the engine's baseline roster, so on this bare KB a `:default`
+  ;; declaration is never a loser and a denial of it is held OUT: the exemption stands.
+  ;; rebuild-taxonomy replays the stored declaration and the denial's premise, and
+  ;; `force-roster!` holds the denial OUT again — the same answer either side of a restart.
   (let [collection (tu/tmp-type) a (tu/tmp-type) b (tu/tmp-type)]
     (v/assert kb (list 'genl a collection) 'CxUniverse)
     (v/assert kb (list 'genl b collection) 'CxUniverse)
     (v/assert kb (list 'sibling_disjoint collection) 'CxUniverse)
     (v/assert kb (list 'siblingDisjointException a b) 'CxUniverse {:strength :default})
-    (v/assert kb (list 'not (list 'siblingDisjointException a b)) 'CxUniverse {:strength :monotonic})
-    (let [before (v/disjoint? kb a b)
-          kb2    (restart)]
-      (is before "a defeated exception does not exempt in memory")
+    (let [d   (v/assert kb (list 'not (list 'siblingDisjointException a b)) 'CxUniverse
+                        {:strength :monotonic})
+          kb2 (restart)]
+      (is (= [false false] [(v/disjoint? kb a b) (v/in? kb d)])
+          "the denial is OUT, so the exemption stands in memory")
       (v/recover kb2)
-      (is (v/disjoint? kb2 a b) "nor after a restart")
-      (is (= before (v/disjoint? kb2 a b))
-          "the answer must not change across a restart"))))
+      (is (= [false false] [(v/disjoint? kb2 a b) (v/in? kb2 d)]) "and after a restart"))))
 
 (tu/deftest-kb recover-agrees-about-a-denied-declaration
   ;; `disjoint` is on the engine's baseline roster, so on this bare KB a `:default`
-  ;; declaration is held `:monotonic` and a denial of it OUT, and a restart must give the
+  ;; declaration is never a loser and a denial of it is held OUT, and a restart must give the
   ;; same answer: the denial's premise is replayed, and `force-roster!` holds it OUT again.
   (let [dog (tu/tmp-type) cat (tu/tmp-type)]
     (v/assert kb (list 'disjoint dog cat) 'CxUniverse {:strength :default})
@@ -480,16 +483,16 @@
 
 (tu/deftest-kb a-store-with-no-roster-declarations-recovers-under-the-engine-baseline
   ;; this KB loads no CxCore and declares no roster: the engine's baseline alone holds a
-  ;; `:default` equality and arity binding `:monotonic` and a denial of one OUT
+  ;; denial of an equality OUT, and a roster literal reads back at its written strength
   (tu/with-terms [likes Ann Bob]
     (let [same   (v/assert kb (list 'sameAs Ann Bob) 'CxUniverse)
           arity  (v/assert kb (list 'arity likes 2) 'CxUniverse)
           denial (v/assert kb (list 'not (list 'sameAs Ann Bob)) 'CxUniverse {:strength :monotonic})
           reads  (fn [k] [(v/defeat-class k same) (v/defeat-class k arity) (v/in? k denial)])]
-      (is (= [:monotonic :monotonic false] (reads kb)) "before the restart")
+      (is (= [:default :default false] (reads kb)) "before the restart")
       (let [kb2 (restart)]
         (v/recover kb2)
-        (is (= [:monotonic :monotonic false] (reads kb2)) "after recover")))))
+        (is (= [:default :default false] (reads kb2)) "after recover")))))
 
 (tu/deftest-kb recover-survives-a-predicate-and-type-merge
   ;; Round-two rewriteOf merges a predicate / type by moving its functor uses onto the
@@ -579,8 +582,8 @@
     (v/with-deferred-settle kb
       (v/assert kb (list 'genl chihuahua_t dog_t) 'CxUniverse)
       (v/assert kb (list 'genl maine_coon_t cat_t) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg largerThan 1 'genl) 'CxUniverse)
-      (v/assert kb (list 'transitiveInArg largerThan 2 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse largerThan 1 'genl) 'CxUniverse)
+      (v/assert kb (list 'transitiveInArgInverse largerThan 2 'genl) 'CxUniverse)
       (v/assert kb (list largerThan dog_t cat_t) 'CxUniverse))
     (v/assert kb (list 'implies (list largerThan '?x '?y) (list outweighs '?x '?y))
               'CxUniverse {:direction :forward})
@@ -595,19 +598,15 @@
                             (:support (v/why kb2 h)))]
           (is (contains? reasons (list largerThan dog_t cat_t)))
           (is (contains? reasons (list 'genl chihuahua_t dog_t)))
-          (is (contains? reasons (list 'transitiveInArg largerThan 1 'genl))))
+          (is (contains? reasons (list 'transitiveInArgInverse largerThan 1 'genl))))
         (testing "a post-recover retraction of a reason still withdraws it"
           (v/retract! kb2 (v/handle-of kb2 (list 'genl chihuahua_t dog_t) 'CxUniverse))
           (is (not (v/in? kb2 h))))))))
 
-(tu/deftest-kb recover-rebuilds-the-rule-rosters
-  ;; The two rosters `special/visibility-seeds` reads, and the solve-rule roster `do/label`
-  ;; reads, are derived from storage and no store holds them, so a restart starts with
-  ;; none.  Nothing above the rebuild puts
-  ;; them back: recovery replays justifications and the stored special-predicate sentexes,
-  ;; never rule *indexing*, which is where they are bumped.  Without the rebuild a
-  ;; recovered KB reports no rules at all and seeds a post-restart `genlCx` edge with
-  ;; none — arrival-order dependence in the machinery that exists to remove it.
+(tu/deftest-kb a-reopened-kb-reads-the-same-rules-off-the-index
+  ;; The antecedent keys, the contexts stating a rule and the solve rules
+  ;; (`special/visibility-seeds`, `do/label`) are index reads, so a reopened KB answers
+  ;; them as the live one did with nothing rebuilt.
   (tu/with-terms [bird flies departed alive CxAviary]
     (v/assert kb (list 'genlCx CxAviary 'CxUniverse) 'CxUniverse)
     (v/assert-rule kb [(list bird '?x)] (list flies '?x) CxAviary {:direction :forward})
@@ -616,20 +615,21 @@
     (let [choice     (v/assert kb (list 'set/assumptionRule
                                         (list 'implies (list bird '?x) (list flies '?x)))
                                CxAviary)
-          live-antes @(reasoning/rule-antecedents kb)
-          live-ctxs  @(reasoning/rule-contexts kb)
-          live-solve @(reasoning/solve-rules kb)]
-      (testing "the live roster counts what arrived, negated antecedents by [:not pred]"
-        (is (= 3 (get live-antes bird)))
-        (is (= 1 (get live-antes [:not departed])))
-        (is (= 3 (get live-ctxs CxAviary)))
-        (is (= #{choice} (get live-solve CxAviary))))
+          reads-of   (fn [k] (let [idx (:index k)]
+                               [(reads/as-stored-rule-keys idx)
+                                (count (reads/as-stored-rules-in idx :rule #{CxAviary}))
+                                (set (reads/as-stored-rules-in idx :solve nil))]))
+          live       (reads-of kb)]
+      (testing "the live reads hold what arrived, a negated antecedent as [:not pred]"
+        (let [[keys n solve] live]
+          (is (contains? keys bird))
+          (is (contains? keys [:not departed]))
+          (is (= 3 n))
+          (is (= #{choice} solve))))
       (let [kb2 (restart)]
         (v/recover kb2)
-        (testing "a reopened KB's rosters are the live ones, entry for entry"
-          (is (= live-antes @(reasoning/rule-antecedents kb2)))
-          (is (= live-ctxs @(reasoning/rule-contexts kb2)))
-          (is (= live-solve @(reasoning/solve-rules kb2))))
+        (testing "a reopened KB reads the same rules"
+          (is (= live (reads-of kb2))))
         (testing "so the reads off them answer as they did before the restart"
           (is (= 2 (count (chain/rule-firing-report kb2))))
           (is (= (count (chain/rule-firing-report kb))
@@ -675,11 +675,15 @@
 
 (defn- stored-records
   "Every stored record as content — sentence, context, belief — so a KB that allocated
-  its handles in another order reads the same."
+  its handles in another order reads the same.  A sentence naming a sentex by handle, a
+  placed `contradicts` or `defeat` as an `except`, names the sentex its own KB stored, and
+  a recovered KB allocates the handles of later writes from its own counter, which
+  differs from the live KB's under `overlay`, so `tu/handle-free` replaces each
+  `(sentexHandle h)` with the sentence and context stored at `h`."
   [kb]
   (into #{}
         (map #(let [s (p/get-sentex (:records kb) %)]
-                [(sx/sentence-of s) (:context s) (v/in? kb %)]))
+                (tu/handle-free kb [(sx/sentence-of s) (:context s) (v/in? kb %)])))
         (tu/sentex-ids kb)))
 
 (tu/deftest-kb a-recovered-kb-releases-a-withheld-mint-as-the-live-one-does
@@ -727,3 +731,15 @@
                      (pr-str (remove back live)) ", recovered only "
                      (pr-str (remove live back))))))))))
 
+(tu/deftest-kb a-recover-moves-the-stamp-a-waiting-entry-is-decided-under
+  ;; `recover` restarts the relation generations at 0 and replays the stored edges, so
+  ;; the replay reaches the counts a KB that only added edges had already reached.  A
+  ;; refused mint, lift or conviction stamped before the recover would then compare equal
+  ;; and never be asked again under the rebuilt hierarchy (`special/taxonomy-generations`).
+  (tu/with-terms [dog_ cat_ CxQ]
+    (v/assert kb (list 'genl dog_ 'animal) 'CxUniverse)
+    (v/assert kb (list 'genl cat_ 'animal) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxQ 'CxUniverse) 'CxUniverse)
+    (let [before (special/taxonomy-generations kb)]
+      (v/recover kb)
+      (is (not= before (special/taxonomy-generations kb))))))
