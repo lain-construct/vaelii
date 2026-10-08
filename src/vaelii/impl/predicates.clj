@@ -1068,18 +1068,19 @@
     ;; shape of the expression written there.  Nothing reads them.  A compound
     ;; argument has no knowable kind — `checks/value-kind` answers nil for one by
     ;; design (docs/argtypes.md) — and no reader classifies a compound by its
-    ;; shape, so `(quotedArg P n relation_application)` stores and convicts
+    ;; shape, so `(quotedArg P n non_atomic_expression)` stores and convicts
     ;; nothing, and so does the `arg` form.  The vocabulary is one vocabulary and
     ;; the classifier that would give it enforcement does not exist.
     ;;
     ;; `atomic_formula` and `non_atomic_term` are declared disjoint under
-    ;; `relation_application` and deliberately NOT declared covering: the KB has no
+    ;; `non_atomic_expression` and deliberately NOT declared covering: the KB has no
     ;; vocabulary for stating that a pair of specs exhausts their parent, so a
     ;; covering claim could only be made in prose and nothing would enforce it.
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
          '[[expression "documentary: the root of the expression kinds and of the value kinds, below nowhere_never. CxCore holds it so CxCore and every spindle member read those kinds below thing; nothing reads it by name."]
-           [unrepresented_term "documentary: the expression kind the value kinds sit under, disjoint from relation, formula, relation_application and context. The disjointness is read as any disjointness is; nothing reads the collection by name."]
-           [relation_application "documentary: a relation applied to arguments, the shape atomic_formula and non_atomic_term share. No reader classifies a compound by its shape."]
+           [unrepresented_term "documentary: the expression kind the value kinds sit under, disjoint from relation, formula and context (and, by the partition, from non_atomic_expression). The disjointness is read as any disjointness is; nothing reads the collection by name."]
+           [non_atomic_expression "documentary: an expression with parts, (op a1 a2 ...), the shape atomic_formula and non_atomic_term share. No reader classifies a compound by its shape."]
+           [atomic_expression "documentary: an expression with no parts, a symbol or an unrepresented_term; with non_atomic_expression it partitions expression."]
            [denotational_term "documentary: the logic sense of term — an expression that denotes. Named so a declaration can say an argument is one; nothing reads it."]
            [atomic_formula "documentary: a predicate applied to terms. Nothing reads it."]
            [atomic_sentence "documentary: a closed atomic_formula — what a stored LiteralSentex holds. Nothing reads it."]

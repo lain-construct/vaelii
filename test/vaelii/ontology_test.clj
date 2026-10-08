@@ -506,7 +506,7 @@
   roster stays a list of reasons rather than a list of debts."
   '{denotational_term "the logic sense of `term`, vocabulary the head documents and places under expression; no member references it today"
     formula "the formula-ladder type the head documents beside the grammar sense; only CxAbstract references it, separating it from relation"
-    relation_application "an expression kind the head documents and places under expression; no member references it today"
+    non_atomic_expression "an expression kind the head documents and places under expression; no member references it today"
     typeToInstancePred "a relation-linking predicate the head declares as vocabulary; only CxAbstract uses it (partType / partOf) today"})
 
 (tu/deftest-kb head-vocabulary-a-single-member-uses-belongs-in-that-member
