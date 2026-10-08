@@ -577,14 +577,16 @@
 (defn- note-placement-left!
   "Queue the tuple members a `(contradicts …)` sentex `sx` leaving the store names, so the
   settle places their nogoods where they stand (`take-moved!`): a `genlCx` edge under the
-  placement can have left with it."
+  placement can have left with it.  A placement naming a handle that is no member left
+  with its nogood, and queues nothing: the departed member queued itself (`drop-tuple`),
+  and the others' nogoods keep their placements."
   [kb sx]
   (let [s (:sentence sx)]
     (when (and (seq? s) (= 'contradicts (first s)))
       (let [cands (reasoning/nogood-candidates kb)
             c     @cands
-            hs    (into #{} (comp (keep sx/handle-id) (filter #(member? kb c %))) (rest s))]
-        (when (seq hs)
+            hs    (into #{} (keep sx/handle-id) (rest s))]
+        (when (and (seq hs) (every? #(member? kb c %) hs))
           (swap! cands update ::moved (fnil into #{}) hs))))))
 
 (defn members-under

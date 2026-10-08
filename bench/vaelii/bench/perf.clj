@@ -1702,6 +1702,22 @@
              (let [h (v/assert kb '(genlCx CxOmSub CxOmTop) 'CxUniverse m)]
                (nanos (v/retract! kb h)))))))
 
+(defn- filler-beside-clashing-fillers
+  "One `:default` filler of `(pFcf FcfSubj _)` asserted and retracted beside n stored
+  fillers, under `(functional pFcf)`, so the determinant holds n(n-1)/2 nogoods.  The
+  filler's arrival queues itself and not its partners (`tuple/classify-det-member`), and
+  its n placements leaving with it queue nothing (`tuple/note-placement-left!`), so
+  each write places or removes the filler's n nogoods and no others."
+  [n]
+  (let [kb (fresh-kb)]
+    (v/assert kb '(functional pFcf) 'CxPerf {:strength :monotonic})
+    (v/with-deferred-settle kb
+      (doseq [i (range n)]
+        (v/assert kb (list 'pFcf 'FcfSubj (symbol (str "FcfVal" i))) 'CxPerf {})))
+    (doall (for [i (range retract-victims)]
+             (nanos (v/retract! kb (v/assert kb (list 'pFcf 'FcfSubj (symbol (str "FcfNew" i)))
+                                             'CxPerf {})))))))
+
 (defn- except-merge-scaling
   "One `except` of an equality asserted and retracted, on a KB carrying n standing
   `sameAs` merges that each displace one fact.
@@ -5382,6 +5398,15 @@
     :sizes     [50 800]
     :max-ratio 4.0
     :run       context-edge-retraction-beside-its-own-mint}
+
+   ;; `--only` on 2026-10-07: 4.66x (16.4 -> 76.6 ms/op), linear in the filler's own n
+   ;; nogoods, against 56.96x (52.5 -> 2,988 ms/op) with each departing placement
+   ;; queuing its surviving partner.
+   {:name      :filler-beside-clashing-fillers
+    :claim     "8x the clashing fillers of a functional subject costs under 16x per filler asserted and retracted — its own n nogoods placed and removed, not the group's n²"
+    :sizes     [25 200]
+    :max-ratio 16.0
+    :run       filler-beside-clashing-fillers}
 
    {:name      :retract-merge-scaling
     :claim     "retracting a fact naming no merged term costs under 18x per 32x the standing merges — bookkeeping, not a re-examination each"

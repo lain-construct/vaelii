@@ -90,6 +90,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix**.
 
+### Fixes: performance
+
+- **Retracting a fact from a determinant re-places only its own tuple nogoods.** In
+  0.24.0 each `(contradicts …)` placement leaving with the fact queued its surviving
+  partner, so retracting one `:default` filler beside n clashing fillers of a
+  `functional` subject re-placed all n(n-1)/2 nogoods of the group: 632 ms at n=100,
+  3.2 s at n=200. It now reads 22–24 ms at both sizes, and `lein perf`'s
+  `filler-beside-clashing-fillers` holds it.
+  [nmtms.md](docs/nmtms.md#a-nogood-placed-as-a-conclusion).
+
+  *Class:* **Fix**.
+
 ### Internal
 
 - **`disjointness-coverage-ratchet` requires at least 13928 disjoint pairs, 69.98%

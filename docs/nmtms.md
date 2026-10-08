@@ -1985,7 +1985,8 @@ route is left out at a placement context that reads no conviction through it, an
 `except` of a binding arriving or leaving places its nogoods again
 (`arity/note-except-target!`). Each family re-places a nogood whose index rows moved
 (`tuple/take-moved!`, `arity/take-moved!`; a tuple joining or leaving a determinant queues
-itself and not its partners, whose nogoods with each other do not move), whose member,
+itself and not its partners, whose nogoods with each other do not move, and a tuple
+placement that leaves with a departed member queues nothing), whose member,
 placed `contradicts`, mark,
 binding or `genl` edge the pass relabelled, or that a moved `genlCx` edge can give or take
 a placement: a candidate stated in its `:below`, a mark or `genl` edge stated there, or a
