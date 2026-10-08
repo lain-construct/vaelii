@@ -1,11 +1,11 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.social-extension-test
-  "CxSocialExtension: nestingPartnerOf, chosenSiblingOf and the plurality terms,
-  shipped as an opt-in extension of CxSocial below CxUniverse. CxWell does not
-  see the theory, so the everyday contexts below CxWell derive none of it, and a
-  user's own context opts in by placing itself under CxSocialExtension — which,
-  placed under CxSocial, sees CxSocial's own relations too."
+  "CxSocialExtension: nestingPartnerOf and chosenSiblingOf, shipped as an opt-in
+  extension of CxSocial below CxUniverse. CxWell does not see the theory, so the
+  everyday contexts below CxWell derive none of it, and a user's own context
+  opts in by placing itself under CxSocialExtension — which, placed under
+  CxSocial, sees CxSocial's own relations too."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.test-util :as tu]))
@@ -65,19 +65,3 @@
   (is (not (holds-genl 'chosenSiblingOf 'relativeOf SOCX)))
   (is (not (holds-genl 'chosenSiblingOf 'siblingOf SOCX)))
   (is (not (holds-genl 'siblingOf 'chosenSiblingOf SOCX))))
-
-(tu/deftest-kb headmateof-is-read-from-shared-alterof-and-not-knows
-  (tu/with-terms [CxMind Sys A1 A2]
-    (v/assert kb (list 'genlCx CxMind 'CxWell) 'CxUniverse)
-    (v/assert kb (list 'genlCx CxMind SOCX) 'CxUniverse)
-    (v/assert kb (list 'plural_system Sys) CxMind)
-    (v/assert kb (list 'alter A1) CxMind)
-    (v/assert kb (list 'alter A2) CxMind)
-    (v/assert kb (list 'alterOf A1 Sys) CxMind)
-    (testing "one alter of the system alone derives no headmateOf (red)"
-      (is (not (holds-ask (list 'headmateOf A1 A2) CxMind))))
-    (v/assert kb (list 'alterOf A2 Sys) CxMind)
-    (testing "two different alters of the same system derive headmateOf (green)"
-      (is (holds-ask (list 'headmateOf A1 A2) CxMind))
-      (is (not (holds-ask (list 'knows A1 A2) CxMind))
-          "headmateOf does not genl knows"))))
