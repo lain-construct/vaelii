@@ -3794,10 +3794,14 @@
 (defn- search-answers
   "The answers the search found, each tagged with the node it came off — so the answer is
   reachable to the subtree that produced it."
-  [view {:keys [answers]}]
+  [view {:keys [answers unenumerated]}]
   (let [n (count answers)]
     [:div
      [:h3 (commas n) " answer" (when (not= 1 n) "s")]
+     (when (seq unenumerated)
+       [:p [:b "Incomplete: "] "a goal asked " (interpose ", " (map #(term-link view %) unenumerated))
+        " with both arguments open, which answers the stored pairs and not the transitive "
+        "closure. Bind one argument to get the derived pairs."])
      (if (seq answers)
        (list
         [:ul (for [a (take 50 answers)]

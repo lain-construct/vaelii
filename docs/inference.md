@@ -1142,8 +1142,8 @@ rewrite site: a live literal at depth 0 that is not a deferred literal and that 
 candidate rule's consequent unifies with (`depth-truncated?`). The flag is **conservative**
 — it says a branch was cut at the bound, not that an answer was certainly lost, because a
 converging rule graph reaches one subgoal at several depths and a branch cut at depth 0
-may have been answered by a shallower one. So `false` guarantees the answers are every
-answer the KB entails at that depth; `true` is the signal to raise the bound and stop when
+may have been answered by a shallower one. So `false`, with `:unenumerated` empty,
+guarantees the answers are every answer the KB entails at that depth; `true` is the signal to raise the bound and stop when
 the flag clears and the answer set holds still. A cyclic rule set always has one deeper
 level the bound refuses, so it is `:truncated?` at every depth — which is the report the
 bound owes for a search it, not the data, terminated.
@@ -1154,6 +1154,15 @@ under `:track-truncation?`, and `step!`'s candidate-rule probe runs only while i
 the run — `:time-to-first-answer-ms` off the first realized answer, `:total-time-ms` off
 the whole set. It reports one search over one concrete context's frontier, so a variable
 or query context is refused, and `:portfolio?` picking a race is dropped.
+
+A search can also fall short without a bound cutting it. A literal `(P ?x ?y)` over a
+`transitive` `P`, solved with both arguments still open, is answered by `P`'s extent and
+not its closure ([taxonomy.md](taxonomy.md#predicate-metadata)), so a derived pair is not among
+the answers. `TransitivePredicateProver` adds `P` to `provers/*unenumerated*` when it
+declines that goal, and `search-report` and `search-tree` bind the collector around their
+search and return the set as `:unenumerated`. `query-status` reports `:status
+:incomplete` when the set is non-empty and the bound cut nothing, and the inference
+debugger page prints the predicates above its answers.
 
 ## The literal cache (`vaelii.impl.literal-cache`)
 

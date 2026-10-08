@@ -494,7 +494,8 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   `:max-depth` answers the same empty or short seq as a goal the KB does not entail, and
   over the wire the bound in force is often the daemon's `VAELII_MAX_QUERY_DEPTH` rather
   than the caller's. `:query-status` answers `query`'s answers with `:status`
-  (`:complete` or `:truncated`) and the run's counters, under the same depth ceiling as
+  (`:complete`, `:truncated`, or `:incomplete` when a transitive goal with both ends open
+  answered its extent) and the run's counters, under the same depth ceiling as
   `:query` ([api.md](api.md)).
 - **Six reads are served beside a read on the wire that answers the same kind of
   question**: `:find-sentexes-all` beside `:find-sentexes`,

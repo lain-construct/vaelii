@@ -4105,12 +4105,15 @@
   [kb goal context d opts]
   (if (and d (pos? (long d)))
     (let [goals (goal-conjunction (quasiquote/prepare-goal-for-read kb goal context))
-          {:keys [answers truncated? time-to-first-answer-ms total-time-ms stats]}
+          {:keys [answers truncated? time-to-first-answer-ms total-time-ms stats unenumerated]}
           (inference/search-report kb goals context (query-node-opts kb context d opts))]
       {:answers                 answers
        :count                   (count answers)
-       :status                  (if truncated? :truncated :complete)
+       :status                  (cond truncated?          :truncated
+                                      (seq unenumerated) :incomplete
+                                      :else              :complete)
        :truncated?              truncated?
+       :unenumerated            unenumerated
        :depth                   d
        :time-to-first-answer-ms time-to-first-answer-ms
        :total-time-ms           total-time-ms
@@ -4120,6 +4123,7 @@
        :count                   (count answers)
        :status                  :complete
        :truncated?              false
+       :unenumerated            []
        :depth                   d
        :time-to-first-answer-ms (when first-ns (/ (double first-ns) 1e6))
        :total-time-ms           (/ (double total-ns) 1e6)})))
@@ -4135,8 +4139,11 @@
 
       {:answers                 [{?x v} …]   `query`'s own answers, realized
        :count                   n
-       :status                  :complete | :truncated
+       :status                  :complete | :truncated | :incomplete
        :truncated?              bool         = (= status :truncated)
+       :unenumerated            [P …]        transitive predicates whose closure a goal
+                                             asked with both arguments open did not
+                                             enumerate
        :depth                   d | nil      the depth bound the read ran under
        :time-to-first-answer-ms t | nil      nil when there are no answers
        :total-time-ms           t
@@ -4144,13 +4151,21 @@
 
   **`:truncated?` is conservative.**  `true` means the depth bound stopped at least one
   rewrite the search would otherwise have taken — the answers *may* be incomplete; `false`
-  guarantees they are every answer this KB entails at that depth.  A branch cut at the
+  with an empty `:unenumerated` guarantees they are every answer this KB entails at that
+  depth.  A branch cut at the
   bound may still have been answered by a shallower one (a converging rule graph reaches a
   subgoal at several depths), so `true` is not proof an answer was lost — it is the signal
   to try a deeper bound, and to stop when `:truncated?` clears and the answer set holds
   still.  A facts-only read (no depth, or `:max-depth 0`) is never truncated: expanding no
   rule is a complete answer to the question it asks (`query`'s docstring for why that is a
   real answer and not a degenerate one).
+
+  **`:incomplete` is the other way an answer set falls short.**  A goal `(P ?x ?y)` over a
+  `transitive` `P`, at the top or as a rule antecedent solved with both ends still open,
+  is answered by `P`'s extent and not its closure (docs/taxonomy.md), so the answers may
+  lack a derived pair.  `:unenumerated` names each such `P`, and `:status` is
+  `:incomplete` when it is non-empty and the bound cut nothing.  Binding one end per
+  source enumerates the closure.
 
   `:stats` is the node engine's `tree-stats` — `:expanded` / `:nodes` / `:frontier` /
   `:dropped` / `:solutions` / `:max-depth` (the deepest rewrite taken) — present only where
@@ -4452,9 +4467,11 @@
   this entry point overwrites or never reads; a key off the roster is refused (`:unknown-option`),
   as at `query`.
 
-  Returns `{:goals :context :strategy :status :bounded? :answers :nodes :stats}`;
-  `:status` is `:complete`, `:bounded` or `:timeout`, and each answer carries the `:node`
-  it came off.  Reads-only, like every query in this engine."
+  Returns `{:goals :context :strategy :status :bounded? :answers :nodes :stats
+  :unenumerated}`; `:status` is `:complete`, `:bounded` or `:timeout`, and each answer
+  carries the `:node` it came off.  `:unenumerated` is `query-status`'s: the transitive
+  predicates whose closure a goal asked with both arguments open did not enumerate.
+  Reads-only, like every query in this engine."
   ([kb goal] (search-tree kb goal '?ctx nil))
   ([kb goal context] (search-tree kb goal context nil))
   ([kb goal context opts]

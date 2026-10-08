@@ -757,6 +757,13 @@
           (keep (fn [[h c]] (when (and (or (nil? up) (nil? c) (contains? up c)) (jtms/in? tms h)) h)))
           (tax/prop-supporter-contexts tx :transitive pred))))
 
+(def ^:dynamic *unenumerated*
+  "nil, or an atom of the set of predicates whose closure `TransitivePredicateProver` did
+  not enumerate for a goal asked with both arguments open. A report read binds it around
+  its search (`inference/search-report`, `inference/search-tree`) and returns the set, so
+  an answer set that may omit derived pairs says so."
+  nil)
+
 (defrecord TransitivePredicateProver []          ; declared-transitive predicates (not genl/genlCx)
   Prover
   (applicable? [_ kb goal context]
@@ -827,8 +834,9 @@
         ;; and for one bound end, and is never stored and never enumerated whole.
         ;;
         ;; A caller who does want it asks for it: `(P ?x ?x)` above for the cycle
-        ;; question, or one bound end per source term.
-        :else [])))
+        ;; question, or one bound end per source term. A report read learns the closure
+        ;; was skipped through `*unenumerated*`.
+        :else (do (some-> *unenumerated* (swap! conj pred)) []))))
 
   SupportingProver
   ;; **Both sets are empty, and that is a claim rather than an omission.**  The functors

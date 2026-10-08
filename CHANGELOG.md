@@ -13,6 +13,22 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ## Unreleased
 
+### Breaking
+
+- **`query-status` reads `:incomplete` when a transitive goal answered its extent.** A
+  goal `(P ?x ?y)` over a `transitive` `P`, solved with both arguments open, answers the
+  stored pairs and not the closure, and `query-status` reported `:complete` over it.
+  `query-status` and `search-tree` now return `:unenumerated`, the predicates a search
+  answered that way, and `query-status`'s `:status` is `:incomplete` when it is non-empty
+  and the depth bound cut nothing. The inference debugger page names them above its
+  answers. [inference.md](docs/inference.md#truncation-is-observable-corequery-status),
+  [taxonomy.md](docs/taxonomy.md#predicate-metadata).
+
+  *Class:* **Breaking** (a new `:status` value).
+  *Migration:* a caller that dispatches on `query-status`'s `:status` handles
+  `:incomplete`; to enumerate the closure, bind one argument per source term.
+  *Breaks:* `query-status`
+
 ### Additions
 
 - **`try-assert` refuses a write that would open a definitional clash.** It is `assert`

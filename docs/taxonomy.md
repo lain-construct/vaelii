@@ -1419,7 +1419,9 @@ the roster and is weighed as a member of an inherited nogood.
   source term is the general way.
 
   So `(P ?x ?y)` and a loop over `(P a ?y)` give different answers, and that is the one
-  place a marker's arms disagree. It is the trade the quadratic buys.
+  place a marker's arms disagree. It is the trade the quadratic buys. A report read says
+  when a search took it: `query-status` and `search-tree` name `P` in `:unenumerated`, and
+  `query-status`'s `:status` is `:incomplete` ([inference.md](inference.md#truncation-is-observable-corequery-status)).
 
   #### What one hop costs, and where
 

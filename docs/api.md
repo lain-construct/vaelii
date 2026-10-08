@@ -227,10 +227,13 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; roster is `query-opt-keys`; a key off it is refused.
                                                ; query? stops the search at the first answer
 (query-status kb goal context opts)            ; query's answers PLUS a report -> {:answers :count :status
-                                               ; :truncated? :depth :time-to-first-answer-ms :total-time-ms
-                                               ; :stats}.  :truncated? tells a too-shallow :max-depth (the
-                                               ; bound cut a rewrite) from a genuinely empty answer; it is
-                                               ; conservative (a cyclic set is truncated at every depth).
+                                               ; :truncated? :unenumerated :depth :time-to-first-answer-ms
+                                               ; :total-time-ms :stats}.  :truncated? tells a too-shallow
+                                               ; :max-depth (the bound cut a rewrite) from a genuinely empty
+                                               ; answer; it is conservative (a cyclic set is truncated at
+                                               ; every depth).  :unenumerated names each transitive P a
+                                               ; (P ?x ?y) goal answered by its extent, not its closure;
+                                               ; :status is :complete, :truncated or :incomplete.
                                                ; One concrete context — a fanned context is refused
 (prove kb goal context opts)                   ; recur DFS backward chaining -> [solutions].  With no
                                                ; opts the UNBOUNDED one: terminates on the data,
@@ -270,7 +273,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; it sits there (docs/inference.md)
 (search-tree kb goal context {:max-depth n})    ; the run that plan predicts: the search TREE as data
                                                ; -> {:goals :context :strategy :status :bounded? :answers
-                                               ; :nodes :stats}, every node
+                                               ; :nodes :stats :unenumerated}, every node
                                                ; the frontier reached with its itemized estimate and the
                                                ; rewrite that produced it.  Needs a depth; bounded by a
                                                ; node budget + :max-ms (docs/inference.md, docs/web.md)
@@ -680,7 +683,7 @@ expansion each will do**.  Pick by what you are asking, not by habit:
 | Reach for | When you want | Machinery | Returns |
 |-----------|---------------|-----------|---------|
 | **`query` / `query?`** | **the default** — one entry point, one dial: how deep to expand rules | no `:max-depth` and the registry answers alone; a `:max-depth` and the node engine expands rules that deep.  Either way a **conjunctive** join (vector goal) | binding maps `{?x v}` |
-| `query-status` | to tell a **too-shallow `:max-depth`** from an unprovable goal — the answers plus whether the bound cut the search, and the run's timings | the same search `query` runs, driven with truncation tracking on (`inference/search-report`); one concrete context | a report map — `:answers` `:truncated?` `:status` `:time-to-first-answer-ms` `:total-time-ms` `:stats` |
+| `query-status` | to tell a **too-shallow `:max-depth`** from an unprovable goal — the answers plus whether the bound cut the search, and the run's timings | the same search `query` runs, driven with truncation tracking on (`inference/search-report`); one concrete context | a report map — `:answers` `:truncated?` `:unenumerated` `:status` `:time-to-first-answer-ms` `:total-time-ms` `:stats` |
 | `ask` / `ask?` | an answer from what the KB stores or has cached, at a cost that does not depend on the rule graph | the prover registry (facts, transitivity, disjointness, inverse/symmetric metadata, evaluable arithmetic, NAF, arg) — **no rule expansion** | binding maps `{?x v}` |
 | `sentexes-matching` | *stored, believed* literals matching a pattern — retrieval, not reasoning | belief-filtered index read; no inference, no subtype expansion | **sentex maps** |
 | `prove` / `provable?` | backward chaining with **no depth to pick**: it terminates on the data | the recursive chainer, with the registry answering each literal it does not rewrite, so it finds at least what `ask` finds; a **conjunctive** join (vector goal) | a vector of binding maps, **one per derivation** — equal maps repeat, so `distinct` for an answer set |
