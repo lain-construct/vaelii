@@ -2604,9 +2604,22 @@ holds the vocabulary and the page that owns each keyword.
   `transitiveInArg` claim travelled. A route arriving after the firing that the witness
   rule names instead re-joins the firing over itself, and the justification it adds
   **replaces** the one over the older route (`special/drop-replaced-routes!`): the same
-  informant, conclusion and bindings, and antecedents that differ only in believed `genl`
-  and `genlCx` edges. The store then holds what the order bringing the route first holds,
-  and `why` answers the same in both (`late_route_test`). The argument-type entailment
+  informant, conclusion, bindings and subsumptions, and antecedents that differ only in
+  believed `genl` and `genlCx` edges. The store then holds what the order bringing the
+  route first holds, and `why` answers the same in both (`late_route_test`).
+
+  A justification's **subsumptions** are the `[sub super]` predicate pairs its firing
+  matched a fact to a rule literal through (`chain/subsumption-links`), stored under
+  `:subsumptions` and absent for a firing that matched every literal on its own key. They
+  record which fact matched which literal. The antecedents cannot record it, because they
+  are a content-ordered set. Two firings over one individual of two types that each reach
+  both literals of `(inspace ?x) ∧ (intime ?x)` pair the two facts with the literals
+  swapped, and their subsumptions differ, so neither replaces the other and both are
+  stored in every order. The dedup key (`jtms/has-justification?`) holds the subsumptions
+  too, because two such firings can name one antecedent set: when both types reach both
+  literals through one intermediate type, the two firings name the same four edges. A
+  justification stored before subsumptions were recorded has none, and the replacement
+  compares it on its edges alone when its antecedents name a `genl` edge. The argument-type entailment
   replaces its route the same way. Four things take a named path away. The first two
   start a re-derivation over a surviving route, and the other two leave the firing standing
   at a reader that reaches the path's ends another way:

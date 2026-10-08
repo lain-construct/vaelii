@@ -1455,11 +1455,17 @@
   `merge-with into`s step results, so the accumulator and the steps have one shape."
   {:new [] :violations []})
 
+(defn- edge-functor
+  "`genl` or `genlCx` for a sentex at `h` that is one of the two edges a route names, and
+  nil for anything else."
+  [kb h]
+  (let [s (:sentence (p/get-sentex (:records kb) h))]
+    (when (sequential? s) ('#{genl genlCx} (first s)))))
+
 (defn- route-edge?
   "Is the sentex at `h` a `genl` or `genlCx` edge, the two relations a route names?"
   [kb h]
-  (let [s (:sentence (p/get-sentex (:records kb) h))]
-    (and (sequential? s) (contains? '#{genl genlCx} (first s)))))
+  (some? (edge-functor kb h)))
 
 (defn- firing-bindings
   "A justification's bindings less the join's context variable `?ctx`, which one join
@@ -1467,16 +1473,25 @@
   [j]
   (dissoc (:bindings j) '?ctx))
 
+(defn- same-pairing?
+  "Do `just` and `j` pair their facts with the same literals: equal subsumptions?  A `j`
+  with none whose `extra` antecedents name a `genl` edge was written before subsumptions
+  were recorded, and pairs as `just` does (docs/nmtms.md, \"Where the layer stops\")."
+  [kb just j extra]
+  (or (= (:subsumptions just) (:subsumptions j))
+      (and (nil? (:subsumptions j)) (some #(= 'genl (edge-functor kb %)) extra))))
+
 (defn drop-replaced-routes!
   "Drop the justifications the one just added as `just` replaces: the same firing over a
   route the witness rule no longer names.  Returns the merged `jtms/drop-justification!`
   results, for the caller to apply to its stores; the dropped records are deleted here.
 
-  A justification is replaced when it has `just`'s informant, consequence and bindings,
-  holds every antecedent of `just` outside `route`, and differs from it only in `genl` /
-  `genlCx` edges that are all believed.  `route` is `just`'s own route handles; nil reads
-  them off the antecedents by shape.  The consequence keeps `just`, whose antecedents are
-  groundable, so the sweep collects nothing `just` does not hold up.
+  A justification is replaced when it has `just`'s informant, consequence, bindings and
+  subsumptions (`same-pairing?`), holds every antecedent of `just` outside `route`, and
+  differs from it only in `genl` / `genlCx` edges that are all believed.  `route` is
+  `just`'s own route handles; nil reads them off the antecedents by shape.  The
+  consequence keeps `just`, whose antecedents are groundable, so the sweep collects
+  nothing `just` does not hold up.
 
   An edge of the older route that is OUT keeps its justification: a route a defeat took
   away comes back when the defeat lifts, and the store then holds both
@@ -1499,6 +1514,7 @@
                                (seq extra)
                                (= (count core) (- (count a) (count extra)))
                                (every? #(and (jtms/in? tms %) (route-edge? kb %)) extra)
+                               (same-pairing? kb just j extra)
                                (= (firing-bindings just)
                                   (firing-bindings (p/get-justification recs jid))))))
              gone     (filterv replaced sups)]

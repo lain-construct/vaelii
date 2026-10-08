@@ -31,6 +31,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Fixes
 
+- **Two rule firings that pair the same facts with different literals are both stored.** A
+  justification records the `[sub super]` predicate pairs its firing matched a fact to a
+  literal through, as `:subsumptions`, and a route arriving later replaces only the
+  firing with the same ones. Before, `(kind Xa)` and `(sort Xa)`, each reaching both
+  literals of `(inspace ?x) ∧ (intime ?x)`, stored one of the two swapped firings, the
+  one that arrived last, and a `genlCx` edge's round trip re-created it under a new id. A
+  justification written by an earlier build has none, and is compared on its edges. The
+  reasoning image's network section is at layout 5 and carries the subsumptions, so an
+  image an earlier build wrote is declined once.
+  [nmtms.md](docs/nmtms.md#where-the-layer-stops).
+
+  *Class:* **Fix**.
+
 - **`disjointness-audit` sweeps the types its vantage sees, not every type stored
   anywhere.** It read `relation?`, `disjoint?` and the `:orthogonal` witnesses from its
   `context` argument already, but swept `types kb` unscoped: every node of the global

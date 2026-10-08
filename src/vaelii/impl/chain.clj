@@ -1594,7 +1594,7 @@
   A refused mint is **dropped and recorded**, never thrown, for the reason every check
   on this path is a value: an exception escaping a firing would leave the fixpoint half
   computed, and which rule fired first would decide what the KB believes."
-  [kb rule sentence pctx all-antes depth bindings strength]
+  [kb rule sentence pctx all-antes depth bindings strength subs]
   (let [sentence (stamped-rule sentence)
         ;; A stamped rule is polycanonicalized exactly as an asserted one is
         ;; (`rules/expand-rule`) — one rule per DNF alternative of a disjunctive
@@ -1615,13 +1615,14 @@
                (let [[h s new?] (kb/find-or-create-sentex kb one pctx)]
                  (when new? (special/index-rule-sentex kb h s))
                  (jtms/ensure-node (reasoning/tms kb) h depth)
-                 (when-not (jtms/has-justification? (reasoning/tms kb) (:name rule) all-antes h)
+                 (when-not (jtms/has-justification? (reasoning/tms kb) (:name rule) all-antes h
+                                                    (jtms/justification-key (:name rule) all-antes subs))
                    (let [jid  (p/next-id (:records kb))
                          ;; content order is bought here, inside the dedup guard, for
                          ;; `place-fact-conclusion`'s reason: the question above is
                          ;; set-keyed and only the record being written needs an order
                          just (jtms/->just jid (:name rule) (kb/antecedent-order kb all-antes)
-                                           h bindings strength)]
+                                           h bindings strength subs)]
                      (p/put-justification (:records kb) just)
                      (jtms/add-justification (reasoning/tms kb) just)))
                  (if new? [h] []))))
@@ -1702,7 +1703,8 @@
   so a later `release-refusal!` honours that bound rather than the default — the release
   runs in a settle with no run config in scope, so the bound has to travel with the
   entry.  `extra` rides into the entry as well: a `:constraint` drop's term and the
-  taxonomy generations it was decided under (`record-constraint-drop!`).  It joins the entry's identity, so a firing refused under two different bounds is
+  taxonomy generations it was decided under (`record-constraint-drop!`), and a
+  subsumed firing's `:subsumptions`.  It joins the entry's identity, so a firing refused under two different bounds is
   two entries; both release idempotently, and in practice a KB's runs share one bound."
   ([kb rule conseq pctx antes handles bindings max-depth]
    (record-refusal! kb rule conseq pctx antes handles bindings max-depth nil))
@@ -1744,11 +1746,12 @@
   them can have moved.  `:handles` is the whole antecedent list, which is what the
   release recomputes the depth from; the rule handle and the taxonomy supporters in it
   sit at depth 0."
-  [kb rule conseq pctx all-antes bindings v]
+  [kb rule conseq pctx all-antes bindings subs v]
   (let [antes (kb/antecedent-order kb all-antes)]
     (record-refusal! kb rule conseq pctx antes antes bindings nil
-                     (merge {:constraint true :gens (constraint-generations kb)}
-                            (checks/conviction-watch v)))))
+                     (cond-> (merge {:constraint true :gens (constraint-generations kb)}
+                                    (checks/conviction-watch v))
+                       subs (assoc :subsumptions subs)))))
 
 (defn record-swept-firing!
   "Record the rule firing whose justification record is `j` as a refusal, when the
@@ -1767,7 +1770,8 @@
               pctx  (:context csx)]
           (when-not (antecedent-hidden? kb antes pctx)
             (record-refusal! kb {:rule-handle rh} (:sentence csx) pctx antes
-                             (into [] (remove #{rh}) antes) (:bindings j) nil)))))))
+                             (into [] (remove #{rh}) antes) (:bindings j) nil
+                             (when-let [subs (:subsumptions j)] {:subsumptions subs}))))))))
 
 (defn- into-some
   "`(into to from)`, returning `to` itself when `from` is empty.  A placement gathers its
@@ -1802,10 +1806,10 @@
   "Drop the fact conclusion `conseq` for violation `v`: report it, and remember an
   argument conviction for `settle` to re-ask once a type arriving later can lift it.
   Returns the empty vector of new handles a placement that stored nothing returns."
-  [kb rule conseq pctx all-antes bindings v]
+  [kb rule conseq pctx all-antes bindings subs v]
   (violations/report kb [(assoc v :sentence conseq :context pctx :rule (:rule-handle rule))])
   (when (constraint-drop-kinds (:violation v))
-    (record-constraint-drop! kb rule conseq pctx all-antes bindings v))
+    (record-constraint-drop! kb rule conseq pctx all-antes bindings subs v))
   [])
 
 (defn- visibility-support
@@ -2475,7 +2479,7 @@
   path from the argument's types to the constraint type, so there is no second sentex to
   weigh the conclusion against and nothing for a defeat class to compare.  A nogood needs
   two sides; this has one."
-  [kb rule conseq pctx all-antes depth bindings strength]
+  [kb rule conseq pctx all-antes depth bindings strength subs]
   (let [existing (kb/find-sentex-handle kb conseq pctx)
         ;; Checked only when the conclusion is **new**.  Re-deriving a sentence already
         ;; stored in this context adds a *justification*, not content — whatever it says
@@ -2500,12 +2504,12 @@
         ;; roster rules it out and supports its conclusion once the roster stops
         forced   (when-not v (checks/forced-conclusion-violation kb (:rule-handle rule) conseq))]
     (if v
-      (drop-fact-conclusion! kb rule conseq pctx all-antes bindings v)
+      (drop-fact-conclusion! kb rule conseq pctx all-antes bindings subs v)
       (let [[h s new?] (if existing
                          [existing (p/get-sentex (:records kb) existing) false]
                          (let [[h s] (kb/create-sentex kb conseq pctx)] [h s true]))
             ;; the dedup key, built once for the question and the add that follows it
-            jkey       (jtms/justification-key (:name rule) all-antes)]
+            jkey       (jtms/justification-key (:name rule) all-antes subs)]
         (when forced
           (violations/report kb [(assoc forced :sentence conseq :context pctx
                                         :rule (:rule-handle rule))]))
@@ -2531,7 +2535,7 @@
                 ;; rebuild its whole `implies` sentence to compare it.
                 inf  (:name rule)
                 just (jtms/->just jid inf (kb/antecedent-order kb (remove #(= inf %) all-antes))
-                                  h bindings strength)]
+                                  h bindings strength subs)]
             (when forced (jtms/set-forced (reasoning/tms kb) :void [jid] true))
             (p/put-justification (:records kb) just)
             (jtms/add-justification (reasoning/tms kb) just jkey)
@@ -2768,8 +2772,10 @@
   them**; both arms sort it by content (`kb/antecedent-order`) at the point they write a
   justification, and neither reads a position before that.  A released refusal hands over
   a vector that is already sorted, which the sort returns unchanged — the key is a
-  function of the handle, so re-sorting is idempotent."
-  [kb rule conseq pctx all-antes depth bindings strength]
+  function of the handle, so re-sorting is idempotent.  `subs` is the firing's
+  subsumptions, the set of its `subsumption-links` or nil, which the justification
+  records."
+  [kb rule conseq pctx all-antes depth bindings strength subs]
   (let [rule?  (rules/rule-sentence? (peek (sx/peel-rule-wrapper conseq)))
         [c v]  (reify-conclusion kb conseq
                                  (if rule?
@@ -2779,9 +2785,9 @@
       (and v rule?) (do (violations/report kb [(assoc v :sentence (stamped-rule c) :context pctx
                                                       :rule (:rule-handle rule))])
                         [])
-      v             (drop-fact-conclusion! kb rule c pctx all-antes bindings v)
-      rule?         (mint-rule kb rule c pctx all-antes depth bindings strength)
-      :else         (place-fact-conclusion kb rule c pctx all-antes depth bindings strength))))
+      v             (drop-fact-conclusion! kb rule c pctx all-antes bindings subs v)
+      rule?         (mint-rule kb rule c pctx all-antes depth bindings strength subs)
+      :else         (place-fact-conclusion kb rule c pctx all-antes depth bindings strength subs))))
 
 (defn- placement-ingredients
   "Where a firing's conclusion may live, and which taxonomy supporters it names getting
@@ -3247,6 +3253,7 @@
   release computes the depth a fresh firing would."
   [kb rule conseq handles placed all-antes links depth max-depth bindings]
   (let [[phs facts]          placed
+        subs                 (when (seq links) (set links))
         fact-ctxs            (map :context facts)
         [placements support] (placement-ingredients kb rule links phs fact-ctxs)]
     (if (empty? placements)
@@ -3352,10 +3359,11 @@
                             ;; `:antes` straight to `place-conclusion` — so it is
                             ;; ordered here, exactly as a stored justification is
                             (record-refusal! kb rule c pctx (kb/antecedent-order kb antes)
-                                             handles bindings max-depth)
+                                             handles bindings max-depth
+                                             (when subs {:subsumptions subs}))
                             nil)
                           (place-conclusion kb rule c pctx antes depth bindings
-                                            (:strength rule))))))
+                                            (:strength rule) subs)))))
             placements))))
 
 (defn- derive-conclusion
@@ -3653,7 +3661,7 @@
                  []
                  (let [placed (vec (place-conclusion kb rule (:conseq entry) (:pctx entry)
                                                      (:antes entry) depth (:bindings entry)
-                                                     (:strength rule)))]
+                                                     (:strength rule) (:subsumptions entry)))]
                    ;; the drop's ledger entry described a conclusion that is now stored,
                    ;; and left standing it would report the arrival order: an order that
                    ;; brought the type first files nothing
@@ -3804,7 +3812,7 @@
                                      (at-home w #(place-conclusion
                                                   kb (rule-view kb rh) % ctx (conj (vec (:antecedents j)) rh)
                                                   (inc (reduce max 0 (map (fn [a] (jtms/depth tms a)) (:antecedents j))))
-                                                  (:bindings j) (:strength j)))))))
+                                                  (:bindings j) (:strength j) (:subsumptions j)))))))
                        (sort-by (comp nm/print-key val) move-d))
         homes    (into (set (vals moved-p))
                        (keep #(at-home % (fn [hw] (kb/find-sentex-handle kb hw ctx))))

@@ -382,11 +382,12 @@
             :let [j     (or (p/get-justification recs jid) (jtms/justification tms jid))
                   antes (mapv #(if (= % doomed) survivor %) (:antecedents j))]
             :when (and j (not= (:consequence j) survivor)
-                       (not (jtms/has-justification? tms (:informant j) antes
-                                                     (:consequence j))))]
+                       (not (jtms/has-justification?
+                             tms (:informant j) antes (:consequence j)
+                             (jtms/justification-key (:informant j) antes (:subsumptions j)))))]
       (let [nid  (p/next-id recs)
             just (jtms/->just nid (:informant j) antes (:consequence j)
-                              (:bindings j) (:strength j))]
+                              (:bindings j) (:strength j) (:subsumptions j))]
         (p/put-justification recs just)
         (jtms/add-justification tms just)
         ;; the copy concludes what the original did, spelled as the original was
@@ -418,11 +419,13 @@
     (reduce (fn [copied jid]
               (let [j (or (p/get-justification recs jid) (jtms/justification tms jid))]
                 (if (and j (not (some #{survivor} (:antecedents j)))
-                         (not (jtms/has-justification? tms (:informant j) (:antecedents j)
-                                                       survivor)))
+                         (not (jtms/has-justification?
+                               tms (:informant j) (:antecedents j) survivor
+                               (jtms/justification-key (:informant j) (:antecedents j)
+                                                       (:subsumptions j)))))
                   (let [nid  (p/next-id recs)
                         just (jtms/->just nid (:informant j) (vec (:antecedents j)) survivor
-                                          (:bindings j) (:strength j))]
+                                          (:bindings j) (:strength j) (:subsumptions j))]
                     (p/put-justification recs just)
                     (jtms/add-justification tms just)
                     (assoc copied jid nid))

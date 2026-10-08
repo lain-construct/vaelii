@@ -1205,6 +1205,12 @@ answers true there (a stored arity of two or more), and its
 `:unknown` pairs are the candidates for a missing `disjoint` or `orthogonal` declaration.
 See [taxonomy.md](taxonomy.md).
 
+**Subsumptions (justification)** ![tms](../.github/badges/cat-tms.svg): The
+`[sub super]` predicate pairs a rule firing matched a fact to a literal through, stored on
+its justification under `:subsumptions`; absent for a firing that matched every literal on
+its own key. Two firings that pair the same facts with different literals differ in them,
+so they are two justifications. See [nmtms.md](nmtms.md).
+
 **Superseded** ![tms](../.github/badges/cat-tms.svg): The TMS state an equality
 merge puts a stale spelling in — stored but not believed and not matching,
 subtracting from reported belief rather than forced OUT, so its justified twin

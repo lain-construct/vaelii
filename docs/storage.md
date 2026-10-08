@@ -641,7 +641,8 @@ The index image is one half of a `:disk-snapshot` cold open; `recover` is the ot
 `:disk-snapshot` KB on the dense network writes its whole reasoning state to `<dir>/reasoning/`,
 and the next open installs it in place of the recover (`vaelii.impl.reasoning-image`):
 
-- `network.bin` — the dense network: every node, justification column, label,
+- `network.bin` — the dense network: every node, justification column (the subsumptions
+  column among them), label,
   defeat-class, block, forced set and supersession (`dense-jtms/write-image`), keys in sorted
   order so two images of one network are equal bytes;
 - `state.nippy` — the taxonomy's relations and caches, less the slots the live KB owns
@@ -1103,7 +1104,10 @@ frames plus fixed-width 24-byte `.idx` slots keyed by integer id.
   id, still decode, and so do the rule tags that spell the wrappers as the three fields
   `direction` / `assumption` / `constraint`, read through `sentex/fielded-rule-slots`),
   a justification frame a bare vector (one
-  shape needs no tag), and provenance — an open application map — passes through as it
+  shape needs no tag) `[id informant antecedents consequence bindings strength]` with the
+  justification's subsumptions as a seventh element when it has some (a seven-element
+  frame an earlier build wrote ends in an always-empty `:out` set, which decodes as
+  none), and provenance — an open application map — passes through as it
   comes.  Each decoder dispatches on the thawed frame's shape, so **frames written before
   the codec still read** and no store needs rewriting.  Decoding interns the symbols it
   rebuilds, so a paged record shares one vocabulary object per name with the in-memory
