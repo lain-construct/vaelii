@@ -249,7 +249,9 @@
 (genl language linguistic)
 ;; An organization has no location in any space; its members and its buildings have one.
 (genl organization aspatial)
-(genl person tangible)
+;; A person is not necessarily a massed body: a sentient construct can be a person with
+;; no commitment either way on tangible or intangible.
+(genl person thing)
 ;; A time is uninterrupted or intermittent, and an uninterrupted time is a moment or a
 ;; stretch, never both: an instant has no extent.  abstract.txt comments the five types and
 ;; places time under acausal; time.txt types its calendar results time_interval and its
