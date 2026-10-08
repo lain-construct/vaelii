@@ -152,6 +152,33 @@
           (is (v/ask? kb opposing 'CxUniverse) (str label ": the known-true member stands"))
           (is (not (v/ask? kb arriving 'CxUniverse)) (str label ": the default one loses")))))))
 
+(deftest try-assert-refuses-each-clash-assert-stores
+  (doseq [row-index (range 6)]
+    (tu/with-kb [kb]
+      (tu/with-terms [dog_t cat_t root_t species animal_t ageOf measureOf ageOfSub Muffet]
+        (let [[label setup opposing arriving]
+              (nth (clash-shapes {:dog_t dog_t :cat_t cat_t :root_t root_t :species species
+                                  :animal_t animal_t :ageOf ageOf :measureOf measureOf
+                                  :ageOfSub ageOfSub :Muffet Muffet})
+                   row-index)]
+          (setup kb)
+          (let [h (v/assert kb opposing 'CxUniverse)
+                e (try (v/try-assert kb arriving 'CxUniverse)
+                       (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+            (is (= [:definitional-clash (if (< row-index 4) :disjoint :functional)
+                    [{:handle h :sentence opposing :context 'CxUniverse}]]
+                   [(:type e) (:violation e) (:clashes-with e)])
+                label)
+            (is (nil? (v/handle-of kb arriving 'CxUniverse)) (str label ": nothing stored"))))))))
+
+(tu/deftest-kb try-assert-stores-a-sentence-that-opens-no-clash
+  (tu/with-terms [dog_t cat_t Muffet Rex]
+    (v/assert kb (list 'disjoint dog_t cat_t) 'CxUniverse)
+    (v/assert kb (list dog_t Muffet) 'CxUniverse)
+    (let [h (v/try-assert kb (list cat_t Rex) 'CxUniverse)]
+      (is (integer? h))
+      (is (= h (v/handle-of kb (list cat_t Rex) 'CxUniverse))))))
+
 ;;; ── a verdict lives as long as its grounds ────────────────────────────
 
 (tu/deftest-kb retracting-the-separation-revives-the-loser-decided-or-not

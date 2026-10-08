@@ -886,6 +886,15 @@
   [conn]
   (call conn :terms []))
 
+(defn try-assert
+  "`assert`, refusing a sentence that would open a definitional clash with believed content
+  visible from `context`: a `:disjoint`, `:functional`, `:asymmetric`, `:anti-transitive`
+  or `:cover` clash formed by the sentence or by a membership its argument declarations
+  mint."
+  ([conn sentence] (call conn :try-assert [sentence]))
+  ([conn sentence context] (call conn :try-assert [sentence context]))
+  ([conn sentence context opts] (call conn :try-assert [sentence context opts])))
+
 (defn types
   "Every type currently in the genl hierarchy — the nodes of the closure, i.e. every type
   named by some believed `genl` edge."

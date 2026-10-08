@@ -52,6 +52,9 @@ should. The file map is [namespaces.md](namespaces.md). Entry points are `lein r
                                                ; polycanonicalized (docs/canonicalization.md)
                                                ; opts: {:strength :monotonic|:default :chain? bool :max-depth n}
                                                ; `assert-opt-keys` is the roster; a key off it is refused
+(try-assert kb sentence context opts)          ; `assert`, refusing a write that would open a
+                                               ; definitional clash (`:definitional-clash`);
+                                               ; depends on arrival order ("Refusing a clash")
 (assert-rule kb antecedents consequent context opts)  ; opts as `assert` (:direction included)
                                                ; (:forward | :backward | :inert | :both, default :backward;
                                                ; a generator defaults :forward) — the programmatic
@@ -939,6 +942,48 @@ The checks do not read what a rule would conclude of the new constant.  It does 
 imperative.  And it does not chain, so a refusal raised while the sentence's rules fire —
 `:pattern-too-costly` from an `exceptWhen` query — is reported by `assert` alone, which
 then takes back what the call wrote (above).
+
+## Refusing a clash
+
+`try-assert` takes `assert`'s arguments and returns its handle, and refuses a sentence
+that would open a definitional clash with believed content visible from the context.
+`assert` stores such a sentence and the settle places the nogood
+([nmtms.md](nmtms.md#1-order-independence)).
+
+```clojure
+(v/assert kb '(disjoint dog cat) 'CxUniverse {:strength :monotonic})
+(v/assert kb '(dog Rex) 'CxUniverse)
+(v/try-assert kb '(cat Rex) 'CxUniverse)
+;; throws {:type :definitional-clash :violation :disjoint :sentence (cat Rex)
+;;         :entailed-from nil
+;;         :clashes-with [{:handle 812 :sentence (dog Rex) :context CxUniverse}]
+;;         :detail {:types [cat dog]}}
+```
+
+The refusal reads three things, and the call stores nothing when one of them clashes:
+
+- the sentence against believed content: a `:disjoint`, `:functional`, `:asymmetric`,
+  `:anti-transitive` or `:cover` clash, from the checks `assert` runs;
+- each membership the sentence's argument declarations mint
+  ([argtypes.md](argtypes.md)), against believed content, with the written sentence in
+  `:entailed-from`;
+- the sentence and those mints against each other. A member that is part of the write
+  appears in `:clashes-with` without a `:handle`.
+
+`:violation` names the clash kind and `:detail` holds that kind's own keys. Every other
+refusal is `assert`'s, under its own `:type`. The refusal does not depend on strength: a `:monotonic` write that would defeat
+a `:default` member is refused too.
+
+The check reads the written sentence and its mints, so four clashes still land and are
+placed by the settle: a clash a rule concludes when it fires; a declaration or `genl`
+edge that turns stored content into a clash, such as a `disjoint` over two types with a
+shared instance; a rebuttal `(not S)` of a believed `S`; and a clash with content that is
+stored and not believed. `check` reports what `assert` refuses, and does not report the
+clashes `try-assert` adds.
+
+**This is the one write entry point that depends on arrival order.** With `(dog Rex)`
+stored, `(cat Rex)` is refused, and with `(cat Rex)` stored, `(dog Rex)` is refused, so the
+KB holds whichever membership arrived first.
 
 ## Previewing the consequences
 

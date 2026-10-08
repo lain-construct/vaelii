@@ -2171,6 +2171,23 @@
                (nat-maint/reconcile-assert kb sentence opts)))
             h)))))))
 
+(defn try-assert
+  "`assert`, refusing a sentence that would open a definitional clash with believed
+  content visible from `context`: a `:disjoint`, `:functional`, `:asymmetric`,
+  `:anti-transitive` or `:cover` clash formed by the sentence or by a membership its
+  argument declarations mint.  The refusal is `:definitional-clash`, carrying the clash
+  kind in `:violation`, the members it clashes with in `:clashes-with`, and
+  `:entailed-from` when a mint clashes, and the call stores nothing.  Every other
+  refusal, argument and return value is `assert`'s.
+
+  Whether a write is refused depends on what is already stored, so this is the one write
+  entry point whose result depends on arrival order (docs/api.md, \"Refusing a clash\")."
+  ([kb sentence] (try-assert kb sentence 'CxUniverse nil))
+  ([kb sentence context] (try-assert kb sentence context nil))
+  ([kb sentence context opts]
+   (binding [checks/*refuse-clashes?* true]
+     (assert kb sentence context opts))))
+
 (defn assert-rule
   "Assert a rule (a sentex whose sentence is an implication) in `context`.
   `opts` may carry `:direction` (:forward | :backward | :inert | :both, default
@@ -8288,6 +8305,7 @@
   `vaelii.impl.oplog`'s: `:replay` is recorded, `:seal` and `:config` mark the log
   unusable."
   {#'assert                   [:assert :replay]
+   #'try-assert               [:try-assert :replay]
    #'assert-rule              [:assert-rule :replay]
    #'assert-many              [:assert-many :replay]
    #'bulk-assert-facts!       [:bulk-assert-facts :replay]

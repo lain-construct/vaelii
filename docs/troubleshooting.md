@@ -218,6 +218,7 @@ without storing anything, and answers with the identical problem.
 | `:arg-variable` | a **rule** variable two argument constraints demand disjoint types of — [taxonomy.md](taxonomy.md) |
 | `:disjoint` / `:functional` / `:asymmetric` | a definitional clash that names no stored member; a clash naming its members is stored, and `contradictions` or `conflicts` reports it — [nmtms.md](nmtms.md#1-order-independence) |
 | `:cover` | a `covering` declaration every part of which is now denied of a term the whole holds — [taxonomy.md](taxonomy.md) |
+| `:definitional-clash` | `try-assert` only: the sentence, or a membership its argument declarations mint, clashes with believed content. `assert` stores it, and `check` does not report it — [api.md](api.md#refusing-a-clash) |
 | `:unknown-option` | an option key nothing reads, or a non-map `opts` — `:mismatch` says which. A refused `VAELII_*` or `vaelii.*` switch is named under `:switch`, and under `:property`, the older key |
 
 The one worth knowing in advance: **snake_case means arity 1.** An underscored functor
@@ -527,6 +528,7 @@ so one vocabulary reads both.
 | `:daemon-error` | the daemon refused and its reply carried no `:type` of its own — the client's fallback | [operations.md](operations.md) |
 | `:damaged-dictionary` | a tokenized frame cites a token id the dictionary has no entry for | [storage.md](storage.md) |
 | `:damaged-frame` | a frame inside a log the open reads whole — `tokens.log`, the index's `kv.log`, the operation log — does not decode, and frames follow it; the refusal names the file, the byte offset and the frame | [storage.md](storage.md) |
+| `:definitional-clash` | `try-assert` refused a sentence that would open a clash with believed content, or whose argument-type mints would; `:violation` names the clash kind and `:clashes-with` the other members | [api.md](api.md#refusing-a-clash) |
 | `:derived-only` | a `defeat` literal in an asserted sentence, its negation, a rule or an `exceptWhen` query; only the engine derives a defeat | [glossary.md](glossary.md#d) |
 | `:disjoint` | a definitional clash between two disjoint types — see [`assert` refused it](#assert-refused-it) | [exceptions.md](exceptions.md) |
 | `:disjunction-too-wide` | a disjunctive antecedent over the alternative cap | [canonicalization.md](canonicalization.md) |

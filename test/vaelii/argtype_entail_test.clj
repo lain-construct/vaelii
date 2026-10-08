@@ -753,6 +753,36 @@
                 (v/handle-of kb (list t2 Fred) CxWorld)}]
              (mapv :nogood (v/contradictions kb)))))))
 
+(tu/deftest-kb try-assert-refuses-a-fact-whose-mint-clashes
+  ;; The three clashes the tests above store: a mint against a stored membership, the
+  ;; fact against its own mint, and two mints of one cascade.  `try-assert` refuses each,
+  ;; and neither the fact nor a mint is stored.
+  (doseq [row [:stored :own :cascade]]
+    (tu/with-terms [t1 t2 rel Fred Mary CxWorld]
+      (with-entailing
+        (a-context kb CxWorld)
+        (a-type kb t1 CxWorld)
+        (a-type kb t2 CxWorld)
+        (v/assert kb (list 'disjoint t1 t2) CxWorld)
+        (let [fact (case row
+                     :stored  (do (v/assert kb (list 'arg rel 1 t1) CxWorld)
+                                  (v/assert kb (list t2 Fred) CxWorld)
+                                  (list rel Fred Mary))
+                     :own     (do (v/assert kb (list 'arg t1 1 t2) CxWorld)
+                                  (list t1 Fred))
+                     :cascade (do (v/assert kb (list 'arg rel 1 t1) CxWorld)
+                                  (v/assert kb (list 'arg t1 1 t2) CxWorld)
+                                  (list rel Fred Mary)))
+              e    (try (v/try-assert kb fact CxWorld)
+                        (catch clojure.lang.ExceptionInfo e (ex-data e)))]
+          (testing (name row)
+            (is (= [:definitional-clash :disjoint fact]
+                   [(:type e) (:violation e) (:entailed-from e)]))
+            (is (nil? (v/handle-of kb fact CxWorld)))
+            (is (= (if (= row :stored) #{(list t2 Fred)} #{})
+                   (set (filter #(v/handle-of kb % CxWorld) [(list t1 Fred) (list t2 Fred)])))
+                "only the memberships the setup wrote are stored")))))))
+
 (tu/deftest-kb a-membership-outside-the-declared-type-is-no-evidence-against-the-fact
   ;; `Bert` is a `pet` and nothing says a pet is not an animal, so the inherited
   ;; declaration derives `(animal Bert)` beside it and refuses nothing.

@@ -321,8 +321,8 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   `:ask-within`, `:prove-within`, `:kb-integrity`. `:kb-integrity` has two more dials,
   `:max-work` (**10000**) and `:max-results` (**1000**), held the same way and filled with
   the ceiling when a request omits them or sends no option map, so a served sweep always
-  runs under all three ([integrity.md](integrity.md)). **No write's bound is held to a ceiling.** Seven
-  writes name one: `:assert`, `:assert-many`, `:assert-rule` and `:forward-chain` read
+  runs under all three ([integrity.md](integrity.md)). **No write's bound is held to a ceiling.** Eight
+  writes name one: `:assert`, `:try-assert`, `:assert-many`, `:assert-rule` and `:forward-chain` read
   `:max-depth` and `:max-derivations`, and `:edit`, `:edit-with-consequences` and
   `:preview` read the same two keys off each batch entry's opts. Both keys bound the
   forward-chaining fixpoint (64 and 100,000 when the request names neither), a request
@@ -356,7 +356,7 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
 
   | Re-sent write | Answers |
   |---|---|
-  | `:assert`, `:assert-many`, `:assert-rule` | the same handles, and nothing new is stored: a sentence dedups to its canonical form's handle ([canonicalization.md](canonicalization.md)) |
+  | `:assert`, `:try-assert`, `:assert-many`, `:assert-rule` | the same handles, and nothing new is stored: a sentence dedups to its canonical form's handle ([canonicalization.md](canonicalization.md)) |
   | `:edit`, `:edit-with-consequences` | with `:add` alone, the same handles; with a `:remove`, refused `:unknown-handle`, and the KB stays as the first send left it |
   | `:retract` | `{:removed-sentexes 0 :removed-justifications 0}` |
   | `:forward-chain` | `{:derived 0}`, the fixpoint being reached |

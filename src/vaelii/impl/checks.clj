@@ -1398,6 +1398,19 @@
   [v]
   (boolean (and v (not (arbitrable? v)))))
 
+(def ^:dynamic *refuse-clashes?*
+  "Does the write entry point refuse an arbitrable clash as well?  False by default, where
+  `refuses-assert?` decides.  `vaelii.core/try-assert` binds it true, and
+  `constraint-checks` then refuses every violation the sentence or one of its
+  argument-type mints forms (docs/api.md, \"Refusing a clash\")."
+  false)
+
+(defn- entry-refuses?
+  "Does violation `v` refuse its sentence at the write entry point under
+  `*refuse-clashes?*`?"
+  [v]
+  (if *refuse-clashes?* (some? v) (refuses-assert? v)))
+
 (defn- membership-handles-led
   "`membership-handles`' small side: lead from `x`'s own argument-1 postings (a handful)
   and test each up via `genl?` (t'' ⊑ t ⟺ t'' ∈ specs(t), see `kb/memberships`),
@@ -2617,6 +2630,28 @@
                  (into mints fresh)))
         {:mints mints :readers readers}))))
 
+(defn- write-clash
+  "The first disjointness clash between two memberships of one write — `sentence` and
+  the `mints` its cascade draws — as a violation naming the other member in
+  `:clashes-with`, or nil.  Neither member is stored when the entry point asks, so no
+  stored-content reader finds the pair; `try-assert` asks this (`*refuse-clashes?*`)."
+  [kb sentence context mints]
+  (let [tax (reasoning/taxonomy kb)
+        ms  (filterv #(and (= 1 (nm/arity %)) (symbol? (nm/functor %))
+                           (not= 'not (nm/functor %)))
+                     (cons sentence mints))]
+    (first
+     (for [a ms
+           :let [disjoint? (tax/separation-test tax (nm/functor a) context)]
+           :when disjoint?
+           b ms
+           :when (and (not= a b) (= (nm/args a) (nm/args b)) (disjoint? (nm/functor b)))]
+       {:type :disjoint :sentence b :types [(nm/functor b) (nm/functor a)]
+        :entailed-from sentence
+        :clashes-with [{:sentence a :context context}]
+        :message (str "arg constraint: " (nm/print-key sentence) " entails "
+                      (nm/print-key b) ", disjoint from " (nm/print-key a))}))))
+
 (defn- entailment-check
   "The entailment reading's half of the entry point check:
   `{:entailments [{:assert …} …] :refusal v}` — what `sentence`'s argument declarations
@@ -2664,20 +2699,44 @@
         (let [{:keys [mints readers]} (entailment-cascade kb sentence context types decls seed)]
           {:entailments seed
            :refusal
-           (first
-            (keep (fn [m]
-                    (when-let [p (constraint-problem kb m context types
-                                                     (get readers (nm/functor m))
-                                                     refuses-assert?)]
-                      (assoc p :entailed-from sentence
-                             :message (str "arg constraint: " (nm/print-key sentence)
-                                           " entails " (nm/print-key m)
-                                           ", which cannot be admitted — " (:message p)))))
-                  mints))})))))
+           (or (first
+                (keep (fn [m]
+                        (when-let [p (constraint-problem kb m context types
+                                                         (get readers (nm/functor m))
+                                                         entry-refuses?)]
+                          (assoc p :entailed-from sentence
+                                 :message (str "arg constraint: " (nm/print-key sentence)
+                                               " entails " (nm/print-key m)
+                                               ", which cannot be admitted — " (:message p)))))
+                      mints))
+               (when *refuse-clashes?* (write-clash kb sentence context mints)))})))))
+
+(defn- refusal
+  "The ex-info `constraint-checks` throws for violation `v`: `v` under its own `:type`,
+  or, for a clash that only `*refuse-clashes?*` refuses, `:definitional-clash` with the
+  clash kind in `:violation`, each other member in `:clashes-with`, as `{:handle
+  :sentence :context}` when it is stored and without `:handle` when it is part of the
+  write (`write-clash`), and the kind's own keys in `:detail`."
+  [kb v]
+  (if (or (arbitrable? v) (contains? v :clashes-with))
+    (ex-info (str "definitional clash: " (:message v))
+             {:type          :definitional-clash
+              :violation     (:type v)
+              :sentence      (:sentence v)
+              :entailed-from (:entailed-from v)
+              :clashes-with  (into (vec (:clashes-with v))
+                                   (map (fn [h]
+                                          (let [s (p/get-sentex (:records kb) h)]
+                                            {:handle h :sentence (sx/sentence-of s)
+                                             :context (:context s)})))
+                                   (opposing-handles v))
+              :detail        (dissoc v :message :sentence :entailed-from :clashes-with
+                                     :opposing-handle :opposing-handles :type)})
+    (ex-info (:message v) (dissoc v :message))))
 
 (defn constraint-checks
   "Throw the first definitional violation that `refuses-assert?`, as typed ex-info — the
-  assert path.
+  assert path.  Under `*refuse-clashes?*`, the first violation of any kind (`refusal`).
 
   A violation naming the other believed members of its nogood does not refuse: the
   sentence is stored and `settle` decides the nogood, whatever the members' classes.  An
@@ -2699,12 +2758,12 @@
   (let [chk   (checked-sentence kb sentence)
         types (kb/membership-reader kb context)
         decls (declaration-reader kb (nm/functor chk) context)]
-    (if-let [p (constraint-problem kb chk context types decls refuses-assert?)]
-      (throw (ex-info (:message p) (dissoc p :message)))
-      (let [{:keys [entailments refusal]} (entailment-check kb chk context types decls)]
-        (if refusal
-          (throw (ex-info (:message refusal) (dissoc refusal :message)))
-          entailments)))))
+    (if-let [p (constraint-problem kb chk context types decls entry-refuses?)]
+      (throw (refusal kb p))
+      (let [ec (entailment-check kb chk context types decls)]
+        (if-let [p (:refusal ec)]
+          (throw (refusal kb p))
+          (:entailments ec))))))
 
 (defn check-application-inputs
   "Throw the first violation of a function's argument declarations inside `sentence` in

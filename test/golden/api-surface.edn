@@ -133,6 +133,8 @@
   term-count "[[conn]]",
   term-expression "[[conn term]]",
   terms "[[conn]]",
+  try-assert
+  "[[conn sentence] [conn sentence context] [conn sentence context opts]]",
   types "[[conn]]",
   types-of "[[conn x] [conn x context]]",
   unwatch "[[conn token]]",
@@ -341,6 +343,8 @@
   term-expression "[[kb term]]",
   term-role "[[term]]",
   terms "[[kb]]",
+  try-assert
+  "[[kb sentence] [kb sentence context] [kb sentence context opts]]",
   types "[[kb]]",
   types-of "[[kb x] [kb x context]]",
   unwatch "[[kb token]]",
@@ -470,6 +474,7 @@
    :term-count
    :term-expression
    :terms
+   :try-assert
    :types
    :types-of
    :unwatch
@@ -590,6 +595,7 @@
    :term-count
    :term-expression
    :terms
+   :try-assert
    :types
    :types-of
    :violations

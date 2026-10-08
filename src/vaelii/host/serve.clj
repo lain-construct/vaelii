@@ -133,8 +133,8 @@
   — `:ask` and `:ask?` to the clock alone, since nothing in the prover registry expands
   a rule.
 
-  **Seven writes name a bound this table does not hold.** `:assert`, `:assert-many`,
-  `:assert-rule` and `:forward-chain` read `:max-depth` and `:max-derivations`
+  **Eight writes name a bound this table does not hold.** `:assert`, `:try-assert`,
+  `:assert-many`, `:assert-rule` and `:forward-chain` read `:max-depth` and `:max-derivations`
   (`core/assert-opt-keys`, `forward-chain`'s roster), and `:edit`,
   `:edit-with-consequences` and `:preview` read the same two keys off each batch entry's
   opts. Both bound the chaining fixpoint (`chain/default-chain-opts`, 64 and 100,000 when
@@ -283,6 +283,7 @@
    {}
    (map (fn [[op f]] [op (bounded op f)]))
    {:assert       (op v/assert)
+    :try-assert   (op v/try-assert)
     :assert-rule  (op v/assert-rule)
     :assert-many  (op v/assert-many)
     :retract      (op v/retract!)

@@ -286,6 +286,9 @@ KB already holds is stored, and the settle places the nogood with the verdict it
 classes give.
 So the same sentences in any order leave the same store and the same beliefs, and a clash
 whose members are all `:monotonic` stands in `conflicts` whichever member arrived last.
+`try-assert` is the one write entry point outside the invariant: it refuses a clash with
+believed content, so whether a write lands depends on what arrived before it
+([api.md](api.md#refusing-a-clash)).
 
 **What a refusal may rest on.** A refusal reads the sentence and nothing the KB holds
 beyond the vocabulary that spells it: naming (which reads the sentence's own argument

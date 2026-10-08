@@ -15,6 +15,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **`try-assert` refuses a write that would open a definitional clash.** It is `assert`
+  plus a refusal, `:definitional-clash`, for a sentence whose own clash or whose
+  argument-type mints' clash with believed content `assert` would store and settle.
+  Whether it refuses depends on arrival order. [api.md](docs/api.md#refusing-a-clash).
+
+  *Class:* **Additive**.
+
 - **`causes` ships in CxAbstract.** `(causes ?cause ?effect)` is a `binary_predicate` and
   an `instance_relation_predicate`, declared `transitive`. Its cause slot is typed
   `causal` and its effect slot `situation`, so a causal event, a tangible or an

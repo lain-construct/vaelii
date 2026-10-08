@@ -154,6 +154,11 @@
                :context (s/? ::context) :opts (s/? (s/nilable ::opts)))
   :ret  (s/or :one ::handle :many (s/coll-of ::handle)))
 
+(s/fdef vaelii.core/try-assert
+  :args (s/cat :kb ::kb :sentence ::sentence
+               :context (s/? ::context) :opts (s/? (s/nilable ::opts)))
+  :ret  (s/or :one ::handle :many (s/coll-of ::handle)))
+
 (s/fdef vaelii.core/assert-rule
   :args (s/cat :kb ::kb :antecedents (s/coll-of ::sentence) :consequent ::sentence
                :context (s/? ::context) :opts (s/? (s/nilable ::rule-opts)))
@@ -416,6 +421,7 @@
   this namespace's docstring and pinned by `vaelii.spec-test`."
   '[vaelii.core/open-kb
     vaelii.core/assert
+    vaelii.core/try-assert
     vaelii.core/assert-rule
     vaelii.core/assert-inert
     vaelii.core/ist
