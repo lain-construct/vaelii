@@ -44,6 +44,40 @@ it — `git show v0.16.0:CHANGELOG.md`.
   starter spindle's coverage instead of the upper ontology's; a caller already passing
   an explicit `context` is unaffected.
 
+- **`tool` is retired.** The ontology classifies by what a thing is, and `tool` named
+  an artifact by what it is for. CxAbstract drops the type, its comment, its `genl`
+  edge to `made` and `(disjoint building tool)`; `ontology_test` and `starter_test`
+  drop it from the rosters that named the made kinds and the documented vocabulary.
+
+  *Class:* **Fix** (shipped ontology content, which takes no Breaking label however far
+  it moves an answer).
+  *Migration:* a KB that typed a term `tool` reads no membership for it; the type and
+  every sentence naming it are gone.
+
+- **CxCore drops `(genl person tangible)`.** A person is not necessarily a massed
+  body: a non-biological agent can be a person with no commitment either way on
+  `tangible` or `intangible`. `person` roots to `thing` directly instead.
+  `arity_vocabulary_test`'s clash witness read `person` for an ordinary non-relation
+  type and relied on it being tangible; `animal`, already disjoint from `relation`
+  through `tangible`, takes its place.
+
+  *Class:* **Fix** (shipped ontology content, which takes no Breaking label however far
+  it moves an answer).
+  *Migration:* a context that derived a term's `tangible` or `intangible` membership
+  from a `person` membership alone derives neither now; state the one that holds
+  directly.
+
+- **koinii's registry mark renames from `agent` to `registered_agent`.** The name ties
+  the mark to koinii's own registration rather than reading as a general-purpose agent
+  classification. `CxRegistry.txt`, the two `vaelii.koinii.identity` functions reading
+  and writing the mark, and `docs/koinii.md` move to the new name; `register-agent`,
+  `registered-agents` and the rest of the identity API keep their names.
+
+  *Class:* **Fix** (shipped ontology content, which takes no Breaking label however far
+  it moves an answer).
+  *Migration:* a caller reading or writing `(agent ?a)` in `CxRegistry` reads or writes
+  `(registered_agent ?a)` instead.
+
 ### Additions
 
 - **CxSocial states the general relationship and dwelling vocabulary over two
@@ -145,9 +179,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
   as a `causal_event`, a tangible or an organization.
 
 - **CxNormalPhysicalConditions states the states of matter of stuff at ordinary room
-  temperature and pressure.** The new theory in `kb/middle/` sees CxUniverse, and CxWell
+  temperature and pressure.** The new theory in `kb/middle/` sees CxRealWorld, and CxWell
   does not see it: a context opts in by placing itself under CxNormalPhysicalConditions, so
-  the everyday contexts below CxWell assume no temperature. It places `stone`, `wood` and `glass_stuff` under `solid` and
+  the everyday contexts below CxWell assume no temperature and a fiction never inherits a
+  room's temperature. It places `stone`, `wood` and `glass_stuff` under `solid` and
   `mercury` under `liquid` with four `genl` edges. A metal is solid there by default:
   `(exceptWhen (mercury ?x) (set/defaultRule (set/forwardRule (implies (and (metal ?x))
   (solid ?x)))))`, so a metal the KB says nothing more about is concluded solid at
@@ -180,6 +215,39 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `typeGenl`.
 
   *Class:* **Additive**.
+
+- **CxUniverse separates `animal` from four of CxAbstract's made kinds.** `(disjoint
+  animal building)`, `(disjoint animal clothing)`, `(disjoint animal furniture)` and
+  `(disjoint animal machine)`, each `:monotonic` like the made-kind separations already
+  stated beside the made kinds themselves, join the cross-member disjointness the
+  collector holds. `organization` and `animal`, the only pair already separated there,
+  are separated by the tangible/intangible partition instead and needed no new fact.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none. A term below `animal` and a term below one of the four made kinds
+  were already `:unknown` or `:orthogonal` to each other; a KB stating an overlap
+  between them now holds a disjointness nogood.
+
+- **CxRealWorld ships as a context under CxWell, and `animal`/`vehicle` separate there
+  monotonic.** CxUniverse states `(disjoint animal vehicle)` at the default strength,
+  so a fiction below CxWell may except it and hold a term that is both — the shipped
+  ontology still has to be able to represent fiction. CxRealWorld, which sees CxWell,
+  restates the same separation `:monotonic`, so the real world itself can never hold
+  the overlap; a fiction is a sibling of CxRealWorld under CxWell, never a context
+  under it, so a fiction's exception never reaches what holds of the real world.
+  CxNormalPhysicalConditions now sees CxRealWorld instead of CxUniverse directly, so a
+  room's temperature theory reaches the real world and never a fiction.
+  `catbus_test` pins a term that is both a cat and a bus as a represented dilemma in a
+  fiction context, the same pair losing a monotonic clash in CxRealWorld, and an
+  ordinary animal not a vehicle in CxWell with no overlap asserted.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none. A context below CxWell reads `animal`/`vehicle` as separated by
+  default, as before; a context placed under CxRealWorld reads the separation
+  monotonic, and a context placed under CxNormalPhysicalConditions now also sees
+  CxRealWorld's and CxWell's content.
 
 ### Fixes: order independence
 
@@ -217,6 +285,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
   reader reads the second defeat in force, and a reader that sees no except reads the
   content-order answer, in all 120 arrival orders.
   [nmtms.md](docs/nmtms.md#a-defeat-dependency-cycle).
+
+  *Class:* **Internal**.
+
+- **`disjointness-coverage-ratchet` requires at least 14079 disjoint pairs, 70.74%
+  disjoint and at most 19.76% unknown in the starter KB.** The bounds were 14096,
+  70.12% and 20.44%. Retiring `tool` drops a type from the CxWell vantage sweep, and
+  dropping `(genl person tangible)` removes pairs that edge separated; `animal`'s four
+  new made-kind disjoints and `animal`/`vehicle` add pairs back. The starter KB now
+  measures 14079 disjoint and 3932 unknown over 19900 pairs of 200 types.
 
   *Class:* **Internal**.
 
