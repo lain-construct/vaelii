@@ -2717,14 +2717,29 @@
   marks that case, `:total` is then the limit it exceeded, and the caption says the node
   has too many to draw.  A `genl` step reads the closure's one-step adjacency
   (`direct-genls` / `direct-specs`), so an edge a cover roster installs is a neighbour as
-  a stated edge is."
-  [kb pred dir node cap]
-  (let [read  (if (= :up dir) parent-terms child-terms)
-        got   (into [] (take (inc graph-row-limit)) (read kb pred node))
-        more? (> (count got) graph-row-limit)]
+  a stated edge is.
+
+  With `hide?` (`hide-derived?`), a neighbour whose every believed `pred` sentex to `node`
+  is derived is left out, by the record's `:strength` as `group-page` leaves out a row.  A
+  neighbour a cover roster installs has no `pred` sentex to be derived, so `hide?` keeps
+  it.  The sentexes are a second read under the same `graph-row-limit`: a node with more
+  of them than the limit is `:more?`, because an edge past the read could not be told
+  stated from derived."
+  [kb pred dir node cap hide?]
+  (let [up?    (= :up dir)
+        bound  (take (inc graph-row-limit))
+        got    (into [] bound ((if up? parent-terms child-terms) kb pred node))
+        recs   (when hide?
+                 (into [] bound (v/sentexes-matching
+                                 kb (if up? (list pred node '?t) (list pred '?t node)) '?ctx)))
+        other  #(nth (:sentence %) (if up? 2 1))
+        stated (into #{} (comp (filter :strength) (map other)) recs)
+        hidden (into #{} (comp (map other) (remove stated)) recs)
+        more?  (or (> (count got) graph-row-limit) (> (count recs) graph-row-limit))
+        kept   (into [] (remove hidden) got)]
     (if more?
       {:terms [] :total graph-row-limit :exact? false :more? true}
-      {:terms (into [] (take cap) (by-print-key got)) :total (count got)
+      {:terms (into [] (take cap) (by-print-key kept)) :total (count kept)
        :exact? true :more? false})))
 
 (defn- fresh-neighbours
@@ -2750,7 +2765,7 @@
 
   `:direct` is the centre's own row before the row cap — the one elision worth a precise
   caption, since it is the term the page is about."
-  [kb rel dir hops centre budget]
+  [kb rel dir hops centre budget hide?]
   (loop [frontier [centre], depth 1, seen #{centre}
          rows [], spent 0, direct nil, deeper? false]
     (let [left (- budget spent)]
@@ -2764,7 +2779,7 @@
         :else
         (let [cap    (if (= 1 depth) graph-row-cap graph-spread)
               probed (into [] (take left) frontier)
-              steps  (mapv (fn [n] [n (graph-step kb rel dir n cap)]) probed)
+              steps  (mapv (fn [n] [n (graph-step kb rel dir n cap hide?)]) probed)
               spent' (+ spent (count probed))
               found  (for [[from {:keys [terms]}] steps, t terms]
                        {:term t :rel rel :from from})
@@ -2845,6 +2860,8 @@
     · **positive only** — `(not (P a b))` says the relation does *not* hold, and an arrow
       says the opposite;
     · **believed only**, like every other edge here, from the page's belief cache;
+    · **stated only** when the derived rows are hidden (`hide-derived?`), by the record's
+      `:strength`, so the flank draws no fact the groups below leave out;
     · **symbols only** — a number, `comment`'s text, and a compound in argument position
       are terms of a sentence rather than nodes of a graph;
     · **not the subsumption relations**, which are the vertical axis;
@@ -2859,7 +2876,8 @@
   (for [{:keys [pos sentexes] n :count} groups
         :when (and pos (<= pos 2))
         s     (flank-scan sentexes n)
-        :when (and (nil? (:antecedent s)) (not (v/negative? s)) (believed? view (:id s)))
+        :when (and (nil? (:antecedent s)) (not (v/negative? s)) (believed? view (:id s))
+                   (or (not (:hide-derived? view)) (:strength s)))
         :let  [sent (:sentence s)]
         :when (and (sequential? sent) (= 3 (count sent)))
         :let  [[p a b] sent
@@ -2922,7 +2940,8 @@
   every functor — a union of the scoped roots over `[:argument-slot 1 T]` — so `query`
   answers it with no functor to intersect (docs/indexing.md).  Believed, because that is what `query` means; binary, because the
   pattern has two argument slots and unification is arity-exact; positive, because a
-  negative fact is stored as `(not …)` and does not unify with it either.
+  negative fact is stored as `(not …)` and does not unify with it either.  With `hide?`
+  (`hide-derived?`), stated only, by the record's `:strength`.
 
   **Ordered by handle before the cap cuts**, for `flank-scan`'s reason: a read that
   promises a set promises nothing about which of it comes first, so a window off it as it
@@ -2931,10 +2950,11 @@
   what bounds it: the radial view expands `graph-ego-expand` neighbours, each of them a
   hub in its own right, and realizing a hub's extent to place eight nodes off it was 1.5 s
   of a term page."
-  [kb t cap]
+  [kb t cap hide?]
   (let [pull (fn [pattern out?]
                (into []
-                     (comp (map :sentence)
+                     (comp (filter #(or (not hide?) (:strength %)))
+                           (map :sentence)
                            (keep (fn [[p a b]]
                                    (let [other (if out? b a)]
                                      (when (and (symbol? p) (not (subsumption-relations p))
@@ -2983,8 +3003,10 @@
   builder serves both."
   [{:keys [kb] :as view} term plan neighbours]
   (let [centre (graph-node view term {:x 0 :y 0 :class (str (term-class view term) " g-centre")})
-        up     (when (:up? plan)   (grow kb (:rel plan) :up   graph-hops-up   term graph-side-budget))
-        down   (when (:down? plan) (grow kb (:rel plan) :down graph-hops-down term graph-side-budget))
+        up     (when (:up? plan)   (grow kb (:rel plan) :up   graph-hops-up   term graph-side-budget
+                                         (:hide-derived? view)))
+        down   (when (:down? plan) (grow kb (:rel plan) :down graph-hops-down term graph-side-budget
+                                         (:hide-derived? view)))
         lay    (fn [{:keys [rows]} sign]
                  (mapcat (fn [d row]
                            (svg/row (map #(graph-node view (:term %) (select-keys % [:from :rel]))
@@ -3031,7 +3053,8 @@
                                                      (take graph-spread))
                                             (when-not (wide? (:term n))
                                               (merge-neighbours
-                                               (ego-neighbours kb (:term n) graph-ego-cap))))
+                                               (ego-neighbours kb (:term n) graph-ego-cap
+                                                               (:hide-derived? view)))))
                                boxes  (mapv #(graph-node view (:term %)) kids)
                                placed (svg/arc boxes 0 0
                                                (+ ring-r graph-arc-gap
@@ -3117,12 +3140,15 @@
   costs the figure and nothing else."
   [view term gls sps groups]
   (try
-    (let [near  (merge-neighbours (flank-edges view term groups))
-          reach (flank-reach groups near)]
+    (let [near   (merge-neighbours (flank-edges view term groups))
+          reach  (flank-reach groups near)
+          ;; a picture reads as complete, so the edges `hide-derived?` leaves out are named
+          hidden (when (:hide-derived? view) "derived edges are hidden")]
       (if-let [plan (subsumption-plan term gls sps)]
         (let [scene (taxonomy-scene view term plan near)
               scene (update scene :flank merge reach)]
-          (graph-figure (term-text view term) scene (graph-notes scene plan)
+          (graph-figure (term-text view term) scene
+                        (concat (graph-notes scene plan) [hidden])
                         (if (= 'genlCx (:rel plan))
                           "arrows point at the more general context; relations flank it · believed edges only"
                           "arrows point at the more general type; relations flank it · believed edges only")))
@@ -3130,7 +3156,7 @@
           (let [scene (ego-scene view term near)
                 note  (elision-note "related terms" (assoc reach :shown (:inner scene)))]
             (graph-figure (term-text view term) scene
-                          [note (when note flank-sample-note)]
+                          [note (when note flank-sample-note) hidden]
                           "relations of the term, two hops out; an arrow runs subject to object")))))
     (catch Throwable t
       (trove/log! {:level :warn :id ::graph-failed :data {:term term :error (ex-message t)}})

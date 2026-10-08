@@ -1162,7 +1162,7 @@
   ;; capped.  The row is pinned exactly: the first eight in sort order, not whichever
   ;; eight the index returned first.
   (let [grow (ns-resolve 'vaelii.browser.web 'grow)
-        {:keys [rows direct]} (grow tu/*kb* 'genl :down 1 'mammal 1)]
+        {:keys [rows direct]} (grow tu/*kb* 'genl :down 1 'mammal 1 false)]
     (is (= '#{cat cow dog fox hare horse human lion}
            (set (map :term (first rows)))))
     (is (= {:shown 8 :total 12 :exact? true :more? false} direct))))
@@ -1297,6 +1297,69 @@
             "the only edge is gone, so the node it reached is gone, so there is nothing to draw")
         (is (re-find #"badge-out" body)
             "and the row is still listed, dimmed — the page does not disagree with itself")))))
+
+;; ---- hide derived, in the picture ---------------------------------------
+
+(defn- genl-edges
+  "How many `genl` arrows a picture draws."
+  [svg]
+  (count (re-seq #"class=\"g-edge g-genl\"" (or svg ""))))
+
+(tu/deftest-kb hiding-derived-rows-hides-the-derived-genl-edges-of-the-taxonomy-view
+  ;; `told_sub` has one stated parent and one a forward rule concluded.  The rule's
+  ;; antecedent is unary, so no binary fact puts `concluded_super` on the relation flank.
+  (tu/with-terms [marksKind told_sub told_super concluded_super CxHideEdge]
+    (v/assert-rule kb [(list marksKind '?t)] (list 'genl '?t concluded_super) CxHideEdge
+                   {:direction :forward})
+    (v/assert kb (list 'genl told_sub told_super) CxHideEdge)
+    (v/assert kb (list marksKind told_sub) CxHideEdge)
+    (let [derived (first (v/sentexes-matching kb (list 'genl told_sub concluded_super) '?ctx))
+          page    (fn [t qs] (:body (GET "/term" (str "q=" t qs))))]
+      (is (some? derived) "the rule fired")
+      (is (nil? (:strength derived)) "and its conclusion is a derived record")
+      (testing "shown, the picture draws the stated parent and the derived one"
+        (let [svg (svg-of (page told_sub "&derived=show"))]
+          (is (contains? (drawn-terms svg) (str told_super)))
+          (is (contains? (drawn-terms svg) (str concluded_super)))
+          (is (= 2 (genl-edges svg)))))
+      (testing "hidden, the stated edge stays and the derived edge and its node go"
+        (let [body (page told_sub "&derived=hide")
+              svg  (svg-of body)]
+          (is (contains? (drawn-terms svg) (str told_super)))
+          (is (not (contains? (drawn-terms svg) (str concluded_super))))
+          (is (= 1 (genl-edges svg)))
+          (is (re-find #"derived edges are hidden" body))))
+      (testing "and the same edge is hidden read from its other end"
+        (is (contains? (drawn-terms (svg-of (page concluded_super "&derived=show")))
+                       (str told_sub)))
+        (let [svg (svg-of (page concluded_super "&derived=hide"))]
+          (is (not (contains? (drawn-terms svg) (str told_sub))))
+          (is (zero? (genl-edges svg))))))))
+
+(tu/deftest-kb hiding-derived-rows-keeps-a-genl-edge-a-roster-installs
+  ;; no `genl` sentex is stored for a roster's part, so no record says the edge is derived
+  (tu/with-terms [hide_whole hide_left hide_right]
+    (v/assert kb (list 'separating hide_whole hide_left hide_right) 'CxUniverse
+              {:chain? false})
+    (let [svg (svg-of (:body (GET "/term" (str "q=" hide_left "&derived=hide"))))]
+      (is (contains? (drawn-terms svg) (str hide_whole)))
+      (is (= 1 (genl-edges svg))))))
+
+(tu/deftest-kb hiding-derived-rows-hides-the-derived-relation-edges-of-both-hops
+  ;; every `concludedRel` fact is a forward rule's conclusion from a `toldRel` fact, so
+  ;; each drawn edge is labelled with both relations when shown and with one when hidden
+  (tu/with-terms [toldRel concludedRel TmpP TmpQ TmpR CxHideRel]
+    (v/assert-rule kb [(list toldRel '?x '?y)] (list concludedRel '?x '?y) CxHideRel
+                   {:direction :forward})
+    (v/assert kb (list toldRel TmpP TmpQ) CxHideRel)
+    (v/assert kb (list toldRel TmpQ TmpR) CxHideRel)
+    (let [labels (fn [qs]
+                   (map second (re-seq #"class=\"g-edge-label\"[^>]*>([^<]*)<"
+                                       (svg-of (:body (GET "/term" (str "q=" TmpP qs)))))))
+          both?  #(and (str/includes? % (str toldRel)) (str/includes? % (str concludedRel)))]
+      (is (= 2 (count (labels "&derived=show"))) "the ring edge and the second hop's")
+      (is (every? both? (labels "&derived=show")))
+      (is (= [(str toldRel) (str toldRel)] (labels "&derived=hide"))))))
 
 (tu/deftest-kb a-sentex-circle-is-coloured-by-what-the-sentex-is
   ;; colour is the whole of the badge now — no glyph to read — so the class that carries

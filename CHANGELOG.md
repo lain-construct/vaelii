@@ -62,6 +62,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **The browser's "hide derived" hides the derived edges of a term page's concept
+  graph.** With the switch on, the graph draws a relation edge only from an asserted
+  sentex, leaves out a `genl` or `genlCx` neighbour whose every believed sentex to the
+  term is derived, and captions the picture "derived edges are hidden". An edge a cover
+  roster installs stays. The discriminant is the record's `:strength`, as for the rows.
+  [web.md](docs/web.md#hiding-what-the-engine-concluded).
+
+  *Class:* **Additive**.
+
 - **`try-assert` refuses a write that would open a definitional clash.** It is `assert`
   plus a refusal, `:definitional-clash`, for a sentence whose own clash or whose
   argument-type mints' clash with believed content `assert` would store and settle.
