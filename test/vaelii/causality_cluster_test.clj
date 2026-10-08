@@ -317,11 +317,15 @@
     (is (true? (v/ask? kb (list 'causes Spark Ember) 'CxUniverse))
         "a chain of causes is itself a cause")))
 
-(tu/deftest-kb an-acausal-thing-is-refused-the-cause-slot
+(tu/deftest-kb an-acausal-cause-clashes-with-the-causal-membership-the-slot-derives
+  ;; The cause slot derives `(causal Receipt)` beside the stated `(acausal_event Receipt)`,
+  ;; and `(disjoint causal acausal)` places the clash between the two.
   (tu/with-terms [Receipt Blaze]
     (v/assert kb (list 'acausal_event Receipt) 'CxUniverse)
     (v/assert kb (list 'situation Blaze) 'CxUniverse)
-    (let [p (first (filter #(= :arg-type (:type %))
-                           (v/check kb (list 'causes Receipt Blaze) 'CxUniverse)))]
-      (is (some? p) "an acausal event does not reach causal")
-      (is (= 1 (:position p))))))
+    (v/assert kb (list 'causes Receipt Blaze) 'CxUniverse)
+    (let [causal (v/handle-of kb (list 'causal Receipt) 'CxUniverse)]
+      (is (some? causal))
+      (is (some #(= #{causal (v/handle-of kb (list 'acausal_event Receipt) 'CxUniverse)}
+                    (:nogood %))
+                (v/contradictions kb))))))

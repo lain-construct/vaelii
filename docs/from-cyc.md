@@ -104,7 +104,7 @@ forward rule in three ways: it is stored under an unordered key so one declarati
 both directions, a predicate may declare **several** partners and all are live, and a
 partner declared on a sub-predicate answers the super-predicate's goal.
 
-## Well-formedness: assertive where declared, constraining where inherited
+## Well-formedness: assertive by default
 
 Cyc's three modes, and what each maps to:
 
@@ -112,16 +112,13 @@ Cyc's three modes, and what each maps to:
 |---|---|---|
 | strict | constraints must be provable | no equivalent |
 | lenient | constraints must not be disjoint | what `VAELII_ASSERTIVE_ARG_TYPES=0` leaves: a demonstrated conflict is refused, and an argument with no place in the hierarchy is excused |
-| assertive | that, plus eagerly concluding tighter `isa`s | **the default** for a declaration stated in the asserting context or in CxUniverse (`checks/*assertive-arg-types?*`): the argument is concluded a member of the declared type unless that membership clashes with one it holds |
+| assertive | that, plus eagerly concluding tighter `isa`s | **the default** (`checks/*assertive-arg-types?*`): the argument is concluded a member of the declared type, and a concluded type disjoint from one it holds is a placed clash, not a refusal |
 
-Which reading applies depends on where the declaration is stated, not on a KB-wide mode.
-A declaration stated in the asserting context, or in CxUniverse, concludes the declared
-type of an argument. A declaration **inherited** from an ancestor context constrains
-without concluding: it concludes no membership, and it refuses an argument that holds a
-type which does not reach the declared one. An argument with no type at all passes an
-inherited declaration. [argtypes.md](argtypes.md#local-declares-inherited-only-constrains)
-states the rule, and vaelii#153 tracks making the lenient and assertive readings hold
-under an inherited declaration.
+The assertive reading holds for a declaration stated in the asserting context and for one
+the context inherits from an ancestor. A concluded membership is stored in the fact's own
+context, so a declaration stated in a context below the fact's stores no membership, and
+`ask?` answers it at that context and below by a backward proof.
+[argtypes.md](argtypes.md#a-declaration-derives-wherever-it-is-visible) states the rule.
 
 One naming collision to hold: `vaelii.impl.wff` is narrower than Cyc's "WFF". It is the
 **structural** check on the special predicates — `genl` and `genlCx` acyclicity, the
