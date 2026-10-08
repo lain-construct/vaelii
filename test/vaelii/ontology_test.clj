@@ -1155,13 +1155,14 @@
     (is (v/disjoint? kb 'integer 'predicate)
         "the declaration on number carries integer with it")))
 
-(tu/deftest-kb symbol-is-mention-only-and-carries-neither-claim
-  ;; the deliberate absence, and the one a later reader is most likely to "fix": a symbol
-  ;; does not denote itself, so the set of names and the set of things named are two sets
-  ;; — parentOf is written as a symbol and denotes a predicate.  Both claims below would
-  ;; be false of every predicate name in the KB.
-  (is (not (v/disjoint? kb 'symbol 'predicate))
-      "a name is exactly how a predicate is written")
+(tu/deftest-kb symbol-is-mention-only-and-is-disjoint-from-predicate
+  ;; a symbol does not denote itself, so the set of names and the set of things named are
+  ;; two sets — parentOf is written as a symbol and denotes a predicate.  symbol reaches
+  ;; expression through atomic_term and atomic_expression, and expression is disjoint
+  ;; from relation, so from predicate: a symbol is what (Quote parentOf) denotes, not
+  ;; what parentOf denotes.
+  (is (true? (v/disjoint? kb 'symbol 'predicate))
+      "a symbol is what (Quote dog) denotes, not what dog denotes")
   (is (not (v/genl? kb 'symbol 'intangible))
       "and nothing places it in the domain lattice, there being no use-level reading"))
 
