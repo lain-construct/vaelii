@@ -331,9 +331,9 @@
 ;; The audit sweeps the nodes of the genl hierarchy visible from its vantage (default
 ;; CxWell, the starter spindle's collector) less each `relation?` there, so the five
 ;; relations CxCore puts under a `genl` edge (`orthogonal`, `siblingDisjointException`
-;; and the three arity-class predicates) are not swept: 201 types, 20,100 pairs, 14,096
-;; of them disjoint (70.1%) and 4,108 unknown (20.4%). The 201st is CxSocial's
-;; `dwelling`. No opt-in theory's type is among the 201: CxWell does not see one, so the
+;; and the three arity-class predicates) are not swept: 200 types, 19,900 pairs, 14,079
+;; of them disjoint (70.7%) and 3,932 unknown (19.8%). The 200th is CxAbstract's
+;; `wood`. No opt-in theory's type is among the 200: CxWell does not see one, so the
 ;; sweep does not either.
 
 (tu/deftest-kb disjointness-coverage-ratchet
@@ -344,9 +344,9 @@
         unknown    (get by-status :unknown 0)
         disjoint-% (* 100.0 (/ disjoint pairs))
         unknown-%  (* 100.0 (/ unknown pairs))]
-    (is (>= disjoint 14096)
-        (format "disjoint pairs must not fall below 14096 (got %d)" disjoint))
-    (is (>= disjoint-% 70.12)
-        (format "disjoint coverage must not regress below 70.12%% (got %.2f%%)" disjoint-%))
-    (is (<= unknown-% 20.44)
-        (format "unknown pairs must not grow above 20.44%% (got %.2f%%)" unknown-%))))
+    (is (>= disjoint 14079)
+        (format "disjoint pairs must not fall below 14079 (got %d)" disjoint))
+    (is (>= disjoint-% 70.74)
+        (format "disjoint coverage must not regress below 70.74%% (got %.2f%%)" disjoint-%))
+    (is (<= unknown-% 19.76)
+        (format "unknown pairs must not grow above 19.76%% (got %.2f%%)" unknown-%))))
