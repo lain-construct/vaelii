@@ -907,15 +907,6 @@
             :frontier  (count @queue)
             :max-depth (reduce max 0 (map :tree-depth ns))})))
 
-(defn- with-unenumerated
-  "`(f)` with `provers/*unenumerated*` collecting, as `[result preds]`: `preds` is the
-  content-ordered vector of predicates whose closure a goal asked with both arguments open
-  did not enumerate. `f` must be eager, since the collector is a binding."
-  [f]
-  (let [a (atom #{})
-        r (binding [provers/*unenumerated* a] (f))]
-    [r (into [] (nm/sort-by-content-key nm/print-key compare @a))]))
-
 (defn search-report
   "One node-engine search over `goals`, driven to completion and **reported** — the
   answers plus what the run costs and whether the depth bound cut it short:
@@ -923,8 +914,9 @@
     {:answers                 <vector of binding maps, `solutions`' own>
      :truncated?              <bool>    the depth bound stopped a rewrite the search
                                         would otherwise have taken — so the answers may
-                                        be incomplete, where `false` guarantees they are
-                                        every answer this KB entails within the bound
+                                        be incomplete, where `false` with an empty
+                                        `:unenumerated` guarantees they are every
+                                        answer this KB entails within the bound
      :time-to-first-answer-ms <double|nil>   nil when there are no answers
      :total-time-ms           <double>
      :stats                   <tree-stats>
@@ -953,7 +945,7 @@
         sess (session kb goals context opts)
         start (System/nanoTime)
         [report unenumerated]
-        (with-unenumerated
+        (provers/with-unenumerated
           #(loop [s (seq (search-seq sess)), acc (transient []), first-ns nil]
              (if s
                (recur (next s) (conj! acc (first s)) (or first-ns (- (System/nanoTime) start)))
@@ -1035,7 +1027,7 @@
          budget   (long (or node-budget default-node-budget))
          deadline (when max-ms (+ (System/currentTimeMillis) (long max-ms)))
          [tree unenumerated]
-         (with-unenumerated
+         (provers/with-unenumerated
            (fn []
              (loop [answers [], results {}, expanded 0]
                (let [entry (first @queue)]

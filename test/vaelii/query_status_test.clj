@@ -146,12 +146,13 @@
     (v/assert kb (list 'transitive largerThan) CxT)
     (v/assert kb (list largerThan R0 R1) CxT)
     (v/assert kb (list largerThan R1 R2) CxT)
-    (testing "both ends open: the extent, marked incomplete"
-      (let [r (v/query-status kb (list largerThan '?x '?y) CxT {:max-depth 1})]
-        (is (= 2 (:count r)))
-        (is (= [largerThan] (:unenumerated r)))
-        (is (= :incomplete (:status r)))
-        (is (not (:truncated? r)))))
+    (testing "both ends open: the extent, marked incomplete, at a depth and facts-only"
+      (doseq [opts [{:max-depth 1} {:max-depth 0} nil]]
+        (let [r (v/query-status kb (list largerThan '?x '?y) CxT opts)]
+          (is (= 2 (:count r)))
+          (is (= [largerThan] (:unenumerated r)))
+          (is (= :incomplete (:status r)))
+          (is (not (:truncated? r))))))
     (testing "one end bound: the closure, complete"
       (let [r (v/query-status kb (list largerThan R0 '?y) CxT {:max-depth 1})]
         (is (= #{R1 R2} (into #{} (map #(get % '?y)) (:answers r))))

@@ -1155,12 +1155,12 @@ the run — `:time-to-first-answer-ms` off the first realized answer, `:total-ti
 the whole set. It reports one search over one concrete context's frontier, so a variable
 or query context is refused, and `:portfolio?` picking a race is dropped.
 
-A search can also fall short without a bound cutting it. A literal `(P ?x ?y)` over a
+An answer set can also lack an answer without a bound cutting the search. A literal `(P ?x ?y)` over a
 `transitive` `P`, solved with both arguments still open, is answered by `P`'s extent and
-not its closure ([taxonomy.md](taxonomy.md#predicate-metadata)), so a derived pair is not among
-the answers. `TransitivePredicateProver` adds `P` to `provers/*unenumerated*` when it
+not its closure ([taxonomy.md](taxonomy.md#predicate-metadata)), so a derived pair may be
+missing from the answers. `TransitivePredicateProver` adds `P` to `provers/*unenumerated*` when it
 declines that goal, and `search-report` and `search-tree` bind the collector around their
-search and return the set as `:unenumerated`. `query-status` reports `:status
+search, as does `query-status`'s facts-only read, and return the set as `:unenumerated`. `query-status` reports `:status
 :incomplete` when the set is non-empty and the bound cut nothing, and the inference
 debugger page prints the predicates above its answers.
 

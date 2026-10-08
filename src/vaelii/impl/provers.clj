@@ -760,9 +760,18 @@
 (def ^:dynamic *unenumerated*
   "nil, or an atom of the set of predicates whose closure `TransitivePredicateProver` did
   not enumerate for a goal asked with both arguments open. A report read binds it around
-  its search (`inference/search-report`, `inference/search-tree`) and returns the set, so
+  its search (`with-unenumerated`) and returns the set, so
   an answer set that may omit derived pairs says so."
   nil)
+
+(defn with-unenumerated
+  "`(f)` with `*unenumerated*` collecting, as `[result preds]`: `preds` is the
+  content-ordered vector of predicates whose closure a goal asked with both arguments open
+  did not enumerate. `f` must be eager, since the collector is a binding."
+  [f]
+  (let [a (atom #{})
+        r (binding [*unenumerated* a] (f))]
+    [r (into [] (nm/sort-by-content-key nm/print-key compare @a))]))
 
 (defrecord TransitivePredicateProver []          ; declared-transitive predicates (not genl/genlCx)
   Prover
