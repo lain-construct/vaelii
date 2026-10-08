@@ -66,7 +66,7 @@ topology is **two spindles stacked**, most general (top) to most specific (botto
 | | head | members | collector |
 |---|---|---|---|
 | the upper spindle | CxCore | `resources/kb/upper/` — seven contexts | CxUniverse |
-| the middle spindle | CxUniverse | `kb/middle/` — seven contexts, beside one opt-in theory | CxWell |
+| the middle spindle | CxUniverse | `kb/middle/` — seven contexts, beside three opt-in theories | CxWell |
 
 CxUniverse is the joint, the first spindle's collector and the second's head, and it can
 be the second's head *because* it is the first's collector: a head is a context every
@@ -141,9 +141,12 @@ Data hangs below CxWell.
   - `CxSize` — comparative size said the two ways it can be said: `largerThan`
     among kinds, and a comparison computed between two objects' measures. The worked
     example of `transitiveInArgInverse` ([inherit.md](inherit.md)).
-  - `CxSocial` — what acquaintance follows from, and how employment relates to
-    membership. Every rule runs one way only, because `knows` is deliberately not
-    symmetric.
+  - `CxSocial` — what acquaintance follows from, how employment relates to
+    membership, and the general relationship and dwelling vocabulary over two
+    persons: `relativeOf`, `romanticPartnerOf`, `coworkerOf`, `roommateOf`,
+    `originatorOf` (read by a rule from `parentOf`), `relationshipLabel`, and
+    `dwelling`/`dwellsIn` (whose rule derives `roommateOf` for co-dwellers). Every
+    rule runs one way only, because `knows` is deliberately not symmetric.
 - **CxNormalPhysicalConditions** — an **opt-in** theory in `kb/middle/` that sees
   CxUniverse and that CxWell does **not** see: the states of matter of stuff at ordinary
   room temperature and pressure. Stone, wood and glass are solid, mercury is liquid, and a
@@ -152,9 +155,22 @@ Data hangs below CxWell.
   kitchen. A context opts in by placing itself under CxNormalPhysicalConditions, and a
   context under both CxWell and CxNormalPhysicalConditions reads the everyday theories at
   room temperature.
-- **CxWell** — the middle spindle's *collector*: it sees every middle member, so it (and
-  any context hung beneath it) transitively sees the whole ontology except the opt-in
-  CxNormalPhysicalConditions.
+- **CxPerception** — an **opt-in** theory in `kb/middle/` that sees CxUniverse and
+  that CxWell does **not** see: perception relations. `perceives` is the general
+  relation, and `sees`, `seeImage` and `watchVideo` each specialize it. A context opts
+  in by placing itself under CxPerception.
+- **CxSocialExtension** — an **opt-in** theory in `kb/middle/` that sees CxSocial,
+  and through it CxUniverse, and that CxWell does **not** see: `nestingPartnerOf`
+  (read by a rule from CxSocial's `romanticPartnerOf` and `roommateOf`) and
+  `chosenSiblingOf`. A context opts in by placing itself under CxSocialExtension,
+  which also carries CxSocial's own relations to it. **`<Theory>Extension` names a
+  theory that extends an existing starter theory with vocabulary most contexts
+  under the base theory have no occasion to see:** the base theory ships to every
+  context below CxWell, and the extension only to a context placed under it.
+- **CxWell** — the middle spindle's *collector*: it sees every middle member, so it
+  (and any context hung beneath it) transitively sees the whole ontology except the
+  three opt-in theories, CxNormalPhysicalConditions, CxPerception and
+  CxSocialExtension.
 
 **A member sees no member, so a shared term belongs in the head.** That is what makes a
 spindle a spindle: `CxLife` does not see `CxOrganism` and `CxOrganism` does not see

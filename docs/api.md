@@ -416,14 +416,17 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; shared instance are read from (default CxUniverse)
                                                ; a shared subtype not provably empty, read
                                                ; from the global closures, also reads :orthogonal
-(disjointness-audit kb [context])              ; subsumption-status over every unordered type pair,
-                                               ; the genl nodes less each `relation?` at context —
-                                               ; {:types :pairs :by-status :pairs-data}; the
-                                               ; :unknown pairs flag a candidate missing `disjoint`
-                                               ; or `orthogonal`; an :orthogonal entry carries
-                                               ; :witness (:declared :shared-instance :shared-spec
-                                               ; :unwitnessed-spec) and :via, the instance or
-                                               ; subtype found
+(disjointness-audit kb [context])              ; subsumption-status over every unordered pair of
+                                               ; the genl nodes visible from context (default
+                                               ; CxWell, the starter spindle's collector), less
+                                               ; each `relation?` there — {:types :pairs :by-status
+                                               ; :pairs-data}; a type an opt-in theory alone
+                                               ; declares is outside the sweep at the default
+                                               ; vantage; the :unknown pairs flag a candidate
+                                               ; missing `disjoint` or `orthogonal`; an :orthogonal
+                                               ; entry carries :witness (:declared :shared-instance
+                                               ; :shared-spec :unwitnessed-spec) and :via, the
+                                               ; instance or subtype found
 ;; the taxonomy, read (thin delegations to vaelii.impl.taxonomy — reads only, since
 ;; edges and metadata are maintained by assert / retract! from the sentexes stating them)
 (genls kb t [context]) / (specs kb t [context])         ; genl up/down closure (scoped with a context)
@@ -1298,9 +1301,14 @@ free for lifted universal facts.
 The **middle spindle** is headed by that same CxUniverse; its members are `kb/middle/`
 (`CxKinship`, `CxMereology`, `CxBiology`, `CxChange`, `CxSocial` — the rules;
 `CxAnatomy` and `CxSize` — claims about kinds); its collector is **CxWell**, which
-transitively sees the whole ontology but one opt-in theory. `CxNormalPhysicalConditions`,
-the states of matter at room temperature, also sits in `kb/middle/` and sees CxUniverse,
-and CxWell does not see it: a context opts in by placing itself under it.
+transitively sees the whole ontology but three opt-in theories.
+`CxNormalPhysicalConditions`, the states of matter at room temperature, and
+`CxPerception`, the perception relations, also sit in `kb/middle/` and see
+CxUniverse, and CxWell does not see either: a context opts in by placing itself
+under one. `CxSocialExtension` sits beside them and sees `CxSocial` instead,
+carrying `CxSocial`'s own relations to a context placed under it;
+`<Theory>Extension` names a theory that extends an existing starter theory with
+vocabulary most contexts under the base theory have no occasion to see.
 
 The upper spindle's members say what things **are**, always true, like `genl`; the
 middle spindle's members say how they **interrelate**, where several overlapping accounts can coexist.

@@ -1,0 +1,42 @@
+;; CxSocialExtension — an opt-in extension of CxSocial: relationship vocabulary
+;; narrower than CxSocial's own. Sees CxSocial, which carries it to the shared
+;; upper ontology via CxUniverse. CxWell does not see it: a context opts in by
+;; placing itself under CxSocialExtension.
+;;
+;; "<Theory>Extension" names a theory that extends an existing starter theory
+;; with vocabulary most contexts under the base theory have no occasion to see:
+;; the base theory ships to everyone below CxWell, the extension only to a
+;; context placed under it.
+;;
+;; nestingPartnerOf is read by a rule from CxSocial's romanticPartnerOf and
+;; roommateOf; no genl edge states the specialization, since romanticPartnerOf
+;; and roommateOf are CxSocial's own middle-spindle terms and a term two middle
+;; members touch must sit at or above the spindle's head
+;; (starter_test/a-term-two-spindle-members-touch-is-defined-in-the-head).
+;; chosenSiblingOf is a sibling relation by choice rather than by birth, stated
+;; the same way and for the same reason: no genl edge to CxSocial's relativeOf.
+;; It is unrelated to the shipped siblingOf in either direction.
+
+(genlCx CxSocialExtension CxSocial)
+
+;; ---- nestingPartnerOf -------------------------------------------------------
+(comment nestingPartnerOf
+         "(nestingPartnerOf ?x ?y) means ?x and ?y are romantic partners who live together. Read by the rule below from romanticPartnerOf and roommateOf together; no genl edge names the specialization, since both are CxSocial's own terms (see the file header).")
+(binary_predicate nestingPartnerOf)
+(instance_relation_predicate nestingPartnerOf)
+(symmetric nestingPartnerOf)
+(arg nestingPartnerOf 1 person)
+(arg nestingPartnerOf 2 person)
+
+(set/forwardRule
+  (implies (and (romanticPartnerOf ?x ?y) (roommateOf ?x ?y))
+           (nestingPartnerOf ?x ?y)))
+
+;; ---- chosen kinship ----------------------------------------------------------
+(comment chosenSiblingOf
+         "(chosenSiblingOf ?x ?y) means ?x and ?y are siblings by choice, not by birth. No genl edge to CxSocial's relativeOf (see the file header). Neither implies nor is implied by the biological siblingOf.")
+(binary_predicate chosenSiblingOf)
+(instance_relation_predicate chosenSiblingOf)
+(symmetric chosenSiblingOf)
+(arg chosenSiblingOf 1 person)
+(arg chosenSiblingOf 2 person)
