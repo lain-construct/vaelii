@@ -1544,6 +1544,24 @@ reader sees as derived is a row the filter leaves out. It is deliberately not
 sentex can be asserted **and** derivable, and the two answers then disagree with each
 other and with what the page drew.
 
+**The concept graph follows the same switch.** With the derived rows hidden, the caption
+reads "derived edges are hidden" and the graph draws stated edges only, by the same
+`:strength` discriminant:
+
+- A relation edge, on the flank or in the radial view, is read off sentex records. A
+  derived record contributes no edge and no relation name to an edge label.
+- A subsumption neighbour is left out when every believed `genl` (or `genlCx`) sentex
+  between the two terms is derived. The node an edge reached is found through that edge,
+  so a term with no remaining edge is not drawn, and a term the row above or below still
+  reaches by a stated edge is drawn there.
+- An edge a `covering`, `separating` or `partition` roster installs has no `genl` sentex
+  to be derived, so the graph keeps it.
+
+Each subsumption expansion then reads the node's `genl` sentexes beside its one-step
+adjacency, which is one more read per expansion: at most twelve more a page. That read
+stops at the 500-record row limit, and a node with more `genl` sentexes than the limit
+draws no row and says so in the caption.
+
 It is one query parameter (`?derived=hide|show`), one cookie and a re-render: no script,
 no per-row state, and a page that is the same page when its URL is shared. The cookie is
 **persistent** (one year), unlike the sandbox's session cookie: a sandbox is scoped to
