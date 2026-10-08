@@ -475,6 +475,7 @@
 (genl open_literal open_expression)
 (genl closed_literal closed_expression)
 (genl denotational_term wff_expression)
+(genl atomic_expression wff_expression)
 (genl open_formula formula)
 (partition formula open_formula sentence)
 (intersection open_formula formula open_expression)
