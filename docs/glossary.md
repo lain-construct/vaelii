@@ -1198,8 +1198,10 @@ first type is a subtype of the second), `:spec` (the converse), `:coextensional`
 `orthogonal` or `siblingDisjointException`, or a shared instance or a shared subtype not
 provably empty, with neither subsumption nor disjointness),
 `:unknown` (none of these is provable), or `:inconsistent` (two or more of them at once).
-`disjointness-audit` runs the classification over every unordered type pair, leaving out
-each `genl` node for which `relation?` answers true (a stored arity of two or more), and its
+`disjointness-audit` runs the classification over every unordered pair of the types
+visible from its vantage context (default `CxWell`, the starter spindle's collector, so
+no opt-in theory's type is swept), leaving out each `genl` node for which `relation?`
+answers true there (a stored arity of two or more), and its
 `:unknown` pairs are the candidates for a missing `disjoint` or `orthogonal` declaration.
 See [taxonomy.md](taxonomy.md).
 

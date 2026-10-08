@@ -29,6 +29,37 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `:incomplete`; to enumerate the closure, bind one argument per source term.
   *Breaks:* `query-status`
 
+### Fixes
+
+- **`disjointness-audit` sweeps the types its vantage sees, not every type stored
+  anywhere.** It read `relation?`, `disjoint?` and the `:orthogonal` witnesses from its
+  `context` argument already, but swept `types kb` unscoped: every node of the global
+  `genl` hierarchy, whatever context declared it. An opt-in theory's type raised the
+  swept count — and, with no `disjoint` declaration reachable from the audit's vantage,
+  could never be covered — so the coverage ratchet measured a KB no vantage actually
+  sees as one. `types` takes an optional `context` now, reading only the nodes touched
+  by an edge visible from it, the same visibility `genl?` and `disjoint?` already read
+  with one; `disjointness-audit` sweeps `(types kb context)` instead of `(types kb)`,
+  so the swept set and the coverage read over it are finally one vantage, not two.
+  `disjointness-audit`'s default vantage moves from `CxUniverse` to `CxWell`, the
+  starter spindle's collector: `CxUniverse` sees the upper ontology but not a starter
+  middle member's own declarations (a middle member sees `CxUniverse`, not the reverse),
+  so a type or a separation a middle theory states directly, never hoisted to
+  `CxUniverse`, was invisible to the audit either way. `CxWell` sees every middle member
+  below it and, through them, the whole upper ontology, and sees no opt-in theory — the
+  exact boundary the ratchet means to hold. On the starter KB the swept set stays 200
+  types over 19,900 pairs at both vantages; disjoint coverage is unchanged at 13,928
+  pairs (69.99%) and unknown coverage improves from 4,089 to 4,085 pairs (20.53%), reading
+  shared-instance and shared-subtype witnesses a starter middle member states that
+  `CxUniverse`'s vantage could not see. `disjointness_audit_test` pins a type an opt-in
+  context alone declares as outside the sweep at the default vantage and inside it at
+  that context's own. [taxonomy.md](docs/taxonomy.md)
+
+  *Class:* **Fix**.
+  *Migration:* a caller reading `disjointness-audit kb` with no `context` reads the
+  starter spindle's coverage instead of the upper ontology's; a caller already passing
+  an explicit `context` is unaffected.
+
 ### Additions
 
 - **`try-assert` refuses a write that would open a definitional clash.** It is `assert`

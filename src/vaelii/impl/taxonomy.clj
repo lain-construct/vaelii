@@ -3123,7 +3123,24 @@
                  (supporters-of t k))))
         (ctxs-visible? (get-in t [:cache-ctxs k])
                        (closure-of tax :genlCx :fwd context))))))
-(defn types        [tax] (get-in @tax [:genl :nodes] #{}))
+(defn types
+  "Every type currently in the genl hierarchy — the nodes of the closure, i.e. every
+  type named by some believed `genl` edge.  With a `context`, only a node touched by
+  an edge visible from it counts: the same visibility `genl?` and `disjoint?` read,
+  applied to every edge instead of to one pair's walk."
+  ([tax] (get-in @tax [:genl :nodes] #{}))
+  ([tax context]
+   (let [rel   (:genl @tax)
+         scope (relation-scope tax :genl context)]
+     (if (nil? scope)
+       (:nodes rel)
+       (let [t      @tax
+             ectxs  (:edge-ctxs rel)
+             visible? (if (map? scope)
+                        (fn [[a b]] (some (fn [[h c]] (scope-admits-supporter? scope h c))
+                                          (supporters-of t [:genl a b])))
+                        (fn [e] (ctxs-visible? (get ectxs e) scope)))]
+         (into #{} (comp (filter visible?) (mapcat identity)) (:edges rel)))))))
 (defn contexts     [tax] (get-in @tax [:genlCx :nodes] #{}))
 (defn disjoint-pairs [tax] (:disjoint @tax))
 

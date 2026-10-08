@@ -135,7 +135,7 @@
   terms "[[conn]]",
   try-assert
   "[[conn sentence] [conn sentence context] [conn sentence context opts]]",
-  types "[[conn]]",
+  types "[[conn] [conn context]]",
   types-of "[[conn x] [conn x context]]",
   unwatch "[[conn token]]",
   violations "[[conn]]",
@@ -345,7 +345,7 @@
   terms "[[kb]]",
   try-assert
   "[[kb sentence] [kb sentence context] [kb sentence context opts]]",
-  types "[[kb]]",
+  types "[[kb] [kb context]]",
   types-of "[[kb x] [kb x context]]",
   unwatch "[[kb token]]",
   violations "[[kb]]",

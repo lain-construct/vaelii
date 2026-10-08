@@ -824,8 +824,8 @@
 (defn types
   "Every type currently in the genl hierarchy — the nodes of the closure, i.e. every type
   named by some believed `genl` edge."
-  [conn]
-  (c/types conn))
+  ([conn] (c/types conn))
+  ([conn context] (c/types conn context)))
 
 (defn vocabulary-audit
   "Every term `CxCore` declares in `kb`, classified — `{:enforced [[term why] …] :inert
