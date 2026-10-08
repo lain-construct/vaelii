@@ -14,6 +14,10 @@
 (set/monotonic (disjoint animal clothing))
 (set/monotonic (disjoint animal furniture))
 (set/monotonic (disjoint animal machine))
+;; animal and vehicle are disjoint at the default strength rather than monotonic: a
+;; fiction below CxWell may except the default and hold a term that is both. CxRealWorld
+;; restates the same separation monotonic, so the real world can never hold the overlap.
+(disjoint animal vehicle)
 
 ;; --- the shipped contexts ---
 ;; Every genlCx edge is stored here, and (arg genlCx 1 context) and (arg genlCx 2 context)
@@ -29,6 +33,7 @@
 (context CxMereology)
 (context CxOrganism)
 (context CxPerception)
+(context CxRealWorld)
 (context CxSize)
 (context CxSocial)
 (context CxSocialExtension)
