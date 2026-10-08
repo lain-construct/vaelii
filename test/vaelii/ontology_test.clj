@@ -1181,8 +1181,8 @@
   ;; what parentOf denotes.
   (is (true? (v/disjoint? kb 'symbol 'predicate))
       "a symbol is what (Quote dog) denotes, not what dog denotes")
-  (is (not (v/genl? kb 'symbol 'intangible))
-      "and nothing places it in the domain lattice, there being no use-level reading"))
+  (is (true? (v/genl? kb 'symbol 'linguistic))
+      "and a symbol is a written form: linguistic, so nowhere_never"))
 
 (tu/deftest-kb the-comment-text-position-derives-a-string-and-a-relation-clashes
   ;; the entailing reading: the derivation is the subject
