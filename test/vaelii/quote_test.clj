@@ -42,6 +42,32 @@
       (is (v/isa? kb k cycl_constant 'CxUniverse)   "K is a cycl_constant")
       (is (v/isa? kb k cycl_expression 'CxUniverse) "and a cycl_expression up the genl"))))
 
+;; ---- use versus mention: what a sentex denotes, not what it mentions ------
+;; `dog` written in a sentence denotes the predicate `dog` — use, the default.  Only
+;; `(Quote dog)` mentions `dog`, denoting the symbol `dog`: a `quoting_function`'s
+;; `result` type, materialized on its reified constant the way any reifiable
+;; application's result type is.  symbol is disjoint from predicate, below expression
+;; in CxCore, so no term is ever both at once.
+
+(tu/deftest-kb a-symbol-is-a-mention-and-no-predicate
+  (tu/with-terms [Quote dog holds]
+    (v/assert kb (list 'reifiable_function Quote) 'CxUniverse)
+    (v/assert kb (list 'quoting_function Quote)   'CxUniverse)
+    (v/assert kb (list 'result Quote 'symbol)     'CxUniverse)
+    (v/assert kb (list 'unary_predicate dog)      'CxUniverse)
+    (v/assert kb (list 'unary_predicate holds)    'CxUniverse)
+    (v/assert kb (list holds (list Quote dog))    'CxUniverse)   ; mints (Quote dog) -> K
+    (testing "dog written plainly denotes the predicate dog"
+      (is (v/ask? kb (list 'predicate dog) 'CxUniverse)))
+    (testing "(Quote dog) mentions dog, and does not denote a predicate"
+      (is (not (v/ask? kb (list 'predicate (list Quote dog)) 'CxUniverse))))
+    (testing "(Quote dog) denotes the symbol dog"
+      (is (v/ask? kb (list 'symbol (list Quote dog)) 'CxUniverse)))
+    (testing "dog written plainly is not itself a symbol"
+      (is (not (v/ask? kb (list 'symbol dog) 'CxUniverse))))
+    (testing "symbol and predicate share no instance"
+      (is (v/disjoint? kb 'symbol 'predicate)))))
+
 (tu/deftest-kb sameas-does-not-fold-a-quoted-term
   ;; The opacity: merging the *referents* Muffet and Fluffet leaves the two *terms* — and
   ;; so the two reified quoted constants — distinct, because a mention tracks identity of
