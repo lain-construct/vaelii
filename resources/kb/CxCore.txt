@@ -527,7 +527,6 @@
 (genl number unrepresented_term)
 (genl string unrepresented_term)
 (set/monotonic (disjoint unrepresented_term context))
-(set/monotonic (disjoint unrepresented_term formula))
 (set/monotonic (disjoint unrepresented_term relation))
 
 (comment interArg
