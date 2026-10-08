@@ -85,7 +85,7 @@
   '[(agent FoxF) (agent CrowF)
     (goal HasCheese)
     (action Flatter1) (causal_event Flatter1)    ; a cause is causal (arg causes 1 causal)
-    (causal_event CrowSings) (event CheeseFalls) (event FoxGetsCheese)
+    (causal_event CrowSings) (causal_event CheeseFalls) (event FoxGetsCheese)
     (wants FoxF HasCheese)
     (does FoxF Flatter1)
     (causes Flatter1 CrowSings)          ; the causal chain, link by link

@@ -156,10 +156,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `causal` and its effect slot `situation`, so a causal event, a tangible or an
   organization can be a cause, and an `acausal` thing in the cause slot draws a
   `causal` membership that clashes with it under `(disjoint causal acausal)`. The test
-  world's Fox and Crow story types its two stated causes `Flatter1` and `CrowSings` as
-  `causal_event`, and keeps its own narrower `(arg causes 1 event)` and `(arg causes 2
-  event)` in CxStories. `causality_cluster_test` pins the declaration, a
-  chain of causes, and the clash an acausal cause places.
+  world's Fox and Crow story types its three stated causes `Flatter1`, `CrowSings` and
+  `CheeseFalls` as `causal_event`, and keeps its own `(arg causes 1 event)` and `(arg
+  causes 2 event)` in CxStories. `causality_cluster_test` pins the declaration, a chain of
+  causes, and the clash an acausal cause places.
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
