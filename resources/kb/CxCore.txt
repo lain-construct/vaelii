@@ -431,6 +431,7 @@
 (intersection ill_formed_sentence sentence ill_formed_formula)
 (genl denotational_term expression)
 (genl formula expression)
+(genl formula non_atomic_expression)
 ;; Open and closed cross every kind that is not necessarily closed.  An expression is OPEN
 ;; when a variable occurs free in it and CLOSED otherwise; each such kind splits into its
 ;; open and closed halves, each half the intersection of the kind with the matching half
