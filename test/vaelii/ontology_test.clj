@@ -19,6 +19,7 @@
             [clojure.test :refer [deftest is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.io.text :as text]
+            [vaelii.impl.predicates :as pr]
             [vaelii.test-util :as tu]
             [vaelii.world :as world]))
 
@@ -381,6 +382,40 @@
   ;; a type of types.  It may mark a first-order type such as animal or a metatype, so it
   ;; is at_least_metatype rather than metatype.
   (is (v/isa? kb 'sibling_disjoint 'at_least_metatype)))
+
+(tu/deftest-kb the-starter-states-its-typeGenl-and-genl-requirements
+  ;; CxCore requires every at_least_metatype to name a typeGenl and every unary_predicate
+  ;; to name a genl.
+  (doseq [[pred indep] '[[typeGenl at_least_metatype] [genl unary_predicate]]]
+    (is (v/ask? kb (list 'predAllSpecified pred indep) 'CxUniverse)
+        (str "(predAllSpecified " pred " " indep ") is stated")))
+  (testing "every unary_predicate the starter and the test world ship names a genl"
+    (is (= {:status :audited :violations #{}}
+           (v/specified-violations kb 'genl 'unary_predicate 'CxUniverse))))
+  (testing "sibling_disjoint names its typeGenl, so the audit does not report it"
+    (let [r (v/specified-violations kb 'typeGenl 'at_least_metatype 'CxUniverse)]
+      (is (= :audited (:status r)))
+      (is (not (contains? (:violations r) 'sibling_disjoint))))))
+
+(tu/deftest-kb empty-and-nonempty-state-typeGenl-so-the-audit-does-not-report-them
+  ;; empty and nonempty are at_least_metatype (above) with no stated typeGenl until
+  ;; CxCore states (typeGenl empty thing) and (typeGenl nonempty thing) beside their
+  ;; declaration — vacuous, since thing is already a genl of every type, and inert,
+  ;; since typeGenl has no inference path.
+  (testing "the two typeGenl facts are present"
+    (is (v/ask? kb '(typeGenl empty thing) 'CxUniverse))
+    (is (v/ask? kb '(typeGenl nonempty thing) 'CxUniverse)))
+  (testing "the typeGenl audit no longer reports empty or nonempty"
+    (let [r (v/specified-violations kb 'typeGenl 'at_least_metatype 'CxUniverse)]
+      (is (= :audited (:status r)))
+      (is (not (contains? (:violations r) 'empty)))
+      (is (not (contains? (:violations r) 'nonempty)))))
+  (testing "typeGenl is read by nothing, so the two facts conclude no new genl edge"
+    (let [spec (pr/entry 'typeGenl)]
+      (is (= [:none] (:storage spec))
+          "typeGenl stores a fact for a reader only, never for inference")
+      (is (false? (:checked spec))
+          "typeGenl has no structural well-formedness arm — no engine reads it"))))
 
 (def ^:private type-relating-predicates
   "The predicates whose every argument is a TYPE (or a predicate) the claim relates, so the

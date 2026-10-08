@@ -11,6 +11,72 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Additions
+
+- **`causes` ships in CxAbstract.** `(causes ?cause ?effect)` is a `binary_predicate` and
+  an `instance_relation_predicate`, declared `transitive`. Its cause slot is typed
+  `causal` and its effect slot `situation`, so a causal event, a tangible or an
+  organization can be a cause, and an `acausal` thing in the cause slot draws a
+  `causal` membership that clashes with it under `(disjoint causal acausal)`. The test
+  world's Fox and Crow story types its two stated causes `Flatter1` and `CrowSings` as
+  `causal_event`, and keeps its own narrower `(arg causes 1 event)` and `(arg causes 2
+  event)` in CxStories. `causality_cluster_test` pins the declaration, a
+  chain of causes, and the clash an acausal cause places.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* a KB below CxAbstract that states `causes` with an `acausal` first
+  argument, such as an `acausal_event`, holds a disjointness nogood there; type the cause
+  as a `causal_event`, a tangible or an organization.
+
+- **CxNormalPhysicalConditions states the states of matter of stuff at ordinary room
+  temperature and pressure.** The new theory in `kb/middle/` sees CxUniverse, and CxWell
+  does not see it: a context opts in by placing itself under CxNormalPhysicalConditions, so
+  the everyday contexts below CxWell assume no temperature. It places `stone`, `wood` and `glass_stuff` under `solid` and
+  `mercury` under `liquid` with four `genl` edges. A metal is solid there by default:
+  `(exceptWhen (mercury ?x) (set/defaultRule (set/forwardRule (implies (and (metal ?x))
+  (solid ?x)))))`, so a metal the KB says nothing more about is concluded solid at
+  `:default`, and the rule concludes nothing for a portion of mercury. CxAbstract declares
+  `mercury`, a first-order `type` below `metal`, with its comment. The upper ontology states
+  no state of matter for any substance, so a context that does not see the theory concludes
+  none. `normal_physical_conditions_test` pins the solids, the default, the mercury
+  exception with no clash in a user context placed under the theory, and the absence of
+  every state in CxWell and in every other context that does not see the theory;
+  `seed_test` pins the eight files in `kb/middle/`.
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none. A context below CxWell reads no state of matter, as before. A
+  context placed under CxNormalPhysicalConditions reads its stone, wood, glass and metal
+  solid and its mercury liquid, and a state it states otherwise for one of them is a
+  disjointness nogood under `stuff_type_by_state_of_matter`.
+
+- **CxCore states `(predAllSpecified typeGenl at_least_metatype)` and
+  `(predAllSpecified genl unary_predicate)`.** Every `at_least_metatype` is required to
+  name, through `typeGenl`, a type its instances specialize, and every `unary_predicate`
+  to name a `genl`. `all-specified-violations` and `kb-integrity` audit both requirements.
+  CxCore states `(typeGenl sibling_disjoint thing)`, matching
+  `(genlArg sibling_disjoint 1 thing)`. `empty` and `nonempty` are `at_least_metatype`
+  with no other type to specialize, so CxCore states `(typeGenl empty thing)` and
+  `(typeGenl nonempty thing)` beside their declaration; both facts are vacuous, since
+  `thing` is already a `genl` of every type, and inert, since `typeGenl` has no
+  inference path. Over the starter, the `genl` audit is clean and the `typeGenl` audit
+  reports `folk_species` and `folk_biological_class`, the two metatypes that state no
+  `typeGenl`.
+
+  *Class:* **Additive**.
+
+### Internal
+
+- **`disjointness-coverage-ratchet` requires at least 13928 disjoint pairs, 69.98%
+  disjoint and at most 20.55% unknown in the starter KB.** The bounds were 13762, 69.85%
+  and 20.66%. The starter KB that ships `causes` and CxNormalPhysicalConditions measures
+  13928 disjoint and 4089 unknown over 19900 pairs of 200 types.
+
+  *Class:* **Internal**.
+
 ## 0.24.0 — 2026-10-07 — "Reified `contradicts` and `defeat` sentexes synced to KB, upper ontology improvements and more disjointness, indexing improvements"
 
 | Area | Change |

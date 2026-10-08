@@ -792,6 +792,12 @@
 (variable_order_type nonempty)
 (at_least_metatype empty)
 (at_least_metatype nonempty)
+;; Vacuous by design: thing is already a genl of every type, so these name no new genl
+;; edge.  Inert, since typeGenl has no inference path (src/vaelii/impl/predicates.clj
+;; classifies it :storage [:none], :checked false) — a future typeGenl rule must not fire
+;; for a thing target.
+(typeGenl empty thing)
+(typeGenl nonempty thing)
 (termsRelated empty nonempty disjoint orthogonal)
 ;; Every instance of a subtype is an instance of its supertype, so emptiness descends genl
 ;; and nonemptiness climbs it.
@@ -1744,6 +1750,11 @@
 (typeGenl metatype type)
 (typeGenl relation_kind binary_predicate)
 (typeGenl type_type_by_order fixed_order_type)
+;; sibling_disjoint holds types of any kind, so its typeGenl names the root.
+(typeGenl sibling_disjoint thing)
+;; Every at_least_metatype names a type its instances specialize, and every unary_predicate names a genl.
+(predAllSpecified typeGenl at_least_metatype)
+(predAllSpecified genl unary_predicate)
 (variable_order_type at_least_metatype)
 (variable_order_type fixed_order_type)
 (variable_order_type variable_order_type)

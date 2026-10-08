@@ -313,8 +313,8 @@
 ;;
 ;; The audit sweeps the nodes of the genl hierarchy less each `relation?`, so the five
 ;; relations CxCore puts under a `genl` edge (`orthogonal`, `siblingDisjointException`
-;; and the three arity-class predicates) are not swept: 199 types, 19,701 pairs, 13,762
-;; of them disjoint (69.9%) and 4,069 unknown (20.7%).
+;; and the three arity-class predicates) are not swept: 200 types, 19,900 pairs, 13,928
+;; of them disjoint (70.0%) and 4,089 unknown (20.5%).
 
 (tu/deftest-kb disjointness-coverage-ratchet
   (let [a          (v/disjointness-audit kb)
@@ -324,9 +324,9 @@
         unknown    (get by-status :unknown 0)
         disjoint-% (* 100.0 (/ disjoint pairs))
         unknown-%  (* 100.0 (/ unknown pairs))]
-    (is (>= disjoint 13762)
-        (format "disjoint pairs must not fall below 13762 (got %d)" disjoint))
-    (is (>= disjoint-% 69.85)
-        (format "disjoint coverage must not regress below 69.85%% (got %.2f%%)" disjoint-%))
-    (is (<= unknown-% 20.66)
-        (format "unknown pairs must not grow above 20.66%% (got %.2f%%)" unknown-%))))
+    (is (>= disjoint 13928)
+        (format "disjoint pairs must not fall below 13928 (got %d)" disjoint))
+    (is (>= disjoint-% 69.98)
+        (format "disjoint coverage must not regress below 69.98%% (got %.2f%%)" disjoint-%))
+    (is (<= unknown-% 20.55)
+        (format "unknown pairs must not grow above 20.55%% (got %.2f%%)" unknown-%))))

@@ -120,6 +120,13 @@
 (comment metal "A hard, dense, conducting substance — iron, copper, gold.")
 (genl metal substance)
 
+(comment mercury "The metallic element quicksilver, as stuff: the metal in an old thermometer, a barometer or a dental amalgam. Mercury is liquid at ordinary room temperature and pressure. Mercury freezes at about -39 °C, so its state of matter depends on the temperature a context assumes.")
+(genl mercury metal)
+;; A portion of mercury is an individual, so mercury is a first-order `type`.  Mercury is
+;; not a stuff_type_by_substance: that metatype separates its members, and mercury is
+;; below metal, one of them.
+(type mercury)
+
 (comment natural "A tangible whose form no living thing's action gave it: a wild sheep, a coral reef, a rock, a river, a star. Contrast made.")
 ;; A wild sheep is natural and biological.  A cloned sheep is made and biological.  So
 ;; biological is orthogonal to made and to natural.
@@ -214,6 +221,15 @@
 
 (comment acausal_event "An event that is not a cause (an observation or receipt is one): the intersection of acausal and event.")
 (intersection acausal_event acausal event)
+
+;; --- causes: a causal thing brings a situation about ---------------------------
+(comment causes
+         "(causes ?cause ?effect) means that ?cause brings ?effect about: the flattery made the crow sing, the rock dented the car, the drought ruined the harvest. The cause is a causal thing: a causal event, a tangible or an organization. The effect is a situation: an event or a held state. Declared transitive, so a chain of causes is itself a cause and the chain is answered by the closure prover rather than stored.")
+(binary_predicate causes)
+(instance_relation_predicate causes)
+(arg causes 1 causal)
+(arg causes 2 situation)
+(transitive causes)
 
 ;; --- doneBy / performedBy: an event's doer -----------------------------------
 (comment doneBy

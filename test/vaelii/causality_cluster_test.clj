@@ -294,3 +294,38 @@
       (v/assert kb (list p E1 X1 Y1) 'CxUniverse)
       (is (not (v/ask? kb (list p E1 X1 Y1) 'CxUniverse))
           (str "a three-place " p " is not believed")))))
+
+;; ---- causes: a causal cause, a situation effect --------------------------
+
+(tu/deftest-kb causes-is-declared-over-a-causal-cause-and-a-situation-effect
+  (is (true? (v/ask? kb '(arg causes 1 causal) 'CxUniverse)) "the cause slot takes a causal thing")
+  (is (true? (v/ask? kb '(arg causes 2 situation) 'CxUniverse)) "the effect slot takes a situation")
+  (is (true? (boolean (v/isa? kb 'causes 'transitive))) "a chain of causes is itself a cause")
+  (is (true? (boolean (v/isa? kb 'causes 'instance_relation_predicate))) "causes relates individuals")
+  (is (seq (v/sentexes-matching kb '(comment causes ?c) 'CxAbstract))))
+
+(tu/deftest-kb a-causal-event-causes-a-situation
+  (tu/with-terms [Spark Blaze Ember]
+    (v/assert kb (list 'causal_event Spark) 'CxUniverse)
+    (v/assert kb (list 'causal_event Blaze) 'CxUniverse)
+    (v/assert kb (list 'static_situation Ember) 'CxUniverse)
+    (is (empty? (filter #(#{:arg-type} (:type %)) (v/check kb (list 'causes Spark Blaze) 'CxUniverse)))
+        "a causal event in the cause slot and an event in the effect slot pass the check")
+    (v/assert kb (list 'causes Spark Blaze) 'CxUniverse)
+    (v/assert kb (list 'causes Blaze Ember) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'causes Spark Blaze) 'CxUniverse)) "the causation is believed")
+    (is (true? (v/ask? kb (list 'causes Spark Ember) 'CxUniverse))
+        "a chain of causes is itself a cause")))
+
+(tu/deftest-kb an-acausal-cause-clashes-with-the-causal-membership-the-slot-derives
+  ;; The cause slot derives `(causal Receipt)` beside the stated `(acausal_event Receipt)`,
+  ;; and `(disjoint causal acausal)` places the clash between the two.
+  (tu/with-terms [Receipt Blaze]
+    (v/assert kb (list 'acausal_event Receipt) 'CxUniverse)
+    (v/assert kb (list 'situation Blaze) 'CxUniverse)
+    (v/assert kb (list 'causes Receipt Blaze) 'CxUniverse)
+    (let [causal (v/handle-of kb (list 'causal Receipt) 'CxUniverse)]
+      (is (some? causal))
+      (is (some #(= #{causal (v/handle-of kb (list 'acausal_event Receipt) 'CxUniverse)}
+                    (:nogood %))
+                (v/contradictions kb))))))

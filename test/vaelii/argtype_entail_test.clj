@@ -754,16 +754,16 @@
              (mapv :nogood (v/contradictions kb)))))))
 
 (tu/deftest-kb a-membership-outside-the-declared-type-is-no-evidence-against-the-fact
-  ;; `Bert` is a `rock` and nothing says a rock is not an animal, so the inherited
+  ;; `Bert` is a `pet` and nothing says a pet is not an animal, so the inherited
   ;; declaration derives `(animal Bert)` beside it and refuses nothing.
-  (tu/with-terms [animal rock parentOf Bert Mary CxUp CxDown]
+  (tu/with-terms [animal pet parentOf Bert Mary CxUp CxDown]
     (with-entailing
       (v/assert kb (list 'genlCx CxUp 'CxUniverse) 'CxUniverse)
       (v/assert kb (list 'genlCx CxDown CxUp) 'CxUniverse)
       (a-type kb animal CxUp)
-      (a-type kb rock CxUp)
+      (a-type kb pet CxUp)
       (v/assert kb (list 'arg parentOf 1 animal) CxUp)
-      (v/assert kb (list rock Bert) CxDown)
+      (v/assert kb (list pet Bert) CxDown)
       (v/assert kb (list parentOf Bert Mary) CxDown)
       (is (believed? kb (list parentOf Bert Mary) CxDown))
       (is (believed? kb (list animal Bert) CxDown))
