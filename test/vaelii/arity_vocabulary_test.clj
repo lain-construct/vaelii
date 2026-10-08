@@ -169,7 +169,7 @@
     (testing "and an argument that is no relation at all derives fixed_arity's own type,
             which clashes with the one it holds"
       (tu/with-terms [someIndividual]
-        (v/assert kb (list 'person someIndividual) 'CxUniverse)
+        (v/assert kb (list 'animal someIndividual) 'CxUniverse)
         (v/assert kb (list 'fixed_arity_predicate someIndividual) 'CxUniverse)
         (is (tu/stored-in-clash? kb (list 'relation someIndividual) 'CxUniverse)
             "the position declared on fixed_arity descends to its specializations")))))

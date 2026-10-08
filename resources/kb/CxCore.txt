@@ -260,7 +260,9 @@
 (genl language nowhere_never)
 ;; An organization has no location in any space; its members and its buildings have one.
 (genl organization aspatial)
-(genl person tangible)
+;; A person is not necessarily a massed body: a sentient construct can be a person with
+;; no commitment either way on tangible or intangible.
+(genl person thing)
 ;; A time is a moment or a stretch, never both: an instant has no extent.  CxAbstract
 ;; comments the three types and places time under acausal; these edges and the partition
 ;; sit here because CxTime, which does not see CxAbstract, types its calendar results
