@@ -1627,10 +1627,10 @@
       (retire-mint! kb sx))))
 
 ;; Genuine in-file cycle: a minted type draws its own entailments, so `entail-arg-type`
-;; calls back into `deduce-arg-types`, which is the fold over it.  Reordering cannot
-;; break it — the recursion is the cascade, and its termination argument is in
+;; calls back into `deduce-placed`, which folds `deduce-arg-types` over it.  Reordering
+;; cannot break it — the recursion is the cascade, and its termination argument is in
 ;; `entail-arg-type`'s docstring.
-(declare deduce-arg-types)
+(declare deduce-placed)
 
 (defn- entail-arg-type
   "Materialize one entailment: store `(:assert ent)` in `context` and justify it by
@@ -1730,9 +1730,7 @@
                               ;; whichever arrival first made the type believed ran the cascade once, so
                               ;; the KB holds the same sentexes and justifications either way.
                               (if (or new? (and fresh? (not was-in?)))
-                                (deduce-arg-types
-                                 kb (checks/constraint-entailments kb sentence context)
-                                 h2 context)
+                                (deduce-placed kb sentence h2 context)
                                 empty-entailment-result)))))))))))
 
 (defn deduce-arg-types
@@ -1757,26 +1755,119 @@
            empty-entailment-result
            entailments)))
 
+(defn pair-placements
+  "The contexts a mint drawn over a fact stated in `fact-cx` through a declaration stated
+  in `decl-cx` is placed in, in content order: `fact-cx` when it sees `decl-cx`, else the
+  maximal common descendants of the two (`tax/maximal-common-descendant-contexts`, the
+  placement of a forward firing and of a placed nogood), and empty when no context sees
+  both (docs/argtypes.md, \"Where a mint is placed\")."
+  [kb fact-cx decl-cx]
+  (let [tax (reasoning/taxonomy kb)]
+    (if (or (nil? decl-cx) (tax/sees? tax fact-cx decl-cx))
+      [fact-cx]
+      (nm/sort-by-content-key nm/name-key compare
+                              (tax/maximal-common-descendant-contexts tax [fact-cx decl-cx])))))
+
+(defn- placements-of
+  "`pair-placements` of the declaration stored at `dh` against a fact's context, as a fn of
+  that context, memoized for one sweep over a lattice that does not move under it."
+  [kb dh]
+  (let [dc (:context (p/get-sentex (:records kb) dh))]
+    (memoize #(pair-placements kb % dc))))
+
+(defn- declarations-below
+  "The stored entailing declarations binding `pred`'s tuples that `context` does not see
+  and shares a descendant with, as `[handle placements]` pairs (`pair-placements`), in
+  content order: the declarations a fact stated in `context` meets below it.
+
+  Read off each declaring kind's argument root at `pred` and at each super-predicate the
+  kind's roster names (`tax/props-over`), so the read is bounded by the declarations
+  written of `pred`'s ancestors.  The super-predicates are read over every `genl` edge,
+  since an edge stated below `context` binds `pred` there; each candidate is asked again
+  from its placement (`checks/declaration-entailments`).  Empty, with no index read, when
+  no `genlCx` edge comes up to `context` (`tax/context-children-global`)."
+  [kb pred context]
+  (let [tax (reasoning/taxonomy kb)]
+    (if-not (and (symbol? pred) (seq (tax/context-children-global tax context)))
+      []
+      (let [idx  (:index kb)
+            recs (:records kb)]
+        (into []
+              (for [k     (nm/sort-by-content-key nm/name-key compare (keys entailing-declarations))
+                    s     (nm/sort-by-content-key
+                           nm/name-key compare
+                           (tax/props-over tax (tax/arg-declaration-props k) pred))
+                    h     (sort (reads/as-stored-with-args idx k {1 s}))
+                    :let  [dsx (p/get-sentex recs h)]
+                    :when (and dsx (= (entailing-declarations k) (nm/arity (:sentence dsx)))
+                               (= s (second (:sentence dsx))))
+                    :let  [pl (pair-placements kb context (:context dsx))]
+                    :when (and (seq pl) (not= [context] pl))]
+                [h pl]))))))
+
+(defn deduce-below
+  "Materialize what the declarations `declarations-below` finds say about the fact
+  `sentence` stored at `handle` in `context`, at each of their placements:
+  `{:new [handles] :violations [v]}`.  Each mint names the fact, the declaration and the
+  `genlCx` edges its placement sees both through (`checks/declaration-entailments`).  The
+  assert path and `chain/place-conclusion` call it beside `deduce-arg-types`.  `keep?`,
+  when given, takes an entailment and its placement."
+  ([kb sentence handle context] (deduce-below kb sentence handle context nil))
+  ([kb sentence handle context keep?]
+   (if-not checks/*assertive-arg-types?*
+     empty-entailment-result
+     (reduce (fn [acc [dh pl]]
+               (reduce (fn [acc pctx]
+                         (let [es (checks/declaration-entailments kb sentence pctx dh handle)]
+                           (merge-with into acc
+                                       (deduce-arg-types
+                                        kb (cond->> es keep? (filterv #(keep? % pctx)))
+                                        handle pctx))))
+                       acc pl))
+             empty-entailment-result
+             (declarations-below kb (nm/functor sentence) context)))))
+
+(defn- deduce-placed
+  "Materialize every entailment of the stored literal fact `sentence` at `handle` in
+  `context`: those of the declarations `context` sees, there (`deduce-arg-types`), and
+  those of the declarations below it, at their placements (`deduce-below`).  `keep?`,
+  when given, takes an entailment and its placement."
+  ([kb sentence handle context] (deduce-placed kb sentence handle context nil))
+  ([kb sentence handle context keep?]
+   (merge-with into
+               (deduce-arg-types
+                kb (cond->> (checks/constraint-entailments kb sentence context)
+                     keep? (filterv #(keep? % context)))
+                handle context)
+               (deduce-below kb sentence handle context keep?))))
+
 (defn- retroactive-mints
   "The entailments a newly stored declaration `dh` draws over one already-stored sentex
-  `sx`, materialized in `sx`'s **own** context.
+  `sx`, materialized at each placement of the pair (`placements`, a fn of `sx`'s context;
+  `placements-of` by default).
 
   The stored sentex is put back through `checks/declaration-entailments`, which is
   `checks/constraint-entailments` narrowed to this declaration, rather than the
   conditions being re-decided here: the two directions must agree about what a
   declaration entails, and the only way to be sure of that is for them to ask the same
-  function.  What that buys is the whole local-vs-inherited rule for free — a
-  declaration written in an ancestor context does not draw an entailment in a descendant
-  when the facts arrive first either.
+  function.
 
   A genuine negation is not argument-checked, so it entails nothing; nor does a rule,
   whose stored sentence is an implication."
-  [kb sx dh]
-  (if-not (and (nil? (:antecedent sx)) (not (sx/negative? sx)))
-    empty-entailment-result
-    (let [sctx (:context sx)]
-      (deduce-arg-types kb (checks/declaration-entailments kb (:sentence sx) sctx dh)
-                        (:id sx) sctx))))
+  ([kb sx dh] (retroactive-mints kb sx dh (placements-of kb dh)))
+  ([kb sx dh placements]
+   (if-not (and (nil? (:antecedent sx)) (not (sx/negative? sx)))
+     empty-entailment-result
+     (let [sctx (:context sx)
+           h    (:id sx)]
+       (reduce (fn [acc pctx]
+                 (merge-with into acc
+                             (deduce-arg-types
+                              kb (checks/declaration-entailments kb (:sentence sx) pctx dh
+                                                                 (when (not= pctx sctx) h))
+                              h pctx)))
+               empty-entailment-result
+               (placements sctx))))))
 
 (defn- subtree-sentexes
   "Every **stored** sentex whose functor is `pred` or any spec of it — the extent a
@@ -1804,14 +1895,19 @@
 
   With `limit`, the walk stops after `limit` sentexes, visiting the predicates in content
   order and each posting in the index's own order, so a budgeted caller reads a prefix
-  and no more of the extent."
+  and no more of the extent.  With `contexts`, a set, only the sentexes stated in one of
+  them are read (`reads/as-stored-with-functor-in`)."
   ([kb pred] (subtree-sentexes kb pred nil))
-  ([kb pred limit]
+  ([kb pred limit] (subtree-sentexes kb pred limit nil))
+  ([kb pred limit contexts]
    (let [idx   (:index kb)
          recs  (:records kb)
          preds (filter #(pos? (reads/stored-count-with-functor idx %))
-                       (tax/specs-global (reasoning/taxonomy kb) pred))]
-     (into [] (cond-> (comp (mapcat #(reads/as-stored-with-functor idx %))
+                       (tax/specs-global (reasoning/taxonomy kb) pred))
+         read  (if contexts
+                 #(reads/as-stored-with-functor-in idx % contexts)
+                 #(reads/as-stored-with-functor idx %))]
+     (into [] (cond-> (comp (mapcat read)
                             (distinct)
                             (keep #(p/get-sentex recs %)))
                 limit (comp (take limit)))
@@ -1898,9 +1994,10 @@
       (when (and (= (entailing-declarations f) (nm/arity sentence)) (symbol? pred))
         (if (note-unmintable! kb (mintable-fn kb) sentence dh)
           empty-entailment-result
-          (reduce (fn [acc sx] (merge-with into acc (retroactive-mints kb sx dh)))
-                  empty-entailment-result
-                  (subtree-sentexes kb pred)))))))
+          (let [placements (placements-of kb dh)]
+            (reduce (fn [acc sx] (merge-with into acc (retroactive-mints kb sx dh placements)))
+                    empty-entailment-result
+                    (subtree-sentexes kb pred))))))))
 
 (defn release-mint!
   "Re-ask declaration `dh`'s waiting entry under generations `gens`, with `mintable?`
@@ -2142,6 +2239,33 @@
                h (reads/as-stored-mints-about idx x)]
            [h nil]))))))
 
+(defn surplus-placements
+  "The mint justifications, in id order, that a `genlCx` edge among `edges` (sentexes)
+  left at a context that is no longer a placement of their fact and declaration
+  (`pair-placements`).  An edge arriving can give the two a more general common
+  descendant, and the placement under it then goes, so the store holds the same mints in
+  every arrival order.  Every placement an edge can displace lies under its `sub`, and the
+  mints stated there are read off the mint family (`withdrawal-candidates`).  A
+  justification at its fact's own context is not asked: that context sees the
+  declaration while the `genlCx` edges the justification names hold.  The caller reads
+  the gate: the entailment on and the mint family holding a record."
+  [kb edges]
+  (when (seq edges)
+    (let [tms (reasoning/tms kb)
+          cx  (fn [h] (:context (p/get-sentex (:records kb) h)))]
+      (into (sorted-set)
+            (for [e     edges
+                  [h _] (withdrawal-candidates kb e)
+                  :let  [c (cx h)]
+                  jid   (jtms/supports tms h)
+                  :let  [j (jtms/justification tms jid)]
+                  :when (and j (mint-informant? (:informant j)))
+                  :let  [[f d] (:antecedents j)
+                         fc    (cx f)]
+                  :when (and fc (not= c fc)
+                             (not-any? #{c} (pair-placements kb fc (cx d))))]
+              jid)))))
+
 (defn note-unpremised!
   "Queue the record at `h`, whose premise mark a retraction removed while a derivation
   still holds it up, for the settle's withdrawal question: a record an author stated
@@ -2184,45 +2308,57 @@
   The records a retraction left standing on a derivation alone (`note-unpremised!`) are
   asked too, each the whole question.
 
+  A `genlCx` edge among the moved records is also asked which mint placements it
+  displaced (`surplus-placements`), with pruning on or off; those justifications are
+  returned under `:surplus`, for the settle to drop.
+
   `asked` is the settle's own record of which of them it has already put this question to,
   and a record is asked **once per settle** however many passes relabel it.  Nothing is
   missed by that: a mint stored *after* a pass examined its subsumer never reaches the
   store, since `entail-arg-type` asks the same question of every mint it is about to
   write.  `believed?` is belief now, `jtms/in?` or own-context belief."
   [kb moved was-in asked believed?]
-  (let [tms   (reasoning/tms kb)
-        lost  (drain-unpremised! kb)
-        moved (when (and checks/*assertive-arg-types?* checks/*prune-subsumed-mints?*
-                         (pos? (reads/stored-mint-count (:index kb))))
-                (seq (filter #(let [s (:sentence %)
-                                    h (:id %)]
-                                (and (nil? (:antecedent %))
-                                     (not (contains? @asked h))
-                                     ;; the transition, not the region: a record the
-                                     ;; settle relabelled without moving subsumes exactly
-                                     ;; what it subsumed before, and most of a relabelled
-                                     ;; region does not move (`jtms/touched-in`)
-                                     (believed? h)
-                                     (not (contains? was-in h))
-                                     (subsumer-shaped? s)))
-                             @moved)))]
+  (let [tms    (reasoning/tms kb)
+        lost   (drain-unpremised! kb)
+        prune? (and checks/*assertive-arg-types?* checks/*prune-subsumed-mints?*)
+        moved  (when (and checks/*assertive-arg-types?*
+                          (pos? (reads/stored-mint-count (:index kb))))
+                 (seq (filter #(let [s (:sentence %)
+                                     h (:id %)]
+                                 (and (nil? (:antecedent %))
+                                      (not (contains? @asked h))
+                                      ;; the transition, not the region: a record the
+                                      ;; settle relabelled without moving subsumes exactly
+                                      ;; what it subsumed before, and most of a relabelled
+                                      ;; region does not move (`jtms/touched-in`)
+                                      (believed? h)
+                                      (not (contains? was-in h))
+                                      (subsumer-shaped? s)))
+                              @moved)))
+        surplus (surplus-placements kb (filter #(context-edge-shaped? (:sentence %)) moved))]
     (vswap! asked into (map :id) moved)
-    (when (or moved (and (seq lost) checks/*assertive-arg-types?* checks/*prune-subsumed-mints?*))
-      (reduce
-       ;; `:withdrawn` keeps a mint two moved records displace from being withdrawn twice;
-       ;; a mint one of them does not displace is still asked of the next
-       (fn [acc [h by]]
-         (if (or (contains? (:withdrawn acc) h) (not (withdrawable-mint kb h by)))
-           acc
-           (-> acc
-               (update :withdrawn conj h)
-               (update :blocked into
-                       (comp (keep #(jtms/justification tms %)) (map :id))
-                       (jtms/supports tms h)))))
-       {:blocked #{} :withdrawn #{}}
-       (concat (mapcat #(distinct (withdrawal-candidates kb %)) moved)
-               (edge-route-candidates kb (filter #(seq (tax/installed-edges (:sentence %))) moved))
-               (map (fn [h] [h nil]) lost))))))
+    (cond->
+     (when (and prune? (or moved (seq lost)))
+       (reduce
+        ;; `:withdrawn` keeps a mint two moved records displace from being withdrawn twice;
+        ;; a mint one of them does not displace is still asked of the next
+        (fn [acc [h by]]
+          (if (or (contains? (:withdrawn acc) h) (not (withdrawable-mint kb h by)))
+            acc
+            (-> acc
+                (update :withdrawn conj h)
+                (update :blocked into
+                        (comp (keep #(jtms/justification tms %)) (map :id))
+                        (jtms/supports tms h)))))
+        {:blocked #{} :withdrawn #{}}
+        (concat (mapcat #(distinct (withdrawal-candidates kb %)) moved)
+                (edge-route-candidates kb (filter #(seq (tax/installed-edges (:sentence %))) moved))
+                (map (fn [h] [h nil]) lost))))
+      ;; a placement an edge displaced leaves by a drop of its own justification, so
+      ;; another support of the record keeps it; a dropped one is not also blocked
+      (seq surplus) (-> (or {:blocked #{} :withdrawn #{}})
+                        (update :blocked #(reduce disj % surplus))
+                        (assoc :surplus surplus)))))
 
 (defn note-departure!
   "Queue `sentex`, leaving the store, for `withheld-releases` when it is a record that can
@@ -2252,8 +2388,8 @@
 
 (defn- rederive-mints
   "Draw again the mints of each stored fact in `facts` that `keep?` accepts, as
-  `deduce-arg-types` draws them for the fact arriving now: `{:new [handle …]}`.
-  `keep?` takes the minted sentence and the fact's context.
+  `deduce-placed` draws them for the fact arriving now: `{:new [handle …]}`.
+  `keep?` takes the minted sentence and its placement.
 
   A mint already stored with this justification adds nothing (`has-justification?`), one
   a believed record still subsumes is withheld again, and the rest are written — so the
@@ -2263,12 +2399,9 @@
   (reduce (fn [acc sx]
             (if-not (and (nil? (:antecedent sx)) (not (sx/negative? sx)))
               acc
-              (let [ctx (:context sx)
-                    es  (filter #(keep? (:assert %) ctx)
-                                (checks/constraint-entailments kb (:sentence sx) ctx))]
-                (if (seq es)
-                  (update acc :new into (:new (deduce-arg-types kb es (:id sx) ctx)))
-                  acc))))
+              (update acc :new into
+                      (:new (deduce-placed kb (:sentence sx) (:id sx) (:context sx)
+                                           (fn [e c] (keep? (:assert e) c)))))))
           {:new []}
           facts))
 
@@ -2383,20 +2516,17 @@
              kinds))))
 
 (defn- entail-over
-  "Draw the entailments of each stored literal fact in `facts` in its own context, as
-  `deduce-arg-types` draws them for a fact arriving now: `{:new :violations}`.  With
+  "Draw the entailments of each stored literal fact in `facts` at their placements, as
+  `deduce-placed` draws them for a fact arriving now: `{:new :violations}`.  With
   `kinds`, only the entailments of those declaring functors."
   ([kb facts] (entail-over kb facts nil))
   ([kb facts kinds]
    (reduce (fn [acc sx]
              (if-not (and (nil? (:antecedent sx)) (not (sx/negative? sx)))
                acc
-               (let [sctx (:context sx)]
-                 (merge-with into acc
-                             (deduce-arg-types
-                              kb (cond->> (checks/constraint-entailments kb (:sentence sx) sctx)
-                                   kinds (filter #(contains? kinds (:kind %))))
-                              (:id sx) sctx)))))
+               (merge-with into acc
+                           (deduce-placed kb (:sentence sx) (:id sx) (:context sx)
+                                          (when kinds (fn [e _] (contains? kinds (:kind e))))))))
            empty-entailment-result
            facts)))
 
@@ -2467,11 +2597,8 @@
         (reduce (fn [acc sx]
                   (if-not (and (nil? (:antecedent sx)) (not (sx/negative? sx)))
                     acc
-                    (let [sctx (:context sx)]
-                      (merge-with into acc
-                                  (deduce-arg-types
-                                   kb (checks/constraint-entailments kb (:sentence sx) sctx)
-                                   (:id sx) sctx)))))
+                    (merge-with into acc
+                                (deduce-placed kb (:sentence sx) (:id sx) (:context sx)))))
                 empty-entailment-result
                 (subtree-sentexes kb sub))))))
 
@@ -2491,6 +2618,30 @@
                  (filter #(pos? (reads/stored-count-with-functor idx %))))
            (nm/sort-by-content-key nm/name-key compare (declaring-predicates kb kinds))))))
 
+(defn- declarations-meeting
+  "Draw what each entailing declaration stated in a context of `below` says about the
+  facts of its extent stated in a context of `seen` (`subtree-sentexes`), at the
+  placements of each pair (`retroactive-mints`): `{:new :violations}`.  The declarations
+  are read per kind off the predicate extent ending in `below`'s contexts
+  (`reads/as-stored-with-functor-in`)."
+  [kb below seen]
+  (let [idx  (:index kb)
+        recs (:records kb)]
+    (reduce (fn [acc dsx]
+              (let [dh (:id dsx)
+                    pl (placements-of kb dh)]
+                (reduce (fn [acc sx] (merge-with into acc (retroactive-mints kb sx dh pl)))
+                        acc
+                        (subtree-sentexes kb (second (:sentence dsx)) nil seen))))
+            empty-entailment-result
+            (for [k     (nm/sort-by-content-key nm/name-key compare (keys entailing-declarations))
+                  h     (sort (reads/as-stored-with-functor-in idx k below))
+                  :let  [dsx (p/get-sentex recs h)]
+                  :when (and dsx (nil? (:antecedent dsx)) (not (sx/negative? dsx))
+                             (= (entailing-declarations k) (nm/arity (:sentence dsx)))
+                             (symbol? (second (:sentence dsx))))]
+              dsx))))
+
 (defn entail-under-context-edge
   "When a `(genlCx sub super)` edge arrives, draw what the declarations it makes visible
   say about the facts **already stored** in `sub` and every context under it — the fourth
@@ -2500,10 +2651,18 @@
   what rests on it, and `rederive-descended` draws again what a second route still
   reaches.  nil when `sentence` is not a `genlCx` edge.
 
+  The edge also gives a fact and a declaration a new common descendant, under `sub`, when
+  one of them is stated where `super` sees it and the other in a context a context under
+  `sub` sees and `super` does not (`below`, which holds the contexts under `sub`).  The
+  facts are read from every context of `below`, and each draws at its placements
+  (`deduce-placed`); the declarations stated in `below` draw over the facts stated where
+  `super` sees them (`declarations-meeting`).  A placement the edge leaves below a more
+  general one is dropped by the settle (`surplus-placements`).
+
   Off unless `*assertive-arg-types?*` and some predicate declares.  The facts are read
   from the smaller of two sides, compared by index counts: the facts stored in the
-  contexts under `sub`, kept when a declaration reaches their functor, or the facts of
-  the functors a declaration reaches, kept when stored under `sub`.  So the arm costs
+  contexts of `below`, kept when a declaration reaches their functor, or the facts of
+  the functors a declaration reaches, kept when stored in `below`.  So the arm costs
   the lesser of the edge's extent and the declared extent, and a context holding many
   undeclared facts or a KB holding many declared ones elsewhere costs only the other.
   Snapshotted before the first mint."
@@ -2514,9 +2673,11 @@
              (seq (declaring-predicates kb)))
     (let [recs  (:records kb)
           idx   (:index kb)
-          ctxs  (nm/sort-by-content-key
-                 nm/name-key compare
-                 (tax/context-down (reasoning/taxonomy kb) (nth sentence 1)))
+          tax   (reasoning/taxonomy kb)
+          down  (tax/context-down tax (nth sentence 1))
+          seen  (set (tax/context-up tax (nth sentence 2)))
+          below (into (set down) (comp (mapcat #(tax/context-up tax %)) (remove seen)) down)
+          ctxs  (nm/sort-by-content-key nm/name-key compare below)
           by-cx (reduce + 0 (map #(reads/stored-count-in-context idx %) ctxs))
           ;; a `sub` storing nothing below it reads no declared functor
           fs    (if (zero? by-cx) [] (declared-functors kb))
@@ -2535,7 +2696,7 @@
                                 (keep #(p/get-sentex recs %))
                                 (filter #(contains? cset (:context %))))
                           fs)))]
-      (entail-over kb facts))))
+      (merge-with into (entail-over kb facts) (declarations-meeting kb below seen)))))
 
 (def ^:private trigger-declarations
   "The entailing declarations whose derivation waits on a trigger membership: `interArg`
@@ -5188,10 +5349,7 @@
             ;; and the argument-type derivations it draws there, as a fact stated in
             ;; CxUniverse draws them
             (let [mig  (when new? (copy-merges kb sentence h2))
-                  args (when new?
-                         (deduce-arg-types
-                          kb (checks/constraint-entailments kb sentence universal-context)
-                          h2 universal-context))]
+                  args (when new? (deduce-placed kb sentence h2 universal-context))]
               (when (seq (:superseded mig))
                 (refresh-supersessions kb (:superseded mig)))
               {:new        (-> (if new? [h2] []) (into (:new mig)) (into (:new args)))

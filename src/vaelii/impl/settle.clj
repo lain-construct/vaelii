@@ -344,6 +344,19 @@
       (violations/report kb (:violations r))
       (special/minted-seeds kb (:new r)))))
 
+(defn- drop-surplus-placements!
+  "Drop the mint justifications `jids` (`special/surplus-placements`, read by
+  `subsumed-blocks`) and delete what the drop sweeps.  Returns `jids` as a vector."
+  [kb jids]
+  (when (seq jids)
+    (let [tms (reasoning/tms kb)]
+      (apply-removals! kb (reduce (fn [acc jid]
+                                    (let [r (jtms/drop-justification! tms jid)]
+                                      (p/delete-justification! (:records kb) jid)
+                                      (merge-with into acc r)))
+                                  nil jids))))
+  (vec jids))
+
 (defn- subsumed-blocks
   "The mint justifications this settle withdraws, and the records they held up:
   `special/subsumed-mint-blocks` over `moved`, the delay of the region's sentexes
@@ -819,8 +832,10 @@
 (def ^:private owed
   "The keys of `pass-work` a pass applies whatever the blocked set does: the datums whose
   belief came back, the facts a departed edge owes a re-join, the refusals a constraint
-  no longer convicts, and the mints, lifts and merges owed."
-  [:revived :departed :cfree :mnew])
+  no longer convicts, the mints, lifts and merges owed, and the mint placements a
+  `genlCx` edge displaced (`:dropped`, applied by `pass-work` itself), so the pass after
+  a drop drains what the drop queued."
+  [:revived :departed :cfree :mnew :dropped])
 
 (defn- owes-nothing?
   "Is every key of `ks` empty in the pass work `w`?"
@@ -891,9 +906,12 @@
         ;; the other direction of the subsumption question: the mints a membership
         ;; arriving this settle has made redundant, whose justifications this pass blocks
         ;; so the sweep collects the records
-        wdrawn  (subsumed-blocks kb rsx was-in believed? (:subsumption asked))]
+        wdrawn  (subsumed-blocks kb rsx was-in believed? (:subsumption asked))
+        ;; the mint placements a `genlCx` edge arriving this settle left below a more
+        ;; general one
+        dropped (drop-surplus-placements! kb (:surplus wdrawn))]
     {:region region :queued queued :revived revived :back back :departed departed
-     :cfree cfree :mnew mnew :wdrawn wdrawn}))
+     :cfree cfree :mnew mnew :wdrawn wdrawn :dropped dropped}))
 
 (defn- guarded-records
   "The records of the justifications `cands` whose rule is watched (`reads/watched-rule?`):

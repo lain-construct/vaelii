@@ -4331,6 +4331,12 @@
   [tax c]
   (get-in @tax [:genlCx :fwd c] #{}))
 
+(defn context-children-global
+  "The contexts that reach `c` over **one** active `genlCx` edge, with no `except` holes:
+  `context-parents-global`'s reverse, an adjacency read with no closure walk."
+  [tax c]
+  (get-in @tax [:genlCx :rev c] #{}))
+
 (defn context-up-besides
   "The contexts `c` inherits from, incl `c`, over every `genlCx` edge but `c`'s own edge to
   `parent` and every edge `usable?` refuses — `c`'s ancestor set as it stood before that

@@ -2489,14 +2489,23 @@
   "`constraint-entailments` narrowed to the declaration stored at `dh`: the entries whose
   `:because` leads with `dh`, drawn from that declaration's match alone.  Every arm draws
   one entry per match, so the other declarations on the predicate are not read, and their
-  types are not asked `mintable-type?` once per fact of a sweep over `dh`'s extent."
-  [kb sentence context dh]
-  (let [kind  (nm/functor (:sentence (p/get-sentex (:records kb) dh)))
-        decls (declaration-reader kb (nm/functor sentence) context)]
-    (constraint-entailments kb sentence context (kb/membership-reader kb context)
-                            (fn
-                              ([k] (if (= k kind) (filterv #(= dh (nth % 0)) (decls k)) []))
-                              ([op functor] (decls op functor))))))
+  types are not asked `mintable-type?` once per fact of a sweep over `dh`'s extent.
+
+  With `src`, the handle of the fact stored in a context `context` sees, each `:because`
+  also names the `genlCx` edges `context` sees the fact through (`visibility-support`):
+  the entailments placed below the fact's own context (`special/pair-placements`)."
+  ([kb sentence context dh] (declaration-entailments kb sentence context dh nil))
+  ([kb sentence context dh src]
+   (let [kind  (nm/functor (:sentence (p/get-sentex (:records kb) dh)))
+         decls (declaration-reader kb (nm/functor sentence) context)
+         ents  (constraint-entailments kb sentence context (kb/membership-reader kb context)
+                                       (fn
+                                         ([k] (if (= k kind) (filterv #(= dh (nth % 0)) (decls k)) []))
+                                         ([op functor] (decls op functor))))
+         seen  (when (and src (seq ents)) (visibility-support kb src context))]
+     (if (seq seen)
+       (mapv (fn [e] (update e :because #(into % (remove (set %)) seen))) ents)
+       ents))))
 
 (def ^:dynamic *prune-subsumed-mints?*
   "Does a minted type give way to a more specific one the KB believes?  With this on,

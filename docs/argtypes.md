@@ -221,10 +221,6 @@ symbol: `arg`, `genlArg`, `interArg`, the covering forms and the homogeneity for
 declaration written in the asking context or inherited by it, and for a declared type the
 hierarchy does not hold yet, which derives nothing until it does.
 
-A mint is stored in the fact's own context, so a declaration stated in a context below
-the fact's draws no stored mint: with `(P a b)` in CxTop and `(arg P 1 T)` in CxMid below
-it, no `(T a)` is stored, and `ask?` answers it at CxMid and below by a backward proof.
-
 A membership the declared type does not reach is a second membership beside the derived
 one, not evidence against the sentence. `(achieves Ann Bee)` under `(arg accomplishes 2
 tt)` and `(genl achieves accomplishes)` derives `(tt Bee)`; with `(genl tt assoc)` and an
@@ -278,6 +274,7 @@ The **check computes it; the post-store slot materializes it.**
 | `checks/constraint-entailments` | reads the declarations, returns `{:assert :because :position :kind}` maps — **writes nothing** |
 | `checks/entailment-check` | walks the cascade of prospective mints at the entry point and refuses the first the KB could not admit — **writes nothing** |
 | `special/deduce-arg-types` | materializes them, beside `deduce-lifts`, in `assert-entry/assert-one` and `chain/place-conclusion` |
+| `special/deduce-below` | the declarations stated below the fact's context, at the placements of each pair |
 | `special/entail-existing` | the retroactive direction: a declaration arriving over facts already stored |
 | `special/entail-under-edge`, `special/entail-under-context-edge` | a `genl` or `genlCx` edge arriving over a fact and a declaration already stored |
 | `special/triggered-mints` | a trigger membership of `interArg` or a homogeneity form arriving over a fact and a declaration already stored |
@@ -303,7 +300,8 @@ per-fact cost.
 
 `special/entail-arg-type` follows `deduce-lift` almost line for line:
 
-* `kb/find-or-create-sentex` for the implied `(T arg)` in the asserting context;
+* `kb/find-or-create-sentex` for the implied `(T arg)` at each placement of the fact and
+  the declaration ([Where a mint is placed](#where-a-mint-is-placed));
 * `derived-sentex-added` when it is new, so it reaches the closures and posts its
   exception re-check trigger exactly as a rule conclusion does;
 * `jtms/->just` with antecedents **`[source-handle decl-handle & route-edge-handles]`**
@@ -351,7 +349,8 @@ present when it arrives, so `arg` has to as well — and with the descension and
 context hierarchy the ingredients are four rather than two, so there are four entry
 points:
 
-* **fact meets declaration** — `deduce-arg-types`, on `assert` *and* on
+* **fact meets declaration** — `deduce-arg-types` for the declarations the fact's context
+  sees and `deduce-below` for those stated below it, on `assert` *and* on
   `place-conclusion`, because what a declaration says is a claim about the predicate and
   not about how a sentence arrived;
 * **declaration meets facts** — `entail-existing`, walking the predicate extents of the
@@ -364,9 +363,10 @@ points:
 * **context edge meets both** — `entail-under-context-edge`, from
   `special/reconcile-context-edge`, re-deriving the facts stored in the arriving
   `(genlCx sub super)` edge's `sub` and every context under it, since the edge makes the
-  declarations above `super` visible to them. It reads the smaller of that extent and the
-  extent of the declared predicates, by index counts, which `lein perf`'s
-  `genlcx-edge-beside-declared-facts` holds.
+  declarations above `super` visible to them, and the facts and declarations the edge
+  gives a new common descendant ([Where a mint is placed](#where-a-mint-is-placed)). It
+  reads the smaller of that extent and the extent of the declared predicates, by index
+  counts, which `lein perf`'s `genlcx-edge-beside-declared-facts` holds.
 
 Every order of {declaration, fact} reaches the identical KB, and so does every order of
 {declaration, fact, edge}. That is the gate:
@@ -410,7 +410,9 @@ n beside a declared type whose ancestor set grows with n.
 
 A declaration is visible in the context it is written in and in every context below it,
 and it derives in each of them: a derivation is drawn in the context of the fact it is
-drawn over, from every declaration that context sees. A declaration the context inherits
+drawn over, from every declaration that context sees, and a declaration stated where the
+fact's context does not see it derives at the contexts that see both
+([Where a mint is placed](#where-a-mint-is-placed)). A declaration the context inherits
 rests on the `genlCx` edges through which the context sees it, as a declaration on a
 super-predicate rests on the `genl` edges it descends through, so the justification is
 `[fact, declaration, genl edges…, genlCx edges…]` (`checks/entailment-support`).
@@ -425,6 +427,42 @@ pruning withholds (the table under [Cost](#cost)). The root's own `genl` superty
 position is the single undeclared one, and `CxCore` says why beside it: `thing` cannot be
 a proper subtype of itself, so the constraint the root would fail is the wrong constraint
 rather than a missing one.
+
+### Where a mint is placed
+
+A mint is placed at each maximal context that sees both the fact and the declaration, as a
+forward firing and a placed nogood are placed (`special/pair-placements`). Where the
+fact's context sees the declaration, that context is the one placement. Where it does
+not, the placements are the maximal common descendants of the two contexts, and each
+mint's justification also names the `genlCx` edges its placement sees the fact through.
+With `(P a b)` in CxTop and `(arg P 1 T)` in CxMid below it, `(T a)` is stored in CxMid,
+believed at CxMid and below, and absent at CxTop. With the fact in CxL, the declaration in
+CxR and both under CxTop, a CxJoin under CxL and CxR is the placement, one per maximal
+common descendant.
+
+Each arrival direction reaches the placement:
+
+- a **fact arriving** reads the declarations of its predicate and the predicate's
+  ancestors that its context does not see and shares a descendant with
+  (`special/deduce-below`): one argument-root read per declaring kind and declared
+  ancestor, skipped when no `genlCx` edge comes up to the fact's context;
+- a **declaration arriving** places each fact of its extent at the pair's placements
+  (`entail-existing`);
+- a **`genlCx` edge arriving** draws over the facts and declarations stated in the
+  contexts a context under its `sub` sees and its `super` does not, against the facts and
+  declarations `super` sees (`entail-under-context-edge`). A placement the edge leaves below
+  a more general one loses its justification in the settle (`special/surplus-placements`),
+  so every arrival order stores the same mints
+  (`argtype_entail_test/a-mint-is-placed-at-the-most-general-contexts-that-see-the-fact-and-the-declaration`);
+- a **`genlCx` edge leaving** takes the mints that named it, and `rederive-descended`
+  draws the pair again at the placements that stand.
+
+Three cases are not placed this way. A `genl` route edge or a trigger membership is read
+from the placement, so one stated below the placement draws no mint there. An `except`
+that hides an ingredient at a placement drops the mint there and places none below it,
+as at the fact's own context. An edge leaving re-places only the pairs whose
+justification named it, so a context that becomes a maximal common descendant without such
+a pair draws nothing.
 
 ### An except of an ingredient
 
