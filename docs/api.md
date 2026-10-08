@@ -410,14 +410,17 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                ; shared instance are read from (default CxUniverse)
                                                ; a shared subtype not provably empty, read
                                                ; from the global closures, also reads :orthogonal
-(disjointness-audit kb [context])              ; subsumption-status over every unordered type pair,
-                                               ; the genl nodes less each `relation?` at context —
-                                               ; {:types :pairs :by-status :pairs-data}; the
-                                               ; :unknown pairs flag a candidate missing `disjoint`
-                                               ; or `orthogonal`; an :orthogonal entry carries
-                                               ; :witness (:declared :shared-instance :shared-spec
-                                               ; :unwitnessed-spec) and :via, the instance or
-                                               ; subtype found
+(disjointness-audit kb [context])              ; subsumption-status over every unordered pair of
+                                               ; the genl nodes visible from context (default
+                                               ; CxWell, the starter spindle's collector), less
+                                               ; each `relation?` there — {:types :pairs :by-status
+                                               ; :pairs-data}; a type an opt-in theory alone
+                                               ; declares is outside the sweep at the default
+                                               ; vantage; the :unknown pairs flag a candidate
+                                               ; missing `disjoint` or `orthogonal`; an :orthogonal
+                                               ; entry carries :witness (:declared :shared-instance
+                                               ; :shared-spec :unwitnessed-spec) and :via, the
+                                               ; instance or subtype found
 ;; the taxonomy, read (thin delegations to vaelii.impl.taxonomy — reads only, since
 ;; edges and metadata are maintained by assert / retract! from the sentexes stating them)
 (genls kb t [context]) / (specs kb t [context])         ; genl up/down closure (scoped with a context)

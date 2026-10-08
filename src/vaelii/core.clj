@@ -814,8 +814,11 @@
 
 (defn types
   "Every type currently in the genl hierarchy — the nodes of the closure, i.e. every
-  type named by some believed `genl` edge."
-  [kb] (tax/types (reasoning/taxonomy kb)))
+  type named by some believed `genl` edge. With a `context`, only a node touched by an
+  edge visible from it counts — the same visibility `genl?` and `disjoint?` read with a
+  `context`."
+  ([kb] (tax/types (reasoning/taxonomy kb)))
+  ([kb context] (tax/types (reasoning/taxonomy kb) context)))
 
 (defn- scoped-read?
   "Does `context` name a place to scope a read by?  A variable and the three query
@@ -4321,13 +4324,18 @@
        :inconsistent))))
 
 (defn disjointness-audit
-  "The `subsumption-status` of every unordered pair of distinct types in the genl
-  hierarchy: its nodes less each `relation?` at `context`. Returns
-  `{:types n :pairs n :by-status {status count …} :pairs-data [{:a t :b t :status s :statuses ss} …]}`. `genl?` and `disjoint?` read cached closures, and the
-  shared-instance query runs only for a pair the taxonomy and disjoint declarations
-  leave open — pinned facts-only (`{:max-depth 0}`), so the N² sweep expands no rule.
-  `context` is the vantage `disjoint?` and the `:orthogonal` witnesses are read from
-  (default `CxUniverse`). Each entry carries both
+  "The `subsumption-status` of every unordered pair of distinct types **visible from
+  `context`**: the genl nodes `context` sees, less each `relation?` at `context`.
+  Returns
+  `{:types n :pairs n :by-status {status count …} :pairs-data [{:a t :b t :status s :statuses ss} …]}`. `genl?` reads the global closure and `disjoint?` reads the closure
+  visible from `context`, and the shared-instance query runs only for a pair the
+  taxonomy and disjoint declarations leave open — pinned facts-only (`{:max-depth 0}`),
+  so the N² sweep expands no rule.
+  `context` is the vantage the swept type set, `disjoint?` and the `:orthogonal`
+  witnesses are all read from (default `CxWell`, the starter spindle's collector — every
+  context below it, and no opt-in theory). A type a context sees only through an
+  opt-in theory `context` does not see is outside both the sweep and the coverage it
+  reports, by construction: visibility is one reading, not two. Each entry carries both
   the resolved `:status` keyword and the raw `:statuses` set from `subsumption-statuses`,
   so contradictions are visible without re-querying. The `:unknown` pairs are the
   candidates for a missing `disjoint` or `orthogonal` assertion; a declared `orthogonal`
@@ -4336,7 +4344,7 @@
   or `:unwitnessed-spec` — and, for the last three, `:via`, the instance or the subtype
   found. A shared subtype with a known `(nonempty t)` is a `:shared-spec`, and a shared
   subtype not known nonempty is an `:unwitnessed-spec`."
-  ([kb] (disjointness-audit kb 'CxUniverse))
+  ([kb] (disjointness-audit kb 'CxWell))
   ([kb context]
    ;; `by-print-key`, never bare `sort`: a type node need not be a symbol.  A NAT — a
    ;; function term standing for a collection an imported ontology has no atomic name for —
@@ -4346,7 +4354,7 @@
    ;; A relation is a genl node when `genl` specializes it by another — (genl performedBy
    ;; doneBy), (genl partition covering) — but it has no instances to share or keep
    ;; apart, so every pair it entered could only read :unknown.
-   (let [ts   (into [] (remove #(relation? kb % context)) (nm/by-print-key (types kb)))
+   (let [ts   (into [] (remove #(relation? kb % context)) (nm/by-print-key (types kb context)))
          n    (count ts)
          data (persistent!
                (reduce

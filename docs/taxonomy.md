@@ -1086,8 +1086,11 @@ overlap, and the KB names no instance in the overlap. Both reads are facts-only,
 the same `context` as the shared instance.
 
 `disjointness-audit kb` runs the classification over every unordered pair of distinct
-types and returns `{:types :pairs :by-status :pairs-data}`. A relation that a `genl`
-edge between relations names, such as `performedBy` under `doneBy` or CxCore's
+types **visible from its vantage context** (default `CxWell`, the starter spindle's
+collector) and returns `{:types :pairs :by-status :pairs-data}`. The swept type set is
+`types` read at that same context: a node touched by no edge the vantage sees is outside
+the sweep, the way an opt-in theory's own type is outside `CxWell`'s. A relation that a
+`genl` edge between relations names, such as `performedBy` under `doneBy` or CxCore's
 `siblingDisjointException` under `orthogonal`, is a node of the hierarchy and not a type,
 so the audit leaves it out. `relation?` decides it at the audit's vantage context: an arity
 of two or more, read from `(arity P n)` or an exact-arity class, or a `variable_arity`

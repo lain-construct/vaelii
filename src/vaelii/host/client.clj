@@ -889,8 +889,8 @@
 (defn types
   "Every type currently in the genl hierarchy — the nodes of the closure, i.e. every type
   named by some believed `genl` edge."
-  [conn]
-  (call conn :types []))
+  ([conn] (call conn :types []))
+  ([conn context] (call conn :types [context])))
 
 (defn types-of
   "The types asserted of individual `x` — functors of unary sentexes (T x), found via the
