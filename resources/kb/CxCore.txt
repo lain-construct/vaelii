@@ -355,7 +355,7 @@
 (arg argN 2 non_negative_integer)
 (quotedArg argN 3 formula)
 (genl closed_predication sentence)
-(set/monotonic (disjoint predication non_atomic_term))
+(set/monotonic (disjoint formula non_atomic_term))
 ;; Each expression kind is a type, a one-place predicate over expressions.
 (unary_predicate non_atomic_expression)
 (unary_predicate denotational_term)
