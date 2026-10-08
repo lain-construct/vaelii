@@ -182,6 +182,23 @@
         inf (:informant j)]
     (if (integer? inf) (f acc inf) acc)))
 
+(def respell-informant
+  "The informant of a justification storing a spelling a reader reads of a fact, from the
+  row holding the fact as written and the marks that sort it (`chain/respell-rows!`).  Its
+  first antecedent is the row and the rest are the marks: every one must be IN for the
+  justification to be valid, and only the row caps the class it confers
+  (`class-antecedents`), so a spelling holds at the class of the fact it spells."
+  'respell)
+
+(defn class-antecedents
+  "The antecedents of justification `j` whose classes cap the class it confers: all of
+  them, except under `respell-informant`, where only the first does."
+  [j]
+  (let [as (:antecedents j)]
+    (if (and (= respell-informant (:informant j)) (next as))
+      [(first as)]
+      as)))
+
 (defn ->just
   "Construct a Justification, defaulting `strength` to :monotonic — a bare monotone
   justification adds no defeasibility of its own, so `conferred-class` caps it at its
@@ -370,7 +387,7 @@
   [j classes]
   (reduce (fn [c a] (strength/min c (get classes a :default)))
           (or (:strength j) :monotonic)
-          (:antecedents j)))
+          (class-antecedents j)))
 
 (defn- node-class
   "The defeat-class of an IN datum: the strongest support it has — its premise
@@ -1583,7 +1600,7 @@
                                                   (not (forced? tms :void (:id j))))]
                                    (reduce (fn [c a] (strength/min c (class-of classes a)))
                                            (or (:strength j) :monotonic)
-                                           (:antecedents j)))]
+                                           (class-antecedents j)))]
                         (reduce strength/max :default (remove nil? (cons prem strs)))))]
     (loop [classes (zipmap members (repeat :default))]
       (let [next (reduce (fn [m d] (assoc m d (node-class classes d))) classes members)]

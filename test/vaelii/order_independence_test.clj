@@ -2909,6 +2909,84 @@
     (is (= (second never) (second split)) "the context the edge brings under it reads the fact as written"))
   (tu/clear-kb! (tu/test-kb)))
 
+;; A default `(symmetric swRel)` and a known-true `(swRel Bea Ada)` in CxSwA, and a
+;; known-true denial of the mark in CxSwLow below it.  The sorted row takes the fact's
+;; class, so CxSwA reads it as a KB with no denial does, and CxSwLow reads the fact as
+;; written.
+
+(defn- a-defeat-below-a-split-fact
+  "A default `(not (swRel Ada Bea))` beside the KB above: CxSwA reads the known-true
+  sorted row over it, with or without the denial, and CxSwLow reads the fact as written
+  beside the negation.  The mark retracted, or a rule's conclusion whose premise is
+  retracted, leaves what a KB that never stated it reads.  Over `cap` of the orderings, or
+  all of them."
+  [cap]
+  (let [h     (atom nil)
+        wire  [#(v/assert % '(genlCx CxSwA CxUniverse) 'CxUniverse {:strength :monotonic})
+               #(v/assert % '(genlCx CxSwLow CxSwA) 'CxUniverse {:strength :monotonic})]
+        facts [#(v/assert % '(swRel Bea Ada) 'CxSwA {:strength :monotonic})
+               #(v/assert % '(not (swRel Ada Bea)) 'CxSwA)]
+        mark  #(reset! h (v/assert % '(symmetric swRel) 'CxSwA))
+        rule  [#(v/assert % '(implies (sw_marked ?p) (symmetric ?p)) 'CxSwA {:direction :forward})
+               #(reset! h (v/assert % '(sw_marked swRel) 'CxSwA))]
+        deny  #(v/assert % '(not (symmetric swRel)) 'CxSwLow {:strength :monotonic})
+        read1 (fn [kb reader]
+                (mapv #(v/ask? kb % reader)
+                      '[(swRel Bea Ada) (swRel Ada Bea) (not (swRel Ada Bea))]))
+        read2 (fn [kb] (mapv #(read1 kb %) '[CxSwA CxSwLow]))
+        gone  (fn [kb] (v/retract! kb @h) (read2 kb))
+        run   (fn ([label ops] (one-outcome! label (into wire ops) read2 cap))
+                ([label ops observe] (one-outcome! label (into wire ops) observe cap)))
+        never (run "never stated" facts)
+        held  (run "held" (conj facts mark))
+        split (run "denied below" (conj facts mark deny))]
+    (is (= [true true false] (first held)) "the known-true fold beats the default negation")
+    (is (= (first held) (first split)) "the context above the denial reads as with no denial")
+    (is (= (second never) (second split)) "the context below it reads each spelling as written")
+    (is (= split (run "derived, denied below" (-> facts (into rule) (conj deny)))))
+    (is (= never (run "retracted" (conj facts mark deny) gone)))
+    (is (= never (run "derived, premise retracted" (-> facts (into rule) (conj deny)) gone))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-defeat-below-a-split-fact-moves-no-class-above-it
+  ;; a sample of each scenario's 120 or 720 orderings; the ^:slow twin walks every one
+  (a-defeat-below-a-split-fact ordering-sample))
+
+(deftest ^:slow every-ordering-of-a-defeat-below-a-split-fact-moves-no-class-above-it
+  (a-defeat-below-a-split-fact nil))
+
+(defn- a-firing-over-a-split-fact
+  "A known-true rule `swRel -> swLinked`, a default `(swLinked Ada Bea)` and a default
+  `(not (swLinked Ada Bea))` beside the KB above.  The firing over the sorted row is
+  known-true, so CxSwA reads `(swLinked Ada Bea)` over its negation with or without the
+  denial.  CxSwLow reads no sorted row, so its two default `swLinked` facts are a
+  dilemma there.  Over `cap` of the orderings, or all of them."
+  [cap]
+  (let [wire  #(do (v/assert % '(genlCx CxSwA CxUniverse) 'CxUniverse {:strength :monotonic})
+                   (v/assert % '(genlCx CxSwLow CxSwA) 'CxUniverse {:strength :monotonic}))
+        facts [#(v/assert % '(implies (swRel ?x ?y) (swLinked ?x ?y)) 'CxSwA
+                          {:direction :forward :strength :monotonic})
+               #(v/assert % '(swRel Bea Ada) 'CxSwA {:strength :monotonic})
+               #(v/assert % '(swLinked Ada Bea) 'CxSwA)
+               #(v/assert % '(not (swLinked Ada Bea)) 'CxSwA)
+               #(v/assert % '(symmetric swRel) 'CxSwA)]
+        deny  #(v/assert % '(not (symmetric swRel)) 'CxSwLow {:strength :monotonic})
+        read1 (fn [kb reader]
+                (mapv #(v/ask? kb % reader)
+                      '[(swRel Ada Bea) (swLinked Ada Bea) (not (swLinked Ada Bea))]))
+        read2 (fn [kb] (mapv #(read1 kb %) '[CxSwA CxSwLow]))
+        run   (fn [label ops] (one-outcome! label (into [wire] ops) read2 cap))]
+    (is (= [[true true false] [true true false]] (run "held" facts)))
+    (is (= [[true true false] [false true true]] (run "denied below" (conj facts deny)))))
+  (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-firing-over-a-split-fact-takes-its-class-per-reader
+  ;; a sample of each scenario's 720 or 5040 orderings; the ^:slow twin walks every one
+  (a-firing-over-a-split-fact ordering-sample))
+
+(deftest ^:slow every-ordering-of-a-firing-over-a-split-fact-takes-its-class-per-reader
+  (a-firing-over-a-split-fact nil))
+
 ;; ---- the forward chaining depth bound -------------------------------------
 ;;
 ;; A run's `:max-depth` refuses a firing whose conclusion would sit deeper than it, and

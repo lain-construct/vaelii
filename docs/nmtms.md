@@ -226,7 +226,9 @@ over a merely-default premise concludes a *default*, the same bare rule over kno
 facts concludes `:monotonic`. **The taxonomy edges a firing names are grounds like the
 facts** — a `genl` edge a subsumed match climbed, a `genlCx` edge the conclusion's context
 reads the rule or the facts over ([contexts.md](contexts.md)) — and cap it the same way.
-The **informant is excluded** from the cap.
+The **informant is excluded** from the cap. So are the marks of a `respell` justification,
+which caps its class at its first antecedent, the as-written row, alone
+(`jtms/class-antecedents`, [canonicalization.md](canonicalization.md#a-mark-a-reader-does-not-believe)).
 
 A rule's own class (`:strength` — `opts :strength` at the entry point, what `defeat-class` answers
 for its handle, what a solver is shown) and a rule's defeasibility (bare versus
@@ -1089,10 +1091,7 @@ definitional clash the grounds as well. They are the contexts it is placed in
 removes its loser from belief at the vantage and at every context that sees it, and
 nowhere else; the network keeps the loser IN ([reference.md](reference.md#decisions),
 decisions 2 and 3). A context's belief therefore depends on its own ancestor set and on
-nothing a spec context holds, with one exception: the class of a fact a permuting mark
-respells, where a defeat of the mark below the fact's context stores a `respell` row
-capped at the mark's class
-([canonicalization.md](canonicalization.md#a-mark-a-reader-does-not-believe)). `preserving-nogoods` takes the most general contexts that
+nothing a spec context holds. `preserving-nogoods` takes the most general contexts that
 see the stored claim's own context and the reading that denies it, and
 `chain/place-inherited!` places each inherited nogood there.
 
@@ -1835,9 +1834,11 @@ in every arrival order (`inherited_clash_test`).
 and every consequence of it IN; `chain` reads no `defeat`. A read at a context `C` asks
 `exc/defeat-hidden-fn`, which walks the asked handle's justification ancestors, forces
 OUT each one a defeat in force at `C` names, and reads the handle's label with
-`jtms/region-in` over that support. At a reader whose ancestor set states no except, the
-walk stops at a `:monotonic` handle, in a belief read and a visibility read alike: a
-defeat hides only a `:default` handle, and only an except lowers a class. At such a reader,
+`jtms/region-in` over that support. At a reader whose ancestor set states no except and
+no defeat reaching a statement of a permuting or `reifiable_function` mark
+(`exc/mark-hazard?`), the walk stops at a `:monotonic` handle, in a belief read and a
+visibility read alike. A defeat hides only a `:default` handle, only an except lowers a
+class, and only a `respell` row takes no class from a handle it rests on. At such a reader,
 when no placement can be exempt either, the walk reads the `defeat` extent once the
 support holds more handles than the KB stores defeats, and answers from the network
 label when no defeat is stated in a context the reader sees (`exc/region-at`). Each read
@@ -2015,18 +2016,28 @@ nogood's `defeat`, and the walk then hides every placed sentex resting on it, at
 contexts where the ground is hidden. The dependency is in the justification and needs no
 ordering.
 
-**A defeat hides only `:default` sentexes, so it never lowers a class.** A defeat is in
-force only while the verdict at the reader names its target, which is then `:default`;
-everything resting on a `:default` handle is capped at `:default`
-([Strength propagates](#strength-propagates-from-the-antecedents)); and a guarded firing is
-`:default`. A premise `except` can lower a class, and the read re-decides the nogoods whose
-members it reaches in one pass ("A conflict a reader's excepts lower" above).
+**A defeat lowers a class only through a `respell` row.** A defeat is in force only while
+the verdict at the reader names its target, which is then `:default`. Everything resting
+on a `:default` handle is capped at `:default`
+([Strength propagates](#strength-propagates-from-the-antecedents)), and a guarded firing
+is `:default`. A `respell` justification is the one exception: it takes the class of the
+as-written row, and the marks it rests on cap nothing. A defeat of a mark therefore hides a
+`:monotonic` `respell` row at the readers it is in force at, with what rests on the row
+alone, and those handles lose that class there. A premise `except` lowers a class too.
+The read re-decides the nogoods whose members either reaches in one pass ("A conflict a
+reader's excepts lower" above): the verdict at a reader forces OUT the targets of the
+excepts in force there and of the defeats in force there that reach a mark a `respell`
+justification in the members' support rests on (`exc/mark-defeated`), and reads the
+classes the support carries then. The pass reads a mark's defeat, whose own members rest
+on no `respell` row unless the mark is derived from a respelled fact. That case is a
+defeat-dependency cycle ([A defeat-dependency cycle](#a-defeat-dependency-cycle)).
 
 **Without a rule-derived ground or a guard, a defeat rests on at most one other.** The
 rosters keep the defeat-dependency graph two deep:
 
-1. In a decided nogood every member but the loser is `:monotonic`, and no defeat hides a
-   `:monotonic` handle, so a defeat loses force through another only by way of a ground.
+1. In a decided nogood every member but the loser is `:monotonic`, and a defeat hides a
+   `:monotonic` handle only through a `respell` row, so a defeat loses force through
+   another only by way of a ground or of a mark's defeat.
 2. Every ground is on the forced-monotonic roster except a `genl` edge between types, and
    only the membership family takes one for a ground; `genlCx` witness edges are on the roster.
 3. A stated type `genl` edge loses only in a nogood where it is a member: a negation pair or

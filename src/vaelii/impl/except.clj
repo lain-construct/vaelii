@@ -643,6 +643,31 @@
         r)
       v)))
 
+(defn- mark-hazard?
+  "Does a defeat stated in a context the reader sees name a handle in the support of a
+  statement of a permuting or `reifiable_function` mark (the taxonomy's `[:prop :symmetric
+  p]`, `[:commuting p g]` and `[:prop :reifiable f]` supporters)?  A defeat hides a
+  `:monotonic` handle only through such a mark: a `respell` justification rests on its
+  marks and takes its class from the written row alone (`jtms/class-antecedents`).  Read
+  once per read and kept in its memo: one support walk per mark statement, and an index
+  read per handle of it."
+  [{:keys [tms tax idx up memo] :as st}]
+  (let [v (get @memo ::mark-hazard ::absent)]
+    (if (identical? ::absent v)
+      (let [t    @tax
+            ks   (concat (map #(vector :prop :symmetric %) (get-in t [:props :symmetric]))
+                         (for [[p gs] (:commuting t), g gs] [:commuting p g])
+                         (map #(vector :prop :reifiable %) (get-in t [:props :reifiable])))
+            r    (boolean (and (sees-defeat? st)
+                               (some (fn [k]
+                                       (some (fn [m] (some #(reads/as-stored-naming idx sx/defeat-functor % up)
+                                                           (support tms m (constantly false))))
+                                             (keys (tax/supporters tax k))))
+                                     ks)))]
+        (vswap! memo assoc ::mark-hazard r)
+        r)
+      v)))
+
 (defn- region-at
   "The support of `h` the walk reads at the reader (`support` with `stop?`), or nil when
   nothing in it can be hidden there: the reader's state is `:closable?` and no defeat is
@@ -688,15 +713,37 @@
                (for [j js, [h ms antes] ctrs :when (contains? antes (set (:antecedents j)))]
                  [j ms h])))))
 
+;; `verdict-at` reads which defeats of a mark are in force (`mark-defeated`), and
+;; `in-force?` reads the verdict at the reader over a defeat's members: the two recur into
+;; each other through a mark's own defeat.
+(declare in-force?)
+
+(defn- mark-defeated
+  "The handles of `region`, a support, that a defeat in force at the reader names and that
+  lie in the support of a mark a `respell` justification of `region` rests on
+  (`jtms/respell-informant`, every antecedent but the first)."
+  [{:keys [tms idx up] :as st} region]
+  (let [marks (into #{} (comp (mapcat #(jtms/supports tms %)) (keep #(jtms/justification tms %))
+                              (filter #(= jtms/respell-informant (:informant %)))
+                              (mapcat #(rest (:antecedents %))))
+                    region)]
+    (into #{} (filter (fn [t] (some #(in-force? st %) (reads/as-stored-naming idx sx/defeat-functor t up))))
+          (into #{} (mapcat #(support tms % (constantly false))) marks))))
+
 (defn- verdict-at
   "`decide/verdict` over `members` with the classes the reader reads: the network's, or,
-  where an except in force at the reader reaches the members' support, the classes the
-  support carries with those targets forced OUT (`jtms/classes-in-region`).  nil when such
-  an except hides a member."
-  [{:keys [tms recs tax excepted?]} members]
+  where an except in force at the reader reaches the members' support, or a defeat in
+  force there reaches a mark a `respell` justification in it rests on (`mark-defeated`),
+  the classes the support carries with those targets forced OUT
+  (`jtms/classes-in-region`).  nil when such a target hides a member."
+  [{:keys [tms recs tax excepted?] :as st} members]
   (let [roster? #(boolean (some->> (p/get-sentex recs %) :sentence (decide/roster-literal? tax)))
-        region  (when excepted? (into #{} (mapcat #(support tms % (constantly false) true)) members))
-        ex      (when excepted? (into #{} (filter excepted?) region))]
+        marks?  (mark-hazard? st)
+        region  (when (or excepted? marks?)
+                  (into #{} (mapcat #(support tms % (constantly false) true)) members))
+        ex      (cond-> #{}
+                  excepted? (into (filter excepted?) region)
+                  marks?    (into (mark-defeated st region)))]
     (if (empty? ex)
       (decide/verdict #(or (jtms/defeat-class tms %) :default) roster? members)
       (let [in (jtms/region-in tms region region #{} ex belief-only-antecedent #{})]
@@ -893,14 +940,17 @@
   with `with-excepts?`, an except in force naming it (`jtms/region-in` over the support).
   A justification that rests on a forced witness edge reads it at its label where the
   reader reaches the path's ends another way (`rerouted`).  With no except stated in a
-  context the reader sees, a `:monotonic` handle is taken at its label, since a defeat is
-  in force only over a `:default` target and only an except lowers a class; and the
-  support is not walked when nothing in it can be hidden there (`region-at`)."
+  context the reader sees and no defeat it sees reaching a permuting mark
+  (`mark-hazard?`), a `:monotonic` handle is taken at its label, since a defeat is in
+  force only over a `:default` target, only an except lowers a class, and only a
+  `respell` justification rests on a handle that caps no class; and the support is not
+  walked when nothing in it can be hidden there (`region-at`)."
   ([st h with-excepts?] (believed-in st h with-excepts? #{}))
   ([{:keys [tms excepted? exempting? up idx] :as st} h with-excepts? invalid]
    (if-let [region (region-at st h (if excepted?
                                      (constantly false)
-                                     #(= :monotonic (jtms/defeat-class tms %))))]
+                                     #(and (= :monotonic (jtms/defeat-class tms %))
+                                           (not (mark-hazard? st)))))]
      (let [;; every defeat naming `x` is read, so the cycle a read meets is the same
            ;; whichever defeat the index lists first
            by-def  (into #{} (filter (fn [x] (reduce (fn [hit d] (or (in-force? st d) hit))

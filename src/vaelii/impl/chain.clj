@@ -3696,9 +3696,8 @@
       nil)))
 
 (def respell-informant
-  "The informant of a justification storing a spelling a reader reads of a fact, from the
-  row holding the fact as written and the marks that sort it (`ensure-respellings!`)."
-  'respell)
+  "`jtms/respell-informant`, the informant `ensure-respellings!` justifies a spelling by."
+  jtms/respell-informant)
 
 (defn- piece-holder?
   "Does row `h` hold a piece of a fact: a premise assertion or a rule firing?  Every other

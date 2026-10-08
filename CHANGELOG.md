@@ -68,6 +68,28 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+### Fixes: order independence
+
+- **A defeat of a permuting mark below a fact's context moves no class at that context.**
+  The sorted spelling stored beside a fact whose readers disagree on its mark took the
+  weaker of the fact's class and the mark's, so a known-true `(swRel Bea Ada)` under a
+  default `(symmetric swRel)` read `:default` above a denial of the mark, and tied a
+  default `(not (swRel Ada Bea))` there. The spelling now holds at the fact's class, as
+  with no denial, and so does a firing over it. A reader below the denial decides its
+  nogoods with that spelling out of belief.
+  [canonicalization.md](docs/canonicalization.md#a-mark-a-reader-does-not-believe),
+  [nmtms.md](docs/nmtms.md#why-a-read-runs-no-rounds).
+
+  *Class:* **Fix**.
+
+- **A fact a late permuting mark moves onto the spelling of a stored negation clashes
+  with it.** A `(symmetric swRel)` asserted after `(swRel Bea Ada)` and `(not (swRel Ada
+  Bea))` re-spelled the fact in place and placed no nogood, so both stayed believed where
+  the other arrival orders placed the clash.
+  [canonicalization.md](docs/canonicalization.md).
+
+  *Class:* **Fix**.
+
 ### Internal
 
 - **`disjointness-coverage-ratchet` requires at least 13928 disjoint pairs, 69.98%

@@ -18,6 +18,7 @@
             [vaelii.impl.columnar :as columnar]
             [vaelii.impl.config :as config]
             [vaelii.impl.decide :as decide]
+            [vaelii.impl.decide.negation :as negation]
             [vaelii.impl.dense-kv :as dense]
             [vaelii.impl.disk.backend :as disk]
             [vaelii.impl.disk.files :as dfiles]
@@ -2572,6 +2573,7 @@
     (observe/cache-handle! (canon-stamp kb) (sx/sentence-of s') (:context s') h)
     (note-defeat! kb s' true)
     (decide/note-candidate! kb s' true)
+    (negation/note-respelled! kb s')
     s'))
 
 (defn find-or-create-sentex

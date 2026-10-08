@@ -557,11 +557,21 @@
 (defn- conferred-class
   "The class a valid justification confers: its own strength, capped by the weakest of
   its antecedents' classes.  A rule-handle informant is not in `j-antes`, so the cap
-  never reads it: a rule is a condition of *validity*, not a ground."
+  never reads it: a rule is a condition of *validity*, not a ground.  Under
+  `jtms/respell-informant` only the first antecedent caps it (`jtms/class-antecedents`)."
   [^DenseTms this jid ^RoaringBitmap classes]
-  (let [antes (j-antecedents this jid)]
-    (areduce antes i acc (if (rb-has? ^RoaringBitmap (.-j-mono this) jid) :monotonic :default)
-             (strength/min acc (if (.contains classes (aget antes i)) :monotonic :default)))))
+  (let [antes (j-antecedents this jid)
+        n     (if (and (> (alength antes) 1)
+                       (== no-informant (j-informant-int this jid))
+                       (= jtms/respell-informant
+                          (.get ^Int2ObjectOpenHashMap (.-j-inf-sym this) (int jid))))
+                1
+                (alength antes))]
+    (loop [i 0, acc (if (rb-has? ^RoaringBitmap (.-j-mono this) jid) :monotonic :default)]
+      (if (== i n)
+        acc
+        (recur (unchecked-inc i)
+               (strength/min acc (if (.contains classes (aget antes i)) :monotonic :default)))))))
 
 (defn- node-class
   "The strongest support an IN datum has: its premise strength, and what each currently
