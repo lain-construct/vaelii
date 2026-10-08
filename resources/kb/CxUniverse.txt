@@ -7,7 +7,13 @@
 
 ;; --- cross-member disjointness (upper spindle) ---
 ;; organization and animal are separated by (partition thing tangible intangible) in
-;; CxCore: organization is intangible and animal is tangible.
+;; CxCore: organization is intangible and animal is tangible.  animal is also disjoint
+;; from four of CxAbstract's made kinds: an animal is never a building, a piece of
+;; clothing, a furniture or a machine.
+(set/monotonic (disjoint animal building))
+(set/monotonic (disjoint animal clothing))
+(set/monotonic (disjoint animal furniture))
+(set/monotonic (disjoint animal machine))
 ;; A bonsai or a grafted apple tree is a made plant (made is CxAbstract's, plant CxOrganism's).
 (orthogonal made plant)
 ;; A water level or a tap's rate is a quantity, and a quantity causes nothing; what changes
