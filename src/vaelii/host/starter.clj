@@ -53,7 +53,15 @@
         - CxSize.txt      — comparative size: stated between kinds, computed
                                  between objects from their measures.
         - CxSocial.txt    — what acquaintance follows from; employment as one way
-                                 of belonging.
+                                 of belonging; the general relationship and
+                                 dwelling vocabulary over two persons.
+        - CxSocialExtension.txt — relationship and plural-identity vocabulary
+                                 narrower than CxSocial's own. Opt-in: it sees
+                                 CxSocial and CxWell does not see it. The
+                                 Extension suffix names a theory that extends
+                                 an existing starter theory with vocabulary
+                                 most contexts under the base theory have no
+                                 occasion to see.
 
   A spindle is three layers — a head every member sees, members that see the head and
   not each other, and a collector that sees every member — and the topology is two of

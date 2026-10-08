@@ -29,7 +29,8 @@
            (seed/layer-contexts "upper"))))
   (testing "middle holds the theory contexts"
     (is (= '[CxAnatomy CxBiology CxChange CxKinship
-             CxMereology CxNormalPhysicalConditions CxPerception CxSize CxSocial]
+             CxMereology CxNormalPhysicalConditions CxPerception CxSize CxSocial
+             CxSocialExtension]
            (seed/layer-contexts "middle"))))
   (testing "an absent layer is nil, not a crash"
     (is (nil? (seed/layer-contexts "no-such-layer")))))
