@@ -75,3 +75,25 @@
       (doseq [ctx ['CxWell 'CxAbstract 'CxUniverse]]
         (is (not (holds-ask (list 'sees Viewer Image) ctx)) (str "Viewer sees in " ctx))
         (is (not (holds-ask (list 'perceives Seer Scene) ctx)) (str "Seer perceives in " ctx))))))
+
+(tu/deftest-kb image-viewing-is-an-acausal-event-kind-the-theory-states
+  (testing "the edge is the theory's, not the upper ontology's"
+    (is (holds-genl 'image_viewing 'acausal_event PCP))
+    (is (holds-genl 'image_viewing 'event PCP))
+    (is (holds-genl 'image_viewing 'acausal PCP))
+    (is (not (holds-genl 'image_viewing 'acausal_event 'CxUniverse)))
+    (is (not (holds-genl 'image_viewing 'acausal_event 'CxAbstract)))))
+
+(tu/deftest-kb a-user-context-under-cxperception-derives-hascapability-of-image-viewing
+  (tu/with-terms [CxRoom Viewer]
+    (v/assert kb (list 'genlCx CxRoom 'CxWell) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxRoom PCP) 'CxUniverse)
+    (v/assert kb (list 'hasCapability Viewer 'image_viewing) CxRoom)
+    (testing "a context under the theory reads the ability and its causal class"
+      (is (holds-ask (list 'hasCapability Viewer 'image_viewing) CxRoom))
+      (is (holds-ask (list 'hasCapability Viewer 'event) CxRoom))
+      (is (holds-ask (list 'hasCapability Viewer 'acausal_event) CxRoom)))
+    (testing "a context that does not see the theory concludes no such capability class"
+      (doseq [ctx ['CxWell 'CxAbstract 'CxUniverse]]
+        (is (not (holds-ask (list 'hasCapability Viewer 'acausal_event) ctx))
+            (str "Viewer hasCapability acausal_event in " ctx))))))
