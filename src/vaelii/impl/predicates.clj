@@ -1012,9 +1012,14 @@
                                   " answered from the equality closure under the unique-name"
                                   " assumption"))]
      ['unknown     (operator {:args [:sentence]})]
-     ['thereExists (operator {:args [:sentence]})]
-     ['forall      (operator {:args [:term :sentence]}
-                             :notes "sugar for a nested unknown, desugared at the rule entry point.")]
+     ['thereExists (enforced (operator {:args [:sentence]})
+                             "provers/ThereExistsProver — a ground existential, binding its variable(s) against the body and projecting the binder out")]
+     ['forall      (enforced (operator {:args [:term :sentence]}
+                             :notes "sugar for a nested unknown, desugared at the rule entry point.")
+                             "sentex/desugar-forall-literal plus provers/ForallProver — desugars to the nested NAF (unknown (thereExists ...)) and hands that back to the registry")]
+     ['exists      (enforced (structural {:args [:term :sentence]}
+                             "a head existential: a consequent variable no antecedent binds. Unlike forall/thereExists it is never answered by a prover — the canonicalizer strips and skolemizes it before the rule stores, so no wff arm of its own belongs in the special-predicate table.")
+                             "skolem/skolemize-conclusion, sentex/head-exists? — forward firing mints a fresh witness per firing (docs/skolem.md)")]
      ['bravely     (operator {:args [:sentence]}
                              :notes (str "a read of the current dilemmas — S in some optimal"
                                          " labeling; answered by the :brave-cautious prover."))]
@@ -1087,7 +1092,42 @@
            [literal "documentary: a predication or its negation, which is what the LiteralSentex record holds. The record is machinery; this is the collection, and nothing reads it."]
            [formula "documentary: a predication, an operator applied to formulas, or a quantifier binding variables in one. Nothing reads it."]
            [sentence "documentary: a closed formula, which checks/check-ground is what actually enforces on the way in. The collection itself is read by nothing."]
-           [non_atomic_term "documentary: a function applied to terms — the NAT of docs/nat.md, named as a collection. Reification reads the declaration on the function, never this."]])
+           [non_atomic_term "documentary: a function applied to terms — the NAT of docs/nat.md, named as a collection. Reification reads the declaration on the function, never this."]
+           [atomic_term "documentary: an atomic expression that denotes — a symbol or an unrepresented_term. Nothing reads it by name."]
+           [variable "documentary: an atomic expression written ?name, denoting nothing by itself until a formula binds or a query answers it. Nothing reads it by name."]
+           [open_expression "documentary: an expression with a free variable, the open half of the expression partition. Nothing reads it by name."]
+           [closed_expression "documentary: an expression with no free variable, the closed half of the expression partition. Nothing reads it by name."]
+           [open_non_atomic_expression "documentary: a non_atomic_expression with a free variable. Nothing reads it by name."]
+           [closed_non_atomic_expression "documentary: a non_atomic_expression with no free variable. Nothing reads it by name."]
+           [open_non_atomic_term "documentary: a non_atomic_term with a free variable, not a denotational_term until it has one. Nothing reads it by name."]
+           [closed_non_atomic_term "documentary: a non_atomic_term with no free variable. Nothing reads it by name."]
+           [open_formula "documentary: a formula with a free variable. Nothing reads it by name."]
+           [open_predication "documentary: a predication with a free variable. Nothing reads it by name."]
+           [open_literal "documentary: a literal with a free variable — what a rule's antecedent holds. Nothing reads it by name."]
+           [closed_literal "documentary: a literal with no free variable — what a stored LiteralSentex holds. Nothing reads it by name."]
+           [wff_non_atomic_expression "documentary: a non_atomic_expression the language can read — an operator applied to as many arguments as it takes. Nothing reads it by name."]
+           [negated_predication "documentary: a predication under not. Nothing reads it by name."]
+           [wff_non_atomic_term "documentary: a non_atomic_term the language can read. Nothing reads it by name."]
+           [ill_formed_non_atomic_term "documentary: a function applied to the wrong arguments — shaped like a term, denotes nothing. Nothing reads it by name."]
+           [closed_wff_non_atomic_term "documentary: a non_atomic_term the language can read with no free variable. Nothing reads it by name."]
+           [wff_expression "documentary: an expression the language can read — every operator applied to as many arguments as it takes, every quantifier binding a variable. Nothing reads it by name."]
+           [ill_formed_expression "documentary: an expression the language cannot read. Nothing reads it by name."]
+           [wff_formula "documentary: a formula the language can read, so it says something. Nothing reads it by name."]
+           [ill_formed_formula "documentary: a formula-shaped expression the language cannot read, so it says nothing. Nothing reads it by name."]
+           [wff_sentence "documentary: a closed formula the language can read — what a stored sentex holds. Nothing reads it by name."]
+           [ill_formed_sentence "documentary: a closed formula-shaped expression the language cannot read. Nothing reads it by name."]
+           [linguistic "documentary: a language, or an expression written in one — what has its being in a system of signs. Nothing reads it by name."]])
+
+    ;; ---- Quote: syncategorematic, read by name in impl/quasiquote.clj -----
+    [['Quote (enforced (collection
+                        :notes (str "quasiquote.clj's quote-function — the literal symbol"
+                                    " ensure-quasiquote-functions declares reifiable_function"
+                                    " and quoting_function on, and reduce-term mints a (Quote"
+                                    " E) mention from a reduced ground Quasiquote. Takes no"
+                                    " arg, result or metatype declaration of its own: what"
+                                    " kind of expression (Quote X) is follows from X's shape,"
+                                    " per its CxCore comment."))
+                       "impl/quasiquote.clj — quote-function, ensure-quasiquote-functions, reduce-term")]]
 
     ;; ---- the use/mention vocabulary ---------------------------------------
     ;; proposition names what a wff_sentence expresses; means, denotes and expresses
