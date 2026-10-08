@@ -209,6 +209,10 @@
 ;; CxCore, so the edge lives here beside causal; with the disjointness above it also
 ;; keeps every tangible out of acausal.
 (genl tangible causal)
+;; Implementation: every cause is in time, so (genl causal temporal) with a causal/acausal
+;; partition would derive this edge.  That edge triggers vaelii#150 (duplicate justification
+;; ids in teardown), so this narrower consequence is stated until #150 is fixed.
+(genl atemporal acausal)
 
 ;; A body of people can be a cause too: a company hires; a court rules. organization
 ;; is aspatial, and nothing separates aspatial from causal.
