@@ -53,20 +53,61 @@
   (tu/with-terms [Quote dog holds]
     (v/assert kb (list 'reifiable_function Quote) 'CxUniverse)
     (v/assert kb (list 'quoting_function Quote)   'CxUniverse)
-    (v/assert kb (list 'result Quote 'symbol)     'CxUniverse)
     (v/assert kb (list 'unary_predicate dog)      'CxUniverse)
     (v/assert kb (list 'unary_predicate holds)    'CxUniverse)
     (v/assert kb (list holds (list Quote dog))    'CxUniverse)   ; mints (Quote dog) -> K
     (testing "dog written plainly denotes the predicate dog"
       (is (v/ask? kb (list 'predicate dog) 'CxUniverse)))
-    (testing "(Quote dog) mentions dog, and does not denote a predicate"
-      (is (not (v/ask? kb (list 'predicate (list Quote dog)) 'CxUniverse))))
-    (testing "(Quote dog) denotes the symbol dog"
-      (is (v/ask? kb (list 'symbol (list Quote dog)) 'CxUniverse)))
     (testing "dog written plainly is not itself a symbol"
       (is (not (v/ask? kb (list 'symbol dog) 'CxUniverse))))
     (testing "symbol and predicate share no instance"
       (is (v/disjoint? kb 'symbol 'predicate)))))
+
+;; ---- shape classification: what (Quote X) IS follows from X, not a declaration -----
+;; CxCore's `Quote` comment (OE 5) says Quote takes no result/arg/metatype declaration:
+;; what kind of expression `(Quote X)` is follows from X's shape.  Nothing in the engine
+;; reads a quoted form's shape yet (vaelii/vaelii#145), so every check below is red.
+
+;; Red until a shape classifier exists: vaelii/vaelii#145.
+(tu/deftest-kb quoted-forms-are-classified-by-shape
+  (tu/with-terms [Quote dog]
+    (v/assert kb (list 'reifiable_function Quote) 'CxUniverse)
+    (v/assert kb (list 'quoting_function Quote)   'CxUniverse)
+    (v/assert kb (list 'unary_predicate dog)       'CxUniverse)
+    (testing "(Quote dog) is a symbol, dog's shape being an atomic_term"
+      (is (true? (v/ask? kb (list 'symbol (list Quote dog)) 'CxUniverse))))
+    (testing "(Quote 212) is a number, 212's shape being an unrepresented_term"
+      (is (true? (v/ask? kb (list 'number (list Quote 212)) 'CxUniverse))))
+    (testing "(Quote (dog Muffet)) is a non_atomic_expression, (dog Muffet)'s shape being one"
+      (is (true? (v/ask? kb (list 'non_atomic_expression (list Quote (list dog 'Muffet))) 'CxUniverse))))
+    (testing "and so is not itself a symbol — a compound's shape is not atomic"
+      (is (not (v/ask? kb (list 'symbol (list Quote (list dog 'Muffet))) 'CxUniverse))))
+    (testing "(Quote ?x) is a variable, wff, and closed — ?x is part of the quoted form"
+      (is (true? (v/ask? kb (list 'variable (list Quote '?x)) 'CxUniverse)) "classified variable")
+      (is (true? (v/ask? kb (list 'wff_expression (list Quote '?x)) 'CxUniverse)) "wff")
+      (is (true? (v/ask? kb (list 'closed_expression (list Quote '?x)) 'CxUniverse)) "closed"))))
+
+;; ---- a quoted rule is a closed fact, storable like any other mention ---------------
+;; awesome_rule's argument holds an (implies ...) form as syntax: the ?x inside the Quote
+;; ought to be part of the quoted form, never free in the sentence around it (OE 5's
+;; open_expression ruling), so the outer sentence ought to be ground and store.  Red today:
+;; `ground?`/`some-symbol?` (vaelii.impl.sentex) walk every nested symbol with no opacity
+;; for a quoting_function's argument, so a variable inside (Quote ...) still counts as free
+;; and check-ground refuses the assert with a :not-ground ExceptionInfo — the same missing
+;; shape-awareness as quoted-forms-are-classified-by-shape, vaelii/vaelii#145.
+(tu/deftest-kb a-quoted-rule-is-closed-and-storable
+  (tu/with-terms [Quote awesome_rule]
+    (v/assert kb (list 'reifiable_function Quote) 'CxUniverse)
+    (v/assert kb (list 'quoting_function Quote)   'CxUniverse)
+    (v/assert kb (list 'unary_predicate awesome_rule) 'CxUniverse)
+    (v/assert kb (list 'arg awesome_rule 1 'formula)  'CxUniverse)
+    (let [quoted-rule (list Quote (list 'implies (list 'poodle '?x) (list 'dog '?x)))
+          stored      (try (v/assert kb (list awesome_rule quoted-rule) 'CxUniverse)
+                            (catch clojure.lang.ExceptionInfo _ nil))]
+      (testing "the quoted rule form stores as a closed sentence"
+        (is (some? stored)))
+      (testing "and, if checkable, the quoted rule form itself is an open_formula"
+        (is (true? (v/ask? kb (list 'open_formula quoted-rule) 'CxUniverse)))))))
 
 (tu/deftest-kb sameas-does-not-fold-a-quoted-term
   ;; The opacity: merging the *referents* Muffet and Fluffet leaves the two *terms* — and

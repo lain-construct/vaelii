@@ -466,6 +466,7 @@
 (partition literal open_literal closed_literal)
 (intersection open_literal literal open_expression)
 (intersection closed_literal literal closed_expression)
+(comment Quote "Syncategorematic: part of vaelii's syntax, like a parenthesis, though written like a function. (Quote X) is X taken as a form, e.g. (Quote Muffet) names the symbol Muffet, not the dog. Quote takes no arg, result or metatype declaration; what kind of expression (Quote X) is follows from X's shape.")
 ;; expression and unrepresented_term are types, one-place predicates over expressions.
 (unary_predicate expression)
 (unary_predicate atomic_expression)
