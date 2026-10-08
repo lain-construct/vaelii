@@ -224,7 +224,9 @@
     '[predAllInstance 3]    "a rule generator's fixed filler"
     '[predExistsInstance 3] "a rule generator's fixed filler"
     '[predInstanceAll 2]    "a rule generator's fixed filler"
-    '[predInstanceExists 2] "a rule generator's fixed filler"}
+    '[predInstanceExists 2] "a rule generator's fixed filler"
+    '[means 2]              "the meaning: what a term denotes or the proposition a sentence expresses, a thing of any kind"
+    '[denotes 2]            "what a denotational_term names: a thing of any kind"}
    (into {} (for [p '[positiveExample negativeExample borderlineExample]]
               {[p 1] "an exemplified term"
                [p 2] "the example, a sentence written as a term"}))
