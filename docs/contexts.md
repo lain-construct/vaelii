@@ -66,7 +66,7 @@ topology is **two spindles stacked**, most general (top) to most specific (botto
 | | head | members | collector |
 |---|---|---|---|
 | the upper spindle | CxCore | `resources/kb/upper/` — seven contexts | CxUniverse |
-| the middle spindle | CxUniverse | `kb/middle/` — seven contexts, beside one opt-in theory | CxWell |
+| the middle spindle | CxUniverse | `kb/middle/` — seven contexts, beside two opt-in theories | CxWell |
 
 CxUniverse is the joint, the first spindle's collector and the second's head, and it can
 be the second's head *because* it is the first's collector: a head is a context every
@@ -152,9 +152,13 @@ Data hangs below CxWell.
   kitchen. A context opts in by placing itself under CxNormalPhysicalConditions, and a
   context under both CxWell and CxNormalPhysicalConditions reads the everyday theories at
   room temperature.
-- **CxWell** — the middle spindle's *collector*: it sees every middle member, so it (and
-  any context hung beneath it) transitively sees the whole ontology except the opt-in
-  CxNormalPhysicalConditions.
+- **CxPerception** — an **opt-in** theory in `kb/middle/` that sees CxUniverse and
+  that CxWell does **not** see: perception relations. `perceives` is the general
+  relation, and `sees`, `seeImage` and `watchVideo` each specialize it. A context opts
+  in by placing itself under CxPerception.
+- **CxWell** — the middle spindle's *collector*: it sees every middle member, so it
+  (and any context hung beneath it) transitively sees the whole ontology except the
+  opt-in CxNormalPhysicalConditions and CxPerception.
 
 **A member sees no member, so a shared term belongs in the head.** That is what makes a
 spindle a spindle: `CxLife` does not see `CxOrganism` and `CxOrganism` does not see
