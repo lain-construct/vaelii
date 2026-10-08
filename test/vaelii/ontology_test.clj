@@ -1390,16 +1390,16 @@
     (is (= :orthogonal (v/subsumption-status kb 'dog tended)))
     (is (not-any? #(= :forced-conclusion (:violation %)) (v/violations kb)))))
 
-(tu/deftest-kb artifact-is-declared-nowhere-and-the-seven-kinds-are-made
+(tu/deftest-kb artifact-is-declared-nowhere-and-the-six-kinds-are-made
   ;; The KB declares no artifact term and no alias for one.  building, clothing,
-  ;; container, furniture, machine, tool and vehicle are kinds of made.
+  ;; container, furniture, machine and vehicle are kinds of made.
   (is (empty? (v/sentexes-matching kb '(comment artifact ?text) '?ctx)))
   (is (empty? (v/sentexes-matching kb '(genl artifact ?type) '?ctx)))
   (is (empty? (v/sentexes-matching kb '(genl ?type artifact) '?ctx)))
   (is (= 1 (count (v/sentexes-matching kb '(comment made ?text) 'CxAbstract))))
-  (doseq [t '[building clothing container furniture machine tool vehicle]]
+  (doseq [t '[building clothing container furniture machine vehicle]]
     (is (true? (v/genl? kb t 'made 'CxAbstract)) (str t " is made")))
-  (doseq [t '[clothing container furniture machine tool vehicle]]
+  (doseq [t '[clothing container furniture machine vehicle]]
     (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl t 'made) 'CxAbstract))
         (str "(genl " t " made) is stated"))))
 

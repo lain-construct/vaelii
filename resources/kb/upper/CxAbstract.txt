@@ -301,9 +301,6 @@
 ;; stamped is made.
 (set/forwardRule (implies (and (tangibleOutput ?e ?x) (doneBy ?e ?d) (made ?d)) (made ?x)))
 
-(comment tool "An artifact used to perform work.")
-(genl tool made)
-
 (comment vehicle "An artifact for transporting people or goods.")
 (genl vehicle made)
 
@@ -327,7 +324,6 @@
 ;; both parts and every kind below them.
 (set/monotonic (disjoint biological substance))
 (set/monotonic (disjoint building furniture))
-(set/monotonic (disjoint building tool))
 (set/monotonic (disjoint building vehicle))
 (set/monotonic (disjoint clothing building))
 (set/monotonic (disjoint clothing furniture))
