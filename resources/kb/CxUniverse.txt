@@ -23,6 +23,7 @@
 (context CxMeasure)
 (context CxMereology)
 (context CxOrganism)
+(context CxPerception)
 (context CxSize)
 (context CxSocial)
 (context CxSociety)
