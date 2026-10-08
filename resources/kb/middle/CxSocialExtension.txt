@@ -1,7 +1,7 @@
-;; CxSocialExtension — an opt-in extension of CxSocial: relationship and plural-
-;; identity vocabulary narrower than CxSocial's own. Sees CxSocial, which carries
-;; it to the shared upper ontology via CxUniverse. CxWell does not see it: a
-;; context opts in by placing itself under CxSocialExtension.
+;; CxSocialExtension — an opt-in extension of CxSocial: relationship vocabulary
+;; narrower than CxSocial's own. Sees CxSocial, which carries it to the shared
+;; upper ontology via CxUniverse. CxWell does not see it: a context opts in by
+;; placing itself under CxSocialExtension.
 ;;
 ;; "<Theory>Extension" names a theory that extends an existing starter theory
 ;; with vocabulary most contexts under the base theory have no occasion to see:
@@ -15,10 +15,7 @@
 ;; (starter_test/a-term-two-spindle-members-touch-is-defined-in-the-head).
 ;; chosenSiblingOf is a sibling relation by choice rather than by birth, stated
 ;; the same way and for the same reason: no genl edge to CxSocial's relativeOf.
-;; It is unrelated to the shipped siblingOf in either direction. The plurality
-;; terms — singlet, plural_system, alter — partition person three ways;
-;; alterOf relates an alter to its system, and headmateOf, read by a rule from
-;; alterOf, relates two alters of the same one.
+;; It is unrelated to the shipped siblingOf in either direction.
 
 (genlCx CxSocialExtension CxSocial)
 
@@ -43,37 +40,3 @@
 (symmetric chosenSiblingOf)
 (arg chosenSiblingOf 1 person)
 (arg chosenSiblingOf 2 person)
-
-;; ---- plurality ----------------------------------------------------------------
-(comment singlet "A non-plural person: exactly one identity, one body.")
-(genl singlet person)
-
-(comment plural_system "A plural system: multiple alters sharing one body.")
-(genl plural_system person)
-
-(comment alter "An alter in a plural system: a distinct identity within a shared body.")
-(genl alter person)
-
-(disjoint singlet plural_system)
-(disjoint alter singlet)
-(disjoint alter plural_system)
-
-(comment alterOf "(alterOf ?alter ?system) means ?alter belongs to the plural system ?system.")
-(binary_predicate alterOf)
-(instance_relation_predicate alterOf)
-(asymmetric alterOf)
-(arg alterOf 1 alter)
-(arg alterOf 2 plural_system)
-
-(comment headmateOf
-         "(headmateOf ?x ?y) means ?x and ?y are alters in the same plural system. Read by the rule below from alterOf; sharing a body does not entail mutual awareness, so the predicate does not genl knows.")
-(binary_predicate headmateOf)
-(instance_relation_predicate headmateOf)
-(symmetric headmateOf)
-(arg headmateOf 1 alter)
-(arg headmateOf 2 alter)
-(not (genl headmateOf knows))
-
-(set/forwardRule
-  (implies (and (alterOf ?a1 ?sys) (alterOf ?a2 ?sys) (different ?a1 ?a2))
-           (headmateOf ?a1 ?a2)))

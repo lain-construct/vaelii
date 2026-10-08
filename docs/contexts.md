@@ -161,14 +161,12 @@ Data hangs below CxWell.
   in by placing itself under CxPerception.
 - **CxSocialExtension** — an **opt-in** theory in `kb/middle/` that sees CxSocial,
   and through it CxUniverse, and that CxWell does **not** see: `nestingPartnerOf`
-  (read by a rule from CxSocial's `romanticPartnerOf` and `roommateOf`),
-  `chosenSiblingOf`, and the plurality terms `singlet`/`plural_system`/`alter`,
-  with `alterOf` and `headmateOf` (read by a rule from `alterOf`). A context opts in
-  by placing itself under CxSocialExtension, which also carries CxSocial's own
-  relations to it. **`<Theory>Extension` names a theory that extends an existing
-  starter theory with vocabulary most contexts under the base theory have no
-  occasion to see:** the base theory ships to every context below CxWell, and the
-  extension only to a context placed under it.
+  (read by a rule from CxSocial's `romanticPartnerOf` and `roommateOf`) and
+  `chosenSiblingOf`. A context opts in by placing itself under CxSocialExtension,
+  which also carries CxSocial's own relations to it. **`<Theory>Extension` names a
+  theory that extends an existing starter theory with vocabulary most contexts
+  under the base theory have no occasion to see:** the base theory ships to every
+  context below CxWell, and the extension only to a context placed under it.
 - **CxWell** — the middle spindle's *collector*: it sees every middle member, so it
   (and any context hung beneath it) transitively sees the whole ontology except the
   three opt-in theories, CxNormalPhysicalConditions, CxPerception and
