@@ -57,33 +57,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   relates `marriedTo` to `romanticPartnerOf`: this theory already reaches `knows`
   from `friendOf` and `marriedTo` by separate rules because it does not claim every
   marriage is a friendship, and the edge would carry `marriedTo`'s rule under
-  `friendOf`'s and leave it covered. CxUniverse states `dwelling` disjoint from
-  `organism`, `substance` and `person` — a dwelling is an artifact, never alive,
-  never a raw substance and never a person — which the starter's disjointness audit
-  requires to hold its coverage ratchet. `social_test` pins the specialization edges
-  and both red-before-green derivations, `originatorOf` from `parentOf` and
-  `roommateOf` from co-dwelling. [contexts.md](docs/contexts.md)
+  `friendOf`'s and leave it covered. CxSocial states `dwelling` disjoint from
+  `organism`, `substance` and `person` — a dwelling is a building, never alive,
+  never a raw substance and never a person — which the disjointness audit, reading
+  from CxWell, requires to hold its coverage ratchet. `social_test` pins the
+  specialization edges, `dwelling`'s placement under `building` and its three
+  disjointness facts, and both red-before-green derivations, `originatorOf` from
+  `parentOf` and `roommateOf` from co-dwelling. [contexts.md](docs/contexts.md)
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
   *Migration:* none. CxSocial is a starter theory: every context below CxWell reads
   the new relations as declared here, as it already reads `knows`/`friendOf`/`marriedTo`.
-
-- **CxUniverse states the arity of a middle-spindle relation with no
-  relation-algebra mark, so disjointness-audit reads it as a relation rather than
-  an untyped type.** `symmetric`, `asymmetric`, `transitive` and the rest of the
-  relation-algebra marks are `decontextualized_predicate`s, lifted to CxUniverse
-  wherever they are stated; a plain `binary_predicate`/`ternary_predicate`
-  declaration is not, so a middle theory's relation that carries none of those
-  marks is invisible to `relation?` at CxUniverse, `disjointness-audit`'s default
-  vantage, and its node enters the audit as an untyped type instead of being
-  excluded as a relation. `(arity … n)` stated here is visible there directly:
-  CxSocial's `dwellsIn` and `relationshipLabel`, and CxPerception's `perceives`,
-  `sees`, `seeImage` and `watchVideo`.
-
-  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
-  far it moves an answer).
-  *Migration:* none.
 
 - **CxSocialExtension states nestingPartnerOf and chosenSiblingOf, as a new
   opt-in theory below CxSocial.** `nestingPartnerOf` is read by a rule from
@@ -126,18 +111,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   context placed under CxPerception reads `perceives`, `sees`, `seeImage` and
   `watchVideo` as declared there.
 
-- **CxUniverse states `image_viewing` as an event kind, beside travelling and
-  flying.** `hasCapability` takes an event kind as its second argument (#126), so
-  the ability to view a static image is read through it rather than through the
-  retired `capability`: `(hasCapability ?x image_viewing)` means `?x` can be the
-  doer of one. `(genl image_viewing acausal_event)` pairs it with CxPerception's
-  `seeImage`, the relation stating who is looking: taking in an image changes
-  nothing about what it depicts, so the event is a kind of `acausal_event`,
-  CxAbstract's intersection of `acausal` and `event`. Stated in CxUniverse rather
-  than in the opt-in CxPerception, as travelling and flying already are, so every
-  vantage sees the placement — `disjointness-audit`'s default included.
-  `perception_test` pins the placement at every vantage and the derivation of the
-  ability's causal class with no opt-in step.
+- **CxPerception states `image_viewing`, the ability to view a static image, as an
+  event kind.** `hasCapability` takes an event kind as its second argument (#126), so
+  the ability is read through it rather than through the retired `capability`:
+  `(hasCapability ?x image_viewing)` means `?x` can be the doer of one.
+  `(genl image_viewing acausal_event)` pairs it with `seeImage`, the relation stating
+  who is looking: taking in an image changes nothing about what it depicts, so the
+  event is a kind of `acausal_event`, CxAbstract's intersection of `acausal` and
+  `event`. Stated in the theory itself, as every other perception relation is, so a
+  context that does not see CxPerception derives no such capability class.
+  `perception_test` pins the placement at the theory's own vantage, its absence at
+  CxUniverse and CxAbstract, and the derivation of the ability's causal class under a
+  context placed under the theory.
 
   *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
   far it moves an answer).
