@@ -562,6 +562,7 @@
 (partition unrepresented_term boolean character keyword number string)
 (set/monotonic (disjoint expression relation))
 (set/monotonic (disjoint expression context))
+(genl context nowhere_never)
 
 (comment proposition "What a wff_sentence expresses: semantic content whose truth is evaluated in a context, which sentences in any language can carry. (dog Muffet) and \"Muffet est un chien\" express one proposition.")
 (unary_predicate proposition)
