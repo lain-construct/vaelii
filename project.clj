@@ -34,7 +34,7 @@
                 (concat on-path installs))))
       "bash"))
 
-(defproject com.vaelii/vaelii "0.24.0"
+(defproject com.vaelii/vaelii "0.24.1-SNAPSHOT"
   :description "Vaelii — a contextualized common-sense knowledge base with a
                 count-aware trie index, forward/backward inference,
                 and JTMS truth maintenance, over an in-memory or on-disk store."
