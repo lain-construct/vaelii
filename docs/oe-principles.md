@@ -85,7 +85,9 @@ Two exceptions, each marked with a comment saying which one applies:
 - **Implementation:** the engine needs the fact stated, for example because it reads the fact directly and doesn't derive it, or because it must hold in a context that can't see the facts it follows from.
 - **Documentation:** stating it makes the KB easier to read or browse, for example the parent edges an intersection implies.
 
-**Audit:** for every new `genl`, `disjoint` or `arg`, ask whether the rest of the KB already entails it. If so, drop it or mark which exception applies.
+The same holds for comments. A comment doesn't restate a definitional assertion the KB already makes: no "the complement of X", "with Y it partitions Z" or bare member list when a `partition`, `intersection` or `genl` says it. The comment says what membership means, with examples, and leaves the structure to the assertions.
+
+**Audit:** for every new `genl`, `disjoint` or `arg`, ask whether the rest of the KB already entails it. If so, drop it or mark which exception applies. For every comment, delete any clause that a definitional assertion already states.
 
 ## don't skip the predicate
 *Don't skip the predicate*
