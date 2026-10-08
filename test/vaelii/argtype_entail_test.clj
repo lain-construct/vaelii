@@ -1210,6 +1210,44 @@
       (is reads "a context reads the mint exactly when it sees a placement")
       (is (= after retracted)))))
 
+;; CxL and CxR sit under CxTop, and CxJ and CxK each under both.  `(genlCx CxK CxJ)` makes
+;; CxJ the one maximal common descendant of CxL and CxR while it stands.  With pruning on,
+;; `(dog A)` in CxJ withholds the mint there and not in CxK.
+
+(tu/deftest-kb a-genlCx-edge-leaving-places-the-mint-at-the-common-descendants-it-gives-back
+  (doseq [[prune? dog? want] [[false false #{:j :k}] [true false #{:j :k}]
+                              [true true #{:k}] [false true #{:j :k}]]]
+    (let [readings
+          (for [order (cons [:fact :decl]
+                            (filter #(< (.indexOf ^java.util.List % :edge)
+                                        (.indexOf ^java.util.List % :unedge))
+                                    (permutations [:fact :decl :edge :unedge])))]
+            (tu/with-neutral-kb [kb tu/fresh]
+              (tu/with-terms [rel tt dog A B CxTop CxL CxR CxJ CxK]
+                (binding [checks/*assertive-arg-types?*  true
+                          checks/*prune-subsumed-mints?* prune?]
+                  (let [edge (list 'genlCx CxK CxJ)]
+                    (doseq [[s g] [[CxTop 'CxUniverse] [CxL CxTop] [CxR CxTop]
+                                   [CxJ CxL] [CxJ CxR] [CxK CxL] [CxK CxR]]]
+                      (v/assert kb (list 'genlCx s g) 'CxUniverse))
+                    (a-type kb tt 'CxUniverse)
+                    (when dog?
+                      (v/assert kb (list 'genl dog tt) 'CxUniverse)
+                      (v/assert kb (list dog A) CxJ))
+                    (doseq [step order]
+                      (case step
+                        :fact   (v/assert kb (list rel A B) CxL)
+                        :decl   (v/assert kb (list 'arg rel 1 tt) CxR)
+                        :edge   (v/assert kb edge 'CxUniverse)
+                        :unedge (v/retract! kb (v/handle-of kb edge 'CxUniverse))))
+                    [order
+                     (into #{} (keep (fn [[k c]] (when (believed? kb (list tt A) c) k)))
+                           {:l CxL :r CxR :j CxJ :k CxK})
+                     (v/isa? kb A tt CxK)])))))]
+      (testing (pr-str [prune? dog?])
+        (is (= #{[want true]} (set (map rest readings)))
+            (pr-str (remove #(= [want true] (rest %)) readings)))))))
+
 ;; ---- genlArg -------------------------------------------------------------
 
 (tu/deftest-kb genlArg-entails-a-genl-edge

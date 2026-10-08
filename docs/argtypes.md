@@ -455,14 +455,19 @@ Each arrival direction reaches the placement:
   so every arrival order stores the same mints
   (`argtype_entail_test/a-mint-is-placed-at-the-most-general-contexts-that-see-the-fact-and-the-declaration`);
 - a **`genlCx` edge leaving** takes the mints that named it, and `rederive-descended`
-  draws the pair again at the placements that stand.
+  draws the pair again at the placements that stand. A context under its `sub` can also
+  become a maximal common descendant of a pair placed in a context it saw only through the
+  edge; the settle reads the mints placed in those contexts, and with pruning on the
+  records there that withheld one, and draws each pair again
+  (`special/departed-context-edge-mints`). `lein perf`'s
+  `genlcx-edge-leaving-beside-distant-mints` holds the cost flat in the mints stored
+  elsewhere
+  (`argtype_entail_test/a-genlCx-edge-leaving-places-the-mint-at-the-common-descendants-it-gives-back`).
 
-Three cases are not placed this way. A `genl` route edge or a trigger membership is read
+Two cases are not placed this way. A `genl` route edge or a trigger membership is read
 from the placement, so one stated below the placement draws no mint there. An `except`
 that hides an ingredient at a placement drops the mint there and places none below it,
-as at the fact's own context. An edge leaving re-places only the pairs whose
-justification named it, so a context that becomes a maximal common descendant without such
-a pair draws nothing.
+as at the fact's own context.
 
 ### An except of an ingredient
 

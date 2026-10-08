@@ -2362,12 +2362,15 @@
 
 (defn note-departure!
   "Queue `sentex`, leaving the store, for `withheld-releases` when it is a record that can
-  have subsumed a mint (`subsumer-shaped?`).  Called from `integrate/sentex-removed!`, the
-  one place a record leaves, and only with pruning on."
+  have subsumed a mint (`subsumer-shaped?`) and pruning is on, or a `genlCx` edge, whose
+  departure can give a mint pair a placement back (`departed-context-edge-mints`).  Called
+  from `integrate/sentex-removed!`, the one place a record leaves."
   [kb sentex]
-  (when (and checks/*assertive-arg-types?* checks/*prune-subsumed-mints?*)
+  (when checks/*assertive-arg-types?*
     (let [s (sx/sentence-of sentex)]
-      (when (subsumer-shaped? s)
+      (when (if checks/*prune-subsumed-mints?*
+              (subsumer-shaped? s)
+              (context-edge-shaped? s))
         (swap! (reasoning/mint-queues kb) update :departed (fnil conj [])
                (assoc (select-keys sentex [:id :context]) :sentence s))))))
 
@@ -2437,6 +2440,72 @@
                   (distinct))
             (tax/installed-edges s)))))
 
+(defn- lost-contexts
+  "The contexts a context under `sub` can have seen through the edge `(genlCx sub super)`
+  and no longer sees, read after the edge left: `super`'s ancestor set less `sub`'s, in
+  content order."
+  [tax [_ sub super]]
+  (let [kept (set (tax/context-up tax sub))]
+    (into [] (remove kept)
+          (nm/sort-by-content-key nm/name-key compare (tax/context-up tax super)))))
+
+(defn- departed-context-edge-mints
+  "Draw again, at the placements the taxonomy now gives (`pair-placements`), every mint
+  pair an edge among `edges` (`genlCx` sentences that left) can have kept from a placement
+  under its `sub`: `{:new [handle …] :violations [v …]}`.
+
+  The edge's arrival left such a placement below a more general one, which the settle
+  dropped (`surplus-placements`), and that general placement lies in a context `sub` saw
+  only through the edge (`lost-contexts`).  So the pairs are read off the mint family in
+  those contexts, each mint justification placed below its fact's context naming its fact
+  and declaration, and the cost is the mints the edge reaches.  With subsumed mints
+  pruned, a placement there can be withheld instead: the believed records stored there
+  that can subsume a mint release the terms they name, as their departure would
+  (`released-terms`)."
+  [kb edges]
+  (let [tax  (reasoning/taxonomy kb)
+        tms  (reasoning/tms kb)
+        idx  (:index kb)
+        recs (:records kb)
+        cx   #(:context (p/get-sentex recs %))
+        lost (into [] (comp (mapcat #(lost-contexts tax %)) (distinct)) edges)
+        pairs (into (sorted-set)
+                    (for [c     lost
+                          h     (reads/as-stored-mints-in idx c)
+                          jid   (jtms/supports tms h)
+                          :let  [j (jtms/justification tms jid)]
+                          :when (and j (mint-informant? (:informant j)))
+                          :let  [[f d] (:antecedents j)]
+                          :when (not= c (cx f))]
+                      [f d]))
+        mints (reduce (fn [acc [d fs]]
+                        (let [pl (placements-of kb d)]
+                          (reduce (fn [acc f]
+                                    (if-let [sx (p/get-sentex recs f)]
+                                      (merge-with into acc (retroactive-mints kb sx d pl))
+                                      acc))
+                                  acc (map second fs))))
+                      empty-entailment-result
+                      (group-by first (map (fn [[f d]] [d f]) pairs)))]
+    (if-not checks/*prune-subsumed-mints?*
+      mints
+      (let [terms (->> lost
+                       (into [] (comp (mapcat #(reads/as-stored-in-context idx %))
+                                      (keep #(p/get-sentex recs %))
+                                      (filter #(and (subsumer-shaped? (:sentence %))
+                                                    (not (context-edge-shaped? (:sentence %)))
+                                                    (jtms/in? tms (:id %))))
+                                      (mapcat #(released-terms kb %))
+                                      (filter symbol?)
+                                      (distinct)))
+                       (sort-by nm/name-key))]
+        (reduce (fn [acc x]
+                  (merge-with into acc
+                              (rederive-mints kb (facts-naming kb x)
+                                              (fn [s _] (= x (roster-term s))))))
+                mints
+                terms)))))
+
 (defn withheld-releases
   "The mints no longer withheld because a record that subsumed them left, and the
   justifications a withheld mint owes a record of its sentence that arrived: `{:new
@@ -2448,61 +2517,70 @@
   `was-in`; the arrivals are the ones that came IN.  `believed?` is belief now.
   `withdrawn` holds the mints this settle withdrew, which release nothing.  `asked` holds
   what this settle has already asked, so each record is asked once per settle however
-  many passes relabel it.  The queue is drained whether or not the gates pass."
+  many passes relabel it.  The queue is drained whether or not the gates pass.
+
+  A `genlCx` edge among the departures also draws again the mint pairs it can have kept
+  from a placement (`departed-context-edge-mints`), with pruning on or off."
   [kb moved was-in asked withdrawn believed?]
-  (let [queued (drain-departures! kb)]
-    (when (and checks/*assertive-arg-types?* checks/*prune-subsumed-mints?*
-               (any-declaring? kb))
-      (let [idx    (:index kb)
-            ;; the transition, not the region, as `subsumed-mint-blocks` reads it
+  (let [queued (drain-departures! kb)
+        prune? checks/*prune-subsumed-mints?*
+        idx    (:index kb)]
+    (when (and checks/*assertive-arg-types?* (any-declaring? kb)
+               (or prune? (pos? (reads/stored-mint-count idx))))
+      (let [;; the transition, not the region, as `subsumed-mint-blocks` reads it
             moves  (into []
                          (filter #(let [s (:sentence %) h (:id %)]
                                     (and (nil? (:antecedent %))
                                          (not (contains? @asked h))
                                          (not (contains? withdrawn h))
                                          (not= (contains? was-in h) (believed? h))
-                                         (subsumer-shaped? s))))
+                                         (if prune? (subsumer-shaped? s) (context-edge-shaped? s)))))
                          @moved)
             out    (into (into [] (remove #(contains? withdrawn (:id %))) queued)
                          (remove #(believed? (:id %)))
                          moves)
-            twins  (filter #(let [s (:sentence %)]
-                              (and (believed? (:id %))
-                                   (not (context-edge-shaped? s))
-                                   (not (when-let [x (roster-term s)]
-                                          (reads/stored-mint? idx x (:context %) (:id %))))
-                                   (checks/subsumed-mint kb s (:context %))))
-                           moves)
-            terms  (->> (remove #(context-edge-shaped? (:sentence %)) out)
-                        (mapcat #(released-terms kb %))
-                        (filter symbol?)
-                        distinct
-                        (sort-by nm/name-key))
-            tax    (reasoning/taxonomy kb)]
+            placed (departed-context-edge-mints
+                    kb (into [] (comp (map :sentence) (filter context-edge-shaped?)) out))]
         (vswap! asked into (map :id) moves)
-        (merge-with
-         into
-         (reduce (fn [acc x]
-                   (merge-with into acc (rederive-mints kb (facts-naming kb x)
-                                                        (fn [s _] (= x (roster-term s))))))
-                 {:new []}
-                 terms)
-         (reduce (fn [acc sx]
-                   (let [s (:sentence sx) c (:context sx)]
-                     (merge-with into acc (rederive-mints kb (facts-naming kb (roster-term s))
-                                                          (fn [s' c'] (and (= s s') (= c c')))))))
-                 {:new []}
-                 twins)
-         (rederive-mints kb
-                         (into []
-                               (comp (filter #(context-edge-shaped? (:sentence %)))
-                                     (mapcat #(sort-by nm/name-key
-                                                       (tax/context-down tax (nth (:sentence %) 1))))
-                                     (distinct)
-                                     (mapcat #(reads/as-stored-in-context (:index kb) %))
-                                     (keep #(p/get-sentex (:records kb) %)))
-                               out)
-                         (fn [s _] (some? (roster-term s)))))))))
+        (if-not prune?
+          (select-keys placed [:new])
+          (let [twins (filter #(let [s (:sentence %)]
+                                 (and (believed? (:id %))
+                                      (not (context-edge-shaped? s))
+                                      (not (when-let [x (roster-term s)]
+                                             (reads/stored-mint? idx x (:context %) (:id %))))
+                                      (checks/subsumed-mint kb s (:context %))))
+                              moves)
+                terms (->> (remove #(context-edge-shaped? (:sentence %)) out)
+                           (mapcat #(released-terms kb %))
+                           (filter symbol?)
+                           distinct
+                           (sort-by nm/name-key))
+                tax   (reasoning/taxonomy kb)]
+            (merge-with
+             into
+             (select-keys placed [:new])
+             (reduce (fn [acc x]
+                       (merge-with into acc (rederive-mints kb (facts-naming kb x)
+                                                            (fn [s _] (= x (roster-term s))))))
+                     {:new []}
+                     terms)
+             (reduce (fn [acc sx]
+                       (let [s (:sentence sx) c (:context sx)]
+                         (merge-with into acc (rederive-mints kb (facts-naming kb (roster-term s))
+                                                              (fn [s' c'] (and (= s s') (= c c')))))))
+                     {:new []}
+                     twins)
+             (rederive-mints kb
+                             (into []
+                                   (comp (filter #(context-edge-shaped? (:sentence %)))
+                                         (mapcat #(sort-by nm/name-key
+                                                           (tax/context-down tax (nth (:sentence %) 1))))
+                                         (distinct)
+                                         (mapcat #(reads/as-stored-in-context idx %))
+                                         (keep #(p/get-sentex (:records kb) %)))
+                                   out)
+                             (fn [s _] (some? (roster-term s)))))))))))
 
 (defn- declaring-predicates
   "The predicates an entailing argument declaration is written of, off the taxonomy's
