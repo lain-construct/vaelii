@@ -77,6 +77,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Internal**.
 
+- **A test pins the defeat-dependency cycle whose first defeat is out of force at a
+  reader.** With the first defeat's ground excepted at a reader below the cycle, that
+  reader reads the second defeat in force, and a reader that sees no except reads the
+  content-order answer, in all 120 arrival orders.
+  [nmtms.md](docs/nmtms.md#a-defeat-dependency-cycle).
+
+  *Class:* **Internal**.
+
 ## 0.24.0 — 2026-10-07 — "Reified `contradicts` and `defeat` sentexes synced to KB, upper ontology improvements and more disjointness, indexing improvements"
 
 | Area | Change |

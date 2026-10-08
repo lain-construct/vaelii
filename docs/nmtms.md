@@ -2059,11 +2059,15 @@ the first of them closes form the cycle, and `exc/close-cycle` orders them by th
 each removes (`nm/compare-form` on sentence, then context). The defeats of the first loser
 are read with the others out of force, and each is kept as read. When one of them is in
 force, the others are out of force for that read. When none is, the others are read again
-with those fixed, so a defeat that fails on its own terms (its winner excepted at the
-reader, say) does not take the rest out with it. Two defeats of one loser do not compete.
+with those fixed, so a defeat that fails on its own terms does not take the rest out with
+it. Two defeats of one loser do not compete.
 Here `(cat Rex)` sorts first, so D1 is in force: L1 and G2 are hidden at CxA, and L2 and G1
 are believed, in every arrival order and whichever loser a read asks first
 (`placed_nogood_test/a-defeat-dependency-cycle-is-broken-in-content-order`).
+An `(except G1)` at a reader below CxA hides D1's ground there, and that reader reads
+D2 in force (L2 and G1 hidden, L1 and G2 believed), while CxA and a reader beside the
+first, which see no except, read D1 in force
+(`placed_nogood_test/a-cycle-whose-first-defeat-is-out-of-force-at-a-reader-puts-the-second-in-force-there`).
 
 A cycle is not a dilemma: each nogood has its verdict, and the tie between the defeats
 takes the content tie-break the engine uses everywhere else. Nothing is stored, and the
