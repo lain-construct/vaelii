@@ -89,6 +89,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Fixes
 
+- **A new member of a closed part of a cover is admitted.** With every part of a
+  `covering` declared `closed_extent_predicate`, the cover check asked of `(quantifier
+  forall)` read `(not (quantifier forall))` off the closure's negation as failure, before
+  the membership that withdraws it was stored, and refused the membership as a coverage
+  violation. A part the membership puts its term in is now denied only by a stored
+  negation. The starter then loads the same KB whether the closures arrive before or
+  after the memberships.
+
+  *Class:* **Fix**.
+
 - **Two rule firings that pair the same facts with different literals are both stored.** A
   justification records the `[sub super]` predicate pairs its firing matched a fact to a
   literal through, as `:subsumptions`, and a route arriving later replaces only the
