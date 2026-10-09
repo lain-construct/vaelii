@@ -582,7 +582,7 @@
          "(arityMin ?relation ?n) means that a variable-arity ?relation requires at least ?n arguments. Every further position normally repeats the same argument role rather than introducing an unnamed optional field. The arity check refuses an application of the relation shorter than ?n.")
 (binary_predicate arityMin)
 (instance_relation_predicate arityMin)
-(arg arityMin 1 variable_arity)
+(arg arityMin 1 relation)
 (arg arityMin 2 non_negative_integer)
 
 (comment admitsArgnum
@@ -592,32 +592,48 @@
 (arg admitsArgnum 1 relation)
 (arg admitsArgnum 2 positive_integer)
 
-(comment at_least_binary_relation
-         "The type of variable relations whose stated minimum arity is two or greater. Derived from arityMin.")
-(unary_predicate at_least_binary_relation)
-(arg at_least_binary_relation 1 relation)
-;; arityMin is declared of variable-arity relations only, so every at_least_binary_relation
-;; is one, and (disjoint fixed_arity variable_arity) separates it from fixed_arity.
-(genl at_least_binary_relation variable_arity)
+(comment at_least_binary
+         "The type of relations of arity 2 or greater, fixed or variable. Derived from arity and from arityMin.")
+(unary_predicate at_least_binary)
+(arg at_least_binary 1 relation)
+(genl at_least_binary relation)
+(genl binary at_least_binary)
+;; partition is variable-arity and at least binary; parentOf is fixed-arity and at least binary.
+(orthogonal at_least_binary fixed_arity)
 
-(comment at_least_ternary_relation
-         "The type of relations whose stated minimum arity is three or greater. Every such relation is also an at_least_binary_relation.")
-(unary_predicate at_least_ternary_relation)
-(genl at_least_ternary_relation at_least_binary_relation)
+(comment at_least_ternary
+         "The type of relations of arity 3 or greater, fixed or variable. Every such relation is also an at_least_binary.")
+(unary_predicate at_least_ternary)
+(genl at_least_ternary at_least_binary)
+(genl ternary at_least_ternary)
 
 (set/forwardRule
  (implies
   (and
    (arityMin ?relation ?arity)
    (greaterThan ?arity 1))
-  (at_least_binary_relation ?relation)))
+  (at_least_binary ?relation)))
 
 (set/forwardRule
  (implies
   (and
    (arityMin ?relation ?arity)
    (greaterThan ?arity 2))
-  (at_least_ternary_relation ?relation)))
+  (at_least_ternary ?relation)))
+
+(set/forwardRule
+ (implies
+  (and
+   (arity ?relation ?arity)
+   (greaterThan ?arity 1))
+  (at_least_binary ?relation)))
+
+(set/forwardRule
+ (implies
+  (and
+   (arity ?relation ?arity)
+   (greaterThan ?arity 2))
+  (at_least_ternary ?relation)))
 
 ;; The meta-ontology rules below conclude into the ORDINARY placement — the maximal
 ;; context that sees the rule and the declaration — and not into a named one.  Every

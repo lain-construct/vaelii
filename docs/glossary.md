@@ -85,7 +85,8 @@ specializations. `arity` states one exact relation arity and derives its exact
 relation-wide class; `arityMin` states a variable relation's lower bound. These bindings
 are forced monotonic, and a tuple breaking one is a placed nogood
 ([taxonomy.md](taxonomy.md#arity)).
-`at_least_binary_relation` / `at_least_ternary_relation` are derived minimum classes.
+`at_least_binary` / `at_least_ternary` are the derived classes of relations of arity 2 or
+greater and 3 or greater, fixed or variable.
 `admitsArgnum` names whether one positive position exists; `AdmitsArgnumProver` answers
 `(admitsArgnum P n)` as a computed query, from a relation's `arity` and `variable_arity`
 mark rather than a stored fact. See [taxonomy.md](taxonomy.md#relations-and-arity-policy).
