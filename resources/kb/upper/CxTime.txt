@@ -265,7 +265,7 @@
 (comment initiates
          "(initiates ?event ?fluent ?instant) means that ?fluent is the case from ?instant onwards because ?event happened then. Stated of the event and the fluent together, since the same event can start one state and end another — waking starts being awake and ends being asleep. Says nothing on its own about whether the event occurred: that is happens, and both are needed. See docs/time.md.")
 (ternary_predicate initiates)
-(arg initiates 1 temporal)
+(arg initiates 1 causal)
 (arg initiates 2 fluent)
 (arg initiates 3 time_point)
 
@@ -516,7 +516,7 @@
 (comment terminates
          "(terminates ?event ?fluent ?instant) means that ?fluent stops being the case at ?instant because ?event happened then. The converse half of initiates, and what a later-arriving event uses to withdraw a conclusion inertia had already drawn — retract the event and the conclusion comes back. See docs/time.md.")
 (ternary_predicate terminates)
-(arg terminates 1 temporal)
+(arg terminates 1 causal)
 (arg terminates 2 fluent)
 (arg terminates 3 time_point)
 

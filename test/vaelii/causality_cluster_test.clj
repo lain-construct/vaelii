@@ -47,6 +47,15 @@
       (v/assert kb (list 'not (list 'causal Bystander)) 'CxUniverse)
       (is (true? (v/ask? kb (list 'acausal Bystander) 'CxUniverse))))))
 
+(tu/deftest-kb what-starts-or-stops-a-fluent-is-a-cause
+  ;; initiates and terminates take a causal first argument; happens keeps temporal, since
+  ;; something that happens need not cause anything.
+  (doseq [p '[initiates terminates]]
+    (is (true? (v/ask? kb (list 'arg p 1 'causal) 'CxTime)) (str p " takes a cause first"))
+    (is (empty? (v/sentexes-matching kb (list 'arg p 1 'temporal) 'CxTime))
+        (str p " declares its first position once")))
+  (is (true? (v/ask? kb '(arg happens 1 temporal) 'CxTime))))
+
 ;; ---- causal_event / acausal_event get their genls from intersection ------
 
 (tu/deftest-kb intersection-defined-events-derive-their-genls

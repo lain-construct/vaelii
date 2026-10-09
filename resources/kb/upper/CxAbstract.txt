@@ -190,7 +190,7 @@
 
 (comment static_situation "A situation extended in time but unchanged, a held state, e.g. a file existing. Contrast event, the kind whose state changes.")
 
-(comment event "Something that happens: an occurrence located in time whose state changes. The event-calculus slots (happens/initiates/terminates) are typed temporal and no event collection was declared; this names one.")
+(comment event "Something that happens: an occurrence located in time whose state changes. The event-calculus slots do not name it: happens takes a temporal thing, and initiates and terminates take a causal one.")
 ;; CxCore holds (genl situation temporal) and the partition of situation into these two.
 
 ;; --- causal / acausal: whether a thing can occupy a cause slot -----------------
