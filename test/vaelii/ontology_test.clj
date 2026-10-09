@@ -831,6 +831,20 @@
       (v/assert kb (list 'not (list 'uninterrupted Trial)) 'CxUniverse)
       (is (true? (v/ask? kb (list 'intermittent Trial) 'CxUniverse))))))
 
+(tu/deftest-kb a-tangible-is-uninterrupted-by-default
+  ;; A rock is present at every moment between its start and its end.  A watch taken
+  ;; apart and rebuilt is not, and stating so is allowed.
+  (is (true? (v/genl? kb 'tangible 'uninterrupted 'CxCore)))
+  (is (empty? (filter #(= :monotonic (:strength %))
+                      (v/sentexes-matching kb '(genl tangible uninterrupted) 'CxCore)))
+      "the edge is a default")
+  (tu/with-terms [Rock Watch]
+    (v/assert kb (list 'stone Rock) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'uninterrupted Rock) 'CxUniverse)))
+    (v/assert kb (list 'tangible Watch) 'CxUniverse)
+    (is (some? (v/assert kb (list 'intermittent Watch) 'CxUniverse)) "the write is stored")
+    (is (true? (v/ask? kb (list 'intermittent Watch) 'CxUniverse)))))
+
 (tu/deftest-kb a-time-is-uninterrupted-or-intermittent
   ;; A week's evenings are a time with gaps; a moment and a stretch are times with none.
   (doseq [ctx '[CxCore CxTime CxUniverse]]

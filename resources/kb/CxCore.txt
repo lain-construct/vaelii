@@ -1839,6 +1839,9 @@
 ;; A temporal thing is present at every moment between its start and its end, or it has a
 ;; gap.  The partition installs both parts' edges to temporal.
 (set/monotonic (partition temporal uninterrupted intermittent))
+;; A tangible is uninterrupted by default.  The edge is a default because a tangible
+;; can be intermittent, e.g. a watch taken apart and rebuilt.
+(genl tangible uninterrupted)
 ;; A thing either can be a cause or cannot, and a cause is in time.  CxAbstract comments
 ;; causal and acausal; the partition and the edges sit here so that every spindle member
 ;; reads them.  The partitions separate atemporal from causal but install no genl edge
