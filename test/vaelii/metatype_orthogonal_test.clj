@@ -66,6 +66,40 @@
     (is (derived-not-stated? kb 'orthogonal o e 'CxCore)
         (str "(orthogonal " o " " e ") is derived from (typeOrthogonal type_type_by_order " e ")"))))
 
+;; ---- orthogonalMetatypes ----------------------------------------------------
+
+(tu/deftest-kb two-orthogonal-metatypes-cross-every-member-pair
+  (tu/with-terms [shape_kind hue_kind round square red blue]
+    (doseq [t [round square red blue]] (v/assert kb (list 'genl t 'tangible) 'CxUniverse))
+    (doseq [m [shape_kind hue_kind]]
+      (v/assert kb (list 'metatype m) 'CxUniverse)
+      (v/assert kb (list 'forced_monotonic_predicate m) 'CxUniverse))
+    (doseq [[m t] [[shape_kind round] [shape_kind square] [hue_kind red] [hue_kind blue]]]
+      (v/assert kb (list m t) 'CxUniverse))
+    (v/assert kb (list 'orthogonalMetatypes shape_kind hue_kind) 'CxUniverse)
+    (doseq [s [round square], h [red blue]]
+      (is (true? (v/ask? kb (list 'orthogonal s h) 'CxUniverse))))
+    (is (not (v/ask? kb (list 'orthogonal round square) 'CxUniverse))
+        "two members of one metatype are not made orthogonal")))
+
+(tu/deftest-kb three-orthogonal-metatypes-cross-every-pair-of-metatypes
+  (tu/with-terms [shape_kind hue_kind size_kind round red big]
+    (doseq [t [round red big]] (v/assert kb (list 'genl t 'tangible) 'CxUniverse))
+    (doseq [[m t] [[shape_kind round] [hue_kind red] [size_kind big]]]
+      (v/assert kb (list 'metatype m) 'CxUniverse)
+      (v/assert kb (list 'forced_monotonic_predicate m) 'CxUniverse)
+      (v/assert kb (list m t) 'CxUniverse))
+    (v/assert kb (list 'orthogonalMetatypes shape_kind hue_kind size_kind) 'CxUniverse)
+    (doseq [[a b] [[round red] [round big] [red big]]]
+      (is (true? (v/ask? kb (list 'orthogonal a b) 'CxUniverse))
+          (str a " and " b " are orthogonal")))))
+
+(tu/deftest-kb location-in-space-and-location-in-time-cross
+  (is (true? (v/ask? kb '(orthogonalMetatypes spatiality_type temporality_type) 'CxCore)))
+  (doseq [s '[spatial aspatial], t '[temporal atemporal]]
+    (is (derived-not-stated? kb 'orthogonal s t 'CxCore)
+        (str "(orthogonal " s " " t ") is derived"))))
+
 ;; ---- logical and quantitative -------------------------------------------------
 
 (tu/deftest-kb logical-linguistic-and-quantitative-are-separated-under-nowhere-never

@@ -1152,6 +1152,8 @@
            [fixed_order_type "ontology, not grammar: a type whose members are all of one order, on the metatype-order ladder. No engine check names it."]
            [variable_order_type "ontology, not grammar: a type holding members of any order, on the metatype-order ladder. No engine check names it."]
            [type_type_by_order "ontology, not grammar: the disjoint_metatype partitioning fixed_order_type by order. No engine check names it."]
+           [spatiality_type "ontology, not grammar: the at_least_metatype holding spatial and aspatial. The orthogonalMetatypes and partitionedByType rules read its memberships as any membership is; no engine check names it."]
+           [temporality_type "ontology, not grammar: the at_least_metatype holding temporal and atemporal. The orthogonalMetatypes and partitionedByType rules read its memberships as any membership is; no engine check names it."]
            [arity_type "ontology, not grammar: the at_least_metatype of the relation-level arity types, e.g. binary and variable_arity. The typeOrthogonal rule reads its memberships as any membership is; no engine check names it."]])
 
     ;; ---- the two halves of unary_predicate ---------------------------------
@@ -1472,6 +1474,15 @@
                 (str "generic rule generator (docs/generators.md): the CxCore generator"
                      " beside it stamps one membership rule per fact, and chain inference"
                      " concludes every member of the classifier orthogonal to the type"))]
+     ['orthogonalMetatypes
+      (enforced {:shape {:args [] :variadic :type} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "enforced by the generic chain, not by name: CxCore generators"
+                             " stamp one membership-pair rule concluding orthogonal per pair of"
+                             " positions, for two and three metatypes only.")}
+                (str "generic rule generators (docs/generators.md): a fact of two or three"
+                     " metatypes stamps rules making every member of each orthogonal to every"
+                     " member of the others; four or more pends variable-arity rule support"))]
      ['partitionedByType
       (inert {:shape {:args [] :variadic :term} :storage [:none] :checked false
               :family nil :facets #{}

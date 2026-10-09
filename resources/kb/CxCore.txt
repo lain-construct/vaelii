@@ -1785,6 +1785,26 @@
          (set/forwardRule (implies (?classifier ?x) (orthogonal ?type ?x))))
 (implementationNote typeOrthogonal "The rule concludes (orthogonal ?type ?x), a literal on the forced-monotonic roster, from the membership (?classifier ?x). A firing from a membership off the roster supports nothing and is reported as a :forced-conclusion violation, so a classifier named by typeOrthogonal is declared forced_monotonic_predicate.")
 (termsRelated typeGenl typeOrthogonal orthogonal)
+
+;; orthogonalMetatypes crosses two or more classifiers member by member.  A generator per
+;; pair of positions stamps one strict rule over the two memberships, so, as with
+;; typeOrthogonal, a firing is believed only where both classifiers are on the
+;; forced-monotonic roster.
+(comment orthogonalMetatypes "(orthogonalMetatypes ?metatype1 ?metatype2 ...) means that every member of each named metatype is orthogonal to every member of each other named metatype, e.g. (orthogonalMetatypes spatiality_type temporality_type) says that each of spatial and aspatial overlaps each of temporal and atemporal without either side subsuming the other. Two members of one metatype are not made orthogonal.")
+(variable_arity_predicate orthogonalMetatypes)
+(unbounded_arity_predicate orthogonalMetatypes)
+(arityMin orthogonalMetatypes 2)
+(argAndRest orthogonalMetatypes 1 at_least_metatype)
+(commutative orthogonalMetatypes)
+(implies (orthogonalMetatypes ?metatype1 ?metatype2)
+         (set/forwardRule (implies (and (?metatype1 ?x) (?metatype2 ?y)) (orthogonal ?x ?y))))
+(implies (orthogonalMetatypes ?metatype1 ?metatype2 ?metatype3)
+         (set/forwardRule (implies (and (?metatype1 ?x) (?metatype2 ?y)) (orthogonal ?x ?y))))
+(implies (orthogonalMetatypes ?metatype1 ?metatype2 ?metatype3)
+         (set/forwardRule (implies (and (?metatype1 ?x) (?metatype3 ?y)) (orthogonal ?x ?y))))
+(implies (orthogonalMetatypes ?metatype1 ?metatype2 ?metatype3)
+         (set/forwardRule (implies (and (?metatype2 ?x) (?metatype3 ?y)) (orthogonal ?x ?y))))
+(termsRelated typeOrthogonal orthogonalMetatypes)
 (termsRelated genlInverse inverse)
 
 ;; The metatype-order ladder: a type is first-order (its instances are individuals), a
@@ -1875,16 +1895,30 @@
 ;; The three partitions cut thing along three axes — location in some space, location in
 ;; time, mass — so a part of one may overlap a part of another.  The seven pairs below each
 ;; overlap with neither side subsuming the other; not every cross-axis pair does, since
-;; tangible is below spatiotemporal and aspatial below intangible.  Stated, each pair reads
-;; :orthogonal without waiting for a shared instance.  A witness of the overlap per pair, and of neither side holding the other:
-;; a rock is spatial and temporal; the line y=x is only spatial; a fluent is only temporal.
-(set/monotonic (orthogonal spatial temporal))
-;; a number is aspatial and atemporal (nowhere_never); a fluent is aspatial and temporal.
-(set/monotonic (orthogonal aspatial atemporal))
-;; the line y=x is spatial and atemporal, located in the Cartesian plane and in no time.
-(set/monotonic (orthogonal spatial atemporal))
-;; a fluent is aspatial and temporal: it holds over time and is located in no space.
-(set/monotonic (orthogonal aspatial temporal))
+;; tangible is below spatiotemporal and aspatial below intangible.  Stated or derived, each
+;; pair reads :orthogonal without waiting for a shared instance.
+;;
+;; spatiality_type and temporality_type classify a thing by location in space and by
+;; location in time, and orthogonalMetatypes crosses them, which derives the four pairs
+;; over spatial, aspatial, temporal and atemporal.  A witness per pair: a rock is spatial
+;; and temporal; the line y=x is spatial and atemporal, located in the Cartesian plane and
+;; in no time; a fluent is aspatial and temporal; a number is aspatial and atemporal.
+;; Each classifier holds types of more than one order, e.g. aspatial holds every
+;; relation, so each is at_least_metatype.  Each membership is definitional, so each is on
+;; the forced-monotonic roster.
+(comment spatiality_type "A type of thing by whether it has a location in some space: spatial or aspatial.")
+(comment temporality_type "A type of thing by whether it has a location in time: temporal or atemporal.")
+(at_least_metatype spatiality_type)
+(at_least_metatype temporality_type)
+(typeGenl spatiality_type thing)
+(typeGenl temporality_type thing)
+(forced_monotonic_predicate spatiality_type)
+(forced_monotonic_predicate temporality_type)
+(spatiality_type spatial)
+(spatiality_type aspatial)
+(temporality_type temporal)
+(temporality_type atemporal)
+(orthogonalMetatypes spatiality_type temporality_type)
 ;; a region of space is intangible and spatial.
 (set/monotonic (orthogonal intangible spatial))
 ;; a fluent is intangible and temporal.
