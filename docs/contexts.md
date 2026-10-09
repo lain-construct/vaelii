@@ -80,7 +80,8 @@ Data hangs below CxWell.
   spindle](#a-context-outside-the-spindle)). It also holds the collections at the top
   of the ontology — the parts of the three partitions of `thing`
   ([taxonomy.md](taxonomy.md#the-three-partitions-of-thing)), `spatiotemporal`,
-  `nowhere_never`, `linguistic`, `biological`, `organism` and `measure` — which the
+  `nowhere_never`, `logical`, `linguistic`, `quantitative`, `biological`, `organism`
+  and `measure` — which the
   engine reads by no name (`vaelii.impl.predicates` classifies each inert) and which are
   here for the reason below: the members of a spindle see each other not at all, so a
   term two of them extend has to be defined in the head.
