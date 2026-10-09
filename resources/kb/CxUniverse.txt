@@ -17,6 +17,7 @@
 (context CxAnatomy)
 (context CxBiology)
 (context CxChange)
+(context CxComputing)
 (context CxCore)
 (context CxKinship)
 (context CxLife)

@@ -66,7 +66,7 @@ topology is **two spindles stacked**, most general (top) to most specific (botto
 | | head | members | collector |
 |---|---|---|---|
 | the upper spindle | CxCore | `resources/kb/upper/` — seven contexts | CxUniverse |
-| the middle spindle | CxUniverse | `kb/middle/` — seven contexts, beside three opt-in theories | CxWell |
+| the middle spindle | CxUniverse | `kb/middle/` — seven contexts, beside four opt-in theories | CxWell |
 
 CxUniverse is the joint, the first spindle's collector and the second's head, and it can
 be the second's head *because* it is the first's collector: a head is a context every
@@ -155,6 +155,15 @@ Data hangs below CxWell.
   kitchen. A context opts in by placing itself under CxNormalPhysicalConditions, and a
   context under both CxWell and CxNormalPhysicalConditions reads the everyday theories at
   room temperature.
+- **CxComputing** — an **opt-in** theory in `kb/middle/` that sees CxUniverse and that
+  CxWell does **not** see: ten relations over software tools, their invocations and
+  receipts, media resources and DNS names, and the sixteen kinds the relations are typed
+  over (`computational_system`, `software_tool`, `tool_invocation`, `media_resource`,
+  `ip_address` and the kinds below them), each with its comment, its `genl` edges and
+  its disjointness. CxComputing states no rule. A context opts in by placing itself
+  under CxComputing, and a context that does not see CxComputing reads neither a
+  relation nor a kind. `(functional toolName)` is a decontextualized mark, so every
+  context that sees CxUniverse reads that mark.
 - **CxPerception** — an **opt-in** theory in `kb/middle/` that sees CxUniverse and
   that CxWell does **not** see: perception relations. `perceives` is the general
   relation, and `sees`, `seeImage` and `watchVideo` each specialize it. A context opts
@@ -169,7 +178,7 @@ Data hangs below CxWell.
   context below CxWell, and the extension only to a context placed under it.
 - **CxWell** — the middle spindle's *collector*: it sees every middle member, so it
   (and any context hung beneath it) transitively sees the whole ontology except the
-  three opt-in theories, CxNormalPhysicalConditions, CxPerception and
+  four opt-in theories, CxNormalPhysicalConditions, CxComputing, CxPerception and
   CxSocialExtension.
 
 **A member sees no member, so a shared term belongs in the head.** That is what makes a

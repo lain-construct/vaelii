@@ -202,6 +202,42 @@ it — `git show v0.16.0:CHANGELOG.md`.
   solid and its mercury liquid, and a state it states otherwise for one of them is a
   disjointness nogood under `stuff_type_by_state_of_matter`.
 
+- **CxComputing states ten relations over software tools, their invocations and receipts,
+  media resources and DNS names, and the sixteen kinds they are typed over.** The new
+  theory in `kb/middle/` sees CxUniverse, and CxWell does not see it: a context opts in
+  by placing itself under CxComputing. It declares seven binary predicates (`toolName`,
+  `invokesTool`, `resourceUrl`, `receipt`, `probesPredicate`, `dnsResolvesTo`,
+  `agentHasTool`) and three ternary predicates (`toolInvocationArg`, `toolArgType`,
+  `toolArgComment`), each with its comment and its `arg` and `quotedArg` declarations,
+  and `(functional toolName)`. CxComputing states no rule. It states the sixteen kinds
+  itself, each with its comment: `computational_system` below `intangible`, with
+  `software_tool`, `command_line_tool`, `mcp_tool`, `read_only_software_tool` (also below
+  `acausal`) and `write_capable_software_tool` (also below `causal`) under it;
+  `information_bearing_thing` below `intangible` and `acausal`, with `digital_artifact`,
+  `media_resource`, `image` and `video` under it; `tool_invocation` below `event`;
+  `tool_receipt` below `acausal_event`; and `ip_address` below `string`, partitioned into
+  `ipv4_address` and `ipv6_address`. It states four `disjoint` sentences at default
+  strength: `computational_system` against `event` and against `expression`, `image`
+  against `video`, and `tool_receipt` against `tool_invocation`. `software_tool` has no
+  edge to `tool`, which is a tangible made thing. CxUniverse states
+  `(context CxComputing)` beside the other shipped contexts and states no relation and
+  no kind of the theory, so `disjointness-audit` at its default vantage, CxWell, sweeps
+  none of the sixteen kinds.
+  Position 1 of `agentHasTool` and position 3 of `toolArgType` declare no type and are
+  rows of `ontology_test`'s untyped-positions roster. `computing_test` pins the wiring,
+  the placements and separations of the kinds as a context under the theory reads them,
+  the type each `arg` declaration derives there, the absence of every relation
+  declaration and every kind's placement in a context that does not see the theory, and
+  the `check` convictions under the constraint-only reading; `seed_test` lists the theory
+  among the files in `kb/middle/`. [contexts.md](docs/contexts.md)
+
+  *Class:* **Additive** (shipped ontology content, which takes no Breaking label however
+  far it moves an answer).
+  *Migration:* none. A context below CxWell reads no computing relation and no computing
+  kind. A context placed under CxComputing reads the ten relations and the sixteen kinds
+  as declared there. `(functional toolName)` is a decontextualized mark, so every context
+  that sees CxUniverse reads that mark.
+
 - **CxCore states `(predAllSpecified typeGenl at_least_metatype)` and
   `(predAllSpecified genl unary_predicate)`.** Every `at_least_metatype` is required to
   name, through `typeGenl`, a type its instances specialize, and every `unary_predicate`

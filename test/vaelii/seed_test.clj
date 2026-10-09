@@ -28,7 +28,7 @@
              CxSociety CxSpace CxTime]
            (seed/layer-contexts "upper"))))
   (testing "middle holds the theory contexts"
-    (is (= '[CxAnatomy CxBiology CxChange CxKinship
+    (is (= '[CxAnatomy CxBiology CxChange CxComputing CxKinship
              CxMereology CxNormalPhysicalConditions CxPerception CxSize CxSocial
              CxSocialExtension]
            (seed/layer-contexts "middle"))))
