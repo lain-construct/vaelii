@@ -10,6 +10,10 @@
 ;; CxCore: organization is intangible and animal is tangible.
 ;; A bonsai or a grafted apple tree is a made plant (made is CxAbstract's, plant CxOrganism's).
 (orthogonal made plant)
+;; A cloned sheep is a made vertebrate, and a lab-bred fruit fly a made invertebrate (made is
+;; CxAbstract's, vertebrate and invertebrate CxOrganism's).
+(orthogonal made vertebrate)
+(orthogonal made invertebrate)
 ;; A water level or a tap's rate is a quantity, and a quantity causes nothing; what changes
 ;; it does (quantity is CxMeasure's, acausal CxAbstract's).
 (genl quantity acausal)

@@ -127,6 +127,13 @@
 (arg mortal 1 organism)
 (genl mortal organism)
 
+;; A dead dog is an animal that is not alive, and a living oak is alive and no animal.
+;; dead and mortal cut across animal the same way, e.g. a hydra is an animal that is not
+;; mortal.
+(orthogonal animal mortal)
+(orthogonal animal dead)
+(orthogonal animal alive)
+
 (comment MotherFn
          "(MotherFn ?animal) means the mother of ?animal. The same shape as FatherFn, over motherOf.")
 (reifiable_function MotherFn)

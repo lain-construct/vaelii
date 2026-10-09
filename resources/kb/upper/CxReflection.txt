@@ -52,6 +52,9 @@
 (genl non_atomic_term non_atomic_expression)
 (genl formula non_atomic_expression)
 (set/monotonic (disjoint formula non_atomic_term))
+;; A literal can be ill-formed, e.g. (dog Muffet Fido) with dog unary, and a well-formed
+;; term is a wff_expression that is no literal.
+(orthogonal literal wff_expression)
 (genl literal formula)
 (genl predication literal)
 (genl negated_predication literal)

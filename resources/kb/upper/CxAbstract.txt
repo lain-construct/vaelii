@@ -36,6 +36,10 @@
 (orthogonal food natural)
 (orthogonal food biological)
 (orthogonal food formation)
+;; A steel ingot is a made solid, and a granite boulder a natural one.
+(orthogonal made solid)
+;; A bladder is a biological container, and a cup a container that is not biological.
+(orthogonal biological container)
 
 (comment building "An artifact that is a fixed structure enclosing space.")
 
