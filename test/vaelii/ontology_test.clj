@@ -851,6 +851,20 @@
       (v/assert kb (list 'uninterrupted Afternoon) 'CxUniverse)
       (is (true? (v/ask? kb (list 'uninterrupted_time Afternoon) 'CxUniverse))))))
 
+(tu/deftest-kb a-temporal-thing-has-a-time-and-a-time-is-its-own
+  (testing "TimeOfFn ships with its corresponding predicate"
+    (is (true? (v/ask? kb '(functionCorrespondingPredicate TimeOfFn timeOf) 'CxTime)))
+    (is (true? (v/ask? kb '(reifiable_function TimeOfFn) 'CxTime)))
+    (is (true? (v/ask? kb '(arg TimeOfFn 1 temporal) 'CxTime)))
+    (is (true? (v/ask? kb '(result TimeOfFn time) 'CxTime)))
+    (is (true? (v/ask? kb '(arg timeOf 1 temporal) 'CxTime)))
+    (is (true? (v/ask? kb '(arg timeOf 2 time) 'CxTime))))
+  (testing "a time is its own time, so the function names it"
+    (tu/with-terms [Afternoon]
+      (v/assert kb (list 'time_interval Afternoon) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'timeOf Afternoon Afternoon) 'CxUniverse)))
+      (is (true? (v/ask? kb (list 'time_interval (list 'TimeOfFn Afternoon)) 'CxUniverse))))))
+
 ;; ---- the upper divisions by location and by mass --------------------------
 ;; Two partitions of `thing`.  `spatial` / `aspatial` divides by a location in SOME space —
 ;; physical space, or a mathematical one, where a line or a square of an abstract board

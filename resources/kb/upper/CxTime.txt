@@ -521,6 +521,26 @@
 (arg terminates 2 fluent)
 (arg terminates 3 time_point)
 
+(comment TimeOfFn
+         "(TimeOfFn ?thing) means the time ?thing occupies: the moment or the stretches of time over which it exists, holds or happens. The time of an uninterrupted thing is an uninterrupted_time, and the time of an intermittent thing an intermittent_time. A time is its own time. A reifiable_function, one value per temporal thing, and timeOf is the corresponding predicate, so (TimeOfFn ?thing) and a believed (timeOf ?thing ?time) name one time. See docs/time.md.")
+(reifiable_function TimeOfFn)
+(unary_function TimeOfFn)
+(functionCorrespondingPredicate TimeOfFn timeOf)
+(arg TimeOfFn 1 temporal)
+(result TimeOfFn time)
+
+(comment timeOf
+         "(timeOf ?thing ?time) means that ?time is the time ?thing occupies, the time (TimeOfFn ?thing) names. TimeOfFn is the corresponding function, and its value is the last argument. See docs/time.md.")
+(binary_predicate timeOf)
+(instance_relation_predicate timeOf)
+(arg timeOf 1 temporal)
+(arg timeOf 2 time)
+
+;; A time is its own time.
+(set/forwardRule
+ (implies (and (time ?time))
+          (timeOf ?time ?time)))
+
 (comment totalDuration
          "(totalDuration (list ?interval1 ?interval2 …) ?duration) means that ?duration is the sum of the listed intervals' lengths, which must all be of one dimension. Binary rather than ternary: the (list …) of components is one argument, which is also why the signature is read as a description instead of substituted into. Computed by a prover, never stored.")
 (binary_predicate totalDuration)
