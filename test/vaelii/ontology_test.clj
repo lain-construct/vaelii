@@ -1052,6 +1052,19 @@
     (v/assert kb (list 'fluent ThinIce) 'CxUniverse)
     (is (not (tu/stored-in-clash? kb (list 'spatial ThinIce) 'CxUniverse)))))
 
+(tu/deftest-kb a-quantity-is-in-time-causes-nothing-and-is-no-situation
+  ;; A water level is a magnitude that changes over time.  It causes nothing itself, and
+  ;; the level being 3 m is a fluent about it rather than the quantity.
+  (doseq [ctx '[CxMeasure CxUniverse]]
+    (testing (str ctx)
+      (is (true? (v/genl? kb 'quantity 'temporal ctx)))
+      (is (true? (v/genl? kb 'quantity 'acausal ctx)))
+      (is (true? (v/disjoint? kb 'quantity 'situation ctx)))
+      (is (true? (v/disjoint? kb 'quantity 'fluent ctx)))))
+  (tu/with-terms [WaterLevel]
+    (v/assert kb (list 'quantity WaterLevel) 'CxUniverse)
+    (is (true? (tu/stored-in-clash? kb (list 'fluent WaterLevel) 'CxUniverse)))))
+
 (def ^:private aspatial-kinds
   "The kinds with no location in any space, each with the contexts that read it as
   aspatial.  `context` and `language` are read from two band contexts besides CxCore,
