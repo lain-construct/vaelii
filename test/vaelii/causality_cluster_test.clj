@@ -69,6 +69,17 @@
     (is (true? (v/ask? kb '(orthogonal situation spatial) 'CxCore)))
     (is (true? (v/ask? kb '(orthogonal uninterrupted_situation spatial) 'CxCore)))))
 
+;; ---- a situation is no tangible -------------------------------------------
+
+(tu/deftest-kb a-situation-is-not-the-matter-in-it
+  ;; The boulder is an input to its rolling, not a part of it.
+  (doseq [ctx '[CxCore CxUniverse]]
+    (is (true? (v/disjoint? kb 'tangible 'situation ctx)) (str ctx)))
+  (tu/with-terms [Rolling]
+    (v/assert kb (list 'event Rolling) 'CxUniverse)
+    (is (true? (tu/stored-in-clash? kb (list 'stone Rolling) 'CxUniverse))
+        "an event stated a stone is a clash")))
+
 ;; ---- causal / acausal partition of thing ---------------------------------
 
 (tu/deftest-kb causal-and-acausal-are-kinds-of-thing
