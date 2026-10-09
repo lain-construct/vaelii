@@ -90,18 +90,12 @@
   materialized on, checked like any symbol — so a compound seen here is one that is never
   minted, and its function's declaration is the only thing the KB can know about it.
 
-  A boolean is tested before a symbol only because `false` and `nil` are the two values
-  a `cond` arm can be written to fall through by accident; the order is otherwise free."
+  A literal value's kind is `provers/literal-value-kind`'s, the table `EvaluableProver`
+  answers a value-kind membership from, so the argument checks and the prover read one
+  classification.  A symbol is the one kind added here."
   [x]
-  (cond
-    (string? x)                              'string
-    (boolean? x)                             'boolean
-    (integer? x)                             'integer
-    (number? x)                              'number
-    (keyword? x)                             'keyword
-    (char? x)                                'character
-    (and (symbol? x) (not (sx/variable? x))) 'symbol
-    :else                                    nil))
+  (or (provers/literal-value-kind x)
+      (when (and (symbol? x) (not (sx/variable? x))) 'symbol)))
 
 (defn- value-kinds
   "The most specific built-in types known from a value.
