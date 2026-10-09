@@ -8,8 +8,10 @@
 ;; --- cross-member disjointness (upper spindle) ---
 ;; organization and animal are separated by (partition thing tangible intangible) in
 ;; CxCore: organization is intangible and animal is tangible.
-;; A bonsai or a grafted apple tree is a made plant (made is CxAbstract's, plant CxOrganism's).
-(orthogonal made plant)
+;; A bonsai or a grafted apple tree is a made plant, and a rock is natural and no plant.
+;; The fact derives plant's orthogonals with made and with natural (origin_type is
+;; CxAbstract's, plant CxOrganism's).
+(typeOrthogonal origin_type plant)
 ;; A cloned sheep is a made vertebrate, and a lab-bred fruit fly a made invertebrate (made is
 ;; CxAbstract's, vertebrate and invertebrate CxOrganism's).
 (orthogonal made vertebrate)
