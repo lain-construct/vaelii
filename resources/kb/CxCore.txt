@@ -1804,6 +1804,7 @@
          (set/forwardRule (implies (and (?metatype1 ?x) (?metatype3 ?y)) (orthogonal ?x ?y))))
 (implies (orthogonalMetatypes ?metatype1 ?metatype2 ?metatype3)
          (set/forwardRule (implies (and (?metatype2 ?x) (?metatype3 ?y)) (orthogonal ?x ?y))))
+(implementationNote orthogonalMetatypes "The rules are stated for two and for three metatypes, so a fact of four or more concludes nothing. A rule for any arity needs engine support for ranging over a fact's arguments: https://github.com/vaelii/vaelii/issues/170")
 (termsRelated typeOrthogonal orthogonalMetatypes)
 (termsRelated genlInverse inverse)
 
@@ -1831,6 +1832,7 @@
 (implies (and (partitionedByType ?whole ?classifier) (different ?whole thing))
          (set/forwardRule (implies (?classifier ?part) (genl ?part ?whole))))
 (set/forwardRule (implies (partitionedByType ?whole ?classifier) (disjoint_metatype ?classifier)))
+(implementationNote partitionedByType "No rule draws the coverage half, so a partition stated beside each fact carries it. Coverage read from the classifier's members needs engine support: https://github.com/vaelii/vaelii/issues/171")
 (termsRelated partition partitionedByType)
 (unary_predicate type)
 (at_least_metatype disjoint_metatype)
