@@ -464,7 +464,7 @@ loser at its network label when only the nogood's own reading hides it, so the
 placement does not hide itself. Any other `defeat` or `except` of the loser hides them.
 See [nmtms.md](nmtms.md#a-nogood-placed-as-a-conclusion).
 
-**`expression`** ![kb](../.github/badges/cat-kb.svg): The CxReflection collection of written forms, what a `(Quote …)` names — a symbol, a value, a variable, or a compound written from them. Below `linguistic`, and disjoint from `relation`, `context` and `language`, which an expression names rather than is. See [taxonomy.md](taxonomy.md).
+**`expression`** ![kb](../.github/badges/cat-kb.svg): The CxReflection collection of written forms in this KB's own language, what a `(Quote …)` names — a symbol, a value, a variable, or a compound written from them. Below `linguistic`, and disjoint from `relation`, `context` and `language`, which an expression names rather than is. A natural-language sentence is `linguistic` but not an `expression`. See [taxonomy.md](taxonomy.md).
 
 **Extent** ![backend](../.github/badges/cat-backend.svg): The set of sentexes at
 a secondary root — a context, a functor, or an argument position — each set's
