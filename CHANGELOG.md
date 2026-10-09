@@ -11,6 +11,44 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Breaking
+
+- **`partitionedByType` is binary, `(partitionedByType ?whole ?classifier)`, and draws
+  inference.** The members of `?classifier` partition `?whole`. A CxCore generator places
+  each member under `?whole`, and a rule concludes `(disjoint_metatype ?classifier)`. No
+  rule draws the coverage half (vaelii/vaelii#171), so the `partition` sentence stays
+  beside each of the 4 shipped facts: `fixed_order_type` by `type_type_by_order`,
+  `tangible` by `origin_type`, and `thing` by `spatiality_type` and by
+  `temporality_type`. [glossary.md](docs/glossary.md).
+
+  *Class:* **Breaking** (KB vocabulary arity changed).
+  *Migration:* drop the cell list: write `(partitionedByType W C)` for
+  `(partitionedByType W C A B …)`, and state each cell's membership `(C A)`.
+  *Breaks:* `partitionedByType`
+
+### Additions
+
+- **The upper ontology states `logical`, `quantitative`, `typeOrthogonal`,
+  `orthogonalMetatypes` and `implementationNote`, and derives 42 genl, disjoint and
+  orthogonal sentences it stated.** `(separating nowhere_never logical linguistic
+  quantitative)` separates three kinds: `relation`, `proposition` and `context` are
+  `logical`, and `measure`, `unit_of_measure`, `physical_dimension` and `sign_value` are
+  `quantitative`. `(typeOrthogonal ?classifier ?type)` makes every member of a classifier
+  orthogonal to `?type`, and `(orthogonalMetatypes ?m1 ?m2 …)` makes every member of each
+  metatype orthogonal to every member of the others, for two and three metatypes
+  (vaelii/vaelii#170). Each is a CxCore rule generator. The classifiers `arity_type`,
+  `origin_type`, `spatiality_type` and `temporality_type` are new, and each classifier a
+  rule reads is on the forced-monotonic roster. 9 `typeOrthogonal` facts and one
+  `orthogonalMetatypes` fact derive 31 orthogonal pairs, 21 of them stated before, and
+  every arity type is orthogonal to `abducible_predicate`. 9 more orthogonal pairs are
+  stated, e.g. `made` and `vertebrate`, `animal` and `food`. `implementationNote` is a
+  sibling of `comment` for how a term is implemented, and 12 CxCore terms carry one.
+  [taxonomy.md](docs/taxonomy.md), [glossary.md](docs/glossary.md).
+
+  *Class:* **Additive**.
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |
