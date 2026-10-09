@@ -1105,6 +1105,17 @@
            [ill_formed_sentence "documentary: a closed formula-shaped expression that is not well-formed. Nothing reads it by name."]
            [linguistic "documentary: a language, or an expression written in one — what has its being in a system of signs. Nothing reads it by name."]])
 
+    ;; ---- the use/mention vocabulary ---------------------------------------
+    ;; proposition names what a wff_sentence expresses; means, denotes and expresses
+    ;; relate an expression to what it carries.  Each is a plain predicate
+    ;; (proposition a unary one), assertible and stored like typeToInstancePred and
+    ;; every other fact — nothing in the engine reads any of them by name.
+    (map (fn [[t why]] [t (inert (collection :notes why) why)])
+         '[[proposition "documentary: what a wff_sentence expresses, disjoint from linguistic and below nowhere_never. A plain unary_predicate; nothing reads it by name."]
+           [means "documentary: a plain binary predicate relating a closed wff_expression to its semantic content, assertible and stored like any relation. Nothing reads it by name."]
+           [denotes "documentary: the means specialization naming what a denotational_term names, assertible and stored like any relation. Nothing reads it by name."]
+           [expresses "documentary: the means specialization naming the proposition a wff_sentence says, assertible and stored like any relation. Nothing reads it by name."]])
+
     ;; ---- the upper-ontology skeleton -------------------------------------
     ;; The collections CxCore holds so that a spindle member can place its own types
     ;; under the root, or declare a position over a type a second member declares one
