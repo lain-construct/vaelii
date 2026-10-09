@@ -595,11 +595,23 @@
   ([conn level goal] (c/lookup conn level goal))
   ([conn level goal context] (c/lookup conn level goal context)))
 
+(defn max-specs
+  "The **maximal** subtypes of type `t`: its direct children (`direct-specs`) with no other
+  direct child of `t` strictly above them."
+  ([conn t] (c/max-specs conn t))
+  ([conn t context] (c/max-specs conn t context)))
+
 (defn metatype-members
   "The member types of disjoint metatype `m` — the set whose every pair `disjoint?` holds
   of, closed under genl."
   [conn m]
   (c/metatype-members conn m))
+
+(defn min-genls
+  "The **minimal** supertypes of type `t`: its direct parents (`direct-genls`) with no
+  other direct parent of `t` strictly below them."
+  ([conn t] (c/min-genls conn t))
+  ([conn t context] (c/min-genls conn t context)))
 
 (defn possible-relations
   "The base relations `calculus` still allows between `a` and `b`, given everything

@@ -1298,6 +1298,82 @@
         (is (re-find #"badge-out" body)
             "and the row is still listed, dimmed — the page does not disagree with itself")))))
 
+;; ---- the nearest neighbours in the subsumption order ---------------------
+
+(defn- node-ys
+  "Each drawn term's box `y`, by the node's title.  A smaller `y` is a higher row."
+  [svg]
+  (into {}
+        (map (fn [[_ y t]] [t (Long/parseLong y)]))
+        (re-seq #"y=\"(-?\d+)\"\s*/?>(?:</rect>)?<text[^>]*>[^<]*</text><title>([^<]*)</title>"
+                (or svg ""))))
+
+(defn- grown
+  "One side of the taxonomy view of `term`, as `[term from]` pairs per row."
+  [dir hops term]
+  (let [grow (ns-resolve 'vaelii.browser.web 'grow)]
+    (mapv (fn [row] (into #{} (map (juxt :term :from)) row))
+          (:rows (grow tu/*kb* 'genl dir hops term 6)))))
+
+(tu/deftest-kb a-stated-genl-to-a-farther-supertype-is-not-drawn-as-a-direct-neighbour
+  ;; `near_sub ⊂ near_mid ⊂ near_top`, and `(genl near_sub near_top)` is stated beside them
+  (tu/with-terms [near_sub near_mid near_top]
+    (v/assert kb (list 'genl near_mid near_top) 'CxUniverse)
+    (v/assert kb (list 'genl near_sub near_mid) 'CxUniverse)
+    (v/assert kb (list 'genl near_sub near_top) 'CxUniverse)
+    (testing "above the subtype: the middle type, and the top type above the middle type"
+      (let [[row1 row2] (grown :up 2 near_sub)]
+        (is (= #{[near_mid near_sub]} row1))
+        (is (contains? row2 [near_top near_mid])))
+      (doseq [qs ["&derived=show" "&derived=hide"]]
+        (let [ys (node-ys (svg-of (:body (GET "/term" (str "q=" near_sub qs)))))]
+          (is (< (ys (str near_top)) (ys (str near_mid)) (ys (str near_sub))) qs))))
+    (testing "below the top type: the middle type, and the subtype below the middle type"
+      (let [[row1 row2] (grown :down 2 near_top)]
+        (is (= #{[near_mid near_top]} row1))
+        (is (= #{[near_sub near_mid]} row2)))
+      (doseq [qs ["&derived=show" "&derived=hide"]]
+        (let [ys (node-ys (svg-of (:body (GET "/term" (str "q=" near_top qs)))))]
+          (is (< (ys (str near_top)) (ys (str near_mid)) (ys (str near_sub))) qs))))))
+
+(tu/deftest-kb a-type-an-intersection-places-draws-the-intersected-types-directly-above
+  ;; no `genl` sentence is stated for `met_both`: the `intersection` rules derive both
+  (tu/with-terms [met_both met_left met_right]
+    (v/assert kb (list 'intersection met_both met_left met_right) 'CxUniverse)
+    (is (= #{[met_left met_both] [met_right met_both]} (first (grown :up 1 met_both))))
+    (let [ys (node-ys (svg-of (:body (GET "/term" (str "q=" met_both "&derived=show")))))]
+      (is (< (ys (str met_left)) (ys (str met_both))))
+      (is (= (ys (str met_left)) (ys (str met_right)))))
+    (is (= #{[met_both met_left]} (first (grown :down 1 met_left))))))
+
+(tu/deftest-kb an-edge-an-intersection-derives-puts-a-stated-farther-supertype-above-it
+  ;; `met_both ⊂ met_left` is derived, `met_left ⊂ met_far` is stated, and
+  ;; `(genl met_both met_far)` is stated beside them
+  (tu/with-terms [met_both met_left met_right met_far]
+    (v/assert kb (list 'genl met_left met_far) 'CxUniverse)
+    (v/assert kb (list 'intersection met_both met_left met_right) 'CxUniverse)
+    (v/assert kb (list 'genl met_both met_far) 'CxUniverse)
+    (let [[row1 row2] (grown :up 2 met_both)]
+      (is (= #{[met_left met_both] [met_right met_both]} row1))
+      (is (contains? row2 [met_far met_left])))
+    (let [[row1 row2] (grown :down 2 met_far)]
+      (is (= #{[met_left met_far]} row1))
+      (is (= #{[met_both met_left]} row2)))))
+
+(tu/deftest-kb one-side-of-the-taxonomy-view-gives-the-subsumption-edges-it-drew-as-pairs
+  (tu/with-terms [near_sub near_mid near_top]
+    (v/assert kb (list 'genl near_mid near_top) 'CxUniverse)
+    (v/assert kb (list 'genl near_sub near_mid) 'CxUniverse)
+    (v/assert kb (list 'genl near_sub near_top) 'CxUniverse)
+    (let [grow  (ns-resolve 'vaelii.browser.web 'grow)
+          pairs (ns-resolve 'vaelii.browser.web 'drawn-subsumptions)
+          up    (pairs (grow kb 'genl :up 2 near_sub 6) :up)
+          down  (pairs (grow kb 'genl :down 2 near_top 6) :down)]
+      (is (contains? up [near_sub near_mid]))
+      (is (contains? up [near_mid near_top]))
+      (is (not (contains? up [near_sub near_top])))
+      (is (= #{[near_mid near_top] [near_sub near_mid]} down)))))
+
 (tu/deftest-kb a-sentex-circle-is-coloured-by-what-the-sentex-is
   ;; colour is the whole of the badge now — no glyph to read — so the class that carries
   ;; the colour is the assertion.  Negation outranks strength: a reader who misses a `not`

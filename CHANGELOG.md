@@ -75,6 +75,21 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **`min-genls` and `max-specs` read a type's nearest neighbours in the subsumption
+  order, and the term page's concept graph draws them.** `(min-genls kb t [context])`
+  answers the direct parents of `t` with no other direct parent of `t` strictly below
+  them, and `max-specs` the direct children with no other direct child strictly above
+  them. Both read every believed edge of the closure, whatever installed the edge: a
+  stated `genl`, a derived one such as an `intersection`'s, or a cover roster's. The
+  daemon and `vaelii.client` serve both. The concept graph's `genl` rows draw these sets
+  at every expanded node, where they drew `direct-genls` and `direct-specs`: with
+  `dog ⊂ mammal ⊂ animal` believed and `(genl dog animal)` stated, the page for `dog`
+  draws `animal` above `mammal` and no arrow from `dog` to `animal`. An expansion costs
+  at most two facade reads, and a page makes at most twelve expansions.
+  [api.md](docs/api.md), [web.md](docs/web.md#a-terms-shape-drawn).
+
+  *Class:* **Additive**.
+
 - **`try-assert` refuses a write that would open a definitional clash.** It is `assert`
   plus a refusal, `:definitional-clash`, for a sentence whose own clash or whose
   argument-type mints' clash with believed content `assert` would store and settle.

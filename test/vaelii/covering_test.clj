@@ -203,6 +203,24 @@
       (is (some (fn [[w ps]] (and (= animal w) (= #{dog cat} (set ps))))
                 (v/separating-covers kb))))))
 
+(tu/deftest-kb a-roster-edge-counts-in-min-genls-and-max-specs
+  ;; `puppy ⊂ dog` is stated, `dog ⊂ animal` is the roster's, and `(genl puppy animal)` is
+  ;; stated beside them
+  (tu/with-terms [animal dog cat puppy CxA CxB]
+    (doseq [c [CxA CxB]] (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+    (v/assert kb (list 'separating animal dog cat) CxA)
+    (v/assert kb (list 'genl puppy dog) CxA)
+    (v/assert kb (list 'genl puppy animal) CxA)
+    (testing "the one-step adjacency holds the stated edge to the whole"
+      (is (= #{dog animal} (v/direct-genls kb puppy CxA)))
+      (is (= #{dog cat puppy} (v/direct-specs kb animal CxA))))
+    (testing "the nearest neighbours leave it out, through the roster's edge"
+      (is (= #{dog} (v/min-genls kb puppy CxA) (v/min-genls kb puppy)))
+      (is (= #{dog cat} (v/max-specs kb animal CxA) (v/max-specs kb animal))))
+    (testing "a context that does not see the edges reads none"
+      (is (= #{} (v/min-genls kb puppy CxB)))
+      (is (= #{} (v/max-specs kb animal CxB))))))
+
 (tu/deftest-kb separating-licenses-no-coverage-inference
   (tu/with-terms [animal dog cat Rex]
     (v/assert kb (list 'separating animal dog cat) 'CxUniverse)

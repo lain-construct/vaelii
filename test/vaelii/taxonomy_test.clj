@@ -11,6 +11,42 @@
             [vaelii.impl.reads :as reads]
             [vaelii.impl.taxonomy :as tax]))
 
+(deftest min-genls-and-max-specs-leave-out-a-neighbour-another-stands-between
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genl t 'mammal 'animal 1)
+    (tax/add-genl t 'dog 'mammal 2)
+    (tax/add-genl t 'dog 'animal 3)
+    (tax/add-genl t 'dog 'pet 4)
+    (testing "the one-step adjacency holds the redundant edge"
+      (is (= '#{mammal animal pet} (tax/direct-genls-global t 'dog)))
+      (is (= '#{mammal dog} (tax/direct-specs-global t 'animal))))
+    (testing "the nearest neighbours do not, and two incomparable ones both stay"
+      (is (= '#{mammal pet} (tax/min-genls-global t 'dog)))
+      (is (= '#{mammal} (tax/max-specs-global t 'animal))))
+    (testing "a type that is not a node has none"
+      (is (= #{} (tax/min-genls-global t 'rock)))
+      (is (= #{} (tax/max-specs-global t 'rock))))
+    (testing "removing the nearer edge makes the farther neighbour the nearest"
+      (tax/del-genl! t 'dog 'mammal 2)
+      (is (= '#{animal pet} (tax/min-genls-global t 'dog)))
+      (is (= '#{mammal dog} (tax/max-specs-global t 'animal))))))
+
+(deftest nearest-of-keeps-mutually-subsuming-neighbours
+  ;; the closures are given as a map, so the cycle needs no taxonomy that admits one
+  (let [nearest @#'tax/nearest-of]
+    (testing "two neighbours that subsume each other are both kept, and drop a farther one"
+      (let [above '{n #{n a b top} a #{a b top} b #{a b top} top #{top}}]
+        (is (= '#{a b} (nearest above true 'n '#{a b top})))
+        (is (= '#{a b} (nearest above false 'top '#{a b n})))))
+    (testing "a neighbour that subsumes and is subsumed by the node drops nothing"
+      (let [above '{n #{n twin top} twin #{n twin top} top #{top} low #{low n twin top}}]
+        (is (= '#{twin top} (nearest above true 'n '#{twin top})))
+        (is (= '#{twin low} (nearest above false 'n '#{twin low})))))
+    (testing "one neighbour, or none, costs no closure read"
+      (let [above (fn [_] (throw (ex-info "read" {})))]
+        (is (= '#{a} (nearest above true 'n '#{a})))
+        (is (= #{} (nearest above false 'n #{})))))))
+
 (deftest genl-closures
   (let [t (tax/create-taxonomy)]
     (tax/add-genl t 'dog 'animal 1)
