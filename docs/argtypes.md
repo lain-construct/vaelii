@@ -815,9 +815,10 @@ open-world, so a second spelling stores clean and convicts nothing, with no repo
 ([why one vocabulary](defenses.md#one-vocabulary-not-two)).
 
 `symbol` is the exception, and is **mention-only**. A symbol does not denote itself, so
-the set of names and the set of things named are not one set — `parentOf` is written as a
-symbol and denotes a predicate. It therefore gets no placement in the domain lattice and
-no disjointness: a use-level claim about it would be false of every predicate name.
+the set of names and the set of things named are not one set — `parentOf` written in a
+sentence denotes a predicate, and `(Quote parentOf)` denotes the symbol. `symbol` is below
+`linguistic`, which is disjoint from `relation`, so no term is both a symbol and a
+predicate.
 
 ## Scope
 
