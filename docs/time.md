@@ -45,7 +45,8 @@ The unit is an **interval**, not an instant. A meeting, a reign, a journey — s
 with a start and an end — so two of them can meet, overlap or nest, which is exactly the
 structure a point calculus throws away. The interval relations are declared `(arg …
 temporal)` and the instant relations `(arg … time_point)`, `time_point` sitting
-under `temporal` (through `time`, which `time_point` and `time_interval` partition),
+under `temporal` (through `uninterrupted_time`, which `time_point` and `time_interval`
+partition, and `time`),
 so `startOf` and `endOf` bridge the two by declaration as well as by meaning. A
 temporal relation between two predicates is refused rather than stored. The algebra
 itself knows nothing of clocks or calendars — only order and containment; the calendar
