@@ -302,44 +302,32 @@
 (unary_predicate event)
 (unary_predicate measure)
 
-;; The expression kinds — what a sentence is BUILT OUT OF, named as collections so a
-;; declaration can type an argument by the FORM of the expression written there rather
-;; than by what it denotes.  The value kinds above name a leaf; these name a compound.
-;;
-;; The ladder is the standard one, and the docs are held to it (docs/naming.md's reserved
-;; words).  A PREDICATION is a predicate applied to terms.  A CLOSED_PREDICATION is a
-;; closed predication.  A LITERAL is a predication or its negation.  A FORMULA is
-;; a predication, a logical operator applied to formulas, or a quantifier binding
-;; variables in one.  A SENTENCE is a closed formula — which is what every stored sentex
-;; holds, since checks/check-ground refuses an open non-rule sentence and a rule's
-;; variables are implicitly universal.
-;;
-;; A NON_ATOMIC_EXPRESSION is an expression with parts: an operator applied to arguments,
-;; (op a1 a2 ...), the one compound form KB text writes.  A predication and a
-;; non_atomic_term are both one, depending on whether the operator is a predicate or a
-;; function, and the two specializations below say so.  They are disjoint, and the pair is
-;; not declared a covering of non_atomic_expression.
+;; The expression kinds the engine and CxCore's own declarations name: formula, sentence and
+;; non_atomic_term, beside symbol and the value kinds above.  A FORMULA is a predication, a
+;; logical operator applied to formulas, or a quantifier binding variables in one.  A
+;; SENTENCE is a closed formula, which is what every stored sentex holds, since
+;; checks/check-ground refuses an open non-rule sentence and a rule's variables are
+;; implicitly universal.  The rest of the expression lattice, and where these three sit in
+;; it, is CxReflection's.
 ;;
 ;; DOCUMENTARY: nothing in the engine reads these.  An argument declaration over one
 ;; types no compound, because a compound argument has no knowable kind —
 ;; checks/value-kind answers nil for a compound by design (docs/argtypes.md), and no
-;; reader classifies a compound by its shape.  So (quotedArg P n non_atomic_expression)
-;; is inert, and the arg form convicts only a value written in the position and derives
-;; a membership only for a symbol written there.  The declarations below that type a
-;; sentence or a condition (believes, ist, implies, the defn family) read
-;; the same way.  The vocabulary is here because it should be one vocabulary when a
-;; shape classifier does exist; the classifier itself does not.
-(comment non_atomic_expression "An expression with parts. KB text writes one as an operator applied to zero or more arguments, (op a1 a2 ...), whatever op is.")
-(comment denotational_term "An expression that DENOTES an entity: an atomic_term (a symbol or a value) or a non_atomic_term. The logic sense of 'term', spelled in full because plain 'term' is the vocabulary sense — a name the term index is keyed by.")
-(comment predication "A predicate applied to terms — (dog Muffet), (parentOf ?x Tom). Open or closed alike: the definition says nothing about variables.")
-(comment closed_predication "A closed predication — one with no free variables. What a stored LiteralSentex holds in its sentence slot.")
-(comment literal "A predication or its negation. What a LiteralSentex holds, with the record's polarity slot saying which of the two it is. A rule's antecedent is a vector of literals.")
+;; reader classifies a compound by its shape.  So the declarations that type a sentence
+;; or a condition (believes, ist, implies, the defn family) convict only a value written
+;; in the position and derive a membership only for a symbol written there.
 (comment formula "A predication, a logical operator applied to formulas, or a quantifier binding variables in a formula.")
 (comment sentence "A closed formula. Every stored sentex holds one — checks/check-ground refuses an open non-rule sentence, and a rule's variables are implicitly universal. A possibly-open goal is a pattern, not a sentence.")
 (comment non_atomic_term "A function applied to as many closed terms as it takes, e.g. (MotherFn Muffet). The NAT of docs/nat.md, named here as a collection so a declaration can say an argument is one.")
-(genl non_atomic_term non_atomic_expression)
-(genl literal formula)
-(genl predication literal)
+(unary_predicate formula)
+(unary_predicate sentence)
+(unary_predicate non_atomic_term)
+;; Implementation: CxReflection places the three under expression, so under linguistic.
+;; CxCore's own declarations type positions over them, and a context that sees CxCore
+;; alone reads them through these edges.
+(genl formula linguistic)
+(genl sentence formula)
+(genl non_atomic_term linguistic)
 
 ;; argN names a position inside a written formula.  Position 0 is the relation or
 ;; operator, and the arguments count from 1, as arg's positions do.  The quotedArg at
@@ -351,17 +339,6 @@
 (ternary_predicate argN)
 (arg argN 2 non_negative_integer)
 (quotedArg argN 3 formula)
-(genl closed_predication sentence)
-(set/monotonic (disjoint formula non_atomic_term))
-;; Each expression kind is a type, a one-place predicate over expressions.
-(unary_predicate non_atomic_expression)
-(unary_predicate denotational_term)
-(unary_predicate predication)
-(unary_predicate closed_predication)
-(unary_predicate literal)
-(unary_predicate formula)
-(unary_predicate sentence)
-(unary_predicate non_atomic_term)
 
 ;; measure names what a QuantityFn or QuantityIntervalFn application denotes, and CxMeasure
 ;; states it as their result.  CxMeasure (weightOf, heightOf, the five comparisons) and
@@ -371,148 +348,39 @@
 (comment measure "A magnitude in a unit: (QuantityFn 5 Kilogram) or (QuantityIntervalFn 1 2 Meter). What a weight, a height, a duration or a temporal distance is stated as. See docs/quantity.md.")
 (genl measure nowhere_never)
 
-;; expression is the root of the expression kinds and of the value kinds, and it is below
-;; nowhere_never, so every one of them is in no space and at no time.  The edges are here
-;; rather than in a spindle member so that CxCore and every band context read the value
-;; kinds, the expression kinds and context below thing.
-(comment expression "A written form, the thing (Quote …) names: a symbol, a value, or a compound written from them. Not what a form denotes: a relation or a context is what an expression names, and is not itself an expression.")
-(comment atomic_expression "An expression with no parts: an atomic_term or a variable.")
-(comment atomic_term "An atomic expression that denotes: a symbol or an unrepresented_term (a string, number, keyword, boolean or character).")
-(comment variable "A placeholder in a formula or query: an atomic expression that stands for whatever a quantifier, a rule match or a query answer supplies, e.g. ?x, ?person. It denotes nothing by itself; it ranges over values once a formula binds or a query answers it.")
-(comment open_expression "An expression in which a variable occurs free, e.g. ?x, (MotherFn ?x), (dog ?x), or (and (dog ?x) (forall ?y (cat ?y))), open in ?x though ?y is bound. A variable inside (Quote …) is part of the quoted form and is never free in the expression around it.")
-(comment closed_expression "An expression with no free variable, e.g. Muffet, (MotherFn Muffet), (dog Muffet), or (forall ?x (implies (dog ?x) (animal ?x))), where ?x occurs but is bound.")
-(comment open_formula "A formula with a free variable, such as (dog ?x). It is true or false only once its free variables have values.")
-(comment open_predication "A predication with a free variable, such as (dog ?x).")
-(comment open_literal "A literal in which a variable occurs free, e.g. (dog ?x), (not (dog ?x)). What a rule's antecedent holds.")
-(comment closed_literal "A literal with no free variable, e.g. (dog Muffet), (not (dog Muffet)). What a stored LiteralSentex holds.")
-(comment negated_predication "A predication under not, e.g. (not (dog Muffet)), (not (parentOf ?x Tom)).")
-(comment wff_expression "An expression whose every relation, function and connective is applied to as many arguments as its declared arity allows, and whose every quantifier binds a variable, e.g. Muffet, ?x, (MotherFn Muffet), (dog ?x). It is checked against the KB's declarations, so parsing alone cannot decide it. Only a wff_expression denotes or predicates.")
-(comment ill_formed_expression "An expression that is not well-formed: some operator has the wrong number of arguments, or is not a relation, function or connective at all, e.g. (3 4), (MotherFn) or (dog Muffet Rex): a number in operator position, a one-argument function given no argument, a one-place predicate given two.")
-(comment wff "A well-formed formula: it says something once its free variables have values, e.g. (dog Muffet), (not (dog ?x)), (forall ?x (implies (dog ?x) (animal ?x))).")
-(comment ill_formed "A formula-shaped expression that is not well-formed, so it says nothing, e.g. (dog Muffet Rex), a one-place predicate given two arguments.")
-(comment wff_sentence "A well-formed closed formula: what a stored sentex holds, e.g. (dog Muffet).")
-(comment ill_formed_sentence "A closed formula-shaped expression that is not well-formed, e.g. (dog Muffet Rex).")
-(comment unrepresented_term "An expression that cannot be further decomposed in the KB — strings, numbers, keywords, booleans, characters.")
+;; linguistic is what has its being in a system of signs: a language, and every expression
+;; written in one.  CxCore holds it because language, which the band contexts type
+;; arguments over, sits under it.
 (comment linguistic "A language, or an expression written in one: what has its being in a system of signs. The line that the equation y=x describes and the mass (QuantityFn 5 Kilogram) denotes are nowhere_never but not linguistic; the written equation and the written term are.")
 (genl linguistic nowhere_never)
-(genl expression linguistic)
 (set/monotonic (disjoint linguistic measure))
 ;; Use is the default, so the relation dog is not an expression; (Quote dog) is the symbol.
 (set/monotonic (disjoint linguistic relation))
-(set/monotonic (disjoint expression language))
-(genl non_atomic_expression expression)
-(partition expression atomic_expression non_atomic_expression)
-(partition atomic_expression atomic_term variable)
-(genl atomic_term denotational_term)
-(partition denotational_term atomic_term non_atomic_term)
-(genl symbol atomic_term)
-(genl unrepresented_term atomic_term)
-(partition atomic_term unrepresented_term symbol)
-;; Well-formedness crosses the kinds: an expression is wff or ill-formed whatever its
-;; shape, and formula and sentence split the same way, each half the intersection of
-;; the kind with the matching half of expression.
-(genl wff_expression expression)
-(genl ill_formed_expression non_atomic_expression)
-(partition expression wff_expression ill_formed_expression)
-(partition formula wff ill_formed)
-(partition sentence wff_sentence ill_formed_sentence)
-(intersection wff formula wff_expression)
-(intersection ill_formed formula ill_formed_expression)
-(genl wff_sentence wff)
-(genl ill_formed_sentence ill_formed)
-(intersection wff_sentence sentence wff_expression)
-(intersection ill_formed_sentence sentence ill_formed_expression)
-(genl formula non_atomic_expression)
-;; An expression is OPEN when a variable occurs free in it and CLOSED otherwise.  The
-;; split is reified only where it is used: formula, predication and literal, each half the
-;; intersection of the kind with the matching half of expression.  sentence and
-;; closed_predication are the closed halves of formula and predication under the names they
-;; already had.  denotational_term is closed by definition: a variable, or a term with one
-;; free, denotes nothing in particular.
-(genl open_expression expression)
-(genl closed_expression expression)
-(partition expression open_expression closed_expression)
-(intersection variable atomic_expression open_expression)
-(intersection atomic_term atomic_expression closed_expression)
-(genl denotational_term closed_expression)
-(genl negated_predication literal)
-(partition literal predication negated_predication)
-(genl denotational_term wff_expression)
-(genl atomic_expression wff_expression)
-(partition formula open_formula sentence)
-(intersection open_formula formula open_expression)
-(intersection sentence formula closed_expression)
-(partition predication open_predication closed_predication)
-(intersection open_predication predication open_expression)
-(intersection closed_predication predication closed_expression)
-(partition literal open_literal closed_literal)
-(intersection open_literal literal open_expression)
-(intersection closed_literal literal closed_expression)
-(comment Quote "Syncategorematic: part of vaelii's syntax, like a parenthesis, though written like a function. (Quote X) is X taken as a form, e.g. (Quote Muffet) names the symbol Muffet, not the dog. Quote takes no arg, result or metatype declaration; what kind of expression (Quote X) is follows from X's shape.")
-;; expression and unrepresented_term are types, one-place predicates over expressions.
-(unary_predicate expression)
-(unary_predicate atomic_expression)
-(unary_predicate negated_predication)
 (unary_predicate linguistic)
-(unary_predicate open_expression)
-(unary_predicate closed_expression)
-(unary_predicate open_formula)
-(unary_predicate open_predication)
-(unary_predicate open_literal)
-(unary_predicate closed_literal)
-(unary_predicate atomic_term)
-(unary_predicate variable)
-(unary_predicate wff_expression)
-(unary_predicate ill_formed_expression)
-(unary_predicate wff)
-(unary_predicate ill_formed)
-(unary_predicate wff_sentence)
-(unary_predicate ill_formed_sentence)
+
+;; unrepresented_term holds the value kinds.  Implementation: CxReflection places it under
+;; expression, so under linguistic; a band context does not see CxReflection, and the edge
+;; below is what lets it read every value kind as nowhere_never and disjoint from relation.
+;; The relation disjoint is what lets a rule be refused for feeding a text-valued argument
+;; into a position that holds a type: every type is a unary_predicate, so the type position
+;; asks for a predicate, and one variable cannot be both at once.  The disjointness on
+;; number carries integer with it.
+(comment unrepresented_term "An expression that cannot be further decomposed in the KB — strings, numbers, keywords, booleans, characters.")
 (unary_predicate unrepresented_term)
-;; expression is disjoint from relation and from context.  No written form is itself a
-;; relation or a context: a relation or a context is what an expression NAMES, not what an
-;; expression IS.  unrepresented_term reaches both disjoints through genl: unrepresented_term
-;; is an atomic_term, an atomic_term is an atomic_expression, and an atomic_expression is an
-;; expression.  The relation disjoint is what lets a rule be refused for feeding a
-;; text-valued argument into a position that holds a type: every type is a unary_predicate,
-;; so the type position asks for a predicate, and one variable cannot be both at once.  The
-;; disjointness on number carries integer with it.
-;;
-;; symbol reaches the relation disjoint the same route, an atomic_term being an
-;; atomic_expression being an expression, so (disjoint symbol predicate) holds: a symbol
-;; is what (Quote dog) denotes, not what dog denotes, and dog written plainly in a
-;; sentence denotes the predicate dog.
+(genl unrepresented_term linguistic)
+;; Implementation: symbol is placed the same way, so a context that sees CxCore alone
+;; reads (disjoint symbol predicate).
+(genl symbol linguistic)
 (genl boolean unrepresented_term)
 (genl character unrepresented_term)
 (genl keyword unrepresented_term)
 (genl number unrepresented_term)
 (genl string unrepresented_term)
 (partition unrepresented_term boolean character keyword number string)
-(set/monotonic (disjoint expression relation))
-(set/monotonic (disjoint expression context))
+
 (genl context nowhere_never)
 
-(comment proposition "What a wff_sentence expresses: semantic content whose truth is evaluated in a context, which sentences in any language can carry. (dog Muffet) and \"Muffet est un chien\" express one proposition.")
-(unary_predicate proposition)
-(genl proposition nowhere_never)
-(set/monotonic (disjoint proposition linguistic))
-
-(comment means "(means ?expression ?meaning) means that ?expression, a closed wff_expression, has ?meaning as its semantic content: for a term what it denotes, for a sentence the proposition it expresses. (means (Quote Muffet) Muffet). Read in the context the sentence is stated in, which supplies the interpretation. Functional: an expression has at most one meaning in a context.")
-(binary_predicate means)
-(arg means 1 wff_expression)
-(arg means 1 closed_expression)
-(functional means)
-
-(comment denotes "(denotes ?term ?thing) means that the denotational_term ?term names ?thing. (denotes (Quote Muffet) Muffet): the symbol Muffet names the dog. (denotes (Quote dog) dog): the symbol dog names the predicate. (denotes (Quote (MotherFn Muffet)) (MotherFn Muffet)).")
-(binary_predicate denotes)
-(genl denotes means)
-(arg denotes 1 denotational_term)
-
-(comment expresses "(expresses ?sentence ?proposition) means that the wff_sentence ?sentence says ?proposition. Two sentences can express one proposition, in two languages or two phrasings, and two true sentences can express different ones.")
-(binary_predicate expresses)
-(genl expresses means)
-(arg expresses 1 wff_sentence)
-(arg expresses 2 proposition)
+(comment Quote "Syncategorematic: part of vaelii's syntax, like a parenthesis, though written like a function. (Quote X) is X taken as a form, e.g. (Quote Muffet) names the symbol Muffet, not the dog. Quote takes no arg, result or metatype declaration; what kind of expression (Quote X) is follows from X's shape.")
 
 (comment interArg
          "(interArg ?relation ?position1 ?type1 ?position2 ?type2) means that whenever argument ?position1 of ?relation is a ?type1, argument ?position2 must be a ?type2. The conditional argument constraint, and it says what arg cannot: (interArg eats 1 carnivore 2 meat) types the second argument only for the eaters that are carnivores, where (arg eats 2 meat) would demand meat of every eater. Silence about the trigger argument's type leaves the constraint dormant rather than firing it. Once the trigger holds, the target is derived a ?type2 under assertive argument types, and under the constraint-only reading it is convicted when the KB places it outside ?type2. Read through genl transitivity from the writing context, like arg. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
@@ -1121,7 +989,6 @@
 
 (comment indeterminate_term
          "(indeterminate_term ?term) means that ?term is an indeterminate filler: it stands for some object without pinning down which, so it is not a determinate filler for a predAllSpecified audit, and the unique-name assumption is suspended for it — neither (equals ?term x) nor (different ?term x) is provable against a determinate term x until a rewriteOf pins it. An extensible category the predAllSpecified audit and the different prover read through one implementation, so they cannot disagree about a term. Skolem constants are the built-in first member, detected by their SkolemFn minting expression rather than a stored membership; a further kind is added with (genl NewKind indeterminate_term). See docs/skolem.md.")
-(genl indeterminate_term denotational_term)
 (unary_predicate indeterminate_term)
 
 ;; --- Specified class: integrity audit, no inference -----------------------
@@ -1439,7 +1306,6 @@
 (comment relation            "The type of every operator that may be applied to arguments. function and truth_valued_relation partition it: an application of a function denotes or evaluates to a value, while an application of a truth_valued_relation is true or false.")
 (genl relation nowhere_never)
 ;; What a relation relates or says is not itself an operator.
-(set/monotonic (disjoint proposition relation))
 (set/monotonic (disjoint measure relation))
 ;; relation holds functions, binary predicates and types alike, so its members are of
 ;; more than one order: a variable_order_type, which is a unary_predicate.

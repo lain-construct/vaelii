@@ -1281,12 +1281,13 @@ CxCore places `spatiotemporal` and `nowhere_never` by `genl` edges, not by
 
 A kind with no location in any space sits below `aspatial`, which separates it from
 `spatial` and from every CxSpace argument. `organization` (CxCore), `relation_type`
-(CxAbstract), `quantity` (CxMeasure) and `fluent` (CxTime) are below `aspatial`. The `expression` lattice is in CxCore. `expression` is below
-`nowhere_never`, and `context`, `relation`, `formula`, `relation_application`,
-`denotational_term` and `unrepresented_term` are below `expression`. The value kinds
-`string`, `number`, `keyword`, `boolean` and `character` are below `unrepresented_term`.
-`language` is below `nowhere_never` in CxCore too. Every spindle member therefore reads
-each of these kinds as disjoint from `spatial`. `ontology_test` pins each separation from
+(CxAbstract), `quantity` (CxMeasure) and `fluent` (CxTime) are below `aspatial`.
+`context`, `relation`, `measure` and `linguistic` are below `nowhere_never` in CxCore.
+`language`, `unrepresented_term`, `symbol`, `formula` and `non_atomic_term` are below
+`linguistic` in CxCore, and the value kinds `string`, `number`, `keyword`, `boolean` and
+`character` are below `unrepresented_term`. Every spindle member therefore reads each of
+these kinds as disjoint from `spatial`. The rest of the `expression` lattice is in
+CxReflection, where `expression` is below `linguistic`. `ontology_test` pins each separation from
 the contexts that read it.
 
 ## Predicate metadata
