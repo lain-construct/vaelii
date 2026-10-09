@@ -3572,6 +3572,77 @@
   [tax t]
   (direct-neighbours tax :rev t nil))
 
+(defn- nearest-of
+  "The members of `nbrs`, the one-step neighbours of `node`, that no other member stands
+  between: going up (`up?`) the minimal ones, going down the maximal ones.  `above` maps a
+  type to its reflexive up-closure.
+
+  Going up, a neighbour is dropped when another neighbour is strictly below it.  Going
+  down, a neighbour is dropped when another neighbour is strictly above it.  \"Strictly\"
+  excludes two types that subsume each other: neither drops the other.  A neighbour that
+  subsumes and is subsumed by `node` drops nothing, because every other neighbour of
+  `node` is a neighbour of that type on the same side.
+
+  Fewer than two neighbours are returned with no `above` read.  Otherwise the cost is one
+  `above` read per neighbour, one more for `node` going down, and for each neighbour the
+  smaller of its up-closure and `nbrs` in set lookups."
+  [above up? node nbrs]
+  (let [among (set nbrs)]
+    (if (< (count among) 2)
+      among
+      (let [over    (into {} (map (juxt identity above)) among)
+            level?  (if up?
+                      #(contains? (over %) node)
+                      (let [mine (above node)] #(contains? mine %)))
+            ;; the neighbours strictly above `t`
+            supers  (fn [t]
+                      (let [up (over t)]
+                        (into [] (comp (filter #(contains? up %))
+                                       (remove #(or (= t %) (contains? (over %) t))))
+                              (if (< (count up) (count among)) up among))))
+            dropped (reduce (fn [acc t]
+                              (let [ss (supers t)]
+                                (if up?
+                                  (if (level? t) acc (into acc ss))
+                                  (if (some (complement level?) ss) (conj acc t) acc))))
+                            #{} among)]
+        (reduce disj among dropped)))))
+
+(defn- nearest-neighbours
+  "`direct-neighbours` with every neighbour another neighbour stands between left out
+  (`nearest-of`), scoped like `genls` / `specs`."
+  [tax dir-key t context]
+  (let [above (if-some [scope (relation-scope tax :genl context)]
+                #(closure-of-vis tax :genl :fwd % scope)
+                #(closure-of tax :genl :fwd %))]
+    (nearest-of above (= :fwd dir-key) t (direct-neighbours tax dir-key t context))))
+
+(defn min-genls
+  "The minimal supertypes of `t` through the edges visible from `context`: the direct
+  parents of `t` with no other direct parent of `t` strictly below them.  Every other
+  strict supertype of `t` is a supertype of one of these.  A stated `(genl dog animal)`
+  beside `dog ⊂ mammal ⊂ animal` leaves `animal` out.  An edge counts whatever installed
+  it, as for `direct-genls`.  One memoized up-closure read per direct parent."
+  [tax t context]
+  (nearest-neighbours tax :fwd t context))
+
+(defn max-specs
+  "The maximal subtypes of `t` through the edges visible from `context`: the direct
+  children of `t` with no other direct child of `t` strictly above them.  `min-genls`'
+  reasoning, the other direction.  One memoized up-closure read per direct child."
+  [tax t context]
+  (nearest-neighbours tax :rev t context))
+
+(defn min-genls-global
+  "`min-genls` through **every** active edge — no context scope."
+  [tax t]
+  (nearest-neighbours tax :fwd t nil))
+
+(defn max-specs-global
+  "`max-specs` through **every** active edge — no context scope."
+  [tax t]
+  (nearest-neighbours tax :rev t nil))
+
 (defn specs-of-all
   "The union of `specs` over every node in `nodes`, walked **once**.
 

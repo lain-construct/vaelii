@@ -1162,7 +1162,7 @@
   ;; capped.  The row is pinned exactly: the first eight in sort order, not whichever
   ;; eight the index returned first.
   (let [grow (ns-resolve 'vaelii.browser.web 'grow)
-        {:keys [rows direct]} (grow tu/*kb* 'genl :down 1 'mammal 1 false)]
+        {:keys [rows direct]} (grow tu/*kb* 'genl :down 1 'mammal 1)]
     (is (= '#{cat cow dog fox hare horse human lion}
            (set (map :term (first rows)))))
     (is (= {:shown 8 :total 12 :exact? true :more? false} direct))))
@@ -1305,45 +1305,42 @@
   [svg]
   (count (re-seq #"class=\"g-edge g-genl\"" (or svg ""))))
 
-(tu/deftest-kb hiding-derived-rows-hides-the-derived-genl-edges-of-the-taxonomy-view
+(tu/deftest-kb hiding-derived-rows-leaves-the-genl-edges-of-the-taxonomy-view-drawn
   ;; `told_sub` has one stated parent and one a forward rule concluded.  The rule's
   ;; antecedent is unary, so no binary fact puts `concluded_super` on the relation flank.
+  ;; The subsumption rows are read over every believed edge and do not read the switch.
   (tu/with-terms [marksKind told_sub told_super concluded_super CxHideEdge]
     (v/assert-rule kb [(list marksKind '?t)] (list 'genl '?t concluded_super) CxHideEdge
                    {:direction :forward})
     (v/assert kb (list 'genl told_sub told_super) CxHideEdge)
     (v/assert kb (list marksKind told_sub) CxHideEdge)
-    (let [derived (first (v/sentexes-matching kb (list 'genl told_sub concluded_super) '?ctx))
+    (let [derived (v/sentexes-matching kb (list 'genl told_sub concluded_super) '?ctx)
           page    (fn [t qs] (:body (GET "/term" (str "q=" t qs))))]
-      (is (some? derived) "the rule fired")
-      (is (nil? (:strength derived)) "and its conclusion is a derived record")
-      (testing "shown, the picture draws the stated parent and the derived one"
-        (let [svg (svg-of (page told_sub "&derived=show"))]
-          (is (contains? (drawn-terms svg) (str told_super)))
-          (is (contains? (drawn-terms svg) (str concluded_super)))
-          (is (= 2 (genl-edges svg)))))
-      (testing "hidden, the stated edge stays and the derived edge and its node go"
-        (let [body (page told_sub "&derived=hide")
-              svg  (svg-of body)]
-          (is (contains? (drawn-terms svg) (str told_super)))
-          (is (not (contains? (drawn-terms svg) (str concluded_super))))
-          (is (= 1 (genl-edges svg)))
-          (is (re-find #"derived edges are hidden" body))))
-      (testing "and the same edge is hidden read from its other end"
-        (is (contains? (drawn-terms (svg-of (page concluded_super "&derived=show")))
-                       (str told_sub)))
-        (let [svg (svg-of (page concluded_super "&derived=hide"))]
-          (is (not (contains? (drawn-terms svg) (str told_sub))))
-          (is (zero? (genl-edges svg))))))))
+      (is (seq derived) "the rule fired")
+      (is (every? #(nil? (:strength %)) derived) "and its conclusion is a derived record")
+      (doseq [qs ["&derived=show" "&derived=hide"]]
+        (testing (str qs ": the picture draws the stated parent and the derived one")
+          (let [svg (svg-of (page told_sub qs))]
+            (is (contains? (drawn-terms svg) (str told_super)))
+            (is (contains? (drawn-terms svg) (str concluded_super)))
+            (is (= 2 (genl-edges svg)))))
+        (testing (str qs ": and the derived edge is drawn read from its other end")
+          (let [svg (svg-of (page concluded_super qs))]
+            (is (contains? (drawn-terms svg) (str told_sub)))
+            (is (= 1 (genl-edges svg))))))
+      (testing "the caption names the edges the switch does hide"
+        (is (re-find #"derived relation edges are hidden" (page told_sub "&derived=hide")))
+        (is (not (re-find #"edges are hidden" (page told_sub "&derived=show"))))))))
 
-(tu/deftest-kb hiding-derived-rows-keeps-a-genl-edge-a-roster-installs
-  ;; no `genl` sentex is stored for a roster's part, so no record says the edge is derived
+(tu/deftest-kb hiding-derived-rows-leaves-a-genl-edge-a-roster-installs-drawn
+  ;; no `genl` sentex is stored for a roster's part, and the picture is the same either way
   (tu/with-terms [hide_whole hide_left hide_right]
     (v/assert kb (list 'separating hide_whole hide_left hide_right) 'CxUniverse
               {:chain? false})
-    (let [svg (svg-of (:body (GET "/term" (str "q=" hide_left "&derived=hide"))))]
-      (is (contains? (drawn-terms svg) (str hide_whole)))
-      (is (= 1 (genl-edges svg))))))
+    (let [svg (fn [qs] (svg-of (:body (GET "/term" (str "q=" hide_left qs)))))]
+      (is (contains? (drawn-terms (svg "&derived=hide")) (str hide_whole)))
+      (is (= (drawn-terms (svg "&derived=show")) (drawn-terms (svg "&derived=hide"))))
+      (is (= (genl-edges (svg "&derived=show")) (genl-edges (svg "&derived=hide")))))))
 
 (tu/deftest-kb hiding-derived-rows-hides-the-derived-relation-edges-of-both-hops
   ;; every `concludedRel` fact is a forward rule's conclusion from a `toldRel` fact, so
@@ -1360,6 +1357,82 @@
       (is (= 2 (count (labels "&derived=show"))) "the ring edge and the second hop's")
       (is (every? both? (labels "&derived=show")))
       (is (= [(str toldRel) (str toldRel)] (labels "&derived=hide"))))))
+
+;; ---- the nearest neighbours in the subsumption order ---------------------
+
+(defn- node-ys
+  "Each drawn term's box `y`, by the node's title.  A smaller `y` is a higher row."
+  [svg]
+  (into {}
+        (map (fn [[_ y t]] [t (Long/parseLong y)]))
+        (re-seq #"y=\"(-?\d+)\"\s*/?>(?:</rect>)?<text[^>]*>[^<]*</text><title>([^<]*)</title>"
+                (or svg ""))))
+
+(defn- grown
+  "One side of the taxonomy view of `term`, as `[term from]` pairs per row."
+  [dir hops term]
+  (let [grow (ns-resolve 'vaelii.browser.web 'grow)]
+    (mapv (fn [row] (into #{} (map (juxt :term :from)) row))
+          (:rows (grow tu/*kb* 'genl dir hops term 6)))))
+
+(tu/deftest-kb a-stated-genl-to-a-farther-supertype-is-not-drawn-as-a-direct-neighbour
+  ;; `near_sub ⊂ near_mid ⊂ near_top`, and `(genl near_sub near_top)` is stated beside them
+  (tu/with-terms [near_sub near_mid near_top]
+    (v/assert kb (list 'genl near_mid near_top) 'CxUniverse)
+    (v/assert kb (list 'genl near_sub near_mid) 'CxUniverse)
+    (v/assert kb (list 'genl near_sub near_top) 'CxUniverse)
+    (testing "above the subtype: the middle type, and the top type above the middle type"
+      (let [[row1 row2] (grown :up 2 near_sub)]
+        (is (= #{[near_mid near_sub]} row1))
+        (is (contains? row2 [near_top near_mid])))
+      (doseq [qs ["&derived=show" "&derived=hide"]]
+        (let [ys (node-ys (svg-of (:body (GET "/term" (str "q=" near_sub qs)))))]
+          (is (< (ys (str near_top)) (ys (str near_mid)) (ys (str near_sub))) qs))))
+    (testing "below the top type: the middle type, and the subtype below the middle type"
+      (let [[row1 row2] (grown :down 2 near_top)]
+        (is (= #{[near_mid near_top]} row1))
+        (is (= #{[near_sub near_mid]} row2)))
+      (doseq [qs ["&derived=show" "&derived=hide"]]
+        (let [ys (node-ys (svg-of (:body (GET "/term" (str "q=" near_top qs)))))]
+          (is (< (ys (str near_top)) (ys (str near_mid)) (ys (str near_sub))) qs))))))
+
+(tu/deftest-kb a-type-an-intersection-places-draws-the-intersected-types-directly-above
+  ;; no `genl` sentence is stated for `met_both`: the `intersection` rules derive both
+  (tu/with-terms [met_both met_left met_right]
+    (v/assert kb (list 'intersection met_both met_left met_right) 'CxUniverse)
+    (is (= #{[met_left met_both] [met_right met_both]} (first (grown :up 1 met_both))))
+    (let [ys (node-ys (svg-of (:body (GET "/term" (str "q=" met_both "&derived=show")))))]
+      (is (< (ys (str met_left)) (ys (str met_both))))
+      (is (= (ys (str met_left)) (ys (str met_right)))))
+    (is (= #{[met_both met_left]} (first (grown :down 1 met_left))))))
+
+(tu/deftest-kb an-edge-an-intersection-derives-puts-a-stated-farther-supertype-above-it
+  ;; `met_both ⊂ met_left` is derived, `met_left ⊂ met_far` is stated, and
+  ;; `(genl met_both met_far)` is stated beside them
+  (tu/with-terms [met_both met_left met_right met_far]
+    (v/assert kb (list 'genl met_left met_far) 'CxUniverse)
+    (v/assert kb (list 'intersection met_both met_left met_right) 'CxUniverse)
+    (v/assert kb (list 'genl met_both met_far) 'CxUniverse)
+    (let [[row1 row2] (grown :up 2 met_both)]
+      (is (= #{[met_left met_both] [met_right met_both]} row1))
+      (is (contains? row2 [met_far met_left])))
+    (let [[row1 row2] (grown :down 2 met_far)]
+      (is (= #{[met_left met_far]} row1))
+      (is (= #{[met_both met_left]} row2)))))
+
+(tu/deftest-kb one-side-of-the-taxonomy-view-gives-the-subsumption-edges-it-drew-as-pairs
+  (tu/with-terms [near_sub near_mid near_top]
+    (v/assert kb (list 'genl near_mid near_top) 'CxUniverse)
+    (v/assert kb (list 'genl near_sub near_mid) 'CxUniverse)
+    (v/assert kb (list 'genl near_sub near_top) 'CxUniverse)
+    (let [grow  (ns-resolve 'vaelii.browser.web 'grow)
+          pairs (ns-resolve 'vaelii.browser.web 'drawn-subsumptions)
+          up    (pairs (grow kb 'genl :up 2 near_sub 6) :up)
+          down  (pairs (grow kb 'genl :down 2 near_top 6) :down)]
+      (is (contains? up [near_sub near_mid]))
+      (is (contains? up [near_mid near_top]))
+      (is (not (contains? up [near_sub near_top])))
+      (is (= #{[near_mid near_top] [near_sub near_mid]} down)))))
 
 (tu/deftest-kb a-sentex-circle-is-coloured-by-what-the-sentex-is
   ;; colour is the whole of the badge now — no glyph to read — so the class that carries

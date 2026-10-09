@@ -62,11 +62,27 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
-- **The browser's "hide derived" hides the derived edges of a term page's concept
-  graph.** With the switch on, the graph draws a relation edge only from an asserted
-  sentex, leaves out a `genl` or `genlCx` neighbour whose every believed sentex to the
-  term is derived, and captions the picture "derived edges are hidden". An edge a cover
-  roster installs stays. The discriminant is the record's `:strength`, as for the rows.
+- **`min-genls` and `max-specs` read a type's nearest neighbours in the subsumption
+  order, and the term page's concept graph draws them.** `(min-genls kb t [context])`
+  answers the direct parents of `t` with no other direct parent of `t` strictly below
+  them, and `max-specs` the direct children with no other direct child strictly above
+  them. Both read every believed edge of the closure, whatever installed the edge: a
+  stated `genl`, a derived one such as an `intersection`'s, or a cover roster's. The
+  daemon and `vaelii.client` serve both. The concept graph's `genl` rows draw these sets
+  at every expanded node, where they drew `direct-genls` and `direct-specs`: with
+  `dog ⊂ mammal ⊂ animal` believed and `(genl dog animal)` stated, the page for `dog`
+  draws `animal` above `mammal` and no arrow from `dog` to `animal`. An expansion costs
+  at most two facade reads, and a page makes at most twelve expansions.
+  [api.md](docs/api.md), [web.md](docs/web.md#a-terms-shape-drawn).
+
+  *Class:* **Additive**.
+
+- **The browser's "hide derived" hides the derived relation edges of a term page's
+  concept graph.** With the switch on, the graph draws a relation edge only from an
+  asserted sentex, on the flank and in the radial view, and captions the picture "derived
+  relation edges are hidden". The discriminant is the record's `:strength`, as for the
+  rows. The subsumption rows do not read the switch: they draw the same nearest
+  neighbours over every believed `genl` edge with the switch on or off.
   [web.md](docs/web.md#hiding-what-the-engine-concluded).
 
   *Class:* **Additive**.

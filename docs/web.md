@@ -217,11 +217,13 @@ with different chrome. The whole feature is one function called from one place.
 Being live is also what obliges the budget. **A picture nobody asked for may never be the
 reason a term page is slow**, so the bound is part of the work and not a follow-up:
 
-- **The graph adds at most 24 facade reads**, ever — twelve expansions, six per side, plus
-  one O(1) count per row that actually elided. The radial view spends at most twelve:
+- **The taxonomy view's expansions cost at most 24 facade reads**, ever — twelve
+  expansions, six per side, at one or two reads each. The radial view spends at most twelve:
   it expands three neighbours, and each costs two O(1) argument counts and two pattern
-  reads. A taxonomy expansion is `(take (inc cap))` over a lazy pattern that pins an
-  argument, so it costs the node's own fan-out and nothing more. A radial expansion reads
+  reads. A taxonomy expansion reads the node's one-step neighbours through
+  `(take (inc cap))`, so it costs the node's own fan-out and nothing more. A `genl` node
+  with two to 500 one-step neighbours costs a second read, `min-genls` or `max-specs`, in
+  which the engine makes one memoized closure read per neighbour. A radial expansion reads
   at most `ego-scan` (500) matches and orders them by handle before the cap cuts.
 - **Measured** twice. Over the shipped schema plus the test-world cast: **2–10 reads** and
   **0.7–2.9 ms** a page (`dog` +3 reads / +0.7 ms, `animal` +10, a synthetic 5,000-subtype
@@ -232,8 +234,9 @@ reason a term page is slow**, so the bound is part of the work and not a follow-
   which is the claim a render cap alone would never make.
 - **Degrade, never defer.** A side that runs out of budget stops a row short and the
   caption says so. There is no fallback to a button.
-- **Nothing new to reach it.** No route, no dependency, no access op — so the graph renders
-  identically against `--attach`, and `docs/web.md` needs no row in the table above.
+- **Nothing new to reach it.** No route and no dependency. Its reads are access ops the
+  daemon serves, so the graph renders identically against `--attach`, and `docs/web.md`
+  needs no row in the table above.
 
 **Three outcomes, chosen by the term's own structure.**
 
@@ -259,11 +262,28 @@ class on its edges says which. That is also what makes a context page worth open
 says nothing about contexts, so the picture is the only thing on the page that shows the
 lattice at all.
 
-**A `genl` row is one step of the closure.** The rows read `direct-genls` and
-`direct-specs`, so an edge a `covering`, `separating` or `partition` roster installs is
-drawn as a stated `(genl sub super)` is, with the same arrow. A roster stores no `genl`
-sentence for its parts, and a picture read off stored `genl` sentences alone would draw a
-part with no parent.
+**A `genl` row holds a node's nearest neighbours in the subsumption order.** Above a
+node the row holds its minimal supertypes (`min-genls`): the supertypes with no other
+supertype of the node below them. Below a node the row holds its maximal subtypes
+(`max-specs`). Every other supertype or subtype is reached through one of those, so the
+next row draws it there. With `dog ⊂ mammal ⊂ animal` believed, the page for `dog` draws
+`mammal` above `dog` and `animal` above `mammal`, and a stated `(genl dog animal)` adds
+no arrow from `dog` to `animal`. The page for `animal` draws `mammal` below it and `dog`
+below `mammal`. Each expanded node's row is read the same way, not the centre's alone.
+
+The engine computes both sets over every believed edge of the closure, whatever installed
+the edge: a stated `(genl sub super)`, a `genl` sentex a rule derived (an `intersection`
+derives one to each type it intersects), and an edge a `covering`, `separating` or
+`partition` roster installs. A roster stores no `genl` sentence for its parts, and a
+picture read off stored `genl` sentences alone would draw a part with no parent. Two
+supertypes that subsume each other are both drawn. The subsumption rows do not read the
+"hide derived" switch.
+
+A row is a hop count from the centre. Two nodes of one row can therefore be comparable:
+when `dog`'s minimal supertypes are `mammal` and `pet`, and `animal` is minimal above
+`mammal` while `companion` is minimal above `pet` with `companion ⊂ animal`, the second
+row holds both `animal` and `companion`. A `genlCx` row holds every one-step neighbour of
+a context and is not reduced.
 
 **What is and is not an edge**, stated rather than left to fall out of the code. Binary
 facts only — a ternary `(arg parentOf 1 person)` relates three things and an arrow
@@ -1544,23 +1564,17 @@ reader sees as derived is a row the filter leaves out. It is deliberately not
 sentex can be asserted **and** derivable, and the two answers then disagree with each
 other and with what the page drew.
 
-**The concept graph follows the same switch.** With the derived rows hidden, the caption
-reads "derived edges are hidden" and the graph draws stated edges only, by the same
-`:strength` discriminant:
+**The concept graph's relation edges follow the same switch, and its subsumption rows do
+not.** With the derived rows hidden, the caption reads "derived relation edges are
+hidden":
 
 - A relation edge, on the flank or in the radial view, is read off sentex records. A
-  derived record contributes no edge and no relation name to an edge label.
-- A subsumption neighbour is left out when every believed `genl` (or `genlCx`) sentex
-  between the two terms is derived. The node an edge reached is found through that edge,
-  so a term with no remaining edge is not drawn, and a term the row above or below still
-  reaches by a stated edge is drawn there.
-- An edge a `covering`, `separating` or `partition` roster installs has no `genl` sentex
-  to be derived, so the graph keeps it.
-
-Each subsumption expansion then reads the node's `genl` sentexes beside its one-step
-adjacency, which is one more read per expansion: at most twelve more a page. That read
-stops at the 500-record row limit, and a node with more `genl` sentexes than the limit
-draws no row and says so in the caption.
+  derived record contributes no edge and no relation name to an edge label, by the same
+  `:strength` discriminant.
+- A subsumption row draws the same nodes and arrows with the switch on or off. The rows
+  hold a node's nearest neighbours over every believed `genl` edge, stated or derived
+  ([the concept graph](#a-terms-shape-drawn)), so the switch selects the sentences the page
+  lists and does not move a node of the picture.
 
 It is one query parameter (`?derived=hide|show`), one cookie and a re-render: no script,
 no per-row state, and a page that is the same page when its URL is shared. The cookie is
