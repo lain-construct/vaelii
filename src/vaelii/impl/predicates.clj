@@ -1132,6 +1132,17 @@
            [denotes "documentary: the means specialization naming what a denotational_term names, assertible and stored like any relation. Nothing reads it by name."]
            [expresses "documentary: the means specialization naming the proposition a wff_sentence says, assertible and stored like any relation. Nothing reads it by name."]])
 
+    ;; ---- bounded and unbounded arity ---------------------------------------
+    ;; The bounded/unbounded split of relation and arityMax are stated so the KB says
+    ;; what the arity check enforces; the check itself reads fixed_arity, variable_arity
+    ;; and arityMin, and bounds functionCorrespondingPredicate by name.
+    (map (fn [[t why]] [t (inert (collection :notes why) why)])
+         '[[bounded_arity "documentary: a relation with an upper bound on its arguments; with unbounded_arity it partitions relation. Nothing reads it by name."]
+           [unbounded_arity "documentary: a relation taking any number of arguments beyond its required ones. Nothing reads it by name."]
+           [unbounded_arity_predicate "documentary: unbounded_arity intersected with predicate. Nothing reads it by name."]
+           [unbounded_arity_function "documentary: unbounded_arity intersected with function. Nothing reads it by name."]
+           [arityMax "documentary: the upper bound of a bounded_arity relation; the arity check bounds functionCorrespondingPredicate by name, not through this."]])
+
     ;; ---- the upper-ontology skeleton -------------------------------------
     ;; The collections CxCore holds so that a spindle member can place its own types
     ;; under the root, or declare a position over a type a second member declares one

@@ -50,7 +50,7 @@
 (comment and
          "(and ?antecedent1 ?antecedent2 …) means the conjunction of the antecedents inside an implies rule. A syntactic connective rather than a predicate: it is never asserted on its own, and a rule with a single antecedent needs no and at all.")
 (logical_connective and)
-(variable_arity and)
+(unbounded_arity and)
 
 (comment genlArg
          "(genlArg ?relation ?position ?type) means that argument ?position of ?relation must be a subtype of ?type. The arg constraint one level up, for arguments naming kinds rather than instances: (genlArg partType 1 tangible) says the argument names a kind of physical object, where (arg partOf 1 tangible) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
@@ -610,6 +610,28 @@
 
 (set/monotonic (disjoint fixed_arity variable_arity))
 
+(comment bounded_arity "A relation whose number of arguments has an upper bound: one exact count, or a fixed range, e.g. parentOf takes two, functionCorrespondingPredicate two or three.")
+(unary_predicate bounded_arity)
+(arg bounded_arity 1 relation)
+(comment unbounded_arity "A relation that takes any number of arguments beyond its required ones, e.g. and, or, partition, different, greaterThan.")
+(unary_predicate unbounded_arity)
+(arg unbounded_arity 1 relation)
+(partition relation bounded_arity unbounded_arity)
+(genl fixed_arity bounded_arity)
+(genl unbounded_arity variable_arity)
+(comment unbounded_arity_predicate "An unbounded_arity relation that is a predicate, e.g. partition, different, greaterThan.")
+(unary_predicate unbounded_arity_predicate)
+(intersection unbounded_arity_predicate unbounded_arity predicate)
+(genl unbounded_arity_predicate variable_arity_predicate)
+(comment unbounded_arity_function "An unbounded_arity relation that is a function.")
+(unary_predicate unbounded_arity_function)
+(intersection unbounded_arity_function unbounded_arity function)
+(genl unbounded_arity_function variable_arity_function)
+(comment arityMax "(arityMax ?relation ?n) means that the bounded_arity relation ?relation takes at most ?n arguments, e.g. (arityMax functionCorrespondingPredicate 3).")
+(binary_predicate arityMax)
+(arg arityMax 1 bounded_arity)
+(arg arityMax 2 positive_integer)
+
 (comment unary "A relation of exactly one argument.")
 (unary_predicate unary)
 (genl unary fixed_arity)
@@ -679,7 +701,7 @@
 (binary_predicate arity)
 (instance_relation_predicate arity)
 (set/monotonic (functional arity))
-(arg arity 1 relation)
+(arg arity 1 fixed_arity)
 (arg arity 2 non_negative_integer)
 
 (set/forwardRule (implies (arity ?relation ?arity) (fixed_arity ?relation)))
@@ -781,7 +803,7 @@
 
 (comment contradicts
          "(contradicts (sentexHandle ?h1) (sentexHandle ?h2) …) means that the sentexes it names are the members of a nogood: each is believed in the network and the contexts stating them and the grounds the detection read have a common descendant. The engine derives it at each maximal common descendant of those contexts where no except in force hides a member or a ground, justified by the members, the grounds and the genlCx edges the placement is seen over, so retracting any of them takes it OUT. One argument per member, in content order (sentence, then context), never handle order, so two detections of one nogood store one sentex; a self-clash names one member and an anti_transitive clash three. A nogood with a unique weakest member stores the defeat of that member beside it; a dilemma or a conflict stores the contradicts alone. The reports that (conflicts kb) and (contradictions kb) return compose a contradicts form over the member sentences instead.")
-(variable_arity_predicate contradicts)
+(unbounded_arity_predicate contradicts)
 (arityMin contradicts 1)
 
 (comment defeat
@@ -837,7 +859,7 @@
 ;; inference and what it deliberately does not do.
 (comment covering
          "(covering ?whole ?part1 ?part2 ...) means that every instance of ?whole is an instance of at least one named part. Each part is a subtype of ?whole, which the declaration states rather than requires of the ontology beforehand: asserting the cover installs the genl edge per part, supported by the covering sentex and carrying its context, so a cover asserted before its parts carry any other fact settles where one asserted after them does. The parts may overlap; partition is the spelling that separates them as well, and separating is the separation without the coverage. Coverage is actionable only on explicit negation: (not (?part ?x)) for every part but one proves the remaining membership, and a whole instance with nothing else known stays unknown rather than being assigned a part. Negating every part contradicts the cover. At least two distinct parts, since one part covering a whole says only that the two have the same instances.")
-(variable_arity_predicate covering)
+(unbounded_arity_predicate covering)
 (genlArg covering 1 thing)
 (argAndRestGenl covering 2 thing)
 (arityMin covering 3)
@@ -845,7 +867,7 @@
 
 (comment separating
          "(separating ?whole ?part1 ?part2 ...) means that no two of the named parts share an instance. The separation half of partition without the coverage half: it says nothing about whether the parts exhaust ?whole, so an instance of ?whole belonging to none of them violates nothing. Each part is a subtype of ?whole, stated by the declaration as covering states it. The roster is recorded the way a disjoint_metatype's member set is, which is what this spelling is for — a named few types separated from each other, where disjoint_metatype needs a metatype term to hang them on and sibling_disjoint separates every specialization of the parent rather than the ones named.")
-(variable_arity_predicate separating)
+(unbounded_arity_predicate separating)
 (genlArg separating 1 thing)
 (argAndRestGenl separating 2 thing)
 (arityMin separating 3)
@@ -853,7 +875,7 @@
 
 (comment partition
          "(partition ?whole ?part1 ?part2 ...) means that the named parts cover ?whole and that no two of them share an instance. The coverage half is covering's exactly, and both declarations are recorded under one roster, so the coverage inference reads a partition as the cover it is. The separation half is recorded the way a disjoint_metatype's member set is — consulted by the disjointness test, never written out as a (disjoint …) sentex per pair — so a siblingDisjointException over two parts exempts that pair as it exempts two metatype members, and dropping the declaration releases every pair at once. disjoint_metatype keeps its own meaning and claims no coverage.")
-(variable_arity_predicate partition)
+(unbounded_arity_predicate partition)
 (genlArg partition 1 thing)
 (argAndRestGenl partition 2 thing)
 (arityMin partition 3)
@@ -944,7 +966,7 @@
 
 (comment intersection
          "(intersection ?combined . ?types) means ?combined is definitionally the intersection of ?types: a thing is a ?combined exactly when it is each of ?types. A definitional collection relation over kinds, like the defn* family above, and the twin of disjoint, which states that kinds do NOT overlap. Variable-arity; (intersection causal_event causal event) names a two-way intersection and further ?types extend it. arityMin is three: the combined kind plus at least two types, since the intersection of a single type is that type and drives no rule.")
-(variable_arity_predicate intersection)
+(unbounded_arity_predicate intersection)
 (genlArg intersection 1 thing)
 (genlArg intersection 2 thing)
 (argAndRestGenl intersection 3 thing)
@@ -1231,6 +1253,8 @@
 (comment functionCorrespondingPredicate
          "(functionCorrespondingPredicate ?function ?predicate ?position) means that ?function and ?predicate state the same relationship: ?function maps some arguments to a value exactly when ?predicate holds of those same arguments with the value at ?position. So (functionCorrespondingPredicate MotherFn motherOf 2) makes (MotherFn Muffet) resolve to the Mary of a believed (motherOf Muffet Mary), and, where no mother is known, projects the placeholder constant it mints back onto motherOf so the placeholder still answers questions about who Muffet's mother is. Reading it both ways is what stops the function and the predicate from being one claim the KB can reason with only half of, and a value arriving after its application is equated with the placeholder, so the order the two are asserted in does not decide the answer. ?position is 1-based over ?predicate's arguments and may be omitted, which puts the value last — the shape nearly every correspondence has. Read only for a reifiable_function, an undeclared function having no application to reify. See docs/nat.md.")
 (variable_arity_predicate functionCorrespondingPredicate)
+(bounded_arity functionCorrespondingPredicate)
+(arityMax functionCorrespondingPredicate 3)
 (arityMin functionCorrespondingPredicate 2)
 (arg functionCorrespondingPredicate 1 function)
 (arg functionCorrespondingPredicate 2 predicate)
@@ -1315,7 +1339,7 @@
 ;; the prover answers at the arity the prover answers it, with no type on its positions.
 (comment different
          "(different ?term1 ?term2 ...) means that no two of the named terms denote one thing. Answered by the different prover from the equality closure under the unique-name assumption: distinct names denote distinct things until a rewriteOf, sameAs or equals merges them, and a merge the reading context cannot see leaves the two names different there. The unique-name assumption is suspended for an unpinned indeterminate_term, so a goal naming one is not provable against a determinate term until a rewriteOf pins it. A query operator: an assert of it is refused, and only a ground goal of two or more arguments is answered. Commutative, since the answer does not depend on the order of the terms. See docs/equality.md.")
-(variable_arity_predicate different)
+(unbounded_arity_predicate different)
 (arityMin different 2)
 (commutative different)
 
@@ -1348,7 +1372,7 @@
          "(greaterThan ?number1 ?number2 …) means that the numbers descend. Variable arity, so (greaterThan 3 2 1) states the chain 3 > 2 > 1. Evaluable: computed on demand from ground numbers, never stored. Canonicalizes to lessThan with the arguments reversed, so only the < direction is ever stored and a greaterThan goal is still answerable.")
 (arg greaterThan 1 number)
 (arg greaterThan 2 number)
-(variable_arity_predicate greaterThan)
+(unbounded_arity_predicate greaterThan)
 (arityMin greaterThan 2)
 
 (comment implies
@@ -1382,7 +1406,7 @@
          "(lessThan ?number1 ?number2 …) means that the numbers ascend. Variable arity, so (lessThan 1 2 3) states the chain 1 < 2 < 3. Evaluable: computed on demand from ground arguments, never stored and never forward-chained. Chained comparisons in a rule collapse into one literal, so (lessThan ?a ?b) beside (lessThan ?b ?c) becomes (lessThan ?a ?b ?c).")
 (arg lessThan 1 number)
 (arg lessThan 2 number)
-(variable_arity_predicate lessThan)
+(unbounded_arity_predicate lessThan)
 (arityMin lessThan 2)
 
 (comment matchesPattern
@@ -1404,7 +1428,7 @@
 (comment or
          "(or ?disjunct1 ?disjunct2 …) means the disjunction of the disjuncts inside an implies rule's antecedent. A syntactic connective rather than a predicate: it is never asserted on its own, and it never reaches a stored sentence — the rule is polycanonicalized into one rule per alternative, exactly as a conjunctive consequent is split into one rule per conjunct. A disjunctive conclusion is a choice rather than a derivation, and is written with set/assumptionRule instead. See docs/canonicalization.md.")
 (logical_connective or)
-(variable_arity or)
+(unbounded_arity or)
 
 (comment relation            "The type of every operator that may be applied to arguments. function and truth_valued_relation partition it: an application of a function denotes or evaluates to a value, while an application of a truth_valued_relation is true or false.")
 ;; Stated although (genl relation expression) derives it: with the edge stated, CxCore holds
@@ -1547,7 +1571,7 @@
 
 (comment commutativeInArgs
          "(commutativeInArgs ?relation ?position1 ?position2 ...) means that the arguments of ?relation at the named positions may be permuted without changing the proposition, and that every position not named stays where it was written. At least two distinct positive positions, or the declaration licences nothing and is refused at the entry point. Two declarations sharing a position are one licence and not two applied in turn: positions 1 and 2 interchanging while 2 and 3 do means 1 and 3 interchange through 2, so the engine merges them into one component before it sorts. A named position past the relation's arity in some application simply forms no component there. See docs/canonicalization.md.")
-(variable_arity_predicate commutativeInArgs)
+(unbounded_arity_predicate commutativeInArgs)
 (decontextualized_predicate commutativeInArgs)
 (arityMin commutativeInArgs 3)
 (arg commutativeInArgs 1 relation)
@@ -1760,7 +1784,7 @@
 
 (comment termsRelated
          "(termsRelated ?term1 ?term2 …) means that the named terms form a related cluster — a curation grouping among vocabulary terms, so a reader meeting one is pointed at the rest. Variable arity, like lessThan: (termsRelated positiveExample negativeExample borderlineExample) groups the three example predicates as one family. Documentation only — nothing in the engine reads it and it draws no inference, the grouping being for a reader as comment's prose is.")
-(variable_arity_predicate termsRelated)
+(unbounded_arity_predicate termsRelated)
 (arityMin termsRelated 2)
 
 (comment seeAlso
@@ -1836,7 +1860,7 @@
 (comment variable_order_type "A type that can hold members of any order.")
 (comment type_type_by_order "A disjoint_metatype partitioning fixed_order_type into type, metatype, and meta_metatype.")
 (comment partitionedByType "(partitionedByType ?whole ?classifier . ?cells) declares that the ?cells exhaustively and disjointly partition ?whole, and that each cell is an instance of ?classifier. Inert — the disjointness and the memberships are stated directly beside it.")
-(variable_arity_predicate partitionedByType)
+(unbounded_arity_predicate partitionedByType)
 (arityMin partitionedByType 3)
 (unary_predicate type)
 (at_least_metatype disjoint_metatype)
