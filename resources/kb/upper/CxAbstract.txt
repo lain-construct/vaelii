@@ -25,6 +25,7 @@
 ;; formation substance.  Bread, an apple and sea salt are a made, a natural and a
 ;; formation food, and an apple is biological food.
 (orthogonal organism made)
+(orthogonal animal made)
 (orthogonal organism natural)
 (orthogonal body_part made)
 (orthogonal body_part natural)
