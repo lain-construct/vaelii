@@ -174,3 +174,9 @@
     (is (seq (v/sentexes-matching kb (list 'implementationNote t '?note) 'CxCore))
         (str t " carries an implementation note"))))
 
+(tu/deftest-kb the-rules-stated-for-some-arities-name-the-issue-for-the-rest
+  (doseq [t '[orthogonalMetatypes partitionedByType]]
+    (let [notes (map (comp #(nth % 2) :sentence)
+                     (v/sentexes-matching kb (list 'implementationNote t '?note) 'CxCore))]
+      (is (some #(re-find #"github\.com/vaelii/vaelii/issues/\d+" %) notes)
+          (str t " carries an implementation note naming its issue")))))
