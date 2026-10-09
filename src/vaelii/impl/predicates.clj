@@ -1039,19 +1039,27 @@
 
     ;; ---- the syntactic and denotation type roots -------------------------
     (map (fn [[t where]]
-           [t (enforced (collection
+           [t (enforced (collection :facets #{:answers}
+                                    :notes (str "read by name by checks/syntactic-roots — the"
+                                                " kind quotedArg judges a value against — and an"
+                                                " evaluable kind check for a literal argument:"
+                                                " (string \"foo\") holds and (number \"foo\")"
+                                                " does not. A symbol argument is left to the"
+                                                " other provers."))
+                        where)])
+         '[[string "checks/syntactic-roots — the kind quotedArg judges a value against, matched by name; provers/EvaluableProver answers it for a literal"]
+           [number "checks/syntactic-roots — the same, with integer below it; provers/EvaluableProver answers it for a literal"]
+           [keyword "checks/syntactic-roots — the same; provers/EvaluableProver answers it for a literal"]
+           [boolean "checks/syntactic-roots — the same; provers/EvaluableProver answers it for a literal"]
+           [character "checks/syntactic-roots — the same, and a one-letter string is not one; provers/EvaluableProver answers it for a literal"]])
+    [['symbol (enforced (collection
                          :notes (str "read by name by checks/syntactic-roots — the kind"
                                      " quotedArg judges a value against."))
-                        where)])
-         '[[string "checks/syntactic-roots — the kind quotedArg judges a value against, matched by name"]
-           [number "checks/syntactic-roots — the same, with integer below it"]
-           [keyword "checks/syntactic-roots — the same"]
-           [boolean "checks/syntactic-roots — the same"]
-           [character "checks/syntactic-roots — the same; a one-letter string is not one"]
-           [symbol "checks/syntactic-roots — the same; mention-only, so nothing places it in the domain lattice"]])
+                        "checks/syntactic-roots — the same; a symbol is what (Quote X) denotes when X is a name")]]
     [['integer (enforced (collection :facets #{:answers}
-                                     :notes (str "both a syntactic root and the one *evaluable*"
-                                                 " kind check: (integer 5) holds because 5 is one,"
+                                     :notes (str "both a syntactic root and an evaluable kind"
+                                                 " check for any ground argument: (integer 5)"
+                                                 " holds because 5 is one,"
                                                  " which is what lets the four sign-refined"
                                                  " collections be defined by defn conditions"
                                                  " resolved at query time."))
