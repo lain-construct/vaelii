@@ -31,6 +31,14 @@
     (is (true? (v/genl? kb t 'quantitative 'CxMeasure))))
   (is (not (v/genl? kb 'quantity 'quantitative)) "a quantity is temporal and not quantitative"))
 
+;; ---- the orthogonal pairs the disjointness audit ruled -------------------------
+
+(tu/deftest-kb the-audited-overlapping-pairs-read-orthogonal
+  (doseq [[a b] '[[made vertebrate] [made invertebrate] [made solid]
+                  [animal mortal] [animal dead] [animal alive] [animal food]
+                  [biological container] [literal wff_expression]]]
+    (is (= :orthogonal (v/subsumption-status kb a b)) (str a " and " b " read orthogonal"))))
+
 ;; ---- implementationNote ------------------------------------------------------
 
 (tu/deftest-kb an-implementation-note-is-a-sibling-of-comment

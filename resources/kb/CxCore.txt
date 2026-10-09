@@ -1808,6 +1808,8 @@
 (variable_order_type variable_order_type)
 ;; A food can be an organism: an oyster eaten live.
 (orthogonal food organism)
+;; A shrimp eaten whole is an animal and a food, and an apple a food that is no animal.
+(orthogonal animal food)
 ;; A type of any order may have no instance or may have one.
 (orthogonal empty type)
 (orthogonal empty metatype)
