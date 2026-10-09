@@ -1009,8 +1009,7 @@
   "The kinds with no location in any space, each with the contexts that read it as
   aspatial.  `context` and `language` are read from two band contexts besides CxCore,
   which see CxCore's `expression` lattice and `language` edge."
-  '{relation_type [CxAbstract]
-    quantity      [CxMeasure]
+  '{quantity      [CxMeasure]
     fluent        [CxTime]
     organization  [CxCore CxSociety]
     context       [CxCore CxSpace CxSociety]
@@ -1091,7 +1090,6 @@
     [genl character thing CxCore "character genl unrepresented_term genl linguistic genl nowhere_never genl aspatial; partition thing spatial aspatial"]
     [genl denotational_term thing CxReflection "denotational_term genl closed_expression genl expression genl linguistic genl nowhere_never genl aspatial; partition thing spatial aspatial"]
     [genl formula thing CxCore "formula genl linguistic genl nowhere_never genl aspatial; partition thing spatial aspatial"]
-    [genl relation_type intangible CxAbstract "relation_type genl aspatial genl intangible"]
     [genl quantity intangible CxMeasure "quantity genl aspatial genl intangible"]
     [genl fluent intangible CxTime "fluent genl aspatial genl intangible"]
     [genl temporal thing CxCore "partition thing temporal atemporal"]
