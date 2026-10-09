@@ -691,6 +691,13 @@
 (instance_relation_predicate comment)
 (arg comment 2 string)
 
+(comment implementationNote
+         "(implementationNote ?term ?text) means that ?text records how the engine or this KB's own text implements ?term, or a limit of that implementation, e.g. a rule stated only for some arities. A comment says what ?term means, and an implementation note says how the meaning is carried out. A note can go stale when the engine changes, and a comment cannot. Ordinary sentexes, queried like any fact. Nothing in the engine reads one and it draws no inference.")
+(binary_predicate implementationNote)
+(instance_relation_predicate implementationNote)
+(arg implementationNote 2 string)
+(termsRelated comment implementationNote)
+
 (comment contradicts
          "(contradicts (sentexHandle ?h1) (sentexHandle ?h2) …) means that the sentexes it names are the members of a nogood: each is believed in the network and the contexts stating them and the grounds the detection read have a common descendant. The engine derives it at each maximal common descendant of those contexts where no except in force hides a member or a ground, justified by the members, the grounds and the genlCx edges the placement is seen over, so retracting any of them takes it OUT. One argument per member, in content order (sentence, then context), never handle order, so two detections of one nogood store one sentex; a self-clash names one member and an anti_transitive clash three. A nogood with a unique weakest member stores the defeat of that member beside it; a dilemma or a conflict stores the contradicts alone. The reports that (conflicts kb) and (contradictions kb) return compose a contradicts form over the member sentences instead.")
 (variable_arity_predicate contradicts)

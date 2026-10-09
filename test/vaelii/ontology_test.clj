@@ -194,7 +194,8 @@
   (merge
    {'[genl 1]  "predicate specializations: (genlArg genl 1 thing) is false of (genl predicateTypeByArity relationTypeByArity), whose ends are binary predicates"
     '[genl 2]  "the root: (genlArg genl 2 thing) would entail (genl thing thing), refused as irreflexive"
-    '[comment 1] "the commented term: a type, a predicate, an individual or a context, so no type below thing covers it"}
+    '[comment 1] "the commented term: a type, a predicate, an individual or a context, so no type below thing covers it"
+    '[implementationNote 1] "the noted term: a type, a predicate, an individual or a context, as comment's is"}
    ;; slots that hold a term of any kind, which no type below thing covers
    {'[believes 1]           "a believer, whose types CxCore cannot see"
     '[evaluate 2]           "an evaluate expression: a number or an application"

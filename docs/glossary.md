@@ -584,6 +584,12 @@ that are not well-formed, so say nothing: some operator has the wrong number of
 arguments, e.g. `(dog Muffet Rex)` for a one-place `dog`. With `wff` it partitions
 `formula`. See [taxonomy.md](taxonomy.md).
 
+**`implementationNote`** ![kb](../.github/badges/cat-kb.svg): A documentation sentex,
+`(implementationNote <term> "…")`, that records how the engine or the KB text implements a
+term, or where that implementation stops short. A sibling of `comment`, not a
+specialization of it: `comment` carries what a term means, and an implementation note
+carries how the meaning is carried out. No inference path reads it.
+
 **`indeterminate_term`** ![kb](../.github/badges/cat-kb.svg): The extensible
 category of terms that stand for some object without pinning down which. A skolem
 constant is its built-in first member, read off the `SkolemFn` expression it was minted

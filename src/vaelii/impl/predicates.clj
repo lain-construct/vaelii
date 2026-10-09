@@ -1495,6 +1495,15 @@
              (str "a documentation 'see also' cross-reference between two terms; read like"
                   " comment and by nobody for inference. Directional — (seeAlso a b)"
                   " does not imply (seeAlso b a); the reverse is a separate assertion."))]
+     ['implementationNote
+      (inert {:shape {:args [:term :term]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "documentation the engine stores and never reads: how a term is"
+                          " implemented or where its implementation stops short, beside the"
+                          " comment that says what the term means.")}
+             (str "an implementation note on a term, a sibling of comment: comment carries"
+                  " the meaning, and this carries how the engine or the KB text implements it."
+                  " Nothing infers from it."))]
 
      ;; A reviewer's record that a rule-macro suggestion was read and declined.  It names
      ;; the suggestion by content rather than the rule by handle, so a text export keeps it.
