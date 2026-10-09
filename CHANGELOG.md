@@ -15,6 +15,49 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **The expression lattice and the use/mention vocabulary move to a new upper member,
+  CxReflection, and `atomic_formula`, `atomic_sentence` and `relation_application` are
+  renamed.** `expression` is a written form, the thing `(Quote …)` names, so it is
+  disjoint from `relation`, `context` and `language`, which sit directly below
+  `nowhere_never`. CxReflection (`resources/kb/upper/CxReflection.txt`) holds 22
+  expression kinds: `expression` is partitioned into `atomic_expression` and
+  `non_atomic_expression`, which replaces `relation_application`; `atomic_expression`
+  into `atomic_term` and `variable`; and `expression` again into `open_expression` and
+  `closed_expression` and into `wff_expression` and `ill_formed_expression`.
+  `atomic_formula` is `predication` and `atomic_sentence` is `closed_predication`, with
+  `open_predication`, `negated_predication`, `open_literal`, `closed_literal`,
+  `open_formula`, `wff`, `ill_formed`, `wff_sentence` and `ill_formed_sentence` beside
+  them. `proposition`, `means`, `denotes` and `expresses` relate an expression to what it
+  says or names. CxCore keeps `symbol`, the value kinds, `unrepresented_term`, `formula`,
+  `sentence`, `non_atomic_term` and the new `linguistic`, which `language` and every
+  expression sit under, so `symbol` and the value kinds are disjoint from `relation` from
+  every context. `forall`, `thereExists` and `exists` are declared binary quantifiers, and
+  `quantifier`, `logical_connective`, `logical_constant` and `sign_value` have closed
+  extents. `bounded_arity` and `unbounded_arity` partition `relation`, the 14 relations
+  that take any number of arguments are stated `unbounded_arity`, and `arityMax` bounds
+  `functionCorrespondingPredicate` at 3. [contexts.md](docs/contexts.md),
+  [naming.md](docs/naming.md#reserved-words), [taxonomy.md](docs/taxonomy.md).
+
+  *Class:* **Breaking** (KB vocabulary renamed and moved).
+  *Migration:* write `predication` for `atomic_formula`, `closed_predication` for
+  `atomic_sentence` and `non_atomic_expression` for `relation_application`. A context that
+  names an expression kind other than CxCore's sees CxReflection, as every context below
+  CxUniverse does.
+  *Breaks:* `atomic_formula`, `atomic_sentence`, `relation_application`
+
+- **A variable inside `(Quote …)` or bound by a quantifier is not free, so a fact about a
+  quoted rule stores.** `(awesome_rule (Quote (implies (poodle ?x) (dog ?x))))` was
+  refused as `:not-ground`. `sentex/closed?` is new beside `sentex/ground?`: it is true
+  when every variable occurrence is bound by `forall`, `thereExists` or `exists`, or sits
+  inside a `(Quote …)`, and `check-ground` reads it. A written `(forall ?y (implies …))`
+  asserted as a fact is now refused by the query-operator check rather than as
+  `:not-ground`. [glossary.md](docs/glossary.md#g).
+
+  *Class:* **Breaking** (a refusal changes type).
+  *Migration:* a caller matching `:not-ground` on a quantified fact matches
+  `:not-well-formed`.
+  *Breaks:* `:not-ground`
+
 - **`query-status` reads `:incomplete` when a transitive goal answered its extent.** A
   goal `(P ?x ?y)` over a `transitive` `P`, solved with both arguments open, answers the
   stored pairs and not the closure, and `query-status` reported `:complete` over it.
@@ -87,6 +130,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
   draws `animal` above `mammal` and no arrow from `dog` to `animal`. An expansion costs
   at most two facade reads, and a page makes at most twelve expansions.
   [api.md](docs/api.md), [web.md](docs/web.md#a-terms-shape-drawn).
+
+  *Class:* **Additive**.
+
+- **`string`, `number`, `boolean`, `keyword` and `character` are computed for a literal
+  argument.** `(string "foo")` and `(keyword :a)` hold, and `(not (number "foo"))` and
+  `(not (string 7))` are proved, by the evaluable prover that answers `integer`. A symbol
+  argument is left to the other provers, since a constant can denote a number.
+  [inference.md](docs/inference.md).
 
   *Class:* **Additive**.
 
