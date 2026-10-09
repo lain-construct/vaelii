@@ -1819,10 +1819,19 @@
 (comment fixed_order_type "A type all of whose members are of one order — a type, a metatype, or a meta_metatype. Contrast variable_order_type.")
 (comment variable_order_type "A type that can hold members of any order.")
 (comment type_type_by_order "A disjoint_metatype partitioning fixed_order_type into type, metatype, and meta_metatype.")
-(comment partitionedByType "(partitionedByType ?whole ?classifier . ?cells) declares that the ?cells exhaustively and disjointly partition ?whole, and that each cell is an instance of ?classifier. Inert — the disjointness and the memberships are stated directly beside it.")
-(variable_arity_predicate partitionedByType)
-(unbounded_arity_predicate partitionedByType)
-(arityMin partitionedByType 3)
+(comment partitionedByType "(partitionedByType ?whole ?classifier) means that the members of ?classifier partition ?whole: each member is a subtype of ?whole, no two members share an instance, and every instance of ?whole is an instance of some member. e.g. (partitionedByType tangible origin_type) says that made and natural partition tangible.")
+(binary_predicate partitionedByType)
+(arg partitionedByType 1 unary_predicate)
+(arg partitionedByType 2 at_least_metatype)
+;; A generator stamps the strict membership rule placing each member under the whole.  It
+;; skips a thing whole: thing is a genl of every type, so the edge would say nothing, as
+;; (typeGenl empty thing) says nothing.  The separation half concludes the clique mark
+;; rather than a disjoint per pair: a pair rule needs (different ?part1 ?part2), which is
+;; not a roster antecedent, so a disjoint it concluded would support nothing.
+(implies (and (partitionedByType ?whole ?classifier) (different ?whole thing))
+         (set/forwardRule (implies (?classifier ?part) (genl ?part ?whole))))
+(set/forwardRule (implies (partitionedByType ?whole ?classifier) (disjoint_metatype ?classifier)))
+(termsRelated partition partitionedByType)
 (unary_predicate type)
 (at_least_metatype disjoint_metatype)
 ;; Stated rather than left to (arg typeGenl 1 at_least_metatype) to mint, so the typeGenl
@@ -1839,16 +1848,10 @@
 (set/monotonic (partition unary_predicate fixed_order_type variable_order_type))
 (interArg typeGenl 1 meta_metatype 2 metatype)
 (interArg typeGenl 1 metatype 2 type)
-(partitionedByType fixed_order_type type_type_by_order type metatype meta_metatype)
-;; The partition's memberships and subtype edges, stated explicitly so the disjoint_metatype
-;; separates the three orders and each is a fixed_order_type — partitionedByType is inert and
-;; expands to nothing.
+(partitionedByType fixed_order_type type_type_by_order)
 (type_type_by_order type)
 (type_type_by_order metatype)
 (type_type_by_order meta_metatype)
-(genl type fixed_order_type)
-(genl metatype fixed_order_type)
-(genl meta_metatype fixed_order_type)
 (typeGenl disjoint_metatype at_least_metatype)
 (typeGenl meta_metatype metatype)
 (typeGenl metatype type)
@@ -1919,6 +1922,8 @@
 (temporality_type temporal)
 (temporality_type atemporal)
 (orthogonalMetatypes spatiality_type temporality_type)
+(partitionedByType thing spatiality_type)
+(partitionedByType thing temporality_type)
 ;; a region of space is intangible and spatial.
 (set/monotonic (orthogonal intangible spatial))
 ;; a fluent is intangible and temporal.

@@ -1484,16 +1484,16 @@
                      " metatypes stamps rules making every member of each orthogonal to every"
                      " member of the others; four or more pends variable-arity rule support"))]
      ['partitionedByType
-      (inert {:shape {:args [] :variadic :term} :storage [:none] :checked false
-              :family nil :facets #{}
-              :notes (str "(partitionedByType ?whole ?classifier . ?cells) records that the"
-                          " ?cells exhaustively and disjointly partition ?whole, each a"
-                          " ?classifier instance. Inert: the disjointness rides a"
-                          " disjoint_metatype and the memberships are stated beside it, so this"
-                          " draws no inference and expands to nothing.")}
-             (str "a partition declaration (variable arity) documenting that the cell types"
-                  " exhaustively and disjointly cover the whole. Nothing infers from it — the"
-                  " disjoint_metatype and the explicit memberships carry the separation."))]
+      (enforced {:shape {:args [:type :type]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "enforced by the generic chain, not by name: CxCore generators"
+                             " stamp a membership rule concluding (genl ?part ?whole) and one"
+                             " concluding disjoint between two different members. The coverage"
+                             " half has no rule, and a partition stated beside the fact carries"
+                             " it.")}
+                (str "generic rule generators (docs/generators.md): a fact places every member"
+                     " of the classifier under the whole and separates the members; coverage"
+                     " pends the engine reading it from the classifier's members"))]
      ['argN
       (inert {:shape {:args [:term :integer :sentence]} :storage [:none] :checked false
               :family nil :facets #{}

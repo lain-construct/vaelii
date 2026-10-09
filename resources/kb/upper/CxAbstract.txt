@@ -32,6 +32,7 @@
 (forced_monotonic_predicate origin_type)
 (origin_type made)
 (origin_type natural)
+(partitionedByType tangible origin_type)
 (typeOrthogonal origin_type organism)
 (typeOrthogonal origin_type animal)
 (typeOrthogonal origin_type body_part)
