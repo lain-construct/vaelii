@@ -1274,6 +1274,18 @@ covers `thing`:
 below `intangible`, and `nowhere_never` is below both. No edge or disjointness relates
 `intangible` to `spatial`: a region of space is `spatiotemporal` and `intangible`.
 
+Two more partitions sit beside the three. `(partition thing causal acausal)` divides
+`thing` by whether it can be a cause. `causal` is below `temporal`, and `atemporal` is
+below `acausal`. `(partition temporal uninterrupted intermittent)` divides what is in time
+by whether it has a gap: an `uninterrupted` thing is present at every moment between its
+start and its end, and an `intermittent` one is absent at some moment between them.
+`time` and `situation` each divide the same way. `uninterrupted_time` is the intersection
+of `uninterrupted` and `time`, and `time_point` and `time_interval` partition it.
+`situation` is partitioned into `fluent` and `happening`. `uninterrupted_situation` is the
+intersection of `uninterrupted` and `situation`, and `static_situation` and `event`
+partition it. `static_situation` is the intersection of `uninterrupted` and `fluent`, and
+`event` the intersection of `uninterrupted` and `happening`.
+
 CxCore places `spatiotemporal` and `nowhere_never` by `genl` edges, not by
 `intersection`: a thing stated `spatial` and `temporal` is not concluded
 `spatiotemporal`, and a thing stated `aspatial` and `atemporal` is not concluded
