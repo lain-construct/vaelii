@@ -188,4 +188,9 @@
     (let [notes (map (comp #(nth % 2) :sentence)
                      (v/sentexes-matching kb (list 'implementationNote t '?note) 'CxCore))]
       (is (some #(re-find #"github\.com/vaelii/vaelii/issues/\d+" %) notes)
-          (str t " carries an implementation note naming its issue")))))
+          (str t " carries an implementation note naming its issue"))))
+  (doseq [t '[typeOrthogonal partitionedByType spatiality_type temporality_type]]
+    (let [notes (map (comp #(nth % 2) :sentence)
+                     (v/sentexes-matching kb (list 'implementationNote t '?note) 'CxCore))]
+      (is (some #(re-find #"issues/173" %) notes)
+          (str t " names the order-dependence issue its workaround waits on")))))
