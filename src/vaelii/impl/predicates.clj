@@ -1097,8 +1097,6 @@
            [variable "documentary: an atomic expression written ?name, denoting nothing by itself until a formula binds or a query answers it. Nothing reads it by name."]
            [open_expression "documentary: an expression with a free variable, the open half of the expression partition. Nothing reads it by name."]
            [closed_expression "documentary: an expression with no free variable, the closed half of the expression partition. Nothing reads it by name."]
-           [open_non_atomic_expression "documentary: a non_atomic_expression with a free variable. Nothing reads it by name."]
-           [closed_non_atomic_expression "documentary: a non_atomic_expression with no free variable. Nothing reads it by name."]
            [open_formula "documentary: a formula with a free variable. Nothing reads it by name."]
            [open_predication "documentary: a predication with a free variable. Nothing reads it by name."]
            [open_literal "documentary: a literal with a free variable — what a rule's antecedent holds. Nothing reads it by name."]
