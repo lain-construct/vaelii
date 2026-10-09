@@ -221,6 +221,16 @@
       (is (= #{} (v/min-genls kb puppy CxB)))
       (is (= #{} (v/max-specs kb animal CxB))))))
 
+(tu/deftest-kb max-specs-keeps-a-child-that-is-also-a-subtype-of-an-unrelated-type
+  ;; `kid_a` has a second parent, `aside`, that is no neighbour of `hub`
+  (tu/with-terms [hub aside kid_a kid_b kid_c kid_d kid_e kid_f]
+    (let [kids [kid_a kid_b kid_c kid_d kid_e kid_f]]
+      (doseq [k kids] (v/assert kb (list 'genl k hub) 'CxUniverse))
+      (v/assert kb (list 'genl kid_a aside) 'CxUniverse)
+      (is (= (set kids) (v/direct-specs kb hub)))
+      (is (= (set kids) (v/max-specs kb hub) (v/max-specs kb hub 'CxUniverse)))
+      (is (= #{kid_a} (v/max-specs kb aside))))))
+
 (tu/deftest-kb separating-licenses-no-coverage-inference
   (tu/with-terms [animal dog cat Rex]
     (v/assert kb (list 'separating animal dog cat) 'CxUniverse)
