@@ -318,7 +318,7 @@
     (is (empty? violations)
         (str "relations outside the exactly-one arity-policy partition: "
              (pr-str violations)))
-    (is (some? (v/handle-of kb '(disjoint fixed_arity variable_arity) 'CxCore))
+    (is (some? (v/handle-of kb '(partition relation fixed_arity variable_arity) 'CxCore))
         "the partition is declared in KB data")))
 
 ;; ---- the declarations the merge added to the shipped functions ------------

@@ -423,17 +423,18 @@
 ;; predicate) — would derive the wrong thing: a relation whose only stated type is
 ;; variable_arity reaches relation and not predicate, so (binary_predicate P) after
 ;; (variable_arity P) would be derived a predicate where the contradiction is the arity
-;; policy, which the disjointness below stores as a clash.  A relation classified into the wrong kind is
-;; caught by (disjoint predicate function), which the partition of relation derives,
-;; through the genl edges instead.
+;; policy, which the partition below stores as a clash.  A relation classified into the
+;; wrong kind is caught by (disjoint predicate function), which the partition of relation
+;; derives, through the genl edges instead.
 ;;
 ;; The rule that split states, in general: a unary predicate declares its one argument
 ;; position when the type it would declare is NOT already implied by its own genl parent,
 ;; and declares none when the parent sits below that type.  fixed_arity is the first case.
-;; (genl fixed_arity relation) concludes (relation 5) from (fixed_arity 5), nothing is
-;; disjoint from relation for a number, and so the declaration is the only refusal there
-;; is.  instance_relation_predicate is the second.  Its parent is binary_predicate, which
-;; is below predicate, so (arg instance_relation_predicate 1 predicate) restates what the
+;; (partition relation fixed_arity variable_arity) installs (genl fixed_arity relation),
+;; which concludes (relation 5) from (fixed_arity 5); nothing is disjoint from relation for
+;; a number, and so the declaration is the only refusal there is.
+;; instance_relation_predicate is the second.  Its parent is binary_predicate, which is
+;; below predicate, so (arg instance_relation_predicate 1 predicate) restates what the
 ;; edge already concludes and turns that conclusion into a precondition: it refuses
 ;; (instance_relation_predicate P) stated after (arity P 2) because P is not yet a
 ;; predicate, when the assertion supplies predicate-hood through the edge.  Six marks are
@@ -448,7 +449,6 @@
          "(fixed_arity ?relation) means that ?relation takes one exact number of arguments. Exact arity classes and numeric arity declarations specialize this relation-wide policy.")
 (unary_predicate fixed_arity)
 (arg fixed_arity 1 relation)
-(genl fixed_arity relation)
 
 (comment fixed_arity_predicate
          "The fixed_arity relations that are predicates.")
@@ -466,7 +466,6 @@
          "(variable_arity ?relation) means that ?relation does not take one exact number of arguments; arityMin states its lower bound. Prefer it for a repeatable, homogeneously typed argument role. A relation with a bounded optional tail declares variable arity too, and its well-formedness check bounds the tail: functionCorrespondingPredicate takes two or three arguments. The arity check reads this generic type through specialization.")
 (unary_predicate variable_arity)
 (arg variable_arity 1 relation)
-(genl variable_arity relation)
 
 (comment variable_arity_predicate
          "The variable_arity relations that are predicates.")
@@ -480,7 +479,7 @@
 (genl variable_arity_function variable_arity)
 (genl variable_arity_function function)
 
-(set/monotonic (disjoint fixed_arity variable_arity))
+(set/monotonic (partition relation fixed_arity variable_arity))
 
 (comment bounded_arity "A relation whose number of arguments has an upper bound: one exact count, or a fixed range, e.g. parentOf takes two, functionCorrespondingPredicate two or three.")
 (unary_predicate bounded_arity)
