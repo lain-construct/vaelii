@@ -172,7 +172,7 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Class:* **Additive**.
 
 - **The upper ontology states `logical`, `quantitative`, `typeOrthogonal`,
-  `orthogonalMetatypes` and `implementationNote`, and derives 42 genl, disjoint and
+  `orthogonalMetatypes` and `implementationNote`, and derives 43 genl, disjoint and
   orthogonal sentences it stated.** `(separating nowhere_never logical linguistic
   quantitative)` separates three kinds: `relation`, `proposition` and `context` are
   `logical`, and `measure`, `unit_of_measure`, `physical_dimension` and `sign_value` are
@@ -181,8 +181,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   metatype orthogonal to every member of the others, for two and three metatypes
   (vaelii/vaelii#170). Each is a CxCore rule generator. The classifiers `arity_type`,
   `origin_type`, `spatiality_type` and `temporality_type` are new, and each classifier a
-  rule reads is on the forced-monotonic roster. 9 `typeOrthogonal` facts and one
-  `orthogonalMetatypes` fact derive 31 orthogonal pairs, 21 of them stated before, and
+  rule reads is on the forced-monotonic roster. 10 `typeOrthogonal` facts and one
+  `orthogonalMetatypes` fact derive 33 orthogonal pairs, 22 of them stated before, and
   every arity type is orthogonal to `abducible_predicate`. 9 more orthogonal pairs are
   stated, e.g. `made` and `vertebrate`, `animal` and `food`. `implementationNote` is a
   sibling of `comment` for how a term is implemented, and 12 CxCore terms carry one.
