@@ -1083,12 +1083,20 @@
     (is (true? (v/ask? kb (list 'intangible Prime) 'CxUniverse)))
     (is (true? (tu/stored-in-clash? kb (list 'tangible Prime) 'CxUniverse)))))
 
+(tu/deftest-kb a-fluent-may-be-located
+  ;; A boulder rolling and thin ice are held states with a place, so nothing separates
+  ;; fluent from spatial.
+  (is (not (v/disjoint? kb 'fluent 'spatial 'CxTime)))
+  (is (not (v/genl? kb 'fluent 'aspatial 'CxTime)))
+  (tu/with-terms [ThinIce]
+    (v/assert kb (list 'fluent ThinIce) 'CxUniverse)
+    (is (not (tu/stored-in-clash? kb (list 'spatial ThinIce) 'CxUniverse)))))
+
 (def ^:private aspatial-kinds
   "The kinds with no location in any space, each with the contexts that read it as
   aspatial.  `context` and `language` are read from two band contexts besides CxCore,
   which see CxCore's `expression` lattice and `language` edge."
   '{quantity      [CxMeasure]
-    fluent        [CxTime]
     organization  [CxCore CxSociety]
     context       [CxCore CxSpace CxSociety]
     language      [CxCore CxSpace CxSociety]})
@@ -1098,18 +1106,18 @@
           ctx         (conj ctxs 'CxUniverse)
           located     '[spatial spatiotemporal]]
     (is (true? (v/disjoint? kb kind located ctx)) (str kind " and " located " in " ctx)))
-  (testing "a spatial relation between a fluent and an organization derives two clashes"
+  (testing "a spatial relation between a quantity and an organization derives two clashes"
     ;; Pinned to the entailing reading: the clash sides are the minted (spatial X), and
     ;; the constraint-only reading refuses the northOf instead.
     (tu/with-entailing
-      (tu/with-terms [LampLit AcmeCo]
-        (v/assert kb (list 'fluent LampLit) 'CxUniverse)
+      (tu/with-terms [WaterLevel AcmeCo]
+        (v/assert kb (list 'quantity WaterLevel) 'CxUniverse)
         (v/assert kb (list 'organization AcmeCo) 'CxUniverse)
-        (v/assert kb (list 'northOf LampLit AcmeCo) 'CxUniverse)
+        (v/assert kb (list 'northOf WaterLevel AcmeCo) 'CxUniverse)
         (let [clashes (into #{} (comp (filter #(= :disjoint (:kind %)))
                                       (map #(into #{} (map :sentence) (:sides %))))
                             (v/contradictions kb))]
-          (is (contains? clashes #{(list 'fluent LampLit) (list 'spatial LampLit)}))
+          (is (contains? clashes #{(list 'quantity WaterLevel) (list 'spatial WaterLevel)}))
           (is (contains? clashes #{(list 'organization AcmeCo) (list 'spatial AcmeCo)}))))))
   (testing "and a dog stays disjoint from a number and a relation"
     (is (true? (v/disjoint? kb 'dog 'number)))
@@ -1169,7 +1177,6 @@
     [genl denotational_term thing CxReflection "denotational_term genl closed_expression genl expression genl linguistic genl nowhere_never genl aspatial; partition thing spatial aspatial"]
     [genl formula thing CxCore "formula genl linguistic genl nowhere_never genl aspatial; partition thing spatial aspatial"]
     [genl quantity intangible CxMeasure "quantity genl aspatial genl intangible"]
-    [genl fluent intangible CxTime "fluent genl aspatial genl intangible"]
     [genl temporal thing CxCore "partition thing temporal atemporal"]
     [genl atemporal thing CxCore "partition thing temporal atemporal"]
     [disjoint temporal atemporal CxCore "partition thing temporal atemporal"]

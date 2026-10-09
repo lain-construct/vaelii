@@ -96,8 +96,7 @@
 (genlCx CxTime CxCore)
 (genlCx CxUniverse CxTime)
 
-(comment fluent "A state of affairs that holds over some stretches of time and not others — a cat being asleep, a light being on. What an event starts and stops, and what holdsAt asks about at a moment; aspatial and so intangible, because it is a way the world is rather than a thing in it. See docs/time.md.")
-(genl fluent aspatial)
+(comment fluent "A state of affairs that holds, over any extent: over some stretches of time and not others — a cat being asleep, a light being on. What an event starts and stops, and what holdsAt asks about at a moment. See docs/time.md.")
 
 (comment after
          "(after ?interval1 ?interval2) means that ?interval1 begins strictly after ?interval2 ends. They share no time and do not touch, so some gap separates them. The converse of before.")
