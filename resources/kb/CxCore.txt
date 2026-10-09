@@ -323,9 +323,9 @@
 (unary_predicate formula)
 (unary_predicate sentence)
 (unary_predicate non_atomic_term)
-;; Implementation: CxReflection places the three under expression, so under linguistic.
-;; CxCore's own declarations type positions over them, and a context that sees CxCore
-;; alone reads them through these edges.
+(implementationNote formula "CxReflection places formula under expression, so under linguistic. CxCore's own declarations type positions over formula, and the edge to linguistic stated in CxCore is what a context that sees CxCore alone reads it through.")
+(implementationNote sentence "CxReflection places sentence in the expression lattice. CxCore's own declarations type positions over sentence, and the edge to formula stated in CxCore is what a context that sees CxCore alone reads it through.")
+(implementationNote non_atomic_term "CxReflection places non_atomic_term under expression, so under linguistic. CxCore's own declarations type positions over non_atomic_term, and the edge to linguistic stated in CxCore is what a context that sees CxCore alone reads it through.")
 (genl formula linguistic)
 (genl sentence formula)
 (genl non_atomic_term linguistic)
@@ -359,18 +359,15 @@
 (set/monotonic (disjoint linguistic relation))
 (unary_predicate linguistic)
 
-;; unrepresented_term holds the value kinds.  Implementation: CxReflection places it under
-;; expression, so under linguistic; a band context does not see CxReflection, and the edge
-;; below is what lets it read every value kind as nowhere_never and disjoint from relation.
-;; The relation disjoint is what lets a rule be refused for feeding a text-valued argument
-;; into a position that holds a type: every type is a unary_predicate, so the type position
-;; asks for a predicate, and one variable cannot be both at once.  The disjointness on
-;; number carries integer with it.
+;; unrepresented_term holds the value kinds.  The relation disjoint is what lets a rule be
+;; refused for feeding a text-valued argument into a position that holds a type: every
+;; type is a unary_predicate, so the type position asks for a predicate, and one variable
+;; cannot be both at once.  The disjointness on number carries integer with it.
 (comment unrepresented_term "An expression that cannot be further decomposed in the KB — strings, numbers, keywords, booleans, characters.")
 (unary_predicate unrepresented_term)
+(implementationNote unrepresented_term "CxReflection places unrepresented_term under expression, so under linguistic. A band context does not see CxReflection, and the edge to linguistic stated in CxCore is what lets it read every value kind as nowhere_never and disjoint from relation.")
 (genl unrepresented_term linguistic)
-;; Implementation: symbol is placed the same way, so a context that sees CxCore alone
-;; reads (disjoint symbol predicate).
+(implementationNote symbol "CxReflection places symbol under expression, so under linguistic. The edge to linguistic stated in CxCore is what lets a context that sees CxCore alone read (disjoint symbol predicate).")
 (genl symbol linguistic)
 (genl boolean unrepresented_term)
 (genl character unrepresented_term)
@@ -816,9 +813,7 @@
 (at_least_metatype empty)
 (at_least_metatype nonempty)
 ;; Vacuous by design: thing is already a genl of every type, so these name no new genl
-;; edge.  Inert, since typeGenl has no inference path (src/vaelii/impl/predicates.clj
-;; classifies it :storage [:none], :checked false) — a future typeGenl rule must not fire
-;; for a thing target.
+;; edge.
 (typeGenl empty thing)
 (typeGenl nonempty thing)
 (termsRelated empty nonempty disjoint orthogonal)
@@ -877,9 +872,9 @@
 ;; intersection is the definitional twin of disjoint (which states two kinds do NOT overlap).
 (termsRelated disjoint intersection)
 
-;; --- defining rules (binary and ternary; general arity pends memberOfList, see the
-;;     upstream list proposal). A combined kind is genl each type it intersects, and
-;;     anything that is each type is a member of the combined kind. ------------------
+;; --- defining rules. A combined kind is genl each type it intersects, and anything
+;;     that is each type is a member of the combined kind. ---------------------------
+(implementationNote intersection "The defining rules are stated for two and for three intersected types. A rule for any number of types needs list membership (vaelii/vaelii#79), so an intersection of four or more types derives neither its genl edges nor its memberships.")
 ;; Forward rules: an intersection fact materializes the genl edges when it is asserted,
 ;; so the derived edge reaches the taxonomy closure and answers a variable-free genl
 ;; goal at every read entry point. A bare (implies …) defaults to :backward, which the
@@ -1395,8 +1390,7 @@
          "(exists ?var ?consequent) means a head existential: ?var occurs in a rule's consequent and no antecedent binds it. Forward firing skolemizes it, minting a fresh witness per firing. See docs/skolem.md.")
 (quantifier exists)
 (binary exists)
-;; Implementation: a covering whose parts are all closed is closed, but stating that rule
-;; needs list membership (vaelii/vaelii#79), so the whole is closed by hand.
+(implementationNote logical_constant "A covering whose parts are all closed is closed, but stating that rule needs list membership (vaelii/vaelii#79), so the closed extent of logical_constant is stated by hand beside those of its parts.")
 (closed_extent_predicate logical_connective)
 (closed_extent_predicate quantifier)
 (closed_extent_predicate logical_constant)
@@ -1742,8 +1736,8 @@
 (unary_predicate declined_rule_macro)
 
 ;; --- Lacuna proposals (upper ontology overhaul) ---
-;; Two predicates the engine does not yet act on (inert, no inference path — see
-;; vaelii.impl.predicates):
+(implementationNote genlInverse "No rule or engine path reads genlInverse, so a stated (genlInverse ?spec ?genl-inv) concludes nothing.")
+(implementationNote typeGenl "No rule or engine path reads typeGenl, so a stated (typeGenl ?classifier ?genl) concludes no genl edge. A rule added for it must not fire for a thing target: (typeGenl empty thing) and (typeGenl nonempty thing) are vacuous on purpose.")
 (binary_predicate genlInverse)
 (binary_predicate typeGenl)
 (arg genlInverse 1 binary_predicate)
