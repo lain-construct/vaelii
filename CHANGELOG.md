@@ -60,6 +60,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   fixed-arity relations, e.g. `parentOf`. `relation_type` has no replacement.
   *Breaks:* `at_least_binary_relation`, `at_least_ternary_relation`, `relation_type`
 
+- **`partitionedByType` is binary, `(partitionedByType ?whole ?classifier)`, and draws
+  inference.** The members of `?classifier` partition `?whole`. A CxCore generator places
+  each member under `?whole`, and a rule concludes `(disjoint_metatype ?classifier)`. No
+  rule draws the coverage half (vaelii/vaelii#171), so the `partition` sentence stays
+  beside each of the 4 shipped facts: `fixed_order_type` by `type_type_by_order`,
+  `tangible` by `origin_type`, and `thing` by `spatiality_type` and by
+  `temporality_type`. [glossary.md](docs/glossary.md).
+
+  *Class:* **Breaking** (KB vocabulary arity changed).
+  *Migration:* drop the cell list: write `(partitionedByType W C)` for
+  `(partitionedByType W C A B …)`, and state each cell's membership `(C A)`.
+  *Breaks:* `partitionedByType`
+
 - **A variable inside `(Quote …)` or bound by a quantifier is not free, so a fact about a
   quoted rule stores.** `(awesome_rule (Quote (implies (poodle ?x) (dog ?x))))` was
   refused as `:not-ground`. `sentex/closed?` is new beside `sentex/ground?`: it is true
@@ -155,6 +168,25 @@ it — `git show v0.16.0:CHANGELOG.md`.
   draws `animal` above `mammal` and no arrow from `dog` to `animal`. An expansion costs
   at most two facade reads, and a page makes at most twelve expansions.
   [api.md](docs/api.md), [web.md](docs/web.md#a-terms-shape-drawn).
+
+  *Class:* **Additive**.
+
+- **The upper ontology states `logical`, `quantitative`, `typeOrthogonal`,
+  `orthogonalMetatypes` and `implementationNote`, and derives 42 genl, disjoint and
+  orthogonal sentences it stated.** `(separating nowhere_never logical linguistic
+  quantitative)` separates three kinds: `relation`, `proposition` and `context` are
+  `logical`, and `measure`, `unit_of_measure`, `physical_dimension` and `sign_value` are
+  `quantitative`. `(typeOrthogonal ?classifier ?type)` makes every member of a classifier
+  orthogonal to `?type`, and `(orthogonalMetatypes ?m1 ?m2 …)` makes every member of each
+  metatype orthogonal to every member of the others, for two and three metatypes
+  (vaelii/vaelii#170). Each is a CxCore rule generator. The classifiers `arity_type`,
+  `origin_type`, `spatiality_type` and `temporality_type` are new, and each classifier a
+  rule reads is on the forced-monotonic roster. 9 `typeOrthogonal` facts and one
+  `orthogonalMetatypes` fact derive 31 orthogonal pairs, 21 of them stated before, and
+  every arity type is orthogonal to `abducible_predicate`. 9 more orthogonal pairs are
+  stated, e.g. `made` and `vertebrate`, `animal` and `food`. `implementationNote` is a
+  sibling of `comment` for how a term is implemented, and 12 CxCore terms carry one.
+  [taxonomy.md](docs/taxonomy.md), [glossary.md](docs/glossary.md).
 
   *Class:* **Additive**.
 
