@@ -275,6 +275,8 @@
 ;; the coverage, so a situation denied being an event is concluded a static_situation.
 (genl situation temporal)
 (set/monotonic (partition situation static_situation event))
+;; A meeting happens somewhere, and a contract expiring happens nowhere in particular.
+(orthogonal situation spatial)
 ;; Each skeleton collection is a type, a one-place predicate.
 (unary_predicate intangible)
 (unary_predicate spatial)
@@ -395,6 +397,8 @@
 (genl linguistic nowhere_never)
 (genl expression linguistic)
 (set/monotonic (disjoint linguistic measure))
+;; Use is the default, so the relation dog is not an expression; (Quote dog) is the symbol.
+(set/monotonic (disjoint linguistic relation))
 (set/monotonic (disjoint expression language))
 (genl non_atomic_expression expression)
 (partition expression atomic_expression non_atomic_expression)
@@ -710,7 +714,7 @@
          "(arityMin ?relation ?n) means that a variable-arity ?relation requires at least ?n arguments. Every further position normally repeats the same argument role rather than introducing an unnamed optional field. The arity check refuses an application of the relation shorter than ?n.")
 (binary_predicate arityMin)
 (instance_relation_predicate arityMin)
-(arg arityMin 1 relation)
+(arg arityMin 1 variable_arity)
 (arg arityMin 2 non_negative_integer)
 
 (comment admitsArgnum
@@ -724,7 +728,9 @@
          "The type of variable relations whose stated minimum arity is two or greater. Derived from arityMin.")
 (unary_predicate at_least_binary_relation)
 (arg at_least_binary_relation 1 relation)
-(genl at_least_binary_relation relation)
+;; arityMin is declared of variable-arity relations only, so every at_least_binary_relation
+;; is one, and (disjoint fixed_arity variable_arity) separates it from fixed_arity.
+(genl at_least_binary_relation variable_arity)
 
 (comment at_least_ternary_relation
          "The type of relations whose stated minimum arity is three or greater. Every such relation is also an at_least_binary_relation.")
@@ -1115,7 +1121,7 @@
 
 (comment indeterminate_term
          "(indeterminate_term ?term) means that ?term is an indeterminate filler: it stands for some object without pinning down which, so it is not a determinate filler for a predAllSpecified audit, and the unique-name assumption is suspended for it — neither (equals ?term x) nor (different ?term x) is provable against a determinate term x until a rewriteOf pins it. An extensible category the predAllSpecified audit and the different prover read through one implementation, so they cannot disagree about a term. Skolem constants are the built-in first member, detected by their SkolemFn minting expression rather than a stored membership; a further kind is added with (genl NewKind indeterminate_term). See docs/skolem.md.")
-(genl indeterminate_term thing)
+(genl indeterminate_term denotational_term)
 (unary_predicate indeterminate_term)
 
 ;; --- Specified class: integrity audit, no inference -----------------------
@@ -1431,9 +1437,10 @@
 (unbounded_arity or)
 
 (comment relation            "The type of every operator that may be applied to arguments. function and truth_valued_relation partition it: an application of a function denotes or evaluates to a value, while an application of a truth_valued_relation is true or false.")
-;; Stated although (genl relation expression) derives it: with the edge stated, CxCore holds
-;; the same justifications in authored order and in content order (vaelii#140).
 (genl relation nowhere_never)
+;; What a relation relates or says is not itself an operator.
+(set/monotonic (disjoint proposition relation))
+(set/monotonic (disjoint measure relation))
 ;; relation holds functions, binary predicates and types alike, so its members are of
 ;; more than one order: a variable_order_type, which is a unary_predicate.
 (variable_order_type relation)
@@ -1901,6 +1908,8 @@
 (variable_order_type at_least_metatype)
 (variable_order_type fixed_order_type)
 (variable_order_type variable_order_type)
+;; A food can be an organism: an oyster eaten live.
+(orthogonal food organism)
 ;; A type of any order may have no instance or may have one.
 (orthogonal empty type)
 (orthogonal empty metatype)
