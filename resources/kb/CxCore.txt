@@ -233,7 +233,7 @@
 (comment aspatial "Not located in any space: no location in any space, physical or mathematical. The complement of spatial — the two partition thing — and so nothing CxSpace's calculi relate.")
 (comment uninterrupted "Something temporal that is present at every moment between its start and its end: a moment, a year, a meeting, a held state. The complement of intermittent within temporal; the two partition temporal.")
 (comment intermittent "Something temporal with a gap: there is a moment between its start and its end at which it is absent. The writing of a novel, a trial with its recesses, a World Series, a bicycle taken apart and put back together. The complement of uninterrupted within temporal.")
-(comment atemporal "Not located in time. Numbers, relations and the other kinds below nowhere_never are atemporal; a fluent is intangible but not atemporal, since it holds over time.")
+(comment atemporal "Not located in time. Numbers, relations and the other kinds below nowhere_never are atemporal; a fluent is not atemporal, since it holds over time.")
 (comment tangible "Something with mass. Having mass, it necessarily has a location in space and time too, so it is spatiotemporal.")
 (comment organism "Something alive in its own right: it is born, grows, reproduces, and (by default) dies.")
 (comment biological "A tangible that is an organism or part of one.")
@@ -1804,17 +1804,17 @@
 ;; overlap with neither side subsuming the other; not every cross-axis pair does, since
 ;; tangible is below spatiotemporal and aspatial below intangible.  Stated, each pair reads
 ;; :orthogonal without waiting for a shared instance.  A witness of the overlap per pair, and of neither side holding the other:
-;; a rock is spatial and temporal; the line y=x is only spatial; a fluent is only temporal.
+;; a rock is spatial and temporal; the line y=x is only spatial; a time is only temporal.
 (set/monotonic (orthogonal spatial temporal))
-;; a number is aspatial and atemporal (nowhere_never); a fluent is aspatial and temporal.
+;; a number is aspatial and atemporal (nowhere_never); a time is aspatial and temporal.
 (set/monotonic (orthogonal aspatial atemporal))
 ;; the line y=x is spatial and atemporal, located in the Cartesian plane and in no time.
 (set/monotonic (orthogonal spatial atemporal))
-;; a fluent is aspatial and temporal: it holds over time and is located in no space.
+;; a time is aspatial and temporal: it is in time and located in no space.
 (set/monotonic (orthogonal aspatial temporal))
 ;; a region of space is intangible and spatial.
 (set/monotonic (orthogonal intangible spatial))
-;; a fluent is intangible and temporal.
+;; a time is intangible and temporal.
 (set/monotonic (orthogonal intangible temporal))
 ;; a region of space is intangible and spatiotemporal, occupying space without mass.
 (set/monotonic (orthogonal intangible spatiotemporal))

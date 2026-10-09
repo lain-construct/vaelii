@@ -1281,7 +1281,7 @@ CxCore places `spatiotemporal` and `nowhere_never` by `genl` edges, not by
 
 A kind with no location in any space sits below `aspatial`, which separates it from
 `spatial` and from every CxSpace argument. `organization` (CxCore), `relation_type`
-(CxAbstract), `quantity` (CxMeasure) and `fluent` (CxTime) are below `aspatial`. The `expression` lattice is in CxCore. `expression` is below
+(CxAbstract) and `quantity` (CxMeasure) are below `aspatial`. The `expression` lattice is in CxCore. `expression` is below
 `nowhere_never`, and `context`, `relation`, `formula`, `relation_application`,
 `denotational_term` and `unrepresented_term` are below `expression`. The value kinds
 `string`, `number`, `keyword`, `boolean` and `character` are below `unrepresented_term`.
