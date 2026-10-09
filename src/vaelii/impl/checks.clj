@@ -1593,10 +1593,19 @@
                   ;; every part *but this one*: on the refusal path the sentence under
                   ;; assertion is not stored yet and holds by assumption, and on the
                   ;; settle path it is stored and would answer here anyway.
+                  ;; A part the membership `(t x)` puts `x` in (`t` or a supertype of
+                  ;; it) is denied only by a stored negation.  A closed extent's
+                  ;; negation as failure is withdrawn when a member arrives, and the
+                  ;; membership under assertion is that member, so reading the denial
+                  ;; before it is stored would make the arrival order decide.
                   :when (every? (fn [p]
                                   (or (= p part)
-                                      (provers/conjunction-derivable?
-                                       kb [(list 'not (list p x))] {} context)))
+                                      (if (and (nil? part)
+                                               (or (= p (nm/functor lit))
+                                                   (tax/genl? tax (nm/functor lit) p context)))
+                                        (seq (negation-handles kb p x context))
+                                        (provers/conjunction-derivable?
+                                         kb [(list 'not (list p x))] {} context))))
                                 parts)]
               {:type :cover :sentence sentence :types (vec (cons whole parts))
                ;; The membership and the other negations, and **not** the declaration
