@@ -2704,28 +2704,41 @@
                          extra)))))
 
 (defn- graph-step
-  "One expansion: the direct neighbours of `node` under `pred` going `:up` or `:down`, at
+  "One expansion: the nearest neighbours of `node` under `pred` going `:up` or `:down`, at
   most `cap` of them, and how many there are.
 
-  **The neighbours drawn are the first `cap` in print order, of every neighbour the node
-  has.**  The read realizes at most `graph-row-limit` + 1 of them, so it costs at most
-  that many records whatever the node's fan-out.  A node with no more than
-  `graph-row-limit` neighbours is realized whole, sorted, and counted exactly.  A node
-  with more contributes **no** neighbours: the index hands them back in an order that is
-  not the print order, so any `cap` of a partial read would be a sample of that order,
-  and two knowledge bases holding the same edges could draw different ones.  `:more?`
-  marks that case, `:total` is then the limit it exceeded, and the caption says the node
-  has too many to draw.  A `genl` step reads the closure's one-step adjacency
-  (`direct-genls` / `direct-specs`), so an edge a cover roster installs is a neighbour as
-  a stated edge is."
+  **A `genl` step draws the node's minimal supertypes going up and its maximal subtypes
+  going down** (`min-genls` / `max-specs`), computed by the engine over every believed
+  edge.  The closure's one-step adjacency (`direct-genls` / `direct-specs`) holds a stated
+  edge, a derived edge and an edge a cover roster installs alike, and the engine leaves
+  out each one-step neighbour another one stands between.  A stated `(genl dog animal)`
+  beside `dog ⊂ mammal ⊂ animal` therefore draws `animal` above `mammal` and not beside
+  it.  The step does not read `hide-derived?`: which sentexes the page lists does not move
+  a node.  A `genlCx` step draws every one-step neighbour, since the facade has no such
+  read for contexts.
+
+  **The neighbours drawn are the first `cap` in print order, of every nearest neighbour
+  the node has.**  The read realizes at most `graph-row-limit` + 1 one-step neighbours, so
+  it costs at most that many records whatever the node's fan-out.  A `genl` node with two
+  to `graph-row-limit` one-step neighbours costs a second facade read, in which the engine
+  makes one memoized up-closure read per neighbour.  A node with no more than
+  `graph-row-limit` one-step neighbours is realized whole, sorted, and counted exactly.  A
+  node with more contributes **no** neighbours and makes no second read: the index hands
+  them back in an order that is not the print order, so any `cap` of a partial read would
+  be a sample of that order, and two knowledge bases holding the same edges could draw
+  different ones.  `:more?` marks that case, `:total` is then the limit it exceeded, and
+  the caption says the node has too many to draw."
   [kb pred dir node cap]
-  (let [read  (if (= :up dir) parent-terms child-terms)
-        got   (into [] (take (inc graph-row-limit)) (read kb pred node))
-        more? (> (count got) graph-row-limit)]
-    (if more?
+  (let [up? (= :up dir)
+        got (into [] (take (inc graph-row-limit))
+                  ((if up? parent-terms child-terms) kb pred node))]
+    (if (> (count got) graph-row-limit)
       {:terms [] :total graph-row-limit :exact? false :more? true}
-      {:terms (into [] (take cap) (by-print-key got)) :total (count got)
-       :exact? true :more? false})))
+      (let [near (if (and (= 'genl pred) (> (count got) 1))
+                   ((if up? v/min-genls v/max-specs) kb node)
+                   got)]
+        {:terms (into [] (take cap) (by-print-key near)) :total (count near)
+         :exact? true :more? false}))))
 
 (defn- fresh-neighbours
   "The neighbours a row is built from: what the expansions found, minus anything already
@@ -2740,8 +2753,9 @@
                  [[] #{}] found)))
 
 (defn- grow
-  "One side of the taxonomy view: up to `hops` rows of direct neighbours of `centre` under
-  `rel`, going `dir`.
+  "One side of the taxonomy view: up to `hops` rows of nearest neighbours of `centre` under
+  `rel`, going `dir`.  Each row entry is `{:term :rel :from}`, which is one drawn
+  subsumption edge between `:term` and the node `:from` it was found from.
 
   Each row is capped, each node past the first row contributes at most `graph-spread`,
   and every expansion is spent from `budget` — so the number of reads is bounded before
@@ -2975,6 +2989,14 @@
      :edges (keep (fn [[n e]] (rel-edge centre n e)) placed)
      :shown (count placed)}))
 
+(defn- drawn-subsumptions
+  "The subsumption edges one side of the taxonomy view draws, as a set of `[sub super]`
+  pairs: plain data, for a caller that asks whether the picture drew a given edge."
+  [{:keys [rows]} dir]
+  (into #{}
+        (map (fn [{:keys [term from]}] (if (= :up dir) [from term] [term from])))
+        (apply concat rows)))
+
 (defn- taxonomy-scene
   "The top-down view: the term in the middle, its supertypes in rows above and its
   subtypes in rows below, relations flanking.  Vertical position **is** the subsumption
@@ -3004,6 +3026,7 @@
                         placed)]
     {:nodes (concat [centre] placed (:nodes flank))
      :edges (concat tax-edges (:edges flank))
+     :subsumptions (into (drawn-subsumptions up :up) (drawn-subsumptions down :down))
      :up up :down down
      :flank {:shown (:shown flank)}}))
 

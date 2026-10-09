@@ -805,6 +805,26 @@
   ([kb t] (tax/direct-specs-global (reasoning/taxonomy kb) t))
   ([kb t context] (tax/direct-specs (reasoning/taxonomy kb) t context)))
 
+(defn min-genls
+  "The **minimal** supertypes of type `t`: its direct parents (`direct-genls`) with no
+  other direct parent of `t` strictly below them.  Every other strict supertype of `t` is
+  a supertype of one of these, so the set is `t`'s position in the subsumption order read
+  from below.  The read is over every believed edge, whatever installed it: a stated
+  `(genl dog animal)` beside `dog ⊂ mammal ⊂ animal` leaves `animal` out, and a parent
+  only an `intersection` or a cover roster gives is a member.  Two parents that subsume
+  each other are both members.  Not reflexive.  One memoized closure read per direct
+  parent.  A set; `#{}` when `t` is not a node in the type hierarchy.  With a `context`,
+  only edges visible from it count."
+  ([kb t] (tax/min-genls-global (reasoning/taxonomy kb) t))
+  ([kb t context] (tax/min-genls (reasoning/taxonomy kb) t context)))
+
+(defn max-specs
+  "The **maximal** subtypes of type `t`: its direct children (`direct-specs`) with no
+  other direct child of `t` strictly above them.  `min-genls`, the other direction.  One
+  memoized closure read per direct child, so the cost follows `t`'s own fan-out."
+  ([kb t] (tax/max-specs-global (reasoning/taxonomy kb) t))
+  ([kb t context] (tax/max-specs (reasoning/taxonomy kb) t context)))
+
 (defn genl?
   "Is `sub` a (reflexive-transitive) subtype of `super`?  Types, not individuals —
   for an individual's type membership use `isa?`.  With a `context`, only edges
@@ -8416,7 +8436,8 @@
     :explain-levels :export! :export-text! :exposed-clashes :find-sentexes
     :find-sentexes-all :find-terms :functional-at-instant-violations :genl? :genls
     :handle-of :handles :has-prop? :in? :inverse-of :isa? :ist :justification
-    :kb-integrity :kb-quality :last-program :lookup :metatype-members :separating-covers
+    :kb-integrity :kb-quality :last-program :lookup :max-specs :metatype-members
+    :min-genls :separating-covers
     :possible-relations
     :premise? :props :provable? :prove :prove-within :provenance
     :qualitative-network :qualitative-scenario :qualitative-scenarios :query
