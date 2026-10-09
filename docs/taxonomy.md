@@ -1289,8 +1289,8 @@ CxCore places `spatiotemporal` and `nowhere_never` by `genl` edges, not by
 `nowhere_never`.
 
 A kind with no location in any space sits below `aspatial`, which separates it from
-`spatial` and from every CxSpace argument. `organization` (CxCore), `relation_type`
-(CxAbstract), `quantity` (CxMeasure) and `fluent` (CxTime) are below `aspatial`.
+`spatial` and from every CxSpace argument. `organization` (CxCore),
+`quantity` (CxMeasure) and `fluent` (CxTime) are below `aspatial`.
 `context`, `relation`, `measure` and `linguistic` are below `nowhere_never` in CxCore.
 `language`, `unrepresented_term`, `symbol`, `formula` and `non_atomic_term` are below
 `linguistic` in CxCore, and the value kinds `string`, `number`, `keyword`, `boolean` and
