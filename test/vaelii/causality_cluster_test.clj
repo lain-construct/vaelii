@@ -1,8 +1,9 @@
 ;; SPDX-License-Identifier: SSPL-1.0
 ;; Copyright © 2026 Vaelii LLC and the Vaelii contributors.
 (ns vaelii.causality-cluster-test
-  "The situation/causality cluster: situation, static_situation, event (the
-  state-of-affairs hierarchy under temporal), causal/acausal (whether a thing
+  "The situation/causality cluster: situation, fluent, happening,
+  uninterrupted_situation, static_situation, event (the state-of-affairs hierarchy under
+  temporal), causal/acausal (whether a thing
   can occupy a cause slot), and causal_event/acausal_event defined via `intersection`.
   The tests hold that the cluster loads and that the `intersection`-defined kinds get
   their genls and membership from the CxCore intersection rules."
@@ -25,7 +26,48 @@
   (is (v/ask? kb (list 'genl 'event 'situation) 'CxUniverse)
       "event is a situation")
   (is (v/ask? kb (list 'genl 'event 'temporal) 'CxUniverse)
-      "event is a temporal (transitively, via situation)"))
+      "event is a temporal (transitively, via situation)")
+  (testing "a static_situation is an uninterrupted fluent and an event an uninterrupted happening"
+    (doseq [[k ups] '{static_situation [fluent uninterrupted]
+                      event            [happening uninterrupted]
+                      uninterrupted_situation [situation uninterrupted]}
+            up ups]
+      (is (true? (v/genl? kb k up 'CxUniverse)) (str k " genl " up))
+      (is (true? (v/genl? kb k up 'CxLife)) (str k " genl " up " in CxLife")))))
+
+(tu/deftest-kb a-situation-holds-or-happens-over-any-extent
+  (doseq [ctx '[CxCore CxTime CxUniverse]]
+    (testing (str ctx)
+      (is (true? (v/genl? kb 'fluent 'situation ctx)))
+      (is (true? (v/genl? kb 'happening 'situation ctx)))
+      (is (true? (v/disjoint? kb 'fluent 'happening ctx)))))
+  (testing "a situation denied being a fluent is a happening — the coverage half"
+    (tu/with-terms [Fasting]
+      (v/assert kb (list 'situation Fasting) 'CxUniverse)
+      (v/assert kb (list 'not (list 'fluent Fasting)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'happening Fasting) 'CxUniverse)))))
+  (testing "a situation denied being uninterrupted is intermittent, with no partition stated"
+    (tu/with-terms [Treatment]
+      (v/assert kb (list 'situation Treatment) 'CxUniverse)
+      (v/assert kb (list 'not (list 'uninterrupted Treatment)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'intermittent Treatment) 'CxUniverse)))))
+  (testing "an uninterrupted happening is an event, and an uninterrupted fluent a static_situation"
+    (tu/with-terms [Kickoff Calm]
+      (v/assert kb (list 'happening Kickoff) 'CxUniverse)
+      (v/assert kb (list 'uninterrupted Kickoff) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'event Kickoff) 'CxUniverse)))
+      (is (true? (v/ask? kb (list 'uninterrupted_situation Kickoff) 'CxUniverse)))
+      (v/assert kb (list 'fluent Calm) 'CxUniverse)
+      (v/assert kb (list 'uninterrupted Calm) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'static_situation Calm) 'CxUniverse)))))
+  (testing "an intermittent happening is no event"
+    (tu/with-terms [WorldSeries]
+      (v/assert kb (list 'happening WorldSeries) 'CxUniverse)
+      (v/assert kb (list 'intermittent WorldSeries) 'CxUniverse)
+      (is (true? (tu/stored-in-clash? kb (list 'event WorldSeries) 'CxUniverse)))))
+  (testing "a situation, uninterrupted or not, may have a place"
+    (is (true? (v/ask? kb '(orthogonal situation spatial) 'CxCore)))
+    (is (true? (v/ask? kb '(orthogonal uninterrupted_situation spatial) 'CxCore)))))
 
 ;; ---- causal / acausal partition of thing ---------------------------------
 

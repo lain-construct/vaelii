@@ -1356,11 +1356,13 @@
 
 ;; ---- situations: change divides them ---------------------------------------
 
-(tu/deftest-kb static-situations-and-events-partition-situation
+(tu/deftest-kb static-situations-and-events-partition-uninterrupted-situation
+  ;; The intersections defining static_situation and event separate them; the stated
+  ;; partition of uninterrupted_situation adds the coverage.
   (is (true? (v/disjoint? kb 'static_situation 'event)))
-  (testing "a situation that is not an event is a static_situation — the coverage half"
+  (testing "an uninterrupted situation that is not an event is a static_situation — the coverage half"
     (tu/with-terms [Drought]
-      (v/assert kb (list 'situation Drought) 'CxUniverse)
+      (v/assert kb (list 'uninterrupted_situation Drought) 'CxUniverse)
       (v/assert kb (list 'not (list 'event Drought)) 'CxUniverse)
       (is (true? (v/ask? kb (list 'static_situation Drought) 'CxUniverse))))))
 

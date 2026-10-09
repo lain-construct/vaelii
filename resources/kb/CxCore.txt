@@ -277,13 +277,26 @@
 (intersection uninterrupted_time uninterrupted time)
 (intersection intermittent_time intermittent time)
 (set/monotonic (partition uninterrupted_time time_point time_interval))
-;; A situation either holds unchanged or changes, never both and never neither.
-;; CxAbstract comments the three types; the edge and the partition sit here because
-;; CxLife, which does not see CxAbstract, declares event as the genlArg of capabilityType
-;; and hasCapability.  The partition installs both genl edges and the separation, and adds
-;; the coverage, so a situation denied being an event is concluded a static_situation.
+;; A situation holds or happens, over any extent, never both and never neither: it is a
+;; fluent or a happening.  An uninterrupted_situation is a situation that is uninterrupted.
+;; A static_situation is an uninterrupted fluent, and an event an uninterrupted happening.
+;; The intersections separate the two but do not cover uninterrupted_situation, so the
+;; partition of uninterrupted_situation is stated, and a situation denied being an event
+;; is concluded a static_situation.  CxAbstract comments situation, uninterrupted_situation, static_situation and
+;; event, and CxTime comments fluent and happening.  The edge, the partition and the
+;; intersections sit here because CxLife, which does not see CxAbstract, declares event as
+;; the genlArg of capabilityType and hasCapability, and CxTime types holdsAt's first
+;; argument fluent.
 (genl situation temporal)
-(set/monotonic (partition situation static_situation event))
+(set/monotonic (partition situation fluent happening))
+(intersection uninterrupted_situation uninterrupted situation)
+(intersection static_situation uninterrupted fluent)
+(intersection event uninterrupted happening)
+(set/monotonic (partition uninterrupted_situation static_situation event))
+;; A situation may have a place: a boulder rolling, thin ice.  orthogonal is not
+;; inherited, so the pair is stated for uninterrupted_situation as well.
+(set/monotonic (orthogonal situation spatial))
+(set/monotonic (orthogonal uninterrupted_situation spatial))
 ;; Each skeleton collection is a type, a one-place predicate.
 (unary_predicate intangible)
 (unary_predicate spatial)
@@ -311,6 +324,9 @@
 (unary_predicate time_point)
 (unary_predicate time_interval)
 (unary_predicate situation)
+(unary_predicate fluent)
+(unary_predicate happening)
+(unary_predicate uninterrupted_situation)
 (unary_predicate static_situation)
 (unary_predicate event)
 (unary_predicate measure)

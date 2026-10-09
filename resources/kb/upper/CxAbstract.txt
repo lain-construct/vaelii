@@ -190,13 +190,17 @@
 ;; A time is not a state of affairs in it.
 (set/monotonic (disjoint time situation))
 
-;; --- situation / static_situation / event: the state-of-affairs hierarchy ------
-(comment situation "A state of affairs: objects bearing properties or relations over a time interval. Parent of static_situation (the state holds unchanged) and event (the world's state changes); change is the specialization axis.")
+;; --- situation / uninterrupted_situation / static_situation / event ------------
+(comment situation "A state of affairs: objects bearing properties or relations over some time, with or without gaps. Parent of fluent (it holds) and happening (it happens), and of uninterrupted_situation (it has no gap).")
 
-(comment static_situation "A situation extended in time but unchanged, a held state, e.g. a file existing. Contrast event, the kind whose state changes.")
+(comment uninterrupted_situation "A situation with no gap in its time: the intersection of uninterrupted and situation. Parent of static_situation (the state holds unchanged) and event (the world's state changes); change is the specialization axis.")
 
-(comment event "Something that happens: an occurrence located in time whose state changes. The event-calculus slots do not name it: happens takes a temporal thing, and initiates and terminates take a causal one.")
-;; CxCore holds (genl situation temporal) and the partition of situation into these two.
+(comment static_situation "A situation extended in time but unchanged, a held state, e.g. a file existing: the intersection of uninterrupted and fluent. Contrast event, the kind whose state changes.")
+
+(comment event "Something that happens: an occurrence located in time, with no gap, whose state changes. The intersection of uninterrupted and happening. The event-calculus slots do not name it: happens takes a temporal thing, and initiates and terminates take a causal one.")
+;; CxCore holds (genl situation temporal), the partition of situation into fluent and
+;; happening, and the intersections defining uninterrupted_situation, static_situation and
+;; event.
 
 ;; --- causal / acausal: whether a thing can occupy a cause slot -----------------
 (comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. A cause is in time, so causal is below temporal. One side of the causal/acausal division of thing.")
@@ -226,7 +230,7 @@
 
 ;; --- causes: a causal thing brings a situation about ---------------------------
 (comment causes
-         "(causes ?cause ?effect) means that ?cause brings ?effect about: the flattery made the crow sing, the rock dented the car, the drought ruined the harvest. The cause is a causal thing: a causal event, a tangible or an organization. The effect is a situation: an event or a held state. Declared transitive, so a chain of causes is itself a cause and the chain is answered by the closure prover rather than stored.")
+         "(causes ?cause ?effect) means that ?cause brings ?effect about: the flattery made the crow sing, the rock dented the car, the drought ruined the harvest. The cause is a causal thing: a causal event, a tangible or an organization. The effect is a situation: something that holds or happens, over any extent. Declared transitive, so a chain of causes is itself a cause and the chain is answered by the closure prover rather than stored.")
 (binary_predicate causes)
 (instance_relation_predicate causes)
 (arg causes 1 causal)
