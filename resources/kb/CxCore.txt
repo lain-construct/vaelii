@@ -297,6 +297,8 @@
 ;; inherited, so the pair is stated for uninterrupted_situation as well.
 (set/monotonic (orthogonal situation spatial))
 (set/monotonic (orthogonal uninterrupted_situation spatial))
+;; A situation is not the matter in it.
+(set/monotonic (disjoint tangible situation))
 ;; Each skeleton collection is a type, a one-place predicate.
 (unary_predicate intangible)
 (unary_predicate spatial)

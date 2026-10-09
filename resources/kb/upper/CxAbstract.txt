@@ -191,7 +191,7 @@
 (set/monotonic (disjoint time situation))
 
 ;; --- situation / uninterrupted_situation / static_situation / event ------------
-(comment situation "A state of affairs: objects bearing properties or relations over some time, with or without gaps. Parent of fluent (it holds) and happening (it happens), and of uninterrupted_situation (it has no gap).")
+(comment situation "A state of affairs: objects bearing properties or relations over some time, with or without gaps. Parent of fluent (it holds) and happening (it happens), and of uninterrupted_situation (it has no gap). A situation is located in its region, not made of the matter in it, e.g. a boulder is an input to its rolling and not a part of it.")
 
 (comment uninterrupted_situation "A situation with no gap in its time: the intersection of uninterrupted and situation. Parent of static_situation (the state holds unchanged) and event (the world's state changes); change is the specialization axis.")
 
