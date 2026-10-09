@@ -1253,11 +1253,11 @@
                 "generic taxonomy classification under variable_arity and function")]
      ['at_least_binary
       (enforced (collection :notes (str "derived by CxCore rules from arity or arityMin greater"
-                                         " than one, and through (genl binary at_least_binary)."))
+                                        " than one, and through (genl binary at_least_binary)."))
                 "ordinary CxCore rule inference from arity and arityMin")]
      ['at_least_ternary
       (enforced (collection :notes (str "derived by CxCore rules from arity or arityMin greater"
-                                         " than two, and through (genl ternary at_least_ternary)."))
+                                        " than two, and through (genl ternary at_least_ternary)."))
                 "ordinary CxCore rule inference from arity and arityMin")]
      ['relation_kind     (enforced (collection :notes "a disjoint_metatype, so its two members separate each other.")
                                    "generic: a disjoint_metatype, so its two members separate each other")]
