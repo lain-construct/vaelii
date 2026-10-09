@@ -245,6 +245,9 @@
 (genl spatiotemporal spatial)
 (genl spatiotemporal temporal)
 (genl tangible spatiotemporal)
+;; tangible's instances are individuals, so it is a first-order `type`.  The interArg on
+;; typeGenl requires this of CxAbstract's (typeGenl origin_type tangible).
+(type tangible)
 (genl biological tangible)
 ;; Stated although CxAbstract's separating roster installs it: CxOrganism does not see CxAbstract.
 (genl organism biological)
@@ -623,6 +626,26 @@
    (arityMin ?relation ?arity)
    (greaterThan ?arity 2))
   (at_least_ternary ?relation)))
+
+;; arity_type classifies relations by how many arguments they take.  Each membership is
+;; definitional, so arity_type is on the forced-monotonic roster, and typeOrthogonal's
+;; rule concludes an orthogonal from one alone (docs/nmtms.md).
+(comment arity_type "A type of relation by how many arguments its members take, e.g. binary, variable_arity, at_least_ternary. Whether a relation may be hypothesized does not depend on its arity, so every arity_type is orthogonal to abducible_predicate.")
+;; unary holds every type, so the members of arity_type are of more than one order, and
+;; arity_type is at_least_metatype rather than metatype.
+(at_least_metatype arity_type)
+(typeGenl arity_type relation)
+(forced_monotonic_predicate arity_type)
+(arity_type unary)
+(arity_type binary)
+(arity_type ternary)
+(arity_type fixed_arity)
+(arity_type variable_arity)
+(arity_type bounded_arity)
+(arity_type unbounded_arity)
+(arity_type at_least_binary)
+(arity_type at_least_ternary)
+(typeOrthogonal arity_type abducible_predicate)
 
 (set/forwardRule
  (implies
@@ -1749,6 +1772,19 @@
 (arg typeGenl 2 unary_predicate)
 (comment genlInverse "Like binary `genl`, but with the arg order flipped. (genlInverse ?spec ?genl-inv) means (?spec ?x ?y) entails (?genl-inv ?y ?x). Does not license the converse.")
 (comment typeGenl "Higher-order genl: (typeGenl ?classifier ?genl) means every instance of ?classifier is a genl of ?genl.")
+
+;; typeOrthogonal is typeGenl's orthogonal twin, with the classifier first as typeGenl
+;; has it.  A generator stamps one membership rule per fact.  The stamped rule is strict,
+;; and it concludes a roster literal, so its firings are believed only where the
+;; classifier is on the forced-monotonic roster.
+(comment typeOrthogonal "(typeOrthogonal ?classifier ?type) means that every instance of ?classifier is orthogonal to ?type, e.g. (typeOrthogonal arity_type abducible_predicate) says that binary, unary and every other arity type each overlap abducible_predicate without either side subsuming the other.")
+(binary_predicate typeOrthogonal)
+(arg typeOrthogonal 1 at_least_metatype)
+(arg typeOrthogonal 2 unary_predicate)
+(implies (typeOrthogonal ?classifier ?type)
+         (set/forwardRule (implies (?classifier ?x) (orthogonal ?type ?x))))
+(implementationNote typeOrthogonal "The rule concludes (orthogonal ?type ?x), a literal on the forced-monotonic roster, from the membership (?classifier ?x). A firing from a membership off the roster supports nothing and is reported as a :forced-conclusion violation, so a classifier named by typeOrthogonal is declared forced_monotonic_predicate.")
+(termsRelated typeGenl typeOrthogonal orthogonal)
 (termsRelated genlInverse inverse)
 
 ;; The metatype-order ladder: a type is first-order (its instances are individuals), a
@@ -1810,17 +1846,16 @@
 (orthogonal food organism)
 ;; A shrimp eaten whole is an animal and a food, and an apple a food that is no animal.
 (orthogonal animal food)
-;; A type of any order may have no instance or may have one.
-(orthogonal empty type)
-(orthogonal empty metatype)
-(orthogonal empty meta_metatype)
+;; A type of any order may have no instance or may have one.  The order memberships are
+;; definitional, so type_type_by_order is on the forced-monotonic roster and the two
+;; typeOrthogonal facts conclude the pairs over type, metatype and meta_metatype.
+(forced_monotonic_predicate type_type_by_order)
+(typeOrthogonal type_type_by_order empty)
+(typeOrthogonal type_type_by_order nonempty)
 (orthogonal empty fixed_order_type)
 (orthogonal empty variable_order_type)
 (orthogonal at_least_metatype empty)
 (orthogonal disjoint_metatype empty)
-(orthogonal nonempty type)
-(orthogonal metatype nonempty)
-(orthogonal meta_metatype nonempty)
 (orthogonal fixed_order_type nonempty)
 (orthogonal nonempty variable_order_type)
 (orthogonal at_least_metatype nonempty)

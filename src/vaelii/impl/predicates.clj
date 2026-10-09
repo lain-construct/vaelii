@@ -1151,7 +1151,8 @@
            [at_least_metatype "ontology, not grammar: a type of order two or higher, on the metatype-order ladder. No engine check names it."]
            [fixed_order_type "ontology, not grammar: a type whose members are all of one order, on the metatype-order ladder. No engine check names it."]
            [variable_order_type "ontology, not grammar: a type holding members of any order, on the metatype-order ladder. No engine check names it."]
-           [type_type_by_order "ontology, not grammar: the disjoint_metatype partitioning fixed_order_type by order. No engine check names it."]])
+           [type_type_by_order "ontology, not grammar: the disjoint_metatype partitioning fixed_order_type by order. No engine check names it."]
+           [arity_type "ontology, not grammar: the at_least_metatype of the relation-level arity types, e.g. binary and variable_arity. The typeOrthogonal rule reads its memberships as any membership is; no engine check names it."]])
 
     ;; ---- the two halves of unary_predicate ---------------------------------
     ;; `empty` and `nonempty` partition `unary_predicate`.  The disjointness audit reads
@@ -1460,6 +1461,17 @@
                           " derive (genl ?x ?genl) from (?classifier ?x) once rule support lands.")}
              (str "aspirational: a higher-order genl constraint whose rule-based derivation"
                   " depends on engine support for higher-order patterns. No inference path."))]
+     ['typeOrthogonal
+      (enforced {:shape {:args [:type :type]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "enforced by the generic chain, not by name: the CxCore"
+                             " generator beside the declaration stamps (implies (?classifier ?x)"
+                             " (orthogonal ?x ?type)) per fact. The stamped rule concludes a"
+                             " roster literal, so a firing is believed only from a classifier on"
+                             " the forced-monotonic roster.")}
+                (str "generic rule generator (docs/generators.md): the CxCore generator"
+                     " beside it stamps one membership rule per fact, and chain inference"
+                     " concludes every member of the classifier orthogonal to the type"))]
      ['partitionedByType
       (inert {:shape {:args [] :variadic :term} :storage [:none] :checked false
               :family nil :facets #{}

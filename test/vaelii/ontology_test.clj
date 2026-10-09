@@ -1501,8 +1501,9 @@
 
 ;; ---- orthogonal pairs across made and natural -------------------------------
 ;; In each pair the two types overlap and neither subsumes the other.  An orthogonal is
-;; not inherited along genl, so the KB states each pair.  Each witness is an individual
-;; in both types.
+;; not inherited along genl, so the KB states each pair, or states a typeOrthogonal fact
+;; over origin_type that derives the pair with made and the pair with natural.  Each
+;; witness is an individual in both types.
 
 (def ^:private cross-cutting
   '[[organism made Dolly1] [organism natural WildSheep1]
@@ -1514,8 +1515,11 @@
 (tu/deftest-kb what-cuts-across-made-and-natural-is-stated-orthogonal
   (doseq [[a b witness] cross-cutting]
     (testing (str a " and " b)
-      (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'orthogonal a b) 'CxAbstract))
-          (str "(orthogonal " a " " b ") is stated"))
+      (if (contains? '#{made natural} b)
+        (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'typeOrthogonal 'origin_type a) 'CxAbstract))
+            (str "(typeOrthogonal origin_type " a ") is stated"))
+        (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'orthogonal a b) 'CxAbstract))
+            (str "(orthogonal " a " " b ") is stated")))
       (is (= :orthogonal (v/subsumption-status kb a b)) "the pair reads orthogonal")
       (is (not (v/disjoint? kb a b)))
       (let [w (tu/fresh-term :individual witness)]
