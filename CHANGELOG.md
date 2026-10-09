@@ -17,9 +17,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 - **The expression lattice and the use/mention vocabulary move to a new upper member,
   CxReflection, and `atomic_formula`, `atomic_sentence` and `relation_application` are
-  renamed.** `expression` is a written form, the thing `(Quote …)` names, so it is
-  disjoint from `relation`, `context` and `language`, which sit directly below
-  `nowhere_never`. CxReflection (`resources/kb/upper/CxReflection.txt`) holds 22
+  renamed.** `expression` is a written form in this KB's own language, the thing
+  `(Quote …)` names, so it is disjoint from `relation`, `context` and `language`, which
+  sit directly below `nowhere_never`. A natural-language sentence is `linguistic` but not
+  an `expression`. CxReflection (`resources/kb/upper/CxReflection.txt`) holds 22
   expression kinds: `expression` is partitioned into `atomic_expression` and
   `non_atomic_expression`, which replaces `relation_application`; `atomic_expression`
   into `atomic_term` and `variable`; and `expression` again into `open_expression` and
@@ -44,6 +45,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
   names an expression kind other than CxCore's sees CxReflection, as every context below
   CxUniverse does.
   *Breaks:* `atomic_formula`, `atomic_sentence`, `relation_application`
+
+- **`at_least_binary_relation` and `at_least_ternary_relation` are renamed
+  `at_least_binary` and `at_least_ternary`, and hold of fixed-arity relations too.**
+  `binary` is below `at_least_binary` and `ternary` below `at_least_ternary`. Rules over
+  `arity` conclude both beside the `arityMin` rules, and so reach the 5 shipped relations
+  of arity 4 to 7, which no exact-arity class names. `(orthogonal at_least_binary fixed_arity)` is stated.
+  `fixed_arity` and `variable_arity` partition `relation`, and `relation_type` is removed
+  from CxAbstract. [taxonomy.md](docs/taxonomy.md#relations-and-arity-policy).
+
+  *Class:* **Breaking** (KB vocabulary renamed and removed).
+  *Migration:* write `at_least_binary` for `at_least_binary_relation` and
+  `at_least_ternary` for `at_least_ternary_relation`; a query for one now also answers
+  fixed-arity relations, e.g. `parentOf`. `relation_type` has no replacement.
+  *Breaks:* `at_least_binary_relation`, `at_least_ternary_relation`, `relation_type`
 
 - **A variable inside `(Quote …)` or bound by a quantifier is not free, so a fact about a
   quoted rule stores.** `(awesome_rule (Quote (implies (poodle ?x) (dog ?x))))` was
