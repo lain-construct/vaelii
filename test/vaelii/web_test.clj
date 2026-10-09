@@ -1313,9 +1313,10 @@
                    {:direction :forward})
     (v/assert kb (list 'genl told_sub told_super) CxHideEdge)
     (v/assert kb (list marksKind told_sub) CxHideEdge)
-    (let [derived (first (v/sentexes-matching kb (list 'genl told_sub concluded_super) '?ctx))
+    (let [matches (v/sentexes-matching kb (list 'genl told_sub concluded_super) '?ctx)
+          derived (first matches)
           page    (fn [t qs] (:body (GET "/term" (str "q=" t qs))))]
-      (is (some? derived) "the rule fired")
+      (is (= 1 (count matches)) "the rule fired once")
       (is (nil? (:strength derived)) "and its conclusion is a derived record")
       (testing "shown, the picture draws the stated parent and the derived one"
         (let [svg (svg-of (page told_sub "&derived=show"))]
