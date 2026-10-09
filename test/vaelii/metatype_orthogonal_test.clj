@@ -22,5 +22,8 @@
   (is (true? (v/ask? kb '(binary_predicate implementationNote) 'CxCore)))
   (is (true? (v/ask? kb '(termsRelated comment implementationNote) 'CxCore)))
   (is (not (v/genl? kb 'implementationNote 'comment)))
-  (is (not (v/genl? kb 'comment 'implementationNote))))
+  (is (not (v/genl? kb 'comment 'implementationNote)))
+  (doseq [t '[formula sentence non_atomic_term unrepresented_term symbol logical_constant]]
+    (is (seq (v/sentexes-matching kb (list 'implementationNote t '?note) 'CxCore))
+        (str t " carries an implementation note"))))
 
