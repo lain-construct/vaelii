@@ -508,7 +508,7 @@
   roster stays a list of reasons rather than a list of debts."
   '{denotational_term "the logic sense of `term`, vocabulary the head documents and places under expression; no member references it today"
     formula "the formula-ladder type the head documents beside the grammar sense; only CxAbstract references it, separating it from relation"
-    relation_application "an expression kind the head documents and places under expression; no member references it today"
+    non_atomic_expression "an expression kind the head documents and places under expression; no member references it today"
     typeToInstancePred "a relation-linking predicate the head declares as vocabulary; only CxAbstract uses it (partType / partOf) today"})
 
 (tu/deftest-kb head-vocabulary-a-single-member-uses-belongs-in-that-member
@@ -1065,7 +1065,7 @@
     [genl intangible thing CxCore "partition thing tangible intangible"]
     [genl nowhere_never intangible CxCore "nowhere_never genl aspatial genl intangible"]
     [genl organization intangible CxCore "organization genl aspatial genl intangible"]
-    [genl context intangible CxCore "context genl expression genl nowhere_never genl aspatial genl intangible"]
+    [genl context intangible CxCore "context genl nowhere_never genl aspatial genl intangible"]
     [genl language intangible CxCore "language genl nowhere_never genl aspatial genl intangible"]
     [genl number thing CxCore "number genl unrepresented_term genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
     [genl keyword thing CxCore "keyword genl unrepresented_term genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
@@ -1073,7 +1073,6 @@
     [genl character thing CxCore "character genl unrepresented_term genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
     [genl denotational_term thing CxCore "denotational_term genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
     [genl formula thing CxCore "formula genl expression genl nowhere_never genl aspatial; partition thing spatial aspatial"]
-    [genl context nowhere_never CxCore "context genl expression genl nowhere_never"]
     [genl relation_type intangible CxAbstract "relation_type genl aspatial genl intangible"]
     [genl quantity intangible CxMeasure "quantity genl aspatial genl intangible"]
     [genl fluent intangible CxTime "fluent genl aspatial genl intangible"]
@@ -1155,15 +1154,16 @@
     (is (v/disjoint? kb 'integer 'predicate)
         "the declaration on number carries integer with it")))
 
-(tu/deftest-kb symbol-is-mention-only-and-carries-neither-claim
-  ;; the deliberate absence, and the one a later reader is most likely to "fix": a symbol
-  ;; does not denote itself, so the set of names and the set of things named are two sets
-  ;; — parentOf is written as a symbol and denotes a predicate.  Both claims below would
-  ;; be false of every predicate name in the KB.
-  (is (not (v/disjoint? kb 'symbol 'predicate))
-      "a name is exactly how a predicate is written")
-  (is (not (v/genl? kb 'symbol 'intangible))
-      "and nothing places it in the domain lattice, there being no use-level reading"))
+(tu/deftest-kb symbol-is-mention-only-and-is-disjoint-from-predicate
+  ;; a symbol does not denote itself, so the set of names and the set of things named are
+  ;; two sets — parentOf is written as a symbol and denotes a predicate.  symbol reaches
+  ;; expression through atomic_term and atomic_expression, and expression is disjoint
+  ;; from relation, so from predicate: a symbol is what (Quote parentOf) denotes, not
+  ;; what parentOf denotes.
+  (is (true? (v/disjoint? kb 'symbol 'predicate))
+      "a symbol is what (Quote dog) denotes, not what dog denotes")
+  (is (true? (v/genl? kb 'symbol 'linguistic))
+      "and a symbol is a written form: linguistic, so nowhere_never"))
 
 (tu/deftest-kb the-comment-text-position-derives-a-string-and-a-relation-clashes
   ;; the entailing reading: the derivation is the subject
