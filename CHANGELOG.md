@@ -40,7 +40,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `static_situation` is the intersection of `uninterrupted` and `fluent`, and `event` the
   intersection of `uninterrupted` and `happening`. `causes`' effect, `(disjoint time
   situation)` and `(orthogonal situation spatial)` name the broad `situation`;
-  `(orthogonal uninterrupted_situation spatial)` is stated too. `(partition thing causal
+  `(orthogonal uninterrupted_situation spatial)`, `(orthogonal situation spatiotemporal)` and
+  `(orthogonal happening spatial)` are stated too, and `(disjoint tangible situation)`
+  holds: a situation is located in its region, not made of the matter in it. A tangible
+  is `uninterrupted` by default. `(partition thing causal
   acausal)` and `(genl causal temporal)` move to CxCore, beside `(genl atemporal acausal)`.
   `initiates` and `terminates` take a `causal` first argument. A rule in CxUniverse
   concludes `(instantNotAfter (StartFn ?cause) (StartFn ?effect))` from `(causes ?cause
