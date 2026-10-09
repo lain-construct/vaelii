@@ -1374,6 +1374,41 @@
       (is (not (contains? up [near_sub near_top])))
       (is (= #{[near_mid near_top] [near_sub near_mid]} down)))))
 
+;; ---- hide derived, and the picture ---------------------------------------
+
+(tu/deftest-kb hiding-derived-rows-leaves-the-concept-graph-as-drawn
+  ;; `pic_sub` has a stated parent and a parent a forward rule concluded, and a stated
+  ;; relation to `pic_mate` beside one a forward rule concluded.  "hide derived" selects
+  ;; the rows the page lists and the picture is the same markup either way.
+  (tu/with-terms [marksKind toldRel concludedRel pic_sub pic_told pic_concluded pic_mate
+                  CxHidePic]
+    (v/assert-rule kb [(list marksKind '?t)] (list 'genl '?t pic_concluded) CxHidePic
+                   {:direction :forward})
+    (v/assert-rule kb [(list toldRel '?x '?y)] (list concludedRel '?x '?y) CxHidePic
+                   {:direction :forward})
+    (v/assert kb (list 'genl pic_sub pic_told) CxHidePic)
+    (v/assert kb (list marksKind pic_sub) CxHidePic)
+    (v/assert kb (list toldRel pic_sub pic_mate) CxHidePic)
+    (let [genls  (v/sentexes-matching kb (list 'genl pic_sub pic_concluded) '?ctx)
+          rels   (v/sentexes-matching kb (list concludedRel pic_sub pic_mate) '?ctx)
+          shown  (:body (GET "/term" (str "q=" pic_sub "&derived=show")))
+          hid    (:body (GET "/term" (str "q=" pic_sub "&derived=hide")))
+          labels (map second (re-seq #"class=\"g-edge-label\"[^>]*>([^<]*)<" (svg-of hid)))]
+      (is (= 1 (count genls)) "the genl rule fired once")
+      (is (nil? (:strength (first genls))) "and its conclusion is a derived record")
+      (is (= 1 (count rels)) "the relation rule fired once")
+      (is (nil? (:strength (first rels))) "and its conclusion is a derived record")
+      (testing "the switch hides the derived rows"
+        (is (pos? (derived-badges shown)))
+        (is (zero? (derived-badges hid))))
+      (testing "and the picture is the same with the switch on or off"
+        (is (some? (svg-of hid)))
+        (is (= (svg-of shown) (svg-of hid))))
+      (testing "with the derived parent and the derived relation edge drawn"
+        (is (contains? (drawn-terms (svg-of hid)) (str pic_concluded)))
+        (is (= 1 (count labels)))
+        (is (str/includes? (first labels) (str concludedRel)))))))
+
 (tu/deftest-kb a-sentex-circle-is-coloured-by-what-the-sentex-is
   ;; colour is the whole of the badge now — no glyph to read — so the class that carries
   ;; the colour is the assertion.  Negation outranks strength: a reader who misses a `not`
