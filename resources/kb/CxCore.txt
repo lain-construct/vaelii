@@ -1784,6 +1784,7 @@
 (implies (typeOrthogonal ?classifier ?type)
          (set/forwardRule (implies (?classifier ?x) (orthogonal ?type ?x))))
 (implementationNote typeOrthogonal "The rule concludes (orthogonal ?type ?x), a literal on the forced-monotonic roster, from the membership (?classifier ?x). A firing from a membership off the roster supports nothing and is reported as a :forced-conclusion violation, so a classifier named by typeOrthogonal is declared forced_monotonic_predicate.")
+(implementationNote typeOrthogonal "The rule writes (orthogonal ?type ?x). orthogonal is symmetric, so (orthogonal ?x ?type) is the same sentence, but with that spelling a genlArg entailment over the conclusion reads a different position after a text export reloads the KB: https://github.com/vaelii/vaelii/issues/173")
 (termsRelated typeGenl typeOrthogonal orthogonal)
 
 ;; orthogonalMetatypes crosses two or more classifiers member by member.  A generator per
@@ -1833,6 +1834,7 @@
          (set/forwardRule (implies (?classifier ?part) (genl ?part ?whole))))
 (set/forwardRule (implies (partitionedByType ?whole ?classifier) (disjoint_metatype ?classifier)))
 (implementationNote partitionedByType "No rule draws the coverage half, so a partition stated beside each fact carries it. Coverage read from the classifier's members needs engine support: https://github.com/vaelii/vaelii/issues/171")
+(implementationNote partitionedByType "The genl rule skips a thing whole. With (partitionedByType thing temporality_type) deriving (genl atemporal thing) beside the partition, a text export reloaded in content order holds fewer argAndRestGenl justifications of that edge than the KB loaded in authored order: https://github.com/vaelii/vaelii/issues/173")
 (termsRelated partition partitionedByType)
 (unary_predicate type)
 (at_least_metatype disjoint_metatype)
@@ -1919,6 +1921,8 @@
 (typeGenl temporality_type thing)
 (forced_monotonic_predicate spatiality_type)
 (forced_monotonic_predicate temporality_type)
+(implementationNote spatiality_type "Its memberships are at default strength. Written monotonic, with (orthogonalMetatypes spatiality_type temporality_type), they give the derived orthogonals genlArg justifications that differ between authored order and a reloaded text export: https://github.com/vaelii/vaelii/issues/173")
+(implementationNote temporality_type "Its memberships are at default strength, for the reason the note on spatiality_type gives: https://github.com/vaelii/vaelii/issues/173")
 (spatiality_type spatial)
 (spatiality_type aspatial)
 (temporality_type temporal)
