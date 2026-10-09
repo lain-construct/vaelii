@@ -809,6 +809,22 @@
       (is (= :stored (tu/with-entailing (refusal kb s 'CxTime))) (pr-str s))
       (is (= :stored (tu/without-entailing (refusal kb s 'CxTime))) (pr-str s)))))
 
+;; ---- whether a temporal thing has a gap ------------------------------------
+;; uninterrupted and intermittent partition temporal: a thing is present at every moment
+;; between its start and its end, or there is a moment between them at which it is not.
+
+(tu/deftest-kb uninterrupted-and-intermittent-partition-temporal
+  (doseq [ctx '[CxCore CxTime CxUniverse]]
+    (testing (str ctx)
+      (is (true? (v/genl? kb 'uninterrupted 'temporal ctx)))
+      (is (true? (v/genl? kb 'intermittent 'temporal ctx)))
+      (is (true? (v/disjoint? kb 'uninterrupted 'intermittent ctx)))))
+  (testing "a temporal thing denied being uninterrupted is intermittent — the coverage half"
+    (tu/with-terms [Trial]
+      (v/assert kb (list 'temporal Trial) 'CxUniverse)
+      (v/assert kb (list 'not (list 'uninterrupted Trial)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'intermittent Trial) 'CxUniverse))))))
+
 ;; ---- the upper divisions by location and by mass --------------------------
 ;; Two partitions of `thing`.  `spatial` / `aspatial` divides by a location in SOME space —
 ;; physical space, or a mathematical one, where a line or a square of an abstract board

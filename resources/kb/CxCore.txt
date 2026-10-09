@@ -231,6 +231,8 @@
 (comment spatiotemporal "Something with a location in space and time — a physical object, but also a region or a place, which occupy space without being made of anything. Below both spatial and temporal.")
 (comment temporal "Something that happens or exists in time. Physical objects, events, and situations are all temporal.")
 (comment aspatial "Not located in any space: no location in any space, physical or mathematical. The complement of spatial — the two partition thing — and so nothing CxSpace's calculi relate.")
+(comment uninterrupted "Something temporal that is present at every moment between its start and its end: a moment, a year, a meeting, a held state. The complement of intermittent within temporal; the two partition temporal.")
+(comment intermittent "Something temporal with a gap: there is a moment between its start and its end at which it is absent. The writing of a novel, a trial with its recesses, a World Series, a bicycle taken apart and put back together. The complement of uninterrupted within temporal.")
 (comment atemporal "Not located in time. Numbers, relations and the other kinds below nowhere_never are atemporal; a fluent is intangible but not atemporal, since it holds over time.")
 (comment tangible "Something with mass. Having mass, it necessarily has a location in space and time too, so it is spatiotemporal.")
 (comment organism "Something alive in its own right: it is born, grows, reproduces, and (by default) dies.")
@@ -283,6 +285,8 @@
 (unary_predicate temporal)
 (unary_predicate aspatial)
 (unary_predicate atemporal)
+(unary_predicate uninterrupted)
+(unary_predicate intermittent)
 (unary_predicate tangible)
 (unary_predicate biological)
 (unary_predicate organism)
@@ -1806,6 +1810,9 @@
 (set/monotonic (orthogonal intangible temporal))
 ;; a region of space is intangible and spatiotemporal, occupying space without mass.
 (set/monotonic (orthogonal intangible spatiotemporal))
+;; A temporal thing is present at every moment between its start and its end, or it has a
+;; gap.  The partition installs both parts' edges to temporal.
+(set/monotonic (partition temporal uninterrupted intermittent))
 ;; A thing either can be a cause or cannot, and a cause is in time.  CxAbstract comments
 ;; causal and acausal; the partition and the edges sit here so that every spindle member
 ;; reads them.  The partitions separate atemporal from causal but install no genl edge
