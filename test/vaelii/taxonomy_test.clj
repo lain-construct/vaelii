@@ -31,9 +31,74 @@
       (is (= '#{animal pet} (tax/min-genls-global t 'dog)))
       (is (= '#{mammal dog} (tax/max-specs-global t 'animal))))))
 
+(deftest min-types-and-max-types-keep-the-ends-of-the-order-among-the-members
+  (let [t (tax/create-taxonomy)]
+    (tax/add-genl t 'mammal 'animal 1)
+    (tax/add-genl t 'dog 'mammal 2)
+    (tax/add-genl t 'dog 'pet 3)
+    (tax/add-genl t 'rock 'mineral 4)
+    (testing "a chain keeps one end"
+      (is (= '#{dog} (tax/min-types-global t '[dog mammal animal])))
+      (is (= '#{animal} (tax/max-types-global t '[dog mammal animal])))
+      (is (= '#{mammal} (tax/min-types-global t '[animal mammal])))
+      (is (= '#{dog} (tax/min-types-global t '[animal dog])) "with no member between"))
+    (testing "members no path relates all stay"
+      (is (= '#{mammal pet rock} (tax/min-types-global t '[mammal pet rock])))
+      (is (= '#{mammal pet rock} (tax/max-types-global t '[mammal pet rock]))))
+    (testing "a chain beside an unrelated member keeps one end and that member"
+      (is (= '#{dog rock} (tax/min-types-global t '[dog mammal animal rock])))
+      (is (= '#{animal pet rock} (tax/max-types-global t '[dog mammal animal pet rock]))))
+    (testing "a supertype outside the members drops no member"
+      ;; `dog` has the parents `mammal` and `pet`, and neither is a member.  `dog`'s
+      ;; up-closure is smaller than the six members
+      (is (= '#{dog c2 c3 c4 c5 c6} (tax/max-types-global t '[dog c2 c3 c4 c5 c6])))
+      (is (= '#{dog c2 c3 c4 c5 c6} (tax/min-types-global t '[dog c2 c3 c4 c5 c6])))
+      (is (= '#{dog rock} (tax/max-types-global t '[dog rock]))))
+    (testing "a subtype outside the members drops no member"
+      (is (= '#{animal pet mineral} (tax/min-types-global t '[animal pet mineral]))))
+    (testing "a member that is not a node stays, and a repeat is one member"
+      (is (= '#{dog unheard} (tax/min-types-global t '[dog unheard mammal dog]))))
+    (testing "the scoped arities with a nil context read every edge"
+      (is (= '#{dog} (tax/min-types t '[dog mammal animal] nil)))
+      (is (= '#{animal} (tax/max-types t '[dog mammal animal] nil))))
+    (testing "an empty or one-member collection makes no closure read"
+      (with-redefs [tax/closure-of (fn [& _] (throw (ex-info "closure read" {})))]
+        (is (= #{} (tax/min-types-global t [])))
+        (is (= #{} (tax/max-types-global t nil)))
+        (is (= '#{dog} (tax/min-types-global t '[dog])))
+        (is (= '#{dog} (tax/max-types-global t '[dog dog])))
+        (is (thrown? clojure.lang.ExceptionInfo (tax/min-types-global t '[dog mammal])))))))
+
+(deftest extremal-types-keeps-two-members-that-subsume-each-other
+  ;; the closures are given as a map, so the cycle needs no taxonomy that admits one
+  (let [ends  @#'tax/extremal-types
+        above '{a #{a b top} b #{a b top} top #{top} low #{low a b top}}]
+    (is (= '#{a b} (ends above true '[a b])))
+    (is (= '#{a b} (ends above false '[a b])))
+    (is (= '#{a b} (ends above true '[a b top])))
+    (is (= '#{top} (ends above false '[a b top])))
+    (is (= '#{low} (ends above true '[a b low])))
+    (is (= '#{a b} (ends above false '[a b low])))))
+
+(deftest max-specs-keeps-a-child-that-has-a-second-parent-outside-the-neighbours
+  ;; `c1` is also a subtype of `other`, which is no neighbour of `hub`
+  (let [t (tax/create-taxonomy)]
+    (doseq [[i c] (map-indexed vector '[c1 c2 c3 c4 c5])]
+      (tax/add-genl t c 'hub (inc i)))
+    (tax/add-genl t 'c1 'other 10)
+    (is (= '#{c1 c2 c3 c4 c5} (tax/max-specs-global t 'hub)))
+    (is (= '#{c1} (tax/max-specs-global t 'other)))
+    (testing "and going up, a parent with a parent of its own outside the neighbours stays"
+      (doseq [[i p] (map-indexed vector '[p1 p2 p3 p4 p5])]
+        (tax/add-genl t 'leaf p (+ 20 i)))
+      (tax/add-genl t 'p1 'beyond 30)
+      (is (= '#{p1 p2 p3 p4 p5} (tax/min-genls-global t 'leaf))))))
+
 (deftest nearest-of-keeps-mutually-subsuming-neighbours
   ;; the closures are given as a map, so the cycle needs no taxonomy that admits one
-  (let [nearest @#'tax/nearest-of]
+  (let [ends    @#'tax/extremal-types
+        nearest (fn [above up? node nbrs]
+                  (@#'tax/nearest-of above #(ends above up? %) up? node nbrs))]
     (testing "two neighbours that subsume each other are both kept, and drop a farther one"
       (let [above '{n #{n a b top} a #{a b top} b #{a b top} top #{top}}]
         (is (= '#{a b} (nearest above true 'n '#{a b top})))
@@ -42,6 +107,20 @@
       (let [above '{n #{n twin top} twin #{n twin top} top #{top} low #{low n twin top}}]
         (is (= '#{twin top} (nearest above true 'n '#{twin top})))
         (is (= '#{twin low} (nearest above false 'n '#{twin low})))))
+    (testing "the neighbour that subsumes and is subsumed by the node is kept beside the rest"
+      ;; the reduction alone would keep `twin` and drop `top`
+      (let [above '{n #{n twin top} twin #{n twin top} top #{top}}]
+        (is (= '#{twin} (ends above true '#{twin top})))
+        (is (= '#{twin top} (nearest above true 'n '#{twin top})))))
+    (testing "a type that is not a neighbour drops nothing, whichever set is the smaller"
+      ;; `c1` and `p1` have an up-closure smaller than the five neighbours
+      (let [above '{n #{n} c1 #{c1 n x} c2 #{c2 n} c3 #{c3 n} c4 #{c4 n} c5 #{c5 n} x #{x}}]
+        (is (= '#{c1 c2 c3 c4 c5} (nearest above false 'n '#{c1 c2 c3 c4 c5})))
+        (is (= '#{c1 c2} (nearest above false 'n '#{c1 c2}))))
+      (let [above '{n #{n p1 p2 p3 p4 p5 x} p1 #{p1 x} p2 #{p2} p3 #{p3} p4 #{p4} p5 #{p5}
+                    x #{x}}]
+        (is (= '#{p1 p2 p3 p4 p5} (nearest above true 'n '#{p1 p2 p3 p4 p5})))
+        (is (= '#{p1 p2} (nearest above true 'n '#{p1 p2})))))
     (testing "one neighbour, or none, costs no closure read"
       (let [above (fn [_] (throw (ex-info "read" {})))]
         (is (= '#{a} (nearest above true 'n '#{a})))
