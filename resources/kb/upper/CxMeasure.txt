@@ -154,7 +154,15 @@
          "(QuantityFn ?magnitude ?unit) means the measure of ?magnitude ?unit. So (QuantityFn 5 Kilogram) is five kilograms. An unreifiable_function application, a structural NAT: it stays structural instead of being minted into an opaque constant, so the magnitude and the unit are still readable inside the sentence, and the quantity provers normalize it through the dimensionOf and conversionFactor facts.")
 (unreifiable_function QuantityFn)
 (binary_function QuantityFn)
+(functionCorrespondingPredicate QuantityFn measureInUnit)
 (result QuantityFn measure)
+
+(comment measureInUnit
+         "(measureInUnit ?magnitude ?unit ?measure) means that ?measure is ?magnitude counted in ?unit, so (measureInUnit 5 Kilogram ?measure) holds of five kilograms. QuantityFn is the corresponding function, and its value is the last argument. The quantity provers read the QuantityFn term and do not answer this predicate. See docs/quantity.md.")
+(ternary_predicate measureInUnit)
+(arg measureInUnit 1 number)
+(arg measureInUnit 2 unit_of_measure)
+(arg measureInUnit 3 measure)
 
 (comment quantityGreaterThan
          "(quantityGreaterThan ?measure1 ?measure2) means that ?measure1 is greater than ?measure2 once both are normalized to their dimension's base unit. Necessarily greater, so for intervals all of ?measure1 must lie strictly above all of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
@@ -174,7 +182,17 @@
          "(QuantityIntervalFn ?lo ?hi ?unit) means the measure lying somewhere between ?lo and ?hi ?unit. So (QuantityIntervalFn 1 2 Meter) is between one and two metres. An unreifiable_function application like QuantityFn, and compared under the necessary reading: a claim holds of the interval only when it holds of every value in it.")
 (unreifiable_function QuantityIntervalFn)
 (ternary_function QuantityIntervalFn)
+(functionCorrespondingPredicate QuantityIntervalFn measureRangeInUnit)
 (result QuantityIntervalFn measure)
+
+(comment measureRangeInUnit
+         "(measureRangeInUnit ?lo ?hi ?unit ?measure) means that ?measure is the measure lying somewhere between ?lo and ?hi counted in ?unit, so (measureRangeInUnit 1 2 Meter ?measure) holds of between one and two metres. QuantityIntervalFn is the corresponding function, and its value is the last argument. The quantity provers read the QuantityIntervalFn term and do not answer this predicate. See docs/quantity.md.")
+(fixed_arity_predicate measureRangeInUnit)
+(arity measureRangeInUnit 4)
+(arg measureRangeInUnit 1 number)
+(arg measureRangeInUnit 2 number)
+(arg measureRangeInUnit 3 unit_of_measure)
+(arg measureRangeInUnit 4 measure)
 
 (comment quantityLessThan
          "(quantityLessThan ?measure1 ?measure2) means that ?measure1 is less than ?measure2 once both are normalized to their dimension's base unit. Necessarily less, so for intervals all of ?measure1 must lie strictly below all of ?measure2. Computed by a prover and never stored; two measures of different dimensions are not comparable rather than unequal.")
