@@ -444,6 +444,7 @@
 (partition literal open_literal closed_literal)
 (intersection open_literal literal open_expression)
 (intersection closed_literal literal closed_expression)
+(comment Quote "Syncategorematic: part of vaelii's syntax, like a parenthesis, though written like a function. (Quote X) is X taken as a form, e.g. (Quote Muffet) names the symbol Muffet, not the dog. Quote takes no arg, result or metatype declaration; what kind of expression (Quote X) is follows from X's shape.")
 ;; expression and unrepresented_term are types, one-place predicates over expressions.
 (unary_predicate expression)
 (unary_predicate atomic_expression)
@@ -1442,8 +1443,9 @@
 ;; which is what gives the separation its reach: a rule variable standing in a
 ;; function-valued position and a type-level one at once is refused at the entry point
 ;; rather than stored and convicted one conclusion at a time.  (implies (result ?f ?t)
-;; (genl ?f ?t)) is the shape it catches.  No shipped term is a quantifier: the engine
-;; reads forall and thereExists as query operators, and CxCore does not declare either.
+;; (genl ?f ?t)) is the shape it catches.  forall, thereExists and exists are quantifiers
+;; below, declared where the engine reads each as a query operator or rule-firing sugar
+;; rather than as predicates with their own facts.
 (set/monotonic (partition relation function truth_valued_relation))
 (set/monotonic (partition truth_valued_relation logical_constant predicate))
 (set/monotonic (partition logical_constant quantifier logical_connective))
@@ -1451,6 +1453,24 @@
 ;; a first-order type, as logical_constant is.
 (type quantifier)
 (type logical_connective)
+
+(comment forall
+         "(forall ?var (implies ?antecedent ?consequent)) means the universal. Rule sugar: the engine desugars it to the nested NAF (unknown (thereExists ?var (and ?antecedent (unknown ?consequent)))) and hands that back to the registry, so the quantified goal and a rule antecedent on the same shape are answered by one mechanism. See docs/naf.md.")
+(quantifier forall)
+(binary forall)
+(comment thereExists
+         "(thereExists ?var ?sentence) means the existential: ?sentence holds for some value of ?var. A query operator answered by a prover and never stored, which is what lets (unknown (thereExists ?var ?sentence)) read as 'no value of ?var makes ?sentence hold'. See docs/naf.md.")
+(quantifier thereExists)
+(binary thereExists)
+(comment exists
+         "(exists ?var ?consequent) means a head existential: ?var occurs in a rule's consequent and no antecedent binds it. Forward firing skolemizes it, minting a fresh witness per firing. See docs/skolem.md.")
+(quantifier exists)
+(binary exists)
+;; Implementation: a covering whose parts are all closed is closed, but stating that rule
+;; needs list membership (vaelii/vaelii#79), so the whole is closed by hand.
+(closed_extent_predicate logical_connective)
+(closed_extent_predicate quantifier)
+(closed_extent_predicate logical_constant)
 
 (comment reflexive
          "(reflexive ?predicate) means that ?predicate is reflexive, so (?predicate a a) holds for every a in its domain. Answered by a generic prover rather than materialized, the reflexive pairs of a large domain being a great many facts nobody wrote. Also a type: (reflexive P) classifies P as a binary_predicate.")
