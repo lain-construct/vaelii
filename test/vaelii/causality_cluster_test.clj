@@ -67,7 +67,11 @@
       (is (true? (tu/stored-in-clash? kb (list 'event WorldSeries) 'CxUniverse)))))
   (testing "a situation, uninterrupted or not, may have a place"
     (is (true? (v/ask? kb '(orthogonal situation spatial) 'CxCore)))
-    (is (true? (v/ask? kb '(orthogonal uninterrupted_situation spatial) 'CxCore)))))
+    (is (true? (v/ask? kb '(orthogonal uninterrupted_situation spatial) 'CxCore))))
+  (testing "a situation may be located in space and time, and a happening in some space"
+    (is (true? (v/ask? kb '(orthogonal situation spatiotemporal) 'CxCore)))
+    (is (true? (v/ask? kb '(orthogonal happening spatial) 'CxCore)))
+    (is (= :orthogonal (v/subsumption-status kb 'happening 'spatial)))))
 
 ;; ---- a situation is no tangible -------------------------------------------
 
