@@ -551,9 +551,11 @@ edge change, belief-following. See [taxonomy.md](taxonomy.md).
 
 **`genlInverse`** ![kb](../.github/badges/cat-kb.svg): Binary `genl` with the argument order flipped. Inert — declared, read by no inference path. See [taxonomy.md](taxonomy.md).
 
-**Ground** ![inference](../.github/badges/cat-inference.svg): Containing no variables. A stored non-rule sentence
-must be ground (`checks/check-ground`); a rule's variables are implicitly universal,
-which makes it closed without being ground. See [inference.md](inference.md).
+**Ground** ![inference](../.github/badges/cat-inference.svg): Containing no variables, `sentex/ground?`. A stored
+non-rule sentence must be closed rather than ground (`checks/check-ground`, which reads
+`sentex/closed?`): every variable in it is bound by a quantifier or sits inside a
+`(Quote …)`. A rule's variables are implicitly universal, which makes it closed without
+being ground. See [inference.md](inference.md).
 
 ## H
 
@@ -1087,7 +1089,7 @@ of rule firings, rather than rejoining the whole KB each pass. See
 [inference.md](inference.md).
 
 **Sentence** ![kb](../.github/badges/cat-kb.svg): A closed **Formula** — one with no free variables.
-Every stored sentex holds one: a non-rule sentence must be **Ground**
+Every stored sentex holds one: a non-rule sentence must have no free variable
 (`checks/check-ground`), and a rule's variables are implicitly universal. A
 possibly-open goal is a **Pattern**, not a sentence. The `:sentence` slot keeps the
 readable form for display and matching. A CxCore collection too, `sentence`. See

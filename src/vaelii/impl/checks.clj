@@ -2933,10 +2933,11 @@
 
 (defn check-sentex-ground
   "`check-ground` over `s`, the sentex already built from `sentence` in `context`: throw
-  `:not-ground` when `s` is not a rule and still holds a pattern variable, unless
-  `sentence` is a schematic equation or a `defn*` definition."
+  `:not-ground` when `s` is not a rule and has a free variable, unless `sentence` is a
+  schematic equation or a `defn*` definition.  A variable inside a `(Quote …)` or bound
+  by a quantifier is not free (`sx/closed?`)."
   [s sentence context]
-  (when (and (nil? (:antecedent s)) (not (sx/ground? s))
+  (when (and (nil? (:antecedent s)) (not (sx/closed? s))
              (not (rewrite/schematic-equation? sentence))
              ;; a `defn*` collection definition carries the member variable `?x` in
              ;; its condition argument, the way a schematic equation carries its schema
