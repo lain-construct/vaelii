@@ -1012,9 +1012,14 @@
                                   " answered from the equality closure under the unique-name"
                                   " assumption"))]
      ['unknown     (operator {:args [:sentence]})]
-     ['thereExists (operator {:args [:sentence]})]
-     ['forall      (operator {:args [:term :sentence]}
-                             :notes "sugar for a nested unknown, desugared at the rule entry point.")]
+     ['thereExists (enforced (operator {:args [:sentence]})
+                             "provers/ThereExistsProver — a ground existential, binding its variable(s) against the body and projecting the binder out")]
+     ['forall      (enforced (operator {:args [:term :sentence]}
+                                       :notes "sugar for a nested unknown, desugared at the rule entry point.")
+                             "sentex/desugar-forall-literal plus provers/ForallProver — desugars to the nested NAF (unknown (thereExists ...)) and hands that back to the registry")]
+     ['exists      (enforced (structural {:args [:term :sentence]}
+                                         "a head existential: a consequent variable no antecedent binds. Unlike forall/thereExists it is never answered by a prover — the canonicalizer strips and skolemizes it before the rule stores, so no wff arm of its own belongs in the special-predicate table.")
+                             "skolem/skolemize-conclusion, sentex/head-exists? — forward firing mints a fresh witness per firing (docs/skolem.md)")]
      ['bravely     (operator {:args [:sentence]}
                              :notes (str "a read of the current dilemmas — S in some optimal"
                                          " labeling; answered by the :brave-cautious prover."))]
@@ -1104,6 +1109,17 @@
            [wff_sentence "documentary: a well-formed closed formula — what a stored sentex holds. Nothing reads it by name."]
            [ill_formed_sentence "documentary: a closed formula-shaped expression that is not well-formed. Nothing reads it by name."]
            [linguistic "documentary: a language, or an expression written in one — what has its being in a system of signs. Nothing reads it by name."]])
+
+    ;; ---- Quote: syncategorematic, read by name in impl/quasiquote.clj -----
+    [['Quote (enforced (collection
+                        :notes (str "quasiquote.clj's quote-function — the literal symbol"
+                                    " ensure-quasiquote-functions declares reifiable_function"
+                                    " and quoting_function on, and reduce-term mints a (Quote"
+                                    " E) mention from a reduced ground Quasiquote. Takes no"
+                                    " arg, result or metatype declaration of its own: what"
+                                    " kind of expression (Quote X) is follows from X's shape,"
+                                    " per its CxCore comment."))
+                       "impl/quasiquote.clj — quote-function, ensure-quasiquote-functions, reduce-term")]]
 
     ;; ---- the use/mention vocabulary ---------------------------------------
     ;; proposition names what a wff_sentence expresses; means, denotes and expresses

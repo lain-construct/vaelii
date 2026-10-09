@@ -980,6 +980,25 @@
   (testing "and so neither is a type the not-under-thing sweep asks to place"
     (is (nil? (:not-under-thing (v/kb-integrity kb #{'not 'implies} 'CxWell))))))
 
+(tu/deftest-kb the-quantifiers-are-quantifiers-and-not-connectives
+  ;; OE 6: forall, thereExists and exists are declared quantifier instances in CxCore —
+  ;; where the engine reads each as a query operator or rule-firing sugar rather than as
+  ;; a predicate with its own facts (forall desugars to a nested unknown, docs/naf.md;
+  ;; thereExists is the query existential, docs/naf.md; exists is a head existential
+  ;; forward firing skolemizes, docs/skolem.md).
+  (doseq [q '[forall thereExists exists]]
+    (is (true? (v/isa? kb q 'quantifier)) (str q " must be a quantifier"))
+    (is (true? (v/isa? kb q 'logical_constant)) (str q " must be a logical_constant"))
+    (is (not (v/isa? kb q 'logical_connective)) (str q " must not be a logical_connective")))
+  (testing "and is a logical_connective, not a quantifier"
+    (is (v/ask? kb (list 'not (list 'quantifier 'and)) 'CxUniverse)))
+  (testing "an ordinary term is neither"
+    (is (v/ask? kb (list 'not (list 'quantifier 'Muffet)) 'CxUniverse)))
+  (testing "forall is not a logical_connective"
+    (is (v/ask? kb (list 'not (list 'logical_connective 'forall)) 'CxUniverse)))
+  (testing "sign_value is closed-extent too (CxMeasure, beside its three instances)"
+    (is (v/ask? kb (list 'not (list 'sign_value 'Muffet)) 'CxUniverse))))
+
 (tu/deftest-kb what-has-no-place-in-space-or-time-has-no-mass
   ;; Mass entails a location in space and time, so what lacks either lacks mass.
   (is (true? (v/genl? kb 'aspatial 'intangible)))
