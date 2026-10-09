@@ -90,9 +90,10 @@ it with other than two or three arguments, the third an optional argument positi
 also `bounded_arity` with `(arityMax functionCorrespondingPredicate 3)`, which states that
 bound in the KB.
 
-`at_least_binary_relation` and `at_least_ternary_relation` are generic derived
-classifications over `arityMin`; callers can conjoin them with `predicate` or `function`
-instead of maintaining duplicate predicate/function classes. `admitsArgnum` names the
+`at_least_binary` and `at_least_ternary` are the generic derived classes of relations of
+arity 2 or greater and 3 or greater, fixed or variable. `binary` and `ternary` are below
+them, and rules over `arity` and `arityMin` derive them. Callers can conjoin them with
+`predicate` or `function` instead of maintaining duplicate predicate/function classes. `admitsArgnum` names the
 separate question of whether one positive argument position exists. No WFF/query reader
 currently consumes it, and no parallel finite position roster is inferred.
 

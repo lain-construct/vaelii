@@ -585,7 +585,7 @@
                  :family nil :facets #{:reach :convicts}
                  :notes (str "floors a variable_arity relation: a shorter tuple is a one-member"
                              " nogood the settle places. Ordinary CxCore rules"
-                             " also derive the at_least_*_relation classifications.")}
+                             " also derive the at_least_binary and at_least_ternary classifications.")}
                 "chain/place-arities! floors a variable-arity tuple at the minimum")]
      ['relationTypeByArity
       (enforced {:shape {:args [:type :integer]} :storage [:none] :checked false
@@ -1251,12 +1251,14 @@
                  :notes (str "the function specialization of variable_arity; it shares the"
                              " relation-wide taxonomy. No function WFF reader consumes it."))
                 "generic taxonomy classification under variable_arity and function")]
-     ['at_least_binary_relation
-      (enforced (collection :notes "derived by a CxCore rule from arityMin greater than one.")
-                "ordinary CxCore rule inference from arityMin")]
-     ['at_least_ternary_relation
-      (enforced (collection :notes "derived by a CxCore rule from arityMin greater than two.")
-                "ordinary CxCore rule inference from arityMin")]
+     ['at_least_binary
+      (enforced (collection :notes (str "derived by CxCore rules from arity or arityMin greater"
+                                         " than one, and through (genl binary at_least_binary)."))
+                "ordinary CxCore rule inference from arity and arityMin")]
+     ['at_least_ternary
+      (enforced (collection :notes (str "derived by CxCore rules from arity or arityMin greater"
+                                         " than two, and through (genl ternary at_least_ternary)."))
+                "ordinary CxCore rule inference from arity and arityMin")]
      ['relation_kind     (enforced (collection :notes "a disjoint_metatype, so its two members separate each other.")
                                    "generic: a disjoint_metatype, so its two members separate each other")]
      ['instance_relation_predicate
