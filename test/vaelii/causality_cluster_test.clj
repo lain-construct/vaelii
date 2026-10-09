@@ -78,7 +78,8 @@
 (tu/deftest-kb a-situation-is-not-the-matter-in-it
   ;; The boulder is an input to its rolling, not a part of it.
   (doseq [ctx '[CxCore CxUniverse]]
-    (is (true? (v/disjoint? kb 'tangible 'situation ctx)) (str ctx)))
+    (is (true? (v/disjoint? kb 'tangible 'situation ctx)) (str ctx))
+    (is (true? (v/genl? kb 'situation 'intangible ctx)) (str "situation genl intangible in " ctx)))
   (tu/with-terms [Rolling]
     (v/assert kb (list 'event Rolling) 'CxUniverse)
     (is (true? (tu/stored-in-clash? kb (list 'stone Rolling) 'CxUniverse))
