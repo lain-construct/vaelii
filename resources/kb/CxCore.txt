@@ -287,6 +287,8 @@
 (unary_predicate biological)
 (unary_predicate organism)
 (unary_predicate nowhere_never)
+(unary_predicate causal)
+(unary_predicate acausal)
 (unary_predicate context)
 (unary_predicate language)
 (unary_predicate animal)
@@ -1804,3 +1806,10 @@
 (set/monotonic (orthogonal intangible temporal))
 ;; a region of space is intangible and spatiotemporal, occupying space without mass.
 (set/monotonic (orthogonal intangible spatiotemporal))
+;; A thing either can be a cause or cannot, and a cause is in time.  CxAbstract comments
+;; causal and acausal; the partition and the edges sit here so that every spindle member
+;; reads them.  The partitions separate atemporal from causal but install no genl edge
+;; from atemporal to acausal, so that edge is stated.
+(set/monotonic (partition thing causal acausal))
+(genl causal temporal)
+(genl atemporal acausal)

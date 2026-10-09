@@ -194,19 +194,16 @@
 ;; CxCore holds (genl situation temporal) and the partition of situation into these two.
 
 ;; --- causal / acausal: whether a thing can occupy a cause slot -----------------
-(comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. One side of the causal/acausal division of thing.")
-(genl causal thing)
+(comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. A cause is in time, so causal is below temporal. One side of the causal/acausal division of thing.")
 
 (comment acausal "A thing that cannot be a cause: a time, a property line, an attribute, the information a record or piece of evidence carries (a reading of it can cause; the information itself causes nothing). The other side of the causal/acausal division of thing.")
-(genl acausal thing)
 
-;; The causal/acausal division: a thing either can be a cause or cannot, so the two
-;; sides are disjoint. This also makes causal_event and acausal_event disjoint, by the
-;; genl closure of disjointness.
-(set/monotonic (disjoint causal acausal))
+;; CxCore holds (partition thing causal acausal) and (genl causal temporal).  The
+;; partition also makes causal_event and acausal_event disjoint, by the genl closure of
+;; disjointness.
 
 ;; Anything with mass can fill a cause slot: the rock dented the car. tangible is in
-;; CxCore, so the edge lives here beside causal; with the disjointness above it also
+;; CxCore, so the edge lives here beside causal's comment; with the partition it also
 ;; keeps every tangible out of acausal.
 (genl tangible causal)
 

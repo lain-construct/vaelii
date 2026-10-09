@@ -33,6 +33,20 @@
   (is (v/ask? kb (list 'genl 'causal 'thing) 'CxUniverse) "causal is a kind of thing")
   (is (v/ask? kb (list 'genl 'acausal 'thing) 'CxUniverse) "acausal is a kind of thing"))
 
+(tu/deftest-kb a-cause-is-in-time-and-causal-and-acausal-cover-thing
+  (is (true? (v/genl? kb 'causal 'temporal 'CxUniverse)) "a cause is in time")
+  (testing "CxCore holds the partition, so CxTime reads causal without CxAbstract"
+    (is (true? (v/genl? kb 'causal 'temporal 'CxTime)))
+    (is (true? (v/disjoint? kb 'causal 'acausal 'CxTime))))
+  (testing "what is in no time is no cause"
+    (is (true? (v/disjoint? kb 'atemporal 'causal 'CxUniverse)))
+    (is (true? (v/genl? kb 'atemporal 'acausal 'CxUniverse))))
+  (testing "a thing denied being a cause is acausal — the coverage half"
+    (tu/with-terms [Bystander]
+      (v/assert kb (list 'thing Bystander) 'CxUniverse)
+      (v/assert kb (list 'not (list 'causal Bystander)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'acausal Bystander) 'CxUniverse))))))
+
 ;; ---- causal_event / acausal_event get their genls from intersection ------
 
 (tu/deftest-kb intersection-defined-events-derive-their-genls
@@ -319,7 +333,7 @@
 
 (tu/deftest-kb an-acausal-cause-clashes-with-the-causal-membership-the-slot-derives
   ;; The cause slot derives `(causal Receipt)` beside the stated `(acausal_event Receipt)`,
-  ;; and `(disjoint causal acausal)` places the clash between the two.
+  ;; and `(partition thing causal acausal)` places the clash between the two.
   (tu/with-terms [Receipt Blaze]
     (v/assert kb (list 'acausal_event Receipt) 'CxUniverse)
     (v/assert kb (list 'situation Blaze) 'CxUniverse)
