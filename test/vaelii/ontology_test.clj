@@ -748,11 +748,14 @@
 
 (tu/deftest-kb a-time-is-in-time-and-in-no-space-and-causes-nothing
   ;; A date cannot be a cause: the year 2000 broke nothing — two-digit years did, at the
-  ;; rollover.  `time` is temporal, aspatial and acausal, and time_point and time_interval
-  ;; partition it, so a moment and a stretch are all three and never each other.  A
+  ;; rollover.  `time` is temporal, aspatial and acausal, uninterrupted_time and
+  ;; intermittent_time partition it, and time_point and time_interval partition
+  ;; uninterrupted_time, so a moment and a stretch are all three and never each other.  A
   ;; calendar term is never minted, so its result type is read where it is checked: an
   ;; argument typed with a kind no result type reaches refuses it, one it reaches admits it.
   (testing "both parts reach time, and time_point still reaches temporal through it"
+    (is (v/genl? kb 'time_point 'uninterrupted_time N))
+    (is (v/genl? kb 'time_interval 'uninterrupted_time N))
     (is (v/genl? kb 'time_point 'time N))
     (is (v/genl? kb 'time_interval 'time N))
     (is (v/genl? kb 'time_point 'temporal N)))
@@ -793,16 +796,19 @@
 (tu/deftest-kb a-band-context-reads-the-time-partition-without-cxabstract
   ;; CxTime types its calendar results time_interval and its moments time_point, and does
   ;; not see CxAbstract, so CxCore holds time's edges to temporal and aspatial and the
-  ;; partition.  The partition derives each part's edge to time, so CxCore states none.
+  ;; partitions.  Each partition derives its parts' edges to the whole, so CxCore states
+  ;; none.
   (testing "in CxTime a moment and a stretch are temporal, aspatial and never each other"
     (doseq [t '[time_point time_interval]
-            up '[time temporal aspatial]]
+            up '[uninterrupted_time uninterrupted time temporal aspatial]]
       (is (true? (v/genl? kb t up 'CxTime)) (str t " must reach " up " in CxTime")))
     (is (true? (v/disjoint? kb 'time_point 'time_interval 'CxTime))))
   (testing "CxCore states no edge the partition derives"
     (let [stated (set (map (comp first text/peel-strength)
                            (text/read-forms (io/file "resources/kb/CxCore.txt"))))]
-      (doseq [s '[(genl time_point temporal) (genl time_point time) (genl time_interval time)]]
+      (doseq [s '[(genl time_point temporal) (genl time_point uninterrupted_time)
+                  (genl time_interval uninterrupted_time) (genl uninterrupted_time time)
+                  (genl intermittent_time time)]]
         (is (not (contains? stated s)) (str (pr-str s) " is derived from the partition")))))
   (testing "CxTime stores its calendar facts under both argument-type readings"
     (doseq [s cxtime-calendar-facts]
@@ -824,6 +830,26 @@
       (v/assert kb (list 'temporal Trial) 'CxUniverse)
       (v/assert kb (list 'not (list 'uninterrupted Trial)) 'CxUniverse)
       (is (true? (v/ask? kb (list 'intermittent Trial) 'CxUniverse))))))
+
+(tu/deftest-kb a-time-is-uninterrupted-or-intermittent
+  ;; A week's evenings are a time with gaps; a moment and a stretch are times with none.
+  (doseq [ctx '[CxCore CxTime CxUniverse]]
+    (testing (str ctx)
+      (is (true? (v/genl? kb 'uninterrupted_time 'uninterrupted ctx)))
+      (is (true? (v/genl? kb 'intermittent_time 'intermittent ctx)))
+      (is (true? (v/genl? kb 'intermittent_time 'time ctx)))
+      (is (true? (v/disjoint? kb 'uninterrupted_time 'intermittent_time ctx)))
+      (is (true? (v/disjoint? kb 'intermittent_time 'time_interval ctx)))))
+  (testing "a time denied being uninterrupted is an intermittent_time"
+    (tu/with-terms [Evenings]
+      (v/assert kb (list 'time Evenings) 'CxUniverse)
+      (v/assert kb (list 'not (list 'uninterrupted Evenings)) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'intermittent_time Evenings) 'CxUniverse)))))
+  (testing "and an uninterrupted time is an uninterrupted_time"
+    (tu/with-terms [Afternoon]
+      (v/assert kb (list 'time Afternoon) 'CxUniverse)
+      (v/assert kb (list 'uninterrupted Afternoon) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'uninterrupted_time Afternoon) 'CxUniverse))))))
 
 ;; ---- the upper divisions by location and by mass --------------------------
 ;; Two partitions of `thing`.  `spatial` / `aspatial` divides by a location in SOME space —

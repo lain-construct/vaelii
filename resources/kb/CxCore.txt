@@ -263,14 +263,20 @@
 ;; An organization has no location in any space; its members and its buildings have one.
 (genl organization aspatial)
 (genl person tangible)
-;; A time is a moment or a stretch, never both: an instant has no extent.  CxAbstract
-;; comments the three types and places time under acausal; these edges and the partition
-;; sit here because CxTime, which does not see CxAbstract, types its calendar results
-;; time_interval and its moments time_point.  The partition installs each part's genl
-;; edge to time, so time_point and time_interval reach temporal and aspatial through it.
+;; A time is uninterrupted or intermittent, and an uninterrupted time is a moment or a
+;; stretch, never both: an instant has no extent.  CxAbstract comments the five types and
+;; places time under acausal; these edges, the partitions and the intersections sit here
+;; because CxTime, which does not see CxAbstract, types its calendar results time_interval
+;; and its moments time_point.  Each partition installs its parts' genl edges to the whole,
+;; so time_point and time_interval reach time, temporal and aspatial through
+;; uninterrupted_time.  The intersections make a time that is uninterrupted an
+;; uninterrupted_time and a time that is intermittent an intermittent_time.
 (genl time temporal)
 (genl time aspatial)
-(set/monotonic (partition time time_point time_interval))
+(set/monotonic (partition time uninterrupted_time intermittent_time))
+(intersection uninterrupted_time uninterrupted time)
+(intersection intermittent_time intermittent time)
+(set/monotonic (partition uninterrupted_time time_point time_interval))
 ;; A situation either holds unchanged or changes, never both and never neither.
 ;; CxAbstract comments the three types; the edge and the partition sit here because
 ;; CxLife, which does not see CxAbstract, declares event as the genlArg of capabilityType
@@ -300,6 +306,8 @@
 (unary_predicate organization)
 (unary_predicate person)
 (unary_predicate time)
+(unary_predicate uninterrupted_time)
+(unary_predicate intermittent_time)
 (unary_predicate time_point)
 (unary_predicate time_interval)
 (unary_predicate situation)
