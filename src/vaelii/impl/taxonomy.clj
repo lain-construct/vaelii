@@ -3572,6 +3572,138 @@
   [tax t]
   (direct-neighbours tax :rev t nil))
 
+(defn- extremal-types
+  "The members of `types` at one end of the subsumption order among themselves: with
+  `low?` the minimal ones, which have no other member strictly below them, and without
+  `low?` the maximal ones, which have no other member strictly above them.  `above` maps a
+  type to its reflexive up-closure.  A set.
+
+  Member `a` is strictly below member `b` when `b` is in `a`'s up-closure and `a` is not
+  in `b`'s.  Two members that subsume each other are therefore not strictly ordered, and
+  neither drops the other.  Only a member drops a member: a supertype of `a` outside
+  `types` is not read as being above it.
+
+  Fewer than two distinct members are returned with no `above` read.  Otherwise the cost
+  is one `above` read per member, and for each member the smaller of its up-closure and
+  `types` in set lookups."
+  [above low? types]
+  (let [among (set types)]
+    (if (< (count among) 2)
+      among
+      (let [over    (into {} (map (juxt identity above)) among)
+            ;; the members strictly above `t`.  The smaller of the two sets is walked, and
+            ;; an element is tested against both: `up` also holds every supertype of `t`
+            ;; that is no member
+            supers  (fn [t]
+                      (let [up (over t)]
+                        (into [] (comp (filter #(and (contains? among %) (contains? up %)))
+                                       (remove #(or (= t %) (contains? (over %) t))))
+                              (if (< (count up) (count among)) up among))))
+            dropped (reduce (fn [acc t]
+                              (let [ss (supers t)]
+                                (cond low?     (into acc ss)
+                                      (seq ss) (conj acc t)
+                                      :else    acc)))
+                            #{} among)]
+        (reduce disj among dropped)))))
+
+(defn- up-closure-fn
+  "The read `extremal-types` takes as `above`: a type's reflexive `genl` up-closure
+  through the edges visible from `context`, or through every active edge for a nil
+  `context`."
+  [tax context]
+  (if-some [scope (relation-scope tax :genl context)]
+    #(closure-of-vis tax :genl :fwd % scope)
+    #(closure-of tax :genl :fwd %)))
+
+(defn min-types
+  "The **minimal** members of `types`, a collection of types: the members with no other
+  member strictly below them, through the edges visible from `context`.  A set.
+
+  `(min-types tax '[dog mammal animal] c)` is `#{dog}` where `dog ⊂ mammal ⊂ animal`.
+  Members no `genl` path relates all stay.  Two members that subsume each other both stay.
+  A member is compared with the other members only, so a supertype or subtype of it
+  outside `types` drops nothing.  A member that is not a node of the hierarchy stays.
+
+  No closure is read for fewer than two distinct members.  Otherwise the cost is one
+  memoized up-closure read per member.  `min-types-global` is the unscoped read."
+  [tax types context]
+  (extremal-types (up-closure-fn tax context) true types))
+
+(defn max-types
+  "The **maximal** members of `types`: the members with no other member strictly above
+  them, through the edges visible from `context`.  `min-types`' reasoning, the other
+  direction, and `#{animal}` in its example.  `max-types-global` is the unscoped read."
+  [tax types context]
+  (extremal-types (up-closure-fn tax context) false types))
+
+(defn min-types-global
+  "`min-types` through **every** active edge — no context scope."
+  [tax types]
+  (extremal-types (up-closure-fn tax nil) true types))
+
+(defn max-types-global
+  "`max-types` through **every** active edge — no context scope."
+  [tax types]
+  (extremal-types (up-closure-fn tax nil) false types))
+
+(defn- nearest-of
+  "The members of `nbrs`, the one-step neighbours of `node`, that no other member stands
+  between.  `ends` reduces a collection of types to one end of the order among them:
+  `min-types` going up (`up?`), `max-types` going down.  `above` maps a type to its
+  reflexive up-closure.
+
+  A neighbour that subsumes and is subsumed by `node` is kept and is not passed to
+  `ends`.  Every other neighbour of `node` is strictly on the far side of such a
+  neighbour, so `ends` over all of them would keep that neighbour alone.
+
+  Fewer than two neighbours are returned with no read.  Otherwise the cost is `ends`'
+  and one `above` read per neighbour going up, or one for `node` going down."
+  [above ends up? node nbrs]
+  (let [among (set nbrs)]
+    (if (< (count among) 2)
+      among
+      (let [twin? (if up?
+                    #(contains? (above %) node)
+                    (let [mine (above node)] #(contains? mine %)))
+            twins (into #{} (filter twin?) among)]
+        (into twins (ends (reduce disj among twins)))))))
+
+(defn- nearest-neighbours
+  "`direct-neighbours` reduced to the nearest ones (`nearest-of`): `min-types` of the
+  parents, `max-types` of the children, scoped like `genls` / `specs`."
+  [tax dir-key t context]
+  (let [up? (= :fwd dir-key)]
+    (nearest-of (up-closure-fn tax context)
+                #((if up? min-types max-types) tax % context)
+                up? t (direct-neighbours tax dir-key t context))))
+
+(defn min-genls
+  "The minimal supertypes of `t` through the edges visible from `context`: `min-types` of
+  `t`'s direct parents, the direct parents with no other one strictly below them.  Every other
+  strict supertype of `t` is a supertype of one of these.  A stated `(genl dog animal)`
+  beside `dog ⊂ mammal ⊂ animal` leaves `animal` out.  An edge counts whatever installed
+  it, as for `direct-genls`.  One memoized up-closure read per direct parent."
+  [tax t context]
+  (nearest-neighbours tax :fwd t context))
+
+(defn max-specs
+  "The maximal subtypes of `t` through the edges visible from `context`: `max-types` of
+  `t`'s direct children, the direct children with no other one strictly above them.  `min-genls`'
+  reasoning, the other direction.  One memoized up-closure read per direct child."
+  [tax t context]
+  (nearest-neighbours tax :rev t context))
+
+(defn min-genls-global
+  "`min-genls` through **every** active edge — no context scope."
+  [tax t]
+  (nearest-neighbours tax :fwd t nil))
+
+(defn max-specs-global
+  "`max-specs` through **every** active edge — no context scope."
+  [tax t]
+  (nearest-neighbours tax :rev t nil))
+
 (defn specs-of-all
   "The union of `specs` over every node in `nodes`, walked **once**.
 

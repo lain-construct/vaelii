@@ -432,6 +432,8 @@ default-chain-opts                              ; the bounds a chain run takes w
 (genls kb t [context]) / (specs kb t [context])         ; genl up/down closure (scoped with a context)
 (direct-genls kb t [context]) / (direct-specs kb t [context]) ; one genl step up/down, not reflexive;
                                                         ; a cover roster's installed edges count
+(min-genls kb t [context]) / (max-specs kb t [context]) ; the direct parents / children no other one
+                                                        ; stands between: a redundant stated edge is left out
 (genl? kb sub super [context])                          ; subtype test, scoped the same way
 (types kb) / (contexts kb)                              ; the nodes of each hierarchy
 (relation? kb term [context])                           ; a stored arity of 2+ or variable_arity:
