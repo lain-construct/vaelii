@@ -347,17 +347,25 @@
 ;; argument position over it, and neither of the two sees the other, so the type sits here
 ;; with the skeleton it hangs from.
 (comment measure "A magnitude in a unit: (QuantityFn 5 Kilogram) or (QuantityIntervalFn 1 2 Meter). What a weight, a height, a duration or a temporal distance is stated as. See docs/quantity.md.")
-(genl measure nowhere_never)
+(genl measure quantitative)
 
 ;; linguistic is what has its being in a system of signs: a language, and every expression
 ;; written in one.  CxCore holds it because language, which the band contexts type
 ;; arguments over, sits under it.
 (comment linguistic "A language, or an expression written in one: what has its being in a system of signs. The line that the equation y=x describes and the mass (QuantityFn 5 Kilogram) denotes are nowhere_never but not linguistic; the written equation and the written term are.")
-(genl linguistic nowhere_never)
-(set/monotonic (disjoint linguistic measure))
-;; Use is the default, so the relation dog is not an expression; (Quote dog) is the symbol.
-(set/monotonic (disjoint linguistic relation))
 (unary_predicate linguistic)
+
+;; logical, linguistic and quantitative are three kinds of nowhere_never thing.  Use is
+;; the default, so the relation dog is logical and not an expression; (Quote dog) is the
+;; symbol, which is linguistic.  Nothing says every nowhere_never thing is of one of the
+;; three kinds.
+(comment logical "What a logic is about rather than written in: what a sentence predicates, what it says, or what it holds in, e.g. a relation, a proposition, a context, a truth table. Not every logical thing is a relation, a proposition or a context.")
+(unary_predicate logical)
+(comment quantitative "What a measurement is made of or yields, e.g. the measure (QuantityFn 5 Kilogram), the unit Kilogram, the dimension Mass, the sign SignPositive. A quantity that changes, e.g. a water level, is not quantitative: the quantity is temporal, and a measure of it is quantitative.")
+(unary_predicate quantitative)
+(set/monotonic (separating nowhere_never logical linguistic quantitative))
+;; CxReflection separates proposition from the two as well.
+(set/monotonic (separating logical relation context))
 
 ;; unrepresented_term holds the value kinds.  The relation disjoint is what lets a rule be
 ;; refused for feeding a text-valued argument into a position that holds a type: every
@@ -375,8 +383,6 @@
 (genl number unrepresented_term)
 (genl string unrepresented_term)
 (partition unrepresented_term boolean character keyword number string)
-
-(genl context nowhere_never)
 
 (comment Quote "Syncategorematic: part of vaelii's syntax, like a parenthesis, though written like a function. (Quote X) is X taken as a form, e.g. (Quote Muffet) names the symbol Muffet, not the dog. Quote takes no arg, result or metatype declaration; what kind of expression (Quote X) is follows from X's shape.")
 
@@ -1331,9 +1337,6 @@
 (unbounded_arity or)
 
 (comment relation            "The type of every operator that may be applied to arguments. function and truth_valued_relation partition it: an application of a function denotes or evaluates to a value, while an application of a truth_valued_relation is true or false.")
-(genl relation nowhere_never)
-;; What a relation relates or says is not itself an operator.
-(set/monotonic (disjoint measure relation))
 ;; relation holds functions, binary predicates and types alike, so its members are of
 ;; more than one order: a variable_order_type, which is a unary_predicate.
 (variable_order_type relation)

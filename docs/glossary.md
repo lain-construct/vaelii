@@ -249,7 +249,7 @@ in — every sentex is in exactly one. Contexts form a `genlCx` hierarchy: a
 sub-context *sees* its supers. Names start with `Cx`, then CapitalCamelCase. See
 [contexts.md](contexts.md).
 
-**`context` (ontology type)** ![kb](../.github/badges/cat-kb.svg): The collection of contexts, below `nowhere_never` — `(genl context nowhere_never)` — and disjoint from `expression`: a context is what an expression names. The theory a sentex holds in is the knowledge-stratum sense, **Context**. See [taxonomy.md](taxonomy.md).
+**`context` (ontology type)** ![kb](../.github/badges/cat-kb.svg): The collection of contexts, below `logical` and so below `nowhere_never`, and disjoint from `expression`: a context is what an expression names. The theory a sentex holds in is the knowledge-stratum sense, **Context**. See [taxonomy.md](taxonomy.md).
 
 **Contradiction** ![tms](../.github/badges/cat-tms.svg): A believed `P` and
 `(not P)` visible from a common context. A defeasible tie is a *represented

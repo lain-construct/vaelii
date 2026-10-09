@@ -1129,7 +1129,9 @@
            [tangible "ontology, not grammar: something with mass, and so with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [organism "ontology, not grammar: something alive in its own right. CxCore holds it so CxOrganism's kinds reach the root from CxOrganism; no engine check names it."]
            [biological "ontology, not grammar: a tangible that is an organism or part of one. CxCore holds it so organism reaches tangible through it from CxOrganism and body_part from CxAbstract; no engine check names it."]
-           [measure "ontology, not grammar: what a QuantityFn or QuantityIntervalFn application denotes. CxCore holds it so CxMeasure and CxTime can both declare a position over it; no engine check names it."]])
+           [measure "ontology, not grammar: what a QuantityFn or QuantityIntervalFn application denotes. CxCore holds it so CxMeasure and CxTime can both declare a position over it; no engine check names it."]
+           [logical "ontology, not grammar: what a logic is about, the whole above relation, proposition and context. CxCore holds it so the separation from linguistic and quantitative reaches relation and context from CxCore; no engine check names it."]
+           [quantitative "ontology, not grammar: what a measurement is made of or yields, the whole above measure, unit_of_measure, physical_dimension and sign_value. CxCore holds it so the separation from logical and linguistic reaches measure from CxCore; no engine check names it."]])
 
     ;; ---- the space/time complements, nowhere_never, and the metatype ladder ----
     ;; CxCore comments these too, beside their genl edges, so `vocabulary/audit` answers
@@ -1142,7 +1144,7 @@
          '[[temporal "ontology, not grammar: something that exists in time. CxCore holds it so CxTime and CxAbstract can extend it; no engine check names it."]
            [aspatial "ontology, not grammar: not located in any space, the complement of spatial. CxCore holds it so every spindle member can place a kind under it; no engine check names it."]
            [atemporal "ontology, not grammar: not located in time, the complement of temporal. CxCore holds it so nowhere_never can sit under it; no engine check names it."]
-           [nowhere_never "ontology, not grammar: in no space and at no time, below aspatial and atemporal and the parent of linguistic, measure, context and relation; no engine check names it."]
+           [nowhere_never "ontology, not grammar: in no space and at no time, below aspatial and atemporal and the whole that logical, linguistic and quantitative are separated under; no engine check names it."]
            [type "ontology, not grammar: a first-order type, on the metatype-order ladder. No engine check names it — typeGenl, which reads the ladder, is inert."]
            [metatype "ontology, not grammar: a second-order type, on the metatype-order ladder. No engine check names it."]
            [meta_metatype "ontology, not grammar: a third-order type, on the metatype-order ladder. No engine check names it."]

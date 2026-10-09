@@ -1291,7 +1291,12 @@ CxCore places `spatiotemporal` and `nowhere_never` by `genl` edges, not by
 A kind with no location in any space sits below `aspatial`, which separates it from
 `spatial` and from every CxSpace argument. `organization` (CxCore),
 `quantity` (CxMeasure) and `fluent` (CxTime) are below `aspatial`.
-`context`, `relation`, `measure` and `linguistic` are below `nowhere_never` in CxCore.
+`(separating nowhere_never logical linguistic quantitative)` in CxCore places three
+kinds below `nowhere_never` and separates them. `relation` and `context` are below
+`logical`, and CxReflection places `proposition` there too. `measure` is below
+`quantitative` in CxCore, and `unit_of_measure`, `physical_dimension` and `sign_value`
+are below it in CxMeasure. `quantity` is not below `quantitative`: a quantity is
+`temporal`.
 `language`, `unrepresented_term`, `symbol`, `formula` and `non_atomic_term` are below
 `linguistic` in CxCore, and the value kinds `string`, `number`, `keyword`, `boolean` and
 `character` are below `unrepresented_term`. Every spindle member therefore reads each of
