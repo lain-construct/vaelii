@@ -65,8 +65,8 @@ globally, and why: [below](#the-global-readers-and-who-may-use-one).
 arguments, while only predicates hold or fail and only functions denote values. Arity
 policy and the exact `arity` table are therefore relation-wide.
 
-`fixed_arity` and `variable_arity` classify two disjoint policies, with predicate and
-function specializations for each. Unsuffixed `unary`, `binary` and `ternary` classify
+`fixed_arity` and `variable_arity` partition `relation` into two policies, with predicate
+and function specializations for each. Unsuffixed `unary`, `binary` and `ternary` classify
 exact relations; `unary_predicate` / `unary_function` and their binary and ternary peers
 specialize those relation-wide classes. `relationTypeByArity` owns the shared mapping;
 `predicateTypeByArity` and `functionTypeByArity` are its `genl` specializations, and one

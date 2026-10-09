@@ -79,8 +79,8 @@ An `arg` declaration on a unary predicate and a `genl` edge above it can say the
 thing, and which of the two is right turns on where the parent sits relative to the type
 the declaration names.
 
-`fixed_arity` carries `(arg fixed_arity 1 relation)` and `(genl fixed_arity relation)`
-names that same type. The edge concludes `(relation 5)` from `(fixed_arity 5)` and
+`fixed_arity` carries `(arg fixed_arity 1 relation)`, and the `(genl fixed_arity relation)`
+edge that `(partition relation fixed_arity variable_arity)` installs names that same type. The edge concludes `(relation 5)` from `(fixed_arity 5)` and
 nothing is disjoint from `relation` for a number, so the declaration's value conviction
 is the only refusal there is; drop it and `(fixed_arity 5)` is accepted. `variable_arity`
 and the function marks are in the same position and keep theirs.
