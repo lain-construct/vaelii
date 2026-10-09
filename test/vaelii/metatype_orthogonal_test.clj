@@ -16,6 +16,56 @@
 (use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
+(defn- derived-not-stated?
+  "Is `(pred a b)` believed in `ctx` with no premise stating it in any context?"
+  [kb pred a b ctx]
+  (and (true? (v/ask? kb (list pred a b) ctx))
+       (not-any? #(v/premise? kb (:id %))
+                 (concat (v/sentexes-matching kb (list pred a b) '?ctx)
+                         (v/sentexes-matching kb (list pred b a) '?ctx)))))
+
+;; ---- typeOrthogonal ---------------------------------------------------------
+
+(tu/deftest-kb a-member-of-the-classifier-is-orthogonal-to-the-type
+  (tu/with-terms [origin_kind crafted grown edible]
+    (doseq [t [crafted grown edible]] (v/assert kb (list 'genl t 'tangible) 'CxUniverse))
+    (v/assert kb (list 'metatype origin_kind) 'CxUniverse)
+    (v/assert kb (list 'forced_monotonic_predicate origin_kind) 'CxUniverse)
+    (v/assert kb (list origin_kind crafted) 'CxUniverse)
+    (v/assert kb (list 'typeOrthogonal origin_kind edible) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'orthogonal crafted edible) 'CxUniverse)))
+    (is (= :orthogonal (v/subsumption-status kb crafted edible)))
+    (testing "a member that arrives later is concluded orthogonal too"
+      (v/assert kb (list origin_kind grown) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'orthogonal grown edible) 'CxUniverse))))
+    (is (not-any? #(= :forced-conclusion (:violation %)) (v/violations kb)))))
+
+(def ^:private origin-crossers
+  "The types every origin_type member (made, natural) is orthogonal to."
+  '[organism biological body_part substance food animal])
+
+(tu/deftest-kb what-cuts-across-made-and-natural-is-derived-from-origin-type
+  (is (true? (v/ask? kb '(origin_type made) 'CxAbstract)))
+  (is (true? (v/ask? kb '(origin_type natural) 'CxAbstract)))
+  (doseq [t origin-crossers, o '[made natural]]
+    (is (true? (v/ask? kb (list 'typeOrthogonal 'origin_type t) 'CxAbstract)))
+    (is (derived-not-stated? kb 'orthogonal t o 'CxAbstract)
+        (str "(orthogonal " t " " o ") is derived and not stated"))
+    (is (= :orthogonal (v/subsumption-status kb t o)))))
+
+(tu/deftest-kb abducibility-is-orthogonal-to-every-arity-type
+  (doseq [a '[unary binary ternary fixed_arity variable_arity bounded_arity unbounded_arity
+              at_least_binary at_least_ternary]]
+    (is (true? (v/ask? kb (list 'arity_type a) 'CxCore)) (str a " is an arity_type"))
+    (is (derived-not-stated? kb 'orthogonal a 'abducible_predicate 'CxCore)
+        (str "(orthogonal " a " abducible_predicate) is derived"))
+    (is (= :orthogonal (v/subsumption-status kb a 'abducible_predicate)))))
+
+(tu/deftest-kb a-type-of-each-order-may-be-empty-or-nonempty
+  (doseq [o '[type metatype meta_metatype], e '[empty nonempty]]
+    (is (derived-not-stated? kb 'orthogonal o e 'CxCore)
+        (str "(orthogonal " o " " e ") is derived from (typeOrthogonal type_type_by_order " e ")"))))
+
 ;; ---- logical and quantitative -------------------------------------------------
 
 (tu/deftest-kb logical-linguistic-and-quantitative-are-separated-under-nowhere-never
