@@ -1104,12 +1104,12 @@
            [open_literal "documentary: a literal with a free variable — what a rule's antecedent holds. Nothing reads it by name."]
            [closed_literal "documentary: a literal with no free variable — what a stored LiteralSentex holds. Nothing reads it by name."]
            [negated_predication "documentary: a predication under not. Nothing reads it by name."]
-           [wff_expression "documentary: an expression the language can read — every operator applied to as many arguments as it takes, every quantifier binding a variable. Nothing reads it by name."]
-           [ill_formed_expression "documentary: an expression the language cannot read. Nothing reads it by name."]
-           [wff_formula "documentary: a formula the language can read, so it says something. Nothing reads it by name."]
-           [ill_formed_formula "documentary: a formula-shaped expression the language cannot read, so it says nothing. Nothing reads it by name."]
-           [wff_sentence "documentary: a closed formula the language can read — what a stored sentex holds. Nothing reads it by name."]
-           [ill_formed_sentence "documentary: a closed formula-shaped expression the language cannot read. Nothing reads it by name."]
+           [wff_expression "documentary: an expression whose every relation, function and connective has as many arguments as its declared arity allows and whose every quantifier binds a variable. Nothing reads it by name."]
+           [ill_formed_expression "documentary: an expression that is not well-formed. Nothing reads it by name."]
+           [wff "documentary: a well-formed formula, so it says something. Nothing reads it by name."]
+           [ill_formed "documentary: a formula-shaped expression that is not well-formed, so it says nothing. Nothing reads it by name."]
+           [wff_sentence "documentary: a well-formed closed formula — what a stored sentex holds. Nothing reads it by name."]
+           [ill_formed_sentence "documentary: a closed formula-shaped expression that is not well-formed. Nothing reads it by name."]
            [linguistic "documentary: a language, or an expression written in one — what has its being in a system of signs. Nothing reads it by name."]])
 
     ;; ---- Quote: syncategorematic, read by name in impl/quasiquote.clj -----
