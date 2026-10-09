@@ -212,6 +212,8 @@
     '[seeImage 2]           "the image perceived: a thing of any kind"
     '[watchVideo 1]         "a perceiver, whose types CxCore cannot see"
     '[watchVideo 2]         "the video perceived: a thing of any kind"
+    '[agentHasTool 1]       "what a tool is available to, whose types the upper ontology does not name"
+    '[toolArgType 3]        "the type a tool's argument takes: a type of any kind"
     '[argN 1]               "the term found at a position of a formula"
     '[sameAs 1]             "either side of a sameAs"
     '[sameAs 2]             "either side of a sameAs"

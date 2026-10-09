@@ -38,6 +38,11 @@
         - CxChange.txt    — a simple event calculus: a state persists until an
                                  event ends it, so holdsAt is inertia over what
                                  initiates and terminates say.
+        - CxComputing.txt — relations over software tools, their invocations and
+                                 receipts, media resources and DNS names, and
+                                 the kinds the relations are typed over.
+                                 Opt-in: it sees CxUniverse and CxWell does not
+                                 see it.
         - CxKinship.txt   — grandparentOf, ancestorOf, olderThan, and parenthood
                                  from maternity and paternity.
         - CxMereology.txt — a part is located where its whole is; owning a whole
