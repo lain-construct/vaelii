@@ -96,7 +96,9 @@
 (genlCx CxTime CxCore)
 (genlCx CxUniverse CxTime)
 
-(comment fluent "A state of affairs that holds, over any extent: over some stretches of time and not others — a cat being asleep, a light being on. What an event starts and stops, and what holdsAt asks about at a moment. See docs/time.md.")
+(comment fluent "A state of affairs that holds, over any extent: over some stretches of time and not others — a cat being asleep, a light being on. What an event starts and stops, and what holdsAt asks about at a moment. One of the two kinds of situation, with happening. See docs/time.md.")
+
+(comment happening "A situation that happens rather than holds, over any extent: the writing of a novel, a trial, a course of bedbug treatment, the Ramadan fast, a World Series. An uninterrupted happening is an event. One of the two kinds of situation, with fluent.")
 
 (comment after
          "(after ?interval1 ?interval2) means that ?interval1 begins strictly after ?interval2 ends. They share no time and do not touch, so some gap separates them. The converse of before.")
