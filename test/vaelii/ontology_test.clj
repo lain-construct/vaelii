@@ -845,6 +845,30 @@
     (is (some? (v/assert kb (list 'intermittent Watch) 'CxUniverse)) "the write is stored")
     (is (true? (v/ask? kb (list 'intermittent Watch) 'CxUniverse)))))
 
+(tu/deftest-kb the-watch-of-theseus-is-intermittent
+  ;; A watch taken apart and rebuilt exists intermittently, so its exception is stated
+  ;; monotonically and defeats the default edge from tangible to uninterrupted.
+  (let [clashes (fn [w] (count (filter #(some #{w} (flatten (map :sentence (:sides %))))
+                                       (v/contradictions kb))))]
+    (testing "a tangible with no stated exception is uninterrupted by default"
+      (tu/with-terms [Rock]
+        (v/assert kb (list 'tangible Rock) 'CxUniverse)
+        (is (true? (v/ask? kb (list 'uninterrupted Rock) 'CxUniverse)))))
+    (testing "the tangible membership first, then the monotonic exception"
+      (tu/with-terms [WatchOfTheseus]
+        (v/assert kb (list 'tangible WatchOfTheseus) 'CxUniverse)
+        (v/assert kb (list 'intermittent WatchOfTheseus) 'CxUniverse {:strength :monotonic})
+        (is (true? (v/ask? kb (list 'intermittent WatchOfTheseus) 'CxUniverse)))
+        (is (false? (v/ask? kb (list 'uninterrupted WatchOfTheseus) 'CxUniverse)))
+        (is (zero? (clashes WatchOfTheseus)))))
+    (testing "the monotonic exception first, then the tangible membership"
+      (tu/with-terms [WatchOfTheseus]
+        (v/assert kb (list 'intermittent WatchOfTheseus) 'CxUniverse {:strength :monotonic})
+        (v/assert kb (list 'tangible WatchOfTheseus) 'CxUniverse)
+        (is (true? (v/ask? kb (list 'intermittent WatchOfTheseus) 'CxUniverse)))
+        (is (false? (v/ask? kb (list 'uninterrupted WatchOfTheseus) 'CxUniverse)))
+        (is (zero? (clashes WatchOfTheseus)))))))
+
 (tu/deftest-kb a-time-is-uninterrupted-or-intermittent
   ;; A week's evenings are a time with gaps; a moment and a stretch are times with none.
   (doseq [ctx '[CxCore CxTime CxUniverse]]
