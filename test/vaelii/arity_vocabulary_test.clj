@@ -241,6 +241,35 @@
   (testing "the ternary floor specializes the binary floor"
     (is (v/genl? kb 'at_least_ternary 'at_least_binary))))
 
+(def ^:private admits-argnum-definition
+  "admitsArgnum's defining rules as CxCore states them, inert."
+  '[(implies (relation ?relation) (admitsArgnum ?relation 1))
+    (implies (at_least_binary ?relation) (admitsArgnum ?relation 2))
+    (implies (at_least_ternary ?relation) (admitsArgnum ?relation 3))
+    (implies (and (unbounded_arity ?relation) (positive_integer ?position))
+             (admitsArgnum ?relation ?position))
+    (implies (and (bounded_arity ?relation) (arityMax ?relation ?max) (positive_integer ?position)
+                  (not (greaterThan ?position ?max)))
+             (admitsArgnum ?relation ?position))
+    (implies (and (arity ?relation ?arity) (positive_integer ?position)
+                  (not (greaterThan ?position ?arity)))
+             (admitsArgnum ?relation ?position))])
+
+(tu/deftest-kb admits-argnum-states-its-definition-as-inert-rules
+  (testing "each defining rule is stored in CxCore, believed, and run by neither engine"
+    (doseq [r admits-argnum-definition]
+      (let [h (v/handle-of kb (list 'set/inertRule r) 'CxCore)]
+        (is (some? h) (str "stored: " (pr-str r)))
+        (when h
+          (is (v/in? kb h))
+          (is (= #{} (:engines (v/sentex kb h))))))))
+  (testing "and none fires: no admitsArgnum fact is stored"
+    (is (empty? (v/sentexes-matching kb '(admitsArgnum ?r ?n) 'CxWell))))
+  (testing "while the prover answers as it did"
+    (is (v/ask? kb '(admitsArgnum parentOf 2) 'CxWell))
+    (is (not (v/ask? kb '(admitsArgnum parentOf 3) 'CxWell)))
+    (is (v/ask? kb '(admitsArgnum partition 40) 'CxWell))))
+
 (tu/deftest-kb admits-argnum-answers-the-position-query
   ;; #68: (admitsArgnum R n) is answered at query time from R's declared arity and
   ;; variable-arity mark — not from a finite rule set — so the declared vocabulary now
