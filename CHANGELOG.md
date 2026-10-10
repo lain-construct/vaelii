@@ -143,6 +143,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **`closedExtentForArg` closes a predicate's extent for one argument value.**
+  `(closedExtentForArg P n v)` grants that `P`'s believed extent is complete for the
+  goals whose argument `n` is `v`, so `(not (P …))` holds there while the positive finds
+  nothing. `(closedExtentForArg accountOn 2 HostA)` answers `(not (accountOn Carol HostA))`
+  and leaves `(accountOn Carol HostB)` open-world. The grant is scoped to the asking
+  context and belief-following, reads a closed negative rule antecedent as negation as
+  failure, and is refused where it would close a cycle through negation, as
+  `closed_extent_predicate` is. `closedExtentForArg1`, `closedExtentForArg2` and
+  `closedExtentForArg3` are binary spellings that derive the ternary.
+  [naf.md](docs/naf.md#a-closed-extent-for-one-argument-value).
+
+  *Class:* **Additive**.
+
 - **`min-genls` and `max-specs` read a type's nearest neighbours in the subsumption
   order, and the term page's concept graph draws them.** `(min-genls kb t [context])`
   answers the direct parents of `t` with no other direct parent of `t` strictly below

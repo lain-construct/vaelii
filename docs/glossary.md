@@ -204,6 +204,12 @@ ancestor set, so it is a policy of the theory that closes the extent; a closed
 `(not (P …))` rule antecedent under it is negation as failure. See
 [naf.md](naf.md).
 
+**`closedExtentForArg`** ![kb](../.github/badges/cat-kb.svg): The
+`closed_extent_predicate` grant narrowed to one argument value:
+`(closedExtentForArg P n v)` closes `P`'s believed extent for the goals whose argument
+`n` is `v`. `closedExtentForArg1`, `closedExtentForArg2` and `closedExtentForArg3` are
+its binary spellings. See [naf.md](naf.md#a-closed-extent-for-one-argument-value).
+
 **`comment`** ![kb](../.github/badges/cat-kb.svg): A documentation sentex —
 `(comment <term> "…")` — that lets the CxCore vocabulary document itself in
 its own representation, read back by `core-context/comment-of`. See

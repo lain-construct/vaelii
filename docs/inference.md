@@ -2142,7 +2142,8 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   so the goal and the rule antecedent are answered by one mechanism. Closed only.
   `:compute`, 100. See [naf.md](naf.md).
 - **ClosedExtentProver** — a ground `(not (P …))` where `P`'s extent is declared complete
-  from the asking context: the positive goal runs through the registry and no answer
+  from the asking context, by `closed_extent_predicate` or by a `closedExtentForArg`
+  whose argument value the goal holds: the positive goal runs through the registry and no answer
   *is* the negative answer. Ground only, for `unknown`'s reason. `:compute`, partial
   (50) — it augments the stored `(not (P a))` `FactProver` answers. See
   [naf.md](naf.md).
