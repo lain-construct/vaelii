@@ -647,14 +647,11 @@
    ;; candidates recomputed below it and the argument-type entailment's two gates.  No
    ;; rule reads a term above the edge, so the chaining seeds read no subtree.  The arity
    ;; recompute reads the candidate index and no index posting.
-   ;; A `genl` edge is a source `ExpressionKindProver` reads, so the re-join trigger reads
-   ;; the stored rules' antecedent keys once (`chain/computed-rejoin-rules`): one
-   ;; `:rule-index` read an edge.
    {:name    :taxonomy-edge
     :build   taxonomy-edge
     :sentexes 100
     :reads   {:exception-index 300 :opposed 100 :predicate-extent 1200
-              :rule-index 600 :trie-counts 700 :trie-lookup 100 :mint 100}
+              :rule-index 500 :trie-counts 700 :trie-lookup 100 :mint 100}
     :writes  {:levels 500 :terms 400 :roots 1000 :roster 101 :slots 301}}
 
    ;; **No read per relative**: an arity arriving recomputes the candidates of the
@@ -688,7 +685,7 @@
     :build   preserved-edges-4
     :sentexes 100
     :reads   {:argument-root 2 :argument-slot 600 :exception-index 300 :opposed 100
-              :predicate-extent 3600 :rule-index 800 :trie-counts 700
+              :predicate-extent 3600 :rule-index 700 :trie-counts 700
               :trie-lookup 100 :mint 100}
     :writes  {:levels 500 :terms 400 :roots 1000 :roster 200 :slots 400}}
 
@@ -696,7 +693,7 @@
     :build   preserved-edges-32
     :sentexes 100
     :reads   {:argument-root 2 :argument-slot 600 :exception-index 300 :opposed 100
-              :predicate-extent 3600 :rule-index 800 :trie-counts 700
+              :predicate-extent 3600 :rule-index 700 :trie-counts 700
               :trie-lookup 100 :mint 100}
     :writes  {:levels 500 :terms 400 :roots 1000 :roster 200 :slots 400}}])
 

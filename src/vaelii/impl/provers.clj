@@ -1176,11 +1176,14 @@
   "Is `goal` `(k q)`, `k` a ground type below `expression` from `context` and `q` a
   quoted form (`quoted-form`)?"
   [kb goal context]
-  (and (sequential? goal) (= 2 (count goal))
-       (symbol? (first goal)) (not (sx/variable? (first goal)))
-       (or (sequential? (second goal)) (symbol? (second goal)))
-       (tax/genl? (reasoning/taxonomy kb) (first goal) 'expression context)
-       (some? (quoted-form kb (second goal) context))))
+  (let [tax (reasoning/taxonomy kb)
+        q   (when (and (sequential? goal) (= 2 (count goal))) (second goal))]
+    ;; the spelling tests run first: every membership goal reaches this
+    (and (some? q) (symbol? (first goal)) (not (sx/variable? (first goal)))
+         (or (and (sequential? q) (= 2 (count q)) (tax/quoting-function? tax (first q)))
+             (and (symbol? q) (= "nat" (namespace q))))
+         (tax/genl? tax (first goal) 'expression context)
+         (some? (quoted-form kb q context)))))
 
 (defn- expression-kind-support
   "The handles `(k q)` rests on, as a vector, or nil when no kind of the form `q` quotes
@@ -1566,9 +1569,10 @@
   Prover
   (applicable?  [_ kb goal context]
     (or (expression-kind-goal? kb goal context)
-        ;; open, so the join planner reads `deferred-est` and binds it first
-        (and (sequential? goal) (= 2 (count goal)) (symbol? (first goal))
-             (not (sx/variable? (first goal))) (sx/variable? (second goal))
+        ;; open, so the join planner reads `deferred-est` and binds it first; only a
+        ;; support functor, the one a re-join plans
+        (and (sequential? goal) (= 2 (count goal))
+             (contains? expression-kind-predicates (first goal)) (sx/variable? (second goal))
              (tax/genl? (reasoning/taxonomy kb) (first goal) 'expression context))))
   (est-bindings [_ _ goal _] (if (sx/variable? (second goal)) deferred-est 1))
   (cost         [_ _ _ _] :lookup)
