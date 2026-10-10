@@ -60,7 +60,6 @@
 (set/inertRule (implies (and (closedExtentForArg ?predicate 3 ?value)) (closedExtentForArg3 ?predicate ?value)))
 
 (termsRelated closed_extent_predicate closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3)   ;; the closed-extent grants
-(seeAlso closed_extent_predicate closedExtentForArg)   ;; the grant narrowed to one argument value
 
 (comment agg/avg
          "(agg/avg ?mean ?value ?body) means that ?mean is the mean of the distinct numeric ?value satisfying ?body. No answer at all over an empty ?body, an average over nothing being a division by zero however it is dressed up. A query operator, never stored.")
