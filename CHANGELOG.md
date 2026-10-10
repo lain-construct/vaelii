@@ -184,7 +184,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   rule reads is on the forced-monotonic roster. 10 `typeOrthogonal` facts and one
   `orthogonalMetatypes` fact derive 33 orthogonal pairs, 22 of them stated before, and
   every arity type is orthogonal to `abducible_predicate`. 9 more orthogonal pairs are
-  stated, e.g. `made` and `vertebrate`, `animal` and `food`. `implementationNote` is a
+  stated, e.g. `made` and `vertebrate`, `animal` and `food`. `warm_blooded` is below
+  `vertebrate` by default. `implementationNote` is a
   sibling of `comment` for how a term is implemented, and 14 CxCore terms carry one.
   [taxonomy.md](docs/taxonomy.md), [glossary.md](docs/glossary.md).
 
