@@ -152,7 +152,9 @@ it — `git show v0.16.0:CHANGELOG.md`.
   failure, and is refused where it would close a cycle through negation, as
   `closed_extent_predicate` is. `closedExtentForArg1`, `closedExtentForArg2` and
   `closedExtentForArg3` are binary spellings that derive the ternary; an inert rule
-  states each reverse direction.
+  states each reverse direction. Inert rules also state that a whole-predicate grant
+  entails every per-argument grant, and state `admitsArgnum`'s definition, which its
+  prover answers.
   [naf.md](docs/naf.md#a-closed-extent-for-one-argument-value).
 
   *Class:* **Additive**.

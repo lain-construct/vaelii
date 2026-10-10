@@ -802,6 +802,23 @@
            clojure.lang.ExceptionInfo #"not stratified"
            (v/assert kb (list 'closedExtentForArg2 accountOn HostA) CxHosts))))))
 
+(tu/deftest-kb a-whole-closure-entails-every-per-argument-closure-inertly
+  (let [r '(implies (and (closed_extent_predicate ?pred) (admitsArgnum ?pred ?position)
+                         (thing ?value))
+                    (closedExtentForArg ?pred ?position ?value))
+        h (v/handle-of kb (list 'set/inertRule r) 'CxCore)]
+    (testing "the defining rule is stored in CxCore, believed, and run by neither engine"
+      (is (some? h))
+      (is (v/in? kb h))
+      (is (= #{} (:engines (v/sentex kb h)))))
+    (tu/with-terms [accountOn Alice HostA CxHosts]
+      (v/assert kb (list 'genlCx CxHosts 'CxUniverse) 'CxUniverse)
+      (v/assert kb (list 'binary_predicate accountOn) CxHosts)
+      (v/assert kb (list accountOn Alice HostA) CxHosts)
+      (v/assert kb (list 'closed_extent_predicate accountOn) CxHosts)
+      (is (empty? (v/sentexes-matching kb (list 'closedExtentForArg accountOn '?n '?v) CxHosts))
+          "a whole-predicate grant stores no per-argument grant"))))
+
 (tu/deftest-kb why-not-says-the-extent-is-closed-for-the-argument
   (tu/with-terms [accountOn Carol HostA HostB CxHosts]
     (v/assert kb (list 'genlCx CxHosts 'CxUniverse) 'CxUniverse)

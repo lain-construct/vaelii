@@ -398,6 +398,10 @@ spellings: `(closedExtentForArg2 P v)` means `(closedExtentForArg P 2 v)`. A CxC
 rule derives the ternary from each, and the engine reads only the ternary. An inert rule
 states the reverse direction, so a ternary grant mints no binary twin.
 
+A whole-predicate grant entails the per-argument grant at every admitted position and for
+every value. CxCore states that as an inert rule over `admitsArgnum`, with `(thing ?value)`
+binding the value, so a `closed_extent_predicate` grant stores no per-argument grants.
+
 ### Under the grant, a negative antecedent is NAF
 
 ```clojure

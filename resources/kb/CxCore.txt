@@ -32,6 +32,11 @@
 (ternary_predicate closedExtentForArg)
 (arg closedExtentForArg 1 predicate)
 (arg closedExtentForArg 2 positive_integer)
+;; A whole-predicate closure entails the per-argument closure at every admitted position and
+;; every value.  Inert: a forward rule would store one grant per value.  (thing ?value) binds
+;; ?value, which range restriction requires of a consequent variable, and is true of every
+;; term.
+(set/inertRule (implies (and (closed_extent_predicate ?pred) (admitsArgnum ?pred ?position) (thing ?value)) (closedExtentForArg ?pred ?position ?value)))
 
 (comment closedExtentForArg1
          "(closedExtentForArg1 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 1 ?value). The two rules below state the equivalence. The rule deriving the ternary is a forward rule, so the engine reads only the ternary; the rule deriving the binary spelling is inert, so a ternary grant mints no binary twin.")
