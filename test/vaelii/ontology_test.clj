@@ -1427,6 +1427,20 @@
     (is (= :orthogonal (v/subsumption-status kb 'dog tended)))
     (is (not-any? #(= :forced-conclusion (:violation %)) (v/violations kb)))))
 
+(tu/deftest-kb a-warm-blooded-animal-is-a-vertebrate-by-default
+  (let [edges (filter #(v/premise? kb (:id %)) (v/sentexes-matching kb '(genl warm_blooded vertebrate) 'CxUniverse))]
+    (is (= 1 (count edges)) "(genl warm_blooded vertebrate) is stated in CxUniverse")
+    (is (= :default (:strength (first edges))) "at default strength"))
+  (tu/with-terms [Warm1 Cat1 Trout1]
+    (v/assert kb (list 'warm_blooded Warm1) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'vertebrate Warm1) 'CxUniverse)))
+    (testing "and the class rules that derive and deny warm_blooded raise no clash"
+      (v/assert kb (list 'mammal Cat1) 'CxBiology)
+      (v/assert kb (list 'fish Trout1) 'CxBiology)
+      (is (true? (v/ask? kb (list 'warm_blooded Cat1) 'CxBiology)))
+      (is (true? (v/ask? kb (list 'not (list 'warm_blooded Trout1)) 'CxBiology)))
+      (is (empty? (v/conflicts kb))))))
+
 (tu/deftest-kb artifact-is-declared-nowhere-and-the-seven-kinds-are-made
   ;; The KB declares no artifact term and no alias for one.  building, clothing,
   ;; container, furniture, machine, tool and vehicle are kinds of made.

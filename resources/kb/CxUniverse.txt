@@ -12,6 +12,9 @@
 ;; The fact derives plant's orthogonals with made and with natural (origin_type is
 ;; CxAbstract's, plant CxOrganism's).
 (typeOrthogonal origin_type plant)
+;; Mammals and birds are warm-blooded, so a warm-blooded animal is a vertebrate by default
+;; (warm_blooded is CxLife's, vertebrate CxOrganism's).
+(genl warm_blooded vertebrate)
 ;; A cloned sheep is a made vertebrate, and a lab-bred fruit fly a made invertebrate (made is
 ;; CxAbstract's, vertebrate and invertebrate CxOrganism's).
 (orthogonal made vertebrate)
