@@ -4134,15 +4134,19 @@
   (conversionFactor …))` reaches here too: it defeats the positive row and so moves the
   reading exactly as removing it would.
 
-  Two set lookups for every datum that is not one of these — the source set is
-  `#{dimensionOf conversionFactor}` on the shipped registry — and the index reads only for
-  a datum that is."
+  Two set lookups for every datum that is not one of these.  For one that is, the stored
+  rules' antecedent keys are read once, and the rules only for the answers some rule
+  takes: a `genl` edge is a source of `ExpressionKindProver`'s two dozen kinds, and a KB
+  with no rule over one pays one read."
   [kb bfn]
   (let [srcs (provers/support-source-preds kb)]
     (when (contains? srcs bfn)
-      (not-empty
-       (into #{} (mapcat #(reads/as-stored-rules-by-antecedent (:index kb) %))
-             (provers/support-answered-preds kb))))))
+      (let [idx   (:index kb)
+            ruled (reads/as-stored-rule-keys idx)]
+        (not-empty
+         (into #{} (comp (filter #(contains? ruled %))
+                         (mapcat #(reads/as-stored-rules-by-antecedent idx %)))
+               (provers/support-answered-preds kb)))))))
 
 (defn- transitive-rejoin-rules
   "The forward rules to re-join because the arriving datum moved a transitive walk — it is

@@ -143,6 +143,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **A query asks what kind of expression a quoted form is.** `(symbol (Quote dog))`,
+  `(variable (Quote ?x))`, `(open_formula (Quote (implies (poodle ?x) (dog ?x))))` and the
+  other kinds of CxReflection's lattice that X's spelling decides are answered, through a
+  reified constant's `termOfUnit` as well, and a forward rule over one fires with the
+  `quoting_function` statement in its support.
+  [argtypes.md](docs/argtypes.md#what-a-quoted-form-is).
+
+  *Class:* **Additive**.
+
 - **`min-genls` and `max-specs` read a type's nearest neighbours in the subsumption
   order, and the term page's concept graph draws them.** `(min-genls kb t [context])`
   answers the direct parents of `t` with no other direct parent of `t` strictly below

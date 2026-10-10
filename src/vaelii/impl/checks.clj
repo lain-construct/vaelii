@@ -1008,12 +1008,6 @@
   [decls]
   (into #{} (map #(get (nth % 1) '?n)) (decls 'quotedArg)))
 
-(def ^:private formula-functors
-  "The frames whose arguments are formulas rather than terms — a `(not (P …))` reaches the
-  checks whole when the negation is genuine (`checked-sentence`), and its argument is a
-  sentence about `P`, not an application of it."
-  '#{not and or implies exceptWhen thereExists forAll ist unknown})
-
 (defn- formula-head?
   "Does the compound `x`, written in an argument position, have a head the KB knows as a
   predicate — is it a `predication`, the other half of `non_atomic_expression`
@@ -1060,7 +1054,7 @@
   (let [pred (nm/functor sentence)
         as   (nm/args sentence)]
     (when (and (symbol? pred)
-               (not (contains? formula-functors pred))
+               (not (contains? provers/formula-heads pred))
                (some application-term? as)
                (not (contains? nat/nat-quoting-predicates pred))
                (not (tax/quoting-function? (reasoning/taxonomy kb) pred)))
@@ -1068,7 +1062,7 @@
         (first
          (for [[n x] (map-indexed (fn [i a] [(inc i) a]) as)
                :when (and (application-term? x)
-                          (not (contains? formula-functors (first x)))
+                          (not (contains? provers/formula-heads (first x)))
                           (not (contains? mentioned n)))
                :let  [ds (declaration-reader kb (first x) context (decls ::counts nil))
                       p  (or (args-problem kb x context types ds)

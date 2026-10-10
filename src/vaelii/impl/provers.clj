@@ -1106,9 +1106,100 @@
   [k x]
   ((value-kind-tests k) x))
 
+;; ---- expression kinds: what a quoted form is, read off its shape --------------
+;; `(Quote X)` denotes the expression X, and which kind of expression X is follows from
+;; how X is written (docs/argtypes.md, "What a quoted form is").  This section reads only
+;; the spelling; whether `(R a)` is a predication or a non_atomic_term is R's stored
+;; kind, which it does not read.
+
+(def formula-heads
+  "The heads whose application is a formula whatever its operands: the connectives, the
+  rule and exception frames, and the quantifiers."
+  '#{not and or implies exceptWhen ist unknown thereExists forAll forall exists})
+
+(defn shape-kinds
+  "The most specific expression kinds of the form `x` that its spelling decides, as a
+  set: `variable`, `symbol`, a value kind (`literal-value-kind`), or for a compound one
+  of `open_formula` / `sentence` under a `formula-heads` head, `non_atomic_expression`
+  beside `open_expression` / `closed_expression` under a symbol or variable head, and
+  `ill_formed_expression` beside the same under any other head.  A variable inside a
+  nested `(Quote …)` or bound by a quantifier in `x` is not free (`sx/unquoted-free-vars`).
+  `#{}` for nil."
+  [x]
+  (let [openness #(if (seq (sx/unquoted-free-vars x)) 'open_expression 'closed_expression)]
+    (cond
+      (sx/variable? x)       #{'variable}
+      (symbol? x)            #{'symbol}
+      (literal-value-kind x) #{(literal-value-kind x)}
+      (sequential? x)
+      (let [h (first x)]
+        (cond
+          (contains? formula-heads h)
+          #{(if (= 'open_expression (openness)) 'open_formula 'sentence)}
+          (symbol? h) #{'non_atomic_expression (openness)}
+          :else       #{'ill_formed_expression (openness)}))
+      :else #{})))
+
+(def expression-kind-predicates
+  "The kinds `ExpressionKindProver` answers of a quoted form, as a set: CxReflection's
+  expression lattice and the value kinds below it.  Forward chaining discharges an
+  antecedent through the prover only when its functor is here (`support-answered-preds`),
+  so a kind a KB adds below `expression` is answered by a query and not by a firing."
+  '#{expression atomic_expression non_atomic_expression atomic_term variable symbol
+     unrepresented_term string number integer keyword boolean character
+     denotational_term non_atomic_term formula sentence open_formula
+     wff_expression ill_formed_expression open_expression closed_expression})
+
+(defn- quoted-form
+  "`[F x handles]` when the term `q` is a quoted form: `(F x)` with `F` a
+  `quoting_function`, handles empty, or a reified constant whose `termOfUnit`, visible
+  from `context`, is one, handles that statement.  Else nil.  The mark is read unscoped,
+  as `checks` reads it: whether an argument is a mention is a fact about the sentence
+  (`tax/mention-marks`).  A reified constant is a symbol in the `nat` namespace
+  (`nat/reified-nat-symbol?`, which this namespace sits below)."
+  [kb q context]
+  (let [quoting? #(tax/quoting-function? (reasoning/taxonomy kb) %)]
+    (cond
+      (and (sequential? q) (= 2 (count q)) (quoting? (first q)))
+      [(first q) (second q) []]
+
+      (and (symbol? q) (= "nat" (namespace q)))
+      (some->> (res/matches-visible kb (list 'termOfUnit q '?e) context)
+               (keep (fn [[h b]]
+                       (let [e (get b '?e)]
+                         (when (and (sequential? e) (= 2 (count e)) (quoting? (first e)))
+                           [(first e) (second e) [h]]))))
+               seq
+               (nm/min-by-content-key #(nth % 1))))))
+
+(defn- expression-kind-goal?
+  "Is `goal` `(k q)`, `k` a ground type below `expression` from `context` and `q` a
+  quoted form (`quoted-form`)?"
+  [kb goal context]
+  (and (sequential? goal) (= 2 (count goal))
+       (symbol? (first goal)) (not (sx/variable? (first goal)))
+       (or (sequential? (second goal)) (symbol? (second goal)))
+       (tax/genl? (reasoning/taxonomy kb) (first goal) 'expression context)
+       (some? (quoted-form kb (second goal) context))))
+
+(defn- expression-kind-support
+  "The handles `(k q)` rests on, as a vector, or nil when no kind of the form `q` quotes
+  reaches `k` from `context`: every `(quoting_function F)` statement, the `termOfUnit`
+  statement when `q` is a reified constant, then one `genl` path from the first kind of
+  the form, in name order, that reaches `k`."
+  [kb [k q] context]
+  (let [tax (reasoning/taxonomy kb)]
+    (when-let [[f x hs] (quoted-form kb q context)]
+      (some (fn [s]
+              (when-let [path (tax/reach-support tax :genl s k context)]
+                (-> (vec (sort (tax/prop-supporters tax :quoting f)))
+                    (into hs)
+                    (into (map first) path))))
+            (sort-by nm/name-key (shape-kinds x))))))
+
 (defrecord EvaluableProver []                    ; arithmetic comparison, EDN-kind + string-shape check
   Prover
-  (applicable? [_ _ goal _]
+  (applicable? [_ kb goal context]
     (or
      ;; a literal's value kind is fixed, so its negation is computed too: (not (string 7))
      (negated-value-kind-goal? goal)
@@ -1117,8 +1208,10 @@
             integer
             ;; the unary kind check: one ground argument, of any EDN kind (a non-integer
             ;; simply yields no solution — which is what makes a failing `(integer ?x)`
-            ;; necessary a sound negative witness for a string / symbol member).
-            (and (= 1 (count (rest goal))) (ground? goal))
+            ;; necessary a sound negative witness for a string / symbol member).  A
+            ;; quoted form is `ExpressionKindProver`'s: `(Quote 5)` denotes an integer.
+            (and (= 1 (count (rest goal))) (ground? goal)
+                 (nil? (quoted-form kb (second goal) context)))
             (string number boolean keyword character)
             ;; the other value kinds: one argument, and a literal value, since a symbol
             ;; or a compound could denote a value of the kind
@@ -1468,6 +1561,29 @@
   and the computation lands with everything ground.  Deliberately below `Long/MAX_VALUE`,
   which the planner's fan-out sums."
   1000000000)
+
+(defrecord ExpressionKindProver []          ; what kind of expression a quoted form is
+  Prover
+  (applicable?  [_ kb goal context]
+    (or (expression-kind-goal? kb goal context)
+        ;; open, so the join planner reads `deferred-est` and binds it first
+        (and (sequential? goal) (= 2 (count goal)) (symbol? (first goal))
+             (not (sx/variable? (first goal))) (sx/variable? (second goal))
+             (tax/genl? (reasoning/taxonomy kb) (first goal) 'expression context))))
+  (est-bindings [_ _ goal _] (if (sx/variable? (second goal)) deferred-est 1))
+  (cost         [_ _ _ _] :lookup)
+  ;; 50, not 100: a stored membership of a quoted form answers beside this, and a kind
+  ;; this does not decide (a predication) is a contribution of none rather than a "no"
+  (completeness [_ _ _ _] 50)
+  (solve [_ kb goal context]
+    (if (expression-kind-support kb goal context) [{}] []))
+  SupportingProver
+  (support-functors [_] expression-kind-predicates)
+  ;; the lattice reaches a kind through `genl` edges and the rosters that install them,
+  ;; and the quoted form is one only through its function's `quoting_function` mark
+  (support-sources  [_] (conj tax/edge-installing-functors 'quoting_function))
+  (solve-with-support [_ kb goal context]
+    (if-let [sup (expression-kind-support kb goal context)] [[{} sup]] [])))
 
 (defrecord EvaluatableFn [pred f arities result cost-tier complete]
   Prover
@@ -2888,7 +3004,7 @@
 (def default-provers
   [(->TransitivityProver) (->DisjointnessProver)
    (->TransitivePredicateProver) (->TransitiveInArgProver) (->SymmetricProver) (->InverseProver) (->ReflexiveProver)
-   (->EvaluableProver) (->DifferentProver) (->EqualityProver) (->EvaluateProver) (->QuantityProver)
+   (->EvaluableProver) (->ExpressionKindProver) (->DifferentProver) (->EqualityProver) (->EvaluateProver) (->QuantityProver)
    (->AdmitsArgnumProver)
    (->UnknownProver) (->ThereExistsProver) (->ForallProver) (->ClosedExtentProver)
    (->DefnSufficientProver) (->DefnNecessaryNegationProver) (->CoveringProver)

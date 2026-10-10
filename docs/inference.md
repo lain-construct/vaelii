@@ -2101,6 +2101,10 @@ Built-in provers (`default-provers`, held per-KB in an atom):
   `(not (number "foo"))` are both proved. A symbol or compound argument is left to the
   other provers, since a constant or a function application can denote a number. This
   is the extension point for arithmetic / CLP / any calculated relation.
+- **ExpressionKindProver** — `(k (Quote X))`, `k` an expression kind, answered from X's
+  spelling and cited to the `quoting_function` statements and the `genl` path it read
+  ([argtypes.md](argtypes.md#what-a-quoted-form-is)). Not complete (50): a stored
+  membership answers beside it.
 - **AggregateProver** — the five reductions over a query's solutions:
   `(agg/count ?n ?v Body)` binds `?n` to how many **distinct** `?v` satisfy
   `Body`, `Sum` / `Min` / `Max` / `Avg` to the arithmetic ones. `?v` is projected out,

@@ -9,12 +9,12 @@
 ;; the value kinds, unrepresented_term, formula, sentence and non_atomic_term — and
 ;; linguistic, which language sits under. This context places them in the lattice.
 ;;
-;; DOCUMENTARY: nothing in the engine reads the kinds stated here. An argument declaration
-;; over one types no compound, because a compound argument has no knowable kind —
-;; checks/value-kind answers nil for a compound by design (docs/argtypes.md), and no
-;; reader classifies a compound by its shape. So (quotedArg P n non_atomic_expression) is
-;; inert. The vocabulary is here because it should be one vocabulary when a shape
-;; classifier does exist; the classifier itself does not.
+;; The engine reads a form's kinds off its spelling (provers/shape-kinds): a variable, a
+;; symbol, a value, and for a compound open or closed, a formula under a connective or
+;; quantifier head, ill-formed under a head that is no symbol. (Quote X) is answered
+;; through those kinds (docs/argtypes.md, "What a quoted form is"); a quotedArg
+;; declaration does not read them. Whether (R a) is a predication or a non_atomic_term is
+;; R's stored kind, which the spelling does not say, and no reader decides it.
 
 (genlCx CxReflection CxCore)
 (genlCx CxUniverse CxReflection)

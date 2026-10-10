@@ -59,9 +59,9 @@ failed. The boundary of the inner reading:
   its inputs are read. The same holds for the argument of a quoting predicate
   (`termOfUnit`, `rewriteOf`) and of a `quoting_function`. A quoting function's own
   declarations are still read over its application; only what it quotes is left alone.
-  `quotedArg` itself stays open-world about a compound argument's kind: no shape
-  classifier exists, so a compound in a `(quotedArg P n string)` position is neither a
-  string nor convicted of not being one.
+  `quotedArg` itself stays open-world about a compound argument's kind: it does not read
+  the shape kinds ([what a quoted form is](#what-a-quoted-form-is)), so a compound in a
+  `(quotedArg P n string)` position is neither a string nor convicted of not being one.
 - **Reifiable and unreifiable alike.** `assert` mints a ground reifiable application into
   a constant before the checks run, and the constant carries the result types, not the
   inputs, so the inputs are read over the sentence as written, before the mint; a refused
@@ -862,6 +862,44 @@ the set of names and the set of things named are not one set — `parentOf` writ
 sentence denotes a predicate, and `(Quote parentOf)` denotes the symbol. `symbol` is below
 `linguistic`, which is disjoint from `relation`, so no term is both a symbol and a
 predicate.
+
+## What a quoted form is
+
+`(Quote X)` denotes the expression X, and X's kind in CxReflection's expression lattice is
+read off how X is written (`provers/shape-kinds`):
+
+| X | kinds |
+|---|---|
+| a variable | `variable` |
+| a symbol | `symbol` |
+| a value | its value kind (`string`, `integer`, …) |
+| a compound under a connective or quantifier head (`not`, `and`, `implies`, `forall`, …) | `open_formula`, or `sentence` when no variable is free in it |
+| a compound under a symbol head | `non_atomic_expression`, beside `open_expression` or `closed_expression` |
+| a compound under any other head | `ill_formed_expression`, beside the same |
+
+A variable inside a nested `(Quote …)`, or bound by a quantifier in X, is not free in X
+(`sx/unquoted-free-vars`). The expression `?x` is open; the sentence around `(Quote ?x)` is
+closed (`sx/closed?`), which is a different expression.
+
+`ExpressionKindProver` answers `(k (F X))` for `k` below `expression` and `F` a
+`quoting_function`, true when one of X's kinds reaches `k` through `genl`. A reifiable
+quoting function's application arrives minted, and the prover reads the constant's
+`termOfUnit` back to the form; an application never minted names no stored term, so a
+query over it matches nothing, as for any NAT ([nat.md](nat.md)). The answer rests on the
+`quoting_function` statements, the `termOfUnit` statement and one `genl` path, and a
+forward firing names them. A datum on `quoting_function` or on an edge-installing functor
+re-joins the rules over an expression kind, so the mark or the lattice arriving after the
+rule and the fact fires it. Forward chaining discharges an antecedent through the prover
+only for the kinds `provers/expression-kind-predicates` names.
+
+**The spelling does not say whether `(R a)` is a predication or a `non_atomic_term`**: that
+is R's stored kind, and the prover does not decide it, so `(predication (Quote (dog
+Muffet)))` is not answered.
+
+**`quotedArg` does not read these kinds.** Its check runs at the assert entry point only:
+a value it refuses when the declaration is already stored is stored and believed when the
+declaration arrives after it. Judging a compound by its kinds would extend that order
+dependence to compounds.
 
 ## Scope
 

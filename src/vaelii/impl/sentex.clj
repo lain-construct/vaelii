@@ -2722,7 +2722,7 @@
   [form]
   (and (sequential? form) (= quote-functor (first form)) (= 2 (count form))))
 
-(defn- unquoted-free-vars
+(defn unquoted-free-vars
   "The variables of `form` free in it: every variable occurrence that no enclosing
   `forall`, `thereExists` or head `exists` binds and no `(Quote …)` holds.  A `Quasiquote`
   is not opaque, since its variables are meant to be bound from outside."

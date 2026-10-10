@@ -1078,16 +1078,17 @@
     ;; ---- the expression kinds CxCore keeps --------------------------------
     ;; The expression kinds CxCore's own declarations or the band contexts name;
     ;; CxReflection holds the rest of the expression lattice and places these in it.
-    ;; Nothing reads them.  A compound argument has no knowable kind —
-    ;; `checks/value-kind` answers nil for one by design (docs/argtypes.md) — and no
-    ;; reader classifies a compound by its shape, so an `arg` or `quotedArg`
-    ;; declaration over `formula` or `non_atomic_term` stores and convicts nothing.
+    ;; `provers/ExpressionKindProver` answers each of a quoted form, and forward chaining
+    ;; discharges an antecedent on one through it (`provers/expression-kind-predicates`).
+    (map (fn [[t why]]
+           [t (enforced (collection :notes why)
+                        "impl/provers.clj — shape-kinds, expression-kind-predicates, ExpressionKindProver")])
+         '[[unrepresented_term "the expression kind the value kinds sit under, placed under linguistic so a context that sees CxCore alone reads every value kind as nowhere_never and disjoint from relation. A quoted value reaches it through genl."]
+           [formula "a predication, an operator applied to formulas, or a quantifier binding variables in one. A quoted form under a connective or quantifier head reaches it."]
+           [sentence "a closed formula, which checks/check-ground enforces on the way in. shape-kinds names it of a closed quoted form under a connective or quantifier head."]
+           [non_atomic_term "a function applied to as many closed terms as it takes — the NAT of docs/nat.md, named as a collection. Reification reads the declaration on the function, never this; ExpressionKindProver answers it of a quoted form."]])
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
-         '[[unrepresented_term "documentary: the expression kind the value kinds sit under, placed under linguistic so a context that sees CxCore alone reads every value kind as nowhere_never and disjoint from relation. The disjointness is read as any disjointness is; nothing reads the collection by name."]
-           [formula "documentary: a predication, an operator applied to formulas, or a quantifier binding variables in one. Nothing reads it."]
-           [sentence "documentary: a closed formula, which checks/check-ground is what actually enforces on the way in. The collection itself is read by nothing."]
-           [non_atomic_term "documentary: a function applied to as many closed terms as it takes — the NAT of docs/nat.md, named as a collection. Reification reads the declaration on the function, never this."]
-           [linguistic "documentary: a language, or an expression written in one — what has its being in a system of signs. CxCore holds it because language sits under it; nothing reads it by name."]])
+         '[[linguistic "documentary: a language, or an expression written in one — what has its being in a system of signs. CxCore holds it because language sits under it; nothing reads it by name."]])
 
     ;; ---- Quote: syncategorematic, read by name in impl/quasiquote.clj -----
     [['Quote (enforced (collection
