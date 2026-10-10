@@ -2023,14 +2023,44 @@
   [kb pred context]
   (and (symbol? pred) (tax/has-prop? (reasoning/taxonomy kb) :closed-extent pred context)))
 
+(defn closed-extent-for-arg?
+  "Is the believed extent of `sentence`'s predicate declared **complete for this
+  sentence** as read from `context` — is a `(closedExtentForArg P n v)` visible up its
+  `genlCx` ancestor set whose position `n` in `sentence` is ground and equal to `v`?
+
+  Scoped and belief-following exactly as `closed-extent?` is.  The taxonomy prop
+  `:closed-extent-arg` is the gate: it says some per-argument grant on P is visible from
+  `context`, so a predicate nobody closed by argument pays one set read and stops.  The
+  grant's position and value are then read back from the believed grants visible here."
+  [kb sentence context]
+  (let [pred (nm/functor sentence)]
+    (boolean
+     (and (symbol? pred)
+          (tax/has-prop? (reasoning/taxonomy kb) :closed-extent-arg pred context)
+          (some (fn [[_ b]]
+                  (let [n (get b '?n)]
+                    (and (integer? n) (pos? n) (< n (count sentence))
+                         (let [arg (nth sentence n)]
+                           (and (empty? (sx/free-vars arg)) (= arg (get b '?v)))))))
+                (res/matches-visible kb (list 'closedExtentForArg pred '?n '?v) context))))))
+
+(defn closed-extent-for?
+  "Is `sentence`'s believed extent declared complete from `context` — by a
+  `closed_extent_predicate` grant on its predicate, or by a `closedExtentForArg` grant
+  whose position and value the sentence matches?"
+  [kb sentence context]
+  (or (closed-extent? kb (nm/functor sentence) context)
+      (closed-extent-for-arg? kb sentence context)))
+
 (defrecord ClosedExtentProver []
   Prover
-  ;; `(not (P a …))` where P's extent is declared complete from here.  Ground only, for
-  ;; `unknown`'s reason: an open `(not (P ?x))` is a search over the domain's complement.
+  ;; `(not (P a …))` where P's extent is declared complete from here, whole or for the
+  ;; value one argument holds.  Ground only, for `unknown`'s reason: an open
+  ;; `(not (P ?x))` is a search over the domain's complement.
   (applicable?  [_ kb goal context]
     (and (rules/negative-literal? goal)
          (empty? (sx/free-vars goal))
-         (closed-extent? kb (nm/functor (second goal)) context)))
+         (closed-extent-for? kb (second goal) context)))
   (est-bindings [_ _ _ _] 1)                    ; a ground test: it holds or it does not
   ;; a bounded level-6 subquery on the positive goal, so at worst a closure
   (cost         [_ _ _ _] :compute)
