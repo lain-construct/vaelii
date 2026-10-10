@@ -712,6 +712,17 @@
                 (str "taxonomy prop :closed-extent — ClosedExtentProver answers (not (P …))"
                      " from the absence of a positive, and a closed negative rule antecedent"
                      " under the grant is negation as failure"))]
+     ['closedExtentForArg
+      (enforced (assoc (prop :closed-extent-arg :facets #{:answers :retriggers}
+                             :notes (str "closed_extent_predicate narrowed to the goals whose"
+                                         " argument n is v. The prop marks P alone, as the"
+                                         " gate; the position and value are read back from"
+                                         " the believed grants visible to the asker."))
+                       :shape {:args [:predicate :position :term]})
+                (str "taxonomy prop :closed-extent-arg — ClosedExtentProver answers a ground"
+                     " (not (P …)) whose argument n is v from the absence of a positive, and"
+                     " a closed negative rule antecedent under the grant is negation as"
+                     " failure"))]
      ['modal_predicate (enforced (prop :modal)
                                  (str "taxonomy prop :modal — the gate BeliefProjectionProver reads to decide"
                                       " which predicates project their sentence into the agent's context"))]

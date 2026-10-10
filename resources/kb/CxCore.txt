@@ -27,6 +27,12 @@
 (unary_predicate closed_extent_predicate)
 (genl closed_extent_predicate predicate)
 
+(comment closedExtentForArg
+         "(closedExtentForArg ?predicate ?position ?value) means that ?predicate's believed extent is complete for the sentences whose argument ?position is ?value: nothing answering a ground (?predicate …) with ?value at ?position is what answers its (not (?predicate …)). The grant closed_extent_predicate makes, narrowed to one argument value. (closedExtentForArg accountOn 2 HostA) says the accounts on HostA are exactly the believed ones, and (accountOn ?x HostB) stays open-world beside it. A goal whose argument ?position is not ground is not closed. Read from the asking context's genlCx ancestor set, and belief-following, as closed_extent_predicate is.")
+(ternary_predicate closedExtentForArg)
+(arg closedExtentForArg 1 predicate)
+(arg closedExtentForArg 2 positive_integer)
+
 (comment agg/avg
          "(agg/avg ?mean ?value ?body) means that ?mean is the mean of the distinct numeric ?value satisfying ?body. No answer at all over an empty ?body, an average over nothing being a division by zero however it is dressed up. A query operator, never stored.")
 (ternary_predicate agg/avg)

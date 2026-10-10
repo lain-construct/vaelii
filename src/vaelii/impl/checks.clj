@@ -3645,7 +3645,7 @@
                                            (reads/watched-rules-on index g)
                                            (when (contains? different-negatives g)
                                              (reads/as-stored-rules-by-antecedent-global index 'different))
-                                           (when (and (symbol? g) (tax/has-prop? tx :closed-extent g))
+                                           (when (and (symbol? g) (rules/closed-extent-declared? tx g))
                                              (reads/as-stored-rules-by-antecedent-global index [:not g])))
                                    #(reads? % g))]
             (.put by-pred g found)
@@ -4240,8 +4240,19 @@
                           {:type :not-stratified :rule rule-handle :context context
                            :exception-preds (vec new-exc-preds) :cycle cycle})))))))
 
+(def ^:private closed-extent-grant-arities
+  "The functors that grant a closed extent on their first argument's predicate, each with
+  the length of its sentence: the whole-predicate grant and the per-argument grant."
+  '{closed_extent_predicate 2
+    closedExtentForArg      4})
+
 (defn check-closed-extent-stratified
-  "Throw unless declaring `(closed_extent_predicate P)` leaves the rule set stratified.
+  "Throw unless declaring `(closed_extent_predicate P)` or `(closedExtentForArg P n v)`
+  leaves the rule set stratified.
+
+  A per-argument grant adds the same negative edge on P as the whole-predicate grant: the
+  edge is on the predicate, and which argument value the grant closes is decided at
+  derive time.
 
   The grant is what turns a closed `(not (P …))` antecedent from a lookup into negation
   as failure, so it adds a negative edge to every stored rule carrying one — and can close
@@ -4257,7 +4268,8 @@
   Runs before anything is written, so a refused grant leaves no mark, no posting and no
   cycle."
   [kb sentence context]
-  (when (and (= 'closed_extent_predicate (nm/functor sentence)) (= 2 (count sentence)))
+  (when (and (sequential? sentence)
+             (= (get closed-extent-grant-arities (nm/functor sentence)) (count sentence)))
     (let [pred (second sentence)]
       (when-let [[node cycle]
                  (->> (reads/as-stored-rules-by-antecedent-global (:index kb) [:not pred])
