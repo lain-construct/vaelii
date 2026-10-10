@@ -344,6 +344,25 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+### Fixes: answers
+
+- **An argument-type mint is stored where the fact and the declaration are both seen.** A
+  declaration stated in a context the fact's context does not see stored no mint: with
+  `(P a b)` in CxTop and `(arg P 1 T)` in CxMid below it, `(T a)` was answered at CxMid
+  only by a backward proof. The mint is stored at each maximal context that sees both, in
+  every arrival order of the fact, the declaration and the `genlCx` edges.
+  [argtypes.md](docs/argtypes.md#where-a-mint-is-placed).
+
+  *Class:* **Fix**.
+
+- **A `genlCx` edge leaving stores the argument-type mints at the placements it gives
+  back.** With a fact in CxL, its declaration in CxR, and CxJ and CxK each under both, a
+  `(genlCx CxK CxJ)` asserted and then retracted left `(T a)` stored in CxJ alone, and
+  `isa?` at CxK answered false. The mint is stored at CxJ and CxK again, with pruning on
+  or off. [argtypes.md](docs/argtypes.md#where-a-mint-is-placed).
+
+  *Class:* **Fix**.
+
 ### Fixes: order independence
 
 - **A defeat of a permuting mark below a fact's context moves no class at that context.**

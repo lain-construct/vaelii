@@ -3276,6 +3276,37 @@
        (do (v/assert kb (list 'gdaHolds (symbol (str "GdaS" i)) (symbol (str "GdaT" i))) sub)
            (nanos (v/assert kb (list 'genlCx sub 'CxGdaTheory) 'CxUniverse m)))))))
 
+(defn- genlcx-edge-leaving-beside-distant-mints
+  "One `(genlCx sub CxGlJ)` edge retracted, where `sub` and `CxGlJ` each sit under `CxGlL`
+  and `CxGlR` and `CxGlJ` holds the mint of a fact in `CxGlL` and a declaration in
+  `CxGlR`, beside n mints stated in a context the edge does not reach.
+
+  The claim is that `special/departed-context-edge-mints` reads the mints placed in the
+  contexts `sub` no longer sees, one here at both n, and not every stored mint.  Each
+  reading wires a fresh `sub` and asserts the edge, untimed, and times the retraction."
+  [n]
+  (binding [checks/*assertive-arg-types?* true]
+    (let [kb (fresh-kb)
+          m  {:strength :monotonic}]
+      (doseq [[s g] '[[CxGlL CxUniverse] [CxGlR CxUniverse] [CxGlFar CxUniverse]
+                      [CxGlJ CxGlL] [CxGlJ CxGlR]]]
+        (v/assert kb (list 'genlCx s g) 'CxUniverse m))
+      (v/assert kb '(genl gl_kind thing) 'CxUniverse m)
+      (v/assert kb '(arg glRel 1 gl_kind) 'CxGlR m)
+      (v/assert kb '(glRel GlA GlB) 'CxGlL m)
+      (v/assert kb '(arg glOwns 1 gl_kind) 'CxGlFar m)
+      (v/with-deferred-settle kb
+        (doseq [i (range n)]
+          (v/assert kb (list 'glOwns (symbol (str "GlF" i)) 'GlThing) 'CxGlFar m)))
+      (doall
+       (for [i (range 60)
+             :let [sub  (symbol (str "CxGlK" i))
+                   edge (list 'genlCx sub 'CxGlJ)]]
+         (do (v/assert kb (list 'genlCx sub 'CxGlL) 'CxUniverse m)
+             (v/assert kb (list 'genlCx sub 'CxGlR) 'CxUniverse m)
+             (v/assert kb edge 'CxUniverse m)
+             (nanos (v/retract! kb (v/handle-of kb edge 'CxUniverse)))))))))
+
 (defn- genlcx-edge-beside-excepted-declarations
   "One `(genlCx sub CxGedOther)` edge beside n `arg` declarations, each over 16 facts and
   each excepted in `CxGedHide`, a context `CxGedOther` does not see.  Each fact's second
@@ -5747,6 +5778,16 @@
     :sizes     [256 16384]
     :max-ratio 2.0
     :run       genlcx-edge-beside-declared-facts}
+
+   ;; The mint pairs a `genlCx` edge leaving draws again.  Flat by construction: the
+   ;; contexts `sub` no longer sees hold one mint at both n.  Calibrated from both ends
+   ;; under a load average of 43: healthy 1.07x (34.2 against 36.6 ms/op), and with the
+   ;; pairs read off every context holding a mint, 2.96x (63.8 against 188.6 ms/op).
+   {:name      :genlcx-edge-leaving-beside-distant-mints
+    :claim     "16x the mints in a context a genlCx edge does not reach costs under 2x per edge retracted"
+    :sizes     [64 1024]
+    :max-ratio 2.0
+    :run       genlcx-edge-leaving-beside-distant-mints}
 
    ;; The `except`s a `genlCx` edge re-checks.  Flat by construction: the edge's `super`
    ;; sees no context stating one and the edge reaches no reader at both n.  Calibrated

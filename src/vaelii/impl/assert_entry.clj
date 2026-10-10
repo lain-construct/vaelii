@@ -563,7 +563,11 @@
                 ;; came from `constraint-checks`, so `entailment-check` already ran the
                 ;; definitional constraint check over them before the store, and the
                 ;; materializer need not run it a second time (special/inadmissible).
-                args  (special/deduce-arg-types kb ents h context (not bulk?))
+                args  (merge-with into
+                                  (special/deduce-arg-types kb ents h context (not bulk?))
+                                  ;; ...and the declarations stated below this context,
+                                  ;; at the contexts that see both
+                                  (special/deduce-below kb sentence h context))
                 back  (special/entail-existing kb sentence h)
                 ;; ...and the third order of the same three ingredients: a `genl` edge
                 ;; between predicates brings stored sub-predicate facts under the

@@ -2651,7 +2651,9 @@
               ;; they entail of an asserted one.  Drawn only for a new conclusion, like
               ;; the checks above: a re-derivation adds a justification, not content, and
               ;; whatever the sentence entailed was entailed when it was first placed.
-              args (special/deduce-arg-types kb (:entailments adm) h pctx)
+              args (merge-with into
+                               (special/deduce-arg-types kb (:entailments adm) h pctx)
+                               (when new? (special/deduce-below kb conseq h pctx)))
               ;; ...and a conclusion that *is* a declaration reaches back over the stored
               ;; facts, as an asserted one does.
               back (special/entail-existing kb conseq h)

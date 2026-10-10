@@ -1152,6 +1152,102 @@
         (is (some? (v/assert kb (list rel Bert 'TmpOther) CxLeft)))
         (is (= 1 (count (v/contradictions kb))))))))
 
+;; ---- placement at the most general contexts that see both ------------------
+;; CxTop sits under CxUniverse, CxMid under CxTop and CxLow under CxMid; CxL and CxR
+;; sit under CxTop and join in CxJoin.  Each row states `(P A B)` in one context and
+;; `(arg P 1 tt)` in others, and holds back one `genlCx` edge, which arrives in every
+;; position of the order and is retracted at the end.
+
+(def ^:private placement-graph
+  [[:top :universe] [:mid :top] [:low :mid] [:l :top] [:r :top] [:join :l] [:join :r]])
+
+(def ^:private placement-rows
+  ;; fact context, declaration contexts, the edge held back, placements with it,
+  ;; placements once it is retracted
+  [[:top [:mid]  [:mid :top]  #{:mid}    #{}]
+   [:mid [:top]  [:mid :top]  #{:mid}    #{}]
+   ;; with CxL off CxTop, CxJoin sees CxTop through CxR and CxL directly
+   [:top [:l :r] [:l :top]    #{:l :r}   #{:r :join}]
+   [:l   [:r]    [:join :r]   #{:join}   #{}]
+   [:l   [:r]    [:r :l]      #{:r}      #{:join}]])
+
+(defn- placement-readings
+  "Per order of the fact, the declarations and the held-back edge of `row`: the contexts
+  storing a believed `(tt A)`, whether every context at or below one of them reads it
+  and no other context does, and the contexts storing it once the edge is retracted."
+  [[fact-cx decl-cxs held _ _]]
+  (for [order (permutations (into [:fact :edge] (map-indexed (fn [i _] i) decl-cxs)))]
+    (tu/with-neutral-kb [kb tu/fresh]
+      (tu/with-terms [rel tt A B CxTop CxMid CxLow CxL CxR CxJoin]
+        (with-entailing
+          (let [cx    {:universe 'CxUniverse :top CxTop :mid CxMid :low CxLow
+                       :l CxL :r CxR :join CxJoin}
+                edge  (fn [[s g]] (list 'genlCx (cx s) (cx g)))
+                ctxs  (dissoc cx :universe)
+                mint  (list tt A)
+                where (fn [] (into #{} (keep (fn [[k c]] (when (entailed kb mint c) k))) ctxs))]
+            (doseq [e (remove #{held} placement-graph)] (v/assert kb (edge e) 'CxUniverse))
+            (a-type kb tt 'CxUniverse)
+            (doseq [step order]
+              (case step
+                :fact (v/assert kb (list rel A B) (cx fact-cx))
+                :edge (v/assert kb (edge held) 'CxUniverse)
+                (v/assert kb (list 'arg rel 1 tt) (cx (nth decl-cxs step)))))
+            (let [placed (where)
+                  tax    (reasoning/taxonomy kb)
+                  reads  (every? (fn [[_ c]]
+                                   (= (boolean (some #(tax/sees? tax c (cx %)) placed))
+                                      (v/isa? kb A tt c)))
+                                 ctxs)]
+              (v/retract! kb (v/handle-of kb (edge held) 'CxUniverse))
+              [order placed reads (where)])))))))
+
+(tu/deftest-kb a-mint-is-placed-at-the-most-general-contexts-that-see-the-fact-and-the-declaration
+  (doseq [[fact-cx decl-cxs held want after :as row] placement-rows
+          [order placed reads retracted] (placement-readings row)]
+    (testing (pr-str [fact-cx decl-cxs held order])
+      (is (= want placed))
+      (is reads "a context reads the mint exactly when it sees a placement")
+      (is (= after retracted)))))
+
+;; CxL and CxR sit under CxTop, and CxJ and CxK each under both.  `(genlCx CxK CxJ)` makes
+;; CxJ the one maximal common descendant of CxL and CxR while it stands.  With pruning on,
+;; `(dog A)` in CxJ withholds the mint there and not in CxK.
+
+(tu/deftest-kb a-genlCx-edge-leaving-places-the-mint-at-the-common-descendants-it-gives-back
+  (doseq [[prune? dog? want] [[false false #{:j :k}] [true false #{:j :k}]
+                              [true true #{:k}] [false true #{:j :k}]]]
+    (let [readings
+          (for [order (cons [:fact :decl]
+                            (filter #(< (.indexOf ^java.util.List % :edge)
+                                        (.indexOf ^java.util.List % :unedge))
+                                    (permutations [:fact :decl :edge :unedge])))]
+            (tu/with-neutral-kb [kb tu/fresh]
+              (tu/with-terms [rel tt dog A B CxTop CxL CxR CxJ CxK]
+                (binding [checks/*assertive-arg-types?*  true
+                          checks/*prune-subsumed-mints?* prune?]
+                  (let [edge (list 'genlCx CxK CxJ)]
+                    (doseq [[s g] [[CxTop 'CxUniverse] [CxL CxTop] [CxR CxTop]
+                                   [CxJ CxL] [CxJ CxR] [CxK CxL] [CxK CxR]]]
+                      (v/assert kb (list 'genlCx s g) 'CxUniverse))
+                    (a-type kb tt 'CxUniverse)
+                    (when dog?
+                      (v/assert kb (list 'genl dog tt) 'CxUniverse)
+                      (v/assert kb (list dog A) CxJ))
+                    (doseq [step order]
+                      (case step
+                        :fact   (v/assert kb (list rel A B) CxL)
+                        :decl   (v/assert kb (list 'arg rel 1 tt) CxR)
+                        :edge   (v/assert kb edge 'CxUniverse)
+                        :unedge (v/retract! kb (v/handle-of kb edge 'CxUniverse))))
+                    [order
+                     (into #{} (keep (fn [[k c]] (when (believed? kb (list tt A) c) k)))
+                           {:l CxL :r CxR :j CxJ :k CxK})
+                     (v/isa? kb A tt CxK)])))))]
+      (testing (pr-str [prune? dog?])
+        (is (= #{[want true]} (set (map rest readings)))
+            (pr-str (remove #(= [want true] (rest %)) readings)))))))
+
 ;; ---- genlArg -------------------------------------------------------------
 
 (tu/deftest-kb genlArg-entails-a-genl-edge
