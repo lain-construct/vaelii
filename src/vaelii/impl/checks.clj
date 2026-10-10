@@ -4110,13 +4110,19 @@
 
 (def ^:private closed-extent-grant-arities
   "The functors that grant a closed extent on their first argument's predicate, each with
-  the length of its sentence: the whole-predicate grant and the per-argument grant."
+  the length of its sentence: the whole-predicate grant, the per-argument grant, and the
+  per-argument grant's binary spellings, which CxCore's forward rules turn into the
+  ternary.  The binary spellings are checked here as well, because a derived ternary
+  reaches no assert-time check."
   '{closed_extent_predicate 2
-    closedExtentForArg      4})
+    closedExtentForArg      4
+    closedExtentForArg1     3
+    closedExtentForArg2     3
+    closedExtentForArg3     3})
 
 (defn check-closed-extent-stratified
-  "Throw unless declaring `(closed_extent_predicate P)` or `(closedExtentForArg P n v)`
-  leaves the rule set stratified.
+  "Throw unless declaring `(closed_extent_predicate P)`, `(closedExtentForArg P n v)` or a
+  binary spelling of the second leaves the rule set stratified.
 
   A per-argument grant adds the same negative edge on P as the whole-predicate grant: the
   edge is on the predicate, and which argument value the grant closes is decided at

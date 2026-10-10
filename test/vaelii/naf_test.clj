@@ -717,6 +717,18 @@
     (testing "a goal whose argument 2 is another value stays open-world"
       (is (not (v/ask? kb (list 'not (list accountOn Carol HostB)) CxHosts))))))
 
+(tu/deftest-kb the-binary-sugar-derives-the-ternary-grant
+  (tu/with-terms [accountOn Alice Carol HostA HostB CxHosts]
+    (v/assert kb (list 'genlCx CxHosts 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list accountOn Alice HostA) CxHosts)
+    (v/assert kb (list 'closedExtentForArg2 accountOn HostA) CxHosts)
+    (testing "the sugar derives the ternary"
+      (is (v/ask? kb (list 'closedExtentForArg accountOn 2 HostA) CxHosts)))
+    (testing "and reads exactly as the ternary does"
+      (is (v/ask? kb (list 'not (list accountOn Carol HostA)) CxHosts))
+      (is (v/ask? kb (list accountOn Alice HostA) CxHosts))
+      (is (not (v/ask? kb (list 'not (list accountOn Carol HostB)) CxHosts))))))
+
 (tu/deftest-kb a-per-argument-closed-extent-is-scoped-to-its-context
   (tu/with-terms [accountOn Alice Carol HostA CxHosts CxSibling]
     (v/assert kb (list 'genlCx CxHosts 'CxUniverse) 'CxUniverse)
@@ -784,7 +796,11 @@
     (testing "the ternary grant"
       (is (thrown-with-msg?
            clojure.lang.ExceptionInfo #"not stratified"
-           (v/assert kb (list 'closedExtentForArg accountOn 2 HostA) CxHosts))))))
+           (v/assert kb (list 'closedExtentForArg accountOn 2 HostA) CxHosts))))
+    (testing "and its binary sugar"
+      (is (thrown-with-msg?
+           clojure.lang.ExceptionInfo #"not stratified"
+           (v/assert kb (list 'closedExtentForArg2 accountOn HostA) CxHosts))))))
 
 (tu/deftest-kb why-not-says-the-extent-is-closed-for-the-argument
   (tu/with-terms [accountOn Carol HostA HostB CxHosts]
