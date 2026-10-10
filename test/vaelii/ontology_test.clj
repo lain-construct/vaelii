@@ -238,7 +238,10 @@
     '[predInstanceExistsPlaceholder 2] "an Exists cell's fixed filler"
     '[means 2]              "the meaning: what a term denotes or the proposition a sentence expresses, a thing of any kind"
     '[denotes 2]            "what a denotational_term names: a thing of any kind"
-    '[closedExtentForArg 3]  "the argument value a closed extent is granted for: a term of any kind"}
+    '[closedExtentForArg 3]  "the argument value a closed extent is granted for: a term of any kind"
+    '[closedExtentForArg1 2] "the argument value a closed extent is granted for: a term of any kind"
+    '[closedExtentForArg2 2] "the argument value a closed extent is granted for: a term of any kind"
+    '[closedExtentForArg3 2] "the argument value a closed extent is granted for: a term of any kind"}
    (into {} (for [p '[positiveExample negativeExample borderlineExample]]
               {[p 1] "an exemplified term"
                [p 2] "the example, a sentence written as a term"}))
