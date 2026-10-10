@@ -11,6 +11,23 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Additions
+
+- **`closedExtentForArg` closes a predicate's extent for one argument value.**
+  `(closedExtentForArg P n v)` grants that `P`'s believed extent is complete for the
+  goals whose argument `n` is `v`, so `(not (P …))` holds there while the positive finds
+  nothing. `(closedExtentForArg accountOn 2 HostA)` answers `(not (accountOn Carol HostA))`
+  and leaves `(accountOn Carol HostB)` open-world. The grant is scoped to the asking
+  context and belief-following, reads a closed negative rule antecedent as negation as
+  failure, and is refused where it would close a cycle through negation, as
+  `closed_extent_predicate` is. `closedExtentForArg1`, `closedExtentForArg2` and
+  `closedExtentForArg3` are binary spellings that derive the ternary.
+  [naf.md](docs/naf.md#a-closed-extent-for-one-argument-value).
+
+  *Class:* **Additive**.
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |
