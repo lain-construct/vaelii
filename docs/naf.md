@@ -395,7 +395,8 @@ believed grants visible there. A position past the goal's arity matches no goal.
 
 `closedExtentForArg1`, `closedExtentForArg2` and `closedExtentForArg3` are binary
 spellings: `(closedExtentForArg2 P v)` means `(closedExtentForArg P 2 v)`. A CxCore forward
-rule derives the ternary from each, and the engine reads only the ternary.
+rule derives the ternary from each, and the engine reads only the ternary. An inert rule
+states the reverse direction, so a ternary grant mints no binary twin.
 
 ### Under the grant, a negative antecedent is NAF
 

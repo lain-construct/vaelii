@@ -34,22 +34,28 @@
 (arg closedExtentForArg 2 positive_integer)
 
 (comment closedExtentForArg1
-         "(closedExtentForArg1 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 1 ?value): ?predicate's believed extent is complete for the sentences whose argument 1 is ?value. A forward rule derives the ternary, which is the spelling the engine reads.")
+         "(closedExtentForArg1 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 1 ?value). The two rules below state the equivalence. The rule deriving the ternary is a forward rule, so the engine reads only the ternary; the rule deriving the binary spelling is inert, so a ternary grant mints no binary twin.")
 (binary_predicate closedExtentForArg1)
 (arg closedExtentForArg1 1 predicate)
 (set/forwardRule (implies (and (closedExtentForArg1 ?predicate ?value)) (closedExtentForArg ?predicate 1 ?value)))
+(set/inertRule (implies (and (closedExtentForArg ?predicate 1 ?value)) (closedExtentForArg1 ?predicate ?value)))
 
 (comment closedExtentForArg2
-         "(closedExtentForArg2 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 2 ?value) — see closedExtentForArg1.")
+         "(closedExtentForArg2 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 2 ?value).")
 (binary_predicate closedExtentForArg2)
 (arg closedExtentForArg2 1 predicate)
 (set/forwardRule (implies (and (closedExtentForArg2 ?predicate ?value)) (closedExtentForArg ?predicate 2 ?value)))
+(set/inertRule (implies (and (closedExtentForArg ?predicate 2 ?value)) (closedExtentForArg2 ?predicate ?value)))
 
 (comment closedExtentForArg3
-         "(closedExtentForArg3 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 3 ?value) — see closedExtentForArg1.")
+         "(closedExtentForArg3 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 3 ?value).")
 (binary_predicate closedExtentForArg3)
 (arg closedExtentForArg3 1 predicate)
 (set/forwardRule (implies (and (closedExtentForArg3 ?predicate ?value)) (closedExtentForArg ?predicate 3 ?value)))
+(set/inertRule (implies (and (closedExtentForArg ?predicate 3 ?value)) (closedExtentForArg3 ?predicate ?value)))
+
+(termsRelated closed_extent_predicate closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3)   ;; the closed-extent grants
+(seeAlso closed_extent_predicate closedExtentForArg)   ;; the grant narrowed to one argument value
 
 (comment agg/avg
          "(agg/avg ?mean ?value ?body) means that ?mean is the mean of the distinct numeric ?value satisfying ?body. No answer at all over an empty ?body, an average over nothing being a division by zero however it is dressed up. A query operator, never stored.")
