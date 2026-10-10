@@ -1000,6 +1000,21 @@
   (testing "sign_value is closed-extent too (CxMeasure, beside its three instances)"
     (is (v/ask? kb (list 'not (list 'sign_value 'Muffet)) 'CxUniverse))))
 
+(tu/deftest-kb the-closed-extent-grants-pass-the-integrity-sweep
+  ;; New vocabulary is swept with kb-integrity over its own terms, in the context that
+  ;; declares it.  The review-only :missing-arg pass reports every untyped position; a
+  ;; position untyped-positions excuses is expected, and any other fails here.
+  (let [terms '#{closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3}]
+    (is (= :audited (:status (v/kb-integrity kb terms 'CxCore)))
+        "the default passes find nothing")
+    (let [missing (:missing-arg (v/kb-integrity kb terms 'CxCore {:categories #{:missing-arg}}))]
+      (is (empty? (for [{:keys [predicate missing]} missing
+                        :when (contains? terms predicate)
+                        i     missing
+                        :when (not (contains? untyped-positions [predicate i]))]
+                    [predicate i]))
+          "every untyped position of a new term is one the roster excuses"))))
+
 (tu/deftest-kb what-has-no-place-in-space-or-time-has-no-mass
   ;; Mass entails a location in space and time, so what lacks either lacks mass.
   (is (true? (v/genl? kb 'aspatial 'intangible)))
