@@ -13,6 +13,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ## Unreleased
 
+- **`lein uberjar` builds on a filesystem with a 255-byte file name limit.** AOT
+  compilation of `vaelii.impl.taxonomy` threw `File name too long` on ext4, btrfs and
+  APFS, so the uberjar and the container image did not build. The longest class file
+  name the build writes is now 191 bytes
+  ([#179](https://github.com/vaelii/vaelii/issues/179)).
+  [operations.md](docs/operations.md#container--the-daemon-as-an-image).
+
+  *Class:* **Fix**.
+
 - **A query naming a stored quoted form's variable answers instead of overflowing the
   stack.** Asking `(awesome_rule (Quote (implies (poodle ?x) (dog ?x))))` with the stored
   spelling threw `StackOverflowError`, and the `?y` spelling answered true by binding `?y`
