@@ -2461,7 +2461,13 @@
   and declaration, and the cost is the mints the edge reaches.  With subsumed mints
   pruned, a placement there can be withheld instead: the believed records stored there
   that can subsume a mint release the terms they name, as their departure would
-  (`released-terms`)."
+  (`released-terms`).
+
+  A placement the edge gives back lies in a context under its `sub`, for a fact stated
+  in a context one of those sees, so only those facts draw again and only those
+  placements are kept.  Both sets are read through every edge, without `except` holes:
+  the re-derivation serves every reader under `sub`, and a hole only narrows the sets,
+  so the unscoped ones draw at least every placement a scoped reader gets back."
   [kb edges]
   (let [tax  (reasoning/taxonomy kb)
         tms  (reasoning/tms kb)
@@ -2469,14 +2475,17 @@
         recs (:records kb)
         cx   #(:context (p/get-sentex recs %))
         lost (into [] (comp (mapcat #(lost-contexts tax %)) (distinct)) edges)
+        under (into #{} (mapcat (fn [[_ sub _]] (tax/context-down-global tax sub))) edges)
+        seen  (into #{} (mapcat #(tax/context-up-global tax %)) under)
         pairs (into (sorted-set)
                     (for [c     lost
                           h     (reads/as-stored-mints-in idx c)
                           jid   (jtms/supports tms h)
                           :let  [j (jtms/justification tms jid)]
                           :when (and j (mint-informant? (:informant j)))
-                          :let  [[f d] (:antecedents j)]
-                          :when (not= c (cx f))]
+                          :let  [[f d] (:antecedents j)
+                                 fc    (cx f)]
+                          :when (and (not= c fc) (contains? seen fc))]
                       [f d]))
         mints (reduce (fn [acc [d fs]]
                         (let [pl (placements-of kb d)]
@@ -2501,8 +2510,9 @@
                        (sort-by nm/name-key))]
         (reduce (fn [acc x]
                   (merge-with into acc
-                              (rederive-mints kb (facts-naming kb x)
-                                              (fn [s _] (= x (roster-term s))))))
+                              (rederive-mints kb (filterv #(seen (:context %)) (facts-naming kb x))
+                                              (fn [s c] (and (= x (roster-term s))
+                                                             (contains? under c))))))
                 mints
                 terms)))))
 
