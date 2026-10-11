@@ -23,6 +23,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix**.
 
+- **`(bravely S)` and `(cautiously S)` read the sentexes of `S` and the dilemmas the asking
+  context sees.** `S` stored in a context the asker inherits answered false to both, and the
+  classification read every dilemma of the KB, so a context that reads no dilemma answered
+  `(cautiously S)` false for a sentence it believes. The prover now reads the sentexes of
+  `S` in the asker's `genlCx` ancestor set that it believes and sees, and classifies them
+  against the dilemmas `contradictions` reports to that context.
+  [labeling.md](docs/labeling.md#reading-bravecautious-without-committing-bravely-s--cautiously-s).
+
+  *Class:* **Fix**.
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |
