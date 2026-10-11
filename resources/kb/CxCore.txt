@@ -1493,6 +1493,9 @@
 (comment set/inertRule
          "(set/inertRule ?rule) means that ?rule is asserted inert. Stored and documented but never used for inference in either direction, which is how a rule stating something the engine implements in code gets written down where a reader will find it. A virtual wrapper interpreted on assert.")
 
+(comment set/inert
+         "(set/inert ?sentence) means that ?sentence is stored inert, through assert-inert: indexed, durable and browsable, but not a premise, so ?sentence is never believed, never chained and never scanned for contradictions. A set/inertRule rule is a different inertness: the rule is believed and fires in neither direction. set/inert refuses a rule, and set/inertRule is the form for one. The text KB format reads set/inert around a whole form, and assert does not read it. A virtual wrapper interpreted by the text loader, never stored as a fact of its own. See docs/kbs.md.")
+
 (comment set/forwardOnlyRule
          "(set/forwardOnlyRule ?rule) means that ?rule forward-chains and is never used in backward proof. It is indexed by its antecedent predicates, and its direction is :forward-only. A rule that forward-chains and also answers backward proof is set/forwardRule instead. A virtual wrapper interpreted on assert: it sets the direction field on the rule sentex and is never stored as a fact of its own.")
 

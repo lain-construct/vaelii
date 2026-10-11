@@ -80,7 +80,7 @@
 
 (def ^:private refused-wrappers
   '#{set/backwardRule set/inertRule set/solveRule set/assumptionRule set/hardConstraint
-     set/softConstraint set/monotonic})
+     set/softConstraint set/monotonic set/inert})
 
 (def ^:private special-words
   (into '#{not and implies unknown exceptWhen genl genlCx thereExists forall}

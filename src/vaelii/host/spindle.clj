@@ -95,7 +95,7 @@
   the lookup cannot take — a rule under its wrapper — reads as absent, and asserting it
   again is a no-op when it is there."
   [kb context form]
-  (let [[sentence o] (text/peel-strength form)
+  (let [[sentence o] (text/peel-form form)
         h (try (v/handle-of kb sentence context) (catch clojure.lang.ExceptionInfo _ nil))
         have (some->> h (v/sentex kb) :strength)]
     (boolean (and have (or (= have :monotonic) (not= :monotonic (:strength o)))))))
@@ -133,7 +133,7 @@
          ;; An exceptWhen is two records, and is restated whole.
          raised? (fn [{:keys [context form handles]}]
                    (and (= 1 (count handles))
-                        (nil? (second (text/peel-strength form)))
+                        (nil? (second (text/peel-form form)))
                         (contains? ours [context (list sx/strength-wrapper form)])))]
      {:add    (into []
                     (comp (remove (fn [{:keys [context form]}]
@@ -153,7 +153,7 @@
   [kb entries]
   (let [attempt (fn [es]
                   (reduce (fn [acc {:keys [context form] :as e}]
-                            (let [[sentence o] (text/peel-strength form)]
+                            (let [[sentence o] (text/peel-form form)]
                               (try (v/assert kb sentence context (or o {})) acc
                                    (catch clojure.lang.ExceptionInfo ex
                                      (conj acc (assoc e :type (:type (ex-data ex))
@@ -173,16 +173,16 @@
   or for an `exceptWhen` the wrapper and the rule it qualifies — a rule another form
   states too."
   [form]
-  (let [[s _] (text/peel-strength form)]
+  (let [[s _] (text/peel-form form)]
     (if (and (seq? s) (= sx/except-wrapper (first s)) (= 3 (count s)))
       (let [[_ q rule] s]
-        #{(list sx/except-wrapper (first (text/peel-strength q)) rule) rule})
+        #{(list sx/except-wrapper (first (text/peel-form q)) rule) rule})
       #{s})))
 
 (defn- edit-entry
   "`{:context :form}` as a `v/edit!` `:add` line."
   [{:keys [context form]}]
-  (let [[sentence o] (text/peel-strength form)]
+  (let [[sentence o] (text/peel-form form)]
     (cond-> [sentence context] o (conj o))))
 
 (defn- batch!

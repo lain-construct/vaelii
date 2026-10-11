@@ -1366,6 +1366,8 @@
            [set/hardConstraint "sentex/peel-rule-wrapper — sets the rule's effect to :forbid"]
            [set/softConstraint "sentex/peel-rule-wrapper — sets the rule's effect to :penalize"]
            [set/monotonic    "sentex/strength-wrapper — peeled at the entry point into :monotonic strength"]])
+    [['set/inert (enforced (structural {:args [:sentence]} "stores the sentence inert.")
+                           "io.text/peel-form — the text loader writes the sentence through assert-inert")]]
 
     ;; ---- the evaluable comparisons ---------------------------------------
     [['lessThan    (enforced {:shape   {:args [] :variadic :term}

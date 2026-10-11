@@ -48,6 +48,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix**.
 
+- **A text KB spells an inert sentex `(set/inert S)`.** `load-text!` and the shipped
+  ontology's loader store `S` through `assert-inert`: stored, indexed and durable, never
+  believed, chained or named in a clash. A rule under the wrapper is refused
+  `:not-indexable`, as `assert-inert` refuses one, and `(set/inertRule R)` stays the form
+  for a believed rule that fires in neither direction. `(set/inert …)` and
+  `(set/monotonic …)` nested in either order are refused `:shape`. `export-text!` writes
+  every inert sentex, a solve's labeling and classification contexts among them, under the
+  wrapper, and refuses `:unrecovered-kb` over a KB whose belief is not built when the store
+  holds a sentex that is neither a premise nor a TMS node
+  ([#178](https://github.com/vaelii/vaelii/issues/178)).
+  [kbs.md](docs/kbs.md#text-you-exported-yourself).
+
+  *Class:* **Additive**.
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |

@@ -835,7 +835,7 @@
       (is (true? (v/genl? kb t up 'CxTime)) (str t " must reach " up " in CxTime")))
     (is (true? (v/disjoint? kb 'time_point 'time_interval 'CxTime))))
   (testing "CxCore states no edge the partition derives"
-    (let [stated (set (map (comp first text/peel-strength)
+    (let [stated (set (map (comp first text/peel-form)
                            (text/read-forms (io/file "resources/kb/CxCore.txt"))))]
       (doseq [s '[(genl time_point temporal) (genl time_point time) (genl time_interval time)]]
         (is (not (contains? stated s)) (str (pr-str s) " is derived from the partition")))))
@@ -987,7 +987,7 @@
   ;; them: a part of a partition is under its whole, and the parts are disjoint, which
   ;; descends to predicate through truth_valued_relation.  A fact entailed by a stated
   ;; fact is not stated as well, so CxCore carries none of the three.
-  (let [stated (set (map (comp first text/peel-strength)
+  (let [stated (set (map (comp first text/peel-form)
                          (text/read-forms (io/file "resources/kb/CxCore.txt"))))]
     (doseq [s '[(genl function relation) (genl predicate relation)
                 (disjoint function predicate) (disjoint predicate function)]]

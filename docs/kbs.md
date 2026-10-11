@@ -198,6 +198,15 @@ asserts *two* things — the rule, and the exception qualifying it — a wrapper
 differs from the rule's. Both are peeled before anything is stored, so neither reaches a
 sentence as a functor ([exceptions.md](exceptions.md)).
 
+`(set/inert S)` stores `S` through `assert-inert`: indexed, durable and browsable, but no
+premise, so nothing believes it, chains from it or reports a contradiction against it
+([solving.md](solving.md#the-inert-fact-primitive)). The loader peels the wrapper around
+a whole form, and the export writes every inert sentex under it. An inert sentex has no
+strength, so `(set/inert (set/monotonic S))` and the reverse nesting are refused `:shape`.
+A rule under `(set/inert …)` is refused `:not-indexable`, as `assert-inert` refuses one;
+`(set/inertRule R)` is the form for a rule that is believed and fires in neither
+direction ([inference.md](inference.md)). `assert` does not read `set/inert`.
+
 **A form the EDN reader refuses is refused by file and line.** An unbalanced form, an
 unknown `#tag` and a `#=` read-eval form are `:unreadable`, with `:file` and the `:line`
 the form opens on. The refusal names the kind of failure and never repeats the reader's
@@ -205,8 +214,8 @@ own message, which can quote the file: `kb-diff` reads a path the same way and s
 refusal's message over the wire.
 
 **This is a round trip through content, not through state.** What is written is the
-*premises* — what somebody asserted — and a reload derives the rest again, so the KB that
-comes back has the same beliefs at different handles. Where handle identity is what you
+*premises* — what somebody asserted — and the inert sentexes, and a reload derives the
+rest again, so the KB that comes back has the same beliefs at different handles. Where handle identity is what you
 need (a backup, a move between stores, a corpus too big to re-derive), the pair is
 `export!` / `import!` instead.
 
