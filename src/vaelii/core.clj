@@ -888,6 +888,24 @@
   sees it."
   [kb c] (tax/context-down (reasoning/taxonomy kb) c))
 
+(defn min-context-parents
+  "The **minimal** contexts context `c` inherits from: the contexts `c` reaches over one
+  `genlCx` edge with no other such context strictly below them.  Every other context
+  `c` sees (`context-up`) is seen through one of these, so the set is `c`'s position in
+  the context lattice read from below.  A stated `(genlCx CxLeaf CxTop)` beside
+  `CxLeaf → CxMid → CxTop` leaves `CxTop` out.  Read as `context-up` reads: an edge an
+  `except` hides from `c` is not walked.  Not reflexive.  One memoized closure read per
+  direct parent.  A set; `#{}` when `c` is not a node in the context hierarchy."
+  [kb c] (tax/min-context-parents (reasoning/taxonomy kb) c))
+
+(defn max-context-children
+  "The **maximal** contexts that inherit from context `c`: the contexts that reach `c`
+  over one `genlCx` edge with no other such context strictly above them.
+  `min-context-parents`, the other direction.  Read as `context-down` reads: while an
+  `except` reaches a `genlCx` edge, a context is a member when `c` is one of its own
+  `min-context-parents`."
+  [kb c] (tax/max-context-children (reasoning/taxonomy kb) c))
+
 (defn sees?
   "Does context `k` see assertions made in context `y`?  True iff `y` is in `k`'s
   genlCx up-closure (reflexively, so a context sees itself)."
@@ -8536,8 +8554,8 @@
     :explain-levels :export! :export-text! :exposed-clashes :find-sentexes
     :find-sentexes-all :find-terms :functional-at-instant-violations :genl? :genls
     :handle-of :handles :has-prop? :in? :inverse-of :isa? :ist :justification
-    :kb-integrity :kb-quality :last-program :lookup :max-specs :metatype-members
-    :min-genls :separating-covers
+    :kb-integrity :kb-quality :last-program :lookup :max-context-children :max-specs
+    :metatype-members :min-context-parents :min-genls :separating-covers
     :possible-relations
     :premise? :props :provable? :prove :prove-within :provenance
     :qualitative-network :qualitative-scenario :qualitative-scenarios :query
