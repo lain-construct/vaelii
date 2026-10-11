@@ -178,6 +178,22 @@
       (testing "the quoted rule form stores as a closed sentence"
         (is (some? stored))))))
 
+;; A query's ?x and the ?x inside a stored (Quote …) are different things: the query's is
+;; a variable, the stored one is part of a constant.  Matching once bound the query's ?x
+;; to the quoted ?x, and resolving {?x ?x} overflowed the stack (vaelii/vaelii#167).
+(tu/deftest-kb a-quoted-variable-matches-only-the-same-quoted-variable
+  (tu/with-terms [awesome_rule]
+    (v/assert kb (list 'unary_predicate awesome_rule) 'CxUniverse)
+    (let [quoted (fn [v] (list 'Quote (list 'implies (list 'poodle v) (list 'dog v))))]
+      (v/assert kb (list awesome_rule (quoted '?x)) 'CxUniverse)
+      (is (true? (v/ask? kb (list awesome_rule (quoted '?x)) 'CxUniverse))
+          "the stored spelling, its variable named as the query's")
+      (is (false? (v/ask? kb (list awesome_rule (quoted '?y)) 'CxUniverse))
+          "(Quote … ?y …) is a different expression")
+      (is (false? (v/ask? kb (list awesome_rule (quoted 'Muffet)) 'CxUniverse))
+          "a quoted variable is not bound by a constant")
+      (is (= [{'?r (quoted '?x)}] (v/ask kb (list awesome_rule '?r) 'CxUniverse))))))
+
 (tu/deftest-kb sameas-does-not-fold-a-quoted-term
   ;; The opacity: merging the *referents* Muffet and Fluffet leaves the two *terms* — and
   ;; so the two reified quoted constants — distinct, because a mention tracks identity of

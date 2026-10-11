@@ -2774,8 +2774,9 @@
   The same symbol as `quasiquote/quote-function`, which this namespace cannot require."
   'Quote)
 
-(defn- quote-form?
-  "Is `form` a `(Quote X)` mention?"
+(defn quote-form?
+  "Is `form` a `(Quote X)` mention?  `unquoted-free-vars`, `res/unify`, `res/substitute`
+  and the literal cache's renaming all read a form this answers true for as a constant."
   [form]
   (and (sequential? form) (= quote-functor (first form)) (= 2 (count form))))
 

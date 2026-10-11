@@ -11,6 +11,18 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+- **A query naming a stored quoted form's variable answers instead of overflowing the
+  stack.** Asking `(awesome_rule (Quote (implies (poodle ?x) (dog ?x))))` with the stored
+  spelling threw `StackOverflowError`, and the `?y` spelling answered true by binding `?y`
+  to the quoted `?x`. A `(Quote …)` form is now a constant to matching: the stored
+  spelling answers true, another spelling or a ground instance answers false, and a query
+  variable named like a quoted one is not bound by it.
+  [inference.md](docs/inference.md#quoted-forms-in-unification).
+
+  *Class:* **Fix**.
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |

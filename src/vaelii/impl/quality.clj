@@ -947,7 +947,7 @@
                                          (marks-over tax :asymmetric fb context))))
          (let [[x1 y1] (nm/args (:body a))
                [x2 y2] (nm/args (:body b))]
-           (when-let [s (res/unify (list x1 y1) (list y2 x2))]
+           (when-let [s (res/unify-args (list x1 y1) (list y2 x2))]
              (when (not= (res/substitute x1 s) (res/substitute y1 s))
                [:asymmetric s]))))))))
 
