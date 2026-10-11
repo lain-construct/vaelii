@@ -1303,6 +1303,7 @@ E17_ROSTER = {
     # that can, and a missed trigger is a wrong belief where a spare one is a query
     # (`inherit/declared` states the argument in full).
     ("src/vaelii/impl/special.clj", "recheck-declaration"),
+    ("src/vaelii/impl/special.clj", "departed-context-edge-mints"),
     ("src/vaelii/impl/special.clj", "arg-declared-types"),
     ("src/vaelii/impl/special.clj", "recheck-arg-inferred"),
     ("src/vaelii/impl/special.clj", "recheck-on-predicate"),
