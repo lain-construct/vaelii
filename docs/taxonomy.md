@@ -1314,15 +1314,19 @@ covers `thing`:
 | `(partition thing temporal atemporal)` | a location in time | none |
 | `(partition thing tangible intangible)` | mass | no mass |
 
-`genl` edges in CxCore relate the parts across the three divisions. `tangible` is below
-`spatiotemporal`, which is below `spatial` and `temporal`. `aspatial` and `atemporal` are
-below `intangible`, and `nowhere_never` is below both. No edge or disjointness relates
-`intangible` to `spatial`: a region of space is `spatiotemporal` and `intangible`.
+`genl` edges in CxCore relate the parts across the three divisions. `physical` is below
+`spatial`: a location in the physical space of our universe, where the line y=x, located
+only in the Cartesian plane, has none. `tangible` is below `spatiotemporal`, which is
+below `physical` and `temporal`. `aspatial` and `atemporal` are below `intangible`, and
+`nowhere_never` is below both. No edge or disjointness relates `intangible` to `spatial`:
+a region of space is `spatiotemporal` and `intangible`.
 
-CxCore places `spatiotemporal` and `nowhere_never` by `genl` edges, not by
-`intersection`: a thing stated `spatial` and `temporal` is not concluded
-`spatiotemporal`, and a thing stated `aspatial` and `atemporal` is not concluded
-`nowhere_never`.
+`spatiotemporal` is by definition the intersection of `physical` and `temporal`. CxCore
+places `spatiotemporal` and `nowhere_never` by `genl` edges, not by `intersection`. A
+thing stated `physical` and `temporal` is not concluded `spatiotemporal`, nor concluded
+not `spatiotemporal`. A thing stated `aspatial` and `atemporal` is not concluded
+`nowhere_never`. CxCore records the definition of `spatiotemporal` in a comment beside
+its `genl` edges, not as a premise.
 
 A kind with no location in any space sits below `aspatial`, which separates it from
 `spatial` and from every CxSpace argument. `organization` (CxCore),
