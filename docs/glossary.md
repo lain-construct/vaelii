@@ -848,6 +848,8 @@ variables, are read as a *pattern to match* rather than as a claim. Never stored
 sentence — `checks/check-ground` refuses that — so a pattern reaches the engine only as a
 goal or inside a rule. See [inference.md](inference.md).
 
+**`physical`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in the physical space of our universe. A region of physical space is physical; the line y=x, located only in the Cartesian plane, is not. Below `spatial`; `spatiotemporal` is below it. See [taxonomy.md](taxonomy.md#the-three-partitions-of-thing).
+
 **Placement context** ![inference](../.github/badges/cat-inference.svg): Where a
 forward-derived sentex lands — the maximal contexts that see the firing rule and
 all its antecedent facts (`maximal-common-descendant-contexts`), where no `except`
@@ -1183,7 +1185,7 @@ by a build whose source identity equals the one the image was written under. See
 
 **`spatial`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in some space — physical space, or a mathematical one such as the Cartesian plane, where the line y=x is located though it has no location in the world. `spatial` and `aspatial` partition `thing`, and every argument of the spatial calculi is declared at `spatial`. See [space.md](space.md).
 
-**`spatiotemporal`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in space and time — a physical object, a region, a place. Below both `spatial` and `temporal`. See [space.md](space.md).
+**`spatiotemporal`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in physical space and time — a physical object, a region, a place. Below both `physical` and `temporal`, and so below `spatial`. By definition the intersection of `physical` and `temporal`; `core.txt` places it by `genl` edges, so a thing stated `physical` and `temporal` is not concluded `spatiotemporal`. See [space.md](space.md).
 
 **Spurious miss** ![backend](../.github/badges/cat-backend.svg): A miss of a
 derived-state row whose recompute returns the value a write retired: the write retired

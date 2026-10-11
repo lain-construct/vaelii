@@ -45,7 +45,9 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `orthogonalMetatypes` fact derive 33 orthogonal pairs, 22 of them stated before, and
   every arity type is orthogonal to `abducible_predicate`. 9 more orthogonal pairs are
   stated, e.g. `made` and `vertebrate`, `animal` and `food`. `warm_blooded` is below
-  `vertebrate` by default. `implementationNote` is a
+  `vertebrate` by default. `physical` is new: a location in the physical space of our
+  universe, below `spatial`. `spatiotemporal` is below `physical` and `temporal`, and
+  reaches `spatial` through `physical`. `implementationNote` is a
   sibling of `comment` for how a term is implemented, and 14 core.txt terms carry one.
   [taxonomy.md](docs/taxonomy.md), [glossary.md](docs/glossary.md).
 
