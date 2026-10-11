@@ -75,7 +75,7 @@ Data hangs below CxWell.
   file under `resources/kb/upper/` into it as one batch. `core.txt` is the
   code-supported vocabulary (every special predicate the engine interprets) and the top
   of the ontology: the parts of the three partitions of `thing`
-  ([taxonomy.md](taxonomy.md#the-three-partitions-of-thing)), `spatiotemporal`,
+  ([taxonomy.md](taxonomy.md#the-three-partitions-of-thing)), `physical`, `spatiotemporal`,
   `nowhere_never`, `logical`, `linguistic`, `quantitative`, `biological`, `organism`
   and `measure`. Each other file is one domain:
   - `abstract.txt` — the kinds below the skeleton `core.txt` holds (`made`, `food`,
