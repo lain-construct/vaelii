@@ -18,7 +18,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   spelling threw `StackOverflowError`, and the `?y` spelling answered true by binding `?y`
   to the quoted `?x`. A `(Quote …)` form is now a constant to matching: the stored
   spelling answers true, another spelling or a ground instance answers false, and a query
-  variable named like a quoted one is not bound by it.
+  variable named like a quoted one is not bound by it
+  ([#167](https://github.com/vaelii/vaelii/issues/167)).
   [inference.md](docs/inference.md#quoted-forms-in-unification).
 
   *Class:* **Fix**.
@@ -28,7 +29,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   classification read every dilemma of the KB, so a context that reads no dilemma answered
   `(cautiously S)` false for a sentence it believes. The prover now reads the sentexes of
   `S` in the asker's `genlCx` ancestor set that it believes and sees, and classifies them
-  against the dilemmas `contradictions` reports to that context.
+  against the dilemmas `contradictions` reports to that context
+  ([#154](https://github.com/vaelii/vaelii/issues/154)).
   [labeling.md](docs/labeling.md#reading-bravecautious-without-committing-bravely-s--cautiously-s).
 
   *Class:* **Fix**.
