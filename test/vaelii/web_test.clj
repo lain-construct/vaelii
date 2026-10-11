@@ -1375,6 +1375,48 @@
       (is (not (contains? up [near_sub near_top])))
       (is (= #{[near_mid near_top] [near_sub near_mid]} down)))))
 
+(defn- grown-contexts
+  "One side of the taxonomy view of context `c`, as `[context from]` pairs per row."
+  [dir hops c]
+  (let [grow (ns-resolve 'vaelii.browser.web 'grow)]
+    (mapv (fn [row] (into #{} (map (juxt :term :from)) row))
+          (:rows (grow tu/*kb* 'genlCx dir hops c 6)))))
+
+(tu/deftest-kb a-stated-genlCx-to-a-farther-context-is-not-drawn-as-a-direct-neighbour
+  ;; `CxNearLeaf → CxNearMid → CxNearTop`, and `(genlCx CxNearLeaf CxNearTop)` is stated
+  ;; beside them
+  (tu/with-terms [CxNearLeaf CxNearMid CxNearTop]
+    (v/assert kb (list 'genlCx CxNearMid CxNearTop) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxNearLeaf CxNearMid) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxNearLeaf CxNearTop) 'CxUniverse)
+    (testing "above the lowest context: the middle context, and the top context above the middle one"
+      (let [[row1 row2] (grown-contexts :up 2 CxNearLeaf)]
+        (is (= #{[CxNearMid CxNearLeaf]} row1))
+        (is (= #{[CxNearTop CxNearMid]} row2)))
+      (let [ys (node-ys (svg-of (:body (GET "/term" (str "q=" CxNearLeaf)))))]
+        (is (< (ys (str CxNearTop)) (ys (str CxNearMid)) (ys (str CxNearLeaf))))))
+    (testing "below the top context: the middle context, and the lowest context below the middle one"
+      (let [[row1 row2] (grown-contexts :down 2 CxNearTop)]
+        (is (= #{[CxNearMid CxNearTop]} row1))
+        (is (= #{[CxNearLeaf CxNearMid]} row2)))
+      (let [ys (node-ys (svg-of (:body (GET "/term" (str "q=" CxNearTop)))))]
+        (is (< (ys (str CxNearTop)) (ys (str CxNearMid)) (ys (str CxNearLeaf))))))))
+
+(tu/deftest-kb a-context-page-draws-both-sides-of-a-genlCx-diamond
+  ;; `CxDiaLeaf` reaches `CxDiaTop` through `CxDiaLeft` and through `CxDiaRight`, and
+  ;; `(genlCx CxDiaLeaf CxDiaTop)` is stated beside them
+  (tu/with-terms [CxDiaLeaf CxDiaLeft CxDiaRight CxDiaTop]
+    (v/assert kb (list 'genlCx CxDiaLeft CxDiaTop) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxDiaRight CxDiaTop) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxDiaLeaf CxDiaLeft) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxDiaLeaf CxDiaRight) 'CxUniverse)
+    (v/assert kb (list 'genlCx CxDiaLeaf CxDiaTop) 'CxUniverse)
+    (is (= #{[CxDiaLeft CxDiaLeaf] [CxDiaRight CxDiaLeaf]} (first (grown-contexts :up 1 CxDiaLeaf))))
+    (is (= #{[CxDiaLeft CxDiaTop] [CxDiaRight CxDiaTop]} (first (grown-contexts :down 1 CxDiaTop))))
+    (let [ys (node-ys (svg-of (:body (GET "/term" (str "q=" CxDiaLeaf)))))]
+      (is (= (ys (str CxDiaLeft)) (ys (str CxDiaRight))))
+      (is (< (ys (str CxDiaTop)) (ys (str CxDiaLeft)) (ys (str CxDiaLeaf)))))))
+
 ;; ---- hide derived, and the picture ---------------------------------------
 
 (tu/deftest-kb hiding-derived-rows-leaves-the-concept-graph-as-drawn
