@@ -11,6 +11,27 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Additions
+
+- **`min-context-parents` and `max-context-children` read a context's nearest neighbours
+  in the context lattice, and a context page's concept graph draws them.**
+  `(min-context-parents kb c)` answers the contexts `c` reaches over one `genlCx` edge
+  with no other such context strictly below them, and `max-context-children` the contexts
+  that reach `c` over one `genlCx` edge with no other such context strictly above them.
+  Both read an `except` on a `genlCx` edge as `context-up` and `context-down` read one:
+  `min-context-parents` walks the edges effective for `c`, and while an `except` reaches a
+  `genlCx` edge `max-context-children` holds each direct child whose own
+  `min-context-parents` hold `c`. The daemon and `vaelii.client` serve both. The concept
+  graph's `genlCx` rows draw these sets at every expanded node, where they drew every
+  stored one-step neighbour: with `CxLeaf → CxMid → CxTop` believed and
+  `(genlCx CxLeaf CxTop)` stated, the page for `CxLeaf` draws `CxTop` above `CxMid` and
+  no arrow from `CxLeaf` to `CxTop`. The `genl` rows are unchanged.
+  [api.md](docs/api.md), [web.md](docs/web.md#a-terms-shape-drawn).
+
+  *Class:* **Additive**.
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |
