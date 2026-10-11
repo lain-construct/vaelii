@@ -81,6 +81,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   classification. `CxRegistry.txt`, the two `vaelii.koinii.identity` functions reading
   and writing the mark, and `docs/koinii.md` move to the new name; `register-agent`,
   `registered-agents` and the rest of the identity API keep their names.
+  `CxSpeechActs.txt` types its 12 actor positions `registered_agent`: argument 1 of the
+  11 speech acts and argument 2 of `agentContext`.
 
   *Class:* **Fix** (shipped ontology content, which takes no Breaking label however far
   it moves an answer).
