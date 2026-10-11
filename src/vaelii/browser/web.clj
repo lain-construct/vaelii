@@ -2728,6 +2728,10 @@
   draws `CxTop` above `CxMid` and not beside it.  The engine reads an `except` on a
   `genlCx` edge as `context-up` and `context-down` read one.
 
+  **A step under any other relation draws its one-step neighbours unreduced.**  Only
+  `genl` and `genlCx` have a closure read; another relation is not asked of either
+  lattice.
+
   **The neighbours drawn are the first `cap` in print order, of every nearest neighbour
   the node has.**  The read realizes at most `graph-row-limit` + 1 one-step neighbours, so
   it costs at most that many records whatever the node's fan-out.  A node with two to
@@ -2746,9 +2750,10 @@
     (if (> (count got) graph-row-limit)
       {:terms [] :total graph-row-limit :exact? false :more? true}
       (let [near (if (> (count got) 1)
-                   (if (= 'genl pred)
-                     ((if up? v/min-genls v/max-specs) kb node)
-                     ((if up? v/min-context-parents v/max-context-children) kb node))
+                   (case pred
+                     genl   ((if up? v/min-genls v/max-specs) kb node)
+                     genlCx ((if up? v/min-context-parents v/max-context-children) kb node)
+                     got)
                    got)]
         {:terms (into [] (take cap) (by-print-key near)) :total (count near)
          :exact? true :more? false}))))
