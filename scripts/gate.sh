@@ -8,8 +8,10 @@
 #     lint   static analysis  (scripts/lint.sh — twelve checks in three concurrent lanes)
 #     test   the suite        (`lein test`, `:default` selector, memory stores; incl. assert_cost_test)
 #
-#   lein release-gate   FULL — lint + test + perf:
-#     perf   the scaling claims (`lein perf` — growth ratios, not milliseconds)
+#   lein release-gate   FULL — lint + test + uberjar + perf:
+#     uberjar  the standalone jar (`lein uberjar`, AOT of every namespace), then a load
+#              of `vaelii.core` from it — `build_uberjar` below
+#     perf     the scaling claims (`lein perf` — growth ratios, not milliseconds)
 #
 # PERF — why it is not in the fast gate.  It is ~5 minutes and wants an idle box, so
 # a gate that always ran it is one people skip, and a skipped gate catches nothing.
@@ -40,12 +42,13 @@
 # `--fail-fast` when you would rather stop.
 #
 #   lein gate                  # fast: lint + test
-#   lein release-gate          # full: lint + test + perf  (`gate.sh --release`)
+#   lein release-gate          # full: lint + test + uberjar + perf  (`gate.sh --release`)
 #   lein gate --perf           # a fast gate plus perf, without the release framing
 #   lein gate --fail-fast      # stop at the first failure
 #   lein gate --quick          # add perf as a coarse read: one attempt, widened bound
 #   lein gate --skip test      # drop a stage; repeatable
 #   lein gate --only perf      # run one; repeatable  (names perf, so it runs)
+#   lein gate --only uberjar   # the jar build alone
 #   lein gate --all            # test stage at `:all` — the ^:slow tests too
 #   lein gate --jobs 4         # test shards (default: scripts/lib/slots.sh; 1 = one JVM)
 #   lein gate --sequential     # the old shape: one test JVM, one stage at a time
@@ -144,7 +147,7 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --fail-fast) fail_fast=1; shift ;;
     --quick)     quick=1; shift ;;
-    # perf is opt-in: `--release` is the full gate (lint + test + perf), `--perf`
+    # perf is opt-in: `--release` is the full gate (lint + test + uberjar + perf), `--perf`
     # adds perf to a fast run without the release framing.  See PERF, below.
     --release)   release=1; shift ;;
     --perf)      with_perf=1; shift ;;
@@ -256,7 +259,7 @@ stamp_interrupted () {         # stamp_interrupted <signal-name>
     echo "they stood, so a log whose last line passes is a stage that had not yet"
     echo "reached whatever would have failed.  Nothing in this directory is a verdict."
   } >"$OUT/INTERRUPTED" 2>/dev/null || true
-  for s in lint test perf reflect jvm; do
+  for s in lint test uberjar perf reflect jvm; do
     if [[ -f "$OUT/$s.log" ]]; then
       printf '\n# %s — killed, not finished\n' "$note" >>"$OUT/$s.log" 2>/dev/null || true
     fi
@@ -323,8 +326,12 @@ announce () {                  # announce <name> <blurb> <cmd...>
   # command first so the whole line pastes to re-run the stage; the blurb and log
   # path follow the `#` as a comment.  The stage name is not repeated — the command
   # and the `<name>.log` path on this same line already say which stage it is.
+  # The uberjar stage's command is a function of this script, so its pasteable form is
+  # the gate invocation that runs it.
+  local cmd="$*"
+  [[ "$name" == uberjar ]] && cmd="lein gate --only uberjar"
   printf '%s%s%s  %s# %s → %s%s\n' \
-    "$BOLD" "$*" "$RST" "$DIM" "$blurb" "$OUT/$name.log" "$RST"
+    "$BOLD" "$cmd" "$RST" "$DIM" "$blurb" "$OUT/$name.log" "$RST"
 }
 
 # ---- what each stage actually checked ------------------------------------
@@ -378,6 +385,8 @@ stage_detail () {              # stage_detail <name>
         | tail -1 | sed 's/^/        /' ;;
     reflect|jvm)
       grep -vE '^#|^\s*$' "$log" | head -3 | sed 's/^/        /' ;;
+    uberjar)
+      grep -E '^uberjar: ' "$log" | sed 's/^uberjar: /        /' ;;
   esac
 }
 
@@ -563,6 +572,31 @@ perf_args=(perf)
 [[ $quick -eq 1 ]] && perf_args+=(--quick)
 [[ -n "${PERF_TOLERANCE:-}" ]] && perf_args+=(--tolerance "$PERF_TOLERANCE")
 
+# The uberjar stage.  `lein uberjar` AOT-compiles every namespace, which no other stage
+# does, so a class file name past a filesystem's 255-byte limit (#179) or a failure that
+# only an AOT load shows is caught here.  The build goes to this run's directory with
+# auto-clean off: lein's clean deletes all of `target/` under `:target-path "target/%s"`,
+# and with it every concurrent gate's logs.  A jar that loads `vaelii.core` in a JVM of its
+# own passes, and its build directory (about 165 MB) is deleted; a failure keeps it.
+# shellcheck disable=SC2317,SC2329  # invoked through run_stage's "$@"
+build_uberjar () {
+  local dir="$OUT/uberjar" jar
+  lein update-in : merge "{:target-path \"$dir/%s\" :auto-clean false}" -- uberjar || return
+  jar=$(find "$dir" -name '*-standalone.jar' | head -1)
+  [[ -n "$jar" ]] || { echo "uberjar: no standalone jar under $dir"; return 1; }
+  "${JAVA_CMD:-java}" -cp "$jar" clojure.main -e "(require 'vaelii.core)" || return
+  echo "uberjar: $(basename "$jar") ($(du -h "$jar" | awk '{print $1}')) loads vaelii.core"
+  command rm -rf "$dir"
+}
+
+# The uberjar stage runs under `--release` or `--only uberjar`, after test and before
+# perf, which runs alone.
+uberjar_opted=0
+[[ $release -eq 1 ]] && uberjar_opted=1
+if [[ ${#only[@]} -gt 0 ]]; then
+  for x in "${only[@]}"; do [[ "$x" == uberjar ]] && uberjar_opted=1; done
+fi
+
 # perf is opt-in — the fast gate is lint + test.  It runs when the release gate
 # asks for it (`--release`), when `--perf`/`--quick` name it, or when `--only perf`
 # does.  `wanted perf` still applies on top, so `--skip perf` and a non-perf
@@ -583,6 +617,7 @@ if [[ $sequential -eq 1 ]]; then
   fi
   check_test_reflection
   check_jvm_warnings
+  [[ $uberjar_opted -eq 1 ]] && { [[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage uberjar "the standalone jar" build_uberjar || true; }
   [[ $perf_opted -eq 1 ]] && { [[ $fail -gt 0 && $fail_fast -eq 1 ]] || run_stage perf "the scaling claims" lein "${perf_args[@]}" || true; }
 else
   # lint ‖ test, then perf alone — see SHAPE at the top.  Both start silently; each
@@ -640,6 +675,7 @@ else
   check_test_reflection
   check_jvm_warnings
 
+  [[ $uberjar_opted -eq 1 ]] && { run_stage uberjar "the standalone jar" build_uberjar || true; }
   [[ $perf_opted -eq 1 ]] && { run_stage perf "the scaling claims" lein "${perf_args[@]}" || true; }
 fi
 
@@ -736,7 +772,7 @@ case ",$perf_groups," in
 esac
 [[ $perf_opted -eq 0 ]] && owed_advisory perf "$PERF_SENSITIVE_RE" hot-path \
   "a change here can turn a cost super-linear — the test stage cannot see that." \
-  "${BOLD}lein release-gate${RST} (lint + test + perf), or $perf_cmd alone,"
+  "${BOLD}lein release-gate${RST} (lint + test + uberjar + perf), or $perf_cmd alone,"
 { [[ $all -eq 0 ]] || ! wanted test; } && owed_advisory slow "$SLOW_OWED_RE" "index / TMS / inference" \
   "the ^:slow half holds the order sweeps and oracles over these files — :default skips it." \
   "${BOLD}lein gate --all${RST} (or ${BOLD}lein test :slow${RST} alone)"
