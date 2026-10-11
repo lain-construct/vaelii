@@ -1148,7 +1148,8 @@
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
          '[[intangible "ontology, not grammar: something with no mass, the complement of tangible. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [spatial "ontology, not grammar: something with a location in some space, physical or mathematical. CxCore holds it so every spindle member can extend it; no engine check names it."]
-           [spatiotemporal "ontology, not grammar: something with a location in space and time. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [physical "ontology, not grammar: something with a location in the physical space of our universe. CxCore holds it so every spindle member can extend it; no engine check names it."]
+           [spatiotemporal "ontology, not grammar: something with a location in physical space and time. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [tangible "ontology, not grammar: something with mass, and so with a location. CxCore holds it so every spindle member can extend it; no engine check names it."]
            [organism "ontology, not grammar: something alive in its own right. CxCore holds it so CxOrganism's kinds reach the root from CxOrganism; no engine check names it."]
            [biological "ontology, not grammar: a tangible that is an organism or part of one. CxCore holds it so organism reaches tangible through it from CxOrganism and body_part from CxAbstract; no engine check names it."]
