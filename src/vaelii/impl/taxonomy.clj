@@ -3510,13 +3510,13 @@
     (closure-of tax :genl :rev t)))
 
 (defn- direct-neighbours
-  "`t`'s `dir-key` neighbours across **one** `genl` edge, scoped like `genls` / `specs`.
-  Not reflexive: the closures include `t` because transitivity is reflexive, and a step
-  is not."
-  [tax dir-key t context]
-  (if-some [scope (relation-scope tax :genl context)]
-    (into #{} (visible-neighbours @tax :genl dir-key scope t))
-    (get-in @tax [:genl dir-key t] #{})))
+  "`t`'s `dir-key` neighbours across **one** edge of `rel-key` (`:genl` or `:genlCx`),
+  scoped like the relation's closures (`genls` / `specs`, `context-up`).  Not reflexive:
+  the closures include `t` because transitivity is reflexive, and a step is not."
+  [tax rel-key dir-key t context]
+  (if-some [scope (relation-scope tax rel-key context)]
+    (into #{} (visible-neighbours @tax rel-key dir-key scope t))
+    (get-in @tax [rel-key dir-key t] #{})))
 
 (defn direct-genls
   "The types `t` is a subtype of by **one** `genl` edge of the closure — its direct
@@ -3527,24 +3527,24 @@
   read that is O(1) only because it is memoized.  The closure is what a subsumption check
   needs, and the parents are what a reader is shown."
   [tax t context]
-  (direct-neighbours tax :fwd t context))
+  (direct-neighbours tax :genl :fwd t context))
 
 (defn direct-specs
   "The types that are a subtype of `t` by **one** `genl` edge of the closure — its direct
   children.  `direct-genls`' reasoning, the other direction."
   [tax t context]
-  (direct-neighbours tax :rev t context))
+  (direct-neighbours tax :genl :rev t context))
 
 (defn direct-genls-global
   "`direct-genls` through **every** active edge — no context scope.  `genls-global`'s
   reasoning: a caller holding a context wants `direct-genls`."
   [tax t]
-  (direct-neighbours tax :fwd t nil))
+  (direct-neighbours tax :genl :fwd t nil))
 
 (defn direct-specs-global
   "`direct-specs` through **every** active edge — no context scope."
   [tax t]
-  (direct-neighbours tax :rev t nil))
+  (direct-neighbours tax :genl :rev t nil))
 
 (defn- extremal-types
   "The members of `types` at one end of the subsumption order among themselves: with
@@ -3582,13 +3582,13 @@
         (reduce disj among dropped)))))
 
 (defn- up-closure-fn
-  "The read `extremal-types` takes as `above`: a type's reflexive `genl` up-closure
-  through the edges visible from `context`, or through every active edge for a nil
-  `context`."
-  [tax context]
-  (if-some [scope (relation-scope tax :genl context)]
-    #(closure-of-vis tax :genl :fwd % scope)
-    #(closure-of tax :genl :fwd %)))
+  "The read `extremal-types` takes as `above`: a node's reflexive up-closure in `rel-key`
+  (`:genl` or `:genlCx`) through the edges visible from `context`, or through every
+  active edge for a nil `context`."
+  [tax rel-key context]
+  (if-some [scope (relation-scope tax rel-key context)]
+    #(closure-of-vis tax rel-key :fwd % scope)
+    #(closure-of tax rel-key :fwd %)))
 
 (defn min-types
   "The **minimal** members of `types`, a collection of types: the members with no other
@@ -3602,24 +3602,24 @@
   No closure is read for fewer than two distinct members.  Otherwise the cost is one
   memoized up-closure read per member.  `min-types-global` is the unscoped read."
   [tax types context]
-  (extremal-types (up-closure-fn tax context) true types))
+  (extremal-types (up-closure-fn tax :genl context) true types))
 
 (defn max-types
   "The **maximal** members of `types`: the members with no other member strictly above
   them, through the edges visible from `context`.  `min-types`' reasoning, the other
   direction, and `#{animal}` in its example.  `max-types-global` is the unscoped read."
   [tax types context]
-  (extremal-types (up-closure-fn tax context) false types))
+  (extremal-types (up-closure-fn tax :genl context) false types))
 
 (defn min-types-global
   "`min-types` through **every** active edge — no context scope."
   [tax types]
-  (extremal-types (up-closure-fn tax nil) true types))
+  (extremal-types (up-closure-fn tax :genl nil) true types))
 
 (defn max-types-global
   "`max-types` through **every** active edge — no context scope."
   [tax types]
-  (extremal-types (up-closure-fn tax nil) false types))
+  (extremal-types (up-closure-fn tax :genl nil) false types))
 
 (defn- nearest-of
   "The members of `nbrs`, the one-step neighbours of `node`, that no other member stands
@@ -3644,13 +3644,14 @@
         (into twins (ends (reduce disj among twins)))))))
 
 (defn- nearest-neighbours
-  "`direct-neighbours` reduced to the nearest ones (`nearest-of`): `min-types` of the
-  parents, `max-types` of the children, scoped like `genls` / `specs`."
-  [tax dir-key t context]
-  (let [up? (= :fwd dir-key)]
-    (nearest-of (up-closure-fn tax context)
-                #((if up? min-types max-types) tax % context)
-                up? t (direct-neighbours tax dir-key t context))))
+  "`direct-neighbours` in `rel-key` reduced to the nearest ones (`nearest-of`): the
+  minimal parents, the maximal children (`extremal-types`, which for `:genl` is
+  `min-types` / `max-types`), scoped like the relation's closures."
+  [tax rel-key dir-key t context]
+  (let [up?   (= :fwd dir-key)
+        above (up-closure-fn tax rel-key context)]
+    (nearest-of above #(extremal-types above up? %)
+                up? t (direct-neighbours tax rel-key dir-key t context))))
 
 (defn min-genls
   "The minimal supertypes of `t` through the edges visible from `context`: `min-types` of
@@ -3659,24 +3660,24 @@
   beside `dog ⊂ mammal ⊂ animal` leaves `animal` out.  An edge counts whatever installed
   it, as for `direct-genls`.  One memoized up-closure read per direct parent."
   [tax t context]
-  (nearest-neighbours tax :fwd t context))
+  (nearest-neighbours tax :genl :fwd t context))
 
 (defn max-specs
   "The maximal subtypes of `t` through the edges visible from `context`: `max-types` of
   `t`'s direct children, the direct children with no other one strictly above them.  `min-genls`'
   reasoning, the other direction.  One memoized up-closure read per direct child."
   [tax t context]
-  (nearest-neighbours tax :rev t context))
+  (nearest-neighbours tax :genl :rev t context))
 
 (defn min-genls-global
   "`min-genls` through **every** active edge — no context scope."
   [tax t]
-  (nearest-neighbours tax :fwd t nil))
+  (nearest-neighbours tax :genl :fwd t nil))
 
 (defn max-specs-global
   "`max-specs` through **every** active edge — no context scope."
   [tax t]
-  (nearest-neighbours tax :rev t nil))
+  (nearest-neighbours tax :genl :rev t nil))
 
 (defn specs-of-all
   "The union of `specs` over every node in `nodes`, walked **once**.
@@ -4336,6 +4337,41 @@
   `context-parents-global`'s reverse, an adjacency read with no closure walk."
   [tax c]
   (get-in @tax [:genlCx :rev c] #{}))
+
+(defn min-context-parents
+  "The minimal contexts `c` inherits from: the contexts `c` reaches over **one** `genlCx`
+  edge with no other such context strictly below them.  `min-genls`' reduction over
+  `genlCx`, read as `context-up` reads: `c` is the reader, so both the edges out of `c`
+  and the ancestor sets the parents are compared by are the ones effective for `c` after
+  the `except` holes `c` reads (`relation-scope`).  Every other context of `context-up`
+  but `c` is therefore reached through one of these.  A `(genlCx CxLeaf CxTop)` held
+  beside `CxLeaf → CxMid → CxTop` leaves `CxTop` out, and an `except` that hides
+  `CxLeaf → CxMid` from `CxLeaf` makes `CxTop` the answer.  Not reflexive.  One memoized
+  up-closure read per direct parent."
+  [tax c]
+  (nearest-neighbours tax :genlCx :fwd c c))
+
+(defn max-context-children
+  "The maximal contexts that inherit from `c`: the contexts that reach `c` over **one**
+  `genlCx` edge with no other such context strictly above them.  `max-specs`' reduction
+  over `genlCx`, and `min-context-parents`' reverse.
+
+  Reverse visibility has no single reader (`context-down`).  So while some `except`
+  targets a `genlCx` supporter (`relation-filter-active?`), each direct child is judged
+  by its own forward answer, as `context-down` judges a candidate: a child is a member
+  when `c` is one of its `min-context-parents`.  Every member is then in `context-down`
+  of `c`, and a context is drawn below `c` exactly when `c` is drawn above the context.
+  With no except reaching `genlCx` the reduction over the raw adjacency is the answer,
+  and the two readings agree on every acyclic edge set.
+
+  One memoized up-closure read for `c` on the raw path.  On the filtered path one
+  `min-context-parents` read per direct child, which is not memoized here."
+  [tax c]
+  (if-not (relation-filter-active? @tax :genlCx)
+    (nearest-neighbours tax :genlCx :rev c nil)
+    (into #{}
+          (filter #(contains? (min-context-parents tax %) c))
+          (context-children-global tax c))))
 
 (defn- up-besides
   "The contexts `c` inherits from, incl `c`, over the `genlCx` edges effective in `scope`
