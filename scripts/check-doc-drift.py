@@ -1577,15 +1577,13 @@ E17_ROSTER = {
     # store holds, which every reader shares.  The argument-order fold and the reified
     # spelling are stored once, and the read walk hides the spelling a reader's belief
     # rules out (docs/canonicalization.md); the storage context of a decontextualized
-    # mark, a teardown, a merge's retargeting, the roster a stored sentex is classed by,
-    # the stratification graph over every stored rule.
+    # mark, a teardown, a merge's retargeting, the roster a stored sentex is classed by.
     ("src/vaelii/core.clj", "rehome-forced-extent!"),
     ("src/vaelii/core.clj", "target-following-meta?"),
     ("src/vaelii/impl/assert_entry.clj", "storage-context"),
     ("src/vaelii/impl/assert_entry.clj", "assert-one"),
     ("src/vaelii/impl/checks.clj", "checked-sentence"),
     ("src/vaelii/impl/checks.clj", "stored-spelling"),
-    ("src/vaelii/impl/checks.clj", "stratification-readers"),
     ("src/vaelii/impl/decide.clj", "on-roster?"),
     ("src/vaelii/impl/integrate.clj", "permuting?"),
     ("src/vaelii/impl/integrate.clj", "recanonicalizing-subject"),
@@ -1621,7 +1619,7 @@ E17_ROSTER = {
     ("src/vaelii/impl/inherit.clj", "separation-test"),
     ("src/vaelii/impl/inherit.clj", "stated-claims"),
     ("src/vaelii/impl/recheck.clj", "cross-argument-predicate?"),
-    ("src/vaelii/impl/rules.clj", "closed-extent-antecedents"),
+    ("src/vaelii/impl/rules.clj", "closed-extent-declared?"),
     ("src/vaelii/impl/special.clj", "licensing-functors"),
     ("src/vaelii/impl/special.clj", "transitive-seeds"),
     ("src/vaelii/impl/special.clj", "transitive-rule-seeds"),
