@@ -4236,8 +4236,9 @@
                                                        (integrate/mark-witness kb pred))]
                                        (integrate/fold-row-home! kb planner sx w))))))
                       hs)
-        rows    (into (sorted-set) (filter #(p/get-sentex recs %)) (concat hs split folded))]
-    (-> split (into folded) (into (mapcat #(ensure-respellings! kb planner %)) rows))))
+        rows    (into (sorted-set) (filter #(p/get-sentex recs %))
+                      (concat hs split (map :at folded)))]
+    (-> split (into (mapcat :new) folded) (into (mapcat #(ensure-respellings! kb planner %)) rows))))
 
 (defn reconcile-spellings!
   "Bring the stored rows of every predicate in `preds` — the ones whose permuting marks
@@ -4379,7 +4380,7 @@
                                                                  kb sx home witness
                                                                  #(binding [nat/*withheld* (or w #{})]
                                                                     (nat/respelled kb %)))))
-                                                at          (or h' h)]
+                                                at          (or (:at h') h)]
                                             (cond-> (sync-respellings!
                                                      kb at
                                                      (into {}
@@ -4391,7 +4392,7 @@
                                                                              (sort (mapcat (fn [g] (tax/prop-supporters tax :reifiable g))
                                                                                            (remove w2 (reified-fns kb s)))))]]))
                                                            r))
-                                              h' (conj h')))))))
+                                              h' (into (:new h'))))))))
                                    (map :id (nm/sort-by-content-key #(vector (sx/sentence-of %) (:context %))
                                                                     (nat/respell-region kb f)))))))
                         (sort fns)))]

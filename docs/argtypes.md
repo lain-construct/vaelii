@@ -618,9 +618,13 @@ subsumes what it did. The release is therefore a function of the store: a KB reb
 of the five ways a subsumption ends.
 
 One arrival re-derives too. A record takes the justification of everything that entails
-it, so a record that is not a mint coming IN while a believed record subsumes it — an
-author's `(animal Fred)` beside `(dog Fred)` — has the facts naming `Fred` re-derive that
-one sentence, and each whose mint of it was withheld adds its justification.
+it, so a record a premise or a rule firing holds up coming IN while a believed record
+subsumes it — an author's `(animal Fred)` beside `(dog Fred)` — has the facts naming
+`Fred` re-derive that one sentence, and each whose mint of it was withheld adds its
+justification. The record qualifies whether or not a mint justification already concludes
+it: a firing in the same write can mint onto the record before the settle reads it, and
+the order that stores the record first draws every mint onto it
+(`argtype_entail_test/a-record-a-rule-concludes-takes-the-withheld-mints-in-every-order`).
 
 The KB **answers** the same either way: `isa?`, matching and the definitional checks all
 read the taxonomy, which reaches `animal` from `dog` with or without a record in between.

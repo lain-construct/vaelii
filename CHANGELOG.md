@@ -33,6 +33,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix**.
 
+- **A late `symmetric` mark, and a record a rule concludes beside a withheld mint, leave
+  the argument-type justifications of the other arrival order.** A mark arriving after
+  its facts kept the mints drawn over each row's former spelling, so a mint named the
+  declaration of the other position, and folding two rule-concluded spellings left
+  justifications naming a handle with no record. A record a rule concluded, onto which a
+  firing of the same write had minted, did not take the mints withheld before it arrived.
+  A text export reloaded in content order then held other justifications than the KB
+  loaded in authored order ([#173](https://github.com/vaelii/vaelii/issues/173)).
+  [canonicalization.md](docs/canonicalization.md#a-mark-arriving-after-the-facts-migrates-them),
+  [argtypes.md](docs/argtypes.md#pruning-what-the-kb-says-more-specifically--vaelii_prune_subsumed_mints-on).
+
+  *Class:* **Fix**.
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |
