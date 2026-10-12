@@ -142,6 +142,7 @@
     [unreifiable_function              [:integrate :disintegrate :rebuild :wff]       :unreifiable               true]
     [quoting_function                  [:integrate :disintegrate :rebuild :wff]       :quoting                   true]
     [contextArgSubrelation            [:wff]                                         nil                        false]
+    [contextArgGenlCx                 [:wff]                                         nil                        false]
     [functionCorrespondingPredicate   [:wff]                                         nil                        false]
     [equals                           [:integrate :disintegrate :rebuild :wff]       nil                        false]
     [rewriteOf                        [:integrate :disintegrate :rebuild :wff]       nil                        false]
