@@ -135,6 +135,17 @@
 (arg contains 1 temporal)
 (arg contains 2 temporal)
 
+;; The time dimension of a context: (CxTimeFn ?base ?interval) in a context slot reifies
+;; to a cx/ context, and two applications differing only in ?interval are ordered by
+;; subintervalOf, so a day context sees its month and a month its year with nobody
+;; stating the edge.  ?base names the theory the time is read against and confers no
+;; visibility: a genlCx edge on the context places it below that theory.
+(comment CxTimeFn
+         "(CxTimeFn ?base ?interval) means the context of what holds during ?interval, read against the context ?base. A context function: its application in a sentex's context slot is a context, and of two applications identical but for ?interval the one whose ?interval is a subintervalOf the other's sees the other, so a fact stated for a month is visible from each of its days. The application does not see ?base by being named after it; a genlCx edge places it. See docs/context-nat.md.")
+(binary_function CxTimeFn)
+(result CxTimeFn context)
+(contextArgSubrelation CxTimeFn 2 subintervalOf)
+
 (comment DatetimeFn
          "(DatetimeFn ?iso) means the interval a reduced-precision ISO 8601 string names, so (DatetimeFn \"2000\") is the year 2000, (DatetimeFn \"2000-01\") its January and (DatetimeFn \"2000-01-15T13\") one hour of its fifteenth day, down to the second. A time_interval, like YearFn, MonthFn and DayFn. An unreifiable_function application: it stays structural, so the string is readable inside the term and a reader can see which intervals contain which. (DatetimeFn \"2000-01\") and (MonthFn 2000 1) name the same interval and order against each other. See docs/context-nat.md and docs/time.md.")
 (unreifiable_function DatetimeFn)
