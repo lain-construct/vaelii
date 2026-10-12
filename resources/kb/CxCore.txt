@@ -1952,6 +1952,9 @@
 (binary_predicate typedSpec)
 (arg typedSpec 1 predicate)
 (arg typedSpec 2 predicate)
+;; genl is on the forced-monotonic roster, and a rule concludes a roster literal only from
+;; roster antecedents, so typedSpec is on the roster too, as typeOrthogonal's classifiers are.
+(forced_monotonic_predicate typedSpec)
 (set/forwardRule (implies (typedSpec ?genl ?spec) (genl ?spec ?genl)))
 (termsRelated genl typedSpec)
 
