@@ -164,6 +164,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive** (shipped ontology content).
 
+- **`biological` and `hollow` are orthogonal.** A pitcher plant and a lab-grown bladder
+  are biological and hollow, a cup is hollow and not biological, and a leaf is
+  biological and not hollow. CxAbstract states `(orthogonal biological hollow)` beside
+  `hollow`'s orthogonals to `organism` and `body_part`, since an `orthogonal` is not
+  inherited along `genl`. `subsumption-status` reads the pair `:orthogonal`.
+  `ontology_test` pins the declaration and a hollow body part as no clash.
+
+  *Class:* **Additive** (shipped ontology content).
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |
