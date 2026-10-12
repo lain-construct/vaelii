@@ -3,7 +3,8 @@
 (ns vaelii.geography-test
   "The geography tracer: CxNow and CxGeographyNow, spatiallyPartitionedByType (a region
   partitioned by a type's instances), the open neighbour relation bordersOn and its
-  country spec countryBordersOn, and whereabouts in CxTimeFn time contexts.
+  country spec countryBordersOn, whereabouts in CxTimeFn time contexts, and the polity
+  that governs a country's territory.
 
   Every question is answered three ways and each test names the one it expects: true
   (the sentence is proved), false (its negation is proved) and unknown (neither is).
@@ -272,3 +273,28 @@
     (is (= :false (verdict kb '(countryBordersOn Canada Mexico) CxBorderAudit)))
     (is (= :unknown (verdict kb '(bordersOn Canada Mexico) CxBorderAudit)))
     (is (= :unknown (verdict kb '(externallyConnected Canada Mexico) CxBorderAudit)))))
+
+;; ---- polities and the territory they govern -------------------------------------
+;; A country is the region; a polity is the body that governs it and acts, signing
+;; treaties and levying taxes.  A polity is an organization and so an agent, aspatial; a
+;; country is spatiotemporal; so the two are disjoint and neither is the other.
+
+(tu/deftest-kb a-polity-is-an-organization-and-so-an-agent-and-no-country
+  (is (genl? kb 'polity 'organization GEO))
+  (is (genl? kb 'polity 'agent GEO))
+  (is (not (genl? kb 'country 'organization GEO)) "a country stays a region")
+  (is (boolean (v/disjoint? kb 'polity 'country GEO))
+      "an organization is aspatial and a country spatiotemporal")
+  (is (not (sees? kb 'CxUniverse GEO)) "opt-in, as the rest of the geography is"))
+
+(tu/deftest-kb territory-of-relates-a-polity-to-the-region-it-governs
+  (is (= :true (verdict kb '(binary_predicate territoryOf) GEO)))
+  (is (= :true (verdict kb '(arg territoryOf 1 polity) GEO)))
+  (is (= :true (verdict kb '(arg territoryOf 2 spatial) GEO)))
+  (tu/with-terms [Ardenmark ArdenmarkRealm]
+    (assert-all! kb GEO [(list 'country Ardenmark)
+                         (list 'polity ArdenmarkRealm)
+                         (list 'territoryOf ArdenmarkRealm Ardenmark)])
+    (is (= [] (v/check kb (list 'territoryOf ArdenmarkRealm Ardenmark) GEO))
+        "a polity governs a country with no conviction")
+    (is (= :true (verdict kb (list 'agent ArdenmarkRealm) GEO)))))

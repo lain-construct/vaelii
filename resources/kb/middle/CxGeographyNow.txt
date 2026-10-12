@@ -8,6 +8,12 @@
 ;; partOfRegion, as a region does: locatedIn relates two tangibles, and a country is
 ;; intangible.
 ;;
+;; A country is a region, not a body that acts.  The body that governs it, signs its
+;; treaties and levies its taxes is a polity, an organization and so an agent, related to
+;; the region by territoryOf.  An organization is aspatial and a country spatiotemporal,
+;; so no country is a polity: a country made an organization would be empty.  What a
+;; country is said to do, its polity does.
+;;
 ;; Ships as schema: the vocabulary and the rules below. The regions, borders and
 ;; partitions themselves are contingent facts and are stated by whoever reads the
 ;; geography.
@@ -39,6 +45,18 @@
 (arg countryBordersOn 2 country)
 (genl countryBordersOn bordersOn)
 (typedSpec bordersOn countryBordersOn)
+
+;; ---- the polity that governs a region -------------------------------------------
+(comment polity
+         "The governing body of a country or other region: the organization that acts for it, signs its treaties and levies its taxes. An agent and aspatial, as every organization is, so a polity is never the region it governs; territoryOf relates the two.")
+(genl polity organization)
+
+(comment territoryOf
+         "(territoryOf ?polity ?region) means that ?polity governs the region ?region, e.g. a kingdom's polity and the country that is its territory. The region is spatial, as partOfRegion's regions are; the polity is an organization with no location of its own.")
+(binary_predicate territoryOf)
+(set/monotonic (instance_relation_predicate territoryOf))
+(arg territoryOf 1 polity)
+(arg territoryOf 2 spatial)
 
 ;; ---- a whole region and the type whose instances partition it -------------------
 ;; The region counterpart of CxCore's partitionedByType.  partitionedByType relates a type
