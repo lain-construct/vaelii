@@ -48,6 +48,14 @@
 (arg owns 1 person)
 (arg owns 2 tangible)
 
+(comment soleLeaderOf
+         "(soleLeaderOf ?agent ?organization) means that ?agent alone leads ?organization: a monarch and the polity they reign over, a founder who runs a company alone. Declared functional in its first argument, so two different leaders of one organization read in one context collide; one agent may lead several organizations. A standing state with no time argument, like marriedTo: a succession is stated in two time contexts that do not see each other, the old leader in one and the new in the next. The leader is an agent, so an organization may lead another; a body led jointly has no sole leader.")
+(binary_predicate soleLeaderOf)
+(set/monotonic (instance_relation_predicate soleLeaderOf))
+(arg soleLeaderOf 1 agent)
+(arg soleLeaderOf 2 organization)
+(functionalInArg soleLeaderOf 1)
+
 (comment speaks
          "(speaks ?person ?language) means that ?person speaks ?language. Says nothing about fluency and nothing about which language they speak best, and a person may speak several.")
 (binary_predicate speaks)

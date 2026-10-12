@@ -3,8 +3,8 @@
 (ns vaelii.geography-test
   "The geography tracer: CxNow and CxGeographyNow, spatiallyPartitionedByType (a region
   partitioned by a type's instances), the open neighbour relation bordersOn and its
-  country spec countryBordersOn, whereabouts in CxTimeFn time contexts, and the polity
-  that governs a country's territory.
+  country spec countryBordersOn, whereabouts in CxTimeFn time contexts, the polity
+  that governs a country's territory, and the sole leader of an organization.
 
   Every question is answered three ways and each test names the one it expects: true
   (the sentence is proved), false (its negation is proved) and unknown (neither is).
@@ -298,3 +298,88 @@
     (is (= [] (v/check kb (list 'territoryOf ArdenmarkRealm Ardenmark) GEO))
         "a polity governs a country with no conviction")
     (is (= :true (verdict kb (list 'agent ArdenmarkRealm) GEO)))))
+
+;; ---- the sole leader of an organization -------------------------------------------
+;; (functionalInArg soleLeaderOf 1): one organization has at most one sole leader where
+;; one context reads both, and one agent may lead several.  The leader is read per
+;; context, so a succession stated in two time contexts that do not see each other is no
+;; collision.
+
+(defn- clashes-naming
+  "The contradictions whose nogood holds the handle of any of `sentences` in `ctx`."
+  [kb ctx sentences]
+  (let [hs (set (keep #(v/handle-of kb % ctx) sentences))]
+    (filter #(some hs (:nogood %)) (v/contradictions kb))))
+
+(tu/deftest-kb sole-leader-of-is-declared-functional-in-its-leader
+  (is (= :true (verdict kb '(binary_predicate soleLeaderOf) GEO)))
+  (is (= :true (verdict kb '(arg soleLeaderOf 1 agent) GEO)))
+  (is (= :true (verdict kb '(arg soleLeaderOf 2 organization) GEO)))
+  (is (= :true (verdict kb '(functionalInArg soleLeaderOf 1) GEO)))
+  (is (= :true (verdict kb '(functionalInArg soleLeaderOf 1) 'CxUniverse))
+      "declared in CxSociety, so every context reads it"))
+
+(tu/deftest-kb two-sole-leaders-of-one-polity-in-one-context-collide
+  (tu/with-terms [Ardenmark Brannoc Ottoline Guild CxCourt]
+    (under! kb GEO CxCourt)
+    (let [a (list 'soleLeaderOf Brannoc Ardenmark)
+          b (list 'soleLeaderOf Ottoline Ardenmark)]
+      (assert-all! kb CxCourt [(list 'polity Ardenmark) (list 'organization Guild)
+                               (list 'human Brannoc) (list 'human Ottoline)
+                               a (list 'soleLeaderOf Brannoc Guild)])
+      (testing "one agent may lead two organizations"
+        (is (empty? (clashes-naming kb CxCourt [a (list 'soleLeaderOf Brannoc Guild)]))))
+      (v/assert kb b CxCourt)
+      (testing "two leaders of one organization are a nogood, not a merge"
+        (let [hs #{(v/handle-of kb a CxCourt) (v/handle-of kb b CxCourt)}]
+          (is (some #(= hs (set (:nogood %))) (v/contradictions kb))))
+        (is (= :unknown (verdict kb (list 'equals Brannoc Ottoline) CxCourt))
+            "neither fact is monotonic, so no equality is concluded")))))
+
+(defn- in-year
+  [iso]
+  (list 'CxTimeFn GEO (list 'DatetimeFn iso)))
+
+(tu/deftest-kb a-succession-stated-in-two-years-is-no-collision
+  (tu/with-terms [Ardenmark Brannoc Ottoline]
+    (v/assert kb (list 'polity Ardenmark) GEO)
+    (let [old (list 'soleLeaderOf Brannoc Ardenmark)
+          new (list 'soleLeaderOf Ottoline Ardenmark)]
+      (state! kb old "2025")
+      (state! kb new "2026")
+      (is (= :true (verdict kb old (in-year "2025"))))
+      (is (= :true (verdict kb new (in-year "2026"))))
+      (is (= :unknown (verdict kb new (in-year "2025"))))
+      (is (= :unknown (verdict kb old (in-year "2026"))))
+      (is (empty? (concat (clashes-naming kb (in-year "2025") [old])
+                          (clashes-naming kb (in-year "2026") [new])))
+          "sibling years see neither each other's leader nor a collision"))))
+
+(tu/deftest-kb the-king-is-dead-long-live-the-king
+  ;; Two neighbouring days with a different sole leader each.  A day sees its month and
+  ;; not its sibling, so each day reads its own leader and nothing about the other's, and
+  ;; the month, which sees neither day, reads no leader at all.
+  (tu/with-terms [Ardenmark Brannoc Ottoline]
+    (v/assert kb (list 'polity Ardenmark) GEO)
+    (let [old  (list 'soleLeaderOf Brannoc Ardenmark)
+          new  (list 'soleLeaderOf Ottoline Ardenmark)
+          d11  (state! kb old "2026-10-11")
+          d12  (state! kb new "2026-10-12")
+          oct  (state! kb (list 'human Brannoc) "2026-10")]
+      (testing "each day answers its own leader"
+        (is (= :true (verdict kb old (at "2026-10-11"))))
+        (is (= :true (verdict kb new (at "2026-10-12")))))
+      (testing "and the other day's leader is unknown, not false"
+        (is (= :unknown (verdict kb new (at "2026-10-11"))))
+        (is (= :unknown (verdict kb old (at "2026-10-12")))))
+      (testing "a day sees its month and the month sees neither day"
+        (is (sees? kb d11 oct))
+        (is (sees? kb d12 oct))
+        (is (not (sees? kb oct d11)))
+        (is (not (sees? kb oct d12)))
+        (is (not (sees? kb d11 d12)))
+        (is (= :unknown (verdict kb old (at "2026-10"))))
+        (is (= :unknown (verdict kb new (at "2026-10")))))
+      (is (empty? (concat (clashes-naming kb (at "2026-10-11") [old])
+                          (clashes-naming kb (at "2026-10-12") [new])))
+          "no collision anywhere, the month included"))))
