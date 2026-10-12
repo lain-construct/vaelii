@@ -2776,7 +2776,8 @@
 (defn- rederive-mints
   "Draw again the mints of each stored fact in `facts` that `keep?` accepts, as
   `deduce-placed` draws them for the fact arriving now: `{:new [handle …]}`.
-  `keep?` takes the minted sentence and its placement.
+  `keep?` takes the minted sentence and its placement.  An inert fact (`assert-inert`) is
+  no TMS datum and draws no mint.
 
   A mint already stored with this justification adds nothing (`has-justification?`), one
   a believed record still subsumes is withheld again, and the rest are written — so the
@@ -2784,7 +2785,8 @@
   each was reported when the fact arrived, and a re-derivation exposes nothing new."
   [kb facts keep?]
   (reduce (fn [acc sx]
-            (if-not (and (nil? (:antecedent sx)) (not (sx/negative? sx)))
+            (if-not (and (nil? (:antecedent sx)) (not (sx/negative? sx))
+                         (jtms/known-datum? (reasoning/tms kb) (:id sx)))
               acc
               (update acc :new into
                       (:new (deduce-placed kb (:sentence sx) (:id sx) (:context sx)

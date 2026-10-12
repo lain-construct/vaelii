@@ -13,6 +13,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ## Unreleased
 
+- **A mint is not drawn again from an inert sentex.** After a retraction released an
+  argument-type mint, the mint was justified again on an inert sentex (`assert-inert`,
+  `(set/inert S)`) that would draw it, which is no TMS datum. Under the reference TMS the
+  next retraction beneath that mint threw `ClassCastException`.
+  [argtypes.md](docs/argtypes.md#pruning-what-the-kb-says-more-specifically--vaelii_prune_subsumed_mints-on).
+
+  *Class:* **Fix**.
+
 - **`lein uberjar` builds on a filesystem with a 255-byte file name limit.** AOT
   compilation of `vaelii.impl.taxonomy` threw `File name too long` on ext4, btrfs and
   APFS, so the uberjar and the container image did not build. The longest class file
