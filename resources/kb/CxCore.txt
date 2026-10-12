@@ -304,9 +304,7 @@
 (genl language linguistic)
 ;; An organization has no location in any space; its members and its buildings have one.
 (genl organization aspatial)
-;; A person is not necessarily a massed body: a sentient construct can be a person with
-;; no commitment either way on tangible or intangible.
-(genl person thing)
+;; person, animal and organization reach agent by the edges below causal's partition.
 ;; A time is uninterrupted or intermittent, and an uninterrupted time is a moment or a
 ;; stretch, never both: an instant has no extent.  CxAbstract comments the five types and
 ;; places time under acausal; these edges, the partitions and the intersections sit here
@@ -2127,3 +2125,18 @@
 (set/monotonic (partition thing causal acausal))
 (genl causal temporal)
 (genl atemporal acausal)
+;; An agent is what can act: what can intentionally initiate an event, and so fill
+;; performedBy's doer position, which CxAbstract types agent.  doneBy's doer is untyped,
+;; since a rock can do an event and is no agent.  agent is commented and placed here, below
+;; causal alone, because its specs are commented in two spindle members that do not see
+;; each other, person and animal in CxOrganism and organization in CxAbstract, and the
+;; declaration over it is in CxAbstract; each reaches it through the head.  It has no
+;; spatial parent: a human is spatial and an organization is aspatial.  It reaches temporal
+;; through causal.
+(comment agent "Something that can act: it can intentionally initiate an event, as the doer of a performedBy. A person, an animal or an organization. A rock can bring an event about and is no agent; doneBy, not performedBy, relates it to the event. Spatial or not: a human has a location and an organization has none.")
+(genl agent causal)
+;; A person is not necessarily a massed body: a sentient construct can be a person with
+;; no commitment either way on tangible or intangible.  agent is its tightest parent.
+(genl person agent)
+(genl animal agent)
+(genl organization agent)

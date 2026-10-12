@@ -175,7 +175,7 @@
 (genl penguin bird)
 (set/monotonic (folk_species penguin))
 
-(comment person "An entity with social agency — a human, or any other agent that stands in social relations. Broader than human: a non-biological agent (a sentient construct) can be a person without being a mammal or an animal, which is what lets the social predicates (friendOf, knows, marriedTo, …) constrain their arguments to person and still admit it. A physical entity — an agent has a location and can act — but not, by itself, a living thing.")
+(comment person "An entity with social agency — a human, or any other agent that stands in social relations. Broader than human: a non-biological agent (a sentient construct) can be a person without being a mammal or an animal, which is what lets the social predicates (friendOf, knows, marriedTo, …) constrain their arguments to person and still admit it. An agent, since it can act, but not, by itself, a living thing, and not by itself a physical one: CxCore places it below agent alone.")
 
 (comment plant "An organism that photosynthesizes; disjoint from animal.")
 ;; typeGenl requires its target to be a first-order type: (interArg typeGenl 1 metatype 2 type).

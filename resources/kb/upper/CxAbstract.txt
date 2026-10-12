@@ -224,8 +224,8 @@
 (genl atemporal acausal)
 
 ;; A body of people can be a cause too: a company hires; a court rules. organization
-;; is aspatial, and nothing separates aspatial from causal.
-(genl organization causal)
+;; is aspatial, and nothing separates aspatial from causal.  It reaches causal through
+;; CxCore's (genl organization agent), its tightest parent.
 
 ;; --- causal_event / acausal_event: events by whether they can cause ------------
 ;; defined via intersection (CxCore); its rules derive the genls and membership.
@@ -245,16 +245,17 @@
 
 ;; --- doneBy / performedBy: an event's doer -----------------------------------
 (comment doneBy
-         "(doneBy ?event ?doer) means that ?doer brought about ?event, intentionally or not. The doer can be any thing — a person, an animal, a machine, a process — so the second position declares no type: agent names a registered participant rather than something that can act, and no type below thing covers every doer. performedBy is the intentional case.")
+         "(doneBy ?event ?doer) means that ?doer brought about ?event, intentionally or not. The doer can be any thing — a person, an animal, a machine, a process, a rock — so the second position declares no type. performedBy is the intentional case, and its doer is an agent: something that can act.")
 (binary_predicate doneBy)
 (set/monotonic (instance_relation_predicate doneBy))
 (arg doneBy 1 event)
 
 (comment performedBy
-         "(performedBy ?event ?doer) means that ?doer intentionally initiated ?event. Specializes doneBy through a genl edge, so every performing is a doing and a doing is not concluded a performing.")
+         "(performedBy ?event ?agent) means that ?agent intentionally initiated ?event. Specializes doneBy through a genl edge, so every performing is a doing and a doing is not concluded a performing. The doer is an agent, which only something that can act is: a person, an animal, an organization.")
 (binary_predicate performedBy)
 (set/monotonic (instance_relation_predicate performedBy))
 (arg performedBy 1 event)
+(arg performedBy 2 agent)
 (genl performedBy doneBy)
 
 ;; --- input / output: what went into an event and what it left behind -----------

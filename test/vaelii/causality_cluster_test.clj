@@ -195,20 +195,72 @@
     (is (v/ask? kb (list 'causal 'Acme) 'CxUniverse)
         "an organization reads causal")))
 
+;; ---- agent: what can act ---------------------------------------------------
+;; An agent can intentionally initiate an event, so it is what fills performedBy's doer
+;; slot.  A person, an animal and an organization are agents; a rock can do an event and
+;; is no agent.  agent sits below causal alone: a human is spatial and an organization
+;; aspatial, so no spatial parent covers both.
+
+(tu/deftest-kb an-agent-is-a-causal-thing-and-person-animal-and-organization-are-agents
+  (doseq [ctx '[CxCore CxUniverse]]
+    (testing (str ctx)
+      (is (true? (v/genl? kb 'agent 'causal ctx)))
+      (is (true? (v/genl? kb 'agent 'temporal ctx)) "through causal")
+      (doseq [t '[person animal organization]]
+        (is (true? (v/genl? kb t 'agent ctx)) (str t " genl agent")))
+      (is (not (v/genl? kb 'agent 'spatial ctx)) "no spatial parent")
+      (is (not (v/genl? kb 'agent 'aspatial ctx)) "and no aspatial one")))
+  (is (true? (v/genl? kb 'human 'agent 'CxUniverse)) "a human, through person and animal")
+  (testing "agent is person's one direct parent: the edge to thing is gone"
+    (is (= #{'agent} (v/direct-genls kb 'person 'CxCore)))
+    (is (empty? (v/sentexes-matching kb '(genl person thing) '?ctx)))))
+
 ;; ---- doneBy / performedBy: an event's doer --------------------------------
 ;; performedBy specializes doneBy through a predicate genl edge, so every performing is a
-;; doing and not the other way round.  The doer position declares no type: a machine or
-;; a process can bring an event about as well as a person can.
+;; doing and not the other way round.  doneBy's doer position declares no type: a machine
+;; or a process can bring an event about as well as a person can.  performedBy's doer
+;; intentionally initiated the event, so it is an agent.
 
 (tu/deftest-kb done-by-and-performed-by-are-declared-binary-instance-relations
   (doseq [p '[doneBy performedBy]]
     (testing (str p)
       (is (v/ask? kb (list 'binary_predicate p) 'CxUniverse))
       (is (v/ask? kb (list 'instance_relation_predicate p) 'CxUniverse))
-      (is (v/ask? kb (list 'arg p 1 'event) 'CxUniverse) "the first position is the event")
-      (is (empty? (v/sentexes-matching kb (list 'arg p 2 '?t) '?ctx)) "and the doer position declares no type")))
+      (is (v/ask? kb (list 'arg p 1 'event) 'CxUniverse) "the first position is the event")))
+  (is (empty? (v/sentexes-matching kb '(arg doneBy 2 ?t) '?ctx))
+      "doneBy's doer position declares no type")
+  (is (= ['(arg performedBy 2 agent)]
+         (map :sentence (v/sentexes-matching kb '(arg performedBy 2 ?t) '?ctx)))
+      "performedBy's doer is an agent")
   (is (v/ask? kb '(genl performedBy doneBy) 'CxUniverse)
       "performedBy specializes doneBy"))
+
+(tu/deftest-kb a-rock-can-do-an-event-and-performing-one-makes-it-an-agent
+  ;; Nothing the starter ships separates a rock from agent, so performedBy's
+  ;; declaration, read as an entailment (the shipped reading), mints (agent Boulder)
+  ;; rather than refusing the fact.  A rock the KB holds is no agent is a clash.
+  (tu/with-entailing
+   (tu/with-terms [Rockfall Boulder Landslide Scree]
+     (v/assert kb (list 'event Rockfall) 'CxUniverse)
+     (v/assert kb (list 'event Landslide) 'CxUniverse)
+     (v/assert kb (list 'formation Boulder) 'CxUniverse)
+     (v/assert kb (list 'formation Scree) 'CxUniverse)
+     (testing "doneBy admits a rock and types it nothing"
+       (v/assert kb (list 'doneBy Rockfall Boulder) 'CxUniverse)
+       (is (v/ask? kb (list 'doneBy Rockfall Boulder) 'CxUniverse))
+       (is (not (v/ask? kb (list 'agent Boulder) 'CxUniverse)))
+       (is (empty? (v/contradictions kb))))
+     (testing "a rock held to be no agent cannot perform an event"
+       (v/assert kb (list 'not (list 'agent Scree)) 'CxUniverse)
+       (v/assert kb (list 'performedBy Landslide Scree) 'CxUniverse)
+       (let [fact (v/handle-of kb (list 'performedBy Landslide Scree) 'CxUniverse)
+             neg  (v/handle-of kb (list 'not (list 'agent Scree)) 'CxUniverse)]
+         (is (some #(contains? (:nogood %) neg) (v/contradictions kb))
+             "the agent the declaration concludes clashes with the stated negation")
+         (is (some? fact))))
+     (testing "a rock nothing separates from agent is concluded one"
+       (v/assert kb (list 'performedBy Rockfall Boulder) 'CxUniverse)
+       (is (v/ask? kb (list 'agent Boulder) 'CxUniverse))))))
 
 (tu/deftest-kb every-performing-is-a-doing
   (tu/with-terms [Launch Operator Spill Pump]

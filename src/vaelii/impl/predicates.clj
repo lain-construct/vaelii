@@ -1207,6 +1207,7 @@
            [uninterrupted "ontology, not grammar: something temporal present at every moment between its start and its end, one side of the partition of temporal. CxCore holds it so every spindle member can place a kind under it; no engine check names it."]
            [intermittent "ontology, not grammar: something temporal with a gap between its start and its end, the other side of the partition of temporal. CxCore holds it so every spindle member can place a kind under it; no engine check names it."]
            [nowhere_never "ontology, not grammar: in no space and at no time, below aspatial and atemporal and the whole that logical, linguistic and quantitative are separated under; no engine check names it."]
+           [agent "ontology, not grammar: something that can act, below causal and above person, animal and organization. CxCore holds it so CxOrganism's and CxAbstract's kinds reach it and CxAbstract can type performedBy's doer with it; no engine check names it."]
            [type "ontology, not grammar: a first-order type, on the metatype-order ladder. No engine check names it — typeGenl, which reads the ladder, is inert."]
            [metatype "ontology, not grammar: a second-order type, on the metatype-order ladder. No engine check names it."]
            [meta_metatype "ontology, not grammar: a third-order type, on the metatype-order ladder. No engine check names it."]

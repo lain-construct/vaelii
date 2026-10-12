@@ -207,7 +207,6 @@
     '[seeAlso 1]            "a cross-referenced term"
     '[seeAlso 2]            "a cross-referenced term"
     '[doneBy 2]             "an event's doer: a person, an animal, a machine or a process"
-    '[performedBy 2]        "an event's doer: a person, an animal, a machine or a process"
     '[perceives 1]          "a perceiver, whose types CxCore cannot see"
     '[sees 1]               "a perceiver, whose types CxCore cannot see"
     '[seeImage 1]           "a perceiver, whose types CxCore cannot see"
