@@ -4,8 +4,9 @@
 ;;
 ;; A sentence stated here holds now and carries no temporal qualification. A context
 ;; about a time when what holds now need not have held is not placed below CxNow. A time
-;; context, a (CxTimeFn …) application, sees only what a genlCx edge places above it and
-;; the coarser time contexts CxTime orders it below, so two sibling times see neither
-;; each other nor each other's facts.
+;; context, a (CxTimeFn ?base …) application, sees its ?base and the coarser time contexts
+;; CxTime orders it below, so two sibling times see neither each other nor each other's
+;; facts, and a time whose base is CxNow sees CxNow: a time when what holds now need not
+;; have held takes another base.
 
 (genlCx CxNow CxRealWorld)

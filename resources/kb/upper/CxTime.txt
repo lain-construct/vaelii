@@ -136,14 +136,14 @@
 (arg contains 2 temporal)
 
 ;; The time dimension of a context: (CxTimeFn ?base ?interval) in a context slot reifies
-;; to a cx/ context, and two applications differing only in ?interval are ordered by
-;; subintervalOf, so a day context sees its month and a month its year with nobody
-;; stating the edge.  ?base names the theory the time is read against and confers no
-;; visibility: a genlCx edge on the context places it below that theory.
+;; to a cx/ context that sees ?base, and two applications differing only in ?interval are
+;; ordered by subintervalOf, so a day context sees its month, a month its year, and each
+;; its base with nobody stating the edge.
 (comment CxTimeFn
-         "(CxTimeFn ?base ?interval) means the context of what holds during ?interval, read against the context ?base. A context function: its application in a sentex's context slot is a context, and of two applications identical but for ?interval the one whose ?interval is a subintervalOf the other's sees the other, so a fact stated for a month is visible from each of its days. The application does not see ?base by being named after it; a genlCx edge places it. See docs/context-nat.md.")
+         "(CxTimeFn ?base ?interval) means the context of what holds during ?interval, read against the context ?base. A context function: its application in a sentex's context slot is a context that sees ?base, so a fact stated in ?base is visible during ?interval; and of two applications identical but for ?interval the one whose ?interval is a subintervalOf the other's sees the other, so a fact stated for a month is visible from each of its days. A ?base that is not a context places the application below nothing. See docs/context-nat.md.")
 (binary_function CxTimeFn)
 (result CxTimeFn context)
+(contextArgGenlCx CxTimeFn 1)
 (contextArgSubrelation CxTimeFn 2 subintervalOf)
 
 (comment DatetimeFn

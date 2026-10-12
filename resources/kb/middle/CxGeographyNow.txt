@@ -1,11 +1,12 @@
 ;; CxGeographyNow — present-day political geography: which regions are countries, which
 ;; regions are parts of which, and which countries border which. Sees CxNow, so its
 ;; facts hold now and carry no temporal qualification. A human's whereabouts are stated
-;; in a time context, (CxTimeFn CxGeographyNow (DatetimeFn …)), placed below
-;; CxGeographyNow by a genlCx edge. CxTime orders the time contexts by subintervalOf, so
-;; a day sees its month and a month its year, and two sibling months see neither each
-;; other nor each other's whereabouts. A human relates to a region by partOfRegion, as a
-;; region does: locatedIn relates two tangibles, and a country is intangible.
+;; in a time context, (CxTimeFn CxGeographyNow (DatetimeFn …)), which CxTime places
+;; below CxGeographyNow with no genlCx edge stated. CxTime orders the time contexts by
+;; subintervalOf, so a day sees its month and a month its year, and two sibling months see
+;; neither each other nor each other's whereabouts. A human relates to a region by
+;; partOfRegion, as a region does: locatedIn relates two tangibles, and a country is
+;; intangible.
 ;;
 ;; Ships as schema: the vocabulary and the rules below. The regions, borders and
 ;; partitions themselves are contingent facts and are stated by whoever reads the
