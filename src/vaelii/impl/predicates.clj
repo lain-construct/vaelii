@@ -712,6 +712,38 @@
                 (str "taxonomy prop :closed-extent — ClosedExtentProver answers (not (P …))"
                      " from the absence of a positive, and a closed negative rule antecedent"
                      " under the grant is negation as failure"))]
+     ['closedExtentForArg
+      (enforced (assoc (prop :closed-extent-arg :facets #{:answers :retriggers}
+                             :notes (str "closed_extent_predicate narrowed to the goals whose"
+                                         " argument n is v. The prop marks P alone, as the"
+                                         " gate; the position and value are read back from"
+                                         " the believed grants visible to the asker."))
+                       :shape {:args [:predicate :position :term]})
+                (str "taxonomy prop :closed-extent-arg — ClosedExtentProver answers a ground"
+                     " (not (P …)) whose argument n is v from the absence of a positive, and"
+                     " a closed negative rule antecedent under the grant is negation as"
+                     " failure"))]
+     ['closedExtentForArg1
+      (enforced {:shape {:args [:predicate :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "the binary spelling of (closedExtentForArg ?p 1 ?v). A CxCore"
+                             " forward rule derives the ternary, and the prover reads only the"
+                             " ternary.")}
+                (str "the CxCore forward rule deriving (closedExtentForArg P 1 V), and"
+                     " checks/check-closed-extent-stratified, which refuses the spelling where"
+                     " the ternary would be refused"))]
+     ['closedExtentForArg2
+      (enforced {:shape {:args [:predicate :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the binary spelling of (closedExtentForArg ?p 2 ?v) — see closedExtentForArg1."}
+                (str "the CxCore forward rule deriving (closedExtentForArg P 2 V); see"
+                     " closedExtentForArg1"))]
+     ['closedExtentForArg3
+      (enforced {:shape {:args [:predicate :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the binary spelling of (closedExtentForArg ?p 3 ?v) — see closedExtentForArg1."}
+                (str "the CxCore forward rule deriving (closedExtentForArg P 3 V); see"
+                     " closedExtentForArg1"))]
      ['modal_predicate (enforced (prop :modal)
                                  (str "taxonomy prop :modal — the gate BeliefProjectionProver reads to decide"
                                       " which predicates project their sentence into the agent's context"))]
