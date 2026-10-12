@@ -200,6 +200,13 @@
 ;; happening, and the intersections defining uninterrupted_situation, static_situation and
 ;; event.
 
+(comment spatial_event "An event located in some space: a battle, a smelting, a sawing, a footprint's step. An institutional change, such as a contract expiring, is an event located nowhere and is not a spatial event.")
+(intersection spatial_event event spatial)
+;; A spatial event is in some space and, as an event, in time, so it is spatiotemporal.
+;; spatiotemporal is below spatial and temporal by genl edges and is no intersection, so
+;; nothing derives the edge, and it is stated.
+(genl spatial_event spatiotemporal)
+
 ;; --- causal / acausal: whether a thing can occupy a cause slot -----------------
 (comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. A cause is in time, so causal is below temporal. One side of the causal/acausal division of thing.")
 

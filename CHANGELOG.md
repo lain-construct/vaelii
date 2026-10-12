@@ -133,6 +133,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive** (shipped ontology content).
 
+- **`spatial_event` is an event located in some space.** CxAbstract defines
+  `(intersection spatial_event event spatial)` and states
+  `(genl spatial_event spatiotemporal)`, so a battle or a smelting stated an event and
+  spatial reads `spatial_event` and `spatiotemporal`, and a contract expiring at midnight
+  stays an event that is no spatial event. `ontology_test` pins the edges and the
+  membership.
+
+  *Class:* **Additive**.
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |

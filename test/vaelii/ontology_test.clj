@@ -1188,6 +1188,18 @@
       "and the edge is not stated")
   (located-or-not kb '[[event spatial Waterloo1] [event aspatial ContractExpiry1]]))
 
+(tu/deftest-kb a-spatial-event-is-an-event-located-in-some-space
+  (is (seq (v/sentexes-matching kb '(comment spatial_event ?text) 'CxAbstract)))
+  (doseq [t '[event spatial spatiotemporal temporal situation]]
+    (is (true? (v/genl? kb 'spatial_event t 'CxAbstract)) (str "spatial_event genl " t)))
+  (tu/with-terms [Smelting1 Waterloo1]
+    (v/assert kb (list 'spatial_event Smelting1) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'spatiotemporal Smelting1) 'CxUniverse)))
+    (v/assert kb (list 'event Waterloo1) 'CxUniverse)
+    (v/assert kb (list 'spatial Waterloo1) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'spatial_event Waterloo1) 'CxUniverse))
+        "an event located in some space is a spatial event")))
+
 (def ^:private aspatial-kinds
   "The kinds with no location in any space, each with the contexts that read it as
   aspatial.  `context` and `language` are read from two band contexts besides CxCore,
