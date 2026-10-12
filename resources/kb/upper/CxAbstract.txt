@@ -297,6 +297,7 @@
 (arg tangibleOutput 1 event)
 (arg tangibleOutput 2 tangible)
 (genl tangibleOutput output)
+(typedSpec output tangibleOutput)
 
 (comment intangibleOutput
          "(intangibleOutput ?event ?thing) means that ?thing is an intangible output of ?event: a file from a program run, a receipt from a tool call, a recorded measurement from an observation.")
@@ -305,6 +306,7 @@
 (arg intangibleOutput 1 event)
 (arg intangibleOutput 2 intangible)
 (genl intangibleOutput output)
+(typedSpec output intangibleOutput)
 
 ;; A tangible output of an intentionally initiated event is made.  Growth is never
 ;; intentionally initiated, so a calf is not made by its mother.

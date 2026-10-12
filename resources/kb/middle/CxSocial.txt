@@ -112,6 +112,7 @@
 (arg dwellsIn 1 human)
 (arg dwellsIn 2 dwelling)
 (genl dwellsIn livesIn)
+(typedSpec livesIn dwellsIn)
 
 (set/forwardRule
   (implies (and (dwellsIn ?x ?d) (dwellsIn ?y ?d) (different ?x ?y))

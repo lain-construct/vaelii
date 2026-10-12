@@ -37,6 +37,7 @@
 (arg countryBordersOn 1 country)
 (arg countryBordersOn 2 country)
 (genl countryBordersOn bordersOn)
+(typedSpec bordersOn countryBordersOn)
 
 ;; ---- a whole region and the type whose instances partition it -------------------
 ;; The region counterpart of CxCore's partitionedByType.  partitionedByType relates a type
