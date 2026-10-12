@@ -4,7 +4,8 @@
   "The geography tracer: CxNow and CxGeographyNow, spatiallyPartitionedByType (a region
   partitioned by a type's instances), the open neighbour relation bordersOn and its
   country spec countryBordersOn, whereabouts in CxTimeFn time contexts, the polity
-  that governs a country's territory, and the sole leader of an organization.
+  that governs a country's territory, the sole leader of an organization, and a head of
+  state who acts for the polity from exile.
 
   Every question is answered three ways and each test names the one it expects: true
   (the sentence is proved), false (its negation is proved) and unknown (neither is).
@@ -383,3 +384,49 @@
       (is (empty? (concat (clashes-naming kb (at "2026-10-11") [old])
                           (clashes-naming kb (at "2026-10-12") [new])))
           "no collision anywhere, the month included"))))
+
+;; ---- a head of state in exile ------------------------------------------------------
+;; Brannoc leads the polity of Ardenmark from Valdria, a region discrete from Ardenmark,
+;; and signs a treaty there.  The signing is stated as two performings, one by Brannoc
+;; and one by the polity: each is an agent, so each can intentionally initiate it.
+
+(tu/deftest-kb brannoc-signs-a-treaty-for-ardenmark-from-exile
+  (tu/with-terms [Ardenmark ArdenmarkRealm Valdria Brannoc TreatyOfCinders
+                  Cairnstone Rockfall Scree Landslide CxExile]
+    (under! kb GEO CxExile)
+    (assert-all! kb CxExile
+                 [(list 'country Ardenmark)
+                  (list 'polity ArdenmarkRealm)
+                  (list 'territoryOf ArdenmarkRealm Ardenmark)
+                  (list 'regionDiscreteFrom Valdria Ardenmark)
+                  (list 'human Brannoc)
+                  (list 'soleLeaderOf Brannoc ArdenmarkRealm)
+                  (list 'partOfRegion Brannoc Valdria)
+                  (list 'event TreatyOfCinders)
+                  (list 'performedBy TreatyOfCinders Brannoc)
+                  (list 'performedBy TreatyOfCinders ArdenmarkRealm)])
+    (testing "the head of state is not in the territory: Valdria is discrete from it"
+      (is (= :false (verdict kb (list 'partOfRegion Brannoc Ardenmark) CxExile))))
+    (testing "the treaty is performed by Brannoc and by the polity"
+      (is (= :true (verdict kb (list 'performedBy TreatyOfCinders Brannoc) CxExile)))
+      (is (= :true (verdict kb (list 'performedBy TreatyOfCinders ArdenmarkRealm) CxExile)))
+      (is (= :true (verdict kb (list 'doneBy TreatyOfCinders ArdenmarkRealm) CxExile))))
+    (testing "the polity is an agent"
+      (is (= :true (verdict kb (list 'agent ArdenmarkRealm) CxExile))))
+    (testing "the region is not concluded an agent, nor concluded not one"
+      ;; A country is spatiotemporal and intangible, and nothing separates either from
+      ;; causal or agent: a polity is disjoint from a country, but agent is not.  So the
+      ;; KB leaves the question open rather than proving Ardenmark no agent.
+      (is (= :unknown (verdict kb (list 'agent Ardenmark) CxExile))))
+    (testing "no collision among the facts"
+      (is (empty? (v/contradictions kb))))
+    (testing "a rock can do an event, and a rock held to be no agent cannot perform one"
+      (assert-all! kb CxExile [(list 'formation Cairnstone) (list 'formation Scree)
+                               (list 'event Rockfall) (list 'event Landslide)
+                               (list 'doneBy Rockfall Cairnstone)])
+      (is (= :true (verdict kb (list 'doneBy Rockfall Cairnstone) CxExile)))
+      (is (empty? (v/contradictions kb)) "doneBy is accepted")
+      (v/assert kb (list 'not (list 'agent Scree)) CxExile)
+      (v/assert kb (list 'performedBy Landslide Scree) CxExile)
+      (is (seq (clashes-naming kb CxExile [(list 'not (list 'agent Scree))]))
+          "performedBy's declaration concludes an agent the negation refutes"))))
