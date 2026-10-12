@@ -13,9 +13,10 @@
   The geography facts are a tracer subset of North America, stated in CxGeographyNow per
   test.  Two states and the District stand in for the instances of the classifier whose
   instances partition the fifty states and DC.  A human's whereabouts are stated in a
-  (CxTimeFn CxGeographyNow (DatetimeFn …)) context.  The year context is placed below
-  CxGeographyNow by a genlCx edge and CxTime orders each month below its year and each day
-  below its month, so a sibling month sees the geography and not the whereabouts."
+  (CxTimeFn CxGeographyNow (DatetimeFn …)) context.  CxTime declares that a time context
+  sees its base, so each one sees CxGeographyNow with no genlCx edge stated, and orders
+  each month below its year and each day below its month, so a sibling month sees the
+  geography and not the whereabouts."
   (:require [clojure.test :refer [is testing use-fixtures]]
             [vaelii.core :as v]
             [vaelii.impl.space :as space]
@@ -59,15 +60,6 @@
   "Assert `s` in the time context of `iso` and return the context's `cx/` constant."
   [kb s iso]
   (:context (v/sentex kb (v/assert kb s (at iso)))))
-
-(defn- year-under-geography!
-  "State that `who` is a human in the year `year` and place that year's context below
-  CxGeographyNow.  The months and days CxTime orders below the year reach the geography
-  through it.  Returns the year context's `cx/` constant."
-  [kb year who]
-  (let [k (state! kb (list 'human who) year)]
-    (under! kb GEO k)
-    k))
 
 ;; Tracer subset of the United States: two states and the District are instances of the
 ;; classifier partitioning the fifty-states-and-DC region, and a territory is another
@@ -166,7 +158,7 @@
 ;; ---- whereabouts in time contexts -------------------------------------------------
 
 (tu/deftest-kb ottoline-in-canada-in-october-is-not-in-the-united-states-and-unknown-in-november
-  (let [_   (year-under-geography! kb "2026" 'Ottoline)
+  (let [_   (state! kb '(human Ottoline) "2026")
         oct (state! kb '(partOfRegion Ottoline Canada) "2026-10")
         nov (state! kb '(human Ottoline) "2026-11")]
     (assert-all! kb GEO country-facts)
@@ -183,7 +175,7 @@
       (is (not (sees? kb oct nov))))))
 
 (tu/deftest-kb ottoline-in-washington-in-october-is-not-in-california-and-unknown-in-november
-  (year-under-geography! kb "2026" 'Ottoline)
+  (state! kb '(human Ottoline) "2026")
   (assert-all! kb GEO us-facts)
   (state! kb '(partOfRegion Ottoline WashingtonState) "2026-10")
   (state! kb '(human Ottoline) "2026-11")
@@ -193,7 +185,7 @@
   (is (= :unknown (verdict kb '(partOfRegion Ottoline WashingtonState) (at "2026-11")))))
 
 (tu/deftest-kb ottoline-in-tacoma-in-october-is-not-in-seattle-and-unknown-in-november
-  (year-under-geography! kb "2026" 'Ottoline)
+  (state! kb '(human Ottoline) "2026")
   (assert-all! kb GEO us-facts)
   (assert-all! kb GEO city-facts)
   (state! kb '(partOfRegion Ottoline Tacoma) "2026-10")
@@ -205,7 +197,7 @@
   (is (= :unknown (verdict kb '(partOfRegion Ottoline Tacoma) (at "2026-11")))))
 
 (tu/deftest-kb whereabouts-stated-for-a-month-hold-on-each-of-its-days
-  (year-under-geography! kb "2026" 'Ottoline)
+  (state! kb '(human Ottoline) "2026")
   (assert-all! kb GEO country-facts)
   (let [oct    (state! kb '(partOfRegion Ottoline Canada) "2026-10")
         day    (state! kb '(human Ottoline) "2026-10-12")
@@ -225,6 +217,25 @@
         (state! kb (list 'partOfRegion Brannoc 'Canada) "2026-11-02")
         (is (= :unknown (verdict kb (list 'partOfRegion Brannoc 'Canada) (at "2026-11"))))
         (is (sees? kb nov-2 GEO))))))
+
+;; CxTime's (contextArgGenlCx CxTimeFn 1) places each time context below its base, so the
+;; geography reaches a day no edge was stated for and a time context of another base does
+;; not reach it.
+(tu/deftest-kb a-time-context-sees-the-geography-with-no-edge-stated
+  (tu/with-terms [CxElsewhere]
+    (under! kb 'CxUniverse CxElsewhere)
+    (assert-all! kb GEO country-facts)
+    (let [day   (state! kb '(human Ottoline) "2026-10-12")
+          other (:context (v/sentex kb (v/assert kb '(human Ottoline)
+                                                 (list 'CxTimeFn CxElsewhere
+                                                       '(DatetimeFn "2026-10-12")))))
+          edge  (v/handle-of kb (list 'genlCx day GEO) 'CxUniverse)]
+      (is (some? edge) "the day is placed below the geography")
+      (is (not (v/premise? kb edge)) "by an edge nobody stated")
+      (is (sees? kb day GEO))
+      (is (= :true (verdict kb '(country Canada) (at "2026-10-12"))))
+      (is (sees? kb other CxElsewhere))
+      (is (not (sees? kb other GEO)) "a time context of another base does not see the geography"))))
 
 ;; ---- borders and their completeness ---------------------------------------------
 
