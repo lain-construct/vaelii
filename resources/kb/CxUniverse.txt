@@ -7,12 +7,22 @@
 
 ;; --- cross-member disjointness (upper spindle) ---
 ;; organization and animal are separated by (partition thing tangible intangible) in
-;; CxCore: organization is intangible and animal is tangible.
+;; CxCore: organization is intangible and animal is tangible.  animal is also disjoint
+;; from four of CxAbstract's made kinds: an animal is never a building, a piece of
+;; clothing, a furniture or a machine.
+(set/monotonic (disjoint animal building))
+(set/monotonic (disjoint animal clothing))
+(set/monotonic (disjoint animal furniture))
+(set/monotonic (disjoint animal machine))
 ;; A bonsai or a grafted apple tree is a made plant (made is CxAbstract's, plant CxOrganism's).
 (orthogonal made plant)
 ;; A water level or a tap's rate is a quantity, and a quantity causes nothing; what changes
 ;; it does (quantity is CxMeasure's, acausal CxAbstract's).
 (genl quantity acausal)
+;; animal and vehicle are disjoint at the default strength rather than monotonic: a
+;; fiction below CxWell may except the default and hold a term that is both. CxRealWorld
+;; restates the same separation monotonic, so the real world can never hold the overlap.
+(disjoint animal vehicle)
 
 ;; --- the shipped contexts ---
 ;; Every genlCx edge is stored here, and (arg genlCx 1 context) and (arg genlCx 2 context)
@@ -30,6 +40,7 @@
 (context CxNormalPhysicalConditions)
 (context CxOrganism)
 (context CxPerception)
+(context CxRealWorld)
 (context CxReflection)
 (context CxSize)
 (context CxSocial)
