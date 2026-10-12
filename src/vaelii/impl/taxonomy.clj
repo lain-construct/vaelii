@@ -5600,6 +5600,19 @@
           rest* (requirement-choices (rest reqs))]
       (conj rest* c))))
 
+(defn- leg-witnesses
+  "Lazy seq of witness context sets, one per choice of a path for each `[from to]` leg in
+  `legs` and of a context per requirement: the path requirements accumulate onto `acc`,
+  followed by `extra`.  The legs recurse instead of nesting one `for` binding each: every
+  nested binding lengthens the AOT class file name, and eight of them pass the 255-byte
+  limit of ext4 and APFS."
+  [rel legs acc extra]
+  (if-let [[[from to] & more] (seq legs)]
+    (for [p (path-requirements rel from to #{})
+          w (leg-witnesses rel more (into acc p) extra)]
+      w)
+    (requirement-choices (into acc extra))))
+
 (defn disjointness-witnesses
   "Lazy seq of **witness context sets** for the provable disjointness of `a` and
   `b`: each is the supporting contexts of one complete derivation — a genl path
@@ -5631,10 +5644,7 @@
     (concat
      (for [x as, y bs
            :when (and (not= x y) (contains? pairs #{x y}))
-           :let  [d (req [:disjoint #{x y}])]
-           pa (path-requirements rel a x #{})
-           pb (path-requirements rel b y #{})
-           w  (requirement-choices (cond-> (into pa pb) d (conj d)))]
+           w (leg-witnesses rel [[a x] [b y]] [] (keep req [[:disjoint #{x y}]]))]
        w)
      (for [m (:disjoint-metatypes t)
            :let  [ms (get members m #{})]
@@ -5642,10 +5652,7 @@
            x as, y bs
            :when (and (not= x y) (contains? ms x) (contains? ms y)
                       (not (genl?-global tax x y)) (not (genl?-global tax y x)))  ; genl-related overlap, never disjoint
-           :let  [reqs (keep req [[:metatype m] [:member m x] [:member m y]])]
-           pa (path-requirements rel a x #{})
-           pb (path-requirements rel b y #{})
-           w  (requirement-choices (into (into pa pb) reqs))]
+           w (leg-witnesses rel [[a x] [b y]] [] (keep req [[:metatype m] [:member m x] [:member m y]]))]
        w)
      ;; the sibling-disjoint arm: `x` and `y` are non-genl-related proper specializations
      ;; of a marked parent `c`, so the derivation rests on the paths up to each separated
@@ -5656,12 +5663,7 @@
            :when (and (not= x y) (not= x c) (not= y c)
                       (genl?-global tax x c) (genl?-global tax y c)
                       (not (genl?-global tax x y)) (not (genl?-global tax y x)))
-           pa (path-requirements rel a x #{})
-           pb (path-requirements rel b y #{})
-           px (path-requirements rel x c #{})
-           py (path-requirements rel y c #{})
-           w  (requirement-choices
-               (cond-> (into (into (into pa pb) px) py) mreq (conj mreq)))]
+           w (leg-witnesses rel [[a x] [b y] [x c] [y c]] [] (when mreq [mreq]))]
        w)
      ;; the cover arm: `(partition W P1 P2 …)` and `(separating W P1 P2 …)` separate their
      ;; parts, so the roster reads the way a metatype's member set does and the derivation
@@ -5674,9 +5676,7 @@
            x as, y bs
            :when (and (not= x y) (contains? psx x) (contains? psx y)
                       (not (genl?-global tax x y)) (not (genl?-global tax y x)))
-           pa (path-requirements rel a x #{})
-           pb (path-requirements rel b y #{})
-           w  (requirement-choices (cond-> (into pa pb) creq (conj creq)))]
+           w (leg-witnesses rel [[a x] [b y]] [] (when creq [creq]))]
        w))))
 
 ;; ---- predicate properties -----------------------------------------------

@@ -864,9 +864,13 @@ own option and reaches both halves; on the query, `(exceptWhen (set/monotonic Q)
 is the exception's alone ([exceptions.md](exceptions.md)). `{:context C}` narrows to one file
 and `{:ancestor-set C}` to `C` plus every context it sees.
 
-**Premises only, and no handles.** A derived sentex is what the engine concluded, so
-writing it would store as a premise what the KB believes as a conclusion; chaining puts it
-back at load. A premise that names a sentex *by handle* — an `(except H)`, a
+**Premises and inert sentexes, and no handles.** A derived sentex is what the engine
+concluded, so writing it would store as a premise what the KB believes as a conclusion;
+chaining puts it back at load. An inert sentex is written `(set/inert S)`, which
+`load-text!` stores through `assert-inert` ([kbs.md](kbs.md#text-you-exported-yourself)).
+Over a KB whose belief is not built, an inert sentex and a derived one read alike, so the
+export refuses `:unrecovered-kb` when the store holds a sentex that is neither a premise
+nor a TMS node. A premise that names a sentex *by handle* — an `(except H)`, a
 `target_following_predicate` meta — has no text form at all and is counted in `:skipped`:
 the number is a fact about this store. For those, and for handle identity in general, the
 entry point is `export!`.

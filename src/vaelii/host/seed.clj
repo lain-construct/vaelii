@@ -11,7 +11,7 @@
   sentence carrying an `implies` / `set/*Rule` / `exceptWhen` wrapper.
 
   **The format itself — reader and writer both — is `vaelii.impl.io.text`**, which is
-  where its one non-sentence spelling lives (`(set/monotonic S)`, the known-true class)
+  where its two non-sentence spellings live (`(set/monotonic S)` and `(set/inert S)`)
   and what `vaelii.core/export-text!` writes.  What is here is the *classpath* side: the
   shallow tree under `resources/kb/` and how a layer's files are discovered in it.
 
@@ -147,6 +147,7 @@
   fatal; `text/load-entries!` says why, and what a clean list pays."
   [kb sentences context]
   (text/load-entries! (fn [sentence ctx o] (v/assert kb sentence ctx (or o {})))
+                      (fn [sentence ctx] (v/assert-inert kb sentence ctx))
                       (mapv #(vector % context) sentences))
   kb)
 

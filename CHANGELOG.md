@@ -11,6 +11,110 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+- **A mint is not drawn again from an inert sentex.** After a retraction released an
+  argument-type mint, the mint was justified again on an inert sentex (`assert-inert`,
+  `(set/inert S)`) that would draw it, which is no TMS datum. Under the reference TMS the
+  next retraction beneath that mint threw `ClassCastException`.
+  [argtypes.md](docs/argtypes.md#pruning-what-the-kb-says-more-specifically--vaelii_prune_subsumed_mints-on).
+
+  *Class:* **Fix**.
+
+- **`lein uberjar` builds on a filesystem with a 255-byte file name limit.** AOT
+  compilation of `vaelii.impl.taxonomy` threw `File name too long` on ext4, btrfs and
+  APFS, so the uberjar and the container image did not build. The longest class file
+  name the build writes is now 191 bytes
+  ([#179](https://github.com/vaelii/vaelii/issues/179)).
+  [operations.md](docs/operations.md#container--the-daemon-as-an-image).
+
+  *Class:* **Fix**.
+
+- **A query naming a stored quoted form's variable answers instead of overflowing the
+  stack.** Asking `(awesome_rule (Quote (implies (poodle ?x) (dog ?x))))` with the stored
+  spelling threw `StackOverflowError`, and the `?y` spelling answered true by binding `?y`
+  to the quoted `?x`. A `(Quote …)` form is now a constant to matching: the stored
+  spelling answers true, another spelling or a ground instance answers false, and a query
+  variable named like a quoted one is not bound by it
+  ([#167](https://github.com/vaelii/vaelii/issues/167)).
+  [inference.md](docs/inference.md#quoted-forms-in-unification).
+
+  *Class:* **Fix**.
+
+- **`(bravely S)` and `(cautiously S)` read the sentexes of `S` and the dilemmas the asking
+  context sees.** `S` stored in a context the asker inherits answered false to both, and the
+  classification read every dilemma of the KB, so a context that reads no dilemma answered
+  `(cautiously S)` false for a sentence it believes. The prover now reads the sentexes of
+  `S` in the asker's `genlCx` ancestor set that it believes and sees, and classifies them
+  against the dilemmas `contradictions` reports to that context
+  ([#154](https://github.com/vaelii/vaelii/issues/154)).
+  [labeling.md](docs/labeling.md#reading-bravecautious-without-committing-bravely-s--cautiously-s).
+
+  *Class:* **Fix**.
+
+- **A late `symmetric` mark, and a record a rule concludes beside a withheld mint, leave
+  the argument-type justifications of the other arrival order.** A mark arriving after
+  its facts kept the mints drawn over each row's former spelling, so a mint named the
+  declaration of the other position, and folding two rule-concluded spellings left
+  justifications naming a handle with no record. A record a rule concluded, onto which a
+  firing of the same write had minted, did not take the mints withheld before it arrived.
+  A text export reloaded in content order then held other justifications than the KB
+  loaded in authored order ([#173](https://github.com/vaelii/vaelii/issues/173)).
+  [canonicalization.md](docs/canonicalization.md#a-mark-arriving-after-the-facts-migrates-them),
+  [argtypes.md](docs/argtypes.md#pruning-what-the-kb-says-more-specifically--vaelii_prune_subsumed_mints-on).
+
+  *Class:* **Fix**.
+
+- **A text KB spells an inert sentex `(set/inert S)`.** `load-text!` and the shipped
+  ontology's loader store `S` through `assert-inert`: stored, indexed and durable, never
+  believed, chained or named in a clash. A rule under the wrapper is refused
+  `:not-indexable`, as `assert-inert` refuses one, and `(set/inertRule R)` stays the form
+  for a believed rule that fires in neither direction. `(set/inert …)` and
+  `(set/monotonic …)` nested in either order are refused `:shape`. `export-text!` writes
+  every inert sentex, a solve's labeling and classification contexts among them, under the
+  wrapper, and refuses `:unrecovered-kb` over a KB whose belief is not built when the store
+  holds a sentex that is neither a premise nor a TMS node
+  ([#178](https://github.com/vaelii/vaelii/issues/178)).
+  [kbs.md](docs/kbs.md#text-you-exported-yourself).
+
+  *Class:* **Additive**.
+
+### Breaking
+
+- **`time` and `situation` each gain a broad parent, and causation is tied to time.**
+  `(partition temporal uninterrupted intermittent)` divides what is in time by whether it
+  has a gap. The old `time` is renamed `uninterrupted_time`, and `time_point` and
+  `time_interval` partition it. A new `time` is partitioned into `uninterrupted_time` and
+  `intermittent_time`, each the intersection of `time` with one side. The old
+  `situation`'s partition into `static_situation` and `event` moves to
+  `uninterrupted_situation`, the intersection of `uninterrupted` and `situation`. The
+  broad `situation` is partitioned into `fluent` and the new `happening`;
+  `static_situation` is the intersection of `uninterrupted` and `fluent`, and `event` the
+  intersection of `uninterrupted` and `happening`. `causes`' effect, `(disjoint time
+  situation)` and `(orthogonal situation spatial)` name the broad `situation`;
+  `(orthogonal uninterrupted_situation spatial)`, `(orthogonal situation spatiotemporal)` and
+  `(orthogonal happening spatial)` are stated too, and `(disjoint tangible situation)`
+  holds: a situation is located in its region, not made of the matter in it. A tangible
+  is `uninterrupted` by default. `(partition thing causal
+  acausal)` and `(genl causal temporal)` move to CxCore, beside `(genl atemporal acausal)`.
+  `initiates` and `terminates` take a `causal` first argument. A rule in CxUniverse
+  concludes `(instantNotAfter (StartFn ?cause) (StartFn ?effect))` from `(causes ?cause
+  ?effect)`. `(genl fluent aspatial)` is dropped, since a held state can have a place.
+  `quantity` is below `temporal` and `acausal` and disjoint from `situation`. CxTime adds
+  `TimeOfFn`, the time a temporal thing occupies, with its corresponding predicate
+  `timeOf`, and a rule making every time its own time.
+  [taxonomy.md](docs/taxonomy.md#the-three-partitions-of-thing),
+  [time.md](docs/time.md#the-time-a-thing-occupies).
+
+  *Class:* **Breaking** (`time_point` and `time_interval` no longer cover `time`, and a
+  `situation` denied being an `event` is no longer concluded a `static_situation`).
+  *Migration:* write `uninterrupted_time` where a KB relied on `time` being a moment or a
+  stretch, and `uninterrupted_situation` where it relied on a `situation` being static or
+  an event. A KB that states `(fluent X)` beside `(spatial X)` stores both. An effect
+  stated to start before its cause is a qualitative inconsistency once the point
+  reasoner is registered.
+  *Breaks:* `time`, `situation`, `fluent`, `initiates`, `terminates`, `causes`
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |

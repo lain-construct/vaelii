@@ -333,7 +333,9 @@
   (let [l (java.util.ArrayList. ^java.util.Collection (vec (starter-entries)))]
     (java.util.Collections/shuffle l (java.util.Random. (long seed)))
     (v/with-deferred-settle kb
-      (text/load-entries! (fn [s c o] (v/assert kb s c (or o {}))) (vec l)))
+      (text/load-entries! (fn [s c o] (v/assert kb s c (or o {})))
+                          (fn [s c] (v/assert-inert kb s c))
+                          (vec l)))
     (v/with-deferred-settle kb
       (doseq [t (nm/by-print-key (v/specs kb 'thing))]
         (v/assert kb (list 'unary_predicate t) 'CxCore)))

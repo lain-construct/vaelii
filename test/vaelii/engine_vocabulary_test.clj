@@ -46,7 +46,7 @@
 (tu/deftest-kb every-wrapper-the-engine-peels-is-commented-and-classified
   (doseq [w '[set/forwardRule set/backwardRule set/defaultRule set/inertRule
               set/forwardOnlyRule set/solveRule set/assumptionRule
-              set/hardConstraint set/softConstraint set/monotonic]]
+              set/hardConstraint set/softConstraint set/monotonic set/inert]]
     (is (:enforced (v/interpreted w)) (str w " is classified enforced"))))
 
 ;; ---- the signed integer types ----------------------------------------------

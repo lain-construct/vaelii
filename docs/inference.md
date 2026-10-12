@@ -2071,6 +2071,28 @@ arbitrary predicate and its whole argument list. No rule in the shipped ontology
 one; `decontextualized_predicate`'s lift, which ranges over every argument list, is
 implemented in code rather than as a rule (see [contexts.md](contexts.md)).
 
+## Quoted forms in unification
+
+`unify` reads a `(Quote X)` form (`sx/quote-form?`) as a constant, the reading `sx/closed?`
+gives it ([argtypes.md](argtypes.md#what-a-quoted-form-is)). A quoted form unifies with a
+variable or with an equal form, and a variable inside it binds nothing. A stored
+`(awesome_rule (Quote (implies (poodle ?x) (dog ?x))))` answers that spelling only: the
+canonical form stores the `?y` spelling and the `Muffet` instance as two other sentexes,
+and neither query matches it. `substitute` returns a quoted form whole, the occurs check
+does not look inside one, and the literal cache's renaming leaves one as written. A query
+variable that shares a name with a quoted variable is therefore never bound to it.
+`unify-args` unifies two argument lists, in which the list `(Quote X)` is the symbol
+`Quote` followed by X; a caller holding `(rest literal)` calls it instead of `unify`.
+
+`Quasiquote` is not read as a constant, because a firing binds its `Unquote` holes
+(`vaelii.impl.quasiquote`). A stored rule's `?var0 ?var1 …` numbering
+(`sx/canonicalize-rule`) renames the variables inside a quoted form as well as outside
+it, so a quoted variable in a rule matches under its `?varN` spelling and not under the
+author's.
+
+`quote_test/a-quoted-variable-matches-only-the-same-quoted-variable` and
+`resolution_test/a-quoted-form-is-a-constant-to-unify-and-substitute` pin these.
+
 ## The pluggable prover engine (`vaelii.impl.provers`, `ask`)
 
 `ask` answers a goal through a registry of **provers**. Each prover declares:

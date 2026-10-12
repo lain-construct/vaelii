@@ -4240,6 +4240,35 @@
                         (v/ask? kb '(bravely (pb_pacifist PbX0)) 'CxPerf)
                         (v/ask? kb '(cautiously (pb_pacifist PbX0)) 'CxPerf))))))))
 
+(defn- cautious-ask-beside-unseen-dilemmas
+  "`(cautiously S)` asked of one side of the Nixon diamond a reader `CxPcR` holds, beside n
+  diamonds placed in `CxPcSide`, which it does not see, each ask after a write so the
+  classification is rebuilt.  The classification reads the dilemmas `CxPcR` reads
+  (`clashes/contradictions-at`), so it reads none of the n.  The solve-free path, forced
+  by hiding the backend, as `brave-ask-between-writes` forces it.  The diamonds are built
+  under one deferred settle."
+  [n]
+  (with-redefs [solver/available? (constantly false)]
+    (let [kb   (fresh-kb)
+          M    {:strength :monotonic}
+          rule (fn [ante conseq]
+                 (list 'set/defaultRule
+                       (list 'set/forwardRule (rules/rule-sentence [ante] conseq))))]
+      (v/add-reasoner kb :brave-cautious)
+      (v/assert kb '(genlCx CxPcR CxUniverse) 'CxUniverse M)
+      (v/assert kb '(genlCx CxPcSide CxUniverse) 'CxUniverse M)
+      (v/assert kb (rule '(pc_quaker ?x) '(pc_pacifist ?x)) 'CxUniverse)
+      (v/assert kb (rule '(pc_republican ?x) '(not (pc_pacifist ?x))) 'CxUniverse)
+      (v/with-deferred-settle kb
+        (v/assert kb '(pc_quaker PcR) 'CxPcR)
+        (v/assert kb '(pc_republican PcR) 'CxPcR)
+        (doseq [i (range n) :let [x (symbol (str "PcX" i))]]
+          (v/assert kb (list 'pc_quaker x) 'CxPcSide)
+          (v/assert kb (list 'pc_republican x) 'CxPcSide)))
+      (doall (for [i (range 60)]
+               (do (v/assert kb (list 'pc_mark (symbol (str "PcW" i))) 'CxPerf)
+                   (nanos (v/ask? kb '(cautiously (pc_pacifist PcR)) 'CxPcR))))))))
+
 (defn- sibling-disjoint-new-spec
   "A `sibling_disjoint` clique of n specializations, then sixty more added one at a time,
   member first: each new type already holds an instance (which also holds a type outside
@@ -6605,6 +6634,15 @@
     :sizes     [100 1000]
     :max-ratio 3.0
     :run       brave-ask-between-writes}
+
+   ;; Healthy 0.23x under `--only`.  A classification over every dilemma of the KB reads
+   ;; 11.19x (4.55 ms against 50.97).
+   {:name      :cautious-ask-beside-unseen-dilemmas
+    :group     :clashes
+    :claim     "16x the dilemmas standing outside a reader's ancestor set costs under 2x per cautious ask there after a write"
+    :sizes     [64 1024]
+    :max-ratio 2.0
+    :run       cautious-ask-beside-unseen-dilemmas}
 
    ;; Healthy 0.84x and 0.98x.  Reading the parent's spec closure per edge reads 3.11x
    ;; (0.60 ms against 1.86); the separation is narrower than the others' because the

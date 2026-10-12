@@ -651,13 +651,6 @@
   (prof/record-read :mint)
   (p/family-handles index :mint [term] p/every-context))
 
-(defn stored-mint?
-  "Is record `h` filed as a mint about `term` in context `c`?  One membership test."
-  [index term c h]
-  (read-at! c)
-  (prof/record-read :mint)
-  (boolean (p/family-member? index :mint [term c] h)))
-
 (defn as-stored-mint-contexts-global
   "The contexts some filed mint is stored in, as a set."
   [index]

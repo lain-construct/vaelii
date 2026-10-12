@@ -61,7 +61,7 @@ lein lint    # glossary, versions, doc links, doc drift, conflict markers, clj-k
              # checks, run in three concurrent lanes
 lein fix     # reformats in place; cljfmt is the only auto-repairable check
 lein gate    # lint alongside the suite — the check before you push
-lein release-gate  # ...and the perf claims, before a tag or a perf-sensitive land
+lein release-gate  # ...and the uberjar and the perf claims, before a tag or a perf-sensitive land
 ```
 
 **`lein gate` is the one to run before opening a pull request.** It runs two stages
@@ -76,7 +76,9 @@ warning (a restricted native call, a `sun.misc.Unsafe` caller, a deprecated `-XX
 or lein's leaked `$CLASSPATH` — so a dependency or a JDK that brings one in goes red here.
 **Perf is opt-in**: `lein release-gate` adds the scaling claims before a tag or a
 perf-sensitive land, `--perf` adds them without the release framing, and a fast gate
-that lands a hot-path change without them prints "perf owed". A gate at `:default` that
+that lands a hot-path change without them prints "perf owed". `lein release-gate` also
+runs an `uberjar` stage, which AOT-compiles every namespace into the standalone jar and
+loads `vaelii.core` from it. A gate at `:default` that
 lands an index, TMS or inference change prints "slow owed" (§5).
 `--fail-fast`, `--only <stage>`, `--skip <stage>`, `--quick`, `--all`, and
 `PERF_TOLERANCE` on a loaded machine.

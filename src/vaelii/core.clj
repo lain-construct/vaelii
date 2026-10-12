@@ -8037,32 +8037,36 @@
 ;; inverse changed with a flag would be two entry points wearing one name.
 
 (defn export-text!
-  "Write `kb`'s premises as a **text KB** — one `<Context>.txt` per context, in exactly
-  the format the shipped ontology is authored in and `load-text!` reads — and return a
-  summary:
+  "Write `kb`'s premises and inert sentexes as a **text KB** — one `<Context>.txt` per
+  context, in exactly the format the shipped ontology is authored in and `load-text!`
+  reads — and return a summary:
 
       {:contexts n :sentences n :skipped n :files [\"CxCore.txt\" …]
        :bytes n :elapsed-ms n :dir \"…\"}
 
   `opts` narrows what is written: `{:context C}` for that one context's file, `{:ancestor-set C}`
   for `C` and every context it **sees** — the slice a reload needs for `C`'s own content
-  to mean what it meant.  Neither, and every context holding a premise is written.  A key
-  this fn does not read is refused (`:unknown-option`), since a misspelt narrowing writes
-  the whole KB under a summary that looks right.  `dir` must be absent or empty.
+  to mean what it meant.  Neither, and every context holding a premise or an inert sentex
+  is written.  A key this fn does not read is refused (`:unknown-option`), since a
+  misspelt narrowing writes the whole KB under a summary that looks right.  `dir` must be
+  absent or empty.
 
-  **Premises only.**  A derived sentex is what the engine concluded, so writing it would
+  **No derived sentex.**  A derived sentex is what the engine concluded, so writing it would
   store as a premise what the KB believes as a conclusion, and the reload would hold it
   against the retraction of everything it followed from.  Chaining puts it back, which is
   the point.  Each premise keeps its `:strength` — `:monotonic` as a `(set/monotonic S)`
   wrapper, `:default` as nothing, the entry point's own fallback — and each rule its
   `set/*Rule` / `set/defaultRule` wrappers and its `exceptWhen`, so a reload yields the
-  same canonical sentexes at the same strengths and the same beliefs.
+  same canonical sentexes at the same strengths and the same beliefs.  An inert sentex
+  (`assert-inert`) is written as `(set/inert S)`, which `load-text!` stores inert again.
+  Telling an inert sentex from a derived one reads the TMS, so a KB whose belief is not
+  built refuses the export (`:unrecovered-kb`) when it stores a sentex that is neither.
 
   **Content order, never handle order**, and no timestamp or writer in the text: two KBs
   holding the same knowledge write byte-identical files whatever order they were built in
   (docs/defenses.md).
 
-  `:skipped` counts the premises there is no text for — an `(except H)` or another meta
+  `:skipped` counts the records there is no text for — an `(except H)` or another meta
   naming a sentex **by handle**, which is a fact about this store and means something
   else, or nothing, in the KB that reads the file back.  For those, and for handle
   identity in general, the entry point is `export!`.
@@ -8086,10 +8090,10 @@
 
   Every form is asserted through the ordinary write path — same checks, same
   canonicalization, same chaining — so this is `assert` over a file rather than a restore,
-  and the KB it lands in need not be empty.  One form is not a sentence and is peeled
-  first: `(set/monotonic S)`, which asserts `S` known-true, since a strength is an option
-  on the assertion and has nowhere in an s-expression to go.  `:default` is written as
-  nothing, being the entry point's own fallback.
+  and the KB it lands in need not be empty.  Two forms are not sentences and are peeled
+  first: `(set/monotonic S)` asserts `S` known-true, and `(set/inert S)` stores `S`
+  through `assert-inert`, which refuses a rule.  `:default` is written as nothing, being
+  the entry point's own fallback.
 
   A whole directory is **one order-insensitive pass**: a form refused because content
   further down has not arrived yet is retried, since file names sort alphabetically and
@@ -8106,6 +8110,7 @@
   (let [t0 (System/nanoTime)
         {:keys [files entries path]} (text/entries source)
         n  (text/load-entries! (fn [sentence context o] (assert kb sentence context (or o {})))
+                               (fn [sentence context] (assert-inert kb sentence context))
                                entries)]
     {:contexts   (count (distinct (map second entries)))
      :sentences  n

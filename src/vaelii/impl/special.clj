@@ -2019,6 +2019,18 @@
   (when (some #(seq (checks/unmintable-named-types kb sentence %)) contexts)
     (note-pending! kb h {:mint true :fact true :gens (taxonomy-generations kb)} :mint)))
 
+(defn- below-entailments
+  "What the declarations `declarations-below` finds say about the fact `sentence` stored
+  at `handle` in `context`, as `[entailments placement]` pairs, one per placement
+  (`checks/declaration-entailments`)."
+  [kb sentence handle context]
+  (let [below (declarations-below kb sentence handle context)]
+    ;; every new fact passes here, so an `argArg` type not yet in the hierarchy is
+    ;; noted here, at the fact's context and at each placement below it
+    (note-unmintable-fact! kb sentence handle (into [context] (mapcat second) below))
+    (into [] (for [[dh pl] below, pctx pl]
+               [(checks/declaration-entailments kb sentence pctx dh handle) pctx]))))
+
 (defn deduce-below
   "Materialize what the declarations `declarations-below` finds say about the fact
   `sentence` stored at `handle` in `context`, at each of their placements:
@@ -2030,20 +2042,12 @@
   ([kb sentence handle context keep?]
    (if-not checks/*assertive-arg-types?*
      empty-entailment-result
-     (let [below (declarations-below kb sentence handle context)]
-       ;; every new fact passes here, so an `argArg` type not yet in the hierarchy is
-       ;; noted here, at the fact's context and at each placement below it
-       (note-unmintable-fact! kb sentence handle (into [context] (mapcat second) below))
-       (reduce (fn [acc [dh pl]]
-                 (reduce (fn [acc pctx]
-                           (let [es (checks/declaration-entailments kb sentence pctx dh handle)]
-                             (merge-with into acc
-                                         (deduce-arg-types
-                                          kb (cond->> es keep? (filterv #(keep? % pctx)))
-                                          handle pctx))))
-                         acc pl))
-               empty-entailment-result
-               below)))))
+     (reduce (fn [acc [es pctx]]
+               (merge-with into acc
+                           (deduce-arg-types kb (cond->> es keep? (filterv #(keep? % pctx)))
+                                             handle pctx)))
+             empty-entailment-result
+             (below-entailments kb sentence handle context)))))
 
 (defn- deduce-placed
   "Materialize every entailment of the stored literal fact `sentence` at `handle` in
@@ -2058,6 +2062,40 @@
                      keep? (filterv #(keep? % context)))
                 handle context)
                (deduce-below kb sentence handle context keep?))))
+
+(defn redraw-mints
+  "Draw the argument-type entailments of the stored literal fact at `h` over the spelling
+  it holds now, after a store mutation moved that spelling (`integrate/move-row!`):
+  `[drawn stale]`.  `drawn` is `deduce-placed`'s `{:new :violations}`.  `stale` holds the
+  ids of the mint justifications `h` triggers that this spelling does not draw, for the
+  caller to drop.  A declaration reads the argument at its own position, so a mint drawn
+  over the spelling the row held before can name the declaration of another position
+  (docs/canonicalization.md)."
+  [kb h]
+  (let [sx (p/get-sentex (:records kb) h)]
+    (if-not (and checks/*assertive-arg-types?* sx (nil? (:antecedent sx)) (not (sx/negative? sx)))
+      [empty-entailment-result []]
+      (let [s     (:sentence sx)
+            c     (:context sx)
+            drawn (deduce-placed kb s h c)
+            tms   (reasoning/tms kb)
+            owed  (into #{}
+                        (map (fn [e] [(:kind e) (into #{h} (:because e)) (:assert e)]))
+                        (concat (checks/constraint-entailments kb s c)
+                                (mapcat first (below-entailments kb s h c))))]
+        [drawn
+         (into []
+               (filter (fn [jid]
+                         (when (mint-informant? (:informant (jtms/justification tms jid)))
+                           ;; the record keeps the antecedents in the order written, the
+                           ;; trigger first; the network need not
+                           (let [recs (:records kb)
+                                 j    (p/get-justification recs jid)]
+                             (and j (= h (first (:antecedents j)))
+                                  (not (owed [(:informant j) (set (:antecedents j))
+                                              (some-> (p/get-sentex recs (:consequence j))
+                                                      sx/sentence-of)])))))))
+               (sort (jtms/dependents tms h)))]))))
 
 (defn- retroactive-mints
   "The entailments a newly stored declaration `dh` draws over one already-stored sentex
@@ -2738,7 +2776,8 @@
 (defn- rederive-mints
   "Draw again the mints of each stored fact in `facts` that `keep?` accepts, as
   `deduce-placed` draws them for the fact arriving now: `{:new [handle …]}`.
-  `keep?` takes the minted sentence and its placement.
+  `keep?` takes the minted sentence and its placement.  An inert fact (`assert-inert`) is
+  no TMS datum and draws no mint.
 
   A mint already stored with this justification adds nothing (`has-justification?`), one
   a believed record still subsumes is withheld again, and the rest are written — so the
@@ -2746,7 +2785,8 @@
   each was reported when the fact arrived, and a re-derivation exposes nothing new."
   [kb facts keep?]
   (reduce (fn [acc sx]
-            (if-not (and (nil? (:antecedent sx)) (not (sx/negative? sx)))
+            (if-not (and (nil? (:antecedent sx)) (not (sx/negative? sx))
+                         (jtms/known-datum? (reasoning/tms kb) (:id sx)))
               acc
               (update acc :new into
                       (:new (deduce-placed kb (:sentence sx) (:id sx) (:context sx)
@@ -2889,7 +2929,6 @@
   many passes relabel it.  The queue is drained whether or not the gates pass."
   [kb moved was-in asked withdrawn believed?]
   (let [queued (drain-departures! kb)
-        idx    (:index kb)
         mover? (fn [s] (and (subsumer-shaped? s) (not (context-edge-shaped? s))))]
     (when (and checks/*assertive-arg-types?* checks/*prune-subsumed-mints?* (any-declaring? kb))
       (let [;; the transition, not the region, as `subsumed-mint-blocks` reads it
@@ -2904,10 +2943,12 @@
             out   (-> []
                       (into (remove #(or (contains? withdrawn (:id %)) (not (mover? (:sentence %))))) queued)
                       (into (remove #(believed? (:id %))) moves))
+            ;; a record a mint justification already concludes still owes the withheld
+            ;; ones while a premise or a firing holds it up: in the order where the
+            ;; record arrives first, each of them is drawn onto it
             twins (filter #(let [s (:sentence %)]
                              (and (believed? (:id %))
-                                  (not (when-let [x (roster-term s)]
-                                         (reads/stored-mint? idx x (:context %) (:id %))))
+                                  (not (mint-only? kb (:id %)))
                                   (checks/subsumed-mint kb s (:context %))))
                           moves)
             terms (->> out

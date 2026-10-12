@@ -34,6 +34,7 @@
 ;; Each reader answers a boolean, so a failing `is` prints the question and not the KB.
 (defn- holds?     [s ctx] (boolean (v/ask? tu/*kb* s ctx)))
 (defn- cautious?  [s ctx] (boolean (v/ask? tu/*kb* (list 'cautiously s) ctx)))
+(defn- modal      [s ctx] [(boolean (v/ask? tu/*kb* (list 'bravely s) ctx)) (cautious? s ctx)])
 (defn- dilemma-at?
   "Does reader `ctx` see the pair of stored handles `hs` as a dilemma?"
   [hs ctx]
@@ -86,3 +87,34 @@
           (is (not (cautious? pos c)) (str "no cautious pacifism in " c))
           (is (not (cautious? neg c)) (str "no cautious denial in " c)))
         (is (empty? (v/conflicts kb)))))))
+
+(tu/deftest-kb brave-and-cautious-read-what-the-asking-context-sees
+  ;; `[bravely cautiously]` per reader.  `(pacifist Dick1)` is stored in the life and read
+  ;; in every stretch, its denial is stored in the term, and only the term reads the
+  ;; dilemma.  Both arrival orders of the two memberships.
+  (doseq [quaker-first? [true false]]
+    (tu/with-terms [quaker republican pacifist Dick1 CxLife CxYouth CxTerm CxRetirement]
+      (v/assert kb (list 'genlCx CxLife 'CxUniverse) 'CxUniverse)
+      (doseq [c [CxYouth CxTerm CxRetirement]]
+        (v/assert kb (list 'genlCx c CxLife) 'CxUniverse))
+      (v/assert kb (default-rule (list quaker '?x) (list pacifist '?x)) CxLife)
+      (v/assert kb (default-rule (list republican '?x) (list 'not (list pacifist '?x))) CxLife)
+      (let [pos   (list pacifist Dick1)
+            neg   (list 'not pos)
+            order (if quaker-first? "quaker first, " "republican first, ")
+            q!    #(v/assert kb (list quaker Dick1) CxLife)
+            r!    #(v/assert kb (list republican Dick1) CxTerm)]
+        (if quaker-first?
+          (do (q!)
+              (doseq [c [CxLife CxYouth CxTerm CxRetirement]]
+                (is (= [true true] (modal pos c)) (str order "one membership, pacifist in " c))))
+          (do (r!)
+              (is (= [true true] (modal neg CxTerm)) (str order "one membership, denial in the term"))
+              (doseq [c [CxLife CxYouth CxRetirement]]
+                (is (= [false false] (modal neg c)) (str order "one membership, no denial in " c)))))
+        (if quaker-first? (r!) (q!))
+        (doseq [c [CxLife CxYouth CxRetirement]]
+          (is (= [true true] (modal pos c)) (str order "pacifist in " c))
+          (is (= [false false] (modal neg c)) (str order "no denial in " c)))
+        (is (= [true false] (modal pos CxTerm)) (str order "pacifist in the term"))
+        (is (= [true false] (modal neg CxTerm)) (str order "denial in the term"))))))

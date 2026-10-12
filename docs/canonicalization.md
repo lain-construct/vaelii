@@ -103,21 +103,29 @@ which reports the fact twice rather than once.
 So the declaration migrates what is stored (`integrate/commute-existing`), which is the
 one retroactive arm that writes records rather than deriving content. A row with no mirror
 stored is **re-spelled where it lies** — same handle, same TMS node, same premise mark,
-same justifications, since for a re-canonicalization nothing resting on the row is about
-its spelling (`kb/respell-sentex!`, the store's third mutation beside `create-sentex` and
-`integrate/sentex-removed!`). A mirrored pair **folds into one row**: the redundant one
-hands over its premise mark, the justifications that conclude it, the justifications drawn
-through it and its handle-naming metas, and then leaves through the ordinary teardown.
+same justifications (`kb/respell-sentex!`, the store's third mutation beside
+`create-sentex` and `integrate/sentex-removed!`). A mirrored pair **folds into one row**:
+the redundant one hands over its premise mark, the justifications that conclude it, the
+justifications drawn through it and its handle-naming metas, and then leaves through the
+ordinary teardown.
 
 Which of a pair survives is decided from what supports it and only then from the handle.
 The row standing on nothing but its own premise is the one that goes, because
 `jtms/retract!` is exactly the sweep that takes it. A row a rule concluded leaves through
-`integrate/fold-supports!`, which re-hangs the justifications naming it as their
-consequence onto the survivor: nothing is deleted, the doomed row is left supporting
-nothing, and the same sweep collects it. Between two rows the fold has no other reason to
-separate — both bare premises, or both a rule's conclusion — the **lower handle**
-survives: it is the row the KB would be holding had the declaration come first, which is
-the claim being restored.
+`integrate/fold-supports!`, which copies the justifications naming it as their consequence
+onto the survivor. `integrate/take-out!` then drops the originals and retracts the row, so
+the row leaves the network with its record and no justification names a handle with no
+record. Between two rows the fold has no other reason to separate — both bare premises,
+or both a rule's conclusion — the **lower handle** survives: it is the row the KB would be
+holding had the declaration come first, which is the claim being restored.
+
+The argument-type mints a moved row triggers are the one thing resting on it that reads its
+spelling: each mint names the declaration of the position its argument held. So once the
+row is at its new spelling, `integrate/move-row!` draws the entailments that spelling
+meets and drops each mint justification the row triggers that the spelling does not draw
+(`special/redraw-mints`), and the justification a fold copied from the other spelling goes
+the same way. The KB then holds the mints of the order that stated the mark first
+(`argtype_entail_test/a-symmetric-mark-arriving-after-its-facts-leaves-the-mints-of-the-mark-arriving-first`).
 
 The migration is a **write**, so it leaves the records themselves canonical and `recover`
 reads a store that needs no reconciling (`recover_independence_test`). The alternative — an
