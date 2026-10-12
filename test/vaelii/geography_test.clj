@@ -165,7 +165,7 @@
 
 ;; ---- whereabouts in time contexts -------------------------------------------------
 
-(tu/deftest-kb wren-in-canada-in-october-is-not-in-the-united-states-and-unknown-in-november
+(tu/deftest-kb ottoline-in-canada-in-october-is-not-in-the-united-states-and-unknown-in-november
   (let [_   (year-under-geography! kb "2026" 'Ottoline)
         oct (state! kb '(partOfRegion Ottoline Canada) "2026-10")
         nov (state! kb '(human Ottoline) "2026-11")]
@@ -182,7 +182,7 @@
       (is (not (sees? kb nov oct)))
       (is (not (sees? kb oct nov))))))
 
-(tu/deftest-kb wren-in-washington-in-october-is-not-in-california-and-unknown-in-november
+(tu/deftest-kb ottoline-in-washington-in-october-is-not-in-california-and-unknown-in-november
   (year-under-geography! kb "2026" 'Ottoline)
   (assert-all! kb GEO us-facts)
   (state! kb '(partOfRegion Ottoline WashingtonState) "2026-10")
@@ -192,7 +192,7 @@
   (is (= :unknown (verdict kb '(partOfRegion Ottoline California) (at "2026-11"))))
   (is (= :unknown (verdict kb '(partOfRegion Ottoline WashingtonState) (at "2026-11")))))
 
-(tu/deftest-kb wren-in-tacoma-in-october-is-not-in-seattle-and-unknown-in-november
+(tu/deftest-kb ottoline-in-tacoma-in-october-is-not-in-seattle-and-unknown-in-november
   (year-under-geography! kb "2026" 'Ottoline)
   (assert-all! kb GEO us-facts)
   (assert-all! kb GEO city-facts)
