@@ -4,7 +4,8 @@
   **context** — a `cx/` constant a sentex can be stored in and a `genlCx` node — when a read
   names that context through the application, how a declared argument
   ordering makes one such context a computed **spec** of another with nobody asserting the
-  edge, and when the orphan sweep collects one.
+  edge, how a declared context argument makes the context a spec of that argument, and
+  when the orphan sweep collects one.
 - **Not here:** object-denoting NATs, which reify to a `nat/` constant that is a *term* and
   never a context → [nat.md](nat.md); the `genlCx` closure the produced edges feed →
   [contexts.md](contexts.md); the lexical conventions the roles rest on →
@@ -197,6 +198,46 @@ A comparator answer is a pure function of the two expressions, already carried b
 `termOfUnit` antecedents, so it contributes no extra supporter; a stored fact contributes
 its own handle, so defeating it withdraws the edge.
 
+## A context that sees its argument
+
+`(contextArgGenlCx F pos)` declares that the context an `F` application denotes **sees**
+its argument at `pos`: the argument is a `genlCx` of the denoted context.
+
+```clojure
+(assert kb '(contextArgGenlCx CxTimeFn 1) 'CxUniverse)   ; arg 1 = the base context
+(assert kb '(partOfRegion Ottoline Canada) '(CxTimeFn CxGeographyNow (DatetimeFn "2026-10")))
+;; the October context sees CxGeographyNow, so every country stated there reads in October
+```
+
+The producer materializes `(genlCx K arg)` exactly as it materializes a sibling ordering:
+a justified derived sentex in CxUniverse, under the `contextArgGenlCx` informant, resting
+on `K`'s own `termOfUnit` map and the declaration. The argument is read off the map, so
+the edge needs no supporter of its own, and nobody states an edge per context. The
+arrival arms are the ordering's: a declaration places every context of `F`, a mint places
+the new context, and a revived declaration is rebuilt by `reconcile-revivals`.
+Retracting the declaration or the map withdraws the edge through the JTMS.
+
+The ordering and the base edge compose. A month context sees its year through the
+ordering and its base through its own base edge, so a fact stated in the base is visible
+from the year, the month and the day. A time context of another base sees neither this
+base nor its times.
+
+An application whose argument at `pos` is not a context places nothing: the position is
+past the arity, or it holds an interval, an individual or a structural term. The edge is
+admitted by `special/inadmissible` like an ordering edge, so a self-edge, a query context
+and a cycle are refused. A cycle means somebody stated the base below its own time
+context. Retracting that stated edge revives the declaration's edge on the teardown's
+revival run. A declaration whose `pos` is not a positive integer is refused at assert
+(`wff/context-arg-genlcx-problems`).
+
+The base edge keeps no emptied context alive. The orphan sweep's authorship test
+(`computed-genlCx-edge?`) admits both producer informants, so a time context whose last
+fact leaves is collected while its base stands, and stating a fact for it again re-mints it
+and re-places it.
+
+CxTime declares `(contextArgGenlCx CxTimeFn 1)`, so `(CxTimeFn CxGeographyNow (DatetimeFn
+"2026"))` sees CxGeographyNow and a time whose base is CxNow sees CxNow.
+
 ## The calendar dimension
 
 `vaelii.impl.datetime` is the first shipped dimension, and it reads **two spellings of one
@@ -258,8 +299,9 @@ fact still sits in the slot and a relabel can restore it.
 the two contexts' own `termOfUnit` maps, so reading one as a reference makes an ordered
 pair immortal — each end held up by an edge read off the other. The discriminant is
 **authorship**, as it is for an object NAT's materialized result types: the producer
-deduces under the `contextArgSubrelation` informant and nothing else does, so an edge that
-is no premise and whose every support carries that informant is the engine's own wiring.
+deduces under the `contextArgSubrelation` and `contextArgGenlCx` informants and nothing
+else does, so an edge that is no premise and whose every support carries one of them is
+the engine's own wiring.
 An edge somebody **asserted** is a premise and holds its contexts up; one a rule concluded
 carries that rule's informant and holds them up too.
 
@@ -351,12 +393,16 @@ which is the only spelling the map is keyed by.
   (`reconcile-assert`), its revival re-run on `retract!` / `edit!`
   (`reconcile-revivals!`), the merges a computed or revived edge licenses, and
   `collect-orphans!`, which collects both kinds of constant at one gate.
-- `vaelii.impl.wff` — the `contextArgSubrelation` well-formedness check.
-- `vaelii.impl.context-nat` — the producer, the comparator registry, and
-  `functions-ordered-by`, the evidence-arrived-last arm of the stored-fact oracle.
+- `vaelii.impl.wff` — the `contextArgSubrelation` and `contextArgGenlCx` well-formedness
+  checks.
+- `vaelii.impl.context-nat` — the producer, the comparator registry,
+  `functions-ordered-by`, the evidence-arrived-last arm of the stored-fact oracle, and
+  `reconcile-bases`, the base edges of `contextArgGenlCx`.
 - `vaelii.impl.datetime` — the calendar containment comparator, over the ISO strings and
   the three calendar constructors alike, and beside it the half-open `bounds` the calendar
   clock reads a term's two moments out of ([time.md](time.md)).
-- `resources/kb/CxCore.txt` — `contextArgSubrelation`, and `result`'s comment on
+- `resources/kb/CxCore.txt` — `contextArgSubrelation`, `contextArgGenlCx`, and `result`'s comment on
   `(result F context)`, documented in the KB's own representation.
-- `resources/kb/upper/CxTime.txt` — `YearFn` / `MonthFn` / `DayFn`, each with its `result`.
+- `resources/kb/upper/CxTime.txt` — `YearFn` / `MonthFn` / `DayFn`, each with its `result`,
+  and `CxTimeFn`'s two declarations, `(contextArgGenlCx CxTimeFn 1)` and
+  `(contextArgSubrelation CxTimeFn 2 subintervalOf)`.
