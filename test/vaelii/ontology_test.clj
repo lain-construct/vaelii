@@ -195,7 +195,8 @@
   (merge
    {'[genl 1]  "predicate specializations: (genlArg genl 1 thing) is false of (genl predicateTypeByArity relationTypeByArity), whose ends are binary predicates"
     '[genl 2]  "the root: (genlArg genl 2 thing) would entail (genl thing thing), refused as irreflexive"
-    '[comment 1] "the commented term: a type, a predicate, an individual or a context, so no type below thing covers it"}
+    '[comment 1] "the commented term: a type, a predicate, an individual or a context, so no type below thing covers it"
+    '[implementationNote 1] "the noted term: a type, a predicate, an individual or a context, as comment's is"}
    ;; slots that hold a term of any kind, which no type below thing covers
    {'[believes 1]           "a believer, whose types CxCore cannot see"
     '[evaluate 2]           "an evaluate expression: a number or an application"
@@ -946,9 +947,10 @@
 ;; Two partitions of `thing`.  `spatial` / `aspatial` divides by a location in SOME space —
 ;; physical space, or a mathematical one, where a line or a square of an abstract board
 ;; has a location and none in the world.  `tangible` / `intangible` divides by mass.
-;; `spatiotemporal` is below `spatial` and `temporal`: what has a location in space and
-;; time.  CxCore states the two edges as `genl` edges and not as an intersection, so a
-;; thing stated spatial and temporal is not concluded spatiotemporal; `nowhere_never` is
+;; `spatiotemporal` is below `physical` and `temporal`, and so below `spatial`: what has a
+;; location in physical space and time.  CxCore states the edges as `genl` edges and not
+;; as an intersection, so a thing stated spatial and temporal is not concluded
+;; spatiotemporal; `nowhere_never` is
 ;; placed below `aspatial` and `atemporal` the same way.  The spatial calculi relate
 ;; anything spatial.  A region is the case the two partitions cross on: spatiotemporal,
 ;; and massless.
@@ -974,6 +976,41 @@
       (is (true? (v/ask? kb (list 'spatiotemporal Pebble) 'CxUniverse)))
       (is (true? (v/ask? kb (list 'spatial Pebble) 'CxUniverse)))
       (is (true? (v/ask? kb (list 'temporal Pebble) 'CxUniverse))))))
+
+;; `physical` is `spatial` narrowed to the physical space of our universe.  spatiotemporal
+;; is by definition what is physical and temporal, and CxCore places it below both by
+;; genl edges and not by an intersection, so neither the membership nor its negation is
+;; concluded from the two types.
+
+(tu/deftest-kb spatiotemporal-is-below-physical-and-physical-below-spatial
+  (is (true? (v/genl? kb 'physical 'spatial)))
+  (is (true? (v/genl? kb 'spatiotemporal 'physical)))
+  (is (true? (v/genl? kb 'spatiotemporal 'temporal)))
+  (is (true? (v/genl? kb 'tangible 'physical))))
+
+(tu/deftest-kb a-tangible-individual-is-physical-and-spatial
+  (tu/with-terms [Pebble]
+    (v/assert kb (list 'tangible Pebble) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'physical Pebble) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'spatial Pebble) 'CxUniverse)))))
+
+(tu/deftest-kb something-physical-and-temporal-is-not-concluded-spatiotemporal
+  (is (true? (v/genl? kb 'spatiotemporal 'physical)))
+  (tu/with-terms [CxPond Puddle]
+    (v/assert kb (list 'genlCx CxPond 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'physical Puddle) CxPond)
+    (v/assert kb (list 'temporal Puddle) CxPond)
+    (is (not (v/ask? kb (list 'spatiotemporal Puddle) CxPond)))
+    (is (not (v/ask? kb (list 'not (list 'spatiotemporal Puddle)) CxPond)))))
+
+(tu/deftest-kb a-line-in-the-plane-is-not-concluded-physical
+  ;; Located in the Cartesian plane and in no time, the line y=x is spatial and atemporal.
+  (is (true? (v/genl? kb 'physical 'spatial)))
+  (tu/with-terms [Diagonal]
+    (v/assert kb (list 'spatial Diagonal) 'CxUniverse)
+    (v/assert kb (list 'atemporal Diagonal) 'CxUniverse)
+    (is (not (v/ask? kb (list 'physical Diagonal) 'CxUniverse)))
+    (is (not (v/ask? kb (list 'not (list 'physical Diagonal)) 'CxUniverse)))))
 
 (tu/deftest-kb an-abstract-figure-is-spatial-without-being-spatiotemporal
   ;; A line in a plane has a location in that plane and none in the world, no mass,
@@ -1014,7 +1051,7 @@
 (tu/deftest-kb spatial-and-aspatial-partition-thing
   (is (true? (v/disjoint? kb 'spatial 'aspatial)))
   (is (true? (v/disjoint? kb 'spatiotemporal 'aspatial))
-      "the partition separates spatiotemporal from aspatial through the genl to spatial")
+      "the partition separates spatiotemporal from aspatial through physical's genl to spatial")
   (is (true? (v/genl? kb 'spatial 'thing)))
   (is (true? (v/genl? kb 'aspatial 'thing)))
   (testing "a thing cannot be both"
@@ -1248,7 +1285,8 @@
   disjointness descends a genl edge — so a stated sentence repeating one of those is not
   written."
   '[[genl aspatial thing CxCore "partition thing spatial aspatial"]
-    [disjoint spatiotemporal aspatial CxCore "spatiotemporal genl spatial; partition thing spatial aspatial"]
+    [genl spatiotemporal spatial CxCore "spatiotemporal genl physical genl spatial"]
+    [disjoint spatiotemporal aspatial CxCore "spatiotemporal genl physical genl spatial; partition thing spatial aspatial"]
     [genl intangible thing CxCore "partition thing tangible intangible"]
     [genl nowhere_never intangible CxCore "nowhere_never genl aspatial genl intangible"]
     [genl organization intangible CxCore "organization genl aspatial genl intangible"]
@@ -1267,7 +1305,7 @@
     [genl causal thing CxAbstract "partition thing causal acausal"]
     [genl acausal thing CxAbstract "partition thing causal acausal"]
     [disjoint causal acausal CxAbstract "partition thing causal acausal"]
-    [genl spatiotemporal thing CxCore "spatiotemporal genl spatial, spatial genl thing (partition)"]
+    [genl spatiotemporal thing CxCore "spatiotemporal genl physical genl spatial, spatial genl thing (partition)"]
     [genl organism tangible CxCore "organism genl biological genl tangible"]
     [genl body_part tangible CxAbstract "body_part genl biological genl tangible"]
     [genl body_part biological CxAbstract "separating biological organism body_part"]
@@ -1291,11 +1329,11 @@
     [disjoint formation organism CxAbstract "organism genl biological; separating tangible formation biological"]
     [disjoint formation body_part CxAbstract "body_part genl biological; separating tangible formation biological"]
     [genl asymmetric binary_predicate CxCore "asymmetric genl anti_symmetric genl binary_predicate"]
-    [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; unrepresented_term genl linguistic; disjoint linguistic relation"]
-    [disjoint number predicate CxAbstract "number genl unrepresented_term, predicate genl relation; unrepresented_term genl linguistic; disjoint linguistic relation"]
-    [disjoint keyword predicate CxAbstract "keyword genl unrepresented_term, predicate genl relation; unrepresented_term genl linguistic; disjoint linguistic relation"]
-    [disjoint boolean predicate CxAbstract "boolean genl unrepresented_term, predicate genl relation; unrepresented_term genl linguistic; disjoint linguistic relation"]
-    [disjoint character predicate CxAbstract "character genl unrepresented_term, predicate genl relation; unrepresented_term genl linguistic; disjoint linguistic relation"]
+    [disjoint string predicate CxAbstract "string genl unrepresented_term, predicate genl relation; unrepresented_term genl linguistic, relation genl logical; separating nowhere_never logical linguistic quantitative"]
+    [disjoint number predicate CxAbstract "number genl unrepresented_term, predicate genl relation; unrepresented_term genl linguistic, relation genl logical; separating nowhere_never logical linguistic quantitative"]
+    [disjoint keyword predicate CxAbstract "keyword genl unrepresented_term, predicate genl relation; unrepresented_term genl linguistic, relation genl logical; separating nowhere_never logical linguistic quantitative"]
+    [disjoint boolean predicate CxAbstract "boolean genl unrepresented_term, predicate genl relation; unrepresented_term genl linguistic, relation genl logical; separating nowhere_never logical linguistic quantitative"]
+    [disjoint character predicate CxAbstract "character genl unrepresented_term, predicate genl relation; unrepresented_term genl linguistic, relation genl logical; separating nowhere_never logical linguistic quantitative"]
     [disjoint glass_stuff stone CxAbstract "disjoint_metatype stuff_type_by_substance"]
     [disjoint metal glass_stuff CxAbstract "disjoint_metatype stuff_type_by_substance"]
     [disjoint metal stone CxAbstract "disjoint_metatype stuff_type_by_substance"]
@@ -1306,7 +1344,25 @@
     [genl unreifiable_function function CxCore "partition function reifiable_function unreifiable_function"]
     [genl fixed_order_type unary_predicate CxCore "partition unary_predicate fixed_order_type variable_order_type"]
     [genl variable_order_type unary_predicate CxCore "partition unary_predicate fixed_order_type variable_order_type"]
-    [genl equivalence_relation binary_predicate CxCore "intersection equivalence_relation reflexive symmetric transitive; reflexive genl binary_predicate"]])
+    [genl equivalence_relation binary_predicate CxCore "intersection equivalence_relation reflexive symmetric transitive; reflexive genl binary_predicate"]
+    [genl linguistic nowhere_never CxCore "separating nowhere_never logical linguistic quantitative"]
+    [genl relation nowhere_never CxCore "separating logical relation context; separating nowhere_never logical linguistic quantitative"]
+    [genl context nowhere_never CxCore "separating logical relation context; separating nowhere_never logical linguistic quantitative"]
+    [genl measure nowhere_never CxCore "measure genl quantitative; separating nowhere_never logical linguistic quantitative"]
+    [disjoint linguistic relation CxCore "relation genl logical; separating nowhere_never logical linguistic quantitative"]
+    [disjoint linguistic measure CxCore "measure genl quantitative; separating nowhere_never logical linguistic quantitative"]
+    [disjoint measure relation CxCore "measure genl quantitative, relation genl logical; separating nowhere_never logical linguistic quantitative"]
+    [disjoint relation context CxAbstract "separating logical relation context"]
+    [genl unit_of_measure nowhere_never CxMeasure "unit_of_measure genl quantitative; separating nowhere_never logical linguistic quantitative"]
+    [genl physical_dimension nowhere_never CxMeasure "physical_dimension genl quantitative; separating nowhere_never logical linguistic quantitative"]
+    [genl sign_value nowhere_never CxMeasure "sign_value genl quantitative; separating nowhere_never logical linguistic quantitative"]
+    [disjoint unit_of_measure relation CxMeasure "unit_of_measure genl quantitative, relation genl logical; separating nowhere_never logical linguistic quantitative"]
+    [disjoint physical_dimension relation CxMeasure "physical_dimension genl quantitative, relation genl logical; separating nowhere_never logical linguistic quantitative"]
+    [genl proposition nowhere_never CxReflection "separating logical relation proposition context; separating nowhere_never logical linguistic quantitative"]
+    [disjoint proposition linguistic CxReflection "proposition genl logical; separating nowhere_never logical linguistic quantitative"]
+    [disjoint proposition relation CxReflection "separating logical relation proposition context"]
+    [disjoint expression relation CxReflection "expression genl linguistic, relation genl logical; separating nowhere_never logical linguistic quantitative"]
+    [disjoint expression context CxReflection "expression genl linguistic, context genl logical; separating nowhere_never logical linguistic quantitative"]])
 
 (tu/deftest-kb the-kb-states-no-relation-it-already-derives
   ;; Each relation is read from the context that held the removed sentence, so a removal
@@ -1582,6 +1638,20 @@
     (is (= :orthogonal (v/subsumption-status kb 'dog tended)))
     (is (not-any? #(= :forced-conclusion (:violation %)) (v/violations kb)))))
 
+(tu/deftest-kb a-warm-blooded-animal-is-a-vertebrate-by-default
+  (let [edges (filter #(v/premise? kb (:id %)) (v/sentexes-matching kb '(genl warm_blooded vertebrate) 'CxUniverse))]
+    (is (= 1 (count edges)) "(genl warm_blooded vertebrate) is stated in CxUniverse")
+    (is (= :default (:strength (first edges))) "at default strength"))
+  (tu/with-terms [Warm1 Cat1 Trout1]
+    (v/assert kb (list 'warm_blooded Warm1) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'vertebrate Warm1) 'CxUniverse)))
+    (testing "and the class rules that derive and deny warm_blooded raise no clash"
+      (v/assert kb (list 'mammal Cat1) 'CxBiology)
+      (v/assert kb (list 'fish Trout1) 'CxBiology)
+      (is (true? (v/ask? kb (list 'warm_blooded Cat1) 'CxBiology)))
+      (is (true? (v/ask? kb (list 'not (list 'warm_blooded Trout1)) 'CxBiology)))
+      (is (empty? (v/conflicts kb))))))
+
 (tu/deftest-kb artifact-is-declared-nowhere-and-the-six-kinds-are-made
   ;; The KB declares no artifact term and no alias for one.  building, clothing,
   ;; container, furniture, machine and vehicle are kinds of made.
@@ -1656,8 +1726,9 @@
 
 ;; ---- orthogonal pairs across made and natural -------------------------------
 ;; In each pair the two types overlap and neither subsumes the other.  An orthogonal is
-;; not inherited along genl, so the KB states each pair.  Each witness is an individual
-;; in both types.
+;; not inherited along genl, so the KB states each pair, or states a typeOrthogonal fact
+;; over origin_type that derives the pair with made and the pair with natural.  Each
+;; witness is an individual in both types.
 
 (def ^:private cross-cutting
   '[[organism made Dolly1] [organism natural WildSheep1]
@@ -1669,8 +1740,11 @@
 (tu/deftest-kb what-cuts-across-made-and-natural-is-stated-orthogonal
   (doseq [[a b witness] cross-cutting]
     (testing (str a " and " b)
-      (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'orthogonal a b) 'CxAbstract))
-          (str "(orthogonal " a " " b ") is stated"))
+      (if (contains? '#{made natural} b)
+        (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'typeOrthogonal 'origin_type a) 'CxAbstract))
+            (str "(typeOrthogonal origin_type " a ") is stated"))
+        (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'orthogonal a b) 'CxAbstract))
+            (str "(orthogonal " a " " b ") is stated")))
       (is (= :orthogonal (v/subsumption-status kb a b)) "the pair reads orthogonal")
       (is (not (v/disjoint? kb a b)))
       (let [w (tu/fresh-term :individual witness)]

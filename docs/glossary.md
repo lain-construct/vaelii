@@ -255,7 +255,7 @@ in — every sentex is in exactly one. Contexts form a `genlCx` hierarchy: a
 sub-context *sees* its supers. Names start with `Cx`, then CapitalCamelCase. See
 [contexts.md](contexts.md).
 
-**`context` (ontology type)** ![kb](../.github/badges/cat-kb.svg): The collection of contexts, below `nowhere_never` — `(genl context nowhere_never)` — and disjoint from `expression`: a context is what an expression names. The theory a sentex holds in is the knowledge-stratum sense, **Context**. See [taxonomy.md](taxonomy.md).
+**`context` (ontology type)** ![kb](../.github/badges/cat-kb.svg): The collection of contexts, below `logical` and so below `nowhere_never`, and disjoint from `expression`: a context is what an expression names. The theory a sentex holds in is the knowledge-stratum sense, **Context**. See [taxonomy.md](taxonomy.md).
 
 **Contradiction** ![tms](../.github/badges/cat-tms.svg): A believed `P` and
 `(not P)` visible from a common context. A defeasible tie is a *represented
@@ -590,6 +590,12 @@ that are not well-formed, so say nothing: some operator has the wrong number of
 arguments, e.g. `(dog Muffet Rex)` for a one-place `dog`. With `wff` it partitions
 `formula`. See [taxonomy.md](taxonomy.md).
 
+**`implementationNote`** ![kb](../.github/badges/cat-kb.svg): A documentation sentex,
+`(implementationNote <term> "…")`, that records how the engine or the KB text implements a
+term, or where that implementation stops short. A sibling of `comment`, not a
+specialization of it: `comment` carries what a term means, and an implementation note
+carries how the meaning is carried out. No inference path reads it.
+
 **`indeterminate_term`** ![kb](../.github/badges/cat-kb.svg): The extensible
 category of terms that stand for some object without pinning down which. A skolem
 constant is its built-in first member, read off the `SkolemFn` expression it was minted
@@ -832,7 +838,7 @@ stored exception answers `(orthogonal a b)` and is read as one. See
 
 ## P
 
-**`partitionedByType`** ![kb](../.github/badges/cat-kb.svg): Declares the cells that exhaustively and disjointly partition a whole, each cell an instance of a named classifier. Inert — declared, read by no inference path. See [taxonomy.md](taxonomy.md).
+**`partitionedByType`** ![kb](../.github/badges/cat-kb.svg): `(partitionedByType ?whole ?classifier)` says that the members of a classifier partition a whole, e.g. `(partitionedByType tangible origin_type)` for `made` and `natural`. CxCore rules place each member under the whole and separate every two members. No rule draws the coverage half, so a `partition` stated beside the fact carries it. See [taxonomy.md](taxonomy.md).
 
 **Path consistency** ![qr](../.github/badges/cat-qr.svg): The fixpoint that
 tightens a constraint network: for every triple, intersect the constraint on a
@@ -844,6 +850,8 @@ and it is order-independent. See [qcn.md](qcn.md).
 variables, are read as a *pattern to match* rather than as a claim. Never stored as a non-rule
 sentence — `checks/check-ground` refuses that — so a pattern reaches the engine only as a
 goal or inside a rule. See [inference.md](inference.md).
+
+**`physical`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in the physical space of our universe. A region of physical space is physical; the line y=x, located only in the Cartesian plane, is not. Below `spatial`; `spatiotemporal` is below it. See [taxonomy.md](taxonomy.md#the-three-partitions-of-thing).
 
 **Placement context** ![inference](../.github/badges/cat-inference.svg): Where a
 forward-derived sentex lands — the maximal contexts that see the firing rule and
@@ -1180,7 +1188,7 @@ by a build whose source identity equals the one the image was written under. See
 
 **`spatial`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in some space — physical space, or a mathematical one such as the Cartesian plane, where the line y=x is located though it has no location in the world. `spatial` and `aspatial` partition `thing`, and every argument of the spatial calculi is declared at `spatial`. See [space.md](space.md).
 
-**`spatiotemporal`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in space and time — a physical object, a region, a place. Below both `spatial` and `temporal`. See [space.md](space.md).
+**`spatiotemporal`** ![kb](../.github/badges/cat-kb.svg): An entity with a location in physical space and time — a physical object, a region, a place. Below both `physical` and `temporal`, and so below `spatial`. By definition the intersection of `physical` and `temporal`; CxCore places it by `genl` edges, so a thing stated `physical` and `temporal` is not concluded `spatiotemporal`. See [space.md](space.md).
 
 **Spindle** ![kb](../.github/badges/cat-kb.svg): The shape the context topology
 is built from — three layers: a **head** every member sees, a set of **members**

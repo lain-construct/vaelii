@@ -105,7 +105,7 @@
       (is (v/ask? kb '(tangible Bone1)))            ; a supertype of food
       (is (not (v/ask? kb '(vehicle Bone1)))))            ; but only what actually follows
     (testing "asking for all of an individual's inferred types"
-      (is (= '#{food tangible causal spatial spatiotemporal temporal uninterrupted thing}
+      (is (= '#{food tangible causal physical spatial spatiotemporal temporal uninterrupted thing}
              (set (map #(get % '?t) (v/ask kb '(?t Bone1) '?ctx))))))))
 
 ;; ---- arithmetic, and the ordering derived from it ------------------------

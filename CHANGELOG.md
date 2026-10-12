@@ -115,6 +115,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   reasoner is registered.
   *Breaks:* `time`, `situation`, `fluent`, `initiates`, `terminates`, `causes`
 
+- **`partitionedByType` is binary, `(partitionedByType ?whole ?classifier)`, and draws
+  inference.** The members of `?classifier` partition `?whole`. A CxCore generator places
+  each member under `?whole`, and a rule concludes `(disjoint_metatype ?classifier)`. No
+  rule draws the coverage half (vaelii/vaelii#171), so the `partition` sentence stays
+  beside each of the 4 shipped facts: `fixed_order_type` by `type_type_by_order`,
+  `tangible` by `origin_type`, and `thing` by `spatiality_type` and by
+  `temporality_type`. [glossary.md](docs/glossary.md).
+
+  *Class:* **Breaking** (KB vocabulary arity changed).
+  *Migration:* drop the cell list: write `(partitionedByType W C)` for
+  `(partitionedByType W C A B …)`, and state each cell's membership `(C A)`.
+  *Breaks:* `partitionedByType`
+
 ### Additions
 
 - **`closedExtentForArg` closes a predicate's extent for one argument value.**
@@ -180,6 +193,28 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(genlCx CxLeaf CxTop)` stated, the page for `CxLeaf` draws `CxTop` above `CxMid` and
   no arrow from `CxLeaf` to `CxTop`. The `genl` rows are unchanged.
   [api.md](docs/api.md), [web.md](docs/web.md#a-terms-shape-drawn).
+
+  *Class:* **Additive**.
+
+- **The upper ontology states `logical`, `quantitative`, `typeOrthogonal`,
+  `orthogonalMetatypes` and `implementationNote`, and derives 43 genl, disjoint and
+  orthogonal sentences it stated.** `(separating nowhere_never logical linguistic
+  quantitative)` separates three kinds: `relation`, `proposition` and `context` are
+  `logical`, and `measure`, `unit_of_measure`, `physical_dimension` and `sign_value` are
+  `quantitative`. `(typeOrthogonal ?classifier ?type)` makes every member of a classifier
+  orthogonal to `?type`, and `(orthogonalMetatypes ?m1 ?m2 …)` makes every member of each
+  metatype orthogonal to every member of the others, for two and three metatypes
+  (vaelii/vaelii#170). Each is a CxCore rule generator. The classifiers `arity_type`,
+  `origin_type`, `spatiality_type` and `temporality_type` are new, and each classifier a
+  rule reads is on the forced-monotonic roster. 10 `typeOrthogonal` facts and one
+  `orthogonalMetatypes` fact derive 33 orthogonal pairs, 22 of them stated before, and
+  every arity type is orthogonal to `abducible_predicate`. 9 more orthogonal pairs are
+  stated, e.g. `made` and `vertebrate`, `animal` and `food`. `warm_blooded` is below
+  `vertebrate` by default. `physical` is new: a location in the physical space of our
+  universe, below `spatial`. `spatiotemporal` is below `physical` and `temporal`, and
+  reaches `spatial` through `physical`. `implementationNote` is a
+  sibling of `comment` for how a term is implemented, and 14 CxCore terms carry one.
+  [taxonomy.md](docs/taxonomy.md), [glossary.md](docs/glossary.md).
 
   *Class:* **Additive**.
 
