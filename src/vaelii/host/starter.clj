@@ -47,6 +47,11 @@
                                  the kinds the relations are typed over.
                                  Opt-in: it sees CxUniverse and CxWell does not
                                  see it.
+        - CxGeographyNow.txt — present-day political geography: the country type,
+                                 countryBordersOn as a spec of bordersOn, and
+                                 spatiallyPartitionedByType, a region partitioned by
+                                 a type's instances. Opt-in: it sees CxNow and
+                                 CxWell does not see it.
         - CxKinship.txt   — grandparentOf, ancestorOf, olderThan, and parenthood
                                  from maternity and paternity.
         - CxMereology.txt — a part is located where its whole is; owning a whole
@@ -56,6 +61,9 @@
                                  mercury is liquid, a metal is solid by default.
                                  Opt-in: it sees CxUniverse and CxWell does not
                                  see it.
+        - CxNow.txt       — the real world at the present time, with no temporal
+                                 qualification. Opt-in: it sees CxRealWorld and
+                                 CxWell does not see it.
         - CxPerception.txt — perception relations: perceives, sees, seeImage,
                                  watchVideo. Opt-in: it sees CxUniverse and CxWell
                                  does not see it.

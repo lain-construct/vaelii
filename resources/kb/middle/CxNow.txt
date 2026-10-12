@@ -1,0 +1,11 @@
+;; CxNow — the real world at the present time. Sees CxRealWorld, so it inherits the
+;; whole shared ontology and excludes every fiction. CxWell does not see it: a context
+;; opts in by placing itself under CxNow.
+;;
+;; A sentence stated here holds now and carries no temporal qualification. A context
+;; about a time when what holds now need not have held is not placed below CxNow. A time
+;; context, a (CxTimeFn …) application, sees only what a genlCx edge places above it and
+;; the coarser time contexts CxTime orders it below, so two sibling times see neither
+;; each other nor each other's facts.
+
+(genlCx CxNow CxRealWorld)

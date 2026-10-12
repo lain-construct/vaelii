@@ -1,0 +1,68 @@
+;; CxGeographyNow — present-day political geography: which regions are countries, which
+;; regions are parts of which, and which countries border which. Sees CxNow, so its
+;; facts hold now and carry no temporal qualification. A human's whereabouts are stated
+;; in a time context, (CxTimeFn CxGeographyNow (DatetimeFn …)), placed below
+;; CxGeographyNow by a genlCx edge. CxTime orders the time contexts by subintervalOf, so
+;; a day sees its month and a month its year, and two sibling months see neither each
+;; other nor each other's whereabouts. A human relates to a region by partOfRegion, as a
+;; region does: locatedIn relates two tangibles, and a country is intangible.
+;;
+;; Ships as schema: the vocabulary and the rules below. The regions, borders and
+;; partitions themselves are contingent facts and are stated by whoever reads the
+;; geography.
+;;
+;; A region's parts are stated with partOfRegion and its divisions with
+;; spatiallyPartitionedByType below, whose rules conclude partOfRegion and
+;; regionDiscreteFrom, so the RCC-8 network reads both. bordersOn is CxSpace's open
+;; neighbour relation. countryBordersOn is its spec typed to countries, and a border
+;; between two countries is stated as countryBordersOn, so a closedExtentForArg grant over
+;; an audited neighbour list reads every stated border between countries and closes
+;; nothing above it.
+
+(genlCx CxGeographyNow CxNow)
+;; The starter loads CxRealWorld after the middle layer, so CxNow reaches CxUniverse only
+;; once the load is done.  The direct edge to CxUniverse, the middle spindle's head, lets
+;; the declarations below meet CxCore's rules while the layer loads.
+(genlCx CxGeographyNow CxUniverse)
+
+(comment country
+         "A country's territory: the region a sovereign state governs. A region occupies space without being made of anything, so a country is spatiotemporal and intangible.")
+(genl country spatiotemporal)
+(genl country intangible)
+
+(comment countryBordersOn
+         "(countryBordersOn ?country1 ?country2) means that the countries ?country1 and ?country2 are neighbours across a shared border. A spec of bordersOn typed to countries, stated directly, so a closedExtentForArg grant on it reads every stated border between countries and leaves bordersOn open.")
+(binary_predicate countryBordersOn)
+(set/monotonic (instance_relation_predicate countryBordersOn))
+(arg countryBordersOn 1 country)
+(arg countryBordersOn 2 country)
+(genl countryBordersOn bordersOn)
+
+;; ---- a whole region and the type whose instances partition it -------------------
+;; The region counterpart of CxCore's partitionedByType.  partitionedByType relates a type
+;; to a classifier of its subtypes and reads membership; spatiallyPartitionedByType
+;; relates a region individual to a type whose instances are its parts, and reads RCC-8.
+;; A generator stamps two strict rules per fact: every instance of the classifier is
+;; partOfRegion the whole, and two different instances are regionDiscreteFrom each other,
+;; RCC-8's DR, so two parts may touch along a border.  The rules read the classifier's
+;; memberships, so an instance stated after the partition is placed and separated as one
+;; stated before it.
+;;
+;; It lives here rather than in CxSpace because its rules conclude RCC-8 predicates.  With
+;; the RCC-8 prover registered, a fact on a predicate some rule names sends the settle
+;; through the network, so a rule in CxSpace would put that cost on every KB that loads
+;; CxSpace.  Here it falls on the KBs that load this theory.
+(comment spatiallyPartitionedByType
+         "(spatiallyPartitionedByType ?whole ?classifier) means that the instances of ?classifier partition the region ?whole: each instance is partOfRegion ?whole, no two instances share a part, and every part of ?whole lies within the union of the instances. e.g. (spatiallyPartitionedByType UnitedStates50AndDC us_state_or_dc) says that the fifty states and the District partition the region they make up. Two instances may touch along a border.")
+(binary_predicate spatiallyPartitionedByType)
+(arg spatiallyPartitionedByType 1 spatial)
+(arg spatiallyPartitionedByType 2 unary_predicate)
+(implies (spatiallyPartitionedByType ?whole ?classifier)
+         (set/forwardRule (implies (?classifier ?part) (partOfRegion ?part ?whole))))
+(implies (spatiallyPartitionedByType ?whole ?classifier)
+         (set/forwardRule (implies (and (?classifier ?part1) (?classifier ?part2)
+                                        (different ?part1 ?part2))
+                                   (regionDiscreteFrom ?part1 ?part2))))
+(implementationNote spatiallyPartitionedByType "No rule draws the coverage half: a region partOfRegion ?whole and regionDiscreteFrom every instance of ?classifier but one is partOfRegion the remaining instance, and a rule reading every instance but one needs engine support for ranging over a classifier's members, as partitionedByType's coverage does: https://github.com/vaelii/vaelii/issues/171")
+(termsRelated partitionedByType spatiallyPartitionedByType)
+(termsRelated spatiallyPartitionedByType partOfRegion regionDiscreteFrom)
