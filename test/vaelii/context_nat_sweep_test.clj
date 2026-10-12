@@ -157,6 +157,21 @@
         (is (v/sees? kb km ky2))
         (is (= [{'?x 'NewYear}] (v/ask kb '(holiday ?x) month)))))))
 
+(tu/deftest-kb a-computed-base-edge-does-not-keep-a-context-alive
+  ;; `(contextArgGenlCx F 1)` places each `F` context below the context at argument 1,
+  ;; computed off the context's own `termOfUnit` map as the sibling ordering is, so the
+  ;; edge is no reference: an emptied time context goes while its base stands.
+  (tu/with-terms [CxBase]
+    (v/assert kb (list 'genlCx CxBase 'CxUniverse) 'CxUniverse)
+    (let [cxfn    (declare-dimension! kb)
+          _       (v/assert kb (list 'contextArgGenlCx cxfn 1) 'CxUniverse)
+          [hy ky] (context-in kb '(holiday NewYear) (list cxfn CxBase (list 'DatetimeFn "2006")))]
+      (is (= true (boolean (v/sees? kb ky CxBase))) "the computed edge stands")
+      (v/retract! kb hy)
+      (is (not (reified? kb ky)) "emptied, so collected despite the edge")
+      (is (empty? (v/sentexes-matching kb (list 'genlCx ky CxBase) 'CxUniverse))
+          "and the edge went with its premise"))))
+
 (tu/deftest-kb collecting-a-context-orphans-the-object-nat-in-its-expression
   ;; The region grows with the fixpoint, across both kinds: the context's `termOfUnit` is
   ;; the last sentence naming the object constant standing inside its expression, so the

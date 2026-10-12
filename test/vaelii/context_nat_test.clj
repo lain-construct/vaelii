@@ -633,3 +633,151 @@
         (testing "retracting the evidence withdraws the edge"
           (v/retract! kb ev)
           (is (not (v/sees? kb km ky))))))))
+
+;; ---- a declared argument the context sees: contextArgGenlCx ----------------
+;;
+;; `(contextArgGenlCx F pos)` says the context an `F` application denotes sees its argument
+;; at `pos`: the producer materializes `(genlCx K arg)` off `K`'s own `termOfUnit` map, as
+;; it materializes a sibling ordering off two of them, so nobody states the edge per
+;; context and the edge is no reference that keeps an emptied context alive.
+
+;; Each reader answers a boolean the `is` compares with a literal, so a failing one prints
+;; the two booleans and not the KB.
+(defn- sees? [kb c1 c2] (boolean (v/sees? kb c1 c2)))
+(defn- asks? [kb s ctx] (boolean (v/ask? kb s ctx)))
+
+(defn- based-dimension!
+  "A fresh datetime context function whose argument 1 is a base context and argument 2 an
+  interval ordered by `subintervalOf`, with `(contextArgGenlCx F 1)` declared unless
+  `declare?` is false.  Returns the function."
+  ([kb] (based-dimension! kb true))
+  ([kb declare?]
+   (let [cxfn (declare-datetime-dimension! kb)]
+     (v/assert kb (list 'contextArgSubrelation cxfn 2 'subintervalOf) 'CxUniverse)
+     (when declare? (v/assert kb (list 'contextArgGenlCx cxfn 1) 'CxUniverse))
+     cxfn)))
+
+(defn- at-time
+  "The context `cxfn` denotes for base `base` and the ISO interval `iso`."
+  [cxfn base iso]
+  (list cxfn base (list 'DatetimeFn iso)))
+
+(defn- mint!
+  "Mint the context `expr` by storing `sentence` in it, and answer its `cx/` constant."
+  [kb sentence expr]
+  (:context (v/sentex kb (v/assert kb sentence expr))))
+
+(tu/deftest-kb a-time-context-sees-the-base-context-its-function-declares
+  (tu/with-terms [CxBase likes Ottoline Brannoc weather]
+    (v/assert kb (list 'genlCx CxBase 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list likes Ottoline Brannoc) CxBase)
+    (let [cxfn (based-dimension! kb)
+          ky   (mint! kb (list weather 'Cold) (at-time cxfn CxBase "2026"))
+          km   (mint! kb (list weather 'Warm) (at-time cxfn CxBase "2026-10"))
+          kd   (mint! kb (list weather 'Wet) (at-time cxfn CxBase "2026-10-12"))]
+      (testing "the year, its month and its day each see the base"
+        (doseq [k [ky km kd]]
+          (is (= true (sees? kb k CxBase)) (str k))))
+      (testing "a fact stated in the base is visible from each"
+        (doseq [iso ["2026" "2026-10" "2026-10-12"]]
+          (is (= true (asks? kb (list likes Ottoline Brannoc) (at-time cxfn CxBase iso))) iso)))
+      (testing "the base sees none of them"
+        (doseq [k [ky km kd]]
+          (is (= false (sees? kb CxBase k)) (str k))))
+      (testing "the edge is a justified sentex nobody asserted"
+        (let [edge (v/handle-of kb (list 'genlCx ky CxBase) 'CxUniverse)]
+          (is (some? edge))
+          (is (not (v/premise? kb edge)))
+          (is (= [CxBase] (:terms (:computed-spec-of (v/describe kb ky 'CxUniverse))))))))))
+
+(tu/deftest-kb without-the-declaration-a-time-context-does-not-see-its-base
+  (tu/with-terms [CxBase likes Ottoline Brannoc weather]
+    (v/assert kb (list 'genlCx CxBase 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list likes Ottoline Brannoc) CxBase)
+    (let [cxfn (based-dimension! kb false)
+          ky   (mint! kb (list weather 'Cold) (at-time cxfn CxBase "2026"))]
+      (is (= false (sees? kb ky CxBase)))
+      (is (= false (asks? kb (list likes Ottoline Brannoc) (at-time cxfn CxBase "2026")))))))
+
+(tu/deftest-kb the-base-edge-belief-follows-the-declaration
+  (tu/with-terms [CxBase likes Ottoline Brannoc weather]
+    (v/assert kb (list 'genlCx CxBase 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list likes Ottoline Brannoc) CxBase)
+    (let [cxfn (based-dimension! kb false)
+          decl (list 'contextArgGenlCx cxfn 1)
+          ky   (mint! kb (list weather 'Cold) (at-time cxfn CxBase "2026"))
+          km   (mint! kb (list weather 'Warm) (at-time cxfn CxBase "2026-10"))]
+      (testing "the declaration arriving after the contexts places them"
+        (v/assert kb decl 'CxUniverse)
+        (is (= true (sees? kb ky CxBase)))
+        (is (= true (sees? kb km CxBase))))
+      (testing "retracting the declaration withdraws the visibility"
+        (v/retract! kb (v/handle-of kb decl 'CxUniverse))
+        (is (= false (sees? kb ky CxBase)))
+        (is (= false (sees? kb km CxBase)))
+        (is (= false (asks? kb (list likes Ottoline Brannoc) (at-time cxfn CxBase "2026-10")))))
+      (testing "a declaration revived by retracting its defeater places them again"
+        (v/assert kb (list 'not decl) 'CxUniverse {:strength :monotonic})
+        (v/assert kb decl 'CxUniverse)
+        (is (= false (sees? kb ky CxBase)) "a defeated declaration places nothing")
+        (v/retract! kb (v/handle-of kb (list 'not decl) 'CxUniverse))
+        (is (= true (sees? kb ky CxBase)))
+        (is (= true (sees? kb km CxBase)))))))
+
+(tu/deftest-kb a-time-context-sees-its-own-base-and-no-sibling-base
+  (tu/with-terms [CxBase CxOther likes Ottoline Brannoc weather]
+    (doseq [c [CxBase CxOther]] (v/assert kb (list 'genlCx c 'CxUniverse) 'CxUniverse))
+    (v/assert kb (list likes Ottoline Brannoc) CxBase)
+    (let [cxfn (based-dimension! kb)
+          kb1  (mint! kb (list weather 'Cold) (at-time cxfn CxBase "2026"))
+          ko1  (mint! kb (list weather 'Cold) (at-time cxfn CxOther "2026"))
+          ko2  (mint! kb (list weather 'Warm) (at-time cxfn CxOther "2026-10"))]
+      (is (= true (sees? kb ko1 CxOther)))
+      (is (= true (sees? kb ko2 CxOther)))
+      (testing "another base's time contexts see neither this base nor its time context"
+        (doseq [k [ko1 ko2]]
+          (is (= false (sees? kb k CxBase)) (str k))
+          (is (= false (sees? kb k kb1)) (str k)))
+        (is (= false (asks? kb (list likes Ottoline Brannoc) (at-time cxfn CxOther "2026-10")))))
+      (testing "and this base's year sees neither the other base nor its year"
+        (is (= false (sees? kb kb1 CxOther)))
+        (is (= false (sees? kb kb1 ko1)))))))
+
+(tu/deftest-kb the-base-edge-closes-no-cycle
+  (tu/with-terms [CxBase weather]
+    (v/assert kb (list 'genlCx CxBase 'CxUniverse) 'CxUniverse)
+    (testing "an edge placing the base below its own time context refuses the computed one"
+      (let [cxfn (based-dimension! kb false)
+            ky   (mint! kb (list weather 'Cold) (at-time cxfn CxBase "2026"))
+            up   (v/assert kb (list 'genlCx CxBase ky) 'CxUniverse)]
+        (is (some? (v/assert kb (list 'contextArgGenlCx cxfn 1) 'CxUniverse))
+            "the declaration stores")
+        (is (= true (sees? kb CxBase ky)))
+        (is (= false (sees? kb ky CxBase)) "no computed edge, so no cycle")
+        (testing "and retracting that edge lets the declaration place the context"
+          (v/retract! kb up)
+          (is (= true (sees? kb ky CxBase)))
+          (is (= false (sees? kb CxBase ky))))))
+    (testing "with the computed edge standing, an edge closing the cycle is refused"
+      (let [cxfn (based-dimension! kb)
+            ky   (mint! kb (list weather 'Cold) (at-time cxfn CxBase "2027"))]
+        (is (= true (sees? kb ky CxBase)))
+        (is (not= ::stored (refusal #(v/assert kb (list 'genlCx CxBase ky) 'CxUniverse))))
+        (is (= false (sees? kb CxBase ky)))))))
+
+(tu/deftest-kb a-base-position-that-holds-no-context-places-nothing
+  (tu/with-terms [Ottoline weather]
+    (let [cxfn (based-dimension! kb false)]
+      (testing "a position holding an interval, an individual, or no argument at all"
+        (doseq [pos [2 9]]
+          (is (some? (v/assert kb (list 'contextArgGenlCx cxfn pos) 'CxUniverse)) (str pos)))
+        (v/assert kb (list 'contextArgGenlCx cxfn 1) 'CxUniverse)
+        (let [ky (mint! kb (list weather 'Cold) (at-time cxfn Ottoline "2026"))]
+          (is (empty? (v/sentexes-matching kb (list 'genlCx ky '?super) 'CxUniverse))
+              "the time context is placed below nothing")))
+      (testing "a declaration with no position, or one that is no positive integer, is refused"
+        (doseq [bad [(list 'contextArgGenlCx cxfn)
+                     (list 'contextArgGenlCx cxfn 0)
+                     (list 'contextArgGenlCx cxfn "1")
+                     (list 'contextArgGenlCx (list cxfn) 1)]]
+          (is (not= ::stored (refusal #(v/assert kb bad 'CxUniverse))) (pr-str bad)))))))
