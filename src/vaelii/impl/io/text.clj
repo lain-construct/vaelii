@@ -353,8 +353,8 @@
   [kb]
   (let [recs     (:records kb)
         tms      (reasoning/tms kb)
-        premise? (p/premise-ids recs)
-        ids      (into [] (remove #(or (premise? %) (jtms/known-datum? tms %)))
+        premises (p/premise-ids recs)
+        ids      (into [] (remove #(or (contains? premises %) (jtms/known-datum? tms %)))
                        (p/sentex-ids recs))
         hz       (when (seq ids) (kb/write-hazards kb))]
     (when (or (:no-belief hz) (:stale-belief hz))
