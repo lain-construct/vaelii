@@ -1167,6 +1167,29 @@
   (testing "sign_value is closed-extent too (CxMeasure, beside its three instances)"
     (is (v/ask? kb (list 'not (list 'sign_value 'Muffet)) 'CxUniverse))))
 
+(def ^:private shipped-typed-specs
+  "Each shipped `(typedSpec ?genl ?spec)` as `[?genl ?spec context]`, the context the
+  declaration sits in beside ?spec's."
+  '[[livesIn dwellsIn CxSocial]
+    [output tangibleOutput CxAbstract]
+    [output intangibleOutput CxAbstract]
+    [means denotes CxReflection]
+    [means expresses CxReflection]
+    [bordersOn countryBordersOn CxGeographyNow]])
+
+(tu/deftest-kb the-shipped-typed-specs-conclude-their-genl
+  ;; Each spec's genl edge is also stated beside its declaration, so the test asks for
+  ;; the derivation: a justification of the edge resting on the typedSpec.
+  (doseq [[g s ctx] shipped-typed-specs]
+    (let [decl (first (v/sentexes-matching kb (list 'typedSpec g s) ctx))
+          edge (first (v/sentexes-matching kb (list 'genl s g) ctx))]
+      (is (some? decl) (str "(typedSpec " g " " s ") is believed in " ctx))
+      (is (some? edge) (str "(genl " s " " g ") is believed in " ctx))
+      (when (and decl edge)
+        (is (some #(some #{(:id decl)} (:antecedents %))
+                  (v/supporting-justifications kb (:id edge)))
+            (str "(genl " s " " g ") rests on the typedSpec"))))))
+
 (tu/deftest-kb the-closed-extent-grants-pass-the-integrity-sweep
   ;; New vocabulary is swept with kb-integrity over its own terms, in the context that
   ;; declares it.  The review-only :missing-arg pass reports every untyped position; a
