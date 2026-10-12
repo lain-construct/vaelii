@@ -1157,6 +1157,11 @@
     (v/assert kb (list 'quantity WaterLevel) 'CxUniverse)
     (is (true? (tu/stored-in-clash? kb (list 'fluent WaterLevel) 'CxUniverse)))))
 
+(tu/deftest-kb a-sign-value-is-in-no-space-and-at-no-time
+  (is (true? (v/genl? kb 'sign_value 'nowhere_never 'CxMeasure)))
+  (doseq [t '[aspatial atemporal intangible]]
+    (is (true? (v/ask? kb (list t 'SignPositive) 'CxMeasure)) (str "SignPositive is " t))))
+
 (def ^:private aspatial-kinds
   "The kinds with no location in any space, each with the contexts that read it as
   aspatial.  `context` and `language` are read from two band contexts besides CxCore,
@@ -1248,6 +1253,7 @@
     [genl causal thing CxAbstract "partition thing causal acausal"]
     [genl acausal thing CxAbstract "partition thing causal acausal"]
     [disjoint causal acausal CxAbstract "partition thing causal acausal"]
+    [genl sign_value thing CxMeasure "sign_value genl nowhere_never genl intangible genl thing"]
     [genl spatiotemporal thing CxCore "spatiotemporal genl spatial, spatial genl thing (partition)"]
     [genl organism tangible CxCore "organism genl biological genl tangible"]
     [genl body_part tangible CxAbstract "body_part genl biological genl tangible"]
