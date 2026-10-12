@@ -1194,6 +1194,40 @@
   (located-or-not kb '[[event spatiotemporal Battle2]
                        [static_situation spatiotemporal CatOnMat2]]))
 
+;; ---- hollow: what a thing is shaped like, not what it is for ---------------
+;; `hollow` holds of a thing while it has an interior space that other things can occupy.
+;; It says nothing about what the thing is used for.  A container is made and hollow.
+
+(tu/deftest-kb hollow-is-a-shape-located-in-space-and-time
+  (is (true? (v/genl? kb 'hollow 'spatiotemporal 'CxAbstract)))
+  (is (seq (v/sentexes-matching kb '(comment hollow ?text) 'CxAbstract)))
+  (testing "a cup, a pitcher plant and a cupped hand are hollow; stuff is not"
+    (is (= :orthogonal (v/subsumption-status kb 'hollow 'made)))
+    (is (= :orthogonal (v/subsumption-status kb 'hollow 'organism)))
+    (is (= :orthogonal (v/subsumption-status kb 'hollow 'body_part)))
+    (is (true? (v/disjoint? kb 'hollow 'substance)))
+    (is (true? (v/disjoint? kb 'hollow 'nowhere_never))))
+  (testing "a hollow organism is no clash"
+    (tu/with-terms [PitcherPlant]
+      (v/assert kb (list 'organism PitcherPlant) 'CxUniverse)
+      (is (not (tu/stored-in-clash? kb (list 'hollow PitcherPlant) 'CxUniverse))))))
+
+(tu/deftest-kb a-container-is-made-and-hollow
+  (doseq [t '[made hollow]]
+    (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl 'container t) 'CxAbstract))
+        (str "(genl container " t ") is stated"))
+    (is (true? (v/genl? kb 'building t 'CxAbstract)) (str "building genl " t " through container")))
+  (testing "a container stays clear of organism, person and substance"
+    (doseq [t '[organism person substance]]
+      (is (true? (v/disjoint? kb 'container t)) (str "container and " t))))
+  (testing "a made hollow organism is no clash, and is not concluded a container"
+    ;; A potted pitcher plant is made, hollow and an organism.
+    (tu/with-terms [PottedPitcherPlant]
+      (v/assert kb (list 'organism PottedPitcherPlant) 'CxUniverse)
+      (v/assert kb (list 'made PottedPitcherPlant) 'CxUniverse)
+      (is (not (tu/stored-in-clash? kb (list 'hollow PottedPitcherPlant) 'CxUniverse)))
+      (is (not (true? (v/ask? kb (list 'container PottedPitcherPlant) 'CxUniverse)))))))
+
 (tu/deftest-kb a-spatial-event-is-an-event-located-in-some-space
   (is (seq (v/sentexes-matching kb '(comment spatial_event ?text) 'CxAbstract)))
   (doseq [t '[event spatial spatiotemporal temporal situation]]
@@ -1315,6 +1349,7 @@
     [genl boolean intangible CxAbstract "boolean genl unrepresented_term genl linguistic genl nowhere_never genl intangible"]
     [genl character intangible CxAbstract "character genl unrepresented_term genl linguistic genl nowhere_never genl intangible"]
     [genl building made CxAbstract "building genl container genl made"]
+    [genl building hollow CxAbstract "building genl container genl hollow"]
     [genl made tangible CxAbstract "partition tangible made natural"]
     [genl natural tangible CxAbstract "partition tangible made natural"]
     [genl formation tangible CxAbstract "formation genl natural genl tangible"]

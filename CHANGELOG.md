@@ -151,6 +151,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive** (shipped ontology content).
 
+- **`hollow` names a shape, and `container` is placed under `made` and `hollow`.**
+  CxAbstract mints `hollow`: a thing that has, at that time, an interior space other
+  things can occupy, such as a cup, a building, a cave, a pitcher plant or a cupped hand.
+  `hollow` is below `spatiotemporal`, orthogonal to `made`, `organism`, `body_part` and
+  `food`, and disjoint from `substance`. CxAbstract states `(genl container hollow)`
+  beside `(genl container made)`, so `container`, `building` and `dwelling` reach
+  `hollow`. `container` keeps its disjoints from `organism`, `person` and `substance`. A
+  made hollow thing is not concluded a container, so a potted pitcher plant is no clash.
+  `ontology_test` pins the placement, the orthogonals, the edges and a made hollow
+  organism as no clash.
+
+  *Class:* **Additive** (shipped ontology content).
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |
