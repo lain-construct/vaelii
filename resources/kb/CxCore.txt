@@ -1391,6 +1391,13 @@
 (arg contextArgSubrelation 2 positive_integer)
 (arg contextArgSubrelation 3 predicate)
 
+(comment contextArgGenlCx
+         "(contextArgGenlCx ?function ?position) means that a context denoted by an application of ?function sees the application's argument at ?position: that argument is a genlCx of the denoted context, and the producer materializes the edge. So (contextArgGenlCx CxTimeFn 1) makes (CxTimeFn CxGeographyNow (DatetimeFn \"2026\")) a subcontext of CxGeographyNow, with nobody asserting that genlCx edge. An application whose argument at ?position is not a context is placed below nothing. ?position is 1-based over ?function's arguments. See docs/context-nat.md.")
+(binary_predicate contextArgGenlCx)
+(arg contextArgGenlCx 1 function)
+(arg contextArgGenlCx 2 positive_integer)
+(termsRelated contextArgSubrelation contextArgGenlCx)   ;; the two structural genlCx declarations
+
 (comment termOfUnit
          "(termOfUnit ?constant ?expression) means that the reified ?constant denotes the term expression ?expression. The constant-to-expression half of the reified-term map, expression-to-constant being the inverted term index. A quoting predicate: ?expression is a verbatim payload, not itself reified or type-checked as a term.")
 (binary_predicate termOfUnit)

@@ -12,6 +12,11 @@
   retract a context (its `termOfUnit` map), the declaration, or the `R`-evidence, and the
   ordinary JTMS relabel withdraws it.  It is never a premise anyone asserted.
 
+  A `(contextArgGenlCx F pos)` declaration says an `F`-context sees the context at its
+  argument `pos`: the producer materializes `(genlCx K arg)` the same way, justified by
+  `K`'s `termOfUnit` map and the declaration under the `contextArgGenlCx` informant, so
+  the edge is read off the map rather than stated per context.
+
   `R` is resolved by a **bounded** oracle, because the producer runs on the assert
   maintenance path and a genlCx edge feeds the taxonomy closure a relabel loop reads — so
   a prover search is out (docs/naf.md): either a registered pure structural comparator
@@ -22,10 +27,10 @@
 
   Materialization reuses the derived-sentex pattern `special/deduce-lift` uses:
   `find-or-create-sentex`, then `special/derived-sentex-added` to reach the genlCx closure
-  and post the re-check triggers, then a JTMS justification under the
-  `contextArgSubrelation` informant.  What the edge shows the contexts under it is the
-  settle's (`special/drain-context-moves!`), as for an edge somebody asserted (vaelii#56),
-  so the caller settles once an edge was built."
+  and post the re-check triggers, then a JTMS justification under the declaration's
+  informant.  What the edge shows the contexts under it is the settle's
+  (`special/drain-context-moves!`), as for an edge somebody asserted (vaelii#56), so the
+  caller settles once an edge was built."
   (:require [vaelii.impl.datetime :as datetime]
             [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
@@ -77,12 +82,13 @@
 
 ;; ---- reading the declarations and the context NATs ------------------------
 
-(defn any-context-subrelations?
-  "Cheap gate: does the KB declare any `contextArgSubrelation`?  The producer is a no-op
-  otherwise — one O(1) functor count per assert, the shape `nat/any-corresponding-predicates?`
-  has."
+(defn any-context-declarations?
+  "Cheap gate: does the KB declare any `contextArgSubrelation` or `contextArgGenlCx`?  The
+  producer is a no-op otherwise — at most two O(1) functor counts per assert, the shape
+  `nat/any-corresponding-predicates?` has."
   [kb]
-  (pos? (reads/stored-count-with-functor (:index kb) 'contextArgSubrelation)))
+  (or (pos? (reads/stored-count-with-functor (:index kb) 'contextArgSubrelation))
+      (pos? (reads/stored-count-with-functor (:index kb) 'contextArgGenlCx))))
 
 (defn- subrelation-declarations
   "Believed `(contextArgSubrelation F pos R)` declarations as `[F pos R handle]`, kept
@@ -94,6 +100,15 @@
         :let [[_ f pos r] (:sentence sx)]
         :when (and (pred? f) (exc/believed-own? kb (:id sx)))]
     [f pos r (:id sx)]))
+
+(defn- base-declarations
+  "Believed `(contextArgGenlCx F pos)` declarations as `[F pos handle]`, kept where
+  `(pred? F)`, read as `subrelation-declarations` reads its own."
+  [kb pred?]
+  (for [sx  (kb/sentexes-matching kb '(contextArgGenlCx ?f ?pos) '?ctx)
+        :let [[_ f pos] (:sentence sx)]
+        :when (and (pred? f) (exc/believed-own? kb (:id sx)))]
+    [f pos (:id sx)]))
 
 (defn- context-nats-of
   "Every believed context NAT whose expression head is `f`, as `[k expr termOfUnit-handle]`.
@@ -152,7 +167,7 @@
   Bare: it adds one derived sentex and one justification, and the JTMS withdraws the edge
   when an antecedent stops being believed — nothing here destroys stored knowledge, so
   nothing in this chain carries a `!`."
-  [kb sub super antes]
+  [kb informant sub super antes]
   (let [edge (list 'genlCx sub super)
         tms  (reasoning/tms kb)]
     (when-not (special/inadmissible kb edge universal-context)
@@ -161,9 +176,9 @@
             depth        (inc (reduce max 0 (map #(jtms/depth tms %) antes)))
             antes        (vec antes)]
         (jtms/ensure-node tms h2 depth)
-        (when-not (jtms/has-justification? tms 'contextArgSubrelation antes h2)
+        (when-not (jtms/has-justification? tms informant antes h2)
           (let [jid  (p/next-id (:records kb))
-                just (jtms/->just jid 'contextArgSubrelation antes h2 {} :monotonic)]
+                just (jtms/->just jid informant antes h2 {} :monotonic)]
             (p/put-justification (:records kb) just)
             (jtms/add-justification tms just)
             true))))))
@@ -186,7 +201,7 @@
          :when (pair? ksub asub ksup asup)
          :let  [ev (r-evidence kb r asub asup)]
          :when ev]
-     (materialize-edge kb ksub ksup
+     (materialize-edge kb 'contextArgSubrelation ksub ksup
                        (cond-> [th-sub th-sup declH]
                          (not= ::pure ev) (conj ev))))))
 
@@ -205,6 +220,25 @@
           :when (some? k)]
       (order-group kb pos r declH nats pair?)))))
 
+(defn- reconcile-bases
+  "Materialize `(genlCx K arg)` for every declaration `(contextArgGenlCx f pos)` and every
+  context NAT `K` of `f` — or only `only-k` — whose argument at `pos` is a context
+  (`nm/context?`).  The edge is justified by `K`'s `termOfUnit` and the declaration alone:
+  the argument is read off the map, so it needs no supporter of its own.  A `pos` the
+  expression does not have, or one holding no context (an interval, an individual, a
+  structural term), places nothing; `materialize-edge` refuses a self-edge, a query
+  context and a cycle.  Returns true when an edge gained a justification."
+  ([kb f] (reconcile-bases kb f nil))
+  ([kb f only-k]
+   (any-built?
+    (for [[_ pos declH] (base-declarations kb #(= f %))
+          :when (and (integer? pos) (pos? (long pos)))
+          [k e th]      (context-nats-of kb f)
+          :when (or (nil? only-k) (= only-k k))
+          :let  [arg (nth e pos nil)]
+          :when (and (symbol? arg) (nm/context? arg) (not= arg k))]
+      (materialize-edge kb 'contextArgGenlCx k arg [th declH])))))
+
 (defn- functions-ordered-by
   "The context functions some believed declaration orders by sub-relation `r`.  What the
   **stored-fact oracle**'s retroactive arm reconciles: an `(R a b)` fact arriving after
@@ -220,28 +254,35 @@
   "The structural-genlCx maintenance a just-asserted `sentence` calls for, scoped to the
   sibling pairs it can have changed:
 
-  - a `(contextArgSubrelation F …)` declaration reconciles every pair of `F`'s contexts;
+  - a `(contextArgSubrelation F …)` declaration reconciles every pair of `F`'s contexts,
+    and a `(contextArgGenlCx F …)` one places every one of them below its argument;
   - a `(termOfUnit K E)` map with `K` a `cx/` constant — the mint of a context —
-    reconciles the pairs `K` is in, since a new context is what creates a sibling pair;
+    reconciles the pairs `K` is in, since a new context is what creates a sibling pair,
+    and places `K` below its declared context arguments;
   - an `(R a b)` fact on a **declared sub-relation** reconciles the pairs whose ordered
     arguments are `a` below `b`, in the functions declared to order by `R`.  A comparator
     dimension needs nothing but the contexts, but a dimension resolved by stored facts
     has the evidence arrive on its own schedule.
 
   Any other fact, including one stored into a `cx/` context that already exists, creates
-  no pair and reconciles nothing.  A no-op — one functor count — on a KB that declares no
-  `contextArgSubrelation`.
+  no pair and reconciles nothing.  A no-op — a functor count or two — on a KB that
+  declares neither.
 
   Returns true when an edge gained a justification, which the caller settles."
   [kb sentence]
-  (when (and (any-context-subrelations? kb) (sequential? sentence) (seq sentence))
+  (when (and (any-context-declarations? kb) (sequential? sentence) (seq sentence))
     (let [[head x y] sentence]
       (cond
         (= 'contextArgSubrelation head)
         (reconcile-function kb x)
 
+        (= 'contextArgGenlCx head)
+        (reconcile-bases kb x)
+
         (and (= 'termOfUnit head) (nat/reified-context-symbol? x) (sequential? y) (seq y))
-        (reconcile-function kb (first y) (fn [ksub _ ksup _] (or (= x ksub) (= x ksup))))
+        (any-built?
+         [(reconcile-function kb (first y) (fn [ksub _ ksup _] (or (= x ksub) (= x ksup))))
+          (reconcile-bases kb (first y) x)])
 
         :else
         (any-built?
@@ -249,11 +290,11 @@
            (reconcile-function kb f (fn [_ asub _ asup] (and (= x asub) (= y asup))))))))))
 
 (defn reconcile-revivals
-  "Rebuild the structural genlCx edges for **every** declared `contextArgSubrelation`
-  function — the build direction a belief *revival* needs, which `reconcile-genlCx` (only
-  ever called from the assert choke-point) cannot serve.
+  "Rebuild the structural genlCx edges for **every** declared `contextArgSubrelation` or
+  `contextArgGenlCx` function — the build direction a belief *revival* needs, which
+  `reconcile-genlCx` (only ever called from the assert choke-point) cannot serve.
 
-  Belief of a `contextArgSubrelation` declaration — or of a stored `(R a b)` evidence fact
+  Belief of a declaration — or of a stored `(R a b)` evidence fact
   — can flip OUT→IN with no assert: retracting a monotonic defeater above it revives it.
   The JTMS revives a *justification that already exists*, but an edge the producer never
   built (because the declaration was OUT when the contexts were stored) has no
@@ -264,11 +305,14 @@
   Idempotent (`materialize-edge` adds no duplicate justification) and **local**: scoped to
   the declared context functions, each reconciled only over its own contexts — bounded by
   the context-NAT population, never the whole graph.  Behind `nat/any-reified-constants?`
-  first, so a KB with no reified constant pays no `any-context-subrelations?` read.
+  first, so a KB with no reified constant pays no `any-context-declarations?` read.
 
   Returns true when an edge gained a justification, which the caller settles."
   [kb]
-  (when (and (nat/any-reified-constants? kb) (any-context-subrelations? kb))
+  (when (and (nat/any-reified-constants? kb) (any-context-declarations? kb))
     (any-built?
-     (for [f (distinct (map first (subrelation-declarations kb (constantly true))))]
-       (reconcile-function kb f)))))
+     (concat
+      (for [f (distinct (map first (subrelation-declarations kb (constantly true))))]
+        (reconcile-function kb f))
+      (for [f (distinct (map first (base-declarations kb (constantly true))))]
+        (reconcile-bases kb f))))))

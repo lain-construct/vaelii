@@ -477,6 +477,20 @@
     (and (symbol? rel) (nm/individual? rel))
     (conj (str rel " is an individual; " f " names the sub-relation ordering " fname "'s contexts"))))
 
+(defn context-arg-genlcx-problems
+  "`(contextArgGenlCx F pos)` declares that the context an application of the context
+  function `F` denotes sees its argument at `pos` (docs/context-nat.md).  `F` is a
+  function name and `pos` a 1-based positive integer over its arguments.  Whether `pos`
+  is in `F`'s arity, and whether the argument there is a context, are facts about each
+  application rather than the declaration, so the producer reads them and places nothing
+  where either fails."
+  [_ [f fname pos :as s] _context]
+  (cond-> []
+    (not= 3 (count s))    (conj (str f " takes a function and an argument position"))
+    (not (symbol? fname)) (conj (str f " expects a function name (a symbol)"))
+    (not (and (integer? pos) (pos? pos)))
+    (conj (str f "'s argument position must be a positive integer"))))
+
 (defn correspondence-problems
   "`(functionCorrespondingPredicate F P N)` says the function `F` and the predicate `P`
   state the same relationship, `N` naming the argument of `P` that carries `F`'s value.

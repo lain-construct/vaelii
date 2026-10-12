@@ -832,11 +832,11 @@
   somebody asserted or a rule concluded?
 
   Authorship again, and the justification is where it is recorded: the producer deduces
-  its edges under the `contextArgSubrelation` informant and nothing else uses that
-  informant, so an edge that is not a premise and whose every support carries it was
-  written by the producer.  A premise is the caller's edge however the producer also
-  derives it, and a support under any other informant is a rule's conclusion — either is
-  content, and content naming a context keeps it alive.
+  its edges under the `contextArgSubrelation` and `contextArgGenlCx` informants and
+  nothing else uses either, so an edge that is not a premise and whose every support
+  carries one was written by the producer.  A premise is the caller's edge however the
+  producer also derives it, and a support under any other informant is a rule's
+  conclusion — either is content, and content naming a context keeps it alive.
 
   This is what makes the computed containment *not* a liveness source: a month context
   `genlCx`-ing its year is derived from the two `termOfUnit` maps, so counting it as a
@@ -852,7 +852,8 @@
                js  (jtms/supports tms h)]
            (and (not (jtms/premise? tms h))
                 (seq js)
-                (every? #(= 'contextArgSubrelation (:informant (jtms/justification tms %)))
+                (every? #(contains? '#{contextArgSubrelation contextArgGenlCx}
+                                    (:informant (jtms/justification tms %)))
                         js))))))
 
 (defn- nat-bookkeeping-of?

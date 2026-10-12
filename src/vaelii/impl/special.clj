@@ -7286,6 +7286,10 @@
     ;; (docs/context-nat.md).  Read back through the index per producer run like the
     ;; correspondence declaration, so the entry is the wff arm alone.
     'contextArgSubrelation {:wff wff/context-arg-subrelation-problems}
+    ;; `(contextArgGenlCx F pos)` declares that an `F`-context sees its argument at `pos`,
+    ;; so the producer materializes `(genlCx K arg)` off `K`'s own map; read back the same
+    ;; way, so the entry is the wff arm alone.
+    'contextArgGenlCx      {:wff wff/context-arg-genlcx-problems}
     ;; `(functionCorrespondingPredicate F P N)` is read by the reify (both ways —
     ;; docs/nat.md), which reaches it through the index rather than a cache: the
     ;; declaration is consulted once per NAT, where the reify is already probing for a

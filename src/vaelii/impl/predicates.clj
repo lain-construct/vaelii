@@ -759,6 +759,9 @@
      ['contextArgSubrelation   (enforced (wff-only [:function :position :predicate])
                                          (str "context-nat producer — sibling F-contexts differing at one arg are"
                                               " ordered by the sub-relation on that arg, materializing genlCx"))]
+     ['contextArgGenlCx        (enforced (wff-only [:function :position])
+                                         (str "context-nat producer — an F-context sees the context at the"
+                                              " declared arg, materializing genlCx"))]
      ['functionCorrespondingPredicate
       (enforced (wff-only [:function :predicate] :optional [:position]
                           :facets #{:answers})

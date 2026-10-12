@@ -6449,7 +6449,8 @@
 (defn- computed-spec-of
   "The contexts a reified context is a **computed** spec of: the `(genlCx C ?super)`
   sentexes nobody asserted, which a `contextArgSubrelation` declaration materialized from
-  the two contexts' arguments (docs/context-nat.md).  Absent for a context somebody wrote
+  the two contexts' arguments, or a `contextArgGenlCx` one from the context's own
+  (docs/context-nat.md).  Absent for a context somebody wrote
   down, which is every context in the shipped topology."
   [kb term context limit]
   (bounded-terms (->> (visible-matches kb (list 'genlCx term '?super) context)

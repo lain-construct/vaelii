@@ -53,15 +53,15 @@
     correspondence a value, an application or a declaration arriving last leaves to
     settle (docs/nat.md).
   - `context-nat/reconcile-genlCx` — the structural `genlCx` edges a context's mint, a
-    `contextArgSubrelation` declaration or an `R`-evidence fact entails; materialized
-    justified so they belief-follow (docs/context-nat.md), and settled
+    `contextArgSubrelation` or `contextArgGenlCx` declaration or an `R`-evidence fact
+    entails; materialized justified so they belief-follow (docs/context-nat.md), and settled
     (`settle-computed-edges`).
 
   **One gate covers all of it**, `nat/any-reified-constants?`: a KB with a reifiable
   function or a stored `termOfUnit` map.  A context slot mints a `cx/` constant with no
   declaration, so the map count is what admits a KB whose only constants are contexts.  A
   KB that has minted nothing and declares no reifiable function pays neither the
-  `any-context-subrelations?` index read nor the correspondence count."
+  `any-context-declarations?` index read nor the correspondence count."
   [kb sentence opts]
   (when (and (nat/any-reified-constants? kb) (sequential? sentence))
     (nat/reconcile-nats! kb sentence)
