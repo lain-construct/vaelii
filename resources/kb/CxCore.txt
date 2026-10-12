@@ -1941,6 +1941,20 @@
 (implementationNote typeOrthogonal "The rule writes (orthogonal ?type ?x). orthogonal is symmetric, so (orthogonal ?x ?type) is the same sentence, but with that spelling a genlArg entailment over the conclusion reads a different position after a text export reloads the KB: https://github.com/vaelii/vaelii/issues/173")
 (termsRelated typeGenl typeOrthogonal orthogonal)
 
+;; typedSpec names the spec first-hand facts should use when their arguments fit it.  Its
+;; argument order is genl's reversed: the genl first, as the predicate being narrowed.
+;; A forward rule concludes the genl edge, so the edge reaches the taxonomy closure as
+;; intersection's do.  No rule lifts a ?genl sentence to ?spec: whether one should have
+;; been a ?spec sentence is the kb-integrity :under-specific pass's report, not an
+;; inference (docs/integrity.md).
+(comment typedSpec
+         "(typedSpec ?genl ?spec) means that ?spec is a genl spec of ?genl whose declared argument types are tighter, so a stated (?genl a b …) whose arguments meet every argument constraint of ?spec should have been stated as (?spec a b …): a fact is stated at its most specific predicate. e.g. (typedSpec livesIn dwellsIn): a human that lives in a dwelling dwellsIn it. Concludes (genl ?spec ?genl). Nothing derives a ?spec sentence from a ?genl one; the kb-integrity :under-specific pass reports each stated ?genl sentence whose arguments are proven to meet ?spec's constraints, inherited ones included. See docs/integrity.md.")
+(binary_predicate typedSpec)
+(arg typedSpec 1 predicate)
+(arg typedSpec 2 predicate)
+(set/forwardRule (implies (typedSpec ?genl ?spec) (genl ?spec ?genl)))
+(termsRelated genl typedSpec)
+
 ;; orthogonalMetatypes crosses two or more classifiers member by member.  A generator per
 ;; pair of positions stamps one strict rule over the two memberships, so, as with
 ;; typeOrthogonal, a firing is believed only where both classifiers are on the

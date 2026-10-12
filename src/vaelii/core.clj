@@ -5618,7 +5618,7 @@
   `{:status :audited :candidate-count n}` when no pass finds anything, `:status :gap` with
   the non-empty categories among `:definition-inconsistencies`,
   `:all-specified-violations`, `:genl-arg-widening`, `:not-under-thing`, `:implicit-genl`,
-  `:orthogonal-over-separation`, `:rule-macro`, `:undeclared-arity`,
+  `:orthogonal-over-separation`, `:rule-macro`, `:undeclared-arity`, `:under-specific`,
   `:twin-genls`, `:derivable-stated-edge`,
   `:disjoint-could-be-partition` and `:missing-arg`, or `:status :truncated` with its
   `:reason` and the findings kept when a bound runs out.  `options` takes `:max-work`,

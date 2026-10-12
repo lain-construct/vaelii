@@ -14,6 +14,7 @@
             [vaelii.impl.predicates :as predicates]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.quasiquote :as quasiquote]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
@@ -985,6 +986,108 @@
           (recur (conj findings finding) (rest units))))
       {:status :complete :findings findings})))
 
+;; ---- under-specific: a stated genl sentence its typed spec should have stated ----
+
+(defn- typed-spec-pairs
+  "Every believed `(typedSpec G S)` over two distinct ground symbols that `context` sees,
+  as distinct `[G S]` in print order: the one census of declarations this pass reads."
+  [kb context]
+  (let [tms (reasoning/tms kb)]
+    (->> (res/matches-visible kb '(typedSpec ?genl ?spec) context)
+         (keep (fn [[h b]]
+                 (budget/spend!)
+                 (let [g (get b '?genl) s (get b '?spec)]
+                   (when (and (symbol? g) (not (sx/variable? g))
+                              (symbol? s) (not (sx/variable? s))
+                              (not= g s)
+                              (jtms/in? tms h))
+                     [g s]))))
+         distinct
+         (sort-by (fn [[g s]] [(nm/print-key g) (nm/print-key s)])))))
+
+(defn- position-constraints
+  "`{position #{[check type] …}}` over positions 1..`n` of `pred`, as `context` reads its
+  argument declarations and every super-predicate's (`declared-rows`): `:membership` for
+  an `arg`, `argAndRest` or `args` type, `:subtype` for a `genlArg`, `argAndRestGenl` or
+  `argsGenl` one."
+  [kb pred n context]
+  (let [rows   #(declared-rows kb %1 pred %2 context)
+        at     (fn [check kind] (for [[k t] (rows kind true) :when (<= 1 k n)] [k [check t]]))
+        onward (fn [check kind] (for [[k t] (rows kind true) i (range (max 1 k) (inc n))]
+                                  [i [check t]]))
+        every  (fn [check kind] (for [[_ t] (rows kind false) i (range 1 (inc n))]
+                                  [i [check t]]))]
+    (reduce (fn [m [i c]] (update m i (fnil conj #{}) c))
+            {}
+            (concat (at :membership 'arg) (at :subtype 'genlArg)
+                    (onward :membership 'argAndRest) (onward :subtype 'argAndRestGenl)
+                    (every :membership 'args) (every :subtype 'argsGenl)))))
+
+(defn- stated-sentences
+  "Every believed **premise** `(pred a …)` of `n` ground arguments that `context` sees,
+  written with `pred` itself rather than a spec the matcher fans the pattern out to, as
+  `[args record]` in content order.  A sentence a rule derived is no premise and is not
+  read."
+  [kb pred n context]
+  (let [tms  (reasoning/tms kb)
+        recs (:records kb)]
+    (->> (res/matches-visible kb (list* pred (positions-vars n)) context)
+         (keep (fn [[h _]]
+                 (budget/spend!)
+                 (when (and (jtms/in? tms h) (jtms/premise? tms h))
+                   (when-let [s (p/get-sentex recs h)]
+                     (let [sentence (sx/sentence-of s)]
+                       (when (and (seq? sentence)
+                                  (= pred (first sentence))
+                                  (= n (count (rest sentence)))
+                                  (every? sx/ground-term? (rest sentence)))
+                         [(vec (rest sentence))
+                          {:handle h :sentence sentence :context (:context s)}]))))))
+         (into [] (distinct))
+         (sort-by (fn [[_ r]] [(:sentence r) (:context r)]) nm/compare-form))))
+
+(defn- meets?
+  "Is `arg` proven to meet the constraint `[check type]` in `context`: `(type arg)` for
+  `:membership`, `(genl arg type)` for `:subtype`, answered through the prover registry
+  as `predall`'s audit asks it?"
+  [kb arg [check type] context]
+  (budget/spend!)
+  (boolean (seq (quasiquote/ask-prepared kb (case check
+                                               :membership (list type arg)
+                                               :subtype    (list 'genl arg type))
+                                         context))))
+
+(defn- under-specific-units
+  "The findings for one visible `(typedSpec G S)`: each stated `G` sentence whose
+  arguments are proven to meet every constraint `S`'s declarations place on them beyond
+  the ones `G`'s already do.  A `G` sentence met `G`'s own constraints when it was
+  written, so only the tighter ones are asked.  `G` and `S` must take the same fixed
+  arity."
+  [kb [g s] context]
+  (budget/spend!)
+  (let [n (kb/relation-arity kb g context)]
+    (when (and (integer? n) (pos? n)
+               (do (budget/spend!) (= n (kb/relation-arity kb s context))))
+      (let [own   (position-constraints kb g n context)
+            spec  (position-constraints kb s n context)
+            extra (into {} (for [i (range 1 (inc n))
+                                 :let [cs (remove (get own i #{}) (get spec i))]
+                                 :when (seq cs)]
+                             [i (sort-by (fn [[c t]] [c (nm/print-key t)]) cs)]))]
+        (for [[args stated] (stated-sentences kb g n context)
+              :when (every? (fn [[i cs]] (every? #(meets? kb (nth args (dec i)) % context) cs))
+                            (sort-by key extra))]
+          {:stated stated :spec s :suggest (apply list s args)})))))
+
+(defn- under-specific-findings
+  "Audit every visible `typedSpec` declaration, in print order, then each stated `G`
+  sentence of it, one at a time, in content order."
+  [kb context remaining]
+  (bounded-findings
+   :under-specific
+   (mapcat #(under-specific-units kb % context) (typed-spec-pairs kb context))
+   remaining))
+
 (def ^:private passes
   "The passes in run order, `[category audit]`: `audit` takes `kb candidate-terms context
   remaining` and answers `{:status :complete|:truncated :findings …}`.  `:max-results`
@@ -1002,6 +1105,8 @@
                   (rule-macro-findings kb context remaining))]
    [:undeclared-arity (fn [kb _ context remaining]
                         (undeclared-arity-findings kb context remaining))]
+   [:under-specific (fn [kb _ context remaining]
+                      (under-specific-findings kb context remaining))]
    [:twin-genls (fn [kb _ context remaining]
                   (twin-genls-findings kb context remaining))]
    [:derivable-stated-edge (fn [kb _ context remaining]

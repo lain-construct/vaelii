@@ -1609,6 +1609,15 @@
                              " the integrity sweep and by no inference.")}
                 (str "integrity/rule-macro-findings — a rule-macro suggestion the rule's"
                      " context declines is not reported"))]
+     ['typedSpec
+      (enforced {:shape {:args [:term :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "enforced by the generic chain and one integrity pass, not by"
+                             " name: the CxCore forward rule beside the declaration concludes"
+                             " (genl ?spec ?genl), and no rule derives a ?spec sentence.")}
+                (str "a CxCore forward rule concludes (genl ?spec ?genl), and"
+                     " integrity/under-specific-findings reports each stated ?genl sentence"
+                     " whose arguments meet every argument constraint of ?spec"))]
 
      ;; The three worked-example annotations name their example sentex by handle.  Each is
      ;; a `target_following_predicate` in CxCore, so retracting the example tears the

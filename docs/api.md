@@ -172,7 +172,8 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; over a pair a stated separation divides, the suggested
                                                 ; declaration for every stored rule that a declaration the
                                                 ; engine implements states, every genl node with no
-                                                ; declared arity, plus three
+                                                ; declared arity, every stated sentence a typedSpec
+                                                ; spec should have stated, plus three
                                                 ; review-only smells: sibling types sharing one direct
                                                 ; genl set, stated genl/disjoint edges that derive
                                                 ; without themselves, and disjoint pairs a known cover
@@ -184,7 +185,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; :definition-inconsistencies, :genl-arg-widening,
                                                 ; :not-under-thing, :implicit-genl,
                                                 ; :orthogonal-over-separation, :rule-macro,
-                                                ; :undeclared-arity, :twin-genls,
+                                                ; :undeclared-arity, :under-specific, :twin-genls,
                                                 ; :derivable-stated-edge,
                                                 ; :disjoint-could-be-partition and :missing-arg. opts may bound :max-work,
                                                 ; :max-ms and :max-results, and :categories names the

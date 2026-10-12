@@ -7,10 +7,11 @@
   path to `thing`, the `genl` edges a cover forces on a candidate type that the
   closure does not hold, the orthogonal declarations (`orthogonal` and
   `siblingDisjointException`) over a pair a stated separation divides, the stored rules a
-  declaration the engine implements states, the `genl` nodes with no declared arity, and
-  three ontology-engineering smells for review: sibling types with one direct `genl` set,
-  stated edges that derive without themselves, and `disjoint` pairs a known cover
-  exhausts, plus every declared argument position no declaration types.
+  declaration the engine implements states, the `genl` nodes with no declared arity, the
+  stated sentences a `typedSpec` spec should have stated, and three ontology-engineering
+  smells for review: sibling types with one direct `genl` set, stated edges that derive
+  without themselves, and `disjoint` pairs a known cover exhausts, plus every declared
+  argument position no declaration types.
 - **Not here:** repairing findings, enumerating a domain, vocabulary completeness,
   generic constraint auditing, or the represented settled dilemmas returned by
   `contradictions`; how definitions infer membership → [defns.md](defns.md); what a
@@ -70,10 +71,11 @@ either: one candidate term, then one visible cover over it, at a time. The
 `orthogonal` pass reads one census of visible orthogonal declarations, then one
 declaration at a time. The rule-macro pass reads one census of the stored rules, then
 one rule at a time. The undeclared-arity pass reads one census of the visible `genl`
-edges, then one node at a time. The three ontology-engineering passes read the taxonomy's types
-once, or one census of stated `genl` and `disjoint` declarations, then one type or one
-declaration at a time. These focused units are where
-cooperative checkpoints and partial-result preservation sit.
+edges, then one node at a time. The under-specific pass reads one census of the visible
+`typedSpec` declarations, then each one's stated `?genl` sentences one at a time. The
+three ontology-engineering passes read the taxonomy's types once, or one census of stated
+`genl` and `disjoint` declarations, then one type or one declaration at a time. These
+focused units are where cooperative checkpoints and partial-result preservation sit.
 
 `:categories`, a set of category keys, runs the passes of those categories alone and
 reads nothing for the others. Without `:categories`, the sweep runs every pass except
@@ -104,7 +106,7 @@ A finding changes the top-level status and adds only the populated categories:
   {:status :audited :violations #{Bob}}}}
 ```
 
-`:status :audited` means all twelve passes ran and none found a gap. `:status :gap` cannot
+`:status :audited` means all thirteen passes ran and none found a gap. `:status :gap` cannot
 be confused with that clean shape even when only one sparse category is present. The
 specified category is exactly `all-specified-violations`, including its typed declaration
 gaps; it is composed, not reimplemented.
@@ -509,6 +511,59 @@ The pass has these limits:
 Reading each edge and each node's two arity reads spend one work unit, and
 `:max-results` counts these findings after the rule-macro category.
 
+## What an under-specific finding means
+
+`(typedSpec ?genl ?spec)` says that `?spec` is a genl spec of `?genl` whose declared
+argument types are tighter. A fact is stated at its most specific predicate, so a
+stated `(?genl a b …)` whose arguments meet every argument constraint of `?spec` should
+have been stated as `(?spec a b …)`. A forward rule concludes `(genl ?spec ?genl)`, and
+nothing derives a `?spec` sentence from a `?genl` one, so nothing on the write path
+reports the weaker statement. The sweep reads it instead:
+
+```clojure
+;; (typedSpec livesIn dwellsIn)   ; (arg dwellsIn 1 human) (arg dwellsIn 2 dwelling)
+;; (human Ada) (dwelling Cottage) (livesIn Ada Cottage)
+{:status :gap
+ :candidate-count 0
+ :under-specific
+ [{:stated  {:handle 41 :sentence (livesIn Ada Cottage) :context CxUniverse}
+   :spec    dwellsIn
+   :suggest (dwellsIn Ada Cottage)}]}
+```
+
+`:stated` names the sentence by handle, sentence and context, and `:suggest` is the
+sentence to state in its place. The finding is a suggestion: the sweep asserts and
+retracts nothing.
+
+One finding is reported for each visible `typedSpec` declaration, in print order, and
+each of its stated `?genl` sentences that meets the constraints, in content order. A
+constraint is met when the prover registry answers `(T a)` for an `arg`, `argAndRest` or
+`args` type `T` at the argument's position, or `(genl a T)` for a `genlArg`,
+`argAndRestGenl` or `argsGenl` type, from the audit context. The constraints are those of
+`?spec` and of every super-predicate `res/constraining-predicates` reads, so a type
+`?spec` inherits from a predicate between it and `?genl` counts. A constraint `?genl`'s
+own declarations place was checked when the sentence was written, and is not asked again.
+
+The pass has these limits:
+
+- **Declaration census, then the extent of `?genl`.** A finding is a fact about a stated
+  sentence, not about a candidate term, so the caller's candidate set does not bound it.
+  The pass reads every visible `typedSpec` declaration once (they are few), then each
+  `?genl`'s stated sentences, one at a time, as the specified pass reads a declared
+  population. The meter bounds that read as it bounds the specified one.
+- **Premises only.** A `?genl` sentence a rule derived was stated by no author, so it is
+  not a finding, and a sentence written with a spec of `?genl` is not a `?genl` sentence.
+- **Proven, not merely unrefuted.** An argument whose membership the prover registry
+  does not answer positively fails the constraint, so an open-world gap is never a
+  finding.
+- **One fixed arity.** `?genl` and `?spec` must be declared with the same fixed arity; a
+  variable-arity pair is not read. `quotedArg` and `interArg` are not read.
+- **Visible from the audit context.** A declaration, a sentence or a membership the
+  audit context cannot see contributes nothing.
+
+Reading each declaration and each sentence, and each constraint asked, spend one work
+unit, and `:max-results` counts these findings after the undeclared-arity category.
+
 ## The ontology-engineering smells
 
 Three census passes flag how the `genl` and `disjoint` declarations arrange the taxonomy's
@@ -563,7 +618,7 @@ How each pass decides, and its limits:
 All three read from the audit context, so a declaration or edge it cannot see contributes
 nothing, and an edge stated for a narrower reader that cannot see the other path is
 still reported from a context that sees both. Their findings count against `:max-results`
-last, in the order above, after the undeclared-arity category.
+last, in the order above, after the under-specific category.
 
 ## What a missing-arg finding means
 
