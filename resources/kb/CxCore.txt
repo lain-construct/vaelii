@@ -308,6 +308,10 @@
 ;; expiring at midnight is not.
 (set/monotonic (orthogonal event spatial))
 (set/monotonic (orthogonal event aspatial))
+;; A battle and a cat on a mat are spatiotemporal; a contract expiring and a treaty in
+;; force are not.  orthogonal is not inherited, so each kind's pair is stated.
+(set/monotonic (orthogonal event spatiotemporal))
+(set/monotonic (orthogonal static_situation spatiotemporal))
 ;; A situation is not the matter in it.
 (set/monotonic (disjoint tangible situation))
 ;; The partition of thing into tangible and intangible does not derive a genl edge from

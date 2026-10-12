@@ -142,6 +142,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **An event and a static situation are spatiotemporal or not.** CxCore states `event`
+  and `static_situation` each orthogonal to `spatiotemporal`, beside
+  `(orthogonal situation spatiotemporal)`. An `orthogonal` is not inherited along `genl`,
+  so each kind's pair is stated. A battle and a cat on a mat are spatiotemporal; a
+  contract expiring and a treaty in force are not. `ontology_test` pins both pairs with a
+  witness.
+
+  *Class:* **Additive** (shipped ontology content).
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |
