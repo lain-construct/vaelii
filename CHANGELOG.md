@@ -126,6 +126,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive** (shipped ontology content).
 
+- **An event may be located or not.** CxCore states `(orthogonal event spatial)` and
+  `(orthogonal event aspatial)`: the battle of Waterloo is located, and a contract
+  expiring at midnight is not. `ontology_test` pins both pairs with a witness and the
+  derived, unstated edge from `event` to `temporal`.
+
+  *Class:* **Additive** (shipped ontology content).
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |
