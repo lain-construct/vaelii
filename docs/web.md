@@ -221,9 +221,10 @@ reason a term page is slow**, so the bound is part of the work and not a follow-
   expansions, six per side, at one or two reads each. The radial view spends at most twelve:
   it expands three neighbours, and each costs two O(1) argument counts and two pattern
   reads. A taxonomy expansion reads the node's one-step neighbours through
-  `(take (inc cap))`, so it costs the node's own fan-out and nothing more. A `genl` node
-  with two to 500 one-step neighbours costs a second read, `min-genls` or `max-specs`, in
-  which the engine makes one memoized closure read per neighbour. A radial expansion reads
+  `(take (inc cap))`, so it costs the node's own fan-out and nothing more. A node with two
+  to 500 one-step neighbours costs a second read, in which the engine makes one memoized
+  closure read per neighbour: `min-genls` or `max-specs` for a `genl` node,
+  `min-context-parents` or `max-context-children` for a `genlCx` node. A radial expansion reads
   at most `ego-scan` (500) matches and orders them by handle before the cap cuts.
 - **Measured** twice. Over the shipped schema plus the test-world cast: **2–10 reads** and
   **0.7–2.9 ms** a page (`dog` +3 reads / +0.7 ms, `animal` +10, a synthetic 5,000-subtype
@@ -281,8 +282,16 @@ supertypes that subsume each other are both drawn.
 A row is a hop count from the centre. Two nodes of one row can therefore be comparable:
 when `dog`'s minimal supertypes are `mammal` and `pet`, and `animal` is minimal above
 `mammal` while `companion` is minimal above `pet` with `companion ⊂ animal`, the second
-row holds both `animal` and `companion`. A `genlCx` row holds every one-step neighbour of
-a context and is not reduced.
+row holds both `animal` and `companion`.
+
+**A `genlCx` row holds a context's nearest neighbours in the context lattice.** Above a
+context the row holds its minimal parents (`min-context-parents`): the contexts it reaches
+over one `genlCx` edge with no other such context below them. Below a context the row
+holds its maximal children (`max-context-children`). With `CxLeaf → CxMid → CxTop`
+believed, a stated `(genlCx CxLeaf CxTop)` adds no arrow from `CxLeaf` to `CxTop`. The
+engine reads an `except` on a `genlCx` edge as `context-up` and `context-down` read one.
+A context that an `except` stops from seeing `CxMid` has `CxTop` as its minimal parent,
+and is drawn below `CxTop` on the page for `CxTop`.
 
 **What is and is not an edge**, stated rather than left to fall out of the code. Binary
 facts only — a ternary `(arg parentOf 1 person)` relates three things and an arrow

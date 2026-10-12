@@ -166,6 +166,23 @@ it — `git show v0.16.0:CHANGELOG.md`.
   monotonic, and a context placed under CxNormalPhysicalConditions now also sees
   CxRealWorld's and CxWell's content.
 
+- **`min-context-parents` and `max-context-children` read a context's nearest neighbours
+  in the context lattice, and a context page's concept graph draws them.**
+  `(min-context-parents kb c)` answers the contexts `c` reaches over one `genlCx` edge
+  with no other such context strictly below them, and `max-context-children` the contexts
+  that reach `c` over one `genlCx` edge with no other such context strictly above them.
+  Both read an `except` on a `genlCx` edge as `context-up` and `context-down` read one:
+  `min-context-parents` walks the edges effective for `c`, and while an `except` reaches a
+  `genlCx` edge `max-context-children` holds each direct child whose own
+  `min-context-parents` hold `c`. The daemon and `vaelii.client` serve both. The concept
+  graph's `genlCx` rows draw these sets at every expanded node, where they drew every
+  stored one-step neighbour: with `CxLeaf → CxMid → CxTop` believed and
+  `(genlCx CxLeaf CxTop)` stated, the page for `CxLeaf` draws `CxTop` above `CxMid` and
+  no arrow from `CxLeaf` to `CxTop`. The `genl` rows are unchanged.
+  [api.md](docs/api.md), [web.md](docs/web.md#a-terms-shape-drawn).
+
+  *Class:* **Additive**.
+
 ### Fixes: answers
 
 - **`tool` is retired.** The ontology classifies by what a thing is, and `tool` named
