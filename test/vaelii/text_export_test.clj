@@ -19,6 +19,7 @@
             [vaelii.core :as v]
             [vaelii.host.starter :as starter]
             [vaelii.impl.io.text :as text]
+            [vaelii.impl.jtms :as jtms]
             [vaelii.impl.kb :as kb]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.rules :as vr]
@@ -420,7 +421,13 @@
             (is (integer? (v/handle-of kb (list 'intersection hot_solid solid hot) CxText)))
             (is (not (true? (v/ask? kb (list 'genl hot_solid solid) CxText))))
             (is (not (true? (v/ask? kb (list hot_solid Rock) CxText))))
-            (is (= [(list 'intersection hot_solid solid hot)] (stored-mentioning kb hot_solid)))))))))
+            (is (= [(list 'intersection hot_solid solid hot)] (stored-mentioning kb hot_solid))))
+          (testing "the mints the other intersection drew are not drawn again from the inert one"
+            (v/retract! kb (v/handle-of kb (list 'intersection warm_solid solid hot) CxText))
+            (let [inert (v/handle-of kb (list 'intersection hot_solid solid hot) CxText)
+                  recs  (:records kb)]
+              (is (= [] (filterv #(some #{inert} (jtms/rests-on (p/get-justification recs %)))
+                                 (p/justification-ids recs)))))))))))
 
 (deftest an-inert-sentex-exports-as-set-inert-and-reloads-inert
   (tu/with-terms [bird Tweety CxText]
