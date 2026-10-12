@@ -299,6 +299,11 @@
 (set/monotonic (orthogonal uninterrupted_situation spatial))
 (set/monotonic (orthogonal situation spatiotemporal))
 (set/monotonic (orthogonal happening spatial))
+;; A situation or a held state may be located nowhere: a debt owed, a treaty in force.
+;; A cat on a mat is a held state with a place.
+(set/monotonic (orthogonal situation aspatial))
+(set/monotonic (orthogonal static_situation spatial))
+(set/monotonic (orthogonal static_situation aspatial))
 ;; A situation is not the matter in it.
 (set/monotonic (disjoint tangible situation))
 ;; The partition of thing into tangible and intangible does not derive a genl edge from

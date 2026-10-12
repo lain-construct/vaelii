@@ -1162,6 +1162,25 @@
   (doseq [t '[aspatial atemporal intangible]]
     (is (true? (v/ask? kb (list t 'SignPositive) 'CxMeasure)) (str "SignPositive is " t))))
 
+(defn- located-or-not
+  "Each [kind side witness] row: the pair is stated orthogonal in CxCore, reads
+  :orthogonal, and an individual of the kind that is also of the side is no clash."
+  [kb rows]
+  (doseq [[a b witness] rows]
+    (testing (str a " and " b)
+      (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'orthogonal a b) 'CxCore))
+          (str "(orthogonal " a " " b ") is stated"))
+      (is (= :orthogonal (v/subsumption-status kb a b)))
+      (let [w (tu/fresh-term :individual witness)]
+        (v/assert kb (list a w) 'CxUniverse)
+        (is (not (tu/stored-in-clash? kb (list b w) 'CxUniverse)) (str "a " a " that is " b))))))
+
+(tu/deftest-kb a-situation-or-a-held-state-may-be-located-nowhere
+  ;; A debt owed or a treaty in force is located nowhere; a cat on a mat is located.
+  (located-or-not kb '[[situation aspatial Debt1]
+                       [static_situation spatial CatOnMat1]
+                       [static_situation aspatial TreatyInForce1]]))
+
 (def ^:private aspatial-kinds
   "The kinds with no location in any space, each with the contexts that read it as
   aspatial.  `context` and `language` are read from two band contexts besides CxCore,

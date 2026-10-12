@@ -115,6 +115,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   reasoner is registered.
   *Breaks:* `time`, `situation`, `fluent`, `initiates`, `terminates`, `causes`
 
+### Additions
+
+- **A situation or a held state may be located nowhere.** CxCore states
+  `(orthogonal situation aspatial)`, `(orthogonal static_situation spatial)` and
+  `(orthogonal static_situation aspatial)`, beside `(orthogonal situation spatial)`: a debt
+  owed and a treaty in force are located nowhere, and a cat on a mat is a held state with
+  a place. An `orthogonal` is not inherited along `genl`, so each pair is stated.
+  `ontology_test` pins each pair with a witness.
+
+  *Class:* **Additive** (shipped ontology content).
+
 ## 0.25.0 — 2026-10-11 — "Context NATs reified by position under `(result F context)`, the expression lattice in CxReflection, more placed contradictions and separations, `IndexStore` family methods and index layout 13"
 
 | Area | Change |
