@@ -76,8 +76,8 @@ Data hangs below CxWell.
   code-supported vocabulary (every special predicate the engine interprets) and the top
   of the ontology: the parts of the three partitions of `thing`
   ([taxonomy.md](taxonomy.md#the-three-partitions-of-thing)), `spatiotemporal`,
-  `nowhere_never`, `linguistic`, `biological`, `organism` and `measure`. Each other file
-  is one domain:
+  `nowhere_never`, `logical`, `linguistic`, `quantitative`, `biological`, `organism`
+  and `measure`. Each other file is one domain:
   - `abstract.txt` — the kinds below the skeleton `core.txt` holds (`made`, `food`,
     `substance`, `body_part`, `context`, …), the structural relations
     `partOf`/`locatedIn`, and the `travelling` and `flying` event kinds.

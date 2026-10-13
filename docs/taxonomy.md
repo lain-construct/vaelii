@@ -1394,7 +1394,12 @@ partition it. `static_situation` is the intersection of `uninterrupted` and `flu
 A kind with no location in any space sits below `aspatial`, which separates it from
 `spatial` and from every argument `space.txt` types. `organization` (`core.txt`)
 and `quantity` (`measure.txt`) are below `aspatial`.
-`context`, `relation`, `measure` and `linguistic` are below `nowhere_never` in `core.txt`.
+`(separating nowhere_never logical linguistic quantitative)` in `core.txt` places three
+kinds below `nowhere_never` and separates them. `relation` and `context` are below
+`logical`, and `reflection.txt` places `proposition` there too. `measure` is below
+`quantitative` in `core.txt`, and `unit_of_measure`, `physical_dimension` and `sign_value`
+are below it in `measure.txt`. `quantity` is not below `quantitative`: a quantity is
+`temporal`.
 `language`, `unrepresented_term`, `symbol`, `formula` and `non_atomic_term` are below
 `linguistic` in `core.txt`, and the value kinds `string`, `number`, `keyword`, `boolean` and
 `character` are below `unrepresented_term`. Every context therefore reads each of
