@@ -11,6 +11,30 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+### Breaking
+
+- **`predExistsAll` puts the universal outside the existential, and `PredExistsAllFn`
+  takes the subject.** `(predExistsAll worksFor person company)` means that every company
+  has at least one person who works for it: `predAllExists` with the predicate's argument
+  positions swapped. The universal outscopes the existential in every cell of the family
+  that quantifies both positions. `PredExistsAllFn` takes a fourth argument, the `?indep`
+  member the filler bears the predicate to, as `PredAllExistsFn` does, so it is a
+  `fixed_arity_function` of arity 4 with `(argArg PredExistsAllFn 4 3)`.
+  `predExistsAllPlaceholder` takes that subject before the placeholder and has arity 5.
+  [predall.md](docs/predall.md#exists-the-declaration-is-a-record-and-nothing-else).
+
+  *Class:* **Breaking** (a `predExistsAll` declaration states a different requirement, and
+  the three-argument `PredExistsAllFn` and four-argument `predExistsAllPlaceholder`
+  spellings break their arity).
+  *Migration:* read each `predExistsAll` declaration as "every `?indep` member has some
+  `?dep` member bearing the predicate to it", and restate one that meant a single filler
+  for every member with a named individual and `predInstanceAll`. Add the `?indep` member
+  as the fourth argument of each `PredExistsAllFn` application and as the fourth argument
+  of each `predExistsAllPlaceholder` fact.
+  *Breaks:* `predExistsAll`, `PredExistsAllFn`, `predExistsAllPlaceholder`
+
 ## 0.26.0 — 2026-10-13 — "Upper ontology loaded into CxUniverse with a sync to the shipped files, one relation length read at every context, the `forced_monotonic_predicate` roster scoped to its readers, `time` and `situation` restructured"
 
 | Area | Change |

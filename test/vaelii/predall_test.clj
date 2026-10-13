@@ -269,7 +269,7 @@
     (v/assert kb (list 'predExistsAll rel dog person) 'CxUniverse)
     (v/assert kb (list person Alice) 'CxUniverse)
     (let [p1 (list 'PredAllExistsFn rel person dog Alice)
-          p2 (list 'PredExistsAllFn rel dog person)]
+          p2 (list 'PredExistsAllFn rel dog person Alice)]
       (v/assert kb (list dog p1) 'CxUniverse)
       (v/assert kb (list dog p2) 'CxUniverse)
       (v/assert kb (list rel Alice p1) 'CxUniverse)
