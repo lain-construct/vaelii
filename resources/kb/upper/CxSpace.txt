@@ -60,6 +60,23 @@
 (genlCx CxSpace CxCore)
 (genlCx CxUniverse CxSpace)
 
+;; ---- region and geographic_region ------------------------------------------------
+;; A region is a part of a space rather than a thing located in one.  Two genl edges
+;; place it below spatial and intangible, and no intersection does: a shadow is spatial
+;; and intangible and no region.  A region need not be physical, since a mathematical
+;; space has regions too, so region has no spatiotemporal parent.  A geographic_region is
+;; a region of the Earth's surface, which has a place in physical space and in time, so
+;; it is spatiotemporal.
+(comment region
+         "A portion of some space, located and made of nothing: a country's territory, an ocean's extent, a square of a chessboard.")
+(set/monotonic (genl region spatial))
+(set/monotonic (genl region intangible))
+
+(comment geographic_region
+         "A region of the Earth's surface: a country, a state, an ocean, Antarctica.")
+(set/monotonic (genl geographic_region region))
+(set/monotonic (genl geographic_region spatiotemporal))
+
 (comment atSomeDistanceFrom
          "(atSomeDistanceFrom ?thing1 ?thing2) means that ?thing1 and ?thing2 are some distance apart. Any class of the distance chain but the zero one, so it is the complement of coLocatedWith and holds of nothing and itself.")
 (binary_predicate atSomeDistanceFrom)

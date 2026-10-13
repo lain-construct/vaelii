@@ -33,9 +33,10 @@
 (genlCx CxGeographyNow CxUniverse)
 
 (comment country
-         "A country's territory: the region a sovereign state governs. A region occupies space without being made of anything, so a country is spatiotemporal and intangible.")
-(genl country spatiotemporal)
-(genl country intangible)
+         "A country's territory: the geographic region a sovereign state governs. A region occupies space without being made of anything, so a country is spatiotemporal and intangible.")
+;; geographic_region reaches region, spatial, intangible and spatiotemporal, so country
+;; states one parent.
+(set/monotonic (genl country geographic_region))
 
 (comment countryBordersOn
          "(countryBordersOn ?country1 ?country2) means that the countries ?country1 and ?country2 are neighbours across a shared border. A spec of bordersOn typed to countries, stated directly, so a closedExtentForArg grant on it reads every stated border between countries and leaves bordersOn open.")

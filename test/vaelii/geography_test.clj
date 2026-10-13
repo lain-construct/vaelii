@@ -67,7 +67,7 @@
 ;; classifier partitioning the fifty-states-and-DC region, and a territory is another
 ;; part of UnitedStates outside it.
 (def ^:private us-facts
-  '[(genl us_state_or_dc spatiotemporal)
+  '[(genl us_state_or_dc geographic_region)
     (partOfRegion UnitedStates50AndDC UnitedStates)
     (spatiallyPartitionedByType UnitedStates50AndDC us_state_or_dc)
     (us_state_or_dc WashingtonState)
@@ -287,6 +287,15 @@
   (is (boolean (v/disjoint? kb 'polity 'country GEO))
       "an organization is aspatial and a country spatiotemporal")
   (is (not (sees? kb 'CxUniverse GEO)) "opt-in, as the rest of the geography is"))
+
+(tu/deftest-kb a-country-is-a-geographic-region
+  (doseq [up '[geographic_region region spatial intangible spatiotemporal]]
+    (is (genl? kb 'country up GEO) (str "country genl " up)))
+  (is (= #{'geographic_region} (set (v/direct-genls kb 'country GEO)))
+      "geographic_region is country's one parent")
+  (is (genl? kb 'geographic_region 'spatiotemporal GEO))
+  (is (not (genl? kb 'region 'spatiotemporal GEO))
+      "a region of a mathematical space is in no time"))
 
 (tu/deftest-kb territory-of-relates-a-polity-to-the-region-it-governs
   (is (= :true (verdict kb '(binary_predicate territoryOf) GEO)))
