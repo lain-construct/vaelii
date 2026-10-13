@@ -35,10 +35,33 @@ it — `git show v0.16.0:CHANGELOG.md`.
   `(typeAllSpecified ?classifier ?indep)` requires every instance of `?indep` to have a
   believed membership in some member of `?classifier`; a partition does not satisfy it.
   The sweep reports it in a new default category, `:type-specified-violations`. core.txt
-  states `(typeAllSpecified rigidity_kind relation)`, and no shipped relation is
+  states `(typeAllSpecified rigidity_kind relation)`, and not every shipped relation is
   classified yet, so a default sweep over CxUniverse now answers `:gap` with that one
   requirement.
   [integrity.md](docs/integrity.md#what-a-type-specified-finding-means).
+
+  *Class:* **Additive**.
+
+  states `(typeAllSpecified rigidity_kind relation)`, and not every shipped relation is
+- **The shipped relations' rigidity kinds.** 323 of the starter's 547 relations now
+  have a rigidity kind visible from CxUniverse: 263 time-invariant, 50 time-agnostic
+  and 10 time-varying. Types over numbers, expressions, relations and types, every
+  metatype, the folk kinds, the meta, logical and type-relation predicates, and kinship
+  are time-invariant. `(genl folk_species time_invariant_relation)`,
+  `(genl folk_biological_class time_invariant_relation)` and
+  `(genl arity_type time_invariant_relation)` classify those families with one edge
+  each. The social relations and a quantity's sign, trend and derivative are
+  time-varying, and the fifty spatial relations are time-agnostic. CxSocial and
+  CxTra classify their own six relations, which CxUniverse does not see.
+
+  *Class:* **Additive**.
+
+- **A function and its corresponding predicate must share a rigidity kind.** A default
+  `kb-integrity` pass, `:rigidity-correspondence`, reports each
+  `functionCorrespondingPredicate` pair whose function and predicate are both classified
+  and of different kinds. A pair with an unclassified side is left to
+  `:type-specified-violations`.
+  [integrity.md](docs/integrity.md#what-a-rigidity-correspondence-finding-means).
 
   *Class:* **Additive**.
 
