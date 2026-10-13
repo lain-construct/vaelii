@@ -364,6 +364,7 @@
 (unary_predicate nowhere_never)
 (unary_predicate causal)
 (unary_predicate acausal)
+(unary_predicate agent)
 (unary_predicate context)
 (unary_predicate language)
 (unary_predicate animal)
