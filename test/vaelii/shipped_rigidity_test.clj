@@ -82,3 +82,7 @@
   (testing "CxSocial's own relations, in the context that defines them"
     (all-of-kind kb 'time_varying_relation '[coworkerOf roommateOf romanticPartnerOf]
                  'CxSocial)))
+
+(tu/deftest-kb a-quantitys-sign-trend-and-derivative-are-time-varying
+  ;; A quantity changes: the tap is shut, and its flow rate's sign goes to zero.
+  (all-of-kind kb 'time_varying_relation '[signOf trendOf derivativeOf] 'CxUniverse))
