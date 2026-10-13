@@ -914,9 +914,10 @@
 ;; Two partitions of `thing`.  `spatial` / `aspatial` divides by a location in SOME space —
 ;; physical space, or a mathematical one, where a line or a square of an abstract board
 ;; has a location and none in the world.  `tangible` / `intangible` divides by mass.
-;; `spatiotemporal` is below `spatial` and `temporal`: what has a location in space and
-;; time.  CxUniverse states the two edges as `genl` edges and not as an intersection, so a
-;; thing stated spatial and temporal is not concluded spatiotemporal; `nowhere_never` is
+;; `spatiotemporal` is below `physical` and `temporal`, and so below `spatial`: what has a
+;; location in physical space and time.  CxUniverse states the edges as `genl` edges and not
+;; as an intersection, so a thing stated spatial and temporal is not concluded
+;; spatiotemporal; `nowhere_never` is
 ;; placed below `aspatial` and `atemporal` the same way.  The spatial calculi relate
 ;; anything spatial.  A region is the case the two partitions cross on: spatiotemporal,
 ;; and massless.
@@ -942,6 +943,41 @@
       (is (true? (v/ask? kb (list 'spatiotemporal Pebble) 'CxUniverse)))
       (is (true? (v/ask? kb (list 'spatial Pebble) 'CxUniverse)))
       (is (true? (v/ask? kb (list 'temporal Pebble) 'CxUniverse))))))
+
+;; `physical` is `spatial` narrowed to the physical space of our universe.  spatiotemporal
+;; is by definition what is physical and temporal, and CxUniverse places it below both by
+;; genl edges and not by an intersection, so neither the membership nor its negation is
+;; concluded from the two types.
+
+(tu/deftest-kb spatiotemporal-is-below-physical-and-physical-below-spatial
+  (is (true? (v/genl? kb 'physical 'spatial)))
+  (is (true? (v/genl? kb 'spatiotemporal 'physical)))
+  (is (true? (v/genl? kb 'spatiotemporal 'temporal)))
+  (is (true? (v/genl? kb 'tangible 'physical))))
+
+(tu/deftest-kb a-tangible-individual-is-physical-and-spatial
+  (tu/with-terms [Pebble]
+    (v/assert kb (list 'tangible Pebble) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'physical Pebble) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'spatial Pebble) 'CxUniverse)))))
+
+(tu/deftest-kb something-physical-and-temporal-is-not-concluded-spatiotemporal
+  (is (true? (v/genl? kb 'spatiotemporal 'physical)))
+  (tu/with-terms [CxPond Puddle]
+    (v/assert kb (list 'genlCx CxPond 'CxUniverse) 'CxUniverse)
+    (v/assert kb (list 'physical Puddle) CxPond)
+    (v/assert kb (list 'temporal Puddle) CxPond)
+    (is (not (v/ask? kb (list 'spatiotemporal Puddle) CxPond)))
+    (is (not (v/ask? kb (list 'not (list 'spatiotemporal Puddle)) CxPond)))))
+
+(tu/deftest-kb a-line-in-the-plane-is-not-concluded-physical
+  ;; Located in the Cartesian plane and in no time, the line y=x is spatial and atemporal.
+  (is (true? (v/genl? kb 'physical 'spatial)))
+  (tu/with-terms [Diagonal]
+    (v/assert kb (list 'spatial Diagonal) 'CxUniverse)
+    (v/assert kb (list 'atemporal Diagonal) 'CxUniverse)
+    (is (not (v/ask? kb (list 'physical Diagonal) 'CxUniverse)))
+    (is (not (v/ask? kb (list 'not (list 'physical Diagonal)) 'CxUniverse)))))
 
 (tu/deftest-kb an-abstract-figure-is-spatial-without-being-spatiotemporal
   ;; A line in a plane has a location in that plane and none in the world, no mass,
@@ -982,7 +1018,7 @@
 (tu/deftest-kb spatial-and-aspatial-partition-thing
   (is (true? (v/disjoint? kb 'spatial 'aspatial)))
   (is (true? (v/disjoint? kb 'spatiotemporal 'aspatial))
-      "the partition separates spatiotemporal from aspatial through the genl to spatial")
+      "the partition separates spatiotemporal from aspatial through physical's genl to spatial")
   (is (true? (v/genl? kb 'spatial 'thing)))
   (is (true? (v/genl? kb 'aspatial 'thing)))
   (testing "a thing cannot be both"
@@ -1318,7 +1354,8 @@
   disjointness descends a genl edge — so a stated sentence repeating one of those is not
   written."
   '[[genl aspatial thing CxUniverse "partition thing spatial aspatial"]
-    [disjoint spatiotemporal aspatial CxUniverse "spatiotemporal genl spatial; partition thing spatial aspatial"]
+    [genl spatiotemporal spatial CxUniverse "spatiotemporal genl physical genl spatial"]
+    [disjoint spatiotemporal aspatial CxUniverse "spatiotemporal genl physical genl spatial; partition thing spatial aspatial"]
     [genl intangible thing CxUniverse "partition thing tangible intangible"]
     [genl nowhere_never intangible CxUniverse "nowhere_never genl aspatial genl intangible"]
     [genl organization intangible CxUniverse "organization genl aspatial genl intangible"]
@@ -1338,7 +1375,7 @@
     [genl acausal thing CxUniverse "partition thing causal acausal"]
     [disjoint causal acausal CxUniverse "partition thing causal acausal"]
     [genl sign_value thing CxUniverse "sign_value genl nowhere_never genl intangible genl thing"]
-    [genl spatiotemporal thing CxUniverse "spatiotemporal genl spatial, spatial genl thing (partition)"]
+    [genl spatiotemporal thing CxUniverse "spatiotemporal genl physical genl spatial, spatial genl thing (partition)"]
     [genl organism tangible CxUniverse "organism genl biological genl tangible"]
     [genl body_part tangible CxUniverse "body_part genl biological genl tangible"]
     [genl body_part biological CxUniverse "separating biological organism body_part"]

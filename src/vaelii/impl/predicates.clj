@@ -1239,7 +1239,8 @@
     (map (fn [[t why]] [t (inert (collection :notes why) why)])
          '[[intangible "ontology, not grammar: something with no mass, the complement of tangible. core.txt states it as the top of the ontology the domain files extend; no engine check names it."]
            [spatial "ontology, not grammar: something with a location in some space, physical or mathematical. core.txt states it as the top of the ontology the domain files extend; no engine check names it."]
-           [spatiotemporal "ontology, not grammar: something with a location in space and time. core.txt states it as the top of the ontology the domain files extend; no engine check names it."]
+           [physical "ontology, not grammar: something with a location in the physical space of our universe. core.txt states it as the top of the ontology the domain files extend; no engine check names it."]
+           [spatiotemporal "ontology, not grammar: something with a location in physical space and time. core.txt states it as the top of the ontology the domain files extend; no engine check names it."]
            [tangible "ontology, not grammar: something with mass, and so with a location. core.txt states it as the top of the ontology the domain files extend; no engine check names it."]
            [organism "ontology, not grammar: something alive in its own right. core.txt states it as the top of the ontology organism.txt's kinds hang from; no engine check names it."]
            [biological "ontology, not grammar: a tangible that is an organism or part of one. core.txt states it because organism (organism.txt) and body_part (abstract.txt) both extend it; no engine check names it."]
