@@ -17,6 +17,7 @@
 (arg ancestorOf 1 organism)
 (arg ancestorOf 2 organism)
 (set/monotonic (transitive ancestorOf))
+(set/monotonic (time_invariant_relation ancestorOf))
 
 (comment asleep
          "(asleep ?animal) means that ?animal is sleeping. Stated rather than derived, and what blocks the awake default; a rule concludes (not (awake ?x)) from it, so the two cannot both be believed of one animal and neither has to be retracted for the other to be told.")
@@ -37,6 +38,7 @@
 (arg birthYearOf 1 organism)
 (arg birthYearOf 2 integer)
 (set/monotonic (functional birthYearOf))
+(set/monotonic (time_invariant_relation birthYearOf))
 
 (comment breathes_air
          "(breathes_air ?animal) means that ?animal takes its oxygen from the air. True by default of an animal and blocked for a fish. The exception names a whole CLASS rather than one awkward species, so it reaches every kind of fish ever added and needs no upkeep — matching fans the antecedent out over the subtype closure, so the exception does too.")
@@ -48,6 +50,7 @@
          "(childOf ?child ?parent) means that ?parent is a biological parent of ?child. Declared the inverse of parentOf and never asserted alongside it: (parentOf Ann Tom) answers (childOf Tom Ann) through the inverse prover, and retracting the one withdraws the other.")
 (binary_predicate childOf)
 (set/monotonic (instance_relation_predicate childOf))
+(set/monotonic (time_invariant_relation childOf))
 (arg childOf 1 organism)
 (arg childOf 2 organism)
 
@@ -68,6 +71,7 @@
          "(FatherFn ?animal) means the father of ?animal. A reifiable_function, so a ground application denotes an object rather than being computed, and it reifies to an opaque constant before it reaches the index. Corresponding to fatherOf is what keeps it from minting a second name for a father the KB already knows: (FatherFn Muffet) resolves to the father of a believed (fatherOf Muffet F). Where none is known it mints a placeholder and projects that back onto fatherOf, so the placeholder still answers whose father it is, and a father arriving later is equated with it. See docs/nat.md.")
 (reifiable_function FatherFn)
 (unary_function FatherFn)
+(set/monotonic (time_invariant_relation FatherFn))
 (functionCorrespondingPredicate FatherFn fatherOf)
 (result FatherFn animal)
 
@@ -78,6 +82,7 @@
 (arg fatherOf 1 animal)
 (arg fatherOf 2 animal)
 (set/monotonic (functional fatherOf))
+(set/monotonic (time_invariant_relation fatherOf))
 
 (comment grandparentOf
          "(grandparentOf ?grandparent ?grandchild) means that ?grandparent is a parent of a parent of ?grandchild. Derived by a joined rule over two parentOf facts rather than asserted, so it is believed exactly as long as both links are.")
@@ -120,6 +125,7 @@
 (comment mortal
          "(mortal ?organism) means that ?organism will die. Asserted as a default of every organism, so it is defeasible: something known not to die defeats it instead of contradicting the KB.")
 (unary_predicate mortal)
+(set/monotonic (time_invariant_relation mortal))
 (arg mortal 1 organism)
 (genl mortal organism)
 
@@ -134,6 +140,7 @@
          "(MotherFn ?animal) means the mother of ?animal. The same shape as FatherFn, over motherOf.")
 (reifiable_function MotherFn)
 (unary_function MotherFn)
+(set/monotonic (time_invariant_relation MotherFn))
 (functionCorrespondingPredicate MotherFn motherOf)
 (result MotherFn animal)
 
@@ -144,6 +151,7 @@
 (arg motherOf 1 animal)
 (arg motherOf 2 animal)
 (set/monotonic (functional motherOf))
+(set/monotonic (time_invariant_relation motherOf))
 
 (comment olderThan
          "(olderThan ?organism1 ?organism2) means that ?organism1 was born before ?organism2. Derivable rather than only asserted — a rule compares the two birthYearOf values with the evaluable lessThan — so it holds whenever both birth years are known and ordered. Declared transitive, the same instance-level strict order heavierThan and tallerThan are: born-before composes, so two stated comparisons carry the third and a chain is answered off the closure with no birth year written down.")
@@ -157,6 +165,7 @@
          "(parentOf ?parent ?child) means that ?parent is a biological parent of ?child. Both arguments are individual organisms — a plant or a bacterium has a parent as an animal does — and step- or adoptive parenthood is not this predicate. The primitive of the kinship theory: childOf, siblingOf, grandparentOf and ancestorOf are all read off it rather than asserted beside it.")
 (binary_predicate parentOf)
 (set/monotonic (instance_relation_predicate parentOf))
+(set/monotonic (time_invariant_relation parentOf))
 (arg parentOf 1 organism)
 (arg parentOf 2 organism)
 (inverse parentOf childOf)
@@ -176,10 +185,12 @@
 (arg siblingOf 1 organism)
 (arg siblingOf 2 organism)
 (set/monotonic (symmetric siblingOf))
+(set/monotonic (time_invariant_relation siblingOf))
 
 (comment warm_blooded
          "(warm_blooded ?animal) means that ?animal holds its own body temperature rather than taking the temperature around it. Derived of the mammals and the birds and denied of the three cold-blooded classes, so it is never asserted of any particular animal — which is what makes it a worked example of a claim inherited from a kind rather than stated of a thing.")
 (unary_predicate warm_blooded)
+(set/monotonic (time_invariant_relation warm_blooded))
 (arg warm_blooded 1 animal)
 (genl warm_blooded animal)
 ;; Mammals and birds are warm-blooded, so a warm-blooded animal is a vertebrate by default.
