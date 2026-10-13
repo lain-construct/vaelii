@@ -66,3 +66,10 @@
                  forall thereExists equals different lessThan termsRelated
                  borderlineExample comment means]
                'CxUniverse))
+
+(tu/deftest-kb kinship-and-biology-are-time-invariant
+  ;; Whoever is a thing's mother is its mother for as long as both exist.
+  (all-of-kind kb 'time_invariant_relation
+               '[parentOf childOf motherOf fatherOf ancestorOf siblingOf birthYearOf mortal
+                 warm_blooded MotherFn FatherFn]
+               'CxUniverse))
