@@ -57,3 +57,12 @@
   (all-of-kind kb 'time_invariant_relation
                '[mouse human dog rose oak flower mammal bird insect arachnid tree]
                'CxUniverse))
+
+(tu/deftest-kb meta-and-logical-predicates-are-time-invariant
+  ;; Their arguments are relations, expressions, numbers or terms, none of which can
+  ;; change what holds between them.
+  (all-of-kind kb 'time_invariant_relation
+               '[arity admitsArgnum arityMin functionCorrespondingPredicate implies not and
+                 forall thereExists equals different lessThan termsRelated
+                 borderlineExample comment means]
+               'CxUniverse))
