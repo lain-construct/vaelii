@@ -62,6 +62,13 @@
         (str "(orthogonal " t " " o ") is derived and not stated"))
     (is (= :orthogonal (v/subsumption-status kb t o)))))
 
+(tu/deftest-kb made-and-natural-cut-across-plant
+  (is (true? (v/ask? kb '(typeOrthogonal origin_type plant) 'CxUniverse)))
+  (doseq [o '[made natural]]
+    (is (derived-not-stated? kb 'orthogonal 'plant o 'CxUniverse)
+        (str "(orthogonal plant " o ") is derived and not stated"))
+    (is (= :orthogonal (v/subsumption-status kb 'plant o)))))
+
 (tu/deftest-kb abducibility-is-orthogonal-to-every-arity-type
   (doseq [a '[unary binary ternary fixed_arity variable_arity bounded_arity unbounded_arity
               at_least_binary at_least_ternary]]
