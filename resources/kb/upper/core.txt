@@ -29,6 +29,7 @@
 (comment closedExtentForArg
          "(closedExtentForArg ?predicate ?position ?value) means that ?predicate's believed extent is complete for the sentences whose argument ?position is ?value: nothing answering a ground (?predicate …) with ?value at ?position is what answers its (not (?predicate …)). The grant closed_extent_predicate makes, narrowed to one argument value. (closedExtentForArg accountOn 2 HostA) says the accounts on HostA are exactly the believed ones, and (accountOn ?x HostB) stays open-world beside it. A goal whose argument ?position is not ground is not closed. Read from the asking context's genlCx ancestor set, and belief-following, as closed_extent_predicate is.")
 (ternary_predicate closedExtentForArg)
+(set/monotonic (time_invariant_relation closedExtentForArg))
 (arg closedExtentForArg 1 predicate)
 (arg closedExtentForArg 2 positive_integer)
 ;; A whole-predicate closure entails the per-argument closure at every admitted position and
@@ -40,6 +41,7 @@
 (comment closedExtentForArg1
          "(closedExtentForArg1 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 1 ?value). The two rules below state the equivalence. The rule deriving the ternary is a forward rule, so the engine reads only the ternary; the rule deriving the binary spelling is inert, so a ternary grant mints no binary twin.")
 (binary_predicate closedExtentForArg1)
+(set/monotonic (time_invariant_relation closedExtentForArg1))
 (arg closedExtentForArg1 1 predicate)
 (set/forwardRule (implies (and (closedExtentForArg1 ?predicate ?value)) (closedExtentForArg ?predicate 1 ?value)))
 (set/inertRule (implies (and (closedExtentForArg ?predicate 1 ?value)) (closedExtentForArg1 ?predicate ?value)))
@@ -47,6 +49,7 @@
 (comment closedExtentForArg2
          "(closedExtentForArg2 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 2 ?value).")
 (binary_predicate closedExtentForArg2)
+(set/monotonic (time_invariant_relation closedExtentForArg2))
 (arg closedExtentForArg2 1 predicate)
 (set/forwardRule (implies (and (closedExtentForArg2 ?predicate ?value)) (closedExtentForArg ?predicate 2 ?value)))
 (set/inertRule (implies (and (closedExtentForArg ?predicate 2 ?value)) (closedExtentForArg2 ?predicate ?value)))
@@ -54,6 +57,7 @@
 (comment closedExtentForArg3
          "(closedExtentForArg3 ?predicate ?value) is the binary spelling of (closedExtentForArg ?predicate 3 ?value).")
 (binary_predicate closedExtentForArg3)
+(set/monotonic (time_invariant_relation closedExtentForArg3))
 (arg closedExtentForArg3 1 predicate)
 (set/forwardRule (implies (and (closedExtentForArg3 ?predicate ?value)) (closedExtentForArg ?predicate 3 ?value)))
 (set/inertRule (implies (and (closedExtentForArg ?predicate 3 ?value)) (closedExtentForArg3 ?predicate ?value)))
@@ -85,6 +89,7 @@
 (logical_connective and)
 (variable_arity and)
 (unbounded_arity and)
+(set/monotonic (time_invariant_relation and))
 
 (comment genlArg
          "(genlArg ?relation ?position ?type) means that argument ?position of ?relation must be a subtype of ?type. The arg constraint one level up, for arguments naming kinds rather than instances: (genlArg partType 1 tangible) says the argument names a kind of physical object, where (arg tangiblePartOf 1 tangible) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
@@ -166,6 +171,7 @@
 (comment quotedArg
          "(quotedArg ?relation ?position ?type) means that argument ?position of ?relation, taken AS A TERM — the syntactic object written in that position, not what it denotes — must be of ?type. The mention twin of arg: (arg name_of_guy 1 agent) types what the first argument names, (quotedArg name_of_guy 1 string) types the argument itself, the value sitting there. Its ?type is a syntactic type — string, number (with integer below it), symbol — and the argument is classified by its EDN kind, then checked through genl like arg. Closed about a value whose kind is decidable: (name_of_guy 5) violates (quotedArg name_of_guy 1 string), 5 being a number and not a string. It does not read the referent's type, which is arg's business. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
 (ternary_predicate quotedArg)
+(set/monotonic (time_invariant_relation quotedArg))
 (arg quotedArg 1 relation)
 (arg quotedArg 2 positive_integer)
 (genlArg quotedArg 3 thing)
@@ -435,6 +441,7 @@
 (comment argN
          "(argN ?term ?n ?formula) means that ?term is argument ?n of ?formula. Position 0 is the relation or operator ?formula applies, and the arguments count from 1: (argN parentOf 0 (parentOf Tom Bob)) and (argN Bob 2 (parentOf Tom Bob)) both hold. ?formula is taken as written, which (quotedArg argN 3 formula) states. A compound's kind is not classified yet, so that declaration is documentary and checks nothing. Nothing in the engine derives or reads argN.")
 (ternary_predicate argN)
+(set/monotonic (time_invariant_relation argN))
 (arg argN 2 non_negative_integer)
 (quotedArg argN 3 formula)
 
@@ -508,6 +515,7 @@
 (comment resultArg
          "(resultArg ?function ?position) means that an application of ?function denotes an instance of the type the application's argument ?position names. result with the type read off each application: (resultArg SomeMemberFn 1) says (SomeMemberFn dog) denotes a dog. Derived as a membership of the constant a reifiable function's application mints, off its termOfUnit fact, while argument types entail, and read at check time for an unreifiable function's application, which is never minted. See docs/argtypes.md.")
 (binary_predicate resultArg)
+(set/monotonic (time_invariant_relation resultArg))
 (arg resultArg 1 function)
 (arg resultArg 2 positive_integer)
 
@@ -625,6 +633,7 @@
 (genl unbounded_arity_function variable_arity_function)
 (comment arityMax "(arityMax ?relation ?n) means that the bounded_arity relation ?relation takes at most ?n arguments, e.g. (arityMax functionCorrespondingPredicate 3).")
 (binary_predicate arityMax)
+(set/monotonic (time_invariant_relation arityMax))
 (arg arityMax 1 bounded_arity)
 (arg arityMax 2 positive_integer)
 
@@ -700,6 +709,7 @@
 (binary_predicate arity)
 (set/monotonic (instance_relation_predicate arity))
 (set/monotonic (functional arity))
+(set/monotonic (time_invariant_relation arity))
 (arg arity 1 fixed_arity)
 (arg arity 2 non_negative_integer)
 
@@ -709,6 +719,7 @@
          "(arityMin ?relation ?n) means that a variable-arity ?relation requires at least ?n arguments. Every further position normally repeats the same argument role rather than introducing an unnamed optional field. The arity check refuses an application of the relation shorter than ?n.")
 (binary_predicate arityMin)
 (set/monotonic (instance_relation_predicate arityMin))
+(set/monotonic (time_invariant_relation arityMin))
 (arg arityMin 1 relation)
 (arg arityMin 2 non_negative_integer)
 
@@ -716,6 +727,7 @@
          "(admitsArgnum ?relation ?argnum) means that positive argument position ?argnum exists in a well-formed application of ?relation. It asks about one position, not the application's total arity. Answered at query time from the relation's declared arity and variable-arity mark. The inert rules below state the same definition; the prover, not the rules, answers it.")
 (binary_predicate admitsArgnum)
 (set/monotonic (instance_relation_predicate admitsArgnum))
+(set/monotonic (time_invariant_relation admitsArgnum))
 (arg admitsArgnum 1 relation)
 (arg admitsArgnum 2 positive_integer)
 ;; admitsArgnum's definition, as set/inertRule: stored, believed and browsable, and run by
@@ -899,6 +911,7 @@
          "(comment ?term ?text) means that ?text documents ?term. Ordinary sentexes, so the KB documents itself in its own representation and a comment is queried, retracted and justified like anything else. Written as a signature and a definition, as this one is, so that first clause doubles as the template an English gloss of any (?term …) sentence is composed from; everything after it is prose for a reader and no machine reads it.")
 (binary_predicate comment)
 (set/monotonic (instance_relation_predicate comment))
+(set/monotonic (time_invariant_relation comment))
 (arg comment 2 string)
 
 (comment implementationNote
@@ -1321,6 +1334,7 @@
          "(evaluate ?result ?expression) means that ?result is the value of the symbolic ?expression. So (evaluate ?sum (+ 1 2)) binds ?sum to 3. A safe whitelist over +, -, *, /, mod, min, max, abs and expt rather than clojure eval, computed on demand and never stored.")
 (binary_predicate evaluate)
 (set/monotonic (instance_relation_predicate evaluate))
+(set/monotonic (time_invariant_relation evaluate))
 (arg evaluate 1 number)
 
 (comment forced_decontextualized_predicate
@@ -1406,6 +1420,7 @@
          "(functionalInArg ?predicate ?n) means that the argument of ?predicate at position ?n is determined by the others: two applications agreeing everywhere but at ?n name one thing there. functional read at another position, and enforced the same way: two monotonic symbols derive (equals V1 V2) and merge, and any other collision, such as 1980 and 1990 or a pair with a default fact, is a nogood. Read up the predicate hierarchy, so a mark on a predicate governs its specs. Decontextualized like functional, so a mark stated in one theory merges from every context. Declared of capitalCityOf at position 1, for instance, beside (functional capitalCityOf): one capital per country and one country per capital. See docs/taxonomy.md.")
 (binary_predicate functionalInArg)
 (decontextualized_predicate functionalInArg)
+(set/monotonic (time_invariant_relation functionalInArg))
 (arg functionalInArg 1 relation)
 (arg functionalInArg 2 positive_integer)
 
@@ -1453,6 +1468,7 @@
          "(functionCorrespondingPredicate ?function ?predicate ?position) means that ?function and ?predicate state the same relationship: ?function maps some arguments to a value exactly when ?predicate holds of those same arguments with the value at ?position. So (functionCorrespondingPredicate MotherFn motherOf 2) makes (MotherFn Muffet) resolve to the Mary of a believed (motherOf Muffet Mary), and, where no mother is known, projects the placeholder constant it mints back onto motherOf so the placeholder still answers questions about who Muffet's mother is. Reading it both ways is what stops the function and the predicate from being one claim the KB can reason with only half of, and a value arriving after its application is equated with the placeholder, so the order the two are asserted in does not decide the answer. ?position is 1-based over ?predicate's arguments and may be omitted, which puts the value last — the shape nearly every correspondence has. Read only for a reifiable_function, an undeclared function having no application to reify. See docs/nat.md.")
 (variable_arity_predicate functionCorrespondingPredicate)
 (bounded_arity functionCorrespondingPredicate)
+(set/monotonic (time_invariant_relation functionCorrespondingPredicate))
 (arityMax functionCorrespondingPredicate 3)
 (arityMin functionCorrespondingPredicate 2)
 (arg functionCorrespondingPredicate 1 function)
@@ -1507,6 +1523,7 @@
 (comment contextArgSubrelation
          "(contextArgSubrelation ?function ?position ?subrelation) means that two contexts denoted by ?function and identical except at argument ?position are ordered by ?subrelation on that argument: the context whose argument is ?subrelation-below the other's is a spec (sub)context of it, and the producer materializes the genlCx edge. So (contextArgSubrelation CxTimeFn 2 subintervalOf) makes (CxTimeFn CxMonad (DatetimeFn \"2000-01\")) a subcontext of (CxTimeFn CxMonad (DatetimeFn \"2000\")) because January 2000 is a subinterval of 2000 — with nobody asserting that genlCx edge. ?position is 1-based over ?function's arguments. See docs/context-nat.md.")
 (ternary_predicate contextArgSubrelation)
+(set/monotonic (time_invariant_relation contextArgSubrelation))
 (arg contextArgSubrelation 1 function)
 (arg contextArgSubrelation 2 positive_integer)
 (arg contextArgSubrelation 3 predicate)
@@ -1515,19 +1532,23 @@
          "(termOfUnit ?constant ?expression) means that the reified ?constant denotes the term expression ?expression. The constant-to-expression half of the reified-term map, expression-to-constant being the inverted term index. A quoting predicate: ?expression is a verbatim payload, not itself reified or type-checked as a term.")
 (binary_predicate termOfUnit)
 (set/monotonic (instance_relation_predicate termOfUnit))
+(set/monotonic (time_invariant_relation termOfUnit))
 (arg termOfUnit 2 non_atomic_term)
 
 (comment rewriteOf
          "(rewriteOf ?term ?expression) means that the term expression ?expression reifies to the existing ?term rather than to a fresh constant. A quoting predicate in that reading. With a plain symbol in the second position it is instead the equality relation retiring that symbol in favour of the first: the retired spelling stays stored but stops being believed and stops matching, every sentex naming it gains a rewritten twin, and retracting the rewriteOf gives the original back.")
 (binary_predicate rewriteOf)
+(set/monotonic (time_invariant_relation rewriteOf))
 
 (comment sameAs
          "(sameAs ?individual1 ?individual2) means that the two named individuals are one, in OWL's sense: reflexive, symmetric, transitive and substitutive. The merge feeds the one equivalence closure rewriteOf and equals feed, and neither name is deprecated by it. The closure elects a representative by content rather than by arrival order. A goal of sameAs is answered from the closure. See docs/equality.md.")
 (binary_predicate sameAs)
+(set/monotonic (time_invariant_relation sameAs))
 
 (comment equals
          "(equals ?term1 ?term2) means that ?term1 and ?term2 denote one thing. Any two terms may be equated, where sameAs follows OWL in equating individuals. The merge feeds the one equivalence closure rewriteOf and sameAs feed. A goal of equals is answered from the closure. A collision under functional, functionalInArg or anti_symmetric between two monotonic symbols derives an equals. See docs/equality.md.")
 (binary_predicate equals)
+(set/monotonic (time_invariant_relation equals))
 
 ;; different is the unique-name assumption read as a relation.  The engine answers it and
 ;; never stores it: wff refuses an assert of it, and provers/DifferentProver answers a
@@ -1539,6 +1560,7 @@
 (unbounded_arity_predicate different)
 (arityMin different 2)
 (commutative different)
+(set/monotonic (time_invariant_relation different))
 
 (comment result
          "(result ?function ?type) means that the output of ?function is an instance of ?type. Read for both kinds of function, and where the type is held is what the reifiability mark decides: a REIFIABLE function's application is minted, so the membership is materialized as (?type K) on the freshly minted constant K — a real sentex with a justification, rather than a rule that would have to run at read time — and an UNREIFIABLE one has no constant to hang it on, so its applications are typed from this declaration at check time instead. One declaration, one verdict, whichever kind of function wrote it. (result ?function context) says that ?function's applications denote contexts: a ground application written in a sentex's context slot reifies to an opaque cx/-namespaced constant whatever is declared about ?function, and a read names that context through the application only while some reader believes the declaration. The cx/ spelling carries the context role, so no (context K) is materialized on the constant (docs/context-nat.md). Named for what it says rather than for the check that reads it, as arg is: the instance reading, with genlResult one level up.")
@@ -1584,12 +1606,14 @@
 (arg greaterThan 2 number)
 (variable_arity_predicate greaterThan)
 (unbounded_arity_predicate greaterThan)
+(set/monotonic (time_invariant_relation greaterThan))
 (arityMin greaterThan 2)
 
 (comment implies
          "(implies (and ?antecedent …) ?consequent) means the rule concluding ?consequent from those antecedents. A rule is a sentex like any other, so it gets a handle, truth maintenance and retraction for free, and it is indexed by its antecedent and its consequent predicates alike. Used forward and backward unless a set/*Rule wrapper narrows it. Range-restricted: every variable in the consequent must appear in an antecedent.")
 (logical_connective implies)
 (binary implies)
+(set/monotonic (time_invariant_relation implies))
 (arg implies 1 formula)
 (arg implies 2 formula)
 
@@ -1611,6 +1635,7 @@
          "(ist ?context ?sentence) means that ?sentence holds in ?context. Never stored as a sentex of its own: given to assert it finds or creates ?sentence in ?context and returns that handle, and given to a read it asks ?sentence in ?context. A rule refuses it in every position: as an antecedent it matches nothing, and as a consequent it would place a conclusion in a context that need not see the rule or its facts. The wrapped sentence is a term, so one sentence is findable from another through the term index.")
 (binary_predicate ist)
 (set/monotonic (instance_relation_predicate ist))
+(set/monotonic (time_invariant_relation ist))
 (arg ist 1 context)
 (arg ist 2 sentence)
 
@@ -1620,11 +1645,13 @@
 (arg lessThan 2 number)
 (variable_arity_predicate lessThan)
 (unbounded_arity_predicate lessThan)
+(set/monotonic (time_invariant_relation lessThan))
 (arityMin lessThan 2)
 
 (comment matchesPattern
          "(matchesPattern ?string ?pattern) means that the whole of ?string matches the regular expression ?pattern. Both arguments are string values — the text inspected and the pattern applied to it, each taken as written (quotedArg). Evaluable: computed on demand from two ground strings through a step-limited matcher, and never stored. A rule antecedent on it is computed once the antecedents that bind both arguments have run, as lessThan is, and a rule in which nothing binds them is refused. The primitive a defn over a string subtype reads: a defnSufficient whose condition is (matchesPattern ?x pattern) resolves by evaluation at query time, the way the sign-refined integer collections read integer and the comparisons. matchesPattern answers false for a non-string subject, so the shape check alone defines the subtype and needs no separate (string ?x) conjunct, which the registry does not evaluate. A pattern that does not compile is refused at the assert entry point.")
 (binary_predicate matchesPattern)
+(set/monotonic (time_invariant_relation matchesPattern))
 (quotedArg matchesPattern 1 string)
 (quotedArg matchesPattern 2 string)
 
@@ -1638,12 +1665,14 @@
          "(not ?sentence) means the negation of ?sentence, a first-class sentex. Believing a sentence and its negation at once is a soft contradiction resolved at settle time rather than a hard error: the weaker belief is defeated, and a defeasible tie is left standing as a represented dilemma. See docs/nmtms.md.")
 (logical_connective not)
 (unary not)
+(set/monotonic (time_invariant_relation not))
 
 (comment or
          "(or ?disjunct1 ?disjunct2 …) means the disjunction of the disjuncts inside an implies rule's antecedent. A syntactic connective rather than a predicate: it is never asserted on its own, and it never reaches a stored sentence — the rule is polycanonicalized into one rule per alternative, exactly as a conjunctive consequent is split into one rule per conjunct. A disjunctive conclusion is a choice rather than a derivation, and is written with set/assumptionRule instead. See docs/canonicalization.md.")
 (logical_connective or)
 (variable_arity or)
 (unbounded_arity or)
+(set/monotonic (time_invariant_relation or))
 
 (comment relation            "The type of every operator that may be applied to arguments. function and truth_valued_relation partition it: an application of a function denotes or evaluates to a value, while an application of a truth_valued_relation is true or false.")
 ;; relation holds functions, binary predicates and types alike, so its members are of
@@ -1701,14 +1730,17 @@
          "(forall ?var (implies ?antecedent ?consequent)) means the universal. Rule sugar: the engine desugars it to the nested NAF (unknown (thereExists ?var (and ?antecedent (unknown ?consequent)))) and hands that back to the registry, so the quantified goal and a rule antecedent on the same shape are answered by one mechanism. See docs/naf.md.")
 (quantifier forall)
 (binary forall)
+(set/monotonic (time_invariant_relation forall))
 (comment thereExists
          "(thereExists ?var ?sentence) means the existential: ?sentence holds for some value of ?var. A query operator answered by a prover and never stored, which is what lets (unknown (thereExists ?var ?sentence)) read as 'no value of ?var makes ?sentence hold'. See docs/naf.md.")
 (quantifier thereExists)
 (binary thereExists)
+(set/monotonic (time_invariant_relation thereExists))
 (comment exists
          "(exists ?var ?consequent) means a head existential: ?var occurs in a rule's consequent and no antecedent binds it. Forward firing skolemizes it, minting a fresh witness per firing. See docs/skolem.md.")
 (quantifier exists)
 (binary exists)
+(set/monotonic (time_invariant_relation exists))
 (implementationNote logical_constant "A covering whose parts are all closed is closed, but stating that rule needs list membership (vaelii/vaelii#79), so the closed extent of logical_constant is stated by hand beside those of its parts.")
 (closed_extent_predicate logical_connective)
 (closed_extent_predicate quantifier)
@@ -1802,6 +1834,7 @@
 (variable_arity_predicate commutativeInArgs)
 (unbounded_arity_predicate commutativeInArgs)
 (decontextualized_predicate commutativeInArgs)
+(set/monotonic (time_invariant_relation commutativeInArgs))
 (arityMin commutativeInArgs 3)
 (arg commutativeInArgs 1 relation)
 (argAndRest commutativeInArgs 2 positive_integer)
@@ -1811,6 +1844,7 @@
 (binary_predicate commutativeInArgAndRest)
 (decontextualized_predicate commutativeInArgAndRest)
 (set/monotonic (instance_relation_predicate commutativeInArgAndRest))
+(set/monotonic (time_invariant_relation commutativeInArgAndRest))
 (arg commutativeInArgAndRest 1 relation)
 (arg commutativeInArgAndRest 2 positive_integer)
 
@@ -2041,12 +2075,14 @@
          "(termsRelated ?term1 ?term2 …) means that the named terms form a related cluster — a curation grouping among vocabulary terms, so a reader meeting one is pointed at the rest. Variable arity, like lessThan: (termsRelated positiveExample negativeExample borderlineExample) groups the three example predicates as one family. Documentation only — nothing in the engine reads it and it draws no inference, the grouping being for a reader as comment's prose is.")
 (variable_arity_predicate termsRelated)
 (unbounded_arity_predicate termsRelated)
+(set/monotonic (time_invariant_relation termsRelated))
 (arityMin termsRelated 2)
 
 (comment seeAlso
          "(seeAlso ?term1 ?term2) means that ?term1 and ?term2 are worth reading together — an editorial 'see also' cross-reference between two terms. Directional: (seeAlso a b) points a reader from a to b, and the reverse is a separate assertion, not implied. Documentation only, like comment: nothing in the engine reads it and it draws no inference.")
 (binary_predicate seeAlso)
 (set/monotonic (instance_relation_predicate seeAlso))
+(set/monotonic (time_invariant_relation seeAlso))
 
 ;; ---- in-KB worked examples -----------------------------------------------
 ;; Meta-sentexes that name an example sentex by handle (sentexHandle), annotating a term
@@ -2067,18 +2103,21 @@
 (binary_predicate positiveExample)
 (set/monotonic (instance_relation_predicate positiveExample))
 (target_following_predicate positiveExample)
+(set/monotonic (time_invariant_relation positiveExample))
 
 (comment negativeExample
          "(negativeExample ?term (sentexHandle ?sentex)) means that ?sentex is a FALSE example of ?term's usage — a meta-sentex naming ?sentex by handle. Same pointing shape and target_following_predicate mark as positiveExample; the obligation is the mirror, that the named sentex is provable AS ITS NEGATION — the example genuinely does not hold as stated — which curation_test holds. ?term is the term being exemplified; the handle arg is typed `thing` via quotedArg — a quoted mention, no narrower sentex type yet.")
 (binary_predicate negativeExample)
 (set/monotonic (instance_relation_predicate negativeExample))
 (target_following_predicate negativeExample)
+(set/monotonic (time_invariant_relation negativeExample))
 
 (comment borderlineExample
          "(borderlineExample ?term (sentexHandle ?sentex)) means that ?sentex is a BORDERLINE example of ?term's usage — a meta-sentex naming ?sentex by handle. Truth-agnostic by design: the named sentex is neither asserted true nor false, so it carries no provability obligation and NO regression reads its target. Same pointing shape, quotedArg mark, and target_following_predicate mark as the other two.")
 (binary_predicate borderlineExample)
 (set/monotonic (instance_relation_predicate borderlineExample))
 (target_following_predicate borderlineExample)
+(set/monotonic (time_invariant_relation borderlineExample))
 
 (termsRelated positiveExample negativeExample borderlineExample)
 

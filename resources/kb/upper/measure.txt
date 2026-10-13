@@ -35,6 +35,7 @@
 (comment conversionFactor
          "(conversionFactor ?unit ?baseUnit ?factor) means that one ?unit equals ?factor of ?baseUnit. So (conversionFactor Gram Kilogram 0.001) says a gram is a thousandth of a kilogram. Every unit states its factor against its dimension's base unit directly rather than against a neighbouring one, so normalizing a magnitude is a single multiply and never a chain. An ordinary stored fact, read by the quantity provers.")
 (ternary_predicate conversionFactor)
+(set/monotonic (time_invariant_relation conversionFactor))
 (arg conversionFactor 1 unit_of_measure)
 (arg conversionFactor 2 unit_of_measure)
 (arg conversionFactor 3 number)
@@ -54,6 +55,7 @@
          "(dimensionOf ?unit ?dimension) means that ?unit measures ?dimension. So (dimensionOf Kilogram Mass) says kilograms measure mass. Two measures are comparable only within one dimension, so this is what the quantity provers consult before they normalize anything, and a mismatch comes back not comparable rather than false. An ordinary stored fact.")
 (binary_predicate dimensionOf)
 (set/monotonic (instance_relation_predicate dimensionOf))
+(set/monotonic (time_invariant_relation dimensionOf))
 (arg dimensionOf 1 unit_of_measure)
 (arg dimensionOf 2 physical_dimension)
 
