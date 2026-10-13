@@ -107,11 +107,10 @@
 # directory.  The logs and the shard scratch go under `target/gate/run-<pid>`, and
 # `target/gate/latest` points at the newest, which is what to tail.
 #
-# The **timings** deliberately do not move with them: they are feedback for the next run
-# rather than output of this one, so they stay at `target/gate/test-timings.tsv` and
-# every run in the checkout shares them (`scripts/test-parallel.sh`).  That split is the
-# whole fix — a per-run directory that swallowed the timings would leave every gate
-# sharding blind, which costs wall clock and reports nothing.
+# The **timings** do not move with them: they are feedback for the next run rather than
+# output of this one, so every run in the checkout shares `logs/test-timings.tsv`
+# (`scripts/test-parallel.sh`), where neither a per-run directory nor `lein clean`
+# reaches them.
 #
 # ^C takes the stages with it and says so: every stage runs in a process group of its
 # own, the handler signals those groups, and the run directory gets an `INTERRUPTED`
@@ -141,7 +140,7 @@ OUT="${GATE_OUT:-$GATE_ROOT/run-$$}"
 # one directory drift apart — set it here rather than letting `test-parallel.sh` default
 # on its own, or `GATE_OUT` moves the four stage logs and leaves the shard logs behind
 export VAELII_GATE_OUT="$OUT"
-export VAELII_GATE_TIMINGS="${VAELII_GATE_TIMINGS:-$GATE_ROOT/test-timings.tsv}"
+export VAELII_GATE_TIMINGS="${VAELII_GATE_TIMINGS:-logs/test-timings.tsv}"
 TAIL_LINES=40
 
 fail_fast=0; quick=0; all=0; sequential=0; brief=0; release=0; with_perf=0
