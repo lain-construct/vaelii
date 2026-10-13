@@ -47,6 +47,13 @@
   (tu/with-terms [Cairnstone]
     (separated-from-agent kb 'formation '[CxAbstract CxUniverse] 'CxUniverse Cairnstone)))
 
+(tu/deftest-kb a-region-is-no-agent
+  (tu/with-terms [Lowmarch Ardenmark]
+    (separated-from-agent kb 'region '[CxSpace CxUniverse] 'CxUniverse Lowmarch)
+    (testing "a geographic region and a country are regions, so neither is an agent"
+      (is (true? (v/disjoint? kb 'agent 'geographic_region 'CxUniverse)))
+      (separated-from-agent kb 'country '[CxGeographyNow] 'CxGeographyNow Ardenmark))))
+
 (tu/deftest-kb what-can-act-is-still-an-agent
   (doseq [[k ctx] '[[person CxUniverse] [animal CxUniverse] [organization CxUniverse]
                     [human CxUniverse] [polity CxGeographyNow]]]

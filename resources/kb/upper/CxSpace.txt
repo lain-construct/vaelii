@@ -71,6 +71,8 @@
          "A portion of some space, located and made of nothing: a country's territory, an ocean's extent, a square of a chessboard.")
 (set/monotonic (genl region spatial))
 (set/monotonic (genl region intangible))
+;; A region intentionally initiates nothing: what acts for a country is its polity.
+(set/monotonic (disjoint agent region))
 ;; A region is a portion of a space, and a situation a state of affairs.
 (set/monotonic (disjoint region situation))
 

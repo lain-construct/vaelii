@@ -11,8 +11,9 @@
 ;; A country is a region, not a body that acts.  The body that governs it, signs its
 ;; treaties and levies its taxes is a polity, an organization and so an agent, related to
 ;; the region by territoryOf.  An organization is aspatial and a country spatiotemporal,
-;; so no country is a polity: a country made an organization would be empty.  What a
-;; country is said to do, its polity does.
+;; so no country is a polity: a country made an organization would be empty.  A country
+;; is a geographic_region, which CxSpace places below region, and region is disjoint
+;; from agent, so no country is an agent.  What a country is said to do, its polity does.
 ;;
 ;; Ships as schema: the vocabulary and the rules below. The regions, borders and
 ;; partitions themselves are contingent facts and are stated by whoever reads the

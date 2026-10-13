@@ -423,11 +423,11 @@
       (is (= :true (verdict kb (list 'doneBy TreatyOfCinders ArdenmarkRealm) CxExile))))
     (testing "the polity is an agent"
       (is (= :true (verdict kb (list 'agent ArdenmarkRealm) CxExile))))
-    (testing "the region is not concluded an agent, nor concluded not one"
-      ;; A country is spatiotemporal and intangible, and nothing separates either from
-      ;; causal or agent: a polity is disjoint from a country, but agent is not.  So the
-      ;; KB leaves the question open rather than proving Ardenmark no agent.
-      (is (= :unknown (verdict kb (list 'agent Ardenmark) CxExile))))
+    (testing "the region is no agent: its polity acts for it"
+      ;; A country is a geographic_region and so a region, and CxSpace states region
+      ;; disjoint from agent.  The polity stays an agent.
+      (is (true? (v/disjoint? kb 'agent 'country CxExile)))
+      (is (not (v/disjoint? kb 'agent 'polity CxExile))))
     (testing "no collision among the facts"
       (is (empty? (v/contradictions kb))))
     (testing "a rock can do an event, and a rock held to be no agent cannot perform one"
@@ -439,4 +439,7 @@
       (v/assert kb (list 'not (list 'agent Scree)) CxExile)
       (v/assert kb (list 'performedBy Landslide Scree) CxExile)
       (is (seq (clashes-naming kb CxExile [(list 'not (list 'agent Scree))]))
-          "performedBy's declaration concludes an agent the negation refutes"))))
+          "performedBy's declaration concludes an agent the negation refutes"))
+    (testing "Ardenmark held to be an agent clashes with the disjointness"
+      (let [clash? (tu/stored-in-clash? kb (list 'agent Ardenmark) CxExile)]
+        (is clash?)))))
