@@ -367,6 +367,10 @@
 (set/monotonic (disjoint animal clothing))
 (set/monotonic (disjoint animal furniture))
 (set/monotonic (disjoint animal machine))
+;; animal and vehicle are disjoint at the default strength rather than monotonic: a
+;; fiction below CxWell may except the default and hold a term that is both. CxRealWorld
+;; restates the same separation monotonic, so the real world can never hold the overlap.
+(disjoint animal vehicle)
 (set/monotonic (disjoint building furniture))
 (set/monotonic (disjoint building tool))
 (set/monotonic (disjoint building vehicle))
