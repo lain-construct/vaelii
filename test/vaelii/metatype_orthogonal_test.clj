@@ -24,6 +24,15 @@
                  (concat (v/sentexes-matching kb (list pred a b) '?ctx)
                          (v/sentexes-matching kb (list pred b a) '?ctx)))))
 
+(defn- forced-conclusions-naming
+  "The :forced-conclusion violations whose sentence names one of `terms`: a firing the
+  roster held void.  Filtered by term, since the violation log outlives the test that
+  filed an entry."
+  [kb terms]
+  (filter #(and (= :forced-conclusion (:violation %))
+                (some terms (flatten (seq (:sentence %)))))
+          (v/violations kb)))
+
 ;; ---- typeOrthogonal ---------------------------------------------------------
 
 (tu/deftest-kb a-member-of-the-classifier-is-orthogonal-to-the-type
@@ -38,7 +47,7 @@
     (testing "a member that arrives later is concluded orthogonal too"
       (v/assert kb (list origin_kind grown) 'CxUniverse)
       (is (true? (v/ask? kb (list 'orthogonal grown edible) 'CxUniverse))))
-    (is (not-any? #(= :forced-conclusion (:violation %)) (v/violations kb)))))
+    (is (empty? (forced-conclusions-naming kb #{crafted grown edible})))))
 
 (def ^:private origin-crossers
   "The types every origin_type member (made, natural) is orthogonal to."
@@ -99,6 +108,32 @@
   (doseq [s '[spatial aspatial], t '[temporal atemporal]]
     (is (derived-not-stated? kb 'orthogonal s t 'CxUniverse)
         (str "(orthogonal " s " " t ") is derived"))))
+
+;; ---- partitionedByType ------------------------------------------------------
+
+(tu/deftest-kb a-classifier-partitioning-a-whole-places-and-separates-its-members
+  (tu/with-terms [stuff_whole stuff_kind wet dry]
+    (v/assert kb (list 'genl stuff_whole 'tangible) 'CxUniverse)
+    (v/assert kb (list 'metatype stuff_kind) 'CxUniverse)
+    (v/assert kb (list stuff_kind wet) 'CxUniverse)
+    (v/assert kb (list stuff_kind dry) 'CxUniverse)
+    (v/assert kb (list 'partitionedByType stuff_whole stuff_kind) 'CxUniverse)
+    (is (true? (v/genl? kb wet stuff_whole 'CxUniverse)))
+    (is (true? (v/genl? kb dry stuff_whole 'CxUniverse)))
+    (is (true? (v/disjoint? kb wet dry 'CxUniverse)) "the separation reads the derived clique mark")
+    (is (true? (v/ask? kb (list 'disjoint_metatype stuff_kind) 'CxUniverse)))
+    (is (empty? (forced-conclusions-naming kb #{wet dry})))))
+
+(tu/deftest-kb the-shipped-partitions-by-type-are-binary
+  (doseq [[w c members ctx] '[[tangible origin_type [made natural] CxUniverse]
+                              [thing spatiality_type [spatial aspatial] CxUniverse]
+                              [thing temporality_type [temporal atemporal] CxUniverse]
+                              [fixed_order_type type_type_by_order [type metatype meta_metatype] CxUniverse]]]
+    (is (true? (v/ask? kb (list 'partitionedByType w c) ctx)))
+    (doseq [m members]
+      (is (true? (v/genl? kb m w ctx)) (str m " is under " w)))
+    (doseq [a members, b members :when (neg? (compare a b))]
+      (is (true? (v/disjoint? kb a b ctx)) (str a " and " b " are disjoint")))))
 
 ;; ---- logical and quantitative -------------------------------------------------
 
