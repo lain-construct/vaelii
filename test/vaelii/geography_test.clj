@@ -295,7 +295,8 @@
       "geographic_region is country's one parent")
   (is (genl? kb 'geographic_region 'spatiotemporal GEO))
   (is (not (genl? kb 'region 'spatiotemporal GEO))
-      "a region of a mathematical space is in no time"))
+      "a region of a mathematical space is in no time")
+  (is (boolean (v/disjoint? kb 'region 'situation GEO))))
 
 (tu/deftest-kb territory-of-relates-a-polity-to-the-region-it-governs
   (is (= :true (verdict kb '(binary_predicate territoryOf) GEO)))
