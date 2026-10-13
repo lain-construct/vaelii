@@ -16,6 +16,21 @@
 (use-fixtures :once (tu/loaded tu/load-starter!))
 (use-fixtures :each (tu/neutral))
 
+;; ---- logical and quantitative -------------------------------------------------
+
+(tu/deftest-kb logical-linguistic-and-quantitative-are-separated-under-nowhere-never
+  (doseq [t '[logical linguistic quantitative]]
+    (is (true? (v/genl? kb t 'nowhere_never 'CxUniverse))))
+  (doseq [[a b] '[[logical linguistic] [logical quantitative] [linguistic quantitative]]]
+    (is (true? (v/disjoint? kb a b 'CxUniverse))))
+  (doseq [t '[relation context]]
+    (is (true? (v/genl? kb t 'logical 'CxUniverse))))
+  (is (true? (v/genl? kb 'proposition 'logical 'CxUniverse)))
+  (is (true? (v/genl? kb 'measure 'quantitative 'CxUniverse)))
+  (doseq [t '[unit_of_measure physical_dimension sign_value]]
+    (is (true? (v/genl? kb t 'quantitative 'CxUniverse))))
+  (is (not (v/genl? kb 'quantity 'quantitative)) "a quantity is temporal and not quantitative"))
+
 ;; ---- implementationNote ------------------------------------------------------
 
 (tu/deftest-kb an-implementation-note-is-a-sibling-of-comment

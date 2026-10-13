@@ -1182,7 +1182,9 @@
            [tangible "ontology, not grammar: something with mass, and so with a location. core.txt states it as the top of the ontology the domain files extend; no engine check names it."]
            [organism "ontology, not grammar: something alive in its own right. core.txt states it as the top of the ontology organism.txt's kinds hang from; no engine check names it."]
            [biological "ontology, not grammar: a tangible that is an organism or part of one. core.txt states it because organism (organism.txt) and body_part (abstract.txt) both extend it; no engine check names it."]
-           [measure "ontology, not grammar: what a QuantityFn or QuantityIntervalFn application denotes. core.txt states it because measure.txt and time.txt both declare a position over it; no engine check names it."]])
+           [measure "ontology, not grammar: what a QuantityFn or QuantityIntervalFn application denotes. core.txt states it because measure.txt and time.txt both declare a position over it; no engine check names it."]
+           [logical "ontology, not grammar: what a logic is about, the whole above relation, proposition and context. core.txt states it so the separation from linguistic and quantitative reaches relation and context; no engine check names it."]
+           [quantitative "ontology, not grammar: what a measurement is made of or yields, the whole above measure, unit_of_measure, physical_dimension and sign_value. core.txt states it so the separation from logical and linguistic reaches measure; no engine check names it."]])
 
     ;; ---- the space/time complements, nowhere_never, and the metatype ladder ----
     ;; core.txt comments these too, beside their genl edges, so `vocabulary/audit` answers
@@ -1198,7 +1200,7 @@
            [atemporal "ontology, not grammar: not located in time, the complement of temporal. core.txt states it so nowhere_never can sit under it; no engine check names it."]
            [uninterrupted "ontology, not grammar: something temporal present at every moment between its start and its end, one side of the partition of temporal. core.txt states it as the top of the ontology the domain files place kinds under; no engine check names it."]
            [intermittent "ontology, not grammar: something temporal with a gap between its start and its end, the other side of the partition of temporal. core.txt states it as the top of the ontology the domain files place kinds under; no engine check names it."]
-           [nowhere_never "ontology, not grammar: in no space and at no time, below aspatial and atemporal and the parent of linguistic, measure, context and relation; no engine check names it."]
+           [nowhere_never "ontology, not grammar: in no space and at no time, below aspatial and atemporal and the whole that logical, linguistic and quantitative are separated under; no engine check names it."]
            [type "ontology, not grammar: a first-order type, on the metatype-order ladder. No engine check names it — typeGenl, which reads the ladder, is inert."]
            [metatype "ontology, not grammar: a second-order type, on the metatype-order ladder. No engine check names it."]
            [meta_metatype "ontology, not grammar: a third-order type, on the metatype-order ladder. No engine check names it."]
