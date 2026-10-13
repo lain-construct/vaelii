@@ -247,7 +247,8 @@
 ;; here because organism (organism.txt) and body_part (abstract.txt) both extend it.
 (comment intangible "Something with no mass: a region, a shadow, a number, a relation, a time. It may have a location — a region of space is spatiotemporal and intangible both.")
 (comment spatial "Something with a location in some space, physical or mathematical. The line y=x is located in the Cartesian plane and a square of an abstract chessboard on that board, though neither is located anywhere in the world; a point has a location and no extent, and is spatial too. Time is not one of these spaces; being in time is what temporal says. Everything spatiotemporal is spatial; spatial and aspatial partition thing. The four spatial calculi relate what is spatial, in whichever space a context is about.")
-(comment spatiotemporal "Something with a location in space and time — a physical object, but also a region or a place, which occupy space without being made of anything. Below both spatial and temporal.")
+(comment physical "Something with a location in the physical space of our universe. A region of physical space is physical; the line y=x, located only in the Cartesian plane, is not. Everything physical is spatial, and everything spatiotemporal is physical.")
+(comment spatiotemporal "Something with a location in physical space and time — a physical object, but also a region or a place, which occupy space without being made of anything. Below both physical and temporal.")
 (comment temporal "Something that happens or exists in time. Physical objects, events, and situations are all temporal.")
 (comment aspatial "Not located in any space: no location in any space, physical or mathematical. None of the spatial calculi relate to it.")
 (comment uninterrupted "Something temporal that is present at every moment between its start and its end: a moment, a year, a meeting, a held state. The complement of intermittent within temporal; the two partition temporal.")
@@ -259,11 +260,15 @@
 (comment nowhere_never "In no space and at no time: no location in any space, physical or mathematical, and none in time. An expression, a language. The line y=x is not one: it is located in the Cartesian plane, so it is spatial.")
 ;; spatial, aspatial, temporal, atemporal, tangible and intangible reach thing through
 ;; the three partitions of thing below, each of which installs its parts' edges to the
-;; whole; spatiotemporal reaches it through spatial.  spatiotemporal is below spatial and
-;; temporal, and nowhere_never below aspatial and atemporal, by genl edges alone: an
-;; intersection's membership rule would store a membership of every term under both
-;; types, and nothing reads one (docs/taxonomy.md, "Relations and arity policy").
-(genl spatiotemporal spatial)
+;; whole; physical reaches it through spatial, and spatiotemporal through physical.
+;; spatiotemporal is below physical and temporal, and nowhere_never below aspatial and
+;; atemporal, by genl edges alone: an intersection's membership rule would store a
+;; membership of every term under both types, and nothing reads one (docs/taxonomy.md,
+;; "Relations and arity policy").
+;; Definition (documentation, not a premise): (intersection spatiotemporal physical temporal).
+;; Stated by genl edges so no membership is materialized; the converse is not concluded.
+(genl physical spatial)
+(genl spatiotemporal physical)
 (genl spatiotemporal temporal)
 (genl tangible spatiotemporal)
 ;; tangible's instances are individuals, so it is a first-order `type`.  The interArg on
@@ -343,6 +348,7 @@
 ;; Each skeleton collection is a type, a one-place predicate.
 (unary_predicate intangible)
 (unary_predicate spatial)
+(unary_predicate physical)
 (unary_predicate spatiotemporal)
 (unary_predicate temporal)
 (unary_predicate aspatial)
