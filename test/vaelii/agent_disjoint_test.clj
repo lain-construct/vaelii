@@ -28,6 +28,11 @@
     (separated-from-agent kb 'situation '[CxCore CxAbstract CxUniverse] 'CxUniverse Thaw)
     (is (true? (v/disjoint? kb 'agent 'event 'CxUniverse)) "an event is a situation")))
 
+(tu/deftest-kb a-substance-is-no-agent
+  (tu/with-terms [Brine]
+    (separated-from-agent kb 'substance '[CxAbstract CxUniverse] 'CxUniverse Brine)
+    (is (true? (v/disjoint? kb 'agent 'metal 'CxUniverse)) "a metal is a substance")))
+
 (tu/deftest-kb what-can-act-is-still-an-agent
   (doseq [[k ctx] '[[person CxUniverse] [animal CxUniverse] [organization CxUniverse]
                     [human CxUniverse] [polity CxGeographyNow]]]

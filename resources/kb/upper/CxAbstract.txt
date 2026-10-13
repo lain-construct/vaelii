@@ -338,6 +338,9 @@
 ;; Neither an organism nor a part it grew is stuff; stated once of biological, it reaches
 ;; both parts and every kind below them.
 (set/monotonic (disjoint biological substance))
+;; Stuff does not act: no substance is an agent, and every kind of stuff inherits the
+;; separation.
+(set/monotonic (disjoint agent substance))
 ;; A container is a made object that holds others: never an organism, never stuff and
 ;; never a person, so each disjoint reaches building and every other kind of container.
 (set/monotonic (disjoint container organism))
