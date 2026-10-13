@@ -362,6 +362,11 @@
 (set/monotonic (disjoint container organism))
 (set/monotonic (disjoint container person))
 (set/monotonic (disjoint container substance))
+;; An animal is never a building, a piece of clothing, a furniture or a machine.
+(set/monotonic (disjoint animal building))
+(set/monotonic (disjoint animal clothing))
+(set/monotonic (disjoint animal furniture))
+(set/monotonic (disjoint animal machine))
 (set/monotonic (disjoint building furniture))
 (set/monotonic (disjoint building tool))
 (set/monotonic (disjoint building vehicle))
