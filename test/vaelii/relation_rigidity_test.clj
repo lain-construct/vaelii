@@ -109,3 +109,57 @@
       (is (= :audited (:status r)))
       (is (contains? (:violations r) admiresPet) "an unclassified relation is reported")
       (is (not (contains? (:violations r) ownsPet)) "a classified one is not"))))
+
+;; ---- a function and its corresponding predicate share a rigidity kind ----------
+
+(def ^:private correspondence #{:rigidity-correspondence})
+
+(defn- corresponding-pair!
+  "Declare `function` a unary function and `predicate` a binary predicate, linked by
+  functionCorrespondingPredicate, the value position stated when `position` is given."
+  [kb function predicate position]
+  (v/assert kb (list 'unary_function function) U mono)
+  (v/assert kb (list 'binary_predicate predicate) U mono)
+  (v/assert kb (if position
+                 (list 'functionCorrespondingPredicate function predicate position)
+                 (list 'functionCorrespondingPredicate function predicate))
+            U mono))
+
+(tu/deftest-kb a-function-and-its-corresponding-predicate-must-share-a-rigidity-kind
+  ;; (functionCorrespondingPredicate F P) says F and P state one relationship, so an
+  ;; instance could lose the one exactly when it could lose the other.
+  (tu/with-terms [HiveQueenFn hiveQueenOf]
+    (corresponding-pair! kb HiveQueenFn hiveQueenOf nil)
+    (v/assert kb (list 'time_invariant_relation HiveQueenFn) U mono)
+    (testing "one side unclassified is silent: typeAllSpecified already reports it"
+      (is (= {:status :audited :candidate-count 0}
+             (v/kb-integrity kb #{} U {:categories correspondence}))))
+    (testing "two different kinds are reported"
+      (v/assert kb (list 'time_varying_relation hiveQueenOf) U mono)
+      (is (= {:status :gap :candidate-count 0
+              :rigidity-correspondence
+              [{:function HiveQueenFn :predicate hiveQueenOf
+                :function-kinds #{'time_invariant_relation}
+                :predicate-kinds #{'time_varying_relation}}]}
+             (v/kb-integrity kb #{} U {:categories correspondence}))))
+    (testing "the default sweep runs the pass"
+      (is (contains? (v/kb-integrity kb #{} U) :rigidity-correspondence)))))
+
+(tu/deftest-kb a-function-and-its-corresponding-predicate-of-one-kind-are-not-reported
+  (tu/with-terms [HiveQueenFn hiveQueenOf]
+    (corresponding-pair! kb HiveQueenFn hiveQueenOf nil)
+    (v/assert kb (list 'time_varying_relation HiveQueenFn) U mono)
+    (v/assert kb (list 'time_varying_relation hiveQueenOf) U mono)
+    (is (= {:status :audited :candidate-count 0}
+           (v/kb-integrity kb #{} U {:categories correspondence})))))
+
+(tu/deftest-kb a-correspondence-with-a-stated-position-is-read-too
+  (tu/with-terms [NestMateFn nestMateOf]
+    (corresponding-pair! kb NestMateFn nestMateOf 2)
+    (v/assert kb (list 'time_agnostic_relation NestMateFn) U mono)
+    (v/assert kb (list 'time_invariant_relation nestMateOf) U mono)
+    (is (= [{:function NestMateFn :predicate nestMateOf
+             :function-kinds #{'time_agnostic_relation}
+             :predicate-kinds #{'time_invariant_relation}}]
+           (:rigidity-correspondence
+            (v/kb-integrity kb #{} U {:categories correspondence}))))))
