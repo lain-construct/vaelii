@@ -14,6 +14,8 @@
 ;; edge to biological, so body_part's is not stated; organism's is stated in CxCore too,
 ;; where CxOrganism can see it.
 (separating biological organism body_part)
+;; The organism acts, and not the part it grew: no body part is an agent.
+(set/monotonic (disjoint agent body_part))
 ;; A leg of lamb or a chicken wing is food and a body part at once.
 (orthogonal food body_part)
 ;; An orthogonal is not inherited along genl, so each overlapping pair is stated or

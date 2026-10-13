@@ -38,6 +38,11 @@
     (separated-from-agent kb 'plant '[CxOrganism CxUniverse] 'CxUniverse Bramblewick)
     (is (true? (v/disjoint? kb 'agent 'tree 'CxUniverse)) "a tree is a plant")))
 
+(tu/deftest-kb a-body-part-is-no-agent
+  (tu/with-terms [Antler]
+    (separated-from-agent kb 'body_part '[CxAbstract CxUniverse] 'CxUniverse Antler)
+    (is (true? (v/disjoint? kb 'agent 'wing 'CxUniverse)) "a wing is a body part")))
+
 (tu/deftest-kb what-can-act-is-still-an-agent
   (doseq [[k ctx] '[[person CxUniverse] [animal CxUniverse] [organization CxUniverse]
                     [human CxUniverse] [polity CxGeographyNow]]]
