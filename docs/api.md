@@ -164,6 +164,8 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; audit above, every visible (typeAllSpecified
                                                 ; classifier indep) requirement, each instance of indep
                                                 ; with no believed membership in a member of classifier,
+                                                ; every functionCorrespondingPredicate pair whose function
+                                                ; and predicate are believed of different rigidity kinds,
                                                 ; query-only definition clashes over an
                                                 ; explicit finite set of ground terms, every visible
                                                 ; predicate genl edge whose spec declares an arg type its
@@ -186,6 +188,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                 ; when clean, or :status :gap plus any of the sparse
                                                 ; categories :all-specified-violations,
                                                 ; :type-specified-violations,
+                                                ; :rigidity-correspondence,
                                                 ; :definition-inconsistencies, :genl-arg-widening,
                                                 ; :not-under-thing, :implicit-genl,
                                                 ; :orthogonal-over-separation, :rule-macro,
