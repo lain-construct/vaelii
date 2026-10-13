@@ -107,6 +107,7 @@
 (unary_predicate folk_biological_class)
 (genlArg folk_biological_class 1 organism)
 (metatype folk_biological_class)
+(set/monotonic (time_invariant_relation folk_biological_class))
 ;; typeGenl requires its target to be a first-order type: (interArg typeGenl 1 metatype 2 type).
 (type organism)
 (typeGenl folk_biological_class organism)
@@ -134,6 +135,7 @@
 ;; from (folk_species ?s) alone is a forced-monotonic rule whose firings are believed
 ;; (docs/nmtms.md).
 (forced_monotonic_predicate folk_species)
+(set/monotonic (time_invariant_relation folk_species))
 
 (comment fox "A wild canine mammal — the flatterer of the Fox and the Crow.")
 (genl fox mammal)
@@ -180,6 +182,7 @@
 (genlArg invertebrate_class 1 invertebrate)
 (metatype invertebrate_class)
 (set/monotonic (disjoint_metatype invertebrate_class))
+(set/monotonic (time_invariant_relation invertebrate_class))
 (typeGenl invertebrate_class invertebrate)
 
 (comment larvalFormOf
@@ -230,6 +233,7 @@
 (genlArg plant_class 1 plant)
 (metatype plant_class)
 (set/monotonic (disjoint_metatype plant_class))
+(set/monotonic (time_invariant_relation plant_class))
 (typeGenl plant_class plant)
 
 (comment rabbit "A small burrowing mammal with long ears.")
@@ -276,6 +280,7 @@
 (genlArg vertebrate_class 1 vertebrate)
 (metatype vertebrate_class)
 (set/monotonic (disjoint_metatype vertebrate_class))
+(set/monotonic (time_invariant_relation vertebrate_class))
 (typeGenl vertebrate_class vertebrate)
 
 (comment wolf "A wild canine predator — the danger the boy falsely cries about.")

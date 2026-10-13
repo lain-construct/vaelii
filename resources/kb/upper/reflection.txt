@@ -177,6 +177,30 @@
 (unary_predicate ill_formed)
 (unary_predicate wff_sentence)
 (unary_predicate ill_formed_sentence)
+;; Syntax is atemporal: an expression is of its kind for as long as it exists, so each
+;; expression kind is time-invariant.
+(set/monotonic (time_invariant_relation atomic_expression))
+(set/monotonic (time_invariant_relation atomic_term))
+(set/monotonic (time_invariant_relation closed_expression))
+(set/monotonic (time_invariant_relation closed_literal))
+(set/monotonic (time_invariant_relation closed_predication))
+(set/monotonic (time_invariant_relation denotational_term))
+(set/monotonic (time_invariant_relation expression))
+(set/monotonic (time_invariant_relation ill_formed))
+(set/monotonic (time_invariant_relation ill_formed_expression))
+(set/monotonic (time_invariant_relation ill_formed_sentence))
+(set/monotonic (time_invariant_relation literal))
+(set/monotonic (time_invariant_relation negated_predication))
+(set/monotonic (time_invariant_relation non_atomic_expression))
+(set/monotonic (time_invariant_relation open_expression))
+(set/monotonic (time_invariant_relation open_formula))
+(set/monotonic (time_invariant_relation open_literal))
+(set/monotonic (time_invariant_relation open_predication))
+(set/monotonic (time_invariant_relation predication))
+(set/monotonic (time_invariant_relation variable))
+(set/monotonic (time_invariant_relation wff))
+(set/monotonic (time_invariant_relation wff_expression))
+(set/monotonic (time_invariant_relation wff_sentence))
 
 ;; ---- use and mention ------------------------------------------------------------
 ;; Use is the default: dog written in a sentence denotes the predicate dog, and only
@@ -185,6 +209,7 @@
 ;; carries.
 (comment proposition "What a wff_sentence expresses: semantic content whose truth is evaluated in a context, which sentences in any language can carry. (dog Muffet) and \"Muffet est un chien\" express one proposition.")
 (unary_predicate proposition)
+(set/monotonic (time_invariant_relation proposition))
 ;; What a sentence says is neither an operator nor what the sentence holds in.  core.txt
 ;; separates relation from context; this declaration adds proposition.
 (set/monotonic (separating logical relation proposition context))
