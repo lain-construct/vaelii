@@ -343,6 +343,8 @@
 (set/monotonic (orthogonal happening spatial))
 ;; A situation is not the matter in it.
 (set/monotonic (disjoint tangible situation))
+;; A situation is not what acts in it: what can act is no situation.
+(set/monotonic (disjoint agent situation))
 ;; The partition of thing into tangible and intangible does not derive a genl edge from
 ;; the disjointness, so the edge is stated.
 (set/monotonic (genl situation intangible))
