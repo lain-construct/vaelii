@@ -17,6 +17,7 @@
             [vaelii.impl.progress :as progress]
             [vaelii.impl.protocols :as p]
             [vaelii.impl.provers :as provers]
+            [vaelii.impl.quasiquote :as quasiquote]
             [vaelii.impl.reads :as reads]
             [vaelii.impl.resolution :as res]
             [vaelii.impl.rules :as rules]
@@ -428,6 +429,50 @@
           (budget/record! category finding)
           (recur (conj findings finding) (rest units))))
       {:status :complete :findings findings})))
+
+;; ---- rigidity-correspondence: a function and its predicate of different kinds ----
+
+(defn- bindings-of
+  "The `?f` `?p` pairs of `goal` answerable in `context`."
+  [kb goal context]
+  (budget/spend!)
+  (for [b (quasiquote/ask-prepared kb goal context)]
+    [(get b '?f) (get b '?p)]))
+
+(defn- correspondences
+  "Every visible `(functionCorrespondingPredicate f p)` pair, the value position stated
+  or not, distinct and in content order."
+  [kb context]
+  (sort-by #(apply list %) nm/compare-form
+           (distinct (concat (bindings-of kb '(functionCorrespondingPredicate ?f ?p) context)
+                             (bindings-of kb '(functionCorrespondingPredicate ?f ?p ?n) context)))))
+
+(defn- kinds-held
+  "The members of `kinds` `term` is believed to be a member of in `context`."
+  [kb kinds term context]
+  (into #{}
+        (filter (fn [k]
+                  (budget/spend!)
+                  (seq (quasiquote/ask-prepared kb (list k term) context))))
+        kinds))
+
+(defn- rigidity-correspondence-findings
+  "Report each visible `functionCorrespondingPredicate` pair whose function and predicate
+  are both believed of some `rigidity_kind` member and not of the same ones.  A pair with
+  an unclassified side is not reported: `(typeAllSpecified rigidity_kind relation)`
+  reports the unclassified relation itself."
+  [kb context remaining]
+  (let [kinds (do (budget/spend!)
+                  (into [] (comp (keep #(get % '?k)) (distinct))
+                        (quasiquote/ask-prepared kb '(rigidity_kind ?k) context)))]
+    (bounded-findings
+     :rigidity-correspondence
+     (for [[f p] (when (seq kinds) (correspondences kb context))
+           :let  [fk (kinds-held kb kinds f context)
+                  pk (when (seq fk) (kinds-held kb kinds p context))]
+           :when (and (seq fk) (seq pk) (not= fk pk))]
+       {:function f :predicate p :function-kinds fk :predicate-kinds pk})
+     remaining)))
 
 (defn- handle-records
   "The believed sentexes among `handles`, as `{:handle :sentence :context}` maps in
@@ -1149,6 +1194,8 @@
                                 (specified-findings kb context remaining))]
    [:type-specified-violations (fn [kb _ context remaining]
                                  (type-specified-findings kb context remaining))]
+   [:rigidity-correspondence (fn [kb _ context remaining]
+                               (rigidity-correspondence-findings kb context remaining))]
    [:genl-arg-widening (fn [kb _ context remaining]
                          (widening-findings kb context remaining))]
    [:not-under-thing not-under-thing-findings]
