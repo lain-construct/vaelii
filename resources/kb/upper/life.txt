@@ -182,3 +182,5 @@
 (unary_predicate warm_blooded)
 (arg warm_blooded 1 animal)
 (genl warm_blooded animal)
+;; Mammals and birds are warm-blooded, so a warm-blooded animal is a vertebrate by default.
+(genl warm_blooded vertebrate)
