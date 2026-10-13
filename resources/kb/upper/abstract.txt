@@ -29,6 +29,7 @@
 ;; Each membership is definitional, so origin_type is forced-monotonic and
 ;; typeOrthogonal's rule concludes an orthogonal from one alone (docs/nmtms.md).
 (forced_monotonic_predicate origin_type)
+(set/monotonic (time_invariant_relation origin_type))
 (origin_type made)
 (origin_type natural)
 (partitionedByType tangible origin_type)
@@ -65,6 +66,7 @@
 (genl container hollow)
 
 (comment context "A context: the second half of a sentex, and what a sentence holds in.")
+(set/monotonic (time_invariant_relation context))
 
 (comment electronic_device "A mechanism built around an electronic circuit: the circuit and the parts that carry it make up the whole object. An organism with an implanted circuit contains an electronic device but is not one. Defined by how it is built, not by what it does, so it is rigid: a dead phone or an unplugged board is still one.")
 (positiveExampleComment electronic_device "a phone")
@@ -132,6 +134,7 @@
 (set/monotonic (disjoint hollow substance))
 
 (comment language "A system of signs a person speaks, writes or signs in.")
+(set/monotonic (time_invariant_relation language))
 
 (comment largerThan
          "(largerThan ?kind1 ?kind2) means that a ?kind1 is bigger than a ?kind2. A claim about two KINDS rather than about two things — a type_relation_predicate — so (largerThan dog cat) says dogs are bigger than cats and says nothing whatever about any particular dog. Transitive and asymmetric, so a cycle of size claims is a contradiction the KB reports rather than a chain it walks. Declared transitiveInArgInverse on both positions along genl, which is what carries a claim down to subkinds: a kind of dog is larger than a kind of cat. That distribution is itself a claim about largerThan, which is why it is declared rather than assumed — the same inheritance is false of a chihuahua and a maine coon, and nothing in a sentence says which case it is in.")
@@ -566,10 +569,12 @@
 (set/monotonic (disjoint_metatype stuff_type_by_state_of_matter))
 (set/monotonic (disjoint_metatype stuff_type_by_substance))
 (metatype stuff_type_by_state_of_matter)
+(set/monotonic (time_invariant_relation stuff_type_by_state_of_matter))
 (metatype stuff_type_by_substance)
 ;; Every member of either metatype is a first-order type, whose instances are portions of stuff.
 (genl stuff_type_by_state_of_matter type)
 (genl stuff_type_by_substance type)
+(set/monotonic (time_invariant_relation stuff_type_by_substance))
 (genl building container)
 (genl gas substance)
 (genl plasma substance)
