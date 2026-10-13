@@ -94,3 +94,11 @@
                '[veryFarFrom moderatelyFarFrom northwestOf behindRightOf eastOf
                  regionConnectedTo partOfRegion withinNearDistanceOf]
                'CxUniverse))
+
+(tu/deftest-kb type-relation-and-argument-declaration-predicates-are-time-invariant
+  ;; A sentence of one of these is shorthand for a rule over type membership, and it
+  ;; relates types or relations, which exist outside time.
+  (all-of-kind kb 'time_invariant_relation
+               '[disjoint partition covering separating orthogonal intersection genl genlCx
+                 typeGenl typeOrthogonal arg genlArg result defnIff transitiveInArg]
+               'CxUniverse))
