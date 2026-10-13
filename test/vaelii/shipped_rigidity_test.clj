@@ -48,3 +48,12 @@
                  '[stuff_type_by_state_of_matter folk_species vertebrate_class rigidity_kind
                    at_least_metatype arity_type]
                  'CxUniverse)))
+
+(tu/deftest-kb folk-kinds-are-time-invariant
+  ;; A mouse is a mouse for as long as it exists.  Two genl edges classify every folk
+  ;; species and every member of folk_biological_class, flower included.
+  (is (v/ask? kb '(genl folk_species time_invariant_relation) 'CxUniverse))
+  (is (v/ask? kb '(genl folk_biological_class time_invariant_relation) 'CxUniverse))
+  (all-of-kind kb 'time_invariant_relation
+               '[mouse human dog rose oak flower mammal bird insect arachnid tree]
+               'CxUniverse))
