@@ -73,3 +73,12 @@
                '[parentOf childOf motherOf fatherOf ancestorOf siblingOf birthYearOf mortal
                  warm_blooded MotherFn FatherFn]
                'CxUniverse))
+
+(tu/deftest-kb social-relations-are-time-varying
+  ;; Any employment, friendship or ownership can end with both parties still existing.
+  (all-of-kind kb 'time_varying_relation
+               '[worksFor friendOf likes owns memberOf marriedTo speaks]
+               'CxUniverse)
+  (testing "CxSocial's own relations, in the context that defines them"
+    (all-of-kind kb 'time_varying_relation '[coworkerOf roommateOf romanticPartnerOf]
+                 'CxSocial)))
