@@ -258,8 +258,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none. A KB storing `negates` facts of its own reads them as declarations.
 
 - **The upper ontology states `logical`, `quantitative`, `typeOrthogonal`,
-  `orthogonalMetatypes` and `implementationNote`, and derives 42 genl, disjoint and
-  orthogonal sentences it stated, and no longer states 39 of them.** `(separating nowhere_never logical linguistic
+  `orthogonalMetatypes` and `implementationNote`, and derives 43 genl, disjoint and
+  orthogonal sentences it stated, and no longer states 40 of them.** `(separating nowhere_never logical linguistic
   quantitative)` separates three kinds: `relation`, `proposition` and `context` are
   `logical`, and `measure`, `unit_of_measure`, `physical_dimension` and `sign_value` are
   `quantitative`. `(typeOrthogonal ?classifier ?type)` makes every member of a classifier
@@ -267,8 +267,8 @@ it — `git show v0.16.0:CHANGELOG.md`.
   metatype orthogonal to every member of the others, for two and three metatypes
   (vaelii/vaelii#170). Each is a core.txt rule generator. The classifiers `arity_type`,
   `origin_type`, `spatiality_type` and `temporality_type` are new, and each classifier a
-  rule reads is on the forced-monotonic roster. 9 `typeOrthogonal` facts and one
-  `orthogonalMetatypes` fact derive 31 orthogonal pairs, 21 of them stated before, and
+  rule reads is on the forced-monotonic roster. 10 `typeOrthogonal` facts and one
+  `orthogonalMetatypes` fact derive 33 orthogonal pairs, 22 of them stated before, and
   every arity type is orthogonal to `abducible_predicate`. 9 more orthogonal pairs are
   stated, e.g. `made` and `vertebrate`, `animal` and `food`. `implementationNote` is a
   sibling of `comment` for how a term is implemented, and 12 core.txt terms carry one.
