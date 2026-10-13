@@ -47,6 +47,7 @@
 (comment derivativeOf
          "(derivativeOf ?rate ?quantity) means that ?rate is the rate at which ?quantity changes. So (derivativeOf NetInflow WaterLevel) says the net inflow is how fast the water level rises. What joins a sign to a trend: the trend of a quantity IS the sign of its rate, so the two are one value read at either end of this edge, and the sign prover carries it both ways — a rate whose sign is known gives the trend, and a stated trend fixes the sign of the rate, which can then be an addend of something else. A rate is a quantity like any other, so the rate of a sum is stated as a sum of the rates rather than read off the sum.")
 (set/monotonic (instance_relation_predicate derivativeOf))
+(set/monotonic (time_varying_relation derivativeOf))
 (arg derivativeOf 1 quantity)
 (arg derivativeOf 2 quantity)
 
@@ -232,6 +233,7 @@
 (comment signOf
          "(signOf ?quantity ?sign) means that ?quantity is negative, nil or positive, ?sign being one of SignNegative, SignZero and SignPositive. The coarsest measurement there is, and the one a common-sense KB nearly always has: nobody knows how fast the tap runs, and everybody knows that it runs. Computed by a prover from the stated signs, the three qualitative arithmetic relations, the greaterInMagnitudeThan comparisons and the derivativeOf edges — and a stated one is answered back out of that same reading, so registering the prover never changes what a KB says about what it wrote down. NOT declared functional, though a quantity has one sign: functional merges two symbol arguments through the equality partition, so a KB that had said both positive and negative would have the two sign terms made one instead of the contradiction reported, and the prover reports it as a :sign-inconsistency entry.")
 (set/monotonic (instance_relation_predicate signOf))
+(set/monotonic (time_varying_relation signOf))
 (arg signOf 1 quantity)
 (arg signOf 2 sign_value)
 
@@ -256,6 +258,7 @@
 (comment trendOf
          "(trendOf ?quantity ?sign) means that ?quantity is falling, steady or rising — the sign of its rate of change. Not a second theory beside signOf: it is signOf read at the other end of a derivativeOf edge, so a rate known positive makes the quantity it is the rate of rising, and a quantity stated rising makes that rate positive. Stated directly where the rate has no name worth giving it.")
 (set/monotonic (instance_relation_predicate trendOf))
+(set/monotonic (time_varying_relation trendOf))
 (arg trendOf 1 quantity)
 (arg trendOf 2 sign_value)
 
