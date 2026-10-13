@@ -33,6 +33,11 @@
     (separated-from-agent kb 'substance '[CxAbstract CxUniverse] 'CxUniverse Brine)
     (is (true? (v/disjoint? kb 'agent 'metal 'CxUniverse)) "a metal is a substance")))
 
+(tu/deftest-kb a-plant-is-no-agent
+  (tu/with-terms [Bramblewick]
+    (separated-from-agent kb 'plant '[CxOrganism CxUniverse] 'CxUniverse Bramblewick)
+    (is (true? (v/disjoint? kb 'agent 'tree 'CxUniverse)) "a tree is a plant")))
+
 (tu/deftest-kb what-can-act-is-still-an-agent
   (doseq [[k ctx] '[[person CxUniverse] [animal CxUniverse] [organization CxUniverse]
                     [human CxUniverse] [polity CxGeographyNow]]]
