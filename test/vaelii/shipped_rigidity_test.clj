@@ -86,3 +86,11 @@
 (tu/deftest-kb a-quantitys-sign-trend-and-derivative-are-time-varying
   ;; A quantity changes: the tap is shut, and its flow rate's sign goes to zero.
   (all-of-kind kb 'time_varying_relation '[signOf trendOf derivativeOf] 'CxUniverse))
+
+(tu/deftest-kb spatial-relations-are-time-agnostic
+  ;; A ship very far from its home port can sail home, and two points of a mathematical
+  ;; plane can never move, so some instances could lose the relation and some could not.
+  (all-of-kind kb 'time_agnostic_relation
+               '[veryFarFrom moderatelyFarFrom northwestOf behindRightOf eastOf
+                 regionConnectedTo partOfRegion withinNearDistanceOf]
+               'CxUniverse))
