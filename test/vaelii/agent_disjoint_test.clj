@@ -43,6 +43,10 @@
     (separated-from-agent kb 'body_part '[CxAbstract CxUniverse] 'CxUniverse Antler)
     (is (true? (v/disjoint? kb 'agent 'wing 'CxUniverse)) "a wing is a body part")))
 
+(tu/deftest-kb a-formation-is-no-agent
+  (tu/with-terms [Cairnstone]
+    (separated-from-agent kb 'formation '[CxAbstract CxUniverse] 'CxUniverse Cairnstone)))
+
 (tu/deftest-kb what-can-act-is-still-an-agent
   (doseq [[k ctx] '[[person CxUniverse] [animal CxUniverse] [organization CxUniverse]
                     [human CxUniverse] [polity CxGeographyNow]]]

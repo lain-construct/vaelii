@@ -235,10 +235,11 @@
   (is (v/ask? kb '(genl performedBy doneBy) 'CxUniverse)
       "performedBy specializes doneBy"))
 
-(tu/deftest-kb a-rock-can-do-an-event-and-performing-one-makes-it-an-agent
-  ;; Nothing the starter ships separates a rock from agent, so performedBy's
-  ;; declaration, read as an entailment (the shipped reading), mints (agent Boulder)
-  ;; rather than refusing the fact.  A rock the KB holds is no agent is a clash.
+(tu/deftest-kb a-rock-can-do-an-event-and-cannot-perform-one
+  ;; A rock is a formation, and CxAbstract states formation disjoint from agent, so a rock
+  ;; is no agent.  doneBy admits it.  performedBy's declaration, read as an entailment
+  ;; (the shipped reading), concludes an agent the disjointness refutes, so a rock that
+  ;; performs an event is a clash and not a new agent.
   (tu/with-entailing
    (tu/with-terms [Rockfall Boulder Landslide Scree]
      (v/assert kb (list 'event Rockfall) 'CxUniverse)
@@ -249,6 +250,7 @@
        (v/assert kb (list 'doneBy Rockfall Boulder) 'CxUniverse)
        (is (v/ask? kb (list 'doneBy Rockfall Boulder) 'CxUniverse))
        (is (not (v/ask? kb (list 'agent Boulder) 'CxUniverse)))
+       (is (true? (v/disjoint? kb 'agent 'formation 'CxUniverse)) "a formation is no agent")
        (is (empty? (v/contradictions kb))))
      (testing "a rock held to be no agent cannot perform an event"
        (v/assert kb (list 'not (list 'agent Scree)) 'CxUniverse)
@@ -258,9 +260,14 @@
          (is (some #(contains? (:nogood %) neg) (v/contradictions kb))
              "the agent the declaration concludes clashes with the stated negation")
          (is (some? fact))))
-     (testing "a rock nothing separates from agent is concluded one"
+     (testing "a rock nobody states to be no agent cannot perform one either"
        (v/assert kb (list 'performedBy Rockfall Boulder) 'CxUniverse)
-       (is (v/ask? kb (list 'agent Boulder) 'CxUniverse))))))
+       (let [clashes (into #{} (comp (filter #(= :disjoint (:kind %)))
+                                     (map #(into #{} (map :sentence) (:sides %))))
+                           (v/contradictions kb))]
+         (is (contains? clashes #{(list 'agent Boulder) (list 'formation Boulder)})
+             "the agent the declaration concludes clashes with the disjointness"))))))
+
 
 (tu/deftest-kb every-performing-is-a-doing
   (tu/with-terms [Launch Operator Spill Pump]

@@ -73,6 +73,9 @@
 ;; Nothing grown is a formation.  The roster also installs (genl formation tangible), and
 ;; formation's edge to natural derives the same edge.
 (separating tangible formation biological)
+;; A rock can bring an event about and intentionally initiates nothing: no formation is an
+;; agent, so doneBy, and not performedBy, relates one to an event.
+(set/monotonic (disjoint agent formation))
 
 (comment fur "The hair covering a mammal.")
 (genl fur body_part)
