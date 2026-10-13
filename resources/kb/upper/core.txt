@@ -855,7 +855,7 @@
 (set/monotonic (time_invariant_relation possibly_time_invariant_relation))
 (set/monotonic (time_invariant_relation rigidity_kind))
 ;; The partition says every relation IS of one kind; the requirement says the KB must know
-;; which.  Most shipped relations are not yet classified, so kb-integrity reports them.
+;; which.  Not every shipped relation is classified yet, so kb-integrity reports the rest.
 (typeAllSpecified rigidity_kind relation)
 
 (set/forwardRule
