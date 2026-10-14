@@ -302,6 +302,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **`capabilityType` and `hasCapability` take a happening kind as argument 2, not only an
+  event kind.** `(genlArg … 2 happening)` replaces `(genlArg … 2 event)` in life.txt, so an
+  ability whose exercise has gaps, such as a happening kind under `intermittent`, is
+  accepted. Each event kind is still accepted, being a happening kind.
+  `ontology_test`'s `all-dogs-have-shell-access` pins both predicates over such a kind, with
+  no `genl` to `event` drawn. [inherit.md](docs/inherit.md).
+
+  *Class:* **Additive**.
+
 ### Fix: answers
 
 - **`why-not` of a handle answers `:excepted` for a conclusion stored with a guard
