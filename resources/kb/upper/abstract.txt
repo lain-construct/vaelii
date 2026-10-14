@@ -154,6 +154,12 @@
 
 (comment organization "A group of people acting as one body — a company, a school, a team.")
 
+(comment partOf
+         "(partOf ?part ?whole) means that ?part is a part of ?whole, of any kind. A component of an object, a region inside a region and a stage of a situation are all parts. Declared transitive, so a part of a part is a part. Both positions are untyped, because a part and its whole can be of any kind.")
+(binary_predicate partOf)
+(set/monotonic (instance_relation_predicate partOf))
+(set/monotonic (transitive partOf))
+
 (comment tangiblePartOf
          "(tangiblePartOf ?part ?whole) means that the tangible ?part is a component of the tangible ?whole. Declared transitive, so a part of a part is a part and the chain is answered by the closure prover rather than stored. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
 (binary_predicate tangiblePartOf)
@@ -161,6 +167,7 @@
 (arg tangiblePartOf 1 tangible)
 (arg tangiblePartOf 2 tangible)
 (set/monotonic (transitive tangiblePartOf))
+(genl tangiblePartOf partOf)
 
 (comment partType
          "(partType ?wholeKind ?partKind) means that a ?wholeKind has a ?partKind among its parts. The type-level reading of tangiblePartOf: (partType bird wing) says birds have wings, where (tangiblePartOf LeftWing Pingu) says one thing is part of another. Declared transitiveInArgInverse along genl on the FIRST position only, and the asymmetry is the claim: a kind of bird has whatever parts birds have, so penguins have wings without a word being written about penguins, while the second position preserves nothing — birds having wings says nothing about which kinds of wing they have. Linked to tangiblePartOf by typeToInstancePred, which records that the two are readings of one relation and deliberately moves no claim between them: going from the kinds to their members needs a quantifier reading (every bird has SOME wing) that nothing here fixes, and guessing it is how a claim about kinds quietly becomes a false claim about individuals.")
