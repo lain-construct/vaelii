@@ -698,7 +698,7 @@
   `genlArg` is `arg` one level up: it constrains the argument to be a **subtype**
   of the named type rather than an instance of it, which is what a type-level relation
   wants — `(genlArg partType 1 tangible)` says the first argument names a kind
-  of physical object, where `(arg partOf 1 tangible)` says it names one.
+  of physical object, where `(arg tangiblePartOf 1 tangible)` says it names one.
 
   Which constraints apply is context-scoped exactly as `arg` is, and so is the
   subtype test itself: absence of a *visible* path to the constraint type is what

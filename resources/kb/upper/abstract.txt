@@ -1,6 +1,6 @@
 ;; abstract.txt — non-biological upper-ontology types (intangible, physical
 ;; objects, substances, made things, body parts, events and their kinds), the
-;; physical-structure relations partOf/locatedIn/madeOf, the event relations
+;; physical-structure relations tangiblePartOf/locatedIn/madeOf, the event relations
 ;; doneBy/performedBy and input/output, and the two type-level relations
 ;; largerThan/partType. Loaded into CxUniverse with the rest of kb/upper/.
 
@@ -220,22 +220,22 @@
 (positiveExampleComment organization "a school")
 (positiveExampleComment organization "a team")
 
-(comment partOf
-         "(partOf ?part ?whole) means that ?part is a component of ?whole. Declared transitive, so a part of a part is a part and the chain is answered by the closure prover rather than stored. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
-(binary_predicate partOf)
-(set/monotonic (instance_relation_predicate partOf))
-(arg partOf 1 tangible)
-(arg partOf 2 tangible)
-(set/monotonic (transitive partOf))
+(comment tangiblePartOf
+         "(tangiblePartOf ?part ?whole) means that the tangible ?part is a component of the tangible ?whole. Declared transitive, so a part of a part is a part and the chain is answered by the closure prover rather than stored. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
+(binary_predicate tangiblePartOf)
+(set/monotonic (instance_relation_predicate tangiblePartOf))
+(arg tangiblePartOf 1 tangible)
+(arg tangiblePartOf 2 tangible)
+(set/monotonic (transitive tangiblePartOf))
 
 (comment partType
-         "(partType ?wholeKind ?partKind) means that a ?wholeKind has a ?partKind among its parts. The type-level reading of partOf: (partType bird wing) says birds have wings, where (partOf LeftWing Pingu) says one thing is part of another. Declared transitiveInArgInverse along genl on the FIRST position only, and the asymmetry is the claim: a kind of bird has whatever parts birds have, so penguins have wings without a word being written about penguins, while the second position preserves nothing — birds having wings says nothing about which kinds of wing they have. Linked to partOf by typeToInstancePred, which records that the two are readings of one relation and deliberately moves no claim between them: going from the kinds to their members needs a quantifier reading (every bird has SOME wing) that nothing here fixes, and guessing it is how a claim about kinds quietly becomes a false claim about individuals.")
+         "(partType ?wholeKind ?partKind) means that a ?wholeKind has a ?partKind among its parts. The type-level reading of tangiblePartOf: (partType bird wing) says birds have wings, where (tangiblePartOf LeftWing Pingu) says one thing is part of another. Declared transitiveInArgInverse along genl on the FIRST position only, and the asymmetry is the claim: a kind of bird has whatever parts birds have, so penguins have wings without a word being written about penguins, while the second position preserves nothing — birds having wings says nothing about which kinds of wing they have. Linked to tangiblePartOf by typeToInstancePred, which records that the two are readings of one relation and deliberately moves no claim between them: going from the kinds to their members needs a quantifier reading (every bird has SOME wing) that nothing here fixes, and guessing it is how a claim about kinds quietly becomes a false claim about individuals.")
 (binary_predicate partType)
 (set/monotonic (type_relation_predicate partType))
 (genlArg partType 1 tangible)
 (genlArg partType 2 tangible)
 (set/monotonic (transitiveInArgInverse partType 1 genl))
-(typeToInstancePred partType partOf)
+(typeToInstancePred partType tangiblePartOf)
 
 (comment petal "A coloured body part of a flower.")
 (genl petal body_part)

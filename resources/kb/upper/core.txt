@@ -105,7 +105,7 @@
 (unbounded_arity and)
 
 (comment genlArg
-         "(genlArg ?relation ?position ?type) means that argument ?position of ?relation must be a subtype of ?type. The arg constraint one level up, for arguments naming kinds rather than instances: (genlArg partType 1 tangible) says the argument names a kind of physical object, where (arg partOf 1 tangible) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
+         "(genlArg ?relation ?position ?type) means that argument ?position of ?relation must be a subtype of ?type. The arg constraint one level up, for arguments naming kinds rather than instances: (genlArg partType 1 tangible) says the argument names a kind of physical object, where (arg tangiblePartOf 1 tangible) says it names one. Open-world, so an argument with no place in the genl hierarchy cannot violate it. Relation-wide vocabulary; the current function-input enforcement boundary is documented in docs/argtypes.md.")
 (ternary_predicate genlArg)
 (arg genlArg 1 relation)
 (arg genlArg 2 positive_integer)
@@ -1808,7 +1808,7 @@
 (arg implies 2 formula)
 
 (comment instance_relation_predicate
-         "(instance_relation_predicate ?predicate) means that ?predicate relates individuals rather than kinds. So (?predicate x y) is a ground fact between two specific things. A binary_predicate, which is what makes the pairing with type_relation_predicate mean anything: partOf holds between two individuals where partType holds between two kinds, and typeToInstancePred links the pair. The default classification for an extracted binary predicate, and one half of the relation_kind metatype. A relation of any other arity carries neither mark and declares its argument types directly — lessThan reads a chain and interArg has five positions, so neither is the two-place claim this classifies.")
+         "(instance_relation_predicate ?predicate) means that ?predicate relates individuals rather than kinds. So (?predicate x y) is a ground fact between two specific things. A binary_predicate, which is what makes the pairing with type_relation_predicate mean anything: tangiblePartOf holds between two individuals where partType holds between two kinds, and typeToInstancePred links the pair. The default classification for an extracted binary predicate, and one half of the relation_kind metatype. A relation of any other arity carries neither mark and declares its argument types directly — lessThan reads a chain and interArg has five positions, so neither is the two-place claim this classifies.")
 (unary_predicate instance_relation_predicate)
 (set/monotonic (genl instance_relation_predicate binary_predicate))
 
@@ -2137,7 +2137,7 @@
 (comment transitive
          "(transitive ?predicate) means that ?predicate is transitive, so (?predicate a b) and (?predicate b c) imply (?predicate a c). Answered by a generic closure prover rather than materialized, since writing the closure out is quadratic in the extent and nobody asserted it. Also a type: (transitive P) classifies P as a binary_predicate, so a KB can be queried for the transitive predicates.")
 (positiveExample transitive (Quote (transitive ancestorOf)))
-(positiveExample transitive (Quote (transitive partOf)))
+(positiveExample transitive (Quote (transitive tangiblePartOf)))
 (unary_predicate transitive)
 (decontextualized_predicate transitive)
 (set/monotonic (genl transitive binary_predicate))
@@ -2208,7 +2208,7 @@
 
 (comment typeToInstancePred
          "(typeToInstancePred ?typePredicate ?instancePredicate) means that ?typePredicate and ?instancePredicate are the type-level and instance-level readings of one underlying relation. A link rather than a rule: moving a claim from one level to the other needs a quantifier reading that nothing here fixes.")
-(positiveExample typeToInstancePred (Quote (typeToInstancePred partType partOf)))
+(positiveExample typeToInstancePred (Quote (typeToInstancePred partType tangiblePartOf)))
 (binary_predicate typeToInstancePred)
 (set/monotonic (instance_relation_predicate typeToInstancePred))
 (arg typeToInstancePred 1 type_relation_predicate)

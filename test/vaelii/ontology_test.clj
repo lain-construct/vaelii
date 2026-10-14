@@ -1243,7 +1243,7 @@
     (tu/with-terms [BatWing BatFur]
       (v/assert kb (list 'wing BatWing) 'CxUniverse)
       (v/assert kb (list 'fur BatFur) 'CxUniverse)
-      (is (not (tu/stored-in-clash? kb (list 'partOf BatFur BatWing) 'CxUniverse)))))
+      (is (not (tu/stored-in-clash? kb (list 'tangiblePartOf BatFur BatWing) 'CxUniverse)))))
   (testing "one thing in both types clashes"
     (tu/with-terms [Furwing]
       (v/assert kb (list 'wing Furwing) 'CxUniverse)

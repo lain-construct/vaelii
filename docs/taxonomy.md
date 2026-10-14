@@ -1900,7 +1900,7 @@ These are structural checks; the *content* check that an argument actually reach
 it to be a **subtype** — `arg` one level up. An `instance_relation_predicate` takes
 the first, a `type_relation_predicate` the second, and the same symbol answers them
 differently: `penguin` satisfies `(genlArg partType 1 tangible)` and fails
-`(arg partOf 1 tangible)`, which is exactly the distinction between a claim
+`(arg tangiblePartOf 1 tangible)`, which is exactly the distinction between a claim
 about a kind and a claim about a thing.
 
 **A constraint on a predicate binds its sub-predicates' tuples.** `(genl fatherOf
