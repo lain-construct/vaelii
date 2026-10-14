@@ -845,6 +845,8 @@ stored exception answers `(orthogonal a b)` and is read as one. See
 
 **`partitionedByType`** ![kb](../.github/badges/cat-kb.svg): `(partitionedByType ?whole ?classifier)` says that the members of a classifier partition a whole, e.g. `(partitionedByType tangible origin_type)` for `made` and `natural`. core.txt rules place each member under the whole and separate every two members. No rule draws the coverage half, so a `partition` stated beside the fact carries it. See [taxonomy.md](taxonomy.md).
 
+**`partOf`** ![kb](../.github/badges/cat-kb.svg): `(partOf ?part ?whole)` says that one thing is a part of another, of any kind. `partOf` is transitive and untyped in both positions. `tangiblePartOf`, `partOfRegion` and `subSituationOf` are below it by `genl`, so a fact of any of the three answers `partOf`. See [taxonomy.md](taxonomy.md).
+
 **Path consistency** ![qr](../.github/badges/cat-qr.svg): The fixpoint that
 tightens a constraint network: for every triple, intersect the constraint on a
 pair with the composition of the two constraints reaching it through the third,
@@ -1215,6 +1217,8 @@ premise / the class a justification confers — exactly two, `:monotonic` >
 `:default`. It propagates from the antecedents: a conclusion is never stronger
 than what it rests on. See [nmtms.md](nmtms.md).
 
+**`subSituationOf`** ![kb](../.github/badges/cat-kb.svg): `(subSituationOf ?part ?whole)` says that one situation is a part of another. `subSituationOf` is transitive and below `partOf`. A part's time is within its whole's time, and two situations sharing a time are not thereby parts of one another. See [time.md](time.md).
+
 **Subsumption (rules)** ![inference](../.github/badges/cat-inference.svg): One rule
 covering another — a substitution σ making the covering rule's antecedents a subset of the
 covered rule's and its consequent the covered rule's conclusion, so it fires wherever the
@@ -1264,6 +1268,8 @@ orders at match time. See [canonicalization.md](canonicalization.md).
 ## T
 
 **`tangible`** ![kb](../.github/badges/cat-kb.svg): An entity with mass — and so, necessarily, a location in space and time: below `spatiotemporal`. `tangible` and `intangible` partition `thing`. See [taxonomy.md](taxonomy.md#the-three-partitions-of-thing).
+
+**`tangiblePartOf`** ![kb](../.github/badges/cat-kb.svg): `(tangiblePartOf ?part ?whole)` says that one tangible is a component of another, e.g. an engine of a car. `tangiblePartOf` is transitive and below `partOf`. `partType` is its type-level reading. See [inherit.md](inherit.md).
 
 **Taxonomy** ![kb](../.github/badges/cat-kb.svg): The in-memory cache of the
 `genl` / `genlCx` closures, the equality partition, the predicate metadata,
