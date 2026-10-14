@@ -381,6 +381,8 @@
     :direct-specs (op v/direct-specs)
     :min-genls    (op v/min-genls)
     :max-specs    (op v/max-specs)
+    :min-context-parents  (op v/min-context-parents)
+    :max-context-children (op v/max-context-children)
     :types        (op v/types)
     :relation?    (op v/relation?)
     :contexts     (op v/contexts)
