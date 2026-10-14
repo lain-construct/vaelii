@@ -214,6 +214,7 @@
 (set/monotonic (instance_relation_predicate nonTangentialProperPart))
 (arg nonTangentialProperPart 1 spatial)
 (arg nonTangentialProperPart 2 spatial)
+(set/inert (genl nonTangentialProperPart properPartOfRegion))
 (set/inert (inverse nonTangentialProperPart nonTangentialProperPartInverse))
 
 (comment nonTangentialProperPartInverse
@@ -273,11 +274,16 @@
 (genl partOfRegion partOf)
 
 (comment properPartOfRegion
-         "(properPartOfRegion ?region1 ?region2) means that ?region1 is part of ?region2 and not the whole of it. RCC-8's PP, denoting TPP or NTPP. Irreflexive, unlike partOfRegion.")
+         "(properPartOfRegion ?region1 ?region2) means that ?region1 is part of ?region2 and not the whole of it. RCC-8's PP, denoting TPP or NTPP.")
 (binary_predicate properPartOfRegion)
 (set/monotonic (instance_relation_predicate properPartOfRegion))
 (arg properPartOfRegion 1 spatial)
 (arg properPartOfRegion 2 spatial)
+(set/monotonic (irreflexive properPartOfRegion))
+(set/monotonic (transitive properPartOfRegion))
+(set/inert (genl properPartOfRegion partOfRegion))
+(genl properPartOfRegion properPartOf)
+(set/inert (properCounterpart partOfRegion properPartOfRegion))
 
 (comment rearwardOf
          "(rearwardOf ?object ?reference) means that ?object lies somewhere behind ?reference. Behind, behind-left or behind-right: it constrains the front-back axis alone and leaves the left-right one open.")
@@ -383,6 +389,7 @@
 (set/monotonic (instance_relation_predicate tangentialProperPart))
 (arg tangentialProperPart 1 spatial)
 (arg tangentialProperPart 2 spatial)
+(set/inert (genl tangentialProperPart properPartOfRegion))
 (set/inert (inverse tangentialProperPart tangentialProperPartInverse))
 
 (comment tangentialProperPartInverse

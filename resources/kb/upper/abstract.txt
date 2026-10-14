@@ -161,6 +161,18 @@
 (set/monotonic (transitive partOf))
 (set/monotonic (reflexive partOf))
 
+(comment properPartOf
+         "(properPartOf ?part ?whole) means that ?part is a part of ?whole and ?whole is not a part of ?part, of any kind. Both positions are untyped, as partOf's are. Two things each a part of the other are neither a proper part of the other, and they stay two things.")
+(binary_predicate properPartOf)
+(set/monotonic (instance_relation_predicate properPartOf))
+(set/monotonic (irreflexive properPartOf))
+(set/monotonic (transitive properPartOf))
+(genl properPartOf partOf)
+(set/monotonic (properCounterpart partOf properPartOf))
+;; A proper part's whole is not a part of it.  Stated once here, at the root: every proper
+;; parthood relation is below properPartOf, and a denial of partOf denies each spec's tuple.
+(set/forwardRule (implies (properPartOf ?part ?whole) (not (partOf ?whole ?part))))
+
 (comment tangiblePartOf
          "(tangiblePartOf ?part ?whole) means that the tangible ?part is a component of the tangible ?whole. Declared transitive, so a part of a part is a part and the chain is answered by the closure prover rather than stored. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
 (binary_predicate tangiblePartOf)
@@ -170,6 +182,18 @@
 (set/monotonic (transitive tangiblePartOf))
 (set/monotonic (reflexive tangiblePartOf))
 (genl tangiblePartOf partOf)
+
+(comment properTangiblePartOf
+         "(properTangiblePartOf ?part ?whole) means that the tangible ?part is a component of the tangible ?whole and ?whole is not a component of ?part.")
+(binary_predicate properTangiblePartOf)
+(set/monotonic (instance_relation_predicate properTangiblePartOf))
+(arg properTangiblePartOf 1 tangible)
+(arg properTangiblePartOf 2 tangible)
+(set/monotonic (irreflexive properTangiblePartOf))
+(set/monotonic (transitive properTangiblePartOf))
+(genl properTangiblePartOf tangiblePartOf)
+(genl properTangiblePartOf properPartOf)
+(set/monotonic (properCounterpart tangiblePartOf properTangiblePartOf))
 
 (comment partType
          "(partType ?wholeKind ?partKind) means that a ?wholeKind has a ?partKind among its parts. The type-level reading of tangiblePartOf: (partType bird wing) says birds have wings, where (tangiblePartOf LeftWing Pingu) says one thing is part of another. Declared transitiveInArgInverse along genl on the FIRST position only, and the asymmetry is the claim: a kind of bird has whatever parts birds have, so penguins have wings without a word being written about penguins, while the second position preserves nothing — birds having wings says nothing about which kinds of wing they have. Linked to tangiblePartOf by typeToInstancePred, which records that the two are readings of one relation and deliberately moves no claim between them: going from the kinds to their members needs a quantifier reading (every bird has SOME wing) that nothing here fixes, and guessing it is how a claim about kinds quietly becomes a false claim about individuals.")
@@ -243,6 +267,18 @@
 (set/monotonic (transitive subSituationOf))
 (set/monotonic (reflexive subSituationOf))
 (genl subSituationOf partOf)
+
+(comment properSubSituationOf
+         "(properSubSituationOf ?part ?whole) means that the situation ?part is a part of the situation ?whole and ?whole is not a part of ?part.")
+(binary_predicate properSubSituationOf)
+(set/monotonic (instance_relation_predicate properSubSituationOf))
+(arg properSubSituationOf 1 situation)
+(arg properSubSituationOf 2 situation)
+(set/monotonic (irreflexive properSubSituationOf))
+(set/monotonic (transitive properSubSituationOf))
+(genl properSubSituationOf subSituationOf)
+(genl properSubSituationOf properPartOf)
+(set/monotonic (properCounterpart subSituationOf properSubSituationOf))
 
 ;; --- causal / acausal: whether a thing can occupy a cause slot -----------------
 (comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. A cause is in time, so causal is below temporal. One side of the causal/acausal division of thing.")
