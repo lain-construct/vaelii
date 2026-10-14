@@ -1848,3 +1848,22 @@
         "partOf's transitivity chains through its tangiblePartOf tuples")
     (is (not (v/ask? kb (list 'tangiblePartOf Piston Fleet) 'CxUniverse))
         "a broad partOf fact is not a tangiblePartOf one")))
+
+(tu/deftest-kb a-sub-situation-is-a-part-and-a-shared-time-makes-none
+  ;; subSituationOf is transitive and below partOf.  Parthood is not read off time: two
+  ;; situations occupying one time are not thereby parts of one another.
+  (tu/with-terms [Inning Game Series Rally Afternoon]
+    (doseq [s [Inning Game Series Rally]]
+      (v/assert kb (list 'situation s) 'CxUniverse))
+    (v/assert kb (list 'subSituationOf Inning Game) 'CxUniverse)
+    (v/assert kb (list 'subSituationOf Game Series) 'CxUniverse)
+    (v/assert kb (list 'timeOf Game Afternoon) 'CxUniverse)
+    (v/assert kb (list 'timeOf Rally Afternoon) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'subSituationOf Inning Series) 'CxUniverse))
+        "subSituationOf chains")
+    (is (true? (v/ask? kb (list 'partOf Inning Series) 'CxUniverse))
+        "a sub-situation is a part")
+    (is (not (v/ask? kb (list 'subSituationOf Rally Game) 'CxUniverse))
+        "a shared time derives no subSituationOf")
+    (is (not (v/ask? kb (list 'subSituationOf Game Rally) 'CxUniverse))
+        "nor in the other direction")))
