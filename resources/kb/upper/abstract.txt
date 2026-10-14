@@ -227,6 +227,7 @@
 (arg partOf 2 thing)   ;; a whole of any kind: an object, a region, a situation
 (set/monotonic (instance_relation_predicate partOf))
 (set/monotonic (transitive partOf))
+(set/monotonic (reflexive partOf))
 
 (comment tangiblePartOf
          "(tangiblePartOf ?part ?whole) means that the tangible ?part is a component of the tangible ?whole. Declared transitive, so a part of a part is a part and the chain is answered by the closure prover rather than stored. Structural parthood between physical objects — not membership in a collection, and not the spatial containment partOfRegion states of regions.")
@@ -235,6 +236,7 @@
 (arg tangiblePartOf 1 tangible)
 (arg tangiblePartOf 2 tangible)
 (set/monotonic (transitive tangiblePartOf))
+(set/monotonic (reflexive tangiblePartOf))
 (genl tangiblePartOf partOf)
 
 (comment partType
@@ -317,6 +319,7 @@
 (arg subSituationOf 1 situation)
 (arg subSituationOf 2 situation)
 (set/monotonic (transitive subSituationOf))
+(set/monotonic (reflexive subSituationOf))
 (genl subSituationOf partOf)
 
 ;; --- causal / acausal: whether a thing can occupy a cause slot -----------------
