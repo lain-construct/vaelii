@@ -1606,6 +1606,7 @@
 (unary_predicate reflexive)
 (decontextualized_predicate reflexive)
 (set/monotonic (genl reflexive binary_predicate))
+(implementationNote reflexive "The reflexive prover reads no argument type. It answers (P a a) for any ground a, so (tangiblePartOf 5 5) is answered although 5 is no tangible. A domain read off P's arg declarations would close the gap.")
 
 (comment irreflexive
          "(irreflexive ?predicate) means that ?predicate never holds of a thing and itself, so (?predicate a a) is contradictory: a one-member nogood that each context reading the mark decides, whichever of the mark and the tuple arrives first. A default self tuple is not believed there, and a monotonic one is a hard clash conflicts reports (docs/nmtms.md). The strict counterpart of reflexive, and stronger than asymmetric — asymmetry needs a believed opposing claim to convict and so admits the lone self tuple. Also a type: (irreflexive P) classifies P as a binary_predicate. Declared of a strict order such as largerThan, for instance.")

@@ -1867,3 +1867,11 @@
         "a shared time derives no subSituationOf")
     (is (not (v/ask? kb (list 'subSituationOf Game Rally) 'CxUniverse))
         "nor in the other direction")))
+
+(tu/deftest-kb each-non-proper-parthood-relation-holds-of-a-thing-and-itself
+  ;; partOf, tangiblePartOf, partOfRegion and subSituationOf each carry their own
+  ;; (reflexive P) mark, since the reflexive prover reads the mark and not a genl edge.
+  (tu/with-terms [Wheel]
+    (doseq [p '[partOf tangiblePartOf partOfRegion subSituationOf]]
+      (is (true? (v/has-prop? kb :reflexive p)) (str p " carries its own mark"))
+      (is (true? (v/ask? kb (list p Wheel Wheel) 'CxUniverse)) (str p " holds of a thing and itself")))))

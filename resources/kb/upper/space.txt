@@ -263,12 +263,13 @@
 (arg partiallyOverlapping 2 spatial)
 
 (comment partOfRegion
-         "(partOfRegion ?region1 ?region2) means that ?region1 is part of ?region2. RCC-8's P, which denotes TPP, NTPP or EQ, so a region is part of itself. A derived relation: it is entailed by any of those three and asserts none of them in particular.")
+         "(partOfRegion ?region1 ?region2) means that ?region1 is part of ?region2. RCC-8's P, which denotes TPP, NTPP or EQ. A derived relation: it is entailed by any of those three and asserts none of them in particular.")
 (binary_predicate partOfRegion)
 (set/monotonic (instance_relation_predicate partOfRegion))
 (arg partOfRegion 1 spatial)
 (arg partOfRegion 2 spatial)
 (set/inert (inverse partOfRegion hasRegionPart))
+(set/monotonic (reflexive partOfRegion))
 (genl partOfRegion partOf)
 
 (comment properPartOfRegion
