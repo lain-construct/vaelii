@@ -66,6 +66,7 @@
             [vaelii.impl.caches :as caches]
             [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
+            [vaelii.impl.kb :as kb]
             [vaelii.impl.naming :as nm]
             [vaelii.impl.observe :as observe]
             [vaelii.impl.protocols :as p]
@@ -122,11 +123,16 @@
   than per call: `calculi-triggered-by` runs per asserted sentence, and computing a union
   there would allocate a set per assert.
 
+  `typed` is the set of predicates whose `arg` declarations are narrower than the
+  network's nodes, so an entailment of one is answered only over arguments its declared
+  types admit (`solve-goal`).  Empty for a calculus whose every predicate takes any node.
+
   The value carries the two caches its passes fill, so it is also registered in
   `built-calculi` on the way out — that is how a reader can be told what they hold
   without every calculus namespace having to say so itself."
   ([nm algebra denotation] (calculus nm algebra denotation nil))
-  ([nm algebra denotation narrowing]
+  ([nm algebra denotation narrowing] (calculus nm algebra denotation narrowing #{}))
+  ([nm algebra denotation narrowing typed]
    (let [answered (set (keys denotation))
          c {:name       nm
             ;; the algebra is carried exactly as written — a plain value a test can reason
@@ -136,6 +142,7 @@
             :algebra    algebra
             :denotation denotation
             :predicates answered
+            :typed      (set typed)
             :narrowing  narrowing
             :node?      (or (:node? narrowing) node-term?)
             :trigger-predicates (into answered (:sources narrowing))
@@ -832,6 +839,34 @@
                (contains? (:predicates calc) (first lit)))
       lit)))
 
+(defn- declared-arg-types
+  "`[types1 types2]`: the types the `arg` declarations `context` sees bind `pred`'s two
+  positions to, `pred`'s own and its visible super-predicates' — the reader `assert`'s
+  argument check uses (`res/constraining-predicates`)."
+  [kb pred context]
+  (let [ps (res/constraining-predicates kb 'arg pred context)]
+    (mapv (fn [n]
+            (into #{}
+                  (for [p     ps
+                        [_ b] (res/matches-visible kb (list 'arg p n '?t) context)
+                        :let  [t (get b '?t)]
+                        :when (and (symbol? t) (not (pvar? t)))]
+                    t)))
+          [1 2])))
+
+(defn- admits-fn
+  "A predicate `(fn [x position] …)`: does every type `types` names for `position` (0 or
+  1) admit node `x`?  A type admits a node unless the node holds a type `context` sees as
+  disjoint from it, so an untyped node is admitted, as `assert` admits it.  Each node's
+  types are read once per call."
+  [kb types context]
+  (let [tax  (reasoning/taxonomy kb)
+        held (memoize (fn [x] (vec (kb/types-of kb x context))))]
+    (fn [x position]
+      (let [hs (held x)]
+        (not-any? (fn [t] (some #(tax/disjoint? tax % t context) hs))
+                  (nth types position))))))
+
 (defn- solve-goal
   "Solutions for a goal `(P a b)` — or `(not (P a b))` — in `context`, read off the
   path-consistent network.
@@ -851,6 +886,13 @@
   allows anywhere else, and it is licensed by the algebra, not by a closed world.  It
   stays sound in only one direction: a refutation is real, while a **failure** to refute
   is still \"not provable\", never \"provably true\".
+
+  **A typed predicate is answered within its declared domain.**  For a predicate in the
+  calculus's `:typed` set, a positive answer also needs each argument admitted by the
+  types its `arg` declarations name (`admits-fn`).  `subintervalOf` takes time intervals,
+  while the base relation `during` it is read from takes any temporal thing, so
+  `(during S1 S2)` between two situations answers `during` and not `subintervalOf`.
+  Refutation reads the network alone.
 
   Four shapes, on which of the two arguments are bound, and they behave the same under
   either polarity: a ground pair is a check, one variable enumerates the nodes, and two
@@ -883,12 +925,15 @@
          [net pc extended?] (tighten-for-goal kb calc context extra)
          pairs (when-not extended? pairs)]
      (when-not (= pc :inconsistent)
-       (let [holds? (fn [x y]
-                      (let [poss (constraint calc pc x y)]
-                        (and (seq poss)
-                             (if neg?
-                               (empty? (set/intersection poss denot))
-                               (set/subset? poss denot)))))
+       (let [admits? (when (and (not neg?) (contains? (:typed calc) pred))
+                       (admits-fn kb (declared-arg-types kb pred context) context))
+             holds?  (fn [x y]
+                       (let [poss (constraint calc pc x y)]
+                         (and (seq poss)
+                              (if neg?
+                                (empty? (set/intersection poss denot))
+                                (set/subset? poss denot))
+                              (or (nil? admits?) (and (admits? x 0) (admits? y 1))))))
              answer (fn [x y] (cond-> {} (pvar? a) (assoc a x) (pvar? b) (assoc b y)))]
          (if pairs
            ;; the diagonal is asked for by `(P ?x ?x)` alone, and its constraint is the
