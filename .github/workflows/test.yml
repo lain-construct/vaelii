@@ -14,7 +14,7 @@ name: test
 # 317s; deferring them here is only honest because deep.yml runs `:all`. If
 # that job is ever removed, this one has to become `:all`.
 #
-# BOTH LEGS ARE SHARDED ACROSS RUNNER VMs, four ways each. This is not the
+# BOTH LEGS ARE SHARDED ACROSS RUNNER VMs, eight ways each. This is not the
 # same-host JVM sharding scripts/test-parallel.sh refuses for durable backends —
 # separate VMs share neither a disk nor a registry, the same reason deep.yml runs
 # nine backends in parallel. Shards are whole namespaces (a `:once` fixture is
@@ -30,7 +30,7 @@ name: test
 # would run some namespaces twice and others not at all. With no cache entry the
 # shards read the committed scripts/ci-test-weights-<leg>.tsv. In run 38451741321
 # the committed weights were four weeks stale and the disk shards took 4m49s to
-# 17m12s; repacked from that run's times, each shard carries 598s.
+# 17m12s; repacked eight ways from that run's times, each shard carries 299s.
 #
 # The shard COUNT is the length of each job's matrix, read back as
 # `strategy.job-total`. Both matrices have one dimension, so adding a value to
@@ -88,8 +88,8 @@ jobs:
           restore-keys: ci-weights-disk-
           lookup-only: true
 
-  # The in-RAM end of the durability axis, split across four runner VMs, each
-  # reporting under its own name and all four gated by the `memory` job below.
+  # The in-RAM end of the durability axis, split across eight runner VMs, each
+  # reporting under its own name and all eight gated by the `memory` job below.
   #
   # `memory` and `disk` are REQUIRED checks on `develop`, and what makes that
   # safe is that this workflow carries no path filter: it runs on every pull
@@ -112,19 +112,20 @@ jobs:
     # not one. deep.yml carries the long form of the argument.
     if: github.event_name != 'schedule' || github.repository_owner == 'vaelii'
     runs-on: ubuntu-latest
-    # A balanced shard is predicted at about 11m: 596s of namespace time in run
-    # 38451741321 plus about 80s of setup. Runner speed alone moves a shard by half
-    # that: over two runs of this packing the slowest disk shard took 17m15s and the
-    # slowest memory shard 15m51s. 25 minutes is 1.45x the slower of those, so a
-    # shard that reaches it has grown, which is a change to investigate rather than
-    # a slow runner to wait out.
+    # A balanced shard is predicted at about 6m: 298s of namespace time in run
+    # 38451741321 plus about 80s of setup. The timeout is set from the four-way
+    # packing, where runner speed alone moved a shard by half its predicted 11m:
+    # over two runs the slowest disk shard took 17m15s and the slowest memory
+    # shard 15m51s. 25 minutes is 1.45x the slower of those, so a shard that
+    # reaches it has grown, which is a change to investigate rather than a slow
+    # runner to wait out.
     timeout-minutes: 25
     strategy:
       # Run every shard to completion: a bug living in one shard's namespaces
       # should not be hidden by another shard going red first.
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       # No credentials left in .git/config: nothing here pushes, and a token
       # sitting in the workspace is reachable by anything the build runs.
@@ -249,7 +250,7 @@ jobs:
         run: |
           [ "${{ needs.memory-shard.result }}" = "success" ]
 
-  # The disk end of the durability axis, split across four runner VMs. In run
+  # The disk end of the durability axis, split across eight runner VMs. In run
   # 38451741321 the leg carried 2393s of namespace time against the memory leg's
   # 2383s, with the per-namespace figures correlating at r = 0.85, which is why
   # each leg packs from its own weights.
@@ -263,7 +264,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
