@@ -2051,3 +2051,31 @@
     (tu/with-terms [Plot Field]
       (v/assert kb (list 'properPartOfRegion Plot Field) 'CxUniverse)
       (is (true? (v/ask? kb (list 'properPartOf Plot Field) 'CxUniverse))))))
+
+;; ---- parthood invariants ----------------------------------------------------
+;; A parthood relation is either non-proper, and then reflexive, or proper, and then below
+;; properPartOf.  "Proper" is read off the genl edge to properPartOf, whose definition is
+;; settled, and never off a relation's name.  A spec of partOf carrying neither is
+;; unclassified, and the classification never defaults one to proper.
+
+(defn- parthood-specs
+  "Every spec of partOf, at any depth, partOf included."
+  [kb]
+  (set (map #(get % '?s) (v/ask kb '(genl ?s partOf) 'CxUniverse))))
+
+(defn- unclassified-parthood-specs
+  "The specs of partOf marked neither reflexive nor below properPartOf, sorted."
+  [kb]
+  (sort (remove #(or (v/has-prop? kb :reflexive %) (v/genl? kb % 'properPartOf))
+                (parthood-specs kb))))
+
+(tu/deftest-kb every-parthood-relation-is-reflexive-or-proper
+  (is (= [] (unclassified-parthood-specs kb)) "the shipped parthood relations are classified")
+  (testing "a spec carrying neither mark is unclassified, whatever its name says"
+    (tu/with-terms [gluedTo properGluedTo]
+      (v/assert kb (list 'genl gluedTo 'tangiblePartOf) 'CxUniverse)
+      (v/assert kb (list 'genl properGluedTo 'tangiblePartOf) 'CxUniverse)
+      (is (= (sort [gluedTo properGluedTo]) (unclassified-parthood-specs kb)))
+      (v/assert kb (list 'reflexive gluedTo) 'CxUniverse)
+      (v/assert kb (list 'genl properGluedTo 'properTangiblePartOf) 'CxUniverse)
+      (is (= [] (unclassified-parthood-specs kb)) "and classified once marked"))))
