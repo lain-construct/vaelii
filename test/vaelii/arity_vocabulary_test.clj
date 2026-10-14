@@ -210,14 +210,14 @@
                               [QuantityFn binary_function]
                               [DayFn ternary_function]
                               [QuantityIntervalFn ternary_function]
-                              [PredExistsAllFn ternary_function]
                               [PredExistsInstanceFn ternary_function]
                               [PredInstanceExistsFn ternary_function]]]
       (is (v/isa? kb function type) (str function " is " type)))
     (is (v/isa? kb 'InstantFn 'fixed_arity_function)
         "the six-argument function stays explicitly fixed without minting a named family")
-    (is (v/isa? kb 'PredAllExistsFn 'fixed_arity_function)
-        "and so does the four-argument one"))
+    (doseq [function '[PredAllExistsFn PredExistsAllFn]]
+      (is (v/isa? kb function 'fixed_arity_function)
+          (str "and so does the four-argument " function))))
   (testing "a function may use the relation-wide variable vocabulary"
     (tu/with-terms [RepeatFn]
       (v/assert kb (list 'variable_arity_function RepeatFn) 'CxUniverse)

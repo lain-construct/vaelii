@@ -1059,23 +1059,26 @@
 (argArg predAllExistsPlaceholder 5 3)
 
 (comment PredExistsAllFn
-         "(PredExistsAllFn ?pred ?dep ?indep) denotes the sanctioned placeholder for the ?dep filler predExistsAll requires at ?pred's first position: one filler that bears ?pred to every member of ?indep, so it takes no subject. An unreifiable_function; distinct from the other Exists cells' placeholders; never asserted by the engine. See docs/predall.md.")
+         "(PredExistsAllFn ?pred ?dep ?indep ?subject) denotes the sanctioned placeholder for the ?dep filler that bears ?pred to ?subject, a member of ?indep, under a predExistsAll declaration: (PredExistsAllFn worksFor person company Acme) is the person (predExistsAll worksFor person company) requires to work for Acme. The subject is an argument because the filler a predExistsAll declaration requires varies with the member it is required for, exactly as under predAllExists with the argument positions swapped. An unreifiable_function, so a ground application stays a structural NAT the reader keeps readable inside the sentence, and distinct from the other Exists cells' placeholders. An ontological marker, not a skolem witness: the engine never asserts it. See docs/predall.md.")
 (unreifiable_function PredExistsAllFn)
-(ternary_function PredExistsAllFn)
+(fixed_arity_function PredExistsAllFn)
+(arity PredExistsAllFn 4)
 (arg PredExistsAllFn 1 binary_predicate)
 (genlArg PredExistsAllFn 2 thing)
 (genlArg PredExistsAllFn 3 thing)
+(argArg PredExistsAllFn 4 3)
 (resultArg PredExistsAllFn 2)
 (functionCorrespondingPredicate PredExistsAllFn predExistsAllPlaceholder)
 
 (comment predExistsAllPlaceholder
-         "(predExistsAllPlaceholder ?pred ?dep ?indep ?placeholder) means that ?placeholder is the term (PredExistsAllFn ?pred ?dep ?indep) names: the ?dep filler a predExistsAll declaration over the first three arguments requires. PredExistsAllFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell. See docs/predall.md.")
+         "(predExistsAllPlaceholder ?pred ?dep ?indep ?subject ?placeholder) means that ?placeholder is the term (PredExistsAllFn ?pred ?dep ?indep ?subject) names: the ?dep filler that bears ?pred to ?subject under a predExistsAll declaration over the first three arguments. PredExistsAllFn is the corresponding function, and its value is the last argument. Inferentially inert like the cell: the engine derives nothing from a fact on this predicate but the memberships its argument types draw. See docs/predall.md.")
 (fixed_arity_predicate predExistsAllPlaceholder)
-(arity predExistsAllPlaceholder 4)
+(arity predExistsAllPlaceholder 5)
 (arg predExistsAllPlaceholder 1 binary_predicate)
 (genlArg predExistsAllPlaceholder 2 thing)
 (genlArg predExistsAllPlaceholder 3 thing)
-(argArg predExistsAllPlaceholder 4 2)
+(argArg predExistsAllPlaceholder 4 3)
+(argArg predExistsAllPlaceholder 5 2)
 
 (comment PredExistsInstanceFn
          "(PredExistsInstanceFn ?pred ?indep ?fixed) denotes the sanctioned placeholder for the ?indep member predExistsInstance requires at ?pred's first position, against the fixed filler ?fixed. One member satisfies the declaration, so it takes no subject. An unreifiable_function; distinct from the other Exists cells' placeholders; never asserted by the engine. See docs/predall.md.")
@@ -1119,7 +1122,7 @@
 (genlArg predAllExists 3 thing)
 
 (comment predExistsAll
-         "(predExistsAll ?pred ?dep ?indep) means that some member of collection ?dep bears ?pred, at position 1, to every instance of collection ?indep: exists y in ?dep such that for all x in ?indep, (?pred y x). The argument-swapped twin of predAllExists — the existential filler sits in ?pred's first position and the universal in its second. Inferentially inert like the whole Exists class; (PredExistsAllFn ?pred ?dep ?indep) is its sanctioned placeholder.")
+         "(predExistsAll ?pred ?dep ?indep) means that every instance of collection ?indep has some member of collection ?dep bearing ?pred to it, at position 1: for all x in ?indep, exists y in ?dep, (?pred y x). (predExistsAll worksFor person company) means that every company has at least one person who works for it. predAllExists with ?pred's argument positions swapped: the universal sits in ?pred's second position and the existential filler in its first. The universal outscopes the existential, as in every cell of the family that quantifies both positions. Inferentially inert like the whole Exists class; (PredExistsAllFn ?pred ?dep ?indep ?subject) is the sanctioned placeholder an author may use to name the filler the declaration requires for the member ?subject.")
 (ternary_predicate predExistsAll)
 (arg predExistsAll 1 binary_predicate)
 (genlArg predExistsAll 2 thing)

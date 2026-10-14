@@ -1643,9 +1643,10 @@
       (inert {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
               :family nil :facets #{}
               :notes "the argument-swapped twin of predAllExists, inert like the class."}
-             (str "an inert record, the argument-swapped twin: some ?dep member bears"
-                  " ?pred to every ?indep member. (PredExistsAllFn ?pred ?dep ?indep) is"
-                  " its sanctioned placeholder."))]
+             (str "an inert record, the argument-swapped twin: every ?indep member has some"
+                  " ?dep member bearing ?pred to it. (PredExistsAllFn ?pred ?dep ?indep"
+                  " ?subject) is the sanctioned placeholder an author may use for the filler"
+                  " that bears ?pred to the member ?subject."))]
      ['predExistsInstance
       (inert {:shape {:args [:predicate :type :term]} :storage [:none] :checked false
               :family nil :facets #{}
@@ -1712,11 +1713,11 @@
                   " ?dep ?subject) names. Read by nothing but its argument types; the"
                   " function is unreifiable, so the reify pass never projects onto it."))]
      ['predExistsAllPlaceholder
-      (inert {:shape {:args [:predicate :type :type :term]} :storage [:none] :checked false
+      (inert {:shape {:args [:predicate :type :type :term :term]} :storage [:none] :checked false
               :family nil :facets #{}
               :notes "the predExistsAll twin of predAllExistsPlaceholder."}
              (str "an inert record: ?placeholder is the term (PredExistsAllFn ?pred ?dep"
-                  " ?indep) names."))]
+                  " ?indep ?subject) names."))]
      ['predExistsInstancePlaceholder
       (inert {:shape {:args [:predicate :type :term :term]} :storage [:none] :checked false
               :family nil :facets #{}

@@ -224,6 +224,38 @@
       (is (v/isa? kb Alice person 'CxUniverse) "the subject is a member of the second argument")
       (is (v/isa? kb Rex dog 'CxUniverse) "and the placeholder of the third"))))
 
+(tu/deftest-kb pred-exists-all-is-universal-second-existential-first
+  ;; (predExistsAll worksFor person company): every company has some person who works
+  ;; for it — the argument-swapped twin of predAllExists, universal over position 2 and
+  ;; the witness at position 1.  The filler varies with the company it is required of,
+  ;; so PredExistsAllFn takes that company as its subject, exactly as PredAllExistsFn
+  ;; takes its member, and the placeholder predicate carries the subject too.
+  (testing "the function and its predicate carry the subject"
+    (is (v/ask? kb '(arity PredExistsAllFn 4) 'CxUniverse) "PredExistsAllFn takes four arguments")
+    (is (v/isa? kb 'PredExistsAllFn 'fixed_arity_function))
+    (is (not (v/isa? kb 'PredExistsAllFn 'ternary_function)) "and is not ternary")
+    (is (v/ask? kb '(resultArg PredExistsAllFn 2) 'CxUniverse) "its value is a ?dep member")
+    (is (v/ask? kb '(argArg PredExistsAllFn 4 3) 'CxUniverse) "its subject is an ?indep member")
+    (is (v/ask? kb '(arity predExistsAllPlaceholder 5) 'CxUniverse)
+        "the placeholder predicate takes the subject and the placeholder last")
+    (is (v/ask? kb '(argArg predExistsAllPlaceholder 4 3) 'CxUniverse))
+    (is (v/ask? kb '(argArg predExistsAllPlaceholder 5 2) 'CxUniverse)))
+  (tu/with-terms [worksFor person company Acme Pat]
+    (v/assert kb (list 'binary_predicate worksFor) 'CxUniverse)
+    (v/assert kb (list 'genl person 'thing) 'CxUniverse)
+    (v/assert kb (list 'genl company 'thing) 'CxUniverse)
+    (v/assert kb (list 'predExistsAll worksFor person company) 'CxUniverse)
+    (testing "a placeholder fact over a subject types the subject and the placeholder"
+      (tu/with-entailing
+        (v/assert kb (list 'predExistsAllPlaceholder worksFor person company Acme Pat)
+                  'CxUniverse)
+        (is (v/isa? kb Acme company 'CxUniverse) "the subject is a member of ?indep")
+        (is (v/isa? kb Pat person 'CxUniverse) "and the placeholder of ?dep")))
+    (testing "the subjectless four-place spelling is read OUT"
+      (tu/with-terms [Pat2]
+        (is (tu/stored-in-clash? kb (list 'predExistsAllPlaceholder worksFor person company Pat2)
+                                 'CxUniverse))))))
+
 (tu/deftest-kb a-placeholder-is-sanctioned-vocabulary-the-author-asserts
   ;; the per-cell full-arg functor is the author's term for the unnamed filler: usable in
   ;; hand-asserted sentences, structural (unreifiable), and distinct per cell — the
@@ -237,7 +269,7 @@
     (v/assert kb (list 'predExistsAll rel dog person) 'CxUniverse)
     (v/assert kb (list person Alice) 'CxUniverse)
     (let [p1 (list 'PredAllExistsFn rel person dog Alice)
-          p2 (list 'PredExistsAllFn rel dog person)]
+          p2 (list 'PredExistsAllFn rel dog person Alice)]
       (v/assert kb (list dog p1) 'CxUniverse)
       (v/assert kb (list dog p2) 'CxUniverse)
       (v/assert kb (list rel Alice p1) 'CxUniverse)
