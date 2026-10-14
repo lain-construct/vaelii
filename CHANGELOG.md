@@ -145,6 +145,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix**.
 
+- **The interval prover answers `subintervalOf` and `properSubintervalOf` only within
+  their declared domain.** Each argument must hold no type disjoint from `time_interval`.
+  Two situations `(during S1 S2)` relates answered both, though `situation` and
+  `time_interval` are disjoint. The pair now answers `during` and the reverse
+  `hasSubinterval`, which take any temporal thing, and neither containment. An argument
+  with no type is admitted.
+  [time.md](docs/time.md).
+
+  *Class:* **Fix**.
+
 ### Fix: order independence
 
 - **An inert fact draws no argument type on any sweep.** An inert fact asserted after
