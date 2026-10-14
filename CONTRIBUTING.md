@@ -102,7 +102,9 @@ refresh never rides along with the change that needed it.
 workflows, and neither is anything you cannot run yourself: `lint` is `lein lint`, and
 `test` is the suite at `:default` on the two ends of the durability axis — everything
 in RAM, and everything on disk. Both run with a read-only token and read no secret, so
-a pull request from a fork runs them in full.
+a pull request from a fork runs them in full. A comment reading exactly `/rerun`, from
+the pull request's author or a maintainer, reruns the failed jobs at the pull request's
+head commit.
 
 What the pull-request path leaves out, the `deep` workflow picks up: the `^:slow`
 tests, which carry more than half the suite's assertions; the `^:multi-jvm` and `^:fuzz`
