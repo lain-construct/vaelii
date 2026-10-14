@@ -1536,9 +1536,9 @@
                  :family nil :facets #{}
                  :notes (str "enforced by the generic chain, not by name: the core.txt"
                              " generator beside the declaration stamps (implies (?classifier ?x)"
-                             " (orthogonal ?x ?type)) per fact. The stamped rule concludes a"
-                             " roster literal, so a firing is believed only from a classifier on"
-                             " the forced-monotonic roster.")}
+                             " (orthogonal ?type ?x)) per fact, the type first. The stamped rule"
+                             " concludes a roster literal, so a firing is believed only from a"
+                             " classifier on the forced-monotonic roster.")}
                 (str "generic rule generator (docs/generators.md): the core.txt generator"
                      " beside it stamps one membership rule per fact, and chain inference"
                      " concludes every member of the classifier orthogonal to the type"))]
@@ -1565,11 +1565,11 @@
      ['partitionedByType
       (enforced {:shape {:args [:type :type]} :storage [:none] :checked false
                  :family nil :facets #{}
-                 :notes (str "enforced by the generic chain, not by name: core.txt generators"
-                             " stamp a membership rule concluding (genl ?part ?whole) and one"
-                             " concluding disjoint between two different members. The coverage"
-                             " half has no rule, and a partition stated beside the fact carries"
-                             " it.")}
+                 :notes (str "enforced by the generic chain, not by name: a core.txt generator"
+                             " stamps a membership rule concluding (genl ?part ?whole), and a"
+                             " core.txt rule concludes (disjoint_metatype ?classifier), which"
+                             " separates every two members. The coverage half has no rule, and"
+                             " a partition stated beside the fact carries it.")}
                 (str "generic rule generators (docs/generators.md): a fact places every member"
                      " of the classifier under the whole and separates the members; coverage"
                      " pends the engine reading it from the classifier's members"))]
