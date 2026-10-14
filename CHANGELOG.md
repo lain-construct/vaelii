@@ -167,6 +167,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix**.
 
+- **`recover` skips the store-wide inherited-clash sweep in a store holding inert
+  facts.** The skip asked for a region at least the store's size, and an inert sentex
+  is never in a settle's region, so the 15 inert `inverse` facts in `space.txt` turned
+  each `recover` into a sweep over every membership. A region missing only inert
+  sentexes now counts as the whole store.
+
+  *Class:* **Fix**.
+
 - **A goal on a predicate with many sub-predicates reads only the members that can answer
   it.** A literal's matches are read once per member of its functor's fan, so a ground
   `(different A B)` under 3,054 sub-predicates and 3,050 `genlInverse` ones cost 76 ms,
