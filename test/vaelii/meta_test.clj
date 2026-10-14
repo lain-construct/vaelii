@@ -172,7 +172,7 @@
     ;; `instantBefore` / `instantAfter` are the point algebra's strict orders, transitive
     ;; so a forward join reads a narrative's consecutive links as one ordering.
     (is (= '#{ancestorOf partOf tangiblePartOf subSituationOf properPartOf properTangiblePartOf
-              properSubSituationOf properPartOfRegion locatedIn largerThan instantBefore instantAfter
+              properSubSituationOf properPartOfRegion properSubintervalOf locatedIn largerThan instantBefore instantAfter
               causes beforeEvent genl genlCx
               heavierThan tallerThan olderThan greaterInMagnitudeThan}
            (set (map #(get % '?p) (v/ask kb '(transitive ?p) '?ctx)))))
