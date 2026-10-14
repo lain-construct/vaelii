@@ -712,6 +712,38 @@
                 (str "taxonomy prop :closed-extent — ClosedExtentProver answers (not (P …))"
                      " from the absence of a positive, and a closed negative rule antecedent"
                      " under the grant is negation as failure"))]
+     ['closedExtentForArg
+      (enforced (assoc (prop :closed-extent-arg :facets #{:answers :retriggers}
+                             :notes (str "closed_extent_predicate narrowed to the goals whose"
+                                         " argument n is v. The prop marks P alone, as the"
+                                         " gate; the position and value are read back from"
+                                         " the believed grants visible to the asker."))
+                       :shape {:args [:predicate :position :term]})
+                (str "taxonomy prop :closed-extent-arg — ClosedExtentProver answers a ground"
+                     " (not (P …)) whose argument n is v from the absence of a positive, and"
+                     " a closed negative rule antecedent under the grant is negation as"
+                     " failure"))]
+     ['closedExtentForArg1
+      (enforced {:shape {:args [:predicate :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "the binary spelling of (closedExtentForArg ?p 1 ?v). A CxUniverse"
+                             " forward rule derives the ternary, and the prover reads only the"
+                             " ternary.")}
+                (str "the CxUniverse forward rule deriving (closedExtentForArg P 1 V), and"
+                     " checks/check-closed-extent-stratified, which refuses the spelling where"
+                     " the ternary would be refused"))]
+     ['closedExtentForArg2
+      (enforced {:shape {:args [:predicate :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the binary spelling of (closedExtentForArg ?p 2 ?v) — see closedExtentForArg1."}
+                (str "the CxUniverse forward rule deriving (closedExtentForArg P 2 V); see"
+                     " closedExtentForArg1"))]
+     ['closedExtentForArg3
+      (enforced {:shape {:args [:predicate :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes "the binary spelling of (closedExtentForArg ?p 3 ?v) — see closedExtentForArg1."}
+                (str "the CxUniverse forward rule deriving (closedExtentForArg P 3 V); see"
+                     " closedExtentForArg1"))]
      ['modal_predicate (enforced (prop :modal)
                                  (str "taxonomy prop :modal — the gate BeliefProjectionProver reads to decide"
                                       " which predicates project their sentence into the agent's context"))]
@@ -1611,9 +1643,10 @@
       (inert {:shape {:args [:predicate :type :type]} :storage [:none] :checked false
               :family nil :facets #{}
               :notes "the argument-swapped twin of predAllExists, inert like the class."}
-             (str "an inert record, the argument-swapped twin: some ?dep member bears"
-                  " ?pred to every ?indep member. (PredExistsAllFn ?pred ?dep ?indep) is"
-                  " its sanctioned placeholder."))]
+             (str "an inert record, the argument-swapped twin: every ?indep member has some"
+                  " ?dep member bearing ?pred to it. (PredExistsAllFn ?pred ?dep ?indep"
+                  " ?subject) is the sanctioned placeholder an author may use for the filler"
+                  " that bears ?pred to the member ?subject."))]
      ['predExistsInstance
       (inert {:shape {:args [:predicate :type :term]} :storage [:none] :checked false
               :family nil :facets #{}
@@ -1680,11 +1713,11 @@
                   " ?dep ?subject) names. Read by nothing but its argument types; the"
                   " function is unreifiable, so the reify pass never projects onto it."))]
      ['predExistsAllPlaceholder
-      (inert {:shape {:args [:predicate :type :type :term]} :storage [:none] :checked false
+      (inert {:shape {:args [:predicate :type :type :term :term]} :storage [:none] :checked false
               :family nil :facets #{}
               :notes "the predExistsAll twin of predAllExistsPlaceholder."}
              (str "an inert record: ?placeholder is the term (PredExistsAllFn ?pred ?dep"
-                  " ?indep) names."))]
+                  " ?indep ?subject) names."))]
      ['predExistsInstancePlaceholder
       (inert {:shape {:args [:predicate :type :term :term]} :storage [:none] :checked false
               :family nil :facets #{}

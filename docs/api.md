@@ -444,6 +444,9 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                         ; else an inherited length of 2+:
                                                         ; a `types` node that is a relation, not a type
 (context-up kb c) / (context-down kb c) / (sees? kb k y); genlCx closures + visibility test
+(min-context-parents kb c) / (max-context-children kb c) ; the one-step genlCx parents / children no
+                                                        ; other one stands between, read as
+                                                        ; context-up / context-down read an except
 (context-of-agent agent) / (agent-of-context ctx)       ; the Alice <-> CxAgentAlice agent
                                                         ; context bijection (docs/belief.md)
 (has-prop? kb kind pred [context]) / (props kb kind)              ; :transitive :symmetric :asymmetric :reflexive

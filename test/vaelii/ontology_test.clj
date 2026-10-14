@@ -237,7 +237,11 @@
     '[predExistsInstancePlaceholder 3] "an Exists cell's fixed filler"
     '[predInstanceExistsPlaceholder 2] "an Exists cell's fixed filler"
     '[means 2]              "the meaning: what a term denotes or the proposition a sentence expresses, a thing of any kind"
-    '[denotes 2]            "what a denotational_term names: a thing of any kind"}
+    '[denotes 2]            "what a denotational_term names: a thing of any kind"
+    '[closedExtentForArg 3]  "the argument value a closed extent is granted for: a term of any kind"
+    '[closedExtentForArg1 2] "the argument value a closed extent is granted for: a term of any kind"
+    '[closedExtentForArg2 2] "the argument value a closed extent is granted for: a term of any kind"
+    '[closedExtentForArg3 2] "the argument value a closed extent is granted for: a term of any kind"}
    (into {} (for [p '[positiveExample negativeExample borderlineExample]]
               {[p 1] "an exemplified term"
                [p 2] "the example, a sentence written as a term"}))
@@ -1065,6 +1069,21 @@
     (is (v/ask? kb (list 'not (list 'logical_connective 'forall)) 'CxUniverse)))
   (testing "sign_value is closed-extent too (measure.txt, beside its three instances)"
     (is (v/ask? kb (list 'not (list 'sign_value 'Muffet)) 'CxUniverse))))
+
+(tu/deftest-kb the-closed-extent-grants-pass-the-integrity-sweep
+  ;; New vocabulary is swept with kb-integrity over its own terms, in the context that
+  ;; declares it.  The review-only :missing-arg pass reports every untyped position; a
+  ;; position untyped-positions excuses is expected, and any other fails here.
+  (let [terms '#{closedExtentForArg closedExtentForArg1 closedExtentForArg2 closedExtentForArg3}]
+    (is (= :audited (:status (v/kb-integrity kb terms 'CxUniverse)))
+        "the default passes find nothing")
+    (let [missing (:missing-arg (v/kb-integrity kb terms 'CxUniverse {:categories #{:missing-arg}}))]
+      (is (empty? (for [{:keys [predicate missing]} missing
+                        :when (contains? terms predicate)
+                        i     missing
+                        :when (not (contains? untyped-positions [predicate i]))]
+                    [predicate i]))
+          "every untyped position of a new term is one the roster excuses"))))
 
 (tu/deftest-kb what-has-no-place-in-space-or-time-has-no-mass
   ;; Mass entails a location in space and time, so what lacks either lacks mass.

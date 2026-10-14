@@ -99,6 +99,82 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Internal**.
 
+## Unreleased
+
+### Additions
+
+- **`closedExtentForArg` closes a predicate's extent for one argument value.**
+  `(closedExtentForArg P n v)` grants that `P`'s believed extent is complete for the
+  goals whose argument `n` is `v`, so `(not (P …))` holds there while the positive finds
+  nothing. `(closedExtentForArg accountOn 2 HostA)` answers `(not (accountOn Carol HostA))`
+  and leaves `(accountOn Carol HostB)` open-world. The grant is scoped to the asking
+  context and belief-following, reads a closed negative rule antecedent as negation as
+  failure, and is refused where it would close a cycle through negation, as
+  `closed_extent_predicate` is. `closedExtentForArg1`, `closedExtentForArg2` and
+  `closedExtentForArg3` are binary spellings that derive the ternary; an inert rule
+  states each reverse direction. Inert rules also state that a whole-predicate grant
+  entails every per-argument grant, and state `admitsArgnum`'s definition, which its
+  prover answers.
+  [naf.md](docs/naf.md#a-closed-extent-for-one-argument-value).
+
+  *Class:* **Additive**.
+
+## Unreleased
+
+### Additions
+
+- **`min-context-parents` and `max-context-children` read a context's nearest neighbours
+  in the context lattice, and a context page's concept graph draws them.**
+  `(min-context-parents kb c)` answers the contexts `c` reaches over one `genlCx` edge
+  with no other such context strictly below them, and `max-context-children` the contexts
+  that reach `c` over one `genlCx` edge with no other such context strictly above them.
+  Both read an `except` on a `genlCx` edge as `context-up` and `context-down` read one:
+  `min-context-parents` walks the edges effective for `c`, and while an `except` reaches a
+  `genlCx` edge `max-context-children` holds each direct child whose own
+  `min-context-parents` hold `c`. The daemon and `vaelii.client` serve both. The concept
+  graph's `genlCx` rows draw these sets at every expanded node, where they drew every
+  stored one-step neighbour: with `CxLeaf → CxMid → CxTop` believed and
+  `(genlCx CxLeaf CxTop)` stated, the page for `CxLeaf` draws `CxTop` above `CxMid` and
+  no arrow from `CxLeaf` to `CxTop`. The `genl` rows are unchanged.
+  [api.md](docs/api.md), [web.md](docs/web.md#a-terms-shape-drawn).
+
+  *Class:* **Additive**.
+
+## Unreleased
+
+### Breaking
+
+- **`predExistsAll` puts the universal outside the existential, and `PredExistsAllFn`
+  takes the subject.** `(predExistsAll worksFor person company)` means that every company
+  has at least one person who works for it: `predAllExists` with the predicate's argument
+  positions swapped. The universal outscopes the existential in every cell of the family
+  that quantifies both positions. `PredExistsAllFn` takes a fourth argument, the `?indep`
+  member the filler bears the predicate to, as `PredAllExistsFn` does, so it is a
+  `fixed_arity_function` of arity 4 with `(argArg PredExistsAllFn 4 3)`.
+  `predExistsAllPlaceholder` takes that subject before the placeholder and has arity 5.
+  [predall.md](docs/predall.md#exists-the-declaration-is-a-record-and-nothing-else).
+
+  *Class:* **Breaking** (a `predExistsAll` declaration states a different requirement, and
+  the three-argument `PredExistsAllFn` and four-argument `predExistsAllPlaceholder`
+  spellings break their arity).
+  *Migration:* read each `predExistsAll` declaration as "every `?indep` member has some
+  `?dep` member bearing the predicate to it", and restate one that meant a single filler
+  for every member with a named individual and `predInstanceAll`. Add the `?indep` member
+  as the fourth argument of each `PredExistsAllFn` application and as the fourth argument
+  of each `predExistsAllPlaceholder` fact.
+  *Breaks:* `predExistsAll`, `PredExistsAllFn`, `predExistsAllPlaceholder`
+
+## Unreleased
+
+- **Stopping the daemon interrupts no KB write.** An op ran on the Jetty worker that read
+  the request, and a server stop interrupts a busy worker, so a stop during a disk write
+  latched the store `:store-unusable`. Each op now runs on a thread the server does not
+  own. Stopping a daemon `serve/start` returned waits for the op in progress, answers
+  parked long polls at once, and refuses the ops still queued with 503 `:stopping`.
+  [operations.md](docs/operations.md#daemon--vaeliiserve).
+
+  *Class:* **Fix**.
+
 ## 0.26.0 — 2026-10-13 — "Upper ontology loaded into CxUniverse with a sync to the shipped files, one relation length read at every context, the `forced_monotonic_predicate` roster scoped to its readers, `time` and `situation` restructured"
 
 | Area | Change |
