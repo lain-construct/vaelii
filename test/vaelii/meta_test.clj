@@ -171,7 +171,7 @@
     ;; `greaterInMagnitudeThan` is the fourth, over quantities rather than objects.
     ;; `instantBefore` / `instantAfter` are the point algebra's strict orders, transitive
     ;; so a forward join reads a narrative's consecutive links as one ordering.
-    (is (= '#{ancestorOf tangiblePartOf locatedIn largerThan instantBefore instantAfter
+    (is (= '#{ancestorOf partOf tangiblePartOf locatedIn largerThan instantBefore instantAfter
               causes beforeEvent genl genlCx
               heavierThan tallerThan olderThan greaterInMagnitudeThan}
            (set (map #(get % '?p) (v/ask kb '(transitive ?p) '?ctx)))))

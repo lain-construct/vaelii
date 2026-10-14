@@ -250,6 +250,7 @@
 (set/monotonic (instance_relation_predicate partOfRegion))
 (arg partOfRegion 1 spatial)
 (arg partOfRegion 2 spatial)
+(genl partOfRegion partOf)
 
 (comment properPartOfRegion
          "(properPartOfRegion ?region1 ?region2) means that ?region1 is part of ?region2 and not the whole of it. RCC-8's PP, denoting TPP or NTPP. Irreflexive, unlike partOfRegion.")

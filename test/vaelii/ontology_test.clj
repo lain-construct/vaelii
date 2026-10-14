@@ -1959,3 +1959,17 @@
     (v/assert kb (list 'denotes (list 'Quote 'Muffet) Y) 'CxUniverse {:strength :monotonic})
     (is (true? (v/ask? kb (list 'equals X Y) 'CxUniverse))
         "functional on means reaches denotes through its genl edge")))
+
+(tu/deftest-kb a-tangible-part-is-a-part-and-parthood-chains-across-kinds
+  ;; (genl tangiblePartOf partOf) makes every tangiblePartOf tuple a partOf tuple, and
+  ;; (transitive partOf) chains a tangible part with a stated broad one.
+  (tu/with-terms [Piston Engine Car Fleet]
+    (v/assert kb (list 'tangiblePartOf Piston Engine) 'CxUniverse)
+    (v/assert kb (list 'tangiblePartOf Engine Car) 'CxUniverse)
+    (v/assert kb (list 'partOf Car Fleet) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'partOf Piston Engine) 'CxUniverse))
+        "a tangiblePartOf fact answers partOf")
+    (is (true? (v/ask? kb (list 'partOf Piston Fleet) 'CxUniverse))
+        "partOf's transitivity chains through its tangiblePartOf tuples")
+    (is (not (v/ask? kb (list 'tangiblePartOf Piston Fleet) 'CxUniverse))
+        "a broad partOf fact is not a tangiblePartOf one")))
