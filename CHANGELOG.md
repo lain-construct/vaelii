@@ -238,6 +238,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **`capabilityType` and `hasCapability` take a happening kind as argument 2, not only an
+  event kind.** `(genlArg … 2 happening)` replaces `(genlArg … 2 event)` in life.txt, so an
+  ability whose exercise has gaps, such as a happening kind under `intermittent`, is
+  accepted. Each event kind is still accepted, being a happening kind.
+  `ontology_test`'s `all-dogs-have-shell-access` pins both predicates over such a kind, with
+  no `genl` to `event` drawn. [inherit.md](docs/inherit.md).
+
+  *Class:* **Additive**.
+
 ## 0.26.0 — 2026-10-13 — "Upper ontology loaded into CxUniverse with a sync to the shipped files, one relation length read at every context, the `forced_monotonic_predicate` roster scoped to its readers, `time` and `situation` restructured"
 
 | Area | Change |

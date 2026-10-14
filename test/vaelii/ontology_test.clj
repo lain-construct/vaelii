@@ -58,17 +58,35 @@
     (is (not (contains? (set (v/terms kb)) 'capability)))
     (is (empty? (v/find-sentexes kb 'capability)))))
 
-(tu/deftest-kb both-ability-predicates-type-their-second-argument-as-an-event-kind
+(tu/deftest-kb all-dogs-have-shell-access
+  ;; Pins that argument 2 of capabilityType and of hasCapability is a happening kind, not
+  ;; only an event kind.  Shell access comes and goes: a dog logs in, wanders off, and logs
+  ;; in again, so shell_access lies under happening and intermittent, never under event.
+  ;; Both predicates take it with no clash, and neither places it under event.
+  (tu/with-terms [shell_access Rex]
+    (v/assert kb (list 'genl shell_access 'happening) 'CxUniverse)
+    (v/assert kb (list 'genl shell_access 'intermittent) 'CxUniverse)
+    (v/assert kb (list 'capabilityType 'dog shell_access) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'capabilityType 'dog shell_access) 'CxUniverse))
+        "every dog may have shell access")
+    (v/assert kb (list 'dog Rex) 'CxUniverse)
+    (v/assert kb (list 'hasCapability Rex shell_access) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'hasCapability Rex shell_access) 'CxUniverse))
+        "and this one does")
+    (is (not (v/genl? kb shell_access 'event)) "a happening with a gap is no event")
+    (is (empty? (v/conflicts kb)) "and nothing clashes")))
+
+(tu/deftest-kb both-ability-predicates-type-their-second-argument-as-a-happening-kind
   (testing "the declarations"
-    (is (v/ask? kb '(genlArg hasCapability 2 event)))
-    (is (v/ask? kb '(genlArg capabilityType 2 event))))
+    (is (v/ask? kb '(genlArg hasCapability 2 happening)))
+    (is (v/ask? kb '(genlArg capabilityType 2 happening))))
   (testing "an event kind nobody listed as an ability is accepted as one"
     (tu/with-terms [swimming Wanda]
       (v/assert kb (list 'genl swimming 'event) 'CxUniverse)
       (v/assert kb (list 'animal Wanda) N)
       (is (v/assert kb (list 'hasCapability Wanda swimming) N))
       (is (v/assert kb (list 'capabilityType 'fish swimming) N))))
-  (testing "a kind that is not an event kind is convicted by genlArg, against event"
+  (testing "a kind that is not a happening kind is convicted by genlArg, against happening"
     ;; Pinned to the constraint-only reading, where `check` reports the conviction.
     (tu/without-entailing
      (tu/with-terms [Wanda]
@@ -76,7 +94,7 @@
        (doseq [s [(list 'hasCapability Wanda 'metal) (list 'capabilityType 'fish 'metal)]]
          (let [p (first (filter #(= :arg-genl (:type %)) (v/check kb s N)))]
            (is (= :arg-genl (:type p)) (str (pr-str s) " is convicted by genlArg"))
-           (is (= 'event (:expected p)) (str (pr-str s) " is convicted against event"))))))))
+           (is (= 'happening (:expected p)) (str (pr-str s) " is convicted against happening"))))))))
 
 (tu/deftest-kb a-bird-that-flies-travels
   ;; flying genl travelling, and (transitiveInArg hasCapability 2 genl) carries a
@@ -152,7 +170,7 @@
       (is (not (v/ask? kb '(instance_relation_predicate hasCapability))))
       (is (not (v/ask? kb '(type_relation_predicate hasCapability))))
       (is (v/ask? kb '(arg hasCapability 1 animal)))
-      (is (v/ask? kb '(genlArg hasCapability 2 event))))
+      (is (v/ask? kb '(genlArg hasCapability 2 happening))))
     (testing "so declaring the pairing would mark the mixed half — typeToInstancePred
             types its second argument an instance half, and derives that mark"
       (tu/with-terms [CxPairing]
