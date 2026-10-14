@@ -303,6 +303,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix**.
 
+### Fixes: performance
+
+- **An edge a `covering`, `separating` or `partition` roster installs subsumes a minted
+  `genl` edge, as a stated edge does.** A type whose only parent edge came from a roster
+  kept every edge `genlArg` minted to an ancestor, such as `(genl context thing)`. Each
+  new justification of that record moved a `genl` edge into `thing`, and the inherited-clash
+  memo then asked every membership again. The mint is now withheld when the roster is
+  there first, withdrawn when it arrives second, and drawn again when it leaves.
+  [argtypes.md](docs/argtypes.md).
+
+  *Class:* **Fix**.
+
 ## 0.26.0 — 2026-10-13 — "Upper ontology loaded into CxUniverse with a sync to the shipped files, one relation length read at every context, the `forced_monotonic_predicate` roster scoped to its readers, `time` and `situation` restructured"
 
 | Area | Change |

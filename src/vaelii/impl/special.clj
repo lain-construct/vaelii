@@ -2527,10 +2527,17 @@
 
   Unscoped (E17) for `checks/subsumed-mint`'s reason: the mints sit in contexts other than
   the edges', and each candidate is asked in its own context, so the unscoped walk only
-  asks more candidates than a scoped one."
+  asks more candidates than a scoped one.
+
+  A part of a roster is asked about its own mints as well: the edge a roster installs out
+  of a part subsumes the edges minted out of that part, as a stated `genl` edge does, and
+  no `[handle by]` pair names it, since `says-more-than?` reads a `genl` edge alone."
   [kb edges]
   (let [idx  (:index kb)
-        subs (into #{} (comp (mapcat #(tax/installed-edges (:sentence %))) (map first)) edges)]
+        subs (into #{} (comp (mapcat #(tax/installed-edges (:sentence %))) (map first)) edges)
+        parts (into #{} (comp (remove #(edge-shaped? (:sentence %)))
+                              (mapcat #(tax/installed-edges (:sentence %))) (map first))
+                    edges)]
     (when (and (seq subs) (pos? (reads/stored-mint-count-global idx)))
       (let [tax     (reasoning/taxonomy kb)
             below   (if (= 1 (count subs))
@@ -2538,6 +2545,7 @@
                       (tax/specs-of-all tax subs))
             strict? (fn [z]
                       (or (not (contains? subs z))
+                          (contains? parts z)
                           (some #(and (not= z %) (contains? subs %)) (tax/genls-global tax z))))
             types   (if (< (reads/stored-mint-term-count idx) (count below))
                       (filter #(contains? below %) (reads/as-stored-mint-terms idx))
