@@ -425,6 +425,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix** (the same answers, sooner).
 
+- **An edge a `covering`, `separating` or `partition` roster installs subsumes a minted
+  `genl` edge, as a stated edge does.** A type whose only parent edge came from a roster
+  kept every edge `genlArg` minted to an ancestor, such as `(genl context thing)`. Each
+  new justification of that record moved a `genl` edge into `thing`, and the inherited-clash
+  memo then asked every membership again. The mint is now withheld when the roster is
+  there first, withdrawn when it arrives second, and drawn again when it leaves.
+  [argtypes.md](docs/argtypes.md).
+
+  *Class:* **Fix**.
+
 ### Fix: order independence
 
 - **An inert fact draws no argument type on any sweep.** An inert fact asserted after
