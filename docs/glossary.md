@@ -845,7 +845,7 @@ stored exception answers `(orthogonal a b)` and is read as one. See
 
 **`partitionedByType`** ![kb](../.github/badges/cat-kb.svg): `(partitionedByType ?whole ?classifier)` says that the members of a classifier partition a whole, e.g. `(partitionedByType tangible origin_type)` for `made` and `natural`. core.txt rules place each member under the whole and separate every two members. No rule draws the coverage half, so a `partition` stated beside the fact carries it. See [taxonomy.md](taxonomy.md).
 
-**`partOf`** ![kb](../.github/badges/cat-kb.svg): `(partOf ?part ?whole)` says that one thing is a part of another, of any kind. `partOf` is transitive and untyped in both positions. `tangiblePartOf`, `partOfRegion` and `subSituationOf` are below it by `genl`, so a fact of any of the three answers `partOf`. See [taxonomy.md](taxonomy.md).
+**`partOf`** ![kb](../.github/badges/cat-kb.svg): `(partOf ?part ?whole)` says that one thing is a part of another, of any kind. `partOf` is transitive and reflexive, both its positions declare `thing`, and the KB states that it is not antisymmetric. `tangiblePartOf`, `partOfRegion`, `subSituationOf` and `subintervalOf` are below it by `genl`, so a fact of any of the four answers `partOf`. Its proper reading is `properPartOf`. Every spec of `partOf` is reflexive or below `properPartOf`. See [taxonomy.md](taxonomy.md).
 
 **Path consistency** ![qr](../.github/badges/cat-qr.svg): The fixpoint that
 tightens a constraint network: for every triple, intersect the constraint on a
@@ -926,6 +926,14 @@ nothing about variables. A `reflection.txt` collection too, `predication`, parti
 unconditionally (subject to defeat/supersession), as opposed to a derived
 conclusion resting on a justification. Carries an assumption strength. See
 [nmtms.md](nmtms.md).
+
+**`properCounterpart`** ![kb](../.github/badges/cat-kb.svg): `(properCounterpart ?predicate ?properPredicate)` says that `(?properPredicate x y)` holds exactly when `(?predicate x y)` holds and `(?predicate y x)` does not. A core.txt generator stamps the definition for each pair, and the proper tuple needs a believed denial of the reverse tuple, not its absence. The other half, a proper tuple denying the reverse plain one, is a rule stated once at a family's root. Declared of `partOf` and `properPartOf`, and of each parthood relation and its proper reading. See [taxonomy.md](taxonomy.md).
+
+**`properPartOf`** ![kb](../.github/badges/cat-kb.svg): `(properPartOf ?part ?whole)` says that one thing is a part of another and the other is not a part of it. Irreflexive, transitive, `thing` in both positions and below `partOf`. `properTangiblePartOf`, `properSubSituationOf`, `properPartOfRegion` and `properSubintervalOf` are below it. See [taxonomy.md](taxonomy.md).
+
+**`properSubSituationOf`** ![kb](../.github/badges/cat-kb.svg): `(properSubSituationOf ?part ?whole)` says that one situation is a part of another and the other is not a part of it. Irreflexive, transitive, and below `subSituationOf` and `properPartOf`. See [time.md](time.md).
+
+**`properTangiblePartOf`** ![kb](../.github/badges/cat-kb.svg): `(properTangiblePartOf ?part ?whole)` says that one tangible is a component of another and the other is not a component of it. Irreflexive, transitive, and below `tangiblePartOf` and `properPartOf`. See [inherit.md](inherit.md).
 
 **Provenance** ![backend](../.github/badges/cat-backend.svg): The per-handle open
 map kept beside a record — `:creator` / `:created` and any application fields —
@@ -1217,7 +1225,7 @@ premise / the class a justification confers — exactly two, `:monotonic` >
 `:default`. It propagates from the antecedents: a conclusion is never stronger
 than what it rests on. See [nmtms.md](nmtms.md).
 
-**`subSituationOf`** ![kb](../.github/badges/cat-kb.svg): `(subSituationOf ?part ?whole)` says that one situation is a part of another. `subSituationOf` is transitive and below `partOf`. A part's time is within its whole's time, and two situations sharing a time are not thereby parts of one another. See [time.md](time.md).
+**`subSituationOf`** ![kb](../.github/badges/cat-kb.svg): `(subSituationOf ?part ?whole)` says that one situation is a part of another. `subSituationOf` is transitive, reflexive and below `partOf`, and its proper reading is `properSubSituationOf`. A part's time is within its whole's time, and two situations sharing a time are not thereby parts of one another. See [time.md](time.md).
 
 **Subsumption (rules)** ![inference](../.github/badges/cat-inference.svg): One rule
 covering another — a substitution σ making the covering rule's antecedents a subset of the
@@ -1269,7 +1277,7 @@ orders at match time. See [canonicalization.md](canonicalization.md).
 
 **`tangible`** ![kb](../.github/badges/cat-kb.svg): An entity with mass — and so, necessarily, a location in space and time: below `spatiotemporal`. `tangible` and `intangible` partition `thing`. See [taxonomy.md](taxonomy.md#the-three-partitions-of-thing).
 
-**`tangiblePartOf`** ![kb](../.github/badges/cat-kb.svg): `(tangiblePartOf ?part ?whole)` says that one tangible is a component of another, e.g. an engine of a car. `tangiblePartOf` is transitive and below `partOf`. `partType` is its type-level reading. See [inherit.md](inherit.md).
+**`tangiblePartOf`** ![kb](../.github/badges/cat-kb.svg): `(tangiblePartOf ?part ?whole)` says that one tangible is a component of another, e.g. an engine of a car. `tangiblePartOf` is transitive, reflexive and below `partOf`, and its proper reading is `properTangiblePartOf`. `partType` is its type-level reading. See [inherit.md](inherit.md).
 
 **Taxonomy** ![kb](../.github/badges/cat-kb.svg): The in-memory cache of the
 `genl` / `genlCx` closures, the equality partition, the predicate metadata,

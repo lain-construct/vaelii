@@ -110,6 +110,19 @@ it — `git show v0.16.0:CHANGELOG.md`.
   two tangibles; a query for any parthood keeps `partOf`.
   *Breaks:* `partOf`
 
+- **`subintervalOf` and `properSubintervalOf` take two `time_interval`s, not two
+  `temporal`s.** Both comments say "?interval1 falls within ?interval2". No KB file
+  states a tuple of either, and every calendar term already yields a `time_interval`.
+  Once tightened they are parthood of times: `subintervalOf` is reflexive and below
+  `partOf`, and `properSubintervalOf` is irreflexive, transitive and below `properPartOf`.
+  [time.md](docs/time.md).
+
+  *Class:* **Breaking** (argument type narrowed).
+  *Migration:* relate two events by `during`, `starts` or `finishes`, or relate their
+  times; a `subintervalOf` between two situations now types each as a `time_interval`,
+  which `(disjoint time situation)` refuses.
+  *Breaks:* `subintervalOf`, `properSubintervalOf`
+
 - **`partitionedByType` is binary, `(partitionedByType ?whole ?classifier)`, and draws
   inference.** The members of `?classifier` partition `?whole`. A core.txt generator places
   each member under `?whole`, and a rule concludes `(disjoint_metatype ?classifier)`. No
@@ -302,6 +315,30 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Additive**.
 
+- **Parthood is reflexive or proper, and each parthood relation has its proper reading.**
+  `partOf`, `tangiblePartOf`, `partOfRegion`, `subSituationOf` and `subintervalOf` each
+  carry their own `reflexive` mark. `properPartOf` is irreflexive, transitive and below
+  `partOf`. Its definition is `(partOf x y)` with `(partOf y x)` denied, and antisymmetry
+  is declined and stated so: `(not (anti_symmetric partOf))`. `properTangiblePartOf` and
+  `properSubSituationOf` are new, and `properPartOfRegion` and `properSubintervalOf` join
+  them below `properPartOf`. `(properCounterpart ?predicate ?properPredicate)` records each
+  pair, and a core.txt generator stamps its definition. The proper tuple needs a believed
+  denial of the reverse, never the reverse being unknown. One rule at the root,
+  `(properPartOf x y)` to `(not (partOf y x))`, denies the reverse for every proper
+  relation below it. The two calculus-owned pairs
+  state their counterpart and their inner `genl` edges inert, so each calculus still
+  answers alone. `ontology_test` holds two invariants. Every spec of `partOf` is reflexive
+  or below `properPartOf`. A spec both symmetric and irreflexive is flagged for review.
+  [glossary.md](docs/glossary.md).
+
+  *Class:* **Additive**.
+
+- **A new OE principle, "bank the decision".** A modelling question weighed and answered
+  no is stated in the KB as an explicit negation, and a `(not …)` is asserted only for a
+  decision actually made. [oe-principles.md](docs/oe-principles.md).
+
+  *Class:* **Additive**.
+
 - **`capabilityType` and `hasCapability` take a happening kind as argument 2, not only an
   event kind.** `(genlArg … 2 happening)` replaces `(genlArg … 2 event)` in life.txt, so an
   ability whose exercise has gaps, such as a happening kind under `intermittent`, is
@@ -328,6 +365,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
   [from-cyc.md](docs/from-cyc.md#negation-and-mutual-exclusion).
 
   *Migration:* replace the two rules with one `(negates P Q)`.
+
+- **`kb-quality`'s clash reading drops a pair whose antecedents put a literal beside a
+  denial of a predicate it is a spec of.** A tuple of a spec is a tuple of the predicate
+  above it, so `(properPartOf a b)` and `(not (partOf a b))` cannot both hold, and the
+  pair is no clash in waiting. [quality.md](docs/quality.md).
+
+  *Class:* **Fix**.
 
 ### Fix: performance
 
@@ -380,6 +424,16 @@ it — `git show v0.16.0:CHANGELOG.md`.
   Perf check `ground-goal-under-a-wide-fan` pins the growth.
 
   *Class:* **Fix** (the same answers, sooner).
+
+### Fix: order independence
+
+- **An inert fact draws no argument type on any sweep.** An inert fact asserted after
+  an `arg` declaration got no type. A declaration arriving after it, a forward chain, or
+  a `genlCx` edge minted one anyway. `deduce-placed` and `retroactive-mints` now skip an
+  inert sentex, so every arrival order draws the same types.
+  [argtypes.md](docs/argtypes.md).
+
+  *Class:* **Fix**.
 
 ### Breaking
 
