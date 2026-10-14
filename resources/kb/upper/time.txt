@@ -447,11 +447,16 @@
 (arg precedes 2 temporal)
 
 (comment properSubintervalOf
-         "(properSubintervalOf ?interval1 ?interval2) means that ?interval1 falls within ?interval2 and is not the whole of it. Any of during, starts or finishes. Irreflexive, unlike subintervalOf.")
+         "(properSubintervalOf ?interval1 ?interval2) means that ?interval1 falls within ?interval2 and is not the whole of it. Any of during, starts or finishes.")
 (binary_predicate properSubintervalOf)
 (set/monotonic (instance_relation_predicate properSubintervalOf))
-(arg properSubintervalOf 1 temporal)
-(arg properSubintervalOf 2 temporal)
+(arg properSubintervalOf 1 time_interval)
+(arg properSubintervalOf 2 time_interval)
+(set/monotonic (irreflexive properSubintervalOf))
+(set/monotonic (transitive properSubintervalOf))
+(set/inert (genl properSubintervalOf subintervalOf))
+(genl properSubintervalOf properPartOf)
+(set/inert (properCounterpart subintervalOf properSubintervalOf))
 
 (comment sharesTimeWith
          "(sharesTimeWith ?interval1 ?interval2) means that ?interval1 and ?interval2 have some time in common. Any relation but before, after, meets and metBy, so it is the complement of temporallyDisjoint.")
@@ -490,11 +495,13 @@
 (arg starts 2 temporal)
 
 (comment subintervalOf
-         "(subintervalOf ?interval1 ?interval2) means that ?interval1 falls within ?interval2, sharing an end, a start, or neither. Any of during, starts, finishes or intervalEqual, so it is derived rather than base. Reflexive: every interval is a subinterval of itself.")
+         "(subintervalOf ?interval1 ?interval2) means that ?interval1 falls within ?interval2, sharing an end, a start, or neither. Any of during, starts, finishes or intervalEqual, so it is derived rather than base.")
 (binary_predicate subintervalOf)
 (set/monotonic (instance_relation_predicate subintervalOf))
-(arg subintervalOf 1 temporal)
-(arg subintervalOf 2 temporal)
+(arg subintervalOf 1 time_interval)
+(arg subintervalOf 2 time_interval)
+(set/monotonic (reflexive subintervalOf))
+(genl subintervalOf partOf)
 
 (comment temporalDistance
          "(temporalDistance ?instant1 ?instant2 ?measure) means that ?instant2 falls ?measure later than ?instant1. So a negative measure says ?instant2 comes first. Exact as (QuantityFn N Unit) and bounded as (QuantityIntervalFn Lo Hi Unit). A stated one is an ordinary fact; a prover closes every such constraint visible in a context by all-pairs shortest paths and answers the tightest separation they entail between any two instants, binding the measure when it is open and checking containment when it is ground.")
