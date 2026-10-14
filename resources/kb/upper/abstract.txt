@@ -228,6 +228,10 @@
 (set/monotonic (instance_relation_predicate partOf))
 (set/monotonic (transitive partOf))
 (set/monotonic (reflexive partOf))
+;; Antisymmetry was weighed and declined: two coextensive regions stay two regions, so
+;; two things each part of the other are not thereby one.  anti_symmetric is on the
+;; forced-monotonic roster, so the denial is stored and held OUT rather than believed.
+(not (anti_symmetric partOf))
 
 (comment properPartOf
          "(properPartOf ?part ?whole) means that ?part is a part of ?whole and ?whole is not a part of ?part, of any kind. Both positions declare thing, as partOf's do. Two things each a part of the other are neither a proper part of the other, and they stay two things.")

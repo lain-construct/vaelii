@@ -2064,7 +2064,9 @@
       (v/assert kb (list 'partOfRegion Lot Parcel) 'CxUniverse)
       (v/assert kb (list 'partOfRegion Parcel Lot) 'CxUniverse)
       (is (not (v/ask? kb (list 'properPartOfRegion Lot Parcel) 'CxUniverse)))
-      (is (not (v/ask? kb (list 'equals Lot Parcel) 'CxUniverse)))))
+      (is (not (v/ask? kb (list 'equals Lot Parcel) 'CxUniverse)))
+      (is (some? (v/handle-of kb '(not (anti_symmetric partOf)) 'CxUniverse))
+          "and the KB states antisymmetry declined, not merely unstated")))
   (testing "a proper region part is a proper part"
     (tu/with-terms [Plot Field]
       (v/assert kb (list 'properPartOfRegion Plot Field) 'CxUniverse)
