@@ -1946,6 +1946,14 @@
   (sort (remove #(or (v/has-prop? kb :reflexive %) (v/genl? kb % 'properPartOf))
                 (parthood-specs kb))))
 
+(defn- symmetric-irreflexive-parthood-specs
+  "A review flag, not a proof: the specs of partOf marked both symmetric and irreflexive,
+  sorted.  Such a relation holds between distinct mutual parts, which is worth a second
+  look.  A relation the flag passes is certified as nothing."
+  [kb]
+  (sort (filter #(and (v/has-prop? kb :symmetric %) (v/has-prop? kb :irreflexive %))
+                (parthood-specs kb))))
+
 (tu/deftest-kb every-parthood-relation-is-reflexive-or-proper
   (is (= [] (unclassified-parthood-specs kb)) "the shipped parthood relations are classified")
   (testing "a spec carrying neither mark is unclassified, whatever its name says"
@@ -1956,3 +1964,18 @@
       (v/assert kb (list 'reflexive gluedTo) 'CxUniverse)
       (v/assert kb (list 'genl properGluedTo 'properTangiblePartOf) 'CxUniverse)
       (is (= [] (unclassified-parthood-specs kb)) "and classified once marked"))))
+
+(tu/deftest-kb a-symmetric-irreflexive-parthood-relation-is-flagged-for-review
+  (is (= [] (symmetric-irreflexive-parthood-specs kb)) "no shipped parthood relation is flagged")
+  (testing "symmetric and irreflexive: distinct mutual parts, flagged for review"
+    (tu/with-terms [weldedTo]
+      (v/assert kb (list 'genl weldedTo 'tangiblePartOf) 'CxUniverse)
+      (v/assert kb (list 'symmetric weldedTo) 'CxUniverse)
+      (v/assert kb (list 'irreflexive weldedTo) 'CxUniverse)
+      (is (= [weldedTo] (symmetric-irreflexive-parthood-specs kb)))))
+  (testing "symmetric and reflexive, as spatiallyEqual is, is not flagged"
+    (tu/with-terms [coextensiveWith]
+      (v/assert kb (list 'genl coextensiveWith 'partOf) 'CxUniverse)
+      (v/assert kb (list 'symmetric coextensiveWith) 'CxUniverse)
+      (v/assert kb (list 'reflexive coextensiveWith) 'CxUniverse)
+      (is (not-any? #{coextensiveWith} (symmetric-irreflexive-parthood-specs kb))))))
