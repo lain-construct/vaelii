@@ -345,6 +345,14 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   it waits for the whole batch, so a loader sharing the daemon with readers sets their
   wait by the size of the batches it sends. `GET /health` is outside the monitor and
   answers throughout.
+- **An op runs on a thread the HTTP server does not own.** The Jetty worker that read the
+  request waits for the op's answer and nothing else. Jetty interrupts a busy worker when
+  its server stops, and an interrupt during a disk write closes the store's channel and
+  latches it `:store-unusable` ([storage.md](storage.md#a-store-that-stops)); the
+  interrupt reaches the worker's wait instead. Stopping a daemon `serve/start` returned
+  refuses every op that has not entered the write monitor with **503 `:stopping`**,
+  answers every parked long poll with the events it has, then waits for the op inside the
+  monitor, which answers its caller before the connectors close.
 - **An op runs to completion whether or not its caller is still listening.** The daemon
   does not watch the socket: a caller whose read timeout fires, or whose connection
   drops, has abandoned the reply and not the op, which runs, settles and is answered to
@@ -1059,7 +1067,7 @@ CI sets these too; nothing in a deployment does.
 | `vaelii.test.bash` | `test/vaelii/test_util.clj:230+` | a bash to run | `bash` | The bash a test drives a script with. The `:test` profile sets it to the choice above, so set `VAELII_BASH` instead. |
 | `VAELII_COLOR` | `scripts/gate.sh:110+` | `always` `never` | unset | Whether `lein gate` and `lein lint` colour their output; unset asks the terminal. |
 | `VAELII_GATE_OUT` | `scripts/test-parallel.sh:40+` | a directory | `target/gate` | Where the parallel test stage writes its per-shard logs. `lein gate` sets it to that run's own directory, so the shard logs land beside the stage logs rather than in a directory two gates share. |
-| `VAELII_GATE_TIMINGS` | `scripts/test-parallel.sh:40+` | a file | `target/gate/test-timings.tsv` | The per-namespace timings the test stage bin-packs its shards from. **Per checkout, not per run** — they are feedback for the *next* gate, so they sit above the run directory and every run shares them. Inside a per-run directory each gate starts blind and falls back to round-robin sharding, which is slower and silent. |
+| `VAELII_GATE_TIMINGS` | `scripts/test-parallel.sh:40+` | a file | `logs/test-timings.tsv` | The per-namespace timings the test stage bin-packs its shards from, a moving average each run moves 0.3 of the way to its own figures. **Per checkout, not per run**: they are feedback for the *next* gate, so every run shares them, outside `target/`, which `lein clean`, `lein jar` and `lein install` empty. A namespace the file lacks takes its CI weight scaled to local time. |
 | `GATE_JOBS` | `scripts/gate.sh:60+` | a whole number | unset | The test stage's shard count. **Unpinned** — see below. |
 | `PERF_TOLERANCE` | `scripts/gate.sh:60+` | a multiplier (`1.5`) | unset | Passed through to `lein perf --tolerance`, for a loaded box. **Unpinned.** |
 | `GATE_MAX_CONCURRENT` | `scripts/lib/slots.sh:280+` | a whole number; `0` disables | `2` | How many `lein gate` test stages run at once on the box, from any worktree: each holds one `gate-lock.<i>` file in the shared git directory's `vaelii-matrix/`. A gate over the cap runs lint and waits for a slot, naming the holders once a minute, and its test stage reads its shard count after admission. **Unpinned.** |
