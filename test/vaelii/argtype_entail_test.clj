@@ -1850,3 +1850,21 @@
               (is (nil? (v/handle-of re (list animal Fred) CxWorld))
                   "withdrawn by the membership that arrives after it")))
           (finally (tu/clear-kb! kb)))))))
+
+(tu/deftest-kb a-declaration-draws-no-type-from-an-inert-fact
+  ;; An inert sentex claims nothing, so it is no fact a declaration's sweep reads.  The
+  ;; fact-side path already draws nothing from one, and the declaration-side sweep has to
+  ;; agree with it, or a rechain mints what the load did not.
+  (with-entailing
+    (tu/with-terms [animal parentOf Fred Mary Ann Bob CxWorld]
+      (a-context kb CxWorld)
+      (a-type kb animal CxWorld)
+      (testing "the declaration arriving after the inert fact"
+        (v/assert-inert kb (list parentOf Fred Mary) CxWorld)
+        (v/assert kb (list 'arg parentOf 1 animal) CxWorld)
+        (is (nil? (v/handle-of kb (list animal Fred) CxWorld))))
+      (testing "and a rechain after an inert fact arriving under the declaration"
+        (v/assert-inert kb (list parentOf Ann Bob) CxWorld)
+        (v/forward-chain kb {})
+        (is (nil? (v/handle-of kb (list animal Ann) CxWorld)))
+        (is (nil? (v/handle-of kb (list animal Fred) CxWorld)))))))
