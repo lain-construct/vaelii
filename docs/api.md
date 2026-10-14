@@ -632,6 +632,7 @@ assertable-strengths                            ; #{:monotonic :default}, the se
                                                 ; results and justifications of BOTH sides.  No opts
                                                 ; and it is `ask` (no rule expands); {:max-depth n} and
                                                 ; it is `query`.  There is no default depth here either
+                                                ; A ground side's search stops at its first answer
                                                 ; opts: `query-opt-keys`, checked at THIS entry point — a
                                                 ; misspelt depth checked downstream is never checked at
                                                 ; all, and answers :unknown for a derivable sentence

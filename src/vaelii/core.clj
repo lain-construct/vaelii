@@ -8331,10 +8331,12 @@
 
 (defn- argue-results
   "Query results for `goal` in `context` — a seq of binding maps (an empty map for a
-  ground goal), or nil if not provable.  Rules fire only with `:max-depth`."
+  ground goal), or nil if not provable.  Rules fire only with `:max-depth`.  A ground
+  goal has one answer at most, so its search stops at the first."
   [kb goal context opts]
   (seq (if (:max-depth opts)
-         (query kb goal context opts)
+         (query-capped kb goal context opts
+                       (when-not (sx/some-symbol? sx/variable? goal) 1))
          (ask kb goal context))))
 
 (defn- argue-justification
@@ -8370,7 +8372,7 @@
                (not (sx/some-symbol? sx/variable? goal)))
       (if (:proof? opts)
         (:proof (first results))
-        (:proof (first (query kb goal context (assoc opts :proof? true))))))))
+        (:proof (first (query-capped kb goal context (assoc opts :proof? true) 1)))))))
 
 (defn- argue-defeat-class
   "The JTMS defeat-class (`:monotonic` / `:default`) of `sentence` in `context`, or nil."

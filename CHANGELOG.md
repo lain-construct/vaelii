@@ -88,6 +88,29 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* a caller reading or writing `(agent ?a)` in `CxRegistry` reads or writes
   `(registered_agent ?a)` instead.
 
+### Fixes: performance
+
+- **The node engine builds no child whose residual asks its own goal again.** A rewrite
+  through an `intersection` rule, or any rule whose antecedent is the goal or a spec of
+  it, no longer re-asks the goal one level down. On the starter, `(acausal ?x)` with one
+  recursive rule expands 37 nodes at depth 4, where it did not finish depth 3, and
+  `(intangible Foo1)` expands 9 at every depth. The `:stats` node counts of
+  `query-status` and `search-tree` drop; the answers do not change.
+  [inference.md](docs/inference.md#the-node-engine-vaeliiimplinference)
+  ([#101](https://github.com/vaelii/vaelii/issues/101),
+  [#182](https://github.com/vaelii/vaelii/issues/182)).
+
+  *Class:* **Fix**.
+
+- **`argue` stops a ground side's search at its first answer, and an interrupt stops a
+  node-engine search.** `argue` at a `:max-depth` returns once each ground side has an
+  answer or has exhausted the bound. A `future-cancel` or `Thread.interrupt` on a running
+  `query`, `query-status` or `argue` throws `InterruptedException` at the next node
+  expansion. [inference.md](docs/inference.md#the-node-engine-vaeliiimplinference)
+  ([#182](https://github.com/vaelii/vaelii/issues/182)).
+
+  *Class:* **Fix**.
+
 ### Internal
 
 - **`disjointness-coverage-ratchet` requires at least 21456 disjoint pairs, 82.91%
