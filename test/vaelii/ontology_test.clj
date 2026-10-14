@@ -637,12 +637,23 @@
   ;; `arg` declarations: `(arg lied_before 1 person)` types the liar rule's variable a
   ;; `person`, disjoint from what the other rule states or concludes about the same term,
   ;; so `arg-type-conflicted?` drops every such pair as unreachable (vaelii#95).
-  (let [pairs (:pairs (:clashes (v/kb-quality kb {:limit 100})))
-        kinds (frequencies (map :kind pairs))]
-    (is (= {:negation 4} kinds)
+  ;;
+  ;; Two pairs are left unexcepted on purpose.  A proper reading's definition concludes a
+  ;; proper tangible part or a proper sub-situation, so a part, and the root rule
+  ;; `(properPartOf x y) → (not (partOf y x))` denies one.  Both fire for one tuple only
+  ;; where the facts already contradict the root rule: a part whose whole is stated a proper
+  ;; part of it.  Both rules are strict definitions, so that clash is the one the facts owe,
+  ;; and an exception would hide it.
+  (let [pairs       (:pairs (:clashes (v/kb-quality kb {:limit 100})))
+        kinds       (frequencies (map :kind pairs))
+        root-denial '(implies (properPartOf ?part ?whole) (not (partOf ?whole ?part)))
+        definition? #(some #{root-denial} (:sentences %))]
+    (is (= {:negation 6} kinds)
         (str "clashes: " (pr-str (mapv (juxt :kind :sentences) pairs))))
-    (is (every? :excepted (filter #(= :negation (:kind %)) pairs))
-        "negation clashes are excepted")))
+    (is (every? :excepted (remove definition? (filter #(= :negation (:kind %)) pairs)))
+        "negation clashes are excepted")
+    (is (= 2 (count (filter definition? pairs)))
+        "and the root denial meets the two proper readings' definitions, unexcepted")))
 
 (tu/deftest-kb the-arity-rules-clash-with-each-other-in-neither-direction
   ;; The reading's own half of the arity separation.  The generator stamps one rule per
@@ -2012,3 +2023,31 @@
     (v/assert kb (list 'not (list coversOf B A)) 'CxUniverse)
     (is (true? (v/ask? kb (list properCoversOf A B) 'CxUniverse))
         "a tuple and its denied reverse make the proper tuple")))
+
+(tu/deftest-kb a-proper-part-is-a-part-whose-whole-is-not-part-of-it
+  ;; Each non-proper parthood relation has a proper counterpart below it and below
+  ;; properPartOf.  The proper tuple needs the reverse tuple denied, not merely unstated.
+  (tu/with-terms [Piston Engine Car]
+    (v/assert kb (list 'properTangiblePartOf Piston Engine) 'CxUniverse)
+    (doseq [g [(list 'tangiblePartOf Piston Engine) (list 'properPartOf Piston Engine)
+               (list 'partOf Piston Engine) (list 'not (list 'tangiblePartOf Engine Piston))]]
+      (is (true? (v/ask? kb g 'CxUniverse)) (str "a proper tangible part answers " (pr-str g))))
+    (v/assert kb (list 'tangiblePartOf Engine Car) 'CxUniverse)
+    (is (not (v/ask? kb (list 'properTangiblePartOf Engine Car) 'CxUniverse))
+        "a part whose whole is not denied to be part of it is not thereby proper")
+    (v/assert kb (list 'not (list 'tangiblePartOf Car Engine)) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'properTangiblePartOf Engine Car) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'properTangiblePartOf Piston Car) 'CxUniverse))
+        "a proper part of a proper part is a proper part")
+    (is (not (v/ask? kb (list 'properPartOf Piston Piston) 'CxUniverse))
+        "nothing is a proper part of itself"))
+  (testing "two regions each part of the other are neither proper and stay two"
+    (tu/with-terms [Lot Parcel]
+      (v/assert kb (list 'partOfRegion Lot Parcel) 'CxUniverse)
+      (v/assert kb (list 'partOfRegion Parcel Lot) 'CxUniverse)
+      (is (not (v/ask? kb (list 'properPartOfRegion Lot Parcel) 'CxUniverse)))
+      (is (not (v/ask? kb (list 'equals Lot Parcel) 'CxUniverse)))))
+  (testing "a proper region part is a proper part"
+    (tu/with-terms [Plot Field]
+      (v/assert kb (list 'properPartOfRegion Plot Field) 'CxUniverse)
+      (is (true? (v/ask? kb (list 'properPartOf Plot Field) 'CxUniverse))))))
