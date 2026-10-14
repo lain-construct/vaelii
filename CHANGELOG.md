@@ -15,6 +15,26 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **`closedExtentForArg` closes a predicate's extent for one argument value.**
+  `(closedExtentForArg P n v)` grants that `P`'s believed extent is complete for the
+  goals whose argument `n` is `v`, so `(not (P …))` holds there while the positive finds
+  nothing. `(closedExtentForArg accountOn 2 HostA)` answers `(not (accountOn Carol HostA))`
+  and leaves `(accountOn Carol HostB)` open-world. The grant is scoped to the asking
+  context and belief-following, reads a closed negative rule antecedent as negation as
+  failure, and is refused where it would close a cycle through negation, as
+  `closed_extent_predicate` is. `closedExtentForArg1`, `closedExtentForArg2` and
+  `closedExtentForArg3` are binary spellings that derive the ternary; an inert rule
+  states each reverse direction. Inert rules also state that a whole-predicate grant
+  entails every per-argument grant, and state `admitsArgnum`'s definition, which its
+  prover answers.
+  [naf.md](docs/naf.md#a-closed-extent-for-one-argument-value).
+
+  *Class:* **Additive**.
+
+## Unreleased
+
+### Additions
+
 - **`min-context-parents` and `max-context-children` read a context's nearest neighbours
   in the context lattice, and a context page's concept graph draws them.**
   `(min-context-parents kb c)` answers the contexts `c` reaches over one `genlCx` edge
