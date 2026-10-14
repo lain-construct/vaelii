@@ -2052,6 +2052,17 @@
       (v/assert kb (list 'properPartOfRegion Plot Field) 'CxUniverse)
       (is (true? (v/ask? kb (list 'properPartOf Plot Field) 'CxUniverse))))))
 
+(tu/deftest-kb a-subinterval-is-a-part-of-a-time
+  ;; subintervalOf and properSubintervalOf relate time intervals, so each is parthood:
+  ;; subintervalOf is reflexive and below partOf, properSubintervalOf below properPartOf.
+  (tu/with-terms [Morning Day Hour Week]
+    (v/assert kb (list 'subintervalOf Morning Day) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'time_interval Morning) 'CxUniverse)) "its arguments are time intervals")
+    (is (true? (v/ask? kb (list 'partOf Morning Day) 'CxUniverse)))
+    (is (true? (v/ask? kb (list 'subintervalOf Week Week) 'CxUniverse)))
+    (v/assert kb (list 'properSubintervalOf Hour Morning) 'CxUniverse)
+    (is (true? (v/ask? kb (list 'properPartOf Hour Morning) 'CxUniverse)))))
+
 ;; ---- parthood invariants ----------------------------------------------------
 ;; A parthood relation is either non-proper, and then reflexive, or proper, and then below
 ;; properPartOf.  "Proper" is read off the genl edge to properPartOf, whose definition is
