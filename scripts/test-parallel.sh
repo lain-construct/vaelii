@@ -20,8 +20,8 @@
 #     itself echoes, never from a pipeline (`lein test | tee` reports `tee`).  The
 #     aggregate is red if any shard is.
 #
-# Balance comes from measured time, not guesswork: each run records how long every
-# namespace took to `logs/test-timings.tsv`, and the next run bin-packs
+# Balance comes from measured time, not guesswork: each run averages how long every
+# namespace took into `logs/test-timings.tsv`, and the next run bin-packs
 # longest-first into the emptiest shard.  A namespace with no local figure takes its
 # CI weight (scripts/ci-test-weights-memory.tsv) scaled to local time, and one with
 # neither takes the mean.
@@ -108,7 +108,7 @@ if [[ $n -eq 0 ]]; then echo "test-parallel: no test namespaces found" >&2; exit
 [[ $jobs -gt $n ]] && jobs=$n
 
 # ---- bin-pack ---------------------------------------------------------------
-# Longest-processing-time-first: sort by last run's duration descending, and hand each
+# Longest-processing-time-first: sort by the averaged duration descending, and hand each
 # namespace to whichever shard is currently lightest.  This is the standard 4/3-optimal
 # greedy, and on this suite it matters — the spread between the heaviest namespace and
 # the median is large enough that round-robin leaves one shard running alone at the end.
@@ -198,16 +198,14 @@ for p in "${pids[@]}"; do wait "$p"; done
 elapsed=$((SECONDS - t0))
 
 # ---- timings for the next run ----------------------------------------------
-# This run's figures replace the previous ones namespace by namespace; a namespace a
-# killed shard never finished keeps its previous figure.
-{
-  [[ -f "$TIMINGS" ]] && cat "$TIMINGS"
-  for ((b = 1; b <= jobs; b++)); do
-    [[ -f "$OUT/.timing-$b.tsv" ]] && cat "$OUT/.timing-$b.tsv"
-  done
-} | awk -F'\t' '$1 != "" { secs[$1] = $2 } END { for (k in secs) printf "%s\t%s\n", k, secs[k] }' \
-  | sort > "$TIMINGS.$$.new" && mv "$TIMINGS.$$.new" "$TIMINGS"
-rm -f "$OUT"/.timing-*.tsv "$assign_out"
+# This run's figures go into the previous ones as a moving average (`ns_timings_average`);
+# a namespace a killed shard never finished keeps its previous figure.
+for ((b = 1; b <= jobs; b++)); do
+  [[ -f "$OUT/.timing-$b.tsv" ]] && cat "$OUT/.timing-$b.tsv"
+done > "$OUT/.timings.tsv"
+ns_timings_average "$TIMINGS" "$OUT/.timings.tsv" > "$TIMINGS.$$.new" \
+  && mv "$TIMINGS.$$.new" "$TIMINGS"
+rm -f "$OUT"/.timing-*.tsv "$OUT/.timings.tsv" "$assign_out"
 
 # ---- aggregate --------------------------------------------------------------
 # Summed, not eyeballed: the whole point of sharding is that no single log carries the

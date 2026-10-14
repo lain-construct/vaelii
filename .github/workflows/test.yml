@@ -23,9 +23,9 @@ name: test
 # count of files is not an equal amount of work.
 #
 # THE WEIGHTS FOLLOW THE SUITE. Each shard records its namespace times
-# (scripts/lib/ns-timings.sh), the `weights` job turns a green leg's times into a
-# weights file and saves it to the Actions cache, and the next run's shards pack
-# from the newest such file. `weights-plan` resolves that cache entry once and
+# (scripts/lib/ns-timings.sh), the `weights` job averages a green leg's times
+# into the weights the run packed from and saves the result to the Actions cache,
+# and the next run's shards pack from the newest such file. `weights-plan` resolves that cache entry once and
 # hands every shard the same key, because shards packing from two different files
 # would run some namespaces twice and others not at all. With no cache entry the
 # shards read the committed scripts/ci-test-weights-<leg>.tsv. In run 38451741321
@@ -112,11 +112,13 @@ jobs:
     # not one. deep.yml carries the long form of the argument.
     if: github.event_name != 'schedule' || github.repository_owner == 'vaelii'
     runs-on: ubuntu-latest
-    # A balanced shard takes about 11m30s: 596s of namespace time in run
-    # 38451741321 plus about 80s of setup. A shard that grows into this has grown
-    # by more than 70%, which is a change to investigate rather than a slow runner
-    # to wait out.
-    timeout-minutes: 20
+    # A balanced shard is predicted at about 11m: 596s of namespace time in run
+    # 38451741321 plus about 80s of setup. Runner speed alone moves a shard by half
+    # that: over two runs of this packing the slowest disk shard took 17m15s and the
+    # slowest memory shard 15m51s. 25 minutes is 1.45x the slower of those, so a
+    # shard that reaches it has grown, which is a change to investigate rather than
+    # a slow runner to wait out.
+    timeout-minutes: 25
     strategy:
       # Run every shard to completion: a bug living in one shard's namespaces
       # should not be hidden by another shard going red first.
@@ -256,7 +258,8 @@ jobs:
     needs: weights-plan
     if: github.event_name != 'schedule' || github.repository_owner == 'vaelii'
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    # memory-shard's timeout, from the same figures
+    timeout-minutes: 25
     strategy:
       fail-fast: false
       matrix:
@@ -351,15 +354,16 @@ jobs:
         run: |
           [ "${{ needs.disk-shard.result }}" = "success" ]
 
-  # A green leg's namespace times become the weights the next run packs from.
-  # Not a required check: a failure here costs the next run its balance and
+  # A green leg's namespace times, averaged into the weights this run packed from
+  # (scripts/lib/ns-timings.sh, `ns_timings_average`), become the weights the next
+  # run packs from. Not a required check: a failure here costs the next run its balance and
   # nothing else. The `-<attempt>` suffix gives a re-run its own key, since a
   # cache entry cannot be overwritten. scripts/ci-weights.sh refuses a set of
   # timing files missing a shard, so a re-run that downloads only some shards'
   # files saves nothing.
   weights:
     name: weights
-    needs: [memory-shard, disk-shard]
+    needs: [weights-plan, memory-shard, disk-shard]
     if: ${{ always() && (needs.memory-shard.result == 'success' || needs.disk-shard.result == 'success') }}
     runs-on: ubuntu-latest
     steps:
@@ -374,9 +378,19 @@ jobs:
           pattern: timings-memory-*
           path: target/ci/timings-memory
           merge-multiple: true
+      - name: Restore the memory weights this run packed from
+        if: needs.memory-shard.result == 'success' && needs.weights-plan.outputs.memory != ''
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: target/ci-weights/memory.tsv
+          key: ${{ needs.weights-plan.outputs.memory }}
       - name: Write the memory weights
         if: needs.memory-shard.result == 'success'
-        run: scripts/ci-weights.sh --from target/ci/timings-memory --leg memory --out target/ci-weights/memory.tsv
+        run: |
+          prev=target/ci-weights/memory.tsv
+          [ -f "$prev" ] || prev=scripts/ci-test-weights-memory.tsv
+          scripts/ci-weights.sh --from target/ci/timings-memory --leg memory --prev "$prev" --out target/ci-weights/memory.tsv
       - name: Save the memory weights
         if: needs.memory-shard.result == 'success'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
@@ -391,9 +405,19 @@ jobs:
           pattern: timings-disk-*
           path: target/ci/timings-disk
           merge-multiple: true
+      - name: Restore the disk weights this run packed from
+        if: needs.disk-shard.result == 'success' && needs.weights-plan.outputs.disk != ''
+        continue-on-error: true
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+        with:
+          path: target/ci-weights/disk.tsv
+          key: ${{ needs.weights-plan.outputs.disk }}
       - name: Write the disk weights
         if: needs.disk-shard.result == 'success'
-        run: scripts/ci-weights.sh --from target/ci/timings-disk --leg disk --out target/ci-weights/disk.tsv
+        run: |
+          prev=target/ci-weights/disk.tsv
+          [ -f "$prev" ] || prev=scripts/ci-test-weights-disk.tsv
+          scripts/ci-weights.sh --from target/ci/timings-disk --leg disk --prev "$prev" --out target/ci-weights/disk.tsv
       - name: Save the disk weights
         if: needs.disk-shard.result == 'success'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0

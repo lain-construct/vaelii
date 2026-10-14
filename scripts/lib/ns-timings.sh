@@ -37,3 +37,28 @@ ns_timings() {
     esac
   done
 }
+
+# `ns_timings_average PREV NEW` writes `namespace<TAB>seconds` rows to stdout: each
+# NEW figure moved NS_TIMINGS_WEIGHT of the way from PREV's figure for the same
+# namespace, an exponential moving average.  A namespace in one file only keeps that
+# file's figure.  PREV may be missing, and `#` lines in either file are skipped.
+#
+# One run's figure is a noisy reading of a namespace's cost: disjointness-audit-test
+# took 143 s, 159 s and 270 s on three CI runs of the same tree, and a local run on
+# one shard reads every namespace slower than one on five.  At a weight of 0.3 the
+# average's variance from that noise is 0.3/1.7 = 18% of one reading's, and a
+# namespace whose real cost changes is 76% of the way to the new figure after four
+# runs.
+NS_TIMINGS_WEIGHT=0.3
+ns_timings_average() {
+  local prev="$1" new="$2"
+  [[ -f "$prev" ]] || prev=/dev/null
+  awk -F'\t' -v a="$NS_TIMINGS_WEIGHT" '
+    $1 == "" || $1 ~ /^#/ { next }
+    FILENAME == ARGV[1] { old[$1] = $2 + 0; next }
+    { cur[$1] = $2 + 0 }
+    END {
+      for (k in old) if (!(k in cur)) printf "%s\t%.2f\n", k, old[k]
+      for (k in cur) printf "%s\t%.2f\n", k, (k in old) ? a * cur[k] + (1 - a) * old[k] : cur[k]
+    }' "$prev" "$new" | LC_ALL=C sort
+}

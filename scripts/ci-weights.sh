@@ -2,7 +2,7 @@
 # scripts/ci-weights.sh — rewrite the CI shard weights from measured namespace times.
 #
 #   scripts/ci-weights.sh <run-id> [--repo owner/name]      # both legs, from a run's logs
-#   scripts/ci-weights.sh --from DIR --leg disk|memory --out FILE
+#   scripts/ci-weights.sh --from DIR --leg disk|memory --out FILE [--prev FILE]
 #                                                           # one leg, from timing rows
 #
 # scripts/ci-shard.sh packs the shards of .github/workflows/test.yml by measured
@@ -20,7 +20,10 @@
 # scripts/lib/ns-timings.sh wrote, and FILE goes into the Actions cache, where the
 # next run's shards read it in place of the committed file.  A DIR missing a shard
 # is refused: that shard's namespaces would be written at 0.00.  The committed
-# files are the fallback for a run that finds no cache entry.
+# files are the fallback for a run that finds no cache entry.  With --prev, the
+# weights the run packed from, each measured figure goes into PREV's as a moving
+# average (scripts/lib/ns-timings.sh, `ns_timings_average`), so one slow runner
+# moves a weight by 0.3 of its excess.
 #
 # A NAMESPACE THE RUN DID NOT ENTER IS WRITTEN AT 0.00 rather than left out, so a
 # namespace whose every test is `^:slow` is weighted at what it costs the
@@ -33,7 +36,7 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 1
 
 REPO="vaelii/vaelii"
-RUN=""; FROM=""; LEG=""; OUT=""
+RUN=""; FROM=""; LEG=""; OUT=""; PREV=""
 
 usage() {
   sed -n '4,6p' "$0" | sed 's/^# \{0,1\}//' >&2
@@ -45,6 +48,7 @@ while [[ $# -gt 0 ]]; do
     --from) FROM="${2:?--from needs a directory}"; shift 2 ;;
     --leg)  LEG="${2:?--leg needs disk or memory}"; shift 2 ;;
     --out)  OUT="${2:?--out needs a file}"; shift 2 ;;
+    --prev) PREV="${2:?--prev needs a file}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     -*) echo "ci-weights: unknown option $1" >&2; usage; exit 2 ;;
     *)  RUN="$1"; shift ;;
@@ -106,11 +110,23 @@ if [[ -n "$FROM" ]]; then
     | awk -F'\t' '$1 != "" { s[$1] = $2 } END { for (k in s) printf "%s\t%s\n", k, s[k] }' \
     | sort > "$tmp/$LEG.tsv"
   [[ -s "$tmp/$LEG.tsv" ]] || { echo "ci-weights: no timing rows under $FROM" >&2; exit 1; }
-  write_weights "$LEG" "$tmp/$LEG.tsv" "$OUT" "${GITHUB_REPOSITORY:-$REPO} run ${GITHUB_RUN_ID:-local}"
+  source="${GITHUB_REPOSITORY:-$REPO} run ${GITHUB_RUN_ID:-local}"
+  if [[ -n "$PREV" ]]; then
+    [[ -f "$PREV" ]] || { echo "ci-weights: --prev $PREV is not a file" >&2; exit 1; }
+    # every tree namespace gets a measured figure, 0 for one the run did not enter, so
+    # a namespace that turned all-`^:slow` falls toward 0.00 instead of holding PREV's
+    awk -F'\t' 'NR == FNR { m[$1] = $2; next } { printf "%s\t%s\n", $1, ($1 in m) ? m[$1] : 0 }' \
+      "$tmp/$LEG.tsv" "$tmp/tree.txt" > "$tmp/$LEG.measured"
+    # shellcheck source=scripts/lib/ns-timings.sh
+    . scripts/lib/ns-timings.sh
+    ns_timings_average "$PREV" "$tmp/$LEG.measured" > "$tmp/$LEG.tsv"
+    source="$source, averaged into $PREV at $NS_TIMINGS_WEIGHT"
+  fi
+  write_weights "$LEG" "$tmp/$LEG.tsv" "$OUT" "$source"
   exit 0
 fi
 
-[[ -n "$RUN" && -z "$LEG$OUT" ]] || { usage; exit 2; }
+[[ -n "$RUN" && -z "$LEG$OUT$PREV" ]] || { usage; exit 2; }
 command -v gh >/dev/null 2>&1 || { echo "ci-weights: gh not found on PATH" >&2; exit 127; }
 
 # One `gh` call resolves the job ids; the logs come one job at a time because a
