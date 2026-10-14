@@ -230,6 +230,17 @@
 ;; nothing derives the edge, and it is stated.
 (genl spatial_event spatiotemporal)
 
+;; --- subSituationOf: a situation that is part of another ---------------------
+(comment subSituationOf
+         "(subSituationOf ?part ?whole) means that the situation ?part is a part of the situation ?whole. Declared transitive, so a part of a part is a part. A part's time is within its whole's time. The converse does not hold: two situations sharing a time are not thereby parts of one another. subSituationOf supplies parthood only. It rolls no role of the part up to the whole, and it closes no situation under the sum of its parts.")
+(implementationNote subSituationOf "No rule concludes the temporal containment of a part in its whole. The upper ontology has no relation for one time falling within another that covers an intermittent time.")
+(binary_predicate subSituationOf)
+(set/monotonic (instance_relation_predicate subSituationOf))
+(arg subSituationOf 1 situation)
+(arg subSituationOf 2 situation)
+(set/monotonic (transitive subSituationOf))
+(genl subSituationOf partOf)
+
 ;; --- causal / acausal: whether a thing can occupy a cause slot -----------------
 (comment causal "A thing that can be a cause, i.e. can occupy the cause slot of a causal relation. A cause is in time, so causal is below temporal. One side of the causal/acausal division of thing.")
 
