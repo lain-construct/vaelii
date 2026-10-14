@@ -11,6 +11,17 @@ several releases is still a grep for the name you call. The full entry prose for
 released version is in this file's git history, at the tag of the release that shipped
 it — `git show v0.16.0:CHANGELOG.md`.
 
+## Unreleased
+
+- **Stopping the daemon interrupts no KB write.** An op ran on the Jetty worker that read
+  the request, and a server stop interrupts a busy worker, so a stop during a disk write
+  latched the store `:store-unusable`. Each op now runs on a thread the server does not
+  own. Stopping a daemon `serve/start` returned waits for the op in progress, answers
+  parked long polls at once, and refuses the ops still queued with 503 `:stopping`.
+  [operations.md](docs/operations.md#daemon--vaeliiserve).
+
+  *Class:* **Fix**.
+
 ## 0.26.0 — 2026-10-13 — "Upper ontology loaded into CxUniverse with a sync to the shipped files, one relation length read at every context, the `forced_monotonic_predicate` roster scoped to its readers, `time` and `situation` restructured"
 
 | Area | Change |

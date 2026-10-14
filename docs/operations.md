@@ -345,6 +345,14 @@ VAELII_API_TOKEN=… lein serve 4200 /var/lib/vaelii --listen 0.0.0.0   # off-ma
   it waits for the whole batch, so a loader sharing the daemon with readers sets their
   wait by the size of the batches it sends. `GET /health` is outside the monitor and
   answers throughout.
+- **An op runs on a thread the HTTP server does not own.** The Jetty worker that read the
+  request waits for the op's answer and nothing else. Jetty interrupts a busy worker when
+  its server stops, and an interrupt during a disk write closes the store's channel and
+  latches it `:store-unusable` ([storage.md](storage.md#a-store-that-stops)); the
+  interrupt reaches the worker's wait instead. Stopping a daemon `serve/start` returned
+  refuses every op that has not entered the write monitor with **503 `:stopping`**,
+  answers every parked long poll with the events it has, then waits for the op inside the
+  monitor, which answers its caller before the connectors close.
 - **An op runs to completion whether or not its caller is still listening.** The daemon
   does not watch the socket: a caller whose read timeout fires, or whose connection
   drops, has abandoned the reply and not the op, which runs, settles and is answered to
