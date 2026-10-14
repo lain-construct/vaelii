@@ -88,6 +88,20 @@
       (is (v/ask? kb (list 'hasRegionPart D A) C))
       (is (not (v/ask? kb (list 'partOfRegion D A) C))))))
 
+(tu/deftest-kb an-entailed-region-part-answers-generic-parthood
+  ;; partOfRegion is below partOf and properPartOfRegion below properPartOf, so a region
+  ;; part the network entails is a parthood tuple too
+  (tu/with-terms [A B D]
+    (v/assert kb (list 'nonTangentialProperPart A B) C)
+    (v/assert kb (list 'nonTangentialProperPart B D) C)
+    (testing "ground"
+      (is (v/ask? kb (list 'partOf A D) C))
+      (is (v/ask? kb (list 'properPartOf A D) C))
+      (is (not (v/ask? kb (list 'properPartOf D A) C))))
+    (testing "open"
+      (is (= #{A B D} (set (map #(get % '?x) (v/ask kb (list 'partOf '?x D) C)))))
+      (is (= #{B D} (set (map #(get % '?y) (v/ask kb (list 'properPartOf A '?y) C))))))))
+
 (tu/deftest-kb a-region-cannot-stand-apart-from-itself
   (tu/with-terms [A B]
     ;; DC is its own converse, so the diagonal constraint is #{:dc}, non-empty, and

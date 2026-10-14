@@ -964,19 +964,45 @@
                :else
                (for [x ns y ns :when (and (not= x y) (holds? x y))] (answer x y))))))))))
 
+(defn- lifted-predicates
+  "The calculus predicates `goal`'s predicate sits above by `genl`, as `context` sees the
+  edges, when `goal` is a positive binary literal on a predicate the calculus does not
+  answer; else nil.  `(genl subintervalOf partOf)` makes every `subintervalOf` tuple a
+  `partOf` tuple, so a `partOf` goal lifts to `subintervalOf`."
+  [calc kb goal context]
+  (when (and (sequential? goal) (= 3 (count goal)))
+    (let [q (first goal)]
+      (when (and (symbol? q) (not (pvar? q)) (not= sx/not-functor q)
+                 (not (contains? (:predicates calc) q)))
+        ;; most predicates have no spec, so the one closure read answers them
+        (let [specs (tax/specs (reasoning/taxonomy kb) q context)]
+          (when (< 1 (count specs))
+            (seq (sort (filter #(contains? (:predicates calc) %) specs)))))))))
+
+(defn- answered-goals
+  "The calculus goals `goal` is answered by: `goal` itself when the calculus claims it,
+  else one `(P a b)` per calculus predicate P the goal's predicate lifts to."
+  [calc kb goal context]
+  (if (claimed-literal calc goal)
+    [goal]
+    (map #(list % (nth goal 1) (nth goal 2)) (lifted-predicates calc kb goal context))))
+
 (defrecord CalculusProver [calculus]
   prover-types/Prover
   ;; both polarities: `(P a b)` is claimed by entailment and `(not (P a b))` by
   ;; refutation, and a believed negative literal is itself read into the network as a
-  ;; constraint — so the goal and the fact meet in the same place.
-  (applicable? [_ _ goal _]
-    (some? (claimed-literal calculus goal)))
+  ;; constraint — so the goal and the fact meet in the same place.  A positive goal on a
+  ;; super-predicate of a calculus predicate is answered too, by lifting
+  ;; (`lifted-predicates`): an entailed tuple is a tuple of every predicate above its own.
+  (applicable? [_ kb goal context]
+    (or (some? (claimed-literal calculus goal))
+        (some? (lifted-predicates calculus kb goal context))))
   ;; O(1) reads and an upper bound: the node count bounds an open enumeration, and the number of
   ;; stored facts of this calculus bounds the node count.  That is a sum of O(1)
   ;; predicate-extent reads, where actually building the network is a query per predicate —
   ;; an estimate must not cost what it estimates.
   (est-bindings [_ kb goal _]
-    (let [[_ a b] (claimed-literal calculus goal)
+    (let [[_ a b] (or (claimed-literal calculus goal) goal)
           n (max 1 (reduce + (map #(reads/stored-count-with-functor (:index kb) %)
                                   (:predicates calculus))))]
       (cond (and (pvar? a) (pvar? b)) (* n n)
@@ -994,7 +1020,11 @@
   ;; What the network cannot read is a claim nobody stored — which is `sole-prover`'s
   ;; question rather than this one's, asked once of the goal instead of once per
   ;; claimant.
-  (completeness [_ _ _ _] 100)
+  ;;
+  ;; A lifted goal is one reader among several: the super-predicate has stored tuples and
+  ;; other specs the network does not read, so the answer augments theirs.
+  (completeness [_ _ goal _]
+    (if (claimed-literal calculus goal) 100 50))
   ;; A **variable** context means "in some context", and the answer to that is the
   ;; union of what the readers answer — not one read taken over the union of what they
   ;; see.  Those differ, and in the unsound direction: `(ntpp A B)` in one context and
@@ -1003,9 +1033,14 @@
   ;; entailed.  Every other prover reads a variable context as "any", and the fan is what
   ;; makes this one agree: each binding it yields is entailed for a reader that exists.
   (solve [_ kb goal context]
-    (if (pvar? context)
-      (distinct (mapcat #(solve-goal calculus kb goal %) (reader-contexts kb calculus)))
-      (solve-goal calculus kb goal context))))
+    (let [goals (answered-goals calculus kb goal context)
+          one   (fn [g]
+                  (if (pvar? context)
+                    (mapcat #(solve-goal calculus kb g %) (reader-contexts kb calculus))
+                    (solve-goal calculus kb g context)))]
+      (if (and (= 1 (count goals)) (not (pvar? context)))
+        (one (first goals))
+        (distinct (mapcat one goals))))))
 
 (defn prover
   "The entailment prover for `calc`, to register with `vaelii.core/add-prover`."
