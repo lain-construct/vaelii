@@ -1875,3 +1875,15 @@
     (doseq [p '[partOf tangiblePartOf partOfRegion subSituationOf]]
       (is (true? (v/has-prop? kb :reflexive p)) (str p " carries its own mark"))
       (is (true? (v/ask? kb (list p Wheel Wheel) 'CxUniverse)) (str p " holds of a thing and itself")))))
+
+(tu/deftest-kb a-proper-counterpart-needs-the-reverse-tuple-denied
+  ;; properCounterpart's generator: the proper tuple follows from a tuple and a believed
+  ;; denial of its reverse, never from the reverse tuple being absent.
+  (tu/with-terms [coversOf properCoversOf A B]
+    (v/assert kb (list 'properCounterpart coversOf properCoversOf) 'CxUniverse)
+    (v/assert kb (list coversOf A B) 'CxUniverse)
+    (is (not (v/ask? kb (list properCoversOf A B) 'CxUniverse))
+        "a reverse tuple nobody stated is not a reverse tuple denied")
+    (v/assert kb (list 'not (list coversOf B A)) 'CxUniverse)
+    (is (true? (v/ask? kb (list properCoversOf A B) 'CxUniverse))
+        "a tuple and its denied reverse make the proper tuple")))
