@@ -28,11 +28,11 @@
 ;;
 ;; Seven DERIVED relations each name a disjunction of them: precedes (before or meets) and
 ;; its converse precededBy, for an ordering that does not care whether the intervals
-;; touch; subintervalOf (during, starts, finishes or intervalEqual), properSubintervalOf
-;; (the same without intervalEqual) and hasSubinterval (its converse), for temporal
-;; containment; and the complementary pair sharesTimeWith (the nine relations under which
-;; two intervals share some time) and temporallyDisjoint (the four under which they do
-;; not).
+;; touch; subintervalOf (during, starts, finishes or intervalEqual) and properSubintervalOf
+;; (the same without intervalEqual) between time intervals, and hasSubinterval (the
+;; converse of subintervalOf) between any temporal things, for temporal containment; and
+;; the complementary pair sharesTimeWith (the nine relations under which two intervals
+;; share some time) and temporallyDisjoint (the four under which they do not).
 ;;
 ;; intervalEqual is a claim about extent in time, not about the identity of two terms, so
 ;; it is not the equality closure's equals: two distinct meetings can run start to finish
@@ -235,7 +235,7 @@
 (arg happens 2 time_point)
 
 (comment hasSubinterval
-         "(hasSubinterval ?interval1 ?interval2) means that ?interval2 falls within ?interval1, sharing an end, a start, or neither. Any of contains, startedBy, finishedBy or intervalEqual. The converse of subintervalOf.")
+         "(hasSubinterval ?interval1 ?interval2) means that ?interval2 falls within ?interval1, sharing an end, a start, or neither. Any of contains, startedBy, finishedBy or intervalEqual. Over two time intervals it is the converse of subintervalOf. It takes any two temporal things, as contains does.")
 (binary_predicate hasSubinterval)
 (set/monotonic (instance_relation_predicate hasSubinterval))
 (arg hasSubinterval 1 temporal)
