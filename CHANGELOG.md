@@ -177,6 +177,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **`partOf` between two tangibles is `tangiblePartOf`, and `partOf` is parthood of any
+  kind.** `tangiblePartOf` keeps both arguments `tangible`, its transitivity and partType's
+  `typeToInstancePred`. The new `partOf` is transitive and untyped in both positions, and
+  `tangiblePartOf`, `partOfRegion` and `subSituationOf` are below it by `genl`. A
+  `tangiblePartOf` fact answers `partOf`, and a `partOf` fact answers no `tangiblePartOf`.
+  CxMereology's two rules read `tangiblePartOf`. [glossary.md](docs/glossary.md).
+
+  *Class:* **Breaking** (KB vocabulary renamed).
+  *Migration:* write `tangiblePartOf` for a `partOf` fact, rule or declaration between
+  two tangibles; a query for any parthood keeps `partOf`.
+  *Breaks:* `partOf`
+
 - **`partitionedByType` is binary, `(partitionedByType ?whole ?classifier)`, and draws
   inference.** The members of `?classifier` partition `?whole`. A core.txt generator places
   each member under `?whole`, and a rule concludes `(disjoint_metatype ?classifier)`. No
@@ -212,6 +224,17 @@ it — `git show v0.16.0:CHANGELOG.md`.
   reaches `spatial` through `physical`. `implementationNote` is a
   sibling of `comment` for how a term is implemented, and 14 core.txt terms carry one.
   [taxonomy.md](docs/taxonomy.md), [glossary.md](docs/glossary.md).
+
+  *Class:* **Additive**.
+
+- **The upper ontology states `subSituationOf` and the 15 converse pairs of the spatial
+  calculi.** `(subSituationOf ?part ?whole)` relates two situations, is transitive, and is
+  below `partOf`. A part's time is within its whole's time, and the converse does not
+  hold; no rule concludes the containment yet, since no upper relation states one time
+  within another that covers an intermittent time. space.txt states each converse pair of
+  the RCC-8, cardinal and relative-direction calculi as `(set/inert (inverse P Q))`, so
+  each calculus prover still answers its goals alone. `space_test` pins the pairs against
+  each algebra's converse.
 
   *Class:* **Additive**.
 
