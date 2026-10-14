@@ -315,6 +315,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix**.
 
+- **`recover` skips the store-wide inherited-clash sweep in a store holding inert
+  facts.** The skip asked for a region at least the store's size, and an inert sentex
+  is never in a settle's region, so the 15 inert `inverse` facts in `space.txt` turned
+  each `recover` into a sweep over every membership. A region missing only inert
+  sentexes now counts as the whole store.
+
+  *Class:* **Fix**.
+
 ## 0.26.0 — 2026-10-13 — "Upper ontology loaded into CxUniverse with a sync to the shipped files, one relation length read at every context, the `forced_monotonic_predicate` roster scoped to its readers, `time` and `situation` restructured"
 
 | Area | Change |
