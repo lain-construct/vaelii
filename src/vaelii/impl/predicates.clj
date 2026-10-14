@@ -1643,6 +1643,17 @@
                 (str "generic rule generator (docs/generators.md): the core.txt generator"
                      " beside it stamps one membership rule per fact, and chain inference"
                      " concludes every member of the classifier orthogonal to the type"))]
+     ['properCounterpart
+      (enforced {:shape {:args [:term :term]} :storage [:none] :checked false
+                 :family nil :facets #{}
+                 :notes (str "enforced by the generic chain, not by name: a core.txt generator"
+                             " stamps, per pair, a rule concluding the proper tuple from a tuple and"
+                             " a believed denial of its reverse. The denial half is a rule stated"
+                             " once at a family's root. An inert fact stamps nothing, which is how"
+                             " the calculus-owned pairs are recorded.")}
+                (str "generic rule generator (docs/generators.md): each pair's definition,"
+                     " (?proper x y) from (?pred x y) and not (?pred y x), is stamped as a"
+                     " forward rule"))]
      ['orthogonalMetatypes
       (enforced {:shape {:args [:type :type] :variadic :type} :storage [:none] :checked false
                  :family nil :facets #{}

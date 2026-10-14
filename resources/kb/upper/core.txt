@@ -2215,6 +2215,23 @@
 (arg typeToInstancePred 1 type_relation_predicate)
 (arg typeToInstancePred 2 instance_relation_predicate)
 
+;; properCounterpart pairs a relation with its proper reading.  A generator stamps the
+;; definition for each pair: the proper tuple from a tuple and a stated or proved denial of
+;; its reverse.  An `unknown` there would read an absent reverse tuple as a false one.  The
+;; other half of the contract — the proper relation below the plain one, and the proper
+;; tuple denying the reverse plain one — is a genl and a rule stated beside the pair.  A
+;; family of pairs needs that rule once, at its root: a proper tuple of a spec is a proper
+;; tuple of the root, and a denial of the root's tuple denies each spec's.
+(comment properCounterpart
+         "(properCounterpart ?predicate ?properPredicate) means that ?properPredicate is the proper reading of ?predicate: (?properPredicate x y) holds exactly when (?predicate x y) holds and (?predicate y x) does not. Declared of partOf and properPartOf, for instance. A reverse tuple nobody stated is not a reverse tuple denied, so the proper tuple needs (not (?predicate y x)) believed and is not concluded from the absence of (?predicate y x).")
+(implementationNote properCounterpart "A generator stamps the definition half of the contract per pair. The other half, the proper tuple denying the reverse plain one, is a rule stated once at the root of a family of pairs, since stamping it per pair would repeat what the root's rule already concludes through genl.")
+(binary_predicate properCounterpart)
+(set/monotonic (instance_relation_predicate properCounterpart))
+(arg properCounterpart 1 binary_predicate)
+(arg properCounterpart 2 binary_predicate)
+(implies (properCounterpart ?pred ?proper)
+         (set/forwardRule (implies (and (?pred ?x ?y) (not (?pred ?y ?x))) (?proper ?x ?y))))
+
 (comment unary_predicate      "A predicate of one argument: every type (a snake_case unary predicate) and every one-place property.")
 (positiveExampleComment unary_predicate "flies, a one-place property")
 (set/monotonic (genl unary_predicate unary))
