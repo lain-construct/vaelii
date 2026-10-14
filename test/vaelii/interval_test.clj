@@ -280,6 +280,27 @@
       (is (contains? (answers kb (list 'subintervalOf '?x T2) '?x) T1))
       (is (= #{T2} (answers kb (list 'properSubintervalOf T1 '?y) '?y))))))
 
+(tu/deftest-kb an-entailed-containment-answers-generic-parthood
+  ;; subintervalOf is below partOf and properSubintervalOf below properPartOf, so a
+  ;; containment the network entails is a parthood tuple too
+  (tu/with-terms [A B S1 S2]
+    (v/assert kb (list 'time_interval A) C)
+    (v/assert kb (list 'time_interval B) C)
+    (v/assert kb (list 'during A B) C)
+    (v/assert kb (list 'situation S1) C)
+    (v/assert kb (list 'situation S2) C)
+    (v/assert kb (list 'during S1 S2) C)
+    (testing "ground"
+      (is (v/ask? kb (list 'partOf A B) C))
+      (is (v/ask? kb (list 'properPartOf A B) C))
+      (is (not (v/ask? kb (list 'properPartOf B A) C))))
+    (testing "open"
+      (is (contains? (answers kb (list 'partOf '?x B) '?x) A))
+      (is (= #{B} (answers kb (list 'properPartOf A '?y) '?y))))
+    (testing "the parthood reading keeps the containment's domain"
+      (is (not (v/ask? kb (list 'partOf S1 S2) C)))
+      (is (not (v/ask? kb (list 'properPartOf S1 S2) C))))))
+
 ;; ---- what the algebra leaves open ---------------------------------------
 
 (tu/deftest-kb possible-relations-reports-exactly-what-is-left

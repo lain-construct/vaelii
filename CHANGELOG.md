@@ -303,6 +303,15 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix**.
 
+- **A containment or region part a calculus entails answers `partOf` and
+  `properPartOf`.** A calculus prover lifts a positive goal on a super-predicate of one
+  of its predicates to that predicate, and answers it beside the stored tuples. Time
+  intervals A and B with `(during A B)` answered `subintervalOf` and not `partOf`, since
+  the `genl` edge reached only stored tuples. `partOfRegion` and `properPartOfRegion`
+  lift the same way. [glossary.md](docs/glossary.md).
+
+  *Class:* **Fix**.
+
 ### Fixes: order independence
 
 - **An inert fact draws no argument type on any sweep.** An inert fact asserted after
