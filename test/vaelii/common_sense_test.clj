@@ -492,7 +492,7 @@
   (testing "so the ownership rule reaches the parts written beside it"
     (is (seq (v/sentexes-matching kb '(owns Tom Chimney1) S))))
   (testing "and not the parts written in the sibling theory"
-    (is (seq (v/sentexes-matching kb '(partOf Engine1 Car1) N)))
+    (is (seq (v/sentexes-matching kb '(tangiblePartOf Engine1 Car1) N)))
     (is (empty? (v/sentexes-matching kb '(owns Tom Engine1) '?ctx))))
   (testing "a context sees up its own ancestor set and no further"
     (is (v/sees? kb N 'CxBiology))

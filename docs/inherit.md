@@ -38,12 +38,12 @@ in each of its scenarios — and under `transitiveInArg` a claim about a narrow 
 reaches the ones above it.
 
 Naming the relation is what keeps this from being a `genl` special case. An argument can
-be preserved along `partOf` just as readily:
+be preserved along `tangiblePartOf` just as readily:
 
 ```clojure
-(transitive partOf)
-(partOf Engine Car)  (partOf Piston Engine)
-(transitiveInArgInverse needs_maintenance 1 partOf)
+(transitive tangiblePartOf)
+(tangiblePartOf Engine Car)  (tangiblePartOf Piston Engine)
+(transitiveInArgInverse needs_maintenance 1 tangiblePartOf)
 (needs_maintenance Car)
 ;; => (needs_maintenance Piston)   two hops, no types involved
 ```
@@ -180,7 +180,7 @@ unmarked, which `relation_kind`'s own comment says of `result` and
 `functionCorrespondingPredicate`. `hasCapability` is the third: one animal, one event
 kind. So `capabilityType`/`hasCapability` are named as a pair in their comments and not by
 the predicate that exists to name pairs — declaring the mark to satisfy it would trade an
-argument check that convicts for a link nothing reads. `partType`/`partOf` is the pair the
+argument check that convicts for a link nothing reads. `partType`/`tangiblePartOf` is the pair the
 link does state, both halves relating individuals to individuals.
 
 ## Specificity, and why it is not the deleted axis
