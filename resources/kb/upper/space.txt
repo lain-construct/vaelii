@@ -169,6 +169,7 @@
 (set/monotonic (instance_relation_predicate hasRegionPart))
 (arg hasRegionPart 1 spatial)
 (arg hasRegionPart 2 spatial)
+(set/inert (genlInverse hasRegionPart partOf))
 
 (comment inFrontOf
          "(inFrontOf ?object ?reference) means that ?object lies directly in front of ?reference. Forward on the front-back axis and level on the left-right one, in the frame of reference the context is.")
@@ -223,6 +224,7 @@
 (set/monotonic (instance_relation_predicate nonTangentialProperPartInverse))
 (arg nonTangentialProperPartInverse 1 spatial)
 (arg nonTangentialProperPartInverse 2 spatial)
+(set/inert (genlInverse nonTangentialProperPartInverse partOf))
 
 (comment northeastOf
          "(northeastOf ?place1 ?place2) means that ?place1 lies north and east of ?place2. Both axes at once, so it is the strongest thing a single direction fact can say.")
@@ -382,6 +384,7 @@
 (set/monotonic (instance_relation_predicate spatiallyEqual))
 (arg spatiallyEqual 1 spatial)
 (arg spatiallyEqual 2 spatial)
+(set/inert (genl spatiallyEqual partOfRegion))
 
 (comment tangentialProperPart
          "(tangentialProperPart ?region1 ?region2) means that ?region1 lies inside ?region2 and touches its boundary. RCC-8's TPP, a base relation.")
@@ -398,6 +401,7 @@
 (set/monotonic (instance_relation_predicate tangentialProperPartInverse))
 (arg tangentialProperPartInverse 1 spatial)
 (arg tangentialProperPartInverse 2 spatial)
+(set/inert (genlInverse tangentialProperPartInverse partOf))
 
 (comment veryCloseTo
          "(veryCloseTo ?thing1 ?thing2) means that ?thing1 and ?thing2 are very close together. The nearest class of the distance chain above zero. The seven classes tile the whole range without overlapping, so exactly one of them holds of any pair.")
