@@ -85,7 +85,10 @@ it — `git show v0.16.0:CHANGELOG.md`.
   within another that covers an intermittent time. space.txt states each converse pair of
   the RCC-8, cardinal and relative-direction calculi as `(set/inert (inverse P Q))`, so
   each calculus prover still answers its goals alone. `space_test` pins the pairs against
-  each algebra's converse.
+  each algebra's converse. space.txt also states `(genl spatiallyEqual partOfRegion)` and
+  `(genlInverse P partOf)` for `hasRegionPart`, `tangentialProperPartInverse` and
+  `nonTangentialProperPartInverse` under `set/inert`. RCC-8 entails each of the four
+  edges, and `space_test` pins that entailment.
 
   *Class:* **Additive**.
 
