@@ -3964,6 +3964,58 @@
   (when (and (some #(= super %) (adj sub)) (admit? [sub super]))
     (when-let [w (witness [sub super])] [w])))
 
+(defn- reach-support*
+  "`reach-support`'s walk.  The six- and seven-argument arities call it directly rather
+  than one another through the var, so a walk is one call to either of them."
+  [tax rel-key sub super context supporter-class thresholds]
+  (if (= sub super)
+    []
+    (let [t   @tax
+          rel (get t rel-key)
+          scope (relation-scope tax rel-key context)
+          ;; nil `vis` is the unscoped walk — every asserting context is visible, so
+          ;; the plain adjacency *is* the visible one, exactly as in `genls`
+          adj (if (nil? scope) #(get (:fwd rel) %) #(visible-neighbours t rel-key :fwd scope %))
+          ;; `nm/print-key` keeps a node that is not a symbol (a NAT) sortable, and
+          ;; prints it with the bounds released — a bare `str` would let an ambient
+          ;; `*print-length*` elide two nested nodes to one prefix and expand the
+          ;; adjacency in the set's own order, which is what the witness path (and so a
+          ;; justification's antecedents) would then rest on.  Built once per adjacency,
+          ;; and a node with 0/1 neighbour — common in a sparse relation — sorts nothing
+          nbrs (fn [n] (pass-held [::sorted rel-key scope n]
+                                  #(nm/sort-by-content-key nm/print-key compare (adj n))))
+          ;; the walk enters only types above `sub` under any scope, since a scoped
+          ;; adjacency is a subset of the global one, and every type on a path from one
+          ;; of them to `super` is above `sub` too: a walk down from `super` through
+          ;; `sub`'s global ancestors enters exactly those with a path to `super`, and
+          ;; it is held by this call alone
+          reaches? (delay (let [up      (closure-of tax rel-key :fwd sub)
+                                between (closure-while tax rel-key :rev super #(contains? up %))]
+                            #(contains? between %)))
+          direct #(direct-witness adj sub super %1 %2)]
+      ;; a walk from a source with no edge it sees finds no path
+      (cond
+        (empty? (adj sub))     nil
+        (nil? supporter-class)
+        (let [witness #(edge-supporter tax t rel-key % scope)]
+          (or (direct (fn [_] true) witness)
+              (bfs-witness-path sub super nbrs (fn [_] true) witness reaches?)))
+        :else
+        ;; each edge's class read once for both thresholds
+        (let [ranks (java.util.HashMap.)
+              rank  (fn [e]
+                      (or (.get ranks e)
+                          (let [r (strength/rank-of (edge-class t rel-key e scope supporter-class))]
+                            (.put ranks e r)
+                            r)))
+              admit (fn [threshold] (fn [e] (>= (long (rank e)) (long (strength/rank-of threshold)))))
+              witness #(strongest-edge-supporter tax t rel-key % scope supporter-class)]
+          ;; the first threshold's walk is the one an edge straight to `super` ends
+          (or (direct (admit :monotonic) witness)
+              (some (fn [threshold]
+                      (bfs-witness-path sub super nbrs (admit threshold) witness reaches?))
+                    thresholds)))))))
+
 (defn reach-support
   "A witness for `sub →* super` in relation `rel-key`, as the `[handle ctx]` of one
   supporter per edge along a single path — or nil when `context` sees no such path.
@@ -3994,55 +4046,9 @@
   (`monotonic-route-witness`)."
   ([tax rel-key sub super context] (reach-support tax rel-key sub super context nil))
   ([tax rel-key sub super context supporter-class]
-   (reach-support tax rel-key sub super context supporter-class [:monotonic :default]))
+   (reach-support* tax rel-key sub super context supporter-class [:monotonic :default]))
   ([tax rel-key sub super context supporter-class thresholds]
-   (if (= sub super)
-     []
-     (let [t   @tax
-           rel (get t rel-key)
-           scope (relation-scope tax rel-key context)
-           ;; nil `vis` is the unscoped walk — every asserting context is visible, so
-           ;; the plain adjacency *is* the visible one, exactly as in `genls`
-           adj (if (nil? scope) #(get (:fwd rel) %) #(visible-neighbours t rel-key :fwd scope %))
-           ;; `nm/print-key` keeps a node that is not a symbol (a NAT) sortable, and
-           ;; prints it with the bounds released — a bare `str` would let an ambient
-           ;; `*print-length*` elide two nested nodes to one prefix and expand the
-           ;; adjacency in the set's own order, which is what the witness path (and so a
-           ;; justification's antecedents) would then rest on.  Built once per adjacency,
-           ;; and a node with 0/1 neighbour — common in a sparse relation — sorts nothing
-           nbrs (fn [n] (pass-held [::sorted rel-key scope n]
-                                   #(nm/sort-by-content-key nm/print-key compare (adj n))))
-           ;; the walk enters only types above `sub` under any scope, since a scoped
-           ;; adjacency is a subset of the global one, and every type on a path from one
-           ;; of them to `super` is above `sub` too: a walk down from `super` through
-           ;; `sub`'s global ancestors enters exactly those with a path to `super`, and
-           ;; it is held by this call alone
-           reaches? (delay (let [up      (closure-of tax rel-key :fwd sub)
-                                 between (closure-while tax rel-key :rev super #(contains? up %))]
-                             #(contains? between %)))
-           direct #(direct-witness adj sub super %1 %2)]
-       ;; a walk from a source with no edge it sees finds no path
-       (cond
-         (empty? (adj sub))     nil
-         (nil? supporter-class)
-         (let [witness #(edge-supporter tax t rel-key % scope)]
-           (or (direct (fn [_] true) witness)
-               (bfs-witness-path sub super nbrs (fn [_] true) witness reaches?)))
-         :else
-         ;; each edge's class read once for both thresholds
-         (let [ranks (java.util.HashMap.)
-               rank  (fn [e]
-                       (or (.get ranks e)
-                           (let [r (strength/rank-of (edge-class t rel-key e scope supporter-class))]
-                             (.put ranks e r)
-                             r)))
-               admit (fn [threshold] (fn [e] (>= (long (rank e)) (long (strength/rank-of threshold)))))
-               witness #(strongest-edge-supporter tax t rel-key % scope supporter-class)]
-           ;; the first threshold's walk is the one an edge straight to `super` ends
-           (or (direct (admit :monotonic) witness)
-               (some (fn [threshold]
-                       (bfs-witness-path sub super nbrs (admit threshold) witness reaches?))
-                     thresholds))))))))
+   (reach-support* tax rel-key sub super context supporter-class thresholds)))
 
 (defn context-specificity
   "How specific context `c` is, as the size of its `genlCx` ancestor set; 0 for a supporter
