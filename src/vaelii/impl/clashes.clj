@@ -220,7 +220,8 @@
 (defn clash-grounds
   "The declarations report `r` convicts through, as `{:handle :sentence :context}` maps in
   content order: the believed supporters of the flat-cache entries its conviction reads
-  (`ground-keys`) that one of its vantages sees, or the whole KB for a report weighed at
+  (`ground-keys`, and `separated-cover-keys` for a cover refuted through a separation's
+  denial) that one of its vantages sees, or the whole KB for a report weighed at
   none; for an arity clash, the grounds it is placed through at each vantage
   (`placed-grounds`).  No `genl` edge is named; an edge an argument declaration minted is
   named by the sentence it was minted from.  Empty for a rebuttal and an `:inherited`

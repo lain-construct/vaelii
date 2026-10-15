@@ -3725,8 +3725,9 @@
 (deftest a-cover-a-separation-denies-every-part-of-is-one-nogood-in-every-order
   ;; https://github.com/vaelii/vaelii/issues/183: `(covering ww aa bb)` with `(ww Ex)`, and
   ;; each part denied by a membership in a type separated from it.  The settle places the
-  ;; cover nogood over the three memberships, so `contradictions` lists what `argue`
-  ;; reads as a contradiction, in all 720 orders, and each write is needed for it.
+  ;; cover nogood over the three memberships, so `contradictions` lists the nogood
+  ;; behind `argue`'s `:contradiction` on a part, in all 720 orders, and each write is
+  ;; needed for it.
   (tu/with-terms [ww aa bb ss tt Ex]
     (let [observe (fn [kb]
                     {:clashes (into #{} (map (fn [r] [(:kind r) (set (map :sentence (:sides r)))]))
