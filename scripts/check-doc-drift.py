@@ -1353,7 +1353,7 @@ E16_GLOBAL_ROSTER = {
     ("src/vaelii/impl/special.clj", "transitive-left-ends"),
     ("src/vaelii/impl/abduce.clj", "edge-handles"),
     ("src/vaelii/impl/clashes.clj", "believed-at-arg1"),
-    ("src/vaelii/impl/kb.clj", "type-memberships"),
+    ("src/vaelii/impl/resolution.clj", "type-memberships"),
     ("src/vaelii/impl/decide/membership.clj", "term-entries"),
 }
 E16_GLOBAL_CALL = re.compile(r"\breads/([\w?!*-]+-global)(?![\w?-])")

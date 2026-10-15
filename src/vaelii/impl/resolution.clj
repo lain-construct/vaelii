@@ -2343,6 +2343,51 @@
 
 ;; ---- whose declarations bind a tuple ------------------------------------
 
+(defn type-memberships
+  "The membership sentexes `(T x)` of term `x` that `kb/types-of` reads its types off, as
+  records: believed, asserted in a context `context` sees, and not hidden from it by an
+  `except` (default: any context, each membership read at its own).  A caller that names
+  the membership a type rests on reads this; `kb/types-of` is its functors.
+
+  The same three filters `matches-visible` applies, since this *is* the retrieval
+  `isa?` and the disjointness check are built on and the two must not disagree about
+  what the KB holds.  A negative membership is excluded by the argument test rather than
+  by a truth filter — a `(not (T x))` sentex has `not` for its functor and `(T x)` for
+  its lone argument, so it is not a unary sentence *about* `x` at all."
+  ([kb x] (type-memberships kb x '?ctx))
+  ([kb x context]
+   (let [recs     (:records kb)
+         tms      (reasoning/tms kb)
+         visible? (if (sx/variable? context)
+                    (constantly true)
+                    (let [up (tax/context-up (reasoning/taxonomy kb) context)] #(contains? up %)))
+         ;; a read with no reader reads each membership at its own context
+         hidden?  (or (if (sx/variable? context) (exc/own-hidden-fn kb) (exc/hidden-fn kb context))
+                      (constantly false))]
+     ;; the unary roster goes straight to the sentexes holding x as their LONE
+     ;; argument, instead of every sentex mentioning x anywhere (any position, any
+     ;; nesting) or even every one holding it at argument 1 — this runs on every unary
+     ;; assert, via disjoint-problem, and a term at argument 1 of n binary facts cost n
+     ;; record fetches here to find the handful of types it holds
+     ;; (`reads/as-stored-unary-with-arg-global`).  The read is a superset, so the arity and
+     ;; argument tests below decide the answer.
+     ;;
+     ;; The filters are one `keep` rather than a stack of threaded stages: every
+     ;; definitional check bottoms out here, the postings are short, and a chain of
+     ;; six `filter`/`map` stages allocates six conses per entry to do a few field
+     ;; reads.  Lazy, so a caller looking for one type does not pay for a long posting
+     ;; — which is also why this is not a transducer: at these lengths `sequence` spends
+     ;; more on building the pipeline than the pipeline saves.
+     (->> (reads/as-stored-unary-with-arg-global (:index kb) x)
+          (keep (fn [h]
+                  (when-not (hidden? h)
+                    (when-let [s (p/get-sentex recs h)]
+                      (when (and (jtms/in? tms (:id s))      ; believed memberships only
+                                 (visible? (:context s)))
+                        (let [sen (:sentence s)]
+                          (when (and (= 1 (nm/arity sen)) (= x (first (nm/args sen))))
+                            s)))))))))))
+
 (defn constraining-predicates
   "The predicates whose argument declarations of kind `kind` bind a `pred` tuple —
   `pred` itself first, then every super-predicate of it `context` can see that some

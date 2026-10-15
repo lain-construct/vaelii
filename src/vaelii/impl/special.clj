@@ -1870,7 +1870,7 @@
           []
           (into []
                 (for [x terms
-                      m (kb/type-memberships kb x)
+                      m (res/type-memberships kb x)
                       :let [t' (nm/functor (:sentence m))]
                       r (if (= t' t) [[]] (tax/general-reach-supports tax :genl t' t nil))]
                   (into [[(:id m) (:context m)]] r))))))))

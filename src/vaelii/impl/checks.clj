@@ -403,7 +403,7 @@
                             (concat (mapv first (tax/reach-support tax :genl t' t context))
                                     (visibility-support kb (:id m) context)))))))
           (sort-by (juxt #(nm/name-key (nm/functor (:sentence %))) #(nm/name-key (:context %)))
-                   (kb/type-memberships kb x context)))))
+                   (res/type-memberships kb x context)))))
 
 (defn- outside-declared-type?
   "Does `arg` fail the `(arg P n t)` demand, as seen from `context`?
