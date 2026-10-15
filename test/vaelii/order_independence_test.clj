@@ -3742,3 +3742,27 @@
               :aa      :contradiction}
              outcome))))
   (tu/clear-kb! (tu/test-kb)))
+
+(deftest a-separation-s-denial-re-checks-a-negated-condition-in-every-order
+  ;; https://github.com/vaelii/vaelii/issues/183: `(qc Xy)` with `(disjoint qc qb)` answers
+  ;; `(not (qb Xy))`, so a rule blocked by that denial, through an `unknown` antecedent or
+  ;; an `exceptWhen`, holds no firing for `Xy` whichever write comes last: the membership,
+  ;; the separation or the rule.
+  (doseq [[label rule] [["unknown" '(set/forwardRule
+                                     (implies (and (qa ?x) (unknown (not (qb ?x)))) (flagged ?x)))]
+                        ["exceptWhen" '(exceptWhen (not (qb ?x))
+                                                   (set/forwardRule (implies (qa ?x) (flagged ?x))))]]]
+    (testing label
+      (tu/with-terms [qa qb qc flagged Xy]
+        (let [rule    (walk/postwalk-replace {'qa qa 'qb qb 'flagged flagged} rule)
+              observe (fn [kb] {:flagged (v/ask? kb (list flagged Xy) 'CxUniverse)})]
+          (is (= {:flagged false}
+                 (one-outcome! (str label ": a separation's denial blocks the firing")
+                               (mapv assert-op [rule (list 'disjoint qc qb) (list qa Xy)
+                                                (list qc Xy)])
+                               observe)))
+          (is (= {:flagged true}
+                 (one-outcome! (str label ": no membership denies, so the rule fires")
+                               (mapv assert-op [rule (list 'disjoint qc qb) (list qa Xy)])
+                               observe)))))))
+  (tu/clear-kb! (tu/test-kb)))

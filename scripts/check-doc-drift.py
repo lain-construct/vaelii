@@ -1618,6 +1618,8 @@ E17_ROSTER = {
     ("src/vaelii/impl/inherit.clj", "stated-claims"),
     ("src/vaelii/impl/recheck.clj", "cross-argument-predicate?"),
     ("src/vaelii/impl/rules.clj", "closed-extent-declared?"),
+    ("src/vaelii/impl/rules.clj", "separation-denial-predicates"),
+    ("src/vaelii/impl/special.clj", "repost-separation-denial-rules"),
     ("src/vaelii/impl/special.clj", "licensing-functors"),
     ("src/vaelii/impl/special.clj", "transitive-seeds"),
     ("src/vaelii/impl/special.clj", "transitive-rule-seeds"),
