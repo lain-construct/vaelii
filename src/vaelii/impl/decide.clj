@@ -171,6 +171,20 @@
         (and (next literal) (every? predicate-spelled? (rest literal)))
         (merge (declarations tax :forced-between-predicates f))))))
 
+(defn literal-roster
+  "How `literal` is on the roster over every reader (`roster-literal?`), or nil when it is
+  not: `{:predicate f :kind k :global? g :declarations {handle context}}`.  `kind` is the
+  roster property `f` carries, `global?` whether `baseline-roster` holds it, and
+  `declarations` the stored declarations giving it, a `global?` member's included."
+  [tax literal]
+  (when (roster-literal? tax literal)
+    (let [f    (nm/functor literal)
+          kind (if (on-roster? tax :forced-monotonic f) :forced-monotonic :forced-between-predicates)]
+      {:predicate    f
+       :kind         kind
+       :global?      (global? tax kind f)
+       :declarations (or (declarations tax kind f) {})})))
+
 (defn note-candidate!
   "Keep `:nogood-candidates` in step with the fact `sx` arriving (`stored?` true) or
   leaving.  Runs at the store primitive and the removal choke point, after the index

@@ -900,8 +900,9 @@
             (term-text view t seen)])))
 
 (def ^:private in-cx
-  "The word between a sentence and the context it holds in."
-  [:span.cx-in " in "])
+  "The word between a sentence and the context it holds in.  The space after it is a
+  no-break space, so a line never ends between `in` and the context."
+  [:span.cx-in " in "])
 
 (def ^:private rb-depths
   "How many steps the paren colours count along the spectrum before repeating —
@@ -918,9 +919,20 @@
   A sentence is a tree printed as a line, and the parens are the only thing that says
   where a subterm ends — `(implies (and (weightOf ?x ?wx) …` is three opening parens
   before the first argument.  Every subterm here is already coloured by its role, and the
-  paren colour is what gives the nesting a colour of its own."
-  [depth s]
-  [:span {:class (str "rb" (inc (mod depth rb-depths)))} s])
+  paren colour is what gives the nesting a colour of its own.  With `href`, the paren is a
+  link there, in the same colour."
+  ([depth s]
+   [:span {:class (str "rb" (inc (mod depth rb-depths)))} s])
+  ([depth s href]
+   [:a {:class (str "rb" (inc (mod depth rb-depths))) :href href :title "the term itself"} s]))
+
+(defn- term-compound?
+  "Is `form` a ground compound term, a structural NAT: its functor is spelled as a function
+  or a context (CapitalCamelCase), which no literal is headed by.  Its open paren links to
+  its term page, as a reified term's does (`nat-ref`)."
+  [form]
+  (and (#{:individual :context} (v/term-role (first form)))
+       (not-any? #(= :variable (v/term-role %)) (tree-seq sequential? seq form))))
 
 (defn- sentex-reference
   "The id a `(sentexHandle N)` subterm names, or nil for any other form.
@@ -1018,12 +1030,12 @@
                    (and (term-shaped? tok) (known? (symbol tok)))
                    [(term-link view (symbol tok) seen) b]
                    :else [tok b]))]
-    (loop [pos 0, out [:span.sx.t-str "\""]]
+    (loop [pos 0, out [:span.str-text]]
       (if (and (< pos (count s)) (.find m (int pos)))
         (let [a (.start m)
               [el end] (token a (.end m) (.group m))]
           (recur (long end) (conj out (subs s pos a) el)))
-        (conj out (subs s pos) "\"")))))
+        [:span.sx.t-str "\"" (conj out (subs s pos)) "\""]))))
 
 (defn- layout
   "`[element multi-line?]` for `form`, its first character `col` characters from the left
@@ -1063,7 +1075,9 @@
                       (rest form))
           multi (boolean (or rule? conn? (some second args)))
           sep   (if multi (str "\n" (apply str (repeat k \space))) " ")]
-      [[:span.sx (paren depth "(")
+      [[:span.sx (if (term-compound? form)
+                   (paren depth "(" (str "/term?q=" (url-enc (pr-str form))))
+                   (paren depth "("))
         (first (layout view f seen (inc col) (inc depth) false))
         (when (seq args) " ")
         (interpose sep (map first args))
@@ -1071,7 +1085,9 @@
        multi])
 
     (sequential? form) [[:span.sx (paren depth "(") (paren depth ")")] false]
-    (string? form)     [[:span.sx.t-str (pr-str form)] false]
+    (string? form)     (let [q (pr-str form)]
+                         [[:span.sx.t-str "\"" [:span.str-text (subs q 1 (dec (count q)))] "\""]
+                          false])
     :else              [(term-link view form seen) false]))
 
 (defn render-form
@@ -1167,6 +1183,13 @@
     [:a.badge-link {:href (str "/sentex/" h) :title label}
      [:span {:class (str/join " " classes)}]]))
 
+(defn- belief-span
+  "`content` in a span classed by whether sentex `h` is believed: `.sx-in` or `.sx-out`,
+  which set how much of its colour each sentence part keeps (`--lit`, vaelii.css).  Each
+  nested sentex sets its own, so an IN sentence inside an OUT meta-sentex reads as IN."
+  [view h & content]
+  [:span {:class (if (believed? view h) "sx-in" "sx-out")} content])
+
 (defn- sentex-ref
   "A colour-coded handle badge (see `badge`) placed BEFORE the sentence, then the
   sentence rendered with individually-linked subterms.  It takes the **record**, which
@@ -1177,7 +1200,7 @@
   `(sentexHandle N)` subterm cannot expand its way back to the one it came from."
   ([view s] (sentex-ref view s #{}))
   ([view s seen]
-   [:span (badge view s) (render-form view (readable s) seen)]))
+   (belief-span view (:id s) (badge view s) (render-form view (readable s) seen))))
 
 (defn- handle-layout
   "`layout`'s arm for a `(sentexHandle N)` subterm: the badge and the sentence `h` holds,
@@ -1185,7 +1208,7 @@
   [{:keys [kb] :as view} h seen col]
   (if-let [s (v/sentex kb h)]
     (let [[e multi?] (layout view (readable s) seen (+ col badge-cols) 0 false)]
-      [[:span (badge view s) e] multi?])
+      [(belief-span view h (badge view s) e) multi?])
     [[:span.muted "#" h " (gone)"] false]))
 
 (defn- handle-ref
@@ -1225,30 +1248,38 @@
                     :hx-target "#editor" :hx-select "unset" :hx-swap "innerHTML"
                     :aria-label label} "edit"])
 
-(defn- sentex-row
-  "One sentex row: the handle badge, the sentence, its context, and the control that
-  opens the editor on it.  `data-h` is what an out-of-band swap addresses after a save,
-  so a row can be replaced where it sits.
-
-  The row carries no selection state and no script.  A sentence is text a reader copies,
-  so a press-drag across it selects that text; editing is the row's own `[edit]`.
+(defn- sentex-line
+  "The content of an `.sx-item`: the badge of `s`, then its sentence in its context, dimmed
+  by belief (`belief-span`), with `after` behind the context.
 
   **The badge and the sentence are two boxes, not one run of inline content.**  A rule is
   laid out with newlines (`layout`), and a newline in inline content returns to the
   left edge of the *row* — so every line after the first would start under the badge
-  rather than under `(implies`, and the context and `[edit]` after the sentence would ride
-  up beside its first line.  The sentence gets its own block, and the indent and the
-  trailing context both count from where the sentence starts."
+  rather than under `(implies`, and the context after the sentence would ride up beside
+  its first line.  The sentence gets its own block, and the indent and the trailing
+  context both count from where the sentence starts."
+  [view s & after]
+  (list (badge view s)
+        [:span.sx-body
+         (belief-span view (:id s)
+                      (render-form view (readable s)) in-cx (term-link view (:context s)))
+         after]))
+
+(defn- sentex-row
+  "One sentex row (`sentex-line`), and the control that opens the editor on it.
+  `data-h` is what an out-of-band swap addresses after a save, so a row can be replaced
+  where it sits.
+
+  The row carries no selection state and no script.  A sentence is text a reader copies,
+  so a press-drag across it selects that text; editing is the row's own `[edit]`."
   [view s]
   [:li {:data-h (:id s) :class "sx-item"}
-   (badge view s)
-   [:span.sx-body
-    (render-form view (readable s)) in-cx (term-link view (:context s))
-    ;; the handle badge dims an OUT row; the reason pill says WHY it is out
-    ;; (superseded / defeated / unsupported) — shown only when not believed, so a
-    ;; believed row stays clean.  Its proof is a click away on the sentex page.
-    (when-not (believed? view (:id s)) (list " " (state-tag view (:id s))))
-    " " (edit-link (str "handles=" (:id s)) (str "edit sentex " (:id s)))]])
+   (sentex-line view s
+                ;; the reason pill says WHY a row is OUT (superseded / defeated /
+                ;; unsupported) — shown only when not believed, so a believed row stays
+                ;; clean.  Its proof is a click away on the sentex page.
+                (when-not (believed? view (:id s)) (list " " (state-tag view (:id s))))
+                " " (edit-link (str "handles=" (:id s)) (str "edit sentex " (:id s))))])
 
 (defn- sx-list
   "A list of sentex rows, labelled for a reader who arrives at it out of context."
@@ -1322,6 +1353,26 @@
    [:h2.panel-title "Browsed"]
    [:div.history-body]])
 
+(def ^:private history-cap
+  "The most entries one history row holds: vaelii.js's `HISTORY_CAP`."
+  50)
+
+(defn- history-literals
+  "The `Literals` row of the browsing history, each of the handles `hs` in the order given
+  as a `handle-ref` (its badge, its colours, its belief now) with its remove button.  The
+  server renders it because vaelii.js keeps only the handle of a visited literal and
+  builds no markup from localStorage."
+  [view hs]
+  (let [hs (take history-cap hs)]
+    (prime-belief! view hs)
+    (frag (for [h hs]
+            [:span.history-item
+             (handle-ref view h)
+             [:button.history-x {:type       "button"
+                                 :aria-label (str "remove sentex " h " from the history")
+                                 :data-kind  "literal"
+                                 :data-href  (str "/sentex/" h)} "×"]]))))
+
 (defn- sentex-list [view sentexes]
   (let [ss (sort-by :id sentexes)]
     (prime-belief! view (map :id ss))
@@ -1367,7 +1418,7 @@
   the missing antecedents of an unsupported one.  Nothing for a believed sentex — its
   proof is the \"Supported by\" section."
   [{:keys [kb] :as view} h]
-  (let [{:keys [reason superseded-by contradicted-by grounds support]} (v/why-not kb h)]
+  (let [{:keys [reason superseded-by contradicted-by grounds denies support]} (v/why-not kb h)]
     (case reason
       :superseded
       [:div.belief
@@ -1392,6 +1443,25 @@
                  in-cx (term-link view (:context g))])])
        (when (and (empty? contradicted-by) (empty? grounds))
          [:p.muted "the winning sentex has since been retracted; nothing contradicts it now."])]
+      :inert
+      [:div.belief
+       [:p [:b "Inert"] " — held OUT by the labeller before any contest: it is never "
+        "believed, forms no nogood and fires no rule."]
+       (when-let [{:keys [sentence handle believed? roster]} denies]
+         (let [{:keys [predicate kind global? declarations]} roster]
+           (list
+            [:p "It denies " (if handle (handle-ref view handle) (render-form view sentence))
+             (cond believed? ", which this context believes."
+                   handle    ", which is stored in this context and not believed."
+                   :else     ", which is not stored in this context.")]
+            (when roster
+              [:p (term-link view predicate) " is on the forced-monotonic roster"
+               (when (= :forced-between-predicates kind) " between predicates")
+               (if global? ", which every KB holds" ", by the declarations below")
+               ". A literal on the roster goes OUT only by retraction, never as the loser "
+               "of a nogood, so a denial of it is stored and never weighed against it."])
+            (when (seq declarations)
+              [:ul (for [d declarations] [:li "declared by " (handle-ref view d)])]))))]
       :unsupported
       [:div.belief
        [:p [:b "Unsupported"] " — not a premise, and every justification has an OUT argument."]
@@ -3497,17 +3567,19 @@
   (if-let [s (v/sentex kb h)]
     (let [premise? (v/premise? kb h)]
       (render view (str "sentex #" h)
-              [:h2 "Sentex " (badge view s) [:span.muted "#" h]]
+              [:h2 "Sentex " [:span.muted "#" h]]
               (visit-mark (if (:antecedent s) "rule" "literal") (str "/sentex/" h)
                           (term-text view (readable s)) nil)
-              [:p (render-form view (readable s)) in-cx (term-link view (:context s))
-               (state-tag view h)
-               (when premise? [:span.tag.tag-premise "premise"])
-               ;; a rule is exactly a sentex with a decomposed antecedent — read off the
-               ;; record `v/sentex` returned, rather than re-deriving it from the sentence
-               (when (:antecedent s) [:span.tag "rule"])
-               (when-let [st (:strength s)] [:span.tag (str "assumed " (name st))])
-               (when-let [dc (v/defeat-class kb h)] [:span.tag (str "class " (name dc))])]
+              [:p.sx-item
+               (sentex-line view s
+                            (state-tag view h)
+                            (when premise? [:span.tag.tag-premise "premise"])
+                            ;; a rule is exactly a sentex with a decomposed antecedent —
+                            ;; read off the record `v/sentex` returned, rather than
+                            ;; re-deriving it from the sentence
+                            (when (:antecedent s) [:span.tag "rule"])
+                            (when-let [st (:strength s)] [:span.tag (str "assumed " (name st))])
+                            (when-let [dc (v/defeat-class kb h)] [:span.tag (str "class " (name dc))]))]
               ;; when the sentex is stored but not believed, say why — the states
               ;; docs/equality.md and docs/nmtms.md describe: superseded / defeated /
               ;; unsupported.  A believed sentex's proof is the "Supported by" list below.
@@ -4360,8 +4432,8 @@
   (if-let [s (v/sentex kb h)]
     (let [tree (v/why kb h)]
       (render view (str "why #" h)
-              [:h2 "Why " (badge view s) [:span.muted "#" h]]
-              [:p (render-form view (readable s)) in-cx (term-link view (:context s))]
+              [:h2 "Why " [:span.muted "#" h]]
+              [:p.sx-item (sentex-line view s)]
               (if (:believed? tree)
                 (let [sup     (:support tree)
                       blocked (blocked-justifications view)
@@ -7555,6 +7627,13 @@
                                 (continued req #(front-rows-page (view (current target) req)
                                                                  (get-in req [:query-params "section"])
                                                                  %)))}]
+         ;; the browsing history's literals, which vaelii.js names by handle and the
+         ;; server draws; a `handles` that does not read is an empty row
+         ["/history/literals" {:get (fn [req]
+                                      (let [hs (param-handles (get-in req [:query-params "handles"]))]
+                                        (if (= unreadable hs)
+                                          (frag "")
+                                          (history-literals (view (current target) req) hs))))}]
          ["/stats/rows" {:get (fn [req]
                                 (continued req #(stats-rows-page (view (current target) req)
                                                                  (get-in req [:query-params "section"])

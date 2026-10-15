@@ -606,7 +606,8 @@ assertable-strengths                            ; #{:monotonic :default}, the se
 (why-not kb handle)                             ; stored but OUT: :defeated (+ what contradicts it)
                                                 ; / :withdrawn (+ the defeats it rests on)
                                                 ; / :superseded (+ the restatement that displaced it)
-                                                ; / :inert (a denial of a roster literal)
+                                                ; / :inert (a denial of a roster literal,
+                                                ;   + :denies, the literal and its roster)
                                                 ; / :forced-conclusion (+ the rule and its
                                                 ;   antecedent predicates off the roster)
                                                 ; / :unsupported (+ the missing antecedents) / :not-stored

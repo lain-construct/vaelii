@@ -216,6 +216,22 @@
       head.className = "history-kind muted";
       head.textContent = title;
       row.appendChild(head);
+      // a literal is drawn by the server (`/history/literals`), with its badge, its
+      // colours and its belief now; the text entries below stand until it answers
+      let items = row;
+      if (kind === "literal") {
+        items = document.createElement("span");
+        items.className = "history-items";
+        items.setAttribute("hx-get", "/history/literals?handles=" +
+          h[kind].map((e) => e.href.slice("/sentex/".length)).join(","));
+        items.setAttribute("hx-trigger", "load");
+        // the body's boosted-navigation target, select and swap would put the fragment
+        // in place of #main
+        items.setAttribute("hx-target", "this");
+        items.setAttribute("hx-select", "unset");
+        items.setAttribute("hx-swap", "innerHTML");
+        row.appendChild(items);
+      }
       h[kind].forEach((e) => {
         const item = document.createElement("span");
         item.className = "history-item";
@@ -232,7 +248,7 @@
         x.dataset.href = e.href;
         x.textContent = "×";
         item.append(a, x);
-        row.appendChild(item);
+        items.appendChild(item);
       });
       body.appendChild(row);
     });
@@ -247,7 +263,11 @@
 
   // the header is outside #main, so a boosted navigation swaps the page under it and
   // leaves the active menubar link pointing at where the reader used to be
-  document.addEventListener("htmx:afterSwap", () => {
+  document.addEventListener("htmx:afterSwap", (ev) => {
+    // the history's own literal row arriving is not a navigation, and rendering the
+    // history again would fetch that row again, without end
+    const t = ev.detail && ev.detail.target;
+    if (t && t.closest && t.closest("#history")) return;
     reflect(); reflectFolds(); recordVisit(); renderHistory();
   });
 

@@ -244,6 +244,25 @@
           (is (= d (v/assert kb (list 'not (list likes Cal Dan)) 'CxUniverse))
               "the declaration arriving first stores the same record"))))))
 
+(tu/deftest-kb why-not-of-an-inert-denial-names-the-literal-and-what-puts-it-on-the-roster
+  (tu/with-terms [dog_kind cat_kind likes Cal Dan]
+    (testing "a literal the engine's own roster holds, beside the literal it denies"
+      (let [s (list 'disjoint dog_kind cat_kind)
+            h (v/assert kb s 'CxUniverse)
+            d (v/assert kb (list 'not s) 'CxUniverse)]
+        (is (= {:sentence s :handle h :believed? true
+                :roster {:predicate 'disjoint :kind :forced-monotonic :global? true
+                         :declarations [(v/handle-of kb '(forced_monotonic_predicate disjoint)
+                                                     'CxUniverse)]}}
+               (:denies (v/why-not kb d))))))
+    (testing "a literal a declaration puts on the roster, with no literal stored"
+      (let [decl (v/assert kb (list 'forced_monotonic_predicate likes) 'CxUniverse)
+            d    (v/assert kb (list 'not (list likes Cal Dan)) 'CxUniverse)]
+        (is (= {:sentence (list likes Cal Dan) :handle nil :believed? false
+                :roster {:predicate likes :kind :forced-monotonic :global? false
+                         :declarations [decl]}}
+               (:denies (v/why-not kb d))))))))
+
 (defn- forced-entries
   "The `:forced-conclusion` entries `violations` reads about a conclusion in `context`,
   or about the stored spelling of `s` there."

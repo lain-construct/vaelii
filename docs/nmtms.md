@@ -184,7 +184,8 @@ readers that see the declaration.
 `checks/force-sentex!` writes a stored sentex's `:mono` and `:out` memberships before its
 premise mark lands, and the chainer writes `:void` before it adds a convicted firing's justification
 (`chain/place-fact-conclusion`), so no element holds a label its set rules out, even for
-one relabel. A denial held OUT keeps `S` believed, and `why-not` answers `:inert` for it. A
+one relabel. A denial held OUT keeps `S` believed, and `why-not` answers `:inert` for it, with
+`:denies` naming `S`, its belief, and what puts it on the roster (`decide/literal-roster`). A
 denial of an equation instance is one of these: the equation rewrites the denied instance
 as it rewrites every other.
 

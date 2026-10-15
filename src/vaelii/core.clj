@@ -6792,6 +6792,25 @@
                       :context (:context o)
                       :defeat-class (defeat-class kb (:id o))}))))
 
+(defn- denied-literal
+  "`why-not`'s `:denies` for the inert denial `sx`, whose `why-not` map so far is `base`:
+  the literal `S` it denies, the handle of `S` in its context or nil, whether that context
+  believes `S`, and how `S` is on the roster (`decide/literal-roster`), with the
+  declarations the context sees in content order."
+  [kb sx base]
+  (let [tax (reasoning/taxonomy kb)
+        c   (:context sx)
+        s   (second (sx/sentence-of sx))
+        h   (kb/find-sentex-handle kb s c)
+        r   (decide/literal-roster tax s)]
+    {:sentence  (second (:sentence base))
+     :handle    h
+     :believed? (boolean (and h (res/believed-at? kb h c)))
+     :roster    (when r
+                  (assoc r :declarations
+                         (into [] (comp (filter (fn [[_ dc]] (tax/sees? tax c dc))) (map key))
+                               (sort-by (comp nm/print-key val) (:declarations r)))))}))
+
 (defn- why-not-handle
   "`why-not` of a stored handle — the original arity, factored out so the sentence
   arity can delegate to it."
@@ -6849,7 +6868,8 @@
       ;; roster literal (docs/nmtms.md)
       (or (jtms/forced? (reasoning/tms kb) :out handle)
           (exc/roster-inert-at? kb handle (:context sx)))
-      (assoc base :believed? false :reason :inert)
+      (cond-> (assoc base :believed? false :reason :inert)
+        (sx/negation? (:sentence base)) (assoc :denies (denied-literal kb sx base)))
       :else
       (let [rvoid   (set (exc/roster-void-at kb handle (:context sx)))
             void?   #(or (jtms/forced? (reasoning/tms kb) :void (:id %)) (contains? rvoid (:id %)))
@@ -7097,7 +7117,7 @@
   | `:superseded` | an equality merge restated it under its class representative; it lost no argument and retracting the equality gives it straight back | `:superseded-by` `:rewrites` |
   | `:defeated` | the target of a placed `defeat` in force at its own context, whose handles `:defeats` names and whose nogoods convict through the declarations `:grounds` names, as a clash report's do | `:contradicted-by` `:defeats` `:grounds` |
   | `:withdrawn` | IN in the network, and not believed at its own context because every justification rests on a handle a placed `defeat` in force there hides; each `:withdrawn-by` entry names that handle, its context, the `:defeat` and the defeat's context under `:vantage` (docs/nmtms.md) | `:withdrawn-by` |
-  | `:inert` | a denial of a literal on the forced-monotonic roster as its own context reads it, stored and held OUT there (docs/nmtms.md) | — |
+  | `:inert` | a denial of a literal on the forced-monotonic roster as its own context reads it, stored and held OUT there (docs/nmtms.md). `:denies` names the literal it denies: its `:sentence`, its `:handle` in the same context or nil, whether that context believes it under `:believed?`, and under `:roster` the `:predicate` putting it on the roster, the roster `:kind`, whether the engine's own roster holds it under `:global?`, and the `:declarations` the context sees | `:denies` |
   | `:forced-conclusion` | not a premise, and a supporting justification is a firing held void, at its own context, for concluding a roster literal from antecedents off the roster (docs/nmtms.md). Each `:convicted` entry names the `:rule` and the antecedent predicates `:off-roster` that a `forced_monotonic_predicate` declaration puts on the roster; `:support` lists the other justifications as `:unsupported` does | `:convicted` `:support` |
   | `:unsupported` | not a premise, and every supporting justification has an antecedent that is OUT | `:support` with `:missing` |
   | `:excepted` | *(sentence arity only)* a rule applied and its `exceptWhen` query held, so it concluded nothing | `:rule` `:exception` `:via` |
