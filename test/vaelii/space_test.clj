@@ -102,6 +102,26 @@
       (is (= #{A B D} (set (map #(get % '?x) (v/ask kb (list 'partOf '?x D) C)))))
       (is (= #{B D} (set (map #(get % '?y) (v/ask kb (list 'properPartOf A '?y) C))))))))
 
+(tu/deftest-kb the-calculus-entails-the-inert-partOf-edges-space-txt-states
+  ;; space.txt states (genl spatiallyEqual partOfRegion) and three genlInverse edges to
+  ;; partOf under set/inert. The calculus answers each edge's conclusion on its own.
+  (doseq [[stated p goals]
+          [['(genl spatiallyEqual partOfRegion) 'spatiallyEqual
+            ['(partOfRegion $a $b) '(partOf $a $b)]]
+           ['(genlInverse hasRegionPart partOf) 'hasRegionPart ['(partOf $b $a)]]
+           ['(genlInverse tangentialProperPartInverse partOf) 'tangentialProperPartInverse
+            ['(partOf $b $a)]]
+           ['(genlInverse nonTangentialProperPartInverse partOf)
+            'nonTangentialProperPartInverse ['(partOf $b $a)]]]]
+    (testing (str stated)
+      (let [h (v/handle-of kb stated C)]
+        (is (integer? h) "the edge is stored")
+        (is (false? (v/in? kb h)) "and is not believed"))
+      (tu/with-terms [A B]
+        (v/assert kb (list p A B) C)
+        (doseq [g goals]
+          (is (v/ask? kb (fill g A B) C) (str (fill g A B))))))))
+
 (tu/deftest-kb a-region-cannot-stand-apart-from-itself
   (tu/with-terms [A B]
     ;; DC is its own converse, so the diagonal constraint is #{:dc}, non-empty, and
