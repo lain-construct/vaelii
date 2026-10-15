@@ -606,6 +606,12 @@
     (nm/individual? p) (conj (str p " is an individual; inverse relates predicates"))
     (nm/individual? q) (conj (str q " is an individual; inverse relates predicates"))))
 
+(defn genl-inverse-problems [_ [_ p q :as s] _context]
+  (cond-> []
+    (not= 3 (count s)) (conj "genlInverse takes two arguments")
+    (nm/individual? p) (conj (str p " is an individual; genlInverse relates predicates"))
+    (nm/individual? q) (conj (str q " is an individual; genlInverse relates predicates"))))
+
 ;; (Per-functor well-formedness dispatch lives in the `:wff` column of the table in
 ;; `vaelii.impl.special`, read back through `special/wff-problems` — one enumeration
 ;; of the special functors, rather than a separate `case` here that a newly added

@@ -373,6 +373,21 @@
           :functor-extent (p/sentexes-with-args ix pred [] (ctx-scope pat))
           :trie           (p/lookup ix (sx/path pat)))))))
 
+(defn- swapped-unify
+  "Bindings unifying the binary `pattern` with `fact` read with its two arguments
+  exchanged, when `fact`'s predicate is in `pattern`'s predicate's swapped `dir` fan
+  (`tax/signed-closure`, `:down` for a positive pattern, `:up` for a negated one's
+  body), else nil.  nil off one map read on a KB declaring no `genlInverse`."
+  [kb dir pattern fact bindings context]
+  (let [tx (reasoning/taxonomy kb)]
+    (when-not (tax/genl-inverse-free? tx)
+      (let [pf (when (sequential? pattern) (first pattern))
+            ff (when (sequential? fact) (first fact))]
+        (when (and (symbol? pf) (not (sx/variable? pf)) (symbol? ff) (not (sx/variable? ff))
+                   (= 3 (count pattern)) (= 3 (count fact))
+                   (contains? (second (tax/signed-closure tx dir pf context)) ff))
+          (unify-args (rest pattern) (list (nth fact 2) (nth fact 1)) bindings))))))
+
 (defn match1
   "Unify a single antecedent pattern against a ground fact sentence, honoring
   **predicate specificity**: a fact whose functor is a *spec* (sub-predicate, via the
@@ -410,10 +425,12 @@
            f  (second fact)
            af (when (sequential? a) (first a))
            ff (when (sequential? f) (first f))]
-       (if (and (symbol? af) (not (sx/variable? af)) (symbol? ff) (not= af ff)
-                (contains? (tax/genls (reasoning/taxonomy kb) af context) ff))
-         (unify-args (rest a) (rest f))               ; genl of the body: unify the arguments
-         (unify antecedent fact)))
+       (or (if (and (symbol? af) (not (sx/variable? af)) (symbol? ff) (not= af ff)
+                    (contains? (first (tax/signed-closure (reasoning/taxonomy kb) :up af context)) ff))
+             (unify-args (rest a) (rest f))             ; genl of the body: unify the arguments
+             (unify antecedent fact))
+           ;; a `genlInverse` above the body's predicate: the arguments swapped
+           (swapped-unify kb :up a f no-bindings context)))
 
      (and (unary? antecedent) (unary? fact))
      (let [[t a]  antecedent
@@ -428,10 +445,12 @@
      :else
      (let [af (when (sequential? antecedent) (first antecedent))
            ff (when (sequential? fact) (first fact))]
-       (if (and (symbol? af) (not (sx/variable? af)) (symbol? ff) (not= af ff)
-                (contains? (tax/specs (reasoning/taxonomy kb) af context) ff))
-         (unify-args (rest antecedent) (rest fact))   ; sub-predicate: unify the arguments
-         (unify antecedent fact))))))
+       (or (if (and (symbol? af) (not (sx/variable? af)) (symbol? ff) (not= af ff)
+                    (contains? (first (tax/signed-closure (reasoning/taxonomy kb) :down af context)) ff))
+             (unify-args (rest antecedent) (rest fact))  ; sub-predicate: unify the arguments
+             (unify antecedent fact))
+           ;; a `genlInverse` spec: the arguments swapped
+           (swapped-unify kb :down antecedent fact no-bindings context))))))
 
 (defn subsuming-unify
   "Unify a query `goal` against a rule's `consequent`, honoring **predicate
@@ -470,13 +489,15 @@
          cf   (when (sequential? c) (first c))
          ;; the polarity picks the direction: a *spec* conclusion answers a positive
          ;; goal, a *genl* conclusion answers a negated one
-         reach (if neg? tax/genls tax/specs)]
-     (if (and (symbol? gf) (not (sx/variable? gf))
-              (symbol? cf) (not (sx/variable? cf))
-              (not= gf cf)
-              (contains? (reach (reasoning/taxonomy kb) gf context) cf))
-       (unify-args (rest g) (rest c) bindings)
-       (unify goal consequent bindings)))))
+         reach (fn [tx f ctx] (first (tax/signed-closure tx (if neg? :up :down) f ctx)))]
+     (or (if (and (symbol? gf) (not (sx/variable? gf))
+                  (symbol? cf) (not (sx/variable? cf))
+                  (not= gf cf)
+                  (contains? (reach (reasoning/taxonomy kb) gf context) cf))
+           (unify-args (rest g) (rest c) bindings)
+           (unify goal consequent bindings))
+         ;; a `genlInverse` spec conclusion (a genl one, under a negation): swapped
+         (swapped-unify kb (if neg? :up :down) g c bindings context)))))
 
 (defn concluding-rule-handles
   "Handles of rules whose consequent predicate is `pred` **or a spec of it** — a rule
@@ -527,7 +548,8 @@
        (symbol? pred)
        (into var-conseq
              (mapcat by-conseq)
-             (tax/specs (reasoning/taxonomy kb) pred context))
+             (let [[st sw] (tax/signed-closure (reasoning/taxonomy kb) :down pred context)]
+               (if (empty? sw) st (into st sw))))
 
        :else
        (into var-conseq (by-conseq pred))))))
@@ -1467,14 +1489,22 @@
                 matches)))))
 
 (defn sub-predicates
-  "The sub-predicate (genl spec) closure the matching fan-out walks for functor `f`,
+  "The sub-predicate (genl spec) closure the matching fan-out walks for functor `f`, with
+  the predicates an even number of `genlInverse` edges reach (`tax/signed-closure`),
   from the vantage `context` — the global closure when the vantage is a variable or
   nil.  The **single definition every matcher shares** (`match-pattern`,
   `matches-hierarchical`, the rete alpha matcher), so the fan cannot drift between
   them: a genl edge invisible from the vantage does not connect a sub-predicate's
   facts to the pattern, exactly as it does not appear in the closure reads."
   [kb f context]
-  (tax/specs (reasoning/taxonomy kb) f context))
+  (first (tax/signed-closure (reasoning/taxonomy kb) :down f context)))
+
+(defn swapped-sub-predicates
+  "The predicates `sub-predicates`' fan reads **with arguments 1 and 2 swapped**: those
+  below `f` across an odd number of `genlInverse` edges (`tax/signed-closure`).  Empty —
+  one map read — on a KB declaring no `genlInverse`."
+  [kb f context]
+  (second (tax/signed-closure (reasoning/taxonomy kb) :down f context)))
 
 (defn super-predicates
   "The **genl** closure of `f` from the vantage `context`: `sub-predicates` mirrored,
@@ -1489,7 +1519,13 @@
   `match-pattern` and the rete alpha matcher for the same reason `sub-predicates` is:
   so the two cannot drift."
   [kb f context]
-  (tax/genls (reasoning/taxonomy kb) f context))
+  (first (tax/signed-closure (reasoning/taxonomy kb) :up f context)))
+
+(defn swapped-super-predicates
+  "`swapped-sub-predicates` mirrored: the predicates above `f` across an odd number of
+  `genlInverse` edges, which a negated pattern on `f` reads swapped."
+  [kb f context]
+  (second (tax/signed-closure (reasoning/taxonomy kb) :up f context)))
 
 (defn fanned-match
   "The fan-out itself, shared by every matcher that does one: decompose `sentence` into
@@ -1505,7 +1541,7 @@
   and optimized once.  A matcher joins by passing its own `raw`, so a new one cannot
   quietly fan a negation the wrong way or skip the singleton short-circuit.
 
-  Three things it decides, once:
+  Four things it decides, once:
 
   * **A variable or absent functor pins nothing** and fans not at all — one raw match on
     the sentence as written.
@@ -1514,19 +1550,40 @@
   * **A singleton closure is `f` itself**, since both closures are reflexive, so there is
     nothing to fan and the as-written retrieval is the whole answer.  Counted rather than
     compared against a freshly built `#{f}`; the same reading `chain/fanning-functor?`
-    takes of the same set."
+    takes of the same set.
+  * **A `genlInverse` member is read swapped.**  The closure is `tax/signed-closure`,
+    whose odd-parity members a binary literal reads with arguments 1 and 2 exchanged
+    (docs/inference.md, \"`genlInverse`: the fan with the arguments swapped\")."
   [kb sentence vantage raw mapcat-fn]
   (let [neg? (sx/negation? sentence)
         body (if neg? (second sentence) sentence)
         f    (when (sequential? body) (first body))]
     (if (and (symbol? f) (not (sx/variable? f)))
-      (let [fan ((if neg? super-predicates sub-predicates) kb f vantage)]
-        (if (= 1 (count fan))
+      (let [[fan swapped] (tax/signed-closure (reasoning/taxonomy kb) (if neg? :up :down) f vantage)
+            ;; a `genlInverse` reading swaps arguments 1 and 2, so only a binary
+            ;; literal takes one
+            swapped (if (= 3 (count body)) swapped #{})]
+        (cond
+          (and (= 1 (count fan)) (empty? swapped))
           (raw sentence)
+
+          (empty? swapped)
           (let [rebuild (if neg?
                           (fn [f'] (list sx/not-functor (cons f' (rest body))))
                           (fn [f'] (cons f' (rest body))))]
-            (mapcat-fn (fn [f'] (raw (rebuild f'))) fan))))
+            (mapcat-fn (fn [f'] (raw (rebuild f'))) fan))
+
+          :else
+          ;; each member of the fan is read as written, and each swapped member with its
+          ;; two arguments exchanged, so a stored `(P a b)` under `(genlInverse P Q)`
+          ;; binds the pattern `(Q ?x ?y)` as `?x = b`, `?y = a`
+          (let [[_ x y] body
+                rebuild (fn [[f' swap?]]
+                          (let [b (if swap? (list f' y x) (cons f' (rest body)))]
+                            (if neg? (list sx/not-functor b) b)))]
+            (mapcat-fn (fn [m] (raw (rebuild m)))
+                       (concat (map #(vector % false) (nm/sort-by-content-key nm/print-key compare fan))
+                               (map #(vector % true) (nm/sort-by-content-key nm/print-key compare swapped)))))))
       (raw sentence))))
 
 (defn match-pattern
@@ -2099,12 +2156,19 @@
   `[handle bindings stored]` set, but reached by context-scoped index reads of the
   sub-predicates' own nodes instead of the `|specs| × |context-up|` product of trie
   walks.  Falls back to `matches-visible` for any shape it does not handle, and for a
-  literal with a spec stored under another functor (`folded-spec?`)."
+  literal with a spec stored under another functor (`folded-spec?`) or read swapped
+  (`swapped-sub-predicates`)."
   [kb sentence view-context]
-  (matches-hierarchical-over
-   kb sentence view-context
-   (when (and (hierarchical-literal? sentence) (not (sx/variable? (first sentence))))
-     (sub-predicates kb (first sentence) view-context))))
+  (if (and (hierarchical-literal? sentence) (not (sx/variable? (first sentence)))
+           (= 3 (count sentence))
+           (seq (swapped-sub-predicates kb (first sentence) view-context)))
+    ;; a `genlInverse` spec is stored with its arguments the other way round, which the
+    ;; argument-root reads below do not exchange: the reference fan-out reads it
+    (matches-visible* kb sentence view-context)
+    (matches-hierarchical-over
+     kb sentence view-context
+     (when (and (hierarchical-literal? sentence) (not (sx/variable? (first sentence))))
+       (sub-predicates kb (first sentence) view-context)))))
 
 (defn retired-for?
   "Does `sentence` name a term the reader has retired — i.e. is it *not* in normal form

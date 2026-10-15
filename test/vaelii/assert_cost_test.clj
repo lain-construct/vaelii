@@ -635,11 +635,15 @@
    ;; *constant*: a read of the predicate's extent would add a term proportional to the
    ;; stored tuples, which this exact-count gate catches where `lein perf`'s ratio check
    ;; cannot (see the docstring above).
+   ;;
+   ;; `:trie-counts` holds one child count per flat-cache functor for each census of the
+   ;; flat caches the assert takes (`tax/census-in`), two here, so a functor joining the
+   ;; flat caches adds 2 per assert: `genlInverse` is the +200.
    {:name    :functional-in-arg-arity-2
     :build   functional-in-arg-arity-2
     :sentexes 100
     :reads   {:arity-binding 2 :argument-root 101 :argument-slot 201 :exception-index 100
-              :opposed 100 :predicate-extent 1600 :rule-index 100 :trie-counts 2100
+              :opposed 100 :predicate-extent 1600 :rule-index 100 :trie-counts 2300
               :trie-lookup 200 :mint 100}
     :writes  {:levels 500 :terms 400 :roots 1300 :roster 200 :slots 300}}
 

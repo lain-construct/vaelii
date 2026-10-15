@@ -1909,16 +1909,21 @@
          "(declined_rule_macro ?declaration) means that a reviewer read the kb-integrity rule-macro suggestion ?declaration and keeps the rule it was suggested for as written — most often a set/defaultRule that is meant to be a default. ?declaration is the suggested declaration as the sweep reports it, written as a quoted argument, for example (declined_rule_macro (genl livesIn locatedIn)). The rule-macro pass reads the record from the rule's context and does not report that suggestion; nothing else reads it and it draws no inference. See docs/integrity.md.")
 (unary_predicate declined_rule_macro)
 
-;; --- Lacuna proposals (upper ontology overhaul) ---
-;; Two predicates the engine does not yet act on (inert, no inference path — see
-;; vaelii.impl.predicates):
+;; genlInverse is binary genl with arguments 1 and 2 swapped. The engine reads it in
+;; the matching fan beside genl: a chain of genl and genlInverse edges swaps the
+;; arguments exactly when it holds an odd number of genlInverse edges, so two of them
+;; compose to genl.
 (binary_predicate genlInverse)
-(binary_predicate typeGenl)
 (arg genlInverse 1 binary_predicate)
 (arg genlInverse 2 binary_predicate)
+(comment genlInverse "Binary `genl` with arguments 1 and 2 swapped. (genlInverse ?spec ?genl-inv) means (?spec ?x ?y) entails (?genl-inv ?y ?x), so a stored (?spec a b) answers a (?genl-inv b a) goal and satisfies a (?genl-inv ?x ?y) antecedent, and a justification names the edge. Two genlInverse edges in a row compose to genl. Does not license the converse: a (?genl-inv b a) fact concludes nothing about ?spec.")
+
+;; --- Lacuna proposals (upper ontology overhaul) ---
+;; A predicate the engine does not yet act on (inert, no inference path — see
+;; vaelii.impl.predicates):
+(binary_predicate typeGenl)
 (arg typeGenl 1 at_least_metatype)
 (arg typeGenl 2 unary_predicate)
-(comment genlInverse "Like binary `genl`, but with the arg order flipped. (genlInverse ?spec ?genl-inv) means (?spec ?x ?y) entails (?genl-inv ?y ?x). Does not license the converse.")
 (comment typeGenl "Higher-order genl: (typeGenl ?classifier ?genl) means every instance of ?classifier is a genl of ?genl.")
 (termsRelated genlInverse inverse)
 
