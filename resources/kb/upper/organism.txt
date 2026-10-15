@@ -34,7 +34,11 @@
 (genl ant insect)
 (set/monotonic (folk_species ant))
 
-(comment arachnid "An eight-legged animal — a spider, a scorpion, a mite. Not an insect, which has six.")
+(comment arachnid "An eight-legged animal.")
+(positiveExampleComment arachnid "a spider")
+(positiveExampleComment arachnid "a scorpion")
+(positiveExampleComment arachnid "a mite")
+(negativeExampleComment arachnid "an insect, which has six legs")
 (genl arachnid invertebrate)
 (invertebrate_class arachnid)
 
@@ -74,7 +78,12 @@
 (genl fish vertebrate)
 (vertebrate_class fish)
 
-(comment flower "A plant grown or picked for its blooms: a rose, a daisy, a tulip. A flowering tree such as an oak, and a grass, are not flowers in this folk sense; tree and grass are separate folk classes.")
+(comment flower "A plant grown or picked for its blooms, in the folk sense. Tree and grass are separate folk classes.")
+(positiveExampleComment flower "a rose")
+(positiveExampleComment flower "a daisy")
+(positiveExampleComment flower "a tulip")
+(negativeExampleComment flower "a flowering tree such as an oak")
+(negativeExampleComment flower "a grass")
 (genl flower plant)
 (plant_class flower)
 
@@ -92,7 +101,11 @@
 (set/monotonic (separating folk_biological_class vertebrate_class invertebrate_class plant_class))
 
 (comment folk_species
-         "(folk_species ?type) means that ?type is a species-level kind of organism as everyday speech names it: cat, dog, oak, human. A disjoint_metatype, so no organism is of two species, and never a class-level kind: a species is not a folk_biological_class.")
+         "(folk_species ?type) means that ?type is a species-level kind of organism as everyday speech names it. A disjoint_metatype, so no organism is of two species, and never a class-level kind: a species is not a folk_biological_class.")
+(positiveExampleComment folk_species "cat")
+(positiveExampleComment folk_species "dog")
+(positiveExampleComment folk_species "oak")
+(positiveExampleComment folk_species "human")
 (unary_predicate folk_species)
 (genlArg folk_species 1 organism)
 (metatype folk_species)
@@ -140,7 +153,11 @@
 (genl insect invertebrate)
 (invertebrate_class insect)
 
-(comment invertebrate "An animal without a backbone: an insect, a spider, a snail, a worm.")
+(comment invertebrate "An animal without a backbone.")
+(positiveExampleComment invertebrate "an insect")
+(positiveExampleComment invertebrate "a spider")
+(positiveExampleComment invertebrate "a snail")
+(positiveExampleComment invertebrate "a worm")
 (type invertebrate)
 
 (comment invertebrate_class
@@ -182,7 +199,10 @@
 (type plant)
 
 (comment plant_class
-         "(plant_class ?type) means that ?type is one of the folk classes of plant, such as tree, flower and grass. A disjoint_metatype, so its members are pairwise disjoint: an oak is never a rose, and grass is neither. Not a partition of plant, since a fern or a moss is none of the three.")
+         "(plant_class ?type) means that ?type is one of the folk classes of plant. A disjoint_metatype, so its members are pairwise disjoint: an oak is never a rose, and grass is neither. Not a partition of plant, since a fern or a moss is none of the three.")
+(positiveExampleComment plant_class "tree")
+(positiveExampleComment plant_class "flower")
+(positiveExampleComment plant_class "grass")
 (unary_predicate plant_class)
 (genlArg plant_class 1 plant)
 (metatype plant_class)
