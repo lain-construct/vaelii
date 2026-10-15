@@ -116,7 +116,11 @@
 (arg locatedIn 2 tangible)
 (set/monotonic (transitive locatedIn))
 
-(comment machine "An artifact with moving parts that does work under power.")
+(comment machine "A made thing with parts that move relative to each other, driven by an energy source. Defined by its parts, not its use, so a stopped clock is still one.")
+(positiveExampleComment machine "a wind-up clock")
+(positiveExampleComment machine "a car engine")
+(positiveExampleComment machine "a hand-cranked pencil sharpener")
+(positiveExampleComment machine "a stopped clock")
 (genl machine made)
 
 (comment made "A tangible shaped by an agent's action, or by something made: a chair, a widget from a factory machine, steel, sawdust, a footprint, a beaver's dam, a cloned sheep. Contrast natural.")

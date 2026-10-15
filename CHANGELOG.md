@@ -60,6 +60,14 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none. A KB that declares its own `electronic_device` term meets the
   shipped one.
 
+- **`machine`'s comment defines it by its parts.** A machine is a made thing with
+  parts that move relative to each other, driven by an energy source. The comment names
+  no use, so a stopped clock is still a machine. Its
+  examples are `positiveExampleComment` facts.
+
+  *Class:* **Additive** (shipped documentation; no sentence's truth changes).
+  *Migration:* none.
+
 - **The example predicates gain string siblings.** `core.txt` declares
   `positiveExampleComment`, `negativeExampleComment` and `borderlineExampleComment`:
   binary, the first argument the exemplified term and the second a `string` carrying
