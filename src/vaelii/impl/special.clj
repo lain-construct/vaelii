@@ -3365,6 +3365,22 @@
               (into (mapcat #(tax/inverses-under tx %)) walked)))
         (into (inherit/licensing-functors kb roster)))))
 
+(defn- signed-all
+  "`p`'s global `genl` closure in direction `dir`, with every predicate `genlInverse`
+  edges reach either way round (`tax/signed-closure`) — what the matching fan meets from
+  `p`.  The plain closure on a KB declaring no `genlInverse`."
+  [tax dir p]
+  (let [[st sw] (tax/signed-closure tax dir p nil)]
+    (if (empty? sw) st (into st sw))))
+
+(defn- genl-inverse-edges
+  "The `[sub super]` pair a `(genlInverse sub super)` sentence adds to the signed closure,
+  as `tax/installed-edges` names a `genl` edge's; none for any other sentence."
+  [sentence]
+  (when (and (seq? sentence) (= 'genlInverse (nm/functor sentence)) (= 3 (count sentence))
+             (symbol? (nth sentence 1)))
+    [[(nth sentence 1) (nth sentence 2)]]))
+
 (defn- rule-reads-above?
   "Does a stored rule read a term at or above `super`: an antecedent on one, off the
   antecedent keys (`reads/as-stored-rule-keys`), or an antecedent a re-join family moves
@@ -3377,7 +3393,12 @@
   (let [roster (reads/as-stored-rule-keys (:index kb))]
     (when (seq roster)
       (or (tax/genls-global-meets? tax super roster)
-          (tax/genls-global-meets? tax super (licensing-functors kb tax roster))))))
+          (tax/genls-global-meets? tax super (licensing-functors kb tax roster))
+          ;; above `super` across `genlInverse` edges too, read either way round
+          (when-not (tax/genl-inverse-free? tax)
+            (let [up (signed-all tax :up super)
+                  lf (licensing-functors kb tax roster)]
+              (boolean (some #(or (contains? roster %) (contains? lf %)) up))))))))
 
 (defn- negative-subsumption-seeds
   "The half of `subsumption-seeds` that a **negated** antecedent is owed, read up
@@ -3404,7 +3425,7 @@
   The `genls` read is unscoped: a seed over-approximates, and the firing it triggers
   is placed in a context the join decides."
   [kb sub super]
-  (let [specs (tax/specs-global (reasoning/taxonomy kb) sub)]
+  (let [specs (signed-all (reasoning/taxonomy kb) :down sub)]
     (when (some (fn [k] (and (vector? k) (contains? specs (second k))))
                 (reads/as-stored-rule-keys (:index kb)))
       (let [idx  (:index kb)
@@ -3416,7 +3437,7 @@
                        (filter (fn [h]
                                  (when-let [s (p/get-sentex recs h)]
                                    (sx/negative? s)))))
-              (tax/genls-global (reasoning/taxonomy kb) super))))))
+              (signed-all (reasoning/taxonomy kb) :up super))))))
 
 (defn subsumption-seeds
   "The stored facts the `genl` edges `sentence` installs newly make matchable, as
@@ -3450,12 +3471,12 @@
   subsumed through, so dropping one withdraws what it licensed — and the facts have to
   go back on the agenda when the reachability outlives the supporter that left."
   [kb sentence]
-  (when-let [edges (seq (tax/installed-edges sentence))]
+  (when-let [edges (seq (concat (tax/installed-edges sentence) (genl-inverse-edges sentence)))]
     (let [idx (:index kb)
           tms (reasoning/tms kb)
           tax (reasoning/taxonomy kb)]
       (into (into [] (comp (filter (fn [[_ super]] (rule-reads-above? kb tax super)))
-                           (mapcat (fn [[sub _]] (tax/specs-global tax sub)))
+                           (mapcat (fn [[sub _]] (signed-all tax :down sub)))
                            (distinct)
                            (mapcat #(reads/as-stored-with-functor idx %))
                            (distinct)
@@ -7187,6 +7208,15 @@
               :rebuild      (fn [tax {[_ p q] :sentence id :id ctx :context}]
                               (tax/add-inverse tax p q id ctx))
               :wff          wff/inverse-problems}
+    'genlInverse {:integrate    (fn [kb sx h]
+                                  (let [[_ p q] (:sentence sx)]
+                                    (tax/add-genl-inverse (reasoning/taxonomy kb) p q h (:context sx))))
+                  :disintegrate (fn [kb sx]
+                                  (let [[_ p q] (:sentence sx)]
+                                    (tax/del-genl-inverse! (reasoning/taxonomy kb) p q (:id sx))))
+                  :rebuild      (fn [tax {[_ p q] :sentence id :id ctx :context}]
+                                  (tax/add-genl-inverse tax p q id ctx))
+                  :wff          wff/genl-inverse-problems}
     ;; the mark plus the retroactive lift; the lift's justifications need no removal arm
     ;; of their own — each is justified by this sentex, so the ordinary
     ;; dependency-directed sweep withdraws them when it goes.  The rebuild replays the

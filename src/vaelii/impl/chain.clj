@@ -1295,7 +1295,8 @@
   [kb g]
   (let [f (first g)]
     (or (sx/variable? f)
-        (> (count (res/sub-predicates kb f '?ctx)) 1))))
+        (> (count (res/sub-predicates kb f '?ctx)) 1)
+        (boolean (seq (res/swapped-sub-predicates kb f '?ctx))))))
 
 (defn- join-matches
   "The stored facts satisfying the substituted antecedent `g` at the wildcard context —
@@ -2330,7 +2331,16 @@
                                       ;; negated: contravariant, so the antecedent is the spec
                                       (and (vector? ak) (vector? fk)) [(second ak) (second fk)])))))))
                   (distinct)
-                  (filter (fn [[sub super]] (contains? (tax/genls-global tax sub) super))))
+                  (keep (fn [[sub super :as link]]
+                          (if (contains? (tax/genls-global tax sub) super)
+                            link
+                            ;; reached across `genlInverse` edges: the link carries the
+                            ;; parity the match was read at, which its witness walks
+                            (let [[st sw] (tax/signed-closure tax :up sub nil)]
+                              (cond (contains? st super) [sub super false]
+                                    (contains? sw super) [sub super true])))))
+                  ;; a `[sub super swapped?]` link reached both ways is one subsumption
+                  (distinct))
             matched))))
 
 (defn- subsumption-support
@@ -2362,11 +2372,19 @@
         supporter-class (if memo
                           (fn [h] (held memo [:class h] #(jtms/defeat-class tms h)))
                           #(jtms/defeat-class tms %))
-        walk  (fn [[sub super]] (tax/reach-support (reasoning/taxonomy kb) :genl sub super
-                                                   vantage supporter-class))
+        walk  (fn [[sub super :as link]]
+                (if (= 2 (count link))
+                  (tax/reach-support (reasoning/taxonomy kb) :genl sub super
+                                     vantage supporter-class)
+                  (tax/signed-reach-support (reasoning/taxonomy kb) sub super (nth link 2)
+                                            vantage supporter-class)))
+        ;; a `genlInverse` link's witness also reads the flat cache, which the `genl`
+        ;; read scope does not key, so only a `genl` link is held
         read  (if memo
                 (let [scope (tax/read-scope (reasoning/taxonomy kb) :genl vantage)]
-                  (fn [link] (held memo [:genl link scope (reading)] #(walk link))))
+                  (fn [link] (if (= 2 (count link))
+                               (held memo [:genl link scope (reading)] #(walk link))
+                               (walk link))))
                 walk)]
     (reduce (fn [acc link]
               (if-let [hs (read link)]
@@ -2397,9 +2415,16 @@
                    (fn [h] (held memo [:class h] #(jtms/defeat-class tms h)))
                    #(jtms/defeat-class tms %))
         rank     #(strength/rank-of (or (class-of %) :default))
-        walk     (fn [[sub super]] (tax/reach-supports tax :genl sub super nil class-of))
+        walk     (fn [[sub super :as link]]
+                   (if (= 2 (count link))
+                     (tax/reach-supports tax :genl sub super nil class-of)
+                     ;; one route across `genlInverse` edges: the fewest of them
+                     (when-let [r (tax/signed-reach-support tax sub super (nth link 2) nil class-of)]
+                       [r])))
         per-link (mapv (if memo
-                         (fn [link] (held memo [:genl-routes link (reading)] #(walk link)))
+                         (fn [link] (if (= 2 (count link))
+                                      (held memo [:genl-routes link (reading)] #(walk link))
+                                      (walk link)))
                          walk)
                        links)]
     (when (every? seq per-link)

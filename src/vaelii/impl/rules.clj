@@ -110,6 +110,15 @@
   [sentence]
   (map #(if (vector? %) sx/not-functor %) (antecedent-predicates sentence)))
 
+(defn- signed-reach
+  "`p`'s global `genl` closure in direction `dir` (`:up` or `:down`), together with the
+  predicates `genlInverse` edges reach either way round (`tax/signed-closure`): every
+  predicate an antecedent or fact on `p` can meet through the matching fan.  The plain
+  closure itself on a KB declaring no `genlInverse`."
+  [tax dir p]
+  (let [[st sw] (tax/signed-closure tax dir p nil)]
+    (if (empty? sw) st (into st sw))))
+
 (defn trigger-keys
   "The antecedent-index keys an arriving fact `sentence` triggers rules through, and the
   trigger side of `antecedent-key`.
@@ -137,9 +146,9 @@
     (if (vector? k)
       (let [g (second k)]
         (into [] (comp (filter vector?)
-                       (filter #(contains? (tax/genls-global tax (second %)) g)))
+                       (filter #(contains? (signed-reach tax :up (second %)) g)))
               roster))
-      (let [up (tax/genls-global tax k)]
+      (let [up (signed-reach tax :up k)]
         (if (< (count roster) (count up))
           (into [] (filter #(contains? up %)) roster)
           (into [] (filter #(contains? roster %)) up))))))

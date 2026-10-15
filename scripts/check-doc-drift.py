@@ -1467,7 +1467,6 @@ E17_ROSTER = {
     # The forward join and the trigger keys. A firing is placed in a context the join
     # decides, so the candidate fan cannot be scoped by one — the rule index is keyed
     # on the global closure and the placement narrows afterwards (docs/contexts.md).
-    ("src/vaelii/impl/rules.clj", "trigger-keys"),
     ("src/vaelii/impl/chain.clj", "subsumption-links"),
     ("src/vaelii/impl/chain.clj", "permuting-rejoin-rules"),
     ("src/vaelii/impl/chain.clj", "transitive-rejoin-rules"),
@@ -1510,12 +1509,10 @@ E17_ROSTER = {
     ("src/vaelii/impl/special.clj", "declared-functors"),
     ("src/vaelii/impl/special.clj", "trigger-entailments"),
     ("src/vaelii/impl/special.clj", "descent-surplus-placements"),
-    ("src/vaelii/impl/special.clj", "negative-subsumption-seeds"),
     ("src/vaelii/impl/inherit.clj", "moved-goal-test"),
     ("src/vaelii/impl/qcn_kb.clj", "governing-contexts"),
     ("src/vaelii/impl/qcn_kb.clj", "calculi-triggered-by"),
     ("src/vaelii/impl/chain.clj", "answered-by-calculus?"),
-    ("src/vaelii/impl/special.clj", "subsumption-seeds"),
     ("src/vaelii/impl/special.clj", "rule-reads-above?"),
     ("src/vaelii/impl/special.clj", "roster-antecedent-functors"),
     ("src/vaelii/impl/special.clj", "under-seen-edges"),

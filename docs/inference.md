@@ -497,6 +497,60 @@ default assert-then-query flow a forward-capable rule has already materialized t
 subtype conclusion, so this only *adds* answers where forward has not run it — a
 backward-only rule, `{:chain? false}`, or a goal past the forward run's depth.
 
+### `genlInverse`: the fan with the arguments swapped
+
+`(genlInverse P Q)` is binary `genl` with arguments 1 and 2 swapped: a `(P a b)` tuple is
+a `(Q b a)` tuple. The fan reads it beside `genl`, so a stored `(childOf Bob Tom)` under
+`(genlInverse childOf parentOf)` answers `(parentOf Tom Bob)`, satisfies a
+`(parentOf ?x ?y)` antecedent with `?x = Tom` and `?y = Bob`, and is reached by a rule
+concluding `childOf` for a `parentOf` goal. It licenses no converse: a stored
+`(parentOf Tom Bob)` answers no `childOf` goal.
+
+The edges are not edges of the `genl` relation. Every type read, placement and
+disjointness check walks that closure, and a swapped member in it would be read as a
+plain spec there. They are a flat-cache entry (`tax/add-genl-inverse`), held both ways
+round, and `tax/signed-closure` walks the two together with a **parity bit**: a `genl`
+edge keeps it and a `genlInverse` edge flips it. The closure answers two sets, the
+predicates reached at even parity, which are read as written, and those reached at odd
+parity, which are read with the two arguments exchanged. So a chain swaps exactly when it
+holds an odd number of `genlInverse` edges, and two of them in a row answer what one
+`genl` edge answers. `res/sub-predicates` and `res/super-predicates` are the even sets,
+`res/swapped-sub-predicates` and `res/swapped-super-predicates` the odd ones. A KB
+declaring no `genlInverse` reads the `genl` closure itself, one map read deciding it.
+
+Every reader of the fan takes the swap from those two sets:
+
+- `res/fanned-match`, and through it `match-pattern` and the rete alpha matcher, reads a
+  swapped member with its arguments exchanged. Only a binary literal takes one.
+- `res/match1` and `res/subsuming-unify` unify a swapped fact or consequent with its
+  arguments exchanged, positive against the spec set and negated against the genl set.
+  The contrapositive is the same as `genl`'s: a stored `(not (parentOf Tom Bob))` answers
+  `(not (childOf Bob Tom))`.
+- `rules/trigger-keys` and `res/concluding-rule-handles` read both sets.
+- `chain/subsumption-links` records the parity a link was reached at, and
+  `tax/signed-reach-support` names one supporter per `genl` and `genlInverse` edge along
+  the path with the fewest `genlInverse` edges. The firing's justification therefore names
+  the `genlInverse` edges as it names `genl` ones. A default edge caps the conclusion at
+  `:default`, and an `except` on the edge hides the swapped reading from the context
+  holding the except.
+- `special/subsumption-seeds` re-seeds the facts a `genlInverse` edge newly brings under
+  a rule, so a conclusion does not depend on whether the edge or the fact arrived last.
+
+Five readers take less than the full swap, and each is recorded here:
+
+- `res/matches-hierarchical` hands a binary literal with a swapped spec to the reference
+  fan-out, since its argument-root reads do not exchange arguments. The answer is the
+  same and the cost is the reference fan's.
+- An open-functor pattern (`with-open-functor-supers`) binds its functor variable to the
+  even supers only. A swapped super would need the arguments exchanged as well.
+- A descent placement (`chain/descent-placements`) places a firing over a `genlInverse`
+  link once, over the route with the fewest `genlInverse` edges, where a `genl` link
+  places it once per uncovered route. The witness of such a link is not held in
+  `*witnesses*`, because it reads the flat cache that the `genl` read scope does not key.
+- A predicate reached both by `genl` and by `genlInverse` from one antecedent is
+  witnessed over its `genl` path, whichever reading the match took.
+- The probe-size estimate in `inherit/extent-size` counts the even fan only.
+
 This is the predicate dimension of the hierarchical query `(p a ?x)@c`; the context
 dimension is the genlCx up-closure (`matches-visible`), and both are answered
 efficiently by the set-algebra retrieval in [indexing.md](indexing.md), "Retrieval

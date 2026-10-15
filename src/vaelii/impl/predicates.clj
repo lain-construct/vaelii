@@ -674,6 +674,15 @@
                      " integrate/commute-existing for the facts already stored"))]
      ['inverse (enforced (assoc (pair :inverse :predicate) :facets #{:cached :derived :answers})
                          "taxonomy/add-inverse — the prover that hands the swapped goal back")]
+     ['genlInverse
+      (enforced (pair :genl-inverse :predicate
+                      :notes (str "binary genl with arguments 1 and 2 swapped: (genlInverse ?spec"
+                                  " ?genl-inv) means (?spec ?x ?y) entails (?genl-inv ?y ?x). The"
+                                  " edges are a flat cache beside the genl relation, read by the"
+                                  " matching fan's signed closure rather than by the closure every"
+                                  " type read walks."))
+                (str "taxonomy/add-genl-inverse — the signed closure (tax/signed-closure) the"
+                     " matching fan, the forward trigger and the subsumption witness read"))]
 
      ;; ---- placement, lifting and the policy grants -----------------------
      ['decontextualized_predicate
@@ -1509,14 +1518,6 @@
      ;; like any fact and read for inference by nothing.  Inert is the decision rather than
      ;; the omission — the grammar documents itself in its own representation, and a
      ;; cross-reference earns a stored sentex whether or not a check ever keys on it.
-     ['genlInverse
-      (inert {:shape {:args [:term :term]} :storage [:none] :checked false
-              :family nil :facets #{}
-              :notes (str "inverse-genl between binary predicates — (genlInverse ?spec ?genl-inv)"
-                          " means (?spec ?x ?y) entails (?genl-inv ?y ?x). Not yet engine-enforced;"
-                          " aspirational ontology predicate from Lacuna proposals.")}
-             (str "aspirational: records that one binary predicate specialises the"
-                  " argument-reversed reading of another. No inference path."))]
      ['typeGenl
       (inert {:shape {:args [:term :term]} :storage [:none] :checked false
               :family nil :facets #{}

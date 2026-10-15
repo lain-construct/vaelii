@@ -404,7 +404,7 @@
           :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
           :sibling-disjoint #{} :sib-exception-index {}
           :covers {} :cover-parts {} :partitions #{}
-          :props {} :inverse {} :arity {} :functional-in-arg {} :commuting {}
+          :props {} :inverse {} :genl-inverse-down {} :genl-inverse-up {} :arity {} :functional-in-arg {} :commuting {}
           :cache-dirty #{} :cache-ctxs {}
           ;; The supporter cache (`supporters-of`), over the index's supporter families
           :supporters empty-supporters
@@ -1332,6 +1332,9 @@
                (cond-> t' (separating-kind? b) (update :partitions conj [whole parts b]))))
     :prop     (update-in t [:props a] (fnil conj #{}) b)             ; a = prop-kind, b = pred
     :inverse  (index-symmetric t :inverse a true)                  ; a = #{p q}
+    ;; a `(genlInverse p q)` edge, held both ways round for the signed closure's two walks
+    :genl-inverse (-> t (update-in [:genl-inverse-down b] (fnil conj #{}) a)
+                      (update-in [:genl-inverse-up a] (fnil conj #{}) b))      ; a = p, b = q
     :arity    (update-in t [:arity a] (fnil conj #{}) b)                          ; a = pred, b = n
     ;; `:functional-in-arg` is `:arity`'s shape and not `:prop`'s, because the
     ;; declaration carries an integer and a `:props` roster is a set of predicates with
@@ -1381,6 +1384,12 @@
                (cond-> t' (separating-kind? b) (update :partitions disj [whole parts b]))))
     :prop     (update-in t [:props a] (fnil disj #{}) b)
     :inverse  (index-symmetric t :inverse a false)
+    :genl-inverse (let [drop-in (fn [t path v]
+                                  (let [left (disj (get-in t path #{}) v)]
+                                    (if (seq left)
+                                      (assoc-in t path left)
+                                      (update-in t (pop path) dissoc (peek path)))))]
+                    (-> t (drop-in [:genl-inverse-down b] a) (drop-in [:genl-inverse-up a] b)))
     :arity    (let [ns' (disj (get-in t [:arity a] #{}) b)]
                 (if (seq ns') (assoc-in t [:arity a] ns') (update t :arity dissoc a)))
     ;; Dropping the last position drops the predicate's whole entry, so
@@ -2923,7 +2932,7 @@
          :disjoint #{} :disjoint-index {} :disjoint-metatypes #{} :metatype-members {}
          :sibling-disjoint #{} :sib-exception-index {}
          :covers {} :cover-parts {} :partitions #{}
-         :props {} :inverse {} :arity {} :functional-in-arg {} :commuting {}
+         :props {} :inverse {} :genl-inverse-down {} :genl-inverse-up {} :arity {} :functional-in-arg {} :commuting {}
          :cache-dirty #{} :cache-ctxs {}
          :supporters empty-supporters
          :cache-moves (journal/restart nil)
@@ -6264,6 +6273,155 @@
            inv (if (some? context) #(inverses-of tax % context) #(inverses-of tax %))]
        (into #{} (mapcat inv) ps)))))
 
+;; ---- genlInverse: binary genl with the arguments swapped ----------------
+;;
+;; `(genlInverse P Q)` says a `(P x y)` tuple is a `(Q y x)` tuple: binary `genl` with
+;; arguments 1 and 2 swapped.  The edges are a flat-cache entry, held both ways round —
+;; `:genl-inverse-down` maps `Q` to the `P`s below it and `:genl-inverse-up` maps `P` to
+;; the `Q`s above it — and they are never edges of the `genl` relation, whose closure every
+;; type read, placement and disjointness check walks.  What reads them is the signed
+;; closure below, which the matching fan-out takes in place of `specs` / `genls`: it walks
+;; `genl` edges keeping a parity bit and crosses a `genlInverse` edge flipping it, so a
+;; predicate reached over an odd number of `genlInverse` edges is read with its arguments
+;; swapped and one reached over an even number is read as a `genl` spec is.
+
+(defn genl-inverse-key
+  "The flat-cache key a `(genlInverse p q)` declaration installs."
+  [p q]
+  [:genl-inverse p q])
+
+(defn add-genl-inverse
+  ([tax p q handle] (add-genl-inverse tax p q handle nil))
+  ([tax p q handle ctx] (add-supported tax (genl-inverse-key p q) handle ctx)))
+(defn del-genl-inverse! [tax p q handle] (del-supported! tax (genl-inverse-key p q) handle))
+
+(defn genl-inverse-free?
+  "True when no `genlInverse` edge is installed — one map read, and the answer for nearly
+  every KB.  The signed closure is the plain `genl` closure then."
+  [tax]
+  (empty? (get @tax :genl-inverse-up)))
+
+(defn- genl-inverse-hop
+  "The predicates one `genlInverse` edge away from `p` — `dir` `:down` reads the specs
+  `x` of a `(genlInverse x p)`, `:up` the generals `y` of a `(genlInverse p y)` — whose
+  edge is visible from `context` (any edge, for an unscoped one)."
+  [tax dir p context]
+  (let [xs (get-in @tax [(if (= dir :down) :genl-inverse-down :genl-inverse-up) p] #{})]
+    (if (or (empty? xs) (not (scoped-context? context)))
+      xs
+      (into #{} (filter #(cache-entry-visible?
+                          tax (if (= dir :down) (genl-inverse-key % p) (genl-inverse-key p %))
+                          context))
+            xs))))
+
+(defn signed-closure
+  "`[straight swapped]`: the predicates `p`'s matching fan reaches through the `genl` and
+  `genlInverse` edges visible from `context` — `dir` `:down` the specs, `:up` the
+  generals.  `straight` holds those reached over an even number of `genlInverse` edges,
+  read with their arguments as written; `swapped` those reached over an odd number, read
+  with arguments 1 and 2 exchanged.  A predicate reached both ways is in both.
+
+  With no `genlInverse` edge installed this is `[(specs tax p context) #{}]` (or `genls`
+  for `:up`), the same set object the plain read answers, so a KB declaring none reads
+  the fan it always read.  Otherwise a walk over `[predicate parity]` states, each state
+  taking the `genl` closure of its predicate and crossing every visible `genlInverse` edge
+  out of a member of it with the parity flipped, so a chain composes however its `genl`
+  and `genlInverse` edges alternate and terminates on a cycle of either."
+  [tax dir p context]
+  (let [close (if (= dir :down) #(specs tax % context) #(genls tax % context))]
+    (if (genl-inverse-free? tax)
+      [(close p) #{}]
+      (loop [todo [[p false]] seen #{[p false]} straight #{} swapped #{}]
+        (if-let [[n odd] (peek todo)]
+          (let [cl   (close n)
+                nxt  (into [] (comp (mapcat (fn [s] (genl-inverse-hop tax dir s context)))
+                                    (distinct)
+                                    (map (fn [x] [x (not odd)]))
+                                    (remove seen))
+                           cl)]
+            (recur (into (pop todo) nxt)
+                   (into seen nxt)
+                   (if odd straight (into straight cl))
+                   (if odd (into swapped cl) swapped)))
+          [straight swapped])))))
+
+(defn- visible-flat-supporters
+  "The supporters of flat-cache key `k` a reader at `context` can use, as `[handle ctx]`
+  pairs — every stored one for an unscoped read, else those `cache-entry-visible?` would
+  admit."
+  [tax t k context]
+  (let [sup (supporters-of t k)]
+    (cond
+      (not (scoped-context? context)) (vec sup)
+      (supporter-filter-active? t)
+      (let [scope {:contexts (context-up tax context) :context context
+                   :supporter-visible? (visible-fn t)}]
+        (filterv (fn [[h c]] (scope-admits-supporter? scope h c)) sup))
+      :else
+      (let [up (closure-of tax :genlCx :fwd context)]
+        (filterv (fn [[_ c]] (or (nil? c) (contains? up c))) sup)))))
+
+(defn- genl-inverse-witness
+  "A `[handle ctx]` supporter for the `genlInverse` edge `p → q` a reader at `context`
+  sees: the strongest class's most general, as `strongest-edge-supporter` picks for a
+  `genl` edge; nil when none is visible."
+  [tax p q context supporter-class]
+  (let [cands (visible-flat-supporters tax @tax (genl-inverse-key p q) context)]
+    (when (seq cands)
+      (most-general-of
+       tax (if supporter-class
+             (let [top (top-supporter-class cands supporter-class)]
+               (filterv (fn [[h _]] (= top (or (supporter-class h) :default))) cands))
+             cands)))))
+
+(defn signed-reach-support
+  "A witness for `sub` reaching `super` through the signed closure with parity `swapped?`
+  — the `[handle ctx]` supporters of one path's `genl` and `genlInverse` edges, as
+  `reach-support` names a `genl` path's — or nil when `context` sees no such path.
+
+  A pair the `genl` closure relates with `swapped?` false is `reach-support`'s answer
+  unchanged.  Otherwise the path is the one with the fewest `genlInverse` edges, found
+  breadth-first over `[predicate parity]` states in name order, each `genl` stretch of it
+  witnessed by `reach-support` (widest-bottleneck under `supporter-class`, as there)."
+  [tax sub super swapped? context supporter-class]
+  (if (and (not swapped?) (contains? (genls tax sub context) super))
+    (reach-support tax :genl sub super context supporter-class)
+    (when-not (genl-inverse-free? tax)
+      (let [sorted #(nm/sort-by-content-key nm/print-key compare %)
+            start  [sub false]
+            goal?  (fn [[n odd]] (and (= odd (boolean swapped?))
+                                      (contains? (genls tax n context) super)))
+            path   (loop [q (conj clojure.lang.PersistentQueue/EMPTY start) parent {start nil}]
+                     (when-let [[n odd :as st] (peek q)]
+                       (if (goal? st)
+                         ;; walk the parents back: each hop is [from-node x y], the `genl`
+                         ;; stretch from-node →* x then the `genlInverse` edge x → y
+                         (loop [s st acc ()]
+                           (if-let [[prev x y] (get parent s)]
+                             (recur prev (cons [(first prev) x y] acc))
+                             [acc n]))
+                         (let [[q parent]
+                               (reduce (fn [[q parent :as acc] [x y]]
+                                         (let [s' [y (not odd)]]
+                                           (if (contains? parent s')
+                                             acc
+                                             [(conj q s') (assoc parent s' [st x y])])))
+                                       [(pop q) parent]
+                                       (for [x (sorted (genls tax n context))
+                                             y (sorted (genl-inverse-hop tax :up x context))]
+                                         [x y]))]
+                           (recur q parent)))))]
+        (when-let [[hops last-node] path]
+          (reduce (fn [acc seg]
+                    (if (nil? seg) (reduced nil) (into acc seg)))
+                  []
+                  (concat
+                   (mapcat (fn [[from x y]]
+                             [(reach-support tax :genl from x context supporter-class)
+                              (when-let [w (genl-inverse-witness tax x y context supporter-class)] [w])])
+                           hops)
+                   [(reach-support tax :genl last-node super context supporter-class)])))))))
+
 ;; ---- what the taxonomy holds, declared ----------------------------------
 ;;
 ;; Two structures with two different bounds, which is why they are two rows and not one.
@@ -6303,7 +6461,7 @@
 
 (def ^:private flat-keys
   [:disjoint :disjoint-index :disjoint-metatypes :metatype-members :sibling-disjoint
-   :sib-exception-index :covers :cover-parts :partitions :props :inverse :arity
+   :sib-exception-index :covers :cover-parts :partitions :props :inverse :genl-inverse-down :genl-inverse-up :arity
    :functional-in-arg :commuting :cache-dirty :cache-ctxs])
 
 (caches/register-derived
