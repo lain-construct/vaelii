@@ -871,7 +871,7 @@
   checked and only the rendered document has them."
   [body]
   ;; `(?s)` because the content is the newlines being checked, and `.` does not cross one
-  (some-> (re-find #"(?s)<span class=\"sx-rule\">(.*?)@ <a class=\"sx t-context\"" body)
+  (some-> (re-find #"(?s)<span class=\"sx-rule\">(.*?)<span class=\"cx-in\"> in </span><a class=\"sx t-context\"" body)
           second
           (str/replace #"<[^>]+>" "")
           (str/replace #"&quot;" "\"")
@@ -905,6 +905,25 @@
       (is (not (str/includes? body "sx-rule")))
       (is (nil? (rule-lines body)))
       (is (not (re-find #"</a>\n" body)) "and no row carries a newline of its own"))))
+
+(deftest a-comment-marks-up-its-formulas-variables-terms-and-doc-pages
+  (let [body (:body (GET "/term" "q=measureInUnit"))
+        text (re-find #"(?s)<span class=\"sx t-str\">&quot;.*?&quot;</span>" body)]
+    (is (some? text) "the comment's text is one white literal")
+    (testing "a formula renders as a sentence, its parens coloured by depth"
+      (is (str/includes? text "<span class=\"rb1\">(</span><a class=\"sx t-pred\" href=\"/term?q=measureInUnit\">")))
+    (testing "a variable takes the variable colour"
+      (is (str/includes? text "<span class=\"t-var\">?magnitude</span>")))
+    (testing "a word spelled as a stored term links as that term, and English stays text"
+      (is (str/includes? text "href=\"/term?q=QuantityFn\""))
+      (is (str/includes? text " holds of five kilograms. ")))
+    (testing "a docs page links to the public repository"
+      (is (str/includes? text "href=\"https://github.com/vaelii/vaelii/blob/develop/docs/quantity.md\""))))
+  (testing "a parenthetical with commas, or headed by no stored term, stays text"
+    (let [known? '#{dog}]
+      (is (nil? (#'web/comment-formula known? "(dog, cat)")))
+      (is (nil? (#'web/comment-formula known? "(the default)")))
+      (is (= '(dog ?x) (#'web/comment-formula known? "(dog ?x)"))))))
 
 (deftest a-row-is-a-circle-and-a-sentence
   ;; Every case the badge distinguishes is one colour, so a word beside it says the

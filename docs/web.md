@@ -158,7 +158,7 @@ request log either, which [operations.md](operations.md) states as the trade it 
 
 | Route | Shows |
 |-------|-------|
-| `/` | the **upper ontology**: what the KB is in four numbers, then the genlCx context lattice, the genl type tree (from `thing`), the documented terms (the `comment` sentexes), and its disjointness. Every one of them is **bounded**, and where the whole is too long to read the page shows the top of a ranking rather than the first fifty of an order nobody chose — this is the first page opened against a KB whose size the reader did not choose (below) |
+| `/` | the **upper ontology**: the reader's browsing history (the terms, literals and rules whose pages they opened, each list in visit order and capped at 50, held in the browser's localStorage by vaelii.js), what the KB is in four numbers, then the genlCx context lattice, the genl type tree (from `thing`), the documented terms (the `comment` sentexes), and its disjointness. Every one of them is **bounded**, and where the whole is too long to read the page shows the top of a ranking rather than the first fifty of an order nobody chose — this is the first page opened against a KB whose size the reader did not choose (below) |
 | `/stats` (`?clashes=1`) | **statistics**: headline counts (contexts, types, stored sentexes, and the contradiction / conflict / violation tallies), a contexts-by-size table ranked largest-first, and the actual dilemmas / conflicts / dropped-derivation violations when non-empty — each ledger violation naming the run that dropped it, and each `:forced-conclusion` entry, which `violations` reads off the stored firings, naming none. The contexts table and the three ledgers are one screen each and continue on scroll. `?clashes=1` additionally asks the **standing disjointness question** (below), which is computed on demand rather than filed; its clash list stops at 50 with a `showing 50 of N` line and does not continue |
 | `/find?q=<pattern>` | **term search** over the KB's vocabulary: every term whose name matches (a query with no regex metacharacter is a case-insensitive substring match, so `DOG` finds `dog`; a query carrying one is a regular expression under `re-find`, so `^parent` anchors), each linked to its term page — the header search box points here. A pattern resolving to a single term (the only match, or an exact-name match) **jumps straight to that term's page** (`HX-Push-Url`) |
 | `/term?q=<term>` | a **term**: a drawn picture of where it sits (below), then every sentex containing it grouped by the **index root** that reaches it — functor `[:predicate-extent]`, argument-position `[:argument-slot pos]` (the roster the predicate-agnostic read unions the scoped roots over), context `[:context-root]`, and the term-index `[:term-index]` remainder (rules, deeper nestings) — each group carrying its cheap count (O(1) for the roots; one O(1) read per predicate at the slot for the argument groups) |
@@ -1690,8 +1690,9 @@ A sentence is rendered structurally, not as one opaque string:
 - **each subterm is its own link** to `/term?q=<subterm>` — click the predicate,
   an individual, or the context independently (nested compound subterms are also
   listed individually under a sentex's *Subterms*);
-- terms are **colored by role** — type (green), individual (purple), predicate
-  (blue), context (brown), number (red), variable (grey). A node of the genl taxonomy
+- terms are **colored by role** — type (pale amber), individual (violet), predicate
+  (yellow-orange), context (blue), literal (white: a number or a string), variable
+  (grey). The word `in` between a sentence and its context is white too. A node of the genl taxonomy
   colors by stored content: a predicate when `relation?` reads it as a relation of two or
   more places, as for `orthogonal` under its `genl` edge, and a type otherwise, as for
   `dog`. A term outside the taxonomy colors by its spelling, so `parentOf` colors as a
@@ -1701,6 +1702,13 @@ A sentence is rendered structurally, not as one opaque string:
   the OpenCyc import [kbs.md](kbs.md) is the route to are compounds.
   Reading those as numbers is a page in the wrong colour. A legend is shown
   on the home page.
+- a **`comment`'s text is marked up** inside its white quotes (`comment-text`): a
+  formula in it renders as a sentence does, a `?variable` takes the variable colour, a
+  word spelled as a term (camelCase, snake_case, or a second capital as in `CxChange` and
+  `QuantityFn`) links as that term when a stored sentex mentions it, and a `docs/…` page
+  links to that page in the public repository. A parenthesis is a formula when it parses
+  to an EDN list headed by a connective or a stored term and holds no comma, so a prose
+  aside such as "(a cup, a box)" stays text.
 
 ### A reified term is never shown as its constant
 
@@ -1783,12 +1791,11 @@ accent pair, the term-role colours (`--t-*`) and the nine-step spectrum (`--rb1`
   it, so a control added later takes the page's shape by being a button.
 - A **header** carries the vaelii logo and monospace wordmark (a home link) at the
   left, then — pushed to the right — a **menubar** to the top-level tools (Ontology
-  `/`, Reasoning `/reasoning`, Query `/levels`, Assert `/assert`, Sandbox `/assert` —
-  the sandbox is reached as a place to write, never as a context to choose — Network
-  `/network`, Stats `/stats`, Jobs `/jobs` carrying the running-job count, and KB `/kbs`
-  carrying the active KB's name; vaelii.js
-  marks the one matching the current path active), a **search box**, the request
-  indicator, and the colour controls. The search is an htmx *active search*: a debounced
+  `/`, Reasoning `/reasoning`, Query `/levels`, Assert `/assert`, which writes into the
+  reader's sandbox, Network `/network`, Stats `/stats`, Jobs `/jobs` carrying the
+  running-job count, and KB `/kbs` carrying the active KB's name; vaelii.js marks the
+  one matching the current path active) ending in the two round colour controls, then a
+  **search box** and the request indicator. The search is an htmx *active search*: a debounced
   `hx-get` to `/find` swaps just the
   `#main` region, so it stays focused and no full reload happens. What you type is
   matched against **term names**: a query with no regex metacharacter is a
