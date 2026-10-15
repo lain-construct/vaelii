@@ -60,6 +60,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none. A KB that declares its own `electronic_device` term meets the
   shipped one.
 
+- **The shipped comments state their examples as example facts.** 101 comments
+  across `core.txt`, `abstract.txt`, `reflection.txt`, `life.txt`, `measure.txt`,
+  `organism.txt`, `time.txt`, `CxComputing.txt` and `CxSocial.txt` named examples of
+  their own term. Each keeps its definition, and its examples are 227
+  `positiveExampleComment` and 25 `negativeExampleComment` facts beside it, in the
+  comment's own context. Nine comments keep an example that explains the definition and
+  state it as a fact as well. The witness that a region of space is intangible and
+  spatiotemporal is a `comment` on `(orthogonal intangible spatiotemporal)`.
+
+  *Class:* **Additive** (shipped documentation; no sentence's truth changes).
+  *Migration:* none. A reader of a comment's examples reads the example facts.
+
 - **`machine`'s comment defines it by its parts.** A machine is a made thing with
   parts that move relative to each other, driven by an energy source. The comment names
   no use, so a stopped clock is still a machine. Its
