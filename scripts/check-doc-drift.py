@@ -1602,6 +1602,7 @@ E17_ROSTER = {
     ("src/vaelii/impl/decide/membership.clj", "term-nogoods"),
     ("src/vaelii/impl/decide/membership.clj", "cover-routes"),
     ("src/vaelii/impl/decide/membership.clj", "separation-tests"),
+    ("src/vaelii/impl/decide/membership.clj", "cover-convicted-at?"),
     ("src/vaelii/impl/decide/related.clj", "contradicted-somewhere?"),
     ("src/vaelii/impl/decide/tuple.clj", "roster-marks"),
     ("src/vaelii/impl/decide/tuple.clj", "det-marks"),

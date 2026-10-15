@@ -5660,6 +5660,23 @@
                                  [] links)]
           {:keys keys :pair pair :supports sups :edges edges})))))
 
+(defn pair-separated?
+  "Does a declaration separate the type `a` from the type `b` over the unscoped closures,
+  with no `siblingDisjointException` read: `separation-test` with no reader and no
+  exemption, a superset over every reader, and symmetric.  Held in the closure cache
+  under the `genl` generation and the separation stamp, so the membership family's cover
+  arm (`membership/term-nogoods`) tests a held type against a part once per stamp and
+  reads a map entry after."
+  [tax a b]
+  (let [t   @tax
+        lru (:closure-lru t)
+        k   [:pair-separated (:gen (:genl t)) (separation-stamp tax) a b]
+        v   (caches/lru-get lru k)]
+    (if (some? v)
+      v
+      (caches/lru-put! lru k (boolean (some-> (separation-test tax a nil (constantly false))
+                                              (apply [b])))))))
+
 (defn separating-pairs
   "Every **ordered** pair `[x y]`, `x` ≠ `y`, that a visible declaration separates —
   the declared pairs in both directions, plus each disjoint metatype's members against

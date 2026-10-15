@@ -3719,3 +3719,26 @@
         (is (seq (:placed single))))
       (is (= single bulk))))
   (tu/clear-kb! (tu/test-kb)))
+
+;; ---- a cover refuted through a separation's denial ------------------------
+
+(deftest a-cover-a-separation-denies-every-part-of-is-one-nogood-in-every-order
+  ;; https://github.com/vaelii/vaelii/issues/183: `(covering ww aa bb)` with `(ww Ex)`, and
+  ;; each part denied by a membership in a type separated from it.  The settle places the
+  ;; cover nogood over the three memberships, so `contradictions` lists what `argue`
+  ;; reads as a contradiction, in all 720 orders, and each write is needed for it.
+  (tu/with-terms [ww aa bb ss tt Ex]
+    (let [observe (fn [kb]
+                    {:clashes (into #{} (map (fn [r] [(:kind r) (set (map :sentence (:sides r)))]))
+                                    (v/contradictions kb))
+                     :aa      (:verdict (v/argue kb (list aa Ex) 'CxUniverse))})
+          outcome (one-outcome-necessarily!
+                   "cover refuted through separations"
+                   (mapv assert-op [(list 'covering ww aa bb) (list 'disjoint ss aa)
+                                    (list 'disjoint tt bb) (list ww Ex) (list ss Ex)
+                                    (list tt Ex)])
+                   observe)]
+      (is (= {:clashes #{[:cover #{(list ww Ex) (list ss Ex) (list tt Ex)}]}
+              :aa      :contradiction}
+             outcome))))
+  (tu/clear-kb! (tu/test-kb)))
