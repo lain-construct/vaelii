@@ -1612,18 +1612,48 @@
     (is (= :orthogonal (v/subsumption-status kb 'dog tended)))
     (is (not-any? #(= :forced-conclusion (:violation %)) (v/violations kb)))))
 
-(tu/deftest-kb artifact-is-declared-nowhere-and-the-six-kinds-are-made
+(tu/deftest-kb artifact-is-declared-nowhere-and-the-made-kinds-are-made
   ;; The KB declares no artifact term and no alias for one.  building, clothing,
-  ;; container, furniture, machine and vehicle are kinds of made.
+  ;; container, electronic_device, furniture, machine and vehicle are kinds of made.
   (is (empty? (v/sentexes-matching kb '(comment artifact ?text) '?ctx)))
   (is (empty? (v/sentexes-matching kb '(genl artifact ?type) '?ctx)))
   (is (empty? (v/sentexes-matching kb '(genl ?type artifact) '?ctx)))
   (is (= 1 (count (v/sentexes-matching kb '(comment made ?text) 'CxUniverse))))
-  (doseq [t '[building clothing container furniture machine vehicle]]
+  (doseq [t '[building clothing container electronic_device furniture machine vehicle]]
     (is (true? (v/genl? kb t 'made 'CxUniverse)) (str t " is made")))
-  (doseq [t '[clothing container furniture machine vehicle]]
+  (doseq [t '[clothing container electronic_device furniture machine vehicle]]
     (is (some #(v/premise? kb (:id %)) (v/sentexes-matching kb (list 'genl t 'made) 'CxUniverse))
         (str "(genl " t " made) is stated"))))
+
+(tu/deftest-kb an-electronic-device-is-made-and-overlaps-machine
+  ;; electronic_device is defined by the circuit it contains.  A fan-cooled desktop is a
+  ;; machine and an electronic device, a wind-up clock a machine with no circuit, and a
+  ;; single-board computer an electronic device with no moving part that does work.
+  (is (= 1 (count (v/sentexes-matching kb '(comment electronic_device ?text) 'CxUniverse))))
+  (is (true? (v/genl? kb 'electronic_device 'made 'CxUniverse)))
+  (is (some #(v/premise? kb (:id %))
+            (v/sentexes-matching kb '(orthogonal electronic_device machine) 'CxUniverse))
+      "(orthogonal electronic_device machine) is stated")
+  (is (= 1 (count (v/sentexes-matching
+                   kb '(comment (orthogonal electronic_device machine) ?text) 'CxUniverse)))
+      "the orthogonal sentence carries its witnesses as a comment")
+  (is (= :orthogonal (v/subsumption-status kb 'machine 'electronic_device)))
+  (is (not (v/disjoint? kb 'machine 'electronic_device)))
+  (testing "a term in both types is no clash"
+    (tu/with-terms [Desktop1]
+      (v/assert kb (list 'machine Desktop1) 'CxUniverse)
+      (is (not (tu/stored-in-clash? kb (list 'electronic_device Desktop1) 'CxUniverse)))
+      (is (true? (v/ask? kb (list 'electronic_device Desktop1) 'CxUniverse)))
+      (is (true? (v/ask? kb (list 'machine Desktop1) 'CxUniverse)))))
+  (testing "a machine is not concluded an electronic device, nor the converse"
+    (tu/with-terms [WindUpClock1 BoardComputer1]
+      (v/assert kb (list 'machine WindUpClock1) 'CxUniverse)
+      (v/assert kb (list 'electronic_device BoardComputer1) 'CxUniverse)
+      (is (not (v/ask? kb (list 'electronic_device WindUpClock1) 'CxUniverse)))
+      (is (not (v/ask? kb (list 'machine BoardComputer1) 'CxUniverse)))
+      (is (true? (v/ask? kb (list 'made BoardComputer1) 'CxUniverse)))
+      (is (not (v/ask? kb (list 'person BoardComputer1) 'CxUniverse))
+          "an electronic device is not concluded a person"))))
 
 ;; ---- made and natural ------------------------------------------------------
 ;; made and natural partition tangible.  A formation is a natural tangible that nothing

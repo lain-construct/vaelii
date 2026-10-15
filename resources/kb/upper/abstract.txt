@@ -45,6 +45,11 @@
 
 (comment context "A context: the second half of a sentex, and what a sentence holds in.")
 
+(comment electronic_device "A made thing that contains an electronic circuit: a phone, a router, a computer, a bare circuit board. Defined by what it contains, not by what it does, so it is rigid: a dead phone or an unplugged board is still one.")
+(genl electronic_device made)
+(set/monotonic (orthogonal electronic_device machine))
+(comment (orthogonal electronic_device machine) "A fan-cooled desktop is both, a wind-up clock is a machine but not electronic, and a single-board computer is electronic but not a machine.")
+
 (comment feather "A light keratin body part covering a bird.")
 (genl feather body_part)
 

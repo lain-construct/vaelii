@@ -46,6 +46,20 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
   *Class:* **Fix** (the same answers, sooner).
 
+### Additions
+
+- **`electronic_device` joins the made kinds, orthogonal to `machine`.**
+  `abstract.txt` declares `electronic_device`, a made thing that contains an electronic
+  circuit, with `(genl electronic_device made)`. The type is rigid: what defines it is
+  the circuit a thing contains and not what the thing does. `(orthogonal
+  electronic_device machine)`, `:monotonic`, states that the two types overlap and that
+  neither is a genl of the other. A `comment` on that sentence names a witness for each
+  of the three claims.
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none. A KB that declares its own `electronic_device` term meets the
+  shipped one.
+
 ## 0.27.0 — 2026-10-15 — "Arity clashes held inert and `:monotonic` class memberships stored, `predExistsAll` scoped universal-first, `:pg-snapshot` and `:recover? :trust`, `genlInverse` and `closedExtentForArg`"
 
 | Area | Change |
