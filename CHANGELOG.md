@@ -15,6 +15,22 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Additions
 
+- **`genlInverse` infers: binary `genl` with arguments 1 and 2 swapped.**
+  `(genlInverse P Q)` makes a stored `(P a b)` answer a `(Q b a)` goal, satisfy a
+  `(Q ?x ?y)` rule antecedent, and answer a `Q` goal through a rule concluding `P`. A
+  firing's justification names the `genlInverse` edges it crossed, a default edge caps the
+  conclusion at `:default`, and an `except` on the edge hides the swapped reading. The
+  matching fan walks `genl` and `genlInverse` edges together with a parity bit
+  (`tax/signed-closure`), so a chain swaps exactly when it holds an odd number of
+  `genlInverse` edges and two in a row answer what `genl` answers. The converse is not
+  licensed. docs/inference.md, "`genlInverse`: the fan with the arguments swapped",
+  records the five readers that take less than the full swap.
+
+  *Class:* **Additive** (the predicate was declared with no inference path; core.txt
+  states no `genlInverse` fact, so the shipped ontology answers as before).
+  *Migration:* none. A KB that states `(genlInverse P Q)` now reads `P` facts as swapped
+  `Q` facts.
+
 - **CxUniverse separates `animal` from four made kinds.** `(disjoint animal building)`,
   `(disjoint animal clothing)`, `(disjoint animal furniture)` and `(disjoint animal
   machine)`, each `:monotonic`, join the made-kind separations in `abstract.txt`.
