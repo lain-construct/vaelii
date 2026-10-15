@@ -125,6 +125,10 @@ A type says what a thing *is*, not what it's for. A type defined by purpose, cap
 
 **Audit:** if a type's comment defines membership by purpose or role, make it a relation (`bodyPartRoleOf ?thing ?body`), put the role's rules on the relation, and type its args by what the fillers are.
 
+**Verb test:** read the verb that defines membership. A process or agency verb (operates, is used, serves, does work) brings purpose in. A stative verb (contains, has as a part, is made of) defines by structure, and the type it defines is rigid.
+
+**Example:** a candidate `device` defined as "operates when powered" admits a brick warming in sunlight and a one-piece whistle. A `tool` defined as "used to perform work" admits a rock used as a hammer. `electronic_device`, "contains an electronic circuit", admits a dead phone and excludes the whistle. `machine`, "has parts that move relative to each other, driven by an energy source", admits a stopped clock.
+
 **Examples:** a type `necessarily_part_of_something` is purpose in disguise. A broad `body_part` meaning "anything that can do the work of a body part" takes in every prosthetic; the kind plus a role relation keeps the two apart.
 
 ## beware entity
