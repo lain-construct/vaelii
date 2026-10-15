@@ -169,7 +169,7 @@
                                   [#{}]
                                   (for [d types
                                         :when (not= d s)
-                                        r (tax/separation-routes tax d p)
+                                        r (tax/separation-routes-held tax d p)
                                         :when (tax/monotonic-route-witness tax r v cls)]
                                     (:keys r))))]
                     :when (every? seq per)

@@ -3988,9 +3988,14 @@
   capped at the floor and no lower.  Since there are exactly two classes
   (`strength.clj`), the widest floor is found by trying each class as a threshold, highest
   first, and taking the first shortest path made only of edges that clear it — a threshold
-  scan that stays correct for any fixed number of classes and is two passes for two."
+  scan that stays correct for any fixed number of classes and is two passes for two.
+  `thresholds` names the classes tried, highest first: `[:monotonic]` asks for a path
+  every edge of which holds at `:monotonic` and walks no second pass when there is none
+  (`monotonic-route-witness`)."
   ([tax rel-key sub super context] (reach-support tax rel-key sub super context nil))
   ([tax rel-key sub super context supporter-class]
+   (reach-support tax rel-key sub super context supporter-class [:monotonic :default]))
+  ([tax rel-key sub super context supporter-class thresholds]
    (if (= sub super)
      []
      (let [t   @tax
@@ -4037,7 +4042,7 @@
            (or (direct (admit :monotonic) witness)
                (some (fn [threshold]
                        (bfs-witness-path sub super nbrs (admit threshold) witness reaches?))
-                     [:monotonic :default]))))))))
+                     thresholds))))))))
 
 (defn context-specificity
   "How specific context `c` is, as the size of its `genlCx` ancestor set; 0 for a supporter
@@ -5653,12 +5658,25 @@
                                   (reduced nil)))
                               [] (nm/sort-by-content-key nm/print-key compare keys))]
         (when-let [edges (reduce (fn [acc [sub super]]
-                                   (let [path (reach-support tax :genl sub super context supporter-class)]
+                                   (let [path (reach-support tax :genl sub super context
+                                                             supporter-class [:monotonic])]
                                      (if (and path (every? #(mono? (first %)) path))
                                        (into acc path)
                                        (reduced nil))))
                                  [] links)]
           {:keys keys :pair pair :supports sups :edges edges})))))
+
+(defn separation-routes-held
+  "`separation-routes` of `a` and `b`, as a vector held in the closure cache under the
+  `genl` generation and the separation stamp: the routes are read over the unscoped
+  closures and the declarations alone, so a reader asking one pair again before either
+  moves reads a map entry (`res/separation-denials`, `membership/cover-routes`)."
+  [tax a b]
+  (let [t   @tax
+        lru (:closure-lru t)
+        k   [:separation-routes (:gen (:genl t)) (separation-stamp tax) a b]]
+    (or (caches/lru-get lru k)
+        (caches/lru-put! lru k (vec (separation-routes tax a b))))))
 
 (defn pair-separated?
   "Does a declaration separate the type `a` from the type `b` over the unscoped closures,

@@ -2407,6 +2407,41 @@
           :monotonic
           c)))))
 
+(def ^:dynamic *membership-memo*
+  "A volatile `{[x context] memberships}` the separation's denial reads a term's
+  memberships through while bound (`checks/cover-refutations` binds it over one write's
+  covers, where nothing is stored), or nil to read `type-memberships` afresh."
+  nil)
+
+(defn- memberships-for
+  "`type-memberships` of `x` at `context`, through `*membership-memo*` when it is bound."
+  [kb x context]
+  (if-let [memo *membership-memo*]
+    (let [k [x context]]
+      (if-let [hit (find @memo k)]
+        (val hit)
+        (let [ms (vec (type-memberships kb x context))]
+          (vswap! memo assoc k ms)
+          ms)))
+    (type-memberships kb x context)))
+
+(defn- separation-denial-witnesses
+  "`separation-denials`' witnesses, lazily and in the order the memberships and routes
+  are read.  The routes are read off the closure cache (`tax/separation-routes-held`), and
+  a pair no declaration separates is skipped on the held test (`tax/pair-separated?`)."
+  [kb t x context]
+  (let [tax (reasoning/taxonomy kb)]
+    (when (and (symbol? t) (tax/separable? tax t))
+      (let [cls (holding-class kb)
+            ctx (when-not (sx/variable? context) context)]
+        (for [m     (memberships-for kb x context)
+              :let  [s (nm/functor (:sentence m))]
+              :when (and (not= s t) (symbol? s) (tax/pair-separated? tax s t))
+              r     (tax/separation-routes-held tax s t)
+              :let  [wit (tax/monotonic-route-witness tax r ctx cls)]
+              :when wit]
+          {:membership (:id m) :sentence (:sentence m) :context (:context m) :route wit})))))
+
 (defn separation-denials
   "The witnesses of `(not (t x))` a reader at `context` reads off a separation, in
   content order: one per believed, visible, unexcepted membership `(s x)`
@@ -2424,20 +2459,18 @@
   of a refuted cover, so `argue` and the cover family read one denial (docs/taxonomy.md,
   \"A separation answers a denial\")."
   [kb t x context]
-  (let [tax (reasoning/taxonomy kb)]
-    (when (and (symbol? t) (tax/separable? tax t))
-      (let [cls (holding-class kb)
-            ctx (when-not (sx/variable? context) context)]
-        (nm/sort-by-content-key
-         #(nm/print-key [(:sentence %) (:context %) (:keys (:route %)) (:pair (:route %))])
-         compare
-         (for [m     (type-memberships kb x context)
-               :let  [s (nm/functor (:sentence m))]
-               :when (and (not= s t) (symbol? s) (tax/separable? tax s))
-               r     (tax/separation-routes tax s t)
-               :let  [wit (tax/monotonic-route-witness tax r ctx cls)]
-               :when wit]
-           {:membership (:id m) :sentence (:sentence m) :context (:context m) :route wit}))))))
+  (nm/sort-by-content-key
+   #(nm/print-key [(:sentence %) (:context %) (:keys (:route %)) (:pair (:route %))])
+   compare
+   (separation-denial-witnesses kb t x context)))
+
+(defn separation-denied?
+  "Does a reader at `context` read `(not (t x))` off a separation: is
+  `separation-denials` non-empty?  Reads the witnesses lazily and stops at the first,
+  for a caller that asks whether the denial holds and names no member
+  (`provers/DisjointnessNegationProver`)."
+  [kb t x context]
+  (some? (first (separation-denial-witnesses kb t x context))))
 
 (defn constraining-predicates
   "The predicates whose argument declarations of kind `kind` bind a `pred` tuple —

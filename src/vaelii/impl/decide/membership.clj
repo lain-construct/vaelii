@@ -534,7 +534,7 @@
                          [{:links [[p q]]}]
                          (for [d pos
                                :when (not= d s)
-                               r (tax/separation-routes tax d p)]
+                               r (tax/separation-routes-held tax d p)]
                            {:keys   (:keys r) :links (:links r)
                             :strict (filterv #(= :member (first %)) (:keys r))
                             :pair   (when (:mark? r) (:pair r))})))]

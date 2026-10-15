@@ -1596,48 +1596,55 @@
                                       (or (= p (nm/functor lit))
                                           (tax/genl? tax (nm/functor lit) p context))))]
         (when (checkable-term? x)
-          (let [decls (if neg?
-                        (mapv (fn [[whole parts _]] [whole parts])
-                              (tax/covers-naming-visible tax part context))
-                        (tax/covers-over tax (nm/functor lit) context))]
-            (for [[whole parts] decls
-                  :when (or (nil? part)
-                            (provers/conjunction-derivable? kb [(list whole x)] {} context))
-                  ;; every part *but this one*: on the refusal path the sentence under
-                  ;; assertion is not stored yet and holds by assumption, and on the
-                  ;; settle path it is stored and would answer here anyway.
-                  :when (every? (fn [p]
-                                  (or (= p part)
-                                      (if (stored-only? p)
-                                        (seq (negation-handles kb p x context))
-                                        (provers/conjunction-derivable?
-                                         kb [(list 'not (list p x))] {} context))))
-                                parts)]
-              {:type :cover :sentence sentence :types (vec (cons whole parts))
-               ;; The membership, the other negations and the memberships a separation
-               ;; denies a part through (`separation-denial-handles`), and **not** the
-               ;; declaration the conviction is read through — `disjoint`'s rule, for
-               ;; `disjoint`'s reason: a nogood holding the declaration would, on
-               ;; defeating it, read a taxonomy without the cover on the next pass, find
-               ;; no violation, revive the declaration and oscillate.  The evidence is
-               ;; what a refuted cover convicts; the cover is the standing claim it is
-               ;; convicted against.  A separation and the `genl` edges it climbs are
-               ;; grounds in the same way.  Naming the denying membership is what makes a
-               ;; cover refuted through a derived denial arbitrable: the violation names
-               ;; the stored sentexes it is against, so the write is stored and placed
-               ;; rather than refused (docs/nmtms.md, "What a refusal may rest on").
-               :opposing-handles
-               (into (if part (vec (membership-handles kb whole x context)) [])
-                     (comp (remove #(= % part))
-                           (mapcat #(if (stored-only? %)
-                                      (negation-handles kb % x context)
-                                      (concat (negation-handles kb % x context)
-                                              (separation-denial-handles kb % x context))))
-                           (distinct))
-                     parts)
-               :message (str "coverage violated: " x " is a " whole
-                             ", which every part of the declared cover "
-                             (str/join ", " parts) " is now denied of")})))))))
+          ;; one read of the term's memberships for every part a separation is asked to
+          ;; deny (`res/*membership-memo*`): nothing is written while the covers are read
+          (binding [res/*membership-memo* (or res/*membership-memo* (volatile! {}))]
+            (doall
+             (let [decls (if neg?
+                           (mapv (fn [[whole parts _]] [whole parts])
+                                 (tax/covers-naming-visible tax part context))
+                           (tax/covers-over tax (nm/functor lit) context))]
+               (for [[whole parts] decls
+                     :when (or (nil? part)
+                               (provers/conjunction-derivable? kb [(list whole x)] {} context))
+                     ;; every part *but this one*: on the refusal path the sentence under
+                     ;; assertion is not stored yet and holds by assumption, and on the
+                     ;; settle path it is stored and would answer here anyway.
+                     ;; the parts denied only by a stored negation first: each is a posting
+                     ;; read, and the first one undenied ends the test before a part asks
+                     ;; the provers
+                     :when (every? (fn [p]
+                                     (or (= p part)
+                                         (if (stored-only? p)
+                                           (seq (negation-handles kb p x context))
+                                           (provers/conjunction-derivable?
+                                            kb [(list 'not (list p x))] {} context))))
+                                   (sort-by (complement stored-only?) parts))]
+                 {:type :cover :sentence sentence :types (vec (cons whole parts))
+                  ;; The membership, the other negations and the memberships a separation
+                  ;; denies a part through (`separation-denial-handles`), and **not** the
+                  ;; declaration the conviction is read through — `disjoint`'s rule, for
+                  ;; `disjoint`'s reason: a nogood holding the declaration would, on
+                  ;; defeating it, read a taxonomy without the cover on the next pass, find
+                  ;; no violation, revive the declaration and oscillate.  The evidence is
+                  ;; what a refuted cover convicts; the cover is the standing claim it is
+                  ;; convicted against.  A separation and the `genl` edges it climbs are
+                  ;; grounds in the same way.  Naming the denying membership is what makes a
+                  ;; cover refuted through a derived denial arbitrable: the violation names
+                  ;; the stored sentexes it is against, so the write is stored and placed
+                  ;; rather than refused (docs/nmtms.md, "What a refusal may rest on").
+                  :opposing-handles
+                  (into (if part (vec (membership-handles kb whole x context)) [])
+                        (comp (remove #(= % part))
+                              (mapcat #(if (stored-only? %)
+                                         (negation-handles kb % x context)
+                                         (concat (negation-handles kb % x context)
+                                                 (separation-denial-handles kb % x context))))
+                              (distinct))
+                        parts)
+                  :message (str "coverage violated: " x " is a " whole
+                                ", which every part of the declared cover "
+                                (str/join ", " parts) " is now denied of")})))))))))
 
 (defn- cover-refutation
   "The first refuted cover, for the refusal paths."

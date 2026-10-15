@@ -2544,7 +2544,7 @@
   (completeness [_ _ _ _] 50)
   (solve [_ kb goal context]
     (let [[t x] (second goal)]
-      (if (seq (res/separation-denials kb t x context))
+      (if (res/separation-denied? kb t x context)
         [{}]
         []))))
 
