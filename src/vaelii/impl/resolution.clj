@@ -12,6 +12,7 @@
             [clojure.walk :as walk]
             [vaelii.impl.budget :as budget]
             [vaelii.impl.capabilities :as cap]
+            [vaelii.impl.decide :as decide]
             [vaelii.impl.except :as exc]
             [vaelii.impl.jtms :as jtms]
             [vaelii.impl.literal-cache :as lc]
@@ -2387,6 +2388,56 @@
                         (let [sen (:sentence s)]
                           (when (and (= 1 (nm/arity sen)) (= x (first (nm/args sen))))
                             s)))))))))))
+
+(defn holding-class
+  "`handle → class` for a separation's denial (`tax/monotonic-route-witness`): the live
+  JTMS defeat class of the handle, nil while it is OUT, and `:monotonic` for a believed
+  literal on the forced-monotonic roster (`decide/roster-literal?`) whatever strength it
+  was written at.  A roster literal goes OUT only by retraction (docs/nmtms.md, \"The
+  forced-monotonic roster\"), so a declaration and the part edges a `covering` installs
+  hold for every term as a `:monotonic` edge does."
+  [kb]
+  (let [tms  (reasoning/tms kb)
+        recs (:records kb)
+        tax  (reasoning/taxonomy kb)]
+    (fn [h]
+      (when-let [c (jtms/defeat-class tms h)]
+        (if (and (not= :monotonic c)
+                 (some->> (p/get-sentex recs h) :sentence (decide/roster-literal? tax)))
+          :monotonic
+          c)))))
+
+(defn separation-denials
+  "The witnesses of `(not (t x))` a reader at `context` reads off a separation, in
+  content order: one per believed, visible, unexcepted membership `(s x)`
+  (`type-memberships`) and per route a declaration separates `s` from `t` through
+  (`tax/separation-routes`) that meets the soundness rule (`tax/monotonic-route-witness`):
+  each key believed and visible, the separated pair not exempted by a
+  `siblingDisjointException` the reader sees, and every `genl` edge climbed on either
+  side holding at `:monotonic`.  Each witness is `{:membership h :sentence (s x)
+  :context c :route {:keys :pair :supports :edges}}`.  Empty when no separation reaches
+  `t` (`tax/separable?`).  The routes are read over the unscoped closures, a superset over
+  every reader, and the reader's context scopes each one's keys and edges.
+
+  The one read of a separation's denial.  `provers/DisjointnessNegationProver` answers
+  the query from it, and `checks/cover-refutations` names its memberships as the members
+  of a refuted cover, so `argue` and the cover family read one denial (docs/taxonomy.md,
+  \"A separation answers a denial\")."
+  [kb t x context]
+  (let [tax (reasoning/taxonomy kb)]
+    (when (and (symbol? t) (tax/separable? tax t))
+      (let [cls (holding-class kb)
+            ctx (when-not (sx/variable? context) context)]
+        (nm/sort-by-content-key
+         #(nm/print-key [(:sentence %) (:context %) (:keys (:route %)) (:pair (:route %))])
+         compare
+         (for [m     (type-memberships kb x context)
+               :let  [s (nm/functor (:sentence m))]
+               :when (and (not= s t) (symbol? s) (tax/separable? tax s))
+               r     (tax/separation-routes tax s t)
+               :let  [wit (tax/monotonic-route-witness tax r ctx cls)]
+               :when wit]
+           {:membership (:id m) :sentence (:sentence m) :context (:context m) :route wit}))))))
 
 (defn constraining-predicates
   "The predicates whose argument declarations of kind `kind` bind a `pred` tuple —

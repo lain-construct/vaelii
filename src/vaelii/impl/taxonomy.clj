@@ -5622,6 +5622,44 @@
   [tax {:keys [pair mark?]} context]
   (boolean (and mark? pair ((exemption tax context) (first pair) (second pair)))))
 
+(defn monotonic-route-witness
+  "What a reader at `context` reads the separation route `route` (`separation-routes`)
+  through when the route answers a denial, or nil when the reader reads no denial off
+  it.  Three conditions, the soundness rule of docs/taxonomy.md, \"A separation answers a
+  denial\":
+
+  * every flat-cache key of the route has a supporter the reader sees
+    (`visible-supporters`) that `supporter-class` reads `:monotonic`.  The declarations
+    are on the forced-monotonic roster, which `res/holding-class` reads `:monotonic`
+    while believed, so for them the test is belief and visibility.  A disjoint
+    metatype's `[:member m y]` membership is an ordinary fact, and a `:default` one
+    separates nothing here;
+  * no `siblingDisjointException` the reader sees exempts the route's separated pair
+    (`route-exempted?`);
+  * each subsumption the route climbs has a path the reader sees whose every edge holds
+    at `:monotonic` (`reach-support` with `supporter-class`, the widest bottleneck).  A
+    `:default` edge on either side applies forward and does not contrapose.
+
+  `supporter-class` is `handle → class`, a live JTMS `defeat-class` read, nil for a handle
+  that is OUT.  The witness is `{:keys :pair :supports :edges}`: the route's keys and
+  separated pair, one `:monotonic` supporter handle per key, and the `[handle ctx]`
+  supporters of the edges climbed."
+  [tax {:keys [keys links pair] :as route} context supporter-class]
+  (let [mono? #(= :monotonic (supporter-class %))]
+    (when-not (route-exempted? tax route context)
+      (when-let [sups (reduce (fn [acc k]
+                                (if-let [h (first (filter mono? (sort (visible-supporters tax k context))))]
+                                  (conj acc h)
+                                  (reduced nil)))
+                              [] (nm/sort-by-content-key nm/print-key compare keys))]
+        (when-let [edges (reduce (fn [acc [sub super]]
+                                   (let [path (reach-support tax :genl sub super context supporter-class)]
+                                     (if (and path (every? #(mono? (first %)) path))
+                                       (into acc path)
+                                       (reduced nil))))
+                                 [] links)]
+          {:keys keys :pair pair :supports sups :edges edges})))))
+
 (defn separating-pairs
   "Every **ordered** pair `[x y]`, `x` ≠ `y`, that a visible declaration separates —
   the declared pairs in both directions, plus each disjoint metatype's members against
