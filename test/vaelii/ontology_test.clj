@@ -245,6 +245,9 @@
    (into {} (for [p '[positiveExample negativeExample borderlineExample]]
               {[p 1] "an exemplified term"
                [p 2] "the example, a sentence written as a term"}))
+   ;; the string siblings type their text (arg … 2 string) and leave the term untyped
+   (into {} (for [p '[positiveExampleComment negativeExampleComment borderlineExampleComment]]
+              [[p 1] "an exemplified term"]))
    ;; the five aggregation operators: a result variable, a census variable, a sentence body
    (into {} (for [op '[agg/count agg/sum agg/avg agg/min agg/max] i [1 2 3]]
               [[op i] "an operator slot — a variable, a variable and a sentence body"]))

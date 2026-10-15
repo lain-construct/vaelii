@@ -71,6 +71,38 @@
             kb '(termsRelated positiveExample negativeExample borderlineExample) 'CxUniverse))
       "the three example predicates are asserted one termsRelated family in CxUniverse"))
 
+;; ---- the string siblings: an example carried as text ----------------------
+
+(tu/deftest-kb the-string-example-siblings-are-documented-and-name-no-target
+  (doseq [term '[positiveExampleComment negativeExampleComment borderlineExampleComment]]
+    (is (= 1 (count (core-context/comment-of kb term))) (str "comment for " term))
+    (is (v/ask? kb (list 'binary_predicate term) 'CxUniverse) (str term " is binary"))
+    (is (v/ask? kb (list 'arg term 2 'string) 'CxUniverse) (str term " takes its text as a string"))
+    (is (not (v/has-prop? kb :target-following term))
+        (str term " names no sentex, so it has no target to follow"))))
+
+(tu/deftest-kb each-example-predicate-is-related-to-its-string-sibling
+  ;; A star of pairs, each sentex predicate to its string sibling, beside the two
+  ;; triangles: the three sentex predicates and the three string siblings.
+  (doseq [form '[(termsRelated positiveExample positiveExampleComment)
+                 (termsRelated negativeExample negativeExampleComment)
+                 (termsRelated borderlineExample borderlineExampleComment)
+                 (termsRelated positiveExample negativeExample borderlineExample)
+                 (termsRelated positiveExampleComment negativeExampleComment
+                               borderlineExampleComment)]]
+    (is (= 1 (count (v/sentexes-matching kb form 'CxUniverse))) (pr-str form))))
+
+(tu/deftest-kb a-string-example-is-stored-and-believed-whatever-its-text
+  ;; Nothing checks the text against the KB, so a string example of a term is stored and
+  ;; believed without any sentex for it to name.
+  (let [ctx (scratch kb)]
+    (tu/with-terms [gadget]
+      (doseq [[p text] [['positiveExampleComment "a pocket calculator"]
+                        ['negativeExampleComment "a pebble"]
+                        ['borderlineExampleComment "a calculator with a dead battery"]]]
+        (v/assert kb (list p gadget text) ctx)
+        (is (true? (v/ask? kb (list p gadget text) ctx)) (str p " is believed"))))))
+
 ;; ---- a positive example names a provable sentex --------------------------
 
 (tu/deftest-kb a-positive-example-names-a-sentex-the-kb-proves

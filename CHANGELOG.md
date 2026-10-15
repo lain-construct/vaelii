@@ -60,6 +60,18 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none. A KB that declares its own `electronic_device` term meets the
   shipped one.
 
+- **The example predicates gain string siblings.** `core.txt` declares
+  `positiveExampleComment`, `negativeExampleComment` and `borderlineExampleComment`:
+  binary, the first argument the exemplified term and the second a `string` carrying
+  the example as text. They name no sentex, so none is
+  `target_following_predicate` and none carries a provability obligation. A KB text
+  file has no spelling for a sentex handle, so a shipped file states its examples with
+  these. Four `termsRelated` facts relate each sentex predicate to its sibling and the
+  three siblings to each other. The vocabulary roster classifies the three `:inert`.
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* none.
+
 ## 0.27.0 — 2026-10-15 — "Arity clashes held inert and `:monotonic` class memberships stored, `predExistsAll` scoped universal-first, `:pg-snapshot` and `:recover? :trust`, `genlInverse` and `closedExtentForArg`"
 
 | Area | Change |

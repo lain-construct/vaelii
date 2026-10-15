@@ -876,7 +876,10 @@ sentex as an example of a term's usage — a true one, a false one, or one delib
 the edge — reusing the `sentexHandle` plus `target_following_predicate` pointing shape, so
 retracting the example sentex tears the annotation down with it. The engine reads none of
 them; the obligation the first two carry — that the target holds, or holds as its negation
-— is held by `curation_test`. See [predicates.md](predicates.md).
+— is held by `curation_test`. Each has a string sibling, `positiveExampleComment`,
+`negativeExampleComment` and `borderlineExampleComment`, whose second argument carries
+the example as text. A KB text file has no spelling for a handle, so the examples a
+shipped file states use the string siblings. See [predicates.md](predicates.md).
 
 **`predAll` family** ![kb](../.github/badges/cat-kb.svg): The eight relations that
 quantify one argument position of a binary predicate and fix the other, in three

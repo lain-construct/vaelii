@@ -1607,6 +1607,29 @@
                   " asserted true nor false, so it carries no provability obligation and no"
                   " regression reads its target. Documentation only."))]
 
+     ;; The string siblings carry the example as text and name no sentex, so they carry
+     ;; no target_following_predicate mark, no teardown and no provability obligation.
+     ['positiveExampleComment
+      (inert {:shape {:args [:term :term]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes (str "documentation the engine stores and never reads: a string, so no"
+                          " target to follow and no obligation for a test to hold.")}
+             (str "a curation annotation carrying a true example of a term's usage as a"
+                  " string, for an example with no stored sentex to name by handle. Read like"
+                  " comment and by nobody for inference."))]
+     ['negativeExampleComment
+      (inert {:shape {:args [:term :term]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes "the same, for a false example; nothing checks the text."}
+             (str "the same, carrying a false example of a term's usage as a string. Read"
+                  " like comment and by nobody for inference."))]
+     ['borderlineExampleComment
+      (inert {:shape {:args [:term :term]} :storage [:none] :checked false
+              :family nil :facets #{}
+              :notes "the same, for a borderline example; truth-agnostic as borderlineExample is."}
+             (str "the same, carrying a borderline example of a term's usage as a string."
+                  " Documentation only."))]
+
      ;; ---- the predAll / predExists / predSpecified matrix ------------------
      ;;
      ;; Quantifier-family declarations (docs/predall.md).  The

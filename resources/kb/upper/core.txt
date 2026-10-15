@@ -1901,6 +1901,34 @@
 
 (termsRelated positiveExample negativeExample borderlineExample)
 
+;; The string siblings carry an example as text rather than naming a stored sentex.  A
+;; handle is one store's, and a KB text file has no spelling for one, so an example a
+;; text file states is written with these.  No target, so none is
+;; target_following_predicate, and no test reads the text for provability.
+
+(comment positiveExampleComment
+         "(positiveExampleComment ?term ?text) means that ?text describes, as a string, a TRUE example of ?term: something ?term holds of, or a use of ?term that is true. The string sibling of positiveExample, for an example with no stored sentex to name by handle. Documentation only, like comment: nothing in the engine reads it, it draws no inference, and nothing checks ?text against the KB.")
+(binary_predicate positiveExampleComment)
+(set/monotonic (instance_relation_predicate positiveExampleComment))
+(arg positiveExampleComment 2 string)
+
+(comment negativeExampleComment
+         "(negativeExampleComment ?term ?text) means that ?text describes, as a string, a FALSE example of ?term: something ?term does not hold of, or a use of ?term that is false. The string sibling of negativeExample, for an example with no stored sentex to name by handle. Documentation only, like comment: nothing in the engine reads it, it draws no inference, and nothing checks ?text against the KB.")
+(binary_predicate negativeExampleComment)
+(set/monotonic (instance_relation_predicate negativeExampleComment))
+(arg negativeExampleComment 2 string)
+
+(comment borderlineExampleComment
+         "(borderlineExampleComment ?term ?text) means that ?text describes, as a string, a BORDERLINE example of ?term: a case where whether ?term holds is arguable. The string sibling of borderlineExample, for an example with no stored sentex to name by handle. Documentation only, like comment: nothing in the engine reads it, it draws no inference, and nothing checks ?text against the KB.")
+(binary_predicate borderlineExampleComment)
+(set/monotonic (instance_relation_predicate borderlineExampleComment))
+(arg borderlineExampleComment 2 string)
+
+(termsRelated positiveExample positiveExampleComment)
+(termsRelated negativeExample negativeExampleComment)
+(termsRelated borderlineExample borderlineExampleComment)
+(termsRelated positiveExampleComment negativeExampleComment borderlineExampleComment)
+
 ;; A reviewer's record on a kb-integrity rule-macro suggestion.  It quotes the suggested
 ;; declaration rather than naming the rule by (sentexHandle H): a handle is one store's,
 ;; and a text export skips a sentence that names one, so the record would not survive a
