@@ -455,7 +455,7 @@ default-chain-opts                              ; the bounds a chain run takes w
                                                         ; :forced-decontextualized
                                                         ; :forced-monotonic :abducible
                                                         ; :closed-extent :modal :target-following
-                                                        ; :reifiable :unreifiable :quoting,
+                                                        ; :reifiable :unreifiable,
                                                         ; and the six :declares-*
                                                         ; that name a predicate as the SUBJECT of an
                                                         ; argument constraint (:declares-arg-isa

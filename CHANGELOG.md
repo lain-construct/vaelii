@@ -48,6 +48,25 @@ it — `git show v0.16.0:CHANGELOG.md`.
 
 ### Breaking
 
+- **`quoting_function` removed; Quote and Quasiquote are the quoting functions,
+  hard-coded.** Which functions quote is fixed by the engine (`sx/quoting-functors`), not
+  declared in the KB. A `Quote` or `Quasiquote` argument is a mention in every KB from the
+  first assert: held opaque to a `sameAs` or `equals` merge, followed by a `rewriteOf`
+  rename, not reified on its own, and not typed by what it denotes. No statement turns
+  that on or off, so a merge processed before a declaration can no longer fold a mention
+  onto its referent. The `:quoting` prop kind goes with the predicate.
+  `ensure-quasiquote-functions` asserts `(reifiable_function Quote)` and
+  `(unreifiable_function Quasiquote)` only, and `(unreifiable_function Quasiquote)` is the
+  gate that turns the quasiquote reducer on. `ExpressionKindProver`'s support no longer
+  cites a quoting statement, so a forward firing reads a quoted form's kind only when a
+  `genl` edge or a `termOfUnit` statement supports it.
+
+  *Class:* **Breaking** (shipped vocabulary).
+  *Migration:* delete any `(quoting_function X)` assertions. A KB that declared another
+  function quoting must quote through `Quote` instead. `has-prop?` and `props` no longer
+  take `:quoting`.
+  *Breaks:* `quoting_function`, `:quoting`
+
 - **`metal` renames to `metal_stuff`.** A stuff type's name is a mass noun, as
   `glass_stuff` is. "A metal" is a count noun, so a sentence such as `(disjoint metal
   mechanism)` seemed to be about kinds of metal. `abstract.txt` declares `metal_stuff`
