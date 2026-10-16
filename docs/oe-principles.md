@@ -173,6 +173,15 @@ These are considerations, not a gate. The more you'd expect or want the default 
 
 **Example:** metal is a `solid` by default, with mercury as the stated exception. A newly found, hypothesized or fictional metal should come out solid.
 
+## catbus principle
+*Monotonic until a real fiction needs the overlap*
+**specPrinciple:** default or enumerate
+State a separation `:monotonic` in CxUniverse unless an existing fictional work shows a member of both types. One such example is enough: weaken the CxUniverse statement to default strength and restate it `:monotonic` in CxRealWorld, which fiction contexts do not inherit. A hypothetical example is not enough.
+
+**Example:** the Catbus in *My Neighbor Totoro* is both a cat and a bus, so `(disjoint animal vehicle)` is a default in CxUniverse and monotonic in CxRealWorld.
+
+**Audit:** for every default-strength separation that has a monotonic copy in CxRealWorld, name the fictional work and the member that justify it.
+
 ## no OE calligraphy
 *True and useful, not OE calligraphy*
 **specPrinciple:** does it have rules?, differentia from near-misses
