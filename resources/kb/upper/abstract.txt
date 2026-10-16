@@ -427,8 +427,10 @@
 (comment vehicle "An artifact for transporting people or goods.")
 (genl vehicle made)
 
-(comment wing "A body part a bird or an insect flies with.")
+(comment wing "A body part an animal flies with, such as a bird's, a bat's or an insect's.")
 (genl wing body_part)
+(set/monotonic (disjoint wing fur))
+(comment (disjoint wing fur) "A bat's wing has fur on it: the fur is part of the wing, and nothing is both a wing and fur.")
 
 (comment wood "The fibrous substance a tree is made of.")
 (genl wood substance)

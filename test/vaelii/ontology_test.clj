@@ -1174,6 +1174,21 @@
       (v/assert kb (list 'organism PitcherPlant) 'CxUniverse)
       (is (not (tu/stored-in-clash? kb (list 'hollow PitcherPlant) 'CxUniverse))))))
 
+(tu/deftest-kb a-wing-is-never-fur
+  ;; A bat's wing has fur on it, and the fur is part of the wing.  That is parthood, not
+  ;; one thing in both types, so wing and fur are stated disjoint.
+  (is (true? (v/disjoint? kb 'wing 'fur)))
+  (is (= :disjoint (v/subsumption-status kb 'wing 'fur)))
+  (testing "a fur-covered wing is no clash"
+    (tu/with-terms [BatWing BatFur]
+      (v/assert kb (list 'wing BatWing) 'CxUniverse)
+      (v/assert kb (list 'fur BatFur) 'CxUniverse)
+      (is (not (tu/stored-in-clash? kb (list 'partOf BatFur BatWing) 'CxUniverse)))))
+  (testing "one thing in both types clashes"
+    (tu/with-terms [Furwing]
+      (v/assert kb (list 'wing Furwing) 'CxUniverse)
+      (is (tu/stored-in-clash? kb (list 'fur Furwing) 'CxUniverse)))))
+
 (tu/deftest-kb a-biological-thing-can-be-hollow
   ;; A pitcher plant and a lab-grown bladder are biological and hollow.  A cup and a cave
   ;; are hollow and not biological, and a leaf is biological and not hollow.

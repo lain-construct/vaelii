@@ -60,6 +60,13 @@ it — `git show v0.16.0:CHANGELOG.md`.
   *Migration:* none. A KB that declares its own `electronic_device` term meets the
   shipped one.
 
+- **`wing` and `fur` are disjoint.** `abstract.txt` states `(disjoint wing fur)`,
+  `:monotonic`. A bat's wing has fur on it, but the fur is part of the wing, and nothing
+  is both. `wing`'s comment now names bats along with birds and insects.
+
+  *Class:* **Additive** (shipped ontology content).
+  *Migration:* a KB that asserts one term as both a `wing` and `fur` now records a clash.
+
 - **The shipped comments state their examples as example facts.** 101 comments
   across `core.txt`, `abstract.txt`, `reflection.txt`, `life.txt`, `measure.txt`,
   `organism.txt`, `time.txt`, `CxComputing.txt` and `CxSocial.txt` named examples of
